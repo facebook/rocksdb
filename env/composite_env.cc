@@ -272,7 +272,7 @@ class CompositeDirectoryWrapper : public Directory {
   Status Fsync() override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return target_->Fsync(io_opts, &dbg);
+    return target_->FsyncWithDirOptions(io_opts, &dbg, DirFsyncOptions());
   }
   size_t GetUniqueId(char* id, size_t max_size) const override {
     return target_->GetUniqueId(id, max_size);

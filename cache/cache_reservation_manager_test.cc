@@ -22,16 +22,15 @@
 namespace ROCKSDB_NAMESPACE {
 class CacheReservationManagerTest : public ::testing::Test {
  protected:
-  static constexpr std::size_t kOneGigabyte = 1024 * 1024 * 1024;
-  static constexpr int kNumShardBits = 0;  // 2^0 shard
-
   static constexpr std::size_t kSizeDummyEntry =
       CacheReservationManager::GetDummyEntrySize();
+  static constexpr std::size_t kCacheCapacity = 4096 * kSizeDummyEntry;
+  static constexpr int kNumShardBits = 0;  // 2^0 shard
   static const std::size_t kCacheKeyPrefixSize =
       BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length;
   static constexpr std::size_t kMetaDataChargeOverhead = 10000;
 
-  std::shared_ptr<Cache> cache = NewLRUCache(kOneGigabyte, kNumShardBits);
+  std::shared_ptr<Cache> cache = NewLRUCache(kCacheCapacity, kNumShardBits);
   std::unique_ptr<CacheReservationManager> test_cache_rev_mng;
 
   CacheReservationManagerTest() {
@@ -142,21 +141,22 @@ TEST_F(CacheReservationManagerTest,
 
 TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
      IncreaseCacheReservationOnFullCache) {
-  constexpr std::size_t kOneMegabyte = 1024 * 1024;
-  constexpr std::size_t kOneGigabyte = 1024 * 1024 * 1024;
+  ;
   constexpr std::size_t kSizeDummyEntry =
       CacheReservationManager::GetDummyEntrySize();
+  constexpr std::size_t kSmallCacheCapacity = 4 * kSizeDummyEntry;
+  constexpr std::size_t kBigCacheCapacity = 4096 * kSizeDummyEntry;
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
 
   LRUCacheOptions lo;
-  lo.capacity = kOneMegabyte;
+  lo.capacity = kSmallCacheCapacity;
   lo.num_shard_bits = 0;  // 2^0 shard
   lo.strict_capacity_limit = true;
   std::shared_ptr<Cache> cache = NewLRUCache(lo);
   std::unique_ptr<CacheReservationManager> test_cache_rev_mng(
       new CacheReservationManager(cache));
 
-  std::size_t new_mem_used = kOneMegabyte + 1;
+  std::size_t new_mem_used = kSmallCacheCapacity + 1;
   Status s =
       test_cache_rev_mng
           ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
@@ -168,18 +168,19 @@ TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
             1 * kSizeDummyEntry)
       << "Failed to bookkeep correctly before cache resevation failure happens "
          "due to full cache";
-  EXPECT_LE(test_cache_rev_mng->GetTotalReservedCacheSize(), kOneMegabyte)
+  EXPECT_LE(test_cache_rev_mng->GetTotalReservedCacheSize(),
+            kSmallCacheCapacity)
       << "Failed to bookkeep correctly (i.e, bookkeep only successful dummy "
          "entry insertions) when encountering cache resevation failure due to "
          "full cache";
   EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry)
       << "Failed to insert underlying dummy entries correctly when "
          "encountering cache resevation failure due to full cache";
-  EXPECT_LE(cache->GetPinnedUsage(), kOneMegabyte)
+  EXPECT_LE(cache->GetPinnedUsage(), kSmallCacheCapacity)
       << "Failed to insert underlying dummy entries correctly when "
          "encountering cache resevation failure due to full cache";
 
-  new_mem_used = kOneMegabyte / 2;  // 2 dummy entries
+  new_mem_used = kSmallCacheCapacity / 2;  // 2 dummy entries
   s = test_cache_rev_mng
           ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
               new_mem_used);
@@ -201,7 +202,7 @@ TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
          "to full cache";
 
   // Create cache full again for subsequent tests
-  new_mem_used = kOneMegabyte + 1;
+  new_mem_used = kSmallCacheCapacity + 1;
   s = test_cache_rev_mng
           ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
               new_mem_used);
@@ -212,21 +213,22 @@ TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
             1 * kSizeDummyEntry)
       << "Failed to bookkeep correctly before cache resevation failure happens "
          "due to full cache";
-  EXPECT_LE(test_cache_rev_mng->GetTotalReservedCacheSize(), kOneMegabyte)
+  EXPECT_LE(test_cache_rev_mng->GetTotalReservedCacheSize(),
+            kSmallCacheCapacity)
       << "Failed to bookkeep correctly (i.e, bookkeep only successful dummy "
          "entry insertions) when encountering cache resevation failure due to "
          "full cache";
   EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry)
       << "Failed to insert underlying dummy entries correctly when "
          "encountering cache resevation failure due to full cache";
-  EXPECT_LE(cache->GetPinnedUsage(), kOneMegabyte)
+  EXPECT_LE(cache->GetPinnedUsage(), kSmallCacheCapacity)
       << "Failed to insert underlying dummy entries correctly when "
          "encountering cache resevation failure due to full cache";
 
   // Increase cache capacity so the previously failed insertion can fully
   // succeed
-  cache->SetCapacity(kOneGigabyte);
-  new_mem_used = kOneMegabyte + 1;
+  cache->SetCapacity(kBigCacheCapacity);
+  new_mem_used = kSmallCacheCapacity + 1;
   s = test_cache_rev_mng
           ->UpdateCacheReservation<ROCKSDB_NAMESPACE::CacheEntryRole::kMisc>(
               new_mem_used);
@@ -308,13 +310,13 @@ TEST_F(CacheReservationManagerTest,
 
 TEST(CacheReservationManagerWithDelayedDecreaseTest,
      DecreaseCacheReservationWithDelayedDecrease) {
-  constexpr std::size_t kOneGigabyte = 1024 * 1024 * 1024;
   constexpr std::size_t kSizeDummyEntry =
       CacheReservationManager::GetDummyEntrySize();
+  constexpr std::size_t kCacheCapacity = 4096 * kSizeDummyEntry;
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
 
   LRUCacheOptions lo;
-  lo.capacity = kOneGigabyte;
+  lo.capacity = kCacheCapacity;
   lo.num_shard_bits = 0;
   std::shared_ptr<Cache> cache = NewLRUCache(lo);
   std::unique_ptr<CacheReservationManager> test_cache_rev_mng(
@@ -381,13 +383,13 @@ TEST(CacheReservationManagerWithDelayedDecreaseTest,
 
 TEST(CacheReservationManagerDestructorTest,
      ReleaseRemainingDummyEntriesOnDestruction) {
-  constexpr std::size_t kOneGigabyte = 1024 * 1024 * 1024;
   constexpr std::size_t kSizeDummyEntry =
       CacheReservationManager::GetDummyEntrySize();
+  constexpr std::size_t kCacheCapacity = 4096 * kSizeDummyEntry;
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
 
   LRUCacheOptions lo;
-  lo.capacity = kOneGigabyte;
+  lo.capacity = kCacheCapacity;
   lo.num_shard_bits = 0;
   std::shared_ptr<Cache> cache = NewLRUCache(lo);
   {

@@ -34,50 +34,46 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b) {
-  if (a->fd.largest_seqno != b->fd.largest_seqno) {
-    return a->fd.largest_seqno > b->fd.largest_seqno;
-  }
-  if (a->fd.smallest_seqno != b->fd.smallest_seqno) {
-    return a->fd.smallest_seqno > b->fd.smallest_seqno;
-  }
-  // Break ties by file number
-  return a->fd.GetNumber() > b->fd.GetNumber();
-}
-
-namespace {
-bool BySmallestKey(FileMetaData* a, FileMetaData* b,
-                   const InternalKeyComparator* cmp) {
-  int r = cmp->Compare(a->smallest, b->smallest);
-  if (r != 0) {
-    return (r < 0);
-  }
-  // Break ties by file number
-  return (a->fd.GetNumber() < b->fd.GetNumber());
-}
-}  // namespace
-
 class VersionBuilder::Rep {
- private:
-  // Helper to sort files_ in v
-  // kLevel0 -- NewestFirstBySeqNo
-  // kLevelNon0 -- BySmallestKey
-  struct FileComparator {
-    enum SortMethod { kLevel0 = 0, kLevelNon0 = 1, } sort_method;
-    const InternalKeyComparator* internal_comparator;
+  class NewestFirstBySeqNo {
+   public:
+    bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
+      assert(lhs);
+      assert(rhs);
 
-    FileComparator() : internal_comparator(nullptr) {}
-
-    bool operator()(FileMetaData* f1, FileMetaData* f2) const {
-      switch (sort_method) {
-        case kLevel0:
-          return NewestFirstBySeqNo(f1, f2);
-        case kLevelNon0:
-          return BySmallestKey(f1, f2, internal_comparator);
+      if (lhs->fd.largest_seqno != rhs->fd.largest_seqno) {
+        return lhs->fd.largest_seqno > rhs->fd.largest_seqno;
       }
-      assert(false);
-      return false;
+
+      if (lhs->fd.smallest_seqno != rhs->fd.smallest_seqno) {
+        return lhs->fd.smallest_seqno > rhs->fd.smallest_seqno;
+      }
+
+      // Break ties by file number
+      return lhs->fd.GetNumber() > rhs->fd.GetNumber();
     }
+  };
+
+  class BySmallestKey {
+   public:
+    explicit BySmallestKey(const InternalKeyComparator* cmp) : cmp_(cmp) {}
+
+    bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
+      assert(lhs);
+      assert(rhs);
+      assert(cmp_);
+
+      const int r = cmp_->Compare(lhs->smallest, rhs->smallest);
+      if (r != 0) {
+        return (r < 0);
+      }
+
+      // Break ties by file number
+      return (lhs->fd.GetNumber() < rhs->fd.GetNumber());
+    }
+
+   private:
+    const InternalKeyComparator* cmp_;
   };
 
   struct LevelState {
@@ -180,6 +176,11 @@ class VersionBuilder::Rep {
       return shared_meta_;
     }
 
+    uint64_t GetBlobFileNumber() const {
+      assert(shared_meta_);
+      return shared_meta_->GetBlobFileNumber();
+    }
+
     bool HasDelta() const { return !delta_.IsEmpty(); }
 
     const std::unordered_set<uint64_t>& GetLinkedSsts() const {
@@ -247,8 +248,8 @@ class VersionBuilder::Rep {
   bool has_invalid_levels_;
   // Current levels of table files affected by additions/deletions.
   std::unordered_map<uint64_t, int> table_file_levels_;
-  FileComparator level_zero_cmp_;
-  FileComparator level_nonzero_cmp_;
+  NewestFirstBySeqNo level_zero_cmp_;
+  BySmallestKey level_nonzero_cmp_;
 
   // Mutable metadata objects for all blob files affected by the series of
   // version edits.
@@ -264,14 +265,11 @@ class VersionBuilder::Rep {
         base_vstorage_(base_vstorage),
         version_set_(version_set),
         num_levels_(base_vstorage->num_levels()),
-        has_invalid_levels_(false) {
+        has_invalid_levels_(false),
+        level_nonzero_cmp_(base_vstorage_->InternalComparator()) {
     assert(ioptions_);
 
     levels_ = new LevelState[num_levels_];
-    level_zero_cmp_.sort_method = FileComparator::kLevel0;
-    level_nonzero_cmp_.sort_method = FileComparator::kLevelNon0;
-    level_nonzero_cmp_.internal_comparator =
-        base_vstorage_->InternalComparator();
   }
 
   ~Rep() {
@@ -297,6 +295,10 @@ class VersionBuilder::Rep {
     }
   }
 
+  // Mapping used for checking the consistency of links between SST files and
+  // blob files. It is built using the forward links (table file -> blob file),
+  // and is subsequently compared with the inverse mapping stored in the
+  // BlobFileMetaData objects.
   using ExpectedLinkedSsts =
       std::unordered_map<uint64_t, BlobFileMetaData::LinkedSsts>;
 
@@ -312,91 +314,155 @@ class VersionBuilder::Rep {
     (*expected_linked_ssts)[blob_file_number].emplace(table_file_number);
   }
 
-  Status CheckConsistencyDetails(VersionStorageInfo* vstorage) {
-    // Make sure the files are sorted correctly and that the links between
-    // table files and blob files are consistent. The latter is checked using
-    // the following mapping, which is built using the forward links
-    // (table file -> blob file), and is subsequently compared with the inverse
-    // mapping stored in the BlobFileMetaData objects.
+  template <typename Checker>
+  Status CheckConsistencyDetailsForLevel(
+      const VersionStorageInfo* vstorage, int level, Checker checker,
+      const std::string& sync_point,
+      ExpectedLinkedSsts* expected_linked_ssts) const {
+#ifdef NDEBUG
+    (void)sync_point;
+#endif
+
+    assert(vstorage);
+    assert(level >= 0 && level < num_levels_);
+    assert(expected_linked_ssts);
+
+    const auto& level_files = vstorage->LevelFiles(level);
+
+    if (level_files.empty()) {
+      return Status::OK();
+    }
+
+    assert(level_files[0]);
+    UpdateExpectedLinkedSsts(level_files[0]->fd.GetNumber(),
+                             level_files[0]->oldest_blob_file_number,
+                             expected_linked_ssts);
+
+    for (size_t i = 1; i < level_files.size(); ++i) {
+      assert(level_files[i]);
+      UpdateExpectedLinkedSsts(level_files[i]->fd.GetNumber(),
+                               level_files[i]->oldest_blob_file_number,
+                               expected_linked_ssts);
+
+      auto lhs = level_files[i - 1];
+      auto rhs = level_files[i];
+
+#ifndef NDEBUG
+      auto pair = std::make_pair(&lhs, &rhs);
+      TEST_SYNC_POINT_CALLBACK(sync_point, &pair);
+#endif
+
+      const Status s = checker(lhs, rhs);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+
+    return Status::OK();
+  }
+
+  // Make sure table files are sorted correctly and that the links between
+  // table files and blob files are consistent.
+  Status CheckConsistencyDetails(const VersionStorageInfo* vstorage) const {
+    assert(vstorage);
+
     ExpectedLinkedSsts expected_linked_ssts;
 
-    for (int level = 0; level < num_levels_; level++) {
-      auto& level_files = vstorage->LevelFiles(level);
+    if (num_levels_ > 0) {
+      // Check L0
+      {
+        auto l0_checker = [this](const FileMetaData* lhs,
+                                 const FileMetaData* rhs) {
+          assert(lhs);
+          assert(rhs);
 
-      if (level_files.empty()) {
-        continue;
+          if (!level_zero_cmp_(lhs, rhs)) {
+            std::ostringstream oss;
+            oss << "L0 files are not sorted properly: files #"
+                << lhs->fd.GetNumber() << ", #" << rhs->fd.GetNumber();
+
+            return Status::Corruption("VersionBuilder", oss.str());
+          }
+
+          if (rhs->fd.smallest_seqno == rhs->fd.largest_seqno) {
+            // This is an external file that we ingested
+            const SequenceNumber external_file_seqno = rhs->fd.smallest_seqno;
+
+            if (!(external_file_seqno < lhs->fd.largest_seqno ||
+                  external_file_seqno == 0)) {
+              std::ostringstream oss;
+              oss << "L0 file #" << lhs->fd.GetNumber() << " with seqno "
+                  << lhs->fd.smallest_seqno << ' ' << lhs->fd.largest_seqno
+                  << " vs. file #" << rhs->fd.GetNumber()
+                  << " with global_seqno " << external_file_seqno;
+
+              return Status::Corruption("VersionBuilder", oss.str());
+            }
+          } else if (lhs->fd.smallest_seqno <= rhs->fd.smallest_seqno) {
+            std::ostringstream oss;
+            oss << "L0 file #" << lhs->fd.GetNumber() << " with seqno "
+                << lhs->fd.smallest_seqno << ' ' << lhs->fd.largest_seqno
+                << " vs. file #" << rhs->fd.GetNumber() << " with seqno "
+                << rhs->fd.smallest_seqno << ' ' << rhs->fd.largest_seqno;
+
+            return Status::Corruption("VersionBuilder", oss.str());
+          }
+
+          return Status::OK();
+        };
+
+        const Status s = CheckConsistencyDetailsForLevel(
+            vstorage, /* level */ 0, l0_checker,
+            "VersionBuilder::CheckConsistency0", &expected_linked_ssts);
+        if (!s.ok()) {
+          return s;
+        }
       }
 
-      assert(level_files[0]);
-      UpdateExpectedLinkedSsts(level_files[0]->fd.GetNumber(),
-                               level_files[0]->oldest_blob_file_number,
-                               &expected_linked_ssts);
-      for (size_t i = 1; i < level_files.size(); i++) {
-        assert(level_files[i]);
-        UpdateExpectedLinkedSsts(level_files[i]->fd.GetNumber(),
-                                 level_files[i]->oldest_blob_file_number,
-                                 &expected_linked_ssts);
+      // Check L1 and up
+      const InternalKeyComparator* const icmp = vstorage->InternalComparator();
+      assert(icmp);
 
-        auto f1 = level_files[i - 1];
-        auto f2 = level_files[i];
-        if (level == 0) {
-#ifndef NDEBUG
-          auto pair = std::make_pair(&f1, &f2);
-          TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency0", &pair);
-#endif
-          if (!level_zero_cmp_(f1, f2)) {
-            return Status::Corruption("L0 files are not sorted properly");
+      for (int level = 1; level < num_levels_; ++level) {
+        auto checker = [this, level, icmp](const FileMetaData* lhs,
+                                           const FileMetaData* rhs) {
+          assert(lhs);
+          assert(rhs);
+
+          if (!level_nonzero_cmp_(lhs, rhs)) {
+            std::ostringstream oss;
+            oss << 'L' << level << " files are not sorted properly: files #"
+                << lhs->fd.GetNumber() << ", #" << rhs->fd.GetNumber();
+
+            return Status::Corruption("VersionBuilder", oss.str());
           }
 
-          if (f2->fd.smallest_seqno == f2->fd.largest_seqno) {
-            // This is an external file that we ingested
-            SequenceNumber external_file_seqno = f2->fd.smallest_seqno;
-            if (!(external_file_seqno < f1->fd.largest_seqno ||
-                  external_file_seqno == 0)) {
-              return Status::Corruption(
-                  "L0 file with seqno " + ToString(f1->fd.smallest_seqno) +
-                  " " + ToString(f1->fd.largest_seqno) +
-                  " vs. file with global_seqno" +
-                  ToString(external_file_seqno) + " with fileNumber " +
-                  ToString(f1->fd.GetNumber()));
-            }
-          } else if (f1->fd.smallest_seqno <= f2->fd.smallest_seqno) {
-            return Status::Corruption("L0 files seqno " +
-                                      ToString(f1->fd.smallest_seqno) + " " +
-                                      ToString(f1->fd.largest_seqno) + " " +
-                                      ToString(f1->fd.GetNumber()) + " vs. " +
-                                      ToString(f2->fd.smallest_seqno) + " " +
-                                      ToString(f2->fd.largest_seqno) + " " +
-                                      ToString(f2->fd.GetNumber()));
-          }
-        } else {
-#ifndef NDEBUG
-          auto pair = std::make_pair(&f1, &f2);
-          TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency1", &pair);
-#endif
-          if (!level_nonzero_cmp_(f1, f2)) {
-            return Status::Corruption(
-                "L" + ToString(level) +
-                " files are not sorted properly: files #" +
-                ToString(f1->fd.GetNumber()) + ", #" +
-                ToString(f2->fd.GetNumber()));
+          // Make sure there is no overlap in level
+          if (icmp->Compare(lhs->largest, rhs->smallest) >= 0) {
+            std::ostringstream oss;
+            oss << 'L' << level << " has overlapping ranges: file #"
+                << lhs->fd.GetNumber()
+                << " largest key: " << lhs->largest.DebugString(true)
+                << " vs. file #" << rhs->fd.GetNumber()
+                << " smallest key: " << rhs->smallest.DebugString(true);
+
+            return Status::Corruption("VersionBuilder", oss.str());
           }
 
-          // Make sure there is no overlap in levels > 0
-          if (vstorage->InternalComparator()->Compare(f1->largest,
-                                                      f2->smallest) >= 0) {
-            return Status::Corruption(
-                "L" + ToString(level) + " have overlapping ranges: file #" +
-                ToString(f1->fd.GetNumber()) +
-                " largest key: " + (f1->largest).DebugString(true) +
-                " vs. file #" + ToString(f2->fd.GetNumber()) +
-                " smallest key: " + (f2->smallest).DebugString(true));
-          }
+          return Status::OK();
+        };
+
+        const Status s = CheckConsistencyDetailsForLevel(
+            vstorage, level, checker, "VersionBuilder::CheckConsistency1",
+            &expected_linked_ssts);
+        if (!s.ok()) {
+          return s;
         }
       }
     }
 
-    // Make sure that all blob files in the version have non-garbage data.
+    // Make sure that all blob files in the version have non-garbage data and
+    // the links between them and the table files are consistent.
     const auto& blob_files = vstorage->GetBlobFiles();
     for (const auto& pair : blob_files) {
       const uint64_t blob_file_number = pair.first;
@@ -428,7 +494,9 @@ class VersionBuilder::Rep {
     return ret_s;
   }
 
-  Status CheckConsistency(VersionStorageInfo* vstorage) {
+  Status CheckConsistency(const VersionStorageInfo* vstorage) const {
+    assert(vstorage);
+
     // Always run consistency checks in debug build
 #ifdef NDEBUG
     if (!vstorage->force_consistency_checks()) {
@@ -606,28 +674,6 @@ class VersionBuilder::Rep {
     return meta->oldest_blob_file_number;
   }
 
-  uint64_t GetMinOldestBlobFileNumber() const {
-    uint64_t min_oldest_blob_file_num = std::numeric_limits<uint64_t>::max();
-    for (int level = 0; level < num_levels_; ++level) {
-      const auto& base_files = base_vstorage_->LevelFiles(level);
-      for (const auto* fmeta : base_files) {
-        assert(fmeta);
-        min_oldest_blob_file_num =
-            std::min(min_oldest_blob_file_num, fmeta->oldest_blob_file_number);
-      }
-      const auto& added_files = levels_[level].added_files;
-      for (const auto& elem : added_files) {
-        assert(elem.second);
-        min_oldest_blob_file_num = std::min(
-            min_oldest_blob_file_num, elem.second->oldest_blob_file_number);
-      }
-    }
-    if (min_oldest_blob_file_num == std::numeric_limits<uint64_t>::max()) {
-      min_oldest_blob_file_num = kInvalidBlobFileNumber;
-    }
-    return min_oldest_blob_file_num;
-  }
-
   Status ApplyFileDeletion(int level, uint64_t file_number) {
     assert(level != VersionStorageInfo::FileLocation::Invalid().GetLevel());
 
@@ -748,7 +794,7 @@ class VersionBuilder::Rep {
   }
 
   // Apply all of the edits in *edit to the current state.
-  Status Apply(VersionEdit* edit) {
+  Status Apply(const VersionEdit* edit) {
     {
       const Status s = CheckConsistency(base_vstorage_);
       if (!s.ok()) {
@@ -801,48 +847,26 @@ class VersionBuilder::Rep {
     return Status::OK();
   }
 
-  static std::shared_ptr<BlobFileMetaData> CreateBlobFileMetaData(
-      const MutableBlobFileMetaData& mutable_meta) {
-    return BlobFileMetaData::Create(
-        mutable_meta.GetSharedMeta(), mutable_meta.GetLinkedSsts(),
-        mutable_meta.GetGarbageBlobCount(), mutable_meta.GetGarbageBlobBytes());
-  }
-
-  // Add the blob file specified by meta to *vstorage if it is determined to
-  // contain valid data (blobs). We make this decision based on the amount
-  // of garbage in the file, and whether the file or any lower-numbered blob
-  // files have any linked SSTs. The latter condition is tracked using the
-  // flag *found_first_non_empty.
-  void AddBlobFileIfNeeded(VersionStorageInfo* vstorage,
-                           const std::shared_ptr<BlobFileMetaData>& meta,
-                           bool* found_first_non_empty) const {
-    assert(vstorage);
-    assert(meta);
-    assert(found_first_non_empty);
-
-    if (!meta->GetLinkedSsts().empty()) {
-      (*found_first_non_empty) = true;
-    } else if (!(*found_first_non_empty) ||
-               meta->GetGarbageBlobCount() >= meta->GetTotalBlobCount()) {
-      return;
-    }
-
-    vstorage->AddBlobFile(meta);
-  }
-
-  // Merge the blob file metadata from the base version with the changes (edits)
-  // applied, and save the result into *vstorage.
-  void SaveBlobFilesTo(VersionStorageInfo* vstorage) const {
+  // Helper function template for merging the blob file metadata from the base
+  // version with the mutable metadata representing the state after applying the
+  // edits. The function objects process_base and process_mutable are
+  // respectively called to handle a base version object when there is no
+  // matching mutable object, and a mutable object when there is no matching
+  // base version object. process_both is called to perform the merge when a
+  // given blob file appears both in the base version and the mutable list. The
+  // helper stops processing objects if a function object returns false. Blob
+  // files with a file number below first_blob_file are not processed.
+  template <typename ProcessBase, typename ProcessMutable, typename ProcessBoth>
+  void MergeBlobFileMetas(uint64_t first_blob_file, ProcessBase process_base,
+                          ProcessMutable process_mutable,
+                          ProcessBoth process_both) const {
     assert(base_vstorage_);
-    assert(vstorage);
-
-    bool found_first_non_empty = false;
 
     const auto& base_blob_files = base_vstorage_->GetBlobFiles();
-    auto base_it = base_blob_files.begin();
+    auto base_it = base_blob_files.lower_bound(first_blob_file);
     const auto base_it_end = base_blob_files.end();
 
-    auto mutable_it = mutable_blob_file_metas_.begin();
+    auto mutable_it = mutable_blob_file_metas_.lower_bound(first_blob_file);
     const auto mutable_it_end = mutable_blob_file_metas_.end();
 
     while (base_it != base_it_end && mutable_it != mutable_it_end) {
@@ -852,15 +876,17 @@ class VersionBuilder::Rep {
       if (base_blob_file_number < mutable_blob_file_number) {
         const auto& base_meta = base_it->second;
 
-        AddBlobFileIfNeeded(vstorage, base_meta, &found_first_non_empty);
+        if (!process_base(base_meta)) {
+          return;
+        }
 
         ++base_it;
       } else if (mutable_blob_file_number < base_blob_file_number) {
         const auto& mutable_meta = mutable_it->second;
 
-        auto meta = CreateBlobFileMetaData(mutable_meta);
-
-        AddBlobFileIfNeeded(vstorage, meta, &found_first_non_empty);
+        if (!process_mutable(mutable_meta)) {
+          return;
+        }
 
         ++mutable_it;
       } else {
@@ -869,21 +895,8 @@ class VersionBuilder::Rep {
         const auto& base_meta = base_it->second;
         const auto& mutable_meta = mutable_it->second;
 
-        assert(base_meta);
-        assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
-
-        if (!mutable_meta.HasDelta()) {
-          assert(base_meta->GetGarbageBlobCount() ==
-                 mutable_meta.GetGarbageBlobCount());
-          assert(base_meta->GetGarbageBlobBytes() ==
-                 mutable_meta.GetGarbageBlobBytes());
-          assert(base_meta->GetLinkedSsts() == mutable_meta.GetLinkedSsts());
-
-          AddBlobFileIfNeeded(vstorage, base_meta, &found_first_non_empty);
-        } else {
-          auto meta = CreateBlobFileMetaData(mutable_meta);
-
-          AddBlobFileIfNeeded(vstorage, meta, &found_first_non_empty);
+        if (!process_both(base_meta, mutable_meta)) {
+          return;
         }
 
         ++base_it;
@@ -894,7 +907,9 @@ class VersionBuilder::Rep {
     while (base_it != base_it_end) {
       const auto& base_meta = base_it->second;
 
-      AddBlobFileIfNeeded(vstorage, base_meta, &found_first_non_empty);
+      if (!process_base(base_meta)) {
+        return;
+      }
 
       ++base_it;
     }
@@ -902,15 +917,144 @@ class VersionBuilder::Rep {
     while (mutable_it != mutable_it_end) {
       const auto& mutable_meta = mutable_it->second;
 
-      auto meta = CreateBlobFileMetaData(mutable_meta);
-
-      AddBlobFileIfNeeded(vstorage, meta, &found_first_non_empty);
+      if (!process_mutable(mutable_meta)) {
+        return;
+      }
 
       ++mutable_it;
     }
   }
 
-  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
+  // Helper function template for finding the first blob file that has linked
+  // SSTs.
+  template <typename Meta>
+  static bool CheckLinkedSsts(const Meta& meta,
+                              uint64_t* min_oldest_blob_file_num) {
+    assert(min_oldest_blob_file_num);
+
+    if (!meta.GetLinkedSsts().empty()) {
+      assert(*min_oldest_blob_file_num == kInvalidBlobFileNumber);
+
+      *min_oldest_blob_file_num = meta.GetBlobFileNumber();
+
+      return false;
+    }
+
+    return true;
+  }
+
+  // Find the oldest blob file that has linked SSTs.
+  uint64_t GetMinOldestBlobFileNumber() const {
+    uint64_t min_oldest_blob_file_num = kInvalidBlobFileNumber;
+
+    auto process_base =
+        [&min_oldest_blob_file_num](
+            const std::shared_ptr<BlobFileMetaData>& base_meta) {
+          assert(base_meta);
+
+          return CheckLinkedSsts(*base_meta, &min_oldest_blob_file_num);
+        };
+
+    auto process_mutable = [&min_oldest_blob_file_num](
+                               const MutableBlobFileMetaData& mutable_meta) {
+      return CheckLinkedSsts(mutable_meta, &min_oldest_blob_file_num);
+    };
+
+    auto process_both = [&min_oldest_blob_file_num](
+                            const std::shared_ptr<BlobFileMetaData>& base_meta,
+                            const MutableBlobFileMetaData& mutable_meta) {
+#ifndef NDEBUG
+      assert(base_meta);
+      assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
+#else
+      (void)base_meta;
+#endif
+
+      // Look at mutable_meta since it supersedes *base_meta
+      return CheckLinkedSsts(mutable_meta, &min_oldest_blob_file_num);
+    };
+
+    MergeBlobFileMetas(kInvalidBlobFileNumber, process_base, process_mutable,
+                       process_both);
+
+    return min_oldest_blob_file_num;
+  }
+
+  static std::shared_ptr<BlobFileMetaData> CreateBlobFileMetaData(
+      const MutableBlobFileMetaData& mutable_meta) {
+    return BlobFileMetaData::Create(
+        mutable_meta.GetSharedMeta(), mutable_meta.GetLinkedSsts(),
+        mutable_meta.GetGarbageBlobCount(), mutable_meta.GetGarbageBlobBytes());
+  }
+
+  // Add the blob file specified by meta to *vstorage if it is determined to
+  // contain valid data (blobs).
+  template <typename Meta>
+  static void AddBlobFileIfNeeded(VersionStorageInfo* vstorage, Meta&& meta) {
+    assert(vstorage);
+    assert(meta);
+
+    if (meta->GetLinkedSsts().empty() &&
+        meta->GetGarbageBlobCount() >= meta->GetTotalBlobCount()) {
+      return;
+    }
+
+    vstorage->AddBlobFile(std::forward<Meta>(meta));
+  }
+
+  // Merge the blob file metadata from the base version with the changes (edits)
+  // applied, and save the result into *vstorage.
+  void SaveBlobFilesTo(VersionStorageInfo* vstorage) const {
+    assert(vstorage);
+
+    const uint64_t oldest_blob_file_with_linked_ssts =
+        GetMinOldestBlobFileNumber();
+
+    auto process_base =
+        [vstorage](const std::shared_ptr<BlobFileMetaData>& base_meta) {
+          assert(base_meta);
+
+          AddBlobFileIfNeeded(vstorage, base_meta);
+
+          return true;
+        };
+
+    auto process_mutable =
+        [vstorage](const MutableBlobFileMetaData& mutable_meta) {
+          AddBlobFileIfNeeded(vstorage, CreateBlobFileMetaData(mutable_meta));
+
+          return true;
+        };
+
+    auto process_both = [vstorage](
+                            const std::shared_ptr<BlobFileMetaData>& base_meta,
+                            const MutableBlobFileMetaData& mutable_meta) {
+      assert(base_meta);
+      assert(base_meta->GetSharedMeta() == mutable_meta.GetSharedMeta());
+
+      if (!mutable_meta.HasDelta()) {
+        assert(base_meta->GetGarbageBlobCount() ==
+               mutable_meta.GetGarbageBlobCount());
+        assert(base_meta->GetGarbageBlobBytes() ==
+               mutable_meta.GetGarbageBlobBytes());
+        assert(base_meta->GetLinkedSsts() == mutable_meta.GetLinkedSsts());
+
+        AddBlobFileIfNeeded(vstorage, base_meta);
+
+        return true;
+      }
+
+      AddBlobFileIfNeeded(vstorage, CreateBlobFileMetaData(mutable_meta));
+
+      return true;
+    };
+
+    MergeBlobFileMetas(oldest_blob_file_with_linked_ssts, process_base,
+                       process_mutable, process_both);
+  }
+
+  void MaybeAddFile(VersionStorageInfo* vstorage, int level,
+                    FileMetaData* f) const {
     const uint64_t file_number = f->fd.GetNumber();
 
     const auto& level_state = levels_[level];
@@ -935,52 +1079,52 @@ class VersionBuilder::Rep {
     }
   }
 
-  void SaveSSTFilesTo(VersionStorageInfo* vstorage) {
-    for (int level = 0; level < num_levels_; level++) {
-      const auto& cmp = (level == 0) ? level_zero_cmp_ : level_nonzero_cmp_;
-      // Merge the set of added files with the set of pre-existing files.
-      // Drop any deleted files.  Store the result in *v.
-      const auto& base_files = base_vstorage_->LevelFiles(level);
-      const auto& unordered_added_files = levels_[level].added_files;
-      vstorage->Reserve(level,
-                        base_files.size() + unordered_added_files.size());
+  template <typename Cmp>
+  void SaveSSTFilesTo(VersionStorageInfo* vstorage, int level, Cmp cmp) const {
+    // Merge the set of added files with the set of pre-existing files.
+    // Drop any deleted files.  Store the result in *vstorage.
+    const auto& base_files = base_vstorage_->LevelFiles(level);
+    const auto& unordered_added_files = levels_[level].added_files;
+    vstorage->Reserve(level, base_files.size() + unordered_added_files.size());
 
-      // Sort added files for the level.
-      std::vector<FileMetaData*> added_files;
-      added_files.reserve(unordered_added_files.size());
-      for (const auto& pair : unordered_added_files) {
-        added_files.push_back(pair.second);
-      }
-      std::sort(added_files.begin(), added_files.end(), cmp);
+    // Sort added files for the level.
+    std::vector<FileMetaData*> added_files;
+    added_files.reserve(unordered_added_files.size());
+    for (const auto& pair : unordered_added_files) {
+      added_files.push_back(pair.second);
+    }
+    std::sort(added_files.begin(), added_files.end(), cmp);
 
-#ifndef NDEBUG
-      FileMetaData* prev_added_file = nullptr;
-      for (const auto& added : added_files) {
-        if (level > 0 && prev_added_file != nullptr) {
-          assert(base_vstorage_->InternalComparator()->Compare(
-                     prev_added_file->smallest, added->smallest) <= 0);
-        }
-        prev_added_file = added;
-      }
-#endif
-
-      auto base_iter = base_files.begin();
-      auto base_end = base_files.end();
-      auto added_iter = added_files.begin();
-      auto added_end = added_files.end();
-      while (added_iter != added_end || base_iter != base_end) {
-        if (base_iter == base_end ||
-                (added_iter != added_end && cmp(*added_iter, *base_iter))) {
-          MaybeAddFile(vstorage, level, *added_iter++);
-        } else {
-          MaybeAddFile(vstorage, level, *base_iter++);
-        }
+    auto base_iter = base_files.begin();
+    auto base_end = base_files.end();
+    auto added_iter = added_files.begin();
+    auto added_end = added_files.end();
+    while (added_iter != added_end || base_iter != base_end) {
+      if (base_iter == base_end ||
+          (added_iter != added_end && cmp(*added_iter, *base_iter))) {
+        MaybeAddFile(vstorage, level, *added_iter++);
+      } else {
+        MaybeAddFile(vstorage, level, *base_iter++);
       }
     }
   }
 
+  void SaveSSTFilesTo(VersionStorageInfo* vstorage) const {
+    assert(vstorage);
+
+    if (!num_levels_) {
+      return;
+    }
+
+    SaveSSTFilesTo(vstorage, /* level */ 0, level_zero_cmp_);
+
+    for (int level = 1; level < num_levels_; ++level) {
+      SaveSSTFilesTo(vstorage, level, level_nonzero_cmp_);
+    }
+  }
+
   // Save the current state in *vstorage.
-  Status SaveTo(VersionStorageInfo* vstorage) {
+  Status SaveTo(VersionStorageInfo* vstorage) const {
     Status s = CheckConsistency(base_vstorage_);
     if (!s.ok()) {
       return s;
@@ -1117,9 +1261,11 @@ bool VersionBuilder::CheckConsistencyForNumLevels() {
   return rep_->CheckConsistencyForNumLevels();
 }
 
-Status VersionBuilder::Apply(VersionEdit* edit) { return rep_->Apply(edit); }
+Status VersionBuilder::Apply(const VersionEdit* edit) {
+  return rep_->Apply(edit);
+}
 
-Status VersionBuilder::SaveTo(VersionStorageInfo* vstorage) {
+Status VersionBuilder::SaveTo(VersionStorageInfo* vstorage) const {
   return rep_->SaveTo(vstorage);
 }
 

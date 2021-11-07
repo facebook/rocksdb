@@ -49,11 +49,9 @@
 #include "table/table_builder.h"
 #include "util/coding.h"
 #include "util/compression.h"
-#include "util/crc32c.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/work_queue.h"
-#include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -1210,60 +1208,6 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
   }
 }
 
-void BlockBasedTableBuilder::ComputeBlockTrailer(
-    const Slice& block_contents, CompressionType compression_type,
-    ChecksumType checksum_type, std::array<char, kBlockTrailerSize>* trailer) {
-  (*trailer)[0] = compression_type;
-  uint32_t checksum = 0;
-  switch (checksum_type) {
-    case kNoChecksum:
-      break;
-    case kCRC32c: {
-      uint32_t crc =
-          crc32c::Value(block_contents.data(), block_contents.size());
-      // Extend to cover compression type
-      crc = crc32c::Extend(crc, trailer->data(), 1);
-      checksum = crc32c::Mask(crc);
-      break;
-    }
-    case kxxHash: {
-      XXH32_state_t* const state = XXH32_createState();
-      XXH32_reset(state, 0);
-      XXH32_update(state, block_contents.data(), block_contents.size());
-      // Extend to cover compression type
-      XXH32_update(state, trailer->data(), 1);
-      checksum = XXH32_digest(state);
-      XXH32_freeState(state);
-      break;
-    }
-    case kxxHash64: {
-      XXH64_state_t* const state = XXH64_createState();
-      XXH64_reset(state, 0);
-      XXH64_update(state, block_contents.data(), block_contents.size());
-      // Extend to cover compression type
-      XXH64_update(state, trailer->data(), 1);
-      checksum = Lower32of64(XXH64_digest(state));
-      XXH64_freeState(state);
-      break;
-    }
-    case kXXH3: {
-      // XXH3 is a complicated hash function that is extremely fast on
-      // contiguous input, but that makes its streaming support rather
-      // complex. It is worth custom handling of the last byte (`type`)
-      // in order to avoid allocating a large state object and bringing
-      // that code complexity into CPU working set.
-      checksum = Lower32of64(
-          XXH3_64bits(block_contents.data(), block_contents.size()));
-      checksum = ModifyChecksumForCompressionType(checksum, compression_type);
-      break;
-    }
-    default:
-      assert(false);
-      break;
-  }
-  EncodeFixed32(trailer->data() + 1, checksum);
-}
-
 void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                            CompressionType type,
                                            BlockHandle* handle,
@@ -1281,8 +1225,12 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   io_s = r->file->Append(block_contents);
   if (io_s.ok()) {
     std::array<char, kBlockTrailerSize> trailer;
-    ComputeBlockTrailer(block_contents, type, r->table_options.checksum,
-                        &trailer);
+    trailer[0] = type;
+    uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
+        r->table_options.checksum, block_contents.data(), block_contents.size(),
+        /*last_byte*/ type);
+    EncodeFixed32(trailer.data() + 1, checksum);
+
     assert(io_s.ok());
     TEST_SYNC_POINT_CALLBACK(
         "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",
@@ -1594,8 +1542,17 @@ void BlockBasedTableBuilder::WriteFilterBlock(
         rep_->filter_builder->EstimateEntriesAdded();
     Status s = Status::Incomplete();
     while (ok() && s.IsIncomplete()) {
+      // filter_data is used to store the transferred filter data payload from
+      // FilterBlockBuilder and deallocate the payload by going out of scope.
+      // Otherwise, the payload will unnecessarily remain until
+      // BlockBasedTableBuilder is deallocated.
+      //
+      // See FilterBlockBuilder::Finish() for more on the difference in
+      // transferred filter data payload among different FilterBlockBuilder
+      // subtypes.
+      std::unique_ptr<const char[]> filter_data;
       Slice filter_content =
-          rep_->filter_builder->Finish(filter_block_handle, &s);
+          rep_->filter_builder->Finish(filter_block_handle, &s, &filter_data);
       assert(s.ok() || s.IsIncomplete());
       rep_->props.filter_size += filter_content.size();
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle,
@@ -1974,6 +1931,7 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
   }
   r->data_block_buffers.clear();
   r->data_begin_offset = 0;
+  // Release all reserved cache for data block buffers
   if (r->compression_dict_buffer_cache_res_mgr != nullptr) {
     Status s = r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation<
         CacheEntryRole::kCompressionDictionaryBuildingBuffer>(

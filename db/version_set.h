@@ -491,7 +491,7 @@ class VersionStorageInfo {
     next_file_to_compact_by_size_[level] = 0;
   }
 
-  const InternalKeyComparator* InternalComparator() {
+  const InternalKeyComparator* InternalComparator() const {
     return internal_comparator_;
   }
 

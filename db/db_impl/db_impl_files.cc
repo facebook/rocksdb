@@ -655,7 +655,13 @@ void DBImpl::DeleteObsoleteFiles() {
 
   mutex_.Unlock();
   if (job_context.HaveSomethingToDelete()) {
-    PurgeObsoleteFiles(job_context);
+    bool defer_purge = immutable_db_options_.avoid_unnecessary_blocking_io;
+    PurgeObsoleteFiles(job_context, defer_purge);
+    if (defer_purge) {
+      mutex_.Lock();
+      SchedulePurge();
+      mutex_.Unlock();
+    }
   }
   job_context.Clean();
   mutex_.Lock();

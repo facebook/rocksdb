@@ -37,8 +37,8 @@ class VersionBuilder {
   ~VersionBuilder();
 
   bool CheckConsistencyForNumLevels();
-  Status Apply(VersionEdit* edit);
-  Status SaveTo(VersionStorageInfo* vstorage);
+  Status Apply(const VersionEdit* edit);
+  Status SaveTo(VersionStorageInfo* vstorage) const;
   Status LoadTableHandlers(InternalStats* internal_stats, int max_threads,
                            bool prefetch_index_and_filter_in_cache,
                            bool is_initial_load,
@@ -66,5 +66,4 @@ class BaseReferencedVersionBuilder {
   Version* version_;
 };
 
-extern bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b);
 }  // namespace ROCKSDB_NAMESPACE

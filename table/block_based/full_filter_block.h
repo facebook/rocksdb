@@ -54,7 +54,9 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   virtual void Add(const Slice& key_without_ts) override;
   virtual bool IsEmpty() const override { return !any_added_; }
   virtual size_t EstimateEntriesAdded() override;
-  virtual Slice Finish(const BlockHandle& tmp, Status* status) override;
+  virtual Slice Finish(
+      const BlockHandle& tmp, Status* status,
+      std::unique_ptr<const char[]>* filter_data = nullptr) override;
   using FilterBlockBuilder::Finish;
 
  protected:
