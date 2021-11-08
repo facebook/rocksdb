@@ -60,6 +60,7 @@ extern Status BuildTable(
     SnapshotChecker* snapshot_checker, bool paranoid_file_checks,
     InternalStats* internal_stats, IOStatus* io_status,
     const std::shared_ptr<IOTracer>& io_tracer,
+    BlobFileCreationReason blob_creation_reason,
     EventLogger* event_logger = nullptr, int job_id = 0,
     const Env::IOPriority io_priority = Env::IO_HIGH,
     TableProperties* table_properties = nullptr,

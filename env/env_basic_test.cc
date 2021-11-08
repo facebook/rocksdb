@@ -29,7 +29,7 @@ using CreateEnvFunc = Env*();
 static Env* GetDefaultEnv() { return Env::Default(); }
 
 static Env* GetMockEnv() {
-  static std::unique_ptr<Env> mock_env(new MockEnv(Env::Default()));
+  static std::unique_ptr<Env> mock_env(MockEnv::Create(Env::Default()));
   return mock_env.get();
 }
 #ifndef ROCKSDB_LITE

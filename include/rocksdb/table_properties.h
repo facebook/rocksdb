@@ -5,8 +5,12 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <map>
+#include <memory>
 #include <string>
+
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
@@ -76,7 +80,14 @@ extern const std::string kRangeDelBlock;
 // a collection of callback functions that will be invoked during table
 // building. It is constructed with TablePropertiesCollectorFactory. The methods
 // don't need to be thread-safe, as we will create exactly one
-// TablePropertiesCollector object per table and then call it sequentially
+// TablePropertiesCollector object per table and then call it sequentially.
+//
+// Statuses from these callbacks are currently logged when not OK, but
+// otherwise ignored by RocksDB.
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class TablePropertiesCollector {
  public:
   virtual ~TablePropertiesCollector() {}
@@ -129,14 +140,27 @@ class TablePropertiesCollector {
 
 // Constructs TablePropertiesCollector. Internals create a new
 // TablePropertiesCollector for each new table
-class TablePropertiesCollectorFactory {
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
+class TablePropertiesCollectorFactory : public Customizable {
  public:
   struct Context {
     uint32_t column_family_id;
+    // The level at creating the SST file (i.e, table), of which the
+    // properties are being collected.
+    int level_at_creation = kUnknownLevelAtCreation;
     static const uint32_t kUnknownColumnFamily;
+    static const int kUnknownLevelAtCreation = -1;
   };
 
   virtual ~TablePropertiesCollectorFactory() {}
+  static const char* Type() { return "TablePropertiesCollectorFactory"; }
+  static Status CreateFromString(
+      const ConfigOptions& options, const std::string& value,
+      std::shared_ptr<TablePropertiesCollectorFactory>* result);
+
   // has to be thread-safe
   virtual TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context context) = 0;

@@ -5,6 +5,8 @@
 //
 
 #include "table/block_based/uncompression_dict_reader.h"
+
+#include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "util/compression.h"

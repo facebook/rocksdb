@@ -199,7 +199,7 @@ class MemTable {
       const ReadOptions& read_options, SequenceNumber read_seq);
 
   Status VerifyEncodedEntry(Slice encoded,
-                            const ProtectionInfoKVOTS64& kv_prot_info);
+                            const ProtectionInfoKVOS64& kv_prot_info);
 
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.
@@ -212,7 +212,7 @@ class MemTable {
   // in the memtable and `MemTableRepFactory::CanHandleDuplicatedKey()` is true.
   // The next attempt should try a larger value for `seq`.
   Status Add(SequenceNumber seq, ValueType type, const Slice& key,
-             const Slice& value, const ProtectionInfoKVOTS64* kv_prot_info,
+             const Slice& value, const ProtectionInfoKVOS64* kv_prot_info,
              bool allow_concurrent = false,
              MemTablePostProcessInfo* post_process_info = nullptr,
              void** hint = nullptr);
@@ -278,7 +278,7 @@ class MemTable {
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
   Status Update(SequenceNumber seq, const Slice& key, const Slice& value,
-                const ProtectionInfoKVOTS64* kv_prot_info);
+                const ProtectionInfoKVOS64* kv_prot_info);
 
   // If `key` exists in current memtable with type `kTypeValue` and the existing
   // value is at least as large as the new value, updates it in-place. Otherwise
@@ -296,7 +296,7 @@ class MemTable {
   // operations on the same MemTable.
   Status UpdateCallback(SequenceNumber seq, const Slice& key,
                         const Slice& delta,
-                        const ProtectionInfoKVOTS64* kv_prot_info);
+                        const ProtectionInfoKVOS64* kv_prot_info);
 
   // Returns the number of successive merge entries starting from the newest
   // entry for the key up to the last non-merge entry or last entry for the

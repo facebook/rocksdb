@@ -17,6 +17,7 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/iostats_context.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/trace_record.h"
 #include "rocksdb/trace_record_result.h"
@@ -36,11 +37,10 @@ class DBTest2 : public DBTestBase {
 #ifndef ROCKSDB_LITE
   uint64_t GetSstSizeHelper(Temperature temperature) {
     std::string prop;
-    bool s =
+    EXPECT_TRUE(
         dbfull()->GetProperty(DB::Properties::kLiveSstFilesSizeAtTemperature +
                                   ToString(static_cast<uint8_t>(temperature)),
-                              &prop);
-    assert(s);
+                              &prop));
     return static_cast<uint64_t>(std::atoi(prop.c_str()));
   }
 #endif  // ROCKSDB_LITE
@@ -3670,14 +3670,15 @@ TEST_F(DBTest2, IterRaceFlush1) {
     TEST_SYNC_POINT("DBTest2::IterRaceFlush:2");
   });
 
-  // iterator is created after the first Put(), so it should see either
-  // "v1" or "v2".
+  // iterator is created after the first Put(), and its snapshot sequence is
+  // assigned after second Put(), so it must see v2.
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->Seek("foo");
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
     ASSERT_EQ("foo", it->key().ToString());
+    ASSERT_EQ("v2", it->value().ToString());
   }
 
   t1.join();
@@ -3700,14 +3701,15 @@ TEST_F(DBTest2, IterRaceFlush2) {
     TEST_SYNC_POINT("DBTest2::IterRaceFlush2:2");
   });
 
-  // iterator is created after the first Put(), so it should see either
-  // "v1" or "v2".
+  // iterator is created after the first Put(), and its snapshot sequence is
+  // assigned before second Put(), thus it must see v1.
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->Seek("foo");
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
     ASSERT_EQ("foo", it->key().ToString());
+    ASSERT_EQ("v1", it->value().ToString());
   }
 
   t1.join();
@@ -3730,8 +3732,8 @@ TEST_F(DBTest2, IterRefreshRaceFlush) {
     TEST_SYNC_POINT("DBTest2::IterRefreshRaceFlush:2");
   });
 
-  // iterator is created after the first Put(), so it should see either
-  // "v1" or "v2".
+  // iterator is refreshed after the first Put(), and its sequence number is
+  // assigned after second Put(), thus it must see v2.
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     ASSERT_OK(it->status());
@@ -3740,6 +3742,7 @@ TEST_F(DBTest2, IterRefreshRaceFlush) {
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
     ASSERT_EQ("foo", it->key().ToString());
+    ASSERT_EQ("v2", it->value().ToString());
   }
 
   t1.join();
@@ -5534,8 +5537,6 @@ TEST_F(DBTest2, TestCompactFiles) {
 }
 #endif  // ROCKSDB_LITE
 
-// TODO: figure out why this test fails in appveyor
-#ifndef OS_WIN
 TEST_F(DBTest2, MultiDBParallelOpenTest) {
   const int kNumDbs = 2;
   Options options = CurrentOptions();
@@ -5566,7 +5567,6 @@ TEST_F(DBTest2, MultiDBParallelOpenTest) {
   }
 
   // Verify non-empty DBs can be recovered in parallel
-  dbs.clear();
   open_threads.clear();
   for (int i = 0; i < kNumDbs; ++i) {
     open_threads.emplace_back(
@@ -5583,7 +5583,6 @@ TEST_F(DBTest2, MultiDBParallelOpenTest) {
     ASSERT_OK(DestroyDB(dbnames[i], options));
   }
 }
-#endif  // OS_WIN
 
 namespace {
 class DummyOldStats : public Statistics {
@@ -6519,6 +6518,9 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
+  get_iostats_context()->Reset();
+  IOStatsContext* iostats = get_iostats_context();
+
   ColumnFamilyMetaData metadata;
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(1, metadata.file_count);
@@ -6527,11 +6529,31 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_EQ(size, 0);
   size = GetSstSizeHelper(Temperature::kWarm);
   ASSERT_GT(size, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+
+  ASSERT_EQ("bar", Get("foo"));
+
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 1);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_bytes_read, 0);
+  ASSERT_GT(iostats->file_io_stats_by_temperature.warm_file_bytes_read, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.cold_file_bytes_read, 0);
 
   // non-bottommost file still has unknown temperature
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("bar", "bar"));
   ASSERT_OK(Flush());
+  ASSERT_EQ("bar", Get("bar"));
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 1);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_bytes_read, 0);
+  ASSERT_GT(iostats->file_io_stats_by_temperature.warm_file_bytes_read, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.cold_file_bytes_read, 0);
+
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
   ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
@@ -6580,6 +6602,8 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(size, 0);
   size = GetSstSizeHelper(Temperature::kHot);
   ASSERT_EQ(size, 0);
+  get_iostats_context()->Reset();
+  IOStatsContext* iostats = get_iostats_context();
 
   for (int i = 0; i < kTriggerNum; i++) {
     ASSERT_OK(Put("foo", "bar"));
@@ -6597,6 +6621,17 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_GT(size, 0);
   size = GetSstSizeHelper(Temperature::kWarm);
   ASSERT_EQ(size, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ("bar", Get("foo"));
+
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_bytes_read, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_bytes_read, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.cold_file_bytes_read, 0);
 
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("bar", "bar"));

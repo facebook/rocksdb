@@ -167,6 +167,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/LevelMetaData.java
   src/main/java/org/rocksdb/ConcurrentTaskLimiter.java
   src/main/java/org/rocksdb/ConcurrentTaskLimiterImpl.java
+  src/main/java/org/rocksdb/KeyMayExist.java
   src/main/java/org/rocksdb/LiveFileMetaData.java
   src/main/java/org/rocksdb/LogFile.java
   src/main/java/org/rocksdb/Logger.java
@@ -189,6 +190,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/OptimisticTransactionDB.java
   src/main/java/org/rocksdb/OptimisticTransactionOptions.java
   src/main/java/org/rocksdb/Options.java
+  src/main/java/org/rocksdb/OptionString.java
   src/main/java/org/rocksdb/OptionsUtil.java
   src/main/java/org/rocksdb/PersistentCache.java
   src/main/java/org/rocksdb/PlainTableConfig.java

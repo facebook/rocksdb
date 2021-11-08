@@ -26,6 +26,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
 
@@ -394,6 +395,8 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->memtable_prefix_bloom_size_ratio =
       static_cast<double>(rnd->Uniform(10000)) / 20000.0;
   cf_opt->blob_garbage_collection_age_cutoff = rnd->Uniform(10000) / 10000.0;
+  cf_opt->blob_garbage_collection_force_threshold =
+      rnd->Uniform(10000) / 10000.0;
 
   // int options
   cf_opt->level0_file_num_compaction_trigger = rnd->Uniform(100);
@@ -747,7 +750,13 @@ int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/) {
         guard->reset(new test::ChanglingCompactionFilterFactory(uri));
         return guard->get();
       });
-
+  library.Register<SystemClock>(
+      MockSystemClock::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<SystemClock>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockSystemClock(SystemClock::Default()));
+        return guard->get();
+      });
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 

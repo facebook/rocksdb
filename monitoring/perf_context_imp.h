@@ -77,20 +77,19 @@ extern thread_local PerfContext perf_context;
   }
 
 // Increase metric value
-#define PERF_COUNTER_BY_LEVEL_ADD(metric, value, level)                      \
-  if (perf_level >= PerfLevel::kEnableCount &&                               \
-      perf_context.per_level_perf_context_enabled &&                         \
-      perf_context.level_to_perf_context) {                                  \
-    if ((*(perf_context.level_to_perf_context)).find(level) !=               \
-        (*(perf_context.level_to_perf_context)).end()) {                     \
-      (*(perf_context.level_to_perf_context))[level].metric += value;        \
-    }                                                                        \
-    else {                                                                   \
-      PerfContextByLevel empty_context;                                      \
-      (*(perf_context.level_to_perf_context))[level] = empty_context;        \
-      (*(perf_context.level_to_perf_context))[level].metric += value;       \
-    }                                                                        \
-  }                                                                          \
+#define PERF_COUNTER_BY_LEVEL_ADD(metric, value, level)               \
+  if (perf_level >= PerfLevel::kEnableCount &&                        \
+      perf_context.per_level_perf_context_enabled &&                  \
+      perf_context.level_to_perf_context) {                           \
+    if ((*(perf_context.level_to_perf_context)).find(level) !=        \
+        (*(perf_context.level_to_perf_context)).end()) {              \
+      (*(perf_context.level_to_perf_context))[level].metric += value; \
+    } else {                                                          \
+      PerfContextByLevel empty_context;                               \
+      (*(perf_context.level_to_perf_context))[level] = empty_context; \
+      (*(perf_context.level_to_perf_context))[level].metric += value; \
+    }                                                                 \
+  }
 
 #endif
 

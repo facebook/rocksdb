@@ -13,6 +13,7 @@
 #include "env/mock_env.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
+#include "rocksdb/unique_id.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "util/random.h"
 
@@ -63,7 +64,7 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
   EXPECT_OK(test::CreateEnvFromSystem(config_options, &base_env, &env_guard_));
   EXPECT_NE(nullptr, base_env);
   if (getenv("MEM_ENV")) {
-    mem_env_ = new MockEnv(base_env);
+    mem_env_ = MockEnv::Create(base_env, base_env->GetSystemClock());
   }
 #ifndef ROCKSDB_LITE
   if (getenv("ENCRYPTED_ENV")) {
@@ -474,12 +475,8 @@ Options DBTestBase::GetOptions(
     case kInfiniteMaxOpenFiles:
       options.max_open_files = -1;
       break;
-    case kxxHashChecksum: {
-      table_options.checksum = kxxHash;
-      break;
-    }
-    case kxxHash64Checksum: {
-      table_options.checksum = kxxHash64;
+    case kXXH3Checksum: {
+      table_options.checksum = kXXH3;
       break;
     }
     case kFIFOCompaction: {
@@ -1653,5 +1650,15 @@ uint64_t DBTestBase::GetNumberOfSstFilesForColumnFamily(
   return result;
 }
 #endif  // ROCKSDB_LITE
+
+void VerifySstUniqueIds(const TablePropertiesCollection& props) {
+  ASSERT_FALSE(props.empty());  // suspicious test if empty
+  std::unordered_set<std::string> seen;
+  for (auto& pair : props) {
+    std::string id;
+    ASSERT_OK(GetUniqueIdFromTableProperties(*pair.second, &id));
+    ASSERT_TRUE(seen.insert(id).second);
+  }
+}
 
 }  // namespace ROCKSDB_NAMESPACE

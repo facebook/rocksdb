@@ -737,6 +737,7 @@ TEST_P(DBTestUniversalCompactionParallel, UniversalCompactionParallel) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = num_levels_;
+  options.env = env_;
   options.write_buffer_size = 1 << 10;  // 1KB
   options.level0_file_num_compaction_trigger = 3;
   options.max_background_compactions = 3;

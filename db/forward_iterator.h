@@ -10,7 +10,6 @@
 #include <vector>
 #include <queue>
 
-#include "db/dbformat.h"
 #include "memory/arena.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"

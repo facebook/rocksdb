@@ -10,6 +10,7 @@
 #include "block_fetcher.h"
 #include "db/table_properties_collector.h"
 #include "file/random_access_file_reader.h"
+#include "logging/logging.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "table/block_based/block.h"

@@ -26,6 +26,12 @@ enum class TableFileCreationReason {
   kMisc,
 };
 
+enum class BlobFileCreationReason {
+  kFlush,
+  kCompaction,
+  kRecovery,
+};
+
 // The types of files RocksDB uses in a DB directory. (Available for
 // advanced options.)
 enum FileType {

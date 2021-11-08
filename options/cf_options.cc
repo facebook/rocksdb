@@ -10,6 +10,7 @@
 #include <limits>
 #include <string>
 
+#include "logging/logging.h"
 #include "options/configurable_helper.h"
 #include "options/db_options.h"
 #include "options/options_helper.h"
@@ -212,6 +213,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(class CompactionOptionsUniversal, stop_style),
           OptionType::kCompactionStopStyle, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"incremental",
+         {offsetof(class CompactionOptionsUniversal, incremental),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"allow_trivial_move",
          {offsetof(class CompactionOptionsUniversal, allow_trivial_move),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -360,9 +365,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kCompressionType, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"prefix_extractor",
-         {offsetof(struct MutableCFOptions, prefix_extractor),
-          OptionType::kSliceTransform, OptionVerificationType::kByNameAllowNull,
-          OptionTypeFlags::kMutable}},
+         OptionTypeInfo::AsCustomSharedPtr<const SliceTransform>(
+             offsetof(struct MutableCFOptions, prefix_extractor),
+             OptionVerificationType::kByNameAllowNull,
+             (OptionTypeFlags::kMutable | OptionTypeFlags::kAllowNull))},
         {"compaction_options_fifo",
          OptionTypeInfo::Struct(
              "compaction_options_fifo", &fifo_compaction_options_type_info,
@@ -421,6 +427,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
         {"blob_garbage_collection_age_cutoff",
          {offsetof(struct MutableCFOptions, blob_garbage_collection_age_cutoff),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"blob_garbage_collection_force_threshold",
+         {offsetof(struct MutableCFOptions,
+                   blob_garbage_collection_force_threshold),
           OptionType::kDouble, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"sample_for_compression",
@@ -567,10 +578,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
              },
              /* Use the default match function*/ nullptr)},
         {"memtable_insert_with_hint_prefix_extractor",
-         {offset_of(
-              &ImmutableCFOptions::memtable_insert_with_hint_prefix_extractor),
-          OptionType::kSliceTransform, OptionVerificationType::kByNameAllowNull,
-          OptionTypeFlags::kNone}},
+         OptionTypeInfo::AsCustomSharedPtr<const SliceTransform>(
+             offset_of(&ImmutableCFOptions::
+                           memtable_insert_with_hint_prefix_extractor),
+             OptionVerificationType::kByNameAllowNull, OptionTypeFlags::kNone)},
         {"memtable_factory",
          {offset_of(&ImmutableCFOptions::memtable_factory),
           OptionType::kCustomizable, OptionVerificationType::kByName,
@@ -672,6 +683,14 @@ static std::unordered_map<std::string, OptionTypeInfo>
               return Status::NotFound("Mismatched table option: ", name);
             }
           }}},
+        {"table_properties_collectors",
+         OptionTypeInfo::Vector<
+             std::shared_ptr<TablePropertiesCollectorFactory>>(
+             offset_of(
+                 &ImmutableCFOptions::table_properties_collector_factories),
+             OptionVerificationType::kByName, OptionTypeFlags::kNone,
+             OptionTypeInfo::AsCustomSharedPtr<TablePropertiesCollectorFactory>(
+                 0, OptionVerificationType::kByName, OptionTypeFlags::kNone))},
         {"compaction_filter",
          OptionTypeInfo::AsCustomRawPtr<const CompactionFilter>(
              offset_of(&ImmutableCFOptions::compaction_filter),
@@ -693,6 +712,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ImmutableCFOptions::compaction_pri),
           OptionType::kCompactionPri, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"sst_partitioner_factory",
+         OptionTypeInfo::AsCustomSharedPtr<SstPartitionerFactory>(
+             offset_of(&ImmutableCFOptions::sst_partitioner_factory),
+             OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
 };
 
 const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";
@@ -935,9 +958,10 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(log,
                  "                 inplace_update_num_locks: %" ROCKSDB_PRIszt,
                  inplace_update_num_locks);
-  ROCKS_LOG_INFO(
-      log, "                         prefix_extractor: %s",
-      prefix_extractor == nullptr ? "nullptr" : prefix_extractor->Name());
+  ROCKS_LOG_INFO(log, "                         prefix_extractor: %s",
+                 prefix_extractor == nullptr
+                     ? "nullptr"
+                     : prefix_extractor->GetId().c_str());
   ROCKS_LOG_INFO(log, "                 disable_auto_compactions: %d",
                  disable_auto_compactions);
   ROCKS_LOG_INFO(log, "      soft_pending_compaction_bytes_limit: %" PRIu64,
@@ -1007,6 +1031,8 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(
       log, "compaction_options_universal.allow_trivial_move : %d",
       static_cast<int>(compaction_options_universal.allow_trivial_move));
+  ROCKS_LOG_INFO(log, "compaction_options_universal.incremental        : %d",
+                 static_cast<int>(compaction_options_universal.incremental));
 
   // FIFO Compaction Options
   ROCKS_LOG_INFO(log, "compaction_options_fifo.max_table_files_size : %" PRIu64,
@@ -1027,6 +1053,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  enable_blob_garbage_collection ? "true" : "false");
   ROCKS_LOG_INFO(log, "       blob_garbage_collection_age_cutoff: %f",
                  blob_garbage_collection_age_cutoff);
+  ROCKS_LOG_INFO(log, "  blob_garbage_collection_force_threshold: %f",
+                 blob_garbage_collection_force_threshold);
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)

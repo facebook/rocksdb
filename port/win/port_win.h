@@ -148,6 +148,16 @@ class Mutex {
     mutex_.unlock();
   }
 
+  bool TryLock() {
+    bool ret = mutex_.try_lock();
+#ifndef NDEBUG
+    if (ret) {
+      locked_ = true;
+    }
+#endif
+    return ret;
+  }
+
   // this will assert if the mutex is not locked
   // it does NOT verify that mutex is held by a calling thread
   void AssertHeld() {

@@ -10,6 +10,7 @@
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "file/filename.h"
+#include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_reader.h"
@@ -1991,7 +1992,8 @@ TEST_F(ExternalSSTFileTest, CompactionDeadlock) {
     if (running_threads.load() == 0) {
       break;
     }
-    env_->SleepForMicroseconds(500000);
+    // Make sure we do a "real sleep", not a mock one.
+    SystemClock::Default()->SleepForMicroseconds(500000);
   }
 
   ASSERT_EQ(running_threads.load(), 0);
@@ -2382,10 +2384,9 @@ TEST_F(ExternalSSTFileTest, IngestFileWrittenWithCompressionDictionary) {
 
 // Very slow, not worth the cost to run regularly
 TEST_F(ExternalSSTFileTest, DISABLED_HugeBlockChecksum) {
-  int max_checksum = static_cast<int>(kxxHash64);
-  for (int i = 0; i <= max_checksum; ++i) {
+  for (auto t : GetSupportedChecksums()) {
     BlockBasedTableOptions table_options;
-    table_options.checksum = static_cast<ChecksumType>(i);
+    table_options.checksum = t;
     Options options = CurrentOptions();
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -2421,6 +2422,12 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_Success) {
   Options options = CurrentOptions();
   options.env = fault_injection_env.get();
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+
+  // Exercise different situations in different column families: two are empty
+  // (so no new sequence number is needed), but at least one overlaps with the
+  // DB and needs to bump the sequence number.
+  ASSERT_OK(db_->Put(WriteOptions(), "foo1", "oldvalue"));
+
   std::vector<ColumnFamilyHandle*> column_families;
   column_families.push_back(handles_[0]);
   column_families.push_back(handles_[1]);

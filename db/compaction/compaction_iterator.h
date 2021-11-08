@@ -271,13 +271,9 @@ class CompactionIterator {
                SnapshotCheckerResult::kInSnapshot;
   }
 
-  bool IsInCurrentEarliestSnapshot(SequenceNumber sequence);
-
   bool DefinitelyInSnapshot(SequenceNumber seq, SequenceNumber snapshot);
 
   bool DefinitelyNotInSnapshot(SequenceNumber seq, SequenceNumber snapshot);
-
-  bool InCurrentEarliestSnapshot(SequenceNumber seq);
 
   // Extract user-defined timestamp from user key if possible and compare it
   // with *full_history_ts_low_ if applicable.
@@ -405,6 +401,10 @@ class CompactionIterator {
 
   const int level_;
 
+  // True if the previous internal key (same user key)'s sequence number has
+  // just been zeroed out during bottommost compaction.
+  bool last_key_seq_zeroed_{false};
+
   void AdvanceInputIter() { input_.Next(); }
 
   void SkipUntil(const Slice& skip_until) { input_.Seek(skip_until); }
@@ -437,12 +437,6 @@ inline bool CompactionIterator::DefinitelyNotInSnapshot(
           (snapshot_checker_ != nullptr &&
            UNLIKELY(snapshot_checker_->CheckInSnapshot((seq), (snapshot)) ==
                     SnapshotCheckerResult::kNotInSnapshot)));
-}
-
-inline bool CompactionIterator::InCurrentEarliestSnapshot(SequenceNumber seq) {
-  return ((seq) <= earliest_snapshot_ &&
-          (snapshot_checker_ == nullptr ||
-           LIKELY(IsInCurrentEarliestSnapshot(seq))));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

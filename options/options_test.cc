@@ -19,6 +19,7 @@
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "rocksdb/utilities/object_registry.h"
@@ -107,6 +108,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"blob_compression_type", "kZSTD"},
       {"enable_blob_garbage_collection", "true"},
       {"blob_garbage_collection_age_cutoff", "0.5"},
+      {"blob_garbage_collection_force_threshold", "0.75"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -231,14 +233,14 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.max_successive_merges, 30U);
   ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
   ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
-  ASSERT_EQ(std::string(new_cf_opt.prefix_extractor->Name()),
-            "rocksdb.FixedPrefix.31");
+  ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.FixedPrefix.31");
   ASSERT_EQ(new_cf_opt.enable_blob_files, true);
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
   ASSERT_EQ(new_cf_opt.blob_compression_type, kZSTD);
   ASSERT_EQ(new_cf_opt.enable_blob_garbage_collection, true);
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_age_cutoff, 0.5);
+  ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(exact, base_cf_opt, cf_options_map,
@@ -456,8 +458,7 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_EQ(new_cf_opt.write_buffer_size, 18 * giga);
   ASSERT_EQ(new_cf_opt.arena_block_size, 19 * giga);
   ASSERT_TRUE(new_cf_opt.prefix_extractor.get() != nullptr);
-  std::string prefix_name(new_cf_opt.prefix_extractor->Name());
-  ASSERT_EQ(prefix_name, "rocksdb.CappedPrefix.8");
+  ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.CappedPrefix.8");
 
   // Units (t)
   ASSERT_OK(GetColumnFamilyOptionsFromString(
@@ -1962,6 +1963,133 @@ TEST_F(OptionsTest, OnlyMutableCFOptions) {
                                              opt_str, &cf_opts));
   delete cf_opts.compaction_filter;
 }
+
+TEST_F(OptionsTest, SstPartitionerTest) {
+  ConfigOptions cfg_opts;
+  ColumnFamilyOptions cf_opts, new_opt;
+  std::string opts_str, mismatch;
+
+  ASSERT_OK(SstPartitionerFactory::CreateFromString(
+      cfg_opts, SstPartitionerFixedPrefixFactory::kClassName(),
+      &cf_opts.sst_partitioner_factory));
+  ASSERT_NE(cf_opts.sst_partitioner_factory, nullptr);
+  ASSERT_STREQ(cf_opts.sst_partitioner_factory->Name(),
+               SstPartitionerFixedPrefixFactory::kClassName());
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      cfg_opts, ColumnFamilyOptions(),
+      std::string("sst_partitioner_factory={id=") +
+          SstPartitionerFixedPrefixFactory::kClassName() + "; unknown=10;}",
+      &cf_opts));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      cfg_opts, ColumnFamilyOptions(),
+      std::string("sst_partitioner_factory={id=") +
+          SstPartitionerFixedPrefixFactory::kClassName() + "; length=10;}",
+      &cf_opts));
+  ASSERT_NE(cf_opts.sst_partitioner_factory, nullptr);
+  ASSERT_STREQ(cf_opts.sst_partitioner_factory->Name(),
+               SstPartitionerFixedPrefixFactory::kClassName());
+  ASSERT_OK(GetStringFromColumnFamilyOptions(cfg_opts, cf_opts, &opts_str));
+  ASSERT_OK(
+      GetColumnFamilyOptionsFromString(cfg_opts, cf_opts, opts_str, &new_opt));
+  ASSERT_NE(new_opt.sst_partitioner_factory, nullptr);
+  ASSERT_STREQ(new_opt.sst_partitioner_factory->Name(),
+               SstPartitionerFixedPrefixFactory::kClassName());
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(cfg_opts, cf_opts, new_opt));
+  ASSERT_TRUE(cf_opts.sst_partitioner_factory->AreEquivalent(
+      cfg_opts, new_opt.sst_partitioner_factory.get(), &mismatch));
+}
+
+TEST_F(OptionsTest, FileChecksumGenFactoryTest) {
+  ConfigOptions cfg_opts;
+  DBOptions db_opts, new_opt;
+  std::string opts_str, mismatch;
+  auto factory = GetFileChecksumGenCrc32cFactory();
+
+  cfg_opts.ignore_unsupported_options = false;
+
+  ASSERT_OK(GetStringFromDBOptions(cfg_opts, db_opts, &opts_str));
+  ASSERT_OK(GetDBOptionsFromString(cfg_opts, db_opts, opts_str, &new_opt));
+
+  ASSERT_NE(factory, nullptr);
+  ASSERT_OK(FileChecksumGenFactory::CreateFromString(
+      cfg_opts, factory->Name(), &db_opts.file_checksum_gen_factory));
+  ASSERT_NE(db_opts.file_checksum_gen_factory, nullptr);
+  ASSERT_STREQ(db_opts.file_checksum_gen_factory->Name(), factory->Name());
+  ASSERT_NOK(GetDBOptionsFromString(
+      cfg_opts, DBOptions(), "file_checksum_gen_factory=unknown", &db_opts));
+  ASSERT_OK(GetDBOptionsFromString(
+      cfg_opts, DBOptions(),
+      std::string("file_checksum_gen_factory=") + factory->Name(), &db_opts));
+  ASSERT_NE(db_opts.file_checksum_gen_factory, nullptr);
+  ASSERT_STREQ(db_opts.file_checksum_gen_factory->Name(), factory->Name());
+
+  ASSERT_OK(GetStringFromDBOptions(cfg_opts, db_opts, &opts_str));
+  ASSERT_OK(GetDBOptionsFromString(cfg_opts, db_opts, opts_str, &new_opt));
+  ASSERT_NE(new_opt.file_checksum_gen_factory, nullptr);
+  ASSERT_STREQ(new_opt.file_checksum_gen_factory->Name(), factory->Name());
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(cfg_opts, db_opts, new_opt));
+  ASSERT_TRUE(factory->AreEquivalent(
+      cfg_opts, new_opt.file_checksum_gen_factory.get(), &mismatch));
+  ASSERT_TRUE(db_opts.file_checksum_gen_factory->AreEquivalent(
+      cfg_opts, new_opt.file_checksum_gen_factory.get(), &mismatch));
+}
+
+class TestTablePropertiesCollectorFactory
+    : public TablePropertiesCollectorFactory {
+ private:
+  std::string id_;
+
+ public:
+  explicit TestTablePropertiesCollectorFactory(const std::string& id)
+      : id_(id) {}
+  TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context /*context*/) override {
+    return nullptr;
+  }
+  static const char* kClassName() { return "TestCollector"; }
+  const char* Name() const override { return kClassName(); }
+  std::string GetId() const override {
+    return std::string(kClassName()) + ":" + id_;
+  }
+};
+
+TEST_F(OptionsTest, OptionTablePropertiesTest) {
+  ConfigOptions cfg_opts;
+  ColumnFamilyOptions orig, copy;
+  orig.table_properties_collector_factories.push_back(
+      std::make_shared<TestTablePropertiesCollectorFactory>("1"));
+  orig.table_properties_collector_factories.push_back(
+      std::make_shared<TestTablePropertiesCollectorFactory>("2"));
+
+  // Push two TablePropertiesCollectorFactories then create a new
+  // ColumnFamilyOptions based on those settings.  The copy should
+  // have no properties but still match the original
+  std::string opts_str;
+  ASSERT_OK(GetStringFromColumnFamilyOptions(cfg_opts, orig, &opts_str));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(cfg_opts, orig, opts_str, &copy));
+  ASSERT_EQ(copy.table_properties_collector_factories.size(), 0);
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(cfg_opts, orig, copy));
+
+  // Now register a TablePropertiesCollectorFactory
+  // Repeat the experiment.  The copy should have the same
+  // properties as the original
+  cfg_opts.registry->AddLibrary("collector")
+      ->Register<TablePropertiesCollectorFactory>(
+          std::string(TestTablePropertiesCollectorFactory::kClassName()) +
+              ":.*",
+          [](const std::string& name,
+             std::unique_ptr<TablePropertiesCollectorFactory>* guard,
+             std::string* /* errmsg */) {
+            std::string id = name.substr(
+                strlen(TestTablePropertiesCollectorFactory::kClassName()) + 1);
+            guard->reset(new TestTablePropertiesCollectorFactory(id));
+            return guard->get();
+          });
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(cfg_opts, orig, opts_str, &copy));
+  ASSERT_EQ(copy.table_properties_collector_factories.size(), 2);
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(cfg_opts, orig, copy));
+}
 #endif  // !ROCKSDB_LITE
 
 TEST_F(OptionsTest, ConvertOptionsTest) {
@@ -2138,6 +2266,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"blob_compression_type", "kZSTD"},
       {"enable_blob_garbage_collection", "true"},
       {"blob_garbage_collection_age_cutoff", "0.5"},
+      {"blob_garbage_collection_force_threshold", "0.75"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -2254,14 +2383,14 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.max_successive_merges, 30U);
   ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
   ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
-  ASSERT_EQ(std::string(new_cf_opt.prefix_extractor->Name()),
-            "rocksdb.FixedPrefix.31");
+  ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.FixedPrefix.31");
   ASSERT_EQ(new_cf_opt.enable_blob_files, true);
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
   ASSERT_EQ(new_cf_opt.blob_compression_type, kZSTD);
   ASSERT_EQ(new_cf_opt.enable_blob_garbage_collection, true);
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_age_cutoff, 0.5);
+  ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(
@@ -2448,8 +2577,7 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_EQ(new_cf_opt.write_buffer_size, 18 * giga);
   ASSERT_EQ(new_cf_opt.arena_block_size, 19 * giga);
   ASSERT_TRUE(new_cf_opt.prefix_extractor.get() != nullptr);
-  std::string prefix_name(new_cf_opt.prefix_extractor->Name());
-  ASSERT_EQ(prefix_name, "rocksdb.CappedPrefix.8");
+  ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.CappedPrefix.8");
 
   // Units (t)
   ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
@@ -2549,6 +2677,67 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
             &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
   ASSERT_TRUE(new_cf_opt.memtable_factory->IsInstanceOf("SkipListFactory"));
+}
+
+TEST_F(OptionsTest, SliceTransformCreateFromString) {
+  std::shared_ptr<const SliceTransform> transform = nullptr;
+  ConfigOptions config_options;
+  config_options.ignore_unsupported_options = false;
+  config_options.ignore_unknown_options = false;
+
+  ASSERT_OK(
+      SliceTransform::CreateFromString(config_options, "fixed:31", &transform));
+  ASSERT_NE(transform, nullptr);
+  ASSERT_FALSE(transform->IsInstanceOf("capped"));
+  ASSERT_TRUE(transform->IsInstanceOf("fixed"));
+  ASSERT_TRUE(transform->IsInstanceOf("rocksdb.FixedPrefix"));
+  ASSERT_EQ(transform->GetId(), "rocksdb.FixedPrefix.31");
+  ASSERT_OK(SliceTransform::CreateFromString(
+      config_options, "rocksdb.FixedPrefix.42", &transform));
+  ASSERT_NE(transform, nullptr);
+  ASSERT_EQ(transform->GetId(), "rocksdb.FixedPrefix.42");
+
+  ASSERT_OK(SliceTransform::CreateFromString(config_options, "capped:16",
+                                             &transform));
+  ASSERT_NE(transform, nullptr);
+  ASSERT_FALSE(transform->IsInstanceOf("fixed"));
+  ASSERT_TRUE(transform->IsInstanceOf("capped"));
+  ASSERT_TRUE(transform->IsInstanceOf("rocksdb.CappedPrefix"));
+  ASSERT_EQ(transform->GetId(), "rocksdb.CappedPrefix.16");
+  ASSERT_OK(SliceTransform::CreateFromString(
+      config_options, "rocksdb.CappedPrefix.42", &transform));
+  ASSERT_NE(transform, nullptr);
+  ASSERT_EQ(transform->GetId(), "rocksdb.CappedPrefix.42");
+
+  ASSERT_OK(SliceTransform::CreateFromString(config_options, "rocksdb.Noop",
+                                             &transform));
+  ASSERT_NE(transform, nullptr);
+
+  ASSERT_NOK(SliceTransform::CreateFromString(config_options,
+                                              "fixed:21:invalid", &transform));
+  ASSERT_NOK(SliceTransform::CreateFromString(config_options,
+                                              "capped:21:invalid", &transform));
+  ASSERT_NOK(
+      SliceTransform::CreateFromString(config_options, "fixed", &transform));
+  ASSERT_NOK(
+      SliceTransform::CreateFromString(config_options, "capped", &transform));
+  ASSERT_NOK(SliceTransform::CreateFromString(
+      config_options, "rocksdb.FixedPrefix:42", &transform));
+  ASSERT_NOK(SliceTransform::CreateFromString(
+      config_options, "rocksdb.CappedPrefix:42", &transform));
+  ASSERT_NOK(
+      SliceTransform::CreateFromString(config_options, "invalid", &transform));
+
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(SliceTransform::CreateFromString(
+      config_options, "id=rocksdb.CappedPrefix; length=11", &transform));
+  ASSERT_NE(transform, nullptr);
+  ASSERT_EQ(transform->GetId(), "rocksdb.CappedPrefix.11");
+
+  ASSERT_NOK(SliceTransform::CreateFromString(
+      config_options, "id=rocksdb.CappedPrefix; length=11; invalid=true",
+      &transform));
+#endif  // ROCKSDB_LITE
 }
 
 TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
@@ -3521,37 +3710,86 @@ TEST_F(OptionsParserTest, DifferentDefault) {
   ASSERT_EQ(5000, small_opts.max_open_files);
 }
 
-class OptionsSanityCheckTest : public OptionsParserTest {
+class OptionsSanityCheckTest : public OptionsParserTest,
+                               public ::testing::WithParamInterface<bool> {
+ protected:
+  ConfigOptions config_options_;
+
  public:
-  OptionsSanityCheckTest() {}
+  OptionsSanityCheckTest() {
+    config_options_.ignore_unknown_options = false;
+    config_options_.ignore_unsupported_options = GetParam();
+    config_options_.input_strings_escaped = true;
+  }
 
  protected:
-  Status SanityCheckCFOptions(const ColumnFamilyOptions& cf_opts,
-                              ConfigOptions::SanityLevel level,
-                              bool input_strings_escaped = true) {
-    ConfigOptions config_options;
-    config_options.sanity_level = level;
-    config_options.ignore_unknown_options = false;
-    config_options.input_strings_escaped = input_strings_escaped;
-
+  Status SanityCheckOptions(const DBOptions& db_opts,
+                            const ColumnFamilyOptions& cf_opts,
+                            ConfigOptions::SanityLevel level) {
+    config_options_.sanity_level = level;
     return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
-        config_options, DBOptions(), {"default"}, {cf_opts}, kOptionsFileName,
+        config_options_, db_opts, {"default"}, {cf_opts}, kOptionsFileName,
         fs_.get());
   }
 
-  Status PersistCFOptions(const ColumnFamilyOptions& cf_opts) {
+  Status SanityCheckCFOptions(const ColumnFamilyOptions& cf_opts,
+                              ConfigOptions::SanityLevel level) {
+    return SanityCheckOptions(DBOptions(), cf_opts, level);
+  }
+
+  void SanityCheckCFOptions(const ColumnFamilyOptions& opts, bool exact) {
+    ASSERT_OK(SanityCheckCFOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelNone));
+    if (exact) {
+      ASSERT_OK(
+          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+    } else {
+      ASSERT_NOK(
+          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+    }
+  }
+
+  Status SanityCheckDBOptions(const DBOptions& db_opts,
+                              ConfigOptions::SanityLevel level) {
+    return SanityCheckOptions(db_opts, ColumnFamilyOptions(), level);
+  }
+
+  void SanityCheckDBOptions(const DBOptions& opts, bool exact) {
+    ASSERT_OK(SanityCheckDBOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckDBOptions(opts, ConfigOptions::kSanityLevelNone));
+    if (exact) {
+      ASSERT_OK(
+          SanityCheckDBOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+    } else {
+      ASSERT_NOK(
+          SanityCheckDBOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+    }
+  }
+
+  Status PersistOptions(const DBOptions& db_opts,
+                        const ColumnFamilyOptions& cf_opts) {
     Status s = fs_->DeleteFile(kOptionsFileName, IOOptions(), nullptr);
     if (!s.ok()) {
       return s;
     }
-    return PersistRocksDBOptions(DBOptions(), {"default"}, {cf_opts},
+    return PersistRocksDBOptions(db_opts, {"default"}, {cf_opts},
                                  kOptionsFileName, fs_.get());
+  }
+
+  Status PersistCFOptions(const ColumnFamilyOptions& cf_opts) {
+    return PersistOptions(DBOptions(), cf_opts);
+  }
+
+  Status PersistDBOptions(const DBOptions& db_opts) {
+    return PersistOptions(db_opts, ColumnFamilyOptions());
   }
 
   const std::string kOptionsFileName = "OPTIONS";
 };
 
-TEST_F(OptionsSanityCheckTest, SanityCheck) {
+TEST_P(OptionsSanityCheckTest, CFOptionsSanityCheck) {
   ColumnFamilyOptions opts;
   Random rnd(301);
 
@@ -3603,11 +3841,7 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
     opts.prefix_extractor.reset(NewFixedPrefixTransform(15));
     // expect pass only in
     // ConfigOptions::kSanityLevelLooselyCompatible
-    ASSERT_NOK(
-        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
-    ASSERT_OK(SanityCheckCFOptions(
-        opts, ConfigOptions::kSanityLevelLooselyCompatible));
-    ASSERT_OK(SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelNone));
+    SanityCheckCFOptions(opts, false);
 
     // Change prefix extractor from non-nullptr to nullptr
     opts.prefix_extractor.reset();
@@ -3647,8 +3881,7 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
 
     // persist the change
     ASSERT_OK(PersistCFOptions(opts));
-    ASSERT_OK(
-        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+    SanityCheckCFOptions(opts, config_options_.ignore_unsupported_options);
 
     for (int test = 0; test < 5; ++test) {
       // change the merge operator
@@ -3659,8 +3892,7 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
 
       // persist the change
       ASSERT_OK(PersistCFOptions(opts));
-      ASSERT_OK(
-          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+      SanityCheckCFOptions(opts, config_options_.ignore_unsupported_options);
     }
 
     // Test when going from merge operator -> nullptr
@@ -3671,8 +3903,7 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
 
     // persist the change
     ASSERT_OK(PersistCFOptions(opts));
-    ASSERT_OK(
-        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+    SanityCheckCFOptions(opts, true);
   }
 
   // compaction_filter
@@ -3680,15 +3911,11 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
     for (int test = 0; test < 5; ++test) {
       // change the compaction filter
       opts.compaction_filter = test::RandomCompactionFilter(&rnd);
-      ASSERT_NOK(
-          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
-      ASSERT_OK(SanityCheckCFOptions(
-          opts, ConfigOptions::kSanityLevelLooselyCompatible));
+      SanityCheckCFOptions(opts, false);
 
       // persist the change
       ASSERT_OK(PersistCFOptions(opts));
-      ASSERT_OK(
-          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+      SanityCheckCFOptions(opts, config_options_.ignore_unsupported_options);
       delete opts.compaction_filter;
       opts.compaction_filter = nullptr;
     }
@@ -3700,17 +3927,55 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
       // change the compaction filter factory
       opts.compaction_filter_factory.reset(
           test::RandomCompactionFilterFactory(&rnd));
-      ASSERT_NOK(
-          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
-      ASSERT_OK(SanityCheckCFOptions(
-          opts, ConfigOptions::kSanityLevelLooselyCompatible));
+      SanityCheckCFOptions(opts, false);
 
       // persist the change
       ASSERT_OK(PersistCFOptions(opts));
-      ASSERT_OK(
-          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+      SanityCheckCFOptions(opts, config_options_.ignore_unsupported_options);
     }
   }
+}
+
+TEST_P(OptionsSanityCheckTest, DBOptionsSanityCheck) {
+  DBOptions opts;
+  Random rnd(301);
+
+  // default DBOptions
+  {
+    ASSERT_OK(PersistDBOptions(opts));
+    ASSERT_OK(
+        SanityCheckDBOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+  }
+
+  // File checksum generator
+  {
+    class MockFileChecksumGenFactory : public FileChecksumGenFactory {
+     public:
+      static const char* kClassName() { return "Mock"; }
+      const char* Name() const override { return kClassName(); }
+      std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+          const FileChecksumGenContext& /*context*/) override {
+        return nullptr;
+      }
+    };
+
+    // Okay to change file_checksum_gen_factory form nullptr to non-nullptr
+    ASSERT_EQ(opts.file_checksum_gen_factory.get(), nullptr);
+    opts.file_checksum_gen_factory.reset(new MockFileChecksumGenFactory());
+
+    // persist the change
+    ASSERT_OK(PersistDBOptions(opts));
+    SanityCheckDBOptions(opts, config_options_.ignore_unsupported_options);
+
+    // Change file_checksum_gen_factory from non-nullptr to nullptr
+    opts.file_checksum_gen_factory.reset();
+    // expect pass as it's safe to change file_checksum_gen_factory
+    // from non-null to null
+    SanityCheckDBOptions(opts, false);
+  }
+  // persist the change
+  ASSERT_OK(PersistDBOptions(opts));
+  ASSERT_OK(SanityCheckDBOptions(opts, ConfigOptions::kSanityLevelExactMatch));
 }
 
 namespace {
@@ -4423,7 +4688,11 @@ TEST_F(ConfigOptionsTest, MergeOperatorFromString) {
   ASSERT_NE(delimiter, nullptr);
   ASSERT_EQ(*delimiter, "&&");
 }
+
+INSTANTIATE_TEST_CASE_P(OptionsSanityCheckTest, OptionsSanityCheckTest,
+                        ::testing::Bool());
 #endif  // !ROCKSDB_LITE
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

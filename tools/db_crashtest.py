@@ -45,7 +45,7 @@ default_params = {
         random.choice(
             ["none", "snappy", "zlib", "bzip2", "lz4", "lz4hc", "xpress",
              "zstd"]),
-    "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64"]),
+    "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64", "kXXH3"]),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
     # Disabled compression_parallel_threads as the feature is not stable
@@ -60,7 +60,7 @@ default_params = {
     "destroy_db_initially": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
-    "expected_values_path": lambda: setup_expected_values_file(),
+    "expected_values_dir": lambda: setup_expected_values_dir(),
     "fail_if_options_file_error": lambda: random.randint(0, 1),
     "flush_one_in": 1000000,
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
@@ -78,6 +78,9 @@ default_params = {
     "max_key": 100000000,
     "max_write_buffer_number": 3,
     "mmap_read": lambda: random.randint(0, 1),
+    # Setting `nooverwritepercent > 0` is only possible because we do not vary
+    # the random seed, so the same keys are chosen by every run for disallowing
+    # overwrites.
     "nooverwritepercent": 1,
     "open_files": lambda : random.choice([-1, -1, 100, 500000]),
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
@@ -140,7 +143,7 @@ default_params = {
     "continuous_verification_interval" : 0,
     "max_key_len": 3,
     "key_len_percent_dist": "1,30,69",
-    "read_fault_one_in": lambda: random.choice([0, 1000]),
+    "read_fault_one_in": lambda: random.choice([0, 32, 1000]),
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
     "open_read_fault_one_in": lambda: random.choice([0, 0, 32]),
@@ -172,23 +175,23 @@ def get_dbname(test_name):
         os.mkdir(dbname)
     return dbname
 
-expected_values_file = None
-def setup_expected_values_file():
-    global expected_values_file
-    if expected_values_file is not None:
-        return expected_values_file
-    expected_file_name = "rocksdb_crashtest_" + "expected"
+expected_values_dir = None
+def setup_expected_values_dir():
+    global expected_values_dir
+    if expected_values_dir is not None:
+        return expected_values_dir
+    expected_dir_prefix = "rocksdb_crashtest_expected_"
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
     if test_tmpdir is None or test_tmpdir == "":
-        expected_values_file = tempfile.NamedTemporaryFile(
-            prefix=expected_file_name, delete=False).name
+        expected_values_dir = tempfile.mkdtemp(
+            prefix=expected_dir_prefix)
     else:
-        # if tmpdir is specified, store the expected_values_file in the same dir
-        expected_values_file = test_tmpdir + "/" + expected_file_name
-        if os.path.exists(expected_values_file):
-            os.remove(expected_values_file)
-        open(expected_values_file, 'a').close()
-    return expected_values_file
+        # if tmpdir is specified, store the expected_values_dir under that dir
+        expected_values_dir = test_tmpdir + "/rocksdb_crashtest_expected"
+        if os.path.exists(expected_values_dir):
+            shutil.rmtree(expected_values_dir)
+        os.mkdir(expected_values_dir)
+    return expected_values_dir
 
 
 def is_direct_io_supported(dbname):
@@ -222,7 +225,10 @@ whitebox_default_params = {
 simple_default_params = {
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
     "column_families": 1,
-    "experimental_mempurge_threshold": lambda: 10.0*random.random(),
+    # TODO: re-enable once below loop succeeds for a while (a few minutes should
+    # suffice):
+    # `while rm -rf /dev/shm/single_stress && ./db_stress --clear_column_family_one_in=0 --column_families=1 --db=/dev/shm/single_stress --experimental_mempurge_threshold=5.493146827397074 --flush_one_in=10000 --reopen=0 --write_buffer_size=262144 --value_size_mult=33 --max_write_buffer_number=3 -ops_per_thread=10000; do : ; done`
+    "experimental_mempurge_threshold": 0,
     "max_background_compactions": 1,
     "max_bytes_for_level_base": 67108864,
     "memtablerep": "skip_list",
@@ -286,6 +292,7 @@ blob_params = {
     "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
     "enable_blob_garbage_collection": lambda: random.choice([0] + [1] * 3),
     "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
+    "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
 }
 
 ts_params = {
@@ -294,8 +301,6 @@ ts_params = {
     "user_timestamp_size": 8,
     "use_merge": 0,
     "use_full_merge_v1": 0,
-    # In order to disable SingleDelete
-    "nooverwritepercent": 0,
     "use_txn": 0,
     "read_only": 0,
     "secondary_catch_up_one_in": 0,
@@ -670,7 +675,7 @@ def whitebox_crash_main(args, unknown_args):
             # success
             shutil.rmtree(dbname, True)
             os.mkdir(dbname)
-            cmd_params.pop('expected_values_path', None)
+            cmd_params.pop('expected_values_dir', None)
             check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill
@@ -715,9 +720,9 @@ def main():
         blackbox_crash_main(args, unknown_args)
     if args.test_type == 'whitebox':
         whitebox_crash_main(args, unknown_args)
-    # Only delete the `expected_values_file` if test passes
-    if os.path.exists(expected_values_file):
-        os.remove(expected_values_file)
+    # Only delete the `expected_values_dir` if test passes
+    if expected_values_dir is not None:
+        shutil.rmtree(expected_values_dir)
 
 
 if __name__ == '__main__':

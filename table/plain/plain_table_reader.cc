@@ -149,8 +149,7 @@ Status PlainTableReader::Open(
       return Status::InvalidArgument(
           "Prefix extractor is missing when opening a PlainTable built "
           "using a prefix extractor");
-    } else if (prefix_extractor_in_file.compare(prefix_extractor->Name()) !=
-               0) {
+    } else if (prefix_extractor_in_file != prefix_extractor->AsString()) {
       return Status::InvalidArgument(
           "Prefix extractor given doesn't match the one used to build "
           "PlainTable");

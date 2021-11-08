@@ -32,13 +32,12 @@ namespace ROCKSDB_NAMESPACE {
 class WalManagerTest : public testing::Test {
  public:
   WalManagerTest()
-      : env_(new MockEnv(Env::Default())),
-        dbname_(test::PerThreadDBPath("wal_manager_test")),
+      : dbname_(test::PerThreadDBPath("wal_manager_test")),
         db_options_(),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
         current_log_number_(0) {
-    DestroyDB(dbname_, Options());
+    env_.reset(MockEnv::Create(Env::Default())), DestroyDB(dbname_, Options());
   }
 
   void Init() {
@@ -247,7 +246,7 @@ TEST_F(WalManagerTest, WALArchivalSizeLimit) {
   ASSERT_TRUE(archive_size <= db_options_.WAL_size_limit_MB * 1024 * 1024);
 
   db_options_.WAL_ttl_seconds = 1;
-  env_->FakeSleepForMicroseconds(2 * 1000 * 1000);
+  env_->SleepForMicroseconds(2 * 1000 * 1000);
   Reopen();
   wal_manager_->PurgeObsoleteWALFiles();
 
@@ -273,7 +272,7 @@ TEST_F(WalManagerTest, WALArchivalTtl) {
   ASSERT_GT(log_files.size(), 0U);
 
   db_options_.WAL_ttl_seconds = 1;
-  env_->FakeSleepForMicroseconds(3 * 1000 * 1000);
+  env_->SleepForMicroseconds(3 * 1000 * 1000);
   Reopen();
   wal_manager_->PurgeObsoleteWALFiles();
 

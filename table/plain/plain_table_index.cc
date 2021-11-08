@@ -4,10 +4,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
+#include "table/plain/plain_table_index.h"
 
 #include <cinttypes>
 
-#include "table/plain/plain_table_index.h"
+#include "logging/logging.h"
 #include "util/coding.h"
 #include "util/hash.h"
 

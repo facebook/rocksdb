@@ -413,6 +413,10 @@ enum Tickers : uint32_t {
   BACKUP_READ_BYTES,
   BACKUP_WRITE_BYTES,
 
+  // Remote compaction read/write statistics
+  REMOTE_COMPACT_READ_BYTES,
+  REMOTE_COMPACT_WRITE_BYTES,
+
   TICKER_ENUM_MAX
 };
 
@@ -569,6 +573,10 @@ enum StatsLevel : uint8_t {
 //  options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
 //  HistogramData hist;
 //  options.statistics->histogramData(FLUSH_TIME, &hist);
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class Statistics : public Customizable {
  public:
   virtual ~Statistics() {}
@@ -576,6 +584,10 @@ class Statistics : public Customizable {
   static Status CreateFromString(const ConfigOptions& opts,
                                  const std::string& value,
                                  std::shared_ptr<Statistics>* result);
+  // Default name of empty, for backwards compatibility.  Derived classes should
+  // override this method.
+  // This default implementation will likely be removed in a future release
+  const char* Name() const override { return ""; }
   virtual uint64_t getTickerCount(uint32_t tickerType) const = 0;
   virtual void histogramData(uint32_t type,
                              HistogramData* const data) const = 0;
@@ -607,6 +619,9 @@ class Statistics : public Customizable {
   // Resets all ticker and histogram stats
   virtual Status Reset() { return Status::NotSupported("Not implemented"); }
 
+#ifndef ROCKSDB_LITE
+  using Customizable::ToString;
+#endif  // ROCKSDB_LITE
   // String representation of the statistic object. Must be thread-safe.
   virtual std::string ToString() const {
     // Do nothing by default

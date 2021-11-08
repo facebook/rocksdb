@@ -134,6 +134,7 @@ class Footer {
 
   // Use this constructor when you plan to write out the footer using
   // EncodeTo(). Never use this constructor with DecodeFrom().
+  // `version` is same as `format_version` for block-based table.
   Footer(uint64_t table_magic_number, uint32_t version);
 
   // The version of the footer in this file
@@ -225,6 +226,17 @@ inline CompressionType get_block_compression_type(const char* block_data,
   return static_cast<CompressionType>(block_data[block_size]);
 }
 
+// Computes a checksum using the given ChecksumType. Sometimes we need to
+// include one more input byte logically at the end but not part of the main
+// data buffer. If data_size >= 1, then
+// ComputeBuiltinChecksum(type, data, size)
+// ==
+// ComputeBuiltinChecksumWithLastByte(type, data, size - 1, data[size - 1])
+uint32_t ComputeBuiltinChecksum(ChecksumType type, const char* data,
+                                size_t size);
+uint32_t ComputeBuiltinChecksumWithLastByte(ChecksumType type, const char* data,
+                                            size_t size, char last_byte);
+
 // Represents the contents of a block read from an SST file. Depending on how
 // it's created, it may or may not own the actual block bytes. As an example,
 // BlockContents objects representing data read from mmapped files only point
@@ -300,15 +312,6 @@ struct BlockContents {
   }
 };
 
-// Read the block identified by "handle" from "file".  On failure
-// return non-OK.  On success fill *result and return OK.
-extern Status ReadBlockContents(
-    RandomAccessFileReader* file, FilePrefetchBuffer* prefetch_buffer,
-    const Footer& footer, const ReadOptions& options, const BlockHandle& handle,
-    BlockContents* contents, const ImmutableOptions& ioptions,
-    bool do_uncompress = true, const Slice& compression_dict = Slice(),
-    const PersistentCacheOptions& cache_options = PersistentCacheOptions());
-
 // The 'data' points to the raw block contents read in from file.
 // This method allocates a new heap buffer and the raw block
 // contents are uncompresed into this buffer. This buffer is
@@ -339,8 +342,7 @@ extern Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id);
 // TODO(andrewkr): we should prefer one way of representing a null/uninitialized
 // BlockHandle. Currently we use zeros for null and use negation-of-zeros for
 // uninitialized.
-inline BlockHandle::BlockHandle()
-    : BlockHandle(~static_cast<uint64_t>(0), ~static_cast<uint64_t>(0)) {}
+inline BlockHandle::BlockHandle() : BlockHandle(~uint64_t{0}, ~uint64_t{0}) {}
 
 inline BlockHandle::BlockHandle(uint64_t _offset, uint64_t _size)
     : offset_(_offset), size_(_size) {}

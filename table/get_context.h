@@ -6,18 +6,19 @@
 #pragma once
 #include <string>
 
-#include "db/blob/blob_fetcher.h"
-#include "db/dbformat.h"
-#include "db/merge_context.h"
 #include "db/read_callback.h"
-#include "rocksdb/statistics.h"
 #include "rocksdb/types.h"
-#include "table/block_based/block.h"
 
 namespace ROCKSDB_NAMESPACE {
+class BlobFetcher;
+class Comparator;
+class Logger;
 class MergeContext;
+class MergeOperator;
 class PinnedIteratorsManager;
+class Statistics;
 class SystemClock;
+struct ParsedInternalKey;
 
 // Data structure for accumulating statistics during a point lookup. At the
 // end of the point lookup, the corresponding ticker stats are updated. This

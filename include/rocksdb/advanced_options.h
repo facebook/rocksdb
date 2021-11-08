@@ -105,9 +105,14 @@ struct CompressionOptions {
   //
   // When compression dictionary is disabled, we compress and write each block
   // before buffering data for the next one. When compression dictionary is
-  // enabled, we buffer all SST file data in-memory so we can sample it, as data
+  // enabled, we buffer SST file data in-memory so we can sample it, as data
   // can only be compressed and written after the dictionary has been finalized.
-  // So users of this feature may see increased memory usage.
+  //
+  // The amount of data buffered can be limited by `max_dict_buffer_bytes`. This
+  // buffered memory is charged to the block cache when there is a block cache.
+  // If block cache insertion fails with `Status::Incomplete` (i.e., it is
+  // full), we finalize the dictionary with whatever data we have and then stop
+  // buffering.
   //
   // Default: 0.
   uint32_t max_dict_bytes;
@@ -200,6 +205,14 @@ enum class Temperature : uint8_t {
   kHot = 0x04,
   kWarm = 0x08,
   kCold = 0x0C,
+};
+
+// The control option of how the cache tiers will be used. Currently rocksdb
+// support block cahe (volatile tier), secondary cache (non-volatile tier).
+// In the future, we may add more caching layers.
+enum class CacheTier : uint8_t {
+  kVolatileTier = 0,
+  kNonVolatileBlockTier = 0x01,
 };
 
 enum UpdateStatus {    // Return status For inplace update callback
@@ -299,35 +312,39 @@ struct AdvancedColumnFamilyOptions {
   // delta_value - Delta value to be merged with the existing_value.
   //               Stored in transaction logs.
   // merged_value - Set when delta is applied on the previous value.
-
+  //
   // Applicable only when inplace_update_support is true,
   // this callback function is called at the time of updating the memtable
   // as part of a Put operation, lets say Put(key, delta_value). It allows the
   // 'delta_value' specified as part of the Put operation to be merged with
   // an 'existing_value' of the key in the database.
-
+  //
   // If the merged value is smaller in size that the 'existing_value',
   // then this function can update the 'existing_value' buffer inplace and
   // the corresponding 'existing_value'_size pointer, if it wishes to.
   // The callback should return UpdateStatus::UPDATED_INPLACE.
   // In this case. (In this case, the snapshot-semantics of the rocksdb
   // Iterator is not atomic anymore).
-
+  //
   // If the merged value is larger in size than the 'existing_value' or the
   // application does not wish to modify the 'existing_value' buffer inplace,
   // then the merged value should be returned via *merge_value. It is set by
   // merging the 'existing_value' and the Put 'delta_value'. The callback should
   // return UpdateStatus::UPDATED in this case. This merged value will be added
   // to the memtable.
-
+  //
   // If merging fails or the application does not wish to take any action,
   // then the callback should return UpdateStatus::UPDATE_FAILED.
-
+  //
   // Please remember that the original call from the application is Put(key,
   // delta_value). So the transaction log (if enabled) will still contain (key,
   // delta_value). The 'merged_value' is not stored in the transaction log.
   // Hence the inplace_callback function should be consistent across db reopens.
-
+  //
+  // RocksDB callbacks are NOT exception-safe. A callback completing with an
+  // exception can lead to undefined behavior in RocksDB, including data loss,
+  // unreported corruption, deadlocks, and more.
+  //
   // Default: nullptr
   UpdateStatus (*inplace_callback)(char* existing_value,
                                    uint32_t* existing_value_size,
@@ -787,7 +804,8 @@ struct AdvancedColumnFamilyOptions {
   // amplification for large-value use cases at the cost of introducing a level
   // of indirection for reads. See also the options min_blob_size,
   // blob_file_size, blob_compression_type, enable_blob_garbage_collection,
-  // and blob_garbage_collection_age_cutoff below.
+  // blob_garbage_collection_age_cutoff, and
+  // blob_garbage_collection_force_threshold below.
   //
   // Default: false
   //
@@ -828,7 +846,8 @@ struct AdvancedColumnFamilyOptions {
   // compaction. Valid blobs residing in blob files older than a cutoff get
   // relocated to new files as they are encountered during compaction, which
   // makes it possible to clean up blob files once they contain nothing but
-  // obsolete/garbage blobs. See also blob_garbage_collection_age_cutoff below.
+  // obsolete/garbage blobs. See also blob_garbage_collection_age_cutoff and
+  // blob_garbage_collection_force_threshold below.
   //
   // Default: false
   //
@@ -845,6 +864,19 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through the SetOptions() API
   double blob_garbage_collection_age_cutoff = 0.25;
+
+  // If the ratio of garbage in the oldest blob files exceeds this threshold,
+  // targeted compactions are scheduled in order to force garbage collecting
+  // the blob files in question, assuming they are all eligible based on the
+  // value of blob_garbage_collection_age_cutoff above. This option is
+  // currently only supported with leveled compactions.
+  // Note that enable_blob_garbage_collection has to be set in order for this
+  // option to have any effect.
+  //
+  // Default: 1.0
+  //
+  // Dynamically changeable through the SetOptions() API
+  double blob_garbage_collection_force_threshold = 1.0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

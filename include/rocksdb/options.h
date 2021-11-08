@@ -372,7 +372,7 @@ extern const char* kHostnameForDbHostId;
 enum class CompactionServiceJobStatus : char {
   kSuccess,
   kFailure,
-  kUseLocal,  // TODO: Add support for use local compaction
+  kUseLocal,
 };
 
 struct CompactionServiceJobInfo {
@@ -384,15 +384,21 @@ struct CompactionServiceJobInfo {
                     // `db_session_id` could help you build unique id across
                     // different DBs and sessions.
 
-  // TODO: Add priority information
+  Env::Priority priority;
+
   CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
-                           std::string db_session_id_, uint64_t job_id_)
+                           std::string db_session_id_, uint64_t job_id_,
+                           Env::Priority priority_)
       : db_name(std::move(db_name_)),
         db_id(std::move(db_id_)),
         db_session_id(std::move(db_session_id_)),
-        job_id(job_id_) {}
+        job_id(job_id_),
+        priority(priority_) {}
 };
 
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class CompactionService : public Customizable {
  public:
   static const char* Type() { return "CompactionService"; }
@@ -928,7 +934,7 @@ struct DBOptions {
   size_t random_access_max_buffer_size = 1024 * 1024;
 
   // This is the maximum buffer size that is used by WritableFileWriter.
-  // On Windows, we need to maintain an aligned buffer for writes.
+  // With direct IO, we need to maintain an aligned buffer for writes.
   // We allow the buffer to grow until it's size hits the limit in buffered
   // IO and fix the buffer size when using direct IO to ensure alignment of
   // write requests if the logical sector size is unusual
@@ -1333,6 +1339,18 @@ struct DBOptions {
   // backward/forward compatibility support for now. Some known issues are still
   // under development.
   std::shared_ptr<CompactionService> compaction_service = nullptr;
+
+  // It indicates, which lowest cache tier we want to
+  // use for a certain DB. Currently we support volatile_tier and
+  // non_volatile_tier. They are layered. By setting it to kVolatileTier, only
+  // the block cache (current implemented volatile_tier) is used. So
+  // cache entries will not spill to secondary cache (current
+  // implemented non_volatile_tier), and block cache lookup misses will not
+  // lookup in the secondary cache. When kNonVolatileBlockTier is used, we use
+  // both block cache and secondary cache.
+  //
+  // Default: kNonVolatileBlockTier
+  CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1513,9 +1531,11 @@ struct ReadOptions {
   // Default: false
   bool background_purge_on_iterator_cleanup;
 
-  // If true, keys deleted using the DeleteRange() API will be visible to
-  // readers until they are naturally deleted during compaction. This improves
-  // read performance in DBs with many range deletions.
+  // If true, range tombstones handling will be skipped in key lookup paths.
+  // For DB instances that don't use DeleteRange() calls, this setting can
+  // be used to optimize the read performance.
+  // Note that, if this assumption (of no previous DeleteRange() calls) is
+  // broken, stale keys could be served in read paths.
   // Default: false
   bool ignore_range_deletions;
 
@@ -1736,6 +1756,9 @@ struct CompactRangeOptions {
   Slice* full_history_ts_low = nullptr;
 
   // Allows cancellation of an in-progress manual compaction.
+  //
+  // Cancellation can be delayed waiting on automatic compactions when used
+  // together with `exclusive_manual_compaction == true`.
   std::atomic<bool>* canceled = nullptr;
 };
 
@@ -1875,5 +1898,15 @@ struct CompactionServiceOptionsOverride {
   // to set it here.
   std::shared_ptr<Statistics> statistics = nullptr;
 };
+
+#ifndef ROCKSDB_LITE
+struct LiveFilesStorageInfoOptions {
+  // Whether to populate FileStorageInfo::file_checksum* or leave blank
+  bool include_checksum_info = false;
+  // Flushes memtables if total size in bytes of live WAL files is >= this
+  // number. Default: always force a flush without checking sizes.
+  uint64_t wal_size_for_flush = 0;
+};
+#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

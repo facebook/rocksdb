@@ -40,6 +40,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.HdfsEnv\
 	org.rocksdb.ConcurrentTaskLimiter\
 	org.rocksdb.ConcurrentTaskLimiterImpl\
+	org.rocksdb.KeyMayExist\
 	org.rocksdb.Logger\
 	org.rocksdb.LRUCache\
 	org.rocksdb.MemoryUsageType\
@@ -49,6 +50,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.OptimisticTransactionDB\
 	org.rocksdb.OptimisticTransactionOptions\
 	org.rocksdb.Options\
+	org.rocksdb.OptionsString\
 	org.rocksdb.OptionsUtil\
 	org.rocksdb.PersistentCache\
 	org.rocksdb.PlainTableConfig\
@@ -107,8 +109,10 @@ SHA256_CMD ?= sha256sum
 JAVA_TESTS = \
 	org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.BackupEngineTest\
+	org.rocksdb.BlobOptionsTest\
 	org.rocksdb.BlockBasedTableConfigTest\
 	org.rocksdb.BuiltinComparatorTest\
+	org.rocksdb.BytewiseComparatorRegressionTest\
 	org.rocksdb.util.BytewiseComparatorTest\
 	org.rocksdb.util.BytewiseComparatorIntTest\
 	org.rocksdb.CheckPointTest\
@@ -145,9 +149,12 @@ JAVA_TESTS = \
 	org.rocksdb.MemoryUtilTest\
 	org.rocksdb.MemTableTest\
 	org.rocksdb.MergeTest\
+	org.rocksdb.MultiGetManyKeysTest\
+	org.rocksdb.MultiGetTest\
 	org.rocksdb.MixedOptionsTest\
 	org.rocksdb.MutableColumnFamilyOptionsTest\
 	org.rocksdb.MutableDBOptionsTest\
+	org.rocksdb.MutableOptionsGetSetTest \
 	org.rocksdb.NativeComparatorWrapperTest\
 	org.rocksdb.NativeLibraryLoaderTest\
 	org.rocksdb.OptimisticTransactionTest\

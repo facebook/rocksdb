@@ -53,7 +53,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
-#include "env/unique_id.h"
+#include "env/unique_id_gen.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -92,6 +92,7 @@
 #include "table/sst_file_dumper.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "trace_replay/trace_replay.h"
 #include "util/autovector.h"
@@ -237,7 +238,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       closed_(false),
       atomic_flush_install_cv_(&mutex_),
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
-                     &error_handler_) {
+                     &error_handler_, &event_logger_,
+                     immutable_db_options_.listeners, dbname_) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -717,9 +719,11 @@ Status DBImpl::CloseHelper() {
 Status DBImpl::CloseImpl() { return CloseHelper(); }
 
 DBImpl::~DBImpl() {
+  InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
   if (!closed_) {
     closed_ = true;
-    CloseHelper().PermitUncheckedError();
+    closing_status_ = CloseHelper();
+    closing_status_.PermitUncheckedError();
   }
 }
 
@@ -1385,7 +1389,9 @@ Status DBImpl::SyncWAL() {
     IOStatusCheck(io_s);
   }
   if (status.ok() && need_log_dir_sync) {
-    status = directories_.GetWalDir()->Fsync(IOOptions(), nullptr);
+    status = directories_.GetWalDir()->FsyncWithDirOptions(
+        IOOptions(), nullptr,
+        DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
   }
   TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
 
@@ -2161,7 +2167,7 @@ bool DBImpl::MultiCFSnapshot(
     // consecutive retries, it means the write rate is very high. In that case
     // its probably ok to take the mutex on the 3rd try so we can succeed for
     // sure
-    static const int num_retries = 3;
+    constexpr int num_retries = 3;
     for (int i = 0; i < num_retries; ++i) {
       last_try = (i == num_retries - 1);
       bool retry = false;
@@ -2191,8 +2197,9 @@ bool DBImpl::MultiCFSnapshot(
           *snapshot = versions_->LastPublishedSequence();
         }
       } else {
-        *snapshot = reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
-                        ->number_;
+        *snapshot =
+            static_cast_with_check<const SnapshotImpl>(read_options.snapshot)
+                ->number_;
       }
       for (auto cf_iter = cf_list->begin(); cf_iter != cf_list->end();
            ++cf_iter) {
@@ -2393,17 +2400,9 @@ void DBImpl::PrepareMultiGetKeys(
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys) {
   if (sorted_input) {
 #ifndef NDEBUG
-    CompareKeyContext key_context_less;
-
-    for (size_t index = 1; index < sorted_keys->size(); ++index) {
-      const KeyContext* const lhs = (*sorted_keys)[index - 1];
-      const KeyContext* const rhs = (*sorted_keys)[index];
-
-      // lhs should be <= rhs, or in other words, rhs should NOT be < lhs
-      assert(!key_context_less(rhs, lhs));
-    }
+    assert(std::is_sorted(sorted_keys->begin(), sorted_keys->end(),
+                          CompareKeyContext()));
 #endif
-
     return;
   }
 
@@ -3951,23 +3950,18 @@ Status DBImpl::GetDbSessionId(std::string& session_id) const {
 }
 
 std::string DBImpl::GenerateDbSessionId(Env*) {
-  // GenerateRawUniqueId() generates an identifier that has a negligible
-  // probability of being duplicated. It should have full 128 bits of entropy.
-  uint64_t a, b;
-  GenerateRawUniqueId(&a, &b);
+  // See SemiStructuredUniqueIdGen for its desirable properties.
+  static SemiStructuredUniqueIdGen gen;
 
-  // Hash and reformat that down to a more compact format, 20 characters
-  // in base-36 ([0-9A-Z]), which is ~103 bits of entropy, which is enough
-  // to expect no collisions across a billion servers each opening DBs
-  // a million times (~2^50). Benefits vs. raw unique id:
-  // * Save ~ dozen bytes per SST file
-  // * Shorter shared backup file names (some platforms have low limits)
-  // * Visually distinct from DB id format
-  std::string db_session_id(20U, '\0');
-  char* buf = &db_session_id[0];
-  PutBaseChars<36>(&buf, 10, a, /*uppercase*/ true);
-  PutBaseChars<36>(&buf, 10, b, /*uppercase*/ true);
-  return db_session_id;
+  uint64_t lo, hi;
+  gen.GenerateNext(&hi, &lo);
+  if (lo == 0) {
+    // Avoid emitting session ID with lo==0, so that SST unique
+    // IDs can be more easily ensured non-zero
+    gen.GenerateNext(&hi, &lo);
+    assert(lo != 0);
+  }
+  return EncodeSessionId(hi, lo);
 }
 
 void DBImpl::SetDbSessionId() {
@@ -4012,19 +4006,20 @@ Status DB::DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family) {
 DB::~DB() {}
 
 Status DBImpl::Close() {
-  if (!closed_) {
-    {
-      InstrumentedMutexLock l(&mutex_);
-      // If there is unreleased snapshot, fail the close call
-      if (!snapshots_.empty()) {
-        return Status::Aborted("Cannot close DB with unreleased snapshot.");
-      }
-    }
-
-    closed_ = true;
-    return CloseImpl();
+  InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
+  if (closed_) {
+    return closing_status_;
   }
-  return Status::OK();
+  {
+    InstrumentedMutexLock l(&mutex_);
+    // If there is unreleased snapshot, fail the close call
+    if (!snapshots_.empty()) {
+      return Status::Aborted("Cannot close DB with unreleased snapshot.");
+    }
+  }
+  closing_status_ = CloseImpl();
+  closed_ = true;
+  return closing_status_;
 }
 
 Status DB::ListColumnFamilies(const DBOptions& db_options,
@@ -4065,8 +4060,10 @@ Status DestroyDB(const std::string& dbname, const Options& options,
           del = DestroyDB(path_to_delete, options);
         } else if (type == kTableFile || type == kWalFile ||
                    type == kBlobFile) {
-          del = DeleteDBFile(&soptions, path_to_delete, dbname,
-                             /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
+          del = DeleteDBFile(
+              &soptions, path_to_delete, dbname,
+              /*force_bg=*/false,
+              /*force_fg=*/(type == kWalFile) ? !wal_in_db_path : false);
         } else {
           del = env->DeleteFile(path_to_delete);
         }
@@ -4288,11 +4285,24 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
   uint64_t options_file_number = versions_->NewFileNumber();
   std::string options_file_name =
       OptionsFileName(GetName(), options_file_number);
-  // Retry if the file name happen to conflict with an existing one.
-  s = GetEnv()->RenameFile(file_name, options_file_name);
+  uint64_t options_file_size = 0;
+  s = GetEnv()->GetFileSize(file_name, &options_file_size);
+  if (s.ok()) {
+    // Retry if the file name happen to conflict with an existing one.
+    s = GetEnv()->RenameFile(file_name, options_file_name);
+    std::unique_ptr<FSDirectory> dir_obj;
+    if (s.ok()) {
+      s = fs_->NewDirectory(GetName(), IOOptions(), &dir_obj, nullptr);
+    }
+    if (s.ok()) {
+      s = dir_obj->FsyncWithDirOptions(IOOptions(), nullptr,
+                                       DirFsyncOptions(options_file_name));
+    }
+  }
   if (s.ok()) {
     InstrumentedMutexLock l(&mutex_);
     versions_->options_file_number_ = options_file_number;
+    versions_->options_file_size_ = options_file_size;
   }
 
   if (0 == disable_delete_obsolete_files_) {
@@ -4562,7 +4572,8 @@ Status DBImpl::IngestExternalFiles(
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
     Status es = ingestion_jobs[i].Prepare(
         args[i].external_files, args[i].files_checksums,
-        args[i].files_checksum_func_names, start_file_number, super_version);
+        args[i].files_checksum_func_names, args[i].file_temperature,
+        start_file_number, super_version);
     // capture first error only
     if (!es.ok() && status.ok()) {
       status = es;
@@ -4577,7 +4588,8 @@ Status DBImpl::IngestExternalFiles(
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
     Status es = ingestion_jobs[0].Prepare(
         args[0].external_files, args[0].files_checksums,
-        args[0].files_checksum_func_names, next_file_number, super_version);
+        args[0].files_checksum_func_names, args[0].file_temperature,
+        next_file_number, super_version);
     if (!es.ok()) {
       status = es;
     }
@@ -4685,14 +4697,11 @@ Status DBImpl::IngestExternalFiles(
     if (status.ok()) {
       int consumed_seqno_count =
           ingestion_jobs[0].ConsumedSequenceNumbersCount();
-#ifndef NDEBUG
       for (size_t i = 1; i != num_cfs; ++i) {
-        assert(!!consumed_seqno_count ==
-               !!ingestion_jobs[i].ConsumedSequenceNumbersCount());
-        consumed_seqno_count +=
-            ingestion_jobs[i].ConsumedSequenceNumbersCount();
+        consumed_seqno_count =
+            std::max(consumed_seqno_count,
+                     ingestion_jobs[i].ConsumedSequenceNumbersCount());
       }
-#endif
       if (consumed_seqno_count > 0) {
         const SequenceNumber last_seqno = versions_->LastSequence();
         versions_->SetLastAllocatedSequence(last_seqno + consumed_seqno_count);
