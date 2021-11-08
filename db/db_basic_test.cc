@@ -3296,6 +3296,9 @@ class DeadlineFS : public FileSystemWrapper {
         ignore_deadline_(false),
         error_on_delay_(error_on_delay) {}
 
+  static const char* kClassName() { return "DeadlineFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+
   IOStatus NewRandomAccessFile(const std::string& fname,
                                const FileOptions& opts,
                                std::unique_ptr<FSRandomAccessFile>* result,

@@ -110,7 +110,10 @@ class WinFileSystem : public FileSystem {
   static const std::shared_ptr<WinFileSystem>& Default();
   WinFileSystem(const std::shared_ptr<SystemClock>& clock);
   ~WinFileSystem() {}
-  const char* Name() const { return "WinFS"; }
+  static const char* kClassName() { return "WinFS"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const { return kDefaultName(); }
+
   static size_t GetSectorSize(const std::string& fname);
   size_t GetPageSize() const { return page_size_; }
   size_t GetAllocationGranularity() const { return allocation_granularity_; }

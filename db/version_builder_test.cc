@@ -151,7 +151,7 @@ class VersionBuilderTest : public testing::Test {
   }
 
   void UpdateVersionStorageInfo() {
-    vstorage_.UpdateFilesByCompactionPri(ioptions_.compaction_pri);
+    vstorage_.UpdateFilesByCompactionPri(ioptions_, mutable_cf_options_);
     vstorage_.UpdateNumNonEmptyLevels();
     vstorage_.GenerateFileIndexer();
     vstorage_.GenerateLevelFilesBrief();
@@ -943,6 +943,69 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileNotFound) {
   const Status s = builder.Apply(&edit);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(std::strstr(s.getState(), "Blob file #1234 not found"));
+}
+
+TEST_F(VersionBuilderTest, BlobFileGarbageOverflow) {
+  // Test that VersionEdits that would result in the count/total size of garbage
+  // exceeding the count/total size of all blobs are rejected.
+
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  constexpr VersionSet* version_set = nullptr;
+
+  VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
+                         version_set);
+
+  VersionEdit addition;
+
+  constexpr uint64_t blob_file_number = 1234;
+  constexpr uint64_t total_blob_count = 5678;
+  constexpr uint64_t total_blob_bytes = 999999;
+  constexpr char checksum_method[] = "SHA1";
+  constexpr char checksum_value[] =
+      "\xbd\xb7\xf3\x4a\x59\xdf\xa1\x59\x2c\xe7\xf5\x2e\x99\xf9\x8c\x57\x0c\x52"
+      "\x5c\xbd";
+
+  addition.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
+                       checksum_method, checksum_value);
+
+  // Add dummy table file to ensure the blob file is referenced.
+  constexpr uint64_t table_file_number = 1;
+  AddDummyFileToEdit(&addition, table_file_number, blob_file_number);
+
+  ASSERT_OK(builder.Apply(&addition));
+
+  {
+    // Garbage blob count overflow
+    constexpr uint64_t garbage_blob_count = 5679;
+    constexpr uint64_t garbage_blob_bytes = 999999;
+
+    VersionEdit garbage;
+
+    garbage.AddBlobFileGarbage(blob_file_number, garbage_blob_count,
+                               garbage_blob_bytes);
+
+    const Status s = builder.Apply(&garbage);
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(
+        std::strstr(s.getState(), "Garbage overflow for blob file #1234"));
+  }
+
+  {
+    // Garbage blob bytes overflow
+    constexpr uint64_t garbage_blob_count = 5678;
+    constexpr uint64_t garbage_blob_bytes = 1000000;
+
+    VersionEdit garbage;
+
+    garbage.AddBlobFileGarbage(blob_file_number, garbage_blob_count,
+                               garbage_blob_bytes);
+
+    const Status s = builder.Apply(&garbage);
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(
+        std::strstr(s.getState(), "Garbage overflow for blob file #1234"));
+  }
 }
 
 TEST_F(VersionBuilderTest, SaveBlobFilesTo) {

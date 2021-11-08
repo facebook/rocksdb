@@ -391,12 +391,17 @@ struct PosixMemoryMappedFileBuffer : public MemoryMappedFileBuffer {
 
 class PosixDirectory : public FSDirectory {
  public:
-  explicit PosixDirectory(int fd) : fd_(fd) {}
+  explicit PosixDirectory(int fd);
   ~PosixDirectory();
   virtual IOStatus Fsync(const IOOptions& opts, IODebugContext* dbg) override;
 
+  virtual IOStatus FsyncWithDirOptions(
+      const IOOptions&, IODebugContext*,
+      const DirFsyncOptions& dir_fsync_options) override;
+
  private:
   int fd_;
+  bool is_btrfs_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -262,6 +262,10 @@ struct CreateBackupOptions {
   bool flush_before_backup = false;
 
   // Callback for reporting progress, based on callback_trigger_interval_size.
+  //
+  // RocksDB callbacks are NOT exception-safe. A callback completing with an
+  // exception can lead to undefined behavior in RocksDB, including data loss,
+  // unreported corruption, deadlocks, and more.
   std::function<void()> progress_callback = []() {};
 
   // If false, background_thread_cpu_priority is ignored.

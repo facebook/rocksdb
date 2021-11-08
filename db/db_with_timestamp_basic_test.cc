@@ -2632,6 +2632,8 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
           // incremental positions such that lowerlevel[1].smallest.userkey ==
           // higherlevel[0].largest.userkey
           ASSERT_OK(Flush(cf));
+          ASSERT_OK(dbfull()->TEST_WaitForCompact());  // wait for flush (which
+                                                       // is also a compaction)
 
           // compact files (2 at each level) to a lower level such that all
           // keys with the same timestamp is at one level, with newer versions

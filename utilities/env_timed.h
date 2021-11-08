@@ -1,56 +1,19 @@
-//  Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+// Copyright (c) 2019-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
+//
 
 #pragma once
-
-#ifndef ROCKSDB_LITE
-
-#include <utility>
-
 #include "rocksdb/file_system.h"
-
 namespace ROCKSDB_NAMESPACE {
-
-// An abstract FileSystem wrapper that creates a view of an existing
-// FileSystem by remapping names in some way.
-//
-// This class has not been fully analyzed for providing strong security
-// guarantees.
-class RemapFileSystem : public FileSystemWrapper {
+#ifndef ROCKSDB_LITE
+class TimedFileSystem : public FileSystemWrapper {
  public:
-  explicit RemapFileSystem(const std::shared_ptr<FileSystem>& base);
+  explicit TimedFileSystem(const std::shared_ptr<FileSystem>& base);
 
- protected:
-  // Returns status and mapped-to path in the wrapped filesystem.
-  // If it returns non-OK status, the returned path should not be used.
-  virtual std::pair<IOStatus, std::string> EncodePath(
-      const std::string& path) = 0;
-
-  // Similar to EncodePath() except used in cases in which it is OK for
-  // no file or directory on 'path' to already exist, such as if the
-  // operation would create one. However, the parent of 'path' is expected
-  // to exist for the operation to succeed.
-  // Default implementation: call EncodePath
-  virtual std::pair<IOStatus, std::string> EncodePathWithNewBasename(
-      const std::string& path);
-
- public:
-  // Left abstract:
-  // const char* Name() const override { ... }
-  static const char* kClassName() { return "RemapFileSystem"; }
-  bool IsInstanceOf(const std::string& id) const override {
-    if (id == kClassName()) {
-      return true;
-    } else {
-      return FileSystemWrapper::IsInstanceOf(id);
-    }
-  }
-
-  Status RegisterDbPaths(const std::vector<std::string>& paths) override;
-
-  Status UnregisterDbPaths(const std::vector<std::string>& paths) override;
+  static const char* kClassName() { return "TimedFS"; }
+  const char* Name() const override { return kClassName(); }
 
   IOStatus NewSequentialFile(const std::string& fname,
                              const FileOptions& options,
@@ -76,7 +39,7 @@ class RemapFileSystem : public FileSystemWrapper {
                            std::unique_ptr<FSRandomRWFile>* result,
                            IODebugContext* dbg) override;
 
-  IOStatus NewDirectory(const std::string& dir, const IOOptions& options,
+  IOStatus NewDirectory(const std::string& name, const IOOptions& options,
                         std::unique_ptr<FSDirectory>* result,
                         IODebugContext* dbg) override;
 
@@ -113,27 +76,22 @@ class RemapFileSystem : public FileSystemWrapper {
                                    uint64_t* file_mtime,
                                    IODebugContext* dbg) override;
 
-  IOStatus IsDirectory(const std::string& path, const IOOptions& options,
-                       bool* is_dir, IODebugContext* dbg) override;
-
-  IOStatus RenameFile(const std::string& src, const std::string& dest,
+  IOStatus RenameFile(const std::string& src, const std::string& dst,
                       const IOOptions& options, IODebugContext* dbg) override;
 
-  IOStatus LinkFile(const std::string& src, const std::string& dest,
+  IOStatus LinkFile(const std::string& src, const std::string& dst,
                     const IOOptions& options, IODebugContext* dbg) override;
 
   IOStatus LockFile(const std::string& fname, const IOOptions& options,
                     FileLock** lock, IODebugContext* dbg) override;
 
+  IOStatus UnlockFile(FileLock* lock, const IOOptions& options,
+                      IODebugContext* dbg) override;
+
   IOStatus NewLogger(const std::string& fname, const IOOptions& options,
                      std::shared_ptr<Logger>* result,
                      IODebugContext* dbg) override;
-
-  IOStatus GetAbsolutePath(const std::string& db_path, const IOOptions& options,
-                           std::string* output_path,
-                           IODebugContext* dbg) override;
 };
 
-}  // namespace ROCKSDB_NAMESPACE
-
 #endif  // ROCKSDB_LITE
+}  // namespace ROCKSDB_NAMESPACE
