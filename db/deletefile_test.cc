@@ -117,9 +117,15 @@ class DeleteFileTest : public DBTestBase {
         manifest_cnt += (type == kDescriptorFile);
       }
     }
-    ASSERT_EQ(required_log, log_cnt);
-    ASSERT_EQ(required_sst, sst_cnt);
-    ASSERT_EQ(required_manifest, manifest_cnt);
+    if (required_log >= 0) {
+      ASSERT_EQ(required_log, log_cnt);
+    }
+    if (required_sst >= 0) {
+      ASSERT_EQ(required_sst, sst_cnt);
+    }
+    if (required_manifest >= 0) {
+      ASSERT_EQ(required_manifest, manifest_cnt);
+    }
   }
 
   static void DoSleep(void* arg) {
@@ -264,6 +270,41 @@ TEST_F(DeleteFileTest, BackgroundPurgeIteratorTest) {
   CheckFileTypeCounts(dbname_, 0, 1, 1);
 }
 
+TEST_F(DeleteFileTest, PurgeDuringOpen) {
+  Options options = CurrentOptions();
+  CheckFileTypeCounts(dbname_, -1, 0, -1);
+  Close();
+  std::unique_ptr<WritableFile> file;
+  ASSERT_OK(options.env->NewWritableFile(dbname_ + "/000002.sst", &file,
+                                         EnvOptions()));
+  ASSERT_OK(file->Close());
+  CheckFileTypeCounts(dbname_, -1, 1, -1);
+  options.avoid_unnecessary_blocking_io = false;
+  options.create_if_missing = false;
+  Reopen(options);
+  CheckFileTypeCounts(dbname_, -1, 0, -1);
+  Close();
+
+  // test background purge
+  options.avoid_unnecessary_blocking_io = true;
+  options.create_if_missing = false;
+  ASSERT_OK(options.env->NewWritableFile(dbname_ + "/000002.sst", &file,
+                                         EnvOptions()));
+  ASSERT_OK(file->Close());
+  CheckFileTypeCounts(dbname_, -1, 1, -1);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DeleteFileTest::PurgeDuringOpen:1", "DBImpl::BGWorkPurge:start"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
+  // the obsolete file is not deleted until the background purge job is ran
+  CheckFileTypeCounts(dbname_, -1, 1, -1);
+  TEST_SYNC_POINT("DeleteFileTest::PurgeDuringOpen:1");
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+  CheckFileTypeCounts(dbname_, -1, 0, -1);
+}
+
 TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
   Options options = CurrentOptions();
   SetOptions(&options);
@@ -310,6 +351,11 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
     do_test(false);
   }
 
+  options.avoid_unnecessary_blocking_io = true;
+  options.create_if_missing = false;
+  Reopen(options);
+  ASSERT_OK(dbfull()->TEST_WaitForPurge());
+
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->LoadDependency(
@@ -317,9 +363,6 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
         "DBImpl::BGWorkPurge:start"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  options.avoid_unnecessary_blocking_io = true;
-  options.create_if_missing = false;
-  Reopen(options);
   {
     SCOPED_TRACE("avoid_unnecessary_blocking_io = true");
     do_test(true);

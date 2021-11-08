@@ -98,6 +98,13 @@ commands:
           command: |
             sudo apt-get update -y && sudo apt-get install -y libbenchmark-dev
 
+  install-librados:
+    steps:
+      - run:
+          name: Install librados
+          command: |
+            sudo apt-get update -y && sudo apt-get install -y librados-dev
+
   upgrade-cmake:
     steps:
       - run:
@@ -171,14 +178,15 @@ jobs:
       - run: make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
       - post-steps
 
-  build-linux-mem-env:
+  build-linux-mem-env-librados:
     machine:
       image: ubuntu-1604:202104-01
     resource_class: 2xlarge
     steps:
       - pre-steps
       - install-gflags
-      - run: MEM_ENV=1 make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - install-librados
+      - run: MEM_ENV=1 ROCKSDB_USE_LIBRADOS=1 make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-encrypted-env:
@@ -708,9 +716,9 @@ workflows:
     jobs:
       - build-linux-cmake
       - build-linux-cmake-ubuntu-20
-  build-linux-mem-env:
+  build-linux-mem-env-librados:
     jobs:
-      - build-linux-mem-env
+      - build-linux-mem-env-librados
   build-linux-encrypted-env:
     jobs:
       - build-linux-encrypted-env

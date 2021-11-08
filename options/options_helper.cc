@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cctype>
 #include <cstdlib>
+#include <set>
 #include <unordered_set>
 #include <vector>
 
@@ -329,7 +330,8 @@ std::unordered_map<std::string, ChecksumType>
     OptionsHelper::checksum_type_string_map = {{"kNoChecksum", kNoChecksum},
                                                {"kCRC32c", kCRC32c},
                                                {"kxxHash", kxxHash},
-                                               {"kxxHash64", kxxHash64}};
+                                               {"kxxHash64", kxxHash64},
+                                               {"kXXH3", kXXH3}};
 
 std::unordered_map<std::string, CompressionType>
     OptionsHelper::compression_type_string_map = {
@@ -345,25 +347,37 @@ std::unordered_map<std::string, CompressionType>
         {"kDisableCompressionOption", kDisableCompressionOption}};
 
 std::vector<CompressionType> GetSupportedCompressions() {
-  std::vector<CompressionType> supported_compressions;
+  // std::set internally to deduplicate potential name aliases
+  std::set<CompressionType> supported_compressions;
   for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
     CompressionType t = comp_to_name.second;
     if (t != kDisableCompressionOption && CompressionTypeSupported(t)) {
-      supported_compressions.push_back(t);
+      supported_compressions.insert(t);
     }
   }
-  return supported_compressions;
+  return std::vector<CompressionType>(supported_compressions.begin(),
+                                      supported_compressions.end());
 }
 
 std::vector<CompressionType> GetSupportedDictCompressions() {
-  std::vector<CompressionType> dict_compression_types;
+  std::set<CompressionType> dict_compression_types;
   for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
     CompressionType t = comp_to_name.second;
     if (t != kDisableCompressionOption && DictCompressionTypeSupported(t)) {
-      dict_compression_types.push_back(t);
+      dict_compression_types.insert(t);
     }
   }
-  return dict_compression_types;
+  return std::vector<CompressionType>(dict_compression_types.begin(),
+                                      dict_compression_types.end());
+}
+
+std::vector<ChecksumType> GetSupportedChecksums() {
+  std::set<ChecksumType> checksum_types;
+  for (const auto& e : OptionsHelper::checksum_type_string_map) {
+    checksum_types.insert(e.second);
+  }
+  return std::vector<ChecksumType>(checksum_types.begin(),
+                                   checksum_types.end());
 }
 
 #ifndef ROCKSDB_LITE

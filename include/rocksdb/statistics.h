@@ -573,6 +573,10 @@ enum StatsLevel : uint8_t {
 //  options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
 //  HistogramData hist;
 //  options.statistics->histogramData(FLUSH_TIME, &hist);
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class Statistics : public Customizable {
  public:
   virtual ~Statistics() {}

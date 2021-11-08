@@ -1389,7 +1389,9 @@ Status DBImpl::SyncWAL() {
     IOStatusCheck(io_s);
   }
   if (status.ok() && need_log_dir_sync) {
-    status = directories_.GetWalDir()->Fsync(IOOptions(), nullptr);
+    status = directories_.GetWalDir()->FsyncWithDirOptions(
+        IOOptions(), nullptr,
+        DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
   }
   TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
 
@@ -4288,6 +4290,14 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
   if (s.ok()) {
     // Retry if the file name happen to conflict with an existing one.
     s = GetEnv()->RenameFile(file_name, options_file_name);
+    std::unique_ptr<FSDirectory> dir_obj;
+    if (s.ok()) {
+      s = fs_->NewDirectory(GetName(), IOOptions(), &dir_obj, nullptr);
+    }
+    if (s.ok()) {
+      s = dir_obj->FsyncWithDirOptions(IOOptions(), nullptr,
+                                       DirFsyncOptions(options_file_name));
+    }
   }
   if (s.ok()) {
     InstrumentedMutexLock l(&mutex_);

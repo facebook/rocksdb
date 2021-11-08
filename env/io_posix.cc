@@ -1534,17 +1534,61 @@ PosixMemoryMappedFileBuffer::~PosixMemoryMappedFileBuffer() {
 /*
  * PosixDirectory
  */
+#if !defined(BTRFS_SUPER_MAGIC)
+// The magic number for BTRFS is fixed, if it's not defined, define it here
+#define BTRFS_SUPER_MAGIC 0x9123683E
+#endif
+PosixDirectory::PosixDirectory(int fd) : fd_(fd) {
+  is_btrfs_ = false;
+#ifdef OS_LINUX
+  struct statfs buf;
+  int ret = fstatfs(fd, &buf);
+  is_btrfs_ = (ret == 0 && buf.f_type == BTRFS_SUPER_MAGIC);
+#endif
+}
 
 PosixDirectory::~PosixDirectory() { close(fd_); }
 
-IOStatus PosixDirectory::Fsync(const IOOptions& /*opts*/,
-                               IODebugContext* /*dbg*/) {
+IOStatus PosixDirectory::Fsync(const IOOptions& opts, IODebugContext* dbg) {
+  return FsyncWithDirOptions(opts, dbg, DirFsyncOptions());
+}
+
+IOStatus PosixDirectory::FsyncWithDirOptions(
+    const IOOptions& /*opts*/, IODebugContext* /*dbg*/,
+    const DirFsyncOptions& dir_fsync_options) {
+  IOStatus s = IOStatus::OK();
 #ifndef OS_AIX
+  if (is_btrfs_) {
+    // skip dir fsync for new file creation, which is not needed for btrfs
+    if (dir_fsync_options.reason == DirFsyncOptions::kNewFileSynced) {
+      return s;
+    }
+    // skip dir fsync for renaming file, only need to sync new file
+    if (dir_fsync_options.reason == DirFsyncOptions::kFileRenamed) {
+      std::string new_name = dir_fsync_options.renamed_new_name;
+      assert(!new_name.empty());
+      int fd;
+      do {
+        IOSTATS_TIMER_GUARD(open_nanos);
+        fd = open(new_name.c_str(), O_RDONLY);
+      } while (fd < 0 && errno == EINTR);
+      if (fd < 0) {
+        s = IOError("While open renaming file", new_name, errno);
+      } else if (fsync(fd) < 0) {
+        s = IOError("While fsync renaming file", new_name, errno);
+      }
+      if (close(fd) < 0) {
+        s = IOError("While closing file after fsync", new_name, errno);
+      }
+      return s;
+    }
+    // fallback to dir-fsync for kDefault, kDirRenamed and kFileDeleted
+  }
   if (fsync(fd_) == -1) {
-    return IOError("While fsync", "a directory", errno);
+    s = IOError("While fsync", "a directory", errno);
   }
 #endif
-  return IOStatus::OK();
+  return s;
 }
 }  // namespace ROCKSDB_NAMESPACE
 #endif

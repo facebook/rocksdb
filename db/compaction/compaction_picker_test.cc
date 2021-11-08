@@ -3,15 +3,15 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include <limits>
 #include <string>
 #include <utility>
+
 #include "db/compaction/compaction.h"
 #include "db/compaction/compaction_picker_fifo.h"
 #include "db/compaction/compaction_picker_level.h"
 #include "db/compaction/compaction_picker_universal.h"
-
+#include "db/compaction/file_pri.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
@@ -149,7 +149,7 @@ class CompactionPickerTest : public testing::Test {
       vstorage_ = std::move(temp_vstorage_);
     }
     vstorage_->CalculateBaseBytes(ioptions_, mutable_cf_options_);
-    vstorage_->UpdateFilesByCompactionPri(ioptions_.compaction_pri);
+    vstorage_->UpdateFilesByCompactionPri(ioptions_, mutable_cf_options_);
     vstorage_->UpdateNumNonEmptyLevels();
     vstorage_->GenerateFileIndexer();
     vstorage_->GenerateLevelFilesBrief();
@@ -1671,6 +1671,66 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys11) {
   ASSERT_EQ(1U, compaction->num_input_files(1));
   ASSERT_EQ(4U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(7U, compaction->input(1, 0)->fd.GetNumber());
+}
+
+TEST_F(CompactionPickerTest, FileTtlBooster) {
+  // Set TTL to 2048
+  // TTL boosting for all levels starts at 1024,
+  // Whole TTL range is 2048 * 31 / 32 - 1024 = 1984 - 1024 = 960.
+  // From second last level (L5), range starts at
+  // 1024 + 480, 1024 + 240, 1024 + 120 (which is L3).
+  // Boosting step 124 / 16 = 7.75 -> 7
+  //
+  const uint64_t kCurrentTime = 1000000;
+  FileMetaData meta;
+
+  {
+    FileTtlBooster booster(kCurrentTime, 2048, 7, 3);
+
+    // Not triggering if the file is younger than ttl/2
+    meta.oldest_ancester_time = kCurrentTime - 1023;
+    ASSERT_EQ(1, booster.GetBoostScore(&meta));
+    meta.oldest_ancester_time = kCurrentTime - 1024;
+    ASSERT_EQ(1, booster.GetBoostScore(&meta));
+    meta.oldest_ancester_time = kCurrentTime + 10;
+    ASSERT_EQ(1, booster.GetBoostScore(&meta));
+
+    // Within one boosting step
+    meta.oldest_ancester_time = kCurrentTime - (1024 + 120 + 6);
+    ASSERT_EQ(1, booster.GetBoostScore(&meta));
+
+    // One boosting step
+    meta.oldest_ancester_time = kCurrentTime - (1024 + 120 + 7);
+    ASSERT_EQ(2, booster.GetBoostScore(&meta));
+    meta.oldest_ancester_time = kCurrentTime - (1024 + 120 + 8);
+    ASSERT_EQ(2, booster.GetBoostScore(&meta));
+
+    // Multiple boosting steps
+    meta.oldest_ancester_time = kCurrentTime - (1024 + 120 + 30);
+    ASSERT_EQ(5, booster.GetBoostScore(&meta));
+
+    // Very high boosting steps
+    meta.oldest_ancester_time = kCurrentTime - (1024 + 120 + 700);
+    ASSERT_EQ(101, booster.GetBoostScore(&meta));
+  }
+  {
+    // Test second last level
+    FileTtlBooster booster(kCurrentTime, 2048, 7, 5);
+    meta.oldest_ancester_time = kCurrentTime - (1024 + 480);
+    ASSERT_EQ(1, booster.GetBoostScore(&meta));
+    meta.oldest_ancester_time = kCurrentTime - (1024 + 480 + 60);
+    ASSERT_EQ(3, booster.GetBoostScore(&meta));
+  }
+  {
+    // Test last level
+    FileTtlBooster booster(kCurrentTime, 2048, 7, 6);
+    meta.oldest_ancester_time = kCurrentTime - (1024 + 480);
+    ASSERT_EQ(1, booster.GetBoostScore(&meta));
+    meta.oldest_ancester_time = kCurrentTime - (1024 + 480 + 60);
+    ASSERT_EQ(1, booster.GetBoostScore(&meta));
+    meta.oldest_ancester_time = kCurrentTime - 3000;
+    ASSERT_EQ(1, booster.GetBoostScore(&meta));
+  }
 }
 
 TEST_F(CompactionPickerTest, NotScheduleL1IfL0WithHigherPri1) {

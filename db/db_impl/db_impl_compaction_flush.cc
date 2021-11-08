@@ -120,7 +120,9 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
       }
     }
     if (io_s.ok()) {
-      io_s = directories_.GetWalDir()->Fsync(IOOptions(), nullptr);
+      io_s = directories_.GetWalDir()->FsyncWithDirOptions(
+          IOOptions(), nullptr,
+          DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
     }
 
     mutex_.Lock();
@@ -532,7 +534,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // Sync on all distinct output directories.
     for (auto dir : distinct_output_dirs) {
       if (dir != nullptr) {
-        Status error_status = dir->Fsync(IOOptions(), nullptr);
+        Status error_status = dir->FsyncWithDirOptions(
+            IOOptions(), nullptr,
+            DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
         if (!error_status.ok()) {
           s = error_status;
           break;
@@ -1110,6 +1114,8 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
       assert(temp_s.ok());
     }
     EnableManualCompaction();
+    TEST_SYNC_POINT(
+        "DBImpl::CompactRange:PostRefitLevel:ManualCompactionEnabled");
   }
   LogFlush(immutable_db_options_.info_log);
 
@@ -1742,6 +1748,17 @@ Status DBImpl::RunManualCompaction(
   TEST_SYNC_POINT("DBImpl::RunManualCompaction:0");
   TEST_SYNC_POINT("DBImpl::RunManualCompaction:1");
   InstrumentedMutexLock l(&mutex_);
+
+  if (manual_compaction_paused_ > 0) {
+    // Does not make sense to `AddManualCompaction()` in this scenario since
+    // `DisableManualCompaction()` just waited for the manual compaction queue
+    // to drain. So return immediately.
+    TEST_SYNC_POINT("DBImpl::RunManualCompaction:PausedAtStart");
+    manual.status =
+        Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+    manual.done = true;
+    return manual.status;
+  }
 
   // When a manual compaction arrives, temporarily disable scheduling of
   // non-manual compactions and wait until the number of scheduled compaction
@@ -3063,8 +3080,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           status = Status::CompactionTooLarge();
         } else {
           // update statistics
-          RecordInHistogram(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
-                            c->inputs(0)->size());
+          size_t num_files = 0;
+          for (auto& each_level : *c->inputs()) {
+            num_files += each_level.files.size();
+          }
+          RecordInHistogram(stats_, NUM_FILES_IN_SINGLE_COMPACTION, num_files);
+
           // There are three things that can change compaction score:
           // 1) When flush or compaction finish. This case is covered by
           // InstallSuperVersionAndScheduleWork
@@ -3384,6 +3405,7 @@ bool DBImpl::HasPendingManualCompaction() {
 }
 
 void DBImpl::AddManualCompaction(DBImpl::ManualCompactionState* m) {
+  assert(manual_compaction_paused_ == 0);
   manual_compaction_dequeue_.push_back(m);
 }
 

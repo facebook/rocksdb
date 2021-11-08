@@ -7,6 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/table.h"
+
+#include <gtest/gtest.h>
 #include <stddef.h>
 #include <stdio.h>
 
@@ -26,8 +29,10 @@
 #include "memtable/stl_wrappers.h"
 #include "meta_blocks.h"
 #include "monitoring/statistics.h"
+#include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/compression_type.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
@@ -2193,6 +2198,151 @@ TEST_P(BlockBasedTableTest, SkipPrefixBloomFilter) {
   }
 }
 
+TEST_P(BlockBasedTableTest, BadChecksumType) {
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+
+  Options options;
+  options.comparator = BytewiseComparator();
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+
+  TableConstructor c(options.comparator);
+  InternalKey key("abc", 1, kTypeValue);
+  c.Add(key.Encode().ToString(), "test");
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  const ImmutableOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  const InternalKeyComparator internal_comparator(options.comparator);
+  c.Finish(options, ioptions, moptions, table_options, internal_comparator,
+           &keys, &kvmap);
+
+  // Corrupt checksum type (123 is invalid)
+  auto& sink = *c.TEST_GetSink();
+  size_t len = sink.contents_.size();
+  ASSERT_EQ(sink.contents_[len - Footer::kNewVersionsEncodedLength], kCRC32c);
+  sink.contents_[len - Footer::kNewVersionsEncodedLength] = char{123};
+
+  // (Re-)Open table file with bad checksum type
+  const ImmutableOptions new_ioptions(options);
+  const MutableCFOptions new_moptions(options);
+  Status s = c.Reopen(new_ioptions, new_moptions);
+  ASSERT_NOK(s);
+  ASSERT_MATCHES_REGEX(s.ToString(), "Corruption: unknown checksum type 123.*");
+}
+
+namespace {
+std::string ChecksumAsString(const std::string& data,
+                             ChecksumType checksum_type) {
+  uint32_t v = ComputeBuiltinChecksum(checksum_type, data.data(), data.size());
+
+  // Verify consistency with other function
+  if (data.size() >= 1) {
+    EXPECT_EQ(v, ComputeBuiltinChecksumWithLastByte(
+                     checksum_type, data.data(), data.size() - 1, data.back()));
+  }
+  // Little endian as in file
+  std::array<char, 4> raw_bytes;
+  EncodeFixed32(raw_bytes.data(), v);
+  return Slice(raw_bytes.data(), raw_bytes.size()).ToString(/*hex*/ true);
+}
+
+std::string ChecksumAsString(std::string* data, char new_last_byte,
+                             ChecksumType checksum_type) {
+  data->back() = new_last_byte;
+  return ChecksumAsString(*data, checksum_type);
+}
+}  // namespace
+
+// Make sure that checksum values don't change in later versions, even if
+// consistent within current version.
+TEST_P(BlockBasedTableTest, ChecksumSchemas) {
+  std::string b0 = "x";
+  std::string b1 = "This is a short block!x";
+  std::string b2;
+  for (int i = 0; i < 100; ++i) {
+    b2.append("This is a long block!");
+  }
+  b2.append("x");
+  // Trailing 'x' will be replaced by compression type
+
+  std::string empty;
+
+  char ct1 = kNoCompression;
+  char ct2 = kSnappyCompression;
+  char ct3 = kZSTD;
+
+  // Note: first byte of trailer is compression type, last 4 are checksum
+
+  for (ChecksumType t : GetSupportedChecksums()) {
+    switch (t) {
+      case kNoChecksum:
+        EXPECT_EQ(ChecksumAsString(empty, t), "00000000");
+        EXPECT_EQ(ChecksumAsString(&b0, ct1, t), "00000000");
+        EXPECT_EQ(ChecksumAsString(&b0, ct2, t), "00000000");
+        EXPECT_EQ(ChecksumAsString(&b0, ct3, t), "00000000");
+        EXPECT_EQ(ChecksumAsString(&b1, ct1, t), "00000000");
+        EXPECT_EQ(ChecksumAsString(&b1, ct2, t), "00000000");
+        EXPECT_EQ(ChecksumAsString(&b1, ct3, t), "00000000");
+        EXPECT_EQ(ChecksumAsString(&b2, ct1, t), "00000000");
+        EXPECT_EQ(ChecksumAsString(&b2, ct2, t), "00000000");
+        EXPECT_EQ(ChecksumAsString(&b2, ct3, t), "00000000");
+        break;
+      case kCRC32c:
+        EXPECT_EQ(ChecksumAsString(empty, t), "D8EA82A2");
+        EXPECT_EQ(ChecksumAsString(&b0, ct1, t), "D28F2549");
+        EXPECT_EQ(ChecksumAsString(&b0, ct2, t), "052B2843");
+        EXPECT_EQ(ChecksumAsString(&b0, ct3, t), "46F8F711");
+        EXPECT_EQ(ChecksumAsString(&b1, ct1, t), "583F0355");
+        EXPECT_EQ(ChecksumAsString(&b1, ct2, t), "2F9B0A57");
+        EXPECT_EQ(ChecksumAsString(&b1, ct3, t), "ECE7DA1D");
+        EXPECT_EQ(ChecksumAsString(&b2, ct1, t), "943EF0AB");
+        EXPECT_EQ(ChecksumAsString(&b2, ct2, t), "43A2EDB1");
+        EXPECT_EQ(ChecksumAsString(&b2, ct3, t), "00E53D63");
+        break;
+      case kxxHash:
+        EXPECT_EQ(ChecksumAsString(empty, t), "055DCC02");
+        EXPECT_EQ(ChecksumAsString(&b0, ct1, t), "3EB065CF");
+        EXPECT_EQ(ChecksumAsString(&b0, ct2, t), "31F79238");
+        EXPECT_EQ(ChecksumAsString(&b0, ct3, t), "320D2E00");
+        EXPECT_EQ(ChecksumAsString(&b1, ct1, t), "4A2E5FB0");
+        EXPECT_EQ(ChecksumAsString(&b1, ct2, t), "0BD9F652");
+        EXPECT_EQ(ChecksumAsString(&b1, ct3, t), "B4107E50");
+        EXPECT_EQ(ChecksumAsString(&b2, ct1, t), "20F4D4BA");
+        EXPECT_EQ(ChecksumAsString(&b2, ct2, t), "8F1A1F99");
+        EXPECT_EQ(ChecksumAsString(&b2, ct3, t), "A191A338");
+        break;
+      case kxxHash64:
+        EXPECT_EQ(ChecksumAsString(empty, t), "99E9D851");
+        EXPECT_EQ(ChecksumAsString(&b0, ct1, t), "682705DB");
+        EXPECT_EQ(ChecksumAsString(&b0, ct2, t), "30E7211B");
+        EXPECT_EQ(ChecksumAsString(&b0, ct3, t), "B7BB58E8");
+        EXPECT_EQ(ChecksumAsString(&b1, ct1, t), "B74655EF");
+        EXPECT_EQ(ChecksumAsString(&b1, ct2, t), "B6C8BBBE");
+        EXPECT_EQ(ChecksumAsString(&b1, ct3, t), "AED9E3B4");
+        EXPECT_EQ(ChecksumAsString(&b2, ct1, t), "0D4999FE");
+        EXPECT_EQ(ChecksumAsString(&b2, ct2, t), "F5932423");
+        EXPECT_EQ(ChecksumAsString(&b2, ct3, t), "6B31BAB1");
+        break;
+      case kXXH3:
+        EXPECT_EQ(ChecksumAsString(empty, t), "00000000");
+        EXPECT_EQ(ChecksumAsString(&b0, ct1, t), "C294D338");
+        EXPECT_EQ(ChecksumAsString(&b0, ct2, t), "1B174353");
+        EXPECT_EQ(ChecksumAsString(&b0, ct3, t), "2D0E20C8");
+        EXPECT_EQ(ChecksumAsString(&b1, ct1, t), "B37FB5E6");
+        EXPECT_EQ(ChecksumAsString(&b1, ct2, t), "6AFC258D");
+        EXPECT_EQ(ChecksumAsString(&b1, ct3, t), "5CE54616");
+        EXPECT_EQ(ChecksumAsString(&b2, ct1, t), "FA2D482E");
+        EXPECT_EQ(ChecksumAsString(&b2, ct2, t), "23AED845");
+        EXPECT_EQ(ChecksumAsString(&b2, ct3, t), "15B7BBDE");
+        break;
+      default:
+        // Force this test to be updated on new ChecksumTypes
+        assert(false);
+        break;
+    }
+  }
+}
+
 void AddInternalKey(TableConstructor* c, const std::string& prefix,
                     std::string value = "v", int /*suffix_len*/ = 800) {
   static Random rnd(1023);
@@ -4036,40 +4186,20 @@ TEST(TableTest, FooterTests) {
     ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
     ASSERT_EQ(decoded_footer.version(), 0U);
   }
-  {
-    // xxhash block based
+  for (auto t : GetSupportedChecksums()) {
+    // block based, various checksums
     std::string encoded;
     Footer footer(kBlockBasedTableMagicNumber, 1);
     BlockHandle meta_index(10, 5), index(20, 15);
     footer.set_metaindex_handle(meta_index);
     footer.set_index_handle(index);
-    footer.set_checksum(kxxHash);
+    footer.set_checksum(t);
     footer.EncodeTo(&encoded);
     Footer decoded_footer;
     Slice encoded_slice(encoded);
     ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice));
     ASSERT_EQ(decoded_footer.table_magic_number(), kBlockBasedTableMagicNumber);
-    ASSERT_EQ(decoded_footer.checksum(), kxxHash);
-    ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
-    ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
-    ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
-    ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
-    ASSERT_EQ(decoded_footer.version(), 1U);
-  }
-  {
-    // xxhash64 block based
-    std::string encoded;
-    Footer footer(kBlockBasedTableMagicNumber, 1);
-    BlockHandle meta_index(10, 5), index(20, 15);
-    footer.set_metaindex_handle(meta_index);
-    footer.set_index_handle(index);
-    footer.set_checksum(kxxHash64);
-    footer.EncodeTo(&encoded);
-    Footer decoded_footer;
-    Slice encoded_slice(encoded);
-    ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice));
-    ASSERT_EQ(decoded_footer.table_magic_number(), kBlockBasedTableMagicNumber);
-    ASSERT_EQ(decoded_footer.checksum(), kxxHash64);
+    ASSERT_EQ(decoded_footer.checksum(), t);
     ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
     ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
     ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
@@ -4098,7 +4228,7 @@ TEST(TableTest, FooterTests) {
     ASSERT_EQ(decoded_footer.version(), 0U);
   }
   {
-    // xxhash block based
+    // xxhash plain table (not currently used)
     std::string encoded;
     Footer footer(kPlainTableMagicNumber, 1);
     BlockHandle meta_index(10, 5), index(20, 15);

@@ -177,6 +177,10 @@ class TestFSDirectory : public FSDirectory {
   virtual IOStatus Fsync(const IOOptions& options,
                          IODebugContext* dbg) override;
 
+  virtual IOStatus FsyncWithDirOptions(
+      const IOOptions& options, IODebugContext* dbg,
+      const DirFsyncOptions& dir_fsync_options) override;
+
  private:
   FaultInjectionTestFS* fs_;
   std::string dirname_;
@@ -200,7 +204,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
         fail_get_file_unique_id_(false) {}
   virtual ~FaultInjectionTestFS() { error_.PermitUncheckedError(); }
 
-  const char* Name() const override { return "FaultInjectionTestFS"; }
+  static const char* kClassName() { return "FaultInjectionTestFS"; }
+  const char* Name() const override { return kClassName(); }
 
   IOStatus NewDirectory(const std::string& name, const IOOptions& options,
                         std::unique_ptr<FSDirectory>* result,

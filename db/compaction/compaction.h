@@ -304,7 +304,10 @@ class Compaction {
 
   uint32_t max_subcompactions() const { return max_subcompactions_; }
 
-  uint64_t MinInputFileOldestAncesterTime() const;
+  // start and end are sub compact range. Null if no boundary.
+  // This is used to filter out some input files' ancester's time range.
+  uint64_t MinInputFileOldestAncesterTime(const InternalKey* start,
+                                          const InternalKey* end) const;
 
   // Called by DBImpl::NotifyOnCompactionCompleted to make sure number of
   // compaction begin and compaction completion callbacks match.
