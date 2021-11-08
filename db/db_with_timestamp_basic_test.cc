@@ -577,12 +577,12 @@ TEST_F(DBBasicTestWithTimestamp, GetTimestampTableProperties) {
   ASSERT_EQ(2U, props.size());
   for (const auto& item : props) {
     auto& user_collected = item.second->user_collected_properties;
-    ASSERT_TRUE(user_collected.find("min_timestamp") !=
+    ASSERT_TRUE(user_collected.find("rocksdb.min_timestamp") !=
                 user_collected.end());
-    ASSERT_TRUE(user_collected.find("max_timestamp") !=
+    ASSERT_TRUE(user_collected.find("rocksdb.max_timestamp") !=
                 user_collected.end());
-    ASSERT_EQ(user_collected.at("min_timestamp"), Timestamp(0, 0));
-    ASSERT_EQ(user_collected.at("max_timestamp"), Timestamp(9, 0));
+    ASSERT_EQ(user_collected.at("rocksdb.min_timestamp"), Timestamp(0, 0));
+    ASSERT_EQ(user_collected.at("rocksdb.max_timestamp"), Timestamp(9, 0));
   }
   Close();
 }

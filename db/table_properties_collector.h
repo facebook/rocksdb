@@ -151,8 +151,8 @@ class TimestampTablePropertiesCollector : public IntTblPropCollector {
   Status Finish(UserCollectedProperties* properties) override {
     assert(min_timestamp_.size() == max_timestamp_.size()
         && max_timestamp_.size() == cmp_->timestamp_size());
-    properties->insert({"min_timestamp", min_timestamp_});
-    properties->insert({"max_timestamp", max_timestamp_});
+    properties->insert({"rocksdb.min_timestamp", min_timestamp_});
+    properties->insert({"rocksdb.max_timestamp", max_timestamp_});
     return Status::OK();
   }
 
