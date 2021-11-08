@@ -1887,9 +1887,12 @@ TEST_F(DBFlushTest, PickRightMemtables) {
       });
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::FlushMemTableToOutputFile:AfterPickMemtables", [&](void* arg) {
-        const auto* mems = reinterpret_cast<const autovector<MemTable*>*>(arg);
-        assert(mems);
-        ASSERT_EQ(1, mems->size());
+        auto* job = reinterpret_cast<FlushJob*>(arg);
+        assert(job);
+        const auto& mems = job->GetMemTables();
+        assert(mems.size() == 1);
+        assert(mems[0]);
+        ASSERT_EQ(1, mems[0]->GetID());
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
