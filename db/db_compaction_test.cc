@@ -4302,6 +4302,67 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBCompactionTest, LevelTtlBooster) {
+  const int kNumKeysPerFile = 32;
+  const int kNumLevelFiles = 3;
+  const int kValueSize = 1000;
+
+  Options options = CurrentOptions();
+  options.ttl = 10 * 60 * 60;                           // 10 hours
+  options.periodic_compaction_seconds = 480 * 60 * 60;  // very long
+  options.level0_file_num_compaction_trigger = 2;
+  options.max_bytes_for_level_base = 5 * uint64_t{kNumKeysPerFile * kValueSize};
+  options.max_open_files = -1;  // needed for both periodic and ttl compactions
+  options.compaction_pri = CompactionPri::kMinOverlappingRatio;
+  env_->SetMockSleep();
+  options.env = env_;
+
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < kNumLevelFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(kValueSize)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  MoveFilesToLevel(2);
+
+  ASSERT_EQ("0,0,3", FilesPerLevel());
+
+  // Create some files for L1
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(Put(Key(2 * j + i), rnd.RandomString(kValueSize)));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  }
+
+  ASSERT_EQ("0,1,3", FilesPerLevel());
+
+  // Make the new L0 files qualify TTL boosting and generate one more to trigger
+  // L1 -> L2 compaction. Old files will be picked even if their priority is
+  // lower without boosting.
+  env_->MockSleepForSeconds(8 * 60 * 60);
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(Put(Key(kNumKeysPerFile * 2 + 2 * j + i),
+                    rnd.RandomString(kValueSize * 2)));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  }
+  ASSERT_EQ("0,1,2", FilesPerLevel());
+
+  ASSERT_GT(SizeAtLevel(1), kNumKeysPerFile * 4 * kValueSize);
+}
+
 TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
   class TestCompactionFilter : public CompactionFilter {
     const char* Name() const override { return "TestCompactionFilter"; }

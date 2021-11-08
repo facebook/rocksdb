@@ -9,12 +9,11 @@
 #include "table/block_based/reader_common.h"
 
 #include "monitoring/perf_context_imp.h"
+#include "rocksdb/table.h"
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/hash.h"
 #include "util/string_util.h"
-#include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
 void ForceReleaseCachedEntry(void* arg, void* h) {
@@ -33,39 +32,20 @@ Status VerifyBlockChecksum(ChecksumType type, const char* data,
   // And then the stored checksum value (4 bytes).
   uint32_t stored = DecodeFixed32(data + len);
 
-  Status s;
-  uint32_t computed = 0;
-  switch (type) {
-    case kNoChecksum:
-      break;
-    case kCRC32c:
+  uint32_t computed = ComputeBuiltinChecksum(type, data, len);
+  if (stored == computed) {
+    return Status::OK();
+  } else {
+    // Unmask for people who might look for reference crc value
+    if (type == kCRC32c) {
       stored = crc32c::Unmask(stored);
-      computed = crc32c::Value(data, len);
-      break;
-    case kxxHash:
-      computed = XXH32(data, len, 0);
-      break;
-    case kxxHash64:
-      computed = Lower32of64(XXH64(data, len, 0));
-      break;
-    case kXXH3:
-      computed = Lower32of64(XXH3_64bits(data, block_size));
-      // Treat compression type separately for speed in building table files
-      computed = ModifyChecksumForCompressionType(computed, data[block_size]);
-      break;
-    default:
-      s = Status::Corruption(
-          "unknown checksum type " + ToString(type) + " from footer of " +
-          file_name + ", while checking block at offset " + ToString(offset) +
-          " size " + ToString(block_size));
-  }
-  if (s.ok() && stored != computed) {
-    s = Status::Corruption(
+      computed = crc32c::Unmask(computed);
+    }
+    return Status::Corruption(
         "block checksum mismatch: stored = " + ToString(stored) +
         ", computed = " + ToString(computed) + ", type = " + ToString(type) +
         "  in " + file_name + " offset " + ToString(offset) + " size " +
         ToString(block_size));
   }
-  return s;
 }
 }  // namespace ROCKSDB_NAMESPACE

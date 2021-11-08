@@ -27,6 +27,9 @@ class FileSystemTracingWrapper : public FileSystemWrapper {
 
   ~FileSystemTracingWrapper() override {}
 
+  static const char* kClassName() { return "FileSystemTracing"; }
+  const char* Name() const override { return kClassName(); }
+
   IOStatus NewSequentialFile(const std::string& fname,
                              const FileOptions& file_opts,
                              std::unique_ptr<FSSequentialFile>* result,

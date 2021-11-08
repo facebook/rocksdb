@@ -17,6 +17,7 @@
 #include "memory/memory_allocator.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
+#include "options/options_helper.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "table/block_based/block.h"
@@ -25,8 +26,10 @@
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
+#include "util/hash.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
+#include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -50,8 +53,8 @@ bool ShouldReportDetailedTime(Env* env, Statistics* stats) {
 
 void BlockHandle::EncodeTo(std::string* dst) const {
   // Sanity check that all fields have been set
-  assert(offset_ != ~static_cast<uint64_t>(0));
-  assert(size_ != ~static_cast<uint64_t>(0));
+  assert(offset_ != ~uint64_t{0});
+  assert(size_ != ~uint64_t{0});
   PutVarint64Varint64(dst, offset_, size_);
 }
 
@@ -245,6 +248,11 @@ Status Footer::DecodeFrom(Slice* input) {
       return Status::Corruption("bad checksum type");
     }
     checksum_ = static_cast<ChecksumType>(chksum);
+    if (chksum != static_cast<uint32_t>(checksum_) ||
+        !IsSupportedChecksumType(checksum_)) {
+      return Status::Corruption("unknown checksum type " +
+                                ROCKSDB_NAMESPACE::ToString(chksum));
+    }
   }
 
   Status result = metaindex_handle_.DecodeFrom(input);
@@ -342,6 +350,88 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
         ToString(footer->table_magic_number()) + " in " + file->file_name());
   }
   return Status::OK();
+}
+
+namespace {
+// Custom handling for the last byte of a block, to avoid invoking streaming
+// API to get an effective block checksum. This function is its own inverse
+// because it uses xor.
+inline uint32_t ModifyChecksumForLastByte(uint32_t checksum, char last_byte) {
+  // This strategy bears some resemblance to extending a CRC checksum by one
+  // more byte, except we don't need to re-mix the input checksum as long as
+  // we do this step only once (per checksum).
+  const uint32_t kRandomPrime = 0x6b9083d9;
+  return checksum ^ static_cast<uint8_t>(last_byte) * kRandomPrime;
+}
+}  // namespace
+
+uint32_t ComputeBuiltinChecksum(ChecksumType type, const char* data,
+                                size_t data_size) {
+  switch (type) {
+    case kCRC32c:
+      return crc32c::Mask(crc32c::Value(data, data_size));
+    case kxxHash:
+      return XXH32(data, data_size, /*seed*/ 0);
+    case kxxHash64:
+      return Lower32of64(XXH64(data, data_size, /*seed*/ 0));
+    case kXXH3: {
+      if (data_size == 0) {
+        // Special case because of special handling for last byte, not
+        // present in this case. Can be any value different from other
+        // small input size checksums.
+        return 0;
+      } else {
+        // See corresponding code in ComputeBuiltinChecksumWithLastByte
+        uint32_t v = Lower32of64(XXH3_64bits(data, data_size - 1));
+        return ModifyChecksumForLastByte(v, data[data_size - 1]);
+      }
+    }
+    default:  // including kNoChecksum
+      return 0;
+  }
+}
+
+uint32_t ComputeBuiltinChecksumWithLastByte(ChecksumType type, const char* data,
+                                            size_t data_size, char last_byte) {
+  switch (type) {
+    case kCRC32c: {
+      uint32_t crc = crc32c::Value(data, data_size);
+      // Extend to cover last byte (compression type)
+      crc = crc32c::Extend(crc, &last_byte, 1);
+      return crc32c::Mask(crc);
+    }
+    case kxxHash: {
+      XXH32_state_t* const state = XXH32_createState();
+      XXH32_reset(state, 0);
+      XXH32_update(state, data, data_size);
+      // Extend to cover last byte (compression type)
+      XXH32_update(state, &last_byte, 1);
+      uint32_t v = XXH32_digest(state);
+      XXH32_freeState(state);
+      return v;
+    }
+    case kxxHash64: {
+      XXH64_state_t* const state = XXH64_createState();
+      XXH64_reset(state, 0);
+      XXH64_update(state, data, data_size);
+      // Extend to cover last byte (compression type)
+      XXH64_update(state, &last_byte, 1);
+      uint32_t v = Lower32of64(XXH64_digest(state));
+      XXH64_freeState(state);
+      return v;
+    }
+    case kXXH3: {
+      // XXH3 is a complicated hash function that is extremely fast on
+      // contiguous input, but that makes its streaming support rather
+      // complex. It is worth custom handling of the last byte (`type`)
+      // in order to avoid allocating a large state object and bringing
+      // that code complexity into CPU working set.
+      uint32_t v = Lower32of64(XXH3_64bits(data, data_size));
+      return ModifyChecksumForLastByte(v, last_byte);
+    }
+    default:  // including kNoChecksum
+      return 0;
+  }
 }
 
 Status UncompressBlockContentsForCompressionType(
