@@ -170,6 +170,10 @@ class Cache {
   // The SizeCallback takes a void* pointer to the object and returns the size
   // of the persistable data. It can be used by the secondary cache to allocate
   // memory if needed.
+  //
+  // RocksDB callbacks are NOT exception-safe. A callback completing with an
+  // exception can lead to undefined behavior in RocksDB, including data loss,
+  // unreported corruption, deadlocks, and more.
   using SizeCallback = size_t (*)(void* obj);
 
   // The SaveToCallback takes a void* object pointer and saves the persistable
