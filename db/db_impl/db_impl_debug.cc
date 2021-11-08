@@ -184,6 +184,14 @@ Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
   return error_handler_.GetBGError();
 }
 
+Status DBImpl::TEST_WaitForPurge() {
+  InstrumentedMutexLock l(&mutex_);
+  while (bg_purge_scheduled_ && error_handler_.GetBGError().ok()) {
+    bg_cv_.Wait();
+  }
+  return error_handler_.GetBGError();
+}
+
 Status DBImpl::TEST_GetBGError() {
   InstrumentedMutexLock l(&mutex_);
   return error_handler_.GetBGError();

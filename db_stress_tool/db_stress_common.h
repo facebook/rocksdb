@@ -252,6 +252,7 @@ DECLARE_uint64(blob_file_size);
 DECLARE_string(blob_compression_type);
 DECLARE_bool(enable_blob_garbage_collection);
 DECLARE_double(blob_garbage_collection_age_cutoff);
+DECLARE_double(blob_garbage_collection_force_threshold);
 
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(sync_fault_injection);

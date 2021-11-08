@@ -184,12 +184,21 @@ class VersionStorageInfo {
   // REQUIRES: DB mutex held
   void ComputeBottommostFilesMarkedForCompaction();
 
+  // This computes files_marked_for_forced_blob_gc_ and is called by
+  // ComputeCompactionScore()
+  //
+  // REQUIRES: DB mutex held
+  void ComputeFilesMarkedForForcedBlobGC(
+      double blob_garbage_collection_age_cutoff,
+      double blob_garbage_collection_force_threshold);
+
   // Generate level_files_brief_ from files_
   void GenerateLevelFilesBrief();
   // Sort all files for this version based on their file size and
   // record results in files_by_compaction_pri_. The largest files are listed
   // first.
-  void UpdateFilesByCompactionPri(CompactionPri compaction_pri);
+  void UpdateFilesByCompactionPri(const ImmutableOptions& immutable_options,
+                                  const MutableCFOptions& mutable_cf_options);
 
   void GenerateLevel0NonOverlapping();
   bool level0_non_overlapping() const {
@@ -404,6 +413,14 @@ class VersionStorageInfo {
     return bottommost_files_marked_for_compaction_;
   }
 
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: DB mutex held during access
+  const autovector<std::pair<int, FileMetaData*>>& FilesMarkedForForcedBlobGC()
+      const {
+    assert(finalized_);
+    return files_marked_for_forced_blob_gc_;
+  }
+
   int base_level() const { return base_level_; }
   double level_multiplier() const { return level_multiplier_; }
 
@@ -474,7 +491,7 @@ class VersionStorageInfo {
     next_file_to_compact_by_size_[level] = 0;
   }
 
-  const InternalKeyComparator* InternalComparator() {
+  const InternalKeyComparator* InternalComparator() const {
     return internal_comparator_;
   }
 
@@ -585,6 +602,8 @@ class VersionStorageInfo {
   autovector<std::pair<int, FileMetaData*>> bottommost_files_;
   autovector<std::pair<int, FileMetaData*>>
       bottommost_files_marked_for_compaction_;
+
+  autovector<std::pair<int, FileMetaData*>> files_marked_for_forced_blob_gc_;
 
   // Threshold for needing to mark another bottommost file. Maintain it so we
   // can quickly check when releasing a snapshot whether more bottommost files
@@ -1356,6 +1375,7 @@ class VersionSet {
   std::atomic<uint64_t> min_log_number_to_keep_2pc_ = {0};
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
+  uint64_t options_file_size_;
   uint64_t pending_manifest_file_number_;
   // The last seq visible to reads. It normally indicates the last sequence in
   // the memtable but when using two write queues it could also indicate the

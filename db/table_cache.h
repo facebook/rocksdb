@@ -140,7 +140,8 @@ class TableCache {
                    HistogramImpl* file_read_hist = nullptr,
                    bool skip_filters = false, int level = -1,
                    bool prefetch_index_and_filter_in_cache = true,
-                   size_t max_file_size_for_l0_meta_pin = 0);
+                   size_t max_file_size_for_l0_meta_pin = 0,
+                   Temperature file_temperature = Temperature::kUnknown);
 
   // Get TableReader from a cache handle.
   TableReader* GetTableReaderFromHandle(Cache::Handle* handle);
@@ -206,7 +207,8 @@ class TableCache {
                         const SliceTransform* prefix_extractor = nullptr,
                         bool skip_filters = false, int level = -1,
                         bool prefetch_index_and_filter_in_cache = true,
-                        size_t max_file_size_for_l0_meta_pin = 0);
+                        size_t max_file_size_for_l0_meta_pin = 0,
+                        Temperature file_temperature = Temperature::kUnknown);
 
   // Create a key prefix for looking up the row cache. The prefix is of the
   // format row_cache_id + fd_number + seq_no. Later, the user key can be

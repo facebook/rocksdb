@@ -25,6 +25,7 @@
 #include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
@@ -71,16 +72,6 @@ class DummyDB : public StackableDB {
 
   DBOptions GetDBOptions() const override { return DBOptions(options_); }
 
-  using StackableDB::GetIntProperty;
-  bool GetIntProperty(ColumnFamilyHandle*, const Slice& property,
-                      uint64_t* value) override {
-    if (property == DB::Properties::kMinLogNumberToKeep) {
-      *value = 1;
-      return true;
-    }
-    return false;
-  }
-
   Status EnableFileDeletions(bool /*force*/) override {
     EXPECT_TRUE(!deletions_enabled_);
     deletions_enabled_ = true;
@@ -90,14 +81,6 @@ class DummyDB : public StackableDB {
   Status DisableFileDeletions() override {
     EXPECT_TRUE(deletions_enabled_);
     deletions_enabled_ = false;
-    return Status::OK();
-  }
-
-  Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
-                      bool /*flush_memtable*/ = true) override {
-    EXPECT_TRUE(!deletions_enabled_);
-    vec = live_files_;
-    *mfs = 100;
     return Status::OK();
   }
 
@@ -134,12 +117,36 @@ class DummyDB : public StackableDB {
      bool alive_;
   }; // DummyLogFile
 
-  Status GetSortedWalFiles(VectorLogPtr& files) override {
-    EXPECT_TRUE(!deletions_enabled_);
-    files.resize(wal_files_.size());
-    for (size_t i = 0; i < files.size(); ++i) {
-      files[i].reset(
-          new DummyLogFile(wal_files_[i].first, wal_files_[i].second));
+  Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& opts,
+      std::vector<LiveFileStorageInfo>* files) override {
+    uint64_t number;
+    FileType type;
+    files->clear();
+    for (auto& f : live_files_) {
+      bool success = ParseFileName(f, &number, &type);
+      if (!success) {
+        return Status::InvalidArgument("Bad file name: " + f);
+      }
+      files->emplace_back();
+      LiveFileStorageInfo& info = files->back();
+      info.relative_filename = f;
+      info.directory = dbname_;
+      info.file_number = number;
+      info.file_type = type;
+      if (type == kDescriptorFile) {
+        info.size = 100;  // See TestEnv::GetChildrenFileAttributes below
+        info.trim_to_size = true;
+      } else if (type == kCurrentFile) {
+        info.size = 0;
+        info.trim_to_size = true;
+      } else {
+        info.size = 200;  // See TestEnv::GetChildrenFileAttributes below
+      }
+      if (opts.include_checksum_info) {
+        info.file_checksum = kUnknownFileChecksum;
+        info.file_checksum_func_name = kUnknownFileChecksumFuncName;
+      }
     }
     return Status::OK();
   }
@@ -148,8 +155,7 @@ class DummyDB : public StackableDB {
   Status FlushWAL(bool /*sync*/) override { return Status::OK(); }
 
   std::vector<std::string> live_files_;
-  // pair<filename, alive?>
-  std::vector<std::pair<std::string, bool>> wal_files_;
+
  private:
   Options options_;
   std::string dbname_;
@@ -319,7 +325,7 @@ class TestEnv : public EnvWrapper {
         if (filename.find("MANIFEST") == 0) {
           size_bytes = 100;  // Match DummyDB::GetLiveFiles
         }
-        r->push_back({dir + filename, size_bytes});
+        r->push_back({dir + "/" + filename, size_bytes});
       }
       return Status::OK();
     }
@@ -327,7 +333,7 @@ class TestEnv : public EnvWrapper {
   }
   Status GetFileSize(const std::string& path, uint64_t* size_bytes) override {
     if (filenames_for_mocked_attrs_.size() > 0) {
-      auto fname = path.substr(path.find_last_of('/'));
+      auto fname = path.substr(path.find_last_of('/') + 1);
       auto filename_iter = std::find(filenames_for_mocked_attrs_.begin(),
                                      filenames_for_mocked_attrs_.end(), fname);
       if (filename_iter != filenames_for_mocked_attrs_.end()) {
@@ -1125,6 +1131,11 @@ TEST_P(BackupEngineTestWithParam, OnlineIntegrationTest) {
   // delete old data
   DestroyDB(dbname_, options_);
 
+  // TODO: Implement & test db_paths support in backup (not supported in
+  // restore)
+  // options_.db_paths.emplace_back(dbname_, 500 * 1024);
+  // options_.db_paths.emplace_back(dbname_ + "_2", 1024 * 1024 * 1024);
+
   OpenDBAndBackupEngine(true);
   // write some data, backup, repeat
   for (int i = 0; i < 5; ++i) {
@@ -1191,9 +1202,8 @@ TEST_F(BackupEngineTest, NoDoubleCopy_And_AutoGC) {
   test_backup_env_->SetLimitWrittenFiles(7);
   test_backup_env_->ClearWrittenFiles();
   test_db_env_->SetLimitWrittenFiles(0);
-  dummy_db_->live_files_ = {"/00010.sst", "/00011.sst", "/CURRENT",
-                            "/MANIFEST-01"};
-  dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
+  dummy_db_->live_files_ = {"00010.sst", "00011.sst", "CURRENT", "MANIFEST-01",
+                            "00011.log"};
   test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   std::vector<std::string> should_have_written = {
@@ -1210,9 +1220,8 @@ TEST_F(BackupEngineTest, NoDoubleCopy_And_AutoGC) {
     test_backup_env_->SetLimitWrittenFiles(6);
     test_backup_env_->ClearWrittenFiles();
 
-    dummy_db_->live_files_ = {"/00010.sst", "/" + other_sst, "/CURRENT",
-                              "/MANIFEST-01"};
-    dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
+    dummy_db_->live_files_ = {"00010.sst", other_sst, "CURRENT", "MANIFEST-01",
+                              "00011.log"};
     test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
     // should not open 00010.sst - it's already there
@@ -1411,8 +1420,10 @@ TEST_F(BackupEngineTest, CorruptFileMaintainSize) {
   // under normal circumstance, there should be at least one nonempty file
   while (file_size == 0) {
     // get a random file in /private/1
-    ASSERT_OK(file_manager_->GetRandomFileInDir(backupdir_ + "/private/1",
-                                                &file_to_corrupt, &file_size));
+    assert(file_manager_
+               ->GetRandomFileInDir(backupdir_ + "/private/1", &file_to_corrupt,
+                                    &file_size)
+               .ok());
     // corrupt the file by replacing its content by file_size random bytes
     ASSERT_OK(file_manager_->CorruptFile(file_to_corrupt, file_size));
   }
@@ -2894,13 +2905,23 @@ TEST_F(BackupEngineTest, OpenBackupAsReadOnlyDB) {
 
 TEST_F(BackupEngineTest, ProgressCallbackDuringBackup) {
   DestroyDB(dbname_, options_);
+  // Too big for this small DB
+  backupable_options_->callback_trigger_interval_size = 100000;
   OpenDBAndBackupEngine(true);
   FillDB(db_.get(), 0, 100);
   bool is_callback_invoked = false;
   ASSERT_OK(backup_engine_->CreateNewBackup(
       db_.get(), true,
       [&is_callback_invoked]() { is_callback_invoked = true; }));
+  ASSERT_FALSE(is_callback_invoked);
+  CloseBackupEngine();
 
+  // Easily small enough for this small DB
+  backupable_options_->callback_trigger_interval_size = 1000;
+  OpenBackupEngine();
+  ASSERT_OK(backup_engine_->CreateNewBackup(
+      db_.get(), true,
+      [&is_callback_invoked]() { is_callback_invoked = true; }));
   ASSERT_TRUE(is_callback_invoked);
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, options_);

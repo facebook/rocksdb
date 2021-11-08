@@ -31,7 +31,7 @@ class TransactionBaseImpl : public Transaction {
   TransactionBaseImpl(DB* db, const WriteOptions& write_options,
                       const LockTrackerFactory& lock_tracker_factory);
 
-  virtual ~TransactionBaseImpl();
+  ~TransactionBaseImpl() override;
 
   // Remove pending operations queued in this transaction.
   virtual void Clear();

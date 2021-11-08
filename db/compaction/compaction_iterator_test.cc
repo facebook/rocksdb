@@ -3,15 +3,17 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "db/compaction/compaction_iterator.h"
 
 #include <string>
 #include <vector>
 
-#include "db/compaction/compaction_iterator.h"
+#include "db/dbformat.h"
 #include "port/port.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
+#include "util/vector_iterator.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -86,7 +88,7 @@ class FilterAllKeysCompactionFilter : public CompactionFilter {
   const char* Name() const override { return "AllKeysCompactionFilter"; }
 };
 
-class LoggingForwardVectorIterator : public InternalIterator {
+class LoggingForwardVectorIterator : public VectorIterator {
  public:
   struct Action {
     enum class Type {
@@ -108,22 +110,19 @@ class LoggingForwardVectorIterator : public InternalIterator {
 
   LoggingForwardVectorIterator(const std::vector<std::string>& keys,
                                const std::vector<std::string>& values)
-      : keys_(keys), values_(values), current_(keys.size()) {
-    assert(keys_.size() == values_.size());
+      : VectorIterator(keys, values) {
+    current_ = keys_.size();
   }
-
-  bool Valid() const override { return current_ < keys_.size(); }
 
   void SeekToFirst() override {
     log.emplace_back(Action::Type::SEEK_TO_FIRST);
-    current_ = 0;
+    VectorIterator::SeekToFirst();
   }
   void SeekToLast() override { assert(false); }
 
   void Seek(const Slice& target) override {
     log.emplace_back(Action::Type::SEEK, target.ToString());
-    current_ = std::lower_bound(keys_.begin(), keys_.end(), target.ToString()) -
-               keys_.begin();
+    VectorIterator::Seek(target);
   }
 
   void SeekForPrev(const Slice& /*target*/) override { assert(false); }
@@ -131,27 +130,20 @@ class LoggingForwardVectorIterator : public InternalIterator {
   void Next() override {
     assert(Valid());
     log.emplace_back(Action::Type::NEXT);
-    current_++;
+    VectorIterator::Next();
   }
   void Prev() override { assert(false); }
 
   Slice key() const override {
     assert(Valid());
-    return Slice(keys_[current_]);
+    return VectorIterator::key();
   }
   Slice value() const override {
     assert(Valid());
-    return Slice(values_[current_]);
+    return VectorIterator::value();
   }
 
-  Status status() const override { return Status::OK(); }
-
   std::vector<Action> log;
-
- private:
-  std::vector<std::string> keys_;
-  std::vector<std::string> values_;
-  size_t current_;
 };
 
 class FakeCompaction : public CompactionIterator::CompactionProxy {
@@ -244,7 +236,7 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
       bool key_not_exists_beyond_output_level = false,
       const std::string* full_history_ts_low = nullptr) {
     std::unique_ptr<InternalIterator> unfragmented_range_del_iter(
-        new test::VectorIterator(range_del_ks, range_del_vs));
+        new VectorIterator(range_del_ks, range_del_vs, &icmp_));
     auto tombstone_list = std::make_shared<FragmentedRangeTombstoneList>(
         std::move(unfragmented_range_del_iter), icmp_);
     std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
