@@ -21,6 +21,7 @@
 #include "db/version_set.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
@@ -73,9 +74,7 @@ class CompactionJobTestBase : public testing::Test {
  protected:
   CompactionJobTestBase(std::string dbname, const Comparator* ucmp,
                         std::function<std::string(uint64_t)> encode_u64_ts)
-      : env_(Env::Default()),
-        fs_(env_->GetFileSystem()),
-        dbname_(std::move(dbname)),
+      : dbname_(std::move(dbname)),
         ucmp_(ucmp),
         db_options_(),
         mutable_cf_options_(cf_options_),
@@ -91,7 +90,13 @@ class CompactionJobTestBase : public testing::Test {
         preserve_deletes_seqnum_(0),
         mock_table_factory_(new mock::MockTableFactory()),
         error_handler_(nullptr, db_options_, &mutex_),
-        encode_u64_ts_(std::move(encode_u64_ts)) {}
+        encode_u64_ts_(std::move(encode_u64_ts)) {
+    Env* base_env = Env::Default();
+    EXPECT_OK(
+        test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
+    env_ = base_env;
+    fs_ = env_->GetFileSystem();
+  }
 
   void SetUp() override {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
@@ -386,6 +391,7 @@ class CompactionJobTestBase : public testing::Test {
     }
   }
 
+  std::shared_ptr<Env> env_guard_;
   Env* env_;
   std::shared_ptr<FileSystem> fs_;
   std::string dbname_;
@@ -1403,6 +1409,7 @@ TEST_F(CompactionJobTimestampTest, SomeKeysExpired) {
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
 
