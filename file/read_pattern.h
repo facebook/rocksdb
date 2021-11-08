@@ -9,6 +9,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "rocksdb/rocksdb_namespace.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 struct ReadaheadInfo {
