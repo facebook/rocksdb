@@ -187,7 +187,8 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutLengthPrefixedSlice(dst, Slice(f.file_checksum_func_name));
 
     if (f.max_timestamp != kDisableUserTimestamp) {
-      if (f.min_timestamp == kDisableUserTimestamp) {
+      if (f.min_timestamp.size() != f.max_timestamp.size()) {
+        assert(false);
         return false;
       }
       PutVarint32(dst, NewFileCustomTag::kMinTimestamp);
@@ -324,7 +325,10 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
         return "new-file4 custom field";
       }
       if (custom_tag == kTerminate) {
-        assert(f.min_timestamp.size() == f.max_timestamp.size());
+        if (f.min_timestamp.size() != f.max_timestamp.size()) {
+          assert(false);
+          return "new-file4 custom field timestamp size mismatch error";
+        }
         break;
       }
       if (!GetLengthPrefixedSlice(input, &field)) {
