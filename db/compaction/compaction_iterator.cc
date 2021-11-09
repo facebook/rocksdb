@@ -407,6 +407,12 @@ void CompactionIterator::NextFromInput() {
       // Copy key for output
       key_ = current_key_.SetInternalKey(key_, &ikey_);
 
+      int prev_cmp_with_ts_low =
+          !full_history_ts_low_ ? 0
+          : curr_ts_.empty()
+              ? 0
+              : cmp_->CompareTimestamp(curr_ts_, *full_history_ts_low_);
+
       // If timestamp_size_ > 0, then copy from ikey_ to curr_ts_ for the use
       // in next iteration to compare with the timestamp of next key.
       UpdateTimestampAndCompareWithFullHistoryLow();
@@ -416,14 +422,16 @@ void CompactionIterator::NextFromInput() {
       // (2) timestamp is disabled, OR
       // (3) all history will be preserved, OR
       // (4) user key (excluding timestamp) is different from previous key, OR
-      // (5) timestamp is NO older than *full_history_ts_low_
+      // (5) timestamp is NO older than *full_history_ts_low_, OR
+      // (6) timestamp is the largest one older than full_history_ts_low_,
       // then current_user_key_ must be treated as a different user key.
       // This means, if a user key (excluding ts) is the same as the previous
       // user key, and its ts is older than *full_history_ts_low_, then we
       // consider this key for GC, e.g. it may be dropped if certain conditions
       // match.
       if (!has_current_user_key_ || !timestamp_size_ || !full_history_ts_low_ ||
-          !user_key_equal_without_ts || cmp_with_history_ts_low_ >= 0) {
+          !user_key_equal_without_ts || cmp_with_history_ts_low_ >= 0 ||
+          prev_cmp_with_ts_low >= 0) {
         // Initialize for future comparison for rule (A) and etc.
         current_user_key_sequence_ = kMaxSequenceNumber;
         current_user_key_snapshot_ = 0;
