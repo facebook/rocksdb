@@ -184,6 +184,9 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
           auto finish_ts = FileOperationInfo::FinishNow();
           NotifyOnFileReadFinish(orig_offset, tmp.size(), start_ts, finish_ts,
                                  io_s);
+          if (!io_s.ok()) {
+            NotifyOnIOError(io_s, "Read", file_name(), tmp.size(), orig_offset);
+          }
         }
 
         buf.Size(buf.CurrentSize() + tmp.size());
@@ -245,6 +248,10 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
           auto finish_ts = FileOperationInfo::FinishNow();
           NotifyOnFileReadFinish(offset + pos, tmp_result.size(), start_ts,
                                  finish_ts, io_s);
+          if (!io_s.ok()) {
+            NotifyOnIOError(io_s, "Read", file_name(), tmp_result.size(),
+                            offset + pos);
+          }
         }
 #endif
 
@@ -430,6 +437,10 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
         auto finish_ts = FileOperationInfo::FinishNow();
         NotifyOnFileReadFinish(read_reqs[i].offset, read_reqs[i].result.size(),
                                start_ts, finish_ts, read_reqs[i].status);
+        if (!read_reqs[i].status.ok()) {
+          NotifyOnIOError(read_reqs[i].status, "Read", file_name(),
+                          read_reqs[i].result.size(), read_reqs[i].offset);
+        }
       }
 #endif  // ROCKSDB_LITE
       IOSTATS_ADD(bytes_read, read_reqs[i].result.size());

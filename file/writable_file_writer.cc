@@ -220,6 +220,9 @@ IOStatus WritableFileWriter::Close() {
       if (ShouldNotifyListeners()) {
         auto finish_ts = FileOperationInfo::FinishNow();
         NotifyOnFileTruncateFinish(start_ts, finish_ts, s);
+        if (!interim.ok()) {
+          NotifyOnIOError(interim, "Truncate", file_name(), filesize_);
+        }
       }
 #endif
     }
@@ -237,6 +240,9 @@ IOStatus WritableFileWriter::Close() {
           auto finish_ts = FileOperationInfo::FinishNow();
           NotifyOnFileSyncFinish(start_ts, finish_ts, s,
                                  FileOperationType::kFsync);
+          if (!interim.ok()) {
+            NotifyOnIOError(interim, "Fsync", file_name());
+          }
         }
 #endif
       }
@@ -259,6 +265,9 @@ IOStatus WritableFileWriter::Close() {
     if (ShouldNotifyListeners()) {
       auto finish_ts = FileOperationInfo::FinishNow();
       NotifyOnFileCloseFinish(start_ts, finish_ts, s);
+      if (!interim.ok()) {
+        NotifyOnIOError(interim, "Close", file_name());
+      }
     }
 #endif
   }
@@ -318,6 +327,9 @@ IOStatus WritableFileWriter::Flush() {
     if (ShouldNotifyListeners()) {
       auto finish_ts = std::chrono::steady_clock::now();
       NotifyOnFileFlushFinish(start_ts, finish_ts, s);
+      if (!s.ok()) {
+        NotifyOnIOError(s, "Flush", file_name());
+      }
     }
 #endif
   }
@@ -425,6 +437,9 @@ IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
     NotifyOnFileSyncFinish(
         start_ts, finish_ts, s,
         use_fsync ? FileOperationType::kFsync : FileOperationType::kSync);
+    if (!s.ok()) {
+      NotifyOnIOError(s, (use_fsync ? "Fsync" : "Sync"), file_name());
+    }
   }
 #endif
   SetPerfLevel(prev_perf_level);
@@ -445,6 +460,9 @@ IOStatus WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
   if (ShouldNotifyListeners()) {
     auto finish_ts = std::chrono::steady_clock::now();
     NotifyOnFileRangeSyncFinish(offset, nbytes, start_ts, finish_ts, s);
+    if (!s.ok()) {
+      NotifyOnIOError(s, "RangeSync", file_name(), nbytes, offset);
+    }
   }
 #endif
   return s;
@@ -500,6 +518,9 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
       if (ShouldNotifyListeners()) {
         auto finish_ts = std::chrono::steady_clock::now();
         NotifyOnFileWriteFinish(old_size, allowed, start_ts, finish_ts, s);
+        if (!s.ok()) {
+          NotifyOnIOError(s, "Append", file_name(), allowed, old_size);
+        }
       }
 #endif
       if (!s.ok()) {
@@ -570,6 +591,9 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(const char* data,
     if (ShouldNotifyListeners()) {
       auto finish_ts = std::chrono::steady_clock::now();
       NotifyOnFileWriteFinish(old_size, left, start_ts, finish_ts, s);
+      if (!s.ok()) {
+        NotifyOnIOError(s, "Append", file_name(), left, old_size);
+      }
     }
 #endif
     if (!s.ok()) {
@@ -671,6 +695,10 @@ IOStatus WritableFileWriter::WriteDirect() {
       if (ShouldNotifyListeners()) {
         auto finish_ts = std::chrono::steady_clock::now();
         NotifyOnFileWriteFinish(write_offset, size, start_ts, finish_ts, s);
+        if (!s.ok()) {
+          NotifyOnIOError(s, "PositionedAppend", file_name(), size,
+                          write_offset);
+        }
       }
       if (!s.ok()) {
         buf_.Size(file_advance + leftover_tail);
@@ -761,6 +789,9 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum() {
     if (ShouldNotifyListeners()) {
       auto finish_ts = std::chrono::steady_clock::now();
       NotifyOnFileWriteFinish(write_offset, left, start_ts, finish_ts, s);
+      if (!s.ok()) {
+        NotifyOnIOError(s, "PositionedAppend", file_name(), left, write_offset);
+      }
     }
     if (!s.ok()) {
       // In this case, we do not change buffered_data_crc32c_checksum_ because

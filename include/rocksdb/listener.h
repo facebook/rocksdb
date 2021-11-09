@@ -7,11 +7,13 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "io_status.h"
 #include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/customizable.h"
@@ -449,6 +451,23 @@ struct ExternalFileIngestionInfo {
   TableProperties table_properties;
 };
 
+struct IOErrorInfo {
+  IOErrorInfo(const IOStatus& _io_status, const std::string& _operation,
+              const std::string& _file_path, size_t _length, uint64_t _offset)
+      : io_status(_io_status),
+        operation(_operation),
+        file_path(_file_path),
+        length(_length),
+        offset(_offset) {}
+
+  IOStatus io_status;
+  std::string operation;
+  std::string file_path;
+  size_t length;
+  uint64_t offset;
+  ;
+};
+
 // EventListener class contains a set of callback functions that will
 // be called when specific RocksDB event happens such as flush.  It can
 // be used as a building block for developing custom features such as
@@ -704,6 +723,10 @@ class EventListener : public Customizable {
   // outside this function call, they should make copies from these
   // returned value.
   virtual void OnBlobFileDeleted(const BlobFileDeletionInfo& /*info*/) {}
+
+  // A callback function for RocksDB which will be called whenever an IO error
+  // happens.
+  virtual void OnIOError(const IOErrorInfo& /*info*/) {}
 
   virtual ~EventListener() {}
 };
