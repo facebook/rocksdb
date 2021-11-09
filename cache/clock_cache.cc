@@ -981,21 +981,24 @@ std::string ClockCache::GetPrintableOptions() const {
 std::shared_ptr<Cache> NewClockCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy) {
-  ClockCacheOptions options(capacity, num_shard_bits, strict_capacity_limit,
-                            metadata_charge_policy);
-  std::unique_ptr<ClockCache> cache;
-  Status s = ClockCache::CreateClockCache(options, &cache);
-  if (s.ok()) {
-    s = cache->PrepareOptions(ConfigOptions());
-  }
-  if (s.ok()) {
-    auto result = std::shared_ptr<Cache>(cache.release());
-#ifndef ROCKSDB_LITE
-    // If the cache was successfully created, add it to the managed objects
-    s = ObjectRegistry::Default()->SetManagedObject<Cache>(result);
-#endif  // ROCKSDB_LITE
+  if (ClockCache::IsClockCacheSupported()) {
+    ClockCacheOptions options(capacity, num_shard_bits, strict_capacity_limit,
+                              metadata_charge_policy);
+    std::unique_ptr<ClockCache> cache;
+    Status s = ClockCache::CreateClockCache(options, &cache);
     if (s.ok()) {
-      return result;
+      assert(cache != nullptr);
+      s = cache->PrepareOptions(ConfigOptions());
+    }
+    if (s.ok()) {
+      auto result = std::shared_ptr<Cache>(cache.release());
+#ifndef ROCKSDB_LITE
+      // If the cache was successfully created, add it to the managed objects
+      s = ObjectRegistry::Default()->SetManagedObject<Cache>(result);
+#endif  // ROCKSDB_LITE
+      if (s.ok()) {
+        return result;
+      }
     }
   }
   return nullptr;
