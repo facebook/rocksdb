@@ -802,9 +802,9 @@ std::string VersionEdit::DebugString(bool hex_key) const {
       AppendNumberTo(&r, f.oldest_blob_file_number);
     }
     r.append(" min_timestamp:");
-    r.append(f.min_timestamp);
+    r.append(Slice(f.min_timestamp).ToString(true));
     r.append(" max_timestamp:");
-    r.append(f.max_timestamp);
+    r.append(Slice(f.max_timestamp).ToString(true));
     r.append(" oldest_ancester_time:");
     AppendNumberTo(&r, f.oldest_ancester_time);
     r.append(" file_creation_time:");
@@ -920,8 +920,8 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       jw << "LargestIKey" << f.largest.DebugString(hex_key);
       if (f.min_timestamp != kDisableUserTimestamp) {
         assert(f.max_timestamp != kDisableUserTimestamp);
-        jw << "MinTimestamp" << f.min_timestamp;
-        jw << "MaxTimestamp" << f.max_timestamp;
+        jw << "MinTimestamp" << Slice(f.min_timestamp).ToString(true);
+        jw << "MaxTimestamp" << Slice(f.max_timestamp).ToString(true);
       }
       if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
         jw << "OldestBlobFile" << f.oldest_blob_file_number;
