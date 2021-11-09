@@ -438,6 +438,74 @@ TEST(CacheReservationManagerDestructorTest,
       << "Failed to release remaining underlying dummy entries in cache in "
          "CacheReservationManager's destructor";
 }
+
+TEST(CacheReservationHandleTest, HandleTest) {
+  constexpr std::size_t kOneGigabyte = 1024 * 1024 * 1024;
+  constexpr std::size_t kSizeDummyEntry = 256 * 1024;
+  constexpr std::size_t kMetaDataChargeOverhead = 10000;
+
+  LRUCacheOptions lo;
+  lo.capacity = kOneGigabyte;
+  lo.num_shard_bits = 0;
+  std::shared_ptr<Cache> cache = NewLRUCache(lo);
+
+  std::shared_ptr<CacheReservationManager> test_cache_rev_mng(
+      std::make_shared<CacheReservationManager>(cache));
+
+  std::size_t mem_used = 0;
+  const std::size_t incremental_mem_used_handle_1 = 1 * kSizeDummyEntry;
+  const std::size_t incremental_mem_used_handle_2 = 2 * kSizeDummyEntry;
+  std::unique_ptr<CacheReservationHandle<CacheEntryRole::kMisc>> handle_1,
+      handle_2;
+
+  // To test consecutive CacheReservationManager::MakeCacheReservation works
+  // correctly in terms of returning the handle as well as updating cache
+  // reservation and the latest total memory used
+  Status s = test_cache_rev_mng->MakeCacheReservation<CacheEntryRole::kMisc>(
+      incremental_mem_used_handle_1, &handle_1);
+  mem_used = mem_used + incremental_mem_used_handle_1;
+  ASSERT_EQ(s, Status::OK());
+  EXPECT_TRUE(handle_1 != nullptr);
+  EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(), mem_used);
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), mem_used);
+  EXPECT_GE(cache->GetPinnedUsage(), mem_used);
+  EXPECT_LT(cache->GetPinnedUsage(), mem_used + kMetaDataChargeOverhead);
+
+  s = test_cache_rev_mng->MakeCacheReservation<CacheEntryRole::kMisc>(
+      incremental_mem_used_handle_2, &handle_2);
+  mem_used = mem_used + incremental_mem_used_handle_2;
+  ASSERT_EQ(s, Status::OK());
+  EXPECT_TRUE(handle_2 != nullptr);
+  EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(), mem_used);
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), mem_used);
+  EXPECT_GE(cache->GetPinnedUsage(), mem_used);
+  EXPECT_LT(cache->GetPinnedUsage(), mem_used + kMetaDataChargeOverhead);
+
+  // To test CacheReservationHandle::~CacheReservationHandle() works correctly
+  // in releasing the cache reserved for the handle
+  handle_1.reset();
+  EXPECT_TRUE(handle_1 == nullptr);
+  mem_used = mem_used - incremental_mem_used_handle_1;
+  EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(), mem_used);
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), mem_used);
+  EXPECT_GE(cache->GetPinnedUsage(), mem_used);
+  EXPECT_LT(cache->GetPinnedUsage(), mem_used + kMetaDataChargeOverhead);
+
+  // To test the actual CacheReservationManager object won't be deallocated
+  // as long as there remain handles pointing to it.
+  // We strongly recommend deallocating CacheReservationManager object only
+  // after all its handles are deallocated to keep things easy to reasonate
+  test_cache_rev_mng.reset();
+  EXPECT_GE(cache->GetPinnedUsage(), mem_used);
+  EXPECT_LT(cache->GetPinnedUsage(), mem_used + kMetaDataChargeOverhead);
+
+  handle_2.reset();
+  // The CacheReservationManager object is now deallocated since all the handles
+  // and its original pointer is gone
+  mem_used = mem_used - incremental_mem_used_handle_2;
+  EXPECT_EQ(mem_used, 0);
+  EXPECT_EQ(cache->GetPinnedUsage(), mem_used);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

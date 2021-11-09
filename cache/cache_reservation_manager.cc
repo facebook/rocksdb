@@ -80,6 +80,23 @@ template Status CacheReservationManager::UpdateCacheReservation<
     CacheEntryRole::kMisc>(std::size_t new_mem_used);
 
 template <CacheEntryRole R>
+Status CacheReservationManager::MakeCacheReservation(
+    std::size_t incremental_memory_used,
+    std::unique_ptr<CacheReservationHandle<R>>* handle) {
+  assert(handle != nullptr);
+  Status s =
+      UpdateCacheReservation<R>(GetTotalMemoryUsed() + incremental_memory_used);
+  (*handle).reset(new CacheReservationHandle<R>(incremental_memory_used,
+                                                shared_from_this()));
+  return s;
+}
+
+template Status
+CacheReservationManager::MakeCacheReservation<CacheEntryRole::kMisc>(
+    std::size_t incremental_memory_used,
+    std::unique_ptr<CacheReservationHandle<CacheEntryRole::kMisc>>* handle);
+
+template <CacheEntryRole R>
 Status CacheReservationManager::IncreaseCacheReservation(
     std::size_t new_mem_used) {
   Status return_status = Status::OK();
@@ -135,4 +152,27 @@ Slice CacheReservationManager::GetNextCacheKey() {
       EncodeVarint64(cache_key_ + kCacheKeyPrefixSize, next_cache_key_id_++);
   return Slice(cache_key_, static_cast<std::size_t>(end - cache_key_));
 }
+
+template <CacheEntryRole R>
+CacheReservationHandle<R>::CacheReservationHandle(
+    std::size_t incremental_memory_used,
+    std::shared_ptr<CacheReservationManager> cache_res_mgr)
+    : incremental_memory_used_(incremental_memory_used) {
+  assert(cache_res_mgr != nullptr);
+  cache_res_mgr_ = cache_res_mgr;
+}
+
+template <CacheEntryRole R>
+CacheReservationHandle<R>::~CacheReservationHandle() {
+  assert(cache_res_mgr_ != nullptr);
+  assert(cache_res_mgr_->GetTotalMemoryUsed() >= incremental_memory_used_);
+
+  Status s = cache_res_mgr_->UpdateCacheReservation<R>(
+      cache_res_mgr_->GetTotalMemoryUsed() - incremental_memory_used_);
+  s.PermitUncheckedError();
+}
+
+// Explicitly instantiate templates for "CacheEntryRole" values we use.
+// This makes it possible to keep the template definitions in the .cc file.
+template class CacheReservationHandle<CacheEntryRole::kMisc>;
 }  // namespace ROCKSDB_NAMESPACE
