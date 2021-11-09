@@ -450,7 +450,7 @@ TEST(CacheReservationHandleTest, HandleTest) {
   std::shared_ptr<Cache> cache = NewLRUCache(lo);
 
   std::shared_ptr<CacheReservationManager> test_cache_rev_mng(
-      new CacheReservationManager(cache));
+      std::make_shared<CacheReservationManager>(cache));
 
   std::size_t mem_used = 0;
   const std::size_t incremental_mem_used_handle_1 = 1 * kSizeDummyEntry;
