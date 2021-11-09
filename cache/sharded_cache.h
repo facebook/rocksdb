@@ -128,6 +128,7 @@ class ShardedCache : public Cache {
 
   inline uint32_t Shard(uint32_t hash) { return hash & shard_mask_; }
   mutable port::Mutex capacity_mutex_;
+
  private:
   uint32_t shard_mask_;
   std::atomic<uint64_t> last_id_;
