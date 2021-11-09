@@ -23,7 +23,9 @@
 namespace ROCKSDB_NAMESPACE {
 CacheReservationManager::CacheReservationManager(std::shared_ptr<Cache> cache,
                                                  bool delayed_decrease)
-    : delayed_decrease_(delayed_decrease), cache_allocated_size_(0) {
+    : delayed_decrease_(delayed_decrease),
+      cache_allocated_size_(0),
+      memory_used_(0) {
   assert(cache != nullptr);
   cache_ = cache;
   std::memset(cache_key_, 0, kCacheKeyPrefixSize + kMaxVarint64Length);
@@ -39,6 +41,7 @@ CacheReservationManager::~CacheReservationManager() {
 template <CacheEntryRole R>
 Status CacheReservationManager::UpdateCacheReservation(
     std::size_t new_mem_used) {
+  memory_used_ = new_mem_used;
   std::size_t cur_cache_allocated_size =
       cache_allocated_size_.load(std::memory_order_relaxed);
   if (new_mem_used == cur_cache_allocated_size) {
@@ -116,6 +119,10 @@ Status CacheReservationManager::DecreaseCacheReservation(
 
 std::size_t CacheReservationManager::GetTotalReservedCacheSize() {
   return cache_allocated_size_.load(std::memory_order_relaxed);
+}
+
+std::size_t CacheReservationManager::GetTotalMemoryUsed() {
+  return memory_used_;
 }
 
 Slice CacheReservationManager::GetNextCacheKey() {

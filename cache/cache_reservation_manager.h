@@ -26,7 +26,9 @@ namespace ROCKSDB_NAMESPACE {
 
 // CacheReservationManager is for reserving cache space for the memory used
 // through inserting/releasing dummy entries in the cache.
-// This class is not thread-safe.
+//
+// This class is NOT thread-safe, except that GetTotalReservedCacheSize()
+// can be called without external synchronization.
 class CacheReservationManager {
  public:
   // Construct a CacheReservationManager
@@ -53,8 +55,8 @@ class CacheReservationManager {
   template <CacheEntryRole R>
 
   // Insert and release dummy entries in the cache to
-  // match the size of total dummy entries with the smallest multiple of
-  // kSizeDummyEntry that is greater than or equal to new_mem_used
+  // match the size of total dummy entries with the least multiple of
+  // kSizeDummyEntry greater than or equal to new_mem_used
   //
   // Insert dummy entries if new_memory_used > cache_allocated_size_;
   //
@@ -68,12 +70,33 @@ class CacheReservationManager {
   // is set true.
   //
   // @param new_memory_used The number of bytes used by new memory
+  //        The most recent new_memoy_used passed in will be returned
+  //        in GetTotalMemoryUsed() even when the call return non-ok status.
+  //
+  //        Since the class is NOT thread-safe, external synchronization on the
+  //        order of calling UpdateCacheReservation() is needed if you want
+  //        GetTotalMemoryUsed() indeed returns the latest memory used.
+  //
   // @return On inserting dummy entries, it returns Status::OK() if all dummy
-  // entry insertions succeed. Otherwise, it returns the first non-ok status;
-  // On releasing dummy entries, it always returns Status::OK().
-  // On keeping dummy entries the same, it always returns Status::OK().
+  //         entry insertions succeed.
+  //         Otherwise, it returns the first non-ok status;
+  //         On releasing dummy entries, it always returns Status::OK().
+  //         On keeping dummy entries the same, it always returns Status::OK().
   Status UpdateCacheReservation(std::size_t new_memory_used);
+
+  // Return the size of the cache (which is a multiple of kSizeDummyEntry)
+  // successfully reserved by calling UpdateCacheReservation().
+  //
+  // When UpdateCacheReservation() returns non-ok status,
+  // calling GetTotalReservedCacheSize() after that might return a slightly
+  // smaller number than the actual reserved cache size due to
+  // the returned number will always be a multiple of kSizeDummyEntry
+  // and cache full might happen in the middle of inserting a dummy entry.
   std::size_t GetTotalReservedCacheSize();
+
+  // Return the latest total memory used indicated by the most recent call of
+  // UpdateCacheReservation(std::size_t new_memory_used);
+  std::size_t GetTotalMemoryUsed();
 
   static constexpr std::size_t GetDummyEntrySize() { return kSizeDummyEntry; }
 
@@ -92,6 +115,7 @@ class CacheReservationManager {
   std::shared_ptr<Cache> cache_;
   bool delayed_decrease_;
   std::atomic<std::size_t> cache_allocated_size_;
+  std::size_t memory_used_;
   std::vector<Cache::Handle *> dummy_handles_;
   std::uint64_t next_cache_key_id_ = 0;
   // The non-prefix part will be updated according to the ID to use.
