@@ -1203,7 +1203,7 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
 
   // Update the read pattern for PrefetchBuffer.
   if (is_next_read_sequential_) {
-    file_iter_.UpdateReadPattern(old_iter);
+    file_iter_.UpdateReadaheadState(old_iter);
   }
 
   if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {

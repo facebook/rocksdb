@@ -14,15 +14,15 @@
 #include <string>
 
 #include "file/random_access_file_reader.h"
-#include "file/read_pattern.h"
+#include "file/readahead_file_info.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-// TODO akanksha: Remove below header.
-#include "table/block_based/block_type.h"
 #include "util/aligned_buffer.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+#define DEAFULT_DECREMENT 8 * 1024
 
 // FilePrefetchBuffer is a smart buffer to store and read data from a file.
 class FilePrefetchBuffer {
@@ -115,13 +115,13 @@ class FilePrefetchBuffer {
     readahead_size_ = initial_readahead_size_;
   }
 
-  void GetPrefetchBufferReadPattern(ReadaheadInfo::ReadPattern* read_pattern) {
-    read_pattern->readahead_size = readahead_size_;
-    read_pattern->num_file_reads = num_file_reads_;
+  void GetReadaheadState(ReadaheadFileInfo::ReadaheadInfo* readahead_info) {
+    readahead_info->readahead_size = readahead_size_;
+    readahead_info->num_file_reads = num_file_reads_;
   }
 
   void DecreaseReadAheadIfEligible(uint64_t offset, size_t size,
-                                   size_t value = 8 * 1024) {
+                                   size_t value = DEAFULT_DECREMENT) {
     // Decrease the readahead_size if
     // - its enabled internally by RocksDB (implicit_auto_readahead_) and,
     // - readahead_size is greater than 0 and,

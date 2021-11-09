@@ -36,10 +36,10 @@ class BlockPrefetcher {
     return;
   }
 
-  void SetPrefetchBufferReadPattern(ReadaheadInfo::ReadPattern* read_pattern) {
-    num_file_reads_ = read_pattern->num_file_reads;
-    initial_auto_readahead_size_ = read_pattern->readahead_size;
-    TEST_SYNC_POINT_CALLBACK("BlockPrefetcher::SetPrefetchBufferReadPattern",
+  void SetReadaheadState(ReadaheadFileInfo::ReadaheadInfo* readahead_info) {
+    num_file_reads_ = readahead_info->num_file_reads;
+    initial_auto_readahead_size_ = readahead_info->readahead_size;
+    TEST_SYNC_POINT_CALLBACK("BlockPrefetcher::SetReadaheadState",
                              &initial_auto_readahead_size_);
   }
 

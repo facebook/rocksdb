@@ -114,17 +114,17 @@ class PartitionedIndexIterator : public InternalIteratorBase<IndexValue> {
     }
   }
 
-  void GetPrefetchBufferReadPattern(ReadaheadInfo* readahead_info) override {
+  void GetReadaheadState(ReadaheadFileInfo* readahead_file_info) override {
     if (block_prefetcher_.prefetch_buffer() != nullptr &&
         read_options_.adaptive_readahead) {
-      block_prefetcher_.prefetch_buffer()->GetPrefetchBufferReadPattern(
-          &(readahead_info->index_block_pattern));
+      block_prefetcher_.prefetch_buffer()->GetReadaheadState(
+          &(readahead_file_info->index_block_readahead_info));
     }
   }
 
-  void SetPrefetchBufferReadPattern(ReadaheadInfo* readahead_info) override {
-    block_prefetcher_.SetPrefetchBufferReadPattern(
-        &(readahead_info->index_block_pattern));
+  void SetReadaheadState(ReadaheadFileInfo* readahead_file_info) override {
+    block_prefetcher_.SetReadaheadState(
+        &(readahead_file_info->index_block_readahead_info));
   }
 
   std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;

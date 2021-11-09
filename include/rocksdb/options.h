@@ -1609,7 +1609,7 @@ struct ReadOptions {
   // level, if iterator moves over next file, readahead_size starts again from
   // 8KB.
   //
-  // By enabling this option, rocksdb will does some enhancements for
+  // By enabling this option, RocksDB will do some enhancements for
   // prefetching the data.
   //
   // Default: false

@@ -154,11 +154,11 @@ class IteratorWrapperBase {
     return iter_->user_key();
   }
 
-  void UpdateReadPattern(InternalIteratorBase<TValue>* old_iter) {
+  void UpdateReadaheadState(InternalIteratorBase<TValue>* old_iter) {
     if (old_iter && iter_) {
-      ReadaheadInfo readahead_info;
-      old_iter->GetPrefetchBufferReadPattern(&readahead_info);
-      iter_->SetPrefetchBufferReadPattern(&readahead_info);
+      ReadaheadFileInfo readahead_file_info;
+      old_iter->GetReadaheadState(&readahead_file_info);
+      iter_->SetReadaheadState(&readahead_file_info);
     }
   }
 
