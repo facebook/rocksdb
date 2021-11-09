@@ -91,9 +91,10 @@ static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
 static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
 
-static const std::string kDisableUserTimestamp = "";
-
 constexpr uint64_t kNumInternalBytes = 8;
+
+// Defined in dbformat.cc
+extern const std::string kDisableUserTimestamp;
 
 // The data structure that represents an internal key in the way that user_key,
 // sequence number and type are stored in separated forms.
