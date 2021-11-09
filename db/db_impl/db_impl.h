@@ -2324,7 +2324,7 @@ class DBImpl : public DB {
 
   // Indicate if deprecation warning message is logged before. Will be removed
   // soon with the deprecated feature.
-  bool iter_start_seqnum_deprecation_warned_ = false;
+  std::atomic_bool iter_start_seqnum_deprecation_warned_{false};
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,
