@@ -473,21 +473,22 @@ TEST_F(RateLimiterTest, CreateGenericRateLimiterFromString) {
   ASSERT_EQ(limiter->GetBytesPerSecond(), 1024U);
 #ifndef ROCKSDB_LITE
   ASSERT_OK(RateLimiter::CreateFromString(
-      config_options, "bytes_per_sec=2048;id=" + limiter_id, &limiter));
+      config_options, "rate_bytes_per_sec=2048;id=" + limiter_id, &limiter));
   ASSERT_NE(limiter, nullptr);
   ASSERT_EQ(limiter->GetBytesPerSecond(), 2048U);
   ASSERT_NOK(RateLimiter::CreateFromString(
-      config_options, "bytes_per_sec=0;id=" + limiter_id, &limiter));
+      config_options, "rate_bytes_per_sec=0;id=" + limiter_id, &limiter));
   ASSERT_NOK(RateLimiter::CreateFromString(
-      config_options, "bytes_per_sec=2048;fairness=0;id=" + limiter_id,
+      config_options, "rate_bytes_per_sec=2048;fairness=0;id=" + limiter_id,
       &limiter));
 
-  ASSERT_OK(RateLimiter::CreateFromString(
-      config_options,
-      "bytes_per_sec=2048;refill_period_us=1024;fairness=42;auto_tuned=true;"
-      "mode=kReadsOnly;id=" +
-          limiter_id,
-      &limiter));
+  ASSERT_OK(
+      RateLimiter::CreateFromString(config_options,
+                                    "rate_bytes_per_sec=2048;refill_period_us="
+                                    "1024;fairness=42;auto_tuned=true;"
+                                    "mode=kReadsOnly;id=" +
+                                        limiter_id,
+                                    &limiter));
   ASSERT_NE(limiter, nullptr);
   auto opts =
       limiter->GetOptions<GenericRateLimiter::GenericRateLimiterOptions>();

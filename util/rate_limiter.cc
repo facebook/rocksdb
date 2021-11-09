@@ -53,7 +53,7 @@ struct GenericRateLimiter::Req {
 static std::unordered_map<std::string, OptionTypeInfo>
     generic_rate_limiter_type_info = {
 #ifndef ROCKSDB_LITE
-        {"bytes_per_sec",
+        {"rate_bytes_per_sec",
          {offsetof(struct GenericRateLimiter::GenericRateLimiterOptions,
                    max_bytes_per_sec),
           OptionType::kInt64T}},

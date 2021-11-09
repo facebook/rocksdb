@@ -1349,7 +1349,7 @@ class MockFileChecksumGenFactory : public FileChecksumGenFactory {
 
 class MockRateLimiter : public RateLimiter {
  public:
-  static const char* kClassName() { return "Mock"; }
+  static const char* kClassName() { return "MockRateLimiter"; }
   const char* Name() const override { return kClassName(); }
   void SetBytesPerSecond(int64_t /*bytes_per_second*/) override {}
   int64_t GetBytesPerSecond() const override { return 0; }
