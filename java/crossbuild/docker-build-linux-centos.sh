@@ -34,20 +34,24 @@ if hash scl 2>/dev/null; then
 	if scl --list | grep -q 'devtoolset-8'; then
 		# CentOS 6+
                 scl enable devtoolset-8 'make clean-not-downloaded'
+		echo "Using scl devtoolset-8"
                 scl enable devtoolset-8 "PORTABLE=1 make -j$J $ROCKSDB_JAVA_TARGET"
 	elif scl --list | grep -q 'devtoolset-7'; then
 		# CentOS 6+
 		scl enable devtoolset-7 'make clean-not-downloaded'
+		echo "Using scl devtoolset-7"
 		scl enable devtoolset-7 "PORTABLE=1 make -j$J $ROCKSDB_JAVA_TARGET"
 	elif scl --list | grep -q 'devtoolset-2'; then
 		# CentOS 5 or 6
 		scl enable devtoolset-2 'make clean-not-downloaded'
+		echo "Using scl devtoolset-2"
 		scl enable devtoolset-2 "PORTABLE=1 make -j$J $ROCKSDB_JAVA_TARGET"
 	else
 		echo "Could not find devtoolset"
 		exit 1;
 	fi
 else
+	echo "No suitable scl devtoolset found"
 	make clean-not-downloaded
 	PORTABLE=1 make -j$J $ROCKSDB_JAVA_TARGET
 fi
