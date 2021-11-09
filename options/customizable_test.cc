@@ -1237,6 +1237,7 @@ class TestCache : public Cache {
   }
   Handle* Lookup(const Slice&, Statistics*) override { return nullptr; }
   bool Ref(Handle*) override { return false; }
+  using Cache::Release;
   bool Release(Handle*, bool) override { return true; }
   void* Value(Handle*) override { return nullptr; }
   void Erase(const Slice&) override {}
