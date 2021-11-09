@@ -327,6 +327,7 @@ TEST_F(DBBasicTestWithTimestamp, GcPreserveLatestVersionBelowFullHistoryLow) {
   std::string value;
   Status s = db_->Get(ropts, "k1", &value);
   ASSERT_OK(s);
+  ASSERT_EQ("v1", value);
 
   Close();
 }
@@ -369,15 +370,19 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
   ASSERT_OK(Flush());
 
   // TODO return a non-ok for read ts < current_ts_low and test it.
-  for (int i = current_ts_low; i < 10; i++) {
+  for (int i = 0; i < 10; i++) {
     ReadOptions read_opts;
     std::string ts_str = Timestamp(i, 0);
     Slice ts = ts_str;
     read_opts.timestamp = &ts;
     std::string value;
     Status status = db_->Get(read_opts, kKey, &value);
-    ASSERT_OK(status);
-    ASSERT_TRUE(value.compare(Key(i)) == 0);
+    if (i < current_ts_low - 1) {
+      ASSERT_TRUE(status.IsNotFound());
+    } else {
+      ASSERT_OK(status);
+      ASSERT_TRUE(value.compare(Key(i)) == 0);
+    }
   }
 
   // Test set ts_low and then trigger compaction

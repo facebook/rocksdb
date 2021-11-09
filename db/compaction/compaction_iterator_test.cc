@@ -1173,7 +1173,8 @@ TEST_P(CompactionIteratorTsGcTest, NewHidesOldSameSnapshot) {
     PutFixed64(&full_history_ts_low, 102);
     const std::vector<std::string> expected_keys = {
         input_keys[0], input_keys[1], input_keys[2]};
-    const std::vector<std::string> expected_values = {"", "a2", "a1"};
+    const std::vector<std::string> expected_values = {"", input_values[1],
+                                                      input_values[2]};
     RunTest(input_keys, input_values, expected_keys, expected_values,
             /*last_committed_seq=*/kMaxSequenceNumber,
             /*merge_operator=*/nullptr, /*compaction_filter=*/nullptr,
