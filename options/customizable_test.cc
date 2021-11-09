@@ -1226,22 +1226,34 @@ class TestSecondaryCache : public SecondaryCache {
   std::string GetPrintableOptions() const override { return ""; }
 };
 
-class TestCache : public ShardedCache {
+class TestCache : public Cache {
  public:
-  TestCache() : ShardedCache(&options_) {}
+  TestCache() {}
   static const char* kClassName() { return "Test"; }
   const char* Name() const override { return kClassName(); }
-  void* Value(Handle* /*handle*/) override { return nullptr; }
-  size_t GetCharge(Handle* /*handle*/) const override { return 0; }
-  uint32_t GetHash(Handle* /*handle*/) const override { return 0; }
-  DeleterFn GetDeleter(Handle* /*handle*/) const override { return nullptr; }
-  CacheShard* GetShard(uint32_t /*shard*/) override { return nullptr; }
-  const CacheShard* GetShard(uint32_t /*shard*/) const override {
-    return nullptr;
+  Status Insert(const Slice&, void*, size_t, DeleterFn, Handle**,
+                Priority) override {
+    return Status::NotSupported();
   }
-
- private:
-  CacheOptions options_;
+  Handle* Lookup(const Slice&, Statistics*) override { return nullptr; }
+  bool Ref(Handle*) override { return false; }
+  bool Release(Handle*, bool) override { return true; }
+  void* Value(Handle*) override { return nullptr; }
+  void Erase(const Slice&) override {}
+  uint64_t NewId() override { return 0; }
+  void SetCapacity(size_t) override {}
+  void SetStrictCapacityLimit(bool) override {}
+  bool HasStrictCapacityLimit() const override { return true; }
+  size_t GetCapacity() const override { return 0; }
+  size_t GetUsage() const override { return 0; }
+  size_t GetUsage(Handle*) const override { return 0; }
+  size_t GetPinnedUsage() const override { return 0; }
+  size_t GetCharge(Handle*) const override { return 0; }
+  DeleterFn GetDeleter(Handle*) const override { return nullptr; }
+  void ApplyToAllEntries(
+      const std::function<void(const Slice&, void*, size_t, DeleterFn)>&,
+      const ApplyToAllEntriesOptions&) override {}
+  void EraseUnRefEntries() override {}
 };
 
 class TestStatistics : public StatisticsImpl {

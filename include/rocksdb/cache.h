@@ -48,19 +48,9 @@ enum CacheMetadataChargePolicy {
 const CacheMetadataChargePolicy kDefaultCacheMetadataChargePolicy =
     kFullChargeCacheMetadata;
 
-struct CacheOptions {
-  static const char* kName() { return "CacheOptions"; }
-  CacheOptions() {}
-  CacheOptions(
-      size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
-      CacheMetadataChargePolicy _metadata_charge_policy =
-          kDefaultCacheMetadataChargePolicy,
-      const std::shared_ptr<MemoryAllocator>& _memory_allocator = nullptr)
-      : capacity(_capacity),
-        num_shard_bits(_num_shard_bits),
-        strict_capacity_limit(_strict_capacity_limit),
-        memory_allocator(_memory_allocator),
-        metadata_charge_policy(_metadata_charge_policy) {}
+struct LRUCacheOptions {
+  static const char* kName() { return "LRUCacheOptions"; }
+
   // Capacity of the cache.
   size_t capacity = 0;
 
@@ -73,22 +63,6 @@ struct CacheOptions {
   // insert to the cache will fail when cache is full.
   bool strict_capacity_limit = false;
 
-  // If non-nullptr will use this allocator instead of system allocator when
-  // allocating memory for cache blocks. Call this method before you start using
-  // the cache!
-  //
-  // Caveat: when the cache is used as block cache, the memory allocator is
-  // ignored when dealing with compression libraries that allocate memory
-  // internally (currently only XPRESS).
-  std::shared_ptr<MemoryAllocator> memory_allocator;
-
-  CacheMetadataChargePolicy metadata_charge_policy =
-      kDefaultCacheMetadataChargePolicy;
-};
-
-struct LRUCacheOptions : public CacheOptions {
-  static const char* kName() { return "LRUCacheOptions"; }
-
   // Percentage of cache reserved for high priority entries.
   // If greater than zero, the LRU list will be split into a high-pri
   // list and a low-pri list. High-pri entries will be inserted to the
@@ -100,6 +74,18 @@ struct LRUCacheOptions : public CacheOptions {
   // See also
   // BlockBasedTableOptions::cache_index_and_filter_blocks_with_high_priority.
   double high_pri_pool_ratio = 0.5;
+
+  // If non-nullptr will use this allocator instead of system allocator when
+  // allocating memory for cache blocks. Call this method before you start using
+  // the cache!
+  //
+  // Caveat: when the cache is used as block cache, the memory allocator is
+  // ignored when dealing with compression libraries that allocate memory
+  // internally (currently only XPRESS).
+  std::shared_ptr<MemoryAllocator> memory_allocator;
+
+  CacheMetadataChargePolicy metadata_charge_policy =
+      kDefaultCacheMetadataChargePolicy;
 
   // Whether to use adaptive mutexes for cache shards. Note that adaptive
   // mutexes need to be supported by the platform in order for this to have any
@@ -118,9 +104,12 @@ struct LRUCacheOptions : public CacheOptions {
       bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
       CacheMetadataChargePolicy _metadata_charge_policy =
           kDefaultCacheMetadataChargePolicy)
-      : CacheOptions(_capacity, _num_shard_bits, _strict_capacity_limit,
-                     _metadata_charge_policy, _memory_allocator),
+      : capacity(_capacity),
+        num_shard_bits(_num_shard_bits),
+        strict_capacity_limit(_strict_capacity_limit),
         high_pri_pool_ratio(_high_pri_pool_ratio),
+        memory_allocator(_memory_allocator),
+        metadata_charge_policy(_metadata_charge_policy),
         use_adaptive_mutex(_use_adaptive_mutex) {}
 };
 

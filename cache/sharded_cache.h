@@ -71,7 +71,7 @@ class CacheShard {
 // Keys are sharded by the highest num_shard_bits bits of hash value.
 class ShardedCache : public Cache {
  public:
-  ShardedCache(CacheOptions* cache_options);
+  ShardedCache();
   virtual ~ShardedCache() = default;
   static const char* kClassName() { return "ShardedCache"; }
 
@@ -80,9 +80,6 @@ class ShardedCache : public Cache {
   virtual const CacheShard* GetShard(uint32_t shard) const = 0;
 
   virtual uint32_t GetHash(Handle* handle) const = 0;
-
-  virtual void SetCapacity(size_t capacity) override;
-  virtual void SetStrictCapacityLimit(bool strict_capacity_limit) override;
 
   virtual Status Insert(const Slice& key, void* value, size_t charge,
                         DeleterFn deleter, Handle** handle,
@@ -103,8 +100,6 @@ class ShardedCache : public Cache {
   virtual bool Release(Handle* handle, bool force_erase = false) override;
   virtual void Erase(const Slice& key) override;
   virtual uint64_t NewId() override;
-  virtual size_t GetCapacity() const override;
-  virtual bool HasStrictCapacityLimit() const override;
   virtual size_t GetUsage() const override;
   virtual size_t GetUsage(Handle* handle) const override;
   virtual size_t GetPinnedUsage() const override;
@@ -113,17 +108,12 @@ class ShardedCache : public Cache {
                                DeleterFn deleter)>& callback,
       const ApplyToAllEntriesOptions& opts) override;
   virtual void EraseUnRefEntries() override;
-  virtual std::string GetPrintableOptions() const override;
 
   int GetNumShardBits() const;
   uint32_t GetNumShards() const;
 
-  Status PrepareOptions(const ConfigOptions& options) override;
   Status ValidateOptions(const DBOptions& db_opts,
                          const ColumnFamilyOptions& cf_opts) const override;
-  MemoryAllocator* memory_allocator() const override {
-    return cache_options_->memory_allocator.get();
-  }
 
   bool IsInstanceOf(const std::string& id) const override {
     if (id == kClassName()) {
@@ -134,11 +124,11 @@ class ShardedCache : public Cache {
   }
 
  protected:
+  uint32_t SetNumShards(int num_shard_bits);
+
   inline uint32_t Shard(uint32_t hash) { return hash & shard_mask_; }
   mutable port::Mutex capacity_mutex_;
-
  private:
-  CacheOptions* cache_options_;
   uint32_t shard_mask_;
   std::atomic<uint64_t> last_id_;
 };

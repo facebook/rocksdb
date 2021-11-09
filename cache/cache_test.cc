@@ -890,7 +890,6 @@ TEST_F(CreateCacheTest, ClockCache) {
     ASSERT_OK(s);
     ASSERT_NE(cache, nullptr);
     ASSERT_STREQ(cache->Name(), ClockCache::kClassName());
-    ASSERT_NOK(cache->ValidateOptions(options, options));
     ASSERT_OK(cache->PrepareOptions(config_options_));
     ASSERT_OK(cache->ValidateOptions(options, options));
     cache->SetCapacity(1024U * 1024U);
@@ -963,10 +962,6 @@ TEST_F(CreateCacheTest, ClockCacheFromBadOptions) {
   ASSERT_NOK(Cache::CreateFromString(
       config_options_, "metadata_charge_policy=kXX; id=" + id, &cache));
 
-  ASSERT_OK(Cache::CreateFromString(config_options_,
-                                    "num_shard_bits=21;id=" + id, &cache));
-  ASSERT_NOK(cache->PrepareOptions(config_options_));
-  config_options_.invoke_prepare_options = true;
   ASSERT_NOK(Cache::CreateFromString(config_options_,
                                      "num_shard_bits=21;id=" + id, &cache));
 }
@@ -974,13 +969,9 @@ TEST_F(CreateCacheTest, ClockCacheFromBadOptions) {
 
 #endif  // ROCKSDB_LITE
 
+INSTANTIATE_TEST_CASE_P(LRUCache, CacheTest, testing::Values(kLRU));
 #ifdef SUPPORT_CLOCK_CACHE
-std::shared_ptr<Cache> (*new_clock_cache_func)(
-    size_t, int, bool, CacheMetadataChargePolicy) = NewClockCache;
-INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
-                        testing::Values(kLRU, kClock));
-#else
-INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest, testing::Values(kLRU));
+INSTANTIATE_TEST_CASE_P(ClockCache, CacheTest, testing::Values(kClock));
 #endif  // SUPPORT_CLOCK_CACHE
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest, testing::Values(kLRU));
 

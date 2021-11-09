@@ -10,6 +10,8 @@
 #include "cache/clock_cache.h"
 
 #include "rocksdb/convenience.h"
+#include "rocksdb/memory_allocator.h"
+#include "rocksdb/utilities/options_type.h"
 #ifdef SUPPORT_CLOCK_CACHE
 #include <assert.h>
 #include <atomic>
@@ -756,6 +758,36 @@ void ClockCacheShard::EraseUnRefEntries() {
 }
 #endif  // SUPPORT_CLOCK_CACHE
 
+namespace {
+#ifndef ROCKSDB_LITE
+static std::unordered_map<std::string, CacheMetadataChargePolicy>
+    metadata_charge_policy_string_map = {
+        {"kDontCharge", CacheMetadataChargePolicy::kDontChargeCacheMetadata},
+        {"kFullCharge", CacheMetadataChargePolicy::kFullChargeCacheMetadata},
+};
+#endif  // ROCKSDB_LITE
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    clock_cache_options_type_info = {
+#ifndef ROCKSDB_LITE
+        {"capacity",
+         {offsetof(struct ClockCacheOptions, capacity), OptionType::kSizeT,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"num_shard_bits",
+         {offsetof(struct ClockCacheOptions, num_shard_bits), OptionType::kInt,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"strict_capacity_limit",
+         {offsetof(struct ClockCacheOptions, strict_capacity_limit),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"metadata_charge_policy",
+         OptionTypeInfo::Enum(
+             offsetof(struct ClockCacheOptions, metadata_charge_policy),
+             &metadata_charge_policy_string_map)},
+#endif  // ROCKSDB_LITE
+};
+}  // namespace
+
 bool ClockCache::IsClockCacheSupported() {
 #ifdef SUPPORT_CLOCK_CACHE
   return true;
@@ -764,7 +796,7 @@ bool ClockCache::IsClockCacheSupported() {
 #endif  // SUPPORT_CLOCK_CACHE
 }
 
-Status ClockCache::CreateClockCache(const CacheOptions& options,
+Status ClockCache::CreateClockCache(const ClockCacheOptions& options,
                                     std::unique_ptr<ClockCache>* cache) {
   if (!IsClockCacheSupported()) {
     return Status::NotSupported("ClockCache not supported");
@@ -775,11 +807,13 @@ Status ClockCache::CreateClockCache(const CacheOptions& options,
 }
 
 Status ClockCache::CreateClockCache(std::unique_ptr<ClockCache>* cache) {
-  return CreateClockCache(CacheOptions(), cache);
+  return CreateClockCache(ClockCacheOptions(), cache);
 }
 
-ClockCache::ClockCache(const CacheOptions& options)
-    : ShardedCache(&options_), options_(options), shards_(nullptr) {}
+ClockCache::ClockCache(const ClockCacheOptions& options)
+    : ShardedCache(), options_(options), shards_(nullptr) {
+  RegisterOptions(&options_, &clock_cache_options_type_info);
+}
 
 ClockCache::~ClockCache() {
 #ifdef SUPPORT_CLOCK_CACHE
@@ -796,25 +830,63 @@ bool ClockCache::IsMutable() const {
 #endif  // SUPPORT_CLOCK_CACHE
 }
 
+size_t ClockCache::GetCapacity() const {
+  MutexLock l(&capacity_mutex_);
+  return options_.capacity;
+}
+
+bool ClockCache::HasStrictCapacityLimit() const {
+  MutexLock l(&capacity_mutex_);
+  return options_.strict_capacity_limit;
+}
+
+void ClockCache::SetCapacity(size_t capacity) {
+  uint32_t num_shards = GetNumShards();
+  const size_t per_shard = (capacity + (num_shards - 1)) / num_shards;
+  MutexLock l(&capacity_mutex_);
+  for (uint32_t s = 0; s < num_shards; s++) {
+    GetShard(s)->SetCapacity(per_shard);
+  }
+  options_.capacity = capacity;
+}
+
+void ClockCache::SetStrictCapacityLimit(bool strict_capacity_limit) {
+  uint32_t num_shards = GetNumShards();
+  MutexLock l(&capacity_mutex_);
+
+  for (uint32_t s = 0; s < num_shards; s++) {
+    GetShard(s)->SetStrictCapacityLimit(strict_capacity_limit);
+  }
+  options_.strict_capacity_limit = strict_capacity_limit;
+}
+
 Status ClockCache::PrepareOptions(const ConfigOptions& config_options) {
   Status s;
   if (!IsClockCacheSupported()) {
     (void)config_options;
     s = Status::NotSupported("ClockCache not supported");
 #ifdef SUPPORT_CLOCK_CACHE
+  } else if (options_.num_shard_bits >= 20) {
+    return Status::InvalidArgument(
+        "The cache cannot be sharded into too many fine pieces");
   } else {
     MutexLock l(&capacity_mutex_);
     if (shards_ == nullptr) {  // Not already prepared
+      if (options_.num_shard_bits < 0) {
+        options_.num_shard_bits = GetDefaultCacheShardBits(options_.capacity);
+      }
       s = ShardedCache::PrepareOptions(config_options);
       if (s.ok()) {
-        int num_shards = 1 << options_.num_shard_bits;
+        auto num_shards = SetNumShards(options_.num_shard_bits);
+        const size_t per_shard =
+            (options_.capacity + (num_shards - 1)) / num_shards;
         shards_ = new ClockCacheShard[num_shards];
-        for (int i = 0; i < num_shards; i++) {
+        for (uint32_t i = 0; i < num_shards; i++) {
           shards_[i].set_metadata_charge_policy(
               options_.metadata_charge_policy);
+          shards_[i].SetCapacity(per_shard);
+          shards_[i].SetStrictCapacityLimit(options_.strict_capacity_limit);
         }
-        SetCapacity(options_.capacity);
-        SetStrictCapacityLimit(options_.strict_capacity_limit);
       }
     }
 #endif  // SUPPORT_CLOCK_CACHE
@@ -882,11 +954,35 @@ Cache::DeleterFn ClockCache::GetDeleter(Handle* handle) const {
 #endif  // SUPPORT_CLOCK_CACHE
 }
 
+std::string ClockCache::GetPrintableOptions() const {
+  std::string ret;
+  ret.reserve(20000);
+  const int kBufferSize = 200;
+  char buffer[kBufferSize];
+  {
+    MutexLock l(&capacity_mutex_);
+    snprintf(buffer, kBufferSize, "    capacity : %" ROCKSDB_PRIszt "\n",
+             options_.capacity);
+    ret.append(buffer);
+    snprintf(buffer, kBufferSize, "    num_shard_bits : %d\n",
+             GetNumShardBits());
+    ret.append(buffer);
+    snprintf(buffer, kBufferSize, "    strict_capacity_limit : %d\n",
+             options_.strict_capacity_limit);
+    ret.append(buffer);
+  }
+  snprintf(buffer, kBufferSize, "    memory_allocator : %s\n",
+           memory_allocator() ? memory_allocator()->Name() : "None");
+  ret.append(buffer);
+  ret.append(GetShard(0)->GetPrintableOptions());
+  return ret;
+}
+
 std::shared_ptr<Cache> NewClockCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy) {
-  CacheOptions options(capacity, num_shard_bits, strict_capacity_limit,
-                       metadata_charge_policy);
+  ClockCacheOptions options(capacity, num_shard_bits, strict_capacity_limit,
+                            metadata_charge_policy);
   std::unique_ptr<ClockCache> cache;
   Status s = ClockCache::CreateClockCache(options, &cache);
   if (s.ok()) {

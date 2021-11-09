@@ -456,6 +456,12 @@ class LRUCache
   virtual const char* Name() const override { return kClassName(); }
   Status PrepareOptions(const ConfigOptions& config_options) override;
   bool IsMutable() const override;
+  virtual std::string GetPrintableOptions() const override;
+
+  virtual void SetCapacity(size_t capacity) override;
+  virtual void SetStrictCapacityLimit(bool strict_capacity_limit) override;
+  virtual size_t GetCapacity() const override;
+  virtual bool HasStrictCapacityLimit() const override;
 
   virtual CacheShard* GetShard(uint32_t shard) override;
   virtual const CacheShard* GetShard(uint32_t shard) const override;
@@ -465,6 +471,9 @@ class LRUCache
   virtual DeleterFn GetDeleter(Handle* handle) const override;
   virtual void DisownData() override;
   virtual void WaitAll(std::vector<Handle*>& handles) override;
+  MemoryAllocator* memory_allocator() const override {
+    return options_.memory_allocator.get();
+  }
 
   //  Retrieves number of elements in LRU, for unit test purpose only
   size_t TEST_GetLRUSize();
@@ -474,7 +483,6 @@ class LRUCache
  private:
   LRUCacheShard* shards_ = nullptr;
   LRUCacheOptions options_;
-  int num_shards_ = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
