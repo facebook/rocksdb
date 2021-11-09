@@ -50,7 +50,6 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.OptimisticTransactionDB\
 	org.rocksdb.OptimisticTransactionOptions\
 	org.rocksdb.Options\
-	org.rocksdb.OptionsString\
 	org.rocksdb.OptionsUtil\
 	org.rocksdb.PersistentCache\
 	org.rocksdb.PlainTableConfig\
