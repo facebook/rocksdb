@@ -1231,10 +1231,12 @@ class TestCache : public Cache {
   TestCache() {}
   static const char* kClassName() { return "Test"; }
   const char* Name() const override { return kClassName(); }
+  using Cache::Insert;
   Status Insert(const Slice&, void*, size_t, DeleterFn, Handle**,
                 Priority) override {
     return Status::NotSupported();
   }
+  using Cache::Lookup;
   Handle* Lookup(const Slice&, Statistics*) override { return nullptr; }
   bool Ref(Handle*) override { return false; }
   using Cache::Release;
