@@ -2030,10 +2030,16 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
       checksum_value = crc32c::Extend(checksum_value, data.data(), data.size());
     }
     io_s = dest_writer->Append(data);
+
     if (rate_limiter != nullptr) {
-      LoopRateLimitRequestHelper(data.size(), rate_limiter, Env::IO_LOW,
-                                 nullptr /* stats */,
-                                 RateLimiter::OpType::kWrite);
+      if (!src.empty()) {
+        rate_limiter->Request(data.size(), Env::IO_LOW, nullptr /* stats */,
+                              RateLimiter::OpType::kWrite);
+      } else {
+        LoopRateLimitRequestHelper(data.size(), rate_limiter, Env::IO_LOW,
+                                   nullptr /* stats */,
+                                   RateLimiter::OpType::kWrite);
+      }
     }
     while (*bytes_toward_next_callback >=
            options_.callback_trigger_interval_size) {

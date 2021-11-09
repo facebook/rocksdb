@@ -17,11 +17,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <random>
 #include <string>
 #include <utility>
 
 #include "db/db_impl/db_impl.h"
+#include "db/db_test_util.h"
 #include "env/env_chroot.h"
 #include "file/filename.h"
 #include "port/port.h"
@@ -39,6 +41,7 @@
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/rate_limiter.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "utilities/backupable/backupable_db_impl.h"
@@ -2815,120 +2818,51 @@ class BackupEngineRateLimitingTestWithParam2
   BackupEngineRateLimitingTestWithParam2() {}
 };
 
-// A mocked rate limiter where extremly low refill_bytes_per_period_ is
-// achievable and makes it easier to test whether we trigger the assertion
-// failure on bytes <= refill_bytes_per_period_ or not when Request() is called
-// in BackupEngine. It is hard to directly test on GenericRateLimiter since it
-// imposes a low bound = 100 on refill_bytes_per_period_ and it's hard to
-// artificially create a case where Request() is called with bytes > 100 in
-// BackupEngine
-class MockedRateLimiterWithLowRefillBytesPerPeriod : public RateLimiter {
- public:
-  MockedRateLimiterWithLowRefillBytesPerPeriod(RateLimiter::Mode mode,
-                                               int64_t rate_bytes_per_sec,
-                                               int64_t refill_period_us)
-      : RateLimiter(mode),
-        refill_period_us_(refill_period_us),
-        refill_bytes_per_period_(
-            CalculateRefillBytesPerPeriod(rate_bytes_per_sec)) {
-    for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
-      total_bytes_through_[i] = 0;
-    }
-  }
-
-  ~MockedRateLimiterWithLowRefillBytesPerPeriod() override {
-    MutexLock g(&request_mutex_);
-  }
-
-  void SetBytesPerSecond(int64_t bytes_per_second) override {
-    (void)bytes_per_second;
-  }
-
-  using RateLimiter::Request;
-  void Request(const int64_t bytes, const Env::IOPriority pri,
-               Statistics* stats) override {
-    MutexLock g(&request_mutex_);
-    (void)stats;
-    assert(bytes <= refill_bytes_per_period_.load(std::memory_order_relaxed));
-    total_bytes_through_[pri] += bytes;
-  }
-
-  int64_t GetSingleBurstBytes() const override {
-    return refill_bytes_per_period_.load(std::memory_order_relaxed);
-  }
-
-  int64_t GetTotalBytesThrough(
-      const Env::IOPriority pri = Env::IO_TOTAL) const override {
-    MutexLock g(&request_mutex_);
-    if (pri == Env::IO_TOTAL) {
-      int64_t total_bytes_through_sum = 0;
-      for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
-        total_bytes_through_sum += total_bytes_through_[i];
-      }
-      return total_bytes_through_sum;
-    }
-    return total_bytes_through_[pri];
-  }
-
-  int64_t GetTotalRequests(
-      const Env::IOPriority pri = Env::IO_TOTAL) const override {
-    MutexLock g(&request_mutex_);
-    (void)pri;
-    return 0;
-  }
-
-  int64_t GetBytesPerSecond() const override { return 0; }
-
- private:
-  // This is the key to this MockedRateLimiterWithLowRefillBytesPerPeriod where
-  // we don't impose minimum refill_bytes_per_period_ like GenericRateLimiter
-  // does. Therefore, we can achieve creating a rate limiter with really low
-  // refill_bytes_per_period_
-  int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec) {
-    if (port::kMaxInt64 / rate_bytes_per_sec < refill_period_us_) {
-      // Avoid unexpected result in the overflow case. The result now is still
-      // inaccurate but is a number that is large enough.
-      return port::kMaxInt64 / 1000000;
-    } else {
-      return rate_bytes_per_sec * refill_period_us_ / 1000000;
-    }
-  }
-  // This mutex guard all internal states
-  mutable port::Mutex request_mutex_;
-  const int64_t refill_period_us_;
-  std::atomic<int64_t> refill_bytes_per_period_;
-  int64_t total_bytes_through_[Env::IO_TOTAL];
-};
-
-INSTANTIATE_TEST_CASE_P(RateLimiterWithLowRefillBytesPerPeriod,
-                        BackupEngineRateLimitingTestWithParam2,
-                        ::testing::Values(std::make_tuple(std::make_pair(1,
-                                                                         1))));
+INSTANTIATE_TEST_CASE_P(
+    LowRefillBytesPerPeriod, BackupEngineRateLimitingTestWithParam2,
+    ::testing::Values(std::make_tuple(std::make_pair(1, 1))));
 // To verify we don't request over-sized bytes relative to
 // refill_bytes_per_period_ in each RateLimiter::Request() called in
-// BackupEngine and hence indirectly verify we don't trigger assertion
-// failure on over-sized request like the one in GenericRateLimiter in debug
-// builds
+// BackupEngine through verifying we don't trigger assertion
+// failure on over-sized request in GenericRateLimiter in debug builds
 TEST_P(BackupEngineRateLimitingTestWithParam2,
        RateLimitingWithLowRefillBytesPerPeriod) {
+  SpecialEnv special_env(Env::Default(), /*time_elapse_only_sleep*/ true);
+
   backupable_options_->max_background_operations = 1;
   const uint64_t backup_rate_limiter_limit = std::get<0>(GetParam()).first;
-  std::shared_ptr<RateLimiter> backup_rate_limiter =
-      std::make_shared<MockedRateLimiterWithLowRefillBytesPerPeriod>(
-          RateLimiter::Mode::kAllIo, backup_rate_limiter_limit, 1000 * 1000);
+  std::shared_ptr<RateLimiter> backup_rate_limiter(
+      std::make_shared<GenericRateLimiter>(
+          backup_rate_limiter_limit, 1000 * 1000 /* refill_period_us */,
+          10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */,
+          special_env.GetSystemClock(), false /* auto_tuned */));
+
   backupable_options_->backup_rate_limiter = backup_rate_limiter;
 
   const uint64_t restore_rate_limiter_limit = std::get<0>(GetParam()).second;
-  std::shared_ptr<RateLimiter> restore_rate_limiter =
-      std::make_shared<MockedRateLimiterWithLowRefillBytesPerPeriod>(
-          RateLimiter::Mode::kAllIo, restore_rate_limiter_limit, 1000 * 1000);
+  std::shared_ptr<RateLimiter> restore_rate_limiter(
+      std::make_shared<GenericRateLimiter>(
+          restore_rate_limiter_limit, 1000 * 1000 /* refill_period_us */,
+          10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */,
+          special_env.GetSystemClock(), false /* auto_tuned */));
+
   backupable_options_->restore_rate_limiter = restore_rate_limiter;
+
+  // Rate limiter uses `CondVar::TimedWait()`, which does not have access to the
+  // `Env` to advance its time according to the fake wait duration. The
+  // workaround is to install a callback that advance the `Env`'s mock time.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "GenericRateLimiter::Request:PostTimedWait", [&](void* arg) {
+        int64_t time_waited_us = *static_cast<int64_t*>(arg);
+        special_env.SleepForMicroseconds(static_cast<int>(time_waited_us));
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   DestroyDB(dbname_, Options());
   OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
                         kShareWithChecksum /* shared_option */);
 
-  FillDB(db_.get(), 0, 5);
+  FillDB(db_.get(), 0, 100);
   int64_t total_bytes_through_before_backup =
       backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
   EXPECT_OK(backup_engine_->CreateNewBackup(db_.get(),
@@ -2956,7 +2890,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
             total_bytes_through_before_verify_backup);
 
   CloseDBAndBackupEngine();
-  AssertBackupConsistency(backup_id, 0, 5, 10);
+  AssertBackupConsistency(backup_id, 0, 100, 101);
 
   int64_t total_bytes_through_before_initialize =
       backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
@@ -2982,6 +2916,10 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
   CloseBackupEngine();
 
   DestroyDB(dbname_, Options());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "GenericRateLimiter::Request:PostTimedWait");
 }
 
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
