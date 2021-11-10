@@ -1199,7 +1199,7 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   ASSERT_EQ(Get(KEY5), p_v5);
 }
 
-TEST_F(DBFlushTest, MemPurgeWALSupport) {
+TEST_F(DBFlushTest, DISABLED_MemPurgeWALSupport) {
   Options options = CurrentOptions();
 
   options.statistics = CreateDBStatistics();
