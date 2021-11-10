@@ -8,7 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #ifndef OS_WIN
+#include <fcntl.h>
+#include <stdlib.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #endif
 
 #if defined(ROCKSDB_IOURING_PRESENT)
@@ -24,11 +28,7 @@
 #include <unordered_set>
 
 #ifdef OS_LINUX
-#include <fcntl.h>
 #include <linux/fs.h>
-#include <stdlib.h>
-#include <sys/stat.h>
-#include <unistd.h>
 #endif
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
@@ -65,6 +65,34 @@
 #include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
+constexpr bool kTravisBuild =
+#if defined(TRAVIS)
+    true;
+#else
+    false;
+#endif  // TRAVIS
+
+// Travis doesn't support fallocate or getting unique ID from files for whatever
+// reason.
+constexpr bool kFAllocatePresent =
+#if defined(TRAVIS)
+    false;
+#elif defined(ROCKSDB_FALLOCATE_PRESENT)
+    true;
+#else
+        false;
+#endif  // TRAVIS
+
+// Travis doesn't support fallocate or getting unique ID from files for whatever
+// reason.
+constexpr bool kIoctlFriendly =
+#if defined(TRAVIS)
+    false;
+#elif defined(OS_WIN) || defined(FS_IOC_GET_VERSION)
+    true;
+#else
+    false;
+#endif  // TRAVIS
 
 using port::kPageSize;
 
@@ -827,13 +855,124 @@ TEST_P(EnvPosixTestWithParam, DecreaseNumBgThreads) {
   WaitThreadPoolsEmpty();
 }
 
-#if (defined OS_LINUX || defined OS_WIN)
-// Travis doesn't support fallocate or getting unique ID from files for whatever
-// reason.
-#ifndef TRAVIS
+#ifndef ROCKSDB_LITE
+TEST_F(EnvPosixTest, PositionedAppend) {
+  std::unique_ptr<WritableFile> writable_file;
+  EnvOptions options;
+  options.use_direct_writes = true;
+  options.use_mmap_writes = false;
+  std::string fname = test::PerThreadDBPath(env_, "positioned_append");
+
+  ASSERT_OK(env_->NewWritableFile(fname, &writable_file, options));
+  const size_t kBlockSize = 4096;
+  const size_t kDataSize = kPageSize;
+  // Write a page worth of 'a'
+  auto data_ptr = NewAligned(kDataSize, 'a');
+  Slice data_a(data_ptr.get(), kDataSize);
+  ASSERT_OK(writable_file->PositionedAppend(data_a, 0U));
+  // Write a page worth of 'b' right after the first sector
+  data_ptr = NewAligned(kDataSize, 'b');
+  Slice data_b(data_ptr.get(), kDataSize);
+  ASSERT_OK(writable_file->PositionedAppend(data_b, kBlockSize));
+  ASSERT_OK(writable_file->Close());
+  // The file now has 1 sector worth of a followed by a page worth of b
+
+  // Verify the above
+  std::unique_ptr<SequentialFile> seq_file;
+  ASSERT_OK(env_->NewSequentialFile(fname, &seq_file, options));
+  size_t scratch_len = kPageSize * 2;
+  std::unique_ptr<char[]> scratch(new char[scratch_len]);
+  Slice result;
+  ASSERT_OK(seq_file->Read(scratch_len, &result, scratch.get()));
+  ASSERT_EQ(kPageSize + kBlockSize, result.size());
+  ASSERT_EQ('a', result[kBlockSize - 1]);
+  ASSERT_EQ('b', result[kBlockSize]);
+}
+#endif  // !ROCKSDB_LITE
+
+TEST_P(EnvPosixTestWithParam, AllocateTest) {
+  if (kTravisBuild) {
+    ROCKSDB_GTEST_SKIP("Not supported/expected under Travis");
+    return;
+  } else if (!kFAllocatePresent) {
+    ROCKSDB_GTEST_SKIP("Not supported/expected under this enviroment");
+    return;
+  }
+// only works in linux platforms
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+  if (env_ == Env::Default()) {
+    std::string fname = test::PerThreadDBPath(env_, "preallocate_testfile");
+
+    // Try fallocate in a file to see whether the target file system supports
+    // it.
+    // Skip the test if fallocate is not supported.
+    std::string fname_test_fallocate =
+        test::PerThreadDBPath(env_, "/preallocate_testfile_2");
+    int fd = -1;
+    do {
+      fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+    } while (fd < 0 && errno == EINTR);
+    ASSERT_GT(fd, 0);
+
+    int alloc_status = fallocate(fd, 0, 0, 1);
+
+    int err_number = 0;
+    if (alloc_status != 0) {
+      err_number = errno;
+      fprintf(stderr, "Warning: fallocate() fails, %s\n",
+              errnoStr(err_number).c_str());
+    }
+    close(fd);
+    ASSERT_OK(env_->DeleteFile(fname_test_fallocate));
+    if (alloc_status != 0 && err_number == EOPNOTSUPP) {
+      // The filesystem containing the file does not support fallocate
+      return;
+    }
+
+    EnvOptions soptions;
+    soptions.use_mmap_writes = false;
+    soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
+    std::unique_ptr<WritableFile> wfile;
+    ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
+
+    // allocate 100 MB
+    size_t kPreallocateSize = 100 * 1024 * 1024;
+    size_t kBlockSize = 512;
+    size_t kDataSize = 1024 * 1024;
+    auto data_ptr = NewAligned(kDataSize, 'A');
+    Slice data(data_ptr.get(), kDataSize);
+    wfile->SetPreallocationBlockSize(kPreallocateSize);
+    wfile->PrepareWrite(wfile->GetFileSize(), kDataSize);
+    ASSERT_OK(wfile->Append(data));
+    ASSERT_OK(wfile->Flush());
+
+    struct stat f_stat;
+    ASSERT_EQ(stat(fname.c_str(), &f_stat), 0);
+    ASSERT_EQ((unsigned int)kDataSize, f_stat.st_size);
+    // verify that blocks are preallocated
+    // Note here that we don't check the exact number of blocks preallocated --
+    // we only require that number of allocated blocks is at least what we
+    // expect.
+    // It looks like some FS give us more blocks that we asked for. That's fine.
+    // It might be worth investigating further.
+    ASSERT_LE((unsigned int)(kPreallocateSize / kBlockSize), f_stat.st_blocks);
+
+    // close the file, should deallocate the blocks
+    wfile.reset();
+
+    stat(fname.c_str(), &f_stat);
+    ASSERT_EQ((unsigned int)kDataSize, f_stat.st_size);
+    // verify that preallocated blocks were deallocated on file close
+    // Because the FS might give us more blocks, we add a full page to the size
+    // and expect the number of blocks to be less or equal to that.
+    ASSERT_GE((f_stat.st_size + kPageSize + kBlockSize - 1) / kBlockSize,
+              (unsigned int)f_stat.st_blocks);
+  }
+#endif  // ROCKSDB_FALLOCATE_PRESENT
+}
 
 namespace {
-bool IsSingleVarint(const std::string& s) {
+static bool IsSingleVarint(const std::string& s) {
   Slice slice(s);
 
   uint64_t v;
@@ -844,7 +983,7 @@ bool IsSingleVarint(const std::string& s) {
   return slice.size() == 0;
 }
 
-bool IsUniqueIDValid(const std::string& s) {
+static bool IsUniqueIDValid(const std::string& s) {
   return !s.empty() && !IsSingleVarint(s);
 }
 
@@ -863,8 +1002,9 @@ char temp_id[MAX_ID_SIZE];
 // and is empty, so we create a simply-named test file: "f".
 bool ioctl_support__FS_IOC_GETVERSION(const std::string& dir) {
 #ifdef OS_WIN
+  (void)dir;
   return true;
-#else
+#elif defined(FS_IOC_GETVERSION)
   const std::string file = dir + "/f";
   int fd;
   do {
@@ -877,6 +1017,9 @@ bool ioctl_support__FS_IOC_GETVERSION(const std::string& dir) {
   unlink(file.c_str());
 
   return ok;
+#else
+  (void)dir;
+  return false;
 #endif
 }
 
@@ -959,44 +1102,17 @@ class IoctlFriendlyTmpdir {
   std::string dir_;
 };
 
-#ifndef ROCKSDB_LITE
-TEST_F(EnvPosixTest, PositionedAppend) {
-  std::unique_ptr<WritableFile> writable_file;
-  EnvOptions options;
-  options.use_direct_writes = true;
-  options.use_mmap_writes = false;
-  IoctlFriendlyTmpdir ift;
-  ASSERT_OK(env_->NewWritableFile(ift.name() + "/f", &writable_file, options));
-  const size_t kBlockSize = 4096;
-  const size_t kDataSize = kPageSize;
-  // Write a page worth of 'a'
-  auto data_ptr = NewAligned(kDataSize, 'a');
-  Slice data_a(data_ptr.get(), kDataSize);
-  ASSERT_OK(writable_file->PositionedAppend(data_a, 0U));
-  // Write a page worth of 'b' right after the first sector
-  data_ptr = NewAligned(kDataSize, 'b');
-  Slice data_b(data_ptr.get(), kDataSize);
-  ASSERT_OK(writable_file->PositionedAppend(data_b, kBlockSize));
-  ASSERT_OK(writable_file->Close());
-  // The file now has 1 sector worth of a followed by a page worth of b
-
-  // Verify the above
-  std::unique_ptr<SequentialFile> seq_file;
-  ASSERT_OK(env_->NewSequentialFile(ift.name() + "/f", &seq_file, options));
-  size_t scratch_len = kPageSize * 2;
-  std::unique_ptr<char[]> scratch(new char[scratch_len]);
-  Slice result;
-  ASSERT_OK(seq_file->Read(scratch_len, &result, scratch.get()));
-  ASSERT_EQ(kPageSize + kBlockSize, result.size());
-  ASSERT_EQ('a', result[kBlockSize - 1]);
-  ASSERT_EQ('b', result[kBlockSize]);
-}
-#endif  // !ROCKSDB_LITE
-
 // `GetUniqueId()` temporarily returns zero on Windows. `BlockBasedTable` can
 // handle a return value of zero but this test case cannot.
 #ifndef OS_WIN
 TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
+  if (kTravisBuild) {
+    ROCKSDB_GTEST_SKIP("Not supported/expected under Travis");
+    return;
+  } else if (!kIoctlFriendly) {
+    ROCKSDB_GTEST_SKIP("Not supported/expected in this enviroment");
+    return;
+  }
   // Create file.
   if (env_ == Env::Default()) {
     EnvOptions soptions;
@@ -1040,79 +1156,6 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
 }
 #endif  // !defined(OS_WIN)
 
-// only works in linux platforms
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-TEST_P(EnvPosixTestWithParam, AllocateTest) {
-  if (env_ == Env::Default()) {
-    IoctlFriendlyTmpdir ift;
-    std::string fname = ift.name() + "/preallocate_testfile";
-
-    // Try fallocate in a file to see whether the target file system supports
-    // it.
-    // Skip the test if fallocate is not supported.
-    std::string fname_test_fallocate = ift.name() + "/preallocate_testfile_2";
-    int fd = -1;
-    do {
-      fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
-    } while (fd < 0 && errno == EINTR);
-    ASSERT_GT(fd, 0);
-
-    int alloc_status = fallocate(fd, 0, 0, 1);
-
-    int err_number = 0;
-    if (alloc_status != 0) {
-      err_number = errno;
-      fprintf(stderr, "Warning: fallocate() fails, %s\n",
-              errnoStr(err_number).c_str());
-    }
-    close(fd);
-    ASSERT_OK(env_->DeleteFile(fname_test_fallocate));
-    if (alloc_status != 0 && err_number == EOPNOTSUPP) {
-      // The filesystem containing the file does not support fallocate
-      return;
-    }
-
-    EnvOptions soptions;
-    soptions.use_mmap_writes = false;
-    soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
-    std::unique_ptr<WritableFile> wfile;
-    ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
-
-    // allocate 100 MB
-    size_t kPreallocateSize = 100 * 1024 * 1024;
-    size_t kBlockSize = 512;
-    size_t kDataSize = 1024 * 1024;
-    auto data_ptr = NewAligned(kDataSize, 'A');
-    Slice data(data_ptr.get(), kDataSize);
-    wfile->SetPreallocationBlockSize(kPreallocateSize);
-    wfile->PrepareWrite(wfile->GetFileSize(), kDataSize);
-    ASSERT_OK(wfile->Append(data));
-    ASSERT_OK(wfile->Flush());
-
-    struct stat f_stat;
-    ASSERT_EQ(stat(fname.c_str(), &f_stat), 0);
-    ASSERT_EQ((unsigned int)kDataSize, f_stat.st_size);
-    // verify that blocks are preallocated
-    // Note here that we don't check the exact number of blocks preallocated --
-    // we only require that number of allocated blocks is at least what we
-    // expect.
-    // It looks like some FS give us more blocks that we asked for. That's fine.
-    // It might be worth investigating further.
-    ASSERT_LE((unsigned int)(kPreallocateSize / kBlockSize), f_stat.st_blocks);
-
-    // close the file, should deallocate the blocks
-    wfile.reset();
-
-    stat(fname.c_str(), &f_stat);
-    ASSERT_EQ((unsigned int)kDataSize, f_stat.st_size);
-    // verify that preallocated blocks were deallocated on file close
-    // Because the FS might give us more blocks, we add a full page to the size
-    // and expect the number of blocks to be less or equal to that.
-    ASSERT_GE((f_stat.st_size + kPageSize + kBlockSize - 1) / kBlockSize,
-              (unsigned int)f_stat.st_blocks);
-  }
-}
-#endif  // ROCKSDB_FALLOCATE_PRESENT
 
 // Returns true if any of the strings in ss are the prefix of another string.
 bool HasPrefix(const std::unordered_set<std::string>& ss) {
@@ -1133,6 +1176,13 @@ bool HasPrefix(const std::unordered_set<std::string>& ss) {
 // handle a return value of zero but this test case cannot.
 #ifndef OS_WIN
 TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDConcurrent) {
+  if (kTravisBuild) {
+    ROCKSDB_GTEST_SKIP("Not supported/expected under Travis");
+    return;
+  } else if (!kIoctlFriendly) {
+    ROCKSDB_GTEST_SKIP("Not supported/expected in this enviroment");
+    return;
+  }
   if (env_ == Env::Default()) {
     // Check whether a bunch of concurrently existing files have unique IDs.
     EnvOptions soptions;
@@ -1176,6 +1226,13 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDConcurrent) {
 // TODO: Disable the flaky test, it's a known issue that ext4 may return same
 // key after file deletion. The issue is tracked in #7405, #7470.
 TEST_P(EnvPosixTestWithParam, DISABLED_RandomAccessUniqueIDDeletes) {
+  if (kTravisBuild) {
+    ROCKSDB_GTEST_SKIP("Not supported/expected under Travis");
+    return;
+  } else if (kIoctlFriendly) {
+    ROCKSDB_GTEST_SKIP("Not supported/expected in this enviroment");
+    return;
+  }
   if (env_ == Env::Default()) {
     EnvOptions soptions;
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
@@ -1497,7 +1554,7 @@ TEST_F(EnvPosixTest, MultiReadIOUringError2) {
 #endif  // ROCKSDB_IOURING_PRESENT
 
 // Only works in linux platforms
-#ifdef OS_WIN
+#if !defined(OS_LINUX)
 TEST_P(EnvPosixTestWithParam, DISABLED_InvalidateCache) {
 #else
 TEST_P(EnvPosixTestWithParam, InvalidateCache) {
@@ -1566,8 +1623,6 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
     ASSERT_OK(env_->DeleteFile(fname));
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
 }
-#endif  // not TRAVIS
-#endif  // OS_LINUX || OS_WIN
 
 class TestLogger : public Logger {
  public:
