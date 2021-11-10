@@ -5376,7 +5376,8 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->fd.smallest_seqno, f->fd.largest_seqno,
                        f->marked_for_compaction, f->oldest_blob_file_number,
                        f->oldest_ancester_time, f->file_creation_time,
-                       f->file_checksum, f->file_checksum_func_name);
+                       f->file_checksum, f->file_checksum_func_name,
+                       f->min_timestamp, f->max_timestamp);
         }
       }
 
