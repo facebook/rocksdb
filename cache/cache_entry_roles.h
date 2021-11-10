@@ -37,7 +37,7 @@ enum class CacheEntryRole {
   // compression dictionary building buffer's memory usage
   kCompressionDictionaryBuildingBuffer,
   // Filter reservations to account for
-  // bloom/ribbon filter construction's memory usage
+  // (new) bloom and ribbon filter construction's memory usage
   kFilterConstruction,
   // Default bucket, for miscellaneous cache entries. Do not use for
   // entries that could potentially add up to large usage.

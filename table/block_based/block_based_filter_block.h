@@ -15,13 +15,10 @@
 
 #include <stddef.h>
 #include <stdint.h>
-
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "cache/cache_entry_roles.h"
-#include "cache/cache_reservation_manager.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
@@ -54,11 +51,9 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
   virtual size_t EstimateEntriesAdded() override;
   virtual Slice Finish(
       const BlockHandle& tmp, Status* status,
-      std::unique_ptr<const char[]>* filter_data = nullptr,
-      std::unique_ptr<
-          CacheReservationHandle<CacheEntryRole::kFilterConstruction> >*
-          filter_data_cache_res_handle = nullptr) override;
+      std::unique_ptr<const char[]>* filter_data = nullptr) override;
   using FilterBlockBuilder::Finish;
+  virtual Status ResetFilterBitsBuilder() override { return Status::OK(); }
 
  private:
   void AddKey(const Slice& key);

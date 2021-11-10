@@ -8,11 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "table/block_based/block_based_filter_block.h"
-
 #include <algorithm>
 
-#include "cache/cache_entry_roles.h"
-#include "cache/cache_reservation_manager.h"
 #include "db/dbformat.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/filter_policy.h"
@@ -122,11 +119,8 @@ inline void BlockBasedFilterBlockBuilder::AddPrefix(const Slice& key) {
 
 Slice BlockBasedFilterBlockBuilder::Finish(
     const BlockHandle& /*tmp*/, Status* status,
-    std::unique_ptr<const char[]>* /* filter_data */,
-    std::unique_ptr<CacheReservationHandle<
-        CacheEntryRole::
-            kFilterConstruction> >* /* filter_data_cache_res_handle */) {
-  // In this impl we ignore BlockHandle, filter_data and CacheReservationHandle
+    std::unique_ptr<const char[]>* /* filter_data */) {
+  // In this impl we ignore BlockHandle and filter_data
   *status = Status::OK();
 
   if (!start_.empty()) {

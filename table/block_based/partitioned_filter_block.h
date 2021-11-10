@@ -10,8 +10,6 @@
 #include <string>
 #include <unordered_map>
 
-#include "cache/cache_entry_roles.h"
-#include "cache/cache_reservation_manager.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
@@ -41,10 +39,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
 
   virtual Slice Finish(
       const BlockHandle& last_partition_block_handle, Status* status,
-      std::unique_ptr<const char[]>* filter_data = nullptr,
-      std::unique_ptr<
-          CacheReservationHandle<CacheEntryRole::kFilterConstruction>>*
-          filter_data_cache_res_handle = nullptr) override;
+      std::unique_ptr<const char[]>* filter_data = nullptr) override;
 
  private:
   // Filter data
@@ -55,15 +50,11 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
     std::string key;
     Slice filter;
     std::unique_ptr<const char[]> filter_data;
-    std::unique_ptr<CacheReservationHandle<CacheEntryRole::kFilterConstruction>>
-        filter_data_cache_res_handle;
   };
   std::deque<FilterEntry> filters;  // list of partitioned filters and keys used
                                     // in building the index
   std::string last_filter_entry_key;
   std::unique_ptr<const char[]> last_filter_data;
-  std::unique_ptr<CacheReservationHandle<CacheEntryRole::kFilterConstruction>>
-      last_filter_data_cache_res_handle;
   std::unique_ptr<IndexBuilder> value;
   bool finishing_filters =
       false;  // true if Finish is called once but not complete yet.
