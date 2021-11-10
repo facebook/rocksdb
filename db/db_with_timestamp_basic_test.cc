@@ -296,24 +296,18 @@ TEST_F(DBBasicTestWithTimestamp, GcPreserveLatestVersionBelowFullHistoryLow) {
 
   std::string ts_str = Timestamp(1, 0);
   WriteOptions wopts;
-  Slice ts = ts_str;
-  wopts.timestamp = &ts;
-  ASSERT_OK(db_->Put(wopts, "k1", "v1"));
-  ASSERT_OK(db_->Put(wopts, "k2", "v2"));
-  ASSERT_OK(db_->Put(wopts, "k3", "v3"));
+  ASSERT_OK(db_->Put(wopts, "k1", ts_str, "v1"));
+  ASSERT_OK(db_->Put(wopts, "k2", ts_str, "v2"));
+  ASSERT_OK(db_->Put(wopts, "k3", ts_str, "v3"));
 
   ts_str = Timestamp(2, 0);
-  ts = ts_str;
-  wopts.timestamp = &ts;
-  ASSERT_OK(db_->Delete(wopts, "k3"));
+  ASSERT_OK(db_->Delete(wopts, "k3", ts_str));
 
   ts_str = Timestamp(4, 0);
-  ts = ts_str;
-  wopts.timestamp = &ts;
-  ASSERT_OK(db_->Put(wopts, "k1", "v5"));
+  ASSERT_OK(db_->Put(wopts, "k1", ts_str, "v5"));
 
   ts_str = Timestamp(3, 0);
-  ts = ts_str;
+  Slice ts = ts_str;
   CompactRangeOptions cro;
   cro.full_history_ts_low = &ts;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
