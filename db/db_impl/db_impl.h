@@ -748,7 +748,7 @@ class DBImpl : public DB {
   // Find Super version and reference it. Based on options, it might return
   // the thread local cached one.
   // Call ReturnAndCleanupSuperVersion() when it is no longer needed.
-  SuperVersion* GetAndRefSuperVersion(ColumnFamilyData* cfd);
+  SuperVersion* GetAndRefSuperVersion(ColumnFamilyData* cfd, bool useThreadLocalCache = true);
 
   // Similar to the previous function but looks up based on a column family id.
   // nullptr will be returned if this column family no longer exists.
@@ -1547,7 +1547,8 @@ class DBImpl : public DB {
 std::tuple<SequenceNumber, SuperVersion*, size_t, ColumnFamilyData*> GetSnapshot(
     const ReadOptions& read_options, 
     const Slice& key, 
-    GetImplOptions& get_impl_options);
+    GetImplOptions& get_impl_options,
+    const bool useThreadLocalCache = true);
 
 enum class MemtableLookupStatus { NotFound, Failed, Found };
 std::tuple<DBImpl::MemtableLookupStatus, Status> LookupMemtable(

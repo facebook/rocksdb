@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <cstring>
+#include <sys/time.h>
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
@@ -3840,6 +3841,111 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
                         std::chrono::microseconds::zero(), 0);
   }
   Close();
+}
+
+using s_io_uring = struct io_uring;
+class DBBasicTestWithAsyncIO : public DBAsyncTestBase {
+ public:
+  DBBasicTestWithAsyncIO() : DBAsyncTestBase("db_basic_asyncio_test"), 
+    io_uring_{new s_io_uring}, shutDown_{false} {
+
+    auto ret = io_uring_queue_init(io_uring_size_, io_uring_.get(), 0);
+    if( ret < 0)
+      throw "io_uring_queue_init failed";
+
+    std::thread s(IOCompletion, io_uring_.get(), std::ref(shutDown_));
+    io_completion_ = std::move(s);
+    io_completion_.detach();
+  }
+
+  ~DBBasicTestWithAsyncIO() {
+    shutDown_.store(true, std::memory_order_relaxed);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    io_uring_queue_exit(io_uring_.get());
+  }
+
+  s_io_uring* io_uring() { return this->io_uring_.get(); }
+
+ private:
+  static void IOCompletion(s_io_uring* io_uring, std::atomic<bool>& shutdown) {
+    struct io_uring_cqe *cqe;
+    // struct __kernel_timespec ts;
+    std::cout<<"Enter IOCompletion with io_uring:"<<(void*)io_uring<<"\n";
+
+    // msec_to_ts(&ts, 100);
+    while (true) {
+      auto ret = io_uring_wait_cqe(io_uring, &cqe);
+      if (ret != 0) {
+          std::cout<<"io_uring_wait_cqe failed with "<<ret<<"\n";
+          continue;
+      }
+
+      if (ret == 0 && cqe->res >=0) {
+        std::cout<<"io_uring_wait_cqe returned with  with "<<cqe->res<<"\n";
+        FilePage *rdata =(FilePage *)io_uring_cqe_get_data(cqe);
+        io_uring_cqe_seen(io_uring, cqe);
+        free(rdata->iov[0].iov_base);
+
+        if (shutdown.load(std::memory_order_relaxed))
+          break;
+
+        std::thread s(OnResume, rdata->promise);
+        s.detach();
+      }
+    }
+  }
+
+  static void OnResume(async_result::promise_type* promise) {
+    auto h = std::coroutine_handle<async_result::promise_type>::from_promise(*promise);
+    h.resume();
+  }
+
+  static void msec_to_ts(struct __kernel_timespec *ts, unsigned int msec) {
+	  ts->tv_sec = msec / 1000;
+	  ts->tv_nsec = (msec % 1000) * 1000000;
+  }
+
+  std::unique_ptr<s_io_uring> io_uring_;
+  const int io_uring_size_ = 1024;
+  std::thread io_completion_;
+  std::atomic<bool> shutDown_;
+};
+
+static async_result SimpleAsyncGetTest(DBAsyncTestBase* testBase) {
+  std::cout<<"Enter SimpleAsyncGetTest\n";
+  auto io_uring_option = 
+    new IOUringOptions(dynamic_cast<DBBasicTestWithAsyncIO*>(testBase)->io_uring());
+  ReadOptions options;
+  options.io_uring_option = io_uring_option;
+  options.read_tier = kPersistedTier;
+  options.verify_checksums = true;
+  PinnableSlice *v = new PinnableSlice();
+  auto asyncResult = testBase->db()->AsyncGet(
+    options,
+    testBase->db()->DefaultColumnFamily(), 
+    "bar", v, nullptr);
+  co_await asyncResult;
+
+  auto r = v->ToString();
+  if (r == "e1") {
+    std::cout<<"SimpleAsyncGetTest succeeded:"<<r<<"\n";
+    co_return Status::OK();
+  }
+  else {
+    std::cout<<"SimpleAsyncGetTest failed:"<<asyncResult.result().ToString()<<" "<<asyncResult.io_result().ToString()<<" "<<r<<"\n";
+    co_return Status::NotFound();
+  }
+}
+
+TEST_F(DBBasicTestWithAsyncIO, SimpleAsyncGet) {
+    WriteOptions wo;
+    wo.disableWAL = true;
+    auto s = this->db()->Put(wo, "bar", "e1");
+    std::cout<<"Put status:"<<s.ToString()<<"\n";
+    s = this->db()->Flush(FlushOptions());
+    std::cout<<"Flush status:"<<s.ToString()<<"\n";
+
+    this->RunAsyncTest(SimpleAsyncGetTest, this);
 }
 
 // Param 0: If true, set read_options.deadline

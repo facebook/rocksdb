@@ -1841,7 +1841,8 @@ class GetWithTimestampReadCallback : public ReadCallback {
 inline std::tuple<SequenceNumber, SuperVersion*, size_t, ColumnFamilyData*> DBImpl::GetSnapshot(
   const ReadOptions& read_options,
   const Slice& key, 
-  GetImplOptions& get_impl_options) {
+  GetImplOptions& get_impl_options,
+  const bool useThreadLocalCache) {
   assert(get_impl_options.value != nullptr ||
          get_impl_options.merge_operands != nullptr);
   assert(get_impl_options.column_family);
@@ -1866,7 +1867,7 @@ inline std::tuple<SequenceNumber, SuperVersion*, size_t, ColumnFamilyData*> DBIm
   }
 
   // Acquire SuperVersion
-  SuperVersion* sv = GetAndRefSuperVersion(cfd);
+  SuperVersion* sv = GetAndRefSuperVersion(cfd, useThreadLocalCache);
 
   TEST_SYNC_POINT("DBImpl::GetImpl:1");
   TEST_SYNC_POINT("DBImpl::GetImpl:2");
@@ -2073,7 +2074,7 @@ async_result DBImpl::AsyncGetImpl(const ReadOptions& read_options, const Slice& 
   SuperVersion* sv;
   size_t ts_sz;
   ColumnFamilyData* cfd;
-  std::tie(snapshot, sv, ts_sz, cfd) = GetSnapshot(read_options, key, get_impl_options);
+  std::tie(snapshot, sv, ts_sz, cfd) = GetSnapshot(read_options, key, get_impl_options, false);
 
   // If timestamp is used, we use read callback to ensure <key,t,s> is returned
   // only if t <= read_opts.timestamp and s <= snapshot.
@@ -2085,8 +2086,6 @@ async_result DBImpl::AsyncGetImpl(const ReadOptions& read_options, const Slice& 
     read_cb.Refresh(snapshot);
     get_impl_options.callback = &read_cb;
   }
-  TEST_SYNC_POINT("DBImpl::GetImpl:3");
-  TEST_SYNC_POINT("DBImpl::GetImpl:4");
 
    // Prepare to store a list of merge operations if merge occurs.
   MergeContext merge_context;
@@ -2117,7 +2116,7 @@ async_result DBImpl::AsyncGetImpl(const ReadOptions& read_options, const Slice& 
   }
 
   {
-    ReturnAndCleanupSuperVersion(cfd, sv);
+    // ReturnAndCleanupSuperVersion(cfd, sv);
 
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
@@ -3651,9 +3650,16 @@ bool DBImpl::GetAggregatedIntProperty(const Slice& property,
   return ret;
 }
 
-SuperVersion* DBImpl::GetAndRefSuperVersion(ColumnFamilyData* cfd) {
-  // TODO(ljin): consider using GetReferencedSuperVersion() directly
-  return cfd->GetThreadLocalSuperVersion(this);
+SuperVersion* DBImpl::GetAndRefSuperVersion(ColumnFamilyData* cfd, bool useThreadLocalCache) {
+  if (useThreadLocalCache) {
+    // TODO(ljin): consider using GetReferencedSuperVersion() directly
+    return cfd->GetThreadLocalSuperVersion(this);
+  } else {
+    this->mutex()->Lock();
+    auto sv = cfd->GetSuperVersion();
+    this->mutex()->Unlock();
+    return sv;
+  }
 }
 
 // REQUIRED: this function should only be called on the write thread or if the

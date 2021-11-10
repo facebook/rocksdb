@@ -1407,12 +1407,14 @@ struct IOUringOptions {
   struct io_uring *ioring;
   std::function<void(async_result)> delegate;
 
-  IOUringOptions(struct io_uring *input) : ioring{input} {
-    assert(input != nullptr);
+  IOUringOptions(struct io_uring *ring) : ioring{ring} {
+    assert(ring != nullptr);
   }
 
-  IOUringOptions(std::function<void(async_result)> input) : 
-    delegate{std::move(input)} {
+  IOUringOptions(struct io_uring *ring, std::function<void(async_result)> deleg) : 
+    ioring{ring}, delegate{std::move(deleg)} {
+      assert(ring != nullptr);
+      assert(deleg);
   }
 
   IOUringOptions(std::function<void(async_result)>&& input) : 

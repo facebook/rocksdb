@@ -23,6 +23,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "file/filename.h"
+#include "rocksdb/async_result.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
@@ -825,6 +826,71 @@ class CacheWrapper : public Cache {
 
  protected:
   std::shared_ptr<Cache> target_;
+};
+
+class DBAsyncTestBase : public testing::Test { 
+ public:
+  DBAsyncTestBase (const std::string path) {
+    Env* env = Env::Default();
+    env->SetBackgroundThreads(1, Env::LOW);
+    env->SetBackgroundThreads(1, Env::HIGH);
+    dbname_ = test::PerThreadDBPath(env, path);
+    Options options;
+    options.create_if_missing = true;
+    options.env = env;
+    auto s = DB::Open(options, dbname_, &db_);
+    std::cout<<"Open:"<<s.ToString()<<"\n";
+  }
+
+  ~DBAsyncTestBase() {
+    db_->Close();
+    delete db_;
+    db_ = nullptr;
+  }
+
+  bool RunAsyncTest(
+    std::function<async_result(DBAsyncTestBase*)> test_func,
+    DBAsyncTestBase* testBase) {
+
+    std::cout<<"Enter RunAsyncTest\n";
+    std::mutex mtx;
+    std::condition_variable cv;
+    bool success = false;
+
+    std::thread test_thread(InternalRunAsyncTest, 
+      test_func, testBase, std::ref(mtx), std::ref(cv), std::ref(success));
+
+    std::unique_lock<std::mutex> lck(mtx);
+    cv.wait(lck);
+    std::cout<<"RunAsyncTest wait returned\n";
+    test_thread.join();
+    return success;
+  }
+
+  static async_result InternalRunAsyncTest(
+    std::function<async_result(DBAsyncTestBase*)> test_func,
+    DBAsyncTestBase* testBase,
+    std::mutex& mtx, 
+    std::condition_variable& cv, 
+    bool& success) {
+
+    std::cout<<"Enter InternalRunAsyncTest\n";
+
+    auto result = test_func(testBase);
+    co_await result;
+    success = result.ret_back_->result_.ok();
+    std::cout<<"InternalRunAsyncTest returned\n";
+
+    std::unique_lock<std::mutex> lck(mtx);
+    cv.notify_one();
+    co_return Status::OK();
+  }
+
+  DB* db() { return db_; }
+
+ private:
+  std::string dbname_;
+  DB* db_;
 };
 
 class DBTestBase : public testing::Test {

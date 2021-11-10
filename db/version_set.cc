@@ -2318,6 +2318,7 @@ async_result Version::AsyncGet(const ReadOptions& read_options, const LookupKey&
       *key_exists = false;
     }
     *status = Status::NotFound(); // Use an empty error message for speed
+    co_return Status::NotFound();
   }
 }
 

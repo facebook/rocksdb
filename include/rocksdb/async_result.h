@@ -106,6 +106,8 @@ struct file_page {
   struct iovec *iov;
 };
 
+using FilePage = struct file_page;
+
 }// namespace ROCKSDB_NAMESPACE
 
 
