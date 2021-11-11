@@ -62,6 +62,8 @@ extern const std::string kHashIndexPrefixesMetadataBlock;
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
 namespace {
 
+constexpr size_t kBlockTrailerSize = BlockBasedTable::kBlockTrailerSize;
+
 // Create a filter block builder based on its type.
 FilterBlockBuilder* CreateFilterBlockBuilder(
     const ImmutableCFOptions& /*opt*/, const MutableCFOptions& mopt,

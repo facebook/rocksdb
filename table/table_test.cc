@@ -1698,7 +1698,8 @@ TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
     block_builder.Add(item.first, item.second);
   }
   Slice content = block_builder.Finish();
-  ASSERT_EQ(content.size() + kBlockTrailerSize + diff_internal_user_bytes,
+  ASSERT_EQ(content.size() + BlockBasedTable::kBlockTrailerSize +
+                diff_internal_user_bytes,
             props.data_size);
   c.ResetTableReader();
 }
@@ -3836,11 +3837,9 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(std::move(source), "test"));
 
-  TableProperties* props = nullptr;
+  std::unique_ptr<TableProperties> props;
   auto s = ReadTableProperties(file_reader.get(), ss->contents().size(),
-                               kPlainTableMagicNumber, ioptions,
-                               &props, true /* compression_type_missing */);
-  std::unique_ptr<TableProperties> props_guard(props);
+                               kPlainTableMagicNumber, ioptions, &props);
   ASSERT_OK(s);
 
   ASSERT_EQ(0ul, props->index_size);
@@ -4481,10 +4480,10 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(std::move(source), ""));
 
-    TableProperties* props = nullptr;
+    std::unique_ptr<TableProperties> props;
     ASSERT_OK(ReadTableProperties(file_reader.get(), ss_rw.contents().size(),
                                   kBlockBasedTableMagicNumber, ioptions,
-                                  &props, true /* compression_type_missing */));
+                                  &props));
 
     UserCollectedProperties user_props = props->user_collected_properties;
     version = DecodeFixed32(
@@ -4493,8 +4492,6 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
         user_props[ExternalSstFilePropertyNames::kGlobalSeqno].c_str());
     global_seqno_offset =
         props->properties_offsets[ExternalSstFilePropertyNames::kGlobalSeqno];
-
-    delete props;
   };
 
   // Helper function to update the value of the global seqno in the file
@@ -4661,15 +4658,14 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
       new RandomAccessFileReader(std::move(source), "test"));
   // Helper function to get version, global_seqno, global_seqno_offset
   std::function<void()> VerifyBlockAlignment = [&]() {
-    TableProperties* props = nullptr;
+    std::unique_ptr<TableProperties> props;
     ASSERT_OK(ReadTableProperties(file_reader.get(), sink->contents().size(),
-                                  kBlockBasedTableMagicNumber, ioptions, &props,
-                                  true /* compression_type_missing */));
+                                  kBlockBasedTableMagicNumber, ioptions,
+                                  &props));
 
     uint64_t data_block_size = props->data_size / props->num_data_blocks;
     ASSERT_EQ(data_block_size, 4096);
     ASSERT_EQ(props->data_size, data_block_size * props->num_data_blocks);
-    delete props;
   };
 
   VerifyBlockAlignment();
@@ -4788,16 +4784,13 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
 
     std::unique_ptr<InternalIterator> meta_iter(metaindex_block.NewDataIterator(
         BytewiseComparator(), kDisableGlobalSequenceNumber));
-    bool found_properties_block = true;
-    ASSERT_OK(SeekToPropertiesBlock(meta_iter.get(), &found_properties_block));
-    ASSERT_TRUE(found_properties_block);
 
     // -- Read properties block
-    Slice v = meta_iter->value();
     BlockHandle properties_handle;
-    ASSERT_OK(properties_handle.DecodeFrom(&v));
+    ASSERT_OK(FindOptionalMetaBlock(meta_iter.get(), kPropertiesBlock,
+                                    &properties_handle));
+    ASSERT_FALSE(properties_handle.IsNull());
     BlockContents properties_contents;
-
     BlockFetchHelper(properties_handle, BlockType::kProperties,
                      &properties_contents);
     Block properties_block(std::move(properties_contents));

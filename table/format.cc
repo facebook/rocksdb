@@ -97,8 +97,10 @@ const BlockHandle BlockHandle::kNullBlockHandle(0, 0);
 void IndexValue::EncodeTo(std::string* dst, bool have_first_key,
                           const BlockHandle* previous_handle) const {
   if (previous_handle) {
+    // WART: this is specific to Block-based table
     assert(handle.offset() == previous_handle->offset() +
-                                  previous_handle->size() + kBlockTrailerSize);
+                                  previous_handle->size() +
+                                  BlockBasedTable::kBlockTrailerSize);
     PutVarsignedint64(dst, handle.size() - previous_handle->size());
   } else {
     handle.EncodeTo(dst);
@@ -117,9 +119,10 @@ Status IndexValue::DecodeFrom(Slice* input, bool have_first_key,
     if (!GetVarsignedint64(input, &delta)) {
       return Status::Corruption("bad delta-encoded index value");
     }
-    handle = BlockHandle(
-        previous_handle->offset() + previous_handle->size() + kBlockTrailerSize,
-        previous_handle->size() + delta);
+    // WART: this is specific to Block-based table
+    handle = BlockHandle(previous_handle->offset() + previous_handle->size() +
+                             BlockBasedTable::kBlockTrailerSize,
+                         previous_handle->size() + delta);
   } else {
     Status s = handle.DecodeFrom(input);
     if (!s.ok()) {
@@ -162,6 +165,18 @@ inline uint64_t UpconvertLegacyFooterFormat(uint64_t magic_number) {
   return 0;
 }
 }  // namespace
+
+void Footer::set_table_magic_number(uint64_t magic_number) {
+  assert(!HasInitializedTableMagicNumber());
+  table_magic_number_ = magic_number;
+  if (magic_number == kBlockBasedTableMagicNumber ||
+      magic_number == kLegacyBlockBasedTableMagicNumber) {
+    block_trailer_size_ =
+        static_cast<uint8_t>(BlockBasedTable::kBlockTrailerSize);
+  } else {
+    block_trailer_size_ = 0;
+  }
+}
 
 // legacy footer format:
 //    metaindex handle (varint64 offset, varint64 size)

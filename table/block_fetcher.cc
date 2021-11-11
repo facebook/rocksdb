@@ -15,9 +15,11 @@
 #include "logging/logging.h"
 #include "memory/memory_allocator.h"
 #include "monitoring/perf_context_imp.h"
+#include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "table/block_based/block_type.h"
 #include "table/block_based/reader_common.h"
 #include "table/format.h"
 #include "table/persistent_cache_helper.h"
@@ -26,12 +28,19 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-inline void BlockFetcher::CheckBlockChecksum() {
-  // Check the crc of the type and the block contents
-  if (read_options_.verify_checksums) {
-    io_status_ = status_to_io_status(ROCKSDB_NAMESPACE::VerifyBlockChecksum(
-        footer_.checksum(), slice_.data(), block_size_, file_->file_name(),
-        handle_.offset()));
+inline void BlockFetcher::ProcessTrailerIfPresent() {
+  if (footer_.GetBlockTrailerSize() > 0) {
+    assert(footer_.GetBlockTrailerSize() == BlockBasedTable::kBlockTrailerSize);
+    if (read_options_.verify_checksums) {
+      io_status_ = status_to_io_status(
+          VerifyBlockChecksum(footer_.checksum(), slice_.data(), block_size_,
+                              file_->file_name(), handle_.offset()));
+    }
+    compression_type_ =
+        BlockBasedTable::GetBlockCompressionType(slice_.data(), block_size_);
+  } else {
+    // E.g. plain table or cuckoo table
+    compression_type_ = kNoCompression;
   }
 }
 
@@ -63,7 +72,7 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
     if (io_s.ok() && prefetch_buffer_->TryReadFromCache(
                          opts, handle_.offset(), block_size_with_trailer_,
                          &slice_, &io_s, for_compaction_)) {
-      CheckBlockChecksum();
+      ProcessTrailerIfPresent();
       if (!io_status_.ok()) {
         return true;
       }
@@ -88,6 +97,7 @@ inline bool BlockFetcher::TryGetCompressedBlockFromPersistentCache() {
       heap_buf_ = CacheAllocationPtr(raw_data.release());
       used_buf_ = heap_buf_.get();
       slice_ = Slice(heap_buf_.get(), block_size_);
+      ProcessTrailerIfPresent();
       return true;
     } else if (!io_status_.IsNotFound() && ioptions_.logger) {
       assert(!io_status_.ok());
@@ -290,15 +300,13 @@ IOStatus BlockFetcher::ReadBlockContents() {
                                   " bytes, got " + ToString(slice_.size()));
     }
 
-    CheckBlockChecksum();
+    ProcessTrailerIfPresent();
     if (io_status_.ok()) {
       InsertCompressedBlockToPersistentCacheIfNeeded();
     } else {
       return io_status_;
     }
   }
-
-  compression_type_ = get_block_compression_type(slice_.data(), block_size_);
 
   if (do_uncompress_ && compression_type_ != kNoCompression) {
     PERF_TIMER_GUARD(block_decompress_time);
