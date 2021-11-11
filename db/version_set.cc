@@ -880,7 +880,8 @@ class LevelIterator final : public InternalIterator {
         level_(level),
         range_del_agg_(range_del_agg),
         pinned_iters_mgr_(nullptr),
-        compaction_boundaries_(compaction_boundaries) {
+        compaction_boundaries_(compaction_boundaries),
+        is_next_read_sequential_(false) {
     // Empty level is not supported.
     assert(flevel_ != nullptr && flevel_->num_files > 0);
   }
@@ -1027,6 +1028,8 @@ class LevelIterator final : public InternalIterator {
   // To be propagated to RangeDelAggregator in order to safely truncate range
   // tombstones.
   const std::vector<AtomicCompactionUnitBoundary>* compaction_boundaries_;
+
+  bool is_next_read_sequential_;
 };
 
 void LevelIterator::Seek(const Slice& target) {
@@ -1128,7 +1131,9 @@ bool LevelIterator::NextAndGetResult(IterateResult* result) {
   assert(Valid());
   bool is_valid = file_iter_.NextAndGetResult(result);
   if (!is_valid) {
+    is_next_read_sequential_ = true;
     SkipEmptyFileForward();
+    is_next_read_sequential_ = false;
     is_valid = Valid();
     if (is_valid) {
       result->key = key();
@@ -1195,6 +1200,12 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
   }
 
   InternalIterator* old_iter = file_iter_.Set(iter);
+
+  // Update the read pattern for PrefetchBuffer.
+  if (is_next_read_sequential_) {
+    file_iter_.UpdateReadaheadState(old_iter);
+  }
+
   if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
     pinned_iters_mgr_->PinIterator(old_iter);
   } else {
