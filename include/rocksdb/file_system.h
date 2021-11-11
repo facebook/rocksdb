@@ -1195,7 +1195,7 @@ class FileSystemWrapper : public FileSystem {
 
   // Deprecated. Will be removed in a major release. Derived classes
   // should implement this method.
-  virtual const char* Name() const override { return target_->Name(); }
+  const char* Name() const override { return target_->Name(); }
 
   // Return the target to which this Env forwards all calls
   FileSystem* target() const { return target_.get(); }
