@@ -81,6 +81,7 @@ TEST_F(CacheReservationManagerTest, KeepCacheReservationTheSame) {
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
             1 * kSizeDummyEntry);
+  ASSERT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used);
   std::size_t initial_pinned_usage = cache->GetPinnedUsage();
   ASSERT_GE(initial_pinned_usage, 1 * kSizeDummyEntry);
   ASSERT_LT(initial_pinned_usage,
@@ -96,6 +97,9 @@ TEST_F(CacheReservationManagerTest, KeepCacheReservationTheSame) {
             1 * kSizeDummyEntry)
       << "Failed to bookkeep correctly when new_mem_used equals to current "
          "cache reservation";
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used)
+      << "Failed to bookkeep the used memory correctly when new_mem_used "
+         "equals to current cache reservation";
   EXPECT_EQ(cache->GetPinnedUsage(), initial_pinned_usage)
       << "Failed to keep underlying dummy entries the same when new_mem_used "
          "equals to current cache reservation";
@@ -113,6 +117,8 @@ TEST_F(CacheReservationManagerTest,
   EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
             2 * kSizeDummyEntry)
       << "Failed to bookkeep cache reservation increase correctly";
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used)
+      << "Failed to bookkeep the used memory correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 2 * kSizeDummyEntry)
       << "Failed to increase underlying dummy entries in cache correctly";
   EXPECT_LT(cache->GetPinnedUsage(),
@@ -132,6 +138,8 @@ TEST_F(CacheReservationManagerTest,
   EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
             3 * kSizeDummyEntry)
       << "Failed to bookkeep cache reservation increase correctly";
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used)
+      << "Failed to bookkeep the used memory correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 3 * kSizeDummyEntry)
       << "Failed to increase underlying dummy entries in cache correctly";
   EXPECT_LT(cache->GetPinnedUsage(),
@@ -173,6 +181,8 @@ TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
       << "Failed to bookkeep correctly (i.e, bookkeep only successful dummy "
          "entry insertions) when encountering cache resevation failure due to "
          "full cache";
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used)
+      << "Failed to bookkeep the used memory correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry)
       << "Failed to insert underlying dummy entries correctly when "
          "encountering cache resevation failure due to full cache";
@@ -191,6 +201,8 @@ TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
             2 * kSizeDummyEntry)
       << "Failed to bookkeep cache reservation decrease correctly after "
          "encountering cache reservation due to full cache";
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used)
+      << "Failed to bookkeep the used memory correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 2 * kSizeDummyEntry)
       << "Failed to release underlying dummy entries correctly on cache "
          "reservation decrease after encountering cache resevation failure due "
@@ -218,6 +230,8 @@ TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
       << "Failed to bookkeep correctly (i.e, bookkeep only successful dummy "
          "entry insertions) when encountering cache resevation failure due to "
          "full cache";
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used)
+      << "Failed to bookkeep the used memory correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry)
       << "Failed to insert underlying dummy entries correctly when "
          "encountering cache resevation failure due to full cache";
@@ -239,6 +253,8 @@ TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
             5 * kSizeDummyEntry)
       << "Failed to bookkeep cache reservation increase correctly after "
          "increasing cache capacity and mitigating cache full error";
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used)
+      << "Failed to bookkeep the used memory correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 5 * kSizeDummyEntry)
       << "Failed to insert underlying dummy entries correctly after increasing "
          "cache capacity and mitigating cache full error";
@@ -258,6 +274,7 @@ TEST_F(CacheReservationManagerTest,
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
             2 * kSizeDummyEntry);
+  ASSERT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used);
   ASSERT_GE(cache->GetPinnedUsage(), 2 * kSizeDummyEntry);
   ASSERT_LT(cache->GetPinnedUsage(),
             2 * kSizeDummyEntry + kMetaDataChargeOverhead);
@@ -271,6 +288,8 @@ TEST_F(CacheReservationManagerTest,
   EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
             1 * kSizeDummyEntry)
       << "Failed to bookkeep cache reservation decrease correctly";
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used)
+      << "Failed to bookkeep the used memory correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry)
       << "Failed to decrease underlying dummy entries in cache correctly";
   EXPECT_LT(cache->GetPinnedUsage(),
@@ -288,6 +307,7 @@ TEST_F(CacheReservationManagerTest,
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
             2 * kSizeDummyEntry);
+  ASSERT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used);
   ASSERT_GE(cache->GetPinnedUsage(), 2 * kSizeDummyEntry);
   ASSERT_LT(cache->GetPinnedUsage(),
             2 * kSizeDummyEntry + kMetaDataChargeOverhead);
@@ -301,6 +321,8 @@ TEST_F(CacheReservationManagerTest,
   EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
             1 * kSizeDummyEntry)
       << "Failed to bookkeep cache reservation decrease correctly";
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used)
+      << "Failed to bookkeep the used memory correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry)
       << "Failed to decrease underlying dummy entries in cache correctly";
   EXPECT_LT(cache->GetPinnedUsage(),
@@ -330,6 +352,7 @@ TEST(CacheReservationManagerWithDelayedDecreaseTest,
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(),
             8 * kSizeDummyEntry);
+  ASSERT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used);
   std::size_t initial_pinned_usage = cache->GetPinnedUsage();
   ASSERT_GE(initial_pinned_usage, 8 * kSizeDummyEntry);
   ASSERT_LT(initial_pinned_usage,
@@ -344,6 +367,8 @@ TEST(CacheReservationManagerWithDelayedDecreaseTest,
             8 * kSizeDummyEntry)
       << "Failed to bookkeep correctly when delaying cache reservation "
          "decrease";
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used)
+      << "Failed to bookkeep the used memory correctly";
   EXPECT_EQ(cache->GetPinnedUsage(), initial_pinned_usage)
       << "Failed to delay decreasing underlying dummy entries in cache";
 
@@ -356,6 +381,8 @@ TEST(CacheReservationManagerWithDelayedDecreaseTest,
             8 * kSizeDummyEntry)
       << "Failed to bookkeep correctly when delaying cache reservation "
          "decrease";
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used)
+      << "Failed to bookkeep the used memory correctly";
   EXPECT_EQ(cache->GetPinnedUsage(), initial_pinned_usage)
       << "Failed to delay decreasing underlying dummy entries in cache";
 
@@ -370,6 +397,8 @@ TEST(CacheReservationManagerWithDelayedDecreaseTest,
             6 * kSizeDummyEntry)
       << "Failed to bookkeep correctly when new_mem_used < "
          "GetTotalReservedCacheSize() * 3 / 4 on delayed decrease mode";
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), new_mem_used)
+      << "Failed to bookkeep the used memory correctly";
   EXPECT_GE(cache->GetPinnedUsage(), 6 * kSizeDummyEntry)
       << "Failed to decrease underlying dummy entries in cache when "
          "new_mem_used < GetTotalReservedCacheSize() * 3 / 4 on delayed "
@@ -408,6 +437,74 @@ TEST(CacheReservationManagerDestructorTest,
   EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry)
       << "Failed to release remaining underlying dummy entries in cache in "
          "CacheReservationManager's destructor";
+}
+
+TEST(CacheReservationHandleTest, HandleTest) {
+  constexpr std::size_t kOneGigabyte = 1024 * 1024 * 1024;
+  constexpr std::size_t kSizeDummyEntry = 256 * 1024;
+  constexpr std::size_t kMetaDataChargeOverhead = 10000;
+
+  LRUCacheOptions lo;
+  lo.capacity = kOneGigabyte;
+  lo.num_shard_bits = 0;
+  std::shared_ptr<Cache> cache = NewLRUCache(lo);
+
+  std::shared_ptr<CacheReservationManager> test_cache_rev_mng(
+      std::make_shared<CacheReservationManager>(cache));
+
+  std::size_t mem_used = 0;
+  const std::size_t incremental_mem_used_handle_1 = 1 * kSizeDummyEntry;
+  const std::size_t incremental_mem_used_handle_2 = 2 * kSizeDummyEntry;
+  std::unique_ptr<CacheReservationHandle<CacheEntryRole::kMisc>> handle_1,
+      handle_2;
+
+  // To test consecutive CacheReservationManager::MakeCacheReservation works
+  // correctly in terms of returning the handle as well as updating cache
+  // reservation and the latest total memory used
+  Status s = test_cache_rev_mng->MakeCacheReservation<CacheEntryRole::kMisc>(
+      incremental_mem_used_handle_1, &handle_1);
+  mem_used = mem_used + incremental_mem_used_handle_1;
+  ASSERT_EQ(s, Status::OK());
+  EXPECT_TRUE(handle_1 != nullptr);
+  EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(), mem_used);
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), mem_used);
+  EXPECT_GE(cache->GetPinnedUsage(), mem_used);
+  EXPECT_LT(cache->GetPinnedUsage(), mem_used + kMetaDataChargeOverhead);
+
+  s = test_cache_rev_mng->MakeCacheReservation<CacheEntryRole::kMisc>(
+      incremental_mem_used_handle_2, &handle_2);
+  mem_used = mem_used + incremental_mem_used_handle_2;
+  ASSERT_EQ(s, Status::OK());
+  EXPECT_TRUE(handle_2 != nullptr);
+  EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(), mem_used);
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), mem_used);
+  EXPECT_GE(cache->GetPinnedUsage(), mem_used);
+  EXPECT_LT(cache->GetPinnedUsage(), mem_used + kMetaDataChargeOverhead);
+
+  // To test CacheReservationHandle::~CacheReservationHandle() works correctly
+  // in releasing the cache reserved for the handle
+  handle_1.reset();
+  EXPECT_TRUE(handle_1 == nullptr);
+  mem_used = mem_used - incremental_mem_used_handle_1;
+  EXPECT_EQ(test_cache_rev_mng->GetTotalReservedCacheSize(), mem_used);
+  EXPECT_EQ(test_cache_rev_mng->GetTotalMemoryUsed(), mem_used);
+  EXPECT_GE(cache->GetPinnedUsage(), mem_used);
+  EXPECT_LT(cache->GetPinnedUsage(), mem_used + kMetaDataChargeOverhead);
+
+  // To test the actual CacheReservationManager object won't be deallocated
+  // as long as there remain handles pointing to it.
+  // We strongly recommend deallocating CacheReservationManager object only
+  // after all its handles are deallocated to keep things easy to reasonate
+  test_cache_rev_mng.reset();
+  EXPECT_GE(cache->GetPinnedUsage(), mem_used);
+  EXPECT_LT(cache->GetPinnedUsage(), mem_used + kMetaDataChargeOverhead);
+
+  handle_2.reset();
+  // The CacheReservationManager object is now deallocated since all the handles
+  // and its original pointer is gone
+  mem_used = mem_used - incremental_mem_used_handle_2;
+  EXPECT_EQ(mem_used, 0);
+  EXPECT_EQ(cache->GetPinnedUsage(), mem_used);
 }
 }  // namespace ROCKSDB_NAMESPACE
 

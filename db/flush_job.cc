@@ -962,7 +962,8 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.fd.smallest_seqno, meta_.fd.largest_seqno,
                    meta_.marked_for_compaction, meta_.oldest_blob_file_number,
                    meta_.oldest_ancester_time, meta_.file_creation_time,
-                   meta_.file_checksum, meta_.file_checksum_func_name);
+                   meta_.file_checksum, meta_.file_checksum_func_name,
+                   meta_.min_timestamp, meta_.max_timestamp);
 
     edit_->SetBlobFileAdditions(std::move(blob_file_additions));
   }
