@@ -6548,6 +6548,9 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_BYTES), 0);
   ASSERT_GT(options.statistics->getTickerCount(WARM_FILE_READ_BYTES), 0);
   ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_COUNT), 0);
+  ASSERT_GT(options.statistics->getTickerCount(WARM_FILE_READ_COUNT), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_COUNT), 0);
 
   // non-bottommost file still has unknown temperature
   ASSERT_OK(Put("foo", "bar"));
@@ -6563,6 +6566,9 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_BYTES), 0);
   ASSERT_GT(options.statistics->getTickerCount(WARM_FILE_READ_BYTES), 0);
   ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_COUNT), 0);
+  ASSERT_GT(options.statistics->getTickerCount(WARM_FILE_READ_COUNT), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_COUNT), 0);
 
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
@@ -6637,6 +6643,9 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_BYTES), 0);
   ASSERT_EQ(options.statistics->getTickerCount(WARM_FILE_READ_BYTES), 0);
   ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_COUNT), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(WARM_FILE_READ_COUNT), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_COUNT), 0);
   ASSERT_EQ("bar", Get("foo"));
 
   ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
@@ -6648,6 +6657,9 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_BYTES), 0);
   ASSERT_EQ(options.statistics->getTickerCount(WARM_FILE_READ_BYTES), 0);
   ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_COUNT), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(WARM_FILE_READ_COUNT), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_COUNT), 0);
 
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("bar", "bar"));
@@ -6686,6 +6698,9 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_BYTES), 0);
   ASSERT_GT(options.statistics->getTickerCount(WARM_FILE_READ_BYTES), 0);
   ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_COUNT), 0);
+  ASSERT_GT(options.statistics->getTickerCount(WARM_FILE_READ_COUNT), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_COUNT), 0);
 
   // non-bottommost file still has unknown temperature
   ASSERT_OK(Put("foo", "bar"));

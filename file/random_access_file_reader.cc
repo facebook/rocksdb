@@ -83,6 +83,27 @@ inline void StatisticAddBytesByTemperature(Statistics* stats,
   }
 }
 
+inline void StatisticAddCountByTemperature(Statistics* stats,
+                                           Temperature file_temperature,
+                                           size_t value) {
+  if (stats == nullptr || file_temperature == Temperature::kUnknown) {
+    return;
+  }
+  switch (file_temperature) {
+    case Temperature::kHot:
+      RecordTick(stats, HOT_FILE_READ_COUNT, value);
+      break;
+    case Temperature::kWarm:
+      RecordTick(stats, WARM_FILE_READ_COUNT, value);
+      break;
+    case Temperature::kCold:
+      RecordTick(stats, COLD_FILE_READ_COUNT, value);
+      break;
+    default:
+      break;
+  }
+}
+
 IOStatus RandomAccessFileReader::Create(
     const std::shared_ptr<FileSystem>& fs, const std::string& fname,
     const FileOptions& file_opts,
@@ -246,6 +267,7 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
     IOStatsAddBytesByTemperature(file_temperature_, result->size());
     IOStatsAddCountByTemperature(file_temperature_, 1);
     StatisticAddBytesByTemperature(stats_, file_temperature_, result->size());
+    StatisticAddCountByTemperature(stats_, file_temperature_, 1);
     SetPerfLevel(prev_perf_level);
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
@@ -416,6 +438,7 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
       IOStatsAddCountByTemperature(file_temperature_, 1);
       StatisticAddBytesByTemperature(stats_, file_temperature_,
                                      read_reqs[i].result.size());
+      StatisticAddCountByTemperature(stats_, file_temperature_, 1);
     }
     SetPerfLevel(prev_perf_level);
   }

@@ -792,6 +792,9 @@ public enum TickerType {
     HOT_FILE_READ_BYTES((byte) -0x24),
     WARM_FILE_READ_BYTES((byte) -0x25),
     COLD_FILE_READ_BYTES((byte) -0x26),
+    HOT_FILE_READ_COUNT((byte) -0x27),
+    WARM_FILE_READ_COUNT((byte) -0x28),
+    COLD_FILE_READ_COUNT((byte) -0x29),
 
     TICKER_ENUM_MAX((byte) 0x5F);
 
