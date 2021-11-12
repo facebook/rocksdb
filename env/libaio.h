@@ -20,6 +20,7 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307  USA
  */
+#if defined(ROCKSDB_LIBAIO_PRESENT)
 #include <sys/types.h>
 #include <string.h>
 
@@ -239,3 +240,4 @@ static inline void io_set_eventfd(struct iocb *iocb, int eventfd)
     iocb->u.c.flags |= (1 << 0)/* IOCB_FLAG_RESFD */;
     iocb->u.c.resfd = eventfd;
 }
+#endif

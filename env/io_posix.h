@@ -175,22 +175,23 @@ inline struct io_uring* CreateIOUring() {
 #if defined(ROCKSDB_LIBAIO_PRESENT)
 // libaio max req num
 const unsigned int kLibAioMaxNum = 256;
+class LibAioContext {
+public:
+  LibAioContext();
+  virtual ~LibAioContext();
+  io_context_t ctx_;
+  struct iocb** submit_list_;
+  struct iocb* iocb_list_;
+  struct io_event* io_event_list_;
+};
 
 inline void DeleteIOContext(void* p) {
-  io_context_t* ctx = static_cast<io_context_t*>(p);
-  io_destroy(*ctx);
+  LibAioContext* ctx = static_cast<LibAioContext*>(p);
   delete ctx;
 }
 
-inline io_context_t* CreateIOContext() {
-  io_context_t* ctx = new io_context_t;
-  *ctx = 0;
-  int ret = io_setup(kLibAioMaxNum, ctx);
-  if (ret) {
-    fprintf(stdout, "create io_ctx fail, ret: %d\n", ret);
-    delete ctx;
-    ctx = nullptr;
-  }
+inline LibAioContext* CreateIOContext() {
+  LibAioContext* ctx = new LibAioContext;
   return ctx;
 }
 #endif  // defined(ROCKSDB_LIBAIO_PRESENT)

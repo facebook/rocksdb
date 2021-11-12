@@ -612,6 +612,26 @@ IOStatus PosixRandomAccessFile::Read(uint64_t offset, size_t n,
   return s;
 }
 
+LibAioContext::LibAioContext() {
+  ctx_ = 0;
+  submit_list_ = (struct iocb **)malloc(sizeof(struct iocb *) * kLibAioMaxNum);
+  iocb_list_ = (struct iocb *)malloc(sizeof(struct iocb) * kLibAioMaxNum);
+  io_event_list_ = (struct io_event *)malloc(sizeof(struct io_event) * kLibAioMaxNum);
+
+  int ret = io_setup(kLibAioMaxNum, &ctx_);
+  if (ret) {
+    fprintf(stdout, "create io_ctx fail, ret: %d\n", ret);
+  }
+  fprintf(stdout, "create io_ctx success\n");
+}
+
+LibAioContext::~LibAioContext() {
+  io_destroy(ctx_);
+  free(submit_list_);
+  free(iocb_list_);
+  free(io_event_list_);
+}
+
 IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
                                           size_t num_reqs,
                                           const IOOptions& options,
@@ -800,9 +820,9 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
   }
   return ios;
 #elif defined(ROCKSDB_LIBAIO_PRESENT)
-  io_context_t* io_ctx = nullptr;
+  LibAioContext* io_ctx = nullptr;
   if (thread_local_io_context_) {
-    io_ctx = static_cast<io_context_t*>(thread_local_io_context_->Get());
+    io_ctx = static_cast<LibAioContext*>(thread_local_io_context_->Get());
     if (io_ctx == nullptr) {
       io_ctx = CreateIOContext();
       if (io_ctx != nullptr) {
@@ -818,9 +838,9 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
     return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
   }
 
-  struct iocb** submit_list = (struct iocb **)malloc(sizeof(struct iocb *) * kLibAioMaxNum);
-  struct iocb* iocb_list = (struct iocb *)malloc(sizeof(struct iocb) * kLibAioMaxNum);
-  struct io_event* io_event_list = (struct io_event *)malloc(sizeof(struct io_event) * kLibAioMaxNum);
+  struct iocb** submit_list = io_ctx->submit_list_;
+  struct iocb* iocb_list = io_ctx->iocb_list_;
+  struct io_event* io_event_list = io_ctx->io_event_list_;
 
   size_t reqs_off = 0;
   while (num_reqs > reqs_off) {
@@ -837,15 +857,16 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       submit_list[i] = &iocb_list[i];
     }
 
-    int ret = io_submit(*io_ctx, this_reqs, submit_list);
+    int ret = io_submit(io_ctx->ctx_, this_reqs, submit_list);
     if (ret < 0) {
       fprintf(stdout, "error occured, ret = %ld this_reqs: %ld\n", (long)ret, (long)this_reqs);
     }
 
     while (this_reqs > 0) {
-      int num = io_getevents(*io_ctx, 1, this_reqs, io_event_list, NULL);
+      int num = io_getevents(io_ctx->ctx_, 1, this_reqs, io_event_list, NULL);
       if (num <= 0) {
         if (num == -(EINTR)) {
+          fprintf(stdout, "io_getevents has been interupt");
           continue;
         }
       }
@@ -864,9 +885,6 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       this_reqs -= num;
     }
   }
-  free(submit_list);
-  free(iocb_list);
-  free(io_event_list);
   return IOStatus::OK();
 #else
   return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);

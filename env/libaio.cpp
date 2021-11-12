@@ -1,3 +1,4 @@
+#if defined(ROCKSDB_LIBAIO_PRESENT)
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <errno.h>
@@ -83,3 +84,4 @@ int io_queue_run(io_context_t ctx)
 
     return ret;
 }
+#endif
