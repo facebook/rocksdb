@@ -305,16 +305,19 @@ class PosixEnv : public CompositeEnv {
   }
 
   uint64_t GetThreadID() const override {
-#if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ) && __GLIBC_PREREQ(2, 30)
-    return ::gettid();
-#else   // defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ) && __GLIBC_PREREQ(2,
-        // 30)
-    uint64_t thread_id = 0;
+    uint64_t thread_id;
+#if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
+#if __GLIBC_PREREQ(2, 30)
+    thread_id = ::gettid();
+#else  // __GLIBC_PREREQ(2, 30)
     pthread_t tid = pthread_self();
     memcpy(&thread_id, &tid, std::min(sizeof(thread_id), sizeof(tid)));
+#endif  // __GLIBC_PREREQ(2, 30)
+#else  // defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
+    pthread_t tid = pthread_self();
+    memcpy(&thread_id, &tid, std::min(sizeof(thread_id), sizeof(tid)));
+#endif  // defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
     return thread_id;
-#endif  // defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ) && __GLIBC_PREREQ(2,
-        // 30)
   }
 
   Status GetHostName(char* name, uint64_t len) override {
