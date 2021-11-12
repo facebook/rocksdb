@@ -109,7 +109,7 @@ class PosixLogger : public Logger {
       struct tm t;
       localtime_r(&seconds, &t);
       p += snprintf(p, limit - p,
-                    "%04d/%02d/%02d-%02d:%02d:%02d.%06d %llx ",
+                    "%04d/%02d/%02d-%02d:%02d:%02d.%06d %llu ",
                     t.tm_year + 1900,
                     t.tm_mon + 1,
                     t.tm_mday,

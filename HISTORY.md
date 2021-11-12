@@ -21,6 +21,7 @@
 
 ### Public Interface Change
 * When options.ttl is used with leveled compaction with compactinon priority kMinOverlappingRatio, files exceeding half of TTL value will be prioritized more, so that by the time TTL is reached, fewer extra compactions will be scheduled to clear them up. At the same time, when compacting files with data older than half of TTL, output files may be cut off based on those files' boundaries, in order for the early TTL compaction to work properly.
+* Info log ("LOG" file) lines now print a system-wide thread ID from `gettid()` when the compiler flags/glibc version make it available instead of the process-local `pthread_self()`. For all users, the thread ID format is changed from hexadecimal to decimal integer.
 
 ### Public API change
 * Made FileSystem extend the Customizable class and added a CreateFromString method.  Implementations need to be registered with the ObjectRegistry and to implement a Name() method in order to be created via this method.
