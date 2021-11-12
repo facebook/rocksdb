@@ -761,7 +761,7 @@ void ClockCacheShard::EraseUnRefEntries() {
 namespace {
 #ifndef ROCKSDB_LITE
 static std::unordered_map<std::string, CacheMetadataChargePolicy>
-    metadata_charge_policy_string_map = {
+    clock_metadata_charge_policy_string_map = {
         {"kDontCharge", CacheMetadataChargePolicy::kDontChargeCacheMetadata},
         {"kFullCharge", CacheMetadataChargePolicy::kFullChargeCacheMetadata},
 };
@@ -783,7 +783,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"metadata_charge_policy",
          OptionTypeInfo::Enum(
              offsetof(struct ClockCacheOptions, metadata_charge_policy),
-             &metadata_charge_policy_string_map)},
+             &clock_metadata_charge_policy_string_map)},
 #endif  // ROCKSDB_LITE
 };
 }  // namespace
