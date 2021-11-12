@@ -53,7 +53,6 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
       const BlockHandle& tmp, Status* status,
       std::unique_ptr<const char[]>* filter_data = nullptr) override;
   using FilterBlockBuilder::Finish;
-  virtual Status ResetFilterBitsBuilder() override { return Status::OK(); }
 
  private:
   void AddKey(const Slice& key);

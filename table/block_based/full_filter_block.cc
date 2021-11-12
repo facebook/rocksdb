@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/block_based/full_filter_block.h"
-
 #include <array>
 
 #include "monitoring/perf_context_imp.h"
@@ -115,11 +114,6 @@ Slice FullFilterBlockBuilder::Finish(
     return filter_content;
   }
   return Slice();
-}
-
-Status FullFilterBlockBuilder::ResetFilterBitsBuilder() {
-  filter_bits_builder_.reset();
-  return Status::OK();
 }
 
 FullFilterBlockReader::FullFilterBlockReader(

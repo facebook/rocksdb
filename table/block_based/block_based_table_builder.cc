@@ -1558,9 +1558,7 @@ void BlockBasedTableBuilder::WriteFilterBlock(
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle,
                     BlockType::kFilter);
     }
-    Status reset_filter_bits_builder_status =
-        rep_->filter_builder->ResetFilterBitsBuilder();
-    assert(reset_filter_bits_builder_status.ok());
+    rep_->filter_builder->ResetFilterBitsBuilder();
   }
   if (ok() && !empty_filter_block) {
     // Add mapping from "<filter_block_prefix>.Name" to location
