@@ -309,11 +309,11 @@ class PosixEnv : public CompositeEnv {
 #if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
 #if __GLIBC_PREREQ(2, 30)
     thread_id = ::gettid();
-#else  // __GLIBC_PREREQ(2, 30)
+#else   // __GLIBC_PREREQ(2, 30)
     pthread_t tid = pthread_self();
     memcpy(&thread_id, &tid, std::min(sizeof(thread_id), sizeof(tid)));
 #endif  // __GLIBC_PREREQ(2, 30)
-#else  // defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
+#else   // defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
     pthread_t tid = pthread_self();
     memcpy(&thread_id, &tid, std::min(sizeof(thread_id), sizeof(tid)));
 #endif  // defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
