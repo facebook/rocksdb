@@ -38,6 +38,7 @@
 #endif
 #include <time.h>
 #include <unistd.h>
+
 #include <algorithm>
 // Get nano time includes
 #if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD)
