@@ -43,6 +43,10 @@ class RateLimiter : public Customizable {
 
   virtual ~RateLimiter() {}
 
+  // Deprecated. Will be removed in a major release. Derived classes
+  // should implement this method.
+  virtual const char* Name() const override { return ""; }
+
   // This API allows user to dynamically change rate limiter's bytes per second.
   // REQUIRED: bytes_per_second > 0
   virtual void SetBytesPerSecond(int64_t bytes_per_second) = 0;
