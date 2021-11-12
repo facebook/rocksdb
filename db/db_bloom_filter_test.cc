@@ -669,9 +669,10 @@ TEST_F(DBBloomFilterTest, BloomFilterReverseCompatibility) {
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
   }
 }
+
 /*
  * A cache wrapper that tracks peaks and increments of filter
- * construction cache reservation
+ * construction cache reservation.
  *        p0
  *       / \   p1
  *      /   \  /\
@@ -742,6 +743,9 @@ class FilterConstructResPeakTrackingCache : public CacheWrapper {
   std::size_t cache_res_increments_sum_;
 };
 
+// To align with the type of hash entry being reserved in implementation.
+using FilterConstructionReserveMemoryHash = uint64_t;
+
 class DBFilterConstructionReserveMemoryTestWithParam
     : public DBTestBase,
       public testing::WithParamInterface<
@@ -758,12 +762,34 @@ class DBFilterConstructionReserveMemoryTestWithParam
         policy_ == BloomFilterPolicy::Mode::kDeprecatedBlock) {
       // For these two cases, we only interested in whether filter construction
       // cache resevation happens instead of its accuracy. Therefore we don't
-      // need many keys
+      // need many keys.
       num_key_ = 5;
     } else if (partition_filters_) {
-      num_key_ = 18 * CacheReservationManager::GetDummyEntrySize() / 8;
+      // For PartitionFilter case, since we set
+      // table_options.metadata_block_size big enough such that each partition
+      // trigger at least 1 dummy entry reservation each for hash entries and
+      // final filter, we need a large number of keys to ensure we have at least
+      // two partitions.
+      num_key_ = 18 * CacheReservationManager::GetDummyEntrySize() /
+                 sizeof(FilterConstructionReserveMemoryHash);
+    } else if (policy_ == BloomFilterPolicy::Mode::kFastLocalBloom) {
+      // For Bloom Filter + FullFilter case, since we design the num_key_ to
+      // make hash entry cache reservation be a multiple of dummy entries, the
+      // correct behavior of charging final filter on top of it will trigger at
+      // least another dummy entry insertion. Therefore we can assert that
+      // behavior and we don't need a large number of keys to verify we
+      // indeed charge the final filter for cache reservation, even though final
+      // filter is a lot smaller than hash entries.
+      num_key_ = 1 * CacheReservationManager::GetDummyEntrySize() /
+                 sizeof(FilterConstructionReserveMemoryHash);
     } else {
-      num_key_ = 12 * CacheReservationManager::GetDummyEntrySize() / 8;
+      // For Ribbon Filter + FullFilter case, we need a large enough number of
+      // keys so that charging final filter after releasing the hash entries
+      // reservation will trigger at least another dummy entry (or equivalently
+      // to saying, causing another peak in cache reservation) as banding
+      // reservation might not be a multiple of dummy entry.
+      num_key_ = 12 * CacheReservationManager::GetDummyEntrySize() /
+                 sizeof(FilterConstructionReserveMemoryHash);
     }
   }
 
@@ -771,7 +797,7 @@ class DBFilterConstructionReserveMemoryTestWithParam
     BlockBasedTableOptions table_options;
 
     // We set cache capacity big enough to prevent cache full for convenience in
-    // calculation
+    // calculation.
     constexpr std::size_t kCacheCapacity = 100 * 1024 * 1024;
 
     table_options.reserve_table_builder_memory = reserve_table_builder_memory_;
@@ -782,7 +808,7 @@ class DBFilterConstructionReserveMemoryTestWithParam
           BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
       // We set table_options.metadata_block_size big enough so that each
       // partition trigger at least 1 dummy entry insertion each for hash
-      // entries and final filter
+      // entries and final filter.
       table_options.metadata_block_size = 409000;
     }
 
@@ -833,10 +859,9 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
   Options options = CurrentOptions();
-  // We set write_buffer_size big enough so that there won't be
-  // flush triggered before we manually trigger it for clean testing
-  // since filter construction memory reservation happens
-  // in building block based table
+  // We set write_buffer_size big enough so that in the case where there is
+  // filter construction cache reservation, flush won't be triggered before we
+  // manually trigger it for clean testing
   options.write_buffer_size = 640 << 20;
   options.table_factory.reset(
       NewBlockBasedTableFactory(GetBlockBasedTableOptions()));
@@ -851,7 +876,8 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
   }
 
   ASSERT_EQ(cache->GetReservedCacheIncrementSum(), 0)
-      << "Flush was triggered too early - please make sure no flush triggered "
+      << "Flush was triggered too early in the test case with filter "
+         "construction cache reservation - please make sure no flush triggered "
          "during the key insertions above";
 
   ASSERT_OK(Flush());
@@ -877,17 +903,26 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
     return;
   }
 
-  using Hash = uint64_t;
-  std::size_t predicted_hash_entries_cache_res = num_key * sizeof(Hash);
-  std::size_t predicted_final_filter_cacahe_res = static_cast<std::size_t>(
-      std::ceil(1.0 * predicted_hash_entries_cache_res / 6));
-  ASSERT_GE(std::floor(1.0 * predicted_final_filter_cacahe_res /
-                       CacheReservationManager::GetDummyEntrySize()),
-            1)
-      << "final filter cache reservation too small - please increase the "
-         "number of keys";
-  std::size_t predicted_banding_cache_res = static_cast<std::size_t>(
-      std::ceil(predicted_hash_entries_cache_res * 2.5));
+  const std::size_t kDummyEntrySize =
+      CacheReservationManager::GetDummyEntrySize();
+
+  const std::size_t predicted_hash_entries_cache_res =
+      num_key * sizeof(FilterConstructionReserveMemoryHash);
+  ASSERT_EQ(predicted_hash_entries_cache_res % kDummyEntrySize, 0)
+      << "It's by this test's design that predicted_hash_entries_cache_res is "
+         "a multipe of dummy entry";
+
+  const std::size_t predicted_hash_entries_cache_res_dummy_entry_num =
+      predicted_hash_entries_cache_res / kDummyEntrySize;
+  const std::size_t predicted_final_filter_cacahe_res =
+      static_cast<std::size_t>(std::ceil(
+          1.0 * predicted_hash_entries_cache_res_dummy_entry_num / 6 *
+          (policy == BloomFilterPolicy::Mode::kStandard128Ribbon ? 0.7 : 1))) *
+      kDummyEntrySize;
+  const std::size_t predicted_banding_cache_res =
+      static_cast<std::size_t>(
+          std::ceil(predicted_hash_entries_cache_res_dummy_entry_num * 2.5)) *
+      kDummyEntrySize;
 
   if (policy == BloomFilterPolicy::Mode::kFastLocalBloom) {
     /* BloomFilterPolicy::Mode::kFastLocalBloom + FullFilter
@@ -899,6 +934,10 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
      *  0/          \
      *  hash entries = b - 0, final filter = p0 - b
      *  p0 = hash entries + final filter
+     *
+     *  The test is designed in a way such that the reservation for b is a
+     *  multiple of dummy entries so that reservation for (p0 - b)
+     *  will trigger at least another dummy entry insertion.
      *
      * BloomFilterPolicy::Mode::kFastLocalBloom + PartitionedFilter
      *                   p1
@@ -920,10 +959,17 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
      */
     if (!partition_filters) {
       EXPECT_EQ(filter_construction_cache_res_peaks.size(), 1)
-          << "Filter construction cache reservation should have 1 peak in "
+          << "Filter construction cache reservation should have only 1 peak in "
              "case: BloomFilterPolicy::Mode::kFastLocalBloom + FullFilter";
       std::size_t filter_construction_cache_res_peak =
           filter_construction_cache_res_peaks[0];
+      EXPECT_GT(filter_construction_cache_res_peak,
+                predicted_hash_entries_cache_res)
+          << "The testing number of hash entries is designed to make hash "
+             "entries cache reservation be multiples of dummy entries"
+             " so the correct behavior of charging final filter on top of it"
+             " should've triggered at least another dummy entry insertion";
+
       std::size_t predicted_filter_construction_cache_res_peak =
           predicted_hash_entries_cache_res + predicted_final_filter_cacahe_res;
       EXPECT_GE(filter_construction_cache_res_peak,
@@ -957,6 +1003,10 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
      *  hash entries = b - 0, banding = p0 - b, final filter = p1 - b'
      *  p0 = hash entries + banding
      *
+     *  The test is designed in a way such that the reservation for (p1 - b')
+     *  will trigger at least another dummy entry insertion
+     *  (or equivelantly to saying, creating another peak).
+     *
      *  BloomFilterPolicy::Mode::kStandard128Ribbon + PartitionedFilter
      *                     p3
      *        p0           /\  p4
@@ -977,9 +1027,18 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
      *  = hash entries + banding + final filter
      */
     if (!partition_filters) {
+      ASSERT_GE(std::floor(1.0 * predicted_final_filter_cacahe_res /
+                           CacheReservationManager::GetDummyEntrySize()),
+                1)
+          << "Final filter cache reservation too small for this test - please "
+             "increase the number of keys";
       EXPECT_EQ(filter_construction_cache_res_peaks.size(), 2)
           << "Filter construction cache reservation should have 2 peaks in "
-             "case: BloomFilterPolicy::Mode::kStandard128Ribbon + FullFilter";
+             "case: BloomFilterPolicy::Mode::kStandard128Ribbon + FullFilter. "
+             "The second peak is resulted from charging the final filter after "
+             "decreasing the hash entry reservation since the testing final "
+             "filter reservation is designed to be at least 1 dummy entry size";
+
       std::size_t filter_construction_cache_res_peak =
           filter_construction_cache_res_peaks[0];
       std::size_t predicted_filter_construction_cache_res_peak =
