@@ -165,7 +165,7 @@ struct FileOptions : EnvOptions {
         temperature(opts.temperature),
         handoff_checksum_type(opts.handoff_checksum_type) {}
 
-  FileOptions& operator=(const FileOptions& opts) = default;
+  FileOptions& operator=(const FileOptions&) = default;
 };
 
 // A structure to pass back some debugging information from the FileSystem

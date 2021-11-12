@@ -17,6 +17,7 @@
 #include "env/mock_env.h"
 #include "file/filename.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
@@ -81,7 +82,11 @@ class FaultInjectionTest
         sync_use_compact_(true),
         base_env_(nullptr),
         env_(nullptr),
-        db_(nullptr) {}
+        db_(nullptr) {
+    EXPECT_OK(
+        test::CreateEnvFromSystem(ConfigOptions(), &system_env_, &env_guard_));
+    EXPECT_NE(system_env_, nullptr);
+  }
 
   ~FaultInjectionTest() override {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -94,7 +99,7 @@ class FaultInjectionTest
       return false;
     } else {
       if (option_config_ == kMultiLevels) {
-        base_env_.reset(MockEnv::Create(Env::Default()));
+        base_env_.reset(MockEnv::Create(system_env_));
       }
       return true;
     }
@@ -146,8 +151,7 @@ class FaultInjectionTest
     assert(tiny_cache_ == nullptr);
     assert(env_ == nullptr);
 
-    env_ =
-        new FaultInjectionTestEnv(base_env_ ? base_env_.get() : Env::Default());
+    env_ = new FaultInjectionTestEnv(base_env_ ? base_env_.get() : system_env_);
 
     options_ = CurrentOptions();
     options_.env = env_;
@@ -345,6 +349,10 @@ class FaultInjectionTest
     ASSERT_OK(static_cast<DBImpl*>(db_->GetRootDB())->TEST_WaitForCompact());
     ASSERT_OK(db_->Put(WriteOptions(), "", ""));
   }
+
+ private:
+  Env* system_env_;
+  std::shared_ptr<Env> env_guard_;
 };
 
 class FaultInjectionTestSplitted : public FaultInjectionTest {};
@@ -552,5 +560,6 @@ INSTANTIATE_TEST_CASE_P(
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -3,6 +3,8 @@
 ### New Features
 * Added new ChecksumType kXXH3 which is faster than kCRC32c on almost all x86\_64 hardware.
 * Added a new online consistency check for BlobDB which validates that the number/total size of garbage blobs does not exceed the number/total size of all blobs in any given blob file.
+* Provided support for tracking per-sst user-defined timestamp information in MANIFEST.
+* Added new option "adaptive_readahead" in ReadOptions. For iterators, RocksDB does auto-readahead on noticing sequential reads and by enabling this option, readahead_size of current file (if reads are sequential) will be carried forward to next file instead of starting from the scratch at each level (except L0 level files). If reads are not sequential it will fall back to 8KB. This option is applicable only for RocksDB internal prefetch buffer and isn't supported with underlying file system prefetching.
 
 ### Bug Fixes
 * Prevent a `CompactRange()` with `CompactRangeOptions::change_level == true` from possibly causing corruption to the LSM state (overlapping files within a level) when run in parallel with another manual compaction. Note that setting `force_consistency_checks == true` (the default) would cause the DB to enter read-only mode in this scenario and return `Status::Corruption`, rather than committing any corruption.
@@ -12,6 +14,7 @@
 * Fixed a bug in CompactionIterator when write-preared transaction is used. Releasing earliest_snapshot during compaction may cause a SingleDelete to be output after a PUT of the same user key whose seq has been zeroed.
 * Added input sanitization on negative bytes passed into `GenericRateLimiter::Request`.
 * Fixed an assertion failure in CompactionIterator when write-prepared transaction is used. We prove that certain operations can lead to a Delete being followed by a SingleDelete (same user key). We can drop the SingleDelete.
+* Fixed a bug of timestamp-based GC which can cause all versions of a key under full_history_ts_low to be dropped. This bug will be triggered when some of the ikeys' timestamps are lower than full_history_ts_low, while others are newer.
 
 ### Behavior Changes
 * `NUM_FILES_IN_SINGLE_COMPACTION` was only counting the first input level files, now it's including all input files.

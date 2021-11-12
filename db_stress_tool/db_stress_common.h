@@ -266,6 +266,7 @@ DECLARE_uint64(batch_protection_bytes_per_key);
 
 DECLARE_uint64(user_timestamp_size);
 DECLARE_string(secondary_cache_uri);
+DECLARE_int32(secondary_cache_fault_one_in);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
