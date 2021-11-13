@@ -269,13 +269,16 @@ struct AdvancedColumnFamilyOptions {
   //
   // Examples with `max_write_buffer_size_to_maintain` set to 32MB:
   //
-  // - Mutable memtable 64MB, unflushed immutable memtable 64MB. Nothing
-  //   trimmable exists.
-  // - Mutable memtable 16MB, flushed immutable memtable 64MB. Trimming is
-  //   disallowed because it'd drop in-memory write history to 16MB < 32MB.
-  // - Mutable memtable 24MB, unflushed immutable memtable 16MB, flushed
-  //   immutable memtable 16MB. The flushed immutable memtable is trimmed
-  //   because we still have 16MB + 24MB = 40MB > 32MB of write history.
+  // - One mutable memtable of 64MB, one unflushed immutable memtable of 64MB,
+  //   and zero flushed immutable memtables. Nothing trimmable exists.
+  // - One mutable memtable of 16MB, zero unflushed immutable memtables, and
+  //   one flushed immutable memtable of 64MB. Trimming is disallowed because
+  //   dropping the earliest (only) flushed immutable memtable would result in
+  //   write history of 16MB < 32MB.
+  // - One mutable memtable of 24MB, one unflushed immutable memtable of 16MB,
+  //   and one flushed immutable memtable of 16MB. The earliest (only) flushed
+  //   immutable memtable is trimmed because we still have
+  //   16MB + 24MB = 40MB > 32MB of write history.
   //
   // When using an OptimisticTransactionDB:
   // If this value is too low, some transactions may fail at commit time due
