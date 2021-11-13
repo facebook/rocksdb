@@ -277,7 +277,7 @@ struct AdvancedColumnFamilyOptions {
   //   write history of 16MB < 32MB.
   // - One mutable memtable of 24MB, one unflushed immutable memtable of 16MB,
   //   and one flushed immutable memtable of 16MB. The earliest (only) flushed
-  //   immutable memtable is trimmed because we still have
+  //   immutable memtable is trimmed because without it we still have
   //   16MB + 24MB = 40MB > 32MB of write history.
   //
   // When using an OptimisticTransactionDB:
