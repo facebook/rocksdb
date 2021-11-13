@@ -305,7 +305,7 @@ class PosixEnv : public CompositeEnv {
   }
 
   uint64_t GetThreadID() const override {
-    uint64_t thread_id;
+    uint64_t thread_id = 0;
 #if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
 #if __GLIBC_PREREQ(2, 30)
     thread_id = ::gettid();
