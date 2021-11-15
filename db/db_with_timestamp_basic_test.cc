@@ -602,7 +602,6 @@ TEST_F(DBBasicTestWithTimestamp, GetTimestampTableProperties) {
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
   DestroyAndReopen(options);
-  
   // Create 2 tables
   for (int table = 0; table < 2; ++table) {
     for (int i = 0; i < 10; i++) {

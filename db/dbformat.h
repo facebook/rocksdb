@@ -91,8 +91,6 @@ static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
 static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
 
-static const std::string kDisableUserTimestamp = "";
-
 constexpr uint64_t kNumInternalBytes = 8;
 
 // Defined in dbformat.cc
