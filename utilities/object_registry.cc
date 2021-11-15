@@ -207,7 +207,8 @@ void ObjectRegistry::Dump(Logger *logger) const {
   }
 }
 
-Status ObjectRegistry::RegisterPlugin(const std::string& name, const PluginFunc &plugin_func) {
+Status ObjectRegistry::RegisterPlugin(const std::string &name,
+                                      const PluginFunc &plugin_func) {
   Plugin plugin;
   std::string errmsg;
   int code = plugin_func(&plugin, &errmsg);
@@ -218,7 +219,8 @@ Status ObjectRegistry::RegisterPlugin(const std::string& name, const PluginFunc 
   }
 }
 
-Status ObjectRegistry::RegisterPlugin(const std::string& name, const Plugin &plugin) {
+Status ObjectRegistry::RegisterPlugin(const std::string &name,
+                                      const Plugin &plugin) {
   if (name.empty()) {
     return Status::InvalidArgument("Missing Plugin Name");
   } else if (plugin.registrar != nullptr) {
@@ -226,8 +228,7 @@ Status ObjectRegistry::RegisterPlugin(const std::string& name, const Plugin &plu
     plugins_.push_back(name);
     return Status::OK();
   } else {
-    return Status::InvalidArgument("Plugin Missing Registrar Function: ",
-                                   name);
+    return Status::InvalidArgument("Plugin Missing Registrar Function: ", name);
   }
 }
 #endif  // ROCKSDB_LITE
