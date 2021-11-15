@@ -45,7 +45,7 @@ using RegistrarFunc = std::function<int(ObjectLibrary&, const std::string&)>;
 // The Plugin contains the struct of properties associated with this Plugin
 // On success, this function should return 0.  On failure, this function should
 // return non-zero and set the std::string* to an appropriate error message.
-using PluginFunc = std::function<int(const std::string&, Plugin&, std::string*)>;
+using PluginFunc = std::function<int(Plugin*, std::string*)>;
 
 struct Plugin {
   // The version of this structure.  If the structure is changed, the version

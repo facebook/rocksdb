@@ -414,23 +414,27 @@ class PluginRegistryTest : public testing::Test {
  public:
 };
 
-static int test_RegisterPlugin(const std::string& name, Plugin& plugin, std::string* errmsg) {
-  plugin.registrar = RegisterTestUnguarded;
-  if (name == "Failed") {
-    *errmsg = "Invalid plugin";
-    return -1;
-  } else if (name == "Missing") {
-    plugin.registrar = nullptr;
-  } 
+static int test_FailedPlugin(Plugin* plugin, std::string* errmsg) {
+  plugin->registrar = RegisterTestUnguarded;
+  *errmsg = "Invalid plugin";
+  return -1;
+}
+
+static int test_MissingPlugin(Plugin* plugin, std::string*) {
+  plugin->registrar = nullptr;
   return 0;
 }
 
+static int test_ValidPlugin(Plugin* plugin, std::string*) {
+  plugin->registrar = RegisterTestUnguarded;
+  return 0;
+}
 TEST_F(PluginRegistryTest, Register) {
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  ASSERT_NOK(registry->RegisterPlugin("Failed", test_RegisterPlugin));
-  ASSERT_NOK(registry->RegisterPlugin("Missing", test_RegisterPlugin));
-  ASSERT_NOK(registry->RegisterPlugin("", test_RegisterPlugin));
-  ASSERT_OK(registry->RegisterPlugin("Valid", test_RegisterPlugin));
+  ASSERT_NOK(registry->RegisterPlugin("Failed", test_FailedPlugin));
+  ASSERT_NOK(registry->RegisterPlugin("Missing", test_MissingPlugin));
+  ASSERT_NOK(registry->RegisterPlugin("", test_ValidPlugin));
+  ASSERT_OK(registry->RegisterPlugin("Valid", test_ValidPlugin));
 }
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -210,7 +210,7 @@ void ObjectRegistry::Dump(Logger *logger) const {
 Status ObjectRegistry::RegisterPlugin(const std::string& name, const PluginFunc &plugin_func) {
   Plugin plugin;
   std::string errmsg;
-  int code = plugin_func(name, plugin, &errmsg);
+  int code = plugin_func(&plugin, &errmsg);
   if (code != 0) {  // TODO: Perhaps use different codes?
     return Status::InvalidArgument(errmsg);
   } else {
