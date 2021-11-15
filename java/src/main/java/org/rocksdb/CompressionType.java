@@ -5,8 +5,6 @@
 
 package org.rocksdb;
 
-import java.util.Optional;
-
 /**
  * Enum CompressionType
  *
@@ -81,13 +79,15 @@ public enum CompressionType {
    *
    * @return CompressionType instance (optional)
    */
-  public static Optional<CompressionType> getFromInternal(final String internalName) {
+  static CompressionType getFromInternal(final String internalName) {
     for (final CompressionType compressionType : CompressionType.values()) {
       if (compressionType.internalName_.equals(internalName)) {
-        return Optional.of(compressionType);
+        return compressionType;
       }
     }
-    return Optional.empty();
+
+    throw new IllegalArgumentException(
+        "Illegal internalName '" + internalName + " ' provided for CompressionType.");
   }
 
   /**

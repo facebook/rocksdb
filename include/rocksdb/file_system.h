@@ -28,6 +28,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
@@ -99,7 +100,36 @@ struct IOOptions {
   // such as NewRandomAccessFile and NewWritableFile.
   std::unordered_map<std::string, std::string> property_bag;
 
-  IOOptions() : timeout(0), prio(IOPriority::kIOLow), type(IOType::kUnknown) {}
+  // Force directory fsync, some file systems like btrfs may skip directory
+  // fsync, set this to force the fsync
+  bool force_dir_fsync;
+
+  IOOptions() : IOOptions(false) {}
+
+  explicit IOOptions(bool force_dir_fsync_)
+      : timeout(std::chrono::microseconds::zero()),
+        prio(IOPriority::kIOLow),
+        type(IOType::kUnknown),
+        force_dir_fsync(force_dir_fsync_) {}
+};
+
+struct DirFsyncOptions {
+  enum FsyncReason : uint8_t {
+    kNewFileSynced,
+    kFileRenamed,
+    kDirRenamed,
+    kFileDeleted,
+    kDefault,
+  } reason;
+
+  std::string renamed_new_name;  // for kFileRenamed
+  // add other options for other FsyncReason
+
+  DirFsyncOptions();
+
+  explicit DirFsyncOptions(std::string file_renamed_new_name);
+
+  explicit DirFsyncOptions(FsyncReason fsync_reason);
 };
 
 // File scope options that control how a file is opened/created and accessed
@@ -135,7 +165,7 @@ struct FileOptions : EnvOptions {
         temperature(opts.temperature),
         handoff_checksum_type(opts.handoff_checksum_type) {}
 
-  FileOptions& operator=(const FileOptions& opts) = default;
+  FileOptions& operator=(const FileOptions&) = default;
 };
 
 // A structure to pass back some debugging information from the FileSystem
@@ -207,7 +237,11 @@ struct IODebugContext {
 // retryable.
 // NewCompositeEnv can be used to create an Env with a custom FileSystem for
 // DBOptions::env.
-class FileSystem {
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
+class FileSystem : public Customizable {
  public:
   FileSystem();
 
@@ -216,9 +250,8 @@ class FileSystem {
 
   virtual ~FileSystem();
 
-  virtual const char* Name() const = 0;
-
   static const char* Type() { return "FileSystem"; }
+  static const char* kDefaultName() { return "DefaultFileSystem"; }
 
   // Loads the FileSystem specified by the input value into the result
   // The CreateFromString alternative should be used; this method may be
@@ -730,10 +763,11 @@ class FSRandomAccessFile {
   // Read a bunch of blocks as described by reqs. The blocks can
   // optionally be read in parallel. This is a synchronous call, i.e it
   // should return after all reads have completed. The reads will be
-  // non-overlapping. If the function return Status is not ok, status of
-  // individual requests will be ignored and return status will be assumed
-  // for all read requests. The function return status is only meant for any
-  // any errors that occur before even processing specific read requests
+  // non-overlapping but can be in any order. If the function return Status
+  // is not ok, status of individual requests will be ignored and return
+  // status will be assumed for all read requests. The function return status
+  // is only meant for errors that occur before processing individual read
+  // requests.
   virtual IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
                              const IOOptions& options, IODebugContext* dbg) {
     assert(reqs != nullptr);
@@ -1106,6 +1140,15 @@ class FSDirectory {
   // Fsync directory. Can be called concurrently from multiple threads.
   virtual IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) = 0;
 
+  // FsyncWithDirOptions after renaming a file. Depends on the filesystem, it
+  // may fsync directory or just the renaming file (e.g. btrfs). By default, it
+  // just calls directory fsync.
+  virtual IOStatus FsyncWithDirOptions(
+      const IOOptions& options, IODebugContext* dbg,
+      const DirFsyncOptions& /*dir_fsync_options*/) {
+    return Fsync(options, dbg);
+  }
+
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0;
   }
@@ -1147,10 +1190,11 @@ class FSDirectory {
 class FileSystemWrapper : public FileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
-  explicit FileSystemWrapper(const std::shared_ptr<FileSystem>& t)
-      : target_(t) {}
+  explicit FileSystemWrapper(const std::shared_ptr<FileSystem>& t);
   ~FileSystemWrapper() override {}
 
+  // Deprecated. Will be removed in a major release. Derived classes
+  // should implement this method.
   const char* Name() const override { return target_->Name(); }
 
   // Return the target to which this Env forwards all calls
@@ -1343,7 +1387,13 @@ class FileSystemWrapper : public FileSystem {
     return target_->IsDirectory(path, options, is_dir, dbg);
   }
 
- private:
+  const Customizable* Inner() const override { return target_.get(); }
+  Status PrepareOptions(const ConfigOptions& options) override;
+#ifndef ROCKSDB_LITE
+  std::string SerializeOptions(const ConfigOptions& config_options,
+                               const std::string& header) const override;
+#endif  // ROCKSDB_LITE
+ protected:
   std::shared_ptr<FileSystem> target_;
 };
 
@@ -1615,6 +1665,13 @@ class FSDirectoryWrapper : public FSDirectory {
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
     return target_->Fsync(options, dbg);
   }
+
+  IOStatus FsyncWithDirOptions(
+      const IOOptions& options, IODebugContext* dbg,
+      const DirFsyncOptions& dir_fsync_options) override {
+    return target_->FsyncWithDirOptions(options, dbg, dir_fsync_options);
+  }
+
   size_t GetUniqueId(char* id, size_t max_size) const override {
     return target_->GetUniqueId(id, max_size);
   }

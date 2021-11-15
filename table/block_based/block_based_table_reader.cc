@@ -1523,8 +1523,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
           // Update the block details so that PrefetchBuffer can use the read
           // pattern to determine if reads are sequential or not for
           // prefetching. It should also take in account blocks read from cache.
-          prefetch_buffer->UpdateReadPattern(handle.offset(),
-                                             block_size(handle));
+          prefetch_buffer->UpdateReadPattern(
+              handle.offset(), block_size(handle), ro.adaptive_readahead);
         }
       }
     }

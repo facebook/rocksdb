@@ -105,6 +105,12 @@ class CTREncryptionProvider : public EncryptionProvider {
       uint64_t initialCounter, const Slice& iv, const Slice& prefix,
       std::unique_ptr<BlockAccessCipherStream>* result);
 };
+
+Status NewEncryptedFileSystemImpl(
+    const std::shared_ptr<FileSystem>& base_fs,
+    const std::shared_ptr<EncryptionProvider>& provider,
+    std::unique_ptr<FileSystem>* fs);
+
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !defined(ROCKSDB_LITE)

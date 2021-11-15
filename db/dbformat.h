@@ -95,6 +95,9 @@ static const std::string kDisableUserTimestamp = "";
 
 constexpr uint64_t kNumInternalBytes = 8;
 
+// Defined in dbformat.cc
+extern const std::string kDisableUserTimestamp;
+
 // The data structure that represents an internal key in the way that user_key,
 // sequence number and type are stored in separated forms.
 struct ParsedInternalKey {

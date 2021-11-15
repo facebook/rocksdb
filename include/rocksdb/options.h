@@ -396,6 +396,9 @@ struct CompactionServiceJobInfo {
         priority(priority_) {}
 };
 
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class CompactionService : public Customizable {
  public:
   static const char* Type() { return "CompactionService"; }
@@ -565,8 +568,18 @@ struct DBOptions {
   // (i.e. the ones that are causing all the space amplification). If set to 0
   // (default), we will dynamically choose the WAL size limit to be
   // [sum of all write_buffer_size * max_write_buffer_number] * 4
-  // This option takes effect only when there are more than one column family as
-  // otherwise the wal size is dictated by the write_buffer_size.
+  //
+  // For example, with 15 column families, each with
+  // write_buffer_size = 128 MB
+  // max_write_buffer_number = 6
+  // max_total_wal_size will be calculated to be [15 * 128MB * 6] * 4 = 45GB
+  //
+  // The RocksDB wiki has some discussion about how the WAL interacts
+  // with memtables and flushing of column families.
+  // https://github.com/facebook/rocksdb/wiki/Column-Families
+  //
+  // This option takes effect only when there are more than one column
+  // family as otherwise the wal size is dictated by the write_buffer_size.
   //
   // Default: 0
   //
@@ -931,7 +944,7 @@ struct DBOptions {
   size_t random_access_max_buffer_size = 1024 * 1024;
 
   // This is the maximum buffer size that is used by WritableFileWriter.
-  // On Windows, we need to maintain an aligned buffer for writes.
+  // With direct IO, we need to maintain an aligned buffer for writes.
   // We allow the buffer to grow until it's size hits the limit in buffered
   // IO and fix the buffer size when using direct IO to ensure alignment of
   // write requests if the logical sector size is unusual
@@ -1588,6 +1601,19 @@ struct ReadOptions {
   //
   // Default: std::numeric_limits<uint64_t>::max()
   uint64_t value_size_soft_limit;
+
+  // For iterators, RocksDB does auto-readahead on noticing more than two
+  // sequential reads for a table file if user doesn't provide readahead_size.
+  // The readahead starts at 8KB and doubles on every additional read upto
+  // max_auto_readahead_size only when reads are sequential. However at each
+  // level, if iterator moves over next file, readahead_size starts again from
+  // 8KB.
+  //
+  // By enabling this option, RocksDB will do some enhancements for
+  // prefetching the data.
+  //
+  // Default: false
+  bool adaptive_readahead;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);

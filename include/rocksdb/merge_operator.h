@@ -44,6 +44,9 @@ class Logger;
 //
 // Refer to rocksdb-merge wiki for more details and example implementations.
 //
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class MergeOperator : public Customizable {
  public:
   virtual ~MergeOperator() {}

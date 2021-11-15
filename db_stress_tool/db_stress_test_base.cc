@@ -22,6 +22,7 @@
 #include "util/cast_util.h"
 #include "utilities/backupable/backupable_db_impl.h"
 #include "utilities/fault_injection_fs.h"
+#include "utilities/fault_injection_secondary_cache.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -147,6 +148,10 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
                 "No secondary cache registered matching string: %s status=%s\n",
                 FLAGS_secondary_cache_uri.c_str(), s.ToString().c_str());
         exit(1);
+      }
+      if (FLAGS_secondary_cache_fault_one_in > 0) {
+        secondary_cache = std::make_shared<FaultInjectionSecondaryCache>(
+            secondary_cache, FLAGS_seed, FLAGS_secondary_cache_fault_one_in);
       }
       opts.secondary_cache = secondary_cache;
     }
@@ -1811,6 +1816,10 @@ void StressTest::TestCompactFiles(ThreadState* thread,
                                   ColumnFamilyHandle* column_family) {
   ROCKSDB_NAMESPACE::ColumnFamilyMetaData cf_meta_data;
   db_->GetColumnFamilyMetaData(column_family, &cf_meta_data);
+
+  if (cf_meta_data.levels.empty()) {
+    return;
+  }
 
   // Randomly compact up to three consecutive files from a level
   const int kMaxRetry = 3;

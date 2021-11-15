@@ -324,7 +324,8 @@ class LegacyFileSystemWrapper : public FileSystem {
   explicit LegacyFileSystemWrapper(Env* t) : target_(t) {}
   ~LegacyFileSystemWrapper() override {}
 
-  const char* Name() const override { return "Legacy File System"; }
+  static const char* kClassName() { return "LegacyFileSystem"; }
+  const char* Name() const override { return kClassName(); }
 
   // Return the target to which this Env forwards all calls
   Env* target() const { return target_; }

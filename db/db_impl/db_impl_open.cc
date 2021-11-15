@@ -1463,7 +1463,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                   meta.fd.smallest_seqno, meta.fd.largest_seqno,
                   meta.marked_for_compaction, meta.oldest_blob_file_number,
                   meta.oldest_ancester_time, meta.file_creation_time,
-                  meta.file_checksum, meta.file_checksum_func_name);
+                  meta.file_checksum, meta.file_checksum_func_name,
+                  meta.min_timestamp, meta.max_timestamp);
 
     for (const auto& blob : blob_file_additions) {
       edit->AddBlobFile(blob);
@@ -1694,10 +1695,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       if (impl->two_write_queues_) {
         impl->log_write_mutex_.Unlock();
       }
-
-      impl->DeleteObsoleteFiles();
-      s = impl->directories_.GetDbDir()->Fsync(IOOptions(), nullptr);
-      TEST_SYNC_POINT("DBImpl::Open:AfterDeleteFilesAndSyncDir");
     }
     if (s.ok()) {
       // In WritePrepared there could be gap in sequence numbers. This breaks
@@ -1770,6 +1767,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
     *dbptr = impl;
     impl->opened_successfully_ = true;
+    impl->DeleteObsoleteFiles();
+    TEST_SYNC_POINT("DBImpl::Open:AfterDeleteFiles");
     impl->MaybeScheduleFlushOrCompaction();
   } else {
     persist_options_status.PermitUncheckedError();

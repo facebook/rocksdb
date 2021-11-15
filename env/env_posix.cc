@@ -37,6 +37,8 @@
 #include <sys/uio.h>
 #endif
 #include <time.h>
+#include <unistd.h>
+
 #include <algorithm>
 // Get nano time includes
 #if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD)
@@ -302,18 +304,21 @@ class PosixEnv : public CompositeEnv {
     return thread_status_updater_->GetThreadList(thread_list);
   }
 
-  static uint64_t gettid(pthread_t tid) {
+  uint64_t GetThreadID() const override {
     uint64_t thread_id = 0;
+#if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
+#if __GLIBC_PREREQ(2, 30)
+    thread_id = ::gettid();
+#else   // __GLIBC_PREREQ(2, 30)
+    pthread_t tid = pthread_self();
     memcpy(&thread_id, &tid, std::min(sizeof(thread_id), sizeof(tid)));
+#endif  // __GLIBC_PREREQ(2, 30)
+#else   // defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
+    pthread_t tid = pthread_self();
+    memcpy(&thread_id, &tid, std::min(sizeof(thread_id), sizeof(tid)));
+#endif  // defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
     return thread_id;
   }
-
-  static uint64_t gettid() {
-    pthread_t tid = pthread_self();
-    return gettid(tid);
-  }
-
-  uint64_t GetThreadID() const override { return gettid(pthread_self()); }
 
   Status GetHostName(char* name, uint64_t len) override {
     int ret = gethostname(name, static_cast<size_t>(len));

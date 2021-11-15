@@ -222,6 +222,7 @@ am__v_AR_1 =
 
 ifdef ROCKSDB_USE_LIBRADOS
 LIB_SOURCES += utilities/env_librados.cc
+TEST_MAIN_SOURCES += utilities/env_librados_test.cc
 LDFLAGS += -lrados
 endif
 
@@ -507,6 +508,7 @@ STRESS_OBJECTS =  $(patsubst %.cc, $(OBJ_DIR)/%.o, $(STRESS_LIB_SOURCES))
 ALL_SOURCES  = $(filter-out util/build_version.cc, $(LIB_SOURCES)) $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES) $(GTEST_DIR)/gtest/gtest-all.cc
 ALL_SOURCES += $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(CACHE_BENCH_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
 ALL_SOURCES += $(TEST_MAIN_SOURCES) $(TOOL_MAIN_SOURCES) $(BENCH_MAIN_SOURCES)
+ALL_SOURCES += $(ROCKSDB_PLUGIN_SOURCES)
 
 TESTS = $(patsubst %.cc, %, $(notdir $(TEST_MAIN_SOURCES)))
 TESTS += $(patsubst %.c, %, $(notdir $(TEST_MAIN_SOURCES_C)))
@@ -1923,6 +1925,9 @@ clipping_iterator_test: $(OBJ_DIR)/db/compaction/clipping_iterator_test.o $(TEST
 	$(AM_LINK)
 
 ribbon_bench: $(OBJ_DIR)/microbench/ribbon_bench.o $(LIBRARY)
+	$(AM_LINK)
+
+db_basic_bench: $(OBJ_DIR)/microbench/db_basic_bench.o $(LIBRARY)
 	$(AM_LINK)
 
 cache_reservation_manager_test: $(OBJ_DIR)/cache/cache_reservation_manager_test.o $(TEST_LIBRARY) $(LIBRARY)

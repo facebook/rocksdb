@@ -160,10 +160,13 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
     s = db_->GetEnv()->RenameFile(full_private_path, checkpoint_dir);
   }
   if (s.ok()) {
-    std::unique_ptr<Directory> checkpoint_directory;
-    s = db_->GetEnv()->NewDirectory(checkpoint_dir, &checkpoint_directory);
+    std::unique_ptr<FSDirectory> checkpoint_directory;
+    s = db_->GetFileSystem()->NewDirectory(checkpoint_dir, IOOptions(),
+                                           &checkpoint_directory, nullptr);
     if (s.ok() && checkpoint_directory != nullptr) {
-      s = checkpoint_directory->Fsync();
+      s = checkpoint_directory->FsyncWithDirOptions(
+          IOOptions(), nullptr,
+          DirFsyncOptions(DirFsyncOptions::FsyncReason::kDirRenamed));
     }
   }
 
@@ -348,11 +351,14 @@ Status CheckpointImpl::ExportColumnFamily(
   if (s.ok()) {
     // Fsync export directory.
     moved_to_user_specified_dir = true;
-    std::unique_ptr<Directory> dir_ptr;
-    s = db_->GetEnv()->NewDirectory(export_dir, &dir_ptr);
+    std::unique_ptr<FSDirectory> dir_ptr;
+    s = db_->GetFileSystem()->NewDirectory(export_dir, IOOptions(), &dir_ptr,
+                                           nullptr);
     if (s.ok()) {
       assert(dir_ptr != nullptr);
-      s = dir_ptr->Fsync();
+      s = dir_ptr->FsyncWithDirOptions(
+          IOOptions(), nullptr,
+          DirFsyncOptions(DirFsyncOptions::FsyncReason::kDirRenamed));
     }
   }
 
