@@ -986,7 +986,6 @@ endif()
 
 set(ROCKSDB_PLUGIN_EXTERNS "")
 set(ROCKSDB_PLUGIN_BUILTINS "")
-option(ROCKSDB_PLUGINS "Comma-separated list of plugins to build" "")
 message(STATUS "ROCKSDB PLUGINS TO BUILD ${ROCKSDB_PLUGINS}")
 list(APPEND PLUGINS ${ROCKSDB_PLUGINS})
 foreach(PLUGIN IN LISTS PLUGINS)
