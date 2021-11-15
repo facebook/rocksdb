@@ -612,6 +612,7 @@ IOStatus PosixRandomAccessFile::Read(uint64_t offset, size_t n,
   return s;
 }
 
+#if defined(ROCKSDB_LIBAIO_PRESENT)
 LibAioContext::LibAioContext() {
   ctx_ = 0;
   submit_list_ = (struct iocb **)malloc(sizeof(struct iocb *) * kLibAioMaxNum);
@@ -631,6 +632,7 @@ LibAioContext::~LibAioContext() {
   free(iocb_list_);
   free(io_event_list_);
 }
+#endif
 
 IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
                                           size_t num_reqs,
