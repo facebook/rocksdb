@@ -74,7 +74,7 @@ std::shared_ptr<ObjectLibrary> &ObjectLibrary::Default() {
 ObjectRegistry::ObjectRegistry(const std::shared_ptr<ObjectLibrary> &library) {
   libraries_.push_back(library);
   for (const auto &b : builtins_) {
-    Status s = RegisterPlugin(b);
+    Status s = RegisterPlugin(b.first, b.second);
     if (!s.ok()) {
       // TODO: What are we going to do with failed compile-time plugins?
     }
@@ -207,25 +207,27 @@ void ObjectRegistry::Dump(Logger *logger) const {
   }
 }
 
-Status ObjectRegistry::RegisterPlugin(const PluginFunc &plugin_func) {
+Status ObjectRegistry::RegisterPlugin(const std::string& name, const PluginFunc &plugin_func) {
   Plugin plugin;
   std::string errmsg;
-  int code = plugin_func(&plugin, sizeof(plugin), &errmsg);
+  int code = plugin_func(name, plugin, &errmsg);
   if (code != 0) {  // TODO: Perhaps use different codes?
     return Status::InvalidArgument(errmsg);
   } else {
-    return RegisterPlugin(plugin);
+    return RegisterPlugin(name, plugin);
   }
 }
 
-Status ObjectRegistry::RegisterPlugin(const Plugin &plugin) {
-  if (plugin.registrar != nullptr) {
-    AddLibrary(plugin.name, plugin.registrar, plugin.arg);
-    plugins_.push_back(plugin.name);
+Status ObjectRegistry::RegisterPlugin(const std::string& name, const Plugin &plugin) {
+  if (name.empty()) {
+    return Status::InvalidArgument("Missing Plugin Name");
+  } else if (plugin.registrar != nullptr) {
+    AddLibrary(name, plugin.registrar, plugin.arg);
+    plugins_.push_back(name);
     return Status::OK();
   } else {
     return Status::InvalidArgument("Plugin Missing Registrar Function: ",
-                                   plugin.name);
+                                   name);
   }
 }
 #endif  // ROCKSDB_LITE

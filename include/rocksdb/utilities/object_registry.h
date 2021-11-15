@@ -39,17 +39,24 @@ using FactoryFunc =
 // library
 using RegistrarFunc = std::function<int(ObjectLibrary&, const std::string&)>;
 
-using PluginFunc = std::function<int(Plugin*, size_t, std::string*)>;
+// The signature of the function for loading plugins
+// The Plugin struct is passed to the PluginFunc and expected to be validated
+// and filled in by the Plugin code.
+// The Plugin contains the struct of properties associated with this Plugin
+// On success, this function should return 0.  On failure, this function should
+// return non-zero and set the std::string* to an appropriate error message.
+using PluginFunc = std::function<int(const std::string&, Plugin&, std::string*)>;
 
 struct Plugin {
   // The version of this structure.  If the structure is changed, the version
   // should be incremented
   static constexpr int kVersion() { return 1; }
 
-  // The name of this plugin
-  std::string name;
+  // The version of the Plugin structure
+  int version = kVersion();
 
   // Function to use to register the factories for this plugin
+  // This field must be specified by th plugin for the plugin to be valid.
   RegistrarFunc registrar;
 
   // The argument to pass to the registrar function
@@ -383,11 +390,11 @@ class ObjectRegistry {
 
   // Invokes the input function to retrieve the properties for this plugin.
   // On success, registers the retrieved properties with this registry.
-  Status RegisterPlugin(const PluginFunc& func);
+  Status RegisterPlugin(const std::string& name, const PluginFunc& func);
 
   // Checks that the input plugin is valid and, if so,
   // registers the plugin with this ObjectRegistry
-  Status RegisterPlugin(const Plugin& plugin);
+  Status RegisterPlugin(const std::string& name, const Plugin& plugin);
 
  private:
   explicit ObjectRegistry(const std::shared_ptr<ObjectLibrary>& library);
@@ -419,7 +426,7 @@ class ObjectRegistry {
   // searching for entries.
   std::vector<std::shared_ptr<ObjectLibrary>> libraries_;
   std::vector<std::string> plugins_;
-  static std::vector<PluginFunc> builtins_;
+  static std::unordered_map<std::string, PluginFunc> builtins_;
   std::map<std::string, std::weak_ptr<Customizable>> managed_objects_;
   std::shared_ptr<ObjectRegistry> parent_;
   mutable std::mutex objects_mutex_;  // Mutex for managed objects
