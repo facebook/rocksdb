@@ -759,6 +759,9 @@ DEFINE_bool(use_fsync, false, "If true, issue fsync instead of fdatasync");
 
 DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
 
+DEFINE_bool(manual_wal_flush, false,
+            "If true, buffer WAL until buffer is full or a manual FlushWAL().");
+
 DEFINE_string(wal_dir, "", "If not empty, use the given dir for WAL");
 
 DEFINE_string(truth_db, "/dev/shm/truth_db/dbbench",
@@ -807,6 +810,8 @@ DEFINE_uint64(periodic_compaction_seconds,
               ROCKSDB_NAMESPACE::Options().periodic_compaction_seconds,
               "Files older than this will be picked up for compaction and"
               " rewritten to the same level");
+
+DEFINE_uint64(ttl_seconds, ROCKSDB_NAMESPACE::Options().ttl, "Set options.ttl");
 
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {
   if (value <= 0 || value>=100) {
@@ -1043,6 +1048,10 @@ DEFINE_bool(io_uring_enabled, true,
             "If true, enable the use of IO uring if the platform supports it");
 extern "C" bool RocksDbIOUringEnable() { return FLAGS_io_uring_enabled; }
 #endif  // ROCKSDB_LITE
+
+DEFINE_bool(adaptive_readahead, false,
+            "carry forward internal auto readahead size from one file to next "
+            "file at each level during iteration");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -3973,6 +3982,7 @@ class Benchmark {
     options.use_direct_reads = FLAGS_use_direct_reads;
     options.use_direct_io_for_flush_and_compaction =
         FLAGS_use_direct_io_for_flush_and_compaction;
+    options.manual_wal_flush = FLAGS_manual_wal_flush;
 #ifndef ROCKSDB_LITE
     options.ttl = FLAGS_fifo_compaction_ttl;
     options.compaction_options_fifo = CompactionOptionsFIFO(
@@ -4285,7 +4295,7 @@ class Benchmark {
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
     options.optimize_filters_for_hits = FLAGS_optimize_filters_for_hits;
     options.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
-
+    options.ttl = FLAGS_ttl_seconds;
     // fill storage options
     options.advise_random_on_open = FLAGS_advise_random_on_open;
     options.access_hint_on_compaction_start = FLAGS_compaction_fadvice_e;
@@ -5485,6 +5495,7 @@ class Benchmark {
       options.timestamp = &ts;
     }
 
+    options.adaptive_readahead = FLAGS_adaptive_readahead;
     Iterator* iter = db->NewIterator(options);
     int64_t i = 0;
     int64_t bytes = 0;
@@ -5579,7 +5590,9 @@ class Benchmark {
   }
 
   void ReadReverse(ThreadState* thread, DB* db) {
-    Iterator* iter = db->NewIterator(ReadOptions(FLAGS_verify_checksum, true));
+    ReadOptions options(FLAGS_verify_checksum, true);
+    options.adaptive_readahead = FLAGS_adaptive_readahead;
+    Iterator* iter = db->NewIterator(options);
     int64_t i = 0;
     int64_t bytes = 0;
     for (iter->SeekToLast(); i < reads_ && iter->Valid(); iter->Prev()) {
@@ -6369,6 +6382,7 @@ class Benchmark {
     options.prefix_same_as_start = FLAGS_prefix_same_as_start;
     options.tailing = FLAGS_use_tailing_iterator;
     options.readahead_size = FLAGS_readahead_size;
+    options.adaptive_readahead = FLAGS_adaptive_readahead;
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
     if (user_timestamp_size_ > 0) {
@@ -6665,6 +6679,7 @@ class Benchmark {
       ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
       read_options.timestamp = &ts;
     }
+    read_options.adaptive_readahead = FLAGS_adaptive_readahead;
     Iterator* iter = db_.db->NewIterator(read_options);
 
     fprintf(stderr, "num reads to do %" PRIu64 "\n", reads_);
@@ -7265,6 +7280,7 @@ class Benchmark {
 
     DB* db = SelectDB(thread);
     ReadOptions read_opts(FLAGS_verify_checksum, true);
+    read_opts.adaptive_readahead = FLAGS_adaptive_readahead;
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
     if (user_timestamp_size_ > 0) {

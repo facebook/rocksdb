@@ -690,7 +690,7 @@ TEST_F(DBSecondaryTest, SwitchToNewManifestDuringOpen) {
   SyncPoint::GetInstance()->LoadDependency(
       {{"ReactiveVersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:0",
         "VersionSet::ProcessManifestWrites:BeforeNewManifest"},
-       {"DBImpl::Open:AfterDeleteFilesAndSyncDir",
+       {"DBImpl::Open:AfterDeleteFiles",
         "ReactiveVersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:"
         "1"}});
   SyncPoint::GetInstance()->EnableProcessing();

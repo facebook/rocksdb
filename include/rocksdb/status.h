@@ -451,12 +451,11 @@ class Status {
   std::string ToString() const;
 
  protected:
-  // A nullptr state_ (which is always the case for OK) means the message
-  // is empty, else state_ points to message.
-
   Code code_;
   SubCode subcode_;
   Severity sev_;
+  // A nullptr state_ (which is at least the case for OK) means the extra
+  // message is empty.
   const char* state_;
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
   mutable bool checked_ = false;

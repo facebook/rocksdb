@@ -100,12 +100,6 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override;
 
-  // Computes and populates block trailer for a block
-  static void ComputeBlockTrailer(const Slice& block_contents,
-                                  CompressionType compression_type,
-                                  ChecksumType checksum_type,
-                                  std::array<char, kBlockTrailerSize>* trailer);
-
  private:
   bool ok() const { return status().ok(); }
 

@@ -3296,6 +3296,9 @@ class DeadlineFS : public FileSystemWrapper {
         ignore_deadline_(false),
         error_on_delay_(error_on_delay) {}
 
+  static const char* kClassName() { return "DeadlineFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+
   IOStatus NewRandomAccessFile(const std::string& fname,
                                const FileOptions& opts,
                                std::unique_ptr<FSRandomAccessFile>* result,
@@ -3856,14 +3859,6 @@ INSTANTIATE_TEST_CASE_P(DBBasicTestDeadline, DBBasicTestDeadline,
                                           std::make_tuple(false, true),
                                           std::make_tuple(true, true)));
 }  // namespace ROCKSDB_NAMESPACE
-
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
-}
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

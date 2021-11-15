@@ -153,6 +153,7 @@ default_params = {
     "max_write_buffer_size_to_maintain": lambda: random.choice(
         [0, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024]),
     "user_timestamp_size": 0,
+    "secondary_cache_fault_one_in" : lambda: random.choice([0, 0, 32]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
