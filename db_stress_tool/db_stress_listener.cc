@@ -17,7 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 
 // TODO: consider using expected_values_dir instead, but this is more
 // convenient for now.
-UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name)
+UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name, Env* env)
     : path_(db_name + "/.unique_ids") {
   // We expect such a small number of files generated during this test
   // (thousands?), checking full 192-bit IDs for uniqueness is a very
@@ -27,14 +27,14 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name)
   // very good probability for the quantities in this test.
   offset_ = Random::GetTLSInstance()->Uniform(17);  // 0 to 16
 
-  // Use default FileSystem to avoid fault injection, etc.
-  FileSystem& fs = *FileSystem::Default();
+  // Use the FileSystem from the environment
+  const std::shared_ptr<rocksdb::FileSystem>fs = env->GetFileSystem();
   IOOptions opts;
 
   {
     std::unique_ptr<FSSequentialFile> reader;
     Status s =
-        fs.NewSequentialFile(path_, FileOptions(), &reader, /*dbg*/ nullptr);
+        fs->NewSequentialFile(path_, FileOptions(), &reader, /*dbg*/ nullptr);
     if (s.ok()) {
       // Load from file
       std::string id(24U, '\0');
@@ -54,7 +54,7 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name)
             fprintf(stdout, "Warning: clearing corrupt unique id file\n");
             id_set_.clear();
             reader.reset();
-            s = fs.DeleteFile(path_, opts, /*dbg*/ nullptr);
+            s = fs->DeleteFile(path_, opts, /*dbg*/ nullptr);
             assert(s.ok());
           }
           break;
@@ -65,16 +65,20 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name)
       // Newly created is ok.
       // But FileSystem doesn't tell us whether non-existence was the cause of
       // the failure. (Issue #9021)
-      Status s2 = fs.FileExists(path_, opts, /*dbg*/ nullptr);
-      if (!s2.IsNotFound()) {
-        fprintf(stderr, "Error opening unique id file: %s\n",
-                s.ToString().c_str());
-        assert(false);
+      Status s2 = fs->FileExists(path_, opts, /*dbg*/ nullptr);
+      if (s2.IsNotFound()) {
+        std::unique_ptr<FSWritableFile> wf;
+        s = fs->NewWritableFile(path_, FileOptions(), &wf, /*dbg*/ nullptr);
+	if (!s.ok()) {
+	  fprintf(stderr, "Error creating unique id file: %s\n",
+                  s.ToString().c_str());
+          assert(false);
+	}
       }
     }
   }
   fprintf(stdout, "(Re-)verified %zu unique IDs\n", id_set_.size());
-  Status s = fs.ReopenWritableFile(path_, FileOptions(), &data_file_writer_,
+  Status s = fs->ReopenWritableFile(path_, FileOptions(), &data_file_writer_,
                                    /*dbg*/ nullptr);
   if (!s.ok()) {
     fprintf(stderr, "Error opening unique id file for append: %s\n",
@@ -84,7 +88,8 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name)
 }
 
 UniqueIdVerifier::~UniqueIdVerifier() {
-  data_file_writer_->Close(IOOptions(), /*dbg*/ nullptr);
+  if (data_file_writer_)
+    data_file_writer_->Close(IOOptions(), /*dbg*/ nullptr);
 }
 
 void UniqueIdVerifier::VerifyNoWrite(const std::string& id) {
