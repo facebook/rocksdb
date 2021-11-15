@@ -1844,10 +1844,6 @@ class LoggerWrapper : public Logger {
 // *base_env must remain live while the result is in use.
 Env* NewMemEnv(Env* base_env);
 
-// Returns a new environment that is used for HDFS environment.
-// This is a factory method for HdfsEnv declared in hdfs/env_hdfs.h
-Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname);
-
 // Returns a new environment that measures function call times for filesystem
 // operations, reporting results to variables in PerfContext.
 // This is a factory method for TimedEnv defined in utilities/env_timed.cc.

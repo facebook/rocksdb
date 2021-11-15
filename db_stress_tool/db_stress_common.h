@@ -41,7 +41,6 @@
 #include "db_stress_tool/db_stress_listener.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "db_stress_tool/db_stress_test_base.h"
-#include "hdfs/env_hdfs.h"
 #include "logging/logging.h"
 #include "monitoring/histogram.h"
 #include "options/options_helper.h"
@@ -212,7 +211,6 @@ DECLARE_int32(compression_zstd_max_train_bytes);
 DECLARE_int32(compression_parallel_threads);
 DECLARE_uint64(compression_max_dict_buffer_bytes);
 DECLARE_string(checksum_type);
-DECLARE_string(hdfs);
 DECLARE_string(env_uri);
 DECLARE_string(fs_uri);
 DECLARE_uint64(ops_per_thread);
@@ -277,7 +275,7 @@ constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;
 
-// wrapped posix or hdfs environment
+// wrapped posix environment
 extern ROCKSDB_NAMESPACE::Env* db_stress_env;
 #ifndef NDEBUG
 namespace ROCKSDB_NAMESPACE {
