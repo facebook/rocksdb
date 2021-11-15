@@ -285,9 +285,9 @@ struct BlockBasedTableOptions {
   // separately
   uint64_t metadata_block_size = 4096;
 
-  // If true, an estimated memory usage of table building
-  // will be charged to the block cache as memory accounting
-  // if block cache available.
+  // If true, a dynamically updating charge to block cache, loosely based
+  // on the actual memory usage of table building, will occur to account
+  // the memory, if block cache available.
   //
   // Charged memory usage includes:
   // 1. (new) Bloom Filter and Ribbon Filter construction
@@ -296,7 +296,7 @@ struct BlockBasedTableOptions {
   // Note:
   // 1. (new) Bloom Filter and Ribbon Filter construction
   //
-  // If additional temporary memory of  Ribbon Filter uses up too much memory
+  // If additional temporary memory of Ribbon Filter uses up too much memory
   // relative to the avaible space left in the block cache
   // at some point (i.e, causing a cache full when strict_capacity_limit =
   // true), construction will fall back to (new) Bloom Filter.

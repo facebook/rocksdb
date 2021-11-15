@@ -697,9 +697,7 @@ class FilterConstructResPeakTrackingCache : public CacheWrapper {
                 Handle** handle = nullptr,
                 Priority priority = Priority::LOW) override {
     Status s = target_->Insert(key, value, charge, deleter, handle, priority);
-    auto map = CopyCacheDeleterRoleMap();
-    auto e = map.find(deleter);
-    if (e != map.end() && e->second == CacheEntryRole::kFilterConstruction) {
+    if (deleter == kNoopDeleterForFilterConstruction) {
       if (last_peak_tracked_) {
         cache_res_peak_ = 0;
         cache_res_increment_ = 0;
@@ -714,9 +712,8 @@ class FilterConstructResPeakTrackingCache : public CacheWrapper {
 
   using Cache::Release;
   bool Release(Handle* handle, bool force_erase = false) override {
-    auto map = CopyCacheDeleterRoleMap();
-    auto e = map.find(GetDeleter(handle));
-    if (e != map.end() && e->second == CacheEntryRole::kFilterConstruction) {
+    auto deleter = GetDeleter(handle);
+    if (deleter == kNoopDeleterForFilterConstruction) {
       if (!last_peak_tracked_) {
         cache_res_peaks_.push_back(cache_res_peak_);
         cache_res_increments_sum_ += cache_res_increment_;
@@ -735,6 +732,8 @@ class FilterConstructResPeakTrackingCache : public CacheWrapper {
   }
 
  private:
+  static const Cache::DeleterFn kNoopDeleterForFilterConstruction;
+
   std::size_t cur_cache_res_;
   std::size_t cache_res_peak_;
   std::size_t cache_res_increment_;
@@ -742,6 +741,10 @@ class FilterConstructResPeakTrackingCache : public CacheWrapper {
   std::deque<std::size_t> cache_res_peaks_;
   std::size_t cache_res_increments_sum_;
 };
+
+const Cache::DeleterFn
+    FilterConstructResPeakTrackingCache::kNoopDeleterForFilterConstruction =
+        GetNoopDeleterForRole<CacheEntryRole::kFilterConstruction>();
 
 // To align with the type of hash entry being reserved in implementation.
 using FilterConstructionReserveMemoryHash = uint64_t;
@@ -759,8 +762,9 @@ class DBFilterConstructionReserveMemoryTestWithParam
         policy_(std::get<1>(GetParam())),
         partition_filters_(std::get<2>(GetParam())) {
     if (!reserve_table_builder_memory_ ||
-        policy_ == BloomFilterPolicy::Mode::kDeprecatedBlock) {
-      // For these two cases, we only interested in whether filter construction
+        policy_ == BloomFilterPolicy::Mode::kDeprecatedBlock ||
+        policy_ == BloomFilterPolicy::Mode::kLegacyBloom) {
+      // For these cases, we only interested in whether filter construction
       // cache resevation happens instead of its accuracy. Therefore we don't
       // need many keys.
       num_key_ = 5;
@@ -844,18 +848,18 @@ class DBFilterConstructionReserveMemoryTestWithParam
   std::shared_ptr<FilterConstructResPeakTrackingCache> cache_;
 };
 
-std::vector<bool> reserve_builder_memory_options{true, false};
-std::vector<BloomFilterPolicy::Mode> policies{
-    BloomFilterPolicy::Mode::kFastLocalBloom,
-    BloomFilterPolicy::Mode::kStandard128Ribbon,
-    BloomFilterPolicy::Mode::kDeprecatedBlock};
-std::vector<bool> partition_filters_options{false, true};
-
 INSTANTIATE_TEST_CASE_P(
     BlockBasedTableOptions, DBFilterConstructionReserveMemoryTestWithParam,
-    ::testing::Combine(::testing::ValuesIn(reserve_builder_memory_options),
-                       ::testing::ValuesIn(policies),
-                       ::testing::ValuesIn(partition_filters_options)));
+    ::testing::Values(
+        std::make_tuple(false, BloomFilterPolicy::Mode::kFastLocalBloom, false),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kFastLocalBloom, false),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kFastLocalBloom, true),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kStandard128Ribbon,
+                        false),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kStandard128Ribbon,
+                        true),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kDeprecatedBlock, false),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kLegacyBloom, false)));
 
 TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
   Options options = CurrentOptions();
@@ -868,7 +872,9 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
   std::shared_ptr<FilterConstructResPeakTrackingCache> cache =
       GetFilterConstructResPeakTrackingCache();
   options.create_if_missing = true;
-
+  // Disable auto compaction to prevent its unexpected side effect
+  // to the number of keys per partition designed by us in the test
+  options.disable_auto_compactions = true;
   DestroyAndReopen(options);
   int num_key = static_cast<int>(GetNumKey());
   for (int i = 0; i < num_key; i++) {
@@ -896,10 +902,12 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
     return;
   }
 
-  if (policy == BloomFilterPolicy::Mode::kDeprecatedBlock) {
+  if (policy == BloomFilterPolicy::Mode::kDeprecatedBlock ||
+      policy == BloomFilterPolicy::Mode::kLegacyBloom) {
     EXPECT_EQ(filter_construction_cache_res_peaks.size(), 0)
         << "There shouldn't be filter construction cache reservation as this "
-           "feature does not support BloomFilterPolicy::Mode::kDeprecatedBlock";
+           "feature does not support BloomFilterPolicy::Mode::kDeprecatedBlock "
+           "nor BloomFilterPolicy::Mode::kLegacyBloom";
     return;
   }
 
@@ -914,7 +922,7 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
 
   const std::size_t predicted_hash_entries_cache_res_dummy_entry_num =
       predicted_hash_entries_cache_res / kDummyEntrySize;
-  const std::size_t predicted_final_filter_cacahe_res =
+  const std::size_t predicted_final_filter_cache_res =
       static_cast<std::size_t>(std::ceil(
           1.0 * predicted_hash_entries_cache_res_dummy_entry_num / 6 *
           (policy == BloomFilterPolicy::Mode::kStandard128Ribbon ? 0.7 : 1))) *
@@ -971,7 +979,7 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
              " should've triggered at least another dummy entry insertion";
 
       std::size_t predicted_filter_construction_cache_res_peak =
-          predicted_hash_entries_cache_res + predicted_final_filter_cacahe_res;
+          predicted_hash_entries_cache_res + predicted_final_filter_cache_res;
       EXPECT_GE(filter_construction_cache_res_peak,
                 predicted_filter_construction_cache_res_peak * 0.9);
       EXPECT_LE(filter_construction_cache_res_peak,
@@ -983,7 +991,7 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
              "in case: BloomFilterPolicy::Mode::kFastLocalBloom + "
              "PartitionedFilter";
       std::size_t predicted_filter_construction_cache_res_increments_sum =
-          predicted_hash_entries_cache_res + predicted_final_filter_cacahe_res;
+          predicted_hash_entries_cache_res + predicted_final_filter_cache_res;
       EXPECT_GE(filter_construction_cache_res_increments_sum,
                 predicted_filter_construction_cache_res_increments_sum * 0.9);
       EXPECT_LE(filter_construction_cache_res_increments_sum,
@@ -1027,7 +1035,7 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
      *  = hash entries + banding + final filter
      */
     if (!partition_filters) {
-      ASSERT_GE(std::floor(1.0 * predicted_final_filter_cacahe_res /
+      ASSERT_GE(std::floor(1.0 * predicted_final_filter_cache_res /
                            CacheReservationManager::GetDummyEntrySize()),
                 1)
           << "Final filter cache reservation too small for this test - please "
@@ -1050,12 +1058,13 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
       return;
     } else {
       EXPECT_GE(filter_construction_cache_res_peaks.size(), 3)
-          << "Filter construction cache reservation should have multiple peaks "
+          << "Filter construction cache reservation should have more than 3 "
+             "peaks "
              "in case: BloomFilterPolicy::Mode::kStandard128Ribbon + "
              "PartitionedFilter";
       std::size_t predicted_filter_construction_cache_res_increments_sum =
           predicted_hash_entries_cache_res + predicted_banding_cache_res +
-          predicted_final_filter_cacahe_res;
+          predicted_final_filter_cache_res;
       EXPECT_GE(filter_construction_cache_res_increments_sum,
                 predicted_filter_construction_cache_res_increments_sum * 0.9);
       EXPECT_LE(filter_construction_cache_res_increments_sum,

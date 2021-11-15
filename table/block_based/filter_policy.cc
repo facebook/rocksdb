@@ -67,11 +67,9 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     if (hash_entries_.empty() || hash != hash_entries_.back()) {
       hash_entries_.push_back(hash);
       if (cache_res_mgr_ &&
-          (hash_entries_.size() % (kUint64tHashEntryCacheResBucketSize / 2)) ==
-              0 &&
-          (hash_entries_.size() / (kUint64tHashEntryCacheResBucketSize / 2)) %
-                  2 ==
-              1) {
+          // Traditional rounding to whole bucket size
+          ((hash_entries_.size() % kUint64tHashEntryCacheResBucketSize) ==
+           kUint64tHashEntryCacheResBucketSize / 2)) {
         hash_entry_cache_res_bucket_handles_.emplace_back(nullptr);
         Status s =
             cache_res_mgr_
