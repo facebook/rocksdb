@@ -15,6 +15,7 @@
 #include <memory>
 #include <string>
 
+#include "cache/cache_entry_roles.h"
 #include "logging/logging.h"
 #include "options/options_helper.h"
 #include "port/port.h"
@@ -23,6 +24,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/table.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -488,6 +490,116 @@ Status BlockBasedTableFactory::PrepareOptions(const ConfigOptions& opts) {
   return TableFactory::PrepareOptions(opts);
 }
 
+namespace {
+// Different cache kinds use the same keys for physically different values, so
+// they must not share an underlying key space with each other.
+Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
+  int cache_count = (bbto.block_cache != nullptr) +
+                    (bbto.block_cache_compressed != nullptr) +
+                    (bbto.persistent_cache != nullptr);
+  if (cache_count <= 1) {
+    // Nothing to share / overlap
+    return Status::OK();
+  }
+
+  // Simple pointer equality
+  if (bbto.block_cache == bbto.block_cache_compressed) {
+    return Status::InvalidArgument(
+        "block_cache same as block_cache_compressed not currently supported, "
+        "and would be bad for performance anyway");
+  }
+
+  // More complex test of shared key space, in case the instances are wrappers
+  // for some shared underlying cache.
+  std::string sentinel_key(size_t{1}, '\0');
+  static char kRegularBlockCacheMarker = 'b';
+  static char kCompressedBlockCacheMarker = 'c';
+  static char kPersistentCacheMarker = 'p';
+  if (bbto.block_cache) {
+    bbto.block_cache
+        ->Insert(Slice(sentinel_key), &kRegularBlockCacheMarker, 1,
+                 GetNoopDeleterForRole<CacheEntryRole::kMisc>())
+        .PermitUncheckedError();
+  }
+  if (bbto.block_cache_compressed) {
+    bbto.block_cache_compressed
+        ->Insert(Slice(sentinel_key), &kCompressedBlockCacheMarker, 1,
+                 GetNoopDeleterForRole<CacheEntryRole::kMisc>())
+        .PermitUncheckedError();
+  }
+  if (bbto.persistent_cache) {
+    // Note: persistent cache copies the data, not keeping the pointer
+    bbto.persistent_cache
+        ->Insert(Slice(sentinel_key), &kPersistentCacheMarker, 1)
+        .PermitUncheckedError();
+  }
+  // If we get something different from what we inserted, that indicates
+  // dangerously overlapping key spaces.
+  if (bbto.block_cache) {
+    auto handle = bbto.block_cache->Lookup(Slice(sentinel_key));
+    if (handle) {
+      auto v = static_cast<char*>(bbto.block_cache->Value(handle));
+      char c = *v;
+      bbto.block_cache->Release(handle);
+      if (v == &kCompressedBlockCacheMarker) {
+        return Status::InvalidArgument(
+            "block_cache and block_cache_compressed share the same key space, "
+            "which is not supported");
+      } else if (c == kPersistentCacheMarker) {
+        return Status::InvalidArgument(
+            "block_cache and persistent_cache share the same key space, "
+            "which is not supported");
+      } else if (v != &kRegularBlockCacheMarker) {
+        return Status::Corruption("Unexpected mutation to block_cache");
+      }
+    }
+  }
+  if (bbto.block_cache_compressed) {
+    auto handle = bbto.block_cache_compressed->Lookup(Slice(sentinel_key));
+    if (handle) {
+      auto v = static_cast<char*>(bbto.block_cache_compressed->Value(handle));
+      char c = *v;
+      bbto.block_cache_compressed->Release(handle);
+      if (v == &kRegularBlockCacheMarker) {
+        return Status::InvalidArgument(
+            "block_cache_compressed and block_cache share the same key space, "
+            "which is not supported");
+      } else if (c == kPersistentCacheMarker) {
+        return Status::InvalidArgument(
+            "block_cache_compressed and persistent_cache share the same key "
+            "space, "
+            "which is not supported");
+      } else if (v != &kCompressedBlockCacheMarker) {
+        return Status::Corruption(
+            "Unexpected mutation to block_cache_compressed");
+      }
+    }
+  }
+  if (bbto.persistent_cache) {
+    std::unique_ptr<char[]> data;
+    size_t size = 0;
+    bbto.persistent_cache->Lookup(Slice(sentinel_key), &data, &size)
+        .PermitUncheckedError();
+    if (data && size > 0) {
+      if (data[0] == kRegularBlockCacheMarker) {
+        return Status::InvalidArgument(
+            "persistent_cache and block_cache share the same key space, "
+            "which is not supported");
+      } else if (data[0] == kCompressedBlockCacheMarker) {
+        return Status::InvalidArgument(
+            "persistent_cache and block_cache_compressed share the same key "
+            "space, "
+            "which is not supported");
+      } else if (data[0] != kPersistentCacheMarker) {
+        return Status::Corruption("Unexpected mutation to persistent_cache");
+      }
+    }
+  }
+  return Status::OK();
+}
+
+}  // namespace
+
 Status BlockBasedTableFactory::NewTableReader(
     const ReadOptions& ro, const TableReaderOptions& table_reader_options,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
@@ -565,6 +677,12 @@ Status BlockBasedTableFactory::ValidateOptions(
     return Status::InvalidArgument(
         "max_successive_merges larger than 0 is currently inconsistent with "
         "unordered_write");
+  }
+  {
+    Status s = CheckCacheOptionCompatibility(table_options_);
+    if (!s.ok()) {
+      return s;
+    }
   }
   std::string garbage;
   if (!SerializeEnum<ChecksumType>(checksum_type_string_map,
