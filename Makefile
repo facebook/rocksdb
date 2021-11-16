@@ -825,11 +825,8 @@ parallel_tests = $(patsubst %,parallel_%,$(PARALLEL_TEST))
 $(parallel_tests): $(PARALLEL_TEST)
 	$(AM_V_at)TEST_BINARY=$(patsubst parallel_%,%,$@); \
   TEST_NAMES=` \
-    ./$$TEST_BINARY --gtest_list_tests \
-    | perl -n \
-      -e 's/ *\#.*//;' \
-      -e '/^(\s*)(\S+)/; !$$1 and do {$$p=$$2; break};'	\
-      -e 'print qq! $$p$$2!'`; \
+    (./$$TEST_BINARY --gtest_list_tests || echo "  $${TEST_BINARY}__list_tests_failure") \
+    | awk '/^[^ ]/ { prefix = $$1 } /^[ ]/ { print prefix $$1 }'`; \
 	for TEST_NAME in $$TEST_NAMES; do \
 		TEST_SCRIPT=t/run-$$TEST_BINARY-$${TEST_NAME//\//-}; \
 		echo "  GEN     " $$TEST_SCRIPT; \
