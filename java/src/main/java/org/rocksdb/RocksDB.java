@@ -2545,6 +2545,125 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Fetches a list of values for the given list of keys, all from the default column family.
+   *
+   * @param keys list of keys for which values need to be retrieved.
+   * @param values list of buffers to return retrieved values in
+   * @throws RocksDBException if error happens in underlying native library.
+   * @throws IllegalArgumentException thrown if the number of passed keys and passed values
+   * do not match.
+   */
+  public void multiGetByteBuffers(final List<ByteBuffer> keys, final List<ByteBuffer> values)
+      throws RocksDBException {
+    final ReadOptions readOptions = new ReadOptions();
+    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
+    final ColumnFamilyHandle handle = getDefaultColumnFamily();
+    for (int i = 0; i < keys.size(); i++) {
+      columnFamilyHandleList.add(handle);
+    }
+    multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
+  }
+
+  /**
+   * Fetches a list of values for the given list of keys, all from the default column family.
+   *
+   * @param readOptions Read options
+   * @param keys list of keys for which values need to be retrieved.
+   * @param values list of buffers to return retrieved values in
+   * @throws RocksDBException if error happens in underlying native library.
+   * @throws IllegalArgumentException thrown if the number of passed keys and passed values
+   * do not match.
+   */
+  public void multiGetByteBuffers(final ReadOptions readOptions, final List<ByteBuffer> keys,
+      final List<ByteBuffer> values) throws RocksDBException {
+    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
+    final ColumnFamilyHandle handle = getDefaultColumnFamily();
+    for (int i = 0; i < keys.size(); i++) {
+      columnFamilyHandleList.add(handle);
+    }
+    multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
+  }
+
+  /**
+   * Fetches a list of values for the given list of keys.
+   * <p>
+   * Note: Every key needs to have a related column family name in
+   * {@code columnFamilyHandleList}.
+   * </p>
+   *
+   * @param columnFamilyHandleList {@link java.util.List} containing
+   * {@link org.rocksdb.ColumnFamilyHandle} instances.
+   * @param keys list of keys for which values need to be retrieved.
+   * @param values list of buffers to return retrieved values in
+   * @throws RocksDBException if error happens in underlying native library.
+   * @throws IllegalArgumentException thrown if the number of passed keys, passed values and
+   * passed column family handles do not match.
+   */
+  public void multiGetByteBuffers(final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
+      final List<ByteBuffer> values) throws RocksDBException {
+    final ReadOptions readOptions = new ReadOptions();
+    multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
+  }
+
+  /**
+   * Fetches a list of values for the given list of keys.
+   * <p>
+   * Note: Every key needs to have a related column family name in
+   * {@code columnFamilyHandleList}.
+   * </p>
+   *
+   * @param readOptions Read options
+   * @param columnFamilyHandleList {@link java.util.List} containing
+   * {@link org.rocksdb.ColumnFamilyHandle} instances.
+   * @param keys list of keys for which values need to be retrieved.
+   * @param values list of buffers to return retrieved values in
+   * @throws RocksDBException if error happens in underlying native library.
+   * @throws IllegalArgumentException thrown if the number of passed keys, passed values and
+   * passed column family handles do not match.
+   */
+  public void multiGetByteBuffers(final ReadOptions readOptions,
+      final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
+      final List<ByteBuffer> values) throws RocksDBException {
+    assert (keys.size() != 0);
+
+    // Check if key size equals cfList size. If not a exception must be
+    // thrown. If not a Segmentation fault happens.
+    if (keys.size() != columnFamilyHandleList.size()) {
+      throw new IllegalArgumentException("For each key there must be a ColumnFamilyHandle.");
+    }
+
+    // Check if key size equals cfList size. If not a exception must be
+    // thrown. If not a Segmentation fault happens.
+    if (values.size() != columnFamilyHandleList.size()) {
+      throw new IllegalArgumentException("For each value there must be a ColumnFamilyHandle.");
+    }
+
+    // TODO (AP) support indirect buffers
+    for (final ByteBuffer key : keys) {
+      if (!key.isDirect()) {
+        throw new IllegalArgumentException("All key buffers must be direct byte buffers");
+      }
+    }
+
+    // TODO (AP) support indirect buffers, though probably via a less efficient code path
+    for (final ByteBuffer value : values) {
+      if (!value.isDirect()) {
+        throw new IllegalArgumentException("All value buffers must be direct byte buffers");
+      }
+    }
+
+    final long[] cfHandles = new long[columnFamilyHandleList.size()];
+    for (int i = 0; i < columnFamilyHandleList.size(); i++) {
+      cfHandles[i] = columnFamilyHandleList.get(i).nativeHandle_;
+    }
+
+    final ByteBuffer[] keysArray = keys.toArray(new ByteBuffer[0]);
+    final ByteBuffer[] valuesArray = values.toArray(new ByteBuffer[0]);
+
+    multiGet(nativeHandle_, readOptions.nativeHandle_, cfHandles, keysArray, valuesArray);
+  }
+
+  /**
    * If the key definitely does not exist in the database, then this method
    * returns false, otherwise it returns true if the key might exist.
    * That is to say that this method is probabilistic and may return false
@@ -4841,6 +4960,11 @@ public class RocksDB extends RocksObject {
   private native byte[][] multiGet(final long dbHandle, final long rOptHandle,
       final byte[][] keys, final int[] keyOffsets, final int[] keyLengths,
       final long[] columnFamilyHandles);
+
+  private native void multiGet(final long dbHandle, final long rOptHandle,
+      final long[] columnFamilyHandles, final ByteBuffer[] keysArray,
+      final ByteBuffer[] valuesArray);
+
   private native boolean keyMayExist(
       final long handle, final long cfHandle, final long readOptHandle,
       final byte[] key, final int keyOffset, final int keyLength);
@@ -4887,9 +5011,9 @@ public class RocksDB extends RocksObject {
   private native long[] getApproximateSizes(final long nativeHandle,
       final long columnFamilyHandle, final long[] rangeSliceHandles,
       final byte includeFlags);
-  private final native long[] getApproximateMemTableStats(
-      final long nativeHandle, final long columnFamilyHandle,
-      final long rangeStartSliceHandle, final long rangeLimitSliceHandle);
+  private native long[] getApproximateMemTableStats(final long nativeHandle,
+      final long columnFamilyHandle, final long rangeStartSliceHandle,
+      final long rangeLimitSliceHandle);
   private native void compactRange(final long handle,
       /* @Nullable */ final byte[] begin, final int beginLen,
       /* @Nullable */ final byte[] end, final int endLen,
