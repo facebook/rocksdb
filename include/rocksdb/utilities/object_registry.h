@@ -40,21 +40,14 @@ using FactoryFunc =
 using RegistrarFunc = std::function<int(ObjectLibrary&, const std::string&)>;
 
 // The signature of the function for loading plugins
-// The Plugin struct is passed to the PluginFunc and expected to be validated
-// and filled in by the Plugin code.
-// The Plugin contains the struct of properties associated with this Plugin
+// Plugin contains the struct of properties associated with this Plugin.
+// Plugin is passed to the PluginFunc and the fields should be initalized
+// by the Plugin code.
 // On success, this function should return 0.  On failure, this function should
 // return non-zero and set the std::string* to an appropriate error message.
 using PluginFunc = std::function<int(Plugin*, std::string*)>;
 
 struct Plugin {
-  // The version of this structure.  If the structure is changed, the version
-  // should be incremented
-  static constexpr int kVersion() { return 1; }
-
-  // The version of the Plugin structure
-  int version = kVersion();
-
   // Function to use to register the factories for this plugin
   // This field must be specified by th plugin for the plugin to be valid.
   RegistrarFunc registrar;
