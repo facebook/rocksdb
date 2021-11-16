@@ -15,6 +15,7 @@
 * Added input sanitization on negative bytes passed into `GenericRateLimiter::Request`.
 * Fixed an assertion failure in CompactionIterator when write-prepared transaction is used. We prove that certain operations can lead to a Delete being followed by a SingleDelete (same user key). We can drop the SingleDelete.
 * Fixed a bug of timestamp-based GC which can cause all versions of a key under full_history_ts_low to be dropped. This bug will be triggered when some of the ikeys' timestamps are lower than full_history_ts_low, while others are newer.
+* Explicitly check for and disallow the `BlockBasedTableOptions` if insertion into one of {`block_cache`, `block_cache_compressed`, `persistent_cache`} can show up in another of these. (RocksDB expects to be able to use the same key for different physical data among tiers.)
 
 ### Behavior Changes
 * `NUM_FILES_IN_SINGLE_COMPACTION` was only counting the first input level files, now it's including all input files.

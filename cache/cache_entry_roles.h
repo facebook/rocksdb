@@ -7,6 +7,8 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
+#include <type_traits>
 #include <unordered_map>
 
 #include "rocksdb/cache.h"
@@ -90,7 +92,9 @@ struct RegisteredDeleter {
   // These have global linkage to help ensure compiler optimizations do not
   // break uniqueness for each <T,R>
   static void Delete(const Slice& /* key */, void* value) {
-    delete static_cast<T*>(value);
+    // Supports T == Something[], unlike delete operator
+    std::default_delete<T>()(
+        static_cast<typename std::remove_extent<T>::type*>(value));
   }
 };
 
@@ -98,9 +102,9 @@ template <CacheEntryRole R>
 struct RegisteredNoopDeleter {
   RegisteredNoopDeleter() { RegisterCacheDeleterRole(Delete, R); }
 
-  static void Delete(const Slice& /* key */, void* value) {
-    (void)value;
-    assert(value == nullptr);
+  static void Delete(const Slice& /* key */, void* /* value */) {
+    // Here was `assert(value == nullptr);` but we can also put pointers
+    // to static data in Cache, for testing at least.
   }
 };
 
