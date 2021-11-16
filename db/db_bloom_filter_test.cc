@@ -744,7 +744,8 @@ class FilterConstructResPeakTrackingCache : public CacheWrapper {
 
 const Cache::DeleterFn
     FilterConstructResPeakTrackingCache::kNoopDeleterForFilterConstruction =
-        GetNoopDeleterForRole<CacheEntryRole::kFilterConstruction>();
+        CacheReservationManager::TEST_GetNoopDeleterForRole<
+            CacheEntryRole::kFilterConstruction>();
 
 // To align with the type of hash entry being reserved in implementation.
 using FilterConstructionReserveMemoryHash = uint64_t;

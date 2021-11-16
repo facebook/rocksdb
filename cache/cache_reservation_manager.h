@@ -150,6 +150,12 @@ class CacheReservationManager
 
   static constexpr std::size_t GetDummyEntrySize() { return kSizeDummyEntry; }
 
+  // For testing only - it is to help ensure the NoopDeleterForRole<R>
+  // accessed from CacheReservationManager and the one accessed from the test
+  // are from the same translation units
+  template <CacheEntryRole R>
+  static Cache::DeleterFn TEST_GetNoopDeleterForRole();
+
  private:
   static constexpr std::size_t kSizeDummyEntry = 256 * 1024;
   // The key will be longer than keys for blocks in SST files so they won't

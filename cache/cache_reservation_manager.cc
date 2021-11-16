@@ -159,6 +159,14 @@ Slice CacheReservationManager::GetNextCacheKey() {
 }
 
 template <CacheEntryRole R>
+Cache::DeleterFn CacheReservationManager::TEST_GetNoopDeleterForRole() {
+  return GetNoopDeleterForRole<R>();
+}
+
+template Cache::DeleterFn CacheReservationManager::TEST_GetNoopDeleterForRole<
+    CacheEntryRole::kFilterConstruction>();
+
+template <CacheEntryRole R>
 CacheReservationHandle<R>::CacheReservationHandle(
     std::size_t incremental_memory_used,
     std::shared_ptr<CacheReservationManager> cache_res_mgr)
