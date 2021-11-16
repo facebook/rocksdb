@@ -1685,7 +1685,7 @@ inline void multi_get_helper_release_keys(std::vector<jbyte*>& keys_to_free) {
 }
 
 /**
- * @brief
+ * @brief fill a native array of cf handles from java handles
  *
  * @param env
  * @param cf_handles to fill from the java variants
@@ -1693,7 +1693,7 @@ inline void multi_get_helper_release_keys(std::vector<jbyte*>& keys_to_free) {
  * @return true if the copy succeeds
  * @return false if a JNI exception is generated
  */
-bool cf_handles_from_jcf_handles(
+inline bool cf_handles_from_jcf_handles(
     JNIEnv* env,
     std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>& cf_handles,
     jlongArray jcolumn_family_handles) {
@@ -1729,9 +1729,11 @@ bool cf_handles_from_jcf_handles(
  * @return true if the copy succeeds
  * @return false if a JNI exception is raised
  */
-bool keys_from_jkeys(JNIEnv* env, std::vector<ROCKSDB_NAMESPACE::Slice>& keys,
-                     std::vector<jbyte*>& keys_to_free, jobjectArray jkeys,
-                     jintArray jkey_offs, jintArray jkey_lens) {
+inline bool keys_from_jkeys(JNIEnv* env,
+                            std::vector<ROCKSDB_NAMESPACE::Slice>& keys,
+                            std::vector<jbyte*>& keys_to_free,
+                            jobjectArray jkeys, jintArray jkey_offs,
+                            jintArray jkey_lens) {
   jint* jkey_off = env->GetIntArrayElements(jkey_offs, nullptr);
   if (jkey_off == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -2005,6 +2007,20 @@ jobjectArray Java_org_rocksdb_RocksDB_multiGet__JJ_3_3B_3I_3I_3J(
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle), jkeys,
       jkey_offs, jkey_lens, jcolumn_family_handles);
 }
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    multiGet
+ * Signature: (JJ[J[Ljava/nio/ByteBuffer;[Ljava/nio/ByteBuffer;I)V
+ */
+void Java_org_rocksdb_RocksDB_multiGet__JJ_3J_3Ljava_nio_ByteBuffer_2_3Ljava_nio_ByteBuffer_2I(
+    JNIEnv* env, jobject jdb, jlong jdb_handle, jlong jropt_handle,
+    jlongArray jcolumn_family_handles, jobjectArray jkeys, jobjectArray jvalues,
+    jint num_values) {}
+// private native void
+// multiGet(final long dbHandle, final long rOptHandle,
+//        final long[] columnFamilyHandles, final ByteBuffer[] keysArray,
+//        final ByteBuffer[] valuesArray);
 
 //////////////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::DB::KeyMayExist

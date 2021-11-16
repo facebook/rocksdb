@@ -2652,15 +2652,16 @@ public class RocksDB extends RocksObject {
       }
     }
 
-    final long[] cfHandles = new long[columnFamilyHandleList.size()];
-    for (int i = 0; i < columnFamilyHandleList.size(); i++) {
+    final int numValues = columnFamilyHandleList.size();
+    final long[] cfHandles = new long[numValues];
+    for (int i = 0; i < numValues; i++) {
       cfHandles[i] = columnFamilyHandleList.get(i).nativeHandle_;
     }
 
     final ByteBuffer[] keysArray = keys.toArray(new ByteBuffer[0]);
     final ByteBuffer[] valuesArray = values.toArray(new ByteBuffer[0]);
 
-    multiGet(nativeHandle_, readOptions.nativeHandle_, cfHandles, keysArray, valuesArray);
+    multiGet(nativeHandle_, readOptions.nativeHandle_, cfHandles, keysArray, valuesArray, numValues);
   }
 
   /**
@@ -4963,7 +4964,7 @@ public class RocksDB extends RocksObject {
 
   private native void multiGet(final long dbHandle, final long rOptHandle,
       final long[] columnFamilyHandles, final ByteBuffer[] keysArray,
-      final ByteBuffer[] valuesArray);
+      final ByteBuffer[] valuesArray, final int numValues);
 
   private native boolean keyMayExist(
       final long handle, final long cfHandle, final long readOptHandle,
