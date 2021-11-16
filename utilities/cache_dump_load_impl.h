@@ -91,6 +91,11 @@ struct DumpUnit {
   }
 };
 
+struct DumpArg {
+  CacheDumpWriter* writer;
+  std::set<std::string> prefix_filter;
+};
+
 // The default implementation of the Cache Dumper
 class CacheDumperImpl : public CacheDumper {
  public:
@@ -98,23 +103,31 @@ class CacheDumperImpl : public CacheDumper {
                   const std::shared_ptr<Cache>& cache,
                   std::unique_ptr<CacheDumpWriter>&& writer)
       : options_(dump_options), cache_(cache), writer_(std::move(writer)) {}
+  CacheDumperImpl(const CacheDumpOptions& dump_options,
+                  const std::shared_ptr<Cache>& cache)
+      : options_(dump_options), cache_(cache), writer_(nullptr) {}
   ~CacheDumperImpl() { writer_.reset(); }
   Status SetDumpFilter(std::vector<DB*> db_list) override;
   IOStatus DumpCacheEntriesToWriter() override;
+  IOStatus DumpCacheEntriesToFilterPairedWriters(
+      const std::vector<CacheDumpArg>& arg_list) override;
 
  private:
-  IOStatus WriteRawBlock(uint64_t timestamp, CacheDumpUnitType type,
-                         const Slice& key, void* value, size_t len,
-                         uint32_t checksum);
+  IOStatus WriteRawBlock(CacheDumpWriter* writer, uint64_t timestamp,
+                         CacheDumpUnitType type, const Slice& key, void* value,
+                         size_t len, uint32_t checksum);
 
-  IOStatus WriteHeader();
+  IOStatus WriteHeader(CacheDumpWriter* writer);
 
-  IOStatus WriteCacheBlock(const CacheDumpUnitType type, const Slice& key,
+  IOStatus WriteCacheBlock(CacheDumpWriter* writer,
+                           const CacheDumpUnitType type, const Slice& key,
                            void* value, size_t len);
-  IOStatus WriteFooter();
-  bool ShouldFilterOut(const Slice& key);
+  IOStatus WriteFooter(CacheDumpWriter* writer);
+  bool ShouldFilterOut(const std::set<std::string>& filter, const Slice& key);
   std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
   DumpOneBlockCallBack();
+  Status FinalizeDumpFilter(const std::vector<DB*>& db_list,
+                            std::set<std::string>& prefix_filter);
 
   CacheDumpOptions options_;
   std::shared_ptr<Cache> cache_;
@@ -127,6 +140,7 @@ class CacheDumperImpl : public CacheDumper {
   // improvement can be applied like BloomFilter or others to speedup the
   // filtering.
   std::set<std::string> prefix_filter_;
+  std::vector<DumpArg> dump_arg_list_;
 };
 
 // The default implementation of CacheDumpedLoader
