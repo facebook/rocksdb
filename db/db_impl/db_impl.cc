@@ -4376,25 +4376,38 @@ SequenceNumber DBImpl::GetEarliestMemTableSequenceNumber(SuperVersion* sv,
   return earliest_seq;
 }
 
-Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
-                                       bool cache_only,
-                                       SequenceNumber lower_bound_seq,
-                                       SequenceNumber* seq,
-                                       bool* found_record_for_key,
-                                       bool* is_blob_index) {
+Status DBImpl::GetLatestSequenceForKey(
+    SuperVersion* sv, const Slice& key, bool cache_only,
+    SequenceNumber lower_bound_seq, SequenceNumber* seq, std::string* timestamp,
+    bool* found_record_for_key, bool* is_blob_index) {
   Status s;
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq = 0;
 
   ReadOptions read_options;
   SequenceNumber current_seq = versions_->LastSequence();
-  LookupKey lkey(key, current_seq);
+
+  ColumnFamilyData* cfd = sv->cfd;
+  assert(cfd);
+  const Comparator* const ucmp = cfd->user_comparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+  std::string ts_buf;
+  if (ts_sz > 0) {
+    assert(timestamp);
+    ts_buf.assign(ts_sz, '\xff');
+  } else {
+    assert(!timestamp);
+  }
+  Slice ts(ts_buf);
+
+  LookupKey lkey(key, current_seq, ts_sz == 0 ? nullptr : &ts);
 
   *seq = kMaxSequenceNumber;
   *found_record_for_key = false;
 
   // Check if there is a record for this key in the latest memtable
-  sv->mem->Get(lkey, nullptr, nullptr, &s, &merge_context,
+  sv->mem->Get(lkey, /*value=*/nullptr, timestamp, &s, &merge_context,
                &max_covering_tombstone_seq, seq, read_options,
                nullptr /*read_callback*/, is_blob_index);
 
@@ -4406,6 +4419,10 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
 
     return s;
   }
+  assert(!ts_sz ||
+         (*seq != kMaxSequenceNumber &&
+          *timestamp != std::string(ts_sz, '\xff')) ||
+         (*seq == kMaxSequenceNumber && timestamp->empty()));
 
   if (*seq != kMaxSequenceNumber) {
     // Found a sequence number, no need to check immutable memtables
@@ -4421,7 +4438,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->Get(lkey, nullptr, nullptr, &s, &merge_context,
+  sv->imm->Get(lkey, /*value=*/nullptr, timestamp, &s, &merge_context,
                &max_covering_tombstone_seq, seq, read_options,
                nullptr /*read_callback*/, is_blob_index);
 
@@ -4433,6 +4450,11 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
 
     return s;
   }
+
+  assert(!ts_sz ||
+         (*seq != kMaxSequenceNumber &&
+          *timestamp != std::string(ts_sz, '\xff')) ||
+         (*seq == kMaxSequenceNumber && timestamp->empty()));
 
   if (*seq != kMaxSequenceNumber) {
     // Found a sequence number, no need to check memtable history
@@ -4448,9 +4470,9 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->GetFromHistory(lkey, nullptr, nullptr, &s, &merge_context,
-                          &max_covering_tombstone_seq, seq, read_options,
-                          is_blob_index);
+  sv->imm->GetFromHistory(lkey, /*value=*/nullptr, timestamp, &s,
+                          &merge_context, &max_covering_tombstone_seq, seq,
+                          read_options, is_blob_index);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -4462,8 +4484,13 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
     return s;
   }
 
+  assert(!ts_sz ||
+         (*seq != kMaxSequenceNumber &&
+          *timestamp != std::string(ts_sz, '\xff')) ||
+         (*seq == kMaxSequenceNumber && timestamp->empty()));
   if (*seq != kMaxSequenceNumber) {
     // Found a sequence number, no need to check SST files
+    assert(0 == ts_sz || *timestamp != std::string(ts_sz, '\xff'));
     *found_record_for_key = true;
     return Status::OK();
   }
@@ -4476,10 +4503,10 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   // SST files if cache_only=true?
   if (!cache_only) {
     // Check tables
-    sv->current->Get(read_options, lkey, nullptr, nullptr, &s, &merge_context,
-                     &max_covering_tombstone_seq, nullptr /* value_found */,
-                     found_record_for_key, seq, nullptr /*read_callback*/,
-                     is_blob_index);
+    sv->current->Get(read_options, lkey, /*value=*/nullptr, timestamp, &s,
+                     &merge_context, &max_covering_tombstone_seq,
+                     nullptr /* value_found */, found_record_for_key, seq,
+                     nullptr /*read_callback*/, is_blob_index);
 
     if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
       // unexpected error reading SST files
