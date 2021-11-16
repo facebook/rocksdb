@@ -13,20 +13,25 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <random>
 #include <string>
 #include <utility>
 
 #include "db/db_impl/db_impl.h"
+#include "db/db_test_util.h"
 #include "env/env_chroot.h"
 #include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/rate_limiter.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/options_util.h"
@@ -36,6 +41,7 @@
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/rate_limiter.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "utilities/backupable/backupable_db_impl.h"
@@ -2803,6 +2809,119 @@ TEST_P(BackupEngineRateLimitingTestWithParam,
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, Options());
 }
+
+class BackupEngineRateLimitingTestWithParam2
+    : public BackupEngineTest,
+      public testing::WithParamInterface<
+          std::tuple<std::pair<uint64_t, uint64_t> /* limits */>> {
+ public:
+  BackupEngineRateLimitingTestWithParam2() {}
+};
+
+INSTANTIATE_TEST_CASE_P(
+    LowRefillBytesPerPeriod, BackupEngineRateLimitingTestWithParam2,
+    ::testing::Values(std::make_tuple(std::make_pair(1, 1))));
+// To verify we don't request over-sized bytes relative to
+// refill_bytes_per_period_ in each RateLimiter::Request() called in
+// BackupEngine through verifying we don't trigger assertion
+// failure on over-sized request in GenericRateLimiter in debug builds
+TEST_P(BackupEngineRateLimitingTestWithParam2,
+       RateLimitingWithLowRefillBytesPerPeriod) {
+  SpecialEnv special_env(Env::Default(), /*time_elapse_only_sleep*/ true);
+
+  backupable_options_->max_background_operations = 1;
+  const uint64_t backup_rate_limiter_limit = std::get<0>(GetParam()).first;
+  std::shared_ptr<RateLimiter> backup_rate_limiter(
+      std::make_shared<GenericRateLimiter>(
+          backup_rate_limiter_limit, 1000 * 1000 /* refill_period_us */,
+          10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */,
+          special_env.GetSystemClock(), false /* auto_tuned */));
+
+  backupable_options_->backup_rate_limiter = backup_rate_limiter;
+
+  const uint64_t restore_rate_limiter_limit = std::get<0>(GetParam()).second;
+  std::shared_ptr<RateLimiter> restore_rate_limiter(
+      std::make_shared<GenericRateLimiter>(
+          restore_rate_limiter_limit, 1000 * 1000 /* refill_period_us */,
+          10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */,
+          special_env.GetSystemClock(), false /* auto_tuned */));
+
+  backupable_options_->restore_rate_limiter = restore_rate_limiter;
+
+  // Rate limiter uses `CondVar::TimedWait()`, which does not have access to the
+  // `Env` to advance its time according to the fake wait duration. The
+  // workaround is to install a callback that advance the `Env`'s mock time.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "GenericRateLimiter::Request:PostTimedWait", [&](void* arg) {
+        int64_t time_waited_us = *static_cast<int64_t*>(arg);
+        special_env.SleepForMicroseconds(static_cast<int>(time_waited_us));
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  DestroyDB(dbname_, Options());
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kShareWithChecksum /* shared_option */);
+
+  FillDB(db_.get(), 0, 100);
+  int64_t total_bytes_through_before_backup =
+      backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+  EXPECT_OK(backup_engine_->CreateNewBackup(db_.get(),
+                                            false /* flush_before_backup */));
+  int64_t total_bytes_through_after_backup =
+      backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+  ASSERT_GT(total_bytes_through_after_backup,
+            total_bytes_through_before_backup);
+
+  std::vector<BackupInfo> backup_infos;
+  BackupInfo backup_info;
+  backup_engine_->GetBackupInfo(&backup_infos);
+  ASSERT_EQ(1, backup_infos.size());
+  const int backup_id = 1;
+  ASSERT_EQ(backup_id, backup_infos[0].backup_id);
+  ASSERT_OK(backup_engine_->GetBackupInfo(backup_id, &backup_info,
+                                          true /* include_file_details */));
+  int64_t total_bytes_through_before_verify_backup =
+      backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+  EXPECT_OK(
+      backup_engine_->VerifyBackup(backup_id, true /* verify_with_checksum */));
+  int64_t total_bytes_through_after_verify_backup =
+      backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+  ASSERT_GT(total_bytes_through_after_verify_backup,
+            total_bytes_through_before_verify_backup);
+
+  CloseDBAndBackupEngine();
+  AssertBackupConsistency(backup_id, 0, 100, 101);
+
+  int64_t total_bytes_through_before_initialize =
+      backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+  OpenDBAndBackupEngine(false /* destroy_old_data */);
+  // We charge read in BackupEngineImpl::BackupMeta::LoadFromFile,
+  // which is called in BackupEngineImpl::Initialize() during
+  // OpenBackupEngine(false)
+  int64_t total_bytes_through_after_initialize =
+      backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+  ASSERT_GT(total_bytes_through_after_initialize,
+            total_bytes_through_before_initialize);
+  CloseDBAndBackupEngine();
+
+  DestroyDB(dbname_, Options());
+  OpenBackupEngine(false /* destroy_old_data */);
+  int64_t total_bytes_through_before_restore =
+      backupable_options_->restore_rate_limiter->GetTotalBytesThrough();
+  EXPECT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
+  int64_t total_bytes_through_after_restore =
+      backupable_options_->restore_rate_limiter->GetTotalBytesThrough();
+  ASSERT_GT(total_bytes_through_after_restore,
+            total_bytes_through_before_restore);
+  CloseBackupEngine();
+
+  DestroyDB(dbname_, Options());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "GenericRateLimiter::Request:PostTimedWait");
+}
+
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(BackupEngineTest, ReadOnlyBackupEngine) {

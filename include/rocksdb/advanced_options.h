@@ -253,17 +253,32 @@ struct AdvancedColumnFamilyOptions {
   // ignored.
   int max_write_buffer_number_to_maintain = 0;
 
-  // The total maximum size(bytes) of write buffers to maintain in memory
-  // including copies of buffers that have already been flushed. This parameter
-  // only affects trimming of flushed buffers and does not affect flushing.
-  // This controls the maximum amount of write history that will be available
-  // in memory for conflict checking when Transactions are used. The actual
-  // size of write history (flushed Memtables) might be higher than this limit
-  // if further trimming will reduce write history total size below this
-  // limit. For example, if max_write_buffer_size_to_maintain is set to 64MB,
-  // and there are three flushed Memtables, with sizes of 32MB, 20MB, 20MB.
-  // Because trimming the next Memtable of size 20MB will reduce total memory
-  // usage to 52MB which is below the limit, RocksDB will stop trimming.
+  // The target number of write history bytes to hold in memory. Write history
+  // comprises the latest write buffers (memtables). To reach the target, write
+  // buffers that were most recently flushed to SST files may be retained in
+  // memory.
+  //
+  // This controls the target amount of write history that will be available
+  // in memory for conflict checking when Transactions are used.
+  //
+  // This target may be undershot when the CF first opens and has not recovered
+  // or received enough writes to reach the target. After reaching the target
+  // once, it is guaranteed to never undershoot again. That guarantee is
+  // implemented by retaining flushed write buffers in-memory until the oldest
+  // one can be trimmed without dropping below the target.
+  //
+  // Examples with `max_write_buffer_size_to_maintain` set to 32MB:
+  //
+  // - One mutable memtable of 64MB, one unflushed immutable memtable of 64MB,
+  //   and zero flushed immutable memtables. Nothing trimmable exists.
+  // - One mutable memtable of 16MB, zero unflushed immutable memtables, and
+  //   one flushed immutable memtable of 64MB. Trimming is disallowed because
+  //   dropping the earliest (only) flushed immutable memtable would result in
+  //   write history of 16MB < 32MB.
+  // - One mutable memtable of 24MB, one unflushed immutable memtable of 16MB,
+  //   and one flushed immutable memtable of 16MB. The earliest (only) flushed
+  //   immutable memtable is trimmed because without it we still have
+  //   16MB + 24MB = 40MB > 32MB of write history.
   //
   // When using an OptimisticTransactionDB:
   // If this value is too low, some transactions may fail at commit time due

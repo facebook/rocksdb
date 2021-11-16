@@ -134,8 +134,6 @@ class GenericRateLimiter : public RateLimiter {
   // This mutex guard all internal states
   mutable port::Mutex request_mutex_;
 
-  const int64_t kMinRefillBytesPerPeriod = 100;
-
   GenericRateLimiterOptions options_;
 
   int64_t rate_bytes_per_sec_;
