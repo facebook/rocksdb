@@ -7000,8 +7000,6 @@ TEST_F(DBCompactionTest, ChangeLevelConflictsWithManual) {
   refit_level_thread.join();
 }
 
-#endif  // !defined(ROCKSDB_LITE)
-
 TEST_F(DBCompactionTest, BottomPriCompactionCountsTowardConcurrencyLimit) {
   // Flushes several files to trigger compaction while lock is released during
   // a bottom-pri compaction. Verifies it does not get scheduled to thread pool
@@ -7060,6 +7058,8 @@ TEST_F(DBCompactionTest, BottomPriCompactionCountsTowardConcurrencyLimit) {
   sleeping_task_low.WaitUntilDone();
   compact_range_thread.join();
 }
+
+#endif  // !defined(ROCKSDB_LITE)
 
 }  // namespace ROCKSDB_NAMESPACE
 
