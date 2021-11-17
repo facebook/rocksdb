@@ -1843,7 +1843,6 @@ Status DBImpl::RunManualCompaction(
       }
       ca = new CompactionArg;
       ca->db = this;
-      ca->compaction_pri_ = Env::Priority::LOW;
       ca->prepicked_compaction = new PrepickedCompaction;
       ca->prepicked_compaction->manual_compaction_state = &manual;
       ca->prepicked_compaction->compaction = compaction;
@@ -1853,14 +1852,19 @@ Status DBImpl::RunManualCompaction(
         assert(false);
       }
       manual.incomplete = false;
-      bg_compaction_scheduled_++;
-      Env::Priority thread_pool_pri = Env::Priority::LOW;
       if (compaction->bottommost_level() &&
           env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
-        thread_pool_pri = Env::Priority::BOTTOM;
+        bg_bottom_compaction_scheduled_++;
+        ca->compaction_pri_ = Env::Priority::BOTTOM;
+        env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca,
+                       Env::Priority::BOTTOM, this,
+                       &DBImpl::UnscheduleCompactionCallback);
+      } else {
+        bg_compaction_scheduled_++;
+        ca->compaction_pri_ = Env::Priority::LOW;
+        env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
+                       &DBImpl::UnscheduleCompactionCallback);
       }
-      env_->Schedule(&DBImpl::BGWorkCompaction, ca, thread_pool_pri, this,
-                     &DBImpl::UnscheduleCompactionCallback);
       scheduled = true;
     }
   }
@@ -2564,8 +2568,7 @@ void DBImpl::BGWorkBottomCompaction(void* arg) {
   IOSTATS_SET_THREAD_POOL_ID(Env::Priority::BOTTOM);
   TEST_SYNC_POINT("DBImpl::BGWorkBottomCompaction");
   auto* prepicked_compaction = ca.prepicked_compaction;
-  assert(prepicked_compaction && prepicked_compaction->compaction &&
-         !prepicked_compaction->manual_compaction_state);
+  assert(prepicked_compaction && prepicked_compaction->compaction);
   ca.db->BackgroundCallCompaction(prepicked_compaction, Env::Priority::BOTTOM);
   delete prepicked_compaction;
 }
