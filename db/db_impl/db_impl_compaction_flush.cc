@@ -2379,7 +2379,8 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     return;
   }
 
-  while (bg_compaction_scheduled_ < bg_job_limits.max_compactions &&
+  while (bg_compaction_scheduled_ + bg_bottom_compaction_scheduled_ <
+             bg_job_limits.max_compactions &&
          unscheduled_compactions_ > 0) {
     CompactionArg* ca = new CompactionArg;
     ca->db = this;
