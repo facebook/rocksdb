@@ -228,7 +228,7 @@ class BlockBasedTable : public TableReader {
                                           bool redundant,
                                           Statistics* const statistics);
 
-  // Make block size calculation for IO less error prone. size_t because we
+  // Get the size to read from storage from a BlockHandle. size_t because we
   // are about to load into memory.
   static inline size_t BlockSizeWithTrailer(const BlockHandle& handle) {
     return static_cast<size_t>(handle.size() + kBlockTrailerSize);

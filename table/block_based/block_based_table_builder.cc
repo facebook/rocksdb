@@ -1723,6 +1723,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
           &props_block_size);
     }
 #endif  // !NDEBUG
+    // TODO: sync point
     meta_index_builder->Add(kPropertiesBlock, properties_block_handle);
   }
 }

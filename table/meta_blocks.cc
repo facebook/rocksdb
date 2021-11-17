@@ -376,19 +376,19 @@ Status ReadTablePropertiesHelper(
   // Modified version of BlockFetcher checksum verification
   // (See write_global_seqno comment above)
   if (s.ok() && footer.GetBlockTrailerSize() > 0) {
-    s = VerifyBlockChecksum(footer.checksum(), block_contents.data.data(),
-                            block_contents.data.size(), file->file_name(),
+    s = VerifyBlockChecksum(footer.checksum(), properties_block.data(),
+                            properties_block.size(), file->file_name(),
                             handle.offset());
     if (s.IsCorruption()) {
       const auto seqno_pos_iter = new_table_properties->properties_offsets.find(
           ExternalSstFilePropertyNames::kGlobalSeqno);
       if (seqno_pos_iter != new_table_properties->properties_offsets.end()) {
-        std::string tmp_buf(block_contents.data.data(),
+        std::string tmp_buf(properties_block.data(),
                             block_fetcher.GetBlockSizeWithTrailer());
         uint64_t global_seqno_offset = seqno_pos_iter->second - handle.offset();
         EncodeFixed64(&tmp_buf[static_cast<size_t>(global_seqno_offset)], 0);
         s = VerifyBlockChecksum(footer.checksum(), tmp_buf.data(),
-                                block_contents.data.size(), file->file_name(),
+                                properties_block.size(), file->file_name(),
                                 handle.offset());
       }
     }
