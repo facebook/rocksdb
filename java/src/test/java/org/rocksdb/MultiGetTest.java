@@ -57,7 +57,10 @@ public class MultiGetTest {
       for (int i = 0; i < keys.size(); i++) {
         values.add(ByteBuffer.allocateDirect(24));
       }
-      db.multiGetByteBuffers(keys, values);
+      final int[] fetchedValueCounts = db.multiGetByteBuffers(keys, values);
+      assertThat(fetchedValueCounts[0]).isEqualTo("value1ForKey2".getBytes().length);
+      assertThat(fetchedValueCounts[1]).isEqualTo("value1ForKey1".getBytes().length);
+      assertThat(fetchedValueCounts[2]).isEqualTo("value1ForKey3".getBytes().length);
       assertThat(bufferBytes(values.get(0))).isEqualTo("value1ForKey2".getBytes());
       assertThat(bufferBytes(values.get(1))).isEqualTo("value1ForKey1".getBytes());
       assertThat(bufferBytes(values.get(2))).isEqualTo("value1ForKey3".getBytes());
