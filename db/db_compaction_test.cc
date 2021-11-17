@@ -7017,7 +7017,7 @@ TEST_F(DBCompactionTest, BottomPriCompactionCountsTowardConcurrencyLimit) {
   DestroyAndReopen(options);
 
   // Setup last level to be non-empty since it's a bit unclear whether
-  // compaction to an empty level is "bottommost".
+  // compaction to an empty level would be considered "bottommost".
   ASSERT_OK(Put(Key(0), "val"));
   ASSERT_OK(Flush());
   MoveFilesToLevel(kNumLevels - 1);
@@ -7034,11 +7034,12 @@ TEST_F(DBCompactionTest, BottomPriCompactionCountsTowardConcurrencyLimit) {
   ROCKSDB_NAMESPACE::port::Thread compact_range_thread([&] {
     CompactRangeOptions cro;
     cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    cro.exclusive_manual_compaction = false;
     ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
   });
 
   // Sleep in the low-pri thread so any newly scheduled compaction will be
-  // queued.
+  // queued. Otherwise it might finish before we check its existence.
   test::SleepingBackgroundTask sleeping_task_low;
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
