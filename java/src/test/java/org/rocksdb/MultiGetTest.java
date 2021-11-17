@@ -58,24 +58,112 @@ public class MultiGetTest {
       for (int i = 0; i < keys.size(); i++) {
         values.add(ByteBuffer.allocateDirect(24));
       }
-      final List<RocksDB.MultiGetInstance> results = db.multiGetByteBuffers(keys, values);
 
-      assertThat(results.get(0).status.getCode()).isEqualTo(Status.Code.Ok);
-      assertThat(results.get(1).status.getCode()).isEqualTo(Status.Code.Ok);
-      assertThat(results.get(2).status.getCode()).isEqualTo(Status.Code.Ok);
+      {
+        final List<RocksDB.MultiGetInstance> results = db.multiGetByteBuffers(keys, values);
 
-      assertThat(results.get(0).valueSize).isEqualTo("value1ForKey1".getBytes().length);
-      assertThat(results.get(1).valueSize).isEqualTo("value2ForKey2".getBytes().length);
-      assertThat(results.get(2).valueSize).isEqualTo("value3ForKey3".getBytes().length);
+        assertThat(results.get(0).status.getCode()).isEqualTo(Status.Code.Ok);
+        assertThat(results.get(1).status.getCode()).isEqualTo(Status.Code.Ok);
+        assertThat(results.get(2).status.getCode()).isEqualTo(Status.Code.Ok);
 
-      assertThat(bufferBytes(results.get(0).value)).isEqualTo("value1ForKey1".getBytes());
-      assertThat(bufferBytes(results.get(1).value)).isEqualTo("value2ForKey2".getBytes());
-      assertThat(bufferBytes(results.get(2).value)).isEqualTo("value3ForKey3".getBytes());
+        assertThat(results.get(0).valueSize).isEqualTo("value1ForKey1".getBytes().length);
+        assertThat(results.get(1).valueSize).isEqualTo("value2ForKey2".getBytes().length);
+        assertThat(results.get(2).valueSize).isEqualTo("value3ForKey3".getBytes().length);
+
+        assertThat(bufferBytes(results.get(0).value)).isEqualTo("value1ForKey1".getBytes());
+        assertThat(bufferBytes(results.get(1).value)).isEqualTo("value2ForKey2".getBytes());
+        assertThat(bufferBytes(results.get(2).value)).isEqualTo("value3ForKey3".getBytes());
+      }
+
+      {
+        final List<RocksDB.MultiGetInstance> results = db.multiGetByteBuffers(new ReadOptions(), keys, values);
+
+        assertThat(results.get(0).status.getCode()).isEqualTo(Status.Code.Ok);
+        assertThat(results.get(1).status.getCode()).isEqualTo(Status.Code.Ok);
+        assertThat(results.get(2).status.getCode()).isEqualTo(Status.Code.Ok);
+
+        assertThat(results.get(0).valueSize).isEqualTo("value1ForKey1".getBytes().length);
+        assertThat(results.get(1).valueSize).isEqualTo("value2ForKey2".getBytes().length);
+        assertThat(results.get(2).valueSize).isEqualTo("value3ForKey3".getBytes().length);
+
+        assertThat(bufferBytes(results.get(0).value)).isEqualTo("value1ForKey1".getBytes());
+        assertThat(bufferBytes(results.get(1).value)).isEqualTo("value2ForKey2".getBytes());
+        assertThat(bufferBytes(results.get(2).value)).isEqualTo("value3ForKey3".getBytes());
+      }
     }
   }
 
   @Test
-  public void putNThenMultiGetDirectCF() throws RocksDBException {
+  public void putNThenMultiGetDirectNondefaultCF() throws RocksDBException {
+    try (final Options opt = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+
+      final List<ColumnFamilyDescriptor> cfDescriptors = List.of(
+          new ColumnFamilyDescriptor("cf0".getBytes()),
+          new ColumnFamilyDescriptor("cf1".getBytes()),
+          new ColumnFamilyDescriptor("cf2".getBytes()));
+
+      final List<ColumnFamilyHandle> cf = db.createColumnFamilies(cfDescriptors);
+
+      db.put(cf.get(0), "key1".getBytes(), "value1ForKey1".getBytes());
+      db.put(cf.get(0), "key2".getBytes(), "value2ForKey2".getBytes());
+      db.put(cf.get(0), "key3".getBytes(), "value3ForKey3".getBytes());
+
+      final List<ByteBuffer> keys = new ArrayList<>();
+      keys.add(ByteBuffer.allocateDirect(12).put("key1".getBytes()).flip());
+      keys.add(ByteBuffer.allocateDirect(12).put("key2".getBytes()).flip());
+      keys.add(ByteBuffer.allocateDirect(12).put("key3".getBytes()).flip());
+      final List<ByteBuffer> values = new ArrayList<>();
+      for (int i = 0; i < keys.size(); i++) {
+        values.add(ByteBuffer.allocateDirect(24));
+      }
+
+      {
+        final List<RocksDB.MultiGetInstance> results = db.multiGetByteBuffers(keys, values);
+
+        assertThat(results.get(0).status.getCode()).isEqualTo(Status.Code.NotFound);
+        assertThat(results.get(1).status.getCode()).isEqualTo(Status.Code.NotFound);
+        assertThat(results.get(2).status.getCode()).isEqualTo(Status.Code.NotFound);
+      }
+
+      {
+        final List<ColumnFamilyHandle> columnFamilyHandles = List.of(cf.get(0));
+        final List<RocksDB.MultiGetInstance> results = db.multiGetByteBuffers(columnFamilyHandles, keys, values);
+
+        assertThat(results.get(0).status.getCode()).isEqualTo(Status.Code.Ok);
+        assertThat(results.get(1).status.getCode()).isEqualTo(Status.Code.Ok);
+        assertThat(results.get(2).status.getCode()).isEqualTo(Status.Code.Ok);
+
+        assertThat(results.get(0).valueSize).isEqualTo("value1ForKey1".getBytes().length);
+        assertThat(results.get(1).valueSize).isEqualTo("value2ForKey2".getBytes().length);
+        assertThat(results.get(2).valueSize).isEqualTo("value3ForKey3".getBytes().length);
+
+        assertThat(bufferBytes(results.get(0).value)).isEqualTo("value1ForKey1".getBytes());
+        assertThat(bufferBytes(results.get(1).value)).isEqualTo("value2ForKey2".getBytes());
+        assertThat(bufferBytes(results.get(2).value)).isEqualTo("value3ForKey3".getBytes());
+      }
+
+      {
+        final List<ColumnFamilyHandle> columnFamilyHandles = List.of(cf.get(0), cf.get(0), cf.get(0));
+        final List<RocksDB.MultiGetInstance> results = db.multiGetByteBuffers(columnFamilyHandles, keys, values);
+
+        assertThat(results.get(0).status.getCode()).isEqualTo(Status.Code.Ok);
+        assertThat(results.get(1).status.getCode()).isEqualTo(Status.Code.Ok);
+        assertThat(results.get(2).status.getCode()).isEqualTo(Status.Code.Ok);
+
+        assertThat(results.get(0).valueSize).isEqualTo("value1ForKey1".getBytes().length);
+        assertThat(results.get(1).valueSize).isEqualTo("value2ForKey2".getBytes().length);
+        assertThat(results.get(2).valueSize).isEqualTo("value3ForKey3".getBytes().length);
+
+        assertThat(bufferBytes(results.get(0).value)).isEqualTo("value1ForKey1".getBytes());
+        assertThat(bufferBytes(results.get(1).value)).isEqualTo("value2ForKey2".getBytes());
+        assertThat(bufferBytes(results.get(2).value)).isEqualTo("value3ForKey3".getBytes());
+      }
+    }
+  }
+
+  @Test
+  public void putNThenMultiGetDirectCFParams() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
 
@@ -121,7 +209,7 @@ public class MultiGetTest {
   }
 
   @Test
-  public void putNThenMultiGetNondefaultCF() throws RocksDBException {
+  public void putNThenMultiGetDirectMixedCF() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
 
@@ -215,4 +303,47 @@ public class MultiGetTest {
       }
     }
   }
+
+  @Test
+  public void putNThenMultiGetDirectTruncateCF() throws RocksDBException {
+    try (final Options opt = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+
+      final List<ColumnFamilyDescriptor> cfDescriptors = List.of(
+          new ColumnFamilyDescriptor("cf0".getBytes()));
+
+      final List<ColumnFamilyHandle> cf = db.createColumnFamilies(cfDescriptors);
+
+      db.put(cf.get(0), "key1".getBytes(), "value1ForKey1".getBytes());
+      db.put(cf.get(0), "key2".getBytes(), "value2ForKey2WithLotsOfTrailingGarbage".getBytes());
+      db.put(cf.get(0), "key3".getBytes(), "value3ForKey3".getBytes());
+
+      final List<ByteBuffer> keys = new ArrayList<>();
+      keys.add(ByteBuffer.allocateDirect(12).put("key1".getBytes()).flip());
+      keys.add(ByteBuffer.allocateDirect(12).put("key2".getBytes()).flip());
+      keys.add(ByteBuffer.allocateDirect(12).put("key3".getBytes()).flip());
+      final List<ByteBuffer> values = new ArrayList<>();
+      for (int i = 0; i < keys.size(); i++) {
+        values.add(ByteBuffer.allocateDirect(24));
+      }
+
+      {
+        final List<ColumnFamilyHandle> columnFamilyHandles = List.of(cf.get(0));
+        final List<RocksDB.MultiGetInstance> results = db.multiGetByteBuffers(columnFamilyHandles, keys, values);
+
+        assertThat(results.get(0).status.getCode()).isEqualTo(Status.Code.Ok);
+        assertThat(results.get(1).status.getCode()).isEqualTo(Status.Code.Ok);
+        assertThat(results.get(2).status.getCode()).isEqualTo(Status.Code.Ok);
+
+        assertThat(results.get(0).valueSize).isEqualTo("value1ForKey1".getBytes().length);
+        assertThat(results.get(1).valueSize).isEqualTo("value2ForKey2WithLotsOfTrailingGarbage".getBytes().length);
+        assertThat(results.get(2).valueSize).isEqualTo("value3ForKey3".getBytes().length);
+
+        assertThat(bufferBytes(results.get(0).value)).isEqualTo("value1ForKey1".getBytes());
+        assertThat(bufferBytes(results.get(1).value)).isEqualTo("valu e2Fo rKey 2Wit hLot sOfT".replace(" ","").getBytes());
+        assertThat(bufferBytes(results.get(2).value)).isEqualTo("value3ForKey3".getBytes());
+      }
+    }
+  }
+
 }

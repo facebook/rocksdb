@@ -2575,11 +2575,7 @@ public class RocksDB extends RocksObject {
    */
   public List<MultiGetInstance> multiGetByteBuffers(final ReadOptions readOptions, final List<ByteBuffer> keys,
       final List<ByteBuffer> values) throws RocksDBException {
-    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
-    final ColumnFamilyHandle handle = getDefaultColumnFamily();
-    for (int i = 0; i < keys.size(); i++) {
-      columnFamilyHandleList.add(handle);
-    }
+    final List<ColumnFamilyHandle> columnFamilyHandleList = List.of(getDefaultColumnFamily());
     return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
   }
 
