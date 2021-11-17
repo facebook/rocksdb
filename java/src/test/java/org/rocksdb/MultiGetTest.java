@@ -95,6 +95,53 @@ public class MultiGetTest {
   }
 
   @Test
+  public void putNThenMultiGetDirectBadValuesArray() throws RocksDBException {
+    try (final Options opt = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+      db.put("key1".getBytes(), "value1ForKey1".getBytes());
+      db.put("key2".getBytes(), "value2ForKey2".getBytes());
+      db.put("key3".getBytes(), "value3ForKey3".getBytes());
+
+      final List<ByteBuffer> keys = new ArrayList<>();
+      keys.add(ByteBuffer.allocateDirect(12).put("key1".getBytes()).flip());
+      keys.add(ByteBuffer.allocateDirect(12).put("key2".getBytes()).flip());
+      keys.add(ByteBuffer.allocateDirect(12).put("key3".getBytes()).flip());
+
+      {
+        final List<ByteBuffer> values = new ArrayList<>();
+        for (int i = 0; i < keys.size(); i++) {
+          values.add(ByteBuffer.allocateDirect(24));
+        }
+
+        values.remove(0);
+
+        try {
+          db.multiGetByteBuffers(keys, values);
+          fail("Expected exception when not enough value ByteBuffers supplied");
+        } catch (final IllegalArgumentException e) {
+          assertThat(e.getMessage()).contains("For each key there must be a corresponding value");
+        }
+      }
+
+      {
+        final List<ByteBuffer> values = new ArrayList<>();
+        for (int i = 0; i < keys.size(); i++) {
+          values.add(ByteBuffer.allocateDirect(24));
+        }
+
+        values.add(ByteBuffer.allocateDirect(24));
+
+        try {
+          db.multiGetByteBuffers(keys, values);
+          fail("Expected exception when too many value ByteBuffers supplied");
+        } catch (final IllegalArgumentException e) {
+          assertThat(e.getMessage()).contains("For each key there must be a corresponding value");
+        }
+      }
+    }
+  }
+
+  @Test
   public void putNThenMultiGetDirectNondefaultCF() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
