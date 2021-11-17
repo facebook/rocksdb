@@ -31,8 +31,8 @@ public class RocksDB extends RocksObject {
     LOADED
   }
 
-  private static final AtomicReference<LibraryState> libraryLoaded
-      = new AtomicReference<>(LibraryState.NOT_LOADED);
+  private static final AtomicReference<LibraryState> libraryLoaded =
+      new AtomicReference<>(LibraryState.NOT_LOADED);
 
   static {
     RocksDB.loadLibrary();
@@ -2556,8 +2556,8 @@ public class RocksDB extends RocksObject {
    * @throws IllegalArgumentException thrown if the number of passed keys and passed values
    * do not match.
    */
-  public List<MultiGetInstance> multiGetByteBuffers(final List<ByteBuffer> keys, final List<ByteBuffer> values)
-      throws RocksDBException {
+  public List<MultiGetInstance> multiGetByteBuffers(
+      final List<ByteBuffer> keys, final List<ByteBuffer> values) throws RocksDBException {
     final ReadOptions readOptions = new ReadOptions();
     final List<ColumnFamilyHandle> columnFamilyHandleList = List.of(getDefaultColumnFamily());
     return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
@@ -2573,8 +2573,8 @@ public class RocksDB extends RocksObject {
    * @throws IllegalArgumentException thrown if the number of passed keys and passed values
    * do not match.
    */
-  public List<MultiGetInstance> multiGetByteBuffers(final ReadOptions readOptions, final List<ByteBuffer> keys,
-      final List<ByteBuffer> values) throws RocksDBException {
+  public List<MultiGetInstance> multiGetByteBuffers(final ReadOptions readOptions,
+      final List<ByteBuffer> keys, final List<ByteBuffer> values) throws RocksDBException {
     final List<ColumnFamilyHandle> columnFamilyHandleList = List.of(getDefaultColumnFamily());
     return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
   }
@@ -2594,7 +2594,8 @@ public class RocksDB extends RocksObject {
    * @throws IllegalArgumentException thrown if the number of passed keys, passed values and
    * passed column family handles do not match.
    */
-  public List<MultiGetInstance> multiGetByteBuffers(final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
+  public List<MultiGetInstance> multiGetByteBuffers(
+      final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
       final List<ByteBuffer> values) throws RocksDBException {
     final ReadOptions readOptions = new ReadOptions();
     return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
@@ -5007,7 +5008,7 @@ public class RocksDB extends RocksObject {
   private native void multiGet(final long dbHandle, final long rOptHandle,
       final long[] columnFamilyHandles, final ByteBuffer[] keysArray, final int[] keyOffsets,
       final int[] keyLengths, final ByteBuffer[] valuesArray, final int[] valuesSizeArray,
-                               final Status[] statusArray);
+      final Status[] statusArray);
 
   private native boolean keyMayExist(
       final long handle, final long cfHandle, final long readOptHandle,
