@@ -7023,12 +7023,12 @@ TEST_F(DBCompactionTest, BottomPriCompactionCountsTowardConcurrencyLimit) {
   MoveFilesToLevel(kNumLevels - 1);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
-        "PreTriggerCompaction",
-        "DBImpl::BGWorkBottomCompaction"},
-       {"BackgroundCallCompaction:0",
+      {{"DBImpl::BGWorkBottomCompaction",
         "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
-        "PostTriggerCompaction"}});
+        "PreTriggerCompaction"},
+       {"DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
+        "PostTriggerCompaction",
+        "BackgroundCallCompaction:0"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
   ROCKSDB_NAMESPACE::port::Thread compact_range_thread([&] {
@@ -7055,9 +7055,9 @@ TEST_F(DBCompactionTest, BottomPriCompactionCountsTowardConcurrencyLimit) {
       "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
       "PostTriggerCompaction");
 
-  compact_range_thread.join();
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
+  compact_range_thread.join();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
