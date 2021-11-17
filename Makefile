@@ -977,15 +977,27 @@ check_some: $(ROCKSDBTESTS_SUBSET)
 ldb_tests: ldb
 	$(PYTHON) tools/ldb_test.py
 
-crash_test: whitebox_crash_test blackbox_crash_test
+crash_test:
+# Do not parallelize
+	$(MAKE) whitebox_crash_test
+	$(MAKE) blackbox_crash_test
 
-crash_test_with_atomic_flush: whitebox_crash_test_with_atomic_flush blackbox_crash_test_with_atomic_flush
+crash_test_with_atomic_flush:
+# Do not parallelize
+	$(MAKE) whitebox_crash_test_with_atomic_flush
+	$(MAKE) blackbox_crash_test_with_atomic_flush
 
-crash_test_with_txn: whitebox_crash_test_with_txn blackbox_crash_test_with_txn
+crash_test_with_txn:
+# Do not parallelize
+	$(MAKE) whitebox_crash_test_with_txn
+	$(MAKE) blackbox_crash_test_with_txn
 
 crash_test_with_best_efforts_recovery: blackbox_crash_test_with_best_efforts_recovery
 
-crash_test_with_ts: whitebox_crash_test_with_ts blackbox_crash_test_with_ts
+crash_test_with_ts:
+# Do not parallelize
+	$(MAKE) whitebox_crash_test_with_ts
+	$(MAKE) blackbox_crash_test_with_ts
 
 blackbox_crash_test: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
