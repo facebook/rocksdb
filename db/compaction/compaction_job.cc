@@ -1364,6 +1364,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   // Although the v2 aggregator is what the level iterator(s) know about,
   // the AddTombstones calls will be propagated down to the v1 aggregator.
+  // 这里主要是构造了一个internal iterator 我们不清楚这个结构的作用
+  // 也不知道这些输入都是什么 也不知道这些输入被拿来做什么
+  // 据资料所说 这是一个能够访问到所有key的迭代器
+  // 这里我们可以暂时忽略前面的所有逻辑 关注这个变量的产生
   std::unique_ptr<InternalIterator> raw_input(
       versions_->MakeInputIterator(read_options, sub_compact->compaction,
                                    &range_del_agg, file_options_for_read_));
@@ -1492,6 +1496,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
           : sub_compact->compaction->CreateSstPartitioner();
   std::string last_key_for_partitioner;
 
+  // 这个while循环当中的逻辑 就是要写入kv到output的逻辑
+  // 下面我们来看看这个里面都干了些什么
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
@@ -1556,6 +1562,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       last_key_for_partitioner.assign(c_iter->user_key().data_,
                                       c_iter->user_key().size_);
     }
+    // 除了调整底层堆的结构 还兼顾处理不同type的key数据
     c_iter->Next();
     if (c_iter->status().IsManualCompactionPaused()) {
       break;

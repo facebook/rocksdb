@@ -5822,6 +5822,7 @@ InternalIterator* VersionSet::MakeInputIterator(
     const ReadOptions& read_options, const Compaction* c,
     RangeDelAggregator* range_del_agg,
     const FileOptions& file_options_compactions) {
+  // 先获取当前sub_compact所属的cfd
   auto cfd = c->column_family_data();
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.
@@ -5833,9 +5834,12 @@ InternalIterator* VersionSet::MakeInputIterator(
   size_t num = 0;
   for (size_t which = 0; which < c->num_input_levels(); which++) {
     if (c->input_levels(which)->num_files != 0) {
+      // 注意该逻辑仍然是区分0层和其他层次的
       if (c->level(which) == 0) {
         const LevelFilesBrief* flevel = c->input_levels(which);
         for (size_t i = 0; i < flevel->num_files; i++) {
+          // 针对level-0,为其中的每一个sst文件构建一个table_cache迭代器，
+          // 放入list之中
           list[num++] = cfd->table_cache()->NewIterator(
               read_options, file_options_compactions,
               cfd->internal_comparator(), *flevel->files[i].file_metadata,
@@ -5852,6 +5856,9 @@ InternalIterator* VersionSet::MakeInputIterator(
         }
       } else {
         // Create concatenating iterator for the files from this level
+        // 非0层 每层直接创建一个级联的迭代器放入list
+        // 这个迭代器可以从start顺序访问到最后一个sst的最后一个key
+        // 因为整层有序 不会有重叠
         list[num++] = new LevelIterator(
             cfd->table_cache(), read_options, file_options_compactions,
             cfd->internal_comparator(), c->input_levels(which),
@@ -5865,6 +5872,9 @@ InternalIterator* VersionSet::MakeInputIterator(
     }
   }
   assert(num <= space);
+  // 通过 NewMergingIterator 迭代器维护一个底层的排序堆结构，
+  // 完成所有层之间的key-value的排序
+  // 也就是这个迭代器是底层自动堆排序的 这个底层的自动堆排序是怎么实现的 没看懂
   InternalIterator* result =
       NewMergingIterator(&c->column_family_data()->internal_comparator(), list,
                          static_cast<int>(num));
