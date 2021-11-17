@@ -9,6 +9,7 @@
 #include <string>
 
 #include "db/blob/blob_log_format.h"
+#include "file/file_prefetch_buffer.h"
 #include "file/filename.h"
 #include "monitoring/statistics.h"
 #include "options/cf_options.h"
@@ -282,6 +283,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
                                const Slice& user_key, uint64_t offset,
                                uint64_t value_size,
                                CompressionType compression_type,
+                               FilePrefetchBuffer* prefetch_buffer,
                                PinnableSlice* value,
                                uint64_t* bytes_read) const {
   assert(value);
@@ -314,17 +316,32 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   AlignedBuf aligned_buf;
 
   {
-    TEST_SYNC_POINT("BlobFileReader::GetBlob:ReadFromFile");
+    bool prefetched = false;
+    if (prefetch_buffer) {
+      prefetch_buffer->SetFileReader(file_reader_.get());
 
-    const Status s = ReadFromFile(file_reader_.get(), record_offset,
-                                  static_cast<size_t>(record_size), statistics_,
-                                  &record_slice, &buf, &aligned_buf);
-    if (!s.ok()) {
-      return s;
+      Status st;
+      prefetched = prefetch_buffer->TryReadFromCache(
+          IOOptions(), record_offset, static_cast<size_t>(record_size),
+          &record_slice, &st, true);
+      if (!st.ok()) {
+        return st;
+      }
     }
 
-    TEST_SYNC_POINT_CALLBACK("BlobFileReader::GetBlob:TamperWithResult",
-                             &record_slice);
+    if (!prefetched) {
+      TEST_SYNC_POINT("BlobFileReader::GetBlob:ReadFromFile");
+
+      const Status s = ReadFromFile(
+          file_reader_.get(), record_offset, static_cast<size_t>(record_size),
+          statistics_, &record_slice, &buf, &aligned_buf);
+      if (!s.ok()) {
+        return s;
+      }
+
+      TEST_SYNC_POINT_CALLBACK("BlobFileReader::GetBlob:TamperWithResult",
+                               &record_slice);
+    }
   }
 
   if (read_options.verify_checksums) {

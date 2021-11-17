@@ -250,8 +250,10 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
         assert(version);
 
         uint64_t bytes_read = 0;
-        s = version->GetBlob(ReadOptions(), ikey_.user_key, blob_index,
-                             &blob_value_, &bytes_read);
+        s = version->GetBlob(
+            ReadOptions(), ikey_.user_key, blob_index,
+            GetOrCreatePrefetchBuffer(blob_index.file_number()), &blob_value_,
+            &bytes_read);
         if (!s.ok()) {
           status_ = s;
           valid_ = false;
@@ -977,8 +979,10 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
     uint64_t bytes_read = 0;
 
     {
-      const Status s = version->GetBlob(ReadOptions(), user_key(), blob_index,
-                                        &blob_value_, &bytes_read);
+      const Status s =
+          version->GetBlob(ReadOptions(), user_key(), blob_index,
+                           GetOrCreatePrefetchBuffer(blob_index.file_number()),
+                           &blob_value_, &bytes_read);
 
       if (!s.ok()) {
         status_ = s;

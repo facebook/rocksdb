@@ -8,6 +8,7 @@
 #include <cinttypes>
 #include <deque>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -17,6 +18,7 @@
 #include "db/pinned_iterators_manager.h"
 #include "db/range_del_aggregator.h"
 #include "db/snapshot_checker.h"
+#include "file/file_prefetch_buffer.h"
 #include "options/cf_options.h"
 #include "rocksdb/compaction_filter.h"
 
@@ -405,6 +407,9 @@ class CompactionIterator {
   // just been zeroed out during bottommost compaction.
   bool last_key_seq_zeroed_{false};
 
+  std::unordered_map<uint64_t, std::unique_ptr<FilePrefetchBuffer>>
+      prefetch_buffers_;
+
   void AdvanceInputIter() { input_.Next(); }
 
   void SkipUntil(const Slice& skip_until) { input_.Seek(skip_until); }
@@ -420,6 +425,14 @@ class CompactionIterator {
             manual_compaction_paused_->load(std::memory_order_relaxed) > 0) ||
            (manual_compaction_canceled_ &&
             manual_compaction_canceled_->load(std::memory_order_relaxed));
+  }
+
+  FilePrefetchBuffer* GetOrCreatePrefetchBuffer(uint64_t blob_file_number) {
+    auto& prefetch_buffer = prefetch_buffers_[blob_file_number];
+    if (!prefetch_buffer) {
+      prefetch_buffer.reset(new FilePrefetchBuffer(nullptr, 2 << 20, 2 << 20));
+    }
+    return prefetch_buffer.get();
   }
 };
 

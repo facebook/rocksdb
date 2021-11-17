@@ -13,9 +13,12 @@ Status BlobFetcher::FetchBlob(const Slice& user_key, const Slice& blob_index,
                               PinnableSlice* blob_value) {
   Status s;
   assert(version_);
+
+  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
-  s = version_->GetBlob(read_options_, user_key, blob_index, blob_value,
-                        bytes_read);
+
+  s = version_->GetBlob(read_options_, user_key, blob_index, prefetch_buffer,
+                        blob_value, bytes_read);
   return s;
 }
 

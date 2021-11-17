@@ -69,6 +69,10 @@ class FilePrefetchBuffer {
         prev_len_(0),
         num_file_reads_(kMinNumFileReadsToStartAutoReadahead + 1) {}
 
+  void SetFileReader(RandomAccessFileReader* file_reader) {
+    file_reader_ = file_reader;
+  }
+
   // Load data into the buffer from a file.
   // reader : the file reader.
   // offset : the file offset to start reading from.
