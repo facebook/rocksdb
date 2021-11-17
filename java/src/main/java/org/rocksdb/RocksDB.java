@@ -2659,9 +2659,16 @@ public class RocksDB extends RocksObject {
     }
 
     final ByteBuffer[] keysArray = keys.toArray(new ByteBuffer[0]);
+    final int[] keyOffsets = new int[numValues];
+    final int[] keyLengths = new int[numValues];
+    for (int i = 0; i < numValues; i++) {
+      keyOffsets[i] = keysArray[i].arrayOffset() + keysArray[i].position();
+      keyLengths[i] = keysArray[i].limit();
+    }
     final ByteBuffer[] valuesArray = values.toArray(new ByteBuffer[0]);
 
-    multiGet(nativeHandle_, readOptions.nativeHandle_, cfHandles, keysArray, valuesArray, numValues);
+    multiGet(nativeHandle_, readOptions.nativeHandle_, cfHandles, keysArray, keyOffsets, keyLengths,
+        valuesArray);
   }
 
   /**
@@ -4963,8 +4970,8 @@ public class RocksDB extends RocksObject {
       final long[] columnFamilyHandles);
 
   private native void multiGet(final long dbHandle, final long rOptHandle,
-      final long[] columnFamilyHandles, final ByteBuffer[] keysArray,
-      final ByteBuffer[] valuesArray, final int numValues);
+      final long[] columnFamilyHandles, final ByteBuffer[] keysArray, final int[] keyOffsets,
+      final int[] keyLengths, final ByteBuffer[] valuesArray);
 
   private native boolean keyMayExist(
       final long handle, final long cfHandle, final long readOptHandle,
