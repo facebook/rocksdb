@@ -95,6 +95,41 @@ public class MultiGetTest {
   }
 
   @Test
+  public void putNThenMultiGetDirectSliced() throws RocksDBException {
+    try (final Options opt = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+      db.put("key1".getBytes(), "value1ForKey1".getBytes());
+      db.put("key2".getBytes(), "value2ForKey2".getBytes());
+      db.put("key3".getBytes(), "value3ForKey3".getBytes());
+
+      final List<ByteBuffer> keys = new ArrayList<>();
+      keys.add(ByteBuffer.allocateDirect(12).put("key2".getBytes()).flip());
+      keys.add(ByteBuffer.allocateDirect(12).put("key3".getBytes()).flip());
+      keys.add(ByteBuffer.allocateDirect(12).put("prefix1".getBytes()).slice().put("key1".getBytes()).flip());
+      final List<ByteBuffer> values = new ArrayList<>();
+      for (int i = 0; i < keys.size(); i++) {
+        values.add(ByteBuffer.allocateDirect(24));
+      }
+
+      {
+        final List<RocksDB.MultiGetInstance> results = db.multiGetByteBuffers(keys, values);
+
+        assertThat(results.get(0).status.getCode()).isEqualTo(Status.Code.Ok);
+        assertThat(results.get(1).status.getCode()).isEqualTo(Status.Code.Ok);
+        assertThat(results.get(2).status.getCode()).isEqualTo(Status.Code.Ok);
+
+        assertThat(results.get(1).valueSize).isEqualTo("value2ForKey2".getBytes().length);
+        assertThat(results.get(2).valueSize).isEqualTo("value3ForKey3".getBytes().length);
+        assertThat(results.get(0).valueSize).isEqualTo("value1ForKey1".getBytes().length);
+
+        assertThat(bufferBytes(results.get(0).value)).isEqualTo("value2ForKey2".getBytes());
+        assertThat(bufferBytes(results.get(1).value)).isEqualTo("value3ForKey3".getBytes());
+        assertThat(bufferBytes(results.get(2).value)).isEqualTo("value1ForKey1".getBytes());
+      }
+    }
+  }
+
+  @Test
   public void putNThenMultiGetDirectBadValuesArray() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
