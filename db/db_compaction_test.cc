@@ -7049,7 +7049,7 @@ TEST_F(DBCompactionTest, BottomPriCompactionCountsTowardConcurrencyLimit) {
     ASSERT_OK(Put(Key(0), "val"));
     ASSERT_OK(Flush());
   }
-  ASSERT_EQ(0, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+  ASSERT_EQ(0u, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
   TEST_SYNC_POINT(
       "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
       "PostTriggerCompaction");
