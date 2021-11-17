@@ -145,7 +145,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
         ReadFileToString(env_->GetFileSystem().get(), sst_file, &contents));
     size_t pos = contents.find(original_session_id);
     ASSERT_NE(pos, std::string::npos);
-    ASSERT_OK(test::CorruptFile(env_, sst_file, pos, 1,
+    ASSERT_OK(test::CorruptFile(env_, sst_file, static_cast<int>(pos), 1,
                                 /*verify checksum fails*/ false));
 
     // Try to read CORRUPT properties
@@ -164,7 +164,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
     }
 
     // UN-corrupt file for next iteration
-    ASSERT_OK(test::CorruptFile(env_, sst_file, pos, 1,
+    ASSERT_OK(test::CorruptFile(env_, sst_file, static_cast<int>(pos), 1,
                                 /*verify checksum fails*/ false));
   }
 
