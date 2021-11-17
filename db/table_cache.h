@@ -125,6 +125,9 @@ class TableCache {
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
 
+  // Query whether specified file number is currently in cache
+  static bool HasEntry(Cache* cache, uint64_t file_number);
+
   // Clean table handle and erase it from the table cache
   // Used in DB close, or the file is not live anymore.
   void EraseHandle(const FileDescriptor& fd, Cache::Handle* handle);

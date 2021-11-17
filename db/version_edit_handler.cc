@@ -517,7 +517,11 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
 Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
                                       bool prefetch_index_and_filter_in_cache,
                                       bool is_initial_load) {
-  if (skip_load_table_files_) {
+  bool skip_load_table_files = skip_load_table_files_;
+  TEST_SYNC_POINT_CALLBACK(
+      "VersionEditHandler::LoadTables:skip_load_table_files",
+      &skip_load_table_files);
+  if (skip_load_table_files) {
     return Status::OK();
   }
   assert(cfd != nullptr);

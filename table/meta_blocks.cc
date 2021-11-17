@@ -439,7 +439,7 @@ Status FindOptionalMetaBlock(InternalIterator* meta_index_iter,
       // Have to try old name for compatibility
       meta_index_iter->Seek(kPropertiesBlockOldName);
       if (meta_index_iter->status().ok() && meta_index_iter->Valid() &&
-          meta_index_iter->key() == meta_block_name) {
+          meta_index_iter->key() == kPropertiesBlockOldName) {
         Slice v = meta_index_iter->value();
         return block_handle->DecodeFrom(&v);
       }
