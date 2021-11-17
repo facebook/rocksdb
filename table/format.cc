@@ -330,7 +330,7 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
   // for iterator, TryReadFromCache might do a readahead. Revisit to see if we
   // need to pass a timeout at that point
   if (prefetch_buffer == nullptr ||
-      !prefetch_buffer->TryReadFromCache(IOOptions(), read_offset,
+      !prefetch_buffer->TryReadFromCache(IOOptions(), file, read_offset,
                                          Footer::kMaxEncodedLength,
                                          &footer_input, nullptr)) {
     if (file->use_direct_io()) {

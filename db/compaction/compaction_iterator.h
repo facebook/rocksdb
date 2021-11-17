@@ -430,7 +430,7 @@ class CompactionIterator {
   FilePrefetchBuffer* GetOrCreatePrefetchBuffer(uint64_t blob_file_number) {
     auto& prefetch_buffer = prefetch_buffers_[blob_file_number];
     if (!prefetch_buffer) {
-      prefetch_buffer.reset(new FilePrefetchBuffer(nullptr, 2 << 20, 2 << 20));
+      prefetch_buffer.reset(new FilePrefetchBuffer(2 << 20, 2 << 20));
     }
     return prefetch_buffer.get();
   }

@@ -318,12 +318,10 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   {
     bool prefetched = false;
     if (prefetch_buffer) {
-      prefetch_buffer->SetFileReader(file_reader_.get());
-
       Status st;
       prefetched = prefetch_buffer->TryReadFromCache(
-          IOOptions(), record_offset, static_cast<size_t>(record_size),
-          &record_slice, &st, true);
+          IOOptions(), file_reader_.get(), record_offset,
+          static_cast<size_t>(record_size), &record_slice, &st, true);
       if (!st.ok()) {
         return st;
       }
