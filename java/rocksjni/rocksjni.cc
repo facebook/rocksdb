@@ -1972,10 +1972,6 @@ void multi_get_helper_direct(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
                  s.data());
   }
 
-  // TODO (AP) from here... not replaced the old code yet.
-  // \ / \ / \ / \ / \ /
-  // \/  \/  \/  \/  \/
-
   // prepare the results
   jobjectArray jresults = ROCKSDB_NAMESPACE::ByteJni::new2dByteArray(
       env, static_cast<jsize>(s.size()));

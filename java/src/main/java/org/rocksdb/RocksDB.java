@@ -2556,14 +2556,10 @@ public class RocksDB extends RocksObject {
    * @throws IllegalArgumentException thrown if the number of passed keys and passed values
    * do not match.
    */
-  public int[] multiGetByteBuffers(final List<ByteBuffer> keys, final List<ByteBuffer> values)
+  public List<MultiGetInstance> multiGetByteBuffers(final List<ByteBuffer> keys, final List<ByteBuffer> values)
       throws RocksDBException {
     final ReadOptions readOptions = new ReadOptions();
-    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
-    final ColumnFamilyHandle handle = getDefaultColumnFamily();
-    for (int i = 0; i < keys.size(); i++) {
-      columnFamilyHandleList.add(handle);
-    }
+    final List<ColumnFamilyHandle> columnFamilyHandleList = List.of(getDefaultColumnFamily());
     return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
   }
 
@@ -2577,7 +2573,7 @@ public class RocksDB extends RocksObject {
    * @throws IllegalArgumentException thrown if the number of passed keys and passed values
    * do not match.
    */
-  public int[] multiGetByteBuffers(final ReadOptions readOptions, final List<ByteBuffer> keys,
+  public List<MultiGetInstance> multiGetByteBuffers(final ReadOptions readOptions, final List<ByteBuffer> keys,
       final List<ByteBuffer> values) throws RocksDBException {
     final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
     final ColumnFamilyHandle handle = getDefaultColumnFamily();
@@ -2602,10 +2598,28 @@ public class RocksDB extends RocksObject {
    * @throws IllegalArgumentException thrown if the number of passed keys, passed values and
    * passed column family handles do not match.
    */
-  public int[] multiGetByteBuffers(final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
+  public List<MultiGetInstance> multiGetByteBuffers(final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
       final List<ByteBuffer> values) throws RocksDBException {
     final ReadOptions readOptions = new ReadOptions();
     return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
+  }
+
+  static class MultiGetInstance {
+    final Status status;
+    final int valueSize;
+    final ByteBuffer value;
+
+    public MultiGetInstance(final Status status, final int valueSize, final ByteBuffer value) {
+      this.status = status;
+      this.valueSize = valueSize;
+      this.value = value;
+    }
+
+    public MultiGetInstance(final Status status) {
+      this.status = status;
+      this.valueSize = 0;
+      this.value = null;
+    }
   }
 
   /**
@@ -2624,21 +2638,22 @@ public class RocksDB extends RocksObject {
    * @throws IllegalArgumentException thrown if the number of passed keys, passed values and
    * passed column family handles do not match.
    */
-  public int[] multiGetByteBuffers(final ReadOptions readOptions,
+  public List<MultiGetInstance> multiGetByteBuffers(final ReadOptions readOptions,
       final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
       final List<ByteBuffer> values) throws RocksDBException {
     assert (keys.size() != 0);
 
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
-    if (keys.size() != columnFamilyHandleList.size()) {
-      throw new IllegalArgumentException("For each key there must be a ColumnFamilyHandle.");
+    if (keys.size() != columnFamilyHandleList.size() && columnFamilyHandleList.size() > 1) {
+      throw new IllegalArgumentException(
+          "Wrong number of ColumnFamilyHandle(s) supplied. Provide 0, 1, or as many as there are key/value(s)");
     }
 
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
-    if (values.size() != columnFamilyHandleList.size()) {
-      throw new IllegalArgumentException("For each value there must be a ColumnFamilyHandle.");
+    if (values.size() != keys.size()) {
+      throw new IllegalArgumentException("For each key there must be a corresponding value.");
     }
 
     // TODO (AP) support indirect buffers
@@ -2655,11 +2670,13 @@ public class RocksDB extends RocksObject {
       }
     }
 
-    final int numValues = columnFamilyHandleList.size();
-    final long[] cfHandles = new long[numValues];
-    for (int i = 0; i < numValues; i++) {
+    final int numCFHandles = columnFamilyHandleList.size();
+    final long[] cfHandles = new long[numCFHandles];
+    for (int i = 0; i < numCFHandles; i++) {
       cfHandles[i] = columnFamilyHandleList.get(i).nativeHandle_;
     }
+
+    final int numValues = keys.size();
 
     final ByteBuffer[] keysArray = keys.toArray(new ByteBuffer[0]);
     final int[] keyOffsets = new int[numValues];
@@ -2678,7 +2695,19 @@ public class RocksDB extends RocksObject {
     multiGet(nativeHandle_, readOptions.nativeHandle_, cfHandles, keysArray, keyOffsets, keyLengths,
         valuesArray, valuesSizeArray, statusArray);
 
-    return valuesSizeArray;
+    final List<MultiGetInstance> results = new ArrayList<>();
+    for (int i = 0; i < numValues; i++) {
+      final Status status = statusArray[i];
+      if (status.getCode() == Status.Code.Ok) {
+        final ByteBuffer value = valuesArray[i];
+        value.position(Math.min(valuesSizeArray[i], value.capacity()));
+        results.add(new MultiGetInstance(status, valuesSizeArray[i], value));
+      } else {
+        results.add(new MultiGetInstance(status));
+      }
+    }
+
+    return results;
   }
 
   /**
