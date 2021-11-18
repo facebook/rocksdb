@@ -245,7 +245,7 @@ Status ReadTablePropertiesHelper(
                              &block_contents, ioptions, false /* decompress */,
                              false /*maybe_compressed*/, BlockType::kProperties,
                              UncompressionDict::GetEmptyDict(),
-                             PersistentCacheOptions(), memory_allocator);
+                             PersistentCacheOptions::kEmpty, memory_allocator);
   Status s = block_fetcher.ReadBlockContents();
   if (!s.ok()) {
     return s;
@@ -487,7 +487,7 @@ Status FindMetaBlockInFile(RandomAccessFileReader* file, uint64_t file_size,
                    metaindex_handle, &metaindex_contents, ioptions,
                    false /* do decompression */, false /*maybe_compressed*/,
                    BlockType::kMetaIndex, UncompressionDict::GetEmptyDict(),
-                   PersistentCacheOptions(), memory_allocator)
+                   PersistentCacheOptions::kEmpty, memory_allocator)
           .ReadBlockContents();
   if (!s.ok()) {
     return s;
@@ -527,7 +527,7 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
                       block_handle, contents, ioptions, false /* decompress */,
                       false /*maybe_compressed*/, block_type,
                       UncompressionDict::GetEmptyDict(),
-                      PersistentCacheOptions(), memory_allocator)
+                      PersistentCacheOptions::kEmpty, memory_allocator)
       .ReadBlockContents();
 }
 

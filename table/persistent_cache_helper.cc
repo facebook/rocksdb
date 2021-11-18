@@ -9,6 +9,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+const PersistentCacheOptions PersistentCacheOptions::kEmpty;
+
 void PersistentCacheHelper::InsertRawPage(
     const PersistentCacheOptions& cache_options, const BlockHandle& handle,
     const char* data, const size_t size) {

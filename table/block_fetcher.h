@@ -37,12 +37,15 @@ namespace ROCKSDB_NAMESPACE {
 class BlockFetcher {
  public:
   BlockFetcher(RandomAccessFileReader* file,
-               FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
-               const ReadOptions& read_options, const BlockHandle& handle,
-               BlockContents* contents, const ImmutableOptions& ioptions,
+               FilePrefetchBuffer* prefetch_buffer,
+               const Footer& footer /* ref retained */,
+               const ReadOptions& read_options,
+               const BlockHandle& handle /* ref retained */,
+               BlockContents* contents,
+               const ImmutableOptions& ioptions /* ref retained */,
                bool do_uncompress, bool maybe_compressed, BlockType block_type,
-               const UncompressionDict& uncompression_dict,
-               const PersistentCacheOptions& cache_options,
+               const UncompressionDict& uncompression_dict /* ref retained */,
+               const PersistentCacheOptions& cache_options /* ref retained */,
                MemoryAllocator* memory_allocator = nullptr,
                MemoryAllocator* memory_allocator_compressed = nullptr,
                bool for_compaction = false)
