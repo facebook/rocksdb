@@ -655,6 +655,16 @@ size_t TableCache::GetMemoryUsageByTableReader(
   return ret;
 }
 
+bool TableCache::HasEntry(Cache* cache, uint64_t file_number) {
+  Cache::Handle* handle = cache->Lookup(GetSliceForFileNumber(&file_number));
+  if (handle) {
+    cache->Release(handle);
+    return true;
+  } else {
+    return false;
+  }
+}
+
 void TableCache::Evict(Cache* cache, uint64_t file_number) {
   cache->Erase(GetSliceForFileNumber(&file_number));
 }

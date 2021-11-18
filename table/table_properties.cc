@@ -7,12 +7,10 @@
 
 #include "port/port.h"
 #include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
 #include "rocksdb/unique_id.h"
-#include "table/block_based/block.h"
-#include "table/internal_iterator.h"
 #include "table/table_properties_internal.h"
 #include "table/unique_id_impl.h"
+#include "util/random.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -43,31 +41,6 @@ namespace {
     AppendProperty(
         props, key, ToString(value), prop_delim, kv_delim
     );
-  }
-
-  // Seek to the specified meta block.
-  // Return true if it successfully seeks to that block.
-  Status SeekToMetaBlock(InternalIterator* meta_iter,
-                         const std::string& block_name, bool* is_found,
-                         BlockHandle* block_handle = nullptr) {
-    if (block_handle != nullptr) {
-      *block_handle = BlockHandle::NullBlockHandle();
-    }
-    *is_found = true;
-    meta_iter->Seek(block_name);
-    if (meta_iter->status().ok()) {
-      if (meta_iter->Valid() && meta_iter->key() == block_name) {
-        *is_found = true;
-        if (block_handle) {
-          Slice v = meta_iter->value();
-          return block_handle->DecodeFrom(&v);
-        }
-      } else {
-        *is_found = false;
-        return Status::OK();
-      }
-    }
-    return meta_iter->status();
   }
 }
 
@@ -306,12 +279,6 @@ const std::string TablePropertiesNames::kSlowCompressionEstimatedDataSize =
 const std::string TablePropertiesNames::kFastCompressionEstimatedDataSize =
     "rocksdb.sample_for_compression.fast.data.size";
 
-extern const std::string kPropertiesBlock = "rocksdb.properties";
-// Old property block name for backward compatibility
-extern const std::string kPropertiesBlockOldName = "rocksdb.stats";
-extern const std::string kCompressionDictBlock = "rocksdb.compression_dict";
-extern const std::string kRangeDelBlock = "rocksdb.range_del";
-
 #ifndef NDEBUG
 void TEST_SetRandomTableProperties(TableProperties* props) {
   Random* r = Random::GetTLSInstance();
@@ -334,27 +301,5 @@ void TEST_SetRandomTableProperties(TableProperties* props) {
   }
 }
 #endif
-
-// Seek to the properties block.
-// Return true if it successfully seeks to the properties block.
-Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found) {
-  Status status = SeekToMetaBlock(meta_iter, kPropertiesBlock, is_found);
-  if (!*is_found && status.ok()) {
-    status = SeekToMetaBlock(meta_iter, kPropertiesBlockOldName, is_found);
-  }
-  return status;
-}
-
-// Seek to the compression dictionary block.
-// Return true if it successfully seeks to that block.
-Status SeekToCompressionDictBlock(InternalIterator* meta_iter, bool* is_found,
-                                  BlockHandle* block_handle) {
-  return SeekToMetaBlock(meta_iter, kCompressionDictBlock, is_found, block_handle);
-}
-
-Status SeekToRangeDelBlock(InternalIterator* meta_iter, bool* is_found,
-                           BlockHandle* block_handle = nullptr) {
-  return SeekToMetaBlock(meta_iter, kRangeDelBlock, is_found, block_handle);
-}
 
 }  // namespace ROCKSDB_NAMESPACE

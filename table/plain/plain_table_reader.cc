@@ -129,11 +129,9 @@ Status PlainTableReader::Open(
     return Status::NotSupported("File is too large for PlainTableReader!");
   }
 
-  TableProperties* props_ptr = nullptr;
+  std::unique_ptr<TableProperties> props;
   auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                               ioptions, &props_ptr,
-                               true /* compression_type_missing */);
-  std::shared_ptr<TableProperties> props(props_ptr);
+                               ioptions, &props);
   if (!s.ok()) {
     return s;
   }
@@ -186,7 +184,7 @@ Status PlainTableReader::Open(
     new_reader->full_scan_mode_ = true;
   }
   // PopulateIndex can add to the props, so don't store them until now
-  new_reader->table_properties_ = props;
+  new_reader->table_properties_ = std::move(props);
 
   if (immortal_table && new_reader->file_info_.is_mmap_mode) {
     new_reader->dummy_cleanable_.reset(new Cleanable());
@@ -308,8 +306,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   Status s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
                            file_size_, kPlainTableMagicNumber, ioptions_,
                            PlainTableIndexBuilder::kPlainTableIndexBlock,
-                           BlockType::kIndex, &index_block_contents,
-                           true /* compression_type_missing */);
+                           BlockType::kIndex, &index_block_contents);
 
   bool index_in_file = s.ok();
 
@@ -320,8 +317,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
     s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
                       file_size_, kPlainTableMagicNumber, ioptions_,
                       BloomBlockBuilder::kBloomBlock, BlockType::kFilter,
-                      &bloom_block_contents,
-                      true /* compression_type_missing */);
+                      &bloom_block_contents);
     bloom_in_file = s.ok() && bloom_block_contents.data.size() > 0;
   }
 
