@@ -315,32 +315,33 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   Buffer buf;
   AlignedBuf aligned_buf;
 
-  {
-    bool prefetched = false;
-    if (prefetch_buffer) {
-      Status st;
-      prefetched = prefetch_buffer->TryReadFromCache(
-          IOOptions(), file_reader_.get(), record_offset,
-          static_cast<size_t>(record_size), &record_slice, &st, true);
-      if (!st.ok()) {
-        return st;
-      }
-    }
+  bool prefetched = false;
 
-    if (!prefetched) {
-      TEST_SYNC_POINT("BlobFileReader::GetBlob:ReadFromFile");
+  if (prefetch_buffer) {
+    Status s;
+    constexpr bool for_compaction = true;
 
-      const Status s = ReadFromFile(
-          file_reader_.get(), record_offset, static_cast<size_t>(record_size),
-          statistics_, &record_slice, &buf, &aligned_buf);
-      if (!s.ok()) {
-        return s;
-      }
-
-      TEST_SYNC_POINT_CALLBACK("BlobFileReader::GetBlob:TamperWithResult",
-                               &record_slice);
+    prefetched = prefetch_buffer->TryReadFromCache(
+        IOOptions(), file_reader_.get(), record_offset,
+        static_cast<size_t>(record_size), &record_slice, &s, for_compaction);
+    if (!s.ok()) {
+      return s;
     }
   }
+
+  if (!prefetched) {
+    TEST_SYNC_POINT("BlobFileReader::GetBlob:ReadFromFile");
+
+    const Status s = ReadFromFile(file_reader_.get(), record_offset,
+                                  static_cast<size_t>(record_size), statistics_,
+                                  &record_slice, &buf, &aligned_buf);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  TEST_SYNC_POINT_CALLBACK("BlobFileReader::GetBlob:TamperWithResult",
+                           &record_slice);
 
   if (read_options.verify_checksums) {
     const Status s = VerifyBlob(record_slice, user_key, value_size);
