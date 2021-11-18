@@ -727,7 +727,7 @@ class EventListener : public Customizable {
   virtual void OnBlobFileDeleted(const BlobFileDeletionInfo& /*info*/) {}
 
   // A callback function for RocksDB which will be called whenever an IO error
-  // happens.
+  // happens. ShouldBeNotifiedOnFileIO should be set to true to get a callback.
   virtual void OnIOError(const IOErrorInfo& /*info*/) {}
 
   virtual ~EventListener() {}
