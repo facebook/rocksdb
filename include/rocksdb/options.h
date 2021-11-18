@@ -663,7 +663,7 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   int base_background_compactions = -1;
 
-  // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
+  // DEPRECATED: RocksDB automatically decides this based on the
   // value of max_background_jobs. For backwards compatibility we will set
   // `max_background_jobs = max_background_compactions + max_background_flushes`
   // in the case where user sets at least one of `max_background_compactions` or
@@ -689,7 +689,7 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   uint32_t max_subcompactions = 1;
 
-  // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
+  // DEPRECATED: RocksDB automatically decides this based on the
   // value of max_background_jobs. For backwards compatibility we will set
   // `max_background_jobs = max_background_compactions + max_background_flushes`
   // in the case where user sets at least one of `max_background_compactions` or
