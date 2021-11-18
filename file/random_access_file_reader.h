@@ -60,17 +60,21 @@ class RandomAccessFileReader {
     for (auto& listener : listeners_) {
       listener->OnFileReadFinish(info);
     }
+    info.status.PermitUncheckedError();
   }
 
-  void NotifyOnIOError(const IOStatus& io_status, const std::string& operation,
+  void NotifyOnIOError(const IOStatus& io_status, FileOperationType operation,
                        const std::string& file_path, size_t length,
                        uint64_t offset) const {
+    if (listeners_.empty()) {
+      return;
+    }
     IOErrorInfo io_error_info(io_status, operation, file_path, length, offset);
 
     for (auto& listener : listeners_) {
       listener->OnIOError(io_error_info);
-      // io_status->PermitUncheckedError();
     }
+    io_status.PermitUncheckedError();
   }
 
 #endif  // ROCKSDB_LITE

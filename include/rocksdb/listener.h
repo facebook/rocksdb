@@ -7,7 +7,6 @@
 #pragma once
 
 #include <chrono>
-#include <cstddef>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -239,7 +238,10 @@ enum class FileOperationType {
   kFlush,
   kSync,
   kFsync,
-  kRangeSync
+  kRangeSync,
+  kAppend,
+  kPositionedAppend,
+  kOpen
 };
 
 struct FileOperationInfo {
@@ -452,7 +454,7 @@ struct ExternalFileIngestionInfo {
 };
 
 struct IOErrorInfo {
-  IOErrorInfo(const IOStatus& _io_status, const std::string& _operation,
+  IOErrorInfo(const IOStatus& _io_status, FileOperationType _operation,
               const std::string& _file_path, size_t _length, uint64_t _offset)
       : io_status(_io_status),
         operation(_operation),
@@ -461,7 +463,7 @@ struct IOErrorInfo {
         offset(_offset) {}
 
   IOStatus io_status;
-  std::string operation;
+  FileOperationType operation;
   std::string file_path;
   size_t length;
   uint64_t offset;

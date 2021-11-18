@@ -221,7 +221,8 @@ IOStatus WritableFileWriter::Close() {
         auto finish_ts = FileOperationInfo::FinishNow();
         NotifyOnFileTruncateFinish(start_ts, finish_ts, s);
         if (!interim.ok()) {
-          NotifyOnIOError(interim, "Truncate", file_name(), filesize_);
+          NotifyOnIOError(interim, FileOperationType::kTruncate, file_name(),
+                          filesize_);
         }
       }
 #endif
@@ -241,7 +242,7 @@ IOStatus WritableFileWriter::Close() {
           NotifyOnFileSyncFinish(start_ts, finish_ts, s,
                                  FileOperationType::kFsync);
           if (!interim.ok()) {
-            NotifyOnIOError(interim, "Fsync", file_name());
+            NotifyOnIOError(interim, FileOperationType::kFsync, file_name());
           }
         }
 #endif
@@ -266,7 +267,7 @@ IOStatus WritableFileWriter::Close() {
       auto finish_ts = FileOperationInfo::FinishNow();
       NotifyOnFileCloseFinish(start_ts, finish_ts, s);
       if (!interim.ok()) {
-        NotifyOnIOError(interim, "Close", file_name());
+        NotifyOnIOError(interim, FileOperationType::kClose, file_name());
       }
     }
 #endif
@@ -328,7 +329,7 @@ IOStatus WritableFileWriter::Flush() {
       auto finish_ts = std::chrono::steady_clock::now();
       NotifyOnFileFlushFinish(start_ts, finish_ts, s);
       if (!s.ok()) {
-        NotifyOnIOError(s, "Flush", file_name());
+        NotifyOnIOError(s, FileOperationType::kFlush, file_name());
       }
     }
 #endif
@@ -438,7 +439,9 @@ IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
         start_ts, finish_ts, s,
         use_fsync ? FileOperationType::kFsync : FileOperationType::kSync);
     if (!s.ok()) {
-      NotifyOnIOError(s, (use_fsync ? "Fsync" : "Sync"), file_name());
+      NotifyOnIOError(
+          s, (use_fsync ? FileOperationType::kFsync : FileOperationType::kSync),
+          file_name());
     }
   }
 #endif
@@ -461,7 +464,8 @@ IOStatus WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
     auto finish_ts = std::chrono::steady_clock::now();
     NotifyOnFileRangeSyncFinish(offset, nbytes, start_ts, finish_ts, s);
     if (!s.ok()) {
-      NotifyOnIOError(s, "RangeSync", file_name(), nbytes, offset);
+      NotifyOnIOError(s, FileOperationType::kRangeSync, file_name(), nbytes,
+                      offset);
     }
   }
 #endif
@@ -519,7 +523,8 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
         auto finish_ts = std::chrono::steady_clock::now();
         NotifyOnFileWriteFinish(old_size, allowed, start_ts, finish_ts, s);
         if (!s.ok()) {
-          NotifyOnIOError(s, "Append", file_name(), allowed, old_size);
+          NotifyOnIOError(s, FileOperationType::kAppend, file_name(), allowed,
+                          old_size);
         }
       }
 #endif
@@ -592,7 +597,8 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(const char* data,
       auto finish_ts = std::chrono::steady_clock::now();
       NotifyOnFileWriteFinish(old_size, left, start_ts, finish_ts, s);
       if (!s.ok()) {
-        NotifyOnIOError(s, "Append", file_name(), left, old_size);
+        NotifyOnIOError(s, FileOperationType::kAppend, file_name(), left,
+                        old_size);
       }
     }
 #endif
@@ -696,8 +702,8 @@ IOStatus WritableFileWriter::WriteDirect() {
         auto finish_ts = std::chrono::steady_clock::now();
         NotifyOnFileWriteFinish(write_offset, size, start_ts, finish_ts, s);
         if (!s.ok()) {
-          NotifyOnIOError(s, "PositionedAppend", file_name(), size,
-                          write_offset);
+          NotifyOnIOError(s, FileOperationType::kPositionedAppend, file_name(),
+                          size, write_offset);
         }
       }
       if (!s.ok()) {
@@ -790,7 +796,8 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum() {
       auto finish_ts = std::chrono::steady_clock::now();
       NotifyOnFileWriteFinish(write_offset, left, start_ts, finish_ts, s);
       if (!s.ok()) {
-        NotifyOnIOError(s, "PositionedAppend", file_name(), left, write_offset);
+        NotifyOnIOError(s, FileOperationType::kPositionedAppend, file_name(),
+                        left, write_offset);
       }
     }
     if (!s.ok()) {
