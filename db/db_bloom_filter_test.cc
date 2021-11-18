@@ -862,6 +862,34 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(true, BloomFilterPolicy::Mode::kDeprecatedBlock, false),
         std::make_tuple(true, BloomFilterPolicy::Mode::kLegacyBloom, false)));
 
+// TODO: Speed up this test.
+// The current test inserts many keys (on the scale of dummy entry size)
+// in order to make small memory user (e.g, final filter, partitioned hash
+// entries/filter/banding) , which is proportional to the number of
+// keys, big enough so that its cache reservation triggers dummy entry insertion
+// and becomes observable in the test.
+//
+// However, inserting that many keys slows down this test and leaves future
+// developers an opportunity to speed it up.
+//
+// Possible approaches & challenges:
+// 1. Use sync point during cache reservation of filter construction
+//
+// Benefit: It does not rely on triggering dummy entry insertion
+// but the sync point to verify small memory user is charged correctly.
+//
+// Challenge: this approach is intrusive.
+//
+// 2. Make dummy entry size configurable and set it small in the test
+//
+// Benefit: It increases the precision of cache reservation and therefore
+// small memory usage can still trigger insertion of dummy entry.
+//
+// Challenge: change CacheReservationManager related APIs and a hack
+// might be needed to control the size of dummmy entry of
+// CacheReservationManager used in filter construction for testing
+// since CacheReservationManager is not exposed at the high level.
+//
 TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
   Options options = CurrentOptions();
   // We set write_buffer_size big enough so that in the case where there is
