@@ -306,6 +306,13 @@ ifdef COMPILE_WITH_ASAN
 	EXEC_LDFLAGS += -fsanitize=address
 	PLATFORM_CCFLAGS += -fsanitize=address
 	PLATFORM_CXXFLAGS += -fsanitize=address
+ifeq ($(LIB_MODE),shared)
+ifdef USE_CLANG
+# Fix false ODR violation; see https://github.com/google/sanitizers/issues/1017
+	EXEC_LDFLAGS += -mllvm -asan-use-private-alias=1
+	PLATFORM_CXXFLAGS += -mllvm -asan-use-private-alias=1
+endif
+endif
 endif
 
 # TSAN doesn't work well with jemalloc. If we're compiling with TSAN, we should use regular malloc.
