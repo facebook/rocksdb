@@ -59,6 +59,10 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
       std::unique_ptr<const char[]>* filter_data = nullptr) override;
   using FilterBlockBuilder::Finish;
 
+  virtual void ResetFilterBitsBuilder() override {
+    filter_bits_builder_.reset();
+  }
+
  protected:
   virtual void AddKey(const Slice& key);
   std::unique_ptr<FilterBitsBuilder> filter_bits_builder_;
