@@ -7020,7 +7020,7 @@ TEST_F(DBCompactionTest, BottomPriCompactionCountsTowardConcurrencyLimit) {
   ASSERT_OK(Flush());
   MoveFilesToLevel(kNumLevels - 1);
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+  SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::BGWorkBottomCompaction",
         "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
         "PreTriggerCompaction"},
@@ -7029,7 +7029,7 @@ TEST_F(DBCompactionTest, BottomPriCompactionCountsTowardConcurrencyLimit) {
         "BackgroundCallCompaction:0"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  ROCKSDB_NAMESPACE::port::Thread compact_range_thread([&] {
+  port::Thread compact_range_thread([&] {
     CompactRangeOptions cro;
     cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
     cro.exclusive_manual_compaction = false;
