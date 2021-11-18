@@ -23,7 +23,9 @@
 namespace ROCKSDB_NAMESPACE {
 CacheReservationManager::CacheReservationManager(std::shared_ptr<Cache> cache,
                                                  bool delayed_decrease)
-    : delayed_decrease_(delayed_decrease), cache_allocated_size_(0) {
+    : delayed_decrease_(delayed_decrease),
+      cache_allocated_size_(0),
+      memory_used_(0) {
   assert(cache != nullptr);
   cache_ = cache;
 }
@@ -37,6 +39,7 @@ CacheReservationManager::~CacheReservationManager() {
 template <CacheEntryRole R>
 Status CacheReservationManager::UpdateCacheReservation(
     std::size_t new_mem_used) {
+  memory_used_ = new_mem_used;
   std::size_t cur_cache_allocated_size =
       cache_allocated_size_.load(std::memory_order_relaxed);
   if (new_mem_used == cur_cache_allocated_size) {
@@ -73,6 +76,23 @@ template Status CacheReservationManager::UpdateCacheReservation<
 // For cache reservation manager unit tests
 template Status CacheReservationManager::UpdateCacheReservation<
     CacheEntryRole::kMisc>(std::size_t new_mem_used);
+
+template <CacheEntryRole R>
+Status CacheReservationManager::MakeCacheReservation(
+    std::size_t incremental_memory_used,
+    std::unique_ptr<CacheReservationHandle<R>>* handle) {
+  assert(handle != nullptr);
+  Status s =
+      UpdateCacheReservation<R>(GetTotalMemoryUsed() + incremental_memory_used);
+  (*handle).reset(new CacheReservationHandle<R>(incremental_memory_used,
+                                                shared_from_this()));
+  return s;
+}
+
+template Status
+CacheReservationManager::MakeCacheReservation<CacheEntryRole::kMisc>(
+    std::size_t incremental_memory_used,
+    std::unique_ptr<CacheReservationHandle<CacheEntryRole::kMisc>>* handle);
 
 template <CacheEntryRole R>
 Status CacheReservationManager::IncreaseCacheReservation(
@@ -116,6 +136,10 @@ std::size_t CacheReservationManager::GetTotalReservedCacheSize() {
   return cache_allocated_size_.load(std::memory_order_relaxed);
 }
 
+std::size_t CacheReservationManager::GetTotalMemoryUsed() {
+  return memory_used_;
+}
+
 Slice CacheReservationManager::GetNextCacheKey() {
   // Calling this function will have the side-effect of changing the
   // underlying cache_key_ that is shared among other keys generated from this
@@ -124,4 +148,27 @@ Slice CacheReservationManager::GetNextCacheKey() {
   cache_key_ = CacheKey::CreateUniqueForCacheLifetime(cache_.get());
   return cache_key_.AsSlice();
 }
+
+template <CacheEntryRole R>
+CacheReservationHandle<R>::CacheReservationHandle(
+    std::size_t incremental_memory_used,
+    std::shared_ptr<CacheReservationManager> cache_res_mgr)
+    : incremental_memory_used_(incremental_memory_used) {
+  assert(cache_res_mgr != nullptr);
+  cache_res_mgr_ = cache_res_mgr;
+}
+
+template <CacheEntryRole R>
+CacheReservationHandle<R>::~CacheReservationHandle() {
+  assert(cache_res_mgr_ != nullptr);
+  assert(cache_res_mgr_->GetTotalMemoryUsed() >= incremental_memory_used_);
+
+  Status s = cache_res_mgr_->UpdateCacheReservation<R>(
+      cache_res_mgr_->GetTotalMemoryUsed() - incremental_memory_used_);
+  s.PermitUncheckedError();
+}
+
+// Explicitly instantiate templates for "CacheEntryRole" values we use.
+// This makes it possible to keep the template definitions in the .cc file.
+template class CacheReservationHandle<CacheEntryRole::kMisc>;
 }  // namespace ROCKSDB_NAMESPACE

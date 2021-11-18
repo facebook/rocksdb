@@ -336,6 +336,143 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   CheckCacheCounters(options, 1, 0, 1, 0);
   CheckCompressedCacheCounters(options, 0, 1, 0, 0);
 }
+
+namespace {
+class PersistentCacheFromCache : public PersistentCache {
+ public:
+  PersistentCacheFromCache(std::shared_ptr<Cache> cache, bool read_only)
+      : cache_(cache), read_only_(read_only) {}
+
+  Status Insert(const Slice& key, const char* data,
+                const size_t size) override {
+    if (read_only_) {
+      return Status::NotSupported();
+    }
+    std::unique_ptr<char[]> copy{new char[size]};
+    std::copy_n(data, size, copy.get());
+    Status s = cache_->Insert(
+        key, copy.get(), size,
+        GetCacheEntryDeleterForRole<char[], CacheEntryRole::kMisc>());
+    if (s.ok()) {
+      copy.release();
+    }
+    return s;
+  }
+
+  Status Lookup(const Slice& key, std::unique_ptr<char[]>* data,
+                size_t* size) override {
+    auto handle = cache_->Lookup(key);
+    if (handle) {
+      char* ptr = static_cast<char*>(cache_->Value(handle));
+      *size = cache_->GetCharge(handle);
+      data->reset(new char[*size]);
+      std::copy_n(ptr, *size, data->get());
+      cache_->Release(handle);
+      return Status::OK();
+    } else {
+      return Status::NotFound();
+    }
+  }
+
+  bool IsCompressed() override { return false; }
+
+  StatsType Stats() override { return StatsType(); }
+
+  std::string GetPrintableOptions() const override { return ""; }
+
+  uint64_t NewId() override { return cache_->NewId(); }
+
+ private:
+  std::shared_ptr<Cache> cache_;
+  bool read_only_;
+};
+
+class ReadOnlyCacheWrapper : public CacheWrapper {
+  using CacheWrapper::CacheWrapper;
+
+  using Cache::Insert;
+  Status Insert(const Slice& /*key*/, void* /*value*/, size_t /*charge*/,
+                void (*)(const Slice& key, void* value) /*deleter*/,
+                Handle** /*handle*/, Priority /*priority*/) override {
+    return Status::NotSupported();
+  }
+};
+
+}  // namespace
+
+TEST_F(DBBlockCacheTest, TestWithSameCompressed) {
+  auto table_options = GetTableOptions();
+  auto options = GetOptions(table_options);
+  InitTable(options);
+
+  std::shared_ptr<Cache> rw_cache{NewLRUCache(1000000)};
+  std::shared_ptr<PersistentCacheFromCache> rw_pcache{
+      new PersistentCacheFromCache(rw_cache, /*read_only*/ false)};
+  // Exercise some obscure behavior with read-only wrappers
+  std::shared_ptr<Cache> ro_cache{new ReadOnlyCacheWrapper(rw_cache)};
+  std::shared_ptr<PersistentCacheFromCache> ro_pcache{
+      new PersistentCacheFromCache(rw_cache, /*read_only*/ true)};
+
+  // Simple same pointer
+  table_options.block_cache = rw_cache;
+  table_options.block_cache_compressed = rw_cache;
+  table_options.persistent_cache.reset();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ASSERT_EQ(TryReopen(options).ToString(),
+            "Invalid argument: block_cache same as block_cache_compressed not "
+            "currently supported, and would be bad for performance anyway");
+
+  // Other cases
+  table_options.block_cache = ro_cache;
+  table_options.block_cache_compressed = rw_cache;
+  table_options.persistent_cache.reset();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ASSERT_EQ(TryReopen(options).ToString(),
+            "Invalid argument: block_cache and block_cache_compressed share "
+            "the same key space, which is not supported");
+
+  table_options.block_cache = rw_cache;
+  table_options.block_cache_compressed = ro_cache;
+  table_options.persistent_cache.reset();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ASSERT_EQ(TryReopen(options).ToString(),
+            "Invalid argument: block_cache_compressed and block_cache share "
+            "the same key space, which is not supported");
+
+  table_options.block_cache = ro_cache;
+  table_options.block_cache_compressed.reset();
+  table_options.persistent_cache = rw_pcache;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ASSERT_EQ(TryReopen(options).ToString(),
+            "Invalid argument: block_cache and persistent_cache share the same "
+            "key space, which is not supported");
+
+  table_options.block_cache = rw_cache;
+  table_options.block_cache_compressed.reset();
+  table_options.persistent_cache = ro_pcache;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ASSERT_EQ(TryReopen(options).ToString(),
+            "Invalid argument: persistent_cache and block_cache share the same "
+            "key space, which is not supported");
+
+  table_options.block_cache.reset();
+  table_options.no_block_cache = true;
+  table_options.block_cache_compressed = ro_cache;
+  table_options.persistent_cache = rw_pcache;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ASSERT_EQ(TryReopen(options).ToString(),
+            "Invalid argument: block_cache_compressed and persistent_cache "
+            "share the same key space, which is not supported");
+
+  table_options.block_cache.reset();
+  table_options.no_block_cache = true;
+  table_options.block_cache_compressed = rw_cache;
+  table_options.persistent_cache = ro_pcache;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ASSERT_EQ(TryReopen(options).ToString(),
+            "Invalid argument: persistent_cache and block_cache_compressed "
+            "share the same key space, which is not supported");
+}
 #endif  // SNAPPY
 
 #ifndef ROCKSDB_LITE

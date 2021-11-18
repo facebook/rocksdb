@@ -30,6 +30,10 @@
 #include "test_util/sync_point.h"
 #include "util/random.h"
 
+#ifndef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 namespace test {
 

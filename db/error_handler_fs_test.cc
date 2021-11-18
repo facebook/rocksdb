@@ -487,6 +487,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWALAtomicWriteRetryableError) {
   Destroy(options);
 }
 
+// The flush error is injected before we finish the table build
 TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError1) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
@@ -542,6 +543,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError1) {
   Destroy(options);
 }
 
+// The retryable IO error is injected before we sync table
 TEST_F(DBErrorHandlingFSTest, FLushWriteNoWALRetryableError2) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
@@ -585,6 +587,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteNoWALRetryableError2) {
   Destroy(options);
 }
 
+// The retryable IO error is injected before we close the table file
 TEST_F(DBErrorHandlingFSTest, FLushWriteNoWALRetryableError3) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
@@ -1874,6 +1877,8 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableErrorAutoRecover2) {
   Destroy(options);
 }
 
+// Auto resume fromt the flush retryable IO error. Activate the FS before the
+// first resume. Resume is successful
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover1) {
   // Activate the FS before the first resume
   std::shared_ptr<ErrorHandlerFSListener> listener(
@@ -1914,6 +1919,8 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover1) {
   Destroy(options);
 }
 
+// Auto resume fromt the flush retryable IO error and set the retry limit count.
+// Never activate the FS and auto resume should fail at the end
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover2) {
   // Fail all the resume and let user to resume
   std::shared_ptr<ErrorHandlerFSListener> listener(
@@ -1963,6 +1970,8 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover2) {
   Destroy(options);
 }
 
+// Auto resume fromt the flush retryable IO error and set the retry limit count.
+// Fail the first resume and let the second resume be successful.
 TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableErrorAutoRecover) {
   // Fail the first resume and let the second resume be successful
   std::shared_ptr<ErrorHandlerFSListener> listener(

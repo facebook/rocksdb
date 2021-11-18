@@ -165,7 +165,7 @@ struct FileOptions : EnvOptions {
         temperature(opts.temperature),
         handoff_checksum_type(opts.handoff_checksum_type) {}
 
-  FileOptions& operator=(const FileOptions& opts) = default;
+  FileOptions& operator=(const FileOptions&) = default;
 };
 
 // A structure to pass back some debugging information from the FileSystem
@@ -1192,6 +1192,10 @@ class FileSystemWrapper : public FileSystem {
   // Initialize an EnvWrapper that delegates all calls to *t
   explicit FileSystemWrapper(const std::shared_ptr<FileSystem>& t);
   ~FileSystemWrapper() override {}
+
+  // Deprecated. Will be removed in a major release. Derived classes
+  // should implement this method.
+  const char* Name() const override { return target_->Name(); }
 
   // Return the target to which this Env forwards all calls
   FileSystem* target() const { return target_.get(); }

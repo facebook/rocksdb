@@ -46,7 +46,8 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         InternalKey(largest, largest_seq, kTypeValue), smallest_seq,
         largest_seq, /* marked_for_compact */ false, kInvalidBlobFileNumber,
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+        kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+        kDisableUserTimestamp, kDisableUserTimestamp);
     files_.push_back(f);
   }
 
@@ -154,7 +155,8 @@ class VersionStorageInfoTestBase : public testing::Test {
         /* largest_seq */ 0, /* marked_for_compact */ false,
         oldest_blob_file_number, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName);
+        kUnknownFileChecksumFuncName, kDisableUserTimestamp,
+        kDisableUserTimestamp);
     f->compensated_file_size = file_size;
     vstorage_.AddFile(level, f);
   }
@@ -2996,7 +2998,8 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       ASSERT_NE(0, file_size);
       file_metas->emplace_back(file_num, /*file_path_id=*/0, file_size, ikey,
                                ikey, 0, 0, false, 0, 0, 0, kUnknownFileChecksum,
-                               kUnknownFileChecksumFuncName);
+                               kUnknownFileChecksumFuncName,
+                               kDisableUserTimestamp, kDisableUserTimestamp);
     }
   }
 
@@ -3051,7 +3054,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
     FileMetaData meta =
         FileMetaData(file_num, /*file_path_id=*/0, /*file_size=*/12,
                      smallest_ikey, largest_ikey, 0, 0, false, 0, 0, 0,
-                     kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+                     kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                     kDisableUserTimestamp, kDisableUserTimestamp);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3106,7 +3110,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
     FileMetaData meta =
         FileMetaData(file_num, /*file_path_id=*/0, /*file_size=*/12,
                      smallest_ikey, largest_ikey, 0, 0, false, 0, 0, 0,
-                     kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+                     kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                     kDisableUserTimestamp, kDisableUserTimestamp);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(

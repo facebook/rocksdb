@@ -25,6 +25,14 @@
 #include "table/internal_iterator.h"
 #include "util/mutexlock.h"
 
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int argc, char** argv);
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
 namespace ROCKSDB_NAMESPACE {
 class FileSystem;
 class MemTableRepFactory;
