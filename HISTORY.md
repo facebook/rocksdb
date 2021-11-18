@@ -1,7 +1,7 @@
 # Rocksdb Change Lo
 ## 6.26.1 (2021-11-18)
 ### Bug Fixes
-* Some Java build fixes.
+* Fix builds for some platforms.
 
 ## 6.26.0 (2021-10-20)
 ### Bug Fixes
