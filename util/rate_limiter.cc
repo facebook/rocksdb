@@ -302,8 +302,7 @@ int64_t GenericRateLimiter::CalculateRefillBytesPerPeriod(
     // inaccurate but is a number that is large enough.
     return port::kMaxInt64 / 1000000;
   } else {
-    return std::max(kMinRefillBytesPerPeriod,
-                    rate_bytes_per_sec * refill_period_us_ / 1000000);
+    return rate_bytes_per_sec * refill_period_us_ / 1000000;
   }
 }
 

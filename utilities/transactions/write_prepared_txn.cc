@@ -453,9 +453,10 @@ Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
 
   WritePreparedTxnReadCallback snap_checker(wpt_db_, snap_seq, min_uncommitted,
                                             kBackedByDBSnapshot);
-  return TransactionUtil::CheckKeyForConflicts(db_impl_, cfh, key.ToString(),
-                                               snap_seq, false /* cache_only */,
-                                               &snap_checker, min_uncommitted);
+  // TODO(yanqin): support user-defined timestamp
+  return TransactionUtil::CheckKeyForConflicts(
+      db_impl_, cfh, key.ToString(), snap_seq, /*ts=*/nullptr,
+      false /* cache_only */, &snap_checker, min_uncommitted);
 }
 
 void WritePreparedTxn::SetSnapshot() {
