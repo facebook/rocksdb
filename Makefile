@@ -879,9 +879,9 @@ tests-regexp = .
 EXCLUDE_TESTS_REGEX ?= "^$"
 
 ifeq ($(PRINT_PARALLEL_OUTPUTS), 1)
-	parallel_com = '{}'
+	parallel_redir =
 else
-	parallel_com = '{} >& t/log-{/}'
+	parallel_redir = >& t/$(test_log_prefix)log-{/}
 endif
 
 .PHONY: check_0
@@ -898,7 +898,7 @@ check_0:
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
 	  | grep -E -v '$(EXCLUDE_TESTS_REGEX)'					\
-	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu  $(parallel_com) ; \
+	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu '{} $(parallel_redir)' ; \
 	parallel_retcode=$$? ; \
 	awk '{ if ($$7 != 0 || $$8 != 0) { if ($$7 == "Exitval") { h = $$0; } else { if (!f) print h; print; f = 1 } } } END { if(f) exit 1; }' < LOG ; \
 	awk_retcode=$$?; \
@@ -907,6 +907,7 @@ check_0:
 valgrind-exclude-regexp = InlineSkipTest.ConcurrentInsert|TransactionStressTest.DeadlockStress|DBCompactionTest.SuggestCompactRangeNoTwoLevel0Compactions|BackupableDBTest.RateLimiting|DBTest.CloseSpeedup|DBTest.ThreadStatusFlush|DBTest.RateLimitingTest|DBTest.EncodeDecompressedBlockSizeTest|FaultInjectionTest.UninstalledCompaction|HarnessTest.Randomized|ExternalSSTFileTest.CompactDuringAddFileRandom|ExternalSSTFileTest.IngestFileWithGlobalSeqnoRandomized|MySQLStyleTransactionTest.TransactionStressTest
 
 .PHONY: valgrind_check_0
+valgrind_check_0: test_log_prefix := valgrind_
 valgrind_check_0:
 	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD);				\
 	printf '%s\n' ''						\
@@ -921,8 +922,8 @@ valgrind_check_0:
 	  | grep -E '$(tests-regexp)'					\
 	  | grep -E -v '$(valgrind-exclude-regexp)'					\
 	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu \
-	  '(if [[ "{}" == "./"* ]] ; then $(DRIVER) {}; else {}; fi) ' \
-	  '>& t/valgrind_log-{/}'
+	  '(if [[ "{}" == "./"* ]] ; then $(DRIVER) {}; else {}; fi) \
+	  $(parallel_redir)' \
 
 CLEAN_FILES += t LOG $(TMPD)
 
@@ -976,15 +977,27 @@ check_some: $(ROCKSDBTESTS_SUBSET)
 ldb_tests: ldb
 	$(PYTHON) tools/ldb_test.py
 
-crash_test: whitebox_crash_test blackbox_crash_test
+crash_test:
+# Do not parallelize
+	$(MAKE) whitebox_crash_test
+	$(MAKE) blackbox_crash_test
 
-crash_test_with_atomic_flush: whitebox_crash_test_with_atomic_flush blackbox_crash_test_with_atomic_flush
+crash_test_with_atomic_flush:
+# Do not parallelize
+	$(MAKE) whitebox_crash_test_with_atomic_flush
+	$(MAKE) blackbox_crash_test_with_atomic_flush
 
-crash_test_with_txn: whitebox_crash_test_with_txn blackbox_crash_test_with_txn
+crash_test_with_txn:
+# Do not parallelize
+	$(MAKE) whitebox_crash_test_with_txn
+	$(MAKE) blackbox_crash_test_with_txn
 
 crash_test_with_best_efforts_recovery: blackbox_crash_test_with_best_efforts_recovery
 
-crash_test_with_ts: whitebox_crash_test_with_ts blackbox_crash_test_with_ts
+crash_test_with_ts:
+# Do not parallelize
+	$(MAKE) whitebox_crash_test_with_ts
+	$(MAKE) blackbox_crash_test_with_ts
 
 blackbox_crash_test: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)

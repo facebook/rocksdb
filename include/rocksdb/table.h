@@ -285,6 +285,25 @@ struct BlockBasedTableOptions {
   // separately
   uint64_t metadata_block_size = 4096;
 
+  // If true, a dynamically updating charge to block cache, loosely based
+  // on the actual memory usage of table building, will occur to account
+  // the memory, if block cache available.
+  //
+  // Charged memory usage includes:
+  // 1. (new) Bloom Filter and Ribbon Filter construction
+  // 2. More to come...
+  //
+  // Note:
+  // 1. (new) Bloom Filter and Ribbon Filter construction
+  //
+  // If additional temporary memory of Ribbon Filter uses up too much memory
+  // relative to the avaible space left in the block cache
+  // at some point (i.e, causing a cache full when strict_capacity_limit =
+  // true), construction will fall back to (new) Bloom Filter.
+  //
+  // Default: false
+  bool reserve_table_builder_memory = false;
+
   // Note: currently this option requires kTwoLevelIndexSearch to be set as
   // well.
   // TODO(myabandeh): remove the note above once the limitation is lifted
