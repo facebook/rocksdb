@@ -405,6 +405,11 @@ DEFINE_double(blob_garbage_collection_force_threshold,
               "[Integrated BlobDB] The threshold for the ratio of garbage in "
               "the oldest blob files for forcing garbage collection.");
 
+DEFINE_uint64(blob_compaction_readahead_size,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_compaction_readahead_size,
+              "[Integrated BlobDB] Compaction readahead for blob files.");
+
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 

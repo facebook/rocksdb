@@ -109,6 +109,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"enable_blob_garbage_collection", "true"},
       {"blob_garbage_collection_age_cutoff", "0.5"},
       {"blob_garbage_collection_force_threshold", "0.75"},
+      {"blob_compaction_readahead_size", "256K"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -241,6 +242,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.enable_blob_garbage_collection, true);
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_age_cutoff, 0.5);
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
+  ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(exact, base_cf_opt, cf_options_map,
@@ -2269,6 +2271,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"enable_blob_garbage_collection", "true"},
       {"blob_garbage_collection_age_cutoff", "0.5"},
       {"blob_garbage_collection_force_threshold", "0.75"},
+      {"blob_compaction_readahead_size", "256K"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -2393,6 +2396,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.enable_blob_garbage_collection, true);
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_age_cutoff, 0.5);
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
+  ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(

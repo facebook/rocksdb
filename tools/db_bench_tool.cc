@@ -1002,6 +1002,11 @@ DEFINE_double(blob_garbage_collection_force_threshold,
               "[Integrated BlobDB] The threshold for the ratio of garbage in "
               "the oldest blob files for forcing garbage collection.");
 
+DEFINE_uint64(blob_compaction_readahead_size,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_compaction_readahead_size,
+              "[Integrated BlobDB] Compaction readahead for blob files.");
+
 #ifndef ROCKSDB_LITE
 
 // Secondary DB instance Options
@@ -4365,6 +4370,8 @@ class Benchmark {
         FLAGS_blob_garbage_collection_age_cutoff;
     options.blob_garbage_collection_force_threshold =
         FLAGS_blob_garbage_collection_force_threshold;
+    options.blob_compaction_readahead_size =
+        FLAGS_blob_compaction_readahead_size;
 
 #ifndef ROCKSDB_LITE
     if (FLAGS_readonly && FLAGS_transaction_db) {

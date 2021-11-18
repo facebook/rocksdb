@@ -294,6 +294,7 @@ blob_params = {
     "enable_blob_garbage_collection": lambda: random.choice([0] + [1] * 3),
     "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
     "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
+    "blob_compaction_readahead_size": lambda: random.choice([0, 1048576, 4194304]),
 }
 
 ts_params = {
