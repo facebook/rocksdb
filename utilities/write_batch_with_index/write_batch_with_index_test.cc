@@ -1634,6 +1634,20 @@ TEST_F(WBWIOverwriteTest, MutateWhileIteratingBaseStressTest) {
   ASSERT_OK(iter->status());
 }
 
+TEST_P(WriteBatchWithIndexTest, TestNewIteratorWithBaseFromWbwi) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  KVMap map;
+  map["a"] = "aa";
+  map["c"] = "cc";
+  map["e"] = "ee";
+  std::unique_ptr<Iterator> iter(
+      batch_->NewIteratorWithBase(&cf1, new KVIter(&map)));
+  ASSERT_NE(nullptr, iter);
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+}
+
 TEST_P(WriteBatchWithIndexTest, SavePointTest) {
   ColumnFamilyHandleImplDummy cf1(1, BytewiseComparator());
   KVMap empty_map;
