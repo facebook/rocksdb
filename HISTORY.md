@@ -1,4 +1,8 @@
-# Rocksdb Change Log
+# Rocksdb Change Lo
+## 6.26.1 (2021-11-18)
+### Bug Fixes
+* Some Java build fixes.
+
 ## 6.26.0 (2021-10-20)
 ### Bug Fixes
 * Fixes a bug in directed IO mode when calling MultiGet() for blobs in the same blob file. The bug is caused by not sorting the blob read requests by file offsets.
