@@ -8,7 +8,6 @@
 #include <cinttypes>
 #include <deque>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -24,7 +23,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class BlobFileBuilder;
-class FilePrefetchBuffer;
+class PrefetchBufferCollection;
 
 // A wrapper of internal iterator whose purpose is to count how
 // many entries there are in the iterator.
@@ -300,8 +299,6 @@ class CompactionIterator {
   static uint64_t ComputeBlobGarbageCollectionCutoffFileNumber(
       const CompactionProxy* compaction);
 
-  FilePrefetchBuffer* GetOrCreatePrefetchBuffer(uint64_t blob_file_number);
-
   SequenceIterWrapper input_;
   const Comparator* cmp_;
   MergeHelper* merge_helper_;
@@ -389,6 +386,8 @@ class CompactionIterator {
 
   uint64_t blob_garbage_collection_cutoff_file_number_;
 
+  std::unique_ptr<PrefetchBufferCollection> prefetch_buffers_;
+
   std::string blob_index_;
   PinnableSlice blob_value_;
   std::string compaction_filter_value_;
@@ -414,9 +413,6 @@ class CompactionIterator {
   // True if the previous internal key (same user key)'s sequence number has
   // just been zeroed out during bottommost compaction.
   bool last_key_seq_zeroed_{false};
-
-  std::unordered_map<uint64_t, std::unique_ptr<FilePrefetchBuffer>>
-      prefetch_buffers_;
 
   void AdvanceInputIter() { input_.Next(); }
 

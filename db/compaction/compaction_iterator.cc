@@ -10,8 +10,8 @@
 
 #include "db/blob/blob_file_builder.h"
 #include "db/blob/blob_index.h"
+#include "db/blob/prefetch_buffer_collection.h"
 #include "db/snapshot_checker.h"
-#include "file/file_prefetch_buffer.h"
 #include "logging/logging.h"
 #include "port/likely.h"
 #include "rocksdb/listener.h"
@@ -89,6 +89,11 @@ CompactionIterator::CompactionIterator(
       merge_out_iter_(merge_helper_),
       blob_garbage_collection_cutoff_file_number_(
           ComputeBlobGarbageCollectionCutoffFileNumber(compaction_.get())),
+      prefetch_buffers_(
+          (compaction_ && compaction_->blob_compaction_readahead_size() > 0)
+              ? new PrefetchBufferCollection(
+                    compaction_->blob_compaction_readahead_size())
+              : nullptr),
       current_key_committed_(false),
       cmp_with_history_ts_low_(0),
       level_(compaction_ == nullptr ? 0 : compaction_->level()) {
@@ -250,11 +255,14 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
         const Version* const version = compaction_->input_version();
         assert(version);
 
+        FilePrefetchBuffer* prefetch_buffer =
+            prefetch_buffers_ ? prefetch_buffers_->GetOrCreatePrefetchBuffer(
+                                    blob_index.file_number())
+                              : nullptr;
+
         uint64_t bytes_read = 0;
-        s = version->GetBlob(
-            ReadOptions(), ikey_.user_key, blob_index,
-            GetOrCreatePrefetchBuffer(blob_index.file_number()), &blob_value_,
-            &bytes_read);
+        s = version->GetBlob(ReadOptions(), ikey_.user_key, blob_index,
+                             prefetch_buffer, &blob_value_, &bytes_read);
         if (!s.ok()) {
           status_ = s;
           valid_ = false;
@@ -977,13 +985,17 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
     const Version* const version = compaction_->input_version();
     assert(version);
 
+    FilePrefetchBuffer* prefetch_buffer =
+        prefetch_buffers_ ? prefetch_buffers_->GetOrCreatePrefetchBuffer(
+                                blob_index.file_number())
+                          : nullptr;
+
     uint64_t bytes_read = 0;
 
     {
       const Status s =
           version->GetBlob(ReadOptions(), user_key(), blob_index,
-                           GetOrCreatePrefetchBuffer(blob_index.file_number()),
-                           &blob_value_, &bytes_read);
+                           prefetch_buffer, &blob_value_, &bytes_read);
 
       if (!s.ok()) {
         status_ = s;
@@ -1170,23 +1182,6 @@ uint64_t CompactionIterator::ComputeBlobGarbageCollectionCutoffFileNumber(
 
   return it != blob_files.end() ? it->first
                                 : std::numeric_limits<uint64_t>::max();
-}
-
-FilePrefetchBuffer* CompactionIterator::GetOrCreatePrefetchBuffer(
-    uint64_t blob_file_number) {
-  assert(compaction_);
-
-  const uint64_t readahead = compaction_->blob_compaction_readahead_size();
-  if (!readahead) {
-    return nullptr;
-  }
-
-  auto& prefetch_buffer = prefetch_buffers_[blob_file_number];
-  if (!prefetch_buffer) {
-    prefetch_buffer.reset(new FilePrefetchBuffer(readahead, readahead));
-  }
-
-  return prefetch_buffer.get();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
