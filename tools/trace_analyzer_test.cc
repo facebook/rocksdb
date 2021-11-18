@@ -162,8 +162,8 @@ class TraceAnalyzerTest : public testing::Test {
 
     ASSERT_OK(lf_reader.GetStatus());
 
-    ASSERT_EQ(cnt.size(), result.size());
-    for (int i = 0; i < static_cast<int>(result.size()); i++) {
+    size_t min_size = std::min(cnt.size(), result.size());
+    for (size_t i = 0; i < min_size; i++) {
       if (full_content) {
         ASSERT_EQ(result[i], cnt[i]);
       } else {
