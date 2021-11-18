@@ -18,13 +18,13 @@
 #include "db/pinned_iterators_manager.h"
 #include "db/range_del_aggregator.h"
 #include "db/snapshot_checker.h"
-#include "file/file_prefetch_buffer.h"
 #include "options/cf_options.h"
 #include "rocksdb/compaction_filter.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class BlobFileBuilder;
+class FilePrefetchBuffer;
 
 // A wrapper of internal iterator whose purpose is to count how
 // many entries there are in the iterator.
@@ -98,6 +98,8 @@ class CompactionIterator {
 
     virtual double blob_garbage_collection_age_cutoff() const = 0;
 
+    virtual uint64_t blob_compaction_readahead_size() const = 0;
+
     virtual Version* input_version() const = 0;
 
     virtual bool DoesInputReferenceBlobFiles() const = 0;
@@ -146,6 +148,10 @@ class CompactionIterator {
     double blob_garbage_collection_age_cutoff() const override {
       return compaction_->mutable_cf_options()
           ->blob_garbage_collection_age_cutoff;
+    }
+
+    uint64_t blob_compaction_readahead_size() const override {
+      return compaction_->mutable_cf_options()->blob_compaction_readahead_size;
     }
 
     Version* input_version() const override {
@@ -294,6 +300,8 @@ class CompactionIterator {
   static uint64_t ComputeBlobGarbageCollectionCutoffFileNumber(
       const CompactionProxy* compaction);
 
+  FilePrefetchBuffer* GetOrCreatePrefetchBuffer(uint64_t blob_file_number);
+
   SequenceIterWrapper input_;
   const Comparator* cmp_;
   MergeHelper* merge_helper_;
@@ -425,14 +433,6 @@ class CompactionIterator {
             manual_compaction_paused_->load(std::memory_order_relaxed) > 0) ||
            (manual_compaction_canceled_ &&
             manual_compaction_canceled_->load(std::memory_order_relaxed));
-  }
-
-  FilePrefetchBuffer* GetOrCreatePrefetchBuffer(uint64_t blob_file_number) {
-    auto& prefetch_buffer = prefetch_buffers_[blob_file_number];
-    if (!prefetch_buffer) {
-      prefetch_buffer.reset(new FilePrefetchBuffer(2 << 20, 2 << 20));
-    }
-    return prefetch_buffer.get();
   }
 };
 

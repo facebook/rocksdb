@@ -11,6 +11,7 @@
 #include "db/blob/blob_file_builder.h"
 #include "db/blob/blob_index.h"
 #include "db/snapshot_checker.h"
+#include "file/file_prefetch_buffer.h"
 #include "logging/logging.h"
 #include "port/likely.h"
 #include "rocksdb/listener.h"
@@ -1169,6 +1170,23 @@ uint64_t CompactionIterator::ComputeBlobGarbageCollectionCutoffFileNumber(
 
   return it != blob_files.end() ? it->first
                                 : std::numeric_limits<uint64_t>::max();
+}
+
+FilePrefetchBuffer* CompactionIterator::GetOrCreatePrefetchBuffer(
+    uint64_t blob_file_number) {
+  assert(compaction_);
+
+  const uint64_t readahead = compaction_->blob_compaction_readahead_size();
+  if (!readahead) {
+    return nullptr;
+  }
+
+  auto& prefetch_buffer = prefetch_buffers_[blob_file_number];
+  if (!prefetch_buffer) {
+    prefetch_buffer.reset(new FilePrefetchBuffer(readahead, readahead));
+  }
+
+  return prefetch_buffer.get();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -172,6 +172,8 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
 
   double blob_garbage_collection_age_cutoff() const override { return 0.0; }
 
+  uint64_t blob_compaction_readahead_size() const override { return 0; }
+
   Version* input_version() const override { return nullptr; }
 
   bool DoesInputReferenceBlobFiles() const override { return false; }
