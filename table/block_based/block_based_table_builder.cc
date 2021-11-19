@@ -517,6 +517,12 @@ struct BlockBasedTableBuilder::Rep {
         new BlockBasedTablePropertiesCollector(
             table_options.index_type, table_options.whole_key_filtering,
             moptions.prefix_extractor != nullptr));
+    const Comparator* ucmp = tbo.internal_comparator.user_comparator();
+    assert(ucmp);
+    if (ucmp->timestamp_size() > 0) {
+      table_properties_collectors.emplace_back(
+          new TimestampTablePropertiesCollector(ucmp));
+    }
     if (table_options.verify_compression) {
       for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
         verify_ctxs[i].reset(new UncompressionContext(compression_type));

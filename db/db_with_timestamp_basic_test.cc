@@ -595,6 +595,41 @@ TEST_F(DBBasicTestWithTimestamp, SimpleIterate) {
   Close();
 }
 
+#ifndef ROCKSDB_LITE
+TEST_F(DBBasicTestWithTimestamp, GetTimestampTableProperties) {
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  // Create 2 tables
+  for (int table = 0; table < 2; ++table) {
+    for (int i = 0; i < 10; i++) {
+      WriteOptions write_opts;
+      std::string ts_str = Timestamp(i, 0);
+      Slice ts = ts_str;
+      write_opts.timestamp = &ts;
+      ASSERT_OK(db_->Put(write_opts, "key", Key(i)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  TablePropertiesCollection props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+  ASSERT_EQ(2U, props.size());
+  for (const auto& item : props) {
+    auto& user_collected = item.second->user_collected_properties;
+    ASSERT_TRUE(user_collected.find("rocksdb.timestamp_min") !=
+                user_collected.end());
+    ASSERT_TRUE(user_collected.find("rocksdb.timestamp_max") !=
+                user_collected.end());
+    ASSERT_EQ(user_collected.at("rocksdb.timestamp_min"), Timestamp(0, 0));
+    ASSERT_EQ(user_collected.at("rocksdb.timestamp_max"), Timestamp(9, 0));
+  }
+  Close();
+}
+#endif  // !ROCKSDB_LITE
+
 class DBBasicTestWithTimestampTableOptions
     : public DBBasicTestWithTimestampBase,
       public testing::WithParamInterface<BlockBasedTableOptions::IndexType> {
