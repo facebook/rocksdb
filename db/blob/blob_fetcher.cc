@@ -30,4 +30,5 @@ Status BlobFetcher::FetchBlob(const Slice& user_key,
   return version_->GetBlob(read_options_, user_key, blob_index, prefetch_buffer,
                            blob_value, bytes_read);
 }
+
 }  // namespace ROCKSDB_NAMESPACE

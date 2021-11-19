@@ -34,7 +34,7 @@ class MergeHelperTest : public testing::Test {
                                         false, latest_snapshot));
     return merge_helper_->MergeUntil(
         iter_.get(), nullptr /* range_del_agg */, stop_before, at_bottom,
-        false /* allow_data_in_errors */, nullptr /* version */,
+        false /* allow_data_in_errors */, nullptr /* blob_fetcher */,
         nullptr /* prefetch_buffers */);
   }
 

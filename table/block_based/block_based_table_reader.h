@@ -685,7 +685,7 @@ struct BlockBasedTable::Rep {
                                 bool implicit_auto_readahead) const {
     fpb->reset(new FilePrefetchBuffer(readahead_size, max_readahead_size,
                                       !ioptions.allow_mmap_reads /* enable */,
-                                      false /* track_min_offset*/,
+                                      false /* track_min_offset */,
                                       implicit_auto_readahead));
   }
 
