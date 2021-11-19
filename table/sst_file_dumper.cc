@@ -332,18 +332,16 @@ Status SstFileDumper::ShowCompressionSize(
   return Status::OK();
 }
 
+// Reads TableProperties prior to opening table reader in order to set up
+// options.
 Status SstFileDumper::ReadTableProperties(uint64_t table_magic_number,
                                           RandomAccessFileReader* file,
                                           uint64_t file_size,
                                           FilePrefetchBuffer* prefetch_buffer) {
-  TableProperties* table_properties = nullptr;
   Status s = ROCKSDB_NAMESPACE::ReadTableProperties(
-      file, file_size, table_magic_number, ioptions_, &table_properties,
-      /* compression_type_missing= */ false,
+      file, file_size, table_magic_number, ioptions_, &table_properties_,
       /* memory_allocator= */ nullptr, prefetch_buffer);
-  if (s.ok()) {
-    table_properties_.reset(table_properties);
-  } else {
+  if (!s.ok()) {
     if (!silent_) {
       fprintf(stdout, "Not able to read table properties\n");
     }
@@ -488,6 +486,7 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
   return ret;
 }
 
+// Provides TableProperties to API user
 Status SstFileDumper::ReadTableProperties(
     std::shared_ptr<const TableProperties>* table_properties) {
   if (!table_reader_) {

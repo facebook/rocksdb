@@ -7000,6 +7000,65 @@ TEST_F(DBCompactionTest, ChangeLevelConflictsWithManual) {
   refit_level_thread.join();
 }
 
+TEST_F(DBCompactionTest, BottomPriCompactionCountsTowardConcurrencyLimit) {
+  // Flushes several files to trigger compaction while lock is released during
+  // a bottom-pri compaction. Verifies it does not get scheduled to thread pool
+  // because per-DB limit for compaction parallelism is one (default).
+  const int kNumL0Files = 4;
+  const int kNumLevels = 3;
+
+  env_->SetBackgroundThreads(1, Env::Priority::BOTTOM);
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.num_levels = kNumLevels;
+  DestroyAndReopen(options);
+
+  // Setup last level to be non-empty since it's a bit unclear whether
+  // compaction to an empty level would be considered "bottommost".
+  ASSERT_OK(Put(Key(0), "val"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(kNumLevels - 1);
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkBottomCompaction",
+        "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
+        "PreTriggerCompaction"},
+       {"DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
+        "PostTriggerCompaction",
+        "BackgroundCallCompaction:0"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread compact_range_thread([&] {
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    cro.exclusive_manual_compaction = false;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  });
+
+  // Sleep in the low-pri thread so any newly scheduled compaction will be
+  // queued. Otherwise it might finish before we check its existence.
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+
+  TEST_SYNC_POINT(
+      "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
+      "PreTriggerCompaction");
+  for (int i = 0; i < kNumL0Files; ++i) {
+    ASSERT_OK(Put(Key(0), "val"));
+    ASSERT_OK(Flush());
+  }
+  ASSERT_EQ(0u, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+  TEST_SYNC_POINT(
+      "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
+      "PostTriggerCompaction");
+
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
+  compact_range_thread.join();
+}
+
 #endif  // !defined(ROCKSDB_LITE)
 
 }  // namespace ROCKSDB_NAMESPACE

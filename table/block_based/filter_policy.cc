@@ -19,6 +19,7 @@
 #include "logging/logging.h"
 #include "rocksdb/slice.h"
 #include "table/block_based/block_based_filter_block.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
 #include "third-party/folly/folly/ConstexprMath.h"
@@ -158,7 +159,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
       // Filter blocks are loaded into block cache with their block trailer.
       // We need to make sure that's accounted for in choosing a
       // fragmentation-friendly size.
-      const size_t kExtraPadding = kBlockTrailerSize;
+      const size_t kExtraPadding = BlockBasedTable::kBlockTrailerSize;
       size_t requested = rv + kExtraPadding;
 
       // Allocate and get usable size
