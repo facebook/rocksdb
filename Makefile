@@ -883,12 +883,15 @@ J ?= 100%
 
 # Use this regexp to select the subset of tests whose names match.
 tests-regexp = .
-EXCLUDE_TESTS_REGEX ?= "^$"
+EXCLUDE_TESTS_REGEX ?= "^$$"
 
 ifeq ($(PRINT_PARALLEL_OUTPUTS), 1)
 	parallel_redir =
-else
+else ifeq ($(QUIET_PARALLEL_TESTS), 1)
 	parallel_redir = >& t/$(test_log_prefix)log-{/}
+else
+# Default: print failure output as it happens
+	parallel_redir = >& t/$(test_log_prefix)log-{/} || bash -c "cat t/$(test_log_prefix)log-{/}; exit $$?"
 endif
 
 .PHONY: check_0

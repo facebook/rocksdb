@@ -91,7 +91,7 @@ fi
 
 # Should probably be called PARALLEL_TEST
 if [ -z $PARALLEL_J ]; then
-  PARALLEL_J="PRINT_PARALLEL_OUTPUTS=1 J=$(expr $(nproc) / ${RATIO})"
+  PARALLEL_J="J=$(expr $(nproc) / ${RATIO})"
 fi
 
 # Should probably be called PARALLEL_MAKE
