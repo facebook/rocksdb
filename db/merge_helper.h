@@ -9,7 +9,6 @@
 #include <string>
 #include <vector>
 
-#include "blob/prefetch_buffer_collection.h"
 #include "db/merge_context.h"
 #include "db/range_del_aggregator.h"
 #include "db/snapshot_checker.h"
@@ -27,7 +26,9 @@ class Logger;
 class MergeOperator;
 class Statistics;
 class SystemClock;
-class Version;
+class BlobFetcher;
+class PrefetchBufferCollection;
+struct CompactionIterationStats;
 
 class MergeHelper {
  public:

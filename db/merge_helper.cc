@@ -7,9 +7,10 @@
 
 #include <string>
 
-#include "blob/prefetch_buffer_collection.h"
 #include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_index.h"
+#include "db/blob/prefetch_buffer_collection.h"
+#include "db/compaction/compaction_iteration_stats.h"
 #include "db/dbformat.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
