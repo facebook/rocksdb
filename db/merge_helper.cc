@@ -124,7 +124,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                                const bool at_bottom,
                                const bool allow_data_in_errors,
                                const BlobFetcher* blob_fetcher,
-                               PrefetchBufferCollection* prefetch_buffers) {
+                               PrefetchBufferCollection* prefetch_buffers,
+                               CompactionIterationStats* c_iter_stats) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
   assert(HasOperator());
@@ -227,16 +228,23 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                                      blob_index.file_number())
                                : nullptr;
 
-          constexpr uint64_t* bytes_read = nullptr;
+          uint64_t bytes_read = 0;
 
           assert(blob_fetcher);
 
           s = blob_fetcher->FetchBlob(ikey.user_key, blob_index,
-                                      prefetch_buffer, &blob_value, bytes_read);
+                                      prefetch_buffer, &blob_value,
+                                      &bytes_read);
           if (!s.ok()) {
             return s;
           }
+
           val_ptr = &blob_value;
+
+          if (c_iter_stats) {
+            ++c_iter_stats->num_blobs_read;
+            c_iter_stats->total_blob_bytes_read += bytes_read;
+          }
         } else {
           val_ptr = &val;
         }

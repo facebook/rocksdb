@@ -74,6 +74,7 @@ class MergeHelper {
   // blob_fetcher: (IN) blob fetcher object for the compaction's input version.
   // prefetch_buffers: (IN/OUT) a collection of blob file prefetch buffers
   //                            used for compaction readahead.
+  // c_iter_stats: (OUT) compaction iteration statistics.
   //
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
@@ -90,7 +91,8 @@ class MergeHelper {
                     const SequenceNumber stop_before, const bool at_bottom,
                     const bool allow_data_in_errors,
                     const BlobFetcher* blob_fetcher,
-                    PrefetchBufferCollection* prefetch_buffers);
+                    PrefetchBufferCollection* prefetch_buffers,
+                    CompactionIterationStats* c_iter_stats);
 
   // Filters a merge operand using the compaction filter specified
   // in the constructor. Returns the decision that the filter made.
