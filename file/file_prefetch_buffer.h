@@ -74,16 +74,19 @@ class FilePrefetchBuffer {
   Status Prefetch(const IOOptions& opts, RandomAccessFileReader* reader,
                   uint64_t offset, size_t n, bool for_compaction = false);
 
-  // Tries returning the data for a file raed from this buffer, if that data is
+  // Tries returning the data for a file read from this buffer if that data is
   // in the buffer.
   // It handles tracking the minimum read offset if track_min_offset = true.
   // It also does the exponential readahead when readahead_size is set as part
   // of the constructor.
   //
-  // offset : the file offset.
-  // n      : the number of bytes.
-  // result : output buffer to put the data into.
-  // for_compaction : if cache read is done for compaction read.
+  // opts           : the IO options to use.
+  // reader         : the file reader.
+  // offset         : the file offset.
+  // n              : the number of bytes.
+  // result         : output buffer to put the data into.
+  // s              : output status.
+  // for_compaction : true if cache read is done for compaction read.
   bool TryReadFromCache(const IOOptions& opts, RandomAccessFileReader* reader,
                         uint64_t offset, size_t n, Slice* result, Status* s,
                         bool for_compaction = false);
