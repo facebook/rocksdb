@@ -23,6 +23,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class BlobFileBuilder;
+class BlobFetcher;
 class PrefetchBufferCollection;
 
 // A wrapper of internal iterator whose purpose is to count how
@@ -386,6 +387,7 @@ class CompactionIterator {
 
   uint64_t blob_garbage_collection_cutoff_file_number_;
 
+  std::unique_ptr<BlobFetcher> blob_fetcher_;
   std::unique_ptr<PrefetchBufferCollection> prefetch_buffers_;
 
   std::string blob_index_;

@@ -23,11 +23,11 @@ class BlobFetcher {
 
   Status FetchBlob(const Slice& user_key, const Slice& blob_index_slice,
                    FilePrefetchBuffer* prefetch_buffer,
-                   PinnableSlice* blob_value) const;
+                   PinnableSlice* blob_value, uint64_t* bytes_read) const;
 
   Status FetchBlob(const Slice& user_key, const BlobIndex& blob_index,
                    FilePrefetchBuffer* prefetch_buffer,
-                   PinnableSlice* blob_value) const;
+                   PinnableSlice* blob_value, uint64_t* bytes_read) const;
 
  private:
   const Version* version_;

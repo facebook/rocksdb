@@ -71,7 +71,7 @@ class MergeHelper {
   //                   we could reach the start of the history of this user key.
   // allow_data_in_errors: (IN) if true, data details will be displayed in
   //                   error/log messages.
-  // version: (IN) the compaction's input version.
+  // blob_fetcher: (IN) blob fetcher object for the compaction's input version.
   // prefetch_buffers: (IN/OUT) a collection of blob file prefetch buffers
   //                            used for compaction readahead.
   //
@@ -88,7 +88,8 @@ class MergeHelper {
   Status MergeUntil(InternalIterator* iter,
                     CompactionRangeDelAggregator* range_del_agg,
                     const SequenceNumber stop_before, const bool at_bottom,
-                    const bool allow_data_in_errors, const Version* version,
+                    const bool allow_data_in_errors,
+                    const BlobFetcher* blob_fetcher,
                     PrefetchBufferCollection* prefetch_buffers);
 
   // Filters a merge operand using the compaction filter specified
