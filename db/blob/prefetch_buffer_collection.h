@@ -10,11 +10,10 @@
 #include <memory>
 #include <unordered_map>
 
+#include "file/file_prefetch_buffer.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-class FilePrefetchBuffer;
 
 class PrefetchBufferCollection {
  public:
@@ -22,8 +21,6 @@ class PrefetchBufferCollection {
       : readahead_size_(readahead_size) {
     assert(readahead_size_ > 0);
   }
-
-  ~PrefetchBufferCollection();
 
   FilePrefetchBuffer* GetOrCreatePrefetchBuffer(uint64_t file_number);
 
