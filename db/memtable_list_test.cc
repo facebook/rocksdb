@@ -957,20 +957,6 @@ TEST_F(MemTableListTest, AtomicFlusTest) {
   }
 }
 
-TEST_F(MemTableListVersion, MemtableLimitExceeded) {
-  size_t parent_memtable_list_memory_usage = 0;
-  MemTableListVersion list_version(&parent_memtable_list_memory_usage, 0, 0);
-  autovector<MemTableList*> lists;
-  autovector<uint32_t> cf_ids;
-  autovector<const MutableCFOptions*> options_list;
-  autovector<const autovector<MemTable*>*> to_flush;
-  autovector<MemTable*> to_delete;
-  Status s = Mock_InstallMemtableAtomicFlushResults(lists, cf_ids, options_list,
-                                                    to_flush, &to_delete);
-  ASSERT_OK(s);
-  ASSERT_TRUE(to_delete.empty());
-}
-
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
