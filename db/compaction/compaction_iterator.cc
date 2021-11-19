@@ -842,7 +842,8 @@ void CompactionIterator::NextFromInput() {
       }
 
       pinned_iters_mgr_.StartPinning();
-      Version* version = compaction_ ? compaction_->input_version() : nullptr;
+      const Version* const version =
+          compaction_ ? compaction_->input_version() : nullptr;
 
       // We know the merge type entry is not hidden, otherwise we would
       // have hit (A)
@@ -1168,7 +1169,7 @@ uint64_t CompactionIterator::ComputeBlobGarbageCollectionCutoffFileNumber(
     return 0;
   }
 
-  Version* const version = compaction->input_version();
+  const Version* const version = compaction->input_version();
   assert(version);
 
   const VersionStorageInfo* const storage_info = version->storage_info();

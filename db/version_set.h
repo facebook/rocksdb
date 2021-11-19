@@ -806,6 +806,7 @@ class Version {
   int TEST_refs() const { return refs_; }
 
   VersionStorageInfo* storage_info() { return &storage_info_; }
+  const VersionStorageInfo* storage_info() const { return &storage_info_; }
 
   VersionSet* version_set() { return vset_; }
 

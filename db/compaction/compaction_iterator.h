@@ -99,7 +99,7 @@ class CompactionIterator {
 
     virtual uint64_t blob_compaction_readahead_size() const = 0;
 
-    virtual Version* input_version() const = 0;
+    virtual const Version* input_version() const = 0;
 
     virtual bool DoesInputReferenceBlobFiles() const = 0;
 
@@ -153,7 +153,7 @@ class CompactionIterator {
       return compaction_->mutable_cf_options()->blob_compaction_readahead_size;
     }
 
-    Version* input_version() const override {
+    const Version* input_version() const override {
       return compaction_->input_version();
     }
 
