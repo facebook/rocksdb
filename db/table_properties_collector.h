@@ -114,12 +114,13 @@ class UserKeyTablePropertiesCollectorFactory
 // "internal keys". This class collects min/max timestamp from the encoded
 // internal key when Add() is invoked.
 //
-// @param cmp the Comparator to compare timestamp of key by the
-//     Comparator::CompareTimestamp function.
+// @param cmp  the user comparator to compare the timestamps in internal key.
 class TimestampTablePropertiesCollector : public IntTblPropCollector {
  public:
   explicit TimestampTablePropertiesCollector(const Comparator* cmp)
-      : cmp_(cmp) {}
+      : cmp_(cmp),
+        timestamp_min_(kDisableUserTimestamp),
+        timestamp_max_(kDisableUserTimestamp) {}
 
   Status InternalAdd(const Slice& key, const Slice& /* value */,
                      uint64_t /* file_size */) override {
@@ -131,13 +132,13 @@ class TimestampTablePropertiesCollector : public IntTblPropCollector {
     }
     auto timestamp_in_key =
         ExtractTimestampFromUserKey(user_key, cmp_->timestamp_size());
-    if (max_timestamp_ == kDisableUserTimestamp ||
-        cmp_->CompareTimestamp(timestamp_in_key, max_timestamp_) > 0) {
-      max_timestamp_ = timestamp_in_key.ToString();
+    if (timestamp_max_ == kDisableUserTimestamp ||
+        cmp_->CompareTimestamp(timestamp_in_key, timestamp_max_) > 0) {
+      timestamp_max_.assign(timestamp_in_key.data(), timestamp_in_key.size());
     }
-    if (min_timestamp_ == kDisableUserTimestamp ||
-        cmp_->CompareTimestamp(min_timestamp_, timestamp_in_key) > 0) {
-      min_timestamp_ = timestamp_in_key.ToString();
+    if (timestamp_min_ == kDisableUserTimestamp ||
+        cmp_->CompareTimestamp(timestamp_min_, timestamp_in_key) > 0) {
+      timestamp_min_.assign(timestamp_in_key.data(), timestamp_in_key.size());
     }
     return Status::OK();
   }
@@ -149,10 +150,10 @@ class TimestampTablePropertiesCollector : public IntTblPropCollector {
   }
 
   Status Finish(UserCollectedProperties* properties) override {
-    assert(min_timestamp_.size() == max_timestamp_.size() &&
-           max_timestamp_.size() == cmp_->timestamp_size());
-    properties->insert({"rocksdb.min_timestamp", min_timestamp_});
-    properties->insert({"rocksdb.max_timestamp", max_timestamp_});
+    assert(timestamp_min_.size() == timestamp_max_.size() &&
+           timestamp_max_.size() == cmp_->timestamp_size());
+    properties->insert({"rocksdb.timestamp_min", timestamp_min_});
+    properties->insert({"rocksdb.timestamp_max", timestamp_max_});
     return Status::OK();
   }
 
@@ -161,14 +162,14 @@ class TimestampTablePropertiesCollector : public IntTblPropCollector {
   }
 
   UserCollectedProperties GetReadableProperties() const override {
-    return {{"rocksdb.min_timestamp", Slice(min_timestamp_).ToString(true)},
-            {"rocksdb.max_timestamp", Slice(max_timestamp_).ToString(true)}};
+    return {{"rocksdb.timestamp_min", Slice(timestamp_min_).ToString(true)},
+            {"rocksdb.timestamp_max", Slice(timestamp_max_).ToString(true)}};
   }
 
  protected:
   const Comparator* const cmp_;
-  std::string max_timestamp_;
-  std::string min_timestamp_;
+  std::string timestamp_min_;
+  std::string timestamp_max_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
