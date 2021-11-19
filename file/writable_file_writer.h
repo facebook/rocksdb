@@ -114,6 +114,19 @@ class WritableFileWriter {
     }
     info.status.PermitUncheckedError();
   }
+
+  void NotifyOnIOError(const IOStatus& io_status, FileOperationType operation,
+                       const std::string& file_path, size_t length = 0,
+                       uint64_t offset = 0) {
+    if (listeners_.empty()) {
+      return;
+    }
+    IOErrorInfo io_error_info(io_status, operation, file_path, length, offset);
+    for (auto& listener : listeners_) {
+      listener->OnIOError(io_error_info);
+    }
+    io_error_info.io_status.PermitUncheckedError();
+  }
 #endif  // ROCKSDB_LITE
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }

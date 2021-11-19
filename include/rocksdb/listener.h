@@ -15,6 +15,7 @@
 #include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/customizable.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
@@ -237,7 +238,10 @@ enum class FileOperationType {
   kFlush,
   kSync,
   kFsync,
-  kRangeSync
+  kRangeSync,
+  kAppend,
+  kPositionedAppend,
+  kOpen
 };
 
 struct FileOperationInfo {
@@ -447,6 +451,23 @@ struct ExternalFileIngestionInfo {
   SequenceNumber global_seqno;
   // Table properties of the table being flushed
   TableProperties table_properties;
+};
+
+struct IOErrorInfo {
+  IOErrorInfo(const IOStatus& _io_status, FileOperationType _operation,
+              const std::string& _file_path, size_t _length, uint64_t _offset)
+      : io_status(_io_status),
+        operation(_operation),
+        file_path(_file_path),
+        length(_length),
+        offset(_offset) {}
+
+  IOStatus io_status;
+  FileOperationType operation;
+  std::string file_path;
+  size_t length;
+  uint64_t offset;
+  ;
 };
 
 // EventListener class contains a set of callback functions that will
@@ -704,6 +725,10 @@ class EventListener : public Customizable {
   // outside this function call, they should make copies from these
   // returned value.
   virtual void OnBlobFileDeleted(const BlobFileDeletionInfo& /*info*/) {}
+
+  // A callback function for RocksDB which will be called whenever an IO error
+  // happens. ShouldBeNotifiedOnFileIO should be set to true to get a callback.
+  virtual void OnIOError(const IOErrorInfo& /*info*/) {}
 
   virtual ~EventListener() {}
 };
