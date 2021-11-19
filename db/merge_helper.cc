@@ -7,7 +7,9 @@
 
 #include <string>
 
+#include "blob/prefetch_buffer_collection.h"
 #include "db/blob/blob_fetcher.h"
+#include "db/blob/blob_index.h"
 #include "db/dbformat.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
@@ -121,7 +123,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                                const SequenceNumber stop_before,
                                const bool at_bottom,
                                const bool allow_data_in_errors,
-                               Version* version) {
+                               const Version* version,
+                               PrefetchBufferCollection* prefetch_buffers) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
   assert(HasOperator());
@@ -213,8 +216,26 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                ikey, RangeDelPositioningMode::kForwardTraversal))) {
         if (ikey.type == kTypeBlobIndex) {
           assert(version);
+
+          BlobIndex blob_index;
+
+          s = blob_index.DecodeFrom(val);
+          if (!s.ok()) {
+            return s;
+          }
+
+          if (blob_index.HasTTL() || blob_index.IsInlined()) {
+            return Status::Corruption("Unexpected TTL/inlined blob index");
+          }
+
+          FilePrefetchBuffer* prefetch_buffer =
+              prefetch_buffers ? prefetch_buffers->GetOrCreatePrefetchBuffer(
+                                     blob_index.file_number())
+                               : nullptr;
+
           BlobFetcher blob_fetcher(version, ReadOptions());
-          s = blob_fetcher.FetchBlob(ikey.user_key, val, &blob_value);
+          s = blob_fetcher.FetchBlob(ikey.user_key, val, prefetch_buffer,
+                                     &blob_value);
           if (!s.ok()) {
             return s;
           }

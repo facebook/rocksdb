@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "blob/prefetch_buffer_collection.h"
 #include "db/merge_context.h"
 #include "db/range_del_aggregator.h"
 #include "db/snapshot_checker.h"
@@ -70,6 +71,9 @@ class MergeHelper {
   //                   we could reach the start of the history of this user key.
   // allow_data_in_errors: (IN) if true, data details will be displayed in
   //                   error/log messages.
+  // version: (IN) the compaction's input version.
+  // prefetch_buffers: (IN/OUT) a collection of blob file prefetch buffers
+  //                            used for compaction readahead.
   //
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
@@ -82,11 +86,10 @@ class MergeHelper {
   //
   // REQUIRED: The first key in the input is not corrupted.
   Status MergeUntil(InternalIterator* iter,
-                    CompactionRangeDelAggregator* range_del_agg = nullptr,
-                    const SequenceNumber stop_before = 0,
-                    const bool at_bottom = false,
-                    const bool allow_data_in_errors = false,
-                    Version* version = nullptr);
+                    CompactionRangeDelAggregator* range_del_agg,
+                    const SequenceNumber stop_before, const bool at_bottom,
+                    const bool allow_data_in_errors, const Version* version,
+                    PrefetchBufferCollection* prefetch_buffers);
 
   // Filters a merge operand using the compaction filter specified
   // in the constructor. Returns the decision that the filter made.

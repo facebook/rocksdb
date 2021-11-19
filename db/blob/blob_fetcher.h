@@ -10,17 +10,19 @@
 
 namespace ROCKSDB_NAMESPACE {
 class Version;
+class FilePrefetchBuffer;
 
 class BlobFetcher {
  public:
-  BlobFetcher(Version* version, const ReadOptions& read_options)
+  BlobFetcher(const Version* version, const ReadOptions& read_options)
       : version_(version), read_options_(read_options) {}
 
   Status FetchBlob(const Slice& user_key, const Slice& blob_index,
+                   FilePrefetchBuffer* prefetch_buffer,
                    PinnableSlice* blob_value);
 
  private:
-  Version* version_;
+  const Version* version_;
   ReadOptions read_options_;
 };
 }  // namespace ROCKSDB_NAMESPACE
