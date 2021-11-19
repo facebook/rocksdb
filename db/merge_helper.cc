@@ -234,7 +234,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                                : nullptr;
 
           BlobFetcher blob_fetcher(version, ReadOptions());
-          s = blob_fetcher.FetchBlob(ikey.user_key, val, prefetch_buffer,
+          s = blob_fetcher.FetchBlob(ikey.user_key, blob_index, prefetch_buffer,
                                      &blob_value);
           if (!s.ok()) {
             return s;
