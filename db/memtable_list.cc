@@ -288,10 +288,13 @@ size_t MemTableListVersion::ApproximateMemoryUsageExcludingLast() const {
     total_memtable_size += memtable->ApproximateMemoryUsage();
   }
   for (auto& memtable : memlist_history_) {
-    total_memtable_size += memtable->ApproximateMemoryUsage();
+    total_memtable_size += 
+        std::max(memtable->ArenaBlockSize(), memtable->ApproximateMemoryUsage());
   }
   if (!memlist_history_.empty()) {
-    total_memtable_size -= memlist_history_.back()->ApproximateMemoryUsage();
+    total_memtable_size -= 
+        std::max(memlist_history_.back()->ArenaBlockSize(), 
+                 memlist_history_.back()->ApproximateMemoryUsage());
   }
   return total_memtable_size;
 }
@@ -307,7 +310,7 @@ bool MemTableListVersion::MemtableLimitExceeded(size_t usage) {
     return memlist_.size() + memlist_history_.size() >
            static_cast<size_t>(max_write_buffer_number_to_maintain_);
   } else {
-    return true;
+    return false;
   }
 }
 
