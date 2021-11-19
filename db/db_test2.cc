@@ -3973,7 +3973,9 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
         ASSERT_OK(Put(Key(j), DummyString(kBytesPerKey)));
       }
       ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-      ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
+      if (i + 1 < kNumL0Files) {
+        ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
+      }
     }
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(0, NumTableFilesAtLevel(0));
