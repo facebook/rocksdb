@@ -90,15 +90,9 @@ CompactionIterator::CompactionIterator(
       merge_out_iter_(merge_helper_),
       blob_garbage_collection_cutoff_file_number_(
           ComputeBlobGarbageCollectionCutoffFileNumber(compaction_.get())),
-      blob_fetcher_(
-          (compaction_ && compaction_->input_version())
-              ? new BlobFetcher(compaction_->input_version(), ReadOptions())
-              : nullptr),
+      blob_fetcher_(CreateBlobFetcherIfNeeded(compaction_.get())),
       prefetch_buffers_(
-          (compaction_ && compaction_->blob_compaction_readahead_size() > 0)
-              ? new PrefetchBufferCollection(
-                    compaction_->blob_compaction_readahead_size())
-              : nullptr),
+          CreatePrefetchBufferCollectionIfNeeded(compaction_.get())),
       current_key_committed_(false),
       cmp_with_history_ts_low_(0),
       level_(compaction_ == nullptr ? 0 : compaction_->level()) {
@@ -1175,6 +1169,36 @@ uint64_t CompactionIterator::ComputeBlobGarbageCollectionCutoffFileNumber(
 
   return it != blob_files.end() ? it->first
                                 : std::numeric_limits<uint64_t>::max();
+}
+
+std::unique_ptr<BlobFetcher> CompactionIterator::CreateBlobFetcherIfNeeded(
+    const CompactionProxy* compaction) {
+  if (!compaction) {
+    return nullptr;
+  }
+
+  const Version* const version = compaction->input_version();
+  if (!version) {
+    return nullptr;
+  }
+
+  return std::unique_ptr<BlobFetcher>(new BlobFetcher(version, ReadOptions()));
+}
+
+std::unique_ptr<PrefetchBufferCollection>
+CompactionIterator::CreatePrefetchBufferCollectionIfNeeded(
+    const CompactionProxy* compaction) {
+  if (!compaction) {
+    return nullptr;
+  }
+
+  const uint64_t readahead_size = compaction->blob_compaction_readahead_size();
+  if (!readahead_size) {
+    return nullptr;
+  }
+
+  return std::unique_ptr<PrefetchBufferCollection>(
+      new PrefetchBufferCollection(readahead_size));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

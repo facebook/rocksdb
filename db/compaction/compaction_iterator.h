@@ -299,6 +299,10 @@ class CompactionIterator {
 
   static uint64_t ComputeBlobGarbageCollectionCutoffFileNumber(
       const CompactionProxy* compaction);
+  static std::unique_ptr<BlobFetcher> CreateBlobFetcherIfNeeded(
+      const CompactionProxy* compaction);
+  static std::unique_ptr<PrefetchBufferCollection>
+  CreatePrefetchBufferCollectionIfNeeded(const CompactionProxy* compaction);
 
   SequenceIterWrapper input_;
   const Comparator* cmp_;
