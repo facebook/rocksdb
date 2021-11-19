@@ -2739,7 +2739,10 @@ class ModelDB : public DB {
   Status Put(const WriteOptions& o, ColumnFamilyHandle* cf, const Slice& k,
              const Slice& v) override {
     WriteBatch batch;
-    batch.Put(cf, k, v).ok();
+    Status s = batch.Put(cf, k, v);
+    if (!s.ok()) {
+      return s;
+    }
     return Write(o, &batch);
   }
   using DB::Close;
@@ -2748,21 +2751,30 @@ class ModelDB : public DB {
   Status Delete(const WriteOptions& o, ColumnFamilyHandle* cf,
                 const Slice& key) override {
     WriteBatch batch;
-    batch.Delete(cf, key).ok();
+    Status s = batch.Delete(cf, key);
+    if (!s.ok()) {
+      return s;
+    }
     return Write(o, &batch);
   }
   using DB::SingleDelete;
   Status SingleDelete(const WriteOptions& o, ColumnFamilyHandle* cf,
                       const Slice& key) override {
     WriteBatch batch;
-    batch.SingleDelete(cf, key).ok();
+    Status s = batch.SingleDelete(cf, key);
+    if (!s.ok()) {
+      return s;
+    }
     return Write(o, &batch);
   }
   using DB::Merge;
   Status Merge(const WriteOptions& o, ColumnFamilyHandle* cf, const Slice& k,
                const Slice& v) override {
     WriteBatch batch;
-    batch.Merge(cf, k, v).ok();
+    Status s = batch.Merge(cf, k, v);
+    if (!s.ok()) {
+      return s;
+    }
     return Write(o, &batch);
   }
   using DB::Get;
