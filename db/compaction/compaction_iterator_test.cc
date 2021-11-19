@@ -168,6 +168,8 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
 
   bool preserve_deletes() const override { return false; }
 
+  bool allow_mmap_reads() const override { return false; }
+
   bool enable_blob_garbage_collection() const override { return false; }
 
   double blob_garbage_collection_age_cutoff() const override { return 0.0; }

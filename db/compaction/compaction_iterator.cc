@@ -1192,6 +1192,14 @@ CompactionIterator::CreatePrefetchBufferCollectionIfNeeded(
     return nullptr;
   }
 
+  if (!compaction->input_version()) {
+    return nullptr;
+  }
+
+  if (compaction->allow_mmap_reads()) {
+    return nullptr;
+  }
+
   const uint64_t readahead_size = compaction->blob_compaction_readahead_size();
   if (!readahead_size) {
     return nullptr;

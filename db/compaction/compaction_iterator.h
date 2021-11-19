@@ -94,6 +94,8 @@ class CompactionIterator {
 
     virtual bool preserve_deletes() const = 0;
 
+    virtual bool allow_mmap_reads() const = 0;
+
     virtual bool enable_blob_garbage_collection() const = 0;
 
     virtual double blob_garbage_collection_age_cutoff() const = 0;
@@ -139,6 +141,10 @@ class CompactionIterator {
 
     bool preserve_deletes() const override {
       return compaction_->immutable_options()->preserve_deletes;
+    }
+
+    bool allow_mmap_reads() const override {
+      return compaction_->immutable_options()->allow_mmap_reads;
     }
 
     bool enable_blob_garbage_collection() const override {
