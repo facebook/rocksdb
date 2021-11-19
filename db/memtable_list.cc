@@ -259,8 +259,8 @@ SequenceNumber MemTableListVersion::GetEarliestSequenceNumber(
 void MemTableListVersion::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable
   AddMemTable(m);
-
-  TrimHistory(to_delete, m->ApproximateMemoryUsage());
+  // m->ApproximateMemoryUsage() is added in ApproximateMemoryUsageExcludingLast
+  TrimHistory(to_delete, 0);
 }
 
 // Removes m from list of memtables not flushed.  Caller should NOT Unref m.
@@ -285,7 +285,8 @@ void MemTableListVersion::Remove(MemTable* m,
 size_t MemTableListVersion::ApproximateMemoryUsageExcludingLast() const {
   size_t total_memtable_size = 0;
   for (auto& memtable : memlist_) {
-    total_memtable_size += memtable->ApproximateMemoryUsage();
+    total_memtable_size += 
+        std::max(memtable->ArenaBlockSize(), memtable->ApproximateMemoryUsage());
   }
   for (auto& memtable : memlist_history_) {
     total_memtable_size += 
