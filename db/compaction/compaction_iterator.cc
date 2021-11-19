@@ -231,6 +231,13 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           compaction_filter_skip_until_.rep());
       if (CompactionFilter::Decision::kUndetermined == filter &&
           !compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
+        if (compaction_ == nullptr) {
+          status_ =
+              Status::Corruption("Unexpected blob index outside of compaction");
+          valid_ = false;
+          return false;
+        }
+
         // For integrated BlobDB impl, CompactionIterator reads blob value.
         // For Stacked BlobDB impl, the corresponding CompactionFilter's
         // FilterV2 method should read the blob value.
@@ -238,17 +245,6 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
         Status s = blob_index.DecodeFrom(value_);
         if (!s.ok()) {
           status_ = s;
-          valid_ = false;
-          return false;
-        }
-        if (blob_index.HasTTL() || blob_index.IsInlined()) {
-          status_ = Status::Corruption("Unexpected TTL/inlined blob index");
-          valid_ = false;
-          return false;
-        }
-        if (compaction_ == nullptr) {
-          status_ =
-              Status::Corruption("Unexpected blob index outside of compaction");
           valid_ = false;
           return false;
         }
@@ -969,13 +965,6 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
 
         return;
       }
-    }
-
-    if (blob_index.IsInlined() || blob_index.HasTTL()) {
-      status_ = Status::Corruption("Unexpected TTL/inlined blob index");
-      valid_ = false;
-
-      return;
     }
 
     if (blob_index.file_number() >=

@@ -224,10 +224,6 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
             return s;
           }
 
-          if (blob_index.HasTTL() || blob_index.IsInlined()) {
-            return Status::Corruption("Unexpected TTL/inlined blob index");
-          }
-
           FilePrefetchBuffer* prefetch_buffer =
               prefetch_buffers ? prefetch_buffers->GetOrCreatePrefetchBuffer(
                                      blob_index.file_number())
