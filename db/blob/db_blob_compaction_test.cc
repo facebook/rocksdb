@@ -590,6 +590,45 @@ TEST_F(DBBlobCompactionTest, MergeBlobWithBase) {
   Close();
 }
 
+TEST_F(DBBlobCompactionTest, CompactionReadaheadMerge) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_compaction_readahead_size = 1 << 10;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+
+  ASSERT_OK(Put("key", "lime"));
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Merge("key", "pie"));
+  ASSERT_OK(Merge("foo", "baz"));
+  ASSERT_OK(Flush());
+
+  size_t num_non_prefetch_reads = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileReader::GetBlob:ReadFromFile",
+      [&num_non_prefetch_reads](void* /* arg */) { ++num_non_prefetch_reads; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(Get("key"), "lime,pie");
+  ASSERT_EQ(Get("foo"), "bar,baz");
+  ASSERT_EQ(num_non_prefetch_reads, 0);
+
+  Close();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
