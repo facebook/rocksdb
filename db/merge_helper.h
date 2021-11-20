@@ -26,7 +26,9 @@ class Logger;
 class MergeOperator;
 class Statistics;
 class SystemClock;
-class Version;
+class BlobFetcher;
+class PrefetchBufferCollection;
+struct CompactionIterationStats;
 
 class MergeHelper {
  public:
@@ -70,6 +72,10 @@ class MergeHelper {
   //                   we could reach the start of the history of this user key.
   // allow_data_in_errors: (IN) if true, data details will be displayed in
   //                   error/log messages.
+  // blob_fetcher: (IN) blob fetcher object for the compaction's input version.
+  // prefetch_buffers: (IN/OUT) a collection of blob file prefetch buffers
+  //                            used for compaction readahead.
+  // c_iter_stats: (OUT) compaction iteration statistics.
   //
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
@@ -82,11 +88,12 @@ class MergeHelper {
   //
   // REQUIRED: The first key in the input is not corrupted.
   Status MergeUntil(InternalIterator* iter,
-                    CompactionRangeDelAggregator* range_del_agg = nullptr,
-                    const SequenceNumber stop_before = 0,
-                    const bool at_bottom = false,
-                    const bool allow_data_in_errors = false,
-                    Version* version = nullptr);
+                    CompactionRangeDelAggregator* range_del_agg,
+                    const SequenceNumber stop_before, const bool at_bottom,
+                    const bool allow_data_in_errors,
+                    const BlobFetcher* blob_fetcher,
+                    PrefetchBufferCollection* prefetch_buffers,
+                    CompactionIterationStats* c_iter_stats);
 
   // Filters a merge operand using the compaction filter specified
   // in the constructor. Returns the decision that the filter made.

@@ -269,6 +269,8 @@ bool StressTest::BuildOptionsTable() {
         std::vector<std::string>{"0.0", "0.25", "0.5", "0.75", "1.0"});
     options_tbl.emplace("blob_garbage_collection_force_threshold",
                         std::vector<std::string>{"0.5", "0.75", "1.0"});
+    options_tbl.emplace("blob_compaction_readahead_size",
+                        std::vector<std::string>{"0", "1M", "4M"});
   }
 
   options_table_ = std::move(options_tbl);
@@ -2323,6 +2325,8 @@ void StressTest::Open() {
         FLAGS_blob_garbage_collection_age_cutoff;
     options_.blob_garbage_collection_force_threshold =
         FLAGS_blob_garbage_collection_force_threshold;
+    options_.blob_compaction_readahead_size =
+        FLAGS_blob_compaction_readahead_size;
   } else {
 #ifdef ROCKSDB_LITE
     fprintf(stderr, "--options_file not supported in lite mode\n");
@@ -2422,21 +2426,18 @@ void StressTest::Open() {
     exit(1);
   }
 
-  if (options_.enable_blob_files) {
-    fprintf(stdout,
-            "Integrated BlobDB: blob files enabled, min blob size %" PRIu64
-            ", blob file size %" PRIu64 ", blob compression type %s\n",
-            options_.min_blob_size, options_.blob_file_size,
-            CompressionTypeToString(options_.blob_compression_type).c_str());
-  }
-
-  if (options_.enable_blob_garbage_collection) {
-    fprintf(
-        stdout,
-        "Integrated BlobDB: blob GC enabled, cutoff %f, force threshold %f\n",
-        options_.blob_garbage_collection_age_cutoff,
-        options_.blob_garbage_collection_force_threshold);
-  }
+  fprintf(stdout,
+          "Integrated BlobDB: blob files enabled %d, min blob size %" PRIu64
+          ", blob file size %" PRIu64
+          ", blob compression type %s, blob GC enabled %d, cutoff %f, force "
+          "threshold %f, blob compaction readahead size %" PRIu64 "\n",
+          options_.enable_blob_files, options_.min_blob_size,
+          options_.blob_file_size,
+          CompressionTypeToString(options_.blob_compression_type).c_str(),
+          options_.enable_blob_garbage_collection,
+          options_.blob_garbage_collection_age_cutoff,
+          options_.blob_garbage_collection_force_threshold,
+          options_.blob_compaction_readahead_size);
 
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 

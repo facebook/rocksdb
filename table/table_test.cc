@@ -4937,11 +4937,18 @@ TEST_F(BBTTailPrefetchTest, TestTailPrefetchStats) {
 
 TEST_F(BBTTailPrefetchTest, FilePrefetchBufferMinOffset) {
   TailPrefetchStats tpstats;
-  FilePrefetchBuffer buffer(nullptr, 0, 0, false, true);
+  FilePrefetchBuffer buffer(0 /* readahead_size */, 0 /* max_readahead_size */,
+                            false /* enable */, true /* track_min_offset */);
   IOOptions opts;
-  buffer.TryReadFromCache(opts, 500, 10, nullptr, nullptr);
-  buffer.TryReadFromCache(opts, 480, 10, nullptr, nullptr);
-  buffer.TryReadFromCache(opts, 490, 10, nullptr, nullptr);
+  buffer.TryReadFromCache(opts, nullptr /* reader */, 500 /* offset */,
+                          10 /* n */, nullptr /* result */,
+                          nullptr /* status */);
+  buffer.TryReadFromCache(opts, nullptr /* reader */, 480 /* offset */,
+                          10 /* n */, nullptr /* result */,
+                          nullptr /* status */);
+  buffer.TryReadFromCache(opts, nullptr /* reader */, 490 /* offset */,
+                          10 /* n */, nullptr /* result */,
+                          nullptr /* status */);
   ASSERT_EQ(480, buffer.min_offset_read());
 }
 

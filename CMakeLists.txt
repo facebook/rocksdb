@@ -652,6 +652,7 @@ set(SOURCES
         db/blob/blob_log_format.cc
         db/blob/blob_log_sequential_reader.cc
         db/blob/blob_log_writer.cc
+        db/blob/prefetch_buffer_collection.cc
         db/builder.cc
         db/c.cc
         db/column_family.cc

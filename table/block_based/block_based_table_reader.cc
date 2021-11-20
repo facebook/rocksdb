@@ -579,7 +579,8 @@ Status BlockBasedTable::Open(
   } else {
     // Should not prefetch for mmap mode.
     prefetch_buffer.reset(new FilePrefetchBuffer(
-        nullptr, 0, 0, false /* enable */, true /* track_min_offset */));
+        0 /* readahead_size */, 0 /* max_readahead_size */, false /* enable */,
+        true /* track_min_offset */));
   }
 
   // Read in the following order:
@@ -732,14 +733,17 @@ Status BlockBasedTable::PrefetchTail(
   // Try file system prefetch
   if (!file->use_direct_io() && !force_direct_prefetch) {
     if (!file->Prefetch(prefetch_off, prefetch_len).IsNotSupported()) {
-      prefetch_buffer->reset(
-          new FilePrefetchBuffer(nullptr, 0, 0, false, true));
+      prefetch_buffer->reset(new FilePrefetchBuffer(
+          0 /* readahead_size */, 0 /* max_readahead_size */,
+          false /* enable */, true /* track_min_offset */));
       return Status::OK();
     }
   }
 
   // Use `FilePrefetchBuffer`
-  prefetch_buffer->reset(new FilePrefetchBuffer(nullptr, 0, 0, true, true));
+  prefetch_buffer->reset(
+      new FilePrefetchBuffer(0 /* readahead_size */, 0 /* max_readahead_size */,
+                             true /* enable */, true /* track_min_offset */));
   IOOptions opts;
   Status s = file->PrepareIOOptions(ro, opts);
   if (s.ok()) {
@@ -2966,7 +2970,7 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
   // FilePrefetchBuffer doesn't work in mmap mode and readahead is not
   // needed there.
   FilePrefetchBuffer prefetch_buffer(
-      rep_->file.get(), readahead_size /* readahead_size */,
+      readahead_size /* readahead_size */,
       readahead_size /* max_readahead_size */,
       !rep_->ioptions.allow_mmap_reads /* enable */);
 
