@@ -15,6 +15,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// A class that owns a collection of FilePrefetchBuffers using the file number
+// as key. Used for implementing compaction readahead for blob files. Designed
+// to be accessed by a single thread only: every (sub)compaction needs its own
+// buffers since they are guaranteed to read different blobs from different
+// positions even when reading the same file.
 class PrefetchBufferCollection {
  public:
   explicit PrefetchBufferCollection(uint64_t readahead_size)
@@ -27,7 +32,7 @@ class PrefetchBufferCollection {
  private:
   uint64_t readahead_size_;
   std::unordered_map<uint64_t, std::unique_ptr<FilePrefetchBuffer>>
-      prefetch_buffers_;
+      prefetch_buffers_;  // maps file number to prefetch buffer
 };
 
 }  // namespace ROCKSDB_NAMESPACE

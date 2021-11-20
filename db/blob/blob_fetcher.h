@@ -16,6 +16,7 @@ class FilePrefetchBuffer;
 class PinnableSlice;
 class BlobIndex;
 
+// A thin wrapper around the blob retrieval functionality of Version.
 class BlobFetcher {
  public:
   BlobFetcher(const Version* version, const ReadOptions& read_options)
