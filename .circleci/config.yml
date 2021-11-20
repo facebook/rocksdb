@@ -151,7 +151,7 @@ jobs:
       - install-pyenv-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
-      - run: ulimit -S -n 1048576 && OPT=-DCIRCLECI make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - run: ulimit -S -n 1048576 && OPT=-DCIRCLECI make V=1 J=32 -j32 check 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-macos-cmake:
@@ -164,7 +164,7 @@ jobs:
       - install-cmake-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
-      - run: ulimit -S -n 1048576 && (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j32 && ctest -j10) | .circleci/cat_ignore_eagain
+      - run: ulimit -S -n 1048576 && (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j32 && ctest -j10) 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux:
@@ -174,7 +174,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
-      - run: make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - run: make V=1 J=32 -j32 check 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-mem-env-librados:
@@ -185,7 +185,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-librados
-      - run: MEM_ENV=1 ROCKSDB_USE_LIBRADOS=1 make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - run: MEM_ENV=1 ROCKSDB_USE_LIBRADOS=1 make V=1 J=32 -j32 check 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-encrypted-env:
@@ -195,7 +195,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
-      - run: ENCRYPTED_ENV=1 make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - run: ENCRYPTED_ENV=1 make V=1 J=32 -j32 check 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-shared_lib-alt_namespace-status_checked:
@@ -205,7 +205,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
-      - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j32 check | .circleci/cat_ignore_eagain
+      - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j32 check 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-release:
@@ -214,10 +214,10 @@ jobs:
     resource_class: large
     steps:
       - checkout # check out the code in the project directory
-      - run: make V=1 -j8 release | .circleci/cat_ignore_eagain
+      - run: make V=1 -j8 release 2>&1 | .circleci/cat_ignore_eagain
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - install-gflags
-      - run: make V=1 -j8 release | .circleci/cat_ignore_eagain
+      - run: make V=1 -j8 release 2>&1 | .circleci/cat_ignore_eagain
       - run: ./db_stress --version # ensure with gflags
       - post-steps
 
@@ -228,11 +228,11 @@ jobs:
     steps:
       - checkout # check out the code in the project directory
       - run: make clean
-      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j8 static_lib tools db_bench | .circleci/cat_ignore_eagain
+      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j8 static_lib tools db_bench 2>&1 | .circleci/cat_ignore_eagain
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
       - run: make clean
-      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j8 static_lib tools db_bench | .circleci/cat_ignore_eagain
+      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j8 static_lib tools db_bench 2>&1 | .circleci/cat_ignore_eagain
       - run: ./db_stress --version # ensure with gflags
 
   build-linux-lite:
@@ -242,7 +242,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
-      - run: LITE=1 make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - run: LITE=1 make V=1 J=32 -j32 check 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-lite-release:
@@ -251,10 +251,10 @@ jobs:
     resource_class: large
     steps:
       - checkout # check out the code in the project directory
-      - run: LITE=1 make V=1 -j8 release | .circleci/cat_ignore_eagain
+      - run: LITE=1 make V=1 -j8 release 2>&1 | .circleci/cat_ignore_eagain
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - install-gflags
-      - run: LITE=1 make V=1 -j8 release | .circleci/cat_ignore_eagain
+      - run: LITE=1 make V=1 -j8 release 2>&1 | .circleci/cat_ignore_eagain
       - run: ./db_stress --version # ensure with gflags
       - post-steps
 
@@ -265,7 +265,7 @@ jobs:
     steps:
       - checkout # check out the code in the project directory
       - run: sudo apt-get update -y && sudo apt-get install -y clang libgflags-dev libtbb-dev
-      - run: CC=clang CXX=clang++ USE_CLANG=1 PORTABLE=1 make V=1 -j16 all | .circleci/cat_ignore_eagain
+      - run: CC=clang CXX=clang++ USE_CLANG=1 PORTABLE=1 make V=1 -j16 all 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-clang10-asan:
@@ -276,7 +276,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-clang-10
-      - run: COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out
+      - run: COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check 2>&1 | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out
       - post-steps
 
   build-linux-clang10-mini-tsan:
@@ -287,7 +287,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-clang-10
-      - run: COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out.
+      - run: COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check 2>&1 | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out.
       - post-steps
 
   build-linux-clang10-ubsan:
@@ -298,7 +298,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-clang-10
-      - run: COMPILE_WITH_UBSAN=1 OPT="-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 ubsan_check | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out
+      - run: COMPILE_WITH_UBSAN=1 OPT="-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 ubsan_check 2>&1 | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out
       - post-steps
 
   build-linux-clang10-clang-analyze:
@@ -310,7 +310,7 @@ jobs:
       - install-gflags
       - install-clang-10
       - run: sudo apt-get update -y && sudo apt-get install -y clang-tools-10
-      - run: CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-10" CLANG_SCAN_BUILD=scan-build-10 USE_CLANG=1 make V=1 -j32 analyze | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out. For unknown, reason passing "clang++-10" as CLANG_ANALYZER doesn't work, and we need a full path.
+      - run: CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-10" CLANG_SCAN_BUILD=scan-build-10 USE_CLANG=1 make V=1 -j32 analyze 2>&1 | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out. For unknown, reason passing "clang++-10" as CLANG_ANALYZER doesn't work, and we need a full path.
       - post-steps
 
   build-linux-cmake:
@@ -321,7 +321,7 @@ jobs:
       - pre-steps
       - install-gflags
       - upgrade-cmake
-      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j20 && ctest -j20) | .circleci/cat_ignore_eagain
+      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j20 && ctest -j20) 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-cmake-ubuntu-20:
@@ -332,7 +332,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-benchmark
-      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20 && make microbench) | .circleci/cat_ignore_eagain
+      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20 && make microbench) 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-unity-and-headers:
@@ -342,8 +342,8 @@ jobs:
     steps:
       - checkout # check out the code in the project directory
       - run: apt-get update -y && apt-get install -y libgflags-dev
-      - run: TEST_TMPDIR=/dev/shm && make V=1 -j8 unity_test | .circleci/cat_ignore_eagain
-      - run: make V=1 -j8 -k check-headers | .circleci/cat_ignore_eagain # could be moved to a different build
+      - run: TEST_TMPDIR=/dev/shm && make V=1 -j8 unity_test 2>&1 | .circleci/cat_ignore_eagain
+      - run: make V=1 -j8 -k check-headers 2>&1 | .circleci/cat_ignore_eagain # could be moved to a different build
       - post-steps
 
   build-linux-gcc-4_8-no_test_run:
@@ -353,7 +353,7 @@ jobs:
     steps:
       - pre-steps
       - run: sudo apt-get update -y && sudo apt-get install gcc-4.8 g++-4.8 libgflags-dev
-      - run: CC=gcc-4.8 CXX=g++-4.8 V=1 SKIP_LINK=1 make -j8 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - run: CC=gcc-4.8 CXX=g++-4.8 V=1 SKIP_LINK=1 make -j8 all 2>&1 | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
       - post-steps
 
   build-linux-gcc-8-no_test_run:
@@ -363,7 +363,7 @@ jobs:
     steps:
       - pre-steps
       - run: sudo apt-get update -y && sudo apt-get install gcc-8 g++-8 libgflags-dev
-      - run: CC=gcc-8 CXX=g++-8 V=1 SKIP_LINK=1 make -j8 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - run: CC=gcc-8 CXX=g++-8 V=1 SKIP_LINK=1 make -j8 all 2>&1 | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
       - post-steps
 
   build-linux-gcc-9-no_test_run:
@@ -373,7 +373,7 @@ jobs:
     steps:
       - pre-steps
       - run: sudo apt-get update -y && sudo apt-get install gcc-9 g++-9 libgflags-dev
-      - run: CC=gcc-9 CXX=g++-9 V=1 SKIP_LINK=1 make -j8 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - run: CC=gcc-9 CXX=g++-9 V=1 SKIP_LINK=1 make -j8 all 2>&1 | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
       - post-steps
 
   build-linux-gcc-10-cxx20-no_test_run:
@@ -383,7 +383,7 @@ jobs:
     steps:
       - pre-steps
       - run: sudo apt-get update -y && sudo apt-get install gcc-10 g++-10 libgflags-dev
-      - run: CC=gcc-10 CXX=g++-10 V=1 SKIP_LINK=1 ROCKSDB_CXX_STANDARD=c++20 make -j16 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - run: CC=gcc-10 CXX=g++-10 V=1 SKIP_LINK=1 ROCKSDB_CXX_STANDARD=c++20 make -j16 all 2>&1 | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
       - post-steps
 
   build-linux-gcc-11-no_test_run:
@@ -393,7 +393,7 @@ jobs:
     steps:
       - pre-steps
       - run: sudo apt-get update -y && sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get install gcc-11 g++-11 libgflags-dev
-      - run: CC=gcc-11 CXX=g++-11 V=1 SKIP_LINK=1 make -j16 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - run: CC=gcc-11 CXX=g++-11 V=1 SKIP_LINK=1 make -j16 all 2>&1 | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
       - post-steps
 
   # This job is only to make sure the microbench tests are able to run, the benchmark result is not meaningful as the CI host is changing.
@@ -404,7 +404,7 @@ jobs:
     steps:
       - pre-steps
       - install-benchmark
-      - run: DEBUG_LEVEL=0 make microbench | .circleci/cat_ignore_eagain
+      - run: DEBUG_LEVEL=0 make microbench 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-windows:
@@ -493,10 +493,10 @@ jobs:
             which javac && javac -version
       - run:
           name: "Build RocksDBJava Shared Library"
-          command: make V=1 J=8 -j8 rocksdbjava | .circleci/cat_ignore_eagain
+          command: make V=1 J=8 -j8 rocksdbjava 2>&1 | .circleci/cat_ignore_eagain
       - run:
           name: "Test RocksDBJava"
-          command: make V=1 J=8 -j8 jtest | .circleci/cat_ignore_eagain
+          command: make V=1 J=8 -j8 jtest 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-java-static:
@@ -517,7 +517,7 @@ jobs:
             which javac && javac -version
       - run:
           name: "Build RocksDBJava Static Library"
-          command: make V=1 J=8 -j8 rocksdbjavastatic | .circleci/cat_ignore_eagain
+          command: make V=1 J=8 -j8 rocksdbjavastatic 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-macos-java:
@@ -540,10 +540,10 @@ jobs:
             which javac && javac -version
       - run:
           name: "Build RocksDBJava Shared Library"
-          command: make V=1 J=8 -j8 rocksdbjava | .circleci/cat_ignore_eagain
+          command: make V=1 J=8 -j8 rocksdbjava 2>&1 | .circleci/cat_ignore_eagain
       - run:
           name: "Test RocksDBJava"
-          command: make V=1 J=8 -j8 jtest | .circleci/cat_ignore_eagain
+          command: make V=1 J=8 -j8 jtest 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-macos-java-static:
@@ -567,7 +567,7 @@ jobs:
             which javac && javac -version
       - run:
           name: "Build RocksDBJava Static Library"
-          command: make V=1 J=8 -j8 rocksdbjavastatic | .circleci/cat_ignore_eagain
+          command: make V=1 J=8 -j8 rocksdbjavastatic 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-examples:
@@ -643,7 +643,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
-      - run: make V=1 J=4 -j4 check | .circleci/cat_ignore_eagain
+      - run: make V=1 J=4 -j4 check 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-arm:
@@ -653,7 +653,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
-      - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some | .circleci/cat_ignore_eagain
+      - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-arm-cmake-no_test_run:
