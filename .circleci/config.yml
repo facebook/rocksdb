@@ -48,7 +48,6 @@ commands:
             echo "export GTEST_THROW_ON_FAILURE=0" >> $BASH_ENV
             echo "export GTEST_OUTPUT=\"xml:/tmp/test-results/\"" >> $BASH_ENV
             echo "export SKIP_FORMAT_BUCK_CHECKS=1" >> $BASH_ENV
-            echo "export PRINT_PARALLEL_OUTPUTS=1" >> $BASH_ENV
             echo "export GTEST_COLOR=1" >> $BASH_ENV
             echo "export CTEST_OUTPUT_ON_FAILURE=1" >> $BASH_ENV
             echo "export CTEST_TEST_TIMEOUT=300" >> $BASH_ENV

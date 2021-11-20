@@ -834,9 +834,9 @@ $(parallel_tests): $(PARALLEL_TEST)
   TEST_NAMES=` \
     (./$$TEST_BINARY --gtest_list_tests || echo "  $${TEST_BINARY}__list_tests_failure") \
     | awk '/^[^ ]/ { prefix = $$1 } /^[ ]/ { print prefix $$1 }'`; \
+	echo "  Generating parallel test scripts for $$TEST_BINARY"; \
 	for TEST_NAME in $$TEST_NAMES; do \
 		TEST_SCRIPT=t/run-$$TEST_BINARY-$${TEST_NAME//\//-}; \
-		echo "  GEN     " $$TEST_SCRIPT; \
     printf '%s\n' \
       '#!/bin/sh' \
       "d=\$(TMPD)$$TEST_SCRIPT" \
@@ -883,12 +883,18 @@ J ?= 100%
 
 # Use this regexp to select the subset of tests whose names match.
 tests-regexp = .
-EXCLUDE_TESTS_REGEX ?= "^$"
+EXCLUDE_TESTS_REGEX ?= "^$$"
 
 ifeq ($(PRINT_PARALLEL_OUTPUTS), 1)
 	parallel_redir =
-else
+else ifeq ($(QUIET_PARALLEL_TESTS), 1)
 	parallel_redir = >& t/$(test_log_prefix)log-{/}
+else
+# Default: print failure output only, as it happens
+# Note: gnu_parallel --eta is now always used, but has been modified to provide
+# only infrequent updates when not connected to a terminal. (CircleCI will
+# kill a job if no output for 10min.)
+	parallel_redir = >& t/$(test_log_prefix)log-{/} || bash -c "cat t/$(test_log_prefix)log-{/}; exit $$?"
 endif
 
 .PHONY: check_0
@@ -897,7 +903,6 @@ check_0:
 	printf '%s\n' ''						\
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
-	test -t 1 && eta=--eta || eta=; \
 	{ \
 		printf './%s\n' $(filter-out $(PARALLEL_TEST),$(TESTS)); \
 		find t -name 'run-*' -print; \
@@ -905,7 +910,7 @@ check_0:
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
 	  | grep -E -v '$(EXCLUDE_TESTS_REGEX)'					\
-	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu '{} $(parallel_redir)' ; \
+	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG --eta --gnu '{} $(parallel_redir)' ; \
 	parallel_retcode=$$? ; \
 	awk '{ if ($$7 != 0 || $$8 != 0) { if ($$7 == "Exitval") { h = $$0; } else { if (!f) print h; print; f = 1 } } } END { if(f) exit 1; }' < LOG ; \
 	awk_retcode=$$?; \
@@ -920,7 +925,6 @@ valgrind_check_0:
 	printf '%s\n' ''						\
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
-	test -t 1 && eta=--eta || eta=;					\
 	{								\
 	  printf './%s\n' $(filter-out $(PARALLEL_TEST) %skiplist_test options_settable_test, $(TESTS));		\
 	  find t -name 'run-*' -print; \
@@ -928,7 +932,7 @@ valgrind_check_0:
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
 	  | grep -E -v '$(valgrind-exclude-regexp)'					\
-	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu \
+	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG --eta --gnu \
 	  '(if [[ "{}" == "./"* ]] ; then $(DRIVER) {}; else {}; fi) \
 	  $(parallel_redir)' \
 
