@@ -639,6 +639,9 @@ void VersionEditHandlerPointInTime::CheckIterationResult(
       }
     }
   } else {
+    for (const auto& elem : versions_) {
+      delete elem.second;
+    }
     versions_.clear();
   }
 }
