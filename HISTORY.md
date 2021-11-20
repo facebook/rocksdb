@@ -38,6 +38,7 @@
 * `DB::Open()` is not going be blocked by obsolete file purge if `DBOptions::avoid_unnecessary_blocking_io` is set to true.
 * In builds where glibc provides `gettid()`, info log ("LOG" file) lines now print a system-wide thread ID from `gettid()` instead of the process-local `pthread_self()`. For all users, the thread ID format is changed from hexadecimal to decimal integer.
 * In builds where glibc provides `pthread_setname_np()`, the background thread names no longer contain an ID suffix. For example, "rocksdb:bottom7" (and all other threads in the `Env::Priority::BOTTOM` pool) are now named "rocksdb:bottom". Previously large thread pools could breach the name size limit (e.g., naming "rocksdb:bottom10" would fail).
+* Deprecating `ReadOptions::iter_start_seqnum` and `DBOptions::preserve_deletes`, please try using user defined timestamp feature instead. The options will be removed in a future release, currently it logs a warning message when using.
 
 ### Performance Improvements
 * Released some memory related to filter construction earlier in `BlockBasedTableBuilder` for `FullFilter` and `PartitionedFilter` case (#9070)
