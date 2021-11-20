@@ -251,6 +251,9 @@ Status ReadTablePropertiesHelper(
     return s;
   }
 
+  // Unfortunately, Block::size() might not equal block_contents.data.size(),
+  // and Block hides block_contents
+  uint64_t block_size = block_contents.data.size();
   Block properties_block(std::move(block_contents));
   DataBlockIter iter;
   properties_block.NewDataIterator(BytewiseComparator(),
@@ -377,8 +380,7 @@ Status ReadTablePropertiesHelper(
   // (See write_global_seqno comment above)
   if (s.ok() && footer.GetBlockTrailerSize() > 0) {
     s = VerifyBlockChecksum(footer.checksum(), properties_block.data(),
-                            properties_block.size(), file->file_name(),
-                            handle.offset());
+                            block_size, file->file_name(), handle.offset());
     if (s.IsCorruption()) {
       const auto seqno_pos_iter = new_table_properties->properties_offsets.find(
           ExternalSstFilePropertyNames::kGlobalSeqno);
@@ -387,9 +389,8 @@ Status ReadTablePropertiesHelper(
                             block_fetcher.GetBlockSizeWithTrailer());
         uint64_t global_seqno_offset = seqno_pos_iter->second - handle.offset();
         EncodeFixed64(&tmp_buf[static_cast<size_t>(global_seqno_offset)], 0);
-        s = VerifyBlockChecksum(footer.checksum(), tmp_buf.data(),
-                                properties_block.size(), file->file_name(),
-                                handle.offset());
+        s = VerifyBlockChecksum(footer.checksum(), tmp_buf.data(), block_size,
+                                file->file_name(), handle.offset());
       }
     }
   }

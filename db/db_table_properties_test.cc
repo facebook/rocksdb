@@ -171,6 +171,31 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBTablePropertiesTest, InvalidIgnored) {
+  // RocksDB versions 2.5 - 2.7 generate some properties that Block considers
+  // invalid in some way. This approximates that.
+
+  // Inject properties block data that Block considers invalid
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::WritePropertiesBlock:BlockData",
+      [&](void* block_data) {
+        *reinterpret_cast<Slice*>(block_data) = Slice("X");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Build file
+  for (int i = 0; i < 10; ++i) {
+    ASSERT_OK(db_->Put(WriteOptions(), ToString(i), "val"));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // Not crashing is good enough
+  TablePropertiesCollection props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+}
+
 TEST_F(DBTablePropertiesTest, CreateOnDeletionCollectorFactory) {
   ConfigOptions options;
   options.ignore_unsupported_options = false;

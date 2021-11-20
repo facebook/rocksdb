@@ -1715,8 +1715,11 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
                                          rep_->ioptions.logger,
                                          &property_block_builder);
 
-    WriteRawBlock(property_block_builder.Finish(), kNoCompression,
-                  &properties_block_handle, BlockType::kProperties);
+    Slice block_data = property_block_builder.Finish();
+    TEST_SYNC_POINT_CALLBACK(
+        "BlockBasedTableBuilder::WritePropertiesBlock:BlockData", &block_data);
+    WriteRawBlock(block_data, kNoCompression, &properties_block_handle,
+                  BlockType::kProperties);
   }
   if (ok()) {
 #ifndef NDEBUG
