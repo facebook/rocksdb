@@ -1561,6 +1561,7 @@ sub save_stdin_stdout_stderr {
 	::die_bug("Can't dup STDERR: $!");
     open $Global::original_stdin, "<&", "STDIN" or
 	::die_bug("Can't dup STDIN: $!");
+    $Global::is_terminal = (-t $Global::original_stderr);
 }
 
 sub enough_file_handles {
@@ -1840,12 +1841,17 @@ sub start_another_job {
 }
 }
 
+$opt::min_progress_interval = 0;
+
 sub init_progress {
     # Uses:
     #   $opt::bar
     # Returns:
     #   list of computers for progress output
     $|=1;
+    if (not $Global::is_terminal) {
+      $opt::min_progress_interval = 30;
+    }
     if($opt::bar) {
 	return("","");
     }
@@ -1870,6 +1876,7 @@ sub drain_job_queue {
     }
     my $last_header="";
     my $sleep = 0.2;
+    my $last_progress_time = 0;
     do {
         while($Global::total_running > 0) {
             debug($Global::total_running, "==", scalar
@@ -1880,7 +1887,8 @@ sub drain_job_queue {
 		    close $job->fh(0,"w");
 		}
 	    }
-            if($opt::progress) {
+            if($opt::progress and (time() - $last_progress_time) >= $opt::min_progress_interval) {
+                $last_progress_time = time();
                 my %progress = progress();
                 if($last_header ne $progress{'header'}) {
                     print $Global::original_stderr "\n", $progress{'header'}, "\n";
