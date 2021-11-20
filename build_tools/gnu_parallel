@@ -1842,6 +1842,7 @@ sub start_another_job {
 }
 
 $opt::min_progress_interval = 0;
+$opt::progress_sep = "\r";
 
 sub init_progress {
     # Uses:
@@ -1851,6 +1852,7 @@ sub init_progress {
     $|=1;
     if (not $Global::is_terminal) {
       $opt::min_progress_interval = 30;
+      $opt::progress_sep = "\n";
     }
     if($opt::bar) {
 	return("","");
@@ -1894,7 +1896,7 @@ sub drain_job_queue {
                     print $Global::original_stderr "\n", $progress{'header'}, "\n";
                     $last_header = $progress{'header'};
                 }
-                print $Global::original_stderr "\r",$progress{'status'};
+                print $Global::original_stderr $opt::progress_sep,$progress{'status'};
 		flush $Global::original_stderr;
             }
 	    if($Global::total_running < $Global::max_jobs_running
@@ -1929,7 +1931,7 @@ sub drain_job_queue {
 	     not $Global::start_no_new_jobs and not $Global::JobQueue->empty());
     if($opt::progress) {
 	my %progress = progress();
-	print $Global::original_stderr "\r", $progress{'status'}, "\n";
+	print $Global::original_stderr $opt::progress_sep, $progress{'status'}, "\n";
 	flush $Global::original_stderr;
     }
 }
