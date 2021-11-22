@@ -9,6 +9,7 @@
 
 #include "rocksdb/env.h"
 
+#include <algorithm>
 #include <thread>
 
 #include "env/composite_env_wrapper.h"
@@ -735,6 +736,8 @@ Status Env::GetChildrenFileAttributes(const std::string& dir,
 
 Status Env::GetHostNameString(std::string* result) {
   std::array<char, kMaxHostNameLen> hostname_buf;
+  // make sure array contents are properly zeroed
+  std::fill(hostname_buf.begin(), hostname_buf.end(), 0);
   Status s = GetHostName(hostname_buf.data(), hostname_buf.size());
   if (s.ok()) {
     hostname_buf[hostname_buf.size() - 1] = '\0';
