@@ -7,10 +7,14 @@
 package org.rocksdb.jmh;
 
 import org.openjdk.jmh.annotations.*;
+import org.openjdk.jmh.runner.Runner;
+import org.openjdk.jmh.runner.RunnerException;
+import org.openjdk.jmh.runner.options.OptionsBuilder;
 import org.rocksdb.*;
 import org.rocksdb.util.FileUtils;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -20,7 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.rocksdb.util.KVUtils.ba;
 import static org.rocksdb.util.KVUtils.keys;
 
-@State(Scope.Benchmark)
+@State(Scope.Thread)
 public class MultiGetBenchmarks {
 
   @Param({
@@ -149,10 +153,65 @@ public class MultiGetBenchmarks {
     }
   }
 
+  ByteBuffer keysBuffer;
+  ByteBuffer valuesBuffer;
+  @Param({"64"}) int valueSize;
+  @Param({"16"}) int keySize; // big enough
+
+  List<ByteBuffer> valueBuffersList;
+  List<ByteBuffer> keyBuffersList;
+
+  @Setup public void allocateSliceBuffers() {
+    keysBuffer = ByteBuffer.allocateDirect(keyCount * valueSize);
+    valuesBuffer = ByteBuffer.allocateDirect(keyCount * valueSize);
+    valueBuffersList = new ArrayList<>();
+    keyBuffersList = new ArrayList<>();
+    for (int i = 0; i < keyCount; i++) {
+      valueBuffersList.add(valuesBuffer.slice());
+      valuesBuffer.position(i * valueSize);
+      keyBuffersList.add(keysBuffer.slice());
+      keysBuffer.position(i * keySize);
+    }
+  }
+
+  @TearDown public void freeSliceBuffers() {
+    valueBuffersList.clear();
+  }
+
   @Benchmark
   public List<byte[]> multiGet10() throws RocksDBException {
     final int fromKeyIdx = next(multiGetSize, keyCount);
-    final List<byte[]> keys = keys(fromKeyIdx, fromKeyIdx + multiGetSize);
-    return db.multiGetAsList(keys);
+    if (fromKeyIdx >= 0) {
+      final List<byte[]> keys = keys(fromKeyIdx, fromKeyIdx + multiGetSize);
+      return db.multiGetAsList(keys);
+    }
+    return new ArrayList<>();
+  }
+
+  @Benchmark
+  public List<RocksDB.MultiGetInstance> multiGetDirect10() throws RocksDBException {
+    final int fromKeyIdx = next(multiGetSize, keyCount);
+    if (fromKeyIdx >= 0) {
+      final List<ByteBuffer> keys = keys(keyBuffersList, fromKeyIdx, fromKeyIdx + multiGetSize);
+      return db.multiGetByteBuffers(keys, valueBuffersList.subList(fromKeyIdx, fromKeyIdx + multiGetSize));
+    }
+    return new ArrayList<>();
+  }
+
+  public static void main(final String[] args) throws RunnerException {
+    final org.openjdk.jmh.runner.options.Options opt = new OptionsBuilder()
+        .include(MultiGetBenchmarks.class.getSimpleName())
+        .forks(1)
+        .jvmArgs("-ea")
+        .warmupIterations(1)
+        .measurementIterations(2)
+        .forks(2)
+        .param("columnFamilyTestType=", "1_column_family")
+        .param("multiGetSize=", "10", "1000")
+        .param("keyCount=", "1000")
+        .output("jmh_output")
+        .build();
+
+    new Runner(opt).run();
   }
 }

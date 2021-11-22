@@ -6,6 +6,7 @@
  */
 package org.rocksdb.util;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -52,6 +53,16 @@ public final class KVUtils {
     final List<byte[]> keys = new ArrayList<>(to - from);
     for (int i = from; i < to; i++) {
       keys.add(ba("key" + i));
+    }
+    return keys;
+  }
+
+  public static List<ByteBuffer> keys(final List<ByteBuffer> keyBuffers, final int from, final int to) {
+    final List<ByteBuffer> keys = new ArrayList<>(to - from);
+    for (int i = from; i < to; i++) {
+      final ByteBuffer key = keyBuffers.get(i).clear();
+      key.put(ba("key" + i));
+      keys.add(key.flip());
     }
     return keys;
   }
