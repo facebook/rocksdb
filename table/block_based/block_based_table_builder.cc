@@ -517,6 +517,12 @@ struct BlockBasedTableBuilder::Rep {
         new BlockBasedTablePropertiesCollector(
             table_options.index_type, table_options.whole_key_filtering,
             moptions.prefix_extractor != nullptr));
+    const Comparator* ucmp = tbo.internal_comparator.user_comparator();
+    assert(ucmp);
+    if (ucmp->timestamp_size() > 0) {
+      table_properties_collectors.emplace_back(
+          new TimestampTablePropertiesCollector(ucmp));
+    }
     if (table_options.verify_compression) {
       for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
         verify_ctxs[i].reset(new UncompressionContext(compression_type));
@@ -1709,8 +1715,11 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
                                          rep_->ioptions.logger,
                                          &property_block_builder);
 
-    WriteRawBlock(property_block_builder.Finish(), kNoCompression,
-                  &properties_block_handle, BlockType::kProperties);
+    Slice block_data = property_block_builder.Finish();
+    TEST_SYNC_POINT_CALLBACK(
+        "BlockBasedTableBuilder::WritePropertiesBlock:BlockData", &block_data);
+    WriteRawBlock(block_data, kNoCompression, &properties_block_handle,
+                  BlockType::kProperties);
   }
   if (ok()) {
 #ifndef NDEBUG

@@ -638,6 +638,11 @@ void VersionEditHandlerPointInTime::CheckIterationResult(
         versions_.erase(v_iter);
       }
     }
+  } else {
+    for (const auto& elem : versions_) {
+      delete elem.second;
+    }
+    versions_.clear();
   }
 }
 
@@ -874,7 +879,7 @@ Status ManifestTailer::OnColumnFamilyAdd(VersionEdit& edit,
 
 #ifndef NDEBUG
   auto version_iter = versions_.find(edit.GetColumnFamily());
-  assert(version_iter != versions_.end());
+  assert(version_iter == versions_.end());
 #endif  // !NDEBUG
   return Status::OK();
 }

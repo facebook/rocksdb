@@ -69,9 +69,10 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
   if (prefetch_buffer_ != nullptr) {
     IOOptions opts;
     IOStatus io_s = file_->PrepareIOOptions(read_options_, opts);
-    if (io_s.ok() && prefetch_buffer_->TryReadFromCache(
-                         opts, handle_.offset(), block_size_with_trailer_,
-                         &slice_, &io_s, for_compaction_)) {
+    if (io_s.ok() &&
+        prefetch_buffer_->TryReadFromCache(opts, file_, handle_.offset(),
+                                           block_size_with_trailer_, &slice_,
+                                           &io_s, for_compaction_)) {
       ProcessTrailerIfPresent();
       if (!io_status_.ok()) {
         return true;

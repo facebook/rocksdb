@@ -851,12 +851,14 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
   Options options;
   options.env = env_;
   options.level0_file_num_compaction_trigger = 4;
-  Reopen(options);
+  const std::string cf1_name("test_cf");
+  CreateAndReopenWithCF({cf1_name}, options);
 
   Options options1;
   options1.env = env_;
   options1.max_open_files = -1;
-  OpenSecondary(options1);
+  OpenSecondaryWithColumnFamilies({kDefaultColumnFamilyName, cf1_name},
+                                  options1);
 
   const int kNumFiles = options.level0_file_num_compaction_trigger - 1;
   // Keep it smaller than 10 so that key0, key1, ..., key9 are sorted as 0, 1,
@@ -890,11 +892,11 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
   // restart primary, performs full compaction, close again, restart again so
   // that next time secondary tries to catch up with primary, the secondary
   // will skip the MANIFEST in middle.
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name}, options);
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name}, options);
   ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
@@ -905,12 +907,14 @@ TEST_F(DBSecondaryTest, SwitchManifestTwice) {
   Options options;
   options.env = env_;
   options.disable_auto_compactions = true;
-  Reopen(options);
+  const std::string cf1_name("test_cf");
+  CreateAndReopenWithCF({cf1_name}, options);
 
   Options options1;
   options1.env = env_;
   options1.max_open_files = -1;
-  OpenSecondary(options1);
+  OpenSecondaryWithColumnFamilies({kDefaultColumnFamilyName, cf1_name},
+                                  options1);
 
   ASSERT_OK(Put("0", "value0"));
   ASSERT_OK(Flush());
@@ -921,9 +925,9 @@ TEST_F(DBSecondaryTest, SwitchManifestTwice) {
   ASSERT_OK(db_secondary_->Get(ropts, "0", &value));
   ASSERT_EQ("value0", value);
 
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name}, options);
   ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name}, options);
   ASSERT_OK(Put("0", "value1"));
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
 

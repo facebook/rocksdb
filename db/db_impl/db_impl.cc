@@ -2903,6 +2903,13 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   }
   // if iterator wants internal keys, we can only proceed if
   // we can guarantee the deletes haven't been processed yet
+  if (read_options.iter_start_seqnum > 0 &&
+      !iter_start_seqnum_deprecation_warned_.exchange(true)) {
+    ROCKS_LOG_WARN(
+        immutable_db_options_.info_log,
+        "iter_start_seqnum is deprecated, will be removed in a future release. "
+        "Please try using user-defined timestamp instead.");
+  }
   if (immutable_db_options_.preserve_deletes &&
       read_options.iter_start_seqnum > 0 &&
       read_options.iter_start_seqnum < preserve_deletes_seqnum_.load()) {

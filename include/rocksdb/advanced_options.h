@@ -819,8 +819,9 @@ struct AdvancedColumnFamilyOptions {
   // amplification for large-value use cases at the cost of introducing a level
   // of indirection for reads. See also the options min_blob_size,
   // blob_file_size, blob_compression_type, enable_blob_garbage_collection,
-  // blob_garbage_collection_age_cutoff, and
-  // blob_garbage_collection_force_threshold below.
+  // blob_garbage_collection_age_cutoff,
+  // blob_garbage_collection_force_threshold, and blob_compaction_readahead_size
+  // below.
   //
   // Default: false
   //
@@ -892,6 +893,13 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through the SetOptions() API
   double blob_garbage_collection_force_threshold = 1.0;
+
+  // Compaction readahead for blob files.
+  //
+  // Default: 0
+  //
+  // Dynamically changeable through the SetOptions() API
+  uint64_t blob_compaction_readahead_size = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

@@ -723,13 +723,15 @@ class Version {
   // saves it in *value.
   // REQUIRES: blob_index_slice stores an encoded blob reference
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 const Slice& blob_index_slice, PinnableSlice* value,
+                 const Slice& blob_index_slice,
+                 FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read) const;
 
   // Retrieves a blob using a blob reference and saves it in *value,
   // assuming the corresponding blob file is part of this Version.
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 const BlobIndex& blob_index, PinnableSlice* value,
+                 const BlobIndex& blob_index,
+                 FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read) const;
 
   using BlobReadRequest =
@@ -804,6 +806,7 @@ class Version {
   int TEST_refs() const { return refs_; }
 
   VersionStorageInfo* storage_info() { return &storage_info_; }
+  const VersionStorageInfo* storage_info() const { return &storage_info_; }
 
   VersionSet* version_set() { return vset_; }
 
