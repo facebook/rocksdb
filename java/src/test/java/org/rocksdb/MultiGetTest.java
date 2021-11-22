@@ -180,10 +180,10 @@ public class MultiGetTest {
   public void putNThenMultiGetDirectNondefaultCF() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
-      final List<ColumnFamilyDescriptor> cfDescriptors =
-          List.of(new ColumnFamilyDescriptor("cf0".getBytes()),
-              new ColumnFamilyDescriptor("cf1".getBytes()),
-              new ColumnFamilyDescriptor("cf2".getBytes()));
+      final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>(0);
+      cfDescriptors.add(new ColumnFamilyDescriptor("cf0".getBytes()));
+      cfDescriptors.add(new ColumnFamilyDescriptor("cf1".getBytes()));
+      cfDescriptors.add(new ColumnFamilyDescriptor("cf2".getBytes()));
 
       final List<ColumnFamilyHandle> cf = db.createColumnFamilies(cfDescriptors);
 
@@ -209,7 +209,8 @@ public class MultiGetTest {
       }
 
       {
-        final List<ColumnFamilyHandle> columnFamilyHandles = List.of(cf.get(0));
+        final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+        columnFamilyHandles.add(cf.get(0));
         final List<RocksDB.MultiGetInstance> results =
             db.multiGetByteBuffers(columnFamilyHandles, keys, values);
 
@@ -227,8 +228,10 @@ public class MultiGetTest {
       }
 
       {
-        final List<ColumnFamilyHandle> columnFamilyHandles =
-            List.of(cf.get(0), cf.get(0), cf.get(0));
+        final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+        columnFamilyHandles.add(cf.get(0));
+        columnFamilyHandles.add(cf.get(0));
+        columnFamilyHandles.add(cf.get(0));
         final List<RocksDB.MultiGetInstance> results =
             db.multiGetByteBuffers(columnFamilyHandles, keys, values);
 
@@ -297,11 +300,11 @@ public class MultiGetTest {
   public void putNThenMultiGetDirectMixedCF() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
-      final List<ColumnFamilyDescriptor> cfDescriptors =
-          List.of(new ColumnFamilyDescriptor("cf0".getBytes()),
-              new ColumnFamilyDescriptor("cf1".getBytes()),
-              new ColumnFamilyDescriptor("cf2".getBytes()),
-              new ColumnFamilyDescriptor("cf3".getBytes()));
+      final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+      cfDescriptors.add(new ColumnFamilyDescriptor("cf0".getBytes()));
+      cfDescriptors.add(new ColumnFamilyDescriptor("cf1".getBytes()));
+      cfDescriptors.add(new ColumnFamilyDescriptor("cf2".getBytes()));
+      cfDescriptors.add(new ColumnFamilyDescriptor("cf3".getBytes()));
 
       final List<ColumnFamilyHandle> cf = db.createColumnFamilies(cfDescriptors);
 
@@ -396,8 +399,8 @@ public class MultiGetTest {
   public void putNThenMultiGetDirectTruncateCF() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
-      final List<ColumnFamilyDescriptor> cfDescriptors =
-          List.of(new ColumnFamilyDescriptor("cf0".getBytes()));
+      final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+      cfDescriptors.add(new ColumnFamilyDescriptor("cf0".getBytes()));
 
       final List<ColumnFamilyHandle> cf = db.createColumnFamilies(cfDescriptors);
 
@@ -415,7 +418,8 @@ public class MultiGetTest {
       }
 
       {
-        final List<ColumnFamilyHandle> columnFamilyHandles = List.of(cf.get(0));
+        final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+        columnFamilyHandles.add(cf.get(0));
         final List<RocksDB.MultiGetInstance> results =
             db.multiGetByteBuffers(columnFamilyHandles, keys, values);
 
