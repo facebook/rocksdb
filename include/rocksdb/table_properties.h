@@ -162,7 +162,7 @@ class TablePropertiesCollectorFactory : public Customizable {
       TablePropertiesCollectorFactory::Context context) = 0;
 
   // The name of the properties collector can be used for debugging purpose.
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
 
   // Can be overridden by sub-classes to return the Name, followed by
   // configuration info that will // be logged to the info log when the
