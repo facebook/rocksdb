@@ -801,16 +801,19 @@ std::string VersionEdit::DebugString(bool hex_key) const {
       r.append(" blob_file:");
       AppendNumberTo(&r, f.oldest_blob_file_number);
     }
-    r.append(" min_timestamp:");
-    r.append(Slice(f.min_timestamp).ToString(true));
-    r.append(" max_timestamp:");
-    r.append(Slice(f.max_timestamp).ToString(true));
+    if (f.min_timestamp != kDisableUserTimestamp) {
+      assert(f.max_timestamp != kDisableUserTimestamp);
+      r.append(" min_timestamp:");
+      r.append(Slice(f.min_timestamp).ToString(true));
+      r.append(" max_timestamp:");
+      r.append(Slice(f.max_timestamp).ToString(true));
+    }
     r.append(" oldest_ancester_time:");
     AppendNumberTo(&r, f.oldest_ancester_time);
     r.append(" file_creation_time:");
     AppendNumberTo(&r, f.file_creation_time);
     r.append(" file_checksum:");
-    r.append(f.file_checksum);
+    r.append(Slice(f.file_checksum).ToString(true));
     r.append(" file_checksum_func_name: ");
     r.append(f.file_checksum_func_name);
     if (f.temperature != Temperature::kUnknown) {
@@ -922,6 +925,13 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
         assert(f.max_timestamp != kDisableUserTimestamp);
         jw << "MinTimestamp" << Slice(f.min_timestamp).ToString(true);
         jw << "MaxTimestamp" << Slice(f.max_timestamp).ToString(true);
+      }
+      jw << "OldestAncesterTime" << f.oldest_ancester_time;
+      jw << "FileCreationTime" << f.file_creation_time;
+      jw << "FileChecksum" << Slice(f.file_checksum).ToString(true);
+      jw << "FileChecksumFuncName" << f.file_checksum_func_name;
+      if (f.temperature != Temperature::kUnknown) {
+        jw << "temperature" << ToString(static_cast<int>(f.temperature));
       }
       if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
         jw << "OldestBlobFile" << f.oldest_blob_file_number;
