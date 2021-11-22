@@ -636,11 +636,8 @@ TEST_F(DBBasicTestWithTimestamp, GetTimestampTableProperties) {
   // Create 2 tables
   for (int table = 0; table < 2; ++table) {
     for (int i = 0; i < 10; i++) {
-      WriteOptions write_opts;
-      std::string ts_str = Timestamp(i, 0);
-      Slice ts = ts_str;
-      write_opts.timestamp = &ts;
-      ASSERT_OK(db_->Put(write_opts, "key", Key(i)));
+      std::string ts = Timestamp(i, 0);
+      ASSERT_OK(db_->Put(WriteOptions(), "key", ts, Key(i)));
     }
     ASSERT_OK(Flush());
   }
