@@ -467,7 +467,6 @@ struct IOErrorInfo {
   std::string file_path;
   size_t length;
   uint64_t offset;
-  ;
 };
 
 // EventListener class contains a set of callback functions that will
