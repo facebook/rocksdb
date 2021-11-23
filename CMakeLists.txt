@@ -1018,12 +1018,6 @@ set(ROCKSDB_SHARED_LIB rocksdb-shared${ARTIFACT_SUFFIX})
 
 option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
 
-option(WITH_LIBRADOS "Build with librados" OFF)
-if(WITH_LIBRADOS)
-  list(APPEND SOURCES
-    utilities/env_librados.cc)
-  list(APPEND THIRDPARTY_LIBS rados)
-endif()
 
 if(WIN32)
   set(SYSTEM_LIBS ${SYSTEM_LIBS} shlwapi.lib rpcrt4.lib)
@@ -1349,9 +1343,6 @@ if(WITH_TESTS)
         utilities/write_batch_with_index/write_batch_with_index_test.cc
     )
   endif()
-  if(WITH_LIBRADOS)
-    list(APPEND TESTS utilities/env_librados_test.cc)
-  endif()
 
   if(WITH_FOLLY_DISTRIBUTED_MUTEX)
     list(APPEND TESTS third-party/folly/folly/synchronization/test/DistributedMutexTest.cpp)
@@ -1390,10 +1381,6 @@ if(WITH_TESTS)
       if(NOT "${exename}" MATCHES "db_sanity_test")
         gtest_discover_tests(${exename} DISCOVERY_TIMEOUT 120)
         add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
-      endif()
-      if("${exename}" MATCHES "env_librados_test")
-        # env_librados_test.cc uses librados directly
-        target_link_libraries(${exename}${ARTIFACT_SUFFIX} rados)
       endif()
   endforeach(sourcefile ${TESTS})
 
