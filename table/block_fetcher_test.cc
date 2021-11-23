@@ -22,8 +22,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
-
-
 struct MemcpyStats {
   int num_stack_buf_memcpy;
   int num_heap_buf_memcpy;
