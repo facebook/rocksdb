@@ -6,6 +6,7 @@
 #include "util/timer.h"
 
 #include "db/db_test_util.h"
+#include "rocksdb/file_system.h"
 #include "test_util/mock_time_env.h"
 
 namespace ROCKSDB_NAMESPACE {

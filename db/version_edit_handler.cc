@@ -517,7 +517,11 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
 Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
                                       bool prefetch_index_and_filter_in_cache,
                                       bool is_initial_load) {
-  if (skip_load_table_files_) {
+  bool skip_load_table_files = skip_load_table_files_;
+  TEST_SYNC_POINT_CALLBACK(
+      "VersionEditHandler::LoadTables:skip_load_table_files",
+      &skip_load_table_files);
+  if (skip_load_table_files) {
     return Status::OK();
   }
   assert(cfd != nullptr);
@@ -634,6 +638,11 @@ void VersionEditHandlerPointInTime::CheckIterationResult(
         versions_.erase(v_iter);
       }
     }
+  } else {
+    for (const auto& elem : versions_) {
+      delete elem.second;
+    }
+    versions_.clear();
   }
 }
 
@@ -870,7 +879,7 @@ Status ManifestTailer::OnColumnFamilyAdd(VersionEdit& edit,
 
 #ifndef NDEBUG
   auto version_iter = versions_.find(edit.GetColumnFamily());
-  assert(version_iter != versions_.end());
+  assert(version_iter == versions_.end());
 #endif  // !NDEBUG
   return Status::OK();
 }

@@ -45,7 +45,7 @@ default_params = {
         random.choice(
             ["none", "snappy", "zlib", "bzip2", "lz4", "lz4hc", "xpress",
              "zstd"]),
-    "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64"]),
+    "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64", "kXXH3"]),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
     # Disabled compression_parallel_threads as the feature is not stable
@@ -78,6 +78,9 @@ default_params = {
     "max_key": 100000000,
     "max_write_buffer_number": 3,
     "mmap_read": lambda: random.randint(0, 1),
+    # Setting `nooverwritepercent > 0` is only possible because we do not vary
+    # the random seed, so the same keys are chosen by every run for disallowing
+    # overwrites.
     "nooverwritepercent": 1,
     "open_files": lambda : random.choice([-1, -1, 100, 500000]),
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
@@ -150,6 +153,7 @@ default_params = {
     "max_write_buffer_size_to_maintain": lambda: random.choice(
         [0, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024]),
     "user_timestamp_size": 0,
+    "secondary_cache_fault_one_in" : lambda: random.choice([0, 0, 32]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -289,6 +293,8 @@ blob_params = {
     "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
     "enable_blob_garbage_collection": lambda: random.choice([0] + [1] * 3),
     "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
+    "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
+    "blob_compaction_readahead_size": lambda: random.choice([0, 1048576, 4194304]),
 }
 
 ts_params = {
@@ -297,8 +303,6 @@ ts_params = {
     "user_timestamp_size": 8,
     "use_merge": 0,
     "use_full_merge_v1": 0,
-    # In order to disable SingleDelete
-    "nooverwritepercent": 0,
     "use_txn": 0,
     "read_only": 0,
     "secondary_catch_up_one_in": 0,

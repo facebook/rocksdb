@@ -30,6 +30,10 @@
 #include "test_util/sync_point.h"
 #include "util/random.h"
 
+#ifndef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 namespace test {
 
@@ -395,6 +399,8 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->memtable_prefix_bloom_size_ratio =
       static_cast<double>(rnd->Uniform(10000)) / 20000.0;
   cf_opt->blob_garbage_collection_age_cutoff = rnd->Uniform(10000) / 10000.0;
+  cf_opt->blob_garbage_collection_force_threshold =
+      rnd->Uniform(10000) / 10000.0;
 
   // int options
   cf_opt->level0_file_num_compaction_trigger = rnd->Uniform(100);
@@ -440,6 +446,7 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
       uint_max + rnd->Uniform(10000);
   cf_opt->min_blob_size = uint_max + rnd->Uniform(10000);
   cf_opt->blob_file_size = uint_max + rnd->Uniform(10000);
+  cf_opt->blob_compaction_readahead_size = uint_max + rnd->Uniform(10000);
 
   // unsigned int options
   cf_opt->rate_limit_delay_max_milliseconds = rnd->Uniform(10000);

@@ -222,6 +222,7 @@ am__v_AR_1 =
 
 ifdef ROCKSDB_USE_LIBRADOS
 LIB_SOURCES += utilities/env_librados.cc
+TEST_MAIN_SOURCES += utilities/env_librados_test.cc
 LDFLAGS += -lrados
 endif
 
@@ -305,6 +306,13 @@ ifdef COMPILE_WITH_ASAN
 	EXEC_LDFLAGS += -fsanitize=address
 	PLATFORM_CCFLAGS += -fsanitize=address
 	PLATFORM_CXXFLAGS += -fsanitize=address
+ifeq ($(LIB_MODE),shared)
+ifdef USE_CLANG
+# Fix false ODR violation; see https://github.com/google/sanitizers/issues/1017
+	EXEC_LDFLAGS += -mllvm -asan-use-private-alias=1
+	PLATFORM_CXXFLAGS += -mllvm -asan-use-private-alias=1
+endif
+endif
 endif
 
 # TSAN doesn't work well with jemalloc. If we're compiling with TSAN, we should use regular malloc.
@@ -507,6 +515,7 @@ STRESS_OBJECTS =  $(patsubst %.cc, $(OBJ_DIR)/%.o, $(STRESS_LIB_SOURCES))
 ALL_SOURCES  = $(filter-out util/build_version.cc, $(LIB_SOURCES)) $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES) $(GTEST_DIR)/gtest/gtest-all.cc
 ALL_SOURCES += $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(CACHE_BENCH_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
 ALL_SOURCES += $(TEST_MAIN_SOURCES) $(TOOL_MAIN_SOURCES) $(BENCH_MAIN_SOURCES)
+ALL_SOURCES += $(ROCKSDB_PLUGIN_SOURCES)
 
 TESTS = $(patsubst %.cc, %, $(notdir $(TEST_MAIN_SOURCES)))
 TESTS += $(patsubst %.c, %, $(notdir $(TEST_MAIN_SOURCES_C)))
@@ -823,14 +832,11 @@ parallel_tests = $(patsubst %,parallel_%,$(PARALLEL_TEST))
 $(parallel_tests): $(PARALLEL_TEST)
 	$(AM_V_at)TEST_BINARY=$(patsubst parallel_%,%,$@); \
   TEST_NAMES=` \
-    ./$$TEST_BINARY --gtest_list_tests \
-    | perl -n \
-      -e 's/ *\#.*//;' \
-      -e '/^(\s*)(\S+)/; !$$1 and do {$$p=$$2; break};'	\
-      -e 'print qq! $$p$$2!'`; \
+    (./$$TEST_BINARY --gtest_list_tests || echo "  $${TEST_BINARY}__list_tests_failure") \
+    | awk '/^[^ ]/ { prefix = $$1 } /^[ ]/ { print prefix $$1 }'`; \
+	echo "  Generating parallel test scripts for $$TEST_BINARY"; \
 	for TEST_NAME in $$TEST_NAMES; do \
 		TEST_SCRIPT=t/run-$$TEST_BINARY-$${TEST_NAME//\//-}; \
-		echo "  GEN     " $$TEST_SCRIPT; \
     printf '%s\n' \
       '#!/bin/sh' \
       "d=\$(TMPD)$$TEST_SCRIPT" \
@@ -877,12 +883,18 @@ J ?= 100%
 
 # Use this regexp to select the subset of tests whose names match.
 tests-regexp = .
-EXCLUDE_TESTS_REGEX ?= "^$"
+EXCLUDE_TESTS_REGEX ?= "^$$"
 
 ifeq ($(PRINT_PARALLEL_OUTPUTS), 1)
-	parallel_com = '{}'
+	parallel_redir =
+else ifeq ($(QUIET_PARALLEL_TESTS), 1)
+	parallel_redir = >& t/$(test_log_prefix)log-{/}
 else
-	parallel_com = '{} >& t/log-{/}'
+# Default: print failure output only, as it happens
+# Note: gnu_parallel --eta is now always used, but has been modified to provide
+# only infrequent updates when not connected to a terminal. (CircleCI will
+# kill a job if no output for 10min.)
+	parallel_redir = >& t/$(test_log_prefix)log-{/} || bash -c "cat t/$(test_log_prefix)log-{/}; exit $$?"
 endif
 
 .PHONY: check_0
@@ -891,7 +903,6 @@ check_0:
 	printf '%s\n' ''						\
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
-	test -t 1 && eta=--eta || eta=; \
 	{ \
 		printf './%s\n' $(filter-out $(PARALLEL_TEST),$(TESTS)); \
 		find t -name 'run-*' -print; \
@@ -899,7 +910,7 @@ check_0:
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
 	  | grep -E -v '$(EXCLUDE_TESTS_REGEX)'					\
-	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu  $(parallel_com) ; \
+	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG --eta --gnu '{} $(parallel_redir)' ; \
 	parallel_retcode=$$? ; \
 	awk '{ if ($$7 != 0 || $$8 != 0) { if ($$7 == "Exitval") { h = $$0; } else { if (!f) print h; print; f = 1 } } } END { if(f) exit 1; }' < LOG ; \
 	awk_retcode=$$?; \
@@ -908,12 +919,12 @@ check_0:
 valgrind-exclude-regexp = InlineSkipTest.ConcurrentInsert|TransactionStressTest.DeadlockStress|DBCompactionTest.SuggestCompactRangeNoTwoLevel0Compactions|BackupableDBTest.RateLimiting|DBTest.CloseSpeedup|DBTest.ThreadStatusFlush|DBTest.RateLimitingTest|DBTest.EncodeDecompressedBlockSizeTest|FaultInjectionTest.UninstalledCompaction|HarnessTest.Randomized|ExternalSSTFileTest.CompactDuringAddFileRandom|ExternalSSTFileTest.IngestFileWithGlobalSeqnoRandomized|MySQLStyleTransactionTest.TransactionStressTest
 
 .PHONY: valgrind_check_0
+valgrind_check_0: test_log_prefix := valgrind_
 valgrind_check_0:
 	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD);				\
 	printf '%s\n' ''						\
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
-	test -t 1 && eta=--eta || eta=;					\
 	{								\
 	  printf './%s\n' $(filter-out $(PARALLEL_TEST) %skiplist_test options_settable_test, $(TESTS));		\
 	  find t -name 'run-*' -print; \
@@ -921,9 +932,9 @@ valgrind_check_0:
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
 	  | grep -E -v '$(valgrind-exclude-regexp)'					\
-	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu \
-	  '(if [[ "{}" == "./"* ]] ; then $(DRIVER) {}; else {}; fi) ' \
-	  '>& t/valgrind_log-{/}'
+	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG --eta --gnu \
+	  '(if [[ "{}" == "./"* ]] ; then $(DRIVER) {}; else {}; fi) \
+	  $(parallel_redir)' \
 
 CLEAN_FILES += t LOG $(TMPD)
 
@@ -977,15 +988,27 @@ check_some: $(ROCKSDBTESTS_SUBSET)
 ldb_tests: ldb
 	$(PYTHON) tools/ldb_test.py
 
-crash_test: whitebox_crash_test blackbox_crash_test
+crash_test:
+# Do not parallelize
+	$(MAKE) whitebox_crash_test
+	$(MAKE) blackbox_crash_test
 
-crash_test_with_atomic_flush: whitebox_crash_test_with_atomic_flush blackbox_crash_test_with_atomic_flush
+crash_test_with_atomic_flush:
+# Do not parallelize
+	$(MAKE) whitebox_crash_test_with_atomic_flush
+	$(MAKE) blackbox_crash_test_with_atomic_flush
 
-crash_test_with_txn: whitebox_crash_test_with_txn blackbox_crash_test_with_txn
+crash_test_with_txn:
+# Do not parallelize
+	$(MAKE) whitebox_crash_test_with_txn
+	$(MAKE) blackbox_crash_test_with_txn
 
 crash_test_with_best_efforts_recovery: blackbox_crash_test_with_best_efforts_recovery
 
-crash_test_with_ts: whitebox_crash_test_with_ts blackbox_crash_test_with_ts
+crash_test_with_ts:
+# Do not parallelize
+	$(MAKE) whitebox_crash_test_with_ts
+	$(MAKE) blackbox_crash_test_with_ts
 
 blackbox_crash_test: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
@@ -1925,6 +1948,9 @@ clipping_iterator_test: $(OBJ_DIR)/db/compaction/clipping_iterator_test.o $(TEST
 ribbon_bench: $(OBJ_DIR)/microbench/ribbon_bench.o $(LIBRARY)
 	$(AM_LINK)
 
+db_basic_bench: $(OBJ_DIR)/microbench/db_basic_bench.o $(LIBRARY)
+	$(AM_LINK)
+
 cache_reservation_manager_test: $(OBJ_DIR)/cache/cache_reservation_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 #-------------------------------------------------
@@ -1997,7 +2023,7 @@ JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
 ifeq ($(PLATFORM), OS_SOLARIS)
 	ARCH := $(shell isainfo -b)
 else ifeq ($(PLATFORM), OS_OPENBSD)
-	ifneq (,$(filter amd64 ppc64 ppc64le arm64 aarch64 sparc64, $(MACHINE)))
+	ifneq (,$(filter amd64 ppc64 ppc64le s390x arm64 aarch64 sparc64, $(MACHINE)))
 		ARCH := 64
 	else
 		ARCH := 32
@@ -2017,7 +2043,7 @@ ifneq ($(origin JNI_LIBC), undefined)
   JNI_LIBC_POSTFIX = -$(JNI_LIBC)
 endif
 
-ifneq (,$(filter ppc% arm64 aarch64 sparc64, $(MACHINE)))
+ifneq (,$(filter ppc% s390x arm64 aarch64 sparc64, $(MACHINE)))
 	ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE)$(JNI_LIBC_POSTFIX).so
 else
 	ROCKSDBJNILIB = librocksdbjni-linux$(ARCH)$(JNI_LIBC_POSTFIX).so
@@ -2034,7 +2060,7 @@ ZLIB_SHA256 ?= c3e5e9fdd5004dcb542feda5ee4f0ff0744628baf8ed2dd5d66f8ca1197cb1a1
 ZLIB_DOWNLOAD_BASE ?= http://zlib.net
 BZIP2_VER ?= 1.0.8
 BZIP2_SHA256 ?= ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
-BZIP2_DOWNLOAD_BASE ?= https://sourceware.org/pub/bzip2
+BZIP2_DOWNLOAD_BASE ?= http://sourceware.org/pub/bzip2
 SNAPPY_VER ?= 1.1.8
 SNAPPY_SHA256 ?= 16b677f07832a612b0836178db7f374e414f94657c138e6993cbfc5dcc58651f
 SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/archive
@@ -2242,19 +2268,25 @@ rocksdbjavastaticpublish: rocksdbjavastaticrelease rocksdbjavastaticpublishcentr
 
 rocksdbjavastaticpublishdocker: rocksdbjavastaticreleasedocker rocksdbjavastaticpublishcentral
 
+ROCKSDB_JAVA_RELEASE_CLASSIFIERS = javadoc sources linux64 linux32 linux64-musl linux32-musl osx win64
+
 rocksdbjavastaticpublishcentral: rocksdbjavageneratepom
-	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/pom.xml -Dfile=java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION)-javadoc.jar -Dclassifier=javadoc
-	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/pom.xml -Dfile=java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION)-sources.jar -Dclassifier=sources
-	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/pom.xml -Dfile=java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION)-linux64.jar -Dclassifier=linux64
-	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/pom.xml -Dfile=java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION)-linux32.jar -Dclassifier=linux32
-	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/pom.xml -Dfile=java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION)-linux64-musl.jar -Dclassifier=linux64-musl
-	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/pom.xml -Dfile=java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION)-linux32-musl.jar -Dclassifier=linux32-musl
-	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/pom.xml -Dfile=java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION)-osx.jar -Dclassifier=osx
-	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/pom.xml -Dfile=java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION)-win64.jar -Dclassifier=win64
 	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/pom.xml -Dfile=java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION).jar
+	$(foreach classifier, $(ROCKSDB_JAVA_RELEASE_CLASSIFIERS), mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/pom.xml -Dfile=java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION)-$(classifier).jar -Dclassifier=$(classifier);)
 
 rocksdbjavageneratepom:
 	cd java;cat pom.xml.template | sed 's/\$${ROCKSDB_JAVA_VERSION}/$(ROCKSDB_JAVA_VERSION)/' > pom.xml
+
+rocksdbjavastaticnexusbundlejar: rocksdbjavageneratepom
+	openssl sha1 -r java/pom.xml | awk '{  print $$1 }' > java/target/pom.xml.sha1
+	openssl sha1 -r java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION).jar | awk '{  print $$1 }' > java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION).jar.sha1
+	$(foreach classifier, $(ROCKSDB_JAVA_RELEASE_CLASSIFIERS), openssl sha1 -r java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION)-$(classifier).jar | awk '{  print $$1 }' > java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION)-$(classifier).jar.sha1;)
+	gpg --yes --output java/target/pom.xml.asc -ab java/pom.xml
+	gpg --yes -ab java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION).jar
+	$(foreach classifier, $(ROCKSDB_JAVA_RELEASE_CLASSIFIERS), gpg --yes -ab java/target/rocksdbjni-$(ROCKSDB_JAVA_VERSION)-$(classifier).jar;)
+	jar cvf java/target/nexus-bundle-rocksdbjni-$(ROCKSDB_JAVA_VERSION).jar -C java pom.xml -C java/target pom.xml.sha1 -C java/target pom.xml.asc -C java/target rocksdbjni-$(ROCKSDB_JAVA_VERSION).jar -C java/target rocksdbjni-$(ROCKSDB_JAVA_VERSION).jar.sha1 -C java/target rocksdbjni-$(ROCKSDB_JAVA_VERSION).jar.asc
+	 $(foreach classifier, $(ROCKSDB_JAVA_RELEASE_CLASSIFIERS), jar uf java/target/nexus-bundle-rocksdbjni-$(ROCKSDB_JAVA_VERSION).jar -C java/target rocksdbjni-$(ROCKSDB_JAVA_VERSION)-$(classifier).jar -C java/target rocksdbjni-$(ROCKSDB_JAVA_VERSION)-$(classifier).jar.sha1 -C java/target rocksdbjni-$(ROCKSDB_JAVA_VERSION)-$(classifier).jar.asc;)
+
 
 # A version of each $(LIBOBJECTS) compiled with -fPIC
 

@@ -60,7 +60,7 @@ void SyncPoint::ClearTrace() {
   impl_->ClearTrace();
 }
 
-void SyncPoint::Process(const std::string& point, void* cb_arg) {
+void SyncPoint::Process(const Slice& point, void* cb_arg) {
   impl_->Process(point, cb_arg);
 }
 

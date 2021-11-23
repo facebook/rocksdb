@@ -3407,15 +3407,31 @@ TEST(ColumnFamilyTest, ValidateBlobGCCutoff) {
                   .IsInvalidArgument());
 }
 
-}  // namespace ROCKSDB_NAMESPACE
+TEST(ColumnFamilyTest, ValidateBlobGCForceThreshold) {
+  DBOptions db_options;
 
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
+  ColumnFamilyOptions cf_options;
+  cf_options.enable_blob_garbage_collection = true;
+
+  cf_options.blob_garbage_collection_force_threshold = -0.5;
+  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
+                  .IsInvalidArgument());
+
+  cf_options.blob_garbage_collection_force_threshold = 0.0;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+
+  cf_options.blob_garbage_collection_force_threshold = 0.5;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+
+  cf_options.blob_garbage_collection_force_threshold = 1.0;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+
+  cf_options.blob_garbage_collection_force_threshold = 1.5;
+  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
+                  .IsInvalidArgument());
 }
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

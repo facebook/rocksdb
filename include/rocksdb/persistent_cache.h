@@ -31,7 +31,7 @@ class PersistentCache {
   // Insert to page cache
   //
   // page_key   Identifier to identify a page uniquely across restarts
-  // data       Page data
+  // data       Page data to copy (caller retains ownership)
   // size       Size of the page
   virtual Status Insert(const Slice& key, const char* data,
                         const size_t size) = 0;

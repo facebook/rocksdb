@@ -602,7 +602,14 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFilesWithGC) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_F(DBSSTTest, RateLimitedDelete) {
+class DBSSTTestRateLimit : public DBSSTTest,
+                           public ::testing::WithParamInterface<bool> {
+ public:
+  DBSSTTestRateLimit() : DBSSTTest() {}
+  ~DBSSTTestRateLimit() override {}
+};
+
+TEST_P(DBSSTTestRateLimit, RateLimitedDelete) {
   Destroy(last_options_);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"DBSSTTest::RateLimitedDelete:1",
@@ -640,11 +647,15 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
+  bool different_wal_dir = GetParam();
   Options options = CurrentOptions();
   SetTimeElapseOnlySleepOnReopen(&options);
   options.disable_auto_compactions = true;
   options.env = env_;
   options.statistics = CreateDBStatistics();
+  if (different_wal_dir) {
+    options.wal_dir = alternative_wal_dir_;
+  }
 
   int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
   Status s;
@@ -656,7 +667,9 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   sfm->delete_scheduler()->SetMaxTrashDBRatio(1.1);
 
   WriteOptions wo;
-  wo.disableWAL = true;
+  if (!different_wal_dir) {
+    wo.disableWAL = true;
+  }
   Reopen(options);
   // Create 4 files in L0
   for (char v = 'a'; v <= 'd'; v++) {
@@ -700,6 +713,9 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
+
+INSTANTIATE_TEST_CASE_P(RateLimitedDelete, DBSSTTestRateLimit,
+                        ::testing::Bool());
 
 TEST_F(DBSSTTest, RateLimitedWALDelete) {
   Destroy(last_options_);
@@ -1664,14 +1680,6 @@ TEST_F(DBSSTTest, DBWithSFMForBlobFilesAtomicFlush) {
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
-}
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

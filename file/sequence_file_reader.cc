@@ -47,7 +47,14 @@ IOStatus SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
     AlignedBuffer buf;
     buf.Alignment(alignment);
     buf.AllocateNewBuffer(size);
+
     Slice tmp;
+    uint64_t orig_offset = 0;
+    FileOperationInfo::StartTimePoint start_ts;
+    if (ShouldNotifyListeners()) {
+      orig_offset = aligned_offset + buf.CurrentSize();
+      start_ts = FileOperationInfo::StartNow();
+    }
     io_s = file_->PositionedRead(aligned_offset, size, IOOptions(), &tmp,
                                  buf.BufferStart(), nullptr);
     if (io_s.ok() && offset_advance < tmp.size()) {
@@ -56,6 +63,11 @@ IOStatus SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
                    std::min(tmp.size() - offset_advance, n));
     }
     *result = Slice(scratch, r);
+    if (ShouldNotifyListeners()) {
+      auto finish_ts = FileOperationInfo::FinishNow();
+      NotifyOnFileReadFinish(orig_offset, tmp.size(), start_ts, finish_ts,
+                             io_s);
+    }
 #endif  // !ROCKSDB_LITE
   } else {
     // To be paranoid, modify scratch a little bit, so in case underlying
@@ -66,7 +78,23 @@ IOStatus SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
     if (n > 0 && scratch != nullptr) {
       scratch[0]++;
     }
+
+#ifndef ROCKSDB_LITE
+    FileOperationInfo::StartTimePoint start_ts;
+    if (ShouldNotifyListeners()) {
+      start_ts = FileOperationInfo::StartNow();
+    }
+#endif
+
     io_s = file_->Read(n, IOOptions(), result, scratch, nullptr);
+
+#ifndef ROCKSDB_LITE
+    if (ShouldNotifyListeners()) {
+      auto finish_ts = FileOperationInfo::FinishNow();
+      size_t offset = offset_.fetch_add(result->size());
+      NotifyOnFileReadFinish(offset, result->size(), start_ts, finish_ts, io_s);
+    }
+#endif
   }
   IOSTATS_ADD(bytes_read, result->size());
   return io_s;

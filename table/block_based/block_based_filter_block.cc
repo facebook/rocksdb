@@ -117,9 +117,10 @@ inline void BlockBasedFilterBlockBuilder::AddPrefix(const Slice& key) {
   }
 }
 
-Slice BlockBasedFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
-                                           Status* status) {
-  // In this impl we ignore BlockHandle
+Slice BlockBasedFilterBlockBuilder::Finish(
+    const BlockHandle& /*tmp*/, Status* status,
+    std::unique_ptr<const char[]>* /* filter_data */) {
+  // In this impl we ignore BlockHandle and filter_data
   *status = Status::OK();
 
   if (!start_.empty()) {

@@ -9,6 +9,7 @@
 #include <string>
 
 #include "db/blob/blob_log_format.h"
+#include "file/file_prefetch_buffer.h"
 #include "file/filename.h"
 #include "monitoring/statistics.h"
 #include "options/cf_options.h"
@@ -282,6 +283,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
                                const Slice& user_key, uint64_t offset,
                                uint64_t value_size,
                                CompressionType compression_type,
+                               FilePrefetchBuffer* prefetch_buffer,
                                PinnableSlice* value,
                                uint64_t* bytes_read) const {
   assert(value);
@@ -313,7 +315,21 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   Buffer buf;
   AlignedBuf aligned_buf;
 
-  {
+  bool prefetched = false;
+
+  if (prefetch_buffer) {
+    Status s;
+    constexpr bool for_compaction = true;
+
+    prefetched = prefetch_buffer->TryReadFromCache(
+        IOOptions(), file_reader_.get(), record_offset,
+        static_cast<size_t>(record_size), &record_slice, &s, for_compaction);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (!prefetched) {
     TEST_SYNC_POINT("BlobFileReader::GetBlob:ReadFromFile");
 
     const Status s = ReadFromFile(file_reader_.get(), record_offset,
@@ -322,10 +338,10 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
     if (!s.ok()) {
       return s;
     }
-
-    TEST_SYNC_POINT_CALLBACK("BlobFileReader::GetBlob:TamperWithResult",
-                             &record_slice);
   }
+
+  TEST_SYNC_POINT_CALLBACK("BlobFileReader::GetBlob:TamperWithResult",
+                           &record_slice);
 
   if (read_options.verify_checksums) {
     const Status s = VerifyBlob(record_slice, user_key, value_size);

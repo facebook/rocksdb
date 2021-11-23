@@ -772,6 +772,121 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   }
 }
 
+#ifndef ROCKSDB_LITE
+class IOErrorEventListener : public EventListener {
+ public:
+  IOErrorEventListener() { notify_error_.store(0); }
+
+  void OnIOError(const IOErrorInfo& io_error_info) override {
+    notify_error_++;
+    EXPECT_FALSE(io_error_info.file_path.empty());
+    EXPECT_FALSE(io_error_info.io_status.ok());
+  }
+
+  size_t NotifyErrorCount() { return notify_error_; }
+
+  bool ShouldBeNotifiedOnFileIO() override { return true; }
+
+ private:
+  std::atomic<size_t> notify_error_;
+};
+
+TEST_F(DBWritableFileWriterTest, IOErrorNotification) {
+  class FakeWF : public FSWritableFile {
+   public:
+    explicit FakeWF() : io_error_(false) {
+      file_append_errors_.store(0);
+      file_flush_errors_.store(0);
+    }
+
+    using FSWritableFile::Append;
+    IOStatus Append(const Slice& /*data*/, const IOOptions& /*options*/,
+                    IODebugContext* /*dbg*/) override {
+      if (io_error_) {
+        file_append_errors_++;
+        return IOStatus::IOError("Fake IO error");
+      }
+      return IOStatus::OK();
+    }
+
+    using FSWritableFile::PositionedAppend;
+    IOStatus PositionedAppend(const Slice& /*data*/, uint64_t,
+                              const IOOptions& /*options*/,
+                              IODebugContext* /*dbg*/) override {
+      if (io_error_) {
+        return IOStatus::IOError("Fake IO error");
+      }
+      return IOStatus::OK();
+    }
+    IOStatus Close(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Flush(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      if (io_error_) {
+        file_flush_errors_++;
+        return IOStatus::IOError("Fake IO error");
+      }
+      return IOStatus::OK();
+    }
+    IOStatus Sync(const IOOptions& /*options*/,
+                  IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+
+    void SetIOError(bool val) { io_error_ = val; }
+
+    void CheckCounters(int file_append_errors, int file_flush_errors) {
+      ASSERT_EQ(file_append_errors, file_append_errors_);
+      ASSERT_EQ(file_flush_errors_, file_flush_errors);
+    }
+
+   protected:
+    bool io_error_;
+    std::atomic<size_t> file_append_errors_;
+    std::atomic<size_t> file_flush_errors_;
+  };
+
+  FileOptions file_options = FileOptions();
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  IOErrorEventListener* listener = new IOErrorEventListener();
+  options.listeners.emplace_back(listener);
+
+  DestroyAndReopen(options);
+  ImmutableOptions ioptions(options);
+
+  std::string fname = this->dbname_ + "/test_file";
+  std::unique_ptr<FakeWF> writable_file_ptr(new FakeWF);
+
+  std::unique_ptr<WritableFileWriter> file_writer;
+  writable_file_ptr->SetIOError(true);
+
+  file_writer.reset(new WritableFileWriter(
+      std::move(writable_file_ptr), fname, file_options,
+      SystemClock::Default().get(), nullptr, ioptions.stats, ioptions.listeners,
+      ioptions.file_checksum_gen_factory.get(), true, true));
+
+  FakeWF* fwf = static_cast<FakeWF*>(file_writer->writable_file());
+
+  fwf->SetIOError(true);
+  ASSERT_NOK(file_writer->Append(std::string(2 * kMb, 'a')));
+  fwf->CheckCounters(1, 0);
+  ASSERT_EQ(listener->NotifyErrorCount(), 1);
+
+  fwf->SetIOError(true);
+  ASSERT_NOK(file_writer->Flush());
+  fwf->CheckCounters(1, 1);
+  ASSERT_EQ(listener->NotifyErrorCount(), 2);
+
+  /* No error generation */
+  fwf->SetIOError(false);
+  ASSERT_OK(file_writer->Append(std::string(2 * kMb, 'b')));
+  ASSERT_EQ(listener->NotifyErrorCount(), 2);
+  fwf->CheckCounters(1, 1);
+}
+#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

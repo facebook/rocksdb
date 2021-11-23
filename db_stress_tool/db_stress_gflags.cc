@@ -19,7 +19,10 @@ static bool ValidateUint32Range(const char* flagname, uint64_t value) {
   return true;
 }
 
-DEFINE_uint64(seed, 2341234, "Seed for PRNG");
+DEFINE_uint64(seed, 2341234,
+              "Seed for PRNG. When --nooverwritepercent is "
+              "nonzero and --expected_values_dir is nonempty, this value "
+              "must be fixed across invocations.");
 static const bool FLAGS_seed_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_seed, &ValidateUint32Range);
 
@@ -396,6 +399,17 @@ DEFINE_double(blob_garbage_collection_age_cutoff,
               "[Integrated BlobDB] The cutoff in terms of blob file age for "
               "garbage collection.");
 
+DEFINE_double(blob_garbage_collection_force_threshold,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_garbage_collection_force_threshold,
+              "[Integrated BlobDB] The threshold for the ratio of garbage in "
+              "the oldest blob files for forcing garbage collection.");
+
+DEFINE_uint64(blob_compaction_readahead_size,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_compaction_readahead_size,
+              "[Integrated BlobDB] Compaction readahead for blob files.");
+
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
@@ -453,7 +467,8 @@ DEFINE_string(
     "provided and non-empty, the DB state will be verified against these "
     "values after recovery. --max_key and --column_family must be kept the "
     "same across invocations of this program that use the same "
-    "--expected_values_dir.");
+    "--expected_values_dir. See --seed and --nooverwritepercent for further "
+    "requirements.");
 
 DEFINE_bool(verify_checksum, false,
             "Verify checksum for every block read from storage");
@@ -644,7 +659,8 @@ static const bool FLAGS_delrangepercent_dummy __attribute__((__unused__)) =
 
 DEFINE_int32(nooverwritepercent, 60,
              "Ratio of keys without overwrite to total workload (expressed as "
-             " a percentage)");
+             "a percentage). When --expected_values_dir is nonempty, must "
+             "keep this value constant across invocations.");
 static const bool FLAGS_nooverwritepercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_nooverwritepercent, &ValidateInt32Percent);
 
@@ -830,6 +846,9 @@ DEFINE_int32(open_metadata_write_fault_one_in, 0,
 #ifndef ROCKSDB_LITE
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a customized secondary cache object");
+DEFINE_int32(secondary_cache_fault_one_in, 0,
+             "On non-zero, enables fault injection in secondary cache inserts"
+             " and lookups");
 #endif  // ROCKSDB_LITE
 DEFINE_int32(open_write_fault_one_in, 0,
              "On non-zero, enables fault injection on file writes "

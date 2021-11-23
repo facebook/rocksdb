@@ -9,14 +9,26 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-Status BlobFetcher::FetchBlob(const Slice& user_key, const Slice& blob_index,
-                              PinnableSlice* blob_value) {
-  Status s;
+Status BlobFetcher::FetchBlob(const Slice& user_key,
+                              const Slice& blob_index_slice,
+                              FilePrefetchBuffer* prefetch_buffer,
+                              PinnableSlice* blob_value,
+                              uint64_t* bytes_read) const {
   assert(version_);
-  constexpr uint64_t* bytes_read = nullptr;
-  s = version_->GetBlob(read_options_, user_key, blob_index, blob_value,
-                        bytes_read);
-  return s;
+
+  return version_->GetBlob(read_options_, user_key, blob_index_slice,
+                           prefetch_buffer, blob_value, bytes_read);
+}
+
+Status BlobFetcher::FetchBlob(const Slice& user_key,
+                              const BlobIndex& blob_index,
+                              FilePrefetchBuffer* prefetch_buffer,
+                              PinnableSlice* blob_value,
+                              uint64_t* bytes_read) const {
+  assert(version_);
+
+  return version_->GetBlob(read_options_, user_key, blob_index, prefetch_buffer,
+                           blob_value, bytes_read);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

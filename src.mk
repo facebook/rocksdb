@@ -18,6 +18,7 @@ LIB_SOURCES =                                                   \
   db/blob/blob_log_format.cc                                    \
   db/blob/blob_log_sequential_reader.cc                         \
   db/blob/blob_log_writer.cc                                    \
+  db/blob/prefetch_buffer_collection.cc                         \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \
@@ -94,7 +95,7 @@ LIB_SOURCES =                                                   \
   env/file_system_tracer.cc                                     \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
-  env/unique_id.cc                                              \
+  env/unique_id_gen.cc                                          \
   file/delete_scheduler.cc                                      \
   file/file_prefetch_buffer.cc                                  \
   file/file_util.cc                                             \
@@ -197,6 +198,7 @@ LIB_SOURCES =                                                   \
   table/table_factory.cc                                        \
   table/table_properties.cc                                     \
   table/two_level_iterator.cc                                   \
+  table/unique_id.cc                                            \
   test_util/sync_point.cc                                       \
   test_util/sync_point_impl.cc                                  \
   test_util/transaction_test_util.cc                            \
@@ -235,6 +237,8 @@ LIB_SOURCES =                                                   \
   utilities/blob_db/blob_db_impl.cc                             \
   utilities/blob_db/blob_db_impl_filesnapshot.cc                \
   utilities/blob_db/blob_file.cc                                \
+  utilities/cache_dump_load.cc                                  \
+  utilities/cache_dump_load_impl.cc                             \
   utilities/cassandra/cassandra_compaction_filter.cc            \
   utilities/cassandra/format.cc                                 \
   utilities/cassandra/merge_operator.cc                         \
@@ -247,6 +251,7 @@ LIB_SOURCES =                                                   \
   utilities/env_timed.cc                                        \
   utilities/fault_injection_env.cc                              \
   utilities/fault_injection_fs.cc                               \
+  utilities/fault_injection_secondary_cache.cc                  \
   utilities/leveldb_options/leveldb_options.cc                  \
   utilities/memory/memory_util.cc                               \
   utilities/merge_operators.cc                                  \
@@ -342,9 +347,10 @@ STRESS_LIB_SOURCES =                                            \
   db_stress_tool/cf_consistency_stress.cc                      \
   db_stress_tool/db_stress_common.cc                           \
   db_stress_tool/db_stress_driver.cc                           \
-  db_stress_tool/db_stress_test_base.cc                        \
   db_stress_tool/db_stress_gflags.cc                           \
+  db_stress_tool/db_stress_listener.cc                         \
   db_stress_tool/db_stress_shared_state.cc                     \
+  db_stress_tool/db_stress_test_base.cc                        \
   db_stress_tool/db_stress_tool.cc                             \
   db_stress_tool/expected_state.cc                             \
   db_stress_tool/no_batched_ops_stress.cc                      \

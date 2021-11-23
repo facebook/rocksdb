@@ -23,6 +23,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 class BlobFileBuilder;
+class BlobFetcher;
+class PrefetchBufferCollection;
 
 // A wrapper of internal iterator whose purpose is to count how
 // many entries there are in the iterator.
@@ -92,11 +94,15 @@ class CompactionIterator {
 
     virtual bool preserve_deletes() const = 0;
 
+    virtual bool allow_mmap_reads() const = 0;
+
     virtual bool enable_blob_garbage_collection() const = 0;
 
     virtual double blob_garbage_collection_age_cutoff() const = 0;
 
-    virtual Version* input_version() const = 0;
+    virtual uint64_t blob_compaction_readahead_size() const = 0;
+
+    virtual const Version* input_version() const = 0;
 
     virtual bool DoesInputReferenceBlobFiles() const = 0;
 
@@ -137,6 +143,10 @@ class CompactionIterator {
       return compaction_->immutable_options()->preserve_deletes;
     }
 
+    bool allow_mmap_reads() const override {
+      return compaction_->immutable_options()->allow_mmap_reads;
+    }
+
     bool enable_blob_garbage_collection() const override {
       return compaction_->mutable_cf_options()->enable_blob_garbage_collection;
     }
@@ -146,7 +156,11 @@ class CompactionIterator {
           ->blob_garbage_collection_age_cutoff;
     }
 
-    Version* input_version() const override {
+    uint64_t blob_compaction_readahead_size() const override {
+      return compaction_->mutable_cf_options()->blob_compaction_readahead_size;
+    }
+
+    const Version* input_version() const override {
       return compaction_->input_version();
     }
 
@@ -271,13 +285,9 @@ class CompactionIterator {
                SnapshotCheckerResult::kInSnapshot;
   }
 
-  bool IsInCurrentEarliestSnapshot(SequenceNumber sequence);
-
   bool DefinitelyInSnapshot(SequenceNumber seq, SequenceNumber snapshot);
 
   bool DefinitelyNotInSnapshot(SequenceNumber seq, SequenceNumber snapshot);
-
-  bool InCurrentEarliestSnapshot(SequenceNumber seq);
 
   // Extract user-defined timestamp from user key if possible and compare it
   // with *full_history_ts_low_ if applicable.
@@ -295,6 +305,10 @@ class CompactionIterator {
 
   static uint64_t ComputeBlobGarbageCollectionCutoffFileNumber(
       const CompactionProxy* compaction);
+  static std::unique_ptr<BlobFetcher> CreateBlobFetcherIfNeeded(
+      const CompactionProxy* compaction);
+  static std::unique_ptr<PrefetchBufferCollection>
+  CreatePrefetchBufferCollectionIfNeeded(const CompactionProxy* compaction);
 
   SequenceIterWrapper input_;
   const Comparator* cmp_;
@@ -383,6 +397,9 @@ class CompactionIterator {
 
   uint64_t blob_garbage_collection_cutoff_file_number_;
 
+  std::unique_ptr<BlobFetcher> blob_fetcher_;
+  std::unique_ptr<PrefetchBufferCollection> prefetch_buffers_;
+
   std::string blob_index_;
   PinnableSlice blob_value_;
   std::string compaction_filter_value_;
@@ -404,6 +421,10 @@ class CompactionIterator {
   int cmp_with_history_ts_low_;
 
   const int level_;
+
+  // True if the previous internal key (same user key)'s sequence number has
+  // just been zeroed out during bottommost compaction.
+  bool last_key_seq_zeroed_{false};
 
   void AdvanceInputIter() { input_.Next(); }
 
@@ -437,12 +458,6 @@ inline bool CompactionIterator::DefinitelyNotInSnapshot(
           (snapshot_checker_ != nullptr &&
            UNLIKELY(snapshot_checker_->CheckInSnapshot((seq), (snapshot)) ==
                     SnapshotCheckerResult::kNotInSnapshot)));
-}
-
-inline bool CompactionIterator::InCurrentEarliestSnapshot(SequenceNumber seq) {
-  return ((seq) <= earliest_snapshot_ &&
-          (snapshot_checker_ == nullptr ||
-           LIKELY(IsInCurrentEarliestSnapshot(seq))));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

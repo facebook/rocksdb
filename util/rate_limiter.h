@@ -38,7 +38,8 @@ class GenericRateLimiter : public RateLimiter {
 
   // Request for token to write bytes. If this request can not be satisfied,
   // the call is blocked. Caller is responsible to make sure
-  // bytes <= GetSingleBurstBytes()
+  // bytes <= GetSingleBurstBytes() and bytes >= 0. Negative bytes
+  // passed in will be rounded up to 0.
   using RateLimiter::Request;
   virtual void Request(const int64_t bytes, const Env::IOPriority pri,
                        Statistics* stats) override;
@@ -104,8 +105,6 @@ class GenericRateLimiter : public RateLimiter {
 
   // This mutex guard all internal states
   mutable port::Mutex request_mutex_;
-
-  const int64_t kMinRefillBytesPerPeriod = 100;
 
   const int64_t refill_period_us_;
 

@@ -14,6 +14,7 @@
 #include "db/dbformat.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/vector_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -67,7 +68,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
 
   assert(keys.size() == values.size());
 
-  test::VectorIterator input(keys, values);
+  VectorIterator input(keys, values);
   BlobGarbageMeter blob_garbage_meter;
 
   BlobCountingIterator blob_counter(&input, &blob_garbage_meter);
@@ -307,7 +308,7 @@ TEST(BlobCountingIteratorTest, CorruptBlobIndex) {
 
   assert(keys.size() == values.size());
 
-  test::VectorIterator input(keys, values);
+  VectorIterator input(keys, values);
   BlobGarbageMeter blob_garbage_meter;
 
   BlobCountingIterator blob_counter(&input, &blob_garbage_meter);

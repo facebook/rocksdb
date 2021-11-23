@@ -35,7 +35,9 @@
 #include "logging/logging.h"
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
+#include "rocksdb/env.h"
 #include "rocksdb/rate_limiter.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/transaction_log.h"
 #include "table/sst_file_dumper.h"
 #include "test_util/sync_point.h"
@@ -231,6 +233,12 @@ class BackupEngineImpl {
       return rv;
     }
   };
+
+  static void LoopRateLimitRequestHelper(const size_t total_bytes_to_request,
+                                         RateLimiter* rate_limiter,
+                                         const Env::IOPriority pri,
+                                         Statistics* stats,
+                                         const RateLimiter::OpType op_type);
 
   static inline std::string WithoutTrailingSlash(const std::string& path) {
     if (path.empty() || path.back() != '/') {
@@ -537,13 +545,14 @@ class BackupEngineImpl {
   //
   // @param src If non-empty, the file is copied from this pathname.
   // @param contents If non-empty, the file will be created with these contents.
-  IOStatus CopyOrCreateFile(
-      const std::string& src, const std::string& dst,
-      const std::string& contents, Env* src_env, Env* dst_env,
-      const EnvOptions& src_env_options, bool sync, RateLimiter* rate_limiter,
-      uint64_t* size = nullptr, std::string* checksum_hex = nullptr,
-      uint64_t size_limit = 0,
-      std::function<void()> progress_callback = []() {});
+  IOStatus CopyOrCreateFile(const std::string& src, const std::string& dst,
+                            const std::string& contents, uint64_t size_limit,
+                            Env* src_env, Env* dst_env,
+                            const EnvOptions& src_env_options, bool sync,
+                            RateLimiter* rate_limiter,
+                            std::function<void()> progress_callback,
+                            uint64_t* bytes_toward_next_callback,
+                            uint64_t* size, std::string* checksum_hex);
 
   IOStatus ReadFileAndComputeChecksum(const std::string& src,
                                       const std::shared_ptr<FileSystem>& src_fs,
@@ -1163,6 +1172,7 @@ IOStatus BackupEngineImpl::Initialize() {
 #endif
       CpuPriority current_priority = CpuPriority::kNormal;
       CopyOrCreateWorkItem work_item;
+      uint64_t bytes_toward_next_callback = 0;
       while (files_to_copy_or_create_.read(work_item)) {
         CpuPriority priority = threads_cpu_priority_;
         if (current_priority != priority) {
@@ -1181,10 +1191,10 @@ IOStatus BackupEngineImpl::Initialize() {
         CopyOrCreateResult result;
         result.io_status = CopyOrCreateFile(
             work_item.src_path, work_item.dst_path, work_item.contents,
-            work_item.src_env, work_item.dst_env, work_item.src_env_options,
-            work_item.sync, work_item.rate_limiter, &result.size,
-            &result.checksum_hex, work_item.size_limit,
-            work_item.progress_callback);
+            work_item.size_limit, work_item.src_env, work_item.dst_env,
+            work_item.src_env_options, work_item.sync, work_item.rate_limiter,
+            work_item.progress_callback, &bytes_toward_next_callback,
+            &result.size, &result.checksum_hex);
 
         RecordTick(work_item.stats, BACKUP_READ_BYTES,
                    IOSTATS(bytes_read) - prev_bytes_read);
@@ -1324,7 +1334,6 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
     EnvOptions src_raw_env_options(db_options);
     RateLimiter* rate_limiter = options_.backup_rate_limiter.get();
     io_s = status_to_io_status(checkpoint.CreateCustomCheckpoint(
-        db_options,
         [&](const std::string& /*src_dirname*/, const std::string& /*fname*/,
             FileType) {
           // custom checkpoint will switch to calling copy_file_cb after it sees
@@ -1342,7 +1351,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
           uint64_t size_bytes = 0;
           IOStatus io_st;
           if (type == kTableFile || type == kBlobFile) {
-            io_st = db_fs_->GetFileSize(src_dirname + fname, io_options_,
+            io_st = db_fs_->GetFileSize(src_dirname + "/" + fname, io_options_,
                                         &size_bytes, nullptr);
           }
           EnvOptions src_env_options;
@@ -1437,19 +1446,24 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
                        io_options_, &backup_private_directory, nullptr)
         .PermitUncheckedError();
     if (backup_private_directory != nullptr) {
-      io_s = backup_private_directory->Fsync(io_options_, nullptr);
+      io_s = backup_private_directory->FsyncWithDirOptions(io_options_, nullptr,
+                                                           DirFsyncOptions());
     }
     if (io_s.ok() && private_directory_ != nullptr) {
-      io_s = private_directory_->Fsync(io_options_, nullptr);
+      io_s = private_directory_->FsyncWithDirOptions(io_options_, nullptr,
+                                                     DirFsyncOptions());
     }
     if (io_s.ok() && meta_directory_ != nullptr) {
-      io_s = meta_directory_->Fsync(io_options_, nullptr);
+      io_s = meta_directory_->FsyncWithDirOptions(io_options_, nullptr,
+                                                  DirFsyncOptions());
     }
     if (io_s.ok() && shared_directory_ != nullptr) {
-      io_s = shared_directory_->Fsync(io_options_, nullptr);
+      io_s = shared_directory_->FsyncWithDirOptions(io_options_, nullptr,
+                                                    DirFsyncOptions());
     }
     if (io_s.ok() && backup_directory_ != nullptr) {
-      io_s = backup_directory_->Fsync(io_options_, nullptr);
+      io_s = backup_directory_->FsyncWithDirOptions(io_options_, nullptr,
+                                                    DirFsyncOptions());
     }
   }
 
@@ -1612,6 +1626,8 @@ void BackupEngineImpl::SetBackupInfoFromBackupMeta(
     bool include_file_details) const {
   *backup_info = BackupInfo(id, meta.GetTimestamp(), meta.GetSize(),
                             meta.GetNumberFiles(), meta.GetAppMetadata());
+  std::string dir = options_.backup_dir + "/" + kPrivateDirSlash +
+                    ROCKSDB_NAMESPACE::ToString(id);
   if (include_file_details) {
     auto& file_details = backup_info->file_details;
     file_details.reserve(meta.GetFiles().size());
@@ -1619,6 +1635,15 @@ void BackupEngineImpl::SetBackupInfoFromBackupMeta(
       BackupFileInfo& finfo = *file_details.emplace(file_details.end());
       finfo.relative_filename = file_ptr->filename;
       finfo.size = file_ptr->size;
+      finfo.directory = dir;
+      uint64_t number;
+      FileType type;
+      bool ok = ParseFileName(file_ptr->filename, &number, &type);
+      if (ok) {
+        finfo.file_number = number;
+        finfo.file_type = type;
+      }
+      // TODO: temperature, file_checksum, file_checksum_func_name
     }
     backup_info->name_for_open = GetAbsolutePath(GetPrivateFileRel(id));
     backup_info->name_for_open.pop_back();  // remove trailing '/'
@@ -1820,15 +1845,17 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
     }
   }
 
-  // When enabled, the first Fsync is to ensure all files are fully persisted
-  // before renaming CURRENT.tmp
+  // When enabled, the first FsyncWithDirOptions is to ensure all files are
+  // fully persisted before renaming CURRENT.tmp
   if (io_s.ok() && db_dir_for_fsync) {
     ROCKS_LOG_INFO(options_.info_log, "Restore: fsync\n");
-    io_s = db_dir_for_fsync->Fsync(io_options_, nullptr);
+    io_s = db_dir_for_fsync->FsyncWithDirOptions(io_options_, nullptr,
+                                                 DirFsyncOptions());
   }
 
   if (io_s.ok() && wal_dir_for_fsync) {
-    io_s = wal_dir_for_fsync->Fsync(io_options_, nullptr);
+    io_s = wal_dir_for_fsync->FsyncWithDirOptions(io_options_, nullptr,
+                                                  DirFsyncOptions());
   }
 
   if (io_s.ok() && !temporary_current_file.empty()) {
@@ -1839,11 +1866,12 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
   }
 
   if (io_s.ok() && db_dir_for_fsync && !temporary_current_file.empty()) {
-    // Second Fsync is to ensure the final atomic rename of DB restore is
-    // fully persisted even if power goes out right after restore operation
-    // returns success
+    // Second FsyncWithDirOptions is to ensure the final atomic rename of DB
+    // restore is fully persisted even if power goes out right after restore
+    // operation returns success
     assert(db_dir_for_fsync);
-    io_s = db_dir_for_fsync->Fsync(io_options_, nullptr);
+    io_s = db_dir_for_fsync->FsyncWithDirOptions(
+        io_options_, nullptr, DirFsyncOptions(final_current_file));
   }
 
   ROCKS_LOG_INFO(options_.info_log, "Restoring done -- %s\n",
@@ -1923,9 +1951,11 @@ IOStatus BackupEngineImpl::VerifyBackup(BackupID backup_id,
 
 IOStatus BackupEngineImpl::CopyOrCreateFile(
     const std::string& src, const std::string& dst, const std::string& contents,
-    Env* src_env, Env* dst_env, const EnvOptions& src_env_options, bool sync,
-    RateLimiter* rate_limiter, uint64_t* size, std::string* checksum_hex,
-    uint64_t size_limit, std::function<void()> progress_callback) {
+    uint64_t size_limit, Env* src_env, Env* dst_env,
+    const EnvOptions& src_env_options, bool sync, RateLimiter* rate_limiter,
+    std::function<void()> progress_callback,
+    uint64_t* bytes_toward_next_callback, uint64_t* size,
+    std::string* checksum_hex) {
   assert(src.empty() != contents.empty());
   IOStatus io_s;
   std::unique_ptr<FSWritableFile> dst_file;
@@ -1967,7 +1997,6 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
   }
 
   Slice data;
-  uint64_t processed_buffer_size = 0;
   do {
     if (stop_backup_.load(std::memory_order_acquire)) {
       return status_to_io_status(Status::Incomplete("Backup stopped"));
@@ -1980,7 +2009,7 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
         rate_limiter->Request(data.size(), Env::IO_LOW, nullptr /* stats */,
                               RateLimiter::OpType::kRead);
       }
-      processed_buffer_size += buffer_to_read;
+      *bytes_toward_next_callback += data.size();
     } else {
       data = contents;
     }
@@ -2001,12 +2030,20 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
       checksum_value = crc32c::Extend(checksum_value, data.data(), data.size());
     }
     io_s = dest_writer->Append(data);
+
     if (rate_limiter != nullptr) {
-      rate_limiter->Request(data.size(), Env::IO_LOW, nullptr /* stats */,
-                            RateLimiter::OpType::kWrite);
+      if (!src.empty()) {
+        rate_limiter->Request(data.size(), Env::IO_LOW, nullptr /* stats */,
+                              RateLimiter::OpType::kWrite);
+      } else {
+        LoopRateLimitRequestHelper(data.size(), rate_limiter, Env::IO_LOW,
+                                   nullptr /* stats */,
+                                   RateLimiter::OpType::kWrite);
+      }
     }
-    if (processed_buffer_size > options_.callback_trigger_interval_size) {
-      processed_buffer_size -= options_.callback_trigger_interval_size;
+    while (*bytes_toward_next_callback >=
+           options_.callback_trigger_interval_size) {
+      *bytes_toward_next_callback -= options_.callback_trigger_interval_size;
       std::lock_guard<std::mutex> lock(byte_report_mutex_);
       progress_callback();
     }
@@ -2037,10 +2074,10 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
     std::function<void()> progress_callback, const std::string& contents,
     const std::string& src_checksum_func_name,
     const std::string& src_checksum_str) {
-  assert(!fname.empty() && fname[0] == '/');
   assert(contents.empty() != src_dir.empty());
 
-  std::string dst_relative = fname.substr(1);
+  std::string src_path = src_dir + "/" + fname;
+  std::string dst_relative;
   std::string dst_relative_tmp;
   std::string db_id;
   std::string db_session_id;
@@ -2073,8 +2110,8 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
       // Prepare db_session_id to add to the file name
       // Ignore the returned status
       // In the failed cases, db_id and db_session_id will be empty
-      GetFileDbIdentities(db_env_, src_env_options, src_dir + fname,
-                          rate_limiter, &db_id, &db_session_id)
+      GetFileDbIdentities(db_env_, src_env_options, src_path, rate_limiter,
+                          &db_id, &db_session_id)
           .PermitUncheckedError();
     }
     // Calculate checksum if checksum and db session id are not available.
@@ -2083,13 +2120,13 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
     // the shared_checksum directory.
     if (checksum_hex.empty() && db_session_id.empty()) {
       IOStatus io_s = ReadFileAndComputeChecksum(
-          src_dir + fname, db_fs_, src_env_options, size_limit, &checksum_hex);
+          src_path, db_fs_, src_env_options, size_limit, &checksum_hex);
       if (!io_s.ok()) {
         return io_s;
       }
     }
     if (size_bytes == port::kMaxUint64) {
-      return IOStatus::NotFound("File missing: " + src_dir + fname);
+      return IOStatus::NotFound("File missing: " + src_path);
     }
     // dst_relative depends on the following conditions:
     // 1) the naming scheme is kUseDbSessionId,
@@ -2106,15 +2143,15 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
     // It uses original/legacy naming scheme.
     // dst_relative will be of the form:
     // shared_checksum/<file_number>_<checksum>_<size>.blob
-    dst_relative = GetSharedFileWithChecksum(dst_relative, checksum_hex,
-                                             size_bytes, db_session_id);
+    dst_relative = GetSharedFileWithChecksum(fname, checksum_hex, size_bytes,
+                                             db_session_id);
     dst_relative_tmp = GetSharedFileWithChecksumRel(dst_relative, true);
     dst_relative = GetSharedFileWithChecksumRel(dst_relative, false);
   } else if (shared) {
-    dst_relative_tmp = GetSharedFileRel(dst_relative, true);
-    dst_relative = GetSharedFileRel(dst_relative, false);
+    dst_relative_tmp = GetSharedFileRel(fname, true);
+    dst_relative = GetSharedFileRel(fname, false);
   } else {
-    dst_relative = GetPrivateFileRel(backup_id, false, dst_relative);
+    dst_relative = GetPrivateFileRel(backup_id, false, fname);
   }
 
   // We copy into `temp_dest_path` and, once finished, rename it to
@@ -2201,9 +2238,8 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
           // ID, but even in that case, we double check the file sizes in
           // BackupMeta::AddFile.
         } else {
-          IOStatus io_s = ReadFileAndComputeChecksum(src_dir + fname, db_fs_,
-                                                     src_env_options,
-                                                     size_limit, &checksum_hex);
+          IOStatus io_s = ReadFileAndComputeChecksum(
+              src_path, db_fs_, src_env_options, size_limit, &checksum_hex);
           if (!io_s.ok()) {
             return io_s;
           }
@@ -2229,10 +2265,10 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
     ROCKS_LOG_INFO(options_.info_log, "Copying %s to %s", fname.c_str(),
                    copy_dest_path->c_str());
     CopyOrCreateWorkItem copy_or_create_work_item(
-        src_dir.empty() ? "" : src_dir + fname, *copy_dest_path, contents,
-        db_env_, backup_env_, src_env_options, options_.sync, rate_limiter,
-        size_limit, stats, progress_callback, src_checksum_func_name,
-        checksum_hex, db_id, db_session_id);
+        src_dir.empty() ? "" : src_path, *copy_dest_path, contents, db_env_,
+        backup_env_, src_env_options, options_.sync, rate_limiter, size_limit,
+        stats, progress_callback, src_checksum_func_name, checksum_hex, db_id,
+        db_session_id);
     BackupAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(), shared, need_to_copy,
         backup_env_, temp_dest_path, final_dest_path, dst_relative);
@@ -2337,8 +2373,9 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
         // sizeof(*table_properties) is a sufficent but far-from-exact
         // approximation of read bytes due to metaindex block, std::string
         // properties and varint compression
-        rate_limiter->Request(sizeof(*table_properties), Env::IO_LOW,
-                              nullptr /* stats */, RateLimiter::OpType::kRead);
+        LoopRateLimitRequestHelper(sizeof(*table_properties), rate_limiter,
+                                   Env::IO_LOW, nullptr /* stats */,
+                                   RateLimiter::OpType::kRead);
       }
     }
   } else {
@@ -2364,6 +2401,22 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
     s = Status::Corruption("Table properties missing in " + file_path);
     ROCKS_LOG_INFO(options_.info_log, "%s", s.ToString().c_str());
     return s;
+  }
+}
+
+void BackupEngineImpl::LoopRateLimitRequestHelper(
+    const size_t total_bytes_to_request, RateLimiter* rate_limiter,
+    const Env::IOPriority pri, Statistics* stats,
+    const RateLimiter::OpType op_type) {
+  assert(rate_limiter != nullptr);
+  size_t remaining_bytes = total_bytes_to_request;
+  size_t request_bytes = 0;
+  while (remaining_bytes > 0) {
+    request_bytes =
+        std::min(static_cast<size_t>(rate_limiter->GetSingleBurstBytes()),
+                 remaining_bytes);
+    rate_limiter->Request(request_bytes, pri, stats, op_type);
+    remaining_bytes -= request_bytes;
   }
 }
 
@@ -2695,8 +2748,9 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
   std::string line;
   if (backup_meta_reader->ReadLine(&line)) {
     if (rate_limiter != nullptr) {
-      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
-                            RateLimiter::OpType::kRead);
+      LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW,
+                                 nullptr /* stats */,
+                                 RateLimiter::OpType::kRead);
     }
     if (StartsWith(line, kSchemaVersionPrefix)) {
       std::string ver = line.substr(kSchemaVersionPrefix.size());
@@ -2715,23 +2769,26 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
     timestamp_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
   } else if (backup_meta_reader->ReadLine(&line)) {
     if (rate_limiter != nullptr) {
-      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
-                            RateLimiter::OpType::kRead);
+      LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW,
+                                 nullptr /* stats */,
+                                 RateLimiter::OpType::kRead);
     }
     timestamp_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
   }
   if (backup_meta_reader->ReadLine(&line)) {
     if (rate_limiter != nullptr) {
-      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
-                            RateLimiter::OpType::kRead);
+      LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW,
+                                 nullptr /* stats */,
+                                 RateLimiter::OpType::kRead);
     }
     sequence_number_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
   }
   uint32_t num_files = UINT32_MAX;
   while (backup_meta_reader->ReadLine(&line)) {
     if (rate_limiter != nullptr) {
-      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
-                            RateLimiter::OpType::kRead);
+      LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW,
+                                 nullptr /* stats */,
+                                 RateLimiter::OpType::kRead);
     }
     if (line.empty()) {
       return IOStatus::Corruption("Unexpected empty line");
@@ -2773,8 +2830,9 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
   bool footer_present = false;
   while (backup_meta_reader->ReadLine(&line)) {
     if (rate_limiter != nullptr) {
-      rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
-                            RateLimiter::OpType::kRead);
+      LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW,
+                                 nullptr /* stats */,
+                                 RateLimiter::OpType::kRead);
     }
     std::vector<std::string> components = StringSplit(line, ' ');
 
@@ -2864,8 +2922,9 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
     assert(schema_major_version >= 2);
     while (backup_meta_reader->ReadLine(&line)) {
       if (rate_limiter != nullptr) {
-        rate_limiter->Request(line.size(), Env::IO_LOW, nullptr /* stats */,
-                              RateLimiter::OpType::kRead);
+        LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW,
+                                   nullptr /* stats */,
+                                   RateLimiter::OpType::kRead);
       }
       if (line.empty()) {
         return IOStatus::Corruption("Unexpected empty line");

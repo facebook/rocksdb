@@ -56,7 +56,7 @@ using ProtectionInfoKVOS64 = ProtectionInfoKVOS<uint64_t>;
 template <typename T>
 class ProtectionInfo {
  public:
-  ProtectionInfo<T>() = default;
+  ProtectionInfo() = default;
 
   Status GetStatus() const;
   ProtectionInfoKVO<T> ProtectKVO(const Slice& key, const Slice& value,
@@ -83,7 +83,7 @@ class ProtectionInfo {
   static const uint64_t kSeedS = 0x77A00858DDD37F21;
   static const uint64_t kSeedC = 0x4A2AB5CBD26F542C;
 
-  ProtectionInfo<T>(T val) : val_(val) {
+  ProtectionInfo(T val) : val_(val) {
     static_assert(sizeof(ProtectionInfo<T>) == sizeof(T), "");
   }
 
@@ -96,7 +96,7 @@ class ProtectionInfo {
 template <typename T>
 class ProtectionInfoKVO {
  public:
-  ProtectionInfoKVO<T>() = default;
+  ProtectionInfoKVO() = default;
 
   ProtectionInfo<T> StripKVO(const Slice& key, const Slice& value,
                              ValueType op_type) const;
@@ -117,7 +117,7 @@ class ProtectionInfoKVO {
   friend class ProtectionInfoKVOS<T>;
   friend class ProtectionInfoKVOC<T>;
 
-  explicit ProtectionInfoKVO<T>(T val) : info_(val) {
+  explicit ProtectionInfoKVO(T val) : info_(val) {
     static_assert(sizeof(ProtectionInfoKVO<T>) == sizeof(T), "");
   }
 
@@ -130,7 +130,7 @@ class ProtectionInfoKVO {
 template <typename T>
 class ProtectionInfoKVOC {
  public:
-  ProtectionInfoKVOC<T>() = default;
+  ProtectionInfoKVOC() = default;
 
   ProtectionInfoKVO<T> StripC(ColumnFamilyId column_family_id) const;
 
@@ -155,7 +155,7 @@ class ProtectionInfoKVOC {
  private:
   friend class ProtectionInfoKVO<T>;
 
-  explicit ProtectionInfoKVOC<T>(T val) : kvo_(val) {
+  explicit ProtectionInfoKVOC(T val) : kvo_(val) {
     static_assert(sizeof(ProtectionInfoKVOC<T>) == sizeof(T), "");
   }
 
@@ -168,7 +168,7 @@ class ProtectionInfoKVOC {
 template <typename T>
 class ProtectionInfoKVOS {
  public:
-  ProtectionInfoKVOS<T>() = default;
+  ProtectionInfoKVOS() = default;
 
   ProtectionInfoKVO<T> StripS(SequenceNumber sequence_number) const;
 
@@ -193,7 +193,7 @@ class ProtectionInfoKVOS {
  private:
   friend class ProtectionInfoKVO<T>;
 
-  explicit ProtectionInfoKVOS<T>(T val) : kvo_(val) {
+  explicit ProtectionInfoKVOS(T val) : kvo_(val) {
     static_assert(sizeof(ProtectionInfoKVOS<T>) == sizeof(T), "");
   }
 
