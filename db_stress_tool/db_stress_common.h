@@ -253,6 +253,7 @@ DECLARE_string(blob_compression_type);
 DECLARE_bool(enable_blob_garbage_collection);
 DECLARE_double(blob_garbage_collection_age_cutoff);
 DECLARE_double(blob_garbage_collection_force_threshold);
+DECLARE_uint64(blob_compaction_readahead_size);
 
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(sync_fault_injection);
@@ -266,6 +267,7 @@ DECLARE_uint64(batch_protection_bytes_per_key);
 
 DECLARE_uint64(user_timestamp_size);
 DECLARE_string(secondary_cache_uri);
+DECLARE_int32(secondary_cache_fault_one_in);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;

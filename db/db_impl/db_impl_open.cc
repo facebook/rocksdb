@@ -200,6 +200,13 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
                    "file size check will be skipped during open.");
   }
 
+  if (result.preserve_deletes) {
+    ROCKS_LOG_WARN(
+        result.info_log,
+        "preserve_deletes is deprecated, will be removed in a future release. "
+        "Please try using user-defined timestamp instead.");
+  }
+
   return result;
 }
 
@@ -1463,7 +1470,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                   meta.fd.smallest_seqno, meta.fd.largest_seqno,
                   meta.marked_for_compaction, meta.oldest_blob_file_number,
                   meta.oldest_ancester_time, meta.file_creation_time,
-                  meta.file_checksum, meta.file_checksum_func_name);
+                  meta.file_checksum, meta.file_checksum_func_name,
+                  meta.min_timestamp, meta.max_timestamp);
 
     for (const auto& blob : blob_file_additions) {
       edit->AddBlobFile(blob);

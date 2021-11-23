@@ -568,8 +568,18 @@ struct DBOptions {
   // (i.e. the ones that are causing all the space amplification). If set to 0
   // (default), we will dynamically choose the WAL size limit to be
   // [sum of all write_buffer_size * max_write_buffer_number] * 4
-  // This option takes effect only when there are more than one column family as
-  // otherwise the wal size is dictated by the write_buffer_size.
+  //
+  // For example, with 15 column families, each with
+  // write_buffer_size = 128 MB
+  // max_write_buffer_number = 6
+  // max_total_wal_size will be calculated to be [15 * 128MB * 6] * 4 = 45GB
+  //
+  // The RocksDB wiki has some discussion about how the WAL interacts
+  // with memtables and flushing of column families.
+  // https://github.com/facebook/rocksdb/wiki/Column-Families
+  //
+  // This option takes effect only when there are more than one column
+  // family as otherwise the wal size is dictated by the write_buffer_size.
   //
   // Default: 0
   //
@@ -653,7 +663,7 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   int base_background_compactions = -1;
 
-  // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
+  // DEPRECATED: RocksDB automatically decides this based on the
   // value of max_background_jobs. For backwards compatibility we will set
   // `max_background_jobs = max_background_compactions + max_background_flushes`
   // in the case where user sets at least one of `max_background_compactions` or
@@ -679,7 +689,7 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   uint32_t max_subcompactions = 1;
 
-  // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
+  // DEPRECATED: RocksDB automatically decides this based on the
   // value of max_background_jobs. For backwards compatibility we will set
   // `max_background_jobs = max_background_compactions + max_background_flushes`
   // in the case where user sets at least one of `max_background_compactions` or
@@ -1199,16 +1209,9 @@ struct DBOptions {
   // Immutable.
   bool allow_ingest_behind = false;
 
-  // Needed to support differential snapshots.
-  // If set to true then DB will only process deletes with sequence number
-  // less than what was set by SetPreserveDeletesSequenceNumber(uint64_t ts).
-  // Clients are responsible to periodically call this method to advance
-  // the cutoff time. If this method is never called and preserve_deletes
-  // is set to true NO deletes will ever be processed.
-  // At the moment this only keeps normal deletes, SingleDeletes will
-  // not be preserved.
+  // Deprecated, will be removed in a future release.
+  // Please try using user-defined timestamp instead.
   // DEFAULT: false
-  // Immutable (TODO: make it dynamically changeable)
   bool preserve_deletes = false;
 
   // If enabled it uses two queues for writes, one for the ones with
@@ -1547,10 +1550,8 @@ struct ReadOptions {
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
 
-  // Needed to support differential snapshots. Has 2 effects:
-  // 1) Iterator will skip all internal keys with seqnum < iter_start_seqnum
-  // 2) if this param > 0 iterator will return INTERNAL keys instead of
-  //    user keys; e.g. return tombstones as well.
+  // Deprecated, will be removed in a future release.
+  // Please try using user-defined timestamp instead.
   // Default: 0 (don't filter by seqnum, return user keys)
   SequenceNumber iter_start_seqnum;
 
@@ -1591,6 +1592,19 @@ struct ReadOptions {
   //
   // Default: std::numeric_limits<uint64_t>::max()
   uint64_t value_size_soft_limit;
+
+  // For iterators, RocksDB does auto-readahead on noticing more than two
+  // sequential reads for a table file if user doesn't provide readahead_size.
+  // The readahead starts at 8KB and doubles on every additional read upto
+  // max_auto_readahead_size only when reads are sequential. However at each
+  // level, if iterator moves over next file, readahead_size starts again from
+  // 8KB.
+  //
+  // By enabling this option, RocksDB will do some enhancements for
+  // prefetching the data.
+  //
+  // Default: false
+  bool adaptive_readahead;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);

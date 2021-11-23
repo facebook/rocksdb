@@ -99,7 +99,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       blob_garbage_collection_age_cutoff(
           options.blob_garbage_collection_age_cutoff),
       blob_garbage_collection_force_threshold(
-          options.blob_garbage_collection_force_threshold) {
+          options.blob_garbage_collection_force_threshold),
+      blob_compaction_readahead_size(options.blob_compaction_readahead_size) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -405,6 +406,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      blob_garbage_collection_age_cutoff);
     ROCKS_LOG_HEADER(log, "Options.blob_garbage_collection_force_threshold: %f",
                      blob_garbage_collection_force_threshold);
+    ROCKS_LOG_HEADER(
+        log, "         Options.blob_compaction_readahead_size: %" PRIu64,
+        blob_compaction_readahead_size);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {
@@ -650,7 +654,8 @@ ReadOptions::ReadOptions()
       iter_start_ts(nullptr),
       deadline(std::chrono::microseconds::zero()),
       io_timeout(std::chrono::microseconds::zero()),
-      value_size_soft_limit(std::numeric_limits<uint64_t>::max()) {}
+      value_size_soft_limit(std::numeric_limits<uint64_t>::max()),
+      adaptive_readahead(false) {}
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
     : snapshot(nullptr),
@@ -674,6 +679,7 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       iter_start_ts(nullptr),
       deadline(std::chrono::microseconds::zero()),
       io_timeout(std::chrono::microseconds::zero()),
-      value_size_soft_limit(std::numeric_limits<uint64_t>::max()) {}
+      value_size_soft_limit(std::numeric_limits<uint64_t>::max()),
+      adaptive_readahead(false) {}
 
 }  // namespace ROCKSDB_NAMESPACE

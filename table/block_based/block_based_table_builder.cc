@@ -46,6 +46,7 @@
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/partitioned_filter_block.h"
 #include "table/format.h"
+#include "table/meta_blocks.h"
 #include "table/table_builder.h"
 #include "util/coding.h"
 #include "util/compression.h"
@@ -61,6 +62,8 @@ extern const std::string kHashIndexPrefixesMetadataBlock;
 
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
 namespace {
+
+constexpr size_t kBlockTrailerSize = BlockBasedTable::kBlockTrailerSize;
 
 // Create a filter block builder based on its type.
 FilterBlockBuilder* CreateFilterBlockBuilder(
@@ -514,6 +517,12 @@ struct BlockBasedTableBuilder::Rep {
         new BlockBasedTablePropertiesCollector(
             table_options.index_type, table_options.whole_key_filtering,
             moptions.prefix_extractor != nullptr));
+    const Comparator* ucmp = tbo.internal_comparator.user_comparator();
+    assert(ucmp);
+    if (ucmp->timestamp_size() > 0) {
+      table_properties_collectors.emplace_back(
+          new TimestampTablePropertiesCollector(ucmp));
+    }
     if (table_options.verify_compression) {
       for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
         verify_ctxs[i].reset(new UncompressionContext(compression_type));
@@ -1558,6 +1567,7 @@ void BlockBasedTableBuilder::WriteFilterBlock(
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle,
                     BlockType::kFilter);
     }
+    rep_->filter_builder->ResetFilterBitsBuilder();
   }
   if (ok() && !empty_filter_block) {
     // Add mapping from "<filter_block_prefix>.Name" to location
@@ -1705,8 +1715,11 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
                                          rep_->ioptions.logger,
                                          &property_block_builder);
 
-    WriteRawBlock(property_block_builder.Finish(), kNoCompression,
-                  &properties_block_handle, BlockType::kProperties);
+    Slice block_data = property_block_builder.Finish();
+    TEST_SYNC_POINT_CALLBACK(
+        "BlockBasedTableBuilder::WritePropertiesBlock:BlockData", &block_data);
+    WriteRawBlock(block_data, kNoCompression, &properties_block_handle,
+                  BlockType::kProperties);
   }
   if (ok()) {
 #ifndef NDEBUG
@@ -1721,7 +1734,12 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
           &props_block_size);
     }
 #endif  // !NDEBUG
-    meta_index_builder->Add(kPropertiesBlock, properties_block_handle);
+
+    const std::string* properties_block_meta = &kPropertiesBlock;
+    TEST_SYNC_POINT_CALLBACK(
+        "BlockBasedTableBuilder::WritePropertiesBlock:Meta",
+        &properties_block_meta);
+    meta_index_builder->Add(*properties_block_meta, properties_block_handle);
   }
 }
 

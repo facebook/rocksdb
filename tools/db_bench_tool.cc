@@ -1002,6 +1002,11 @@ DEFINE_double(blob_garbage_collection_force_threshold,
               "[Integrated BlobDB] The threshold for the ratio of garbage in "
               "the oldest blob files for forcing garbage collection.");
 
+DEFINE_uint64(blob_compaction_readahead_size,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_compaction_readahead_size,
+              "[Integrated BlobDB] Compaction readahead for blob files.");
+
 #ifndef ROCKSDB_LITE
 
 // Secondary DB instance Options
@@ -1048,6 +1053,10 @@ DEFINE_bool(io_uring_enabled, true,
             "If true, enable the use of IO uring if the platform supports it");
 extern "C" bool RocksDbIOUringEnable() { return FLAGS_io_uring_enabled; }
 #endif  // ROCKSDB_LITE
+
+DEFINE_bool(adaptive_readahead, false,
+            "carry forward internal auto readahead size from one file to next "
+            "file at each level during iteration");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -4361,6 +4370,8 @@ class Benchmark {
         FLAGS_blob_garbage_collection_age_cutoff;
     options.blob_garbage_collection_force_threshold =
         FLAGS_blob_garbage_collection_force_threshold;
+    options.blob_compaction_readahead_size =
+        FLAGS_blob_compaction_readahead_size;
 
 #ifndef ROCKSDB_LITE
     if (FLAGS_readonly && FLAGS_transaction_db) {
@@ -5491,6 +5502,7 @@ class Benchmark {
       options.timestamp = &ts;
     }
 
+    options.adaptive_readahead = FLAGS_adaptive_readahead;
     Iterator* iter = db->NewIterator(options);
     int64_t i = 0;
     int64_t bytes = 0;
@@ -5585,7 +5597,9 @@ class Benchmark {
   }
 
   void ReadReverse(ThreadState* thread, DB* db) {
-    Iterator* iter = db->NewIterator(ReadOptions(FLAGS_verify_checksum, true));
+    ReadOptions options(FLAGS_verify_checksum, true);
+    options.adaptive_readahead = FLAGS_adaptive_readahead;
+    Iterator* iter = db->NewIterator(options);
     int64_t i = 0;
     int64_t bytes = 0;
     for (iter->SeekToLast(); i < reads_ && iter->Valid(); iter->Prev()) {
@@ -6375,6 +6389,7 @@ class Benchmark {
     options.prefix_same_as_start = FLAGS_prefix_same_as_start;
     options.tailing = FLAGS_use_tailing_iterator;
     options.readahead_size = FLAGS_readahead_size;
+    options.adaptive_readahead = FLAGS_adaptive_readahead;
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
     if (user_timestamp_size_ > 0) {
@@ -6671,6 +6686,7 @@ class Benchmark {
       ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
       read_options.timestamp = &ts;
     }
+    read_options.adaptive_readahead = FLAGS_adaptive_readahead;
     Iterator* iter = db_.db->NewIterator(read_options);
 
     fprintf(stderr, "num reads to do %" PRIu64 "\n", reads_);
@@ -7271,6 +7287,7 @@ class Benchmark {
 
     DB* db = SelectDB(thread);
     ReadOptions read_opts(FLAGS_verify_checksum, true);
+    read_opts.adaptive_readahead = FLAGS_adaptive_readahead;
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
     if (user_timestamp_size_ > 0) {

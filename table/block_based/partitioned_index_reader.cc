@@ -9,6 +9,7 @@
 #include "table/block_based/partitioned_index_reader.h"
 
 #include "file/random_access_file_reader.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/partitioned_index_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -79,6 +80,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     ro.fill_cache = read_options.fill_cache;
     ro.deadline = read_options.deadline;
     ro.io_timeout = read_options.io_timeout;
+    ro.adaptive_readahead = read_options.adaptive_readahead;
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
     std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter(
@@ -145,7 +147,8 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
     return biter.status();
   }
   handle = biter.value().handle;
-  uint64_t last_off = handle.offset() + block_size(handle);
+  uint64_t last_off =
+      handle.offset() + BlockBasedTable::BlockSizeWithTrailer(handle);
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
   rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer,

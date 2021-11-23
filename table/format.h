@@ -185,12 +185,13 @@ class Footer {
   // convert this object to a human readable form
   std::string ToString() const;
 
+  // Block trailer size used by file with this footer (e.g. 5 for block-based
+  // table and 0 for plain table)
+  inline size_t GetBlockTrailerSize() const { return block_trailer_size_; }
+
  private:
   // REQUIRES: magic number wasn't initialized.
-  void set_table_magic_number(uint64_t magic_number) {
-    assert(!HasInitializedTableMagicNumber());
-    table_magic_number_ = magic_number;
-  }
+  void set_table_magic_number(uint64_t magic_number);
 
   // return true if @table_magic_number_ is set to a value different
   // from @kInvalidTableMagicNumber.
@@ -200,6 +201,7 @@ class Footer {
 
   uint32_t version_;
   ChecksumType checksum_;
+  uint8_t block_trailer_size_ = 0;  // set based on magic number
   BlockHandle metaindex_handle_;
   BlockHandle index_handle_;
   uint64_t table_magic_number_ = 0;
@@ -212,19 +214,6 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
                           FilePrefetchBuffer* prefetch_buffer,
                           uint64_t file_size, Footer* footer,
                           uint64_t enforce_table_magic_number = 0);
-
-// 1-byte compression type + 32-bit checksum
-static const size_t kBlockTrailerSize = 5;
-
-// Make block size calculation for IO less error prone
-inline uint64_t block_size(const BlockHandle& handle) {
-  return handle.size() + kBlockTrailerSize;
-}
-
-inline CompressionType get_block_compression_type(const char* block_data,
-                                                  size_t block_size) {
-  return static_cast<CompressionType>(block_data[block_size]);
-}
 
 // Computes a checksum using the given ChecksumType. Sometimes we need to
 // include one more input byte logically at the end but not part of the main
@@ -242,12 +231,13 @@ uint32_t ComputeBuiltinChecksumWithLastByte(ChecksumType type, const char* data,
 // BlockContents objects representing data read from mmapped files only point
 // into the mmapped region.
 struct BlockContents {
-  Slice data;  // Actual contents of data
+  // Points to block payload (without trailer)
+  Slice data;
   CacheAllocationPtr allocation;
 
 #ifndef NDEBUG
-  // Whether the block is a raw block, which contains compression type
-  // byte. It is only used for assertion.
+  // Whether there is a known trailer after what is pointed to by `data`.
+  // See BlockBasedTable::GetCompressionType.
   bool is_raw_block = false;
 #endif  // NDEBUG
 
@@ -268,14 +258,6 @@ struct BlockContents {
 
   // Returns whether the object has ownership of the underlying data bytes.
   bool own_bytes() const { return allocation.get() != nullptr; }
-
-  // It's the caller's responsibility to make sure that this is
-  // for raw block contents, which contains the compression
-  // byte in the end.
-  CompressionType get_compression_type() const {
-    assert(is_raw_block);
-    return get_block_compression_type(data.data(), data.size());
-  }
 
   // The additional memory space taken by the block data.
   size_t usable_size() const {

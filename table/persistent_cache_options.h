@@ -29,6 +29,8 @@ struct PersistentCacheOptions {
   std::shared_ptr<PersistentCache> persistent_cache;
   std::string key_prefix;
   Statistics* statistics = nullptr;
+
+  static const PersistentCacheOptions kEmpty;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

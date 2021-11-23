@@ -675,7 +675,8 @@ else
     # For portability compile for macOS 10.12 (2016) or newer
     COMMON_FLAGS="$COMMON_FLAGS -mmacosx-version-min=10.12"
     PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -mmacosx-version-min=10.12"
-    PLATFORM_SHARED_LDFLAGS="$PLATFORM_SHARED_LDFLAGS -mmacosx-version-min=10.12"
+    # -mmacosx-version-min must come first here.
+    PLATFORM_SHARED_LDFLAGS="-mmacosx-version-min=10.12 $PLATFORM_SHARED_LDFLAGS"
     PLATFORM_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=10.12"
     JAVA_STATIC_DEPS_COMMON_FLAGS="-mmacosx-version-min=10.12"
     JAVA_STATIC_DEPS_LDFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
