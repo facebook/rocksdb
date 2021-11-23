@@ -84,7 +84,7 @@ Status FileSystem::CreateFromString(const ConfigOptions& config_options,
       RegisterBuiltinFileSystems(*(ObjectLibrary::Default().get()), "");
     });
 #endif  // ROCKSDB_LITE
-    return LoadSharedObject<FileSystem>(config_options, value, nullptr, result);
+    return LoadManagedObject<FileSystem>(config_options, value, result);
   }
 }
 

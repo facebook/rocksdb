@@ -1180,7 +1180,7 @@ std::string SystemClockWrapper::SerializeOptions(
 static int RegisterBuiltinSystemClocks(ObjectLibrary& library,
                                        const std::string& /*arg*/) {
   library.Register<SystemClock>(
-      EmulatedSystemClock::kClassName(),
+      Customizable::RegexIndividualId(EmulatedSystemClock::kClassName()),
       [](const std::string& /*uri*/, std::unique_ptr<SystemClock>* guard,
          std::string* /* errmsg */) {
         guard->reset(new EmulatedSystemClock(SystemClock::Default()));
@@ -1205,8 +1205,7 @@ Status SystemClock::CreateFromString(const ConfigOptions& config_options,
       RegisterBuiltinSystemClocks(*(ObjectLibrary::Default().get()), "");
     });
 #endif  // ROCKSDB_LITE
-    return LoadSharedObject<SystemClock>(config_options, value, nullptr,
-                                         result);
+    return LoadManagedObject<SystemClock>(config_options, value, result);
   }
 }
 }  // namespace ROCKSDB_NAMESPACE

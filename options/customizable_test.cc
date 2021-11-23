@@ -301,6 +301,7 @@ class CustomizableTest : public testing::Test {
  public:
   CustomizableTest() {
     config_options_.invoke_prepare_options = false;
+    config_options_.ignore_unsupported_options = false;
 #ifndef ROCKSDB_LITE
     // GetOptionsFromMap is not supported in ROCKSDB_LITE
     config_options_.registry->AddLibrary("CustomizableTest",
@@ -1095,32 +1096,39 @@ TEST_F(CustomizableTest, CustomManagedObjects) {
   ASSERT_EQ(opts->b, false);
 }
 
+namespace {
+class ManagedCustomizable : public Customizable {
+ public:
+  static const char* Type() { return "ManagedCustomizable"; }
+  static const char* kClassName() { return "Managed"; }
+  const char* Name() const override { return kClassName(); }
+  std::string GetId() const override { return id_; }
+  ManagedCustomizable() { id_ = GenerateIndividualId(); }
+  static Status CreateFromString(const ConfigOptions& opts,
+                                 const std::string& value,
+                                 std::shared_ptr<ManagedCustomizable>* result) {
+    return LoadManagedObject<ManagedCustomizable>(opts, value, result);
+  }
+
+  static void RegisterObjectFactory(ObjectLibrary& library,
+                                    const std::string& /*arg*/) {
+    library.Register<ManagedCustomizable>(
+        Customizable::RegexIndividualId(ManagedCustomizable::kClassName()),
+        [](const std::string& /*name*/,
+           std::unique_ptr<ManagedCustomizable>* guard,
+           std::string* /* msg */) {
+          guard->reset(new ManagedCustomizable());
+          return guard->get();
+        });
+  }
+
+ private:
+  std::string id_;
+};
+}  // namespace
 TEST_F(CustomizableTest, CreateManagedObjects) {
-  class ManagedCustomizable : public Customizable {
-   public:
-    static const char* Type() { return "ManagedCustomizable"; }
-    static const char* kClassName() { return "Managed"; }
-    const char* Name() const override { return kClassName(); }
-    std::string GetId() const override { return id_; }
-    ManagedCustomizable() { id_ = GenerateIndividualId(); }
-    static Status CreateFromString(
-        const ConfigOptions& opts, const std::string& value,
-        std::shared_ptr<ManagedCustomizable>* result) {
-      return LoadManagedObject<ManagedCustomizable>(opts, value, result);
-    }
-
-   private:
-    std::string id_;
-  };
-
-  config_options_.registry->AddLibrary("Managed")
-      ->Register<ManagedCustomizable>(
-          "Managed(@.*)?", [](const std::string& /*name*/,
-                              std::unique_ptr<ManagedCustomizable>* guard,
-                              std::string* /* msg */) {
-            guard->reset(new ManagedCustomizable());
-            return guard->get();
-          });
+  ManagedCustomizable::RegisterObjectFactory(
+      *(config_options_.registry->AddLibrary("Managed")), "");
 
   std::shared_ptr<ManagedCustomizable> mc1, mc2, mc3, obj;
   // Create a "deadbeef" customizable
@@ -1200,6 +1208,110 @@ TEST_F(CustomizableTest, CreateManagedObjects) {
   ASSERT_EQ(mc1, obj);
 }
 
+TEST_F(CustomizableTest, InvalidIndividualbjects) {
+  ManagedCustomizable::RegisterObjectFactory(
+      *(config_options_.registry->AddLibrary("Managed")), "");
+  std::shared_ptr<ManagedCustomizable> mc;
+  std::string base_id = ManagedCustomizable::kClassName();
+  // Missing # process
+  ASSERT_NOK(ManagedCustomizable::CreateFromString(config_options_,
+                                                   base_id + "@123", &mc));
+  ASSERT_NOK(ManagedCustomizable::CreateFromString(config_options_,
+                                                   base_id + "@", &mc));
+  ASSERT_NOK(ManagedCustomizable::CreateFromString(config_options_,
+                                                   base_id + "@123#", &mc));
+  // Missing @address
+  ASSERT_NOK(ManagedCustomizable::CreateFromString(config_options_,
+                                                   base_id + "#123", &mc));
+  ASSERT_NOK(ManagedCustomizable::CreateFromString(config_options_,
+                                                   base_id + "@#123", &mc));
+  ASSERT_NOK(ManagedCustomizable::CreateFromString(config_options_,
+                                                   base_id + "@#", &mc));
+  // Bad name
+  ASSERT_NOK(ManagedCustomizable::CreateFromString(config_options_,
+                                                   base_id + "123", &mc));
+  // Just the base name works..
+  ASSERT_OK(
+      ManagedCustomizable::CreateFromString(config_options_, base_id, &mc));
+  ASSERT_NE(mc, nullptr);
+  // .. but is not a managed object
+  ASSERT_EQ(
+      config_options_.registry->GetManagedObject<ManagedCustomizable>(base_id),
+      nullptr);
+}
+
+static std::unordered_map<std::string, OptionTypeInfo> nested_option_type_info =
+    {
+        {"inner", OptionTypeInfo::AsCustomSharedPtr<ManagedCustomizable>(
+                      0, OptionVerificationType::kByName,
+                      OptionTypeFlags::kCompareNever)},
+};
+
+class NestedCustomizable : public ManagedCustomizable {
+ public:
+  std::shared_ptr<ManagedCustomizable> inner_;
+  NestedCustomizable() : ManagedCustomizable() {
+    RegisterOptions("inner", &inner_, &nested_option_type_info);
+  }
+};
+
+TEST_F(CustomizableTest, NestedManagedObjects) {
+  config_options_.registry->AddLibrary("Managed")
+      ->Register<ManagedCustomizable>(
+          "Managed(@.*)?", [](const std::string& /*name*/,
+                              std::unique_ptr<ManagedCustomizable>* guard,
+                              std::string* /* msg */) {
+            guard->reset(new NestedCustomizable());
+            return guard->get();
+          });
+  std::string id1 =
+      std::string(ManagedCustomizable::kClassName()) + "@0xdeadbeef#0001";
+  std::string id2 =
+      std::string(ManagedCustomizable::kClassName()) + "@0xbeefdead#0002";
+  std::shared_ptr<ManagedCustomizable> outer;
+  ASSERT_OK(ManagedCustomizable::CreateFromString(
+      config_options_, "id=" + id1 + ";inner=" + id2, &outer));
+  const auto inner =
+      *(outer->GetOptions<std::shared_ptr<ManagedCustomizable>>("inner"));
+  ASSERT_NE(inner, nullptr);
+  ASSERT_EQ(
+      outer,
+      config_options_.registry->GetManagedObject<ManagedCustomizable>(id1));
+  ASSERT_EQ(
+      inner,
+      config_options_.registry->GetManagedObject<ManagedCustomizable>(id2));
+}
+
+TEST_F(CustomizableTest, RaceManagedObjects) {
+  int created_count = 0;
+  ManagedCustomizable* last = nullptr;
+  config_options_.registry->AddLibrary("Managed")
+      ->Register<ManagedCustomizable>(
+          "Managed(@.*)?",
+          [&created_count, &last](const std::string& /*name*/,
+                                  std::unique_ptr<ManagedCustomizable>* guard,
+                                  std::string* /* msg */) {
+            created_count++;
+            guard->reset(new NestedCustomizable());
+            last = guard->get();
+            return guard->get();
+          });
+  std::string id1 =
+      std::string(ManagedCustomizable::kClassName()) + "@0xdeadbeef#0001";
+  std::string id2 =
+      std::string(ManagedCustomizable::kClassName()) + "@0xbeefdead#0002";
+  std::shared_ptr<ManagedCustomizable> outer;
+  ASSERT_OK(ManagedCustomizable::CreateFromString(
+      config_options_, "id=" + id1 + ";inner=" + id1, &outer));
+  const auto inner =
+      *(outer->GetOptions<std::shared_ptr<ManagedCustomizable>>("inner"));
+  ASSERT_EQ(inner, nullptr);
+  ASSERT_EQ(
+      outer,
+      config_options_.registry->GetManagedObject<ManagedCustomizable>(id1));
+  ASSERT_EQ(outer.get(), last);
+  ASSERT_EQ(created_count, 2);
+}
 #endif  // !ROCKSDB_LITE
 
 namespace {

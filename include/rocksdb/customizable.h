@@ -189,9 +189,13 @@ class Customizable : public Configurable {
   // method in order to get CheckedCast to function properly.
   virtual const Customizable* Inner() const { return nullptr; }
 
+  // Generates a regular expression that will match either the name
+  // or the name in the individual id syntax
+  static std::string RegexIndividualId(const std::string& name);
+
  protected:
   // Generates a ID specific for this instance of the customizable.
-  // The unique ID is of the form <name>:<addr>#pid, where:
+  // The unique ID is of the form <name>@<addr>#pid, where:
   // - name is the Name() of this object;
   // - addr is the memory address of this object;
   // - pid is the process ID of this process ID for this process.
