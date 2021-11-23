@@ -1606,11 +1606,6 @@ env_mirror_test: $(OBJ_DIR)/utilities/env_mirror_test.o $(TEST_LIBRARY) $(LIBRAR
 env_timed_test: $(OBJ_DIR)/utilities/env_timed_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-ifdef ROCKSDB_USE_LIBRADOS
-env_librados_test: $(OBJ_DIR)/utilities/env_librados_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
-endif
-
 object_registry_test: $(OBJ_DIR)/utilities/object_registry_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
