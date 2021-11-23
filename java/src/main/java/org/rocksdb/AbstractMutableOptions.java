@@ -344,7 +344,6 @@ public abstract class AbstractMutableOptions {
           final CompressionType compressionType = CompressionType.getFromInternal(valueStr);
           return setEnum(key, compressionType);
 
-
         default:
           throw new IllegalStateException(key + " has unknown value type: " + key.getValueType());
       }
