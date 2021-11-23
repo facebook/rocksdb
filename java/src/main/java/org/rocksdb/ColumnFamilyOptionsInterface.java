@@ -14,6 +14,8 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    * The function recovers options to a previous version. Only 4.6 or later
    * versions are supported.
    *
+   * @param majorVersion the major version
+   * @param minorVersion the minor version
    * @return the instance of the current object.
    */
   T oldDefaults(int majorVersion, int minorVersion);
@@ -32,6 +34,7 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    * spend lots of memory for memtables.
    * An optional cache object is passed in to be used as the block cache
    *
+   * @param cache optional cache object to be used as the block cache
    * @return the instance of the current object.
    */
   T optimizeForSmallDb(Cache cache);

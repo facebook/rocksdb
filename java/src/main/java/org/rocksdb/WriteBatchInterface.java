@@ -50,7 +50,7 @@ public interface WriteBatchInterface {
      *     Supports direct buffer only.
      * @param value the value associated with the specified key. It is using position and limit.
      *     Supports direct buffer only.
-     * @throws RocksDBException
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void put(ByteBuffer key, ByteBuffer value) throws RocksDBException;
 
@@ -64,7 +64,7 @@ public interface WriteBatchInterface {
      *     Supports direct buffer only.
      * @param value the value associated with the specified key. It is using position and limit.
      *     Supports direct buffer only.
-     * @throws RocksDBException
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void put(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key, ByteBuffer value)
         throws RocksDBException;
@@ -190,7 +190,7 @@ public interface WriteBatchInterface {
      *
      * @param key Key to delete within database. It is using position and limit.
      *     Supports direct buffer only.
-     * @throws RocksDBException
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void remove(ByteBuffer key) throws RocksDBException;
 
@@ -200,7 +200,7 @@ public interface WriteBatchInterface {
      * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
      * @param key Key to delete within database. It is using position and limit.
      *     Supports direct buffer only.
-     * @throws RocksDBException
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void remove(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key) throws RocksDBException;
 

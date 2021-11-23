@@ -303,6 +303,7 @@ public interface EventListener {
    * false, then they won't be called.
    *
    * Default: false
+   * @return {@code false} by default
    */
   boolean shouldBeNotifiedOnFileIO();
 
@@ -316,6 +317,7 @@ public interface EventListener {
    *
    * @param backgroundErrorReason background error reason code
    * @param backgroundError background error codes
+   * @return return {@code false} if the automatic recovery should be suppressed
    */
   boolean onErrorRecoveryBegin(
       final BackgroundErrorReason backgroundErrorReason, final Status backgroundError);
