@@ -6,7 +6,7 @@
 package org.rocksdb;
 
 
-interface TransactionalDB<T extends TransactionalOptions>
+interface TransactionalDB<T extends TransactionalOptions<T>>
     extends AutoCloseable {
 
   /**
