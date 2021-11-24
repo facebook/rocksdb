@@ -36,7 +36,7 @@ public class MultiGetBenchmarks {
   })
   String columnFamilyTestType;
 
-  @Param("100000")
+  @Param({"10000", "25000", "100000"})
   int keyCount;
 
   @Param({
@@ -46,6 +46,9 @@ public class MultiGetBenchmarks {
           "10000",
   })
   int multiGetSize;
+
+  @Param({"16", "64", "250", "1000", "4000", "16000"}) int valueSize;
+  @Param({"16"}) int keySize; // big enough
 
   Path dbDir;
   DBOptions options;
@@ -157,8 +160,6 @@ public class MultiGetBenchmarks {
 
   ByteBuffer keysBuffer;
   ByteBuffer valuesBuffer;
-  @Param({"64"}) int valueSize;
-  @Param({"16"}) int keySize; // big enough
 
   List<ByteBuffer> valueBuffersList;
   List<ByteBuffer> keyBuffersList;
@@ -185,7 +186,10 @@ public class MultiGetBenchmarks {
     final int fromKeyIdx = next(multiGetSize, keyCount);
     if (fromKeyIdx >= 0) {
       final List<byte[]> keys = keys(fromKeyIdx, fromKeyIdx + multiGetSize);
-      return db.multiGetAsList(keys);
+      final List<byte[]> valueResults = db.multiGetAsList(keys);
+      for (final byte[] result: valueResults) {
+        if (result.length != valueSize) throw new RuntimeException("Test valueSize assumption wrong");
+      }
     }
     return new ArrayList<>();
   }
@@ -195,7 +199,12 @@ public class MultiGetBenchmarks {
     final int fromKeyIdx = next(multiGetSize, keyCount);
     if (fromKeyIdx >= 0) {
       final List<ByteBuffer> keys = keys(keyBuffersList, fromKeyIdx, fromKeyIdx + multiGetSize);
-      return db.multiGetByteBuffers(keys, valueBuffersList.subList(fromKeyIdx, fromKeyIdx + multiGetSize));
+      final List<RocksDB.MultiGetInstance> results = db.multiGetByteBuffers(keys, valueBuffersList.subList(fromKeyIdx, fromKeyIdx + multiGetSize));
+      for (final RocksDB.MultiGetInstance result: results) {
+        if (result.status.getCode() != Status.Code.Ok) throw new RuntimeException("Test status assumption wrong");
+        if (result.valueSize != valueSize) throw new RuntimeException("Test valueSize assumption wrong");
+      }
+      return results;
     }
     return new ArrayList<>();
   }

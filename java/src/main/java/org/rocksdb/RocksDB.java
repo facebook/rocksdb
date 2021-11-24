@@ -2604,9 +2604,9 @@ public class RocksDB extends RocksObject {
   }
 
   public static class MultiGetInstance {
-    final Status status;
-    final int valueSize;
-    final ByteBuffer value;
+    public final Status status;
+    public final int valueSize;
+    public final ByteBuffer value;
 
     public MultiGetInstance(final Status status, final int valueSize, final ByteBuffer value) {
       this.status = status;
