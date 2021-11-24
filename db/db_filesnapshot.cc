@@ -127,31 +127,30 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 }
 
 Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
+  // If caller disabled deletions, this function should return files that are
+  // guaranteed not to be deleted until deletions are re-enabled. We need to
+  // wait for pending purges to finish since WalManager doesn't know which
+  // files are going to be purged. Additional purges won't be scheduled as
+  // long as deletions are disabled (so the below loop must terminate).
+  // Also note that we disable deletions anyway to avoid the case where a
+  // file is deleted in the middle of the scan, causing IO error.
+  Status deletions_disabled = DisableFileDeletions();
   {
-    // If caller disabled deletions, this function should return files that are
-    // guaranteed not to be deleted until deletions are re-enabled. We need to
-    // wait for pending purges to finish since WalManager doesn't know which
-    // files are going to be purged. Additional purges won't be scheduled as
-    // long as deletions are disabled (so the below loop must terminate).
     InstrumentedMutexLock l(&mutex_);
-    while (disable_delete_obsolete_files_ > 0 &&
-           (pending_purge_obsolete_files_ > 0 || bg_purge_scheduled_ > 0)) {
+    while (pending_purge_obsolete_files_ > 0 || bg_purge_scheduled_ > 0) {
       bg_cv_.Wait();
     }
   }
 
-  // Disable deletion in order to avoid the case where a file is deleted in
-  // the middle of the process so IO error is returned.
-  Status s = DisableFileDeletions();
-  bool file_deletion_supported = !s.IsNotSupported();
-  if (s.ok() || !file_deletion_supported) {
-    s = wal_manager_.GetSortedWalFiles(files);
-    if (file_deletion_supported) {
-      Status s2 = EnableFileDeletions(false);
-      if (!s2.ok() && s.ok()) {
-        s = s2;
-      }
-    }
+  Status s = wal_manager_.GetSortedWalFiles(files);
+
+  // DisableFileDeletions / EnableFileDeletions not supported in read-only DB
+  if (deletions_disabled.ok()) {
+    Status s2 = EnableFileDeletions(/*force*/ false);
+    assert(s2.ok());
+    s2.PermitUncheckedError();
+  } else {
+    assert(deletions_disabled.IsNotSupported());
   }
 
   return s;
