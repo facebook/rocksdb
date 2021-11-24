@@ -141,7 +141,9 @@ class PosixFileSystem : public FileSystem {
  public:
   PosixFileSystem();
 
-  const char* Name() const override { return "Posix File System"; }
+  static const char* kClassName() { return "PosixFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kDefaultName(); }
 
   ~PosixFileSystem() override {}
 
@@ -618,7 +620,8 @@ class PosixFileSystem : public FileSystem {
         return IOStatus::NotFound();
       default:
         assert(err == EIO || err == ENOMEM);
-        return IOStatus::IOError("Unexpected error(" + ToString(err) +
+        return IOStatus::IOError("Unexpected error(" +
+                                 ROCKSDB_NAMESPACE::ToString(err) +
                                  ") accessing file `" + fname + "' ");
     }
   }
@@ -819,11 +822,12 @@ class PosixFileSystem : public FileSystem {
       errno = ENOLCK;
       // Note that the thread ID printed is the same one as the one in
       // posix logger, but posix logger prints it hex format.
-      return IOError("lock hold by current process, acquire time " +
-                         ToString(prev_info.acquire_time) +
-                         " acquiring thread " +
-                         ToString(prev_info.acquiring_thread),
-                     fname, errno);
+      return IOError(
+          "lock hold by current process, acquire time " +
+              ROCKSDB_NAMESPACE::ToString(prev_info.acquire_time) +
+              " acquiring thread " +
+              ROCKSDB_NAMESPACE::ToString(prev_info.acquiring_thread),
+          fname, errno);
     }
 
     IOStatus result = IOStatus::OK();

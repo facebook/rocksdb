@@ -405,6 +405,10 @@ class DBImpl : public DB {
   virtual Status GetLiveFilesChecksumInfo(
       FileChecksumList* checksum_list) override;
 
+  virtual Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& opts,
+      std::vector<LiveFileStorageInfo>* files) override;
+
   // Obtains the meta data of the specified column family of the DB.
   // TODO(yhchiang): output parameter is placed in the end in this codebase.
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
@@ -578,9 +582,15 @@ class DBImpl : public DB {
   // in the memtables, including memtable history.  If cache_only is false,
   // SST files will also be checked.
   //
+  // `key` should NOT have user-defined timestamp appended to user key even if
+  // timestamp is enabled.
+  //
   // If a key is found, *found_record_for_key will be set to true and
   // *seq will be set to the stored sequence number for the latest
-  // operation on this key or kMaxSequenceNumber if unknown.
+  // operation on this key or kMaxSequenceNumber if unknown. If user-defined
+  // timestamp is enabled for this column family and timestamp is not nullptr,
+  // then *timestamp will be set to the stored timestamp for the latest
+  // operation on this key.
   // If no key is found, *found_record_for_key will be set to false.
   //
   // Note: If cache_only=false, it is possible for *seq to be set to 0 if
@@ -604,9 +614,9 @@ class DBImpl : public DB {
   Status GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
                                  bool cache_only,
                                  SequenceNumber lower_bound_seq,
-                                 SequenceNumber* seq,
+                                 SequenceNumber* seq, std::string* timestamp,
                                  bool* found_record_for_key,
-                                 bool* is_blob_index = nullptr);
+                                 bool* is_blob_index);
 
   Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key,
                            const Slice& lower_bound, const Slice upper_bound);
@@ -970,6 +980,9 @@ class DBImpl : public DB {
   // is only for the special test of CancelledCompactions
   Status TEST_WaitForCompact(bool waitUnscheduled = false);
 
+  // Wait for any background purge
+  Status TEST_WaitForPurge();
+
   // Get the background error status
   Status TEST_GetBGError();
 
@@ -1231,6 +1244,8 @@ class DBImpl : public DB {
 #ifndef ROCKSDB_LITE
   void NotifyOnExternalFileIngested(
       ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job);
+
+  Status FlushForGetLiveFiles();
 #endif  // !ROCKSDB_LITE
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;
@@ -2284,6 +2299,10 @@ class DBImpl : public DB {
 
   // Flag to check whether Close() has been called on this DB
   bool closed_;
+  // save the closing status, for re-calling the close()
+  Status closing_status_;
+  // mutex for DB::Close()
+  InstrumentedMutex closing_mutex_;
 
   // Conditional variable to coordinate installation of atomic flush results.
   // With atomic flush, each bg thread installs the result of flushing multiple
@@ -2302,6 +2321,10 @@ class DBImpl : public DB {
 
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;
+
+  // Indicate if deprecation warning message is logged before. Will be removed
+  // soon with the deprecated feature.
+  std::atomic_bool iter_start_seqnum_deprecation_warned_{false};
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,

@@ -49,6 +49,7 @@ enum ChecksumType : char {
   kCRC32c = 0x1,
   kxxHash = 0x2,
   kxxHash64 = 0x3,
+  kXXH3 = 0x4,  // Supported since RocksDB 6.27
 };
 
 // `PinningTier` is used to specify which tier of block-based tables should
@@ -117,9 +118,10 @@ struct BlockBasedTableOptions {
   // caching as they should now apply to range tombstone and compression
   // dictionary meta-blocks, in addition to index and filter meta-blocks.
   //
-  // Indicating if we'd put index/filter blocks to the block cache.
-  // If not specified, each "table reader" object will pre-load index/filter
-  // block during table initialization.
+  // Whether to put index/filter blocks in the block cache. When false,
+  // each "table reader" object will pre-load index/filter blocks during
+  // table initialization. Index and filter partition blocks always use
+  // block cache regardless of this option.
   bool cache_index_and_filter_blocks = false;
 
   // If cache_index_and_filter_blocks is enabled, cache index and filter
@@ -190,6 +192,8 @@ struct BlockBasedTableOptions {
     kHashSearch = 0x01,
 
     // A two-level index implementation. Both levels are binary search indexes.
+    // Second level index blocks ("partitions") use block cache even when
+    // cache_index_and_filter_blocks=false.
     kTwoLevelIndexSearch = 0x02,
 
     // Like kBinarySearch, but index also contains first key of each block.
@@ -281,11 +285,31 @@ struct BlockBasedTableOptions {
   // separately
   uint64_t metadata_block_size = 4096;
 
+  // If true, a dynamically updating charge to block cache, loosely based
+  // on the actual memory usage of table building, will occur to account
+  // the memory, if block cache available.
+  //
+  // Charged memory usage includes:
+  // 1. (new) Bloom Filter and Ribbon Filter construction
+  // 2. More to come...
+  //
+  // Note:
+  // 1. (new) Bloom Filter and Ribbon Filter construction
+  //
+  // If additional temporary memory of Ribbon Filter uses up too much memory
+  // relative to the avaible space left in the block cache
+  // at some point (i.e, causing a cache full when strict_capacity_limit =
+  // true), construction will fall back to (new) Bloom Filter.
+  //
+  // Default: false
+  bool reserve_table_builder_memory = false;
+
   // Note: currently this option requires kTwoLevelIndexSearch to be set as
   // well.
   // TODO(myabandeh): remove the note above once the limitation is lifted
   // Use partitioned full filters for each SST file. This option is
-  // incompatible with block-based filters.
+  // incompatible with block-based filters. Filter partition blocks use
+  // block cache even when cache_index_and_filter_blocks=false.
   bool partition_filters = false;
 
   // Option to generate Bloom/Ribbon filters that minimize memory

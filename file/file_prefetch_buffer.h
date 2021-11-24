@@ -8,17 +8,23 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <algorithm>
 #include <atomic>
 #include <sstream>
 #include <string>
 
-#include "file/random_access_file_reader.h"
+#include "file/readahead_file_info.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "util/aligned_buffer.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+#define DEAFULT_DECREMENT 8 * 1024
+
+struct IOOptions;
+class RandomAccessFileReader;
 
 // FilePrefetchBuffer is a smart buffer to store and read data from a file.
 class FilePrefetchBuffer {
@@ -27,7 +33,6 @@ class FilePrefetchBuffer {
   // Constructor.
   //
   // All arguments are optional.
-  // file_reader        : the file reader to use. Can be a nullptr.
   // readahead_size     : the initial readahead size.
   // max_readahead_size : the maximum readahead size.
   //   If max_readahead_size > readahead_size, the readahead size will be
@@ -42,18 +47,14 @@ class FilePrefetchBuffer {
   // implicit_auto_readahead : Readahead is enabled implicitly by rocksdb after
   //   doing sequential scans for two times.
   //
-  // Automatic readhead is enabled for a file if file_reader, readahead_size,
+  // Automatic readhead is enabled for a file if readahead_size
   // and max_readahead_size are passed in.
-  // If file_reader is a nullptr, setting readahead_size and max_readahead_size
-  // does not make any sense. So it does nothing.
   // A user can construct a FilePrefetchBuffer without any arguments, but use
   // `Prefetch` to load data into the buffer.
-  FilePrefetchBuffer(RandomAccessFileReader* file_reader = nullptr,
-                     size_t readahead_size = 0, size_t max_readahead_size = 0,
+  FilePrefetchBuffer(size_t readahead_size = 0, size_t max_readahead_size = 0,
                      bool enable = true, bool track_min_offset = false,
                      bool implicit_auto_readahead = false)
       : buffer_offset_(0),
-        file_reader_(file_reader),
         readahead_size_(readahead_size),
         max_readahead_size_(max_readahead_size),
         initial_readahead_size_(readahead_size),
@@ -73,24 +74,35 @@ class FilePrefetchBuffer {
   Status Prefetch(const IOOptions& opts, RandomAccessFileReader* reader,
                   uint64_t offset, size_t n, bool for_compaction = false);
 
-  // Tries returning the data for a file raed from this buffer, if that data is
+  // Tries returning the data for a file read from this buffer if that data is
   // in the buffer.
   // It handles tracking the minimum read offset if track_min_offset = true.
   // It also does the exponential readahead when readahead_size is set as part
   // of the constructor.
   //
-  // offset : the file offset.
-  // n      : the number of bytes.
-  // result : output buffer to put the data into.
-  // for_compaction : if cache read is done for compaction read.
-  bool TryReadFromCache(const IOOptions& opts, uint64_t offset, size_t n,
-                        Slice* result, Status* s, bool for_compaction = false);
+  // opts           : the IO options to use.
+  // reader         : the file reader.
+  // offset         : the file offset.
+  // n              : the number of bytes.
+  // result         : output buffer to put the data into.
+  // s              : output status.
+  // for_compaction : true if cache read is done for compaction read.
+  bool TryReadFromCache(const IOOptions& opts, RandomAccessFileReader* reader,
+                        uint64_t offset, size_t n, Slice* result, Status* s,
+                        bool for_compaction = false);
 
   // The minimum `offset` ever passed to TryReadFromCache(). This will nly be
   // tracked if track_min_offset = true.
   size_t min_offset_read() const { return min_offset_read_; }
 
-  void UpdateReadPattern(const size_t& offset, const size_t& len) {
+  void UpdateReadPattern(const uint64_t& offset, const size_t& len,
+                         bool is_adaptive_readahead = false) {
+    if (is_adaptive_readahead) {
+      // Since this block was eligible for prefetch but it was found in
+      // cache, so check and decrease the readahead_size by 8KB (default)
+      // if eligible.
+      DecreaseReadAheadIfEligible(offset, len);
+    }
     prev_offset_ = offset;
     prev_len_ = len;
   }
@@ -104,11 +116,39 @@ class FilePrefetchBuffer {
     readahead_size_ = initial_readahead_size_;
   }
 
+  void GetReadaheadState(ReadaheadFileInfo::ReadaheadInfo* readahead_info) {
+    readahead_info->readahead_size = readahead_size_;
+    readahead_info->num_file_reads = num_file_reads_;
+  }
+
+  void DecreaseReadAheadIfEligible(uint64_t offset, size_t size,
+                                   size_t value = DEAFULT_DECREMENT) {
+    // Decrease the readahead_size if
+    // - its enabled internally by RocksDB (implicit_auto_readahead_) and,
+    // - readahead_size is greater than 0 and,
+    // - this block would have called prefetch API if not found in cache for
+    //   which conditions are:
+    //   - few/no bytes are in buffer and,
+    //   - block is sequential with the previous read and,
+    //   - num_file_reads_ + 1 (including this read) >
+    //   kMinNumFileReadsToStartAutoReadahead
+    if (implicit_auto_readahead_ && readahead_size_ > 0) {
+      if ((offset + size > buffer_offset_ + buffer_.CurrentSize()) &&
+          IsBlockSequential(offset) &&
+          (num_file_reads_ + 1 > kMinNumFileReadsToStartAutoReadahead)) {
+        readahead_size_ =
+            std::max(initial_readahead_size_,
+                     (readahead_size_ >= value ? readahead_size_ - value : 0));
+      }
+    }
+  }
+
  private:
   AlignedBuffer buffer_;
   uint64_t buffer_offset_;
-  RandomAccessFileReader* file_reader_;
   size_t readahead_size_;
+  // FilePrefetchBuffer object won't be created from Iterator flow if
+  // max_readahead_size_ = 0.
   size_t max_readahead_size_;
   size_t initial_readahead_size_;
   // The minimum `offset` ever passed to TryReadFromCache().
@@ -120,11 +160,11 @@ class FilePrefetchBuffer {
   // can be fetched from min_offset_read().
   bool track_min_offset_;
 
-  // implicit_auto_readahead is enabled by rocksdb internally after 2 sequential
-  // IOs.
+  // implicit_auto_readahead is enabled by rocksdb internally after 2
+  // sequential IOs.
   bool implicit_auto_readahead_;
-  size_t prev_offset_;
+  uint64_t prev_offset_;
   size_t prev_len_;
-  int num_file_reads_;
+  int64_t num_file_reads_;
 };
 }  // namespace ROCKSDB_NAMESPACE

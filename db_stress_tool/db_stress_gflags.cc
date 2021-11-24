@@ -405,6 +405,11 @@ DEFINE_double(blob_garbage_collection_force_threshold,
               "[Integrated BlobDB] The threshold for the ratio of garbage in "
               "the oldest blob files for forcing garbage collection.");
 
+DEFINE_uint64(blob_compaction_readahead_size,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_compaction_readahead_size,
+              "[Integrated BlobDB] Compaction readahead for blob files.");
+
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
@@ -841,6 +846,9 @@ DEFINE_int32(open_metadata_write_fault_one_in, 0,
 #ifndef ROCKSDB_LITE
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a customized secondary cache object");
+DEFINE_int32(secondary_cache_fault_one_in, 0,
+             "On non-zero, enables fault injection in secondary cache inserts"
+             " and lookups");
 #endif  // ROCKSDB_LITE
 DEFINE_int32(open_write_fault_one_in, 0,
              "On non-zero, enables fault injection on file writes "

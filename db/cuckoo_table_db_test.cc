@@ -6,6 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include "db/db_impl/db_impl.h"
+#include "db/db_test_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "table/cuckoo/cuckoo_table_factory.h"
@@ -133,6 +134,7 @@ TEST_F(CuckooTableDBTest, Flush) {
 
   TablePropertiesCollection ptc;
   ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  VerifySstUniqueIds(ptc);
   ASSERT_EQ(1U, ptc.size());
   ASSERT_EQ(3U, ptc.begin()->second->num_entries);
   ASSERT_EQ("1", FilesPerLevel());
@@ -149,6 +151,7 @@ TEST_F(CuckooTableDBTest, Flush) {
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  VerifySstUniqueIds(ptc);
   ASSERT_EQ(2U, ptc.size());
   auto row = ptc.begin();
   ASSERT_EQ(3U, row->second->num_entries);
@@ -166,6 +169,7 @@ TEST_F(CuckooTableDBTest, Flush) {
   ASSERT_OK(Delete("key4"));
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
   ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  VerifySstUniqueIds(ptc);
   ASSERT_EQ(3U, ptc.size());
   row = ptc.begin();
   ASSERT_EQ(3U, row->second->num_entries);
@@ -190,6 +194,7 @@ TEST_F(CuckooTableDBTest, FlushWithDuplicateKeys) {
 
   TablePropertiesCollection ptc;
   ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  VerifySstUniqueIds(ptc);
   ASSERT_EQ(1U, ptc.size());
   ASSERT_EQ(2U, ptc.begin()->second->num_entries);
   ASSERT_EQ("1", FilesPerLevel());

@@ -62,6 +62,48 @@ inline void IOStatsAddCountByTemperature(Temperature file_temperature,
   }
 }
 
+inline void StatisticAddBytesByTemperature(Statistics* stats,
+                                           Temperature file_temperature,
+                                           size_t value) {
+  if (stats == nullptr || file_temperature == Temperature::kUnknown) {
+    return;
+  }
+  switch (file_temperature) {
+    case Temperature::kHot:
+      RecordTick(stats, HOT_FILE_READ_BYTES, value);
+      break;
+    case Temperature::kWarm:
+      RecordTick(stats, WARM_FILE_READ_BYTES, value);
+      break;
+    case Temperature::kCold:
+      RecordTick(stats, COLD_FILE_READ_BYTES, value);
+      break;
+    default:
+      break;
+  }
+}
+
+inline void StatisticAddCountByTemperature(Statistics* stats,
+                                           Temperature file_temperature,
+                                           size_t value) {
+  if (stats == nullptr || file_temperature == Temperature::kUnknown) {
+    return;
+  }
+  switch (file_temperature) {
+    case Temperature::kHot:
+      RecordTick(stats, HOT_FILE_READ_COUNT, value);
+      break;
+    case Temperature::kWarm:
+      RecordTick(stats, WARM_FILE_READ_COUNT, value);
+      break;
+    case Temperature::kCold:
+      RecordTick(stats, COLD_FILE_READ_COUNT, value);
+      break;
+    default:
+      break;
+  }
+}
+
 IOStatus RandomAccessFileReader::Create(
     const std::shared_ptr<FileSystem>& fs, const std::string& fname,
     const FileOptions& file_opts,
@@ -142,6 +184,10 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
           auto finish_ts = FileOperationInfo::FinishNow();
           NotifyOnFileReadFinish(orig_offset, tmp.size(), start_ts, finish_ts,
                                  io_s);
+          if (!io_s.ok()) {
+            NotifyOnIOError(io_s, FileOperationType::kRead, file_name(),
+                            tmp.size(), orig_offset);
+          }
         }
 
         buf.Size(buf.CurrentSize() + tmp.size());
@@ -203,9 +249,13 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
           auto finish_ts = FileOperationInfo::FinishNow();
           NotifyOnFileReadFinish(offset + pos, tmp_result.size(), start_ts,
                                  finish_ts, io_s);
+
+          if (!io_s.ok()) {
+            NotifyOnIOError(io_s, FileOperationType::kRead, file_name(),
+                            tmp_result.size(), offset + pos);
+          }
         }
 #endif
-
         if (res_scratch == nullptr) {
           // we can't simply use `scratch` because reads of mmap'd files return
           // data in a different buffer.
@@ -224,6 +274,8 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
     IOSTATS_ADD(bytes_read, result->size());
     IOStatsAddBytesByTemperature(file_temperature_, result->size());
     IOStatsAddCountByTemperature(file_temperature_, 1);
+    StatisticAddBytesByTemperature(stats_, file_temperature_, result->size());
+    StatisticAddCountByTemperature(stats_, file_temperature_, 1);
     SetPerfLevel(prev_perf_level);
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
@@ -387,11 +439,20 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
         NotifyOnFileReadFinish(read_reqs[i].offset, read_reqs[i].result.size(),
                                start_ts, finish_ts, read_reqs[i].status);
       }
+      if (!read_reqs[i].status.ok()) {
+        NotifyOnIOError(read_reqs[i].status, FileOperationType::kRead,
+                        file_name(), read_reqs[i].result.size(),
+                        read_reqs[i].offset);
+      }
+
 #endif  // ROCKSDB_LITE
       IOSTATS_ADD(bytes_read, read_reqs[i].result.size());
       IOStatsAddBytesByTemperature(file_temperature_,
                                    read_reqs[i].result.size());
       IOStatsAddCountByTemperature(file_temperature_, 1);
+      StatisticAddBytesByTemperature(stats_, file_temperature_,
+                                     read_reqs[i].result.size());
+      StatisticAddCountByTemperature(stats_, file_temperature_, 1);
     }
     SetPerfLevel(prev_perf_level);
   }

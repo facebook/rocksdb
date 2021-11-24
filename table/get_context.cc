@@ -382,7 +382,11 @@ void GetContext::Merge(const Slice* value) {
 
 bool GetContext::GetBlobValue(const Slice& blob_index,
                               PinnableSlice* blob_value) {
-  Status status = blob_fetcher_->FetchBlob(user_key_, blob_index, blob_value);
+  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+  constexpr uint64_t* bytes_read = nullptr;
+
+  Status status = blob_fetcher_->FetchBlob(
+      user_key_, blob_index, prefetch_buffer, blob_value, bytes_read);
   if (!status.ok()) {
     if (status.IsIncomplete()) {
       MarkKeyMayExist();

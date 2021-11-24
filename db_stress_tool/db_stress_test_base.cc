@@ -22,6 +22,7 @@
 #include "util/cast_util.h"
 #include "utilities/backupable/backupable_db_impl.h"
 #include "utilities/fault_injection_fs.h"
+#include "utilities/fault_injection_secondary_cache.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -148,6 +149,10 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
                 FLAGS_secondary_cache_uri.c_str(), s.ToString().c_str());
         exit(1);
       }
+      if (FLAGS_secondary_cache_fault_one_in > 0) {
+        secondary_cache = std::make_shared<FaultInjectionSecondaryCache>(
+            secondary_cache, FLAGS_seed, FLAGS_secondary_cache_fault_one_in);
+      }
       opts.secondary_cache = secondary_cache;
     }
 #endif
@@ -264,6 +269,8 @@ bool StressTest::BuildOptionsTable() {
         std::vector<std::string>{"0.0", "0.25", "0.5", "0.75", "1.0"});
     options_tbl.emplace("blob_garbage_collection_force_threshold",
                         std::vector<std::string>{"0.5", "0.75", "1.0"});
+    options_tbl.emplace("blob_compaction_readahead_size",
+                        std::vector<std::string>{"0", "1M", "4M"});
   }
 
   options_table_ = std::move(options_tbl);
@@ -1812,6 +1819,10 @@ void StressTest::TestCompactFiles(ThreadState* thread,
   ROCKSDB_NAMESPACE::ColumnFamilyMetaData cf_meta_data;
   db_->GetColumnFamilyMetaData(column_family, &cf_meta_data);
 
+  if (cf_meta_data.levels.empty()) {
+    return;
+  }
+
   // Randomly compact up to three consecutive files from a level
   const int kMaxRetry = 3;
   for (int attempt = 0; attempt < kMaxRetry; ++attempt) {
@@ -2314,6 +2325,8 @@ void StressTest::Open() {
         FLAGS_blob_garbage_collection_age_cutoff;
     options_.blob_garbage_collection_force_threshold =
         FLAGS_blob_garbage_collection_force_threshold;
+    options_.blob_compaction_readahead_size =
+        FLAGS_blob_compaction_readahead_size;
   } else {
 #ifdef ROCKSDB_LITE
     fprintf(stderr, "--options_file not supported in lite mode\n");
@@ -2413,21 +2426,18 @@ void StressTest::Open() {
     exit(1);
   }
 
-  if (options_.enable_blob_files) {
-    fprintf(stdout,
-            "Integrated BlobDB: blob files enabled, min blob size %" PRIu64
-            ", blob file size %" PRIu64 ", blob compression type %s\n",
-            options_.min_blob_size, options_.blob_file_size,
-            CompressionTypeToString(options_.blob_compression_type).c_str());
-  }
-
-  if (options_.enable_blob_garbage_collection) {
-    fprintf(
-        stdout,
-        "Integrated BlobDB: blob GC enabled, cutoff %f, force threshold %f\n",
-        options_.blob_garbage_collection_age_cutoff,
-        options_.blob_garbage_collection_force_threshold);
-  }
+  fprintf(stdout,
+          "Integrated BlobDB: blob files enabled %d, min blob size %" PRIu64
+          ", blob file size %" PRIu64
+          ", blob compression type %s, blob GC enabled %d, cutoff %f, force "
+          "threshold %f, blob compaction readahead size %" PRIu64 "\n",
+          options_.enable_blob_files, options_.min_blob_size,
+          options_.blob_file_size,
+          CompressionTypeToString(options_.blob_compression_type).c_str(),
+          options_.enable_blob_garbage_collection,
+          options_.blob_garbage_collection_age_cutoff,
+          options_.blob_garbage_collection_force_threshold,
+          options_.blob_compaction_readahead_size);
 
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
@@ -2486,8 +2496,10 @@ void StressTest::Open() {
       column_family_names_.push_back(name);
     }
     options_.listeners.clear();
+#ifndef ROCKSDB_LITE
     options_.listeners.emplace_back(
         new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors));
+#endif  // !ROCKSDB_LITE
     options_.create_missing_column_families = true;
     if (!FLAGS_use_txn) {
 #ifndef NDEBUG

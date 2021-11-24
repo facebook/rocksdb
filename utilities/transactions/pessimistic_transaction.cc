@@ -174,7 +174,6 @@ Status PessimisticTransaction::CommitBatch(WriteBatch* batch) {
 }
 
 Status PessimisticTransaction::Prepare() {
-
   if (name_.empty()) {
     return Status::InvalidArgument(
         "Cannot prepare a transaction that has not been named.");
@@ -712,8 +711,9 @@ Status PessimisticTransaction::ValidateSnapshot(
   ColumnFamilyHandle* cfh =
       column_family ? column_family : db_impl_->DefaultColumnFamily();
 
+  // TODO (yanqin): support conflict checking based on timestamp.
   return TransactionUtil::CheckKeyForConflicts(
-      db_impl_, cfh, key.ToString(), snap_seq, false /* cache_only */);
+      db_impl_, cfh, key.ToString(), snap_seq, nullptr, false /* cache_only */);
 }
 
 bool PessimisticTransaction::TryStealingLocks() {

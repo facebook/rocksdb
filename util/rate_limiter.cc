@@ -9,6 +9,8 @@
 
 #include "util/rate_limiter.h"
 
+#include <algorithm>
+
 #include "monitoring/statistics.h"
 #include "port/port.h"
 #include "rocksdb/system_clock.h"
@@ -107,6 +109,7 @@ void GenericRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
   assert(bytes <= refill_bytes_per_period_.load(std::memory_order_relaxed));
+  bytes = std::max(static_cast<int64_t>(0), bytes);
   TEST_SYNC_POINT("GenericRateLimiter::Request");
   TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:1",
                            &rate_bytes_per_sec_);
@@ -299,8 +302,7 @@ int64_t GenericRateLimiter::CalculateRefillBytesPerPeriod(
     // inaccurate but is a number that is large enough.
     return port::kMaxInt64 / 1000000;
   } else {
-    return std::max(kMinRefillBytesPerPeriod,
-                    rate_bytes_per_sec * refill_period_us_ / 1000000);
+    return rate_bytes_per_sec * refill_period_us_ / 1000000;
   }
 }
 

@@ -1799,6 +1799,10 @@ int main(int argc, char** argv) {
     rocksdb_options_set_blob_gc_force_threshold(o, 0.75);
     CheckCondition(0.75 == rocksdb_options_get_blob_gc_force_threshold(o));
 
+    rocksdb_options_set_blob_compaction_readahead_size(o, 262144);
+    CheckCondition(262144 ==
+                   rocksdb_options_get_blob_compaction_readahead_size(o));
+
     // Create a copy that should be equal to the original.
     rocksdb_options_t* copy;
     copy = rocksdb_options_create_copy(o);

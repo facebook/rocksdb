@@ -45,7 +45,7 @@ default_params = {
         random.choice(
             ["none", "snappy", "zlib", "bzip2", "lz4", "lz4hc", "xpress",
              "zstd"]),
-    "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64"]),
+    "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64", "kXXH3"]),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
     # Disabled compression_parallel_threads as the feature is not stable
@@ -153,6 +153,7 @@ default_params = {
     "max_write_buffer_size_to_maintain": lambda: random.choice(
         [0, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024]),
     "user_timestamp_size": 0,
+    "secondary_cache_fault_one_in" : lambda: random.choice([0, 0, 32]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -293,6 +294,7 @@ blob_params = {
     "enable_blob_garbage_collection": lambda: random.choice([0] + [1] * 3),
     "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
     "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
+    "blob_compaction_readahead_size": lambda: random.choice([0, 1048576, 4194304]),
 }
 
 ts_params = {

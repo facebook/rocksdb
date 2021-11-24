@@ -11,11 +11,13 @@
 // in Release build.
 // which is a pity, it is a good test
 #include <fcntl.h>
+
 #include <algorithm>
 #include <set>
 #include <thread>
 #include <unordered_set>
 #include <utility>
+
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -52,6 +54,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/thread_status.h"
+#include "rocksdb/types.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
@@ -2074,6 +2077,13 @@ TEST_F(DBTest, OverlapInLevel0) {
     Flush(1);
     ASSERT_EQ("2,1,1", FilesPerLevel(1));
 
+    // BEGIN addition to existing test
+    // Take this opportunity to verify SST unique ids (including Plain table)
+    TablePropertiesCollection tbc;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[1], &tbc));
+    VerifySstUniqueIds(tbc);
+    // END addition to existing test
+
     // Compact away the placeholder files we created initially
     dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
     dbfull()->TEST_CompactRange(2, nullptr, nullptr, handles_[1]);
@@ -2300,8 +2310,8 @@ TEST_F(DBTest, SnapshotFiles) {
     uint64_t manifest_number = 0;
     uint64_t manifest_size = 0;
     std::vector<std::string> files;
-    dbfull()->DisableFileDeletions();
-    dbfull()->GetLiveFiles(files, &manifest_size);
+    ASSERT_OK(dbfull()->DisableFileDeletions());
+    ASSERT_OK(dbfull()->GetLiveFiles(files, &manifest_size));
 
     // CURRENT, MANIFEST, OPTIONS, *.sst files (one for each CF)
     ASSERT_EQ(files.size(), 5U);
@@ -2330,18 +2340,17 @@ TEST_F(DBTest, SnapshotFiles) {
       // latest manifest file
       if (ParseFileName(files[i].substr(1), &number, &type)) {
         if (type == kDescriptorFile) {
-          if (number > manifest_number) {
-            manifest_number = number;
-            ASSERT_GE(size, manifest_size);
-            size = manifest_size;  // copy only valid MANIFEST data
-          }
+          ASSERT_EQ(manifest_number, 0);
+          manifest_number = number;
+          ASSERT_GE(size, manifest_size);
+          size = manifest_size;  // copy only valid MANIFEST data
         }
       }
       CopyFile(src, dest, size);
     }
 
     // release file snapshot
-    dbfull()->DisableFileDeletions();
+    ASSERT_OK(dbfull()->EnableFileDeletions(/*force*/ false));
     // overwrite one key, this key should not appear in the snapshot
     std::vector<std::string> extras;
     for (unsigned int i = 0; i < 1; i++) {
@@ -2378,8 +2387,8 @@ TEST_F(DBTest, SnapshotFiles) {
     uint64_t new_manifest_number = 0;
     uint64_t new_manifest_size = 0;
     std::vector<std::string> newfiles;
-    dbfull()->DisableFileDeletions();
-    dbfull()->GetLiveFiles(newfiles, &new_manifest_size);
+    ASSERT_OK(dbfull()->DisableFileDeletions());
+    ASSERT_OK(dbfull()->GetLiveFiles(newfiles, &new_manifest_size));
 
     // find the new manifest file. assert that this manifest file is
     // the same one as in the previous snapshot. But its size should be
@@ -2391,20 +2400,41 @@ TEST_F(DBTest, SnapshotFiles) {
       // latest manifest file
       if (ParseFileName(newfiles[i].substr(1), &number, &type)) {
         if (type == kDescriptorFile) {
-          if (number > new_manifest_number) {
-            uint64_t size;
-            new_manifest_number = number;
-            ASSERT_OK(env_->GetFileSize(src, &size));
-            ASSERT_GE(size, new_manifest_size);
-          }
+          ASSERT_EQ(new_manifest_number, 0);
+          uint64_t size;
+          new_manifest_number = number;
+          ASSERT_OK(env_->GetFileSize(src, &size));
+          ASSERT_GE(size, new_manifest_size);
         }
       }
     }
     ASSERT_EQ(manifest_number, new_manifest_number);
     ASSERT_GT(new_manifest_size, manifest_size);
 
-    // release file snapshot
-    dbfull()->DisableFileDeletions();
+    // Also test GetLiveFilesStorageInfo
+    std::vector<LiveFileStorageInfo> new_infos;
+    ASSERT_OK(dbfull()->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(),
+                                                &new_infos));
+
+    // Close DB (while deletions disabled)
+    Close();
+
+    // Validate
+    for (auto& info : new_infos) {
+      std::string path = info.directory + "/" + info.relative_filename;
+      uint64_t size;
+      ASSERT_OK(env_->GetFileSize(path, &size));
+      if (info.trim_to_size) {
+        ASSERT_LE(info.size, size);
+      } else if (!info.replacement_contents.empty()) {
+        ASSERT_EQ(info.size, info.replacement_contents.size());
+      } else {
+        ASSERT_EQ(info.size, size);
+      }
+      if (info.file_type == kDescriptorFile) {
+        ASSERT_EQ(info.file_number, manifest_number);
+      }
+    }
   } while (ChangeCompactOptions());
 }
 
@@ -3116,6 +3146,12 @@ class ModelDB : public DB {
 
   Status GetLiveFilesChecksumInfo(
       FileChecksumList* /*checksum_list*/) override {
+    return Status::OK();
+  }
+
+  Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& /*opts*/,
+      std::vector<LiveFileStorageInfo>* /*files*/) override {
     return Status::OK();
   }
 
@@ -6919,14 +6955,6 @@ TEST_F(DBTest, MemoryUsageWithMaxWriteBufferSizeToMaintain) {
 #endif
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
-}
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

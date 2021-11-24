@@ -145,6 +145,9 @@ struct EnvOptions {
   RateLimiter* rate_limiter = nullptr;
 };
 
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class Env {
  public:
   struct FileAttributes {
@@ -1150,6 +1153,10 @@ enum InfoLogLevel : unsigned char {
 };
 
 // An interface for writing log messages.
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class Logger {
  public:
   size_t kDoNotSupportGetLogFileSize = (std::numeric_limits<size_t>::max)();

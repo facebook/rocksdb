@@ -165,12 +165,19 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
       // Increment key
       std::string sum = ToString(int_value + incr);
       if (txn != nullptr) {
-        s = txn->Put(key, sum);
+        s = txn->SingleDelete(key);
         if (!get_for_update && (s.IsBusy() || s.IsTimedOut())) {
           // If the initial get was not for update, then the key is not locked
           // before put and put could fail due to concurrent writes.
           break;
         } else if (!s.ok()) {
+          // Since we did a GetForUpdate, SingleDelete should not fail.
+          fprintf(stderr, "SingleDelete returned an unexpected error: %s\n",
+                  s.ToString().c_str());
+          unexpected_error = true;
+        }
+        s = txn->Put(key, sum);
+        if (!s.ok()) {
           // Since we did a GetForUpdate, Put should not fail.
           fprintf(stderr, "Put returned an unexpected error: %s\n",
                   s.ToString().c_str());
@@ -197,6 +204,10 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
       if (with_prepare) {
         // Also try commit without prepare
         s = txn->Prepare();
+        if (!s.ok()) {
+          fprintf(stderr, "Prepare returned an unexpected error: %s\n",
+                  s.ToString().c_str());
+        }
         assert(s.ok());
         ROCKS_LOG_DEBUG(db->GetDBOptions().info_log,
                         "Prepare of %" PRIu64 " %s (%s)", txn->GetId(),

@@ -377,6 +377,7 @@ TEST_F(EventListenerTest, MultiCF) {
     ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
     for (int i = 1; i < 8; ++i) {
       ASSERT_OK(Flush(i));
+      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
       ASSERT_EQ(listener->flushed_dbs_.size(), i);
       ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
     }
@@ -771,6 +772,7 @@ class TableFileCreationListener : public EventListener {
     } else {
       if (idx >= 0) {
         failure_[idx]++;
+        last_failure_ = info.status;
       }
     }
   }
@@ -778,6 +780,7 @@ class TableFileCreationListener : public EventListener {
   int started_[2];
   int finished_[2];
   int failure_[2];
+  Status last_failure_;
 };
 
 TEST_F(EventListenerTest, TableFileCreationListenersTest) {
@@ -800,6 +803,7 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   test_env->SetStatus(Status::NotSupported("not supported"));
   ASSERT_NOK(Flush());
   listener->CheckAndResetCounters(1, 1, 1, 0, 0, 0);
+  ASSERT_TRUE(listener->last_failure_.IsNotSupported());
   test_env->SetStatus(Status::OK());
 
   Reopen(options);
@@ -816,6 +820,14 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   listener->CheckAndResetCounters(0, 0, 0, 1, 1, 0);
 
+  // Verify that an empty table file that is immediately deleted gives Aborted
+  // status to listener.
+  ASSERT_OK(Put("baz", "z"));
+  ASSERT_OK(SingleDelete("baz"));
+  ASSERT_OK(Flush());
+  listener->CheckAndResetCounters(1, 1, 1, 0, 0, 0);
+  ASSERT_TRUE(listener->last_failure_.IsAborted());
+
   ASSERT_OK(Put("foo", "aaa3"));
   ASSERT_OK(Put("bar", "bbb3"));
   ASSERT_OK(Flush());
@@ -824,6 +836,7 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
       dbfull()->CompactRange(CompactRangeOptions(), &kRangeStart, &kRangeEnd));
   ASSERT_NOK(dbfull()->TEST_WaitForCompact());
   listener->CheckAndResetCounters(1, 1, 0, 1, 1, 1);
+  ASSERT_TRUE(listener->last_failure_.IsNotSupported());
   Close();
 }
 

@@ -197,7 +197,8 @@ class VersionStorageInfo {
   // Sort all files for this version based on their file size and
   // record results in files_by_compaction_pri_. The largest files are listed
   // first.
-  void UpdateFilesByCompactionPri(CompactionPri compaction_pri);
+  void UpdateFilesByCompactionPri(const ImmutableOptions& immutable_options,
+                                  const MutableCFOptions& mutable_cf_options);
 
   void GenerateLevel0NonOverlapping();
   bool level0_non_overlapping() const {
@@ -490,7 +491,7 @@ class VersionStorageInfo {
     next_file_to_compact_by_size_[level] = 0;
   }
 
-  const InternalKeyComparator* InternalComparator() {
+  const InternalKeyComparator* InternalComparator() const {
     return internal_comparator_;
   }
 
@@ -722,13 +723,15 @@ class Version {
   // saves it in *value.
   // REQUIRES: blob_index_slice stores an encoded blob reference
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 const Slice& blob_index_slice, PinnableSlice* value,
+                 const Slice& blob_index_slice,
+                 FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read) const;
 
   // Retrieves a blob using a blob reference and saves it in *value,
   // assuming the corresponding blob file is part of this Version.
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 const BlobIndex& blob_index, PinnableSlice* value,
+                 const BlobIndex& blob_index,
+                 FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read) const;
 
   using BlobReadRequest =
@@ -803,6 +806,7 @@ class Version {
   int TEST_refs() const { return refs_; }
 
   VersionStorageInfo* storage_info() { return &storage_info_; }
+  const VersionStorageInfo* storage_info() const { return &storage_info_; }
 
   VersionSet* version_set() { return vset_; }
 
@@ -1374,6 +1378,7 @@ class VersionSet {
   std::atomic<uint64_t> min_log_number_to_keep_2pc_ = {0};
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
+  uint64_t options_file_size_;
   uint64_t pending_manifest_file_number_;
   // The last seq visible to reads. It normally indicates the last sequence in
   // the memtable but when using two write queues it could also indicate the

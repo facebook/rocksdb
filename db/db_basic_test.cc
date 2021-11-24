@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "db/db_test_util.h"
+#include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/merge_operator.h"
@@ -974,13 +975,14 @@ TEST_F(DBBasicTest, MultiGetEmpty) {
 TEST_F(DBBasicTest, ChecksumTest) {
   BlockBasedTableOptions table_options;
   Options options = CurrentOptions();
-  // change when new checksum type added
-  int max_checksum = static_cast<int>(kxxHash64);
   const int kNumPerFile = 2;
 
+  const auto algs = GetSupportedChecksums();
+  const int algs_size = static_cast<int>(algs.size());
+
   // generate one table with each type of checksum
-  for (int i = 0; i <= max_checksum; ++i) {
-    table_options.checksum = static_cast<ChecksumType>(i);
+  for (int i = 0; i < algs_size; ++i) {
+    table_options.checksum = algs[i];
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     Reopen(options);
     for (int j = 0; j < kNumPerFile; ++j) {
@@ -990,15 +992,20 @@ TEST_F(DBBasicTest, ChecksumTest) {
   }
 
   // with each valid checksum type setting...
-  for (int i = 0; i <= max_checksum; ++i) {
-    table_options.checksum = static_cast<ChecksumType>(i);
+  for (int i = 0; i < algs_size; ++i) {
+    table_options.checksum = algs[i];
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     Reopen(options);
     // verify every type of checksum (should be regardless of that setting)
-    for (int j = 0; j < (max_checksum + 1) * kNumPerFile; ++j) {
+    for (int j = 0; j < algs_size * kNumPerFile; ++j) {
       ASSERT_EQ(Key(j), Get(Key(j)));
     }
   }
+
+  // Now test invalid checksum type
+  table_options.checksum = static_cast<ChecksumType>(123);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ASSERT_TRUE(TryReopen(options).IsInvalidArgument());
 }
 
 // On Windows you can have either memory mapped file or a file
@@ -1130,9 +1137,15 @@ TEST_F(DBBasicTest, DBCloseFlushError) {
   ASSERT_OK(Put("key3", "value3"));
   fault_injection_env->SetFilesystemActive(false);
   Status s = dbfull()->Close();
-  fault_injection_env->SetFilesystemActive(true);
   ASSERT_NE(s, Status::OK());
-
+  // retry should return the same error
+  s = dbfull()->Close();
+  ASSERT_NE(s, Status::OK());
+  fault_injection_env->SetFilesystemActive(true);
+  // retry close() is no-op even the system is back. Could be improved if
+  // Close() is retry-able: #9029
+  s = dbfull()->Close();
+  ASSERT_NE(s, Status::OK());
   Destroy(options);
 }
 
@@ -2591,6 +2604,21 @@ TEST_F(DBBasicTest, ManifestChecksumMismatch) {
   ASSERT_TRUE(s.IsCorruption());
 }
 
+TEST_F(DBBasicTest, ConcurrentlyCloseDB) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  std::vector<std::thread> workers;
+  for (int i = 0; i < 10; i++) {
+    workers.push_back(std::thread([&]() {
+      auto s = db_->Close();
+      ASSERT_OK(s);
+    }));
+  }
+  for (auto& w : workers) {
+    w.join();
+  }
+}
+
 #ifndef ROCKSDB_LITE
 class DBBasicTestTrackWal : public DBTestBase,
                             public testing::WithParamInterface<bool> {
@@ -3268,6 +3296,9 @@ class DeadlineFS : public FileSystemWrapper {
         ignore_deadline_(false),
         error_on_delay_(error_on_delay) {}
 
+  static const char* kClassName() { return "DeadlineFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+
   IOStatus NewRandomAccessFile(const std::string& fname,
                                const FileOptions& opts,
                                std::unique_ptr<FSRandomAccessFile>* result,
@@ -3828,14 +3859,6 @@ INSTANTIATE_TEST_CASE_P(DBBasicTestDeadline, DBBasicTestDeadline,
                                           std::make_tuple(false, true),
                                           std::make_tuple(true, true)));
 }  // namespace ROCKSDB_NAMESPACE
-
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
-}
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
