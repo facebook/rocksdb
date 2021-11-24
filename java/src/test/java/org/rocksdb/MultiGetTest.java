@@ -51,9 +51,13 @@ public class MultiGetTest {
       db.put("key3".getBytes(), "value3ForKey3".getBytes());
 
       final List<ByteBuffer> keys = new ArrayList<>();
-      keys.add(ByteBuffer.allocateDirect(12).put("key1".getBytes()).flip());
-      keys.add(ByteBuffer.allocateDirect(12).put("key2".getBytes()).flip());
-      keys.add(ByteBuffer.allocateDirect(12).put("key3".getBytes()).flip());
+      keys.add(ByteBuffer.allocateDirect(12).put("key1".getBytes()));
+      keys.add(ByteBuffer.allocateDirect(12).put("key2".getBytes()));
+      keys.add(ByteBuffer.allocateDirect(12).put("key3".getBytes()));
+      // Java8 and lower flip() returns Buffer not ByteBuffer, so can't chain above /\/\
+      for (final ByteBuffer key: keys) {
+        key.flip();
+      }
       final List<ByteBuffer> values = new ArrayList<>();
       for (int i = 0; i < keys.size(); i++) {
         values.add(ByteBuffer.allocateDirect(24));
