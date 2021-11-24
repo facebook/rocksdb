@@ -18,6 +18,7 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -89,7 +90,8 @@ public class MultiGetBenchmarks {
     // store initial data for retrieving via get
     for (int i = 0; i < cfs; i++) {
       for (int j = 0; j < keyCount; j++) {
-        db.put(cfHandles[i], ba("key" + j), ba("value" + j));
+        final byte[] paddedValue = Arrays.copyOf(ba("value" + j), valueSize);
+        db.put(cfHandles[i], ba("key" + j), paddedValue);
       }
     }
 
