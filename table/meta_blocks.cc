@@ -326,8 +326,10 @@ Status ReadTablePropertiesHelper(
     auto raw_val = iter.value();
     auto pos = predefined_uint64_properties.find(key);
 
-    new_table_properties->properties_offsets.insert(
-        {key, handle.offset() + iter.ValueOffset()});
+    if (key == ExternalSstFilePropertyNames::kGlobalSeqno) {
+      new_table_properties->external_sst_file_global_seqno_offset =
+          handle.offset() + iter.ValueOffset();
+    }
 
     if (pos != predefined_uint64_properties.end()) {
       if (key == TablePropertiesNames::kDeletedKeys ||
@@ -382,12 +384,12 @@ Status ReadTablePropertiesHelper(
     s = VerifyBlockChecksum(footer.checksum(), properties_block.data(),
                             block_size, file->file_name(), handle.offset());
     if (s.IsCorruption()) {
-      const auto seqno_pos_iter = new_table_properties->properties_offsets.find(
-          ExternalSstFilePropertyNames::kGlobalSeqno);
-      if (seqno_pos_iter != new_table_properties->properties_offsets.end()) {
+      if (new_table_properties->external_sst_file_global_seqno_offset != 0) {
         std::string tmp_buf(properties_block.data(),
                             block_fetcher.GetBlockSizeWithTrailer());
-        uint64_t global_seqno_offset = seqno_pos_iter->second - handle.offset();
+        uint64_t global_seqno_offset =
+            new_table_properties->external_sst_file_global_seqno_offset -
+            handle.offset();
         EncodeFixed64(&tmp_buf[static_cast<size_t>(global_seqno_offset)], 0);
         s = VerifyBlockChecksum(footer.checksum(), tmp_buf.data(), block_size,
                                 file->file_name(), handle.offset());

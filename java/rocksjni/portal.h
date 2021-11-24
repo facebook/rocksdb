@@ -6258,9 +6258,6 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    // Map<String, Long>
-    jobject jproperties_offsets = ROCKSDB_NAMESPACE::HashMapJni::fromCppMap(
-        env, &table_properties.properties_offsets);
     if (env->ExceptionCheck()) {
       // exception occurred creating java map
       env->DeleteLocalRef(jcolumn_family_name);
@@ -6299,10 +6296,12 @@ class TablePropertiesJni : public JavaClass {
             table_properties.slow_compression_estimated_data_size),
         static_cast<jlong>(
             table_properties.fast_compression_estimated_data_size),
+        static_cast<jlong>(
+            table_properties.external_sst_file_global_seqno_offset),
         jcolumn_family_name, jfilter_policy_name, jcomparator_name,
         jmerge_operator_name, jprefix_extractor_name,
         jproperty_collectors_names, jcompression_name,
-        juser_collected_properties, jreadable_properties, jproperties_offsets);
+        juser_collected_properties, jreadable_properties);
 
     if (env->ExceptionCheck()) {
       return nullptr;
