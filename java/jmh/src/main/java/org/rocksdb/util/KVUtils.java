@@ -60,9 +60,11 @@ public final class KVUtils {
   public static List<ByteBuffer> keys(final List<ByteBuffer> keyBuffers, final int from, final int to) {
     final List<ByteBuffer> keys = new ArrayList<>(to - from);
     for (int i = from; i < to; i++) {
-      final ByteBuffer key = keyBuffers.get(i).clear();
+      final ByteBuffer key = keyBuffers.get(i);
+      key.clear();
       key.put(ba("key" + i));
-      keys.add(key.flip());
+      key.flip();
+      keys.add(key);
     }
     return keys;
   }
