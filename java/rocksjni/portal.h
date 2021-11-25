@@ -6147,9 +6147,9 @@ class TablePropertiesJni : public JavaClass {
 
     jmethodID mid = env->GetMethodID(
         jclazz, "<init>",
-        "(JJJJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/"
+        "(JJJJJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/"
         "lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/"
-        "String;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;)V");
+        "String;Ljava/util/Map;Ljava/util/Map;)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -6255,20 +6255,6 @@ class TablePropertiesJni : public JavaClass {
       env->DeleteLocalRef(jproperty_collectors_names);
       env->DeleteLocalRef(jcompression_name);
       env->DeleteLocalRef(juser_collected_properties);
-      return nullptr;
-    }
-
-    if (env->ExceptionCheck()) {
-      // exception occurred creating java map
-      env->DeleteLocalRef(jcolumn_family_name);
-      env->DeleteLocalRef(jfilter_policy_name);
-      env->DeleteLocalRef(jcomparator_name);
-      env->DeleteLocalRef(jmerge_operator_name);
-      env->DeleteLocalRef(jprefix_extractor_name);
-      env->DeleteLocalRef(jproperty_collectors_names);
-      env->DeleteLocalRef(jcompression_name);
-      env->DeleteLocalRef(juser_collected_properties);
-      env->DeleteLocalRef(jreadable_properties);
       return nullptr;
     }
 
