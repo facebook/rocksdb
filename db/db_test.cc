@@ -4670,8 +4670,8 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   for (int i = 0; i < 20; i++) {
     ASSERT_OK(Put(Key(keys[i]), CompressibleString(&rnd, 4000)));
   }
-  Flush();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
@@ -4683,8 +4683,8 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   for (int i = 21; i < 120; i++) {
     ASSERT_OK(Put(Key(keys[i]), CompressibleString(&rnd, 4000)));
   }
-  Flush();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
   ASSERT_LT(SizeAtLevel(0) + SizeAtLevel(3) + SizeAtLevel(4),
@@ -4772,14 +4772,14 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
     std::string value = rnd.RandomString(200);
     ASSERT_OK(Put(Key(keys[i]), value));
     if (i % 25 == 24) {
-      Flush();
-      dbfull()->TEST_WaitForCompact();
+      ASSERT_OK(Flush());
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
     }
   }
 
-  Flush();
-  dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
@@ -4817,8 +4817,8 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
     std::string value = rnd.RandomString(200);
     ASSERT_OK(Put(Key(keys[i]), value));
     if (i % 100 == 99) {
-      Flush();
-      dbfull()->TEST_WaitForCompact();
+      ASSERT_OK(Flush());
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
     }
   }
 
