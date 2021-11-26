@@ -17,6 +17,9 @@ class TransactionDBCondVar;
 // by TransactionDBOptions.custom_mutex_factory.
 class TransactionDBMutexFactoryImpl : public TransactionDBMutexFactory {
  public:
+  static const char* kClassName() { return "TransactionDBMutexFactory"; }
+  const char* Name() const override { return kClassName(); }
+
   std::shared_ptr<TransactionDBMutex> AllocateMutex() override;
   std::shared_ptr<TransactionDBCondVar> AllocateCondVar() override;
 };

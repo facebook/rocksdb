@@ -12,6 +12,8 @@
 #include <functional>
 #include <mutex>
 
+#include "rocksdb/utilities/customizable_util.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/transaction_db_mutex.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -130,6 +132,37 @@ Status TransactionDBCondVarImpl::WaitFor(
   return s;
 }
 
+namespace {
+static int RegisterBuiltinTransactionDBMutexFactory(
+    ObjectLibrary& library, const std::string& /*arg*/) {
+  library.Register<TransactionDBMutexFactory>(
+      TransactionDBMutexFactoryImpl::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<TransactionDBMutexFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TransactionDBMutexFactoryImpl());
+        return guard->get();
+      });
+  return 1;
+}
+}  // namespace
+
+Status TransactionDBMutexFactory::CreateFromString(
+    const ConfigOptions& config_options, const std::string& id,
+    std::shared_ptr<TransactionDBMutexFactory>* result) {
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterBuiltinTransactionDBMutexFactory(*(ObjectLibrary::Default().get()),
+                                             "");
+  });
+  if (id.empty()) {
+    result->reset(new TransactionDBMutexFactoryImpl);
+    return Status::OK();
+  } else {
+    return LoadSharedObject<TransactionDBMutexFactory>(config_options, id,
+                                                       nullptr, result);
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

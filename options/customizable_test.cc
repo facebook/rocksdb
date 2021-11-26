@@ -29,6 +29,8 @@
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
+#include "rocksdb/utilities/transaction_db.h"
+#include "rocksdb/utilities/transaction_db_mutex.h"
 #include "table/block_based/flush_block_policy.h"
 #include "table/mock_table.h"
 #include "test_util/mock_time_env.h"
@@ -1311,6 +1313,25 @@ class DummyFileSystem : public FileSystemWrapper {
 
 #ifndef ROCKSDB_LITE
 
+class MockLockManagerHandle : public LockManagerHandle {
+ public:
+  static const char* kClassName() { return "Mock"; }
+  const char* Name() const override { return kClassName(); }
+  LockManager* getLockManager() override { return nullptr; }
+};
+
+class MockTransactionDBMutexFactory : public TransactionDBMutexFactory {
+ public:
+  static const char* kClassName() { return "Mock"; }
+  const char* Name() const override { return kClassName(); }
+  std::shared_ptr<TransactionDBMutex> AllocateMutex() override {
+    return nullptr;
+  }
+  std::shared_ptr<TransactionDBCondVar> AllocateCondVar() override {
+    return nullptr;
+  }
+};
+
 #endif  // ROCKSDB_LITE
 
 class MockTablePropertiesCollectorFactory
@@ -1451,6 +1472,23 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         guard->reset(new MockTablePropertiesCollectorFactory());
         return guard->get();
       });
+
+  library.Register<LockManagerHandle>(
+      MockLockManagerHandle::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<LockManagerHandle>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockLockManagerHandle());
+        return guard->get();
+      });
+  library.Register<TransactionDBMutexFactory>(
+      MockTransactionDBMutexFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<TransactionDBMutexFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockTransactionDBMutexFactory());
+        return guard->get();
+      });
+
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 #endif  // !ROCKSDB_LITE
@@ -1831,6 +1869,39 @@ TEST_F(LoadCustomizableTest, LoadEncryptionCipherTest) {
     ASSERT_STREQ(result->Name(), "Mock");
   }
 }
+
+TEST_F(LoadCustomizableTest, LoadLockManagerHandleTest) {
+  std::shared_ptr<LockManagerHandle> result;
+  ConfigOptions copy = config_options_;
+  copy.invoke_prepare_options = false;
+  ASSERT_NOK(LockManagerHandle::CreateFromString(copy, "Mock", &result));
+  ASSERT_OK(LockManagerHandle::CreateFromString(copy, "RangeTreeLockManager",
+                                                &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "RangeTreeLockManager");
+  if (RegisterTests("Test")) {
+    ASSERT_OK(LockManagerHandle::CreateFromString(copy, "Mock", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "Mock");
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadTransactionDBMutexFactoryTest) {
+  std::shared_ptr<TransactionDBMutexFactory> result;
+  ASSERT_NOK(TransactionDBMutexFactory::CreateFromString(config_options_,
+                                                         "Mock", &result));
+  ASSERT_OK(TransactionDBMutexFactory::CreateFromString(
+      config_options_, "TransactionDBMutexFactory", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "TransactionDBMutexFactory");
+  if (RegisterTests("Test")) {
+    ASSERT_OK(TransactionDBMutexFactory::CreateFromString(config_options_,
+                                                          "Mock", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "Mock");
+  }
+}
+
 #endif  // !ROCKSDB_LITE
 
 TEST_F(LoadCustomizableTest, LoadSystemClockTest) {

@@ -517,6 +517,10 @@ ALL_SOURCES += $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(CACHE_BENCH_LIB_SOURCE
 ALL_SOURCES += $(TEST_MAIN_SOURCES) $(TOOL_MAIN_SOURCES) $(BENCH_MAIN_SOURCES)
 ALL_SOURCES += $(ROCKSDB_PLUGIN_SOURCES)
 
+ifneq ($(PPC_LIBC_IS_GNU),0)
+  ALL_SOURCES += $(RANGE_TREE_SOURCES)
+endif
+
 TESTS = $(patsubst %.cc, %, $(notdir $(TEST_MAIN_SOURCES)))
 TESTS += $(patsubst %.c, %, $(notdir $(TEST_MAIN_SOURCES_C)))
 
@@ -1199,10 +1203,15 @@ analyze_incremental:
 		$(MAKE) dbg
 
 CLEAN_FILES += unity.cc
+UNITY_SOURCES = $(LIB_SOURCES)
+ifneq ($(PPC_LIBC_IS_GNU),0)
+  UNITY_SOURCES += $(RANGE_TREE_SOURCES)
+endif
+
 unity.cc: Makefile util/build_version.cc.in
 	rm -f $@ $@-t
 	$(AM_V_at)$(gen_build_version) > util/build_version.cc
-	for source_file in $(LIB_SOURCES); do \
+	for source_file in $(UNITY_SOURCES); do \
 		echo "#include \"$$source_file\"" >> $@-t; \
 	done
 	chmod a=r $@-t

@@ -6,6 +6,7 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 #ifndef OS_WIN
+#include <mutex>
 
 // For DeadlockInfoBuffer:
 #include "util/thread_local.h"
@@ -28,6 +29,9 @@ class RangeTreeLockManager : public RangeLockManagerBase,
                              public RangeLockManagerHandle {
  public:
   LockManager* getLockManager() override { return this; }
+  static const char* kClassName() { return "RangeTreeLockManager"; }
+  const char* Name() const override { return kClassName(); }
+  Status PrepareOptions(const ConfigOptions& config_options) override;
 
   void AddColumnFamily(const ColumnFamilyHandle* cfh) override;
   void RemoveColumnFamily(const ColumnFamilyHandle* cfh) override;
@@ -56,7 +60,8 @@ class RangeTreeLockManager : public RangeLockManagerBase,
   }
 
   explicit RangeTreeLockManager(
-      std::shared_ptr<TransactionDBMutexFactory> mutex_factory);
+      const std::shared_ptr<TransactionDBMutexFactory>& mutex_factory);
+  void Initialize();
 
   ~RangeTreeLockManager() override;
 
@@ -94,6 +99,7 @@ class RangeTreeLockManager : public RangeLockManagerBase,
   std::shared_ptr<locktree> GetLockTreeForCF(ColumnFamilyId cf_id);
 
  private:
+  std::once_flag initialized_;
   toku::locktree_manager ltm_;
 
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
