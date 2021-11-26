@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Behavior Changes
+* MemTableListVersion::ApproximateMemoryUsageExcludingLast now use allocated bytes(arena_block_size) when history memtable's memory_usgage < arena_block_size. This change only affects immutable memtables with few data in trimming logic (max_write_buffer_size_to_maintain > 0, defalut in trasactiondb). Fix #8371.
+
 ## 6.27.0 (2021-11-19)
 ### New Features
 * Added new ChecksumType kXXH3 which is faster than kCRC32c on almost all x86\_64 hardware.
