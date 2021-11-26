@@ -56,8 +56,8 @@ public class SstFileReaderTest {
   @Parameterized.Parameters(name = "{0}")
   public static Iterable<Object[]> parameters() {
     return Arrays.asList(new Object[][] {
-        { "direct", new ByteBufferAllocator.Direct() },
-        { "indirect", new ByteBufferAllocator.Indirect() }
+        { "direct", ByteBufferAllocator.DIRECT },
+        { "indirect", ByteBufferAllocator.INDIRECT }
     });
   }
 

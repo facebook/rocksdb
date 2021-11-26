@@ -5,14 +5,21 @@ import java.nio.ByteBuffer;
 public interface ByteBufferAllocator {
   ByteBuffer allocate(int capacity);
 
-  static class Direct implements ByteBufferAllocator {
+  ByteBufferAllocator DIRECT = new DirectByteBufferAllocator();
+  ByteBufferAllocator INDIRECT = new IndirectByteBufferAllocator();
+
+  final class DirectByteBufferAllocator implements ByteBufferAllocator {
+    private DirectByteBufferAllocator() {};
+
     @Override
     public ByteBuffer allocate(final int capacity) {
       return ByteBuffer.allocateDirect(capacity);
     }
   }
 
-  static class Indirect implements ByteBufferAllocator {
+  final class IndirectByteBufferAllocator implements ByteBufferAllocator {
+    private IndirectByteBufferAllocator() {};
+
     @Override
     public ByteBuffer allocate(final int capacity) {
       return ByteBuffer.allocate(capacity);

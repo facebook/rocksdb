@@ -195,12 +195,12 @@ public class WriteBatchWithIndexTest {
 
   @Test
   public void readYourOwnWritesCfIterDirectBB() throws RocksDBException {
-    readYourOwnWritesCfIterDirect(new ByteBufferAllocator.Direct());
+    readYourOwnWritesCfIterDirect(ByteBufferAllocator.DIRECT);
   }
 
   @Test
   public void readYourOwnWritesCfIterIndirectBB() throws RocksDBException {
-    readYourOwnWritesCfIterDirect(new ByteBufferAllocator.Indirect());
+    readYourOwnWritesCfIterDirect(ByteBufferAllocator.INDIRECT);
   }
 
   public void readYourOwnWritesCfIterDirect(final ByteBufferAllocator byteBufferAllocator)
