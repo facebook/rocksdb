@@ -221,10 +221,12 @@ public class WriteBatchWithIndexTest {
       try {
         final byte[] kv1 = "key1".getBytes();
         final byte[] vv1 = "value1".getBytes();
-        final ByteBuffer k1 = byteBufferAllocator.allocate(12).clear().put(kv1);
+        final ByteBuffer k1 = byteBufferAllocator.allocate(12);
+        k1.put(kv1);
         final byte[] kv2 = "key2".getBytes();
         final byte[] vv2 = "value2".getBytes();
-        final ByteBuffer k2 = byteBufferAllocator.allocate(12).clear().put(kv2);
+        final ByteBuffer k2 = byteBufferAllocator.allocate(12);
+        k2.put(kv2);
 
         db.put(newCf, kv1, vv1);
         db.put(newCf, kv2, vv2);
@@ -233,35 +235,42 @@ public class WriteBatchWithIndexTest {
              final ReadOptions readOptions = new ReadOptions();
              final RocksIterator base = db.newIterator(newCf, readOptions);
              final RocksIterator it = wbwi.newIteratorWithBase(newCf, base, readOptions)) {
-          it.seek(k1.flip());
+          k1.flip();
+          it.seek(k1);
           assertThat(it.isValid()).isTrue();
           assertThat(it.key()).isEqualTo(kv1);
           assertThat(it.value()).isEqualTo(vv1);
 
-          it.seek(k2.flip());
+          k2.flip();
+          it.seek(k2);
           assertThat(it.isValid()).isTrue();
           assertThat(it.key()).isEqualTo(kv2);
           assertThat(it.value()).isEqualTo(vv2);
 
           final byte[] kv1point5 = "key1point5".getBytes();
-          final ByteBuffer k1point5 = byteBufferAllocator.allocate(12).clear().put(kv1point5);
+          final ByteBuffer k1point5 = byteBufferAllocator.allocate(12);
+          k1point5.put(kv1point5);
 
-          it.seek(k1point5.flip());
+          k1point5.flip();
+          it.seek(k1point5);
           assertThat(it.isValid()).isTrue();
           assertThat(it.key()).isEqualTo(kv2);
           assertThat(it.value()).isEqualTo(vv2);
 
-          it.seekForPrev(k1point5.flip());
+          k1point5.flip();
+          it.seekForPrev(k1point5);
           assertThat(it.isValid()).isTrue();
           assertThat(it.key()).isEqualTo(kv1);
           assertThat(it.value()).isEqualTo(vv1);
 
           // put data to the write batch and make sure we can read it.
           final byte[] kv3 = "key3".getBytes();
-          final ByteBuffer k3 = byteBufferAllocator.allocate(12).clear().put(kv3);
+          final ByteBuffer k3 = byteBufferAllocator.allocate(12);
+          k3.put(kv3);
           final byte[] vv3 = "value3".getBytes();
           wbwi.put(newCf, kv3, vv3);
-          it.seek(k3.flip());
+          k3.flip();
+          it.seek(k3);
           assertThat(it.isValid()).isTrue();
           assertThat(it.key()).isEqualTo(kv3);
           assertThat(it.value()).isEqualTo(vv3);
@@ -269,33 +278,38 @@ public class WriteBatchWithIndexTest {
           // update k2 in the write batch and check the value
           final byte[] v2Other = "otherValue2".getBytes();
           wbwi.put(newCf, kv2, v2Other);
-          it.seek(k2.flip());
+          k2.flip();
+          it.seek(k2);
           assertThat(it.isValid()).isTrue();
           assertThat(it.key()).isEqualTo(kv2);
           assertThat(it.value()).isEqualTo(v2Other);
 
           // delete k1 and make sure we can read back the write
           wbwi.delete(newCf, kv1);
-          it.seek(k1.flip());
+          k1.flip();
+          it.seek(k1);
           assertThat(it.key()).isNotEqualTo(kv1);
 
           // reinsert k1 and make sure we see the new value
           final byte[] v1Other = "otherValue1".getBytes();
           wbwi.put(newCf, kv1, v1Other);
-          it.seek(k1.flip());
+          k1.flip();
+          it.seek(k1);
           assertThat(it.isValid()).isTrue();
           assertThat(it.key()).isEqualTo(kv1);
           assertThat(it.value()).isEqualTo(v1Other);
 
           // single remove k3 and make sure we can read back the write
           wbwi.singleDelete(newCf, kv3);
-          it.seek(k3.flip());
+          k3.flip();
+          it.seek(k3);
           assertThat(it.isValid()).isEqualTo(false);
 
           // reinsert k3 and make sure we see the new value
           final byte[] v3Other = "otherValue3".getBytes();
           wbwi.put(newCf, kv3, v3Other);
-          it.seek(k3.flip());
+          k3.flip();
+          it.seek(k3);
           assertThat(it.isValid()).isTrue();
           assertThat(it.key()).isEqualTo(kv3);
           assertThat(it.value()).isEqualTo(v3Other);
@@ -326,10 +340,12 @@ public class WriteBatchWithIndexTest {
       try {
         final byte[] kv1 = "key1".getBytes();
         final byte[] vv1 = "value1".getBytes();
-        final ByteBuffer k1 = ByteBuffer.allocate(12).clear().put(kv1).flip();
+        final ByteBuffer k1 = ByteBuffer.allocate(12);
+        k1.put(kv1).flip();
         final byte[] kv2 = "key2".getBytes();
         final byte[] vv2 = "value2".getBytes();
-        final ByteBuffer k2 = ByteBuffer.allocate(12).clear().put(kv2).flip();
+        final ByteBuffer k2 = ByteBuffer.allocate(12);
+        k2.put(kv2).flip();
 
         db.put(newCf, kv1, vv1);
         db.put(newCf, kv2, vv2);
@@ -350,10 +366,12 @@ public class WriteBatchWithIndexTest {
 
           // put data to the write batch and make sure we can read it.
           final byte[] kv3 = "key3".getBytes();
-          final ByteBuffer k3 = ByteBuffer.allocate(12).clear().put(kv3);
+          final ByteBuffer k3 = ByteBuffer.allocate(12);
+          k3.put(kv3);
           final byte[] vv3 = "value3".getBytes();
           wbwi.put(newCf, kv3, vv3);
-          it.seek(k3.flip());
+          k3.flip();
+          it.seek(k3);
           assertThat(it.isValid()).isTrue();
           assertThat(it.key()).isEqualTo(kv3);
           assertThat(it.value()).isEqualTo(vv3);
@@ -361,33 +379,38 @@ public class WriteBatchWithIndexTest {
           // update k2 in the write batch and check the value
           final byte[] v2Other = "otherValue2".getBytes();
           wbwi.put(newCf, kv2, v2Other);
-          it.seek(k2.flip());
+          k2.flip();
+          it.seek(k2);
           assertThat(it.isValid()).isTrue();
           assertThat(it.key()).isEqualTo(kv2);
           assertThat(it.value()).isEqualTo(v2Other);
 
           // delete k1 and make sure we can read back the write
           wbwi.delete(newCf, kv1);
-          it.seek(k1.flip());
+          k1.flip();
+          it.seek(k1);
           assertThat(it.key()).isNotEqualTo(kv1);
 
           // reinsert k1 and make sure we see the new value
           final byte[] v1Other = "otherValue1".getBytes();
           wbwi.put(newCf, kv1, v1Other);
-          it.seek(k1.flip());
+          k1.flip();
+          it.seek(k1);
           assertThat(it.isValid()).isTrue();
           assertThat(it.key()).isEqualTo(kv1);
           assertThat(it.value()).isEqualTo(v1Other);
 
           // single remove k3 and make sure we can read back the write
           wbwi.singleDelete(newCf, kv3);
-          it.seek(k3.flip());
+          k3.flip();
+          it.seek(k3);
           assertThat(it.isValid()).isEqualTo(false);
 
           // reinsert k3 and make sure we see the new value
           final byte[] v3Other = "otherValue3".getBytes();
           wbwi.put(newCf, kv3, v3Other);
-          it.seek(k3.flip());
+          k3.flip();
+          it.seek(k3);
           assertThat(it.isValid()).isTrue();
           assertThat(it.key()).isEqualTo(kv3);
           assertThat(it.value()).isEqualTo(v3Other);
@@ -591,7 +614,8 @@ public class WriteBatchWithIndexTest {
         {
           final ByteBuffer db = ByteBuffer.allocate(k2point5.length());
           db.put(k2point5.getBytes());
-          it.seekForPrev(db.flip());
+          db.flip();
+          it.seekForPrev(db);
           assertThat(it.isValid()).isTrue();
           final WBWIRocksIterator.WriteEntry entry = it.entry();
           assertThat(entry).isEqualTo(expected[1]);
@@ -600,7 +624,8 @@ public class WriteBatchWithIndexTest {
         {
           final ByteBuffer db = ByteBuffer.allocate(k1point5.length());
           db.put(k1point5.getBytes());
-          it.seekForPrev(db.flip());
+          db.flip();
+          it.seekForPrev(db);
           assertThat(it.isValid()).isTrue();
           final WBWIRocksIterator.WriteEntry entry = it.entry();
           assertThat(entry).isEqualTo(expected[0]);

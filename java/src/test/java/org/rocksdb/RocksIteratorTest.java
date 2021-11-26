@@ -92,7 +92,8 @@ public class RocksIteratorTest {
         iterator.status();
 
         {
-          final ByteBuffer key = ByteBuffer.allocate(12).clear().put("key1".getBytes()).flip();
+          final ByteBuffer key = ByteBuffer.allocate(12);
+          key.put("key1".getBytes()).flip();
           iterator.seek(key);
           assertThat(iterator.isValid()).isTrue();
           assertThat(iterator.value()).isEqualTo("value1".getBytes());
@@ -104,7 +105,8 @@ public class RocksIteratorTest {
         }
 
         {
-          final ByteBuffer key = ByteBuffer.allocate(12).clear().put("key2".getBytes()).flip();
+          final ByteBuffer key = ByteBuffer.allocate(12);
+          key.put("key2".getBytes()).flip();
           iterator.seekForPrev(key);
           assertThat(iterator.isValid()).isTrue();
           assertThat(iterator.value()).isEqualTo("value2".getBytes());
@@ -113,7 +115,8 @@ public class RocksIteratorTest {
         }
 
         {
-          final ByteBuffer key = ByteBuffer.allocate(12).clear().put("key1".getBytes()).flip();
+          final ByteBuffer key = ByteBuffer.allocate(12);
+          key.put("key1".getBytes()).flip();
           iterator.seek(key);
           assertThat(iterator.isValid()).isTrue();
           assertThat(iterator.value()).isEqualTo("value1".getBytes());
@@ -123,8 +126,10 @@ public class RocksIteratorTest {
 
         {
           // Check offsets of slice byte buffers
-          final ByteBuffer key0 = ByteBuffer.allocate(24).clear().put("123456789012".getBytes());
-          final ByteBuffer key = key0.slice().put("key1".getBytes()).flip();
+          final ByteBuffer key0 = ByteBuffer.allocate(24);
+          key0.put("123456789012".getBytes());
+          final ByteBuffer key = key0.slice();
+          key.put("key1".getBytes()).flip();
           iterator.seek(key);
           assertThat(iterator.isValid()).isTrue();
           assertThat(iterator.value()).isEqualTo("value1".getBytes());
@@ -133,7 +138,8 @@ public class RocksIteratorTest {
         }
 
         {
-          final ByteBuffer key = ByteBuffer.allocate(12).clear().put("key2".getBytes()).flip();
+          final ByteBuffer key = ByteBuffer.allocate(12);
+          key.put("key2".getBytes()).flip();
           iterator.seekForPrev(key);
           assertThat(iterator.isValid()).isTrue();
           assertThat(iterator.value()).isEqualTo("value2".getBytes());
