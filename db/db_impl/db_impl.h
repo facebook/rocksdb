@@ -355,6 +355,12 @@ class DBImpl : public DB {
 
   virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
 
+  virtual Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                          std::string& ts_low) override;
+
+  virtual Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                     std::string* ts_low) override;
+
   virtual Status GetDbIdentity(std::string& identity) const override;
 
   virtual Status GetDbIdentityFromIdentityFile(std::string* identity) const;

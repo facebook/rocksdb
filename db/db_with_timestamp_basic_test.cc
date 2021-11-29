@@ -435,6 +435,26 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
   Close();
 }
 
+TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLowWithPublicAPI) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  std::string ts_low_str = Timestamp(9, 0);
+  ASSERT_OK(
+      db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(), ts_low_str));
+  std::string result_ts_low;
+  ASSERT_OK(
+      db_->GetFullHistoryTsLow(db_->DefaultColumnFamily(), &result_ts_low));
+  ASSERT_TRUE(test_cmp.CompareTimestamp(ts_low_str, result_ts_low) == 0);
+  std::string invalid_ts_low_str = Timestamp(8, 0);
+  ASSERT_NOK(db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
+                                           invalid_ts_low_str));
+}
+
 TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
   Options options = CurrentOptions();
   options.write_buffer_size = 100000000;  // Large write buffer

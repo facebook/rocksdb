@@ -1496,6 +1496,29 @@ bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
   }
 }
 
+Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                        std::string& ts_low) {
+  if (column_family == nullptr) {
+    return Status::InvalidArgument("column family handle is null");
+  }
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  return IncreaseFullHistoryTsLow(cfh->cfd(), ts_low);
+}
+
+Status DBImpl::GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                   std::string* ts_low) {
+  ColumnFamilyData* cfd;
+  if (column_family == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  } else {
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+    cfd = cfh->cfd();
+  }
+  InstrumentedMutexLock l(&mutex_);
+  *ts_low = cfd->GetFullHistoryTsLow();
+  return Status::OK();
+}
+
 InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
                                               Arena* arena,
                                               RangeDelAggregator* range_del_agg,
