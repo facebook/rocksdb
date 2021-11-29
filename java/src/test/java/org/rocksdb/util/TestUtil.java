@@ -9,6 +9,7 @@ import org.rocksdb.CompactionPriority;
 import org.rocksdb.Options;
 import org.rocksdb.WALRecoveryMode;
 
+import java.nio.ByteBuffer;
 import java.util.Random;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -57,5 +58,16 @@ public class TestUtil {
     final byte[] str = new byte[len];
     random.nextBytes(str);
     return str;
+  }
+
+  /**
+   * Copy a {@link ByteBuffer} into an array for shorthand ease of test coding
+   * @param byteBuffer the buffer to copy
+   * @return a {@link byte[]} containing the same bytes as the input
+   */
+  public static byte[] bufferBytes(final ByteBuffer byteBuffer) {
+    final byte[] result = new byte[byteBuffer.limit()];
+    byteBuffer.get(result);
+    return result;
   }
 }

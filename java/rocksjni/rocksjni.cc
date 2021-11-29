@@ -2014,7 +2014,7 @@ void multi_get_helper_direct(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
         return;
       }
 
-      // record num returned, push back thart number, which may be bigger then
+      // record num returned, push back that number, which may be bigger then
       // the ByteBuffer supplied. then copy as much as fits in the ByteBuffer.
       value_size.push_back(static_cast<jint>(values[i].size()));
       auto copy_bytes =

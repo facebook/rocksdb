@@ -2556,7 +2556,7 @@ public class RocksDB extends RocksObject {
    * @throws IllegalArgumentException thrown if the number of passed keys and passed values
    * do not match.
    */
-  public List<MultiGetInstance> multiGetByteBuffers(
+  public List<ByteBufferGetStatus> multiGetByteBuffers(
       final List<ByteBuffer> keys, final List<ByteBuffer> values) throws RocksDBException {
     final ReadOptions readOptions = new ReadOptions();
     final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>(1);
@@ -2574,8 +2574,8 @@ public class RocksDB extends RocksObject {
    * @throws IllegalArgumentException thrown if the number of passed keys and passed values
    * do not match.
    */
-  public List<MultiGetInstance> multiGetByteBuffers(final ReadOptions readOptions,
-      final List<ByteBuffer> keys, final List<ByteBuffer> values) throws RocksDBException {
+  public List<ByteBufferGetStatus> multiGetByteBuffers(final ReadOptions readOptions,
+                                                       final List<ByteBuffer> keys, final List<ByteBuffer> values) throws RocksDBException {
     final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>(1);
     columnFamilyHandleList.add(getDefaultColumnFamily());
     return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
@@ -2596,29 +2596,11 @@ public class RocksDB extends RocksObject {
    * @throws IllegalArgumentException thrown if the number of passed keys, passed values and
    * passed column family handles do not match.
    */
-  public List<MultiGetInstance> multiGetByteBuffers(
+  public List<ByteBufferGetStatus> multiGetByteBuffers(
       final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
       final List<ByteBuffer> values) throws RocksDBException {
     final ReadOptions readOptions = new ReadOptions();
     return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
-  }
-
-  public static class MultiGetInstance {
-    public final Status status;
-    public final int valueSize;
-    public final ByteBuffer value;
-
-    public MultiGetInstance(final Status status, final int valueSize, final ByteBuffer value) {
-      this.status = status;
-      this.valueSize = valueSize;
-      this.value = value;
-    }
-
-    public MultiGetInstance(final Status status) {
-      this.status = status;
-      this.valueSize = 0;
-      this.value = null;
-    }
   }
 
   /**
@@ -2637,9 +2619,9 @@ public class RocksDB extends RocksObject {
    * @throws IllegalArgumentException thrown if the number of passed keys, passed values and
    * passed column family handles do not match.
    */
-  public List<MultiGetInstance> multiGetByteBuffers(final ReadOptions readOptions,
-      final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
-      final List<ByteBuffer> values) throws RocksDBException {
+  public List<ByteBufferGetStatus> multiGetByteBuffers(final ReadOptions readOptions,
+                                                       final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
+                                                       final List<ByteBuffer> values) throws RocksDBException {
     assert (keys.size() != 0);
 
     // Check if key size equals cfList size. If not a exception must be
@@ -2694,15 +2676,16 @@ public class RocksDB extends RocksObject {
     multiGet(nativeHandle_, readOptions.nativeHandle_, cfHandles, keysArray, keyOffsets, keyLengths,
         valuesArray, valuesSizeArray, statusArray);
 
-    final List<MultiGetInstance> results = new ArrayList<>();
+    final List<ByteBufferGetStatus> results = new ArrayList<>();
     for (int i = 0; i < numValues; i++) {
       final Status status = statusArray[i];
       if (status.getCode() == Status.Code.Ok) {
         final ByteBuffer value = valuesArray[i];
         value.position(Math.min(valuesSizeArray[i], value.capacity()));
-        results.add(new MultiGetInstance(status, valuesSizeArray[i], value));
+        value.flip(); // prepare for read out
+        results.add(new ByteBufferGetStatus(status, valuesSizeArray[i], value));
       } else {
-        results.add(new MultiGetInstance(status));
+        results.add(new ByteBufferGetStatus(status));
       }
     }
 
