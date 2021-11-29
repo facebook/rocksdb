@@ -1125,6 +1125,9 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedWithBlobFiles) {
 
   TEST_SYNC_POINT("DBSSTTest::DBWithMaxSpaceAllowedWithBlobFiles:1");
   ASSERT_TRUE(delete_blob_file);
+
+  sfm->Close();
+  sst_file_manager.reset();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
