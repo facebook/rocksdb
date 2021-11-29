@@ -9,6 +9,8 @@
 
 #pragma once
 #include <stdint.h>
+
+#include <array>
 #include <limits>
 #include <string>
 #include <utility>
@@ -19,6 +21,7 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/table.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
 #include "util/compression.h"
@@ -38,20 +41,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Create a builder that will store the contents of the table it is
   // building in *file.  Does not close the file.  It is up to the
   // caller to close the file after calling Finish().
-  BlockBasedTableBuilder(
-      const ImmutableCFOptions& ioptions, const MutableCFOptions& moptions,
-      const BlockBasedTableOptions& table_options,
-      const InternalKeyComparator& internal_comparator,
-      const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-          int_tbl_prop_collector_factories,
-      uint32_t column_family_id, WritableFileWriter* file,
-      const CompressionType compression_type,
-      const CompressionOptions& compression_opts, const bool skip_filters,
-      const std::string& column_family_name, const int level_at_creation,
-      const uint64_t creation_time = 0, const uint64_t oldest_key_time = 0,
-      const uint64_t target_file_size = 0,
-      const uint64_t file_creation_time = 0, const std::string& db_id = "",
-      const std::string& db_session_id = "");
+  BlockBasedTableBuilder(const BlockBasedTableOptions& table_options,
+                         const TableBuilderOptions& table_builder_options,
+                         WritableFileWriter* file);
 
   // No copying allowed
   BlockBasedTableBuilder(const BlockBasedTableBuilder&) = delete;
@@ -119,17 +111,29 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Call block's Finish() method and then
   // - in buffered mode, buffer the uncompressed block contents.
   // - in unbuffered mode, write the compressed block contents to file.
-  void WriteBlock(BlockBuilder* block, BlockHandle* handle, bool is_data_block);
+  void WriteBlock(BlockBuilder* block, BlockHandle* handle,
+                  BlockType blocktype);
 
   // Compress and write block content to the file.
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
-                  bool is_data_block);
+                  BlockType block_type);
   // Directly write data to the file.
   void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle,
-                     bool is_data_block = false);
+                     BlockType block_type, const Slice* raw_data = nullptr);
+
+  void SetupCacheKeyPrefix(const TableBuilderOptions& tbo);
+
+  template <typename TBlocklike>
   Status InsertBlockInCache(const Slice& block_contents,
-                            const CompressionType type,
-                            const BlockHandle* handle);
+                            const BlockHandle* handle, BlockType block_type);
+
+  Status InsertBlockInCacheHelper(const Slice& block_contents,
+                                  const BlockHandle* handle,
+                                  BlockType block_type);
+
+  Status InsertBlockInCompressedCache(const Slice& block_contents,
+                                      const CompressionType type,
+                                      const BlockHandle* handle);
 
   void WriteFilterBlock(MetaIndexBuilder* meta_index_builder);
   void WriteIndexBlock(MetaIndexBuilder* meta_index_builder,

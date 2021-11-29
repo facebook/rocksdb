@@ -81,6 +81,9 @@ enum NewFileCustomTag : uint32_t {
   kFileCreationTime = 6,
   kFileChecksum = 7,
   kFileChecksumFuncName = 8,
+  kTemperature = 9,
+  kMinTimestamp = 10,
+  kMaxTimestamp = 11,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
@@ -188,6 +191,7 @@ struct FileMetaData {
 
   bool marked_for_compaction = false;  // True if client asked us nicely to
                                        // compact this file.
+  Temperature temperature = Temperature::kUnknown;
 
   // Used only in BlobDB. The file number of the oldest blob file this SST file
   // refers to. 0 is an invalid value; BlobDB numbers the files starting from 1.
@@ -207,6 +211,10 @@ struct FileMetaData {
 
   // File checksum function name
   std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
+  // Min (oldest) timestamp of keys in this file
+  std::string min_timestamp;
+  // Max (newest) timestamp of keys in this file
+  std::string max_timestamp;
 
   FileMetaData() = default;
 
@@ -216,7 +224,8 @@ struct FileMetaData {
                const SequenceNumber& largest_seq, bool marked_for_compact,
                uint64_t oldest_blob_file, uint64_t _oldest_ancester_time,
                uint64_t _file_creation_time, const std::string& _file_checksum,
-               const std::string& _file_checksum_func_name)
+               const std::string& _file_checksum_func_name,
+               std::string _min_timestamp, std::string _max_timestamp)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
         largest(largest_key),
@@ -225,7 +234,9 @@ struct FileMetaData {
         oldest_ancester_time(_oldest_ancester_time),
         file_creation_time(_file_creation_time),
         file_checksum(_file_checksum),
-        file_checksum_func_name(_file_checksum_func_name) {
+        file_checksum_func_name(_file_checksum_func_name),
+        min_timestamp(std::move(_min_timestamp)),
+        max_timestamp(std::move(_max_timestamp)) {
     TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", this);
   }
 
@@ -392,14 +403,17 @@ class VersionEdit {
                const SequenceNumber& largest_seqno, bool marked_for_compaction,
                uint64_t oldest_blob_file_number, uint64_t oldest_ancester_time,
                uint64_t file_creation_time, const std::string& file_checksum,
-               const std::string& file_checksum_func_name) {
+               const std::string& file_checksum_func_name,
+               const std::string& min_timestamp,
+               const std::string& max_timestamp) {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(
-        level, FileMetaData(file, file_path_id, file_size, smallest, largest,
-                            smallest_seqno, largest_seqno,
-                            marked_for_compaction, oldest_blob_file_number,
-                            oldest_ancester_time, file_creation_time,
-                            file_checksum, file_checksum_func_name));
+        level,
+        FileMetaData(file, file_path_id, file_size, smallest, largest,
+                     smallest_seqno, largest_seqno, marked_for_compaction,
+                     oldest_blob_file_number, oldest_ancester_time,
+                     file_creation_time, file_checksum, file_checksum_func_name,
+                     min_timestamp, max_timestamp));
   }
 
   void AddFile(int level, const FileMetaData& f) {

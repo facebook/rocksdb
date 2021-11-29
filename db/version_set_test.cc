@@ -9,8 +9,11 @@
 
 #include "db/version_set.h"
 
+#include <algorithm>
+
 #include "db/db_impl/db_impl.h"
 #include "db/log_writer.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/file_system.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
@@ -43,7 +46,8 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         InternalKey(largest, largest_seq, kTypeValue), smallest_seq,
         largest_seq, /* marked_for_compact */ false, kInvalidBlobFileNumber,
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+        kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+        kDisableUserTimestamp, kDisableUserTimestamp);
     files_.push_back(f);
   }
 
@@ -103,7 +107,7 @@ class VersionStorageInfoTestBase : public testing::Test {
   InternalKeyComparator icmp_;
   std::shared_ptr<CountingLogger> logger_;
   Options options_;
-  ImmutableCFOptions ioptions_;
+  ImmutableOptions ioptions_;
   MutableCFOptions mutable_cf_options_;
   VersionStorageInfo vstorage_;
 
@@ -134,29 +138,54 @@ class VersionStorageInfoTestBase : public testing::Test {
   }
 
   void Add(int level, uint32_t file_number, const char* smallest,
-           const char* largest, uint64_t file_size = 0) {
-    assert(level < vstorage_.num_levels());
-    FileMetaData* f = new FileMetaData(
-        file_number, 0, file_size, GetInternalKey(smallest, 0),
-        GetInternalKey(largest, 0), /* smallest_seq */ 0, /* largest_seq */ 0,
-        /* marked_for_compact */ false, kInvalidBlobFileNumber,
-        kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName);
-    f->compensated_file_size = file_size;
-    vstorage_.AddFile(level, f);
+           const char* largest, uint64_t file_size = 0,
+           uint64_t oldest_blob_file_number = kInvalidBlobFileNumber) {
+    constexpr SequenceNumber dummy_seq = 0;
+
+    Add(level, file_number, GetInternalKey(smallest, dummy_seq),
+        GetInternalKey(largest, dummy_seq), file_size, oldest_blob_file_number);
   }
 
   void Add(int level, uint32_t file_number, const InternalKey& smallest,
-           const InternalKey& largest, uint64_t file_size = 0) {
+           const InternalKey& largest, uint64_t file_size = 0,
+           uint64_t oldest_blob_file_number = kInvalidBlobFileNumber) {
     assert(level < vstorage_.num_levels());
     FileMetaData* f = new FileMetaData(
         file_number, 0, file_size, smallest, largest, /* smallest_seq */ 0,
         /* largest_seq */ 0, /* marked_for_compact */ false,
-        kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+        oldest_blob_file_number, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName);
+        kUnknownFileChecksumFuncName, kDisableUserTimestamp,
+        kDisableUserTimestamp);
     f->compensated_file_size = file_size;
     vstorage_.AddFile(level, f);
+  }
+
+  void AddBlob(uint64_t blob_file_number, uint64_t total_blob_count,
+               uint64_t total_blob_bytes,
+               BlobFileMetaData::LinkedSsts linked_ssts,
+               uint64_t garbage_blob_count, uint64_t garbage_blob_bytes) {
+    auto shared_meta = SharedBlobFileMetaData::Create(
+        blob_file_number, total_blob_count, total_blob_bytes,
+        /* checksum_method */ std::string(),
+        /* checksum_value */ std::string());
+    auto meta =
+        BlobFileMetaData::Create(std::move(shared_meta), std::move(linked_ssts),
+                                 garbage_blob_count, garbage_blob_bytes);
+
+    vstorage_.AddBlobFile(std::move(meta));
+  }
+
+  void Finalize() {
+    vstorage_.UpdateNumNonEmptyLevels();
+    vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
+    vstorage_.UpdateFilesByCompactionPri(ioptions_, mutable_cf_options_);
+    vstorage_.GenerateFileIndexer();
+    vstorage_.GenerateLevelFilesBrief();
+    vstorage_.GenerateLevel0NonOverlapping();
+    vstorage_.GenerateBottommostFiles();
+
+    vstorage_.SetFinalized();
   }
 
   std::string GetOverlappingFiles(int level, const InternalKey& begin,
@@ -444,6 +473,174 @@ TEST_F(VersionStorageInfoTest, FileLocationAndMetaDataByNumber) {
   ASSERT_EQ(vstorage_.GetFileMetaDataByNumber(999U), nullptr);
 }
 
+TEST_F(VersionStorageInfoTest, ForcedBlobGCEmpty) {
+  // No SST or blob files in VersionStorageInfo
+  Finalize();
+
+  constexpr double age_cutoff = 0.5;
+  constexpr double force_threshold = 0.75;
+  vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+
+  ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+}
+
+TEST_F(VersionStorageInfoTest, ForcedBlobGC) {
+  // Add three L0 SSTs (1, 2, and 3) and four blob files (10, 11, 12, and 13).
+  // The first two SSTs have the same oldest blob file, namely, the very oldest
+  // one (10), while the third SST's oldest blob file reference points to the
+  // third blob file (12). Thus, the oldest batch of blob files contains the
+  // first two blob files 10 and 11, and assuming they are eligible for GC based
+  // on the age cutoff, compacting away the SSTs 1 and 2 will eliminate them.
+
+  constexpr int level = 0;
+
+  constexpr uint64_t first_sst = 1;
+  constexpr uint64_t second_sst = 2;
+  constexpr uint64_t third_sst = 3;
+
+  constexpr uint64_t first_blob = 10;
+  constexpr uint64_t second_blob = 11;
+  constexpr uint64_t third_blob = 12;
+  constexpr uint64_t fourth_blob = 13;
+
+  {
+    constexpr char smallest[] = "bar1";
+    constexpr char largest[] = "foo1";
+    constexpr uint64_t file_size = 1000;
+
+    Add(level, first_sst, smallest, largest, file_size, first_blob);
+  }
+
+  {
+    constexpr char smallest[] = "bar2";
+    constexpr char largest[] = "foo2";
+    constexpr uint64_t file_size = 2000;
+
+    Add(level, second_sst, smallest, largest, file_size, first_blob);
+  }
+
+  {
+    constexpr char smallest[] = "bar3";
+    constexpr char largest[] = "foo3";
+    constexpr uint64_t file_size = 3000;
+
+    Add(level, third_sst, smallest, largest, file_size, third_blob);
+  }
+
+  {
+    constexpr uint64_t total_blob_count = 10;
+    constexpr uint64_t total_blob_bytes = 100000;
+    constexpr uint64_t garbage_blob_count = 2;
+    constexpr uint64_t garbage_blob_bytes = 15000;
+
+    AddBlob(first_blob, total_blob_count, total_blob_bytes,
+            BlobFileMetaData::LinkedSsts{first_sst, second_sst},
+            garbage_blob_count, garbage_blob_bytes);
+  }
+
+  {
+    constexpr uint64_t total_blob_count = 4;
+    constexpr uint64_t total_blob_bytes = 400000;
+    constexpr uint64_t garbage_blob_count = 3;
+    constexpr uint64_t garbage_blob_bytes = 235000;
+
+    AddBlob(second_blob, total_blob_count, total_blob_bytes,
+            BlobFileMetaData::LinkedSsts{}, garbage_blob_count,
+            garbage_blob_bytes);
+  }
+
+  {
+    constexpr uint64_t total_blob_count = 20;
+    constexpr uint64_t total_blob_bytes = 1000000;
+    constexpr uint64_t garbage_blob_count = 8;
+    constexpr uint64_t garbage_blob_bytes = 123456;
+
+    AddBlob(third_blob, total_blob_count, total_blob_bytes,
+            BlobFileMetaData::LinkedSsts{third_sst}, garbage_blob_count,
+            garbage_blob_bytes);
+  }
+
+  {
+    constexpr uint64_t total_blob_count = 128;
+    constexpr uint64_t total_blob_bytes = 789012345;
+    constexpr uint64_t garbage_blob_count = 67;
+    constexpr uint64_t garbage_blob_bytes = 88888888;
+
+    AddBlob(fourth_blob, total_blob_count, total_blob_bytes,
+            BlobFileMetaData::LinkedSsts{}, garbage_blob_count,
+            garbage_blob_bytes);
+  }
+
+  Finalize();
+
+  assert(vstorage_.num_levels() > 0);
+  const auto& level_files = vstorage_.LevelFiles(level);
+
+  assert(level_files.size() == 3);
+  assert(level_files[0] && level_files[0]->fd.GetNumber() == first_sst);
+  assert(level_files[1] && level_files[1]->fd.GetNumber() == second_sst);
+  assert(level_files[2] && level_files[2]->fd.GetNumber() == third_sst);
+
+  // No blob files eligible for GC due to the age cutoff
+
+  {
+    constexpr double age_cutoff = 0.1;
+    constexpr double force_threshold = 0.0;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+
+    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+  }
+
+  // Part of the oldest batch of blob files (specifically, the second file) is
+  // ineligible for GC due to the age cutoff
+
+  {
+    constexpr double age_cutoff = 0.25;
+    constexpr double force_threshold = 0.0;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+
+    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+  }
+
+  // Oldest batch is eligible based on age cutoff but its overall garbage ratio
+  // is below threshold
+
+  {
+    constexpr double age_cutoff = 0.5;
+    constexpr double force_threshold = 0.6;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+
+    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+  }
+
+  // Oldest batch is eligible based on age cutoff and its overall garbage ratio
+  // meets threshold
+
+  {
+    constexpr double age_cutoff = 0.5;
+    constexpr double force_threshold = 0.5;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+
+    auto ssts_to_be_compacted = vstorage_.FilesMarkedForForcedBlobGC();
+    ASSERT_EQ(ssts_to_be_compacted.size(), 2);
+
+    std::sort(ssts_to_be_compacted.begin(), ssts_to_be_compacted.end(),
+              [](const std::pair<int, FileMetaData*>& lhs,
+                 const std::pair<int, FileMetaData*>& rhs) {
+                assert(lhs.second);
+                assert(rhs.second);
+                return lhs.second->fd.GetNumber() < rhs.second->fd.GetNumber();
+              });
+
+    const autovector<std::pair<int, FileMetaData*>>
+        expected_ssts_to_be_compacted{{level, level_files[0]},
+                                      {level, level_files[1]}};
+
+    ASSERT_EQ(ssts_to_be_compacted[0], expected_ssts_to_be_compacted[0]);
+    ASSERT_EQ(ssts_to_be_compacted[1], expected_ssts_to_be_compacted[1]);
+  }
+}
+
 class VersionStorageInfoTimestampTest : public VersionStorageInfoTestBase {
  public:
   VersionStorageInfoTimestampTest()
@@ -698,21 +895,16 @@ class VersionSetTestBase {
         options_(),
         db_options_(options_),
         cf_options_(options_),
-        immutable_cf_options_(db_options_, cf_options_),
+        immutable_options_(db_options_, cf_options_),
         mutable_cf_options_(cf_options_),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
         shutting_down_(false),
         mock_table_factory_(std::make_shared<mock::MockTableFactory>()) {
-    const char* test_env_uri = getenv("TEST_ENV_URI");
-    if (test_env_uri) {
-      Status s = Env::LoadEnv(test_env_uri, &env_, &env_guard_);
-      EXPECT_OK(s);
-    } else if (getenv("MEM_ENV")) {
+    EXPECT_OK(test::CreateEnvFromSystem(ConfigOptions(), &env_, &env_guard_));
+    if (env_ == Env::Default() && getenv("MEM_ENV")) {
       env_guard_.reset(NewMemEnv(Env::Default()));
       env_ = env_guard_.get();
-    } else {
-      env_ = Env::Default();
     }
     EXPECT_NE(nullptr, env_);
 
@@ -722,13 +914,15 @@ class VersionSetTestBase {
     options_.env = env_;
     db_options_.env = env_;
     db_options_.fs = fs_;
-    immutable_cf_options_.env = env_;
-    immutable_cf_options_.fs = fs_.get();
+    immutable_options_.env = env_;
+    immutable_options_.fs = fs_;
+    immutable_options_.clock = env_->GetSystemClock().get();
 
     versions_.reset(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       /*db_session_id*/ ""));
     reactive_versions_ = std::make_shared<ReactiveVersionSet>(
         dbname_, &db_options_, env_options_, table_cache_.get(),
         &write_buffer_manager_, &write_controller_, nullptr);
@@ -831,7 +1025,8 @@ class VersionSetTestBase {
     versions_.reset(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       /*db_session_id*/ ""));
     EXPECT_OK(versions_->Recover(column_families_, false));
   }
 
@@ -909,7 +1104,7 @@ class VersionSetTestBase {
   Options options_;
   ImmutableDBOptions db_options_;
   ColumnFamilyOptions cf_options_;
-  ImmutableCFOptions immutable_cf_options_;
+  ImmutableOptions immutable_options_;
   MutableCFOptions mutable_cf_options_;
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
@@ -990,7 +1185,8 @@ TEST_F(VersionSetTest, PersistBlobFileStateInNewManifest) {
     constexpr uint64_t total_blob_bytes = 77777777;
     constexpr char checksum_method[] = "SHA1";
     constexpr char checksum_value[] =
-        "bdb7f34a59dfa1592ce7f52e99f98c570c525cbd";
+        "\xbd\xb7\xf3\x4a\x59\xdf\xa1\x59\x2c\xe7\xf5\x2e\x99\xf9\x8c\x57\x0c"
+        "\x52\x5c\xbd";
 
     auto shared_meta = SharedBlobFileMetaData::Create(
         blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
@@ -1011,7 +1207,7 @@ TEST_F(VersionSetTest, PersistBlobFileStateInNewManifest) {
     constexpr uint64_t total_blob_count = 555;
     constexpr uint64_t total_blob_bytes = 66666;
     constexpr char checksum_method[] = "CRC32";
-    constexpr char checksum_value[] = "3d87ff57";
+    constexpr char checksum_value[] = "\x3d\x87\xff\x57";
 
     auto shared_meta = SharedBlobFileMetaData::Create(
         blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
@@ -1069,7 +1265,7 @@ TEST_F(VersionSetTest, AddLiveBlobFiles) {
   constexpr uint64_t first_total_blob_count = 555;
   constexpr uint64_t first_total_blob_bytes = 66666;
   constexpr char first_checksum_method[] = "CRC32";
-  constexpr char first_checksum_value[] = "3d87ff57";
+  constexpr char first_checksum_value[] = "\x3d\x87\xff\x57";
 
   auto first_shared_meta = SharedBlobFileMetaData::Create(
       first_blob_file_number, first_total_blob_count, first_total_blob_bytes,
@@ -1112,7 +1308,7 @@ TEST_F(VersionSetTest, AddLiveBlobFiles) {
   constexpr uint64_t second_total_blob_count = 100;
   constexpr uint64_t second_total_blob_bytes = 2000000;
   constexpr char second_checksum_method[] = "CRC32B";
-  constexpr char second_checksum_value[] = "6dbdf23a";
+  constexpr char second_checksum_value[] = "\x6d\xbd\xf2\x3a";
 
   auto second_shared_meta = SharedBlobFileMetaData::Create(
       second_blob_file_number, second_total_blob_count, second_total_blob_bytes,
@@ -1152,7 +1348,7 @@ TEST_F(VersionSetTest, ObsoleteBlobFile) {
   constexpr uint64_t total_blob_count = 555;
   constexpr uint64_t total_blob_bytes = 66666;
   constexpr char checksum_method[] = "CRC32";
-  constexpr char checksum_value[] = "3d87ff57";
+  constexpr char checksum_value[] = "\x3d\x87\xff\x57";
 
   edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
                    checksum_method, checksum_value);
@@ -1335,7 +1531,8 @@ TEST_F(VersionSetTest, WalAddition) {
     std::unique_ptr<VersionSet> new_versions(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       /*db_session_id*/ ""));
     ASSERT_OK(new_versions->Recover(column_families_, /*read_only=*/false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -1401,7 +1598,8 @@ TEST_F(VersionSetTest, WalCloseWithoutSync) {
     std::unique_ptr<VersionSet> new_versions(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       /*db_session_id*/ ""));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 2);
@@ -1453,7 +1651,8 @@ TEST_F(VersionSetTest, WalDeletion) {
     std::unique_ptr<VersionSet> new_versions(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       /*db_session_id*/ ""));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -1490,7 +1689,8 @@ TEST_F(VersionSetTest, WalDeletion) {
     std::unique_ptr<VersionSet> new_versions(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       /*db_session_id*/ ""));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -1607,7 +1807,8 @@ TEST_F(VersionSetTest, DeleteWalsBeforeNonExistingWalNumber) {
     std::unique_ptr<VersionSet> new_versions(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       /*db_session_id*/ ""));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -1642,7 +1843,8 @@ TEST_F(VersionSetTest, DeleteAllWals) {
     std::unique_ptr<VersionSet> new_versions(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       /*db_session_id*/ ""));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 0);
@@ -1683,7 +1885,8 @@ TEST_F(VersionSetTest, AtomicGroupWithWalEdits) {
     std::unique_ptr<VersionSet> new_versions(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       /*db_session_id*/ ""));
     std::string db_id;
     ASSERT_OK(
         new_versions->Recover(column_families_, /*read_only=*/false, &db_id));
@@ -1736,7 +1939,8 @@ class VersionSetWithTimestampTest : public VersionSetTest {
     std::unique_ptr<VersionSet> vset(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       /*db_session_id*/ ""));
     ASSERT_OK(vset->Recover(column_families_, /*read_only=*/false,
                             /*db_id=*/nullptr));
     for (auto* cfd : *(vset->GetColumnFamilySet())) {
@@ -1881,7 +2085,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
         });
     SyncPoint::GetInstance()->SetCallBack(
         "VersionEditHandlerBase::Iterate:Finish", [&](void* arg) {
-          num_recovered_edits_ = *reinterpret_cast<int*>(arg);
+          num_recovered_edits_ = *reinterpret_cast<size_t*>(arg);
         });
     SyncPoint::GetInstance()->SetCallBack(
         "AtomicGroupReadBuffer::AddEdit:AtomicGroup",
@@ -1921,7 +2125,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
   bool first_in_atomic_group_ = false;
   bool last_in_atomic_group_ = false;
   int num_edits_in_atomic_group_ = 0;
-  int num_recovered_edits_ = 0;
+  size_t num_recovered_edits_ = 0;
   VersionEdit corrupted_edit_;
   VersionEdit edit_with_incorrect_group_size_;
   std::unique_ptr<log::Writer> log_writer_;
@@ -2774,16 +2978,15 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       ASSERT_OK(s);
       std::unique_ptr<WritableFileWriter> fwriter(new WritableFileWriter(
           std::move(file), fname, FileOptions(), env_->GetSystemClock().get()));
-      std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
-          int_tbl_prop_collector_factories;
+      IntTblPropCollectorFactories int_tbl_prop_collector_factories;
 
       std::unique_ptr<TableBuilder> builder(table_factory_->NewTableBuilder(
           TableBuilderOptions(
-              immutable_cf_options_, mutable_cf_options_, *internal_comparator_,
+              immutable_options_, mutable_cf_options_, *internal_comparator_,
               &int_tbl_prop_collector_factories, kNoCompression,
               CompressionOptions(),
-              /*_skip_filters=*/false, info.column_family, info.level),
-          TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+              TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+              info.column_family, info.level),
           fwriter.get()));
       InternalKey ikey(info.key, 0, ValueType::kTypeValue);
       builder->Add(ikey.Encode(), "value");
@@ -2795,7 +2998,8 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       ASSERT_NE(0, file_size);
       file_metas->emplace_back(file_num, /*file_path_id=*/0, file_size, ikey,
                                ikey, 0, 0, false, 0, 0, 0, kUnknownFileChecksum,
-                               kUnknownFileChecksumFuncName);
+                               kUnknownFileChecksumFuncName,
+                               kDisableUserTimestamp, kDisableUserTimestamp);
     }
   }
 
@@ -2850,7 +3054,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
     FileMetaData meta =
         FileMetaData(file_num, /*file_path_id=*/0, /*file_size=*/12,
                      smallest_ikey, largest_ikey, 0, 0, false, 0, 0, 0,
-                     kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+                     kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                     kDisableUserTimestamp, kDisableUserTimestamp);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -2905,7 +3110,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
     FileMetaData meta =
         FileMetaData(file_num, /*file_path_id=*/0, /*file_size=*/12,
                      smallest_ikey, largest_ikey, 0, 0, false, 0, 0, 0,
-                     kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+                     kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                     kDisableUserTimestamp, kDisableUserTimestamp);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(

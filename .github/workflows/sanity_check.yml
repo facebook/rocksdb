@@ -39,3 +39,6 @@ jobs:
 
     - name: Compare buckify output
       run: make check-buck-targets
+
+    - name: Simple source code checks
+      run: make check-sources

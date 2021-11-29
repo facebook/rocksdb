@@ -14,6 +14,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "db/dbformat.h"
@@ -40,7 +41,7 @@ class MergeContext;
 class SystemClock;
 
 struct ImmutableMemTableOptions {
-  explicit ImmutableMemTableOptions(const ImmutableCFOptions& ioptions,
+  explicit ImmutableMemTableOptions(const ImmutableOptions& ioptions,
                                     const MutableCFOptions& mutable_cf_options);
   size_t arena_block_size;
   uint32_t memtable_prefix_bloom_bits;
@@ -103,7 +104,7 @@ class MemTable {
   // used, but this may prevent some transactions from succeeding until the
   // first key is inserted into the memtable.
   explicit MemTable(const InternalKeyComparator& comparator,
-                    const ImmutableCFOptions& ioptions,
+                    const ImmutableOptions& ioptions,
                     const MutableCFOptions& mutable_cf_options,
                     WriteBufferManager* write_buffer_manager,
                     SequenceNumber earliest_seq, uint32_t column_family_id);
@@ -145,6 +146,26 @@ class MemTable {
     return approximate_memory_usage_.load(std::memory_order_relaxed);
   }
 
+  // Returns a vector of unique random memtable entries of size 'sample_size'.
+  //
+  // Note: the entries are stored in the unordered_set as length-prefixed keys,
+  //       hence their representation in the set as "const char*".
+  // Note2: the size of the output set 'entries' is not enforced to be strictly
+  //        equal to 'target_sample_size'. Its final size might be slightly
+  //        greater or slightly less than 'target_sample_size'
+  //
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable (unless this Memtable is immutable).
+  // REQUIRES: SkipList memtable representation. This function is not
+  // implemented for any other type of memtable representation (vectorrep,
+  // hashskiplist,...).
+  void UniqueRandomSample(const uint64_t& target_sample_size,
+                          std::unordered_set<const char*>* entries) {
+    // TODO(bjlemaire): at the moment, only supported by skiplistrep.
+    // Extend it to all other memtable representations.
+    table_->UniqueRandomSample(num_entries(), target_sample_size, entries);
+  }
+
   // This method heuristically determines if the memtable should continue to
   // host more data.
   bool ShouldScheduleFlush() const {
@@ -178,7 +199,7 @@ class MemTable {
       const ReadOptions& read_options, SequenceNumber read_seq);
 
   Status VerifyEncodedEntry(Slice encoded,
-                            const ProtectionInfoKVOTS64& kv_prot_info);
+                            const ProtectionInfoKVOS64& kv_prot_info);
 
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.
@@ -191,7 +212,7 @@ class MemTable {
   // in the memtable and `MemTableRepFactory::CanHandleDuplicatedKey()` is true.
   // The next attempt should try a larger value for `seq`.
   Status Add(SequenceNumber seq, ValueType type, const Slice& key,
-             const Slice& value, const ProtectionInfoKVOTS64* kv_prot_info,
+             const Slice& value, const ProtectionInfoKVOS64* kv_prot_info,
              bool allow_concurrent = false,
              MemTablePostProcessInfo* post_process_info = nullptr,
              void** hint = nullptr);
@@ -257,7 +278,7 @@ class MemTable {
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
   Status Update(SequenceNumber seq, const Slice& key, const Slice& value,
-                const ProtectionInfoKVOTS64* kv_prot_info);
+                const ProtectionInfoKVOS64* kv_prot_info);
 
   // If `key` exists in current memtable with type `kTypeValue` and the existing
   // value is at least as large as the new value, updates it in-place. Otherwise
@@ -275,7 +296,7 @@ class MemTable {
   // operations on the same MemTable.
   Status UpdateCallback(SequenceNumber seq, const Slice& key,
                         const Slice& delta,
-                        const ProtectionInfoKVOTS64* kv_prot_info);
+                        const ProtectionInfoKVOS64* kv_prot_info);
 
   // Returns the number of successive merge entries starting from the newest
   // entry for the key up to the last non-merge entry or last entry for the
@@ -341,6 +362,14 @@ class MemTable {
     return first_seqno_.load(std::memory_order_relaxed);
   }
 
+  // Returns the sequence number of the first element that was inserted
+  // into the memtable.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable (unless this Memtable is immutable).
+  void SetFirstSequenceNumber(SequenceNumber first_seqno) {
+    return first_seqno_.store(first_seqno, std::memory_order_relaxed);
+  }
+
   // Returns the sequence number that is guaranteed to be smaller than or equal
   // to the sequence number of any key that could be inserted into this
   // memtable. It can then be assumed that any write with a larger(or equal)
@@ -350,6 +379,15 @@ class MemTable {
   // kMaxSequenceNumber will be returned.
   SequenceNumber GetEarliestSequenceNumber() {
     return earliest_seqno_.load(std::memory_order_relaxed);
+  }
+
+  // Sets the sequence number that is guaranteed to be smaller than or equal
+  // to the sequence number of any key that could be inserted into this
+  // memtable. It can then be assumed that any write with a larger(or equal)
+  // sequence number will be present in this memtable or a later memtable.
+  // Used only for MemPurge operation
+  void SetEarliestSequenceNumber(SequenceNumber earliest_seqno) {
+    return earliest_seqno_.store(earliest_seqno, std::memory_order_relaxed);
   }
 
   // DB's latest sequence ID when the memtable is created. This number
@@ -454,6 +492,9 @@ class MemTable {
   }
 #endif  // !ROCKSDB_LITE
 
+  // Returns a heuristic flush decision
+  bool ShouldFlushNow();
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -540,9 +581,6 @@ class MemTable {
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;
 #endif  // !ROCKSDB_LITE
-
-  // Returns a heuristic flush decision
-  bool ShouldFlushNow();
 
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();

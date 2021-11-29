@@ -103,7 +103,7 @@ class MemTableListTest : public testing::Test {
     VersionSet versions(dbname, &immutable_db_options, env_options,
                         table_cache.get(), &write_buffer_manager,
                         &write_controller, /*block_cache_tracer=*/nullptr,
-                        /*io_tracer=*/nullptr);
+                        /*io_tracer=*/nullptr, /*db_session_id*/ "");
     std::vector<ColumnFamilyDescriptor> cf_descs;
     cf_descs.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
     cf_descs.emplace_back("one", ColumnFamilyOptions());
@@ -153,7 +153,7 @@ class MemTableListTest : public testing::Test {
     VersionSet versions(dbname, &immutable_db_options, env_options,
                         table_cache.get(), &write_buffer_manager,
                         &write_controller, /*block_cache_tracer=*/nullptr,
-                        /*io_tracer=*/nullptr);
+                        /*io_tracer=*/nullptr, /*db_session_id*/ "");
     std::vector<ColumnFamilyDescriptor> cf_descs;
     cf_descs.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
     cf_descs.emplace_back("one", ColumnFamilyOptions());
@@ -182,12 +182,21 @@ class MemTableListTest : public testing::Test {
     for (auto& meta : file_metas) {
       file_meta_ptrs.push_back(&meta);
     }
+    std::vector<std::list<std::unique_ptr<FlushJobInfo>>>
+        committed_flush_jobs_info_storage(cf_ids.size());
+    autovector<std::list<std::unique_ptr<FlushJobInfo>>*>
+        committed_flush_jobs_info;
+    for (int i = 0; i < static_cast<int>(cf_ids.size()); ++i) {
+      committed_flush_jobs_info.push_back(
+          &committed_flush_jobs_info_storage[i]);
+    }
+
     InstrumentedMutex mutex;
     InstrumentedMutexLock l(&mutex);
     return InstallMemtableAtomicFlushResults(
         &lists, cfds, mutable_cf_options_list, mems_list, &versions,
-        nullptr /* prep_tracker */, &mutex, file_meta_ptrs, to_delete, nullptr,
-        &log_buffer);
+        nullptr /* prep_tracker */, &mutex, file_meta_ptrs,
+        committed_flush_jobs_info, to_delete, nullptr, &log_buffer);
   }
 };
 
@@ -235,7 +244,7 @@ TEST_F(MemTableListTest, GetTest) {
   InternalKeyComparator cmp(BytewiseComparator());
   auto factory = std::make_shared<SkipListFactory>();
   options.memtable_factory = factory;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
 
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
@@ -358,7 +367,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   InternalKeyComparator cmp(BytewiseComparator());
   auto factory = std::make_shared<SkipListFactory>();
   options.memtable_factory = factory;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
 
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
@@ -539,7 +548,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
 
   auto factory = std::make_shared<SkipListFactory>();
   options.memtable_factory = factory;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   InternalKeyComparator cmp(BytewiseComparator());
   WriteBufferManager wb(options.db_write_buffer_size);
   autovector<MemTable*> to_delete;
@@ -808,7 +817,7 @@ TEST_F(MemTableListTest, AtomicFlusTest) {
 
   auto factory = std::make_shared<SkipListFactory>();
   options.memtable_factory = factory;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   InternalKeyComparator cmp(BytewiseComparator());
   WriteBufferManager wb(options.db_write_buffer_size);
 

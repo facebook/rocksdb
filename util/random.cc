@@ -53,4 +53,13 @@ std::string Random::RandomString(int len) {
   return ret;
 }
 
+std::string Random::RandomBinaryString(int len) {
+  std::string ret;
+  ret.resize(len);
+  for (int i = 0; i < len; i++) {
+    ret[i] = static_cast<char>(Uniform(CHAR_MAX));
+  }
+  return ret;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

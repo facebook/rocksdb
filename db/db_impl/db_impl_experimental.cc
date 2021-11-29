@@ -14,6 +14,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
+#include "logging/logging.h"
 #include "rocksdb/status.h"
 #include "util/cast_util.h"
 
@@ -135,7 +136,8 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
                    f->fd.smallest_seqno, f->fd.largest_seqno,
                    f->marked_for_compaction, f->oldest_blob_file_number,
                    f->oldest_ancester_time, f->file_creation_time,
-                   f->file_checksum, f->file_checksum_func_name);
+                   f->file_checksum, f->file_checksum_func_name,
+                   f->min_timestamp, f->max_timestamp);
     }
 
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),

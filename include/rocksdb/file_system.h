@@ -25,8 +25,10 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
@@ -46,6 +48,7 @@ class Slice;
 struct ImmutableDBOptions;
 struct MutableDBOptions;
 class RateLimiter;
+struct ConfigOptions;
 
 using AccessPattern = RandomAccessFile::AccessPattern;
 using FileAttributes = Env::FileAttributes;
@@ -89,7 +92,44 @@ struct IOOptions {
   // Type of data being read/written
   IOType type;
 
-  IOOptions() : timeout(0), prio(IOPriority::kIOLow), type(IOType::kUnknown) {}
+  // EXPERIMENTAL
+  // An option map that's opaque to RocksDB. It can be used to implement a
+  // custom contract between a FileSystem user and the provider. This is only
+  // useful in cases where a RocksDB user directly uses the FileSystem or file
+  // object for their own purposes, and wants to pass extra options to APIs
+  // such as NewRandomAccessFile and NewWritableFile.
+  std::unordered_map<std::string, std::string> property_bag;
+
+  // Force directory fsync, some file systems like btrfs may skip directory
+  // fsync, set this to force the fsync
+  bool force_dir_fsync;
+
+  IOOptions() : IOOptions(false) {}
+
+  explicit IOOptions(bool force_dir_fsync_)
+      : timeout(std::chrono::microseconds::zero()),
+        prio(IOPriority::kIOLow),
+        type(IOType::kUnknown),
+        force_dir_fsync(force_dir_fsync_) {}
+};
+
+struct DirFsyncOptions {
+  enum FsyncReason : uint8_t {
+    kNewFileSynced,
+    kFileRenamed,
+    kDirRenamed,
+    kFileDeleted,
+    kDefault,
+  } reason;
+
+  std::string renamed_new_name;  // for kFileRenamed
+  // add other options for other FsyncReason
+
+  DirFsyncOptions();
+
+  explicit DirFsyncOptions(std::string file_renamed_new_name);
+
+  explicit DirFsyncOptions(FsyncReason fsync_reason);
 };
 
 // File scope options that control how a file is opened/created and accessed
@@ -99,6 +139,13 @@ struct FileOptions : EnvOptions {
   // Embedded IOOptions to control the parameters for any IOs that need
   // to be issued for the file open/creation
   IOOptions io_options;
+
+  // EXPERIMENTAL
+  // The feature is in development and is subject to change.
+  // When creating a new file, set the temperature of the file so that
+  // underlying file systems can put it with appropriate storage media and/or
+  // coding.
+  Temperature temperature = Temperature::kUnknown;
 
   // The checksum type that is used to calculate the checksum value for
   // handoff during file writes.
@@ -115,9 +162,10 @@ struct FileOptions : EnvOptions {
   FileOptions(const FileOptions& opts)
       : EnvOptions(opts),
         io_options(opts.io_options),
+        temperature(opts.temperature),
         handoff_checksum_type(opts.handoff_checksum_type) {}
 
-  FileOptions& operator=(const FileOptions& opts) = default;
+  FileOptions& operator=(const FileOptions&) = default;
 };
 
 // A structure to pass back some debugging information from the FileSystem
@@ -187,7 +235,13 @@ struct IODebugContext {
 // of the APIs is of type IOStatus, which can indicate an error code/sub-code,
 // as well as metadata about the error such as its scope and whether its
 // retryable.
-class FileSystem {
+// NewCompositeEnv can be used to create an Env with a custom FileSystem for
+// DBOptions::env.
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
+class FileSystem : public Customizable {
  public:
   FileSystem();
 
@@ -196,19 +250,30 @@ class FileSystem {
 
   virtual ~FileSystem();
 
-  virtual const char* Name() const = 0;
-
   static const char* Type() { return "FileSystem"; }
+  static const char* kDefaultName() { return "DefaultFileSystem"; }
 
   // Loads the FileSystem specified by the input value into the result
+  // The CreateFromString alternative should be used; this method may be
+  // deprecated in a future release.
   static Status Load(const std::string& value,
                      std::shared_ptr<FileSystem>* result);
 
-  // Return a default fie_system suitable for the current operating
-  // system.  Sophisticated users may wish to provide their own Env
-  // implementation instead of relying on this default file_system
-  //
-  // The result of Default() belongs to rocksdb and must never be deleted.
+  // Loads the FileSystem specified by the input value into the result
+  // @see Customizable for a more detailed description of the parameters and
+  // return codes
+  // @param config_options Controls how the FileSystem is loaded
+  // @param value The name and optional properties describing the file system
+  //      to load.
+  // @param result On success, returns the loaded FileSystem
+  // @return OK if the FileSystem was successfully loaded.
+  // @return not-OK if the load failed.
+  static Status CreateFromString(const ConfigOptions& options,
+                                 const std::string& value,
+                                 std::shared_ptr<FileSystem>* result);
+
+  // Return a default FileSystem suitable for the current operating
+  // system.
   static std::shared_ptr<FileSystem> Default();
 
   // Handles the event when a new DB or a new ColumnFamily starts using the
@@ -285,11 +350,12 @@ class FileSystem {
                                    std::unique_ptr<FSWritableFile>* result,
                                    IODebugContext* dbg) = 0;
 
-  // Create an object that writes to a new file with the specified
-  // name.  Deletes any existing file with the same name and creates a
-  // new file.  On success, stores a pointer to the new file in
-  // *result and returns OK.  On failure stores nullptr in *result and
-  // returns non-OK.
+  // Create an object that writes to a file with the specified name.
+  // `FSWritableFile::Append()`s will append after any existing content.  If the
+  // file does not already exist, creates it.
+  //
+  // On success, stores a pointer to the file in *result and returns OK.  On
+  // failure stores nullptr in *result and returns non-OK.
   //
   // The returned file will only be accessed by one thread at a time.
   virtual IOStatus ReopenWritableFile(
@@ -697,10 +763,11 @@ class FSRandomAccessFile {
   // Read a bunch of blocks as described by reqs. The blocks can
   // optionally be read in parallel. This is a synchronous call, i.e it
   // should return after all reads have completed. The reads will be
-  // non-overlapping. If the function return Status is not ok, status of
-  // individual requests will be ignored and return status will be assumed
-  // for all read requests. The function return status is only meant for any
-  // any errors that occur before even processing specific read requests
+  // non-overlapping but can be in any order. If the function return Status
+  // is not ok, status of individual requests will be ignored and return
+  // status will be assumed for all read requests. The function return status
+  // is only meant for errors that occur before processing individual read
+  // requests.
   virtual IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
                              const IOOptions& options, IODebugContext* dbg) {
     assert(reqs != nullptr);
@@ -1073,6 +1140,15 @@ class FSDirectory {
   // Fsync directory. Can be called concurrently from multiple threads.
   virtual IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) = 0;
 
+  // FsyncWithDirOptions after renaming a file. Depends on the filesystem, it
+  // may fsync directory or just the renaming file (e.g. btrfs). By default, it
+  // just calls directory fsync.
+  virtual IOStatus FsyncWithDirOptions(
+      const IOOptions& options, IODebugContext* dbg,
+      const DirFsyncOptions& /*dir_fsync_options*/) {
+    return Fsync(options, dbg);
+  }
+
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0;
   }
@@ -1114,10 +1190,11 @@ class FSDirectory {
 class FileSystemWrapper : public FileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
-  explicit FileSystemWrapper(const std::shared_ptr<FileSystem>& t)
-      : target_(t) {}
+  explicit FileSystemWrapper(const std::shared_ptr<FileSystem>& t);
   ~FileSystemWrapper() override {}
 
+  // Deprecated. Will be removed in a major release. Derived classes
+  // should implement this method.
   const char* Name() const override { return target_->Name(); }
 
   // Return the target to which this Env forwards all calls
@@ -1310,12 +1387,20 @@ class FileSystemWrapper : public FileSystem {
     return target_->IsDirectory(path, options, is_dir, dbg);
   }
 
- private:
+  const Customizable* Inner() const override { return target_.get(); }
+  Status PrepareOptions(const ConfigOptions& options) override;
+#ifndef ROCKSDB_LITE
+  std::string SerializeOptions(const ConfigOptions& config_options,
+                               const std::string& header) const override;
+#endif  // ROCKSDB_LITE
+ protected:
   std::shared_ptr<FileSystem> target_;
 };
 
 class FSSequentialFileWrapper : public FSSequentialFile {
  public:
+  // Creates a FileWrapper around the input File object and without
+  // taking ownership of the object
   explicit FSSequentialFileWrapper(FSSequentialFile* t) : target_(t) {}
 
   FSSequentialFile* target() const { return target_; }
@@ -1342,8 +1427,21 @@ class FSSequentialFileWrapper : public FSSequentialFile {
   FSSequentialFile* target_;
 };
 
+class FSSequentialFileOwnerWrapper : public FSSequentialFileWrapper {
+ public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
+  explicit FSSequentialFileOwnerWrapper(std::unique_ptr<FSSequentialFile>&& t)
+      : FSSequentialFileWrapper(t.get()), guard_(std::move(t)) {}
+
+ private:
+  std::unique_ptr<FSSequentialFile> guard_;
+};
+
 class FSRandomAccessFileWrapper : public FSRandomAccessFile {
  public:
+  // Creates a FileWrapper around the input File object and without
+  // taking ownership of the object
   explicit FSRandomAccessFileWrapper(FSRandomAccessFile* t) : target_(t) {}
 
   FSRandomAccessFile* target() const { return target_; }
@@ -1374,11 +1472,26 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
   }
 
  private:
+  std::unique_ptr<FSRandomAccessFile> guard_;
   FSRandomAccessFile* target_;
+};
+
+class FSRandomAccessFileOwnerWrapper : public FSRandomAccessFileWrapper {
+ public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
+  explicit FSRandomAccessFileOwnerWrapper(
+      std::unique_ptr<FSRandomAccessFile>&& t)
+      : FSRandomAccessFileWrapper(t.get()), guard_(std::move(t)) {}
+
+ private:
+  std::unique_ptr<FSRandomAccessFile> guard_;
 };
 
 class FSWritableFileWrapper : public FSWritableFile {
  public:
+  // Creates a FileWrapper around the input File object and without
+  // taking ownership of the object
   explicit FSWritableFileWrapper(FSWritableFile* t) : target_(t) {}
 
   FSWritableFile* target() const { return target_; }
@@ -1476,8 +1589,21 @@ class FSWritableFileWrapper : public FSWritableFile {
   FSWritableFile* target_;
 };
 
+class FSWritableFileOwnerWrapper : public FSWritableFileWrapper {
+ public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
+  explicit FSWritableFileOwnerWrapper(std::unique_ptr<FSWritableFile>&& t)
+      : FSWritableFileWrapper(t.get()), guard_(std::move(t)) {}
+
+ private:
+  std::unique_ptr<FSWritableFile> guard_;
+};
+
 class FSRandomRWFileWrapper : public FSRandomRWFile {
  public:
+  // Creates a FileWrapper around the input File object and without
+  // taking ownership of the object
   explicit FSRandomRWFileWrapper(FSRandomRWFile* t) : target_(t) {}
 
   FSRandomRWFile* target() const { return target_; }
@@ -1512,18 +1638,46 @@ class FSRandomRWFileWrapper : public FSRandomRWFile {
   FSRandomRWFile* target_;
 };
 
+class FSRandomRWFileOwnerWrapper : public FSRandomRWFileWrapper {
+ public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
+  explicit FSRandomRWFileOwnerWrapper(std::unique_ptr<FSRandomRWFile>&& t)
+      : FSRandomRWFileWrapper(t.get()), guard_(std::move(t)) {}
+
+ private:
+  std::unique_ptr<FSRandomRWFile> guard_;
+};
+
 class FSDirectoryWrapper : public FSDirectory {
  public:
+  // Creates a FileWrapper around the input File object and takes
+  // ownership of the object
+  explicit FSDirectoryWrapper(std::unique_ptr<FSDirectory>&& t)
+      : guard_(std::move(t)) {
+    target_ = guard_.get();
+  }
+
+  // Creates a FileWrapper around the input File object and without
+  // taking ownership of the object
   explicit FSDirectoryWrapper(FSDirectory* t) : target_(t) {}
 
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
     return target_->Fsync(options, dbg);
   }
+
+  IOStatus FsyncWithDirOptions(
+      const IOOptions& options, IODebugContext* dbg,
+      const DirFsyncOptions& dir_fsync_options) override {
+    return target_->FsyncWithDirOptions(options, dbg, dir_fsync_options);
+  }
+
   size_t GetUniqueId(char* id, size_t max_size) const override {
     return target_->GetUniqueId(id, max_size);
   }
 
  private:
+  std::unique_ptr<FSDirectory> guard_;
   FSDirectory* target_;
 };
 

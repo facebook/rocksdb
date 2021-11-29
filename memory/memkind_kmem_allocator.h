@@ -11,7 +11,7 @@
 #include <memkind.h>
 #include "rocksdb/memory_allocator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class MemkindKmemAllocator : public MemoryAllocator {
  public:
@@ -23,5 +23,5 @@ class MemkindKmemAllocator : public MemoryAllocator {
 #endif
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // MEMKIND

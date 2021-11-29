@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "file/random_access_file_reader.h"
+#include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/malloc.h"
 #include "port/port.h"
@@ -33,7 +34,8 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
                                                  true /*use_delta_encoding*/,
                                                  use_value_delta_encoding),
       p_index_builder_(p_index_builder),
-      keys_added_to_partition_(0) {
+      keys_added_to_partition_(0),
+      total_added_in_built_(0) {
   keys_per_partition_ = static_cast<uint32_t>(
       filter_bits_builder_->ApproximateNumEntries(partition_size));
   if (keys_per_partition_ < 1) {
@@ -71,7 +73,6 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
   if (!p_index_builder_->ShouldCutFilterBlock()) {
     return;
   }
-  filter_gc.push_back(std::unique_ptr<const char[]>(nullptr));
 
   // Add the prefix of the next key before finishing the partition without
   // updating last_prefix_str_. This hack, fixes a bug with format_verison=3
@@ -85,9 +86,11 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
     }
   }
 
-  Slice filter = filter_bits_builder_->Finish(&filter_gc.back());
+  total_added_in_built_ += filter_bits_builder_->EstimateEntriesAdded();
+  std::unique_ptr<const char[]> filter_data;
+  Slice filter = filter_bits_builder_->Finish(&filter_data);
   std::string& index_key = p_index_builder_->GetPartitionKey();
-  filters.push_back({index_key, filter});
+  filters.push_back({index_key, filter, std::move(filter_data)});
   keys_added_to_partition_ = 0;
   Reset();
 }
@@ -102,11 +105,15 @@ void PartitionedFilterBlockBuilder::AddKey(const Slice& key) {
   keys_added_to_partition_++;
 }
 
+size_t PartitionedFilterBlockBuilder::EstimateEntriesAdded() {
+  return total_added_in_built_ + filter_bits_builder_->EstimateEntriesAdded();
+}
+
 Slice PartitionedFilterBlockBuilder::Finish(
-    const BlockHandle& last_partition_block_handle, Status* status) {
+    const BlockHandle& last_partition_block_handle, Status* status,
+    std::unique_ptr<const char[]>* filter_data) {
   if (finishing_filters == true) {
     // Record the handle of the last written filter block in the index
-    FilterEntry& last_entry = filters.front();
     std::string handle_encoding;
     last_partition_block_handle.EncodeTo(&handle_encoding);
     std::string handle_delta_encoding;
@@ -115,14 +122,13 @@ Slice PartitionedFilterBlockBuilder::Finish(
         last_partition_block_handle.size() - last_encoded_handle_.size());
     last_encoded_handle_ = last_partition_block_handle;
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
-    index_on_filter_block_builder_.Add(last_entry.key, handle_encoding,
+    index_on_filter_block_builder_.Add(last_filter_entry_key, handle_encoding,
                                        &handle_delta_encoding_slice);
     if (!p_index_builder_->seperator_is_key_plus_seq()) {
       index_on_filter_block_builder_without_seq_.Add(
-          ExtractUserKey(last_entry.key), handle_encoding,
+          ExtractUserKey(last_filter_entry_key), handle_encoding,
           &handle_delta_encoding_slice);
     }
-    filters.pop_front();
   } else {
     MaybeCutAFilterBlock(nullptr);
   }
@@ -130,7 +136,10 @@ Slice PartitionedFilterBlockBuilder::Finish(
   // partitions
   if (UNLIKELY(filters.empty())) {
     *status = Status::OK();
+    last_filter_data.reset();
     if (finishing_filters) {
+      // Simplest to just add them all at the end
+      total_added_in_built_ = 0;
       if (p_index_builder_->seperator_is_key_plus_seq()) {
         return index_on_filter_block_builder_.Finish();
       } else {
@@ -145,7 +154,15 @@ Slice PartitionedFilterBlockBuilder::Finish(
     // indicate we expect more calls to Finish
     *status = Status::Incomplete();
     finishing_filters = true;
-    return filters.front().filter;
+
+    last_filter_entry_key = filters.front().key;
+    Slice filter = filters.front().filter;
+    last_filter_data = std::move(filters.front().filter_data);
+    if (filter_data != nullptr) {
+      *filter_data = std::move(last_filter_data);
+    }
+    filters.pop_front();
+    return filter;
   }
 }
 
@@ -288,7 +305,8 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
       table()->RetrieveBlock(prefetch_buffer, read_options, fltr_blk_handle,
                              UncompressionDict::GetEmptyDict(), filter_block,
                              BlockType::kFilter, get_context, lookup_context,
-                             /* for_compaction */ false, /* use_cache */ true);
+                             /* for_compaction */ false, /* use_cache */ true,
+                             /* wait_for_cache */ true);
 
   return s;
 }
@@ -430,7 +448,7 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   Status s = GetOrReadFilterBlock(false /* no_io */, nullptr /* get_context */,
                                   &lookup_context, &filter_block);
   if (!s.ok()) {
-    ROCKS_LOG_ERROR(rep->ioptions.info_log,
+    ROCKS_LOG_ERROR(rep->ioptions.logger,
                     "Error retrieving top-level filter block while trying to "
                     "cache filter partitions: %s",
                     s.ToString().c_str());
@@ -457,10 +475,12 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   // Read the last block's offset
   biter.SeekToLast();
   handle = biter.value().handle;
-  uint64_t last_off = handle.offset() + handle.size() + kBlockTrailerSize;
+  uint64_t last_off =
+      handle.offset() + handle.size() + BlockBasedTable::kBlockTrailerSize;
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
-  rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer);
+  rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer,
+                                false /* Implicit autoreadahead */);
 
   IOOptions opts;
   s = rep->file->PrepareIOOptions(ro, opts);
@@ -481,8 +501,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
     // filter blocks
     s = table()->MaybeReadBlockAndLoadToCache(
         prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
-        &block, BlockType::kFilter, nullptr /* get_context */, &lookup_context,
-        nullptr /* contents */);
+        /* wait */ true, &block, BlockType::kFilter, nullptr /* get_context */,
+        &lookup_context, nullptr /* contents */);
     if (!s.ok()) {
       return s;
     }

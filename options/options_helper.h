@@ -18,6 +18,7 @@ namespace ROCKSDB_NAMESPACE {
 struct ColumnFamilyOptions;
 struct ConfigOptions;
 struct DBOptions;
+struct ImmutableCFOptions;
 struct ImmutableDBOptions;
 struct MutableDBOptions;
 struct MutableCFOptions;
@@ -26,6 +27,15 @@ struct Options;
 std::vector<CompressionType> GetSupportedCompressions();
 
 std::vector<CompressionType> GetSupportedDictCompressions();
+
+std::vector<ChecksumType> GetSupportedChecksums();
+
+inline bool IsSupportedChecksumType(ChecksumType type) {
+  // Avoid annoying compiler warning-as-error (-Werror=type-limits)
+  auto min = kNoChecksum;
+  auto max = kXXH3;
+  return type >= min && type <= max;
+}
 
 // Checks that the combination of DBOptions and ColumnFamilyOptions are valid
 Status ValidateOptions(const DBOptions& db_opts,
@@ -38,37 +48,22 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
     const ColumnFamilyOptions& ioptions,
     const MutableCFOptions& mutable_cf_options);
 
+void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
+                               ColumnFamilyOptions* cf_opts);
+void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
+                               ColumnFamilyOptions* cf_opts);
+
 #ifndef ROCKSDB_LITE
 std::unique_ptr<Configurable> DBOptionsAsConfigurable(
     const MutableDBOptions& opts);
-std::unique_ptr<Configurable> DBOptionsAsConfigurable(const DBOptions& opts);
+std::unique_ptr<Configurable> DBOptionsAsConfigurable(
+    const DBOptions& opts,
+    const std::unordered_map<std::string, std::string>* opt_map = nullptr);
 std::unique_ptr<Configurable> CFOptionsAsConfigurable(
     const MutableCFOptions& opts);
 std::unique_ptr<Configurable> CFOptionsAsConfigurable(
     const ColumnFamilyOptions& opts,
     const std::unordered_map<std::string, std::string>* opt_map = nullptr);
-
-Status GetStringFromMutableCFOptions(const ConfigOptions& config_options,
-                                     const MutableCFOptions& mutable_opts,
-                                     std::string* opt_string);
-
-Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
-                                     const MutableDBOptions& mutable_opts,
-                                     std::string* opt_string);
-
-Status GetMutableOptionsFromStrings(
-    const MutableCFOptions& base_options,
-    const std::unordered_map<std::string, std::string>& options_map,
-    Logger* info_log, MutableCFOptions* new_options);
-
-Status GetMutableDBOptionsFromStrings(
-    const MutableDBOptions& base_options,
-    const std::unordered_map<std::string, std::string>& options_map,
-    MutableDBOptions* new_options);
-
-bool ParseSliceTransform(
-    const std::string& value,
-    std::shared_ptr<const SliceTransform>* slice_transform);
 
 extern Status StringToMap(
     const std::string& opts_str,

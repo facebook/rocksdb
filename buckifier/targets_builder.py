@@ -84,10 +84,10 @@ cpp_binary(
     name = "c_test_bin",
     srcs = ["db/c_test.c"],
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
     include_paths = ROCKSDB_INCLUDE_PATHS,
+    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
     deps = [":rocksdb_test_lib"],
 ) if not is_opt_mode else None
 

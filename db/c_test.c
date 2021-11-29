@@ -517,6 +517,9 @@ int main(int argc, char** argv) {
   coptions = rocksdb_compactoptions_create();
   rocksdb_compactoptions_set_exclusive_manual_compaction(coptions, 1);
 
+  rocksdb_options_add_compact_on_deletion_collector_factory(options, 10000,
+                                                            10001);
+
   StartPhase("destroy");
   rocksdb_destroy_db(options, dbname, &err);
   Free(&err);
@@ -1040,19 +1043,25 @@ int main(int argc, char** argv) {
   }
 
   StartPhase("filter");
-  for (run = 0; run <= 2; run++) {
-    // First run uses custom filter
-    // Second run uses old block-based bloom filter
-    // Third run uses full bloom filter
+  for (run = 0; run <= 4; run++) {
+    // run=0 uses custom filter
+    // run=1 uses old block-based bloom filter
+    // run=2 run uses full bloom filter
+    // run=3 uses Ribbon
+    // run=4 uses Ribbon-Bloom hybrid configuration
     CheckNoError(err);
     rocksdb_filterpolicy_t* policy;
     if (run == 0) {
       policy = rocksdb_filterpolicy_create(NULL, FilterDestroy, FilterCreate,
                                            FilterKeyMatch, NULL, FilterName);
     } else if (run == 1) {
-      policy = rocksdb_filterpolicy_create_bloom(8);
+      policy = rocksdb_filterpolicy_create_bloom(8.0);
+    } else if (run == 2) {
+      policy = rocksdb_filterpolicy_create_bloom_full(8.0);
+    } else if (run == 3) {
+      policy = rocksdb_filterpolicy_create_ribbon(8.0);
     } else {
-      policy = rocksdb_filterpolicy_create_bloom_full(8);
+      policy = rocksdb_filterpolicy_create_ribbon_hybrid(8.0, 1);
     }
     rocksdb_block_based_options_set_filter_policy(table_options, policy);
 
@@ -1118,9 +1127,12 @@ int main(int argc, char** argv) {
       } else if (run == 1) {
         // Essentially a fingerprint of the block-based Bloom schema
         CheckCondition(hits == 241);
-      } else {
+      } else if (run == 2 || run == 4) {
         // Essentially a fingerprint of full Bloom schema, format_version=5
         CheckCondition(hits == 188);
+      } else {
+        // Essentially a fingerprint of Ribbon schema
+        CheckCondition(hits == 226);
       }
       CheckCondition(
           (keys_to_query - hits) ==
@@ -1275,6 +1287,9 @@ int main(int argc, char** argv) {
     CheckPinGetCF(db, roptions, handles[1], "bar", NULL);
     CheckPinGetCF(db, roptions, handles[1], "box", "c");
     rocksdb_writebatch_destroy(wb);
+
+    rocksdb_flush_wal(db, 1, &err);
+    CheckNoError(err);
 
     const char* keys[3] = { "box", "box", "barfooxx" };
     const rocksdb_column_family_handle_t* get_handles[3] = { handles[0], handles[1], handles[1] };
@@ -1758,6 +1773,35 @@ int main(int argc, char** argv) {
 
     rocksdb_options_set_atomic_flush(o, 1);
     CheckCondition(1 == rocksdb_options_get_atomic_flush(o));
+
+    rocksdb_options_set_manual_wal_flush(o, 1);
+    CheckCondition(1 == rocksdb_options_get_manual_wal_flush(o));
+
+    /* Blob Options */
+    rocksdb_options_set_enable_blob_files(o, 1);
+    CheckCondition(1 == rocksdb_options_get_enable_blob_files(o));
+
+    rocksdb_options_set_min_blob_size(o, 29);
+    CheckCondition(29 == rocksdb_options_get_min_blob_size(o));
+
+    rocksdb_options_set_blob_file_size(o, 30);
+    CheckCondition(30 == rocksdb_options_get_blob_file_size(o));
+
+    rocksdb_options_set_blob_compression_type(o, 4);
+    CheckCondition(4 == rocksdb_options_get_blob_compression_type(o));
+
+    rocksdb_options_set_enable_blob_gc(o, 1);
+    CheckCondition(1 == rocksdb_options_get_enable_blob_gc(o));
+
+    rocksdb_options_set_blob_gc_age_cutoff(o, 0.5);
+    CheckCondition(0.5 == rocksdb_options_get_blob_gc_age_cutoff(o));
+
+    rocksdb_options_set_blob_gc_force_threshold(o, 0.75);
+    CheckCondition(0.75 == rocksdb_options_get_blob_gc_force_threshold(o));
+
+    rocksdb_options_set_blob_compaction_readahead_size(o, 262144);
+    CheckCondition(262144 ==
+                   rocksdb_options_get_blob_compaction_readahead_size(o));
 
     // Create a copy that should be equal to the original.
     rocksdb_options_t* copy;
@@ -2362,6 +2406,37 @@ int main(int argc, char** argv) {
     rocksdb_cache_destroy(co);
   }
 
+  StartPhase("jemalloc_nodump_allocator");
+  {
+    rocksdb_memory_allocator_t* allocator;
+    allocator = rocksdb_jemalloc_nodump_allocator_create(&err);
+    if (err != NULL) {
+      // not supported on all platforms, allow unsupported error
+      const char* ni = "Not implemented: ";
+      size_t ni_len = strlen(ni);
+      size_t err_len = strlen(err);
+
+      CheckCondition(err_len >= ni_len);
+      CheckCondition(memcmp(ni, err, ni_len) == 0);
+      Free(&err);
+    } else {
+      rocksdb_cache_t* co;
+      rocksdb_lru_cache_options_t* copts;
+
+      copts = rocksdb_lru_cache_options_create();
+
+      rocksdb_lru_cache_options_set_capacity(copts, 100);
+      rocksdb_lru_cache_options_set_memory_allocator(copts, allocator);
+
+      co = rocksdb_cache_create_lru_opts(copts);
+      CheckCondition(100 == rocksdb_cache_get_capacity(co));
+
+      rocksdb_cache_destroy(co);
+      rocksdb_lru_cache_options_destroy(copts);
+    }
+    rocksdb_memory_allocator_destroy(allocator);
+  }
+
   StartPhase("env");
   {
     rocksdb_env_t* e;
@@ -2478,6 +2553,28 @@ int main(int argc, char** argv) {
                  bdo));
 
     rocksdb_backupable_db_options_destroy(bdo);
+  }
+
+  StartPhase("compression_options");
+  {
+    rocksdb_options_t* co;
+    co = rocksdb_options_create();
+
+    rocksdb_options_set_compression_options_zstd_max_train_bytes(co, 100);
+    CheckCondition(
+        100 ==
+        rocksdb_options_get_compression_options_zstd_max_train_bytes(co));
+
+    rocksdb_options_set_compression_options_parallel_threads(co, 2);
+    CheckCondition(
+        2 == rocksdb_options_get_compression_options_parallel_threads(co));
+
+    rocksdb_options_set_compression_options_max_dict_buffer_bytes(co, 200);
+    CheckCondition(
+        200 ==
+        rocksdb_options_get_compression_options_max_dict_buffer_bytes(co));
+
+    rocksdb_options_destroy(co);
   }
 
   StartPhase("iterate_upper_bound");

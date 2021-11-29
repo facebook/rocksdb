@@ -10,6 +10,7 @@
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "file/filename.h"
+#include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_reader.h"
@@ -45,7 +46,7 @@ class ExternSSTFileLinkFailFallbackTest
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   ExternSSTFileLinkFailFallbackTest()
-      : DBTestBase("/external_sst_file_test", /*env_do_fsync=*/true),
+      : DBTestBase("external_sst_file_test", /*env_do_fsync=*/true),
         test_env_(new ExternalSSTTestEnv(env_, true)) {
     sst_files_dir_ = dbname_ + "/sst_files/";
     EXPECT_EQ(DestroyDir(env_, sst_files_dir_), Status::OK());
@@ -74,7 +75,7 @@ class ExternalSSTFileTest
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   ExternalSSTFileTest()
-      : DBTestBase("/external_sst_file_test", /*env_do_fsync=*/true) {
+      : DBTestBase("external_sst_file_test", /*env_do_fsync=*/true) {
     sst_files_dir_ = dbname_ + "/sst_files/";
     DestroyAndRecreateExternalSSTFilesDir();
   }
@@ -1291,8 +1292,11 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
   // We have 2 overlapping files in L0
   EXPECT_EQ(FilesPerLevel(), "2");
 
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::AddFile:MutexLock", "ExternalSSTFileTest::PickedLevelBug:0"},
+      {{"DBImpl::IngestExternalFile:AfterIncIngestFileCounter",
+        "ExternalSSTFileTest::PickedLevelBug:0"},
        {"ExternalSSTFileTest::PickedLevelBug:1", "DBImpl::AddFile:MutexUnlock"},
        {"ExternalSSTFileTest::PickedLevelBug:2",
         "DBImpl::RunManualCompaction:0"},
@@ -1333,10 +1337,14 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
     // wait for 2 seconds to give a chance for compactions to run during
     // this period, and then make sure that no compactions where able to run
     env_->SleepForMicroseconds(1000000 * 2);
-    ASSERT_FALSE(bg_compact_started.load());
+    bool bg_compact_started_tmp = bg_compact_started.load();
 
     // Hold AddFile from finishing writing the MANIFEST
     TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:1");
+
+    // check the status at the end, so even if the ASSERT fails the threads
+    // could be joined and return.
+    ASSERT_FALSE(bg_compact_started_tmp);
   }
 
   ASSERT_OK(bg_addfile_status);
@@ -1391,6 +1399,7 @@ TEST_F(ExternalSSTFileTest, IngestNonExistingFile) {
   ASSERT_EQ(1, num_sst_files);
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
   env_->skip_fsync_ = true;
   Options options = CurrentOptions();
@@ -1448,6 +1457,7 @@ TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
     }
   }
 }
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(ExternalSSTFileTest, PickedLevelDynamic) {
   env_->skip_fsync_ = true;
@@ -1709,6 +1719,7 @@ TEST_F(ExternalSSTFileTest, WithUnorderedWrite) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
   env_->skip_fsync_ = true;
   Options options = CurrentOptions();
@@ -1750,6 +1761,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
     VerifyDBFromMap(true_data, &kcnt, false);
   }
 }
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
   Options options = CurrentOptions();
@@ -1980,7 +1992,8 @@ TEST_F(ExternalSSTFileTest, CompactionDeadlock) {
     if (running_threads.load() == 0) {
       break;
     }
-    env_->SleepForMicroseconds(500000);
+    // Make sure we do a "real sleep", not a mock one.
+    SystemClock::Default()->SleepForMicroseconds(500000);
   }
 
   ASSERT_EQ(running_threads.load(), 0);
@@ -2371,10 +2384,9 @@ TEST_F(ExternalSSTFileTest, IngestFileWrittenWithCompressionDictionary) {
 
 // Very slow, not worth the cost to run regularly
 TEST_F(ExternalSSTFileTest, DISABLED_HugeBlockChecksum) {
-  int max_checksum = static_cast<int>(kxxHash64);
-  for (int i = 0; i <= max_checksum; ++i) {
+  for (auto t : GetSupportedChecksums()) {
     BlockBasedTableOptions table_options;
-    table_options.checksum = static_cast<ChecksumType>(i);
+    table_options.checksum = t;
     Options options = CurrentOptions();
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -2410,6 +2422,12 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_Success) {
   Options options = CurrentOptions();
   options.env = fault_injection_env.get();
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+
+  // Exercise different situations in different column families: two are empty
+  // (so no new sequence number is needed), but at least one overlaps with the
+  // DB and needs to bump the sequence number.
+  ASSERT_OK(db_->Put(WriteOptions(), "foo1", "oldvalue"));
+
   std::vector<ColumnFamilyHandle*> column_families;
   column_families.push_back(handles_[0]);
   column_families.push_back(handles_[1]);

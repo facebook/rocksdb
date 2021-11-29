@@ -10,7 +10,9 @@
 #include "db/db_impl/db_impl_secondary.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
+#include "test_util/testutil.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -19,7 +21,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBSecondaryTest : public DBTestBase {
  public:
   DBSecondaryTest()
-      : DBTestBase("/db_secondary_test", /*env_do_fsync=*/true),
+      : DBTestBase("db_secondary_test", /*env_do_fsync=*/true),
         secondary_path_(),
         handles_secondary_(),
         db_secondary_(nullptr) {
@@ -114,6 +116,18 @@ void DBSecondaryTest::CheckFileTypeCounts(const std::string& dir,
   ASSERT_EQ(expected_manifest, manifest_cnt);
 }
 
+TEST_F(DBSecondaryTest, NonExistingDb) {
+  Destroy(last_options_);
+
+  Options options = GetDefaultOptions();
+  options.env = env_;
+  options.max_open_files = -1;
+  const std::string dbname = "/doesnt/exist";
+  Status s =
+      DB::OpenAsSecondary(options, dbname, secondary_path_, &db_secondary_);
+  ASSERT_TRUE(s.IsIOError());
+}
+
 TEST_F(DBSecondaryTest, ReopenAsSecondary) {
   Options options;
   options.env = env_;
@@ -145,6 +159,213 @@ TEST_F(DBSecondaryTest, ReopenAsSecondary) {
   }
   delete iter;
   ASSERT_EQ(2, count);
+}
+
+TEST_F(DBSecondaryTest, SimpleInternalCompaction) {
+  Options options;
+  options.env = env_;
+  Reopen(options);
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("foo", "foo_value" + std::to_string(i)));
+    ASSERT_OK(Put("bar", "bar_value" + std::to_string(i)));
+    ASSERT_OK(Flush());
+  }
+  CompactionServiceInput input;
+
+  ColumnFamilyMetaData meta;
+  db_->GetColumnFamilyMetaData(&meta);
+  for (auto& file : meta.levels[0].files) {
+    ASSERT_EQ(0, meta.levels[0].level);
+    input.input_files.push_back(file.name);
+  }
+  ASSERT_EQ(input.input_files.size(), 3);
+
+  input.output_level = 1;
+  Close();
+
+  options.max_open_files = -1;
+  OpenSecondary(options);
+  auto cfh = db_secondary_->DefaultColumnFamily();
+
+  CompactionServiceResult result;
+  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input,
+                                                                 &result));
+
+  ASSERT_EQ(result.output_files.size(), 1);
+  InternalKey smallest, largest;
+  smallest.DecodeFrom(result.output_files[0].smallest_internal_key);
+  largest.DecodeFrom(result.output_files[0].largest_internal_key);
+  ASSERT_EQ(smallest.user_key().ToString(), "bar");
+  ASSERT_EQ(largest.user_key().ToString(), "foo");
+  ASSERT_EQ(result.output_level, 1);
+  ASSERT_EQ(result.output_path, this->secondary_path_);
+  ASSERT_EQ(result.num_output_records, 2);
+  ASSERT_GT(result.bytes_written, 0);
+  ASSERT_OK(result.status);
+}
+
+TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  const int kRangeL2 = 10;
+  const int kRangeL1 = 30;
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i * kRangeL2), "value" + ToString(i)));
+    ASSERT_OK(Put(Key((i + 1) * kRangeL2 - 1), "value" + ToString(i)));
+    ASSERT_OK(Flush());
+  }
+  MoveFilesToLevel(2);
+  for (int i = 0; i < 5; i++) {
+    ASSERT_OK(Put(Key(i * kRangeL1), "value" + ToString(i)));
+    ASSERT_OK(Put(Key((i + 1) * kRangeL1 - 1), "value" + ToString(i)));
+    ASSERT_OK(Flush());
+  }
+  MoveFilesToLevel(1);
+  for (int i = 0; i < 4; i++) {
+    ASSERT_OK(Put(Key(i * 30), "value" + ToString(i)));
+    ASSERT_OK(Put(Key(i * 30 + 50), "value" + ToString(i)));
+    ASSERT_OK(Flush());
+  }
+
+  ColumnFamilyMetaData meta;
+  db_->GetColumnFamilyMetaData(&meta);
+
+  // pick 2 files on level 0 for compaction, which has 3 overlap files on L1
+  CompactionServiceInput input1;
+  input1.input_files.push_back(meta.levels[0].files[2].name);
+  input1.input_files.push_back(meta.levels[0].files[3].name);
+  input1.input_files.push_back(meta.levels[1].files[0].name);
+  input1.input_files.push_back(meta.levels[1].files[1].name);
+  input1.input_files.push_back(meta.levels[1].files[2].name);
+
+  input1.output_level = 1;
+
+  options.max_open_files = -1;
+  Close();
+
+  OpenSecondary(options);
+  auto cfh = db_secondary_->DefaultColumnFamily();
+  CompactionServiceResult result;
+  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input1,
+                                                                 &result));
+  ASSERT_OK(result.status);
+
+  // pick 2 files on level 1 for compaction, which has 6 overlap files on L2
+  CompactionServiceInput input2;
+  input2.input_files.push_back(meta.levels[1].files[1].name);
+  input2.input_files.push_back(meta.levels[1].files[2].name);
+  for (int i = 3; i < 9; i++) {
+    input2.input_files.push_back(meta.levels[2].files[i].name);
+  }
+
+  input2.output_level = 2;
+  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input2,
+                                                                 &result));
+  ASSERT_OK(result.status);
+
+  CloseSecondary();
+
+  // delete all l2 files, without update manifest
+  for (auto& file : meta.levels[2].files) {
+    ASSERT_OK(env_->DeleteFile(dbname_ + file.name));
+  }
+  OpenSecondary(options);
+  cfh = db_secondary_->DefaultColumnFamily();
+  Status s = db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input2,
+                                                                  &result);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  ASSERT_OK(result.status);
+
+  // TODO: L0 -> L1 compaction should success, currently version is not built
+  // if files is missing.
+  //  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh,
+  //  input1, &result));
+}
+
+TEST_F(DBSecondaryTest, InternalCompactionCompactedFiles) {
+  Options options;
+  options.env = env_;
+  options.level0_file_num_compaction_trigger = 4;
+  Reopen(options);
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("foo", "foo_value" + std::to_string(i)));
+    ASSERT_OK(Put("bar", "bar_value" + std::to_string(i)));
+    ASSERT_OK(Flush());
+  }
+  CompactionServiceInput input;
+
+  ColumnFamilyMetaData meta;
+  db_->GetColumnFamilyMetaData(&meta);
+  for (auto& file : meta.levels[0].files) {
+    ASSERT_EQ(0, meta.levels[0].level);
+    input.input_files.push_back(file.name);
+  }
+  ASSERT_EQ(input.input_files.size(), 3);
+
+  input.output_level = 1;
+
+  // trigger compaction to delete the files for secondary instance compaction
+  ASSERT_OK(Put("foo", "foo_value" + std::to_string(3)));
+  ASSERT_OK(Put("bar", "bar_value" + std::to_string(3)));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  Close();
+
+  options.max_open_files = -1;
+  OpenSecondary(options);
+  auto cfh = db_secondary_->DefaultColumnFamily();
+
+  CompactionServiceResult result;
+  Status s =
+      db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input, &result);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  ASSERT_OK(result.status);
+}
+
+TEST_F(DBSecondaryTest, InternalCompactionMissingFiles) {
+  Options options;
+  options.env = env_;
+  options.level0_file_num_compaction_trigger = 4;
+  Reopen(options);
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("foo", "foo_value" + std::to_string(i)));
+    ASSERT_OK(Put("bar", "bar_value" + std::to_string(i)));
+    ASSERT_OK(Flush());
+  }
+  CompactionServiceInput input;
+
+  ColumnFamilyMetaData meta;
+  db_->GetColumnFamilyMetaData(&meta);
+  for (auto& file : meta.levels[0].files) {
+    ASSERT_EQ(0, meta.levels[0].level);
+    input.input_files.push_back(file.name);
+  }
+  ASSERT_EQ(input.input_files.size(), 3);
+
+  input.output_level = 1;
+
+  Close();
+
+  ASSERT_OK(env_->DeleteFile(dbname_ + input.input_files[0]));
+
+  options.max_open_files = -1;
+  OpenSecondary(options);
+  auto cfh = db_secondary_->DefaultColumnFamily();
+
+  CompactionServiceResult result;
+  Status s =
+      db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input, &result);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  ASSERT_OK(result.status);
+
+  input.input_files.erase(input.input_files.begin());
+
+  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input,
+                                                                 &result));
+  ASSERT_OK(result.status);
 }
 
 TEST_F(DBSecondaryTest, OpenAsSecondary) {
@@ -340,6 +561,84 @@ TEST_F(DBSecondaryTest, OpenAsSecondaryWALTailing) {
   verify_db_func("new_foo_value_1", "new_bar_value");
 }
 
+TEST_F(DBSecondaryTest, SecondaryTailingBug_ISSUE_8467) {
+  Options options;
+  options.env = env_;
+  Reopen(options);
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("foo", "foo_value" + std::to_string(i)));
+    ASSERT_OK(Put("bar", "bar_value" + std::to_string(i)));
+  }
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondary(options1);
+
+  const auto verify_db = [&](const std::string& foo_val,
+                             const std::string& bar_val) {
+    std::string value;
+    ReadOptions ropts;
+    Status s = db_secondary_->Get(ropts, "foo", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(foo_val, value);
+
+    s = db_secondary_->Get(ropts, "bar", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(bar_val, value);
+  };
+
+  for (int i = 0; i < 2; ++i) {
+    ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+    verify_db("foo_value2", "bar_value2");
+  }
+}
+
+TEST_F(DBSecondaryTest, RefreshIterator) {
+  Options options;
+  options.env = env_;
+  Reopen(options);
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondary(options1);
+
+  std::unique_ptr<Iterator> it(db_secondary_->NewIterator(ReadOptions()));
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("foo", "foo_value" + std::to_string(i)));
+
+    ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+    if (0 == i) {
+      it->Seek("foo");
+      ASSERT_FALSE(it->Valid());
+      ASSERT_OK(it->status());
+
+      ASSERT_OK(it->Refresh());
+
+      it->Seek("foo");
+      ASSERT_OK(it->status());
+      ASSERT_TRUE(it->Valid());
+      ASSERT_EQ("foo", it->key());
+      ASSERT_EQ("foo_value0", it->value());
+    } else {
+      it->Seek("foo");
+      ASSERT_TRUE(it->Valid());
+      ASSERT_EQ("foo", it->key());
+      ASSERT_EQ("foo_value" + std::to_string(i - 1), it->value());
+      ASSERT_OK(it->status());
+
+      ASSERT_OK(it->Refresh());
+
+      it->Seek("foo");
+      ASSERT_OK(it->status());
+      ASSERT_TRUE(it->Valid());
+      ASSERT_EQ("foo", it->key());
+      ASSERT_EQ("foo_value" + std::to_string(i), it->value());
+    }
+  }
+}
+
 TEST_F(DBSecondaryTest, OpenWithNonExistColumnFamily) {
   Options options;
   options.env = env_;
@@ -391,17 +690,19 @@ TEST_F(DBSecondaryTest, SwitchToNewManifestDuringOpen) {
   SyncPoint::GetInstance()->LoadDependency(
       {{"ReactiveVersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:0",
         "VersionSet::ProcessManifestWrites:BeforeNewManifest"},
-       {"VersionSet::ProcessManifestWrites:AfterNewManifest",
+       {"DBImpl::Open:AfterDeleteFiles",
         "ReactiveVersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:"
         "1"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  // Make sure db calls RecoverLogFiles so as to trigger a manifest write,
-  // which causes the db to switch to a new MANIFEST upon start.
   port::Thread ro_db_thread([&]() {
     Options options1;
     options1.env = env_;
     options1.max_open_files = -1;
+    Status s = TryOpenSecondary(options1);
+    ASSERT_TRUE(s.IsTryAgain());
+
+    // Try again
     OpenSecondary(options1);
     CloseSecondary();
   });
@@ -550,12 +851,14 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
   Options options;
   options.env = env_;
   options.level0_file_num_compaction_trigger = 4;
-  Reopen(options);
+  const std::string cf1_name("test_cf");
+  CreateAndReopenWithCF({cf1_name}, options);
 
   Options options1;
   options1.env = env_;
   options1.max_open_files = -1;
-  OpenSecondary(options1);
+  OpenSecondaryWithColumnFamilies({kDefaultColumnFamilyName, cf1_name},
+                                  options1);
 
   const int kNumFiles = options.level0_file_num_compaction_trigger - 1;
   // Keep it smaller than 10 so that key0, key1, ..., key9 are sorted as 0, 1,
@@ -589,11 +892,11 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
   // restart primary, performs full compaction, close again, restart again so
   // that next time secondary tries to catch up with primary, the secondary
   // will skip the MANIFEST in middle.
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name}, options);
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name}, options);
   ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
@@ -604,12 +907,14 @@ TEST_F(DBSecondaryTest, SwitchManifestTwice) {
   Options options;
   options.env = env_;
   options.disable_auto_compactions = true;
-  Reopen(options);
+  const std::string cf1_name("test_cf");
+  CreateAndReopenWithCF({cf1_name}, options);
 
   Options options1;
   options1.env = env_;
   options1.max_open_files = -1;
-  OpenSecondary(options1);
+  OpenSecondaryWithColumnFamilies({kDefaultColumnFamilyName, cf1_name},
+                                  options1);
 
   ASSERT_OK(Put("0", "value0"));
   ASSERT_OK(Flush());
@@ -620,9 +925,9 @@ TEST_F(DBSecondaryTest, SwitchManifestTwice) {
   ASSERT_OK(db_secondary_->Get(ropts, "0", &value));
   ASSERT_EQ("value0", value);
 
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name}, options);
   ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name}, options);
   ASSERT_OK(Put("0", "value1"));
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
 
@@ -637,7 +942,7 @@ TEST_F(DBSecondaryTest, DISABLED_SwitchWAL) {
   options.max_write_buffer_number = 4;
   options.min_write_buffer_number_to_merge = 2;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
   Reopen(options);
 
   Options options1;
@@ -692,7 +997,7 @@ TEST_F(DBSecondaryTest, DISABLED_SwitchWALMultiColumnFamilies) {
   options.max_write_buffer_number = 4;
   options.min_write_buffer_number_to_merge = 2;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
   CreateAndReopenWithCF({kCFName1}, options);
 
   Options options1;
@@ -756,7 +1061,7 @@ TEST_F(DBSecondaryTest, CatchUpAfterFlush) {
   options.max_write_buffer_number = 4;
   options.min_write_buffer_number_to_merge = 2;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
   Reopen(options);
 
   Options options1;
@@ -908,6 +1213,39 @@ TEST_F(DBSecondaryTest, InconsistencyDuringCatchUp) {
   Status s = db_secondary_->TryCatchUpWithPrimary();
   ASSERT_TRUE(s.IsCorruption());
 }
+
+TEST_F(DBSecondaryTest, OpenWithTransactionDB) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+
+  // Destroy the DB to recreate as a TransactionDB.
+  Close();
+  Destroy(options, true);
+
+  // Create a TransactionDB.
+  TransactionDB* txn_db = nullptr;
+  TransactionDBOptions txn_db_opts;
+  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
+  ASSERT_NE(txn_db, nullptr);
+  db_ = txn_db;
+
+  std::vector<std::string> cfs = {"new_CF"};
+  CreateColumnFamilies(cfs, options);
+  ASSERT_EQ(handles_.size(), 1);
+
+  WriteOptions wopts;
+  TransactionOptions txn_opts;
+  Transaction* txn1 = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  ASSERT_NE(txn1, nullptr);
+  ASSERT_OK(txn1->Put(handles_[0], "k1", "v1"));
+  ASSERT_OK(txn1->Commit());
+  delete txn1;
+
+  options = CurrentOptions();
+  options.max_open_files = -1;
+  ASSERT_OK(TryOpenSecondary(options));
+}
+
 #endif  //! ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -204,27 +204,24 @@ bool Compaction::IsFullCompaction(
   return num_files_in_compaction == total_num_files;
 }
 
-Compaction::Compaction(VersionStorageInfo* vstorage,
-                       const ImmutableCFOptions& _immutable_cf_options,
-                       const MutableCFOptions& _mutable_cf_options,
-                       const MutableDBOptions& _mutable_db_options,
-                       std::vector<CompactionInputFiles> _inputs,
-                       int _output_level, uint64_t _target_file_size,
-                       uint64_t _max_compaction_bytes, uint32_t _output_path_id,
-                       CompressionType _compression,
-                       CompressionOptions _compression_opts,
-                       uint32_t _max_subcompactions,
-                       std::vector<FileMetaData*> _grandparents,
-                       bool _manual_compaction, double _score,
-                       bool _deletion_compaction,
-                       CompactionReason _compaction_reason)
+Compaction::Compaction(
+    VersionStorageInfo* vstorage, const ImmutableOptions& _immutable_options,
+    const MutableCFOptions& _mutable_cf_options,
+    const MutableDBOptions& _mutable_db_options,
+    std::vector<CompactionInputFiles> _inputs, int _output_level,
+    uint64_t _target_file_size, uint64_t _max_compaction_bytes,
+    uint32_t _output_path_id, CompressionType _compression,
+    CompressionOptions _compression_opts, Temperature _output_temperature,
+    uint32_t _max_subcompactions, std::vector<FileMetaData*> _grandparents,
+    bool _manual_compaction, double _score, bool _deletion_compaction,
+    CompactionReason _compaction_reason)
     : input_vstorage_(vstorage),
       start_level_(_inputs[0].level),
       output_level_(_output_level),
       max_output_file_size_(_target_file_size),
       max_compaction_bytes_(_max_compaction_bytes),
       max_subcompactions_(_max_subcompactions),
-      immutable_cf_options_(_immutable_cf_options),
+      immutable_options_(_immutable_options),
       mutable_cf_options_(_mutable_cf_options),
       input_version_(nullptr),
       number_levels_(vstorage->num_levels()),
@@ -232,6 +229,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       output_path_id_(_output_path_id),
       output_compression_(_compression),
       output_compression_opts_(_compression_opts),
+      output_temperature_(_output_temperature),
       deletion_compaction_(_deletion_compaction),
       inputs_(PopulateWithAtomicBoundaries(vstorage, std::move(_inputs))),
       grandparents_(std::move(_grandparents)),
@@ -240,7 +238,8 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
       is_manual_compaction_(_manual_compaction),
       is_trivial_move_(false),
-      compaction_reason_(_compaction_reason) {
+      compaction_reason_(_compaction_reason),
+      notify_on_compaction_completion_(false) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
     compaction_reason_ = CompactionReason::kManualCompaction;
@@ -278,7 +277,7 @@ Compaction::~Compaction() {
 
 bool Compaction::InputCompressionMatchesOutput() const {
   int base_level = input_vstorage_->base_level();
-  bool matches = (GetCompressionType(immutable_cf_options_, input_vstorage_,
+  bool matches = (GetCompressionType(immutable_options_, input_vstorage_,
                                      mutable_cf_options_, start_level_,
                                      base_level) == output_compression_);
   if (matches) {
@@ -303,10 +302,16 @@ bool Compaction::IsTrivialMove() const {
   }
 
   if (is_manual_compaction_ &&
-      (immutable_cf_options_.compaction_filter != nullptr ||
-       immutable_cf_options_.compaction_filter_factory != nullptr)) {
+      (immutable_options_.compaction_filter != nullptr ||
+       immutable_options_.compaction_filter_factory != nullptr)) {
     // This is a manual compaction and we have a compaction filter that should
     // be executed, we cannot do a trivial move
+    return false;
+  }
+
+  if (start_level_ == output_level_) {
+    // It doesn't make sense if compaction picker picks files just to trivial
+    // move to the same level.
     return false;
   }
 
@@ -512,7 +517,7 @@ uint64_t Compaction::OutputFilePreallocationSize() const {
   }
 
   if (max_output_file_size_ != port::kMaxUint64 &&
-      (immutable_cf_options_.compaction_style == kCompactionStyleLevel ||
+      (immutable_options_.compaction_style == kCompactionStyleLevel ||
        output_level() > 0)) {
     preallocation_size = std::min(max_output_file_size_, preallocation_size);
   }
@@ -529,16 +534,23 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
     return nullptr;
   }
 
+  if (!cfd_->ioptions()
+           ->compaction_filter_factory->ShouldFilterTableFileCreation(
+               TableFileCreationReason::kCompaction)) {
+    return nullptr;
+  }
+
   CompactionFilter::Context context;
   context.is_full_compaction = is_full_compaction_;
   context.is_manual_compaction = is_manual_compaction_;
   context.column_family_id = cfd_->GetID();
+  context.reason = TableFileCreationReason::kCompaction;
   return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(
       context);
 }
 
 std::unique_ptr<SstPartitioner> Compaction::CreateSstPartitioner() const {
-  if (!immutable_cf_options_.sst_partitioner_factory) {
+  if (!immutable_options_.sst_partitioner_factory) {
     return nullptr;
   }
 
@@ -548,8 +560,7 @@ std::unique_ptr<SstPartitioner> Compaction::CreateSstPartitioner() const {
   context.output_level = output_level_;
   context.smallest_user_key = smallest_user_key_;
   context.largest_user_key = largest_user_key_;
-  return immutable_cf_options_.sst_partitioner_factory->CreatePartitioner(
-      context);
+  return immutable_options_.sst_partitioner_factory->CreatePartitioner(context);
 }
 
 bool Compaction::IsOutputLevelEmpty() const {
@@ -560,6 +571,14 @@ bool Compaction::ShouldFormSubcompactions() const {
   if (max_subcompactions_ <= 1 || cfd_ == nullptr) {
     return false;
   }
+
+  // Note: the subcompaction boundary picking logic does not currently guarantee
+  // that all user keys that differ only by timestamp get processed by the same
+  // subcompaction.
+  if (cfd_->user_comparator()->timestamp_size() > 0) {
+    return false;
+  }
+
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
     return (start_level_ == 0 || is_manual_compaction_) && output_level_ > 0 &&
            !IsOutputLevelEmpty();
@@ -570,10 +589,42 @@ bool Compaction::ShouldFormSubcompactions() const {
   }
 }
 
-uint64_t Compaction::MinInputFileOldestAncesterTime() const {
+bool Compaction::DoesInputReferenceBlobFiles() const {
+  assert(input_version_);
+
+  const VersionStorageInfo* storage_info = input_version_->storage_info();
+  assert(storage_info);
+
+  if (storage_info->GetBlobFiles().empty()) {
+    return false;
+  }
+
+  for (size_t i = 0; i < inputs_.size(); ++i) {
+    for (const FileMetaData* meta : inputs_[i].files) {
+      assert(meta);
+
+      if (meta->oldest_blob_file_number != kInvalidBlobFileNumber) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+uint64_t Compaction::MinInputFileOldestAncesterTime(
+    const InternalKey* start, const InternalKey* end) const {
   uint64_t min_oldest_ancester_time = port::kMaxUint64;
+  const InternalKeyComparator& icmp =
+      column_family_data()->internal_comparator();
   for (const auto& level_files : inputs_) {
     for (const auto& file : level_files.files) {
+      if (start != nullptr && icmp.Compare(file->largest, *start) < 0) {
+        continue;
+      }
+      if (end != nullptr && icmp.Compare(file->smallest, *end) > 0) {
+        continue;
+      }
       uint64_t oldest_ancester_time = file->TryGetOldestAncesterTime();
       if (oldest_ancester_time != 0) {
         min_oldest_ancester_time =

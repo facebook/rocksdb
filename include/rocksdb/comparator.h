@@ -10,6 +10,7 @@
 
 #include <string>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -20,7 +21,11 @@ class Slice;
 // used as keys in an sstable or a database.  A Comparator implementation
 // must be thread-safe since rocksdb may invoke its methods concurrently
 // from multiple threads.
-class Comparator {
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
+class Comparator : public Customizable {
  public:
   Comparator() : timestamp_size_(0) {}
 
@@ -37,7 +42,11 @@ class Comparator {
 
   virtual ~Comparator() {}
 
+  static Status CreateFromString(const ConfigOptions& opts,
+                                 const std::string& id,
+                                 const Comparator** comp);
   static const char* Type() { return "Comparator"; }
+
   // Three-way comparison.  Returns value:
   //   < 0 iff "a" < "b",
   //   == 0 iff "a" == "b",
@@ -66,7 +75,7 @@ class Comparator {
   //
   // Names starting with "rocksdb." are reserved and should not be used
   // by any clients of this package.
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
 
   // Advanced functions: these are used to reduce the space requirements
   // for internal data structures like index blocks.

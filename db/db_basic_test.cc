@@ -8,9 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <cstring>
-#include <regex>
 
 #include "db/db_test_util.h"
+#include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/merge_operator.h"
@@ -31,7 +31,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBBasicTest : public DBTestBase {
  public:
-  DBBasicTest() : DBTestBase("/db_basic_test", /*env_do_fsync=*/false) {}
+  DBBasicTest() : DBTestBase("db_basic_test", /*env_do_fsync=*/false) {}
 };
 
 TEST_F(DBBasicTest, OpenWhenOpen) {
@@ -69,11 +69,10 @@ TEST_F(DBBasicTest, UniqueSession) {
   ASSERT_EQ(sid2, sid4);
 
   // Expected compact format for session ids (see notes in implementation)
-  std::regex expected("[0-9A-Z]{20}");
-  const std::string match("match");
-  EXPECT_EQ(match, std::regex_replace(sid1, expected, match));
-  EXPECT_EQ(match, std::regex_replace(sid2, expected, match));
-  EXPECT_EQ(match, std::regex_replace(sid3, expected, match));
+  TestRegex expected("[0-9A-Z]{20}");
+  EXPECT_MATCHES_REGEX(sid1, expected);
+  EXPECT_MATCHES_REGEX(sid2, expected);
+  EXPECT_MATCHES_REGEX(sid3, expected);
 
 #ifndef ROCKSDB_LITE
   Close();
@@ -976,13 +975,14 @@ TEST_F(DBBasicTest, MultiGetEmpty) {
 TEST_F(DBBasicTest, ChecksumTest) {
   BlockBasedTableOptions table_options;
   Options options = CurrentOptions();
-  // change when new checksum type added
-  int max_checksum = static_cast<int>(kxxHash64);
   const int kNumPerFile = 2;
 
+  const auto algs = GetSupportedChecksums();
+  const int algs_size = static_cast<int>(algs.size());
+
   // generate one table with each type of checksum
-  for (int i = 0; i <= max_checksum; ++i) {
-    table_options.checksum = static_cast<ChecksumType>(i);
+  for (int i = 0; i < algs_size; ++i) {
+    table_options.checksum = algs[i];
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     Reopen(options);
     for (int j = 0; j < kNumPerFile; ++j) {
@@ -992,15 +992,20 @@ TEST_F(DBBasicTest, ChecksumTest) {
   }
 
   // with each valid checksum type setting...
-  for (int i = 0; i <= max_checksum; ++i) {
-    table_options.checksum = static_cast<ChecksumType>(i);
+  for (int i = 0; i < algs_size; ++i) {
+    table_options.checksum = algs[i];
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     Reopen(options);
     // verify every type of checksum (should be regardless of that setting)
-    for (int j = 0; j < (max_checksum + 1) * kNumPerFile; ++j) {
+    for (int j = 0; j < algs_size * kNumPerFile; ++j) {
       ASSERT_EQ(Key(j), Get(Key(j)));
     }
   }
+
+  // Now test invalid checksum type
+  table_options.checksum = static_cast<ChecksumType>(123);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ASSERT_TRUE(TryReopen(options).IsInvalidArgument());
 }
 
 // On Windows you can have either memory mapped file or a file
@@ -1132,9 +1137,15 @@ TEST_F(DBBasicTest, DBCloseFlushError) {
   ASSERT_OK(Put("key3", "value3"));
   fault_injection_env->SetFilesystemActive(false);
   Status s = dbfull()->Close();
-  fault_injection_env->SetFilesystemActive(true);
   ASSERT_NE(s, Status::OK());
-
+  // retry should return the same error
+  s = dbfull()->Close();
+  ASSERT_NE(s, Status::OK());
+  fault_injection_env->SetFilesystemActive(true);
+  // retry close() is no-op even the system is back. Could be improved if
+  // Close() is retry-able: #9029
+  s = dbfull()->Close();
+  ASSERT_NE(s, Status::OK());
   Destroy(options);
 }
 
@@ -1360,6 +1371,28 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
             ->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
   }
+}
+
+TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFUnsorted) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"one", "two"}, options);
+
+  ASSERT_OK(Put(1, "foo", "bar"));
+  ASSERT_OK(Put(2, "baz", "xyz"));
+  ASSERT_OK(Put(1, "abc", "def"));
+
+  // Note: keys for the same CF do not form a consecutive range
+  std::vector<int> cfs{1, 2, 1};
+  std::vector<std::string> keys{"foo", "baz", "abc"};
+  std::vector<std::string> values;
+
+  values =
+      MultiGet(cfs, keys, /* snapshot */ nullptr, /* batched */ GetParam());
+
+  ASSERT_EQ(values.size(), 3);
+  ASSERT_EQ(values[0], "bar");
+  ASSERT_EQ(values[1], "xyz");
+  ASSERT_EQ(values[2], "def");
 }
 
 INSTANTIATE_TEST_CASE_P(DBMultiGetTestWithParam, DBMultiGetTestWithParam,
@@ -2571,12 +2604,27 @@ TEST_F(DBBasicTest, ManifestChecksumMismatch) {
   ASSERT_TRUE(s.IsCorruption());
 }
 
+TEST_F(DBBasicTest, ConcurrentlyCloseDB) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  std::vector<std::thread> workers;
+  for (int i = 0; i < 10; i++) {
+    workers.push_back(std::thread([&]() {
+      auto s = db_->Close();
+      ASSERT_OK(s);
+    }));
+  }
+  for (auto& w : workers) {
+    w.join();
+  }
+}
+
 #ifndef ROCKSDB_LITE
 class DBBasicTestTrackWal : public DBTestBase,
                             public testing::WithParamInterface<bool> {
  public:
   DBBasicTestTrackWal()
-      : DBTestBase("/db_basic_test_track_wal", /*env_do_fsync=*/false) {}
+      : DBTestBase("db_basic_test_track_wal", /*env_do_fsync=*/false) {}
 
   int CountWalFiles() {
     VectorLogPtr log_files;
@@ -2734,6 +2782,11 @@ class DBBasicTestMultiGet : public DBTestBase {
         EXPECT_OK(dbfull()->Flush(FlushOptions(), handles_[cf]));
       }
     }
+    // Clear compressed cache, which is always pre-populated
+    if (compressed_cache_) {
+      compressed_cache_->SetCapacity(0);
+      compressed_cache_->SetCapacity(1048576);
+    }
   }
 
   bool CheckValue(int i, const std::string& value) {
@@ -2820,6 +2873,7 @@ class DBBasicTestMultiGet : public DBTestBase {
 
     const char* Name() const override { return "MyBlockCache"; }
 
+    using Cache::Insert;
     Status Insert(const Slice& key, void* value, size_t charge,
                   void (*deleter)(const Slice& key, void* value),
                   Handle** handle = nullptr,
@@ -2828,6 +2882,7 @@ class DBBasicTestMultiGet : public DBTestBase {
       return target_->Insert(key, value, charge, deleter, handle, priority);
     }
 
+    using Cache::Lookup;
     Handle* Lookup(const Slice& key, Statistics* stats = nullptr) override {
       num_lookups_++;
       Handle* handle = target_->Lookup(key, stats);
@@ -3208,13 +3263,11 @@ INSTANTIATE_TEST_CASE_P(ParallelIO, DBBasicTestWithParallelIO,
 // Forward declaration
 class DeadlineFS;
 
-class DeadlineRandomAccessFile : public FSRandomAccessFileWrapper {
+class DeadlineRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
  public:
   DeadlineRandomAccessFile(DeadlineFS& fs,
                            std::unique_ptr<FSRandomAccessFile>& file)
-      : FSRandomAccessFileWrapper(file.get()),
-        fs_(fs),
-        file_(std::move(file)) {}
+      : FSRandomAccessFileOwnerWrapper(std::move(file)), fs_(fs) {}
 
   IOStatus Read(uint64_t offset, size_t len, const IOOptions& opts,
                 Slice* result, char* scratch,
@@ -3242,6 +3295,9 @@ class DeadlineFS : public FileSystemWrapper {
         timedout_(false),
         ignore_deadline_(false),
         error_on_delay_(error_on_delay) {}
+
+  static const char* kClassName() { return "DeadlineFileSystem"; }
+  const char* Name() const override { return kClassName(); }
 
   IOStatus NewRandomAccessFile(const std::string& fname,
                                const FileOptions& opts,
@@ -3803,14 +3859,6 @@ INSTANTIATE_TEST_CASE_P(DBBasicTestDeadline, DBBasicTestDeadline,
                                           std::make_tuple(false, true),
                                           std::make_tuple(true, true)));
 }  // namespace ROCKSDB_NAMESPACE
-
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
-}
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

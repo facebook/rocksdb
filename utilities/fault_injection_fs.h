@@ -22,7 +22,7 @@
 #include <string>
 
 #include "file/filename.h"
-#include "include/rocksdb/file_system.h"
+#include "rocksdb/file_system.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/thread_local.h"
@@ -65,9 +65,9 @@ class TestFSWritableFile : public FSWritableFile {
   virtual ~TestFSWritableFile();
   virtual IOStatus Append(const Slice& data, const IOOptions&,
                           IODebugContext*) override;
-  virtual IOStatus Append(const Slice& data, const IOOptions&,
+  virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           const DataVerificationInfo& verification_info,
-                          IODebugContext*) override;
+                          IODebugContext* dbg) override;
   virtual IOStatus Truncate(uint64_t size, const IOOptions& options,
                             IODebugContext* dbg) override {
     return target_->Truncate(size, options, dbg);
@@ -84,10 +84,8 @@ class TestFSWritableFile : public FSWritableFile {
   }
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& options,
-                            const DataVerificationInfo& /*verification_info*/,
-                            IODebugContext* dbg) override {
-    return PositionedAppend(data, offset, options, dbg);
-  }
+                            const DataVerificationInfo& verification_info,
+                            IODebugContext* dbg) override;
   virtual size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
   }
@@ -140,13 +138,32 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override;
+  IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                     const IOOptions& options, IODebugContext* dbg) override;
   size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
   }
   bool use_direct_io() const override { return target_->use_direct_io(); }
 
+  size_t GetUniqueId(char* id, size_t max_size) const override;
+
  private:
   std::unique_ptr<FSRandomAccessFile> target_;
+  FaultInjectionTestFS* fs_;
+};
+
+class TestFSSequentialFile : public FSSequentialFileOwnerWrapper {
+ public:
+  explicit TestFSSequentialFile(std::unique_ptr<FSSequentialFile>&& f,
+                                FaultInjectionTestFS* fs)
+      : FSSequentialFileOwnerWrapper(std::move(f)), fs_(fs) {}
+  IOStatus Read(size_t n, const IOOptions& options, Slice* result,
+                char* scratch, IODebugContext* dbg) override;
+  IOStatus PositionedRead(uint64_t offset, size_t n, const IOOptions& options,
+                          Slice* result, char* scratch,
+                          IODebugContext* dbg) override;
+
+ private:
   FaultInjectionTestFS* fs_;
 };
 
@@ -159,6 +176,10 @@ class TestFSDirectory : public FSDirectory {
 
   virtual IOStatus Fsync(const IOOptions& options,
                          IODebugContext* dbg) override;
+
+  virtual IOStatus FsyncWithDirOptions(
+      const IOOptions& options, IODebugContext* dbg,
+      const DirFsyncOptions& dir_fsync_options) override;
 
  private:
   FaultInjectionTestFS* fs_;
@@ -174,11 +195,17 @@ class FaultInjectionTestFS : public FileSystemWrapper {
         filesystem_writable_(false),
         thread_local_error_(new ThreadLocalPtr(DeleteThreadLocalErrorContext)),
         enable_write_error_injection_(false),
+        enable_metadata_write_error_injection_(false),
         write_error_rand_(0),
-        ingest_data_corruption_before_write_(false) {}
+        write_error_one_in_(0),
+        metadata_write_error_one_in_(0),
+        read_error_one_in_(0),
+        ingest_data_corruption_before_write_(false),
+        fail_get_file_unique_id_(false) {}
   virtual ~FaultInjectionTestFS() { error_.PermitUncheckedError(); }
 
-  const char* Name() const override { return "FaultInjectionTestFS"; }
+  static const char* kClassName() { return "FaultInjectionTestFS"; }
+  const char* Name() const override { return kClassName(); }
 
   IOStatus NewDirectory(const std::string& name, const IOOptions& options,
                         std::unique_ptr<FSDirectory>* result,
@@ -203,6 +230,9 @@ class FaultInjectionTestFS : public FileSystemWrapper {
                                const FileOptions& file_opts,
                                std::unique_ptr<FSRandomAccessFile>* result,
                                IODebugContext* dbg) override;
+  IOStatus NewSequentialFile(const std::string& f, const FileOptions& file_opts,
+                             std::unique_ptr<FSSequentialFile>* r,
+                             IODebugContext* dbg) override;
 
   virtual IOStatus DeleteFile(const std::string& f, const IOOptions& options,
                               IODebugContext* dbg) override;
@@ -211,13 +241,18 @@ class FaultInjectionTestFS : public FileSystemWrapper {
                               const IOOptions& options,
                               IODebugContext* dbg) override;
 
+  virtual IOStatus LinkFile(const std::string& src, const std::string& target,
+                            const IOOptions& options,
+                            IODebugContext* dbg) override;
+
 // Undef to eliminate clash on Windows
 #undef GetFreeSpace
   virtual IOStatus GetFreeSpace(const std::string& path,
                                 const IOOptions& options, uint64_t* disk_free,
                                 IODebugContext* dbg) override {
     IOStatus io_s;
-    if (!IsFilesystemActive() && error_ == IOStatus::NoSpace()) {
+    if (!IsFilesystemActive() &&
+        error_.subcode() == IOStatus::SubCode::kNoSpace) {
       *disk_free = 0;
     } else {
       io_s = target()->GetFreeSpace(path, options, disk_free, dbg);
@@ -263,6 +298,19 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     MutexLock l(&mutex_);
     return filesystem_writable_;
   }
+  bool ShouldUseDiretWritable(const std::string& file_name) {
+    MutexLock l(&mutex_);
+    if (filesystem_writable_) {
+      return true;
+    }
+    FileType file_type = kTempFile;
+    uint64_t file_number = 0;
+    if (!TryParseFileName(file_name, &file_number, &file_type)) {
+      return false;
+    }
+    return skip_direct_writable_types_.find(file_type) !=
+           skip_direct_writable_types_.end();
+  }
   void SetFilesystemActiveNoLock(
       bool active, IOStatus error = IOStatus::Corruption("Not active")) {
     error.PermitUncheckedError();
@@ -282,7 +330,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     MutexLock l(&mutex_);
     filesystem_writable_ = writable;
   }
-  void AssertNoOpenFile() { assert(open_files_.empty()); }
+  void AssertNoOpenFile() { assert(open_managed_files_.empty()); }
 
   IOStatus GetError() { return error_; }
 
@@ -318,9 +366,21 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     return checksum_handoff_func_tpye_;
   }
 
+  void SetFailGetUniqueId(bool flag) {
+    MutexLock l(&mutex_);
+    fail_get_file_unique_id_ = flag;
+  }
+
+  bool ShouldFailGetUniqueId() {
+    MutexLock l(&mutex_);
+    return fail_get_file_unique_id_;
+  }
+
   // Specify what the operation, so we can inject the right type of error
   enum ErrorOperation : char {
     kRead = 0,
+    kMultiReadSingleReq = 1,
+    kMultiRead = 2,
     kOpen,
   };
 
@@ -351,6 +411,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // want to inject. Types decides the file types we want to inject the
   // error (e.g., Wal files, SST files), which is empty by default.
   void SetRandomWriteError(uint32_t seed, int one_in, IOStatus error,
+                           bool inject_for_all_file_types,
                            const std::vector<FileType>& types) {
     MutexLock l(&mutex_);
     Random tmp_rand(seed);
@@ -358,19 +419,44 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     error_ = error;
     write_error_rand_ = tmp_rand;
     write_error_one_in_ = one_in;
+    inject_for_all_file_types_ = inject_for_all_file_types;
     write_error_allowed_types_ = types;
+  }
+
+  void SetSkipDirectWritableTypes(const std::set<FileType>& types) {
+    MutexLock l(&mutex_);
+    skip_direct_writable_types_ = types;
+  }
+
+  void SetRandomMetadataWriteError(int one_in) {
+    MutexLock l(&mutex_);
+    metadata_write_error_one_in_ = one_in;
+  }
+  // If the value is not 0, it is enabled. Otherwise, it is disabled.
+  void SetRandomReadError(int one_in) { read_error_one_in_ = one_in; }
+
+  bool ShouldInjectRandomReadError() {
+    return read_error_one_in() &&
+           Random::GetTLSInstance()->OneIn(read_error_one_in());
   }
 
   // Inject an write error with randomlized parameter and the predefined
   // error type. Only the allowed file types will inject the write error
   IOStatus InjectWriteError(const std::string& file_name);
 
+  // Ingest error to metadata operations.
+  IOStatus InjectMetadataWriteError();
+
   // Inject an error. For a READ operation, a status of IOError(), a
   // corruption in the contents of scratch, or truncation of slice
   // are the types of error with equal probability. For OPEN,
   // its always an IOError.
-  IOStatus InjectError(ErrorOperation op, Slice* slice,
-                       bool direct_io, char* scratch);
+  // fault_injected returns whether a fault is injected. It is needed
+  // because some fault is inected with IOStatus to be OK.
+  IOStatus InjectThreadSpecificReadError(ErrorOperation op, Slice* slice,
+                                         bool direct_io, char* scratch,
+                                         bool need_count_increase,
+                                         bool* fault_injected);
 
   // Get the count of how many times we injected since the previous call
   int GetAndResetErrorCount() {
@@ -396,6 +482,10 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     MutexLock l(&mutex_);
     enable_write_error_injection_ = true;
   }
+  void EnableMetadataWriteErrorInjection() {
+    MutexLock l(&mutex_);
+    enable_metadata_write_error_injection_ = true;
+  }
 
   void DisableWriteErrorInjection() {
     MutexLock l(&mutex_);
@@ -410,6 +500,13 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     }
   }
 
+  void DisableMetadataWriteErrorInjection() {
+    MutexLock l(&mutex_);
+    enable_metadata_write_error_injection_ = false;
+  }
+
+  int read_error_one_in() const { return read_error_one_in_.load(); }
+
   // We capture a backtrace every time a fault is injected, for debugging
   // purposes. This call prints the backtrace to stderr and frees the
   // saved callstack
@@ -418,8 +515,12 @@ class FaultInjectionTestFS : public FileSystemWrapper {
  private:
   port::Mutex mutex_;
   std::map<std::string, FSFileState> db_file_state_;
-  std::set<std::string> open_files_;
-  std::unordered_map<std::string, std::set<std::string>>
+  std::set<std::string> open_managed_files_;
+  // directory -> (file name -> file contents to recover)
+  // When data is recovered from unsyned parent directory, the files with
+  // empty file contents to recover is deleted. Those with non-empty ones
+  // will be recovered to content accordingly.
+  std::unordered_map<std::string, std::map<std::string, std::string>>
       dir_to_new_files_since_last_sync_;
   bool filesystem_active_;  // Record flushes, syncs, writes
   bool filesystem_writable_;  // Bypass FaultInjectionTestFS and go directly
@@ -439,6 +540,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     int count;
     bool enable_error_injection;
     void* callstack;
+    std::string message;
     int frames;
     ErrorType type;
 
@@ -456,11 +558,23 @@ class FaultInjectionTestFS : public FileSystemWrapper {
 
   std::unique_ptr<ThreadLocalPtr> thread_local_error_;
   bool enable_write_error_injection_;
+  bool enable_metadata_write_error_injection_;
   Random write_error_rand_;
   int write_error_one_in_;
+  int metadata_write_error_one_in_;
+  std::atomic<int> read_error_one_in_;
+  bool inject_for_all_file_types_;
   std::vector<FileType> write_error_allowed_types_;
+  // File types where direct writable is skipped.
+  std::set<FileType> skip_direct_writable_types_;
   bool ingest_data_corruption_before_write_;
   ChecksumType checksum_handoff_func_tpye_;
+  bool fail_get_file_unique_id_;
+
+  // Extract number of type from file name. Return false if failing to fine
+  // them.
+  bool TryParseFileName(const std::string& file_name, uint64_t* number,
+                        FileType* type);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

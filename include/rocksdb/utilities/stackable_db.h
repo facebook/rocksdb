@@ -357,6 +357,12 @@ class StackableDB : public DB {
     return db_->GetLiveFilesChecksumInfo(checksum_list);
   }
 
+  virtual Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& opts,
+      std::vector<LiveFileStorageInfo>* files) override {
+    return db_->GetLiveFilesStorageInfo(opts, files);
+  }
+
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                        ColumnFamilyMetaData* cf_meta) override {
     db_->GetColumnFamilyMetaData(column_family, cf_meta);
@@ -389,6 +395,13 @@ class StackableDB : public DB {
 
   using DB::EndTrace;
   Status EndTrace() override { return db_->EndTrace(); }
+
+  using DB::NewDefaultReplayer;
+  Status NewDefaultReplayer(const std::vector<ColumnFamilyHandle*>& handles,
+                            std::unique_ptr<TraceReader>&& reader,
+                            std::unique_ptr<Replayer>* replayer) override {
+    return db_->NewDefaultReplayer(handles, std::move(reader), replayer);
+  }
 
 #endif  // ROCKSDB_LITE
 

@@ -15,7 +15,7 @@ namespace ROCKSDB_NAMESPACE {
 class PeriodicWorkSchedulerTest : public DBTestBase {
  public:
   PeriodicWorkSchedulerTest()
-      : DBTestBase("/periodic_work_scheduler_test", /*env_do_fsync=*/true) {
+      : DBTestBase("periodic_work_scheduler_test", /*env_do_fsync=*/true) {
     mock_clock_ = std::make_shared<MockSystemClock>(env_->GetSystemClock());
     mock_env_.reset(new CompositeEnvWrapper(env_, mock_clock_));
   }

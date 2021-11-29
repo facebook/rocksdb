@@ -108,6 +108,7 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
 }
 
 bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
+                                          RandomAccessFileReader* reader,
                                           uint64_t offset, size_t n,
                                           Slice* result, Status* status,
                                           bool for_compaction) {
@@ -124,15 +125,32 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
   //    If readahead is not enabled: return false.
   if (offset + n > buffer_offset_ + buffer_.CurrentSize()) {
     if (readahead_size_ > 0) {
-      assert(file_reader_ != nullptr);
+      assert(reader != nullptr);
       assert(max_readahead_size_ >= readahead_size_);
       Status s;
       if (for_compaction) {
-        s = Prefetch(opts, file_reader_, offset, std::max(n, readahead_size_),
+        s = Prefetch(opts, reader, offset, std::max(n, readahead_size_),
                      for_compaction);
       } else {
-        s = Prefetch(opts, file_reader_, offset, n + readahead_size_,
-                     for_compaction);
+        if (implicit_auto_readahead_) {
+          // Prefetch only if this read is sequential otherwise reset
+          // readahead_size_ to initial value.
+          if (!IsBlockSequential(offset)) {
+            UpdateReadPattern(offset, n);
+            ResetValues();
+            // Ignore status as Prefetch is not called.
+            s.PermitUncheckedError();
+            return false;
+          }
+          num_file_reads_++;
+          if (num_file_reads_ <= kMinNumFileReadsToStartAutoReadahead) {
+            UpdateReadPattern(offset, n);
+            // Ignore status as Prefetch is not called.
+            s.PermitUncheckedError();
+            return false;
+          }
+        }
+        s = Prefetch(opts, reader, offset, n + readahead_size_, for_compaction);
       }
       if (!s.ok()) {
         if (status) {
@@ -143,12 +161,14 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
 #endif
         return false;
       }
+      TEST_SYNC_POINT_CALLBACK("FilePrefetchBuffer::TryReadFromCache",
+                               &readahead_size_);
       readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
     } else {
       return false;
     }
   }
-
+  UpdateReadPattern(offset, n);
   uint64_t offset_in_buffer = offset - buffer_offset_;
   *result = Slice(buffer_.BufferStart() + offset_in_buffer, n);
   return true;
