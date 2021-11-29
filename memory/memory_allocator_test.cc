@@ -117,6 +117,7 @@ TEST_P(MemoryAllocatorTest, DatabaseBlockCache) {
   // Close database
   s = db->Close();
   ASSERT_OK(s);
+  delete db;
   ASSERT_OK(DestroyDB(dbname, options));
 }
 
