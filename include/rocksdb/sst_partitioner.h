@@ -93,7 +93,7 @@ class SstPartitionerFactory : public Customizable {
       const SstPartitioner::Context& context) const = 0;
 
   // Returns a name that identifies this partitioner factory.
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
 };
 
 /*
