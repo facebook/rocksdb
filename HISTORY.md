@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.27.1 (2021-11-29)
 ### Bug Fixes
 * Fixed a bug that could, with WAL enabled, cause backups, checkpoints, and `GetSortedWalFiles()` to fail randomly with an error like `IO error: 001234.log: No such file or directory`
 
