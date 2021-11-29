@@ -2575,7 +2575,7 @@ public class RocksDB extends RocksObject {
    * do not match.
    */
   public List<ByteBufferGetStatus> multiGetByteBuffers(final ReadOptions readOptions,
-                                                       final List<ByteBuffer> keys, final List<ByteBuffer> values) throws RocksDBException {
+      final List<ByteBuffer> keys, final List<ByteBuffer> values) throws RocksDBException {
     final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>(1);
     columnFamilyHandleList.add(getDefaultColumnFamily());
     return multiGetByteBuffers(readOptions, columnFamilyHandleList, keys, values);
@@ -2620,8 +2620,8 @@ public class RocksDB extends RocksObject {
    * passed column family handles do not match.
    */
   public List<ByteBufferGetStatus> multiGetByteBuffers(final ReadOptions readOptions,
-                                                       final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
-                                                       final List<ByteBuffer> values) throws RocksDBException {
+      final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
+      final List<ByteBuffer> values) throws RocksDBException {
     assert (keys.size() != 0);
 
     // Check if key size equals cfList size. If not a exception must be

@@ -5,14 +5,13 @@
 
 package org.rocksdb.util;
 
-import org.rocksdb.CompactionPriority;
-import org.rocksdb.Options;
-import org.rocksdb.WALRecoveryMode;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 import java.nio.ByteBuffer;
 import java.util.Random;
-
-import static java.nio.charset.StandardCharsets.UTF_8;
+import org.rocksdb.CompactionPriority;
+import org.rocksdb.Options;
+import org.rocksdb.WALRecoveryMode;
 
 /**
  * General test utilities.

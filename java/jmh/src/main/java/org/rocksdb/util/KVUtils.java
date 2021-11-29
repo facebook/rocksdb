@@ -6,11 +6,11 @@
  */
 package org.rocksdb.util;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
-
-import static java.nio.charset.StandardCharsets.UTF_8;
 
 public final class KVUtils {
 
@@ -57,7 +57,8 @@ public final class KVUtils {
     return keys;
   }
 
-  public static List<ByteBuffer> keys(final List<ByteBuffer> keyBuffers, final int from, final int to) {
+  public static List<ByteBuffer> keys(
+      final List<ByteBuffer> keyBuffers, final int from, final int to) {
     final List<ByteBuffer> keys = new ArrayList<>(to - from);
     for (int i = from; i < to; i++) {
       final ByteBuffer key = keyBuffers.get(i);

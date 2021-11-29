@@ -6,12 +6,8 @@
  */
 package org.rocksdb.jmh;
 
-import org.openjdk.jmh.annotations.*;
-import org.openjdk.jmh.runner.Runner;
-import org.openjdk.jmh.runner.RunnerException;
-import org.openjdk.jmh.runner.options.OptionsBuilder;
-import org.rocksdb.*;
-import org.rocksdb.util.FileUtils;
+import static org.rocksdb.util.KVUtils.ba;
+import static org.rocksdb.util.KVUtils.keys;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -21,13 +17,15 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.rocksdb.util.KVUtils.ba;
-import static org.rocksdb.util.KVUtils.keys;
+import org.openjdk.jmh.annotations.*;
+import org.openjdk.jmh.runner.Runner;
+import org.openjdk.jmh.runner.RunnerException;
+import org.openjdk.jmh.runner.options.OptionsBuilder;
+import org.rocksdb.*;
+import org.rocksdb.util.FileUtils;
 
 @State(Scope.Thread)
 public class MultiGetBenchmarks {
-
   @Param({
       "no_column_family",
       "1_column_family",
@@ -36,8 +34,7 @@ public class MultiGetBenchmarks {
   })
   String columnFamilyTestType;
 
-  @Param({"10000", "25000", "100000"})
-  int keyCount;
+  @Param({"10000", "25000", "100000"}) int keyCount;
 
   @Param({
           "10",
@@ -164,7 +161,8 @@ public class MultiGetBenchmarks {
   List<ByteBuffer> valueBuffersList;
   List<ByteBuffer> keyBuffersList;
 
-  @Setup public void allocateSliceBuffers() {
+  @Setup
+  public void allocateSliceBuffers() {
     keysBuffer = ByteBuffer.allocateDirect(keyCount * valueSize);
     valuesBuffer = ByteBuffer.allocateDirect(keyCount * valueSize);
     valueBuffersList = new ArrayList<>();
@@ -177,7 +175,8 @@ public class MultiGetBenchmarks {
     }
   }
 
-  @TearDown public void freeSliceBuffers() {
+  @TearDown
+  public void freeSliceBuffers() {
     valueBuffersList.clear();
   }
 
@@ -187,8 +186,9 @@ public class MultiGetBenchmarks {
     if (fromKeyIdx >= 0) {
       final List<byte[]> keys = keys(fromKeyIdx, fromKeyIdx + multiGetSize);
       final List<byte[]> valueResults = db.multiGetAsList(keys);
-      for (final byte[] result: valueResults) {
-        if (result.length != valueSize) throw new RuntimeException("Test valueSize assumption wrong");
+      for (final byte[] result : valueResults) {
+        if (result.length != valueSize)
+          throw new RuntimeException("Test valueSize assumption wrong");
       }
     }
     return new ArrayList<>();
@@ -199,10 +199,13 @@ public class MultiGetBenchmarks {
     final int fromKeyIdx = next(multiGetSize, keyCount);
     if (fromKeyIdx >= 0) {
       final List<ByteBuffer> keys = keys(keyBuffersList, fromKeyIdx, fromKeyIdx + multiGetSize);
-      final List<RocksDB.MultiGetInstance> results = db.multiGetByteBuffers(keys, valueBuffersList.subList(fromKeyIdx, fromKeyIdx + multiGetSize));
-      for (final RocksDB.MultiGetInstance result: results) {
-        if (result.status.getCode() != Status.Code.Ok) throw new RuntimeException("Test status assumption wrong");
-        if (result.valueSize != valueSize) throw new RuntimeException("Test valueSize assumption wrong");
+      final List<RocksDB.MultiGetInstance> results = db.multiGetByteBuffers(
+          keys, valueBuffersList.subList(fromKeyIdx, fromKeyIdx + multiGetSize));
+      for (final RocksDB.MultiGetInstance result : results) {
+        if (result.status.getCode() != Status.Code.Ok)
+          throw new RuntimeException("Test status assumption wrong");
+        if (result.valueSize != valueSize)
+          throw new RuntimeException("Test valueSize assumption wrong");
       }
       return results;
     }
@@ -210,18 +213,19 @@ public class MultiGetBenchmarks {
   }
 
   public static void main(final String[] args) throws RunnerException {
-    final org.openjdk.jmh.runner.options.Options opt = new OptionsBuilder()
-        .include(MultiGetBenchmarks.class.getSimpleName())
-        .forks(1)
-        .jvmArgs("-ea")
-        .warmupIterations(1)
-        .measurementIterations(2)
-        .forks(2)
-        .param("columnFamilyTestType=", "1_column_family")
-        .param("multiGetSize=", "10", "1000")
-        .param("keyCount=", "1000")
-        .output("jmh_output")
-        .build();
+    final org.openjdk.jmh.runner.options.Options opt =
+        new OptionsBuilder()
+            .include(MultiGetBenchmarks.class.getSimpleName())
+            .forks(1)
+            .jvmArgs("-ea")
+            .warmupIterations(1)
+            .measurementIterations(2)
+            .forks(2)
+            .param("columnFamilyTestType=", "1_column_family")
+            .param("multiGetSize=", "10", "1000")
+            .param("keyCount=", "1000")
+            .output("jmh_output")
+            .build();
 
     new Runner(opt).run();
   }

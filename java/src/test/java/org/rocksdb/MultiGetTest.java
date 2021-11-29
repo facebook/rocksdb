@@ -49,7 +49,7 @@ public class MultiGetTest {
       keys.add(ByteBuffer.allocateDirect(12).put("key2".getBytes()));
       keys.add(ByteBuffer.allocateDirect(12).put("key3".getBytes()));
       // Java8 and lower flip() returns Buffer not ByteBuffer, so can't chain above /\/\
-      for (final ByteBuffer key: keys) {
+      for (final ByteBuffer key : keys) {
         key.flip();
       }
       final List<ByteBuffer> values = new ArrayList<>();
@@ -68,9 +68,12 @@ public class MultiGetTest {
         assertThat(results.get(1).requiredSize).isEqualTo("value2ForKey2".getBytes().length);
         assertThat(results.get(2).requiredSize).isEqualTo("value3ForKey3".getBytes().length);
 
-        assertThat(TestUtil.bufferBytes(results.get(0).value)).isEqualTo("value1ForKey1".getBytes());
-        assertThat(TestUtil.bufferBytes(results.get(1).value)).isEqualTo("value2ForKey2".getBytes());
-        assertThat(TestUtil.bufferBytes(results.get(2).value)).isEqualTo("value3ForKey3".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(0).value))
+            .isEqualTo("value1ForKey1".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(1).value))
+            .isEqualTo("value2ForKey2".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(2).value))
+            .isEqualTo("value3ForKey3".getBytes());
       }
 
       {
@@ -85,9 +88,12 @@ public class MultiGetTest {
         assertThat(results.get(1).requiredSize).isEqualTo("value2ForKey2".getBytes().length);
         assertThat(results.get(2).requiredSize).isEqualTo("value3ForKey3".getBytes().length);
 
-        assertThat(TestUtil.bufferBytes(results.get(0).value)).isEqualTo("value1ForKey1".getBytes());
-        assertThat(TestUtil.bufferBytes(results.get(1).value)).isEqualTo("value2ForKey2".getBytes());
-        assertThat(TestUtil.bufferBytes(results.get(2).value)).isEqualTo("value3ForKey3".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(0).value))
+            .isEqualTo("value1ForKey1".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(1).value))
+            .isEqualTo("value2ForKey2".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(2).value))
+            .isEqualTo("value3ForKey3".getBytes());
       }
     }
   }
@@ -103,9 +109,10 @@ public class MultiGetTest {
       final List<ByteBuffer> keys = new ArrayList<>();
       keys.add(ByteBuffer.allocateDirect(12).put("key2".getBytes()));
       keys.add(ByteBuffer.allocateDirect(12).put("key3".getBytes()));
-      keys.add(ByteBuffer.allocateDirect(12).put("prefix1".getBytes()).slice().put("key1".getBytes()));
+      keys.add(
+          ByteBuffer.allocateDirect(12).put("prefix1".getBytes()).slice().put("key1".getBytes()));
       // Java8 and lower flip() returns Buffer not ByteBuffer, so can't chain above /\/\
-      for (final ByteBuffer key: keys) {
+      for (final ByteBuffer key : keys) {
         key.flip();
       }
       final List<ByteBuffer> values = new ArrayList<>();
@@ -124,9 +131,12 @@ public class MultiGetTest {
         assertThat(results.get(2).requiredSize).isEqualTo("value3ForKey3".getBytes().length);
         assertThat(results.get(0).requiredSize).isEqualTo("value1ForKey1".getBytes().length);
 
-        assertThat(TestUtil.bufferBytes(results.get(0).value)).isEqualTo("value2ForKey2".getBytes());
-        assertThat(TestUtil.bufferBytes(results.get(1).value)).isEqualTo("value3ForKey3".getBytes());
-        assertThat(TestUtil.bufferBytes(results.get(2).value)).isEqualTo("value1ForKey1".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(0).value))
+            .isEqualTo("value2ForKey2".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(1).value))
+            .isEqualTo("value3ForKey3".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(2).value))
+            .isEqualTo("value1ForKey1".getBytes());
       }
     }
   }
@@ -144,7 +154,7 @@ public class MultiGetTest {
       keys.add(ByteBuffer.allocateDirect(12).put("key2".getBytes()));
       keys.add(ByteBuffer.allocateDirect(12).put("key3".getBytes()));
       // Java8 and lower flip() returns Buffer not ByteBuffer, so can't chain above /\/\
-      for (final ByteBuffer key: keys) {
+      for (final ByteBuffer key : keys) {
         key.flip();
       }
 
@@ -195,7 +205,7 @@ public class MultiGetTest {
       keys.add(ByteBuffer.allocateDirect(12).put("key2".getBytes()));
       keys.add(ByteBuffer.allocateDirect(12).put("key3".getBytes()));
       // Java8 and lower flip() returns Buffer not ByteBuffer, so can't chain above /\/\
-      for (final ByteBuffer key: keys) {
+      for (final ByteBuffer key : keys) {
         key.flip();
       }
 
@@ -207,10 +217,11 @@ public class MultiGetTest {
 
         final List<ByteBufferGetStatus> statii = db.multiGetByteBuffers(keys, values);
         assertThat(statii.size()).isEqualTo(values.size());
-        for (final ByteBufferGetStatus status: statii) {
+        for (final ByteBufferGetStatus status : statii) {
           assertThat(status.status.getCode()).isEqualTo(Status.Code.Ok);
           assertThat(status.requiredSize).isEqualTo("value3ForKey3".getBytes().length);
-          final ByteBuffer expected = ByteBuffer.allocateDirect(24).put(Arrays.copyOf("valueX".getBytes(), 4));
+          final ByteBuffer expected =
+              ByteBuffer.allocateDirect(24).put(Arrays.copyOf("valueX".getBytes(), 4));
           expected.flip();
           assertThat(status.value).isEqualTo(expected);
         }
@@ -238,7 +249,7 @@ public class MultiGetTest {
       keys.add(ByteBuffer.allocateDirect(12).put("key2".getBytes()));
       keys.add(ByteBuffer.allocateDirect(12).put("key3".getBytes()));
       // Java8 and lower flip() returns Buffer not ByteBuffer, so can't chain above /\/\
-      for (final ByteBuffer key: keys) {
+      for (final ByteBuffer key : keys) {
         key.flip();
       }
       final List<ByteBuffer> values = new ArrayList<>();
@@ -268,9 +279,12 @@ public class MultiGetTest {
         assertThat(results.get(1).requiredSize).isEqualTo("value2ForKey2".getBytes().length);
         assertThat(results.get(2).requiredSize).isEqualTo("value3ForKey3".getBytes().length);
 
-        assertThat(TestUtil.bufferBytes(results.get(0).value)).isEqualTo("value1ForKey1".getBytes());
-        assertThat(TestUtil.bufferBytes(results.get(1).value)).isEqualTo("value2ForKey2".getBytes());
-        assertThat(TestUtil.bufferBytes(results.get(2).value)).isEqualTo("value3ForKey3".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(0).value))
+            .isEqualTo("value1ForKey1".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(1).value))
+            .isEqualTo("value2ForKey2".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(2).value))
+            .isEqualTo("value3ForKey3".getBytes());
       }
 
       {
@@ -289,9 +303,12 @@ public class MultiGetTest {
         assertThat(results.get(1).requiredSize).isEqualTo("value2ForKey2".getBytes().length);
         assertThat(results.get(2).requiredSize).isEqualTo("value3ForKey3".getBytes().length);
 
-        assertThat(TestUtil.bufferBytes(results.get(0).value)).isEqualTo("value1ForKey1".getBytes());
-        assertThat(TestUtil.bufferBytes(results.get(1).value)).isEqualTo("value2ForKey2".getBytes());
-        assertThat(TestUtil.bufferBytes(results.get(2).value)).isEqualTo("value3ForKey3".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(0).value))
+            .isEqualTo("value1ForKey1".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(1).value))
+            .isEqualTo("value2ForKey2".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(2).value))
+            .isEqualTo("value3ForKey3".getBytes());
       }
     }
   }
@@ -313,7 +330,7 @@ public class MultiGetTest {
       keys.add(ByteBuffer.allocateDirect(12).put("key2".getBytes()));
       keys.add(ByteBuffer.allocateDirect(12).put("key3".getBytes()));
       // Java8 and lower flip() returns Buffer not ByteBuffer, so can't chain above /\/\
-      for (final ByteBuffer key: keys) {
+      for (final ByteBuffer key : keys) {
         key.flip();
       }
       final List<ByteBuffer> values = new ArrayList<>();
@@ -367,7 +384,7 @@ public class MultiGetTest {
       keys.add(ByteBuffer.allocateDirect(12).put("key2".getBytes()));
       keys.add(ByteBuffer.allocateDirect(12).put("key3".getBytes()));
       // Java8 and lower flip() returns Buffer not ByteBuffer, so can't chain above /\/\
-      for (final ByteBuffer key: keys) {
+      for (final ByteBuffer key : keys) {
         key.flip();
       }
       final List<ByteBuffer> values = new ArrayList<>();
@@ -388,7 +405,8 @@ public class MultiGetTest {
 
         assertThat(results.get(1).requiredSize).isEqualTo("value2ForKey2".getBytes().length);
 
-        assertThat(TestUtil.bufferBytes(results.get(1).value)).isEqualTo("value2ForKey2".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(1).value))
+            .isEqualTo("value2ForKey2".getBytes());
       }
 
       {
@@ -404,7 +422,8 @@ public class MultiGetTest {
 
         assertThat(results.get(0).requiredSize).isEqualTo("value2ForKey2".getBytes().length);
 
-        assertThat(TestUtil.bufferBytes(results.get(0).value)).isEqualTo("value1ForKey1".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(0).value))
+            .isEqualTo("value1ForKey1".getBytes());
       }
 
       {
@@ -424,9 +443,12 @@ public class MultiGetTest {
         assertThat(results.get(1).requiredSize).isEqualTo("value2ForKey2".getBytes().length);
         assertThat(results.get(2).requiredSize).isEqualTo("value3ForKey3".getBytes().length);
 
-        assertThat(TestUtil.bufferBytes(results.get(0).value)).isEqualTo("value1ForKey1".getBytes());
-        assertThat(TestUtil.bufferBytes(results.get(1).value)).isEqualTo("value2ForKey2".getBytes());
-        assertThat(TestUtil.bufferBytes(results.get(2).value)).isEqualTo("value3ForKey3".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(0).value))
+            .isEqualTo("value1ForKey1".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(1).value))
+            .isEqualTo("value2ForKey2".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(2).value))
+            .isEqualTo("value3ForKey3".getBytes());
       }
 
       {
@@ -444,7 +466,8 @@ public class MultiGetTest {
 
         assertThat(results.get(2).requiredSize).isEqualTo("value3ForKey3".getBytes().length);
 
-        assertThat(TestUtil.bufferBytes(results.get(2).value)).isEqualTo("value3ForKey3".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(2).value))
+            .isEqualTo("value3ForKey3".getBytes());
       }
     }
   }
@@ -467,7 +490,7 @@ public class MultiGetTest {
       keys.add(ByteBuffer.allocateDirect(12).put("key2".getBytes()));
       keys.add(ByteBuffer.allocateDirect(12).put("key3".getBytes()));
       // Java8 and lower flip() returns Buffer not ByteBuffer, so can't chain above /\/\
-      for (final ByteBuffer key: keys) {
+      for (final ByteBuffer key : keys) {
         key.flip();
       }
       final List<ByteBuffer> values = new ArrayList<>();
@@ -490,10 +513,12 @@ public class MultiGetTest {
             .isEqualTo("value2ForKey2WithLotsOfTrailingGarbage".getBytes().length);
         assertThat(results.get(2).requiredSize).isEqualTo("value3ForKey3".getBytes().length);
 
-        assertThat(TestUtil.bufferBytes(results.get(0).value)).isEqualTo("value1ForKey1".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(0).value))
+            .isEqualTo("value1ForKey1".getBytes());
         assertThat(TestUtil.bufferBytes(results.get(1).value))
             .isEqualTo("valu e2Fo rKey 2Wit hLot sOfT".replace(" ", "").getBytes());
-        assertThat(TestUtil.bufferBytes(results.get(2).value)).isEqualTo("value3ForKey3".getBytes());
+        assertThat(TestUtil.bufferBytes(results.get(2).value))
+            .isEqualTo("value3ForKey3".getBytes());
       }
     }
   }
