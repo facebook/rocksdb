@@ -89,7 +89,7 @@ TEST_P(MemoryAllocatorTest, DatabaseBlockCache) {
   Status s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
   ASSERT_NE(db, nullptr);
-  ASSERT_LE(cache->GetUsage(), 100);  // Cache will contain stats
+  ASSERT_LE(cache->GetUsage(), 104);  // Cache will contain stats
 
   // Write 2kB (200 values, each 10 bytes)
   int num_keys = 200;
