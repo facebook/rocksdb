@@ -45,7 +45,7 @@
 constexpr bool kMustFreeHeapAllocations = true;
 #else
 #define STATIC_AVOID_DESTRUCTION(Type, name) static Type& name = *new Type
-constexpr bool kMustFreeHeapAllocations = true;
+constexpr bool kMustFreeHeapAllocations = false;
 #endif
 
 // TSAN (Thread sanitizer)
