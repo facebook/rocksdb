@@ -251,14 +251,14 @@ jint Java_org_rocksdb_SstFileReaderIterator_valueDirect0(
  * Signature: (J[BII)I
  */
 jint Java_org_rocksdb_SstFileReaderIterator_valueByteArray0(
-    JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jvalue,
+    JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jvalue_target,
     jint jvalue_off, jint jvalue_len) {
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
   ROCKSDB_NAMESPACE::Slice value_slice = it->value();
   jsize copy_size = std::min(static_cast<uint32_t>(value_slice.size()),
                              static_cast<uint32_t>(jvalue_len));
   env->SetByteArrayRegion(
-      jvalue, jvalue_off, copy_size,
+      jvalue_target, jvalue_off, copy_size,
       const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value_slice.data())));
 
   return static_cast<jsize>(value_slice.size());
