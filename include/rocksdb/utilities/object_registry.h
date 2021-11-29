@@ -42,7 +42,7 @@ using RegistrarFunc = std::function<int(ObjectLibrary&, const std::string&)>;
 // The signature of the function for loading plugins
 // Plugin contains the struct of properties associated with this Plugin.
 // Plugin is passed to the PluginFunc and the fields should be initalized
-// by the Plugin code.
+// by the Plugin.
 // On success, this function should return 0.  On failure, this function should
 // return non-zero and set the std::string* to an appropriate error message.
 using PluginFunc = std::function<int(Plugin*, std::string*)>;

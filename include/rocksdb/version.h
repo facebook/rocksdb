@@ -21,26 +21,6 @@
 #define __ROCKSDB_PATCH__ ROCKSDB_PATCH
 
 namespace ROCKSDB_NAMESPACE {
-// Structure containing the values that represent a RocksDB version
-struct RocksVersion {
-  uint8_t major = ROCKSDB_MAJOR;
-  uint8_t minor = ROCKSDB_MINOR;
-  uint8_t patch = ROCKSDB_PATCH;
-
-  // Compares the current version to "other" version returning:
-  //   > 0, if the "other" version is older than the current one;
-  //   < 0, if the "other" version is newer than the current one;
-  //   = 0, if the versions are equivalent.
-  // If "with_patch" is false, only the major and minor versions are compared;
-  // If "with_patch" is true, the patch version is also compared.
-  int Compare(const RocksVersion& other, bool with_patch = false) const;
-
-  // Converts the version to a string of the form major.minor.patch.
-  // If with_patch is true, the patch release info is included;
-  // If with_patch is false, only the major and minor version is returned
-  std::string AsString(bool with_patch = true) const;
-};
-
 // Returns a set of properties indicating how/when/where this version of RocksDB
 // was created.
 const std::unordered_map<std::string, std::string>& GetRocksBuildProperties();
