@@ -78,6 +78,11 @@ Status MemoryAllocator::CreateFromString(
   std::call_once(once, [&]() {
     RegisterBuiltinAllocators(*(ObjectLibrary::Default().get()), "");
   });
+#else
+  if (value == DefaultMemoryAllocator::kClassName()) {
+    result->reset(new DefaultMemoryAllocator());
+    return Status::OK();
+  }
 #endif  // ROCKSDB_LITE
   ConfigOptions copy = options;
   copy.invoke_prepare_options = true;

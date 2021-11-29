@@ -82,7 +82,7 @@ class JemallocNodumpAllocator : public BaseMemoryAllocator {
   static std::atomic<extent_alloc_t*> original_alloc_;
 
   // Custom hooks has to outlive corresponding arena.
-  const std::unique_ptr<extent_hooks_t> arena_hooks_;
+  std::unique_ptr<extent_hooks_t> arena_hooks_;
 
   // Hold thread-local tcache index.
   ThreadLocalPtr tcache_;

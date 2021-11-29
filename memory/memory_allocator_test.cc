@@ -62,9 +62,11 @@ TEST_P(MemoryAllocatorTest, CreateAllocator) {
   } else {
     ASSERT_OK(s);
     ASSERT_NE(orig, nullptr);
+#ifndef ROCKSDB_LITE
     std::string str = orig->ToString(config_options);
     ASSERT_OK(MemoryAllocator::CreateFromString(config_options, str, &copy));
     ASSERT_EQ(orig, copy);
+#endif  // ROCKSDB_LITE
   }
 }
 
