@@ -56,16 +56,12 @@ public class SstFileReaderTest {
   @Parameterized.Parameters(name = "{0}")
   public static Iterable<Object[]> parameters() {
     return Arrays.asList(new Object[][] {
-        { "direct", ByteBufferAllocator.DIRECT },
-        { "indirect", ByteBufferAllocator.INDIRECT }
-    });
+        {"direct", ByteBufferAllocator.DIRECT}, {"indirect", ByteBufferAllocator.INDIRECT}});
   }
 
-  @Parameterized.Parameter(0)
-  public String name;
+  @Parameterized.Parameter(0) public String name;
 
-  @Parameterized.Parameter(1)
-  public ByteBufferAllocator byteBufferAllocator;
+  @Parameterized.Parameter(1) public ByteBufferAllocator byteBufferAllocator;
 
   enum OpType { PUT, PUT_BYTES, MERGE, MERGE_BYTES, DELETE, DELETE_BYTES }
 

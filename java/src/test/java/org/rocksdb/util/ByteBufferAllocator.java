@@ -9,7 +9,7 @@ public interface ByteBufferAllocator {
   ByteBufferAllocator INDIRECT = new IndirectByteBufferAllocator();
 
   final class DirectByteBufferAllocator implements ByteBufferAllocator {
-    private DirectByteBufferAllocator() {};
+    private DirectByteBufferAllocator(){};
 
     @Override
     public ByteBuffer allocate(final int capacity) {
@@ -18,7 +18,7 @@ public interface ByteBufferAllocator {
   }
 
   final class IndirectByteBufferAllocator implements ByteBufferAllocator {
-    private IndirectByteBufferAllocator() {};
+    private IndirectByteBufferAllocator(){};
 
     @Override
     public ByteBuffer allocate(final int capacity) {

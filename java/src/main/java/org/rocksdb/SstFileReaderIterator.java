@@ -60,7 +60,8 @@ public class SstFileReaderIterator extends AbstractRocksIterator<SstFileReader> 
     if (key.isDirect()) {
       result = keyDirect0(nativeHandle_, key, key.position(), key.remaining());
     } else {
-      result = keyByteArray0(nativeHandle_, key.array(), key.arrayOffset() + key.position(), key.remaining());
+      result = keyByteArray0(
+          nativeHandle_, key.array(), key.arrayOffset() + key.position(), key.remaining());
     }
     key.limit(Math.min(key.position() + result, key.limit()));
     return result;
@@ -100,7 +101,8 @@ public class SstFileReaderIterator extends AbstractRocksIterator<SstFileReader> 
     if (value.isDirect()) {
       result = valueDirect0(nativeHandle_, value, value.position(), value.remaining());
     } else {
-      result = valueByteArray0(nativeHandle_, value.array(), value.arrayOffset() + value.position(), value.remaining());
+      result = valueByteArray0(
+          nativeHandle_, value.array(), value.arrayOffset() + value.position(), value.remaining());
     }
     value.limit(Math.min(value.position() + result, value.limit()));
     return result;
@@ -135,5 +137,4 @@ public class SstFileReaderIterator extends AbstractRocksIterator<SstFileReader> 
   private native int keyByteArray0(long handle, byte[] buffer, int bufferOffset, int bufferLen);
   private native int valueDirect0(long handle, ByteBuffer buffer, int bufferOffset, int bufferLen);
   private native int valueByteArray0(long handle, byte[] buffer, int bufferOffset, int bufferLen);
-
 }
