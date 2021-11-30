@@ -293,18 +293,6 @@ public class TableProperties {
   }
 
   /**
-   * Get the  offset of the value of the property
-   * "external sst file global seqno" in the file
-   * if the property exists.
-   *
-   * @return the offset of the property
-   * "external sst file global seqno" or 0 if not exists
-   */
-  public Long getExternalSstFileGlobalSeqnoOffset() {
-    return externalSstFileGlobalSeqnoOffset;
-  }
-
-  /**
    * Get the name of the column family with which this
    * SST file is associated.
    *
