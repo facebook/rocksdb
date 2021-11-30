@@ -612,11 +612,20 @@ static std::unordered_map<std::string, OptionTypeInfo> inner_option_info = {
 #endif  // ROCKSDB_LITE
 };
 
+struct InnerOptions {
+  static const char* kName() { return "InnerOptions"; }
+  std::shared_ptr<Customizable> inner;
+};
+
 class InnerCustomizable : public Customizable {
  public:
-  explicit InnerCustomizable(const std::shared_ptr<Customizable>& w)
-      : inner_(w) {}
+  explicit InnerCustomizable(const std::shared_ptr<Customizable>& w) {
+    iopts_.inner = w;
+    RegisterOptions(&iopts_, &inner_option_info);
+  }
   static const char* kClassName() { return "Inner"; }
+  const char* Name() const override { return kClassName(); }
+
   bool IsInstanceOf(const std::string& name) const override {
     if (name == kClassName()) {
       return true;
@@ -626,26 +635,51 @@ class InnerCustomizable : public Customizable {
   }
 
  protected:
-  const Customizable* Inner() const override { return inner_.get(); }
+  const Customizable* Inner() const override { return iopts_.inner.get(); }
 
  private:
-  std::shared_ptr<Customizable> inner_;
+  InnerOptions iopts_;
+};
+
+struct WrappedOptions1 {
+  static const char* kName() { return "WrappedOptions1"; }
+  int i = 42;
 };
 
 class WrappedCustomizable1 : public InnerCustomizable {
  public:
   explicit WrappedCustomizable1(const std::shared_ptr<Customizable>& w)
-      : InnerCustomizable(w) {}
+      : InnerCustomizable(w) {
+    RegisterOptions(&wopts_, nullptr);
+  }
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "Wrapped1"; }
+
+ private:
+  WrappedOptions1 wopts_;
 };
 
+struct WrappedOptions2 {
+  static const char* kName() { return "WrappedOptions2"; }
+  std::string s = "42";
+};
 class WrappedCustomizable2 : public InnerCustomizable {
  public:
   explicit WrappedCustomizable2(const std::shared_ptr<Customizable>& w)
       : InnerCustomizable(w) {}
+  const void* GetOptionsPtr(const std::string& name) const override {
+    if (name == WrappedOptions2::kName()) {
+      return &wopts_;
+    } else {
+      return InnerCustomizable::GetOptionsPtr(name);
+    }
+  }
+
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "Wrapped2"; }
+
+ private:
+  WrappedOptions2 wopts_;
 };
 }  // namespace
 
@@ -675,6 +709,29 @@ TEST_F(CustomizableTest, WrappedInnerTest) {
   ASSERT_EQ(wc2->CheckedCast<WrappedCustomizable1>(), wc1.get());
   ASSERT_EQ(wc2->CheckedCast<InnerCustomizable>(), wc2.get());
   ASSERT_EQ(wc2->CheckedCast<TestCustomizable>(), ac.get());
+}
+
+TEST_F(CustomizableTest, CustomizableInnerTest) {
+  std::shared_ptr<Customizable> c =
+      std::make_shared<InnerCustomizable>(std::make_shared<ACustomizable>("a"));
+  std::shared_ptr<Customizable> wc1 = std::make_shared<WrappedCustomizable1>(c);
+  std::shared_ptr<Customizable> wc2 = std::make_shared<WrappedCustomizable2>(c);
+  auto inner = c->GetOptions<InnerOptions>();
+  ASSERT_NE(inner, nullptr);
+
+  auto aopts = c->GetOptions<AOptions>();
+  ASSERT_NE(aopts, nullptr);
+  ASSERT_EQ(aopts, wc1->GetOptions<AOptions>());
+  ASSERT_EQ(aopts, wc2->GetOptions<AOptions>());
+  auto w1opts = wc1->GetOptions<WrappedOptions1>();
+  ASSERT_NE(w1opts, nullptr);
+  ASSERT_EQ(c->GetOptions<WrappedOptions1>(), nullptr);
+  ASSERT_EQ(wc2->GetOptions<WrappedOptions1>(), nullptr);
+
+  auto w2opts = wc2->GetOptions<WrappedOptions2>();
+  ASSERT_NE(w2opts, nullptr);
+  ASSERT_EQ(c->GetOptions<WrappedOptions2>(), nullptr);
+  ASSERT_EQ(wc1->GetOptions<WrappedOptions2>(), nullptr);
 }
 
 TEST_F(CustomizableTest, CopyObjectTest) {
@@ -714,20 +771,9 @@ TEST_F(CustomizableTest, CopyObjectTest) {
 }
 
 TEST_F(CustomizableTest, TestStringDepth) {
-  class ShallowCustomizable : public Customizable {
-   public:
-    ShallowCustomizable() {
-      inner_ = std::make_shared<ACustomizable>("a");
-      RegisterOptions("inner", &inner_, &inner_option_info);
-    }
-    static const char* kClassName() { return "shallow"; }
-    const char* Name() const override { return kClassName(); }
-
-   private:
-    std::shared_ptr<TestCustomizable> inner_;
-  };
   ConfigOptions shallow = config_options_;
-  std::unique_ptr<Configurable> c(new ShallowCustomizable());
+  std::unique_ptr<Configurable> c(
+      new InnerCustomizable(std::make_shared<ACustomizable>("a")));
   std::string opt_str;
   shallow.depth = ConfigOptions::Depth::kDepthShallow;
   ASSERT_OK(c->GetOptionString(shallow, &opt_str));
