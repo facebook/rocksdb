@@ -1,4 +1,10 @@
 # Rocksdb Change Log
+## Unreleased
+### New Features
+### Bug Fixes
+### Behavior Changes
+### Public API change
+
 ## 6.27.0 (2021-11-19)
 ### New Features
 * Added new ChecksumType kXXH3 which is faster than kCRC32c on almost all x86\_64 hardware.
@@ -24,6 +30,7 @@
 * Users who configured a dedicated thread pool for bottommost compactions by explicitly adding threads to the `Env::Priority::BOTTOM` pool will no longer see RocksDB schedule automatic compactions exceeding the DB's compaction concurrency limit. For details on per-DB compaction concurrency limit, see API docs of `max_background_compactions` and `max_background_jobs`.
 * Fixed a bug of background flush thread picking more memtables to flush and prematurely advancing column family's log_number.
 * Fixed an assertion failure in ManifestTailer.
+* Fixed a bug that could, with WAL enabled, cause backups, checkpoints, and `GetSortedWalFiles()` to fail randomly with an error like `IO error: 001234.log: No such file or directory`
 
 ### Behavior Changes
 * `NUM_FILES_IN_SINGLE_COMPACTION` was only counting the first input level files, now it's including all input files.
