@@ -4,6 +4,7 @@
 ### Bug Fixes
 ### Behavior Changes
 ### Public API change
+* Extend WriteBatch::AssignTimestamp and AssignTimestamps API so that both functions can accept an optional `checker` argument that performs additional checking on timestamp sizes.
 
 ## 6.27.0 (2021-11-19)
 ### New Features
