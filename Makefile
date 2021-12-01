@@ -252,7 +252,7 @@ ROCKSDB_PLUGIN_HEADERS = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach header,
 ROCKSDB_PLUGIN_PKGCONFIG_REQUIRES = $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_PKGCONFIG_REQUIRES))
 PLATFORM_LDFLAGS += $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_LDFLAGS))
 
-ifneq ($(ROCKSDB_PLUGIN_PKGCONFIG_REQUIRES),)
+ifneq ($(strip $(ROCKSDB_PLUGIN_PKGCONFIG_REQUIRES)),)
 LDFLAGS := $(LDFLAGS) $(shell pkg-config --libs $(ROCKSDB_PLUGIN_PKGCONFIG_REQUIRES))
 ifneq ($(.SHELLSTATUS),0)
 $(error pkg-config failed)
