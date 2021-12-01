@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.27.2 (2021-12-01)
 ### Bug Fixes
 * Fixed a bug in rocksdb automatic implicit prefetching which got broken because of new feature adaptive_readahead and internal prefetching got disabled when iterator moves from one file to next.
 
