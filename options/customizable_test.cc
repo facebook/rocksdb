@@ -22,6 +22,7 @@
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/sst_partitioner.h"
@@ -35,6 +36,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/file_checksum_helper.h"
+#include "util/rate_limiter.h"
 #include "util/string_util.h"
 #include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
 
@@ -1391,6 +1393,21 @@ class MockFileChecksumGenFactory : public FileChecksumGenFactory {
   }
 };
 
+class MockRateLimiter : public RateLimiter {
+ public:
+  static const char* kClassName() { return "MockRateLimiter"; }
+  const char* Name() const override { return kClassName(); }
+  void SetBytesPerSecond(int64_t /*bytes_per_second*/) override {}
+  int64_t GetBytesPerSecond() const override { return 0; }
+  int64_t GetSingleBurstBytes() const override { return 0; }
+  int64_t GetTotalBytesThrough(const Env::IOPriority /*pri*/) const override {
+    return 0;
+  }
+  int64_t GetTotalRequests(const Env::IOPriority /*pri*/) const override {
+    return 0;
+  }
+};
+
 #ifndef ROCKSDB_LITE
 static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
@@ -1497,6 +1514,15 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         guard->reset(new MockTablePropertiesCollectorFactory());
         return guard->get();
       });
+
+  library.Register<RateLimiter>(
+      MockRateLimiter::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<RateLimiter>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockRateLimiter());
+        return guard->get();
+      });
+
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 #endif  // !ROCKSDB_LITE
@@ -1893,6 +1919,36 @@ TEST_F(LoadCustomizableTest, LoadSystemClockTest) {
     ASSERT_NE(result, nullptr);
     ASSERT_STREQ(result->Name(), MockSystemClock::kClassName());
   }
+}
+
+TEST_F(LoadCustomizableTest, LoadRateLimiterTest) {
+  std::shared_ptr<RateLimiter> result;
+  ASSERT_NOK(RateLimiter::CreateFromString(
+      config_options_, MockRateLimiter::kClassName(), &result));
+  ASSERT_OK(RateLimiter::CreateFromString(
+      config_options_, std::string(GenericRateLimiter::kClassName()) + ":1234",
+      &result));
+  ASSERT_NE(result, nullptr);
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(RateLimiter::CreateFromString(
+      config_options_, GenericRateLimiter::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_OK(GetDBOptionsFromString(
+      config_options_, db_opts_,
+      std::string("rate_limiter=") + GenericRateLimiter::kClassName(),
+      &db_opts_));
+  ASSERT_NE(db_opts_.rate_limiter, nullptr);
+  if (RegisterTests("Test")) {
+    ASSERT_OK(RateLimiter::CreateFromString(
+        config_options_, MockRateLimiter::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_OK(GetDBOptionsFromString(
+        config_options_, db_opts_,
+        std::string("rate_limiter=") + MockRateLimiter::kClassName(),
+        &db_opts_));
+    ASSERT_NE(db_opts_.rate_limiter, nullptr);
+  }
+#endif  // ROCKSDB_LITE
 }
 
 TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {

@@ -15,8 +15,11 @@
 #include <limits>
 
 #include "db/db_test_util.h"
+#include "options/options_parser.h"
 #include "port/port.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/system_clock.h"
+#include "rocksdb/utilities/options_type.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
@@ -462,6 +465,95 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   new_bytes_per_sec = rate_limiter->GetSingleBurstBytes();
   ASSERT_LT(new_bytes_per_sec, orig_bytes_per_sec);
 }
+
+TEST_F(RateLimiterTest, CreateGenericRateLimiterFromString) {
+  std::shared_ptr<RateLimiter> limiter;
+  ConfigOptions config_options;
+  std::string limiter_id = GenericRateLimiter::kClassName();
+  ASSERT_OK(RateLimiter::CreateFromString(config_options, limiter_id + ":1024",
+                                          &limiter));
+  ASSERT_NE(limiter, nullptr);
+  ASSERT_EQ(limiter->GetBytesPerSecond(), 1024U);
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(RateLimiter::CreateFromString(
+      config_options, "rate_bytes_per_sec=2048;id=" + limiter_id, &limiter));
+  ASSERT_NE(limiter, nullptr);
+  ASSERT_EQ(limiter->GetBytesPerSecond(), 2048U);
+  ASSERT_NOK(RateLimiter::CreateFromString(
+      config_options, "rate_bytes_per_sec=0;id=" + limiter_id, &limiter));
+  ASSERT_NOK(RateLimiter::CreateFromString(
+      config_options, "rate_bytes_per_sec=2048;fairness=0;id=" + limiter_id,
+      &limiter));
+
+  ASSERT_OK(
+      RateLimiter::CreateFromString(config_options,
+                                    "rate_bytes_per_sec=2048;refill_period_us="
+                                    "1024;fairness=42;auto_tuned=true;"
+                                    "mode=kReadsOnly;id=" +
+                                        limiter_id,
+                                    &limiter));
+  ASSERT_NE(limiter, nullptr);
+  auto opts =
+      limiter->GetOptions<GenericRateLimiter::GenericRateLimiterOptions>();
+  ASSERT_NE(opts, nullptr);
+  ASSERT_EQ(opts->max_bytes_per_sec, 2048);
+  ASSERT_EQ(opts->refill_period_us, 1024);
+  ASSERT_EQ(opts->fairness, 42);
+  ASSERT_EQ(opts->auto_tuned, true);
+  ASSERT_TRUE(limiter->IsRateLimited(RateLimiter::OpType::kRead));
+  ASSERT_FALSE(limiter->IsRateLimited(RateLimiter::OpType::kWrite));
+#endif  // ROCKSDB_LITE
+}
+
+#ifndef ROCKSDB_LITE
+// This test is for a rate limiter that has no name (Name() returns "").
+// When the default Name() method is deprecated, this test should be removed.
+TEST_F(RateLimiterTest, NoNameRateLimiter) {
+  static std::unordered_map<std::string, OptionTypeInfo> dummy_limiter_options =
+      {
+          {"dummy",
+           {0, OptionType::kInt, OptionVerificationType::kNormal,
+            OptionTypeFlags::kNone}},
+      };
+  class NoNameRateLimiter : public RateLimiter {
+   public:
+    explicit NoNameRateLimiter(bool do_register) {
+      if (do_register) {
+        RegisterOptions("", &dummy, &dummy_limiter_options);
+      }
+    }
+    void SetBytesPerSecond(int64_t /*bytes_per_second*/) override {}
+    int64_t GetSingleBurstBytes() const override { return 0; }
+    int64_t GetTotalBytesThrough(const Env::IOPriority /*pri*/) const override {
+      return 0;
+    }
+    int64_t GetTotalRequests(const Env::IOPriority /*pri*/) const override {
+      return 0;
+    }
+    int64_t GetBytesPerSecond() const override { return 0; }
+
+   private:
+    int dummy;
+  };
+
+  ConfigOptions config_options;
+  DBOptions db_opts, copy;
+  db_opts.rate_limiter.reset(new NoNameRateLimiter(false));
+  ASSERT_EQ(db_opts.rate_limiter->GetId(), "");
+  ASSERT_EQ(db_opts.rate_limiter->ToString(config_options), "");
+  db_opts.rate_limiter.reset(new NoNameRateLimiter(true));
+  ASSERT_EQ(db_opts.rate_limiter->GetId(), "");
+  ASSERT_EQ(db_opts.rate_limiter->ToString(config_options), "");
+  std::string opt_str;
+  ASSERT_OK(GetStringFromDBOptions(config_options, db_opts, &opt_str));
+  ASSERT_OK(
+      GetDBOptionsFromString(config_options, DBOptions(), opt_str, &copy));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyDBOptions(config_options, db_opts, copy));
+  ASSERT_EQ(copy.rate_limiter, nullptr);
+  ASSERT_NE(copy.rate_limiter, db_opts.rate_limiter);
+}
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 
