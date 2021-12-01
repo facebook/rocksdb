@@ -1661,7 +1661,7 @@ Status DBImpl::TrimMemtableHistory(WriteContext* context) {
   for (auto& cfd : cfds) {
     autovector<MemTable*> to_delete;
     bool trimmed = cfd->imm()->TrimHistory(
-        &context->memtables_to_free_, cfd->mem()->ApproximateMemoryUsage());
+        &context->memtables_to_free_, cfd->mem()->MemoryAllocatedBytes());
     if (trimmed) {
       context->superversion_context.NewSuperVersion();
       assert(context->superversion_context.new_superversion.get() != nullptr);
