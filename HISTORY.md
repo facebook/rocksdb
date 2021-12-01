@@ -2,6 +2,8 @@
 ## Unreleased
 ### New Features
 ### Bug Fixes
+* Fixed a bug in rocksdb automatic implicit prefetching which got broken because of new feature adaptive_readahead and internal prefetching got disabled when iterator moves from one file to next.
+
 ### Behavior Changes
 ### Public API change
 * Extend WriteBatch::AssignTimestamp and AssignTimestamps API so that both functions can accept an optional `checker` argument that performs additional checking on timestamp sizes.
