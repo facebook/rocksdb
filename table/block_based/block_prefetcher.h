@@ -30,8 +30,11 @@ class BlockPrefetcher {
 
   void ResetValues() {
     num_file_reads_ = 1;
-    readahead_size_ = BlockBasedTable::kInitAutoReadaheadSize;
-    initial_auto_readahead_size_ = readahead_size_;
+    // Since initial_auto_readahead_size_ can be different from
+    // kInitAutoReadaheadSize in case of adaptive_readahead, so fallback the
+    // readahead_size_ to kInitAutoReadaheadSize in case of reset.
+    initial_auto_readahead_size_ = BlockBasedTable::kInitAutoReadaheadSize;
+    readahead_size_ = initial_auto_readahead_size_;
     readahead_limit_ = 0;
     return;
   }
