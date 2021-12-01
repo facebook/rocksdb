@@ -220,7 +220,7 @@ class CacheBench {
     if (skewed_) {
       uint64_t max_key = max_key_;
       while (max_key >>= 1) max_log_++;
-      if (max_key > (1u << max_log_)) max_log_++;
+      if (max_key > (static_cast<uint64_t>(1) << max_log_)) max_log_++;
     }
 
     if (FLAGS_use_clock_cache) {
@@ -380,7 +380,8 @@ class CacheBench {
                  << "Average key size: "
                  << (1.0 * total_key_size / total_entry_count) << "\n"
                  << "Average charge: "
-                 << BytesToHumanString(1.0 * total_charge / total_entry_count)
+                 << BytesToHumanString(static_cast<uint64_t>(
+                        1.0 * total_charge / total_entry_count))
                  << "\n"
                  << "Unique deleters: " << deleters.size() << "\n";
             *stats_report = ostr.str();

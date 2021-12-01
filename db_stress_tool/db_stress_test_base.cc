@@ -151,7 +151,8 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
       }
       if (FLAGS_secondary_cache_fault_one_in > 0) {
         secondary_cache = std::make_shared<FaultInjectionSecondaryCache>(
-            secondary_cache, FLAGS_seed, FLAGS_secondary_cache_fault_one_in);
+            secondary_cache, static_cast<uint32_t>(FLAGS_seed),
+            FLAGS_secondary_cache_fault_one_in);
       }
       opts.secondary_cache = secondary_cache;
     }

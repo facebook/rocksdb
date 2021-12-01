@@ -85,7 +85,7 @@ class FileChecksumGenFactory : public Customizable {
       const FileChecksumGenContext& context) = 0;
 
   // Return the name of this FileChecksumGenFactory.
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
 };
 
 // FileChecksumList stores the checksum information of a list of files (e.g.,
