@@ -139,8 +139,9 @@ class FilePrefetchBuffer {
       if ((offset + size > buffer_offset_ + buffer_.CurrentSize()) &&
           IsBlockSequential(offset) &&
           (num_file_reads_ + 1 > kMinNumFileReadsToStartAutoReadahead)) {
+        size_t initial_auto_readahead_size = kInitAutoReadaheadSize;
         readahead_size_ =
-            std::max(kInitAutoReadaheadSize,
+            std::max(initial_auto_readahead_size,
                      (readahead_size_ >= value ? readahead_size_ - value : 0));
       }
     }
