@@ -15,6 +15,7 @@
 
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
+#include "port/lang.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -704,11 +705,11 @@ uint32_t LRUCache::GetHash(Handle* handle) const {
 }
 
 void LRUCache::DisownData() {
-// Do not drop data if compile with ASAN to suppress leak warning.
-#ifndef MUST_FREE_HEAP_ALLOCATIONS
-  shards_ = nullptr;
-  num_shards_ = 0;
-#endif
+  // Leak data only if that won't generate an ASAN/valgrind warning
+  if (!kMustFreeHeapAllocations) {
+    shards_ = nullptr;
+    num_shards_ = 0;
+  }
 }
 
 size_t LRUCache::TEST_GetLRUSize() {

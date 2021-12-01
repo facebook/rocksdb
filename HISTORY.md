@@ -1,7 +1,11 @@
 # Rocksdb Change Log
 ## Unreleased
+### New Features
+### Bug Fixes
 ### Behavior Changes
 * MemTableList::TrimHistory now use allocated bytes when max_write_buffer_size_to_maintain > 0(default in TrasactionDB, introduced in PR#5022) Fix #8371.
+### Public API change
+* Extend WriteBatch::AssignTimestamp and AssignTimestamps API so that both functions can accept an optional `checker` argument that performs additional checking on timestamp sizes.
 
 ## 6.27.0 (2021-11-19)
 ### New Features
@@ -28,6 +32,7 @@
 * Users who configured a dedicated thread pool for bottommost compactions by explicitly adding threads to the `Env::Priority::BOTTOM` pool will no longer see RocksDB schedule automatic compactions exceeding the DB's compaction concurrency limit. For details on per-DB compaction concurrency limit, see API docs of `max_background_compactions` and `max_background_jobs`.
 * Fixed a bug of background flush thread picking more memtables to flush and prematurely advancing column family's log_number.
 * Fixed an assertion failure in ManifestTailer.
+* Fixed a bug that could, with WAL enabled, cause backups, checkpoints, and `GetSortedWalFiles()` to fail randomly with an error like `IO error: 001234.log: No such file or directory`
 
 ### Behavior Changes
 * `NUM_FILES_IN_SINGLE_COMPACTION` was only counting the first input level files, now it's including all input files.
@@ -48,6 +53,9 @@
 
 ### Performance Improvements
 * Released some memory related to filter construction earlier in `BlockBasedTableBuilder` for `FullFilter` and `PartitionedFilter` case (#9070)
+
+### Behavior Changes
+* `NUM_FILES_IN_SINGLE_COMPACTION` was only counting the first input level files, now it's including all input files.
 
 ## 6.26.0 (2021-10-20)
 ### Bug Fixes

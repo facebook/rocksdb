@@ -79,7 +79,7 @@ class SecondaryCache : public Customizable {
   // Wait for a collection of handles to become ready
   virtual void WaitAll(std::vector<SecondaryCacheResultHandle*> handles) = 0;
 
-  virtual std::string GetPrintableOptions() const = 0;
+  virtual std::string GetPrintableOptions() const override = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
