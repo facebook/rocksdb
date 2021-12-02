@@ -546,7 +546,7 @@ TEST_P(FaultInjectionTest, WriteBatchWalTerminationTest) {
   ASSERT_EQ(db_->Get(ro, "boys", &val), Status::NotFound());
 }
 
-TEST_P(FaultInjectionTest, DuplicateTrailingEntries) {
+TEST_P(FaultInjectionTest, NoDuplicateTrailingEntries) {
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
   fault_fs->EnableWriteErrorInjection();
@@ -580,6 +580,8 @@ TEST_P(FaultInjectionTest, DuplicateTrailingEntries) {
 
   fault_fs->DisableWriteErrorInjection();
 
+  // Closing the log writer will cause WritableFileWriter::Close() and flush
+  // remaining data from its buffer to underlying file.
   log_writer.reset();
 
   {
@@ -610,7 +612,8 @@ TEST_P(FaultInjectionTest, DuplicateTrailingEntries) {
       ASSERT_OK(edit.DecodeFrom(data));
       ++count;
     }
-    ASSERT_EQ(2, count);
+    // Verify that only one version edit exists in the file.
+    ASSERT_EQ(1, count);
   }
 }
 
