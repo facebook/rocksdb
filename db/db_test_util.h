@@ -867,6 +867,7 @@ class DBTestBase : public testing::Test {
     kBlockBasedTableWithIndexRestartInterval,
     kBlockBasedTableWithPartitionedIndex,
     kBlockBasedTableWithPartitionedIndexFormat4,
+    kBlockBasedTableWithLatestFormat,
     kPartitionedFilterWithNewTableReaderForCompactions,
     kUniversalSubcompactions,
     kUnorderedWrite,

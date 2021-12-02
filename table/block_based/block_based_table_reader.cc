@@ -600,7 +600,7 @@ Status BlockBasedTable::Open(
   if (!s.ok()) {
     return s;
   }
-  if (!BlockBasedTableSupportedVersion(footer.version())) {
+  if (!IsSupportedFormatVersion(footer.format_version())) {
     return Status::Corruption(
         "Unknown Footer version. Maybe this file was created with newer "
         "version of RocksDB?");
@@ -757,7 +757,7 @@ Status BlockBasedTable::ReadPropertiesBlock(
     InternalIterator* meta_iter, const SequenceNumber largest_seqno) {
   Status s;
   BlockHandle handle;
-  s = FindOptionalMetaBlock(meta_iter, kPropertiesBlock, &handle);
+  s = FindOptionalMetaBlock(meta_iter, kPropertiesBlockName, &handle);
 
   if (!s.ok()) {
     ROCKS_LOG_WARN(rep_->ioptions.logger,
@@ -856,7 +856,7 @@ Status BlockBasedTable::ReadRangeDelBlock(
     BlockCacheLookupContext* lookup_context) {
   Status s;
   BlockHandle range_del_handle;
-  s = FindOptionalMetaBlock(meta_iter, kRangeDelBlock, &range_del_handle);
+  s = FindOptionalMetaBlock(meta_iter, kRangeDelBlockName, &range_del_handle);
   if (!s.ok()) {
     ROCKS_LOG_WARN(
         rep_->ioptions.logger,
@@ -925,7 +925,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
          rep_->index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
 
   // Find compression dictionary handle
-  s = FindOptionalMetaBlock(meta_iter, kCompressionDictBlock,
+  s = FindOptionalMetaBlock(meta_iter, kCompressionDictBlockName,
                             &rep_->compression_dict_handle);
   if (!s.ok()) {
     return s;
@@ -1808,7 +1808,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         // begin address of each read request, we need to add the offset
         // in each read request. Checksum is stored in the block trailer,
         // beyond the payload size.
-        s = VerifyBlockChecksum(footer.checksum(), data + req_offset,
+        s = VerifyBlockChecksum(footer.checksum_type(), data + req_offset,
                                 handle.size(), rep_->file->file_name(),
                                 handle.offset());
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
@@ -1875,9 +1875,9 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       if (compression_type != kNoCompression) {
         UncompressionContext context(compression_type);
         UncompressionInfo info(context, uncompression_dict, compression_type);
-        s = UncompressBlockContents(info, req.result.data() + req_offset,
-                                    handle.size(), &contents, footer.version(),
-                                    rep_->ioptions, memory_allocator);
+        s = UncompressBlockContents(
+            info, req.result.data() + req_offset, handle.size(), &contents,
+            footer.format_version(), rep_->ioptions, memory_allocator);
       } else {
         // There are two cases here:
         // 1) caller uses the shared buffer (scratch or direct io buffer);
@@ -3008,15 +3008,15 @@ BlockType BlockBasedTable::GetBlockTypeForMetaBlockByName(
     return BlockType::kFilter;
   }
 
-  if (meta_block_name == kPropertiesBlock) {
+  if (meta_block_name == kPropertiesBlockName) {
     return BlockType::kProperties;
   }
 
-  if (meta_block_name == kCompressionDictBlock) {
+  if (meta_block_name == kCompressionDictBlockName) {
     return BlockType::kCompressionDictionary;
   }
 
-  if (meta_block_name == kRangeDelBlock) {
+  if (meta_block_name == kRangeDelBlockName) {
     return BlockType::kRangeDeletion;
   }
 
@@ -3045,7 +3045,7 @@ Status BlockBasedTable::VerifyChecksumInMetaBlocks(
     s = handle.DecodeFrom(&input);
     BlockContents contents;
     const Slice meta_block_name = index_iter->key();
-    if (meta_block_name == kPropertiesBlock) {
+    if (meta_block_name == kPropertiesBlockName) {
       // Unfortunate special handling for properties block checksum w/
       // global seqno
       std::unique_ptr<TableProperties> table_properties;
@@ -3111,8 +3111,8 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
 //  5. index_type
 Status BlockBasedTable::CreateIndexReader(
     const ReadOptions& ro, FilePrefetchBuffer* prefetch_buffer,
-    InternalIterator* preloaded_meta_index_iter, bool use_cache, bool prefetch,
-    bool pin, BlockCacheLookupContext* lookup_context,
+    InternalIterator* meta_iter, bool use_cache, bool prefetch, bool pin,
+    BlockCacheLookupContext* lookup_context,
     std::unique_ptr<IndexReader>* index_reader) {
   // kHashSearch requires non-empty prefix_extractor but bypass checking
   // prefix_extractor here since we have no access to MutableCFOptions.
@@ -3136,25 +3136,12 @@ Status BlockBasedTable::CreateIndexReader(
     case BlockBasedTableOptions::kHashSearch: {
       std::unique_ptr<Block> metaindex_guard;
       std::unique_ptr<InternalIterator> metaindex_iter_guard;
-      auto meta_index_iter = preloaded_meta_index_iter;
       bool should_fallback = false;
       if (rep_->internal_prefix_transform.get() == nullptr) {
         ROCKS_LOG_WARN(rep_->ioptions.logger,
                        "No prefix extractor passed in. Fall back to binary"
                        " search index.");
         should_fallback = true;
-      } else if (meta_index_iter == nullptr) {
-        auto s = ReadMetaIndexBlock(ro, prefetch_buffer, &metaindex_guard,
-                                    &metaindex_iter_guard);
-        if (!s.ok()) {
-          // we simply fall back to binary search in case there is any
-          // problem with prefix hash index loading.
-          ROCKS_LOG_WARN(rep_->ioptions.logger,
-                         "Unable to read the metaindex block."
-                         " Fall back to binary search index.");
-          should_fallback = true;
-        }
-        meta_index_iter = metaindex_iter_guard.get();
       }
 
       if (should_fallback) {
@@ -3162,9 +3149,9 @@ Status BlockBasedTable::CreateIndexReader(
                                                use_cache, prefetch, pin,
                                                lookup_context, index_reader);
       } else {
-        return HashIndexReader::Create(this, ro, prefetch_buffer,
-                                       meta_index_iter, use_cache, prefetch,
-                                       pin, lookup_context, index_reader);
+        return HashIndexReader::Create(this, ro, prefetch_buffer, meta_iter,
+                                       use_cache, prefetch, pin, lookup_context,
+                                       index_reader);
       }
     }
     default: {
@@ -3357,17 +3344,17 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
       if (!s.ok()) {
         return s;
       }
-      if (metaindex_iter->key() == kPropertiesBlock) {
+      if (metaindex_iter->key() == kPropertiesBlockName) {
         out_stream << "  Properties block handle: "
                    << metaindex_iter->value().ToString(true) << "\n";
-      } else if (metaindex_iter->key() == kCompressionDictBlock) {
+      } else if (metaindex_iter->key() == kCompressionDictBlockName) {
         out_stream << "  Compression dictionary block handle: "
                    << metaindex_iter->value().ToString(true) << "\n";
       } else if (strstr(metaindex_iter->key().ToString().c_str(),
                         "filter.rocksdb.") != nullptr) {
         out_stream << "  Filter block handle: "
                    << metaindex_iter->value().ToString(true) << "\n";
-      } else if (metaindex_iter->key() == kRangeDelBlock) {
+      } else if (metaindex_iter->key() == kRangeDelBlockName) {
         out_stream << "  Range deletion block handle: "
                    << metaindex_iter->value().ToString(true) << "\n";
       }
