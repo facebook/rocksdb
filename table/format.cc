@@ -197,7 +197,7 @@ Footer& Footer::set_table_magic_number(uint64_t magic_number) {
 //   -> format_version >= 1 (inferred from NOT legacy magic number)
 //      format_version (uint32LE, 4 bytes), also called "footer version"
 //      newer magic number (8 bytes)
-Status Footer::EncodeTo(std::string* dst, uint64_t footer_offset) const {
+void Footer::EncodeTo(std::string* dst, uint64_t footer_offset) const {
   (void)footer_offset;  // Future use
 
   std::string part1;
@@ -248,8 +248,6 @@ Status Footer::EncodeTo(std::string* dst, uint64_t footer_offset) const {
     assert(fv >= 1);
     assert(dst->size() == original_size + kNewVersionsEncodedLength);
   }
-
-  return Status::OK();
 }
 
 Status Footer::DecodeFrom(Slice* input, uint64_t input_offset) {

@@ -171,9 +171,8 @@ class Footer {
   }
 
   // Appends serialized footer to `dst`. The starting offset of the footer
-  // within the file is required for future work. Only returns non-OK
-  // in case of overflows or violated invariants.
-  Status EncodeTo(std::string* dst, uint64_t footer_offset) const;
+  // within the file is required for future work.
+  void EncodeTo(std::string* dst, uint64_t footer_offset) const;
 
   // Deserialize a footer (populate fields) from `input` and check for various
   // corruptions. On success (and some error cases) `input` is advanced past
