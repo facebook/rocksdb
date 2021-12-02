@@ -6,15 +6,17 @@
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ ROCKSDB_NAMESPACE::Env methods from Java side.
 
+#include "rocksdb/env.h"
+
 #include <jni.h>
+
 #include <vector>
 
-#include "portal.h"
-#include "rocksdb/env.h"
 #include "include/org_rocksdb_Env.h"
 #include "include/org_rocksdb_RocksEnv.h"
 #include "include/org_rocksdb_RocksMemEnv.h"
 #include "include/org_rocksdb_TimedEnv.h"
+#include "portal.h"
 
 /*
  * Class:     org_rocksdb_Env
