@@ -6147,9 +6147,9 @@ class TablePropertiesJni : public JavaClass {
 
     jmethodID mid = env->GetMethodID(
         jclazz, "<init>",
-        "(JJJJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/"
+        "(JJJJJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/"
         "lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/"
-        "String;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;)V");
+        "String;Ljava/util/Map;Ljava/util/Map;)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -6258,23 +6258,6 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    // Map<String, Long>
-    jobject jproperties_offsets = ROCKSDB_NAMESPACE::HashMapJni::fromCppMap(
-        env, &table_properties.properties_offsets);
-    if (env->ExceptionCheck()) {
-      // exception occurred creating java map
-      env->DeleteLocalRef(jcolumn_family_name);
-      env->DeleteLocalRef(jfilter_policy_name);
-      env->DeleteLocalRef(jcomparator_name);
-      env->DeleteLocalRef(jmerge_operator_name);
-      env->DeleteLocalRef(jprefix_extractor_name);
-      env->DeleteLocalRef(jproperty_collectors_names);
-      env->DeleteLocalRef(jcompression_name);
-      env->DeleteLocalRef(juser_collected_properties);
-      env->DeleteLocalRef(jreadable_properties);
-      return nullptr;
-    }
-
     jobject jtable_properties = env->NewObject(
         jclazz, mid, static_cast<jlong>(table_properties.data_size),
         static_cast<jlong>(table_properties.index_size),
@@ -6299,10 +6282,12 @@ class TablePropertiesJni : public JavaClass {
             table_properties.slow_compression_estimated_data_size),
         static_cast<jlong>(
             table_properties.fast_compression_estimated_data_size),
+        static_cast<jlong>(
+            table_properties.external_sst_file_global_seqno_offset),
         jcolumn_family_name, jfilter_policy_name, jcomparator_name,
         jmerge_operator_name, jprefix_extractor_name,
         jproperty_collectors_names, jcompression_name,
-        juser_collected_properties, jreadable_properties, jproperties_offsets);
+        juser_collected_properties, jreadable_properties);
 
     if (env->ExceptionCheck()) {
       return nullptr;
