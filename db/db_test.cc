@@ -2549,11 +2549,10 @@ TEST_F(DBTest, PurgeInfoLogs) {
     Destroy(options);
     // For mode (1), test DestroyDB() to delete all the logs under DB dir.
     // For mode (2), no info log file should have been put under DB dir.
+    // Since dbname_ has no children, there is no need to loop db_files
     std::vector<std::string> db_files;
     ASSERT_TRUE(env_->GetChildren(dbname_, &db_files).IsNotFound());
-    for (std::string file : db_files) {
-      ASSERT_TRUE(file.find("LOG") == std::string::npos);
-    }
+    ASSERT_TRUE(db_files.empty());
 
     if (mode == 1) {
       // Cleaning up
@@ -5663,11 +5662,19 @@ TEST_F(DBTest, CloseSpeedup) {
 
   std::vector<std::string> filenames;
   ASSERT_OK(env_->GetChildren(dbname_, &filenames));
+  // In Windows, LOCK file cannot be deleted because it is locked by db_test
+  // After closing db_test, the LOCK file is unlocked and can be deleted
   // Delete archival files.
+  bool deleteDir = true;
   for (size_t i = 0; i < filenames.size(); ++i) {
-    ASSERT_OK(env_->DeleteFile(dbname_ + "/" + filenames[i]));
+    Status s = env_->DeleteFile(dbname_ + "/" + filenames[i]);
+    if (!s.ok()) {
+      deleteDir = false;
+    }
   }
-  ASSERT_OK(env_->DeleteDir(dbname_));
+  if (deleteDir) {
+    ASSERT_OK(env_->DeleteDir(dbname_));
+  }
   DestroyAndReopen(options);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
