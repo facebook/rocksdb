@@ -207,10 +207,9 @@ Status Footer::EncodeTo(std::string* dst, uint64_t footer_offset) const {
   // Sanitize magic numbers & format versions
   assert(table_magic_number_ != kNullTableMagicNumber);
   uint64_t magic = table_magic_number_;
-  bool legacy = IsLegacyFooterFormat(magic);
   assert(format_version_ != kInvalidFormatVersion);
   // Format version 0 is legacy format
-  assert(legacy == (format_version_ == 0));
+  assert(IsLegacyFooterFormat(magic) == (format_version_ == 0));
   uint32_t fv = format_version_;
 
   // Generate Parts 1 and 3
@@ -273,7 +272,6 @@ Status Footer::DecodeFrom(Slice* input, uint64_t input_offset) {
   set_table_magic_number(magic);
 
   // Parse Part3
-  const char* part3_ptr = magic_ptr;
   if (legacy) {
     // The size is already asserted to be at least kMinEncodedLength
     // at the beginning of the function
@@ -281,7 +279,7 @@ Status Footer::DecodeFrom(Slice* input, uint64_t input_offset) {
     format_version_ = 0 /* legacy */;
     checksum_type_ = kCRC32c;
   } else {
-    part3_ptr = magic_ptr - 4;
+    const char* part3_ptr = magic_ptr - 4;
     format_version_ = DecodeFixed32(part3_ptr);
     if (!IsSupportedFormatVersion(format_version_)) {
       return Status::Corruption("Corrupt or unsupported format_version: " +
