@@ -516,6 +516,18 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
         } else {
           s = writable_file_->Append(Slice(src, allowed), IOOptions(), nullptr);
         }
+        if (!s.ok()) {
+          // If writable_file_->Append() failed, then the data may or may not
+          // exist in the underlying memory buffer, OS page cache, remote file
+          // system's buffer, etc. If WritableFileWriter keeps the data in
+          // buf_, then a future Close() or write retry may send the data to
+          // the underlying file again. If the data does exist in the
+          // underlying buffer and gets written to the file eventually despite
+          // returning error, the file may end up with two duplicate pieces of
+          // data. Therefore, clear the buf_ at the WritableFileWriter layer
+          // and let caller determine error handling.
+          buf_.Size(0);
+        }
         SetPerfLevel(prev_perf_level);
       }
 #ifndef ROCKSDB_LITE
@@ -603,6 +615,16 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(const char* data,
     }
 #endif
     if (!s.ok()) {
+      // If writable_file_->Append() failed, then the data may or may not
+      // exist in the underlying memory buffer, OS page cache, remote file
+      // system's buffer, etc. If WritableFileWriter keeps the data in
+      // buf_, then a future Close() or write retry may send the data to
+      // the underlying file again. If the data does exist in the
+      // underlying buffer and gets written to the file eventually despite
+      // returning error, the file may end up with two duplicate pieces of
+      // data. Therefore, clear the buf_ at the WritableFileWriter layer
+      // and let caller determine error handling.
+      buf_.Size(0);
       return s;
     }
   }
