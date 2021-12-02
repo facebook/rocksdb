@@ -69,6 +69,12 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
 
   if (!s.ok()) {
     if (s.IsCorruption()) {
+      // when we find a Corruption error, something is
+      // wrong with the underlying file. in this case we
+      // want to report the filename, so in here we append
+      // the filename to the Corruption message
+      assert(reader.file());
+
       // build a new error message
       std::string message;
       // append previous dynamic state message
@@ -76,7 +82,8 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
       if (state != nullptr) {
         message.append(state);
       }
-      if (!message.empty()) {
+      if (!message.empty() && message.back() != ' ') {
+        // avoid adding redundant whitespace
         message += " ";
       }
       // append the filename to the corruption message
