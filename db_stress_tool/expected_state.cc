@@ -386,10 +386,6 @@ Status AnonExpectedStateManager::Open() {
   return latest_->Open(true /* create */);
 }
 
-Status AnonExpectedStateManager::SaveAtAndAfter(DB* /* db */) {
-  return Status::NotSupported();
-}
-
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // GFLAGS

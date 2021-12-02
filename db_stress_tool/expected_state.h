@@ -234,7 +234,9 @@ class AnonExpectedStateManager : public ExpectedStateManager {
   //
   // This implementation returns `Status::NotSupported` since we do not
   // currently have a need to keep history of expected state within a process.
-  Status SaveAtAndAfter(DB* db) override;
+  Status SaveAtAndAfter(DB* /* db */) override {
+    return Status::NotSupported();
+  }
 
   // Requires external locking preventing concurrent execution with any other
   // member function.
