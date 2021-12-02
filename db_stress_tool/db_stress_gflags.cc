@@ -807,9 +807,9 @@ DEFINE_int32(get_property_one_in, 1000,
 DEFINE_bool(sync_fault_injection, false,
             "If true, FaultInjectionTestFS will be used for write operations, "
             "and unsynced data in DB will lost after crash. In such a case we "
-            "track DB changes in a trace file in --expected_values_dir for "
-            "verifying there are no holes in the recovered data (future "
-            "work).");
+            "track DB changes in a trace file (\"*.trace\") in "
+            "--expected_values_dir for verifying there are no holes in the "
+            "recovered data (future work).");
 
 DEFINE_bool(best_efforts_recovery, false,
             "If true, use best efforts recovery.");
