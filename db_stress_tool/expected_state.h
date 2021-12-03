@@ -269,13 +269,13 @@ class AnonExpectedStateManager : public ExpectedStateManager {
   }
 
   // See `ExpectedStateManager::HasHistory()` API doc.
-  bool HasHistory() override;
+  bool HasHistory() override { return false; }
 
   // See `ExpectedStateManager::Restore()` API doc.
   //
   // This implementation returns `Status::NotSupported` since we do not
   // currently have a need to keep history of expected state within a process.
-  Status Restore(DB* db) override;
+  Status Restore(DB* /* db */) override { return Status::NotSupported(); }
 
   // Requires external locking preventing concurrent execution with any other
   // member function.
