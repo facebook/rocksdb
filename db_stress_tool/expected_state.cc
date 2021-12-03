@@ -287,7 +287,10 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
   // tempfile.
   std::unique_ptr<TraceWriter> trace_writer;
   if (s.ok()) {
-    s = NewFileTraceWriter(Env::Default(), EnvOptions(), trace_file_path,
+    EnvOptions soptions;
+    // Disable buffering so traces will not get stuck in application buffer.
+    soptions.writable_file_max_buffer_size = 0;
+    s = NewFileTraceWriter(Env::Default(), soptions, trace_file_path,
                            &trace_writer);
   }
   if (s.ok()) {
