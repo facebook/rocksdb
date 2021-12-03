@@ -440,9 +440,10 @@ Status ExternalSstFileIngestionJob::Run() {
     FileMetaData f_metadata(
         f.fd.GetNumber(), f.fd.GetPathId(), f.fd.GetFileSize(),
         f.smallest_internal_key, f.largest_internal_key, f.assigned_seqno,
-        f.assigned_seqno, false, kInvalidBlobFileNumber, oldest_ancester_time,
-        current_time, f.file_checksum, f.file_checksum_func_name,
-        kDisableUserTimestamp, kDisableUserTimestamp);
+        f.assigned_seqno, false, f.file_temperature, kInvalidBlobFileNumber,
+        oldest_ancester_time, current_time, f.file_checksum,
+        f.file_checksum_func_name, kDisableUserTimestamp,
+        kDisableUserTimestamp);
     f_metadata.temperature = f.file_temperature;
     edit_.AddFile(f.picked_level, f_metadata);
   }
