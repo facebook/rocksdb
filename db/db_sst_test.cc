@@ -1664,14 +1664,20 @@ TEST_F(DBSSTTest, DBWithSFMForBlobFilesAtomicFlush) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
 
   ASSERT_EQ(files_added, 1);
-  ASSERT_EQ(files_deleted, 1);
   ASSERT_EQ(files_scheduled_to_delete, 1);
+
+  sfm->WaitForEmptyTrash();
+
+  ASSERT_EQ(files_deleted, 1);
 
   Close();
   ASSERT_OK(DestroyDB(dbname_, options));
-  sfm->WaitForEmptyTrash();
-  ASSERT_EQ(files_deleted, 4);
+
   ASSERT_EQ(files_scheduled_to_delete, 4);
+
+  sfm->WaitForEmptyTrash();
+
+  ASSERT_EQ(files_deleted, 4);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
