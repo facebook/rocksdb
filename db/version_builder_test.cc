@@ -11,6 +11,7 @@
 
 #include "db/version_edit.h"
 #include "db/version_set.h"
+#include "rocksdb/advanced_options.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
@@ -67,10 +68,11 @@ class VersionBuilderTest : public testing::Test {
     FileMetaData* f = new FileMetaData(
         file_number, path_id, file_size, GetInternalKey(smallest, smallest_seq),
         GetInternalKey(largest, largest_seq), smallest_seqno, largest_seqno,
-        /* marked_for_compact */ false, oldest_blob_file_number,
-        kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        kDisableUserTimestamp, kDisableUserTimestamp);
+        /* marked_for_compact */ false, Temperature::kUnknown,
+        oldest_blob_file_number, kUnknownOldestAncesterTime,
+        kUnknownFileCreationTime, kUnknownFileChecksum,
+        kUnknownFileChecksumFuncName, kDisableUserTimestamp,
+        kDisableUserTimestamp);
     f->compensated_file_size = file_size;
     f->num_entries = num_entries;
     f->num_deletions = num_deletions;
@@ -129,10 +131,10 @@ class VersionBuilderTest : public testing::Test {
     edit->AddFile(level, table_file_number, path_id, file_size,
                   GetInternalKey(smallest), GetInternalKey(largest),
                   smallest_seqno, largest_seqno, marked_for_compaction,
-                  blob_file_number, kUnknownOldestAncesterTime,
-                  kUnknownFileCreationTime, kUnknownFileChecksum,
-                  kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                  kDisableUserTimestamp);
+                  Temperature::kUnknown, blob_file_number,
+                  kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                  kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                  kDisableUserTimestamp, kDisableUserTimestamp);
   }
 
   static std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
@@ -190,10 +192,10 @@ TEST_F(VersionBuilderTest, ApplyAndSaveTo) {
   VersionEdit version_edit;
   version_edit.AddFile(2, 666, 0, 100U, GetInternalKey("301"),
                        GetInternalKey("350"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                       kDisableUserTimestamp);
+                       Temperature::kUnknown, kInvalidBlobFileNumber,
+                       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                       kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                       kDisableUserTimestamp, kDisableUserTimestamp);
   version_edit.DeleteFile(3, 27U);
 
   EnvOptions env_options;
@@ -231,10 +233,10 @@ TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic) {
   VersionEdit version_edit;
   version_edit.AddFile(3, 666, 0, 100U, GetInternalKey("301"),
                        GetInternalKey("350"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                       kDisableUserTimestamp);
+                       Temperature::kUnknown, kInvalidBlobFileNumber,
+                       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                       kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                       kDisableUserTimestamp, kDisableUserTimestamp);
   version_edit.DeleteFile(0, 1U);
   version_edit.DeleteFile(0, 88U);
 
@@ -275,10 +277,10 @@ TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic2) {
   VersionEdit version_edit;
   version_edit.AddFile(4, 666, 0, 100U, GetInternalKey("301"),
                        GetInternalKey("350"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                       kDisableUserTimestamp);
+                       Temperature::kUnknown, kInvalidBlobFileNumber,
+                       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                       kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                       kDisableUserTimestamp, kDisableUserTimestamp);
   version_edit.DeleteFile(0, 1U);
   version_edit.DeleteFile(0, 88U);
   version_edit.DeleteFile(4, 6U);
@@ -310,34 +312,34 @@ TEST_F(VersionBuilderTest, ApplyMultipleAndSaveTo) {
   VersionEdit version_edit;
   version_edit.AddFile(2, 666, 0, 100U, GetInternalKey("301"),
                        GetInternalKey("350"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                       kDisableUserTimestamp);
+                       Temperature::kUnknown, kInvalidBlobFileNumber,
+                       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                       kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                       kDisableUserTimestamp, kDisableUserTimestamp);
   version_edit.AddFile(2, 676, 0, 100U, GetInternalKey("401"),
                        GetInternalKey("450"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                       kDisableUserTimestamp);
+                       Temperature::kUnknown, kInvalidBlobFileNumber,
+                       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                       kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                       kDisableUserTimestamp, kDisableUserTimestamp);
   version_edit.AddFile(2, 636, 0, 100U, GetInternalKey("601"),
                        GetInternalKey("650"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                       kDisableUserTimestamp);
+                       Temperature::kUnknown, kInvalidBlobFileNumber,
+                       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                       kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                       kDisableUserTimestamp, kDisableUserTimestamp);
   version_edit.AddFile(2, 616, 0, 100U, GetInternalKey("501"),
                        GetInternalKey("550"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                       kDisableUserTimestamp);
+                       Temperature::kUnknown, kInvalidBlobFileNumber,
+                       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                       kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                       kDisableUserTimestamp, kDisableUserTimestamp);
   version_edit.AddFile(2, 606, 0, 100U, GetInternalKey("701"),
                        GetInternalKey("750"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                       kDisableUserTimestamp);
+                       Temperature::kUnknown, kInvalidBlobFileNumber,
+                       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                       kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                       kDisableUserTimestamp, kDisableUserTimestamp);
 
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
@@ -372,51 +374,51 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
   VersionEdit version_edit;
   version_edit.AddFile(2, 666, 0, 100U, GetInternalKey("301"),
                        GetInternalKey("350"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                       kDisableUserTimestamp);
+                       Temperature::kUnknown, kInvalidBlobFileNumber,
+                       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                       kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                       kDisableUserTimestamp, kDisableUserTimestamp);
   version_edit.AddFile(2, 676, 0, 100U, GetInternalKey("401"),
                        GetInternalKey("450"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                       kDisableUserTimestamp);
+                       Temperature::kUnknown, kInvalidBlobFileNumber,
+                       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                       kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                       kDisableUserTimestamp, kDisableUserTimestamp);
   version_edit.AddFile(2, 636, 0, 100U, GetInternalKey("601"),
                        GetInternalKey("650"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                       kDisableUserTimestamp);
+                       Temperature::kUnknown, kInvalidBlobFileNumber,
+                       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                       kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                       kDisableUserTimestamp, kDisableUserTimestamp);
   version_edit.AddFile(2, 616, 0, 100U, GetInternalKey("501"),
                        GetInternalKey("550"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                       kDisableUserTimestamp);
+                       Temperature::kUnknown, kInvalidBlobFileNumber,
+                       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                       kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                       kDisableUserTimestamp, kDisableUserTimestamp);
   version_edit.AddFile(2, 606, 0, 100U, GetInternalKey("701"),
                        GetInternalKey("750"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                       kDisableUserTimestamp);
+                       Temperature::kUnknown, kInvalidBlobFileNumber,
+                       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                       kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                       kDisableUserTimestamp, kDisableUserTimestamp);
   ASSERT_OK(version_builder.Apply(&version_edit));
 
   VersionEdit version_edit2;
   version_edit.AddFile(2, 808, 0, 100U, GetInternalKey("901"),
                        GetInternalKey("950"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                       kDisableUserTimestamp);
+                       Temperature::kUnknown, kInvalidBlobFileNumber,
+                       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                       kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                       kDisableUserTimestamp, kDisableUserTimestamp);
   version_edit2.DeleteFile(2, 616);
   version_edit2.DeleteFile(2, 636);
   version_edit.AddFile(2, 806, 0, 100U, GetInternalKey("801"),
                        GetInternalKey("850"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                       kUnknownFileCreationTime, kUnknownFileChecksum,
-                       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                       kDisableUserTimestamp);
+                       Temperature::kUnknown, kInvalidBlobFileNumber,
+                       kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                       kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                       kDisableUserTimestamp, kDisableUserTimestamp);
 
   ASSERT_OK(version_builder.Apply(&version_edit2));
   ASSERT_OK(version_builder.SaveTo(&new_vstorage));
@@ -515,10 +517,11 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionAndAddition) {
   addition.AddFile(level, file_number, path_id, file_size,
                    GetInternalKey(smallest, smallest_seq),
                    GetInternalKey(largest, largest_seq), smallest_seqno,
-                   largest_seqno, marked_for_compaction, kInvalidBlobFileNumber,
-                   kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-                   kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-                   kDisableUserTimestamp, kDisableUserTimestamp);
+                   largest_seqno, marked_for_compaction, Temperature::kUnknown,
+                   kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                   kUnknownFileCreationTime, kUnknownFileChecksum,
+                   kUnknownFileChecksumFuncName, kDisableUserTimestamp,
+                   kDisableUserTimestamp);
 
   ASSERT_OK(builder.Apply(&addition));
 
@@ -560,10 +563,10 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyInBase) {
   edit.AddFile(new_level, file_number, path_id, file_size,
                GetInternalKey(smallest), GetInternalKey(largest),
                smallest_seqno, largest_seqno, marked_for_compaction,
-               kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-               kUnknownFileCreationTime, kUnknownFileChecksum,
-               kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-               kDisableUserTimestamp);
+               Temperature::kUnknown, kInvalidBlobFileNumber,
+               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+               kDisableUserTimestamp, kDisableUserTimestamp);
 
   const Status s = builder.Apply(&edit);
   ASSERT_TRUE(s.IsCorruption());
@@ -594,10 +597,11 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyApplied) {
 
   edit.AddFile(level, file_number, path_id, file_size, GetInternalKey(smallest),
                GetInternalKey(largest), smallest_seqno, largest_seqno,
-               marked_for_compaction, kInvalidBlobFileNumber,
-               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-               kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-               kDisableUserTimestamp, kDisableUserTimestamp);
+               marked_for_compaction, Temperature::kUnknown,
+               kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+               kUnknownFileCreationTime, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName, kDisableUserTimestamp,
+               kDisableUserTimestamp);
 
   ASSERT_OK(builder.Apply(&edit));
 
@@ -608,10 +612,10 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyApplied) {
   other_edit.AddFile(new_level, file_number, path_id, file_size,
                      GetInternalKey(smallest), GetInternalKey(largest),
                      smallest_seqno, largest_seqno, marked_for_compaction,
-                     kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                     kUnknownFileCreationTime, kUnknownFileChecksum,
-                     kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                     kDisableUserTimestamp);
+                     Temperature::kUnknown, kInvalidBlobFileNumber,
+                     kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                     kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                     kDisableUserTimestamp, kDisableUserTimestamp);
 
   const Status s = builder.Apply(&other_edit);
   ASSERT_TRUE(s.IsCorruption());
@@ -643,10 +647,10 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAndDeletion) {
   addition.AddFile(level, file_number, path_id, file_size,
                    GetInternalKey(smallest), GetInternalKey(largest),
                    smallest_seqno, largest_seqno, marked_for_compaction,
-                   kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                   kUnknownFileCreationTime, kUnknownFileChecksum,
-                   kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                   kDisableUserTimestamp);
+                   Temperature::kUnknown, kInvalidBlobFileNumber,
+                   kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                   kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                   kDisableUserTimestamp, kDisableUserTimestamp);
 
   ASSERT_OK(builder.Apply(&addition));
 
@@ -1172,12 +1176,12 @@ TEST_F(VersionBuilderTest, SaveBlobFilesToConcurrentJobs) {
   constexpr uint64_t total_blob_count = 234;
   constexpr uint64_t total_blob_bytes = 1 << 22;
 
-  edit.AddFile(level, table_file_number, path_id, file_size,
-               GetInternalKey(smallest), GetInternalKey(largest),
-               smallest_seqno, largest_seqno, marked_for_compaction,
-               blob_file_number, kUnknownOldestAncesterTime,
-               kUnknownFileCreationTime, checksum_value, checksum_method,
-               kDisableUserTimestamp, kDisableUserTimestamp);
+  edit.AddFile(
+      level, table_file_number, path_id, file_size, GetInternalKey(smallest),
+      GetInternalKey(largest), smallest_seqno, largest_seqno,
+      marked_for_compaction, Temperature::kUnknown, blob_file_number,
+      kUnknownOldestAncesterTime, kUnknownFileCreationTime, checksum_value,
+      checksum_method, kDisableUserTimestamp, kDisableUserTimestamp);
   edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
                    checksum_method, checksum_value);
 
@@ -1259,6 +1263,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFiles) {
                /* file_size */ 100, /* smallest */ GetInternalKey("701"),
                /* largest */ GetInternalKey("750"), /* smallest_seqno */ 200,
                /* largest_seqno */ 200, /* marked_for_compaction */ false,
+               Temperature::kUnknown,
                /* oldest_blob_file_number */ 16, kUnknownOldestAncesterTime,
                kUnknownFileCreationTime, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName, kDisableUserTimestamp,
@@ -1268,6 +1273,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFiles) {
                /* file_size */ 100, /* smallest */ GetInternalKey("801"),
                /* largest */ GetInternalKey("850"), /* smallest_seqno */ 200,
                /* largest_seqno */ 200, /* marked_for_compaction */ false,
+               Temperature::kUnknown,
                /* oldest_blob_file_number */ 1000, kUnknownOldestAncesterTime,
                kUnknownFileCreationTime, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName, kDisableUserTimestamp,
@@ -1487,6 +1493,7 @@ TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobFiles) {
       /* file_size */ 100, /* smallest */ GetInternalKey("21", 2100),
       /* largest */ GetInternalKey("21", 2100), /* smallest_seqno */ 2100,
       /* largest_seqno */ 2100, /* marked_for_compaction */ false,
+      Temperature::kUnknown,
       /* oldest_blob_file_number */ 1, kUnknownOldestAncesterTime,
       kUnknownFileCreationTime, kUnknownFileChecksum,
       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
@@ -1498,7 +1505,7 @@ TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobFiles) {
       /* file_size */ 100, /* smallest */ GetInternalKey("22", 2200),
       /* largest */ GetInternalKey("22", 2200), /* smallest_seqno */ 2200,
       /* largest_seqno */ 2200, /* marked_for_compaction */ false,
-      kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+      Temperature::kUnknown, kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
       kUnknownFileCreationTime, kUnknownFileChecksum,
       kUnknownFileChecksumFuncName, kDisableUserTimestamp,
       kDisableUserTimestamp);
@@ -1521,6 +1528,7 @@ TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobFiles) {
                /* largest */ GetInternalKey("03", 300),
                /* smallest_seqno */ 300,
                /* largest_seqno */ 300, /* marked_for_compaction */ false,
+               Temperature::kUnknown,
                /* oldest_blob_file_number */ 3, kUnknownOldestAncesterTime,
                kUnknownFileCreationTime, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName, kDisableUserTimestamp,
@@ -1533,10 +1541,10 @@ TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobFiles) {
                /* largest */ GetInternalKey("13", 1300),
                /* smallest_seqno */ 1300,
                /* largest_seqno */ 1300, /* marked_for_compaction */ false,
-               kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-               kUnknownFileCreationTime, kUnknownFileChecksum,
-               kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-               kDisableUserTimestamp);
+               Temperature::kUnknown, kInvalidBlobFileNumber,
+               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+               kDisableUserTimestamp, kDisableUserTimestamp);
 
   // Add one more SST file that references a blob file, then promptly
   // delete it in a second version edit before the new version gets saved.
@@ -1546,6 +1554,7 @@ TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobFiles) {
                /* largest */ GetInternalKey("23", 2300),
                /* smallest_seqno */ 2300,
                /* largest_seqno */ 2300, /* marked_for_compaction */ false,
+               Temperature::kUnknown,
                /* oldest_blob_file_number */ 5, kUnknownOldestAncesterTime,
                kUnknownFileCreationTime, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName, kDisableUserTimestamp,
