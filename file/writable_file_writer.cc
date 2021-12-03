@@ -674,13 +674,13 @@ IOStatus WritableFileWriter::WriteDirect() {
   assert((next_write_offset_ % alignment) == 0);
 
   // Calculate whole page final file advance if all writes succeed
-  size_t file_advance = TruncateToPageBoundary(alignment, buf_.CurrentSize());
+  const size_t file_advance =
+      TruncateToPageBoundary(alignment, buf_.CurrentSize());
 
   // Calculate the leftover tail, we write it here padded with zeros BUT we
-  // will write
-  // it again in the future either on Close() OR when the current whole page
-  // fills out
-  size_t leftover_tail = buf_.CurrentSize() - file_advance;
+  // will write it again in the future either on Close() OR when the current
+  // whole page fills out.
+  const size_t leftover_tail = buf_.CurrentSize() - file_advance;
 
   // Round up and pad
   buf_.PadToAlignmentWith(0);
@@ -763,13 +763,13 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum() {
   assert((next_write_offset_ % alignment) == 0);
 
   // Calculate whole page final file advance if all writes succeed
-  size_t file_advance = TruncateToPageBoundary(alignment, buf_.CurrentSize());
+  const size_t file_advance =
+      TruncateToPageBoundary(alignment, buf_.CurrentSize());
 
   // Calculate the leftover tail, we write it here padded with zeros BUT we
-  // will write
-  // it again in the future either on Close() OR when the current whole page
-  // fills out
-  size_t leftover_tail = buf_.CurrentSize() - file_advance;
+  // will write it again in the future either on Close() OR when the current
+  // whole page fills out.
+  const size_t leftover_tail = buf_.CurrentSize() - file_advance;
 
   // Round up, pad, and combine the checksum.
   size_t last_cur_size = buf_.CurrentSize();
