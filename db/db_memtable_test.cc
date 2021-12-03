@@ -10,8 +10,11 @@
 #include "db/memtable.h"
 #include "db/range_del_aggregator.h"
 #include "port/stack_trace.h"
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice_transform.h"
+
+#include "table/block_based/filter_policy_internal.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -313,6 +316,55 @@ TEST_F(DBMemTableTest, InsertWithHint) {
   ASSERT_EQ("bar_v1", Get("bar_k1"));
   ASSERT_EQ("bar_v2", Get("bar_k2"));
   ASSERT_EQ("vvv", Get("NotInPrefixDomain"));
+}
+
+TEST_F(DBMemTableTest, SaveMem) {
+  Options options;
+  options.merge_operator = MergeOperators::CreateUInt64AddOperator();
+  InternalKeyComparator ikey_cmp(options.comparator);
+
+  // Create a MemTable
+  InternalKeyComparator cmp(BytewiseComparator());
+  auto factory = std::make_shared<SkipListFactory>();
+  options.memtable_factory = factory;
+  ImmutableOptions ioptions(options);
+  WriteBufferManager wb(options.db_write_buffer_size);
+  MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
+                               kMaxSequenceNumber, 0 /* column_family_id */);
+
+  for (int i = 0; i < 100; ++i){
+    ASSERT_OK(
+      mem->Add(i, kTypeValue, std::to_string(i), "v", nullptr /* kv_prot_info */));
+  }
+  Status status;
+  std::string value;
+  MergeContext merge_context;
+  LookupKey lkey("0", kMaxSequenceNumber);
+  SequenceNumber max_covering_tombstone_seq = 0;
+  ReadOptions roptions;
+  bool res = mem->Get(lkey, &value, /*timestamp=*/nullptr, &status,
+                    &merge_context, &max_covering_tombstone_seq, roptions);
+  ASSERT_EQ(res, true);
+
+  // Options options;
+  // options.create_if_missing = true;
+  // std::shared_ptr<Cache> cache =
+  //     NewLRUCache(LRUCacheOptions(10000000, 1, false, 0.0));
+  // options.write_buffer_manager.reset(new WriteBufferManager(114285, cache));
+  // options.memtable_whole_key_filtering = true;
+  // options.memtable_prefix_bloom_size_ratio = 0.015;
+  // CreateAndReopenWithCF({"pikachu"}, options);
+
+  // WriteOptions write_options;
+  // for (int i = 0; i < 1; ++i) {
+  //   WriteBatch batch;
+  //   for (int j = 0; j < 3; ++j){
+  //     ASSERT_OK(batch.Put(std::to_string(j), "v"));
+  //   }
+  //   std::cout << "before write" << std::endl;
+  // ASSERT_OK(db_->Write(write_options, &batch));
+  //   std::cout << "after write" << std::endl;
+  // }
 }
 
 TEST_F(DBMemTableTest, ColumnFamilyId) {
