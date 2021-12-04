@@ -308,7 +308,7 @@ void StressTest::FinishInitDb(SharedState* shared) {
             compaction_filter_factory->Name());
   }
 
-  if (shared->HasHistory()) {
+  if (shared->HasHistory() && IsStateTracked()) {
     // The way it works right now is, if there's any history, that means the
     // previous run mutating the DB had all its operations traced, in which case
     // we should always be able to `Restore()` the expected values to match the
