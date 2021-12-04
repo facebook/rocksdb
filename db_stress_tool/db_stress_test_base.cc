@@ -308,7 +308,7 @@ void StressTest::FinishInitDb(SharedState* shared) {
             compaction_filter_factory->Name());
   }
   // TODO(ajkr): First restore if there's already a trace.
-  if (FLAGS_sync_fault_injection) {
+  if (FLAGS_sync_fault_injection && IsStateTracked()) {
     Status s = shared->SaveAtAndAfter(db_);
     if (!s.ok()) {
       fprintf(stderr, "Error enabling history tracing: %s\n",
@@ -2800,7 +2800,7 @@ void StressTest::Reopen(ThreadState* thread) {
           clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
   Open();
 
-  if (FLAGS_sync_fault_injection) {
+  if (FLAGS_sync_fault_injection && IsStateTracked()) {
     Status s = thread->shared->SaveAtAndAfter(db_);
     if (!s.ok()) {
       fprintf(stderr, "Error enabling history tracing: %s\n",
