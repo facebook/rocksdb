@@ -444,6 +444,25 @@ void EventListenerJniCallback::OnErrorRecoveryCompleted(Status old_bg_error) {
   CleanupCallbackInvocation(env, attached_thread, {&jold_bg_error});
 }
 
+void EventListenerJniCallback::OnErrorRecoveryEnd(
+    const BackgroundErrorRecoveryInfo& info) {
+  if (m_on_error_recovery_completed_mid == nullptr) {
+    return;
+  }
+
+  JNIEnv* env;
+  jboolean attached_thread;
+  jobject jinfo = SetupCallbackInvocation<Status>(env, attached_thread, info,
+                                                  StatusJni::construct);
+
+  if (jinfo != nullptr) {
+    env->CallVoidMethod(m_jcallback_obj, m_on_error_recovery_completed_mid,
+                        jinfo);
+  }
+
+  CleanupCallbackInvocation(env, attached_thread, {&jinfo});
+}
+
 void EventListenerJniCallback::InitCallbackMethodId(
     jmethodID& mid, EnabledEventCallback eec, JNIEnv* env,
     jmethodID (*get_id)(JNIEnv* env)) {
