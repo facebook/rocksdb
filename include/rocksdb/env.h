@@ -790,7 +790,7 @@ class RandomAccessFile {
   // non-overlapping. If the function return Status is not ok, status of
   // individual requests will be ignored and return status will be assumed
   // for all read requests. The function return status is only meant for any
-  // any errors that occur before even processing specific read requests
+  // errors that occur before even processing specific read requests
   virtual Status MultiRead(ReadRequest* reqs, size_t num_reqs) {
     assert(reqs != nullptr);
     for (size_t i = 0; i < num_reqs; ++i) {
