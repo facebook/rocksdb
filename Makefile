@@ -134,12 +134,6 @@ CFLAGS +=  -DHAVE_POWER8
 HAVE_POWER8=1
 endif
 
-ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc+crypto -xc /dev/null 2>&1))
-CXXFLAGS += -march=armv8-a+crc+crypto
-CFLAGS += -march=armv8-a+crc+crypto
-ARMCRC_SOURCE=1
-endif
-
 # if we're compiling for shared libraries, add the shared flags
 ifeq ($(LIB_MODE),shared)
 CXXFLAGS += $(PLATFORM_SHARED_CFLAGS) -DROCKSDB_DLL
@@ -261,6 +255,14 @@ endif
 CXXFLAGS := $(CXXFLAGS) $(shell pkg-config --cflags $(ROCKSDB_PLUGIN_PKGCONFIG_REQUIRES))
 ifneq ($(.SHELLSTATUS),0)
 $(error pkg-config failed)
+endif
+endif
+
+ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc+crypto -xc /dev/null 2>&1))
+ifneq ($(PLATFORM),OS_MACOSX)
+CXXFLAGS += -march=armv8-a+crc+crypto
+CFLAGS += -march=armv8-a+crc+crypto
+ARMCRC_SOURCE=1
 endif
 endif
 
@@ -2128,7 +2130,11 @@ zlib-$(ZLIB_VER).tar.gz:
 libz.a: zlib-$(ZLIB_VER).tar.gz
 	-rm -rf zlib-$(ZLIB_VER)
 	tar xvzf zlib-$(ZLIB_VER).tar.gz
-	cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' ./configure --static && $(MAKE)
+	if [ -n"$(ARCHFLAG)" ]; then \
+		cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' ./configure --static --archs="$(ARCHFLAG)" && $(MAKE);  \
+	else \
+		cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' ./configure --static && $(MAKE);  \
+	fi
 	cp zlib-$(ZLIB_VER)/libz.a .
 
 bzip2-$(BZIP2_VER).tar.gz:
@@ -2142,7 +2148,7 @@ bzip2-$(BZIP2_VER).tar.gz:
 libbz2.a: bzip2-$(BZIP2_VER).tar.gz
 	-rm -rf bzip2-$(BZIP2_VER)
 	tar xvzf bzip2-$(BZIP2_VER).tar.gz
-	cd bzip2-$(BZIP2_VER) && $(MAKE) CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64 ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' AR='ar ${EXTRA_ARFLAGS}'
+	cd bzip2-$(BZIP2_VER) && $(MAKE) CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64 $(ARCHFLAG) ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' AR='ar ${EXTRA_ARFLAGS}'
 	cp bzip2-$(BZIP2_VER)/libbz2.a .
 
 snappy-$(SNAPPY_VER).tar.gz:
@@ -2157,7 +2163,7 @@ libsnappy.a: snappy-$(SNAPPY_VER).tar.gz
 	-rm -rf snappy-$(SNAPPY_VER)
 	tar xvzf snappy-$(SNAPPY_VER).tar.gz
 	mkdir snappy-$(SNAPPY_VER)/build
-	cd snappy-$(SNAPPY_VER)/build && CFLAGS='${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' CXXFLAGS='${JAVA_STATIC_DEPS_CXXFLAGS} ${EXTRA_CXXFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' cmake -DCMAKE_POSITION_INDEPENDENT_CODE=ON ${PLATFORM_CMAKE_FLAGS} .. && $(MAKE) ${SNAPPY_MAKE_TARGET}
+	cd snappy-$(SNAPPY_VER)/build && CFLAGS='$(ARCHFLAG) ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' CXXFLAGS='$(ARCHFLAG) ${JAVA_STATIC_DEPS_CXXFLAGS} ${EXTRA_CXXFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' cmake -DCMAKE_POSITION_INDEPENDENT_CODE=ON ${PLATFORM_CMAKE_FLAGS} .. && $(MAKE) ${SNAPPY_MAKE_TARGET}
 	cp snappy-$(SNAPPY_VER)/build/libsnappy.a .
 
 lz4-$(LZ4_VER).tar.gz:
@@ -2171,7 +2177,7 @@ lz4-$(LZ4_VER).tar.gz:
 liblz4.a: lz4-$(LZ4_VER).tar.gz
 	-rm -rf lz4-$(LZ4_VER)
 	tar xvzf lz4-$(LZ4_VER).tar.gz
-	cd lz4-$(LZ4_VER)/lib && $(MAKE) CFLAGS='-fPIC -O2 ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' all
+	cd lz4-$(LZ4_VER)/lib && $(MAKE) CFLAGS='-fPIC -O2 $(ARCHFLAG) ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' all
 	cp lz4-$(LZ4_VER)/lib/liblz4.a .
 
 zstd-$(ZSTD_VER).tar.gz:
@@ -2185,7 +2191,7 @@ zstd-$(ZSTD_VER).tar.gz:
 libzstd.a: zstd-$(ZSTD_VER).tar.gz
 	-rm -rf zstd-$(ZSTD_VER)
 	tar xvzf zstd-$(ZSTD_VER).tar.gz
-	cd zstd-$(ZSTD_VER)/lib && DESTDIR=. PREFIX= $(MAKE) CFLAGS='-fPIC -O2 ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' libzstd.a
+	cd zstd-$(ZSTD_VER)/lib && DESTDIR=. PREFIX= $(MAKE) CFLAGS='-fPIC -O2 $(ARCHFLAG) ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' libzstd.a
 	cp zstd-$(ZSTD_VER)/lib/libzstd.a .
 
 # A version of each $(LIB_OBJECTS) compiled with -fPIC and a fixed set of static compression libraries
@@ -2207,6 +2213,25 @@ endif
 	$(MAKE) rocksdbjavastatic_deps
 	$(MAKE) rocksdbjavastatic_libobjects
 	$(MAKE) rocksdbjavastatic_javalib
+	$(MAKE) rocksdbjavastatic_jar
+
+rocksdbjavastaticosxub:
+ifeq ($(JAVA_HOME),)
+	$(error JAVA_HOME is not set)
+endif
+	$(MAKE) clean-ext-libraries-bin clean-rocks
+	$(MAKE) rocksdbjavastaticosx_x86_64
+	mv java/target/$(ROCKSDBJNILIB) java/target/$(ROCKSDBJNILIB)_x86_64
+	$(MAKE) clean-ext-libraries-bin clean-rocks
+	$(MAKE) rocksdbjavastaticosx_arm64
+	mv java/target/$(ROCKSDBJNILIB) java/target/$(ROCKSDBJNILIB)_arm64
+	lipo -create -output ./java/target/$(ROCKSDBJNILIB) ./java/target/$(ROCKSDBJNILIB)_x86_64 ./java/target/$(ROCKSDBJNILIB)_arm64
+	$(MAKE) rocksdbjavastatic_jar
+
+rocksdbjavastaticosx_%:
+	CXXFLAGS="$(CXXFLAGS)" ARCHFLAG="-arch $*" $(MAKE) rocksdbjavastatic_deps
+	CXXFLAGS="-arch $* $(CXXFLAGS)" $(MAKE) rocksdbjavastatic_libobjects
+	CXXFLAGS="-arch $* $(CXXFLAGS)" $(MAKE) rocksdbjavastatic_javalib
 
 ifeq ($(JAR_CMD),)
 ifneq ($(JAVA_HOME),)
@@ -2222,6 +2247,8 @@ rocksdbjavastatic_javalib:
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
 	  $(LIB_OBJECTS) $(COVERAGEFLAGS) \
 	  $(JAVA_COMPRESSIONS) $(JAVA_STATIC_LDFLAGS)
+
+rocksdbjavastatic_jar:
 	cd java/target;if [ "$(DEBUG_LEVEL)" == "0" ]; then \
 		strip $(STRIPFLAGS) $(ROCKSDBJNILIB); \
 	fi
@@ -2238,14 +2265,14 @@ rocksdbjavastatic_deps: $(JAVA_COMPRESSIONS)
 
 rocksdbjavastatic_libobjects: $(LIB_OBJECTS)
 
-rocksdbjavastaticrelease: rocksdbjavastatic
+rocksdbjavastaticrelease: rocksdbjavastaticosxub
 	cd java/crossbuild && (vagrant destroy -f || true) && vagrant up linux32 && vagrant halt linux32 && vagrant up linux64 && vagrant halt linux64 && vagrant up linux64-musl && vagrant halt linux64-musl
 	cd java; $(JAR_CMD) -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
 	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
 	openssl sha1 java/target/$(ROCKSDB_JAR_ALL) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAR_ALL).sha1
 
-rocksdbjavastaticreleasedocker: rocksdbjavastatic rocksdbjavastaticdockerx86 rocksdbjavastaticdockerx86_64 rocksdbjavastaticdockerx86musl rocksdbjavastaticdockerx86_64musl
+rocksdbjavastaticreleasedocker: rocksdbjavastaticosxub rocksdbjavastaticdockerx86 rocksdbjavastaticdockerx86_64 rocksdbjavastaticdockerx86musl rocksdbjavastaticdockerx86_64musl
 	cd java; $(JAR_CMD) -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
 	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
