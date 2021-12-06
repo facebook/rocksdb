@@ -6601,6 +6601,12 @@ TEST_F(DBTest2, BottommostTemperature) {
       DB::Properties::kLiveSstFilesSizeAtTemperature + std::to_string(22),
       &prop));
   ASSERT_EQ(std::atoi(prop.c_str()), 0);
+
+  Reopen(options);
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(2, metadata.file_count);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
 }
 
 TEST_F(DBTest2, BottommostTemperatureUniversal) {

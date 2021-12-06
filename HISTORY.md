@@ -1,4 +1,20 @@
 # Rocksdb Change Log
+## Unreleased
+### New Features
+### Bug Fixes
+* Fixed a bug in rocksdb automatic implicit prefetching which got broken because of new feature adaptive_readahead and internal prefetching got disabled when iterator moves from one file to next.
+
+### Behavior Changes
+* MemTableList::TrimHistory now use allocated bytes when max_write_buffer_size_to_maintain > 0(default in TrasactionDB, introduced in PR#5022) Fix #8371.
+### Public API change
+* Extend WriteBatch::AssignTimestamp and AssignTimestamps API so that both functions can accept an optional `checker` argument that performs additional checking on timestamp sizes.
+
+### Performance Improvements
+* Replaced map property `TableProperties::properties_offsets`  with uint64_t property `external_sst_file_global_seqno_offset` to save table properties's memory.
+
+### Java API Changes
+* Removed Java API `TableProperties.getPropertiesOffsets()` as it exposed internal details to external users.
+
 ## 6.27.0 (2021-11-19)
 ### New Features
 * Added new ChecksumType kXXH3 which is faster than kCRC32c on almost all x86\_64 hardware.
@@ -24,6 +40,7 @@
 * Users who configured a dedicated thread pool for bottommost compactions by explicitly adding threads to the `Env::Priority::BOTTOM` pool will no longer see RocksDB schedule automatic compactions exceeding the DB's compaction concurrency limit. For details on per-DB compaction concurrency limit, see API docs of `max_background_compactions` and `max_background_jobs`.
 * Fixed a bug of background flush thread picking more memtables to flush and prematurely advancing column family's log_number.
 * Fixed an assertion failure in ManifestTailer.
+* Fixed a bug that could, with WAL enabled, cause backups, checkpoints, and `GetSortedWalFiles()` to fail randomly with an error like `IO error: 001234.log: No such file or directory`
 
 ### Behavior Changes
 * `NUM_FILES_IN_SINGLE_COMPACTION` was only counting the first input level files, now it's including all input files.
@@ -32,7 +49,7 @@
 
 ### Public API change
 * When options.ttl is used with leveled compaction with compactinon priority kMinOverlappingRatio, files exceeding half of TTL value will be prioritized more, so that by the time TTL is reached, fewer extra compactions will be scheduled to clear them up. At the same time, when compacting files with data older than half of TTL, output files may be cut off based on those files' boundaries, in order for the early TTL compaction to work properly.
-* Made FileSystem extend the Customizable class and added a CreateFromString method.  Implementations need to be registered with the ObjectRegistry and to implement a Name() method in order to be created via this method.
+* Made FileSystem and RateLimiter extend the Customizable class and added a CreateFromString method.  Implementations need to be registered with the ObjectRegistry and to implement a Name() method in order to be created via this method.
 * Clarified in API comments that RocksDB is not exception safe for callbacks and custom extensions. An exception propagating into RocksDB can lead to undefined behavior, including data loss, unreported corruption, deadlocks, and more.
 * Marked `WriteBufferManager` as `final` because it is not intended for extension.
 * Removed unimportant implementation details from table_properties.h
@@ -44,6 +61,9 @@
 
 ### Performance Improvements
 * Released some memory related to filter construction earlier in `BlockBasedTableBuilder` for `FullFilter` and `PartitionedFilter` case (#9070)
+
+### Behavior Changes
+* `NUM_FILES_IN_SINGLE_COMPACTION` was only counting the first input level files, now it's including all input files.
 
 ## 6.26.0 (2021-10-20)
 ### Bug Fixes

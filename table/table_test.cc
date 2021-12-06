@@ -4490,8 +4490,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
         user_props[ExternalSstFilePropertyNames::kVersion].c_str());
     global_seqno = DecodeFixed64(
         user_props[ExternalSstFilePropertyNames::kGlobalSeqno].c_str());
-    global_seqno_offset =
-        props->properties_offsets[ExternalSstFilePropertyNames::kGlobalSeqno];
+    global_seqno_offset = props->external_sst_file_global_seqno_offset;
   };
 
   // Helper function to update the value of the global seqno in the file

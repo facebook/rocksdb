@@ -33,11 +33,11 @@ std::shared_ptr<Cache> NewClockCache(
 #ifndef ROCKSDB_USE_RTTI
 #define TBB_USE_EXCEPTIONS 0
 #endif
-#include "tbb/concurrent_hash_map.h"
-
 #include "cache/sharded_cache.h"
+#include "port/lang.h"
 #include "port/malloc.h"
 #include "port/port.h"
+#include "tbb/concurrent_hash_map.h"
 #include "util/autovector.h"
 #include "util/mutexlock.h"
 
@@ -809,9 +809,10 @@ class ClockCache final : public ShardedCache {
   }
 
   void DisownData() override {
-#ifndef MUST_FREE_HEAP_ALLOCATIONS
-    shards_ = nullptr;
-#endif
+    // Leak data only if that won't generate an ASAN/valgrind warning
+    if (!kMustFreeHeapAllocations) {
+      shards_ = nullptr;
+    }
   }
 
   void WaitAll(std::vector<Handle*>& /*handles*/) override {}

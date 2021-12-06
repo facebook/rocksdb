@@ -236,9 +236,9 @@ IF_ROCKSDB_LITE("",
     "\tmemstats  -- Print memtable stats\n"
     "\tsstables    -- Print sstable info\n"
     "\theapprofile -- Dump a heap profile (if supported by this port)\n"
-#ifndef ROCKSDB_LITE
+IF_ROCKSDB_LITE("",
     "\treplay      -- replay the trace file specified with trace_file\n"
-#endif  // ROCKSDB_LITE
+)
     "\tgetmergeoperands -- Insert lots of merge records which are a list of "
     "sorted ints for a key and then compare performance of lookup for another "
     "key "

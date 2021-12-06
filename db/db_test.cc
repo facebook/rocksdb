@@ -3991,6 +3991,9 @@ class MockedRateLimiterWithNoOptionalAPIImpl : public RateLimiter {
 
   ~MockedRateLimiterWithNoOptionalAPIImpl() override {}
 
+  const char* Name() const override {
+    return "MockedRateLimiterWithNoOptionalAPI";
+  }
   void SetBytesPerSecond(int64_t bytes_per_second) override {
     (void)bytes_per_second;
   }
