@@ -80,7 +80,17 @@ Status ArenaWrappedDBIter::Refresh() {
         latest_seq, /* allow_unprepared_value */ true);
     SetIterUnderDBIter(internal_iter);
   } else {
-    db_iter_->set_sequence(db_impl_->GetLatestSequenceNumber());
+    SequenceNumber latest_seq = db_impl_->GetLatestSequenceNumber();
+    // Refresh range-tombstones in MemTable
+    if (!read_options_.ignore_range_deletions) {
+      SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_);
+      ReadRangeDelAggregator* range_del_agg = db_iter_->GetRangeDelAggregator();
+      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter;
+      range_del_iter.reset(sv->mem->NewRangeTombstoneIterator(read_options_, latest_seq));
+      range_del_agg->AddTombstones(std::move(range_del_iter));
+    }
+    // Refresh latest sequence number
+    db_iter_->set_sequence(latest_seq);
     db_iter_->set_valid(false);
   }
   return Status::OK();
