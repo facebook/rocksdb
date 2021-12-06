@@ -27,6 +27,7 @@ class ExternalSSTTestEnv : public EnvWrapper {
  public:
   ExternalSSTTestEnv(Env* t, bool fail_link)
       : EnvWrapper(t), fail_link_(fail_link) {}
+  const char* Name() const override { return "ExternalSSTTestEnv"; }
 
   Status LinkFile(const std::string& s, const std::string& t) override {
     if (fail_link_) {

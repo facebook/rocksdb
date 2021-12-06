@@ -687,6 +687,7 @@ class TableFileCreationListener : public EventListener {
   class TestEnv : public EnvWrapper {
    public:
     explicit TestEnv(Env* t) : EnvWrapper(t) {}
+    const char* Name() const override { return "TestEnv"; }
 
     void SetStatus(Status s) { status_ = s; }
 

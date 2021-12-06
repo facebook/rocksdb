@@ -172,6 +172,7 @@ class DummyDB : public StackableDB {
 class TestEnv : public EnvWrapper {
  public:
   explicit TestEnv(Env* t) : EnvWrapper(t) {}
+  const char* Name() const override { return "TestEnv"; }
 
   class DummySequentialFile : public SequentialFile {
    public:
@@ -417,6 +418,7 @@ class TestEnv : public EnvWrapper {
 class FileManager : public EnvWrapper {
  public:
   explicit FileManager(Env* t) : EnvWrapper(t), rnd_(5) {}
+  const char* Name() const override { return "FileManager"; }
 
   Status GetRandomFileInDir(const std::string& dir, std::string* fname,
                             uint64_t* fsize) {

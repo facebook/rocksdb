@@ -27,13 +27,22 @@ static FactoryFunc<Env> test_reg_a = ObjectLibrary::Default()->Register<Env>(
       return Env::Default();
     });
 
+class WrappedEnv : public EnvWrapper {
+ private:
+  std::string id_;
+
+ public:
+  WrappedEnv(Env* t, const std::string& id) : EnvWrapper(t), id_(id) {}
+  const char* Name() const override { return id_.c_str(); }
+  std::string GetId() const override { return id_; }
+};
 static FactoryFunc<Env> test_reg_b = ObjectLibrary::Default()->Register<Env>(
-    "b://.*", [](const std::string& /*uri*/, std::unique_ptr<Env>* env_guard,
+    "b://.*", [](const std::string& uri, std::unique_ptr<Env>* env_guard,
                  std::string* /* errmsg */) {
       ++EnvRegistryTest::num_b;
       // Env::Default() is a singleton so we can't grant ownership directly to
       // the caller - we must wrap it first.
-      env_guard->reset(new EnvWrapper(Env::Default()));
+      env_guard->reset(new WrappedEnv(Env::Default(), uri));
       return env_guard->get();
     });
 
@@ -98,12 +107,12 @@ TEST_F(EnvRegistryTest, CheckShared) {
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
          std::string* /* errmsg */) { return Env::Default(); });
 
-  library->Register<Env>(
-      "guarded", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
-                    std::string* /* errmsg */) {
-        guard->reset(new EnvWrapper(Env::Default()));
-        return guard->get();
-      });
+  library->Register<Env>("guarded",
+                         [](const std::string& uri, std::unique_ptr<Env>* guard,
+                            std::string* /* errmsg */) {
+                           guard->reset(new WrappedEnv(Env::Default(), uri));
+                           return guard->get();
+                         });
 
   ASSERT_OK(registry->NewSharedObject<Env>("guarded", &shared));
   ASSERT_NE(shared, nullptr);
@@ -123,12 +132,12 @@ TEST_F(EnvRegistryTest, CheckStatic) {
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
          std::string* /* errmsg */) { return Env::Default(); });
 
-  library->Register<Env>(
-      "guarded", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
-                    std::string* /* errmsg */) {
-        guard->reset(new EnvWrapper(Env::Default()));
-        return guard->get();
-      });
+  library->Register<Env>("guarded",
+                         [](const std::string& uri, std::unique_ptr<Env>* guard,
+                            std::string* /* errmsg */) {
+                           guard->reset(new WrappedEnv(Env::Default(), uri));
+                           return guard->get();
+                         });
 
   ASSERT_NOK(registry->NewStaticObject<Env>("guarded", &env));
   ASSERT_EQ(env, nullptr);
@@ -148,12 +157,12 @@ TEST_F(EnvRegistryTest, CheckUnique) {
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
          std::string* /* errmsg */) { return Env::Default(); });
 
-  library->Register<Env>(
-      "guarded", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
-                    std::string* /* errmsg */) {
-        guard->reset(new EnvWrapper(Env::Default()));
-        return guard->get();
-      });
+  library->Register<Env>("guarded",
+                         [](const std::string& uri, std::unique_ptr<Env>* guard,
+                            std::string* /* errmsg */) {
+                           guard->reset(new WrappedEnv(Env::Default(), uri));
+                           return guard->get();
+                         });
 
   ASSERT_OK(registry->NewUniqueObject<Env>("guarded", &unique));
   ASSERT_NE(unique, nullptr);
@@ -170,19 +179,19 @@ TEST_F(EnvRegistryTest, TestRegistryParents) {
   auto cousin = ObjectRegistry::NewInstance(uncle);
 
   auto library = parent->AddLibrary("parent");
-  library->Register<Env>(
-      "parent", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
-                   std::string* /* errmsg */) {
-        guard->reset(new EnvWrapper(Env::Default()));
-        return guard->get();
-      });
+  library->Register<Env>("parent",
+                         [](const std::string& uri, std::unique_ptr<Env>* guard,
+                            std::string* /* errmsg */) {
+                           guard->reset(new WrappedEnv(Env::Default(), uri));
+                           return guard->get();
+                         });
   library = cousin->AddLibrary("cousin");
-  library->Register<Env>(
-      "cousin", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
-                   std::string* /* errmsg */) {
-        guard->reset(new EnvWrapper(Env::Default()));
-        return guard->get();
-      });
+  library->Register<Env>("cousin",
+                         [](const std::string& uri, std::unique_ptr<Env>* guard,
+                            std::string* /* errmsg */) {
+                           guard->reset(new WrappedEnv(Env::Default(), uri));
+                           return guard->get();
+                         });
 
   std::unique_ptr<Env> guard;
   std::string msg;

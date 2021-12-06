@@ -420,13 +420,13 @@ static std::unordered_map<std::string, OptionTypeInfo>
 std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs) {
   return std::unique_ptr<Env>(new CompositeEnvWrapper(Env::Default(), fs));
 }
-
+  
 CompositeEnvWrapper::CompositeEnvWrapper(Env* env,
                                          const std::shared_ptr<FileSystem>& fs,
                                          const std::shared_ptr<SystemClock>& sc)
     : CompositeEnv(fs, sc), target_(env) {
   RegisterOptions("", &target_, &composite_env_wrapper_type_info);
-  RegisterOptions("", &file_system_, &composite_fs_wrapper_type_info);
+  RegisterOptions("", &files_system_, &composite_fs_wrapper_type_info);
   RegisterOptions("", &system_clock_, &composite_clock_wrapper_type_info);
 }
 
