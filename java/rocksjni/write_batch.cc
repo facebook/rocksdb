@@ -363,10 +363,10 @@ void Java_org_rocksdb_WriteBatch_singleDelete__J_3BIJ(JNIEnv* env, jobject jobj,
 
 /*
  * Class:     org_rocksdb_WriteBatch
- * Method:    removeDirect
+ * Method:    deleteDirect
  * Signature: (JLjava/nio/ByteBuffer;IIJ)V
  */
-void Java_org_rocksdb_WriteBatch_removeDirect(JNIEnv* env, jobject /*jobj*/,
+void Java_org_rocksdb_WriteBatch_deleteDirect(JNIEnv* env, jobject /*jobj*/,
                                               jlong jwb_handle, jobject jkey,
                                               jint jkey_offset, jint jkey_len,
                                               jlong jcf_handle) {

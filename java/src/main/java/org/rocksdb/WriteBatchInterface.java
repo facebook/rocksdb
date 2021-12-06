@@ -118,6 +118,31 @@ public interface WriteBatchInterface {
         throws RocksDBException;
 
     /**
+     * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
+     *
+     * @param key Key to delete within database. It is using position and limit.
+     *     Supports direct buffer only.
+     *
+     * @deprecated Use {@link #delete(ByteBuffer)}
+     * @throws RocksDBException thrown if error happens in underlying native library.
+     */
+    @Deprecated
+    void remove(ByteBuffer key) throws RocksDBException;
+
+    /**
+     * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
+     *
+     * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+     * @param key Key to delete within database. It is using position and limit.
+     *     Supports direct buffer only.
+     *
+     * @deprecated Use {@link #delete(ColumnFamilyHandle, ByteBuffer)}
+     * @throws RocksDBException thrown if error happens in underlying native library.
+     */
+    @Deprecated
+    void remove(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key) throws RocksDBException;
+
+    /**
      * <p>If the database contains a mapping for "key", erase it.  Else do nothing.</p>
      *
      * @param key Key to delete within database
@@ -134,6 +159,27 @@ public interface WriteBatchInterface {
      */
     void delete(ColumnFamilyHandle columnFamilyHandle, byte[] key)
         throws RocksDBException;
+
+    /**
+     * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
+     *
+     * @param key Key to delete within database. It is using position and limit.
+     *     Supports direct buffer only.
+     *
+     * @throws RocksDBException thrown if error happens in underlying native library.
+     */
+    void delete(ByteBuffer key) throws RocksDBException;
+
+    /**
+     * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
+     *
+     * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+     * @param key Key to delete within database. It is using position and limit.
+     *     Supports direct buffer only.
+     *
+     * @throws RocksDBException thrown if error happens in underlying native library.
+     */
+    void delete(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key) throws RocksDBException;
 
     /**
      * Remove the database entry for {@code key}. Requires that the key exists
@@ -184,25 +230,6 @@ public interface WriteBatchInterface {
     @Experimental("Performance optimization for a very specific workload")
     void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
             final byte[] key) throws RocksDBException;
-
-    /**
-     * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
-     *
-     * @param key Key to delete within database. It is using position and limit.
-     *     Supports direct buffer only.
-     * @throws RocksDBException
-     */
-    void remove(ByteBuffer key) throws RocksDBException;
-
-    /**
-     * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
-     *
-     * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
-     * @param key Key to delete within database. It is using position and limit.
-     *     Supports direct buffer only.
-     * @throws RocksDBException
-     */
-    void remove(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key) throws RocksDBException;
 
     /**
      * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
