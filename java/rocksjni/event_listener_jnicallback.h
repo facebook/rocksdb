@@ -78,7 +78,6 @@ class EventListenerJniCallback : public JniCallback, public EventListener {
   virtual void OnErrorRecoveryBegin(BackgroundErrorReason reason,
                                     Status bg_error, bool* auto_recovery);
   virtual void OnErrorRecoveryCompleted(Status old_bg_error);
-  virtual void OnErrorRecoveryEnd(const BackgroundErrorRecoveryInfo& info);
 
  private:
   inline void InitCallbackMethodId(jmethodID& mid, EnabledEventCallback eec,
