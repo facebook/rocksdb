@@ -12,8 +12,14 @@
 #include <atomic>
 #include <memory>
 
+#include "db/dbformat.h"
+#include "file/file_util.h"
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/types.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -126,6 +132,14 @@ class ExpectedStateManager {
   // member function.
   virtual Status Open() = 0;
 
+  // Saves expected values for the current state of `db` and begins tracking
+  // changes.
+  //
+  // Requires external locking preventing concurrent execution with any other
+  // member function. Furthermore, `db` must not be mutated while this function
+  // is executing.
+  virtual Status SaveAtAndAfter(DB* db) = 0;
+
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) { return latest_->ClearColumnFamily(cf); }
 
@@ -186,6 +200,12 @@ class FileExpectedStateManager : public ExpectedStateManager {
   // member function.
   Status Open() override;
 
+  // See `ExpectedStateManager::SaveAtAndAfter()` API doc.
+  //
+  // This implementation makes a copy of "LATEST.state" into
+  // "<current seqno>.state", and starts a trace in "<current seqno>.trace".
+  Status SaveAtAndAfter(DB* db) override;
+
  private:
   // Requires external locking preventing concurrent execution with any other
   // member function.
@@ -194,9 +214,14 @@ class FileExpectedStateManager : public ExpectedStateManager {
   std::string GetTempPathForFilename(const std::string& filename);
   std::string GetPathForFilename(const std::string& filename);
 
-  static const std::string kLatestFilename;
+  static const std::string kLatestBasename;
+  static const std::string kStateFilenameSuffix;
+  static const std::string kTraceFilenameSuffix;
+  static const std::string kTempFilenamePrefix;
+  static const std::string kTempFilenameSuffix;
 
   const std::string expected_state_dir_path_;
+  SequenceNumber saved_seqno_ = kMaxSequenceNumber;
 };
 
 // An `AnonExpectedStateManager` implements an `ExpectedStateManager` backed by
@@ -204,6 +229,14 @@ class FileExpectedStateManager : public ExpectedStateManager {
 class AnonExpectedStateManager : public ExpectedStateManager {
  public:
   explicit AnonExpectedStateManager(size_t max_key, size_t num_column_families);
+
+  // See `ExpectedStateManager::SaveAtAndAfter()` API doc.
+  //
+  // This implementation returns `Status::NotSupported` since we do not
+  // currently have a need to keep history of expected state within a process.
+  Status SaveAtAndAfter(DB* /* db */) override {
+    return Status::NotSupported();
+  }
 
   // Requires external locking preventing concurrent execution with any other
   // member function.

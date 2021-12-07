@@ -16,6 +16,8 @@ class BatchedOpsStressTest : public StressTest {
   BatchedOpsStressTest() {}
   virtual ~BatchedOpsStressTest() {}
 
+  bool IsStateTracked() const override { return false; }
+
   // Given a key K and value V, this puts ("0"+K, "0"+V), ("1"+K, "1"+V), ...
   // ("9"+K, "9"+V) in DB atomically i.e in a single batch.
   // Also refer BatchedOpsStressTest::TestGet

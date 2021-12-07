@@ -307,6 +307,15 @@ void StressTest::FinishInitDb(SharedState* shared) {
     fprintf(stdout, "Compaction filter factory: %s\n",
             compaction_filter_factory->Name());
   }
+  // TODO(ajkr): First restore if there's already a trace.
+  if (FLAGS_sync_fault_injection && IsStateTracked()) {
+    Status s = shared->SaveAtAndAfter(db_);
+    if (!s.ok()) {
+      fprintf(stderr, "Error enabling history tracing: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
+  }
 }
 
 bool StressTest::VerifySecondaries() {
@@ -2790,6 +2799,15 @@ void StressTest::Reopen(ThreadState* thread) {
   fprintf(stdout, "%s Reopening database for the %dth time\n",
           clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
   Open();
+
+  if (FLAGS_sync_fault_injection && IsStateTracked()) {
+    Status s = thread->shared->SaveAtAndAfter(db_);
+    if (!s.ok()) {
+      fprintf(stderr, "Error enabling history tracing: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
+  }
 }
 
 void StressTest::CheckAndSetOptionsForUserTimestamp() {
