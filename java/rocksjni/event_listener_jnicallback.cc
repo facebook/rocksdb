@@ -452,8 +452,8 @@ void EventListenerJniCallback::OnErrorRecoveryEnd(
 
   JNIEnv* env;
   jboolean attached_thread;
-  jobject jinfo = SetupCallbackInvocation<Status>(env, attached_thread, info,
-                                                  StatusJni::construct);
+  jobject jinfo = SetupCallbackInvocation<BackgroundErrorRecoveryInfo>(
+      env, attached_thread, info, StatusJni::construct);
 
   if (jinfo != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_error_recovery_completed_mid,
