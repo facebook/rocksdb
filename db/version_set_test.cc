@@ -13,6 +13,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/log_writer.h"
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/file_system.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -44,10 +45,11 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         files_.size() + 1, 0, 0,
         InternalKey(smallest, smallest_seq, kTypeValue),
         InternalKey(largest, largest_seq, kTypeValue), smallest_seq,
-        largest_seq, /* marked_for_compact */ false, kInvalidBlobFileNumber,
-        kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        kDisableUserTimestamp, kDisableUserTimestamp);
+        largest_seq, /* marked_for_compact */ false, Temperature::kUnknown,
+        kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+        kUnknownFileCreationTime, kUnknownFileChecksum,
+        kUnknownFileChecksumFuncName, kDisableUserTimestamp,
+        kDisableUserTimestamp);
     files_.push_back(f);
   }
 
@@ -153,10 +155,10 @@ class VersionStorageInfoTestBase : public testing::Test {
     FileMetaData* f = new FileMetaData(
         file_number, 0, file_size, smallest, largest, /* smallest_seq */ 0,
         /* largest_seq */ 0, /* marked_for_compact */ false,
-        oldest_blob_file_number, kUnknownOldestAncesterTime,
-        kUnknownFileCreationTime, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-        kDisableUserTimestamp);
+        Temperature::kUnknown, oldest_blob_file_number,
+        kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+        kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+        kDisableUserTimestamp, kDisableUserTimestamp);
     f->compensated_file_size = file_size;
     vstorage_.AddFile(level, f);
   }
@@ -2997,7 +2999,8 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       ASSERT_OK(s);
       ASSERT_NE(0, file_size);
       file_metas->emplace_back(file_num, /*file_path_id=*/0, file_size, ikey,
-                               ikey, 0, 0, false, 0, 0, 0, kUnknownFileChecksum,
+                               ikey, 0, 0, false, Temperature::kUnknown, 0, 0,
+                               0, kUnknownFileChecksum,
                                kUnknownFileChecksumFuncName,
                                kDisableUserTimestamp, kDisableUserTimestamp);
     }
@@ -3051,11 +3054,11 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
     std::string largest_ukey = "b";
     InternalKey smallest_ikey(smallest_ukey, 1, ValueType::kTypeValue);
     InternalKey largest_ikey(largest_ukey, 1, ValueType::kTypeValue);
-    FileMetaData meta =
-        FileMetaData(file_num, /*file_path_id=*/0, /*file_size=*/12,
-                     smallest_ikey, largest_ikey, 0, 0, false, 0, 0, 0,
-                     kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-                     kDisableUserTimestamp, kDisableUserTimestamp);
+    FileMetaData meta = FileMetaData(
+        file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
+        largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
+        kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+        kDisableUserTimestamp, kDisableUserTimestamp);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3107,11 +3110,11 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
     std::string largest_ukey = "b";
     InternalKey smallest_ikey(smallest_ukey, 1, ValueType::kTypeValue);
     InternalKey largest_ikey(largest_ukey, 1, ValueType::kTypeValue);
-    FileMetaData meta =
-        FileMetaData(file_num, /*file_path_id=*/0, /*file_size=*/12,
-                     smallest_ikey, largest_ikey, 0, 0, false, 0, 0, 0,
-                     kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-                     kDisableUserTimestamp, kDisableUserTimestamp);
+    FileMetaData meta = FileMetaData(
+        file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
+        largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
+        kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+        kDisableUserTimestamp, kDisableUserTimestamp);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(

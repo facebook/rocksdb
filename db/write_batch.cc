@@ -1986,8 +1986,8 @@ class MemTableInserter : public WriteBatch::Handler {
           const MemTable* const mem = cfd->mem();
           assert(mem);
 
-          if (mem->ApproximateMemoryUsageFast() +
-                      imm->ApproximateMemoryUsageExcludingLast() >=
+          if (mem->MemoryAllocatedBytes() +
+                      imm->MemoryAllocatedBytesExcludingLast() >=
                   size_to_maintain &&
               imm->MarkTrimHistoryNeeded()) {
             trim_history_scheduler_->ScheduleWork(cfd);
