@@ -8266,13 +8266,13 @@ jlong Java_org_rocksdb_ReadOptions_iterStartSeqnum(
   return static_cast<jlong>(opt->iter_start_seqnum);
 }
 
-
 /*
  * Class:     org_rocksdb_ReadOptions
  * Method:    autoPrefixMode
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_ReadOptions_autoPrefixMode(JNIEnv *, jobject, jlong jhandle) {
+jboolean Java_org_rocksdb_ReadOptions_autoPrefixMode(JNIEnv*, jobject,
+                                                     jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
   return static_cast<jboolean>(opt->auto_prefix_mode);
 }
@@ -8282,18 +8282,18 @@ jboolean Java_org_rocksdb_ReadOptions_autoPrefixMode(JNIEnv *, jobject, jlong jh
  * Method:    setAutoPrefixMode
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_ReadOptions_setAutoPrefixMode(JNIEnv *, jobject, jlong jhandle, jboolean jauto_prefix_mode) {
+void Java_org_rocksdb_ReadOptions_setAutoPrefixMode(
+    JNIEnv*, jobject, jlong jhandle, jboolean jauto_prefix_mode) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
   opt->auto_prefix_mode = static_cast<bool>(jauto_prefix_mode);
 }
-
 
 /*
  * Class:     org_rocksdb_ReadOptions
  * Method:    timestamp
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_ReadOptions_timestamp (JNIEnv *, jobject, jlong jhandle) {
+jlong Java_org_rocksdb_ReadOptions_timestamp(JNIEnv*, jobject, jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
   auto& timestamp_slice_handle = opt->timestamp;
   return reinterpret_cast<jlong>(timestamp_slice_handle);
@@ -8304,9 +8304,11 @@ jlong Java_org_rocksdb_ReadOptions_timestamp (JNIEnv *, jobject, jlong jhandle) 
  * Method:    setTimestamp
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_ReadOptions_setTimestamp(JNIEnv *, jobject, jlong jhandle, jlong jtimestamp_slice_handle) {
+void Java_org_rocksdb_ReadOptions_setTimestamp(JNIEnv*, jobject, jlong jhandle,
+                                               jlong jtimestamp_slice_handle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
-  opt->timestamp = reinterpret_cast<ROCKSDB_NAMESPACE::Slice*>(jtimestamp_slice_handle);
+  opt->timestamp =
+      reinterpret_cast<ROCKSDB_NAMESPACE::Slice*>(jtimestamp_slice_handle);
 }
 
 /*
@@ -8314,7 +8316,8 @@ void Java_org_rocksdb_ReadOptions_setTimestamp(JNIEnv *, jobject, jlong jhandle,
  * Method:    iterStartTs
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_ReadOptions_iterStartTs(JNIEnv *, jobject, jlong jhandle) {
+jlong Java_org_rocksdb_ReadOptions_iterStartTs(JNIEnv*, jobject,
+                                               jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
   auto& iter_start_ts_handle = opt->iter_start_ts;
   return reinterpret_cast<jlong>(iter_start_ts_handle);
@@ -8325,9 +8328,12 @@ jlong Java_org_rocksdb_ReadOptions_iterStartTs(JNIEnv *, jobject, jlong jhandle)
  * Method:    setIterStartTs
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_ReadOptions_setIterStartTs(JNIEnv *, jobject, jlong jhandle, jlong jiter_start_ts_handle) {
- auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
- opt->iter_start_ts = reinterpret_cast<ROCKSDB_NAMESPACE::Slice*>(jiter_start_ts_handle);
+void Java_org_rocksdb_ReadOptions_setIterStartTs(JNIEnv*, jobject,
+                                                 jlong jhandle,
+                                                 jlong jiter_start_ts_handle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
+  opt->iter_start_ts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::Slice*>(jiter_start_ts_handle);
 }
 
 /*
@@ -8335,7 +8341,7 @@ void Java_org_rocksdb_ReadOptions_setIterStartTs(JNIEnv *, jobject, jlong jhandl
  * Method:    deadline
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_ReadOptions_deadline(JNIEnv *, jobject, jlong jhandle) {
+jlong Java_org_rocksdb_ReadOptions_deadline(JNIEnv*, jobject, jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
   return static_cast<jlong>(opt->deadline.count());
 }
@@ -8345,7 +8351,8 @@ jlong Java_org_rocksdb_ReadOptions_deadline(JNIEnv *, jobject, jlong jhandle) {
  * Method:    setDeadline
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_ReadOptions_setDeadline(JNIEnv *, jobject, jlong jhandle, jlong jdeadline ) {
+void Java_org_rocksdb_ReadOptions_setDeadline(JNIEnv*, jobject, jlong jhandle,
+                                              jlong jdeadline) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
   opt->deadline = std::chrono::microseconds(static_cast<int64_t>(jdeadline));
 }
@@ -8355,7 +8362,7 @@ void Java_org_rocksdb_ReadOptions_setDeadline(JNIEnv *, jobject, jlong jhandle, 
  * Method:    ioTimeout
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_ReadOptions_ioTimeout(JNIEnv *, jobject, jlong jhandle) {
+jlong Java_org_rocksdb_ReadOptions_ioTimeout(JNIEnv*, jobject, jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
   return static_cast<jlong>(opt->io_timeout.count());
 }
@@ -8365,9 +8372,11 @@ jlong Java_org_rocksdb_ReadOptions_ioTimeout(JNIEnv *, jobject, jlong jhandle) {
  * Method:    setIoTimeout
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_ReadOptions_setIoTimeout(JNIEnv *, jobject, jlong jhandle, jlong jio_timeout) {
+void Java_org_rocksdb_ReadOptions_setIoTimeout(JNIEnv*, jobject, jlong jhandle,
+                                               jlong jio_timeout) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
-  opt->io_timeout = std::chrono::microseconds(static_cast<int64_t>(jio_timeout));
+  opt->io_timeout =
+      std::chrono::microseconds(static_cast<int64_t>(jio_timeout));
 }
 
 /*
@@ -8375,7 +8384,8 @@ void Java_org_rocksdb_ReadOptions_setIoTimeout(JNIEnv *, jobject, jlong jhandle,
  * Method:    valueSizeSofLimit
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_ReadOptions_valueSizeSoftLimit(JNIEnv *, jobject, jlong jhandle) {
+jlong Java_org_rocksdb_ReadOptions_valueSizeSoftLimit(JNIEnv*, jobject,
+                                                      jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
   return static_cast<jlong>(opt->value_size_soft_limit);
 }
@@ -8385,11 +8395,11 @@ jlong Java_org_rocksdb_ReadOptions_valueSizeSoftLimit(JNIEnv *, jobject, jlong j
  * Method:    setValueSizeSofLimit
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_ReadOptions_setValueSizeSoftLimit(JNIEnv *, jobject, jlong jhandle, jlong jvalue_size_soft_limit) {
+void Java_org_rocksdb_ReadOptions_setValueSizeSoftLimit(
+    JNIEnv*, jobject, jlong jhandle, jlong jvalue_size_soft_limit) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
   opt->value_size_soft_limit = static_cast<uint64_t>(jvalue_size_soft_limit);
 }
-
 
 /////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::ComparatorOptions

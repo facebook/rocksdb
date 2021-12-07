@@ -221,7 +221,7 @@ public class ReadOptionsTest {
 
   @Test
   public void timestamp() {
-    try(final ReadOptions opt = new ReadOptions()) {
+    try (final ReadOptions opt = new ReadOptions()) {
       Slice timestamp = buildRandomSlice();
       opt.setTimestamp(timestamp);
       assertThat(Arrays.equals(timestamp.data(), opt.timestamp().data())).isTrue();
@@ -232,7 +232,7 @@ public class ReadOptionsTest {
 
   @Test
   public void iterStartTs() {
-    try(final ReadOptions opt = new ReadOptions()) {
+    try (final ReadOptions opt = new ReadOptions()) {
       Slice itertStartTsSlice = buildRandomSlice();
       opt.setIterStartTs(itertStartTsSlice);
       assertThat(Arrays.equals(itertStartTsSlice.data(), opt.iterStartTs().data())).isTrue();
@@ -243,7 +243,7 @@ public class ReadOptionsTest {
 
   @Test
   public void deadline() {
-    try(final ReadOptions opt = new ReadOptions()) {
+    try (final ReadOptions opt = new ReadOptions()) {
       opt.setDeadline(1999l);
       assertThat(opt.deadline()).isEqualTo(1999l);
     }
@@ -251,7 +251,7 @@ public class ReadOptionsTest {
 
   @Test
   public void ioTimeout() {
-    try(final ReadOptions opt = new ReadOptions()) {
+    try (final ReadOptions opt = new ReadOptions()) {
       opt.setIoTimeout(34555l);
       assertThat(opt.ioTimeout()).isEqualTo(34555l);
     }
@@ -259,7 +259,7 @@ public class ReadOptionsTest {
 
   @Test
   public void valueSizeSoftLimit() {
-    try(final ReadOptions opt = new ReadOptions()) {
+    try (final ReadOptions opt = new ReadOptions()) {
       opt.setValueSizeSoftLimit(12134324l);
       assertThat(opt.valueSizeSoftLimit()).isEqualTo(12134324l);
     }

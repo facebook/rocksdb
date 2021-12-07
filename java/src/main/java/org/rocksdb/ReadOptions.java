@@ -574,7 +574,7 @@ public class ReadOptions extends RocksObject {
    *
    */
   public boolean autoPrefixMode() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return autoPrefixMode(nativeHandle_);
   }
 
@@ -589,11 +589,10 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setAutoPrefixMode(final boolean mode) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setAutoPrefixMode(nativeHandle_, mode);
     return this;
   }
-
 
   /**
    * Timestamp of operation. Read should return the latest data visible to the
@@ -612,11 +611,11 @@ public class ReadOptions extends RocksObject {
    * @return Reference to timestamp or null if there is no timestamp defined.
    */
   public Slice timestamp() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     final long timestampSliceHandle = timestamp(nativeHandle_);
-    if(timestampSliceHandle != 0) {
+    if (timestampSliceHandle != 0) {
       return new Slice(timestampSliceHandle);
-    }else {
+    } else {
       return null;
     }
   }
@@ -639,7 +638,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setTimestamp(final AbstractSlice<?> timestamp) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setTimestamp(nativeHandle_, timestamp == null ? 0 : timestamp.getNativeHandle());
     timestampSlice_ = timestamp;
     return this;
@@ -658,14 +657,15 @@ public class ReadOptions extends RocksObject {
    * and the API is subject to change.
    *
    * Default: null
-   * @return Reference to lower bound timestamp or null if there is no lower bound timestamp defined.
+   * @return Reference to lower bound timestamp or null if there is no lower bound timestamp
+   *     defined.
    */
   public Slice iterStartTs() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     final long iterStartTsHandle = iterStartTs(nativeHandle_);
-    if(iterStartTsHandle != 0) {
+    if (iterStartTsHandle != 0) {
       return new Slice(iterStartTsHandle);
-    }else {
+    } else {
       return null;
     }
   }
@@ -684,11 +684,12 @@ public class ReadOptions extends RocksObject {
    *
    * Default: null
    *
-   * @param iterStartTs Reference to lower bound timestamp or null if there is no lower bound timestamp defined
+   * @param iterStartTs Reference to lower bound timestamp or null if there is no lower bound
+   *     timestamp defined
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setIterStartTs(final AbstractSlice<?> iterStartTs) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setIterStartTs(nativeHandle_, iterStartTs == null ? 0 : iterStartTs.getNativeHandle());
     iterStartTs_ = iterStartTs;
     return this;
@@ -708,7 +709,7 @@ public class ReadOptions extends RocksObject {
    * @return deadline time in microseconds
    */
   public long deadline() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return deadline(nativeHandle_);
   }
 
@@ -727,7 +728,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setDeadline(final long deadlineTime) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setDeadline(nativeHandle_, deadlineTime);
     return this;
   }
@@ -740,7 +741,7 @@ public class ReadOptions extends RocksObject {
    * @return ioTimeout time in microseconds
    */
   public long ioTimeout() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return ioTimeout(nativeHandle_);
   }
 
@@ -754,7 +755,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setIoTimeout(final long ioTimeout) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setIoTimeout(nativeHandle_, ioTimeout);
     return this;
   }
@@ -766,9 +767,9 @@ public class ReadOptions extends RocksObject {
    *
    * Default: {@code std::numeric_limits<uint64_t>::max()}
    * @return actual valueSizeSofLimit
-  */
+   */
   public long valueSizeSoftLimit() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return valueSizeSoftLimit(nativeHandle_);
   }
 
@@ -783,11 +784,10 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions
    */
   public ReadOptions setValueSizeSoftLimit(final long valueSizeSofLimit) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setValueSizeSoftLimit(nativeHandle_, valueSizeSofLimit);
     return this;
   }
-
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!
@@ -801,7 +801,6 @@ public class ReadOptions extends RocksObject {
   private AbstractSlice<?> iterateUpperBoundSlice_;
   private AbstractSlice<?> timestampSlice_;
   private AbstractSlice<?> iterStartTs_;
-
 
   private native static long newReadOptions();
   private native static long newReadOptions(final boolean verifyChecksums,
