@@ -39,8 +39,8 @@ public interface WriteBatchInterface {
      * @param value the value associated with the specified key.
      * @throws RocksDBException thrown if error happens in underlying native library.
      */
-    void put(ColumnFamilyHandle columnFamilyHandle,
-                    byte[] key, byte[] value) throws RocksDBException;
+    void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value)
+        throws RocksDBException;
 
     /**
      * <p>Store the mapping "key-&gt;value" within given column
@@ -52,7 +52,7 @@ public interface WriteBatchInterface {
      *     Supports direct buffer only.
      * @throws RocksDBException
      */
-    void put(ByteBuffer key, ByteBuffer value) throws RocksDBException;
+    void put(final ByteBuffer key, final ByteBuffer value) throws RocksDBException;
 
     /**
      * <p>Store the mapping "key-&gt;value" within given column
@@ -66,7 +66,7 @@ public interface WriteBatchInterface {
      *     Supports direct buffer only.
      * @throws RocksDBException
      */
-    void put(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key, ByteBuffer value)
+    void put(ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key, final ByteBuffer value)
         throws RocksDBException;
 
     /**
@@ -90,8 +90,8 @@ public interface WriteBatchInterface {
      * the specified key.
      * @throws RocksDBException thrown if error happens in underlying native library.
      */
-    void merge(ColumnFamilyHandle columnFamilyHandle,
-                      byte[] key, byte[] value) throws RocksDBException;
+    void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value)
+        throws RocksDBException;
 
     /**
      * <p>If the database contains a mapping for "key", erase it.  Else do nothing.</p>
@@ -114,8 +114,7 @@ public interface WriteBatchInterface {
      * @throws RocksDBException thrown if error happens in underlying native library.
      */
     @Deprecated
-    void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key)
-        throws RocksDBException;
+    void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws RocksDBException;
 
     /**
      * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
@@ -126,8 +125,7 @@ public interface WriteBatchInterface {
      * @deprecated Use {@link #delete(ByteBuffer)}
      * @throws RocksDBException thrown if error happens in underlying native library.
      */
-    @Deprecated
-    void remove(ByteBuffer key) throws RocksDBException;
+    @Deprecated void remove(final ByteBuffer key) throws RocksDBException;
 
     /**
      * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
@@ -140,7 +138,8 @@ public interface WriteBatchInterface {
      * @throws RocksDBException thrown if error happens in underlying native library.
      */
     @Deprecated
-    void remove(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key) throws RocksDBException;
+    void remove(ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key)
+        throws RocksDBException;
 
     /**
      * <p>If the database contains a mapping for "key", erase it.  Else do nothing.</p>
@@ -157,8 +156,7 @@ public interface WriteBatchInterface {
      * @param key Key to delete within database
      * @throws RocksDBException thrown if error happens in underlying native library.
      */
-    void delete(ColumnFamilyHandle columnFamilyHandle, byte[] key)
-        throws RocksDBException;
+    void delete(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws RocksDBException;
 
     /**
      * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
@@ -168,7 +166,7 @@ public interface WriteBatchInterface {
      *
      * @throws RocksDBException thrown if error happens in underlying native library.
      */
-    void delete(ByteBuffer key) throws RocksDBException;
+    void delete(final ByteBuffer key) throws RocksDBException;
 
     /**
      * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
@@ -179,7 +177,8 @@ public interface WriteBatchInterface {
      *
      * @throws RocksDBException thrown if error happens in underlying native library.
      */
-    void delete(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key) throws RocksDBException;
+    void delete(ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key)
+        throws RocksDBException;
 
     /**
      * Remove the database entry for {@code key}. Requires that the key exists
@@ -228,8 +227,8 @@ public interface WriteBatchInterface {
      *     native library.
      */
     @Experimental("Performance optimization for a very specific workload")
-    void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
-            final byte[] key) throws RocksDBException;
+    void singleDelete(final ColumnFamilyHandle columnFamilyHandle, final byte[] key)
+        throws RocksDBException;
 
     /**
      * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
@@ -264,8 +263,8 @@ public interface WriteBatchInterface {
      *          Last key to delete within database (excluded)
      * @throws RocksDBException thrown if error happens in underlying native library.
      */
-    void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey,
-            byte[] endKey) throws RocksDBException;
+    void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey, byte[] endKey)
+        throws RocksDBException;
 
     /**
      * Append a blob of arbitrary size to the records in this batch. The blob will
