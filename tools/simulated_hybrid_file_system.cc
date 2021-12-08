@@ -193,6 +193,18 @@ IOStatus SimulatedWritableFile::Append(
   return target()->Append(data, options, verification_info, dbg);
 }
 
+IOStatus SimulatedWritableFile::PositionedAppend(const Slice& data,
+                                                 uint64_t offset,
+                                                 const IOOptions& options,
+                                                 IODebugContext* dbg) {
+  if (use_direct_io()) {
+    RequestRateLimit(data.size());
+  } else {
+    // This might be overcalculated, but it's probably OK.
+    unsynced_bytes += data.size();
+  }
+  return target()->PositionedAppend(data, offset, options, dbg);
+}
 IOStatus SimulatedWritableFile::PositionedAppend(
     const Slice& data, uint64_t offset, const IOOptions& options,
     const DataVerificationInfo& verification_info, IODebugContext* dbg) {
