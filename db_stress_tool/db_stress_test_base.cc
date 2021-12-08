@@ -2236,6 +2236,9 @@ void StressTest::Open() {
         FLAGS_optimize_filters_for_memory;
     block_based_options.index_type =
         static_cast<BlockBasedTableOptions::IndexType>(FLAGS_index_type);
+    block_based_options.prepopulate_block_cache =
+        static_cast<BlockBasedTableOptions::PrepopulateBlockCache>(
+            FLAGS_prepopulate_block_cache);
     options_.table_factory.reset(
         NewBlockBasedTableFactory(block_based_options));
     options_.db_write_buffer_size = FLAGS_db_write_buffer_size;
