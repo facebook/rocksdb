@@ -51,6 +51,7 @@ class BlockHandle {
   void set_size(uint64_t _size) { size_ = _size; }
 
   void EncodeTo(std::string* dst) const;
+  char* EncodeTo(char* dst) const;
   Status DecodeFrom(Slice* input);
   Status DecodeSizeFrom(uint64_t offset, Slice* input);
 

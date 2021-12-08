@@ -60,6 +60,15 @@ void BlockHandle::EncodeTo(std::string* dst) const {
   PutVarint64Varint64(dst, offset_, size_);
 }
 
+char* BlockHandle::EncodeTo(char* dst) const {
+  // Sanity check that all fields have been set
+  assert(offset_ != ~uint64_t{0});
+  assert(size_ != ~uint64_t{0});
+  char* cur = EncodeVarint64(dst, offset_);
+  cur = EncodeVarint64(cur, size_);
+  return cur;
+}
+
 Status BlockHandle::DecodeFrom(Slice* input) {
   if (GetVarint64(input, &offset_) && GetVarint64(input, &size_)) {
     return Status::OK();
@@ -200,54 +209,45 @@ Footer& Footer::set_table_magic_number(uint64_t magic_number) {
 void Footer::EncodeTo(std::string* dst, uint64_t footer_offset) const {
   (void)footer_offset;  // Future use
 
-  std::string part1;
-  std::string part2;
-  std::string part3;
-
   // Sanitize magic numbers & format versions
   assert(table_magic_number_ != kNullTableMagicNumber);
   uint64_t magic = table_magic_number_;
-  assert(format_version_ != kInvalidFormatVersion);
-  // Format version 0 is legacy format
-  assert(IsLegacyFooterFormat(magic) == (format_version_ == 0));
   uint32_t fv = format_version_;
+  assert(fv != kInvalidFormatVersion);
+  assert(IsLegacyFooterFormat(magic) == (fv == 0));
 
-  // Generate Parts 1 and 3
   ChecksumType ct = checksum_type();
+
+  // Allocate destination data and generate parts 1 and 3
+  const size_t original_size = dst->size();
+  char* part2;
   if (fv > 0) {
-    assert(checksum_type_ != kInvalidChecksumType);
-    // Fields specific to new versions
-    part1.push_back(ct);
-    PutFixed32(&part3, fv);
+    dst->resize(original_size + kNewVersionsEncodedLength);
+    char* part1 = &(*dst)[original_size];
+    part2 = part1 + 1;
+    char* part3 = part2 + 2 * BlockHandle::kMaxEncodedLength;
+    assert(&(*dst)[dst->size() - 1] + 1 - part3 == /* part 3 size */ 12);
+    // Generate parts 1 and 3
+    part1[0] = ct;
+    EncodeFixed32(part3, fv);
+    EncodeFixed64(part3 + 4, magic);
   } else {
+    dst->resize(original_size + kVersion0EncodedLength);
+    part2 = &(*dst)[original_size];
+    char* part3 = part2 + 2 * BlockHandle::kMaxEncodedLength;
+    assert(&(*dst)[dst->size() - 1] + 1 - part3 == /* part 3 size */ 8);
     // Legacy SST files use kCRC32c checksum but it's not stored in footer.
     assert(ct == kNoChecksum || ct == kCRC32c);
+    // Generate part 3 (part 1 empty)
+    EncodeFixed64(part3, magic);
   }
-  PutFixed64(&part3, magic);
 
   // Generate Part2
-  const size_t part2_final_size = 2 * BlockHandle::kMaxEncodedLength;
-
   // Variable size encode handles (sigh)
-  metaindex_handle_.EncodeTo(&part2);
-  index_handle_.EncodeTo(&part2);
+  part2 = metaindex_handle_.EncodeTo(part2);
+  /*part2 = */ index_handle_.EncodeTo(part2);
 
-  // zero pad remainder
-  part2.resize(part2_final_size);
-
-  const size_t original_size = dst->size();
-  dst->reserve(original_size + part1.size() + part2.size() + part3.size());
-  dst->append(part1);
-  dst->append(part2);
-  dst->append(part3);
-
-  if (IsLegacyFooterFormat(magic)) {
-    assert(fv == 0);
-    assert(dst->size() == original_size + kVersion0EncodedLength);
-  } else {
-    assert(fv >= 1);
-    assert(dst->size() == original_size + kNewVersionsEncodedLength);
-  }
+  // remainder of part2 is already zero padded
 }
 
 Status Footer::DecodeFrom(Slice* input, uint64_t input_offset) {
