@@ -100,10 +100,10 @@ class SimulatedWritableFile : public FSWritableFileWrapper {
                           const DataVerificationInfo& verification_info,
                           IODebugContext* dbg) override;
   virtual IOStatus Sync(const IOOptions& options, IODebugContext* dbg) override;
-  IOStatus PositionedAppend(const Slice& data, uint64_t offset,
-                            const IOOptions& options,
-                            const DataVerificationInfo& verification_info,
-                            IODebugContext* dbg) override;
+  virtual IOStatus PositionedAppend(
+      const Slice& data, uint64_t offset, const IOOptions& options,
+      const DataVerificationInfo& verification_info,
+      IODebugContext* dbg) override;
 
  private:
   std::unique_ptr<FSWritableFile> file_guard_;
