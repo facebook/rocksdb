@@ -1099,7 +1099,7 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedWithBlobFiles) {
   ASSERT_EQ(sfm->GetTotalSize(), total_files_size);
 
   // Set the maximum allowed space usage to the current total size.
-  sfm->SetMaxAllowedSpaceUsage(files_size + 1);
+  sfm->SetMaxAllowedSpaceUsage(total_files_size + 1);
 
   bool max_allowed_space_reached = false;
   bool delete_blob_file = false;
