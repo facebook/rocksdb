@@ -66,6 +66,7 @@ class ErrorHandlerFSListener : public EventListener {
   ~ErrorHandlerFSListener() {
     file_creation_error_.PermitUncheckedError();
     bg_error_.PermitUncheckedError();
+    new_bg_error_.PermitUncheckedError();
   }
 
   void OnTableFileCreationStarted(

@@ -45,7 +45,8 @@ class EventHelpers {
       const std::vector<std::shared_ptr<EventListener>>& listeners);
   static void NotifyOnErrorRecoveryEnd(
       const std::vector<std::shared_ptr<EventListener>>& listeners,
-      Status old_bg_error, Status new_bg_error, InstrumentedMutex* db_mutex);
+      const Status& old_bg_error, const Status& new_bg_error,
+      InstrumentedMutex* db_mutex);
 
 #ifndef ROCKSDB_LITE
   static void NotifyBlobFileCreationStarted(
