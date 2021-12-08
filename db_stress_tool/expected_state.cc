@@ -273,7 +273,7 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
     s = FileSystem::Default()->RenameFile(state_file_temp_path, state_file_path,
                                           IOOptions(), nullptr /* dbg */);
   }
-  SequenceNumber old_saved_seqno;
+  SequenceNumber old_saved_seqno = 0;
   if (s.ok()) {
     old_saved_seqno = saved_seqno_;
     saved_seqno_ = seqno;
