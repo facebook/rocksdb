@@ -671,6 +671,37 @@ class SpecialMemTableRep : public MemTableRep {
 };
 class SpecialSkipListFactory : public MemTableRepFactory {
  public:
+  static bool Register(ObjectLibrary& library, const std::string& /*arg*/) {
+    Regex regex;
+    Status s = Regex::Parse(
+        std::string(SpecialSkipListFactory::kClassName()) + "(:[0-9]*)?",
+        &regex);
+    std::unique_ptr<ObjectLibrary::Entry> lib_entry;
+    if (s.ok()) {
+      lib_entry.reset(new ObjectLibrary::RegexEntry(
+          SpecialSkipListFactory::kClassName(), regex));
+    } else {
+      lib_entry.reset(new ObjectLibrary::PatternEntry(
+          SpecialSkipListFactory::kClassName(), ":",
+          ObjectLibrary::PatternEntry::kMatchNameOnly |
+              ObjectLibrary::PatternEntry::kMatchNumeric));
+    }
+    library.Register<MemTableRepFactory>(
+        std::move(lib_entry),
+        [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
+           std::string* /* errmsg */) {
+          auto colon = uri.find(":");
+          if (colon != std::string::npos) {
+            auto count = ParseInt(uri.substr(colon + 1));
+            guard->reset(new SpecialSkipListFactory(count));
+          } else {
+            guard->reset(new SpecialSkipListFactory(2));
+          }
+          return guard->get();
+        });
+    return true;
+  }
+
   // After number of inserts exceeds `num_entries_flush` in a mem table, trigger
   // flush.
   explicit SpecialSkipListFactory(int num_entries_flush)
@@ -712,7 +743,7 @@ MemTableRepFactory* NewSpecialSkipListFactory(int num_entries_per_flush) {
 
 #ifndef ROCKSDB_LITE
 // This method loads existing test classes into the ObjectRegistry
-int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/) {
+int RegisterTestObjects(ObjectLibrary& library, const std::string& arg) {
   size_t num_types;
   library.Register<const Comparator>(
       test::SimpleSuffixReverseComparator::kClassName(),
@@ -722,19 +753,7 @@ int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/) {
         static test::SimpleSuffixReverseComparator ssrc;
         return &ssrc;
       });
-  library.Register<MemTableRepFactory>(
-      std::string(SpecialSkipListFactory::kClassName()) + "(:[0-9]*)?",
-      [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
-         std::string* /* errmsg */) {
-        auto colon = uri.find(":");
-        if (colon != std::string::npos) {
-          auto count = ParseInt(uri.substr(colon + 1));
-          guard->reset(new SpecialSkipListFactory(count));
-        } else {
-          guard->reset(new SpecialSkipListFactory(2));
-        }
-        return guard->get();
-      });
+  SpecialSkipListFactory::Register(library, arg);
   library.Register<MergeOperator>(
       "Changling",
       [](const std::string& uri, std::unique_ptr<MergeOperator>* guard,

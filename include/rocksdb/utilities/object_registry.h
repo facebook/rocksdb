@@ -7,6 +7,7 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <cctype>
 #include <functional>
 #include <map>
 #include <memory>
@@ -47,17 +48,163 @@ class ObjectLibrary {
   class Entry {
    public:
     virtual ~Entry() {}
-    Entry(const std::string& name) : name_(std::move(name)) {}
-
     // Checks to see if the target matches this entry
-    virtual bool matches(const std::string& target) const {
-      return name_ == target;
+    virtual bool matches(const std::string& target) const = 0;
+    virtual const char* Name() const = 0;
+  };  // End class Entry
+
+  class RegexEntry : public Entry {
+   public:
+    static std::unique_ptr<Entry> Create(const std::string& name,
+                                         const Regex& regex) {
+      std::unique_ptr<Entry> entry(new RegexEntry(name, regex));
+      return entry;
     }
-    const std::string& Name() const { return name_; }
+
+    RegexEntry(const std::string& name, const Regex& regex)
+        : name_(name), regex_(regex) {}
+    bool matches(const std::string& target) const override {
+      return regex_.Matches(target);
+    }
+    const char* Name() const override { return name_.c_str(); }
 
    private:
-    const std::string name_;  // The name of the Entry
-  };                          // End class Entry
+    std::string name_;
+    Regex regex_;  // The pattern for this entry
+  };
+
+  // An Entry that does simple string matching.
+  class StringEntry : public Entry {
+   public:
+    static std::unique_ptr<Entry> Create(const std::string& name) {
+      std::unique_ptr<Entry> entry(new StringEntry(name));
+      return entry;
+    }
+    StringEntry(const std::string& name) : name_(name) {}
+    bool matches(const std::string& target) const override {
+      return name_ == target;
+    }
+    const char* Name() const override { return name_.c_str(); }
+
+   protected:
+    std::string name_;
+  };
+
+  // An Entry that does simple string matching of the base or alternate name
+  class AltStringEntry : public StringEntry {
+   public:
+    static std::unique_ptr<Entry> Create(const std::string& name,
+                                         const std::string& alt) {
+      std::unique_ptr<Entry> entry(new AltStringEntry(name, alt));
+      return entry;
+    }
+    AltStringEntry(const std::string& name, const std::string& alt)
+        : StringEntry(name), alt_(alt) {}
+    bool matches(const std::string& target) const override {
+      if (StringEntry::matches(target)) {
+        return true;
+      } else {
+        return alt_ == target;
+      }
+    }
+
+   protected:
+    std::string alt_;
+  };
+
+  // An Entry that does some simple pattern matching based on the mode
+  // Modes can be OR'ed together for more combinations
+  class PatternEntry : public StringEntry {
+   public:
+    enum Mode {
+      kMatchPattern = 0x01,        // Match to [name][sep].+
+      kMatchExact = 0x02,          // Match to [name][sep]
+      kMatchNameOnly = 0x04,       // Match to [name]
+      kMatchNameOrPattern = 0x05,  // Match to [name] or [name][sep].+
+      kMatchNumeric = 0x09,        // Allow match to [name][sep].[0-9]+
+    };
+    static std::unique_ptr<Entry> Create(const std::string& name,
+                                         const std::string& sep,
+                                         Mode mode = kMatchPattern) {
+      std::unique_ptr<Entry> entry(new PatternEntry(name, sep, mode));
+      return entry;
+    }
+    PatternEntry(const std::string& name, const std::string& sep,
+                 Mode mode = kMatchPattern)
+        : StringEntry(name), sep_(sep), mode_(mode) {
+      name_len_ = name_.size();
+      sep_len_ = sep_.size();
+    }
+
+    bool matches(const std::string& target) const override {
+      auto length = target.size();
+      if (length == name_len_) {
+        return (is_enabled(kMatchNameOnly) && name_ == target);
+      } else {
+        return matches_pattern(target, length);
+      }
+    }
+
+   protected:
+    bool is_enabled(Mode mode) const { return (mode_ & mode) == mode; }
+    virtual bool matches_pattern(const std::string& target,
+                                 size_t length) const {
+      if (!is_enabled(kMatchPattern)) {
+        // If pattern is off, the target should have no extra characters
+        if (length != name_len_ + sep_len_) {
+          return false;
+        }
+      }
+      if (!is_enabled(kMatchExact)) {
+        // If exact is off, the target should have extra characters
+        if (length <= name_len_ + sep_len_) {
+          return false;
+        }
+      }
+      if (sep_len_ > 0 && target.compare(name_len_, sep_len_, sep_) != 0) {
+        return false;
+      } else if (target.compare(0, name_len_, name_) != 0) {
+        return false;
+      } else if (is_enabled(kMatchNumeric)) {
+        // In numeric mode, all of the characters after the separator should be
+        // digits
+        for (auto pos = name_len_ + sep_len_; pos < length; ++pos) {
+          if (!std::isdigit(target[pos])) {
+            return false;
+          }
+        }
+      }
+      return true;
+    }
+
+   protected:
+    std::string sep_;
+    Mode mode_;
+    size_t name_len_;
+    size_t sep_len_;
+  };
+
+  class IndividualIdEntry : public PatternEntry {
+   public:
+    static std::unique_ptr<Entry> Create(const std::string& name) {
+      std::unique_ptr<Entry> entry(new IndividualIdEntry(name));
+      return entry;
+    }
+
+    IndividualIdEntry(const std::string& name)
+        : PatternEntry(name, "@", kMatchNameOrPattern) {}
+
+   protected:
+    bool matches_pattern(const std::string& target,
+                         size_t length) const override {
+      if (PatternEntry::matches_pattern(target, length)) {
+        size_t pos = target.find('#', name_len_ + sep_len_ + 1);
+        return pos != std::string::npos && pos < length - 1;
+      } else {
+        return false;
+      }
+    }
+  };
 
   // An Entry containing a FactoryFunc for creating new Objects
   //
@@ -68,16 +215,14 @@ class ObjectLibrary {
   template <typename T>
   class FactoryEntry : public Entry {
    public:
-    FactoryEntry(const std::string& name, FactoryFunc<T> f)
-        : Entry(name), factory_(std::move(f)) {
-      // FIXME: the API needs to expose this failure mode. For now, bad regexes
-      // will match nothing.
-      Regex::Parse(name, &regex_).PermitUncheckedError();
-    }
+    FactoryEntry(std::unique_ptr<Entry>&& e, FactoryFunc<T> f)
+        : entry_(std::move(e)), factory_(std::move(f)) {}
     ~FactoryEntry() override {}
+
     bool matches(const std::string& target) const override {
-      return regex_.Matches(target);
+      return entry_->matches(target);
     }
+    const char* Name() const override { return entry_->Name(); }
     // Creates a new T object.
     T* NewFactoryObject(const std::string& target, std::unique_ptr<T>* guard,
                         std::string* msg) const {
@@ -85,7 +230,7 @@ class ObjectLibrary {
     }
 
    private:
-    Regex regex_;  // The pattern for this entry
+    std::unique_ptr<Entry> entry_;
     FactoryFunc<T> factory_;
   };  // End class FactoryEntry
  public:
@@ -108,8 +253,15 @@ class ObjectLibrary {
   template <typename T>
   const FactoryFunc<T>& Register(const std::string& pattern,
                                  const FactoryFunc<T>& factory) {
-    std::unique_ptr<Entry> entry(new FactoryEntry<T>(pattern, factory));
-    AddEntry(T::Type(), entry);
+    std::unique_ptr<Entry> entry(StringEntry::Create(pattern));
+    return Register(std::move(entry), factory);
+  }
+  template <typename T>
+  const FactoryFunc<T>& Register(std::unique_ptr<Entry>&& entry,
+                                 const FactoryFunc<T>& factory) {
+    std::unique_ptr<Entry> fentry(
+        new FactoryEntry<T>(std::move(entry), factory));
+    AddEntry(T::Type(), fentry);
     return factory;
   }
 
@@ -133,6 +285,20 @@ class ObjectLibrary {
   // The name for this library
   std::string id_;
 };
+
+inline ObjectLibrary::PatternEntry::Mode operator|(
+    const ObjectLibrary::PatternEntry::Mode& a,
+    const ObjectLibrary::PatternEntry::Mode& b) {
+  return static_cast<ObjectLibrary::PatternEntry::Mode>(
+      static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+}
+
+inline ObjectLibrary::PatternEntry::Mode operator&(
+    const ObjectLibrary::PatternEntry::Mode& a,
+    const ObjectLibrary::PatternEntry::Mode& b) {
+  return static_cast<ObjectLibrary::PatternEntry::Mode>(
+      static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
+}
 
 // The ObjectRegistry is used to register objects that can be created by a
 // name/pattern at run-time where the specific implementation of the object may

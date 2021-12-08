@@ -39,7 +39,10 @@
 #include "util/rate_limiter.h"
 #include "util/string_util.h"
 #include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
-
+#include "utilities/merge_operators/bytesxor.h"
+#include "utilities/merge_operators/sortlist.h"
+#include "utilities/merge_operators/string_append/stringappend.h"
+#include "utilities/merge_operators/string_append/stringappend2.h"
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
 #else
@@ -175,7 +178,8 @@ static int A_count = 0;
 static int RegisterCustomTestObjects(ObjectLibrary& library,
                                      const std::string& /*arg*/) {
   library.Register<TestCustomizable>(
-      "A.*",
+      ObjectLibrary::PatternEntry::Create(
+          "A", "_", ObjectLibrary::PatternEntry::kMatchNameOrPattern),
       [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
         guard->reset(new ACustomizable(name));
@@ -320,7 +324,7 @@ class CustomizableTest : public testing::Test {
 //    - a property with a name
 TEST_F(CustomizableTest, CreateByNameTest) {
   ObjectLibrary::Default()->Register<TestCustomizable>(
-      "TEST.*",
+      ObjectLibrary::PatternEntry::Create("TEST", "_"),
       [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
         guard->reset(new TestCustomizable(name));
@@ -929,12 +933,12 @@ TEST_F(CustomizableTest, NoNameTest) {
   auto copts = copy.GetOptions<SimpleOptions>();
   sopts->cu.reset(new ACustomizable(""));
   orig.cv.push_back(std::make_shared<ACustomizable>(""));
-  orig.cv.push_back(std::make_shared<ACustomizable>("A1"));
+  orig.cv.push_back(std::make_shared<ACustomizable>("A_1"));
   std::string opt_str, mismatch;
   ASSERT_OK(orig.GetOptionString(config_options_, &opt_str));
   ASSERT_OK(copy.ConfigureFromString(config_options_, opt_str));
   ASSERT_EQ(copy.cv.size(), 1U);
-  ASSERT_EQ(copy.cv[0]->GetId(), "A1");
+  ASSERT_EQ(copy.cv[0]->GetId(), "A_1");
   ASSERT_EQ(copts->cu, nullptr);
 }
 
@@ -1014,19 +1018,28 @@ TEST_F(CustomizableTest, FactoryFunctionTest) {
 
 TEST_F(CustomizableTest, URLFactoryTest) {
   std::unique_ptr<TestCustomizable> unique;
+  config_options_.registry->AddLibrary("URL")->Register<TestCustomizable>(
+      ObjectLibrary::PatternEntry::Create(
+          "Z", "", ObjectLibrary::PatternEntry::kMatchNameOrPattern),
+      [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
+         std::string* /* msg */) {
+        guard->reset(new TestCustomizable(name));
+        return guard->get();
+      });
+
   ConfigOptions ignore = config_options_;
   ignore.ignore_unsupported_options = false;
   ignore.ignore_unsupported_options = false;
-  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "A=1;x=y", &unique));
+  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "Z=1;x=y", &unique));
   ASSERT_NE(unique, nullptr);
-  ASSERT_EQ(unique->GetId(), "A=1;x=y");
-  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "A;x=y", &unique));
+  ASSERT_EQ(unique->GetId(), "Z=1;x=y");
+  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "Z;x=y", &unique));
   ASSERT_NE(unique, nullptr);
-  ASSERT_EQ(unique->GetId(), "A;x=y");
+  ASSERT_EQ(unique->GetId(), "Z;x=y");
   unique.reset();
-  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "A=1?x=y", &unique));
+  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "Z=1?x=y", &unique));
   ASSERT_NE(unique, nullptr);
-  ASSERT_EQ(unique->GetId(), "A=1?x=y");
+  ASSERT_EQ(unique->GetId(), "Z=1?x=y");
 }
 
 TEST_F(CustomizableTest, MutableOptionsTest) {
@@ -1163,9 +1176,11 @@ TEST_F(CustomizableTest, CreateManagedObjects) {
 
   config_options_.registry->AddLibrary("Managed")
       ->Register<ManagedCustomizable>(
-          "Managed(@.*)?", [](const std::string& /*name*/,
-                              std::unique_ptr<ManagedCustomizable>* guard,
-                              std::string* /* msg */) {
+          ObjectLibrary::IndividualIdEntry::Create(
+              ManagedCustomizable::kClassName()),
+          [](const std::string& /*name*/,
+             std::unique_ptr<ManagedCustomizable>* guard,
+             std::string* /* msg */) {
             guard->reset(new ManagedCustomizable());
             return guard->get();
           });
@@ -1309,7 +1324,8 @@ class MockSliceTransform : public SliceTransform {
 class MockEncryptionProvider : public EncryptionProvider {
  public:
   explicit MockEncryptionProvider(const std::string& id) : id_(id) {}
-  const char* Name() const override { return "Mock"; }
+  static const char* kClassName() { return "Mock"; }
+  const char* Name() const override { return kClassName(); }
   size_t GetPrefixLength() const override { return 0; }
   Status CreateNewPrefix(const std::string& /*fname*/, char* /*prefix*/,
                          size_t /*prefixLength*/) const override {
@@ -1451,7 +1467,10 @@ static int RegisterLocalObjects(ObjectLibrary& library,
       });
 
   library.Register<EncryptionProvider>(
-      "Mock(://test)?",
+      ObjectLibrary::PatternEntry::Create(
+          MockEncryptionProvider::kClassName(), "://test",
+          ObjectLibrary::PatternEntry::kMatchNameOnly |
+              ObjectLibrary::PatternEntry::kMatchExact),
       [](const std::string& uri, std::unique_ptr<EncryptionProvider>* guard,
          std::string* /* errmsg */) {
         guard->reset(new MockEncryptionProvider(uri));
@@ -1796,9 +1815,74 @@ TEST_F(LoadCustomizableTest, LoadMergeOperatorTest) {
 
   ASSERT_NOK(
       MergeOperator::CreateFromString(config_options_, "Changling", &result));
+  //**TODO: MJR: Use the constants when these names are in public classes
   ASSERT_OK(MergeOperator::CreateFromString(config_options_, "put", &result));
   ASSERT_NE(result, nullptr);
   ASSERT_STREQ(result->Name(), "PutOperator");
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options_, "PutOperator", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "PutOperator");
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options_, "put_v1", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "PutOperator");
+
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options_, "uint64add", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "UInt64AddOperator");
+  ASSERT_OK(MergeOperator::CreateFromString(config_options_,
+                                            "UInt64AddOperator", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "UInt64AddOperator");
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options_, "max", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "MaxOperator");
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options_, "MaxOperator", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "MaxOperator");
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options_, StringAppendOperator::kNickName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), StringAppendOperator::kClassName());
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options_, StringAppendOperator::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), StringAppendOperator::kClassName());
+
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options_, StringAppendTESTOperator::kNickName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), StringAppendTESTOperator::kClassName());
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options_, StringAppendTESTOperator::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), StringAppendTESTOperator::kClassName());
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options_,
+                                            SortList::kNickName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), SortList::kClassName());
+  ASSERT_OK(MergeOperator::CreateFromString(config_options_,
+                                            SortList::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), SortList::kClassName());
+
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options_, BytesXOROperator::kNickName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), BytesXOROperator::kClassName());
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options_, BytesXOROperator::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), BytesXOROperator::kClassName());
+#endif  // ROCKSDB_LITE
+  ASSERT_NOK(
+      MergeOperator::CreateFromString(config_options_, "Changling", &result));
   if (RegisterTests("Test")) {
     ASSERT_OK(
         MergeOperator::CreateFromString(config_options_, "Changling", &result));

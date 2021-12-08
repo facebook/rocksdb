@@ -1274,10 +1274,11 @@ static void RegisterEncryptionBuiltins() {
   static std::once_flag once;
   std::call_once(once, [&]() {
     auto lib = ObjectRegistry::Default()->AddLibrary("encryption");
-    std::string ctr =
-        std::string(CTREncryptionProvider::kClassName()) + "?(://test)";
     lib->Register<EncryptionProvider>(
-        std::string(CTREncryptionProvider::kClassName()) + "(://test)?",
+        ObjectLibrary::PatternEntry::Create(
+            CTREncryptionProvider::kClassName(), "://test",
+            ObjectLibrary::PatternEntry::kMatchNameOnly |
+                ObjectLibrary::PatternEntry::kMatchExact),
         [](const std::string& uri, std::unique_ptr<EncryptionProvider>* guard,
            std::string* /*errmsg*/) {
           if (EndsWith(uri, "://test")) {
@@ -1301,7 +1302,10 @@ static void RegisterEncryptionBuiltins() {
         });
 
     lib->Register<BlockCipher>(
-        std::string(ROT13BlockCipher::kClassName()) + "(:.*)?",
+        ObjectLibrary::PatternEntry::Create(
+            ROT13BlockCipher::kClassName(), ":",
+            ObjectLibrary::PatternEntry::kMatchNameOnly |
+                ObjectLibrary::PatternEntry::kMatchNumeric),
         [](const std::string& uri, std::unique_ptr<BlockCipher>* guard,
            std::string* /* errmsg */) {
           size_t colon = uri.find(':');
