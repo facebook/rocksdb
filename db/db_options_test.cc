@@ -22,6 +22,7 @@
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
+#include "util/stderr_logger.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -264,6 +265,44 @@ TEST_F(DBOptionsTest, SetMutableTableOptions) {
             {"table_factory.block_restart_interval", "7"}}));
   ASSERT_EQ(c_bbto->block_size, 16384);
   ASSERT_EQ(c_bbto->block_restart_interval, 13);
+}
+
+TEST_F(DBOptionsTest, SetWithCustomMemTableFactory) {
+  class DummySkipListFactory : public SkipListFactory {
+   public:
+    static const char* kClassName() { return "DummySkipListFactory"; }
+    const char* Name() const override { return kClassName(); }
+    explicit DummySkipListFactory(size_t lookahead = 0)
+        : SkipListFactory(lookahead) {}
+  };
+  Options options;
+  options.create_if_missing = true;
+  options.fail_if_options_file_error = true;
+  options.env = env_;
+  options.blob_file_size = 16384;
+  options.disable_auto_compactions = false;
+  ConfigOptions config_options;
+  config_options.ignore_unsupported_options = false;
+  std::unique_ptr<MemTableRepFactory> factory;
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(
+      config_options, DummySkipListFactory::kClassName(), &factory));
+
+  options.memtable_factory.reset(new DummySkipListFactory(2));
+  Reopen(options);
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  ASSERT_OK(dbfull()->SetOptions(cfh, {{"disable_auto_compactions", "true"}}));
+  ColumnFamilyDescriptor cfd;
+  ASSERT_OK(cfh->GetDescriptor(&cfd));
+  ASSERT_STREQ(cfd.options.memtable_factory->Name(),
+               DummySkipListFactory::kClassName());
+  ColumnFamilyHandle* test = nullptr;
+  ASSERT_OK(dbfull()->CreateColumnFamily(options, "test", &test));
+  ASSERT_OK(test->GetDescriptor(&cfd));
+  ASSERT_STREQ(cfd.options.memtable_factory->Name(),
+               DummySkipListFactory::kClassName());
+
+  ASSERT_OK(dbfull()->DropColumnFamily(test));
 }
 
 TEST_F(DBOptionsTest, SetBytesPerSync) {
