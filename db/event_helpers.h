@@ -43,9 +43,10 @@ class EventHelpers {
       uint64_t file_number, const std::string& file_path,
       const Status& status, const std::string& db_name,
       const std::vector<std::shared_ptr<EventListener>>& listeners);
-  static void NotifyOnErrorRecoveryCompleted(
+  static void NotifyOnErrorRecoveryEnd(
       const std::vector<std::shared_ptr<EventListener>>& listeners,
-      Status bg_error, InstrumentedMutex* db_mutex);
+      const Status& old_bg_error, const Status& new_bg_error,
+      InstrumentedMutex* db_mutex);
 
 #ifndef ROCKSDB_LITE
   static void NotifyBlobFileCreationStarted(
