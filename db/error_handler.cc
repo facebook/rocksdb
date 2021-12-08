@@ -540,6 +540,8 @@ Status ErrorHandler::ClearBGError() {
   // Signal that recovery succeeded
   if (recovery_error_.ok()) {
     Status old_bg_error = bg_error_;
+    // old_bg_error is only for notifying listeners, so may not be checked
+    old_bg_error.PermitUncheckedError();
     // Clear and check the recovery IO and BG error
     bg_error_ = Status::OK();
     recovery_io_error_ = IOStatus::OK();
