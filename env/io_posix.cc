@@ -1543,12 +1543,8 @@ PosixDirectory::PosixDirectory(int fd) : fd_(fd) {
 #ifdef OS_LINUX
   struct statfs buf;
   int ret = fstatfs(fd, &buf);
-#if UINTPTR_MAX == 0xffffffff
-  is_btrfs_ =
-      (ret == 0 && static_cast<uint32_t>(buf.f_type) == BTRFS_SUPER_MAGIC);
-#else
-  is_btrfs_ = (ret == 0 && buf.f_type == BTRFS_SUPER_MAGIC);
-#endif
+  is_btrfs_ = (ret == 0 && buf.f_type == static_cast<decltype(buf.f_type)>(
+                                             BTRFS_SUPER_MAGIC));
 #endif
 }
 
