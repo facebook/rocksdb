@@ -860,5 +860,10 @@ DEFINE_int32(injest_error_severity, 1,
              "The severity of the injested IO Error. 1 is soft error (e.g. "
              "retryable error), 2 is fatal error, and the default is "
              "retryable error.");
+DEFINE_int32(prepopulate_block_cache,
+             static_cast<int32_t>(ROCKSDB_NAMESPACE::BlockBasedTableOptions::
+                                      PrepopulateBlockCache::kDisable),
+             "Options related to cache warming (see `enum "
+             "PrepopulateBlockCache` in table.h)");
 
 #endif  // GFLAGS
