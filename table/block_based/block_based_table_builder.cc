@@ -1568,9 +1568,8 @@ void BlockBasedTableBuilder::WriteFilterBlock(
       assert(s.ok() || s.IsIncomplete());
       rep_->props.filter_size += filter_content.size();
       bool top_level_filter_block = false;
-      if (!rep_->filter_builder->IsBlockBased() && s.ok() &&
-          rep_->table_options
-              .partition_filters /*top partition filter block*/) {
+      if (s.ok() && rep_->table_options.partition_filters &&
+          !rep_->filter_builder->IsBlockBased()) {
         top_level_filter_block = true;
       }
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle,
