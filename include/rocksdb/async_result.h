@@ -8,12 +8,14 @@
 #include <sys/uio.h>
 #include <coroutine>
 #include <iostream>
+#include <memory>
 #include "rocksdb/status.h"
 #include "io_status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 struct file_page;
+using FilePage = struct file_page;
 
 // used to store co_return value
 struct ret_back {
@@ -67,7 +69,8 @@ struct async_result {
 
   async_result() : async_(false) {}
 
-  async_result(bool async, struct file_page* context) : async_(async), context_(context) {}
+  async_result(bool async, FilePage* context) : async_(async), context_{context} {
+  }
 
   async_result(std::coroutine_handle<promise_type> h, ret_back& ret_back) : h_{h} {
     ret_back_ = &ret_back;
@@ -93,20 +96,23 @@ struct async_result {
   std::coroutine_handle<promise_type> h_;
   ret_back *ret_back_;
   bool async_ = false;
-  struct file_page* context_;
+  FilePage* context_;
 };
 
 // used for liburing read or write
 struct file_page {
-  file_page(int pages) {
+  file_page(int pages) : pages_{pages} {
     iov = (iovec*)calloc(pages, sizeof(struct iovec));
+  }
+
+  ~file_page() {
+    free(iov);
   }
 
   async_result::promise_type* promise;
   struct iovec *iov;
+  int pages_;
 };
-
-using FilePage = struct file_page;
 
 }// namespace ROCKSDB_NAMESPACE
 

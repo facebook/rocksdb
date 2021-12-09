@@ -142,7 +142,7 @@ async_result AsyncPosixWrite(const IOOptions& opts, int fd, const char* buf, siz
     io_uring_submit(opts.io_uring_option->ioring);
     co_await a_result;
   } else {
-    opts.io_uring_option->delegate(a_result);
+    opts.io_uring_option->delegate(nullptr, fd, 0, IOUringOptions::Ops::Write);
   }
 
   co_return true;
@@ -195,7 +195,7 @@ async_result AsyncPosixPositionedWrite(const IOOptions& opts, int fd, const char
     io_uring_submit(opts.io_uring_option->ioring);
     co_await a_result;
   } else {
-    opts.io_uring_option->delegate(a_result); 
+    opts.io_uring_option->delegate(nullptr, fd, offset, IOUringOptions::Ops::Write); 
   }
 
   co_return true;
@@ -681,8 +681,7 @@ async_result PosixRandomAccessFile::AsyncRead(uint64_t offset, size_t n,
   int pages = (int)std::ceil((float)n / PageSize);
   int last_page_size = n % PageSize;
   int page_size = PageSize;
-
-  file_page* data = new file_page(pages);
+  auto data = std::make_unique<FilePage>(pages);
 
   for  (int i = 0; i < pages; i++) { 
     data->iov[i].iov_base = scratch + i * page_size;
@@ -691,16 +690,24 @@ async_result PosixRandomAccessFile::AsyncRead(uint64_t offset, size_t n,
     data->iov[i].iov_len = page_size;
   }
 
-  async_result a_result(true, data);
   if (opts.io_uring_option->ioring != nullptr) {
+    async_result a_result(true, data.get());
     auto sqe = io_uring_get_sqe(opts.io_uring_option->ioring);
+    if (sqe == nullptr) {
+      // submission queue is full
+      co_return IOStatus::IOError(Status::SubCode::kIOUringSqeFull, Slice());
+    }
+
     io_uring_prep_readv(sqe, fd_, data->iov, pages, offset);
-    io_uring_sqe_set_data(sqe, data);
-    io_uring_submit(opts.io_uring_option->ioring);
-    
+    io_uring_sqe_set_data(sqe, data.get());
+    auto ret = io_uring_submit(opts.io_uring_option->ioring);
+    if (ret < 0) {
+      co_return IOStatus::IOError(Status::SubCode::kIOUringSubmitError, strerror(-ret));
+    }
+
     co_await a_result;
   } else {
-    opts.io_uring_option->delegate(a_result);
+    co_await opts.io_uring_option->delegate(data.get(), fd_, offset, IOUringOptions::Ops::Read);
   }
   
   *result = Slice(scratch, n);

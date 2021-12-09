@@ -3884,7 +3884,6 @@ class DBBasicTestWithAsyncIO : public DBAsyncTestBase {
         std::cout<<"io_uring_wait_cqe returned with  with "<<cqe->res<<"\n";
         FilePage *rdata =(FilePage *)io_uring_cqe_get_data(cqe);
         io_uring_cqe_seen(io_uring, cqe);
-        free(rdata->iov[0].iov_base);
 
         if (shutdown.load(std::memory_order_relaxed))
           break;
@@ -3911,9 +3910,52 @@ class DBBasicTestWithAsyncIO : public DBAsyncTestBase {
   std::atomic<bool> shutDown_;
 };
 
+/*
+static async_result ReadDelegate(FilePage* data, IOUringOptions::Ops op) {
+  [](FilePage* data, IOUringOptions::Ops op) {
+    async_result a_result(true, data.get());
+    auto sqe = io_uring_get_sqe(opts.io_uring_option->ioring);
+    if (sqe == nullptr) {
+      // submission queue is full
+      co_return IOStatus(Status::Code::IOError, Status::SubCode::kIOUringSqeFull);
+    }
+
+    io_uring_prep_readv(sqe, fd_, data->iov, pages, offset);
+    io_uring_sqe_set_data(sqe, data.get());
+    auto ret = io_uring_submit(opts.io_uring_option->ioring);
+    if (ret < 0) {
+      co_return IOStatus(Status::Code::IOError, Status::SubCode::kIOUringSubmitError, strerror(-ret));
+    }
+
+    co_await a_result;
+    co_return IOStatus::OK();
+  }
+}*/
+
 static async_result SimpleAsyncGetTest(DBAsyncTestBase* testBase) {
   std::cout<<"Enter SimpleAsyncGetTest\n";
-  auto io_uring_option = 
+  auto io_uring = dynamic_cast<DBBasicTestWithAsyncIO*>(testBase)->io_uring();
+  bool useDelegate = true;
+  auto io_uring_option = useDelegate ?  
+    new IOUringOptions([io_uring](FilePage* data, int fd, uint64_t offset, IOUringOptions::Ops op) -> async_result{
+      (void)op;
+      async_result a_result(true, data);
+      auto sqe = io_uring_get_sqe(io_uring);
+      if (sqe == nullptr) {
+        // submission queue is full
+        co_return rocksdb::IOStatus::IOError(rocksdb::Status::SubCode::kIOUringSqeFull);
+      }
+
+      io_uring_prep_readv(sqe, fd, data->iov, data->pages_, offset);
+      io_uring_sqe_set_data(sqe, data);
+      auto ret = io_uring_submit(io_uring);
+      if (ret < 0) {
+        co_return rocksdb::IOStatus::IOError(rocksdb::Status::SubCode::kIOUringSubmitError, strerror(-ret));
+      }
+
+      co_await a_result;
+      co_return rocksdb::IOStatus::OK();
+    }) :
     new IOUringOptions(dynamic_cast<DBBasicTestWithAsyncIO*>(testBase)->io_uring());
   ReadOptions options;
   options.io_uring_option = io_uring_option;
@@ -3937,7 +3979,18 @@ static async_result SimpleAsyncGetTest(DBAsyncTestBase* testBase) {
   }
 }
 
-TEST_F(DBBasicTestWithAsyncIO, SimpleAsyncGet) {
+TEST_F(DBBasicTestWithAsyncIO, AsyncGet) {
+    WriteOptions wo;
+    wo.disableWAL = true;
+    auto s = this->db()->Put(wo, "bar", "e1");
+    std::cout<<"Put status:"<<s.ToString()<<"\n";
+    s = this->db()->Flush(FlushOptions());
+    std::cout<<"Flush status:"<<s.ToString()<<"\n";
+
+    this->RunAsyncTest(SimpleAsyncGetTest, this);
+}
+
+TEST_F(DBBasicTestWithAsyncIO, AsyncDeletgateGet) {
     WriteOptions wo;
     wo.disableWAL = true;
     auto s = this->db()->Put(wo, "bar", "e1");

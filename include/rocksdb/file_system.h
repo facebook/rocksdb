@@ -93,7 +93,7 @@ struct IOOptions {
   IOType type;
 
   //
-  const IOUringOptions* io_uring_option;
+  IOUringOptions* io_uring_option;
 
   // EXPERIMENTAL
   // An option map that's opaque to RocksDB. It can be used to implement a

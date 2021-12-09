@@ -104,6 +104,10 @@ class IOStatus : public Status {
     return IOStatus(kIOError, msg);
   }
 
+  static IOStatus IOError(SubCode sub_code, const Slice& msg) {
+    return IOStatus(kIOError, sub_code, msg, Slice());
+  }
+
   static IOStatus Busy(SubCode msg = kNone) { return IOStatus(kBusy, msg); }
   static IOStatus Busy(const Slice& msg, const Slice& msg2 = Slice()) {
     return IOStatus(kBusy, msg, msg2);

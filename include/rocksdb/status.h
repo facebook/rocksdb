@@ -114,6 +114,8 @@ class Status {
     kOverwritten = 12,
     kTxnNotPrepared = 13,
     kIOFenced = 14,
+    kIOUringSqeFull = 15,
+    kIOUringSubmitError = 16,
     kMaxSubCode
   };
 

@@ -1403,22 +1403,23 @@ enum ReadTier {
   kMemtableTier = 0x3     // data in memtable. used for memtable-only iterators.
 };
 
-struct IOUringOptions {
-  struct io_uring *ioring;
-  std::function<void(async_result)> delegate;
 
-  IOUringOptions(struct io_uring *ring) : ioring{ring} {
+struct IOUringOptions {
+  enum class Ops {
+    Read,
+    Write
+  };
+
+  struct io_uring *ioring;
+  std::atomic<int> sqe_count;
+  std::function<async_result(FilePage*, int, uint64_t, Ops)> delegate;
+
+  IOUringOptions(struct io_uring *ring) : ioring{ring}, sqe_count{0} {
     assert(ring != nullptr);
   }
 
-  IOUringOptions(struct io_uring *ring, std::function<void(async_result)> deleg) : 
-    ioring{ring}, delegate{std::move(deleg)} {
-      assert(ring != nullptr);
-      assert(deleg);
-  }
-
-  IOUringOptions(std::function<void(async_result)>&& input) : 
-    delegate{std::forward<std::function<void(async_result)>>(input)} {
+  IOUringOptions(std::function<async_result(FilePage*, int, uint64_t, Ops)>&& deleg) : 
+    delegate{std::forward<std::function<async_result(FilePage*, int, uint64_t, Ops)>>(deleg)} {
   }
 };
 
@@ -1611,7 +1612,7 @@ struct ReadOptions {
   uint64_t value_size_soft_limit;
 
   // 
-  const IOUringOptions* io_uring_option;
+  IOUringOptions* io_uring_option;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
