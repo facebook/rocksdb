@@ -1496,23 +1496,22 @@ bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
   }
 }
 
-Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
-                                        std::string& ts_low) {
-  if (column_family == nullptr) {
-    return Status::InvalidArgument("column family handle is null");
-  }
-  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
-  return IncreaseFullHistoryTsLow(cfh->cfd(), ts_low);
-}
-
 Status DBImpl::GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
                                    std::string* ts_low) {
+  if (ts_low == nullptr) {
+    return Status::InvalidArgument("Input ts_low is nullptr");
+  }
   ColumnFamilyData* cfd;
   if (column_family == nullptr) {
     cfd = default_cf_handle_->cfd();
   } else {
     auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+    assert(cfh != nullptr);
     cfd = cfh->cfd();
+  }
+  if (cfd->user_comparator()->timestamp_size() == 0) {
+    return Status::NotSupported(
+        "Timestamp is not enabled in this column family");
   }
   InstrumentedMutexLock l(&mutex_);
   *ts_low = cfd->GetFullHistoryTsLow();

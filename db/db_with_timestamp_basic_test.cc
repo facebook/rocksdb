@@ -447,12 +447,18 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLowWithPublicAPI) {
   ASSERT_OK(
       db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(), ts_low_str));
   std::string result_ts_low;
-  ASSERT_OK(
-      db_->GetFullHistoryTsLow(db_->DefaultColumnFamily(), &result_ts_low));
+  ASSERT_OK(db_->GetFullHistoryTsLow(nullptr, &result_ts_low));
   ASSERT_TRUE(test_cmp.CompareTimestamp(ts_low_str, result_ts_low) == 0);
   std::string invalid_ts_low_str = Timestamp(8, 0);
-  ASSERT_NOK(db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
-                                           invalid_ts_low_str));
+  auto s = db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
+                                         invalid_ts_low_str);
+  ASSERT_EQ(s, Status::InvalidArgument());
+  options.comparator = BytewiseComparator();
+  DestroyAndReopen(options);
+  ts_low_str = Timestamp(10, 0);
+  s = db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(), ts_low_str);
+  ASSERT_EQ(s, Status::NotSupported());
+  Close();
 }
 
 TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {

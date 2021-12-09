@@ -917,8 +917,25 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
                               end_with_ts);
 }
 
-Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyData* cfd,
+Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
                                         std::string ts_low) {
+  ColumnFamilyData* cfd;
+  if (column_family == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  } else {
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+    assert(cfh != nullptr);
+    cfd = cfh->cfd();
+  }
+  if (cfd->user_comparator()->timestamp_size() == 0) {
+    return Status::NotSupported(
+        "Timestamp is not enabled in this column family");
+  }
+  return IncreaseFullHistoryTsLowImpl(cfd, ts_low);
+}
+
+Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
+                                            std::string ts_low) {
   VersionEdit edit;
   edit.SetColumnFamily(cfd->GetID());
   edit.SetFullHistoryTsLow(ts_low);
@@ -926,6 +943,7 @@ Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyData* cfd,
   InstrumentedMutexLock l(&mutex_);
   std::string current_ts_low = cfd->GetFullHistoryTsLow();
   const Comparator* ucmp = cfd->user_comparator();
+  assert(ucmp->timestamp_size() != 0);
   if (!current_ts_low.empty() &&
       ucmp->CompareTimestamp(ts_low, current_ts_low) < 0) {
     return Status::InvalidArgument(
@@ -956,7 +974,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
       return Status::InvalidArgument(
           "Cannot specify compaction range with full_history_ts_low");
     }
-    Status s = IncreaseFullHistoryTsLow(cfd, ts_low);
+    Status s = IncreaseFullHistoryTsLowImpl(cfd, ts_low);
     if (!s.ok()) {
       LogFlush(immutable_db_options_.info_log);
       return s;

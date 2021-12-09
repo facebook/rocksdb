@@ -420,7 +420,7 @@ class StackableDB : public DB {
   }
 
   virtual Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
-                                          std::string& ts_low) override {
+                                          std::string ts_low) override {
     return db_->IncreaseFullHistoryTsLow(column_family, ts_low);
   }
 

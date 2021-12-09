@@ -1359,7 +1359,7 @@ class DB {
   // Increase the full_history_ts of column family. The new ts_low value should
   // be newer than current full_history_ts value.
   virtual Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
-                                          std::string& ts_low) = 0;
+                                          std::string ts_low) = 0;
 
   // Get current full_history_ts value.
   virtual Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,

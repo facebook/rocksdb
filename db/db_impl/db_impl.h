@@ -355,11 +355,13 @@ class DBImpl : public DB {
 
   virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
 
-  virtual Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
-                                          std::string& ts_low) override;
+  // This functions can only be called when db_mutex is NOT held
+  Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                  std::string ts_low) override;
 
-  virtual Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
-                                     std::string* ts_low) override;
+  // This functions can only be called when db_mutex is NOT held
+  Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                             std::string* ts_low) override;
 
   virtual Status GetDbIdentity(std::string& identity) const override;
 
@@ -1988,7 +1990,8 @@ class DBImpl : public DB {
 
   Status DisableFileDeletionsWithLock();
 
-  Status IncreaseFullHistoryTsLow(ColumnFamilyData* cfd, std::string ts_low);
+  Status IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
+                                      std::string ts_low);
 
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;

@@ -3198,7 +3198,7 @@ class ModelDB : public DB {
   }
 
   Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* /*cf*/,
-                                  std::string& /*ts_low*/) override {
+                                  std::string /*ts_low*/) override {
     return Status::OK();
   }
 
