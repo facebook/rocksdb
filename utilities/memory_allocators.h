@@ -22,7 +22,11 @@ class DefaultMemoryAllocator : public MemoryAllocator {
   void Deallocate(void* p) override { delete[] static_cast<char*>(p); }
 };
 
-// Base class for a
+// Base class for a MemoryAllocator.  This implementation does nothing
+// and asserts if the methods are invoked.  Implementations can extend
+// this class and override these methods when they are enabled via
+// compiler switches (e.g., the JeMallocMemoryAllocator can define these methods
+// if ROCKSDB_JEMALLOC is defined at compile time.
 class BaseMemoryAllocator : public MemoryAllocator {
  public:
   void* Allocate(size_t /*size*/) override {
