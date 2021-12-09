@@ -1419,7 +1419,9 @@ struct IOUringOptions {
   }
 
   IOUringOptions(std::function<async_result(FilePage*, int, uint64_t, Ops)>&& deleg) : 
-    delegate{std::forward<std::function<async_result(FilePage*, int, uint64_t, Ops)>>(deleg)} {
+    ioring {nullptr},
+    sqe_count{0},
+    delegate{std::forward<std::function<async_result(FilePage*, int, uint64_t, Ops)>>(deleg)}{
   }
 };
 

@@ -848,6 +848,10 @@ class DBAsyncTestBase : public testing::Test {
     db_ = nullptr;
   }
 
+  // if set to true, IO_URING handling logic is delegated to lambda passed by caller.
+  bool test_delegation() { return test_delegation_; }
+  void set_test_delegation(bool test_delegation) { test_delegation_ = test_delegation; }
+
   bool RunAsyncTest(
     std::function<async_result(DBAsyncTestBase*)> test_func,
     DBAsyncTestBase* testBase) {
@@ -891,6 +895,7 @@ class DBAsyncTestBase : public testing::Test {
  private:
   std::string dbname_;
   DB* db_;
+  bool test_delegation_ = false;
 };
 
 class DBTestBase : public testing::Test {

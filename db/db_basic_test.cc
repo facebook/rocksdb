@@ -3910,35 +3910,14 @@ class DBBasicTestWithAsyncIO : public DBAsyncTestBase {
   std::atomic<bool> shutDown_;
 };
 
-/*
-static async_result ReadDelegate(FilePage* data, IOUringOptions::Ops op) {
-  [](FilePage* data, IOUringOptions::Ops op) {
-    async_result a_result(true, data.get());
-    auto sqe = io_uring_get_sqe(opts.io_uring_option->ioring);
-    if (sqe == nullptr) {
-      // submission queue is full
-      co_return IOStatus(Status::Code::IOError, Status::SubCode::kIOUringSqeFull);
-    }
-
-    io_uring_prep_readv(sqe, fd_, data->iov, pages, offset);
-    io_uring_sqe_set_data(sqe, data.get());
-    auto ret = io_uring_submit(opts.io_uring_option->ioring);
-    if (ret < 0) {
-      co_return IOStatus(Status::Code::IOError, Status::SubCode::kIOUringSubmitError, strerror(-ret));
-    }
-
-    co_await a_result;
-    co_return IOStatus::OK();
-  }
-}*/
-
 static async_result SimpleAsyncGetTest(DBAsyncTestBase* testBase) {
   std::cout<<"Enter SimpleAsyncGetTest\n";
   auto io_uring = dynamic_cast<DBBasicTestWithAsyncIO*>(testBase)->io_uring();
-  bool useDelegate = true;
-  auto io_uring_option = useDelegate ?  
+  auto io_uring_option = testBase->test_delegation() ?  
     new IOUringOptions([io_uring](FilePage* data, int fd, uint64_t offset, IOUringOptions::Ops op) -> async_result{
       (void)op;
+
+      std::cout<<"io_uring:"<<(void*)io_uring<<" data:"<<(void*)data<<" fd:"<<fd<<" offset:"<<offset<<"\n";
       async_result a_result(true, data);
       auto sqe = io_uring_get_sqe(io_uring);
       if (sqe == nullptr) {
@@ -3997,8 +3976,9 @@ TEST_F(DBBasicTestWithAsyncIO, AsyncDeletgateGet) {
     std::cout<<"Put status:"<<s.ToString()<<"\n";
     s = this->db()->Flush(FlushOptions());
     std::cout<<"Flush status:"<<s.ToString()<<"\n";
-
+    this->set_test_delegation(true);
     this->RunAsyncTest(SimpleAsyncGetTest, this);
+    this->set_test_delegation(false);
 }
 
 // Param 0: If true, set read_options.deadline
