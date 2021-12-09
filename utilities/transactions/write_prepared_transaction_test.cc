@@ -15,6 +15,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
@@ -4004,7 +4005,12 @@ TEST_P(WritePreparedTransactionTest, WC_WP_WALForwardIncompatibility) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  if (getenv("CIRCLECI")) {
+    // Looking for backtrace on "Resource temporarily unavailable" exceptions
+    ::testing::FLAGS_gtest_catch_exceptions = false;
+  }
   return RUN_ALL_TESTS();
 }
 
