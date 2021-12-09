@@ -1323,14 +1323,12 @@ class EnvWrapper : public Env {
   // Initialize an EnvWrapper that delegates all calls to *t
   explicit EnvWrapper(Env* t) : target_(t) {}
 
-  explicit EnvWrapper(Env* t,
-                      const std::shared_ptr<FileSystem>& fs)
-      :Env(fs), target_(t) {}
+  explicit EnvWrapper(Env* t, const std::shared_ptr<FileSystem>& fs)
+      : Env(fs), target_(t) {}
 
-  explicit EnvWrapper(Env* t,
-                      const std::shared_ptr<FileSystem>& fs,
+  explicit EnvWrapper(Env* t, const std::shared_ptr<FileSystem>& fs,
                       const std::shared_ptr<SystemClock>& clock)
-      :Env(fs, clock), target_(t) {}
+      : Env(fs, clock), target_(t) {}
 
   ~EnvWrapper() override;
 
