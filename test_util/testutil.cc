@@ -671,6 +671,7 @@ class SpecialMemTableRep : public MemTableRep {
 };
 class SpecialSkipListFactory : public MemTableRepFactory {
  public:
+#ifndef ROCKSDB_LITE
   static bool Register(ObjectLibrary& library, const std::string& /*arg*/) {
     Regex regex;
     Status s = Regex::Parse(
@@ -701,7 +702,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
         });
     return true;
   }
-
+#endif  // ROCKSDB_LITE
   // After number of inserts exceeds `num_entries_flush` in a mem table, trigger
   // flush.
   explicit SpecialSkipListFactory(int num_entries_flush)
