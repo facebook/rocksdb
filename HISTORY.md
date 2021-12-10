@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.27.3 (2021-12-10)
 ### Bug Fixes
 * Fixed a bug in TableOptions.prepopulate_block_cache which causes segmentation fault when used with TableOptions.partition_filters = true and TableOptions.cache_index_and_filter_blocks = true.
 
