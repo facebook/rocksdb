@@ -1225,16 +1225,15 @@ Status WriteBatch::PopSavePoint() {
 
 Status WriteBatch::AssignTimestamp(
     const Slice& ts, std::function<Status(uint32_t, size_t&)> checker) {
-  TimestampAssigner<decltype(checker)> ts_assigner(prot_info_.get(), checker,
-                                                   ts);
+  TimestampAssigner ts_assigner(prot_info_.get(), std::move(checker), ts);
   return Iterate(&ts_assigner);
 }
 
 Status WriteBatch::AssignTimestamps(
     const std::vector<Slice>& ts_list,
     std::function<Status(uint32_t, size_t&)> checker) {
-  SimpleListTimestampAssigner<decltype(checker)> ts_assigner(prot_info_.get(),
-                                                             checker, ts_list);
+  SimpleListTimestampAssigner ts_assigner(prot_info_.get(), std::move(checker),
+                                          ts_list);
   return Iterate(&ts_assigner);
 }
 
