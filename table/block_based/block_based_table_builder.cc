@@ -1744,7 +1744,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     }
 #endif  // !NDEBUG
 
-    const std::string* properties_block_meta = &kPropertiesBlock;
+    const std::string* properties_block_meta = &kPropertiesBlockName;
     TEST_SYNC_POINT_CALLBACK(
         "BlockBasedTableBuilder::WritePropertiesBlock:Meta",
         &properties_block_meta);
@@ -1769,7 +1769,7 @@ void BlockBasedTableBuilder::WriteCompressionDictBlock(
 #endif  // NDEBUG
     }
     if (ok()) {
-      meta_index_builder->Add(kCompressionDictBlock,
+      meta_index_builder->Add(kCompressionDictBlockName,
                               compression_dict_block_handle);
     }
   }
@@ -1781,7 +1781,7 @@ void BlockBasedTableBuilder::WriteRangeDelBlock(
     BlockHandle range_del_block_handle;
     WriteRawBlock(rep_->range_del_block.Finish(), kNoCompression,
                   &range_del_block_handle, BlockType::kRangeDeletion);
-    meta_index_builder->Add(kRangeDelBlock, range_del_block_handle);
+    meta_index_builder->Add(kRangeDelBlockName, range_del_block_handle);
   }
 }
 
@@ -1799,14 +1799,16 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
   // this is guaranteed by BlockBasedTableBuilder's constructor
   assert(r->table_options.checksum == kCRC32c ||
          r->table_options.format_version != 0);
-  Footer footer(
-      legacy ? kLegacyBlockBasedTableMagicNumber : kBlockBasedTableMagicNumber,
-      r->table_options.format_version);
-  footer.set_metaindex_handle(metaindex_block_handle);
-  footer.set_index_handle(index_block_handle);
-  footer.set_checksum(r->table_options.checksum);
+  Footer footer;
+  footer
+      .set_table_magic_number(legacy ? kLegacyBlockBasedTableMagicNumber
+                                     : kBlockBasedTableMagicNumber)
+      .set_format_version(r->table_options.format_version)
+      .set_metaindex_handle(metaindex_block_handle)
+      .set_index_handle(index_block_handle)
+      .set_checksum_type(r->table_options.checksum);
   std::string footer_encoding;
-  footer.EncodeTo(&footer_encoding);
+  footer.EncodeTo(&footer_encoding, r->get_offset());
   assert(ok());
   IOStatus ios = r->file->Append(footer_encoding);
   if (ios.ok()) {

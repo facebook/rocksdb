@@ -58,7 +58,7 @@ Status AdaptiveTableFactory::NewTableReader(
     return plain_table_factory_->NewTableReader(
         table_reader_options, std::move(file), file_size, table);
   } else if (footer.table_magic_number() == kBlockBasedTableMagicNumber ||
-      footer.table_magic_number() == kLegacyBlockBasedTableMagicNumber) {
+             footer.table_magic_number() == kLegacyBlockBasedTableMagicNumber) {
     return block_based_table_factory_->NewTableReader(
         ro, table_reader_options, std::move(file), file_size, table,
         prefetch_index_and_filter_in_cache);

@@ -15,6 +15,7 @@
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/unique_id.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "table/format.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -514,6 +515,11 @@ Options DBTestBase::GetOptions(
     }
     case kBlockBasedTableWithIndexRestartInterval: {
       table_options.index_block_restart_interval = 8;
+      break;
+    }
+    case kBlockBasedTableWithLatestFormat: {
+      // In case different from default
+      table_options.format_version = kLatestFormatVersion;
       break;
     }
     case kOptimizeFiltersForHits: {
