@@ -178,8 +178,7 @@ static int A_count = 0;
 static int RegisterCustomTestObjects(ObjectLibrary& library,
                                      const std::string& /*arg*/) {
   library.Register<TestCustomizable>(
-      ObjectLibrary::PatternEntry::Create(
-          "A", "_", ObjectLibrary::PatternEntry::kMatchNameOrPattern),
+      ObjectLibrary::PatternEntry("A", true).AddPattern("_"),
       [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
         guard->reset(new ACustomizable(name));
@@ -324,7 +323,7 @@ class CustomizableTest : public testing::Test {
 //    - a property with a name
 TEST_F(CustomizableTest, CreateByNameTest) {
   ObjectLibrary::Default()->Register<TestCustomizable>(
-      ObjectLibrary::PatternEntry::Create("TEST", "_"),
+      ObjectLibrary::PatternEntry("TEST", false).AddPattern("_"),
       [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
         guard->reset(new TestCustomizable(name));
@@ -1019,8 +1018,7 @@ TEST_F(CustomizableTest, FactoryFunctionTest) {
 TEST_F(CustomizableTest, URLFactoryTest) {
   std::unique_ptr<TestCustomizable> unique;
   config_options_.registry->AddLibrary("URL")->Register<TestCustomizable>(
-      ObjectLibrary::PatternEntry::Create(
-          "Z", "", ObjectLibrary::PatternEntry::kMatchNameOrPattern),
+      ObjectLibrary::PatternEntry("Z", false).AddPattern(""),
       [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
         guard->reset(new TestCustomizable(name));
@@ -1137,6 +1135,7 @@ TEST_F(CustomizableTest, CustomManagedObjects) {
   std::shared_ptr<TestCustomizable> object1, object2;
   ASSERT_OK(LoadManagedObject<TestCustomizable>(
       config_options_, "id=A_1;int=1;bool=true", &object1));
+  ASSERT_NE(object1, nullptr);
   ASSERT_OK(
       LoadManagedObject<TestCustomizable>(config_options_, "A_1", &object2));
   ASSERT_EQ(object1, object2);
@@ -1176,7 +1175,7 @@ TEST_F(CustomizableTest, CreateManagedObjects) {
 
   config_options_.registry->AddLibrary("Managed")
       ->Register<ManagedCustomizable>(
-          ObjectLibrary::IndividualIdEntry::Create(
+          ObjectLibrary::PatternEntry::AsIndividualId(
               ManagedCustomizable::kClassName()),
           [](const std::string& /*name*/,
              std::unique_ptr<ManagedCustomizable>* guard,
@@ -1467,10 +1466,8 @@ static int RegisterLocalObjects(ObjectLibrary& library,
       });
 
   library.Register<EncryptionProvider>(
-      ObjectLibrary::PatternEntry::Create(
-          MockEncryptionProvider::kClassName(), "://test",
-          ObjectLibrary::PatternEntry::kMatchNameOnly |
-              ObjectLibrary::PatternEntry::kMatchExact),
+      ObjectLibrary::PatternEntry(MockEncryptionProvider::kClassName(), true)
+          .AddSuffix("://test"),
       [](const std::string& uri, std::unique_ptr<EncryptionProvider>* guard,
          std::string* /* errmsg */) {
         guard->reset(new MockEncryptionProvider(uri));

@@ -143,6 +143,9 @@ const SliceTransform* NewNoopTransform() { return new NoopTransform; }
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
                                          const std::string& /*arg*/) {
+  // For the builtin transforms, the format is typically
+  // [Name] or [Name].[0-9]+
+  // [NickName]:[0-9]+
   library.Register<const SliceTransform>(
       NoopTransform::kClassName(),
       [](const std::string& /*uri*/,
@@ -152,9 +155,8 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         return guard->get();
       });
   library.Register<const SliceTransform>(
-      ObjectLibrary::PatternEntry::Create(
-          FixedPrefixTransform::kNickName(), ":",
-          ObjectLibrary::PatternEntry::kMatchNumeric),
+      ObjectLibrary::PatternEntry(FixedPrefixTransform::kNickName(), false)
+          .AddNumber(":"),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
          std::string* /*errmsg*/) {
         auto colon = uri.find(":");
@@ -163,10 +165,8 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         return guard->get();
       });
   library.Register<const SliceTransform>(
-      ObjectLibrary::PatternEntry::Create(
-          FixedPrefixTransform::kClassName(), ".",
-          ObjectLibrary::PatternEntry::kMatchNameOnly |
-              ObjectLibrary::PatternEntry::kMatchNumeric),
+      ObjectLibrary::PatternEntry(FixedPrefixTransform::kClassName(), true)
+          .AddNumber("."),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
          std::string* /*errmsg*/) {
         if (uri == FixedPrefixTransform::kClassName()) {
@@ -179,9 +179,8 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         return guard->get();
       });
   library.Register<const SliceTransform>(
-      ObjectLibrary::PatternEntry::Create(
-          CappedPrefixTransform::kNickName(), ":",
-          ObjectLibrary::PatternEntry::kMatchNumeric),
+      ObjectLibrary::PatternEntry(CappedPrefixTransform::kNickName(), false)
+          .AddNumber(":"),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
          std::string* /*errmsg*/) {
         auto colon = uri.find(":");
@@ -190,10 +189,8 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         return guard->get();
       });
   library.Register<const SliceTransform>(
-      ObjectLibrary::PatternEntry::Create(
-          CappedPrefixTransform::kClassName(), ".",
-          ObjectLibrary::PatternEntry::kMatchNameOnly |
-              ObjectLibrary::PatternEntry::kMatchNumeric),
+      ObjectLibrary::PatternEntry(CappedPrefixTransform::kClassName(), true)
+          .AddNumber("."),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
          std::string* /*errmsg*/) {
         if (uri == CappedPrefixTransform::kClassName()) {

@@ -161,12 +161,14 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
   // The MemTableRepFactory built-in classes will be either a class
   // (VectorRepFactory) or a nickname (vector), followed optionally by ":#",
   // where # is the "size" of the factory.
-
+  auto AsPattern = [](const std::string& name, const std::string& alt) {
+    auto pattern = ObjectLibrary::PatternEntry(name, true);
+    pattern.AddName(alt);
+    pattern.AddNumber(":");
+    return pattern;
+  };
   library.Register<MemTableRepFactory>(
-      ObjectLibrary::PatternEntry::Create(
-          VectorRepFactory::kNickName(), ":",
-          ObjectLibrary::PatternEntry::kMatchNameOnly |
-              ObjectLibrary::PatternEntry::kMatchNumeric),
+      AsPattern(VectorRepFactory::kClassName(), VectorRepFactory::kNickName()),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
         auto colon = uri.find(":");
@@ -179,26 +181,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
         return guard->get();
       });
   library.Register<MemTableRepFactory>(
-      ObjectLibrary::PatternEntry::Create(
-          VectorRepFactory::kClassName(), ":",
-          ObjectLibrary::PatternEntry::kMatchNameOnly |
-              ObjectLibrary::PatternEntry::kMatchNumeric),
-      [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
-         std::string* /*errmsg*/) {
-        auto colon = uri.find(":");
-        if (colon != std::string::npos) {
-          size_t count = ParseSizeT(uri.substr(colon + 1));
-          guard->reset(new VectorRepFactory(count));
-        } else {
-          guard->reset(new VectorRepFactory());
-        }
-        return guard->get();
-      });
-  library.Register<MemTableRepFactory>(
-      ObjectLibrary::PatternEntry::Create(
-          SkipListFactory::kClassName(), ":",
-          ObjectLibrary::PatternEntry::kMatchNameOnly |
-              ObjectLibrary::PatternEntry::kMatchNumeric),
+      AsPattern(SkipListFactory::kClassName(), SkipListFactory::kNickName()),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
         auto colon = uri.find(":");
@@ -211,26 +194,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
         return guard->get();
       });
   library.Register<MemTableRepFactory>(
-      ObjectLibrary::PatternEntry::Create(
-          SkipListFactory::kNickName(), ":",
-          ObjectLibrary::PatternEntry::kMatchNameOnly |
-              ObjectLibrary::PatternEntry::kMatchNumeric),
-      [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
-         std::string* /*errmsg*/) {
-        auto colon = uri.find(":");
-        if (colon != std::string::npos) {
-          size_t lookahead = ParseSizeT(uri.substr(colon + 1));
-          guard->reset(new SkipListFactory(lookahead));
-        } else {
-          guard->reset(new SkipListFactory());
-        }
-        return guard->get();
-      });
-  library.Register<MemTableRepFactory>(
-      ObjectLibrary::PatternEntry::Create(
-          "HashLinkListRepFactory", ":",
-          ObjectLibrary::PatternEntry::kMatchNameOnly |
-              ObjectLibrary::PatternEntry::kMatchNumeric),
+      AsPattern("HashLinkListRepFactory", "hash_linkedlist"),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
         // Expecting format: hash_linkedlist:<hash_bucket_count>
@@ -244,44 +208,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
         return guard->get();
       });
   library.Register<MemTableRepFactory>(
-      ObjectLibrary::PatternEntry::Create(
-          "hash_linkedlist", ":",
-          ObjectLibrary::PatternEntry::kMatchNameOnly |
-              ObjectLibrary::PatternEntry::kMatchNumeric),
-      [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
-         std::string* /*errmsg*/) {
-        // Expecting format: hash_linkedlist:<hash_bucket_count>
-        auto colon = uri.find(":");
-        if (colon != std::string::npos) {
-          size_t hash_bucket_count = ParseSizeT(uri.substr(colon + 1));
-          guard->reset(NewHashLinkListRepFactory(hash_bucket_count));
-        } else {
-          guard->reset(NewHashLinkListRepFactory());
-        }
-        return guard->get();
-      });
-  library.Register<MemTableRepFactory>(
-      ObjectLibrary::PatternEntry::Create(
-          "HashSkipListRepFactory", ":",
-          ObjectLibrary::PatternEntry::kMatchNameOnly |
-              ObjectLibrary::PatternEntry::kMatchNumeric),
-      [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
-         std::string* /*errmsg*/) {
-        // Expecting format: prefix_hash:<hash_bucket_count>
-        auto colon = uri.find(":");
-        if (colon != std::string::npos) {
-          size_t hash_bucket_count = ParseSizeT(uri.substr(colon + 1));
-          guard->reset(NewHashSkipListRepFactory(hash_bucket_count));
-        } else {
-          guard->reset(NewHashSkipListRepFactory());
-        }
-        return guard->get();
-      });
-  library.Register<MemTableRepFactory>(
-      ObjectLibrary::PatternEntry::Create(
-          "prefix_hash", ":",
-          ObjectLibrary::PatternEntry::kMatchNameOnly |
-              ObjectLibrary::PatternEntry::kMatchNumeric),
+      AsPattern("HashSkipListRepFactory", "prefix_hash"),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
         // Expecting format: prefix_hash:<hash_bucket_count>
@@ -302,9 +229,11 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
         return nullptr;
       });
 
-  return 5;
+  size_t num_types;
+  return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 #endif  // ROCKSDB_LITE
+
 Status GetMemTableRepFactoryFromString(
     const std::string& opts_str, std::unique_ptr<MemTableRepFactory>* result) {
   ConfigOptions config_options;

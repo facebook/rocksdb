@@ -673,22 +673,9 @@ class SpecialSkipListFactory : public MemTableRepFactory {
  public:
 #ifndef ROCKSDB_LITE
   static bool Register(ObjectLibrary& library, const std::string& /*arg*/) {
-    Regex regex;
-    Status s = Regex::Parse(
-        std::string(SpecialSkipListFactory::kClassName()) + "(:[0-9]*)?",
-        &regex);
-    std::unique_ptr<ObjectLibrary::Entry> lib_entry;
-    if (s.ok()) {
-      lib_entry.reset(new ObjectLibrary::RegexEntry(
-          SpecialSkipListFactory::kClassName(), regex));
-    } else {
-      lib_entry.reset(new ObjectLibrary::PatternEntry(
-          SpecialSkipListFactory::kClassName(), ":",
-          ObjectLibrary::PatternEntry::kMatchNameOnly |
-              ObjectLibrary::PatternEntry::kMatchNumeric));
-    }
     library.Register<MemTableRepFactory>(
-        std::move(lib_entry),
+        ObjectLibrary::PatternEntry(SpecialSkipListFactory::kClassName(), true)
+            .AddNumber(":"),
         [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
            std::string* /* errmsg */) {
           auto colon = uri.find(":");
