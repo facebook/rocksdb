@@ -670,13 +670,16 @@ TEST_P(PrefetchTest, PrefetchWhenReseekwithCache) {
   Close();
 }
 
-class PrefetchTest1 : public DBTestBase,
-                      public ::testing::WithParamInterface<bool> {
+class PrefetchTest1
+    : public DBTestBase,
+      public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   PrefetchTest1() : DBTestBase("prefetch_test1", true) {}
 };
 
-INSTANTIATE_TEST_CASE_P(PrefetchTest1, PrefetchTest1, ::testing::Bool());
+INSTANTIATE_TEST_CASE_P(PrefetchTest1, PrefetchTest1,
+                        ::testing::Combine(::testing::Bool(),
+                                           ::testing::Bool()));
 
 #ifndef ROCKSDB_LITE
 TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
@@ -686,12 +689,13 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
       std::make_shared<MockFS>(env_->GetFileSystem(), false);
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
 
+  bool is_adaptive_readahead = std::get<1>(GetParam());
   Options options = CurrentOptions();
   options.write_buffer_size = 1024;
   options.create_if_missing = true;
   options.compression = kNoCompression;
   options.env = env.get();
-  if (GetParam()) {
+  if (std::get<0>(GetParam())) {
     options.use_direct_reads = true;
     options.use_direct_io_for_flush_and_compaction = true;
   }
@@ -704,7 +708,8 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   Status s = TryReopen(options);
-  if (GetParam() && (s.IsNotSupported() || s.IsInvalidArgument())) {
+  if (std::get<0>(GetParam()) &&
+      (s.IsNotSupported() || s.IsInvalidArgument())) {
     // If direct IO is not supported, skip the test
     return;
   } else {
@@ -748,12 +753,15 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
     SyncPoint::GetInstance()->SetCallBack(
         "FilePrefetchBuffer::TryReadFromCache", [&](void* arg) {
           current_readahead_size = *reinterpret_cast<size_t*>(arg);
+          ASSERT_GT(current_readahead_size, 0);
         });
 
     SyncPoint::GetInstance()->EnableProcessing();
 
     ReadOptions ro;
-    ro.adaptive_readahead = true;
+    if (is_adaptive_readahead) {
+      ro.adaptive_readahead = true;
+    }
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     int num_keys = 0;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -763,14 +771,28 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
     ASSERT_GT(buff_prefetch_count, 0);
     buff_prefetch_count = 0;
     // For index and data blocks.
-    ASSERT_EQ(readahead_carry_over_count, 2 * (num_sst_files - 1));
+    if (is_adaptive_readahead) {
+      ASSERT_EQ(readahead_carry_over_count, 2 * (num_sst_files - 1));
+    } else {
+      ASSERT_EQ(readahead_carry_over_count, 0);
+    }
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
   }
   Close();
 }
+#endif  //! ROCKSDB_LITE
 
-TEST_P(PrefetchTest1, NonSequentialReads) {
+class PrefetchTest2 : public DBTestBase,
+                      public ::testing::WithParamInterface<bool> {
+ public:
+  PrefetchTest2() : DBTestBase("prefetch_test2", true) {}
+};
+
+INSTANTIATE_TEST_CASE_P(PrefetchTest2, PrefetchTest2, ::testing::Bool());
+
+#ifndef ROCKSDB_LITE
+TEST_P(PrefetchTest2, NonSequentialReads) {
   const int kNumKeys = 1000;
   // Set options
   std::shared_ptr<MockFS> fs =
@@ -856,7 +878,7 @@ TEST_P(PrefetchTest1, NonSequentialReads) {
 }
 #endif  //! ROCKSDB_LITE
 
-TEST_P(PrefetchTest1, DecreaseReadAheadIfInCache) {
+TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
   const int kNumKeys = 2000;
   // Set options
   std::shared_ptr<MockFS> fs =

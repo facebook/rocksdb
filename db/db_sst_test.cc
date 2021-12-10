@@ -1030,7 +1030,9 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
 
   sfm->SetDeleteRateBytesPerSecond(1024 * 1024);
-  sfm->delete_scheduler()->SetMaxTrashDBRatio(1.1);
+  // Set an extra high trash ratio to prevent immediate/non-rate limited
+  // deletions
+  sfm->delete_scheduler()->SetMaxTrashDBRatio(1000.0);
   ASSERT_OK(DestroyDB(dbname_, options));
   sfm->WaitForEmptyTrash();
   ASSERT_EQ(bg_delete_file, num_sst_files + num_wal_files);
@@ -1097,7 +1099,7 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedWithBlobFiles) {
   ASSERT_EQ(sfm->GetTotalSize(), total_files_size);
 
   // Set the maximum allowed space usage to the current total size.
-  sfm->SetMaxAllowedSpaceUsage(files_size + 1);
+  sfm->SetMaxAllowedSpaceUsage(total_files_size + 1);
 
   bool max_allowed_space_reached = false;
   bool delete_blob_file = false;
@@ -1664,14 +1666,20 @@ TEST_F(DBSSTTest, DBWithSFMForBlobFilesAtomicFlush) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
 
   ASSERT_EQ(files_added, 1);
-  ASSERT_EQ(files_deleted, 1);
   ASSERT_EQ(files_scheduled_to_delete, 1);
+
+  sfm->WaitForEmptyTrash();
+
+  ASSERT_EQ(files_deleted, 1);
 
   Close();
   ASSERT_OK(DestroyDB(dbname_, options));
-  sfm->WaitForEmptyTrash();
-  ASSERT_EQ(files_deleted, 4);
+
   ASSERT_EQ(files_scheduled_to_delete, 4);
+
+  sfm->WaitForEmptyTrash();
+
+  ASSERT_EQ(files_deleted, 4);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();

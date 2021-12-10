@@ -44,7 +44,7 @@ class SequentialFileReader;
 namespace test {
 
 extern const uint32_t kDefaultFormatVersion;
-extern const uint32_t kLatestFormatVersion;
+extern const std::set<uint32_t> kFooterFormatVersionsToTest;
 
 // Return a random key with the specified length that may contain interesting
 // characters (e.g. \x00, \xff, etc.).

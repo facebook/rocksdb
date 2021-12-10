@@ -153,10 +153,10 @@ Status ImportColumnFamilyJob::Run() {
     edit_.AddFile(file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
                   f.fd.GetFileSize(), f.smallest_internal_key,
                   f.largest_internal_key, file_metadata.smallest_seqno,
-                  file_metadata.largest_seqno, false, kInvalidBlobFileNumber,
-                  oldest_ancester_time, current_time, kUnknownFileChecksum,
-                  kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                  kDisableUserTimestamp);
+                  file_metadata.largest_seqno, false, file_metadata.temperature,
+                  kInvalidBlobFileNumber, oldest_ancester_time, current_time,
+                  kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                  kDisableUserTimestamp, kDisableUserTimestamp);
 
     // If incoming sequence number is higher, update local sequence number.
     if (file_metadata.largest_seqno > versions_->LastSequence()) {

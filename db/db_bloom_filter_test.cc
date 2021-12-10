@@ -551,10 +551,9 @@ INSTANTIATE_TEST_CASE_P(
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, DBBloomFilterTestWithParam,
     ::testing::Values(
-        std::make_tuple(BFP::kDeprecatedBlock, false,
-                        test::kLatestFormatVersion),
-        std::make_tuple(BFP::kAutoBloom, true, test::kLatestFormatVersion),
-        std::make_tuple(BFP::kAutoBloom, false, test::kLatestFormatVersion)));
+        std::make_tuple(BFP::kDeprecatedBlock, false, kLatestFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, true, kLatestFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, false, kLatestFormatVersion)));
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {

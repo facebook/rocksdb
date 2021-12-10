@@ -123,8 +123,10 @@ class PartitionedIndexIterator : public InternalIteratorBase<IndexValue> {
   }
 
   void SetReadaheadState(ReadaheadFileInfo* readahead_file_info) override {
-    block_prefetcher_.SetReadaheadState(
-        &(readahead_file_info->index_block_readahead_info));
+    if (read_options_.adaptive_readahead) {
+      block_prefetcher_.SetReadaheadState(
+          &(readahead_file_info->index_block_readahead_info));
+    }
   }
 
   std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;

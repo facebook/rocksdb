@@ -440,9 +440,10 @@ Status ExternalSstFileIngestionJob::Run() {
     FileMetaData f_metadata(
         f.fd.GetNumber(), f.fd.GetPathId(), f.fd.GetFileSize(),
         f.smallest_internal_key, f.largest_internal_key, f.assigned_seqno,
-        f.assigned_seqno, false, kInvalidBlobFileNumber, oldest_ancester_time,
-        current_time, f.file_checksum, f.file_checksum_func_name,
-        kDisableUserTimestamp, kDisableUserTimestamp);
+        f.assigned_seqno, false, f.file_temperature, kInvalidBlobFileNumber,
+        oldest_ancester_time, current_time, f.file_checksum,
+        f.file_checksum_func_name, kDisableUserTimestamp,
+        kDisableUserTimestamp);
     f_metadata.temperature = f.file_temperature;
     edit_.AddFile(f.picked_level, f_metadata);
   }
@@ -609,14 +610,12 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
 
     // Set the global sequence number
     file_to_ingest->original_seqno = DecodeFixed64(seqno_iter->second.c_str());
-    auto offsets_iter = props->properties_offsets.find(
-        ExternalSstFilePropertyNames::kGlobalSeqno);
-    if (offsets_iter == props->properties_offsets.end() ||
-        offsets_iter->second == 0) {
+    if (props->external_sst_file_global_seqno_offset == 0) {
       file_to_ingest->global_seqno_offset = 0;
       return Status::Corruption("Was not able to find file global seqno field");
     }
-    file_to_ingest->global_seqno_offset = static_cast<size_t>(offsets_iter->second);
+    file_to_ingest->global_seqno_offset =
+        static_cast<size_t>(props->external_sst_file_global_seqno_offset);
   } else if (file_to_ingest->version == 1) {
     // SST file V1 should not have global seqno field
     assert(seqno_iter == uprops.end());

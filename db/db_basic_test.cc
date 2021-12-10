@@ -15,6 +15,7 @@
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/perf_context.h"
+#include "rocksdb/table.h"
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
@@ -972,8 +973,15 @@ TEST_F(DBBasicTest, MultiGetEmpty) {
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBBasicTest, ChecksumTest) {
+class DBBlockChecksumTest : public DBBasicTest,
+                            public testing::WithParamInterface<uint32_t> {};
+
+INSTANTIATE_TEST_CASE_P(FormatVersions, DBBlockChecksumTest,
+                        testing::ValuesIn(test::kFooterFormatVersionsToTest));
+
+TEST_P(DBBlockChecksumTest, BlockChecksumTest) {
   BlockBasedTableOptions table_options;
+  table_options.format_version = GetParam();
   Options options = CurrentOptions();
   const int kNumPerFile = 2;
 
@@ -2559,7 +2567,7 @@ TEST_F(DBBasicTest, DisableTrackWal) {
   ASSERT_OK(dbfull()->TEST_SwitchMemtable());
   ASSERT_OK(db_->SyncWAL());
   // Some WALs are tracked.
-  ASSERT_FALSE(dbfull()->TEST_GetVersionSet()->GetWalSet().GetWals().empty());
+  ASSERT_FALSE(dbfull()->GetVersionSet()->GetWalSet().GetWals().empty());
   Close();
 
   // Disable WAL tracking.
@@ -2567,14 +2575,14 @@ TEST_F(DBBasicTest, DisableTrackWal) {
   options.create_if_missing = false;
   ASSERT_OK(TryReopen(options));
   // Previously tracked WALs are cleared.
-  ASSERT_TRUE(dbfull()->TEST_GetVersionSet()->GetWalSet().GetWals().empty());
+  ASSERT_TRUE(dbfull()->GetVersionSet()->GetWalSet().GetWals().empty());
   Close();
 
   // Re-enable WAL tracking again.
   options.track_and_verify_wals_in_manifest = true;
   options.create_if_missing = false;
   ASSERT_OK(TryReopen(options));
-  ASSERT_TRUE(dbfull()->TEST_GetVersionSet()->GetWalSet().GetWals().empty());
+  ASSERT_TRUE(dbfull()->GetVersionSet()->GetWalSet().GetWals().empty());
   Close();
 }
 #endif  // !ROCKSDB_LITE

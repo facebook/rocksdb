@@ -1608,7 +1608,7 @@ TEST_F(DBFlushTest, FlushWithBlob) {
   ASSERT_EQ(Get("key1"), short_value);
   ASSERT_EQ(Get("key2"), long_value);
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
 
   ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
@@ -1938,7 +1938,7 @@ TEST_P(DBFlushTestBlobError, FlushError) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
 
   ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
@@ -2149,7 +2149,7 @@ TEST_P(DBAtomicFlushTest, PrecomputeMinLogNumberToKeepNon2PC) {
     flush_edits.push_back({});
     auto unflushed_cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[1]);
 
-    ASSERT_EQ(PrecomputeMinLogNumberToKeepNon2PC(dbfull()->TEST_GetVersionSet(),
+    ASSERT_EQ(PrecomputeMinLogNumberToKeepNon2PC(dbfull()->GetVersionSet(),
                                                  flushed_cfds, flush_edits),
               unflushed_cfh->cfd()->GetLogNumber());
   }
@@ -2174,7 +2174,7 @@ TEST_P(DBAtomicFlushTest, PrecomputeMinLogNumberToKeepNon2PC) {
           std::min(min_log_number_to_keep, cfh->cfd()->GetLogNumber());
     }
     ASSERT_EQ(min_log_number_to_keep, log_num_after_flush);
-    ASSERT_EQ(PrecomputeMinLogNumberToKeepNon2PC(dbfull()->TEST_GetVersionSet(),
+    ASSERT_EQ(PrecomputeMinLogNumberToKeepNon2PC(dbfull()->GetVersionSet(),
                                                  flushed_cfds, flush_edits),
               min_log_number_to_keep);
   }
