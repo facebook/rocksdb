@@ -25,7 +25,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBErrorHandlingFSTest : public DBTestBase {
  public:
   DBErrorHandlingFSTest()
-      : DBTestBase("/db_error_handling_fs_test", /*env_do_fsync=*/true) {
+      : DBTestBase("db_error_handling_fs_test", /*env_do_fsync=*/true) {
     fault_fs_.reset(new FaultInjectionTestFS(env_->GetFileSystem()));
     fault_env_.reset(new CompositeEnvWrapper(env_, fault_fs_));
   }
@@ -487,6 +487,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWALAtomicWriteRetryableError) {
   Destroy(options);
 }
 
+// The flush error is injected before we finish the table build
 TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError1) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
@@ -542,6 +543,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError1) {
   Destroy(options);
 }
 
+// The retryable IO error is injected before we sync table
 TEST_F(DBErrorHandlingFSTest, FLushWriteNoWALRetryableError2) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
@@ -585,6 +587,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteNoWALRetryableError2) {
   Destroy(options);
 }
 
+// The retryable IO error is injected before we close the table file
 TEST_F(DBErrorHandlingFSTest, FLushWriteNoWALRetryableError3) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
@@ -1576,11 +1579,11 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
     std::string prop;
     ASSERT_EQ(listener[i]->WaitForRecovery(5000000), true);
     ASSERT_OK(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true));
-    EXPECT_TRUE(db[i]->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(0), &prop));
+    EXPECT_TRUE(
+        db[i]->GetProperty("rocksdb.num-files-at-level" + ToString(0), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 0);
-    EXPECT_TRUE(db[i]->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(1), &prop));
+    EXPECT_TRUE(
+        db[i]->GetProperty("rocksdb.num-files-at-level" + ToString(1), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 1);
   }
 
@@ -1713,11 +1716,11 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
     if (i == 1) {
       ASSERT_OK(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true));
     }
-    EXPECT_TRUE(db[i]->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(0), &prop));
+    EXPECT_TRUE(
+        db[i]->GetProperty("rocksdb.num-files-at-level" + ToString(0), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 0);
-    EXPECT_TRUE(db[i]->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(1), &prop));
+    EXPECT_TRUE(
+        db[i]->GetProperty("rocksdb.num-files-at-level" + ToString(1), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 1);
   }
 
@@ -1874,6 +1877,8 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableErrorAutoRecover2) {
   Destroy(options);
 }
 
+// Auto resume fromt the flush retryable IO error. Activate the FS before the
+// first resume. Resume is successful
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover1) {
   // Activate the FS before the first resume
   std::shared_ptr<ErrorHandlerFSListener> listener(
@@ -1914,6 +1919,8 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover1) {
   Destroy(options);
 }
 
+// Auto resume fromt the flush retryable IO error and set the retry limit count.
+// Never activate the FS and auto resume should fail at the end
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover2) {
   // Fail all the resume and let user to resume
   std::shared_ptr<ErrorHandlerFSListener> listener(
@@ -1963,6 +1970,8 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover2) {
   Destroy(options);
 }
 
+// Auto resume fromt the flush retryable IO error and set the retry limit count.
+// Fail the first resume and let the second resume be successful.
 TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableErrorAutoRecover) {
   // Fail the first resume and let the second resume be successful
   std::shared_ptr<ErrorHandlerFSListener> listener(

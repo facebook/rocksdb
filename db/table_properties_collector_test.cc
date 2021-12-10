@@ -40,6 +40,7 @@ class TablePropertiesTest : public testing::Test,
 namespace {
 static const uint32_t kTestColumnFamilyId = 66;
 static const std::string kTestColumnFamilyName = "test_column_fam";
+static const int kTestLevel = 1;
 
 void MakeBuilder(
     const Options& options, const ImmutableOptions& ioptions,
@@ -51,11 +52,10 @@ void MakeBuilder(
   std::unique_ptr<FSWritableFile> wf(new test::StringSink);
   writable->reset(
       new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
-  int unknown_level = -1;
   TableBuilderOptions tboptions(
       ioptions, moptions, internal_comparator, int_tbl_prop_collector_factories,
       options.compression, options.compression_opts, kTestColumnFamilyId,
-      kTestColumnFamilyName, unknown_level);
+      kTestColumnFamilyName, kTestLevel);
   builder->reset(NewTableBuilder(tboptions, writable->get()));
 }
 }  // namespace
@@ -199,6 +199,7 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
   TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context context) override {
     EXPECT_EQ(kTestColumnFamilyId, context.column_family_id);
+    EXPECT_EQ(kTestLevel, context.level_at_creation);
     if (!backward_mode_) {
       return new RegularKeysStartWithA();
     } else {
@@ -206,7 +207,7 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
     }
   }
   IntTblPropCollector* CreateIntTblPropCollector(
-      uint32_t /*column_family_id*/) override {
+      uint32_t /*column_family_id*/, int /* level_at_creation */) override {
     return new RegularKeysStartWithAInternal();
   }
   const char* Name() const override { return "RegularKeysStartWithA"; }
@@ -290,11 +291,9 @@ void TestCustomizedTablePropertiesCollector(
   std::unique_ptr<RandomAccessFileReader> fake_file_reader(
       new RandomAccessFileReader(std::move(source), "test"));
 
-  TableProperties* props;
+  std::unique_ptr<TableProperties> props;
   Status s = ReadTableProperties(fake_file_reader.get(), fwf->contents().size(),
-                                 magic_number, ioptions, &props,
-                                 true /* compression_type_missing */);
-  std::unique_ptr<TableProperties> props_guard(props);
+                                 magic_number, ioptions, &props);
   ASSERT_OK(s);
 
   auto user_collected = props->user_collected_properties;
@@ -431,13 +430,11 @@ void TestInternalKeyPropertiesCollector(
     std::unique_ptr<RandomAccessFileReader> reader(
         new RandomAccessFileReader(std::move(source), "test"));
 
-    TableProperties* props;
-    Status s =
-        ReadTableProperties(reader.get(), fwf->contents().size(), magic_number,
-                            ioptions, &props, true /* compression_type_missing */);
+    std::unique_ptr<TableProperties> props;
+    Status s = ReadTableProperties(reader.get(), fwf->contents().size(),
+                                   magic_number, ioptions, &props);
     ASSERT_OK(s);
 
-    std::unique_ptr<TableProperties> props_guard(props);
     auto user_collected = props->user_collected_properties;
     uint64_t deleted = GetDeletedKeys(user_collected);
     ASSERT_EQ(5u, deleted);  // deletes + single-deletes

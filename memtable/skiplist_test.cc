@@ -17,7 +17,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-typedef uint64_t Key;
+using Key = uint64_t;
 
 struct TestComparator {
   int operator()(const Key& a, const Key& b) const {

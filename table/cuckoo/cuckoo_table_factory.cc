@@ -41,7 +41,7 @@ TableBuilder* CuckooTableFactory::NewTableBuilder(
       table_options_.identity_as_first_hash, nullptr /* get_slice_hash */,
       table_builder_options.column_family_id,
       table_builder_options.column_family_name, table_builder_options.db_id,
-      table_builder_options.db_session_id);
+      table_builder_options.db_session_id, table_builder_options.cur_file_num);
 }
 
 std::string CuckooTableFactory::GetPrintableOptions() const {

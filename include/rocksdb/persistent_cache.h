@@ -24,14 +24,14 @@ namespace ROCKSDB_NAMESPACE {
 // cache interface is specifically designed for persistent read cache.
 class PersistentCache {
  public:
-  typedef std::vector<std::map<std::string, double>> StatsType;
+  using StatsType = std::vector<std::map<std::string, double>>;
 
   virtual ~PersistentCache() {}
 
   // Insert to page cache
   //
   // page_key   Identifier to identify a page uniquely across restarts
-  // data       Page data
+  // data       Page data to copy (caller retains ownership)
   // size       Size of the page
   virtual Status Insert(const Slice& key, const char* data,
                         const size_t size) = 0;

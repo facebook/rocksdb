@@ -116,6 +116,10 @@ class ErrorHandler {
     void RecoverFromNoSpace();
     const Status& StartRecoverFromRetryableBGIOError(const IOStatus& io_error);
     void RecoverFromRetryableBGIOError();
+    // First, if it is in recovery and the recovery_error is ok. Set the
+    // recovery_error_ to bg_err. Second, if the severity is higher than the
+    // current bg_error_, overwrite it.
+    void CheckAndSetRecoveryAndBGError(const Status& bg_err);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

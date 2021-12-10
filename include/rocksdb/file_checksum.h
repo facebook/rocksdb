@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -42,6 +43,10 @@ struct FileChecksumGenContext {
 // * Finalize is called at most once during the life of the object
 // * All calls to Update come before Finalize
 // * All calls to GetChecksum come after Finalize
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class FileChecksumGenerator {
  public:
   virtual ~FileChecksumGenerator() {}
@@ -63,9 +68,17 @@ class FileChecksumGenerator {
 };
 
 // Create the FileChecksumGenerator object for each SST file.
-class FileChecksumGenFactory {
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
+class FileChecksumGenFactory : public Customizable {
  public:
   virtual ~FileChecksumGenFactory() {}
+  static const char* Type() { return "FileChecksumGenFactory"; }
+  static Status CreateFromString(
+      const ConfigOptions& options, const std::string& value,
+      std::shared_ptr<FileChecksumGenFactory>* result);
 
   // Create a new FileChecksumGenerator.
   virtual std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
@@ -81,6 +94,10 @@ class FileChecksumGenFactory {
 // the checksum information of all valid SST file of a DB instance. It can
 // also be used to store the checksum information of a list of SST files to
 // be ingested.
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class FileChecksumList {
  public:
   virtual ~FileChecksumList() {}

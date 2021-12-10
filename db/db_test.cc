@@ -11,11 +11,13 @@
 // in Release build.
 // which is a pity, it is a good test
 #include <fcntl.h>
+
 #include <algorithm>
 #include <set>
 #include <thread>
 #include <unordered_set>
 #include <utility>
+
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -25,6 +27,7 @@
 
 #include "cache/lru_cache.h"
 #include "db/blob/blob_index.h"
+#include "db/blob/blob_log_format.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
@@ -33,7 +36,6 @@
 #include "db/write_batch_internal.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
-#include "memtable/hash_linklist_rep.h"
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -52,6 +54,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/thread_status.h"
+#include "rocksdb/types.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
@@ -74,7 +77,7 @@ namespace ROCKSDB_NAMESPACE {
 // If fsync needs to be covered in a test, put it in other places.
 class DBTest : public DBTestBase {
  public:
-  DBTest() : DBTestBase("/db_test", /*env_do_fsync=*/false) {}
+  DBTest() : DBTestBase("db_test", /*env_do_fsync=*/false) {}
 };
 
 class DBTestWithParam
@@ -95,7 +98,7 @@ class DBTestWithParam
 };
 
 TEST_F(DBTest, MockEnvTest) {
-  std::unique_ptr<MockEnv> env{new MockEnv(Env::Default())};
+  std::unique_ptr<MockEnv> env{MockEnv::Create(Env::Default())};
   Options options;
   options.create_if_missing = true;
   options.env = env.get();
@@ -1029,10 +1032,10 @@ TEST_F(DBTest, FailMoreDbPaths) {
 }
 
 void CheckColumnFamilyMeta(
-    const ColumnFamilyMetaData& cf_meta,
+    const ColumnFamilyMetaData& cf_meta, const std::string& cf_name,
     const std::vector<std::vector<FileMetaData>>& files_by_level,
     uint64_t start_time, uint64_t end_time) {
-  ASSERT_EQ(cf_meta.name, kDefaultColumnFamilyName);
+  ASSERT_EQ(cf_meta.name, cf_name);
   ASSERT_EQ(cf_meta.levels.size(), files_by_level.size());
 
   uint64_t cf_size = 0;
@@ -1126,6 +1129,53 @@ void CheckLiveFilesMeta(
 }
 
 #ifndef ROCKSDB_LITE
+void AddBlobFile(const ColumnFamilyHandle* cfh, uint64_t blob_file_number,
+                 uint64_t total_blob_count, uint64_t total_blob_bytes,
+                 const std::string& checksum_method,
+                 const std::string& checksum_value,
+                 uint64_t garbage_blob_count = 0,
+                 uint64_t garbage_blob_bytes = 0) {
+  ColumnFamilyData* cfd =
+      (static_cast<const ColumnFamilyHandleImpl*>(cfh))->cfd();
+  assert(cfd);
+
+  Version* const version = cfd->current();
+  assert(version);
+
+  VersionStorageInfo* const storage_info = version->storage_info();
+  assert(storage_info);
+
+  // Add a live blob file.
+
+  auto shared_meta = SharedBlobFileMetaData::Create(
+      blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
+      checksum_value);
+
+  auto meta = BlobFileMetaData::Create(std::move(shared_meta),
+                                       BlobFileMetaData::LinkedSsts(),
+                                       garbage_blob_count, garbage_blob_bytes);
+
+  storage_info->AddBlobFile(std::move(meta));
+}
+
+static void CheckBlobMetaData(
+    const BlobMetaData& bmd, uint64_t blob_file_number,
+    uint64_t total_blob_count, uint64_t total_blob_bytes,
+    const std::string& checksum_method, const std::string& checksum_value,
+    uint64_t garbage_blob_count = 0, uint64_t garbage_blob_bytes = 0) {
+  ASSERT_EQ(bmd.blob_file_number, blob_file_number);
+  ASSERT_EQ(bmd.blob_file_name, BlobFileName("", blob_file_number));
+  ASSERT_EQ(bmd.blob_file_size,
+            total_blob_bytes + BlobLogHeader::kSize + BlobLogFooter::kSize);
+
+  ASSERT_EQ(bmd.total_blob_count, total_blob_count);
+  ASSERT_EQ(bmd.total_blob_bytes, total_blob_bytes);
+  ASSERT_EQ(bmd.garbage_blob_count, garbage_blob_count);
+  ASSERT_EQ(bmd.garbage_blob_bytes, garbage_blob_bytes);
+  ASSERT_EQ(bmd.checksum_method, checksum_method);
+  ASSERT_EQ(bmd.checksum_value, checksum_value);
+}
+
 TEST_F(DBTest, MetaDataTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -1166,11 +1216,69 @@ TEST_F(DBTest, MetaDataTest) {
 
   ColumnFamilyMetaData cf_meta;
   db_->GetColumnFamilyMetaData(&cf_meta);
-  CheckColumnFamilyMeta(cf_meta, files_by_level, start_time, end_time);
-
+  CheckColumnFamilyMeta(cf_meta, kDefaultColumnFamilyName, files_by_level,
+                        start_time, end_time);
   std::vector<LiveFileMetaData> live_file_meta;
   db_->GetLiveFilesMetaData(&live_file_meta);
   CheckLiveFilesMeta(live_file_meta, files_by_level);
+}
+
+TEST_F(DBTest, AllMetaDataTest) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  constexpr uint64_t blob_file_number = 234;
+  constexpr uint64_t total_blob_count = 555;
+  constexpr uint64_t total_blob_bytes = 66666;
+  constexpr char checksum_method[] = "CRC32";
+  constexpr char checksum_value[] = "\x3d\x87\xff\x57";
+
+  int64_t temp_time = 0;
+  options.env->GetCurrentTime(&temp_time).PermitUncheckedError();
+  uint64_t start_time = static_cast<uint64_t>(temp_time);
+
+  Random rnd(301);
+  dbfull()->TEST_LockMutex();
+  for (int cf = 0; cf < 2; cf++) {
+    AddBlobFile(handles_[cf], blob_file_number * (cf + 1),
+                total_blob_count * (cf + 1), total_blob_bytes * (cf + 1),
+                checksum_method, checksum_value);
+  }
+  dbfull()->TEST_UnlockMutex();
+
+  std::vector<ColumnFamilyMetaData> all_meta;
+  db_->GetAllColumnFamilyMetaData(&all_meta);
+
+  std::vector<std::vector<FileMetaData>> default_files_by_level;
+  std::vector<std::vector<FileMetaData>> pikachu_files_by_level;
+  dbfull()->TEST_GetFilesMetaData(handles_[0], &default_files_by_level);
+  dbfull()->TEST_GetFilesMetaData(handles_[1], &pikachu_files_by_level);
+
+  options.env->GetCurrentTime(&temp_time).PermitUncheckedError();
+  uint64_t end_time = static_cast<uint64_t>(temp_time);
+
+  ASSERT_EQ(all_meta.size(), 2);
+  for (int cf = 0; cf < 2; cf++) {
+    const auto& cfmd = all_meta[cf];
+    if (cf == 0) {
+      CheckColumnFamilyMeta(cfmd, "default", default_files_by_level, start_time,
+                            end_time);
+    } else {
+      CheckColumnFamilyMeta(cfmd, "pikachu", pikachu_files_by_level, start_time,
+                            end_time);
+    }
+    ASSERT_EQ(cfmd.blob_files.size(), 1U);
+    const auto& bmd = cfmd.blob_files[0];
+    ASSERT_EQ(cfmd.blob_file_count, 1U);
+    ASSERT_EQ(cfmd.blob_file_size, bmd.blob_file_size);
+    ASSERT_EQ(NormalizePath(bmd.blob_file_path), NormalizePath(dbname_));
+    CheckBlobMetaData(bmd, blob_file_number * (cf + 1),
+                      total_blob_count * (cf + 1), total_blob_bytes * (cf + 1),
+                      checksum_method, checksum_value);
+  }
 }
 
 namespace {
@@ -1971,6 +2079,13 @@ TEST_F(DBTest, OverlapInLevel0) {
     Flush(1);
     ASSERT_EQ("2,1,1", FilesPerLevel(1));
 
+    // BEGIN addition to existing test
+    // Take this opportunity to verify SST unique ids (including Plain table)
+    TablePropertiesCollection tbc;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[1], &tbc));
+    VerifySstUniqueIds(tbc);
+    // END addition to existing test
+
     // Compact away the placeholder files we created initially
     dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
     dbfull()->TEST_CompactRange(2, nullptr, nullptr, handles_[1]);
@@ -2197,8 +2312,8 @@ TEST_F(DBTest, SnapshotFiles) {
     uint64_t manifest_number = 0;
     uint64_t manifest_size = 0;
     std::vector<std::string> files;
-    dbfull()->DisableFileDeletions();
-    dbfull()->GetLiveFiles(files, &manifest_size);
+    ASSERT_OK(dbfull()->DisableFileDeletions());
+    ASSERT_OK(dbfull()->GetLiveFiles(files, &manifest_size));
 
     // CURRENT, MANIFEST, OPTIONS, *.sst files (one for each CF)
     ASSERT_EQ(files.size(), 5U);
@@ -2227,18 +2342,17 @@ TEST_F(DBTest, SnapshotFiles) {
       // latest manifest file
       if (ParseFileName(files[i].substr(1), &number, &type)) {
         if (type == kDescriptorFile) {
-          if (number > manifest_number) {
-            manifest_number = number;
-            ASSERT_GE(size, manifest_size);
-            size = manifest_size;  // copy only valid MANIFEST data
-          }
+          ASSERT_EQ(manifest_number, 0);
+          manifest_number = number;
+          ASSERT_GE(size, manifest_size);
+          size = manifest_size;  // copy only valid MANIFEST data
         }
       }
       CopyFile(src, dest, size);
     }
 
     // release file snapshot
-    dbfull()->DisableFileDeletions();
+    ASSERT_OK(dbfull()->EnableFileDeletions(/*force*/ false));
     // overwrite one key, this key should not appear in the snapshot
     std::vector<std::string> extras;
     for (unsigned int i = 0; i < 1; i++) {
@@ -2275,8 +2389,8 @@ TEST_F(DBTest, SnapshotFiles) {
     uint64_t new_manifest_number = 0;
     uint64_t new_manifest_size = 0;
     std::vector<std::string> newfiles;
-    dbfull()->DisableFileDeletions();
-    dbfull()->GetLiveFiles(newfiles, &new_manifest_size);
+    ASSERT_OK(dbfull()->DisableFileDeletions());
+    ASSERT_OK(dbfull()->GetLiveFiles(newfiles, &new_manifest_size));
 
     // find the new manifest file. assert that this manifest file is
     // the same one as in the previous snapshot. But its size should be
@@ -2288,20 +2402,41 @@ TEST_F(DBTest, SnapshotFiles) {
       // latest manifest file
       if (ParseFileName(newfiles[i].substr(1), &number, &type)) {
         if (type == kDescriptorFile) {
-          if (number > new_manifest_number) {
-            uint64_t size;
-            new_manifest_number = number;
-            ASSERT_OK(env_->GetFileSize(src, &size));
-            ASSERT_GE(size, new_manifest_size);
-          }
+          ASSERT_EQ(new_manifest_number, 0);
+          uint64_t size;
+          new_manifest_number = number;
+          ASSERT_OK(env_->GetFileSize(src, &size));
+          ASSERT_GE(size, new_manifest_size);
         }
       }
     }
     ASSERT_EQ(manifest_number, new_manifest_number);
     ASSERT_GT(new_manifest_size, manifest_size);
 
-    // release file snapshot
-    dbfull()->DisableFileDeletions();
+    // Also test GetLiveFilesStorageInfo
+    std::vector<LiveFileStorageInfo> new_infos;
+    ASSERT_OK(dbfull()->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(),
+                                                &new_infos));
+
+    // Close DB (while deletions disabled)
+    Close();
+
+    // Validate
+    for (auto& info : new_infos) {
+      std::string path = info.directory + "/" + info.relative_filename;
+      uint64_t size;
+      ASSERT_OK(env_->GetFileSize(path, &size));
+      if (info.trim_to_size) {
+        ASSERT_LE(info.size, size);
+      } else if (!info.replacement_contents.empty()) {
+        ASSERT_EQ(info.size, info.replacement_contents.size());
+      } else {
+        ASSERT_EQ(info.size, size);
+      }
+      if (info.file_type == kDescriptorFile) {
+        ASSERT_EQ(info.file_number, manifest_number);
+      }
+    }
   } while (ChangeCompactOptions());
 }
 
@@ -2346,41 +2481,19 @@ TEST_F(DBTest, GetLiveBlobFiles) {
   Options options = CurrentOptions();
   options.stats_dump_period_sec = 0;
 
-  Reopen(options);
-
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
-  assert(versions);
-  assert(versions->GetColumnFamilySet());
-
-  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
-  assert(cfd);
-
-  Version* const version = cfd->current();
-  assert(version);
-
-  VersionStorageInfo* const storage_info = version->storage_info();
-  assert(storage_info);
-
-  // Add a live blob file.
   constexpr uint64_t blob_file_number = 234;
   constexpr uint64_t total_blob_count = 555;
   constexpr uint64_t total_blob_bytes = 66666;
   constexpr char checksum_method[] = "CRC32";
-  constexpr char checksum_value[] = "3d87ff57";
-
-  auto shared_meta = SharedBlobFileMetaData::Create(
-      blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
-      checksum_value);
-
+  constexpr char checksum_value[] = "\x3d\x87\xff\x57";
   constexpr uint64_t garbage_blob_count = 0;
   constexpr uint64_t garbage_blob_bytes = 0;
 
-  auto meta = BlobFileMetaData::Create(std::move(shared_meta),
-                                       BlobFileMetaData::LinkedSsts(),
-                                       garbage_blob_count, garbage_blob_bytes);
+  Reopen(options);
 
-  storage_info->AddBlobFile(std::move(meta));
-
+  AddBlobFile(db_->DefaultColumnFamily(), blob_file_number, total_blob_count,
+              total_blob_bytes, checksum_method, checksum_value,
+              garbage_blob_count, garbage_blob_bytes);
   // Make sure it appears in the results returned by GetLiveFiles.
   uint64_t manifest_size = 0;
   std::vector<std::string> files;
@@ -2388,6 +2501,19 @@ TEST_F(DBTest, GetLiveBlobFiles) {
 
   ASSERT_FALSE(files.empty());
   ASSERT_EQ(files[0], BlobFileName("", blob_file_number));
+
+  ColumnFamilyMetaData cfmd;
+
+  db_->GetColumnFamilyMetaData(&cfmd);
+  ASSERT_EQ(cfmd.blob_files.size(), 1);
+  const BlobMetaData& bmd = cfmd.blob_files[0];
+
+  CheckBlobMetaData(bmd, blob_file_number, total_blob_count, total_blob_bytes,
+                    checksum_method, checksum_value, garbage_blob_count,
+                    garbage_blob_bytes);
+  ASSERT_EQ(NormalizePath(bmd.blob_file_path), NormalizePath(dbname_));
+  ASSERT_EQ(cfmd.blob_file_count, 1U);
+  ASSERT_EQ(cfmd.blob_file_size, bmd.blob_file_size);
 }
 #endif
 
@@ -2717,7 +2843,7 @@ TEST_F(DBTest, GroupCommitTest) {
 #endif  // TRAVIS
 
 namespace {
-typedef std::map<std::string, std::string> KVMap;
+using KVMap = std::map<std::string, std::string>;
 }
 
 class ModelDB : public DB {
@@ -3025,6 +3151,12 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
+  Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& /*opts*/,
+      std::vector<LiveFileStorageInfo>* /*files*/) override {
+    return Status::OK();
+  }
+
   Status GetSortedWalFiles(VectorLogPtr& /*files*/) override {
     return Status::OK();
   }
@@ -3116,7 +3248,7 @@ class ModelDB : public DB {
   std::string name_ = "";
 };
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 static std::string RandomKey(Random* rnd, int minimum = 0) {
   int len;
   do {
@@ -3271,7 +3403,7 @@ TEST_P(DBTestRandomized, Randomized) {
   if (model_snap != nullptr) model.ReleaseSnapshot(model_snap);
   if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
 }
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   // create a DB with block prefix index
@@ -3845,6 +3977,56 @@ TEST_F(DBTest, DISABLED_RateLimitingTest) {
 }
 #endif /* AWS_DO_NOT_RUN */
 
+// This is a mocked customed rate limiter without implementing optional APIs
+// (e.g, RateLimiter::GetTotalPendingRequests())
+class MockedRateLimiterWithNoOptionalAPIImpl : public RateLimiter {
+ public:
+  MockedRateLimiterWithNoOptionalAPIImpl() {}
+
+  ~MockedRateLimiterWithNoOptionalAPIImpl() override {}
+
+  void SetBytesPerSecond(int64_t bytes_per_second) override {
+    (void)bytes_per_second;
+  }
+
+  using RateLimiter::Request;
+  void Request(const int64_t bytes, const Env::IOPriority pri,
+               Statistics* stats) override {
+    (void)bytes;
+    (void)pri;
+    (void)stats;
+  }
+
+  int64_t GetSingleBurstBytes() const override { return 200; }
+
+  int64_t GetTotalBytesThrough(
+      const Env::IOPriority pri = Env::IO_TOTAL) const override {
+    (void)pri;
+    return 0;
+  }
+
+  int64_t GetTotalRequests(
+      const Env::IOPriority pri = Env::IO_TOTAL) const override {
+    (void)pri;
+    return 0;
+  }
+
+  int64_t GetBytesPerSecond() const override { return 0; }
+};
+
+// To test that customed rate limiter not implementing optional APIs (e.g,
+// RateLimiter::GetTotalPendingRequests()) works fine with RocksDB basic
+// operations (e.g, Put, Get, Flush)
+TEST_F(DBTest, CustomedRateLimiterWithNoOptionalAPIImplTest) {
+  Options options = CurrentOptions();
+  options.rate_limiter.reset(new MockedRateLimiterWithNoOptionalAPIImpl());
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("abc", "def"));
+  ASSERT_EQ(Get("abc"), "def");
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get("abc"), "def");
+}
+
 TEST_F(DBTest, TableOptionsSanitizeTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -4004,6 +4186,39 @@ TEST_F(DBTest, ConcurrentFlushWAL) {
       }
     }
   }
+}
+
+// This test failure will be caught with a probability
+TEST_F(DBTest, ManualFlushWalAndWriteRace) {
+  Options options;
+  options.env = env_;
+  options.manual_wal_flush = true;
+  options.create_if_missing = true;
+
+  DestroyAndReopen(options);
+
+  WriteOptions wopts;
+  wopts.sync = true;
+
+  port::Thread writeThread([&]() {
+    for (int i = 0; i < 100; i++) {
+      auto istr = ToString(i);
+      dbfull()->Put(wopts, "key_" + istr, "value_" + istr);
+    }
+  });
+  port::Thread flushThread([&]() {
+    for (int i = 0; i < 100; i++) {
+      ASSERT_OK(dbfull()->FlushWAL(false));
+    }
+  });
+
+  writeThread.join();
+  flushThread.join();
+  ASSERT_OK(dbfull()->Put(wopts, "foo1", "value1"));
+  ASSERT_OK(dbfull()->Put(wopts, "foo2", "value2"));
+  Reopen(options);
+  ASSERT_EQ("value1", Get("foo1"));
+  ASSERT_EQ("value2", Get("foo2"));
 }
 
 #ifndef ROCKSDB_LITE
@@ -4720,7 +4935,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   options.level0_stop_writes_trigger = 2;
   options.soft_pending_compaction_bytes_limit = 1024 * 1024;
   options.target_file_size_base = 20;
-
+  options.env = env_;
   options.level_compaction_dynamic_level_bytes = true;
   options.max_bytes_for_level_base = 200;
   options.max_bytes_for_level_multiplier = 8;
@@ -5642,8 +5857,8 @@ TEST_F(DBTest, DISABLED_SuggestCompactRangeTest) {
   };
 
   Options options = CurrentOptions();
-  options.memtable_factory.reset(
-      new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(
+      DBTestBase::kNumKeysByGenerateNewRandomFile));
   options.compaction_style = kCompactionStyleLevel;
   options.compaction_filter_factory.reset(
       new CompactionFilterFactoryGetContext());
@@ -6048,7 +6263,7 @@ TEST_F(DBTest, DelayedWriteRate) {
   options.level0_stop_writes_trigger = 999999;
   options.delayed_write_rate = 20000000;  // Start with 200MB/s
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kEntriesPerMemTable));
+      test::NewSpecialSkipListFactory(kEntriesPerMemTable));
 
   SetTimeElapseOnlySleepOnReopen(&options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -6111,7 +6326,7 @@ TEST_F(DBTest, HardLimit) {
   options.max_bytes_for_level_base = 10000000000u;
   options.max_background_compactions = 1;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
+      test::NewSpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
 
   env_->SetBackgroundThreads(1, Env::LOW);
   test::SleepingBackgroundTask sleeping_task_low;
@@ -6360,7 +6575,7 @@ TEST_F(DBTest, LastWriteBufferDelay) {
   options.disable_auto_compactions = true;
   int kNumKeysPerMemtable = 3;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
 
   Reopen(options);
   test::SleepingBackgroundTask sleeping_task;
@@ -6747,14 +6962,6 @@ TEST_F(DBTest, MemoryUsageWithMaxWriteBufferSizeToMaintain) {
 #endif
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
-}
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

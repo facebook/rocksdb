@@ -20,10 +20,11 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <memory>
 #include <string>
 #include <vector>
-#include "db/dbformat.h"
+
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
@@ -72,7 +73,19 @@ class FilterBlockBuilder {
     assert(dont_care_status.ok());
     return ret;
   }
-  virtual Slice Finish(const BlockHandle& tmp, Status* status) = 0;
+  // If filter_data is not nullptr, Finish() may transfer ownership of
+  // underlying filter data to the caller,  so that it can be freed as soon as
+  // possible. BlockBasedFilterBlock will ignore this parameter.
+  //
+  virtual Slice Finish(
+      const BlockHandle& tmp /* only used in PartitionedFilterBlock as
+                                last_partition_block_handle */
+      ,
+      Status* status, std::unique_ptr<const char[]>* filter_data = nullptr) = 0;
+
+  // It is for releasing the memory usage and cache reservation of filter bits
+  // builder in FullFilter and PartitionedFilter
+  virtual void ResetFilterBitsBuilder() {}
 };
 
 // A FilterBlockReader is used to parse filter from SST table.

@@ -145,6 +145,9 @@ struct EnvOptions {
   RateLimiter* rate_limiter = nullptr;
 };
 
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class Env {
  public:
   struct FileAttributes {
@@ -266,11 +269,12 @@ class Env {
                                  std::unique_ptr<WritableFile>* result,
                                  const EnvOptions& options) = 0;
 
-  // Create an object that writes to a new file with the specified
-  // name.  Deletes any existing file with the same name and creates a
-  // new file.  On success, stores a pointer to the new file in
-  // *result and returns OK.  On failure stores nullptr in *result and
-  // returns non-OK.
+  // Create an object that writes to a file with the specified name.
+  // `WritableFile::Append()`s will append after any existing content.  If the
+  // file does not already exist, creates it.
+  //
+  // On success, stores a pointer to the file in *result and returns OK.  On
+  // failure stores nullptr in *result and returns non-OK.
   //
   // The returned file will only be accessed by one thread at a time.
   virtual Status ReopenWritableFile(const std::string& /*fname*/,
@@ -434,7 +438,13 @@ class Env {
   static std::string PriorityToString(Priority priority);
 
   // Priority for requesting bytes in rate limiter scheduler
-  enum IOPriority { IO_LOW = 0, IO_HIGH = 1, IO_TOTAL = 2 };
+  enum IOPriority {
+    IO_LOW = 0,
+    IO_MID = 1,
+    IO_HIGH = 2,
+    IO_USER = 3,
+    IO_TOTAL = 4
+  };
 
   // Arrange to run "(*function)(arg)" once in a background thread, in
   // the thread pool specified by pri. By default, jobs go to the 'LOW'
@@ -559,7 +569,10 @@ class Env {
   // Converts seconds-since-Jan-01-1970 to a printable string
   virtual std::string TimeToString(uint64_t time) = 0;
 
-  // Generates a unique id that can be used to identify a db
+  // Generates a human-readable unique ID that can be used to identify a DB.
+  // In built-in implementations, this is an RFC-4122 UUID string, but might
+  // not be in all implementations. Overriding is not recommended.
+  // NOTE: this has not be validated for use in cryptography
   virtual std::string GenerateUniqueId();
 
   // OptimizeForLogWrite will create a new EnvOptions object that is a copy of
@@ -1140,6 +1153,10 @@ enum InfoLogLevel : unsigned char {
 };
 
 // An interface for writing log messages.
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class Logger {
  public:
   size_t kDoNotSupportGetLogFileSize = (std::numeric_limits<size_t>::max)();
@@ -1200,7 +1217,9 @@ class Logger {
   InfoLogLevel log_level_;
 };
 
-// Identifies a locked file.
+// Identifies a locked file. Except in custom Env/Filesystem implementations,
+// the lifetime of a FileLock object should be managed only by LockFile() and
+// UnlockFile().
 class FileLock {
  public:
   FileLock() {}
@@ -1789,6 +1808,8 @@ Env* NewTimedEnv(Env* base_env);
 Status NewEnvLogger(const std::string& fname, Env* env,
                     std::shared_ptr<Logger>* result);
 
+// Creates a new Env based on Env::Default() but modified to use the specified
+// FileSystem.
 std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs);
 
 }  // namespace ROCKSDB_NAMESPACE

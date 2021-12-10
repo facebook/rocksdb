@@ -13,6 +13,7 @@
 #include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -41,6 +42,7 @@ class BlobFileBuilder {
                   Env::WriteLifeTimeHint write_hint,
                   const std::shared_ptr<IOTracer>& io_tracer,
                   BlobFileCompletionCallback* blob_callback,
+                  BlobFileCreationReason creation_reason,
                   std::vector<std::string>* blob_file_paths,
                   std::vector<BlobFileAddition>* blob_file_additions);
 
@@ -54,6 +56,7 @@ class BlobFileBuilder {
                   Env::WriteLifeTimeHint write_hint,
                   const std::shared_ptr<IOTracer>& io_tracer,
                   BlobFileCompletionCallback* blob_callback,
+                  BlobFileCreationReason creation_reason,
                   std::vector<std::string>* blob_file_paths,
                   std::vector<BlobFileAddition>* blob_file_additions);
 
@@ -64,7 +67,7 @@ class BlobFileBuilder {
 
   Status Add(const Slice& key, const Slice& value, std::string* blob_index);
   Status Finish();
-  void Abandon();
+  void Abandon(const Status& s);
 
  private:
   bool IsBlobFileOpen() const;
@@ -89,6 +92,7 @@ class BlobFileBuilder {
   Env::WriteLifeTimeHint write_hint_;
   std::shared_ptr<IOTracer> io_tracer_;
   BlobFileCompletionCallback* blob_callback_;
+  BlobFileCreationReason creation_reason_;
   std::vector<std::string>* blob_file_paths_;
   std::vector<BlobFileAddition>* blob_file_additions_;
   std::unique_ptr<BlobLogWriter> writer_;

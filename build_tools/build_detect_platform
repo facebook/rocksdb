@@ -189,9 +189,6 @@ EOF
                 COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_IOURING_PRESENT"
             fi
         fi
-        if test -z "$USE_FOLLY_DISTRIBUTED_MUTEX"; then
-          USE_FOLLY_DISTRIBUTED_MUTEX=1
-        fi
         # PORT_FILES=port/linux/linux_specific.cc
         ;;
     SunOS)
@@ -596,11 +593,21 @@ EOF
             PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS -faligned-new -DHAVE_ALIGNED_NEW"
         fi
     fi
+    if ! test $ROCKSDB_DISABLE_BENCHMARK; then
+        # Test whether google benchmark is available
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null -lbenchmark 2>/dev/null  <<EOF
+          #include <benchmark/benchmark.h>
+          int main() {}
+EOF
+        if [ "$?" = 0 ]; then
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lbenchmark"
+        fi
+    fi
 fi
 
 # TODO(tec): Fix -Wshorten-64-to-32 errors on FreeBSD and enable the warning.
-# -Wshorten-64-to-32 breaks compilation on FreeBSD i386
-if ! [ "$TARGET_OS" = FreeBSD -a "$TARGET_ARCHITECTURE" = i386 ]; then
+# -Wshorten-64-to-32 breaks compilation on FreeBSD aarch64 and i386
+if ! { [ "$TARGET_OS" = FreeBSD ] && [ "$TARGET_ARCHITECTURE" = arm64 -o "$TARGET_ARCHITECTURE" = i386 ]; }; then
   # Test whether -Wshorten-64-to-32 is available
   $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null -Wshorten-64-to-32 2>/dev/null  <<EOF
     int main() {}
@@ -654,12 +661,18 @@ if test "0$PORTABLE" -eq 0; then
     # Tune for this POWER processor, treating '+' models as base models
     POWER=`LD_SHOW_AUXV=1 /bin/true | grep AT_PLATFORM | grep -E -o power[0-9]+`
     COMMON_FLAGS="$COMMON_FLAGS -mcpu=$POWER -mtune=$POWER "
-  elif test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
-    COMMON_FLAGS="$COMMON_FLAGS -march=z10 "
   elif test -n "`echo $TARGET_ARCHITECTURE | grep -e^arm -e^aarch64`"; then
     # TODO: Handle this with approprite options.
     COMMON_FLAGS="$COMMON_FLAGS"
   elif test -n "`echo $TARGET_ARCHITECTURE | grep ^aarch64`"; then
+    COMMON_FLAGS="$COMMON_FLAGS"
+  elif test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
+    if echo 'int main() {}' | $CXX $PLATFORM_CXXFLAGS -x c++ \
+      -fsyntax-only -march=native - -o /dev/null 2>/dev/null; then
+      COMMON_FLAGS="$COMMON_FLAGS -march=native "
+    else
+      COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
+    fi
     COMMON_FLAGS="$COMMON_FLAGS"
   elif [ "$TARGET_OS" == "IOS" ]; then
     COMMON_FLAGS="$COMMON_FLAGS"
@@ -677,11 +690,16 @@ else
     TRY_SSE_ETC="1"
   fi
 
+  if test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
+    COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
+  fi
+
   if [[ "${PLATFORM}" == "OS_MACOSX" ]]; then
     # For portability compile for macOS 10.12 (2016) or newer
     COMMON_FLAGS="$COMMON_FLAGS -mmacosx-version-min=10.12"
     PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -mmacosx-version-min=10.12"
-    PLATFORM_SHARED_LDFLAGS="$PLATFORM_SHARED_LDFLAGS -mmacosx-version-min=10.12"
+    # -mmacosx-version-min must come first here.
+    PLATFORM_SHARED_LDFLAGS="-mmacosx-version-min=10.12 $PLATFORM_SHARED_LDFLAGS"
     PLATFORM_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=10.12"
     JAVA_STATIC_DEPS_COMMON_FLAGS="-mmacosx-version-min=10.12"
     JAVA_STATIC_DEPS_LDFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"

@@ -17,6 +17,7 @@
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/rate_limiter.h"
+#include "rocksdb/status.h"
 #include "rocksdb/system_clock.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
@@ -37,7 +38,8 @@ class GenericRateLimiter : public RateLimiter {
 
   // Request for token to write bytes. If this request can not be satisfied,
   // the call is blocked. Caller is responsible to make sure
-  // bytes <= GetSingleBurstBytes()
+  // bytes <= GetSingleBurstBytes() and bytes >= 0. Negative bytes
+  // passed in will be rounded up to 0.
   using RateLimiter::Request;
   virtual void Request(const int64_t bytes, const Env::IOPriority pri,
                        Statistics* stats) override;
@@ -50,8 +52,11 @@ class GenericRateLimiter : public RateLimiter {
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
     MutexLock g(&request_mutex_);
     if (pri == Env::IO_TOTAL) {
-      return total_bytes_through_[Env::IO_LOW] +
-             total_bytes_through_[Env::IO_HIGH];
+      int64_t total_bytes_through_sum = 0;
+      for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+        total_bytes_through_sum += total_bytes_through_[i];
+      }
+      return total_bytes_through_sum;
     }
     return total_bytes_through_[pri];
   }
@@ -60,9 +65,30 @@ class GenericRateLimiter : public RateLimiter {
       const Env::IOPriority pri = Env::IO_TOTAL) const override {
     MutexLock g(&request_mutex_);
     if (pri == Env::IO_TOTAL) {
-      return total_requests_[Env::IO_LOW] + total_requests_[Env::IO_HIGH];
+      int64_t total_requests_sum = 0;
+      for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+        total_requests_sum += total_requests_[i];
+      }
+      return total_requests_sum;
     }
     return total_requests_[pri];
+  }
+
+  virtual Status GetTotalPendingRequests(
+      int64_t* total_pending_requests,
+      const Env::IOPriority pri = Env::IO_TOTAL) const override {
+    assert(total_pending_requests != nullptr);
+    MutexLock g(&request_mutex_);
+    if (pri == Env::IO_TOTAL) {
+      int64_t total_pending_requests_sum = 0;
+      for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
+        total_pending_requests_sum += static_cast<int64_t>(queue_[i].size());
+      }
+      *total_pending_requests = total_pending_requests_sum;
+    } else {
+      *total_pending_requests = static_cast<int64_t>(queue_[pri].size());
+    }
+    return Status::OK();
   }
 
   virtual int64_t GetBytesPerSecond() const override {
@@ -70,7 +96,8 @@ class GenericRateLimiter : public RateLimiter {
   }
 
  private:
-  void Refill();
+  void RefillBytesAndGrantRequests();
+  std::vector<Env::IOPriority> GeneratePriorityIterationOrder();
   int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec);
   Status Tune();
 
@@ -78,8 +105,6 @@ class GenericRateLimiter : public RateLimiter {
 
   // This mutex guard all internal states
   mutable port::Mutex request_mutex_;
-
-  const int64_t kMinRefillBytesPerPeriod = 100;
 
   const int64_t refill_period_us_;
 
@@ -101,8 +126,8 @@ class GenericRateLimiter : public RateLimiter {
   Random rnd_;
 
   struct Req;
-  Req* leader_;
   std::deque<Req*> queue_[Env::IO_TOTAL];
+  bool wait_until_refill_pending_;
 
   bool auto_tuned_;
   int64_t num_drains_;

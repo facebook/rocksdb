@@ -13,11 +13,11 @@
 #include "monitoring/histogram.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/system_clock.h"
-#include "rocksdb/utilities/object_registry.h"
 #include "table/block_based/cachable_entry.h"
 #include "util/coding.h"
 #include "util/gflags_compat.h"
@@ -233,9 +233,8 @@ class CacheBench {
       LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits, false, 0.5);
 #ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
-        Status s =
-            ObjectRegistry::NewInstance()->NewSharedObject<SecondaryCache>(
-                FLAGS_secondary_cache_uri, &secondary_cache);
+        Status s = SecondaryCache::CreateFromString(
+            ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
         if (secondary_cache == nullptr) {
           fprintf(
               stderr,

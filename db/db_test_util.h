@@ -22,9 +22,7 @@
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
-#include "db/dbformat.h"
 #include "file/filename.h"
-#include "memtable/hash_linklist_rep.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
@@ -113,94 +111,6 @@ struct OptionsOverride {
 }  // namespace anon
 
 enum SkipPolicy { kSkipNone = 0, kSkipNoSnapshot = 1, kSkipNoPrefix = 2 };
-
-// A hacky skip list mem table that triggers flush after number of entries.
-class SpecialMemTableRep : public MemTableRep {
- public:
-  explicit SpecialMemTableRep(Allocator* allocator, MemTableRep* memtable,
-                              int num_entries_flush)
-      : MemTableRep(allocator),
-        memtable_(memtable),
-        num_entries_flush_(num_entries_flush),
-        num_entries_(0) {}
-
-  virtual KeyHandle Allocate(const size_t len, char** buf) override {
-    return memtable_->Allocate(len, buf);
-  }
-
-  // Insert key into the list.
-  // REQUIRES: nothing that compares equal to key is currently in the list.
-  virtual void Insert(KeyHandle handle) override {
-    num_entries_++;
-    memtable_->Insert(handle);
-  }
-
-  void InsertConcurrently(KeyHandle handle) override {
-    num_entries_++;
-    memtable_->Insert(handle);
-  }
-
-  // Returns true iff an entry that compares equal to key is in the list.
-  virtual bool Contains(const char* key) const override {
-    return memtable_->Contains(key);
-  }
-
-  virtual size_t ApproximateMemoryUsage() override {
-    // Return a high memory usage when number of entries exceeds the threshold
-    // to trigger a flush.
-    return (num_entries_ < num_entries_flush_) ? 0 : 1024 * 1024 * 1024;
-  }
-
-  virtual void Get(const LookupKey& k, void* callback_args,
-                   bool (*callback_func)(void* arg,
-                                         const char* entry)) override {
-    memtable_->Get(k, callback_args, callback_func);
-  }
-
-  uint64_t ApproximateNumEntries(const Slice& start_ikey,
-                                 const Slice& end_ikey) override {
-    return memtable_->ApproximateNumEntries(start_ikey, end_ikey);
-  }
-
-  virtual MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override {
-    return memtable_->GetIterator(arena);
-  }
-
-  virtual ~SpecialMemTableRep() override {}
-
- private:
-  std::unique_ptr<MemTableRep> memtable_;
-  int num_entries_flush_;
-  int num_entries_;
-};
-
-// The factory for the hacky skip list mem table that triggers flush after
-// number of entries exceeds a threshold.
-class SpecialSkipListFactory : public MemTableRepFactory {
- public:
-  // After number of inserts exceeds `num_entries_flush` in a mem table, trigger
-  // flush.
-  explicit SpecialSkipListFactory(int num_entries_flush)
-      : num_entries_flush_(num_entries_flush) {}
-
-  using MemTableRepFactory::CreateMemTableRep;
-  virtual MemTableRep* CreateMemTableRep(
-      const MemTableRep::KeyComparator& compare, Allocator* allocator,
-      const SliceTransform* transform, Logger* /*logger*/) override {
-    return new SpecialMemTableRep(
-        allocator, factory_.CreateMemTableRep(compare, allocator, transform, 0),
-        num_entries_flush_);
-  }
-  virtual const char* Name() const override { return "SkipListFactory"; }
-
-  bool IsInsertConcurrentlySupported() const override {
-    return factory_.IsInsertConcurrentlySupported();
-  }
-
- private:
-  SkipListFactory factory_;
-  int num_entries_flush_;
-};
 
 // Special Env used to delay background operations
 class SpecialEnv : public EnvWrapper {
@@ -405,7 +315,7 @@ class SpecialEnv : public EnvWrapper {
       Status Sync() override {
         ++env_->sync_counter_;
         if (env_->corrupt_in_sync_) {
-          Append(std::string(33000, ' '));
+          EXPECT_OK(Append(std::string(33000, ' ')));
           return Status::IOError("Ingested Sync Failure");
         }
         if (env_->skip_fsync_) {
@@ -677,6 +587,14 @@ class SpecialEnv : public EnvWrapper {
     }
   }
 
+  Status RenameFile(const std::string& src, const std::string& dest) override {
+    rename_count_.fetch_add(1);
+    if (rename_error_.load(std::memory_order_acquire)) {
+      return Status::NotSupported("Simulated `RenameFile()` error.");
+    }
+    return target()->RenameFile(src, dest);
+  }
+
   // Something to return when mocking current time
   const int64_t maybe_starting_time_;
 
@@ -703,6 +621,9 @@ class SpecialEnv : public EnvWrapper {
 
   // Force write to log files to fail while this pointer is non-nullptr
   std::atomic<bool> log_write_error_;
+
+  // Force `RenameFile()` to fail while this pointer is non-nullptr
+  std::atomic<bool> rename_error_{false};
 
   // Slow down every log write, in micro-seconds.
   std::atomic<int> log_write_slowdown_;
@@ -747,6 +668,8 @@ class SpecialEnv : public EnvWrapper {
 
   std::atomic<int> delete_count_;
 
+  std::atomic<int> rename_count_{0};
+
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 
   std::atomic<size_t> compaction_readahead_size_{};
@@ -766,6 +689,8 @@ class SpecialEnv : public EnvWrapper {
 class OnFileDeletionListener : public EventListener {
  public:
   OnFileDeletionListener() : matched_count_(0), expected_file_name_("") {}
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "OnFileDeletionListener"; }
 
   void SetExpectedFileName(const std::string file_name) {
     expected_file_name_ = file_name;
@@ -790,6 +715,8 @@ class OnFileDeletionListener : public EventListener {
 
 class FlushCounterListener : public EventListener {
  public:
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "FlushCounterListener"; }
   std::atomic<int> count{0};
   std::atomic<FlushReason> expected_flush_reason{FlushReason::kOthers};
 
@@ -929,7 +856,7 @@ class DBTestBase : public testing::Test {
     kUniversalCompactionMultiLevel = 20,
     kCompressedBlockCache = 21,
     kInfiniteMaxOpenFiles = 22,
-    kxxHashChecksum = 23,
+    kXXH3Checksum = 23,
     kFIFOCompaction = 24,
     kOptimizeFiltersForHits = 25,
     kRowCache = 26,
@@ -944,7 +871,6 @@ class DBTestBase : public testing::Test {
     kBlockBasedTableWithPartitionedIndexFormat4,
     kPartitionedFilterWithNewTableReaderForCompactions,
     kUniversalSubcompactions,
-    kxxHash64Checksum,
     kUnorderedWrite,
     // This must be the last line
     kEnd,
@@ -1285,5 +1211,9 @@ class DBTestBase : public testing::Test {
 
   bool time_elapse_only_sleep_on_reopen_ = false;
 };
+
+// For verifying that all files generated by current version have SST
+// unique ids.
+void VerifySstUniqueIds(const TablePropertiesCollection& props);
 
 }  // namespace ROCKSDB_NAMESPACE

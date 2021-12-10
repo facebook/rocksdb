@@ -20,7 +20,6 @@
 #include "db/blob/blob_file_completion_callback.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction_iterator.h"
-#include "db/dbformat.h"
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"
 #include "db/job_context.h"
@@ -124,7 +123,7 @@ class CompactionJob {
   void AggregateStatistics();
   void UpdateCompactionStats();
   void LogCompaction();
-  void RecordCompactionIOStats();
+  virtual void RecordCompactionIOStats();
   void CleanupCompaction();
 
   // Call compaction filter. Then iterate through input and compact the
@@ -153,7 +152,7 @@ class CompactionJob {
   // consecutive groups such that each group has a similar size.
   void GenSubcompactionBoundaries();
 
-  void ProcessKeyValueCompactionWithCompactionService(
+  CompactionServiceJobStatus ProcessKeyValueCompactionWithCompactionService(
       SubcompactionState* sub_compact);
 
   // update the thread status for starting a compaction.
@@ -175,7 +174,7 @@ class CompactionJob {
   void UpdateCompactionInputStatsHelper(
       int* num_files, uint64_t* bytes_read, int input_level);
 
-  int job_id_;
+  uint32_t job_id_;
 
   CompactionJobStats* compaction_job_stats_;
 
@@ -225,6 +224,8 @@ class CompactionJob {
   Env::Priority thread_pri_;
   std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
+
+  uint64_t GetCompactionId(SubcompactionState* sub_compact);
 
   // Get table file name in where it's outputting to, which should also be in
   // `output_directory_`.
@@ -309,10 +310,10 @@ struct CompactionServiceResult {
   std::string output_path;
 
   // some statistics about the compaction
-  uint64_t num_output_records;
-  uint64_t total_bytes;
-  uint64_t bytes_read;
-  uint64_t bytes_written;
+  uint64_t num_output_records = 0;
+  uint64_t total_bytes = 0;
+  uint64_t bytes_read = 0;
+  uint64_t bytes_written = 0;
   CompactionJobStats stats;
 
   // serialization interface to read and write the object
@@ -351,6 +352,9 @@ class CompactionServiceCompactionJob : private CompactionJob {
   void CleanupCompaction();
 
   IOStatus io_status() const { return CompactionJob::io_status(); }
+
+ protected:
+  void RecordCompactionIOStats() override;
 
  private:
   // Get table file name in output_path

@@ -112,12 +112,6 @@ void AppendEscapedStringTo(std::string* str, const Slice& value) {
   }
 }
 
-std::string NumberToString(uint64_t num) {
-  std::string r;
-  AppendNumberTo(&r, num);
-  return r;
-}
-
 std::string NumberToHumanString(int64_t num) {
   char buf[19];
   int64_t absnum = num < 0 ? -num : num;

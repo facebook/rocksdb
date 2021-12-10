@@ -202,12 +202,24 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
   long delayedWriteRate();
 
   /**
-   * <p>Once write-ahead logs exceed this size, we will start forcing the
-   * flush of column families whose memtables are backed by the oldest live
-   * WAL file (i.e. the ones that are causing all the space amplification).
+   * <p>Set the max total write-ahead log size. Once write-ahead logs exceed this size, we will
+   * start forcing the flush of column families whose memtables are backed by the oldest live WAL
+   * file
    * </p>
+   * <p>The oldest WAL files are the ones that are causing all the space amplification.
+   * </p>
+   *  For example, with 15 column families, each with
+   *  <code>write_buffer_size = 128 MB</code>
+   *  <code>max_write_buffer_number = 6</code>
+   *  <code>max_total_wal_size</code> will be calculated to be <code>[15 * 128MB * 6] * 4 =
+   * 45GB</code>
+   * <p>
+   *  The RocksDB wiki has some discussion about how the WAL interacts
+   *  with memtables and flushing of column families, at
+   * <a href="https://github.com/facebook/rocksdb/wiki/Column-Families">...</a>
+   *  </p>
    * <p>If set to 0 (default), we will dynamically choose the WAL size limit to
-   * be [sum of all write_buffer_size * max_write_buffer_number] * 2</p>
+   * be [sum of all write_buffer_size * max_write_buffer_number] * 4</p>
    * <p>This option takes effect only when there are more than one column family as
    * otherwise the wal size is dictated by the write_buffer_size.</p>
    * <p>Default: 0</p>
@@ -218,13 +230,30 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
   T setMaxTotalWalSize(long maxTotalWalSize);
 
   /**
-   * <p>Returns the max total wal size. Once write-ahead logs exceed this size,
+   * <p>Returns the max total write-ahead log size. Once write-ahead logs exceed this size,
    * we will start forcing the flush of column families whose memtables are
-   * backed by the oldest live WAL file (i.e. the ones that are causing all
-   * the space amplification).</p>
+   * backed by the oldest live WAL file.</p>
+   * <p>The oldest WAL files are the ones that are causing all the space amplification.
+   * </p>
+   *  For example, with 15 column families, each with
+   *  <code>write_buffer_size = 128 MB</code>
+   *  <code>max_write_buffer_number = 6</code>
+   *  <code>max_total_wal_size</code> will be calculated to be <code>[15 * 128MB * 6] * 4 =
+   * 45GB</code>
+   * <p>
+   *  The RocksDB wiki has some discussion about how the WAL interacts
+   *  with memtables and flushing of column families, at
+   * <a href="https://github.com/facebook/rocksdb/wiki/Column-Families">...</a>
+   *  </p>
+   * <p>If set to 0 (default), we will dynamically choose the WAL size limit to
+   * be [sum of all write_buffer_size * max_write_buffer_number] * 4</p>
+   * <p>This option takes effect only when there are more than one column family as
+   * otherwise the wal size is dictated by the write_buffer_size.</p>
+   * <p>Default: 0</p>
+   *
    *
    * <p>If set to 0 (default), we will dynamically choose the WAL size limit
-   * to be [sum of all write_buffer_size * max_write_buffer_number] * 2
+   * to be [sum of all write_buffer_size * max_write_buffer_number] * 4
    * </p>
    *
    * @return max total wal size

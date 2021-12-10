@@ -10,6 +10,7 @@
 #include "db/log_reader.h"
 #include "db/version_set.h"
 #include "file/filename.h"
+#include "logging/logging.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"

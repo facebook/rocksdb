@@ -590,6 +590,14 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
+  public void periodicCompactionSeconds() {
+    try (final ColumnFamilyOptions options = new ColumnFamilyOptions()) {
+      options.setPeriodicCompactionSeconds(1000 * 60);
+      assertThat(options.periodicCompactionSeconds()).isEqualTo(1000 * 60);
+    }
+  }
+
+  @Test
   public void compactionOptionsUniversal() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions();
         final CompactionOptionsUniversal optUni = new CompactionOptionsUniversal()

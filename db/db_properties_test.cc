@@ -19,6 +19,7 @@
 #include "rocksdb/perf_context.h"
 #include "rocksdb/perf_level.h"
 #include "rocksdb/table.h"
+#include "test_util/mock_time_env.h"
 #include "util/random.h"
 #include "util/string_util.h"
 
@@ -27,7 +28,26 @@ namespace ROCKSDB_NAMESPACE {
 class DBPropertiesTest : public DBTestBase {
  public:
   DBPropertiesTest()
-      : DBTestBase("/db_properties_test", /*env_do_fsync=*/false) {}
+      : DBTestBase("db_properties_test", /*env_do_fsync=*/false) {}
+
+  void AssertDbStats(const std::map<std::string, std::string>& db_stats,
+                     double expected_uptime, int expected_user_bytes_written,
+                     int expected_wal_bytes_written,
+                     int expected_user_writes_by_self,
+                     int expected_user_writes_with_wal) {
+    ASSERT_EQ(std::to_string(expected_uptime), db_stats.at("db.uptime"));
+    ASSERT_EQ(std::to_string(expected_wal_bytes_written),
+              db_stats.at("db.wal_bytes_written"));
+    ASSERT_EQ("0", db_stats.at("db.wal_syncs"));
+    ASSERT_EQ(std::to_string(expected_user_bytes_written),
+              db_stats.at("db.user_bytes_written"));
+    ASSERT_EQ("0", db_stats.at("db.user_writes_by_other"));
+    ASSERT_EQ(std::to_string(expected_user_writes_by_self),
+              db_stats.at("db.user_writes_by_self"));
+    ASSERT_EQ(std::to_string(expected_user_writes_with_wal),
+              db_stats.at("db.user_writes_with_wal"));
+    ASSERT_EQ("0", db_stats.at("db.user_write_stall_micros"));
+  }
 };
 
 #ifndef ROCKSDB_LITE
@@ -213,7 +233,7 @@ void VerifySimilar(uint64_t a, uint64_t b, double bias) {
 
 void VerifyTableProperties(
     const TableProperties& base_tp, const TableProperties& new_tp,
-    double filter_size_bias = CACHE_LINE_SIZE >= 256 ? 0.15 : 0.1,
+    double filter_size_bias = CACHE_LINE_SIZE >= 256 ? 0.18 : 0.1,
     double index_size_bias = 0.1, double data_size_bias = 0.1,
     double num_data_blocks_bias = 0.05) {
   VerifySimilar(base_tp.data_size, new_tp.data_size, data_size_bias);
@@ -607,7 +627,8 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
           value_is_delta_encoded);
       // Gives larger bias here as index block size, filter block size,
       // and data block size become much harder to estimate in this test.
-      VerifyTableProperties(expected_tp, tp, 0.5, 0.4, 0.4, 0.25);
+      VerifyTableProperties(expected_tp, tp, CACHE_LINE_SIZE >= 256 ? 0.6 : 0.5,
+                            0.4, 0.4, 0.25);
     }
   }
 }
@@ -1895,7 +1916,80 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
   ASSERT_EQ(0, value);
 }
 
+TEST_F(DBPropertiesTest, GetMapPropertyDbStats) {
+  auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+  CompositeEnvWrapper env(env_, mock_clock);
+
+  Options opts = CurrentOptions();
+  opts.env = &env;
+  Reopen(opts);
+
+  {
+    std::map<std::string, std::string> db_stats;
+    ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+    AssertDbStats(db_stats, 0.0 /* expected_uptime */,
+                  0 /* expected_user_bytes_written */,
+                  0 /* expected_wal_bytes_written */,
+                  0 /* expected_user_writes_by_self */,
+                  0 /* expected_user_writes_with_wal */);
+  }
+
+  {
+    mock_clock->SleepForMicroseconds(1500000);
+
+    std::map<std::string, std::string> db_stats;
+    ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+    AssertDbStats(db_stats, 1.5 /* expected_uptime */,
+                  0 /* expected_user_bytes_written */,
+                  0 /* expected_wal_bytes_written */,
+                  0 /* expected_user_writes_by_self */,
+                  0 /* expected_user_writes_with_wal */);
+  }
+
+  int expected_user_bytes_written = 0;
+  {
+    // Write with WAL disabled.
+    WriteOptions write_opts;
+    write_opts.disableWAL = true;
+
+    WriteBatch batch;
+    ASSERT_OK(batch.Put("key", "val"));
+    expected_user_bytes_written += static_cast<int>(batch.GetDataSize());
+
+    ASSERT_OK(db_->Write(write_opts, &batch));
+
+    std::map<std::string, std::string> db_stats;
+    ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+    AssertDbStats(db_stats, 1.5 /* expected_uptime */,
+                  expected_user_bytes_written,
+                  0 /* expected_wal_bytes_written */,
+                  1 /* expected_user_writes_by_self */,
+                  0 /* expected_user_writes_with_wal */);
+  }
+
+  int expected_wal_bytes_written = 0;
+  {
+    // Write with WAL enabled.
+    WriteBatch batch;
+    ASSERT_OK(batch.Delete("key"));
+    expected_user_bytes_written += static_cast<int>(batch.GetDataSize());
+    expected_wal_bytes_written += static_cast<int>(batch.GetDataSize());
+
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+    std::map<std::string, std::string> db_stats;
+    ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+    AssertDbStats(db_stats, 1.5 /* expected_uptime */,
+                  expected_user_bytes_written, expected_wal_bytes_written,
+                  2 /* expected_user_writes_by_self */,
+                  1 /* expected_user_writes_with_wal */);
+  }
+
+  Close();
+}
+
 #endif  // ROCKSDB_LITE
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

@@ -7,6 +7,8 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
+#include <type_traits>
 #include <unordered_map>
 
 #include "rocksdb/cache.h"
@@ -14,6 +16,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 // Classifications of block cache entries, for reporting statistics
+// Adding new enum to this class requires corresponding updates to
+// kCacheEntryRoleToCamelString and kCacheEntryRoleToHyphenString
 enum class CacheEntryRole {
   // Block-based table data block
   kDataBlock,
@@ -29,6 +33,12 @@ enum class CacheEntryRole {
   kOtherBlock,
   // WriteBufferManager reservations to account for memtable usage
   kWriteBuffer,
+  // BlockBasedTableBuilder reservations to account for
+  // compression dictionary building buffer's memory usage
+  kCompressionDictionaryBuildingBuffer,
+  // Filter reservations to account for
+  // (new) bloom and ribbon filter construction's memory usage
+  kFilterConstruction,
   // Default bucket, for miscellaneous cache entries. Do not use for
   // entries that could potentially add up to large usage.
   kMisc,
@@ -85,7 +95,9 @@ struct RegisteredDeleter {
   // These have global linkage to help ensure compiler optimizations do not
   // break uniqueness for each <T,R>
   static void Delete(const Slice& /* key */, void* value) {
-    delete static_cast<T*>(value);
+    // Supports T == Something[], unlike delete operator
+    std::default_delete<T>()(
+        static_cast<typename std::remove_extent<T>::type*>(value));
   }
 };
 
@@ -93,9 +105,9 @@ template <CacheEntryRole R>
 struct RegisteredNoopDeleter {
   RegisteredNoopDeleter() { RegisterCacheDeleterRole(Delete, R); }
 
-  static void Delete(const Slice& /* key */, void* value) {
-    (void)value;
-    assert(value == nullptr);
+  static void Delete(const Slice& /* key */, void* /* value */) {
+    // Here was `assert(value == nullptr);` but we can also put pointers
+    // to static data in Cache, for testing at least.
   }
 };
 

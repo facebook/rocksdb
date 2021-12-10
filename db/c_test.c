@@ -1043,19 +1043,25 @@ int main(int argc, char** argv) {
   }
 
   StartPhase("filter");
-  for (run = 0; run <= 2; run++) {
-    // First run uses custom filter
-    // Second run uses old block-based bloom filter
-    // Third run uses full bloom filter
+  for (run = 0; run <= 4; run++) {
+    // run=0 uses custom filter
+    // run=1 uses old block-based bloom filter
+    // run=2 run uses full bloom filter
+    // run=3 uses Ribbon
+    // run=4 uses Ribbon-Bloom hybrid configuration
     CheckNoError(err);
     rocksdb_filterpolicy_t* policy;
     if (run == 0) {
       policy = rocksdb_filterpolicy_create(NULL, FilterDestroy, FilterCreate,
                                            FilterKeyMatch, NULL, FilterName);
     } else if (run == 1) {
-      policy = rocksdb_filterpolicy_create_bloom(8);
+      policy = rocksdb_filterpolicy_create_bloom(8.0);
+    } else if (run == 2) {
+      policy = rocksdb_filterpolicy_create_bloom_full(8.0);
+    } else if (run == 3) {
+      policy = rocksdb_filterpolicy_create_ribbon(8.0);
     } else {
-      policy = rocksdb_filterpolicy_create_bloom_full(8);
+      policy = rocksdb_filterpolicy_create_ribbon_hybrid(8.0, 1);
     }
     rocksdb_block_based_options_set_filter_policy(table_options, policy);
 
@@ -1121,9 +1127,12 @@ int main(int argc, char** argv) {
       } else if (run == 1) {
         // Essentially a fingerprint of the block-based Bloom schema
         CheckCondition(hits == 241);
-      } else {
+      } else if (run == 2 || run == 4) {
         // Essentially a fingerprint of full Bloom schema, format_version=5
         CheckCondition(hits == 188);
+      } else {
+        // Essentially a fingerprint of Ribbon schema
+        CheckCondition(hits == 226);
       }
       CheckCondition(
           (keys_to_query - hits) ==
@@ -1784,8 +1793,15 @@ int main(int argc, char** argv) {
     rocksdb_options_set_enable_blob_gc(o, 1);
     CheckCondition(1 == rocksdb_options_get_enable_blob_gc(o));
 
-    rocksdb_options_set_blob_gc_age_cutoff(o, 0.75);
-    CheckCondition(0.75 == rocksdb_options_get_blob_gc_age_cutoff(o));
+    rocksdb_options_set_blob_gc_age_cutoff(o, 0.5);
+    CheckCondition(0.5 == rocksdb_options_get_blob_gc_age_cutoff(o));
+
+    rocksdb_options_set_blob_gc_force_threshold(o, 0.75);
+    CheckCondition(0.75 == rocksdb_options_get_blob_gc_force_threshold(o));
+
+    rocksdb_options_set_blob_compaction_readahead_size(o, 262144);
+    CheckCondition(262144 ==
+                   rocksdb_options_get_blob_compaction_readahead_size(o));
 
     // Create a copy that should be equal to the original.
     rocksdb_options_t* copy;

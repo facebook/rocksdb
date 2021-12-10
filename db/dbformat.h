@@ -9,19 +9,14 @@
 
 #pragma once
 #include <stdio.h>
+
 #include <memory>
 #include <string>
 #include <utility>
-#include "db/lookup_key.h"
-#include "db/merge_context.h"
-#include "logging/logging.h"
-#include "monitoring/perf_context_imp.h"
+
 #include "rocksdb/comparator.h"
-#include "rocksdb/db.h"
-#include "rocksdb/filter_policy.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/table.h"
 #include "rocksdb/types.h"
 #include "util/coding.h"
 #include "util/user_comparator_wrapper.h"
@@ -97,6 +92,9 @@ static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
 
 constexpr uint64_t kNumInternalBytes = 8;
+
+// Defined in dbformat.cc
+extern const std::string kDisableUserTimestamp;
 
 // The data structure that represents an internal key in the way that user_key,
 // sequence number and type are stored in separated forms.
