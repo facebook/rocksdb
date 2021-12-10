@@ -25,10 +25,13 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
+
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch_base.h"
 
@@ -61,16 +64,19 @@ struct SavePoint {
 class WriteBatch : public WriteBatchBase {
  public:
   explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0);
-  explicit WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz);
   // `protection_bytes_per_key` is the number of bytes used to store
   // protection information for each key entry. Currently supported values are
   // zero (disabled) and eight.
-  explicit WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz,
+  explicit WriteBatch(size_t reserved_bytes, size_t max_bytes,
                       size_t protection_bytes_per_key);
   ~WriteBatch() override;
 
   using WriteBatchBase::Put;
   // Store the mapping "key->value" in the database.
+  // The following Put(..., const Slice& key, ...) API can also be used when
+  // user-defined timestamp is enabled as long as `key` points to a contiguous
+  // buffer with timestamp appended after user key. The caller is responsible
+  // for setting up the memory buffer pointed to by `key`.
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& value) override;
   Status Put(const Slice& key, const Slice& value) override {
@@ -80,6 +86,10 @@ class WriteBatch : public WriteBatchBase {
   // Variant of Put() that gathers output like writev(2).  The key and value
   // that will be written to the database are concatenations of arrays of
   // slices.
+  // The following Put(..., const SliceParts& key, ...) API can be used when
+  // user-defined timestamp is enabled as long as the timestamp is the last
+  // Slice in `key`, a SliceParts (array of Slices). The caller is responsible
+  // for setting up the `key` SliceParts object.
   Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
              const SliceParts& value) override;
   Status Put(const SliceParts& key, const SliceParts& value) override {
@@ -88,10 +98,18 @@ class WriteBatch : public WriteBatchBase {
 
   using WriteBatchBase::Delete;
   // If the database contains a mapping for "key", erase it.  Else do nothing.
+  // The following Delete(..., const Slice& key) can be used when user-defined
+  // timestamp is enabled as long as `key` points to a contiguous buffer with
+  // timestamp appended after user key. The caller is responsible for setting
+  // up the memory buffer pointed to by `key`.
   Status Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
   Status Delete(const Slice& key) override { return Delete(nullptr, key); }
 
   // variant that takes SliceParts
+  // These two variants of Delete(..., const SliceParts& key) can be used when
+  // user-defined timestamp is enabled as long as the timestamp is the last
+  // Slice in `key`, a SliceParts (array of Slices). The caller is responsible
+  // for setting up the `key` SliceParts object.
   Status Delete(ColumnFamilyHandle* column_family,
                 const SliceParts& key) override;
   Status Delete(const SliceParts& key) override { return Delete(nullptr, key); }
@@ -318,11 +336,43 @@ class WriteBatch : public WriteBatchBase {
   // Returns true if MarkRollback will be called during Iterate
   bool HasRollback() const;
 
-  // Assign timestamp to write batch
-  Status AssignTimestamp(const Slice& ts);
+  struct TimestampChecker final {
+    Status operator()(uint32_t /*cf*/, size_t& /*ts_sz*/) const {
+      return Status::OK();
+    }
+  };
 
-  // Assign timestamps to write batch
-  Status AssignTimestamps(const std::vector<Slice>& ts_list);
+  // Experimental.
+  // Assign timestamp to write batch.
+  // This requires that all keys, if enable timestamp, (possibly from multiple
+  // column families) in the write batch have timestamps of the same format.
+  // checker: callable object to check the timestamp sizes of column families.
+  // User can call checker(uint32_t cf, size_t& ts_sz) which does the
+  // following:
+  // 1. find out the timestamp size of cf.
+  // 2. if cf's timestamp size is 0, then set ts_sz to 0 and return OK.
+  // 3. otherwise, compare ts_sz with cf's timestamp size and return
+  // Status::InvalidArgument() if different.
+  template <typename Checker = TimestampChecker>
+  Status AssignTimestamp(const Slice& ts, Checker checker = Checker());
+
+  // Experimental.
+  // Assign timestamps to write batch.
+  // This API allows the write batch to include keys from multiple column
+  // families whose timestamps' formats can differ. For example, some column
+  // families can enable timestamp, while others disable the feature.
+  // If key does not have timestamp, then put an empty Slice in ts_list as
+  // a placeholder.
+  // checker: callable object specified by caller to check the timestamp sizes
+  // of column families.
+  // User can call checker(uint32_t cf, size_t& ts_sz) which does the
+  // following:
+  // 1. find out the timestamp size of cf.
+  // 2. compare ts_sz with cf's timestamp size and return
+  // Status::InvalidArgument() if different.
+  template <typename Checker = TimestampChecker>
+  Status AssignTimestamps(const std::vector<Slice>& ts_list,
+                          Checker checker = Checker());
 
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }
@@ -379,7 +429,6 @@ class WriteBatch : public WriteBatchBase {
 
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
-  const size_t timestamp_size_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

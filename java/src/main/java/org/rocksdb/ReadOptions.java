@@ -437,7 +437,7 @@ public class ReadOptions extends RocksObject {
    *
    * Default: null
    *
-   * @param iterateLowerBound Slice representing the upper bound
+   * @param iterateLowerBound Slice representing the lower bound
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setIterateLowerBound(final AbstractSlice<?> iterateLowerBound) {

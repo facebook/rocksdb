@@ -84,6 +84,7 @@ class MockWriteCallback : public WriteCallback {
   bool AllowWriteBatching() override { return allow_batching_; }
 };
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 class WriteCallbackPTest
     : public WriteCallbackTest,
       public ::testing::WithParamInterface<
@@ -376,6 +377,7 @@ INSTANTIATE_TEST_CASE_P(WriteCallbackPTest, WriteCallbackPTest,
                                            ::testing::Bool(), ::testing::Bool(),
                                            ::testing::Bool(), ::testing::Bool(),
                                            ::testing::Bool()));
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(WriteCallbackTest, WriteCallBackTest) {
   Options options;

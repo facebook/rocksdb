@@ -58,7 +58,8 @@ public class MemoryUtilTest {
               db.getAggregatedLongProperty(UNFLUSHED_MEMTABLE_SIZE));
       assertThat(usage.get(MemoryUsageType.kTableReadersTotal)).isEqualTo(
               db.getAggregatedLongProperty(TABLE_READERS));
-      assertThat(usage.get(MemoryUsageType.kCacheTotal)).isEqualTo(0);
+      // TODO(peterd): disable block cache entry stats and check for 0
+      assertThat(usage.get(MemoryUsageType.kCacheTotal)).isLessThan(1024);
 
       db.put(key, value);
       db.flush(flushOptions);

@@ -23,7 +23,7 @@ class StressTest {
 
   virtual ~StressTest();
 
-  std::shared_ptr<Cache> NewCache(size_t capacity);
+  std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
 
   static std::vector<std::string> GetBlobCompressionTags();
 
@@ -64,6 +64,9 @@ class StressTest {
   virtual void MaybeClearOneColumnFamily(ThreadState* /* thread */) {}
 
   virtual bool ShouldAcquireMutexOnKey() const { return false; }
+
+  // Returns true if DB state is tracked by the stress test.
+  virtual bool IsStateTracked() const = 0;
 
   virtual std::vector<int> GenerateColumnFamilies(
       const int /* num_column_families */, int rand_column_family) const {
@@ -237,6 +240,7 @@ class StressTest {
   // Fields used for continuous verification from another thread
   DB* cmp_db_;
   std::vector<ColumnFamilyHandle*> cmp_cfhs_;
+  bool is_db_stopped_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

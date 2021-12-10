@@ -63,8 +63,8 @@ Status TransactionLogIteratorImpl::OpenLogFile(
     }
   }
   if (s.ok()) {
-    file_reader->reset(
-        new SequentialFileReader(std::move(file), fname, io_tracer_));
+    file_reader->reset(new SequentialFileReader(
+        std::move(file), fname, io_tracer_, options_->listeners));
   }
   return s;
 }

@@ -75,6 +75,8 @@ const char* GetFlushReasonString (FlushReason flush_reason) {
       return "Manual Flush";
     case FlushReason::kErrorRecovery:
       return "Error Recovery";
+    case FlushReason::kWalFull:
+      return "WAL Full";
     default:
       return "Invalid";
   }
@@ -164,7 +166,6 @@ void FlushJob::RecordFlushIOStats() {
       ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
   IOSTATS_RESET(bytes_written);
 }
-
 void FlushJob::PickMemTable() {
   db_mutex_->AssertHeld();
   assert(!pick_memtable_called);
@@ -195,8 +196,8 @@ void FlushJob::PickMemTable() {
   base_->Ref();  // it is likely that we do not need this reference
 }
 
-Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
-                     FileMetaData* file_meta) {
+Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
+                     bool* switched_to_mempurge) {
   TEST_SYNC_POINT("FlushJob::Start");
   db_mutex_->AssertHeld();
   assert(pick_memtable_called);
@@ -226,9 +227,43 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
     prev_cpu_write_nanos = IOSTATS(cpu_write_nanos);
     prev_cpu_read_nanos = IOSTATS(cpu_read_nanos);
   }
-
-  // This will release and re-acquire the mutex.
-  Status s = WriteLevel0Table();
+  Status mempurge_s = Status::NotFound("No MemPurge.");
+  if ((db_options_.experimental_mempurge_threshold > 0.0) &&
+      (cfd_->GetFlushReason() == FlushReason::kWriteBufferFull) &&
+      (!mems_.empty()) && MemPurgeDecider()) {
+    mempurge_s = MemPurge();
+    if (!mempurge_s.ok()) {
+      // Mempurge is typically aborted when the output
+      // bytes cannot be contained onto a single output memtable.
+      if (mempurge_s.IsAborted()) {
+        ROCKS_LOG_INFO(db_options_.info_log, "Mempurge process aborted: %s\n",
+                       mempurge_s.ToString().c_str());
+      } else {
+        // However the mempurge process can also fail for
+        // other reasons (eg: new_mem->Add() fails).
+        ROCKS_LOG_WARN(db_options_.info_log, "Mempurge process failed: %s\n",
+                       mempurge_s.ToString().c_str());
+      }
+    } else {
+      if (switched_to_mempurge) {
+        *switched_to_mempurge = true;
+      } else {
+        // The mempurge process was successful, but no switch_to_mempurge
+        // pointer provided so no way to propagate the state of flush job.
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Mempurge process succeeded"
+                       "but no 'switched_to_mempurge' ptr provided.\n");
+      }
+    }
+  }
+  Status s;
+  if (mempurge_s.ok()) {
+    base_->Unref();
+    s = Status::OK();
+  } else {
+    // This will release and re-acquire the mutex.
+    s = WriteLevel0Table();
+  }
 
   if (s.ok() && cfd_->IsDropped()) {
     s = Status::ColumnFamilyDropped("Column family dropped during compaction");
@@ -247,7 +282,10 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
     s = cfd_->imm()->TryInstallMemtableFlushResults(
         cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
         meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
-        log_buffer_, &committed_flush_jobs_info_, &tmp_io_s);
+        log_buffer_, &committed_flush_jobs_info_, &tmp_io_s,
+        !(mempurge_s.ok()) /* write_edit : true if no mempurge happened (or if aborted),
+                              but 'false' if mempurge successful: no new min log number
+                              or new level 0 file path to write to manifest. */);
     if (!tmp_io_s.ok()) {
       io_status_ = tmp_io_s;
     }
@@ -303,6 +341,447 @@ void FlushJob::Cancel() {
   db_mutex_->AssertHeld();
   assert(base_ != nullptr);
   base_->Unref();
+}
+
+Status FlushJob::MemPurge() {
+  Status s;
+  db_mutex_->AssertHeld();
+  db_mutex_->Unlock();
+  assert(!mems_.empty());
+
+  // Measure purging time.
+  const uint64_t start_micros = clock_->NowMicros();
+  const uint64_t start_cpu_micros = clock_->CPUNanos() / 1000;
+
+  MemTable* new_mem = nullptr;
+  // For performance/log investigation purposes:
+  // look at how much useful payload we harvest in the new_mem.
+  // This value is then printed to the DB log.
+  double new_mem_capacity = 0.0;
+
+  // Create two iterators, one for the memtable data (contains
+  // info from puts + deletes), and one for the memtable
+  // Range Tombstones (from DeleteRanges).
+  ReadOptions ro;
+  ro.total_order_seek = true;
+  Arena arena;
+  std::vector<InternalIterator*> memtables;
+  std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
+      range_del_iters;
+  for (MemTable* m : mems_) {
+    memtables.push_back(m->NewIterator(ro, &arena));
+    auto* range_del_iter = m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
+    if (range_del_iter != nullptr) {
+      range_del_iters.emplace_back(range_del_iter);
+    }
+  }
+
+  assert(!memtables.empty());
+  SequenceNumber first_seqno = kMaxSequenceNumber;
+  SequenceNumber earliest_seqno = kMaxSequenceNumber;
+  // Pick first and earliest seqno as min of all first_seqno
+  // and earliest_seqno of the mempurged memtables.
+  for (const auto& mem : mems_) {
+    first_seqno = mem->GetFirstSequenceNumber() < first_seqno
+                      ? mem->GetFirstSequenceNumber()
+                      : first_seqno;
+    earliest_seqno = mem->GetEarliestSequenceNumber() < earliest_seqno
+                         ? mem->GetEarliestSequenceNumber()
+                         : earliest_seqno;
+  }
+
+  ScopedArenaIterator iter(
+      NewMergingIterator(&(cfd_->internal_comparator()), memtables.data(),
+                         static_cast<int>(memtables.size()), &arena));
+
+  auto* ioptions = cfd_->ioptions();
+
+  // Place iterator at the First (meaning most recent) key node.
+  iter->SeekToFirst();
+
+  std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
+      new CompactionRangeDelAggregator(&(cfd_->internal_comparator()),
+                                       existing_snapshots_));
+  for (auto& rd_iter : range_del_iters) {
+    range_del_agg->AddTombstones(std::move(rd_iter));
+  }
+
+  // If there is valid data in the memtable,
+  // or at least range tombstones, copy over the info
+  // to the new memtable.
+  if (iter->Valid() || !range_del_agg->IsEmpty()) {
+    // MaxSize is the size of a memtable.
+    size_t maxSize = mutable_cf_options_.write_buffer_size;
+    std::unique_ptr<CompactionFilter> compaction_filter;
+    if (ioptions->compaction_filter_factory != nullptr &&
+        ioptions->compaction_filter_factory->ShouldFilterTableFileCreation(
+            TableFileCreationReason::kFlush)) {
+      CompactionFilter::Context ctx;
+      ctx.is_full_compaction = false;
+      ctx.is_manual_compaction = false;
+      ctx.column_family_id = cfd_->GetID();
+      ctx.reason = TableFileCreationReason::kFlush;
+      compaction_filter =
+          ioptions->compaction_filter_factory->CreateCompactionFilter(ctx);
+      if (compaction_filter != nullptr &&
+          !compaction_filter->IgnoreSnapshots()) {
+        s = Status::NotSupported(
+            "CompactionFilter::IgnoreSnapshots() = false is not supported "
+            "anymore.");
+        return s;
+      }
+    }
+
+    new_mem = new MemTable((cfd_->internal_comparator()), *(cfd_->ioptions()),
+                           mutable_cf_options_, cfd_->write_buffer_mgr(),
+                           earliest_seqno, cfd_->GetID());
+    assert(new_mem != nullptr);
+
+    Env* env = db_options_.env;
+    assert(env);
+    MergeHelper merge(
+        env, (cfd_->internal_comparator()).user_comparator(),
+        (ioptions->merge_operator).get(), compaction_filter.get(),
+        ioptions->logger, true /* internal key corruption is not ok */,
+        existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
+        snapshot_checker_);
+    CompactionIterator c_iter(
+        iter.get(), (cfd_->internal_comparator()).user_comparator(), &merge,
+        kMaxSequenceNumber, &existing_snapshots_,
+        earliest_write_conflict_snapshot_, snapshot_checker_, env,
+        ShouldReportDetailedTime(env, ioptions->stats),
+        true /* internal key corruption is not ok */, range_del_agg.get(),
+        nullptr, ioptions->allow_data_in_errors,
+        /*compaction=*/nullptr, compaction_filter.get(),
+        /*shutting_down=*/nullptr,
+        /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
+        /*manual_compaction_canceled=*/nullptr, ioptions->info_log,
+        &(cfd_->GetFullHistoryTsLow()));
+
+    // Set earliest sequence number in the new memtable
+    // to be equal to the earliest sequence number of the
+    // memtable being flushed (See later if there is a need
+    // to update this number!).
+    new_mem->SetEarliestSequenceNumber(earliest_seqno);
+    // Likewise for first seq number.
+    new_mem->SetFirstSequenceNumber(first_seqno);
+    SequenceNumber new_first_seqno = kMaxSequenceNumber;
+
+    c_iter.SeekToFirst();
+
+    // Key transfer
+    for (; c_iter.Valid(); c_iter.Next()) {
+      const ParsedInternalKey ikey = c_iter.ikey();
+      const Slice value = c_iter.value();
+      new_first_seqno =
+          ikey.sequence < new_first_seqno ? ikey.sequence : new_first_seqno;
+
+      // Should we update "OldestKeyTime" ???? -> timestamp appear
+      // to still be an "experimental" feature.
+      s = new_mem->Add(
+          ikey.sequence, ikey.type, ikey.user_key, value,
+          nullptr,   // KV protection info set as nullptr since it
+                     // should only be useful for the first add to
+                     // the original memtable.
+          false,     // : allow concurrent_memtable_writes_
+                     // Not seen as necessary for now.
+          nullptr,   // get_post_process_info(m) must be nullptr
+                     // when concurrent_memtable_writes is switched off.
+          nullptr);  // hint, only used when concurrent_memtable_writes_
+                     // is switched on.
+      if (!s.ok()) {
+        break;
+      }
+
+      // If new_mem has size greater than maxSize,
+      // then rollback to regular flush operation,
+      // and destroy new_mem.
+      if (new_mem->ApproximateMemoryUsage() > maxSize) {
+        s = Status::Aborted("Mempurge filled more than one memtable.");
+        new_mem_capacity = 1.0;
+        break;
+      }
+    }
+
+    // Check status and propagate
+    // potential error status from c_iter
+    if (!s.ok()) {
+      c_iter.status().PermitUncheckedError();
+    } else if (!c_iter.status().ok()) {
+      s = c_iter.status();
+    }
+
+    // Range tombstone transfer.
+    if (s.ok()) {
+      auto range_del_it = range_del_agg->NewIterator();
+      for (range_del_it->SeekToFirst(); range_del_it->Valid();
+           range_del_it->Next()) {
+        auto tombstone = range_del_it->Tombstone();
+        new_first_seqno =
+            tombstone.seq_ < new_first_seqno ? tombstone.seq_ : new_first_seqno;
+        s = new_mem->Add(
+            tombstone.seq_,        // Sequence number
+            kTypeRangeDeletion,    // KV type
+            tombstone.start_key_,  // Key is start key.
+            tombstone.end_key_,    // Value is end key.
+            nullptr,               // KV protection info set as nullptr since it
+                                   // should only be useful for the first add to
+                                   // the original memtable.
+            false,                 // : allow concurrent_memtable_writes_
+                                   // Not seen as necessary for now.
+            nullptr,               // get_post_process_info(m) must be nullptr
+                      // when concurrent_memtable_writes is switched off.
+            nullptr);  // hint, only used when concurrent_memtable_writes_
+                       // is switched on.
+
+        if (!s.ok()) {
+          break;
+        }
+
+        // If new_mem has size greater than maxSize,
+        // then rollback to regular flush operation,
+        // and destroy new_mem.
+        if (new_mem->ApproximateMemoryUsage() > maxSize) {
+          s = Status::Aborted(Slice("Mempurge filled more than one memtable."));
+          new_mem_capacity = 1.0;
+          break;
+        }
+      }
+    }
+
+    // If everything happened smoothly and new_mem contains valid data,
+    // decide if it is flushed to storage or kept in the imm()
+    // memtable list (memory).
+    if (s.ok() && (new_first_seqno != kMaxSequenceNumber)) {
+      // Rectify the first sequence number, which (unlike the earliest seq
+      // number) needs to be present in the new memtable.
+      new_mem->SetFirstSequenceNumber(new_first_seqno);
+
+      // The new_mem is added to the list of immutable memtables
+      // only if it filled at less than 100% capacity and isn't flagged
+      // as in need of being flushed.
+      if (new_mem->ApproximateMemoryUsage() < maxSize &&
+          !(new_mem->ShouldFlushNow())) {
+        db_mutex_->Lock();
+        uint64_t new_mem_id = mems_[0]->GetID();
+
+        new_mem->SetID(new_mem_id);
+
+        // This addition will not trigger another flush, because
+        // we do not call SchedulePendingFlush().
+        cfd_->imm()->Add(new_mem, &job_context_->memtables_to_free);
+        new_mem->Ref();
+#ifndef ROCKSDB_LITE
+        // Piggyback FlushJobInfo on the first flushed memtable.
+        db_mutex_->AssertHeld();
+        meta_.fd.file_size = 0;
+        mems_[0]->SetFlushJobInfo(GetFlushJobInfo());
+#endif  // !ROCKSDB_LITE
+        db_mutex_->Unlock();
+      } else {
+        s = Status::Aborted(Slice("Mempurge filled more than one memtable."));
+        new_mem_capacity = 1.0;
+        if (new_mem) {
+          job_context_->memtables_to_free.push_back(new_mem);
+        }
+      }
+    } else {
+      // In this case, the newly allocated new_mem is empty.
+      assert(new_mem != nullptr);
+      job_context_->memtables_to_free.push_back(new_mem);
+    }
+  }
+
+  // Reacquire the mutex for WriteLevel0 function.
+  db_mutex_->Lock();
+
+  // If mempurge successful, don't write input tables to level0,
+  // but write any full output table to level0.
+  if (s.ok()) {
+    TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeSuccessful");
+  } else {
+    TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeUnsuccessful");
+  }
+  const uint64_t micros = clock_->NowMicros() - start_micros;
+  const uint64_t cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "[%s] [JOB %d] Mempurge lasted %" PRIu64
+                 " microseconds, and %" PRIu64
+                 " cpu "
+                 "microseconds. Status is %s ok. Perc capacity: %f\n",
+                 cfd_->GetName().c_str(), job_context_->job_id, micros,
+                 cpu_micros, s.ok() ? "" : "not", new_mem_capacity);
+
+  return s;
+}
+
+bool FlushJob::MemPurgeDecider() {
+  double threshold = db_options_.experimental_mempurge_threshold;
+  // Never trigger mempurge if threshold is not a strictly positive value.
+  if (!(threshold > 0.0)) {
+    return false;
+  }
+  if (threshold > (1.0 * mems_.size())) {
+    return true;
+  }
+  // Payload and useful_payload (in bytes).
+  // The useful payload ratio of a given MemTable
+  // is estimated to be useful_payload/payload.
+  uint64_t payload = 0, useful_payload = 0, entry_size = 0;
+
+  // Local variables used repetitively inside the for-loop
+  // when iterating over the sampled entries.
+  Slice key_slice, value_slice;
+  ParsedInternalKey res;
+  SnapshotImpl min_snapshot;
+  std::string vget;
+  Status mget_s, parse_s;
+  MergeContext merge_context;
+  SequenceNumber max_covering_tombstone_seq = 0, sqno = 0,
+                 min_seqno_snapshot = 0;
+  bool get_res, can_be_useful_payload, not_in_next_mems;
+
+  // If estimated_useful_payload is > threshold,
+  // then flush to storage, else MemPurge.
+  double estimated_useful_payload = 0.0;
+  // Cochran formula for determining sample size.
+  // 95% confidence interval, 7% precision.
+  //    n0 = (1.96*1.96)*0.25/(0.07*0.07) = 196.0
+  double n0 = 196.0;
+  ReadOptions ro;
+  ro.total_order_seek = true;
+
+  // Iterate over each memtable of the set.
+  for (auto mem_iter = std::begin(mems_); mem_iter != std::end(mems_);
+       mem_iter++) {
+    MemTable* mt = *mem_iter;
+
+    // Else sample from the table.
+    uint64_t nentries = mt->num_entries();
+    // Corrected Cochran formula for small populations
+    // (converges to n0 for large populations).
+    uint64_t target_sample_size =
+        static_cast<uint64_t>(ceil(n0 / (1.0 + (n0 / nentries))));
+    std::unordered_set<const char*> sentries = {};
+    // Populate sample entries set.
+    mt->UniqueRandomSample(target_sample_size, &sentries);
+
+    // Estimate the garbage ratio by comparing if
+    // each sample corresponds to a valid entry.
+    for (const char* ss : sentries) {
+      key_slice = GetLengthPrefixedSlice(ss);
+      parse_s = ParseInternalKey(key_slice, &res, true /*log_err_key*/);
+      if (!parse_s.ok()) {
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Memtable Decider: ParseInternalKey did not parse "
+                       "key_slice %s successfully.",
+                       key_slice.data());
+      }
+
+      // Size of the entry is "key size (+ value size if KV entry)"
+      entry_size = key_slice.size();
+      if (res.type == kTypeValue) {
+        value_slice =
+            GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
+        entry_size += value_slice.size();
+      }
+
+      // Count entry bytes as payload.
+      payload += entry_size;
+
+      LookupKey lkey(res.user_key, kMaxSequenceNumber);
+
+      // Paranoia: zero out these values just in case.
+      max_covering_tombstone_seq = 0;
+      sqno = 0;
+
+      // Pick the oldest existing snapshot that is more recent
+      // than the sequence number of the sampled entry.
+      min_seqno_snapshot = kMaxSequenceNumber;
+      for (SequenceNumber seq_num : existing_snapshots_) {
+        if (seq_num > res.sequence && seq_num < min_seqno_snapshot) {
+          min_seqno_snapshot = seq_num;
+        }
+      }
+      min_snapshot.number_ = min_seqno_snapshot;
+      ro.snapshot =
+          min_seqno_snapshot < kMaxSequenceNumber ? &min_snapshot : nullptr;
+
+      // Estimate if the sample entry is valid or not.
+      get_res = mt->Get(lkey, &vget, nullptr, &mget_s, &merge_context,
+                        &max_covering_tombstone_seq, &sqno, ro);
+      if (!get_res) {
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
+            "Memtable Get returned false when Get(sampled entry). "
+            "Yet each sample entry should exist somewhere in the memtable, "
+            "unrelated to whether it has been deleted or not.");
+      }
+
+      // TODO(bjlemaire): evaluate typeMerge.
+      // This is where the sampled entry is estimated to be
+      // garbage or not. Note that this is a garbage *estimation*
+      // because we do not include certain items such as
+      // CompactionFitlers triggered at flush, or if the same delete
+      // has been inserted twice or more in the memtable.
+
+      // Evaluate if the entry can be useful payload
+      // Situation #1: entry is a KV entry, was found in the memtable mt
+      //               and the sequence numbers match.
+      can_be_useful_payload = (res.type == kTypeValue) && get_res &&
+                              mget_s.ok() && (sqno == res.sequence);
+
+      // Situation #2: entry is a delete entry, was found in the memtable mt
+      //               (because gres==true) and no valid KV entry is found.
+      //               (note: duplicate delete entries are also taken into
+      //               account here, because the sequence number 'sqno'
+      //               in memtable->Get(&sqno) operation is set to be equal
+      //               to the most recent delete entry as well).
+      can_be_useful_payload |=
+          ((res.type == kTypeDeletion) || (res.type == kTypeSingleDeletion)) &&
+          mget_s.IsNotFound() && get_res && (sqno == res.sequence);
+
+      // If there is a chance that the entry is useful payload
+      // Verify that the entry does not appear in the following memtables
+      // (memtables with greater memtable ID/larger sequence numbers).
+      if (can_be_useful_payload) {
+        not_in_next_mems = true;
+        for (auto next_mem_iter = mem_iter + 1;
+             next_mem_iter != std::end(mems_); next_mem_iter++) {
+          if ((*next_mem_iter)
+                  ->Get(lkey, &vget, nullptr, &mget_s, &merge_context,
+                        &max_covering_tombstone_seq, &sqno, ro)) {
+            not_in_next_mems = false;
+            break;
+          }
+        }
+        if (not_in_next_mems) {
+          useful_payload += entry_size;
+        }
+      }
+    }
+    if (payload > 0) {
+      // We use the estimated useful payload ratio to
+      // evaluate how many of the memtable bytes are useful bytes.
+      estimated_useful_payload +=
+          (mt->ApproximateMemoryUsage()) * (useful_payload * 1.0 / payload);
+
+      ROCKS_LOG_INFO(
+          db_options_.info_log,
+          "Mempurge sampling - found garbage ratio from sampling: %f.\n",
+          (payload - useful_payload) * 1.0 / payload);
+    } else {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "Mempurge sampling: null payload measured, and collected "
+                     "sample size is %zu\n.",
+                     sentries.size());
+    }
+  }
+  // We convert the total number of useful payload bytes
+  // into the proportion of memtable necessary to store all these bytes.
+  // We compare this proportion with the threshold value.
+  return ((estimated_useful_payload / mutable_cf_options_.write_buffer_size) <
+          threshold);
 }
 
 Status FlushJob::WriteLevel0Table() {
@@ -361,7 +840,7 @@ Status FlushJob::WriteLevel0Table() {
 
     {
       ScopedArenaIterator iter(
-          NewMergingIterator(&cfd_->internal_comparator(), &memtables[0],
+          NewMergingIterator(&cfd_->internal_comparator(), memtables.data(),
                              static_cast<int>(memtables.size()), &arena));
       ROCKS_LOG_INFO(db_options_.info_log,
                      "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started",
@@ -401,24 +880,50 @@ Status FlushJob::WriteLevel0Table() {
                                    ? current_time
                                    : meta_.oldest_ancester_time;
 
+      uint64_t num_input_entries = 0;
+      uint64_t memtable_payload_bytes = 0;
+      uint64_t memtable_garbage_bytes = 0;
       IOStatus io_s;
       const std::string* const full_history_ts_low =
           (full_history_ts_low_.empty()) ? nullptr : &full_history_ts_low_;
+      TableBuilderOptions tboptions(
+          *cfd_->ioptions(), mutable_cf_options_, cfd_->internal_comparator(),
+          cfd_->int_tbl_prop_collector_factories(), output_compression_,
+          mutable_cf_options_.compression_opts, cfd_->GetID(), cfd_->GetName(),
+          0 /* level */, false /* is_bottommost */,
+          TableFileCreationReason::kFlush, creation_time, oldest_key_time,
+          current_time, db_id_, db_session_id_, 0 /* target_file_size */,
+          meta_.fd.GetNumber());
       s = BuildTable(
-          dbname_, versions_, db_options_, *cfd_->ioptions(),
-          mutable_cf_options_, file_options_, cfd_->table_cache(), iter.get(),
-          std::move(range_del_iters), &meta_, &blob_file_additions,
-          cfd_->internal_comparator(), cfd_->int_tbl_prop_collector_factories(),
-          cfd_->GetID(), cfd_->GetName(), existing_snapshots_,
+          dbname_, versions_, db_options_, tboptions, file_options_,
+          cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
+          &blob_file_additions, existing_snapshots_,
           earliest_write_conflict_snapshot_, snapshot_checker_,
-          output_compression_, mutable_cf_options_.compression_opts,
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
-          TableFileCreationReason::kFlush, &io_s, io_tracer_, event_logger_,
-          job_context_->job_id, Env::IO_HIGH, &table_properties_, 0 /* level */,
-          creation_time, oldest_key_time, write_hint, current_time, db_id_,
-          db_session_id_, full_history_ts_low, blob_callback_);
+          &io_s, io_tracer_, BlobFileCreationReason::kFlush, event_logger_,
+          job_context_->job_id, Env::IO_HIGH, &table_properties_, write_hint,
+          full_history_ts_low, blob_callback_, &num_input_entries,
+          &memtable_payload_bytes, &memtable_garbage_bytes);
       if (!io_s.ok()) {
         io_status_ = io_s;
+      }
+      if (num_input_entries != total_num_entries && s.ok()) {
+        std::string msg = "Expected " + ToString(total_num_entries) +
+                          " entries in memtables, but read " +
+                          ToString(num_input_entries);
+        ROCKS_LOG_WARN(db_options_.info_log, "[%s] [JOB %d] Level-0 flush %s",
+                       cfd_->GetName().c_str(), job_context_->job_id,
+                       msg.c_str());
+        if (db_options_.flush_verify_memtable_count) {
+          s = Status::Corruption(msg);
+        }
+      }
+      if (tboptions.reason == TableFileCreationReason::kFlush) {
+        TEST_SYNC_POINT("DBImpl::FlushJob:Flush");
+        RecordTick(stats_, MEMTABLE_PAYLOAD_BYTES_AT_FLUSH,
+                   memtable_payload_bytes);
+        RecordTick(stats_, MEMTABLE_GARBAGE_BYTES_AT_FLUSH,
+                   memtable_garbage_bytes);
       }
       LogFlush(db_options_.info_log);
     }
@@ -432,7 +937,9 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.marked_for_compaction ? " (needs compaction)" : "");
 
     if (s.ok() && output_file_directory_ != nullptr && sync_output_directory_) {
-      s = output_file_directory_->Fsync(IOOptions(), nullptr);
+      s = output_file_directory_->FsyncWithDirOptions(
+          IOOptions(), nullptr,
+          DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
     }
     TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table", &mems_);
     db_mutex_->Lock();
@@ -444,6 +951,7 @@ Status FlushJob::WriteLevel0Table() {
   const bool has_output = meta_.fd.GetFileSize() > 0;
 
   if (s.ok() && has_output) {
+    TEST_SYNC_POINT("DBImpl::FlushJob:SSTFileCreated");
     // if we have more than 1 background thread, then we cannot
     // insert files directly into higher levels because some other
     // threads could be concurrently producing compacted files for
@@ -452,9 +960,11 @@ Status FlushJob::WriteLevel0Table() {
     edit_->AddFile(0 /* level */, meta_.fd.GetNumber(), meta_.fd.GetPathId(),
                    meta_.fd.GetFileSize(), meta_.smallest, meta_.largest,
                    meta_.fd.smallest_seqno, meta_.fd.largest_seqno,
-                   meta_.marked_for_compaction, meta_.oldest_blob_file_number,
-                   meta_.oldest_ancester_time, meta_.file_creation_time,
-                   meta_.file_checksum, meta_.file_checksum_func_name);
+                   meta_.marked_for_compaction, meta_.temperature,
+                   meta_.oldest_blob_file_number, meta_.oldest_ancester_time,
+                   meta_.file_creation_time, meta_.file_checksum,
+                   meta_.file_checksum_func_name, meta_.min_timestamp,
+                   meta_.max_timestamp);
 
     edit_->SetBlobFileAdditions(std::move(blob_file_additions));
   }
@@ -465,8 +975,16 @@ Status FlushJob::WriteLevel0Table() {
 
   // Note that here we treat flush as level 0 compaction in internal stats
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
-  stats.micros = clock_->NowMicros() - start_micros;
-  stats.cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
+  const uint64_t micros = clock_->NowMicros() - start_micros;
+  const uint64_t cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
+  stats.micros = micros;
+  stats.cpu_micros = cpu_micros;
+
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "[%s] [JOB %d] Flush lasted %" PRIu64
+                 " microseconds, and %" PRIu64 " cpu microseconds.\n",
+                 cfd_->GetName().c_str(), job_context_->job_id, micros,
+                 cpu_micros);
 
   if (has_output) {
     stats.bytes_written = meta_.fd.GetFileSize();
@@ -486,6 +1004,7 @@ Status FlushJob::WriteLevel0Table() {
       InternalStats::BYTES_FLUSHED,
       stats.bytes_written + stats.bytes_written_blob);
   RecordFlushIOStats();
+
   return s;
 }
 
@@ -507,8 +1026,21 @@ std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
   info->largest_seqno = meta_.fd.largest_seqno;
   info->table_properties = table_properties_;
   info->flush_reason = cfd_->GetFlushReason();
+  info->blob_compression_type = mutable_cf_options_.blob_compression_type;
+
+  // Update BlobFilesInfo.
+  for (const auto& blob_file : edit_->GetBlobFileAdditions()) {
+    BlobFileAdditionInfo blob_file_addition_info(
+        BlobFileName(cfd_->ioptions()->cf_paths.front().path,
+                     blob_file.GetBlobFileNumber()) /*blob_file_path*/,
+        blob_file.GetBlobFileNumber(), blob_file.GetTotalBlobCount(),
+        blob_file.GetTotalBlobBytes());
+    info->blob_file_addition_infos.emplace_back(
+        std::move(blob_file_addition_info));
+  }
   return info;
 }
+
 #endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

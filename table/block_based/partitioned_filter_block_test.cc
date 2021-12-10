@@ -58,7 +58,7 @@ class PartitionedFilterBlockTest
       virtual public ::testing::WithParamInterface<uint32_t> {
  public:
   Options options_;
-  ImmutableCFOptions ioptions_;
+  ImmutableOptions ioptions_;
   EnvOptions env_options_;
   BlockBasedTableOptions table_options_;
   InternalKeyComparator icomp_;
@@ -136,8 +136,9 @@ class PartitionedFilterBlockTest
     BlockHandle bh;
     Status status;
     Slice slice;
+    std::unique_ptr<const char[]> filter_data;
     do {
-      slice = builder->Finish(bh, &status);
+      slice = builder->Finish(bh, &status, &filter_data);
       bh = Write(slice);
     } while (status.IsIncomplete());
 

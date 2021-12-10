@@ -10,7 +10,7 @@ load(":defs.bzl", "test_binary")
 
 REPO_PATH = package_name() + "/"
 
-ROCKSDB_COMPILER_FLAGS = [
+ROCKSDB_COMPILER_FLAGS_0 = [
     "-fno-builtin-memcmp",
     # Needed to compile in fbcode
     "-Wno-expansion-to-defined",
@@ -28,10 +28,14 @@ ROCKSDB_EXTERNAL_DEPS = [
     ("zstd", None, "zstd"),
 ]
 
-ROCKSDB_OS_DEPS = [
+ROCKSDB_OS_DEPS_0 = [
     (
         "linux",
-        ["third-party//numa:numa", "third-party//liburing:uring", "third-party//tbb:tbb"],
+        [
+            "third-party//numa:numa",
+            "third-party//liburing:uring",
+            "third-party//tbb:tbb",
+        ],
     ),
     (
         "macos",
@@ -39,7 +43,7 @@ ROCKSDB_OS_DEPS = [
     ),
 ]
 
-ROCKSDB_OS_PREPROCESSOR_FLAGS = [
+ROCKSDB_OS_PREPROCESSOR_FLAGS_0 = [
     (
         "linux",
         [
@@ -69,7 +73,13 @@ ROCKSDB_OS_PREPROCESSOR_FLAGS = [
     ),
     (
         "windows",
-        [ "-DOS_WIN", "-DWIN32", "-D_MBCS", "-DWIN64", "-DNOMINMAX" ]
+        [
+            "-DOS_WIN",
+            "-DWIN32",
+            "-D_MBCS",
+            "-DWIN64",
+            "-DNOMINMAX",
+        ],
     ),
 ]
 
@@ -107,18 +117,18 @@ is_opt_mode = build_mode.startswith("opt")
 
 # -DNDEBUG is added by default in opt mode in fbcode. But adding it twice
 # doesn't harm and avoid forgetting to add it.
-ROCKSDB_COMPILER_FLAGS += (["-DNDEBUG"] if is_opt_mode else [])
+ROCKSDB_COMPILER_FLAGS = ROCKSDB_COMPILER_FLAGS_0 + (["-DNDEBUG"] if is_opt_mode else [])
 
 sanitizer = read_config("fbcode", "sanitizer")
 
 # Do not enable jemalloc if sanitizer presents. RocksDB will further detect
 # whether the binary is linked with jemalloc at runtime.
-ROCKSDB_OS_PREPROCESSOR_FLAGS += ([(
+ROCKSDB_OS_PREPROCESSOR_FLAGS = ROCKSDB_OS_PREPROCESSOR_FLAGS_0 + ([(
     "linux",
     ["-DROCKSDB_JEMALLOC"],
 )] if sanitizer == "" else [])
 
-ROCKSDB_OS_DEPS += ([(
+ROCKSDB_OS_DEPS = ROCKSDB_OS_DEPS_0 + ([(
     "linux",
     ["third-party//jemalloc:headers"],
 )] if sanitizer == "" else [])
@@ -132,19 +142,24 @@ cpp_library(
     name = "rocksdb_lib",
     srcs = [
         "cache/cache.cc",
+        "cache/cache_entry_roles.cc",
+        "cache/cache_reservation_manager.cc",
         "cache/clock_cache.cc",
         "cache/lru_cache.cc",
         "cache/sharded_cache.cc",
         "db/arena_wrapped_db_iter.cc",
+        "db/blob/blob_fetcher.cc",
         "db/blob/blob_file_addition.cc",
         "db/blob/blob_file_builder.cc",
         "db/blob/blob_file_cache.cc",
         "db/blob/blob_file_garbage.cc",
         "db/blob/blob_file_meta.cc",
         "db/blob/blob_file_reader.cc",
+        "db/blob/blob_garbage_meter.cc",
         "db/blob/blob_log_format.cc",
         "db/blob/blob_log_sequential_reader.cc",
         "db/blob/blob_log_writer.cc",
+        "db/blob/prefetch_buffer_collection.cc",
         "db/builder.cc",
         "db/c.cc",
         "db/column_family.cc",
@@ -221,6 +236,7 @@ cpp_library(
         "env/fs_remap.cc",
         "env/io_posix.cc",
         "env/mock_env.cc",
+        "env/unique_id_gen.cc",
         "file/delete_scheduler.cc",
         "file/file_prefetch_buffer.cc",
         "file/file_util.cc",
@@ -322,6 +338,7 @@ cpp_library(
         "table/table_factory.cc",
         "table/table_properties.cc",
         "table/two_level_iterator.cc",
+        "table/unique_id.cc",
         "test_util/sync_point.cc",
         "test_util/sync_point_impl.cc",
         "test_util/transaction_test_util.cc",
@@ -332,6 +349,9 @@ cpp_library(
         "tools/sst_dump_tool.cc",
         "trace_replay/block_cache_tracer.cc",
         "trace_replay/io_tracer.cc",
+        "trace_replay/trace_record.cc",
+        "trace_replay/trace_record_handler.cc",
+        "trace_replay/trace_record_result.cc",
         "trace_replay/trace_replay.cc",
         "util/build_version.cc",
         "util/coding.cc",
@@ -340,12 +360,14 @@ cpp_library(
         "util/compression_context_cache.cc",
         "util/concurrent_task_limiter_impl.cc",
         "util/crc32c.cc",
+        "util/crc32c_arm64.cc",
         "util/dynamic_bloom.cc",
         "util/file_checksum_helper.cc",
         "util/hash.cc",
         "util/murmurhash.cc",
         "util/random.cc",
         "util/rate_limiter.cc",
+        "util/regex.cc",
         "util/ribbon_config.cc",
         "util/slice.cc",
         "util/status.cc",
@@ -360,10 +382,13 @@ cpp_library(
         "utilities/blob_db/blob_db_impl_filesnapshot.cc",
         "utilities/blob_db/blob_dump_tool.cc",
         "utilities/blob_db/blob_file.cc",
+        "utilities/cache_dump_load.cc",
+        "utilities/cache_dump_load_impl.cc",
         "utilities/cassandra/cassandra_compaction_filter.cc",
         "utilities/cassandra/format.cc",
         "utilities/cassandra/merge_operator.cc",
         "utilities/checkpoint/checkpoint_impl.cc",
+        "utilities/compaction_filters.cc",
         "utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc",
         "utilities/convenience/info_log_finder.cc",
         "utilities/debug.cc",
@@ -371,8 +396,10 @@ cpp_library(
         "utilities/env_timed.cc",
         "utilities/fault_injection_env.cc",
         "utilities/fault_injection_fs.cc",
+        "utilities/fault_injection_secondary_cache.cc",
         "utilities/leveldb_options/leveldb_options.cc",
         "utilities/memory/memory_util.cc",
+        "utilities/merge_operators.cc",
         "utilities/merge_operators/bytesxor.cc",
         "utilities/merge_operators/max.cc",
         "utilities/merge_operators/put.cc",
@@ -392,6 +419,7 @@ cpp_library(
         "utilities/simulator_cache/sim_cache.cc",
         "utilities/table_properties_collectors/compact_on_deletion_collector.cc",
         "utilities/trace/file_trace_reader_writer.cc",
+        "utilities/trace/replayer_impl.cc",
         "utilities/transactions/lock/lock_manager.cc",
         "utilities/transactions/lock/point/point_lock_manager.cc",
         "utilities/transactions/lock/point/point_lock_tracker.cc",
@@ -422,38 +450,45 @@ cpp_library(
         "utilities/transactions/write_unprepared_txn.cc",
         "utilities/transactions/write_unprepared_txn_db.cc",
         "utilities/ttl/db_ttl_impl.cc",
+        "utilities/wal_filter.cc",
         "utilities/write_batch_with_index/write_batch_with_index.cc",
         "utilities/write_batch_with_index/write_batch_with_index_internal.cc",
     ],
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
+    link_whole = False,
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
+    unexported_deps_by_default = False,
     deps = [],
     external_deps = ROCKSDB_EXTERNAL_DEPS,
-    link_whole = False,
 )
 
 cpp_library(
     name = "rocksdb_whole_archive_lib",
     srcs = [
         "cache/cache.cc",
+        "cache/cache_entry_roles.cc",
+        "cache/cache_reservation_manager.cc",
         "cache/clock_cache.cc",
         "cache/lru_cache.cc",
         "cache/sharded_cache.cc",
         "db/arena_wrapped_db_iter.cc",
+        "db/blob/blob_fetcher.cc",
         "db/blob/blob_file_addition.cc",
         "db/blob/blob_file_builder.cc",
         "db/blob/blob_file_cache.cc",
         "db/blob/blob_file_garbage.cc",
         "db/blob/blob_file_meta.cc",
         "db/blob/blob_file_reader.cc",
+        "db/blob/blob_garbage_meter.cc",
         "db/blob/blob_log_format.cc",
         "db/blob/blob_log_sequential_reader.cc",
         "db/blob/blob_log_writer.cc",
+        "db/blob/prefetch_buffer_collection.cc",
         "db/builder.cc",
         "db/c.cc",
         "db/column_family.cc",
@@ -530,6 +565,7 @@ cpp_library(
         "env/fs_remap.cc",
         "env/io_posix.cc",
         "env/mock_env.cc",
+        "env/unique_id_gen.cc",
         "file/delete_scheduler.cc",
         "file/file_prefetch_buffer.cc",
         "file/file_util.cc",
@@ -631,6 +667,7 @@ cpp_library(
         "table/table_factory.cc",
         "table/table_properties.cc",
         "table/two_level_iterator.cc",
+        "table/unique_id.cc",
         "test_util/sync_point.cc",
         "test_util/sync_point_impl.cc",
         "test_util/transaction_test_util.cc",
@@ -641,6 +678,9 @@ cpp_library(
         "tools/sst_dump_tool.cc",
         "trace_replay/block_cache_tracer.cc",
         "trace_replay/io_tracer.cc",
+        "trace_replay/trace_record.cc",
+        "trace_replay/trace_record_handler.cc",
+        "trace_replay/trace_record_result.cc",
         "trace_replay/trace_replay.cc",
         "util/build_version.cc",
         "util/coding.cc",
@@ -649,12 +689,14 @@ cpp_library(
         "util/compression_context_cache.cc",
         "util/concurrent_task_limiter_impl.cc",
         "util/crc32c.cc",
+        "util/crc32c_arm64.cc",
         "util/dynamic_bloom.cc",
         "util/file_checksum_helper.cc",
         "util/hash.cc",
         "util/murmurhash.cc",
         "util/random.cc",
         "util/rate_limiter.cc",
+        "util/regex.cc",
         "util/ribbon_config.cc",
         "util/slice.cc",
         "util/status.cc",
@@ -669,10 +711,13 @@ cpp_library(
         "utilities/blob_db/blob_db_impl_filesnapshot.cc",
         "utilities/blob_db/blob_dump_tool.cc",
         "utilities/blob_db/blob_file.cc",
+        "utilities/cache_dump_load.cc",
+        "utilities/cache_dump_load_impl.cc",
         "utilities/cassandra/cassandra_compaction_filter.cc",
         "utilities/cassandra/format.cc",
         "utilities/cassandra/merge_operator.cc",
         "utilities/checkpoint/checkpoint_impl.cc",
+        "utilities/compaction_filters.cc",
         "utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc",
         "utilities/convenience/info_log_finder.cc",
         "utilities/debug.cc",
@@ -680,8 +725,10 @@ cpp_library(
         "utilities/env_timed.cc",
         "utilities/fault_injection_env.cc",
         "utilities/fault_injection_fs.cc",
+        "utilities/fault_injection_secondary_cache.cc",
         "utilities/leveldb_options/leveldb_options.cc",
         "utilities/memory/memory_util.cc",
+        "utilities/merge_operators.cc",
         "utilities/merge_operators/bytesxor.cc",
         "utilities/merge_operators/max.cc",
         "utilities/merge_operators/put.cc",
@@ -701,6 +748,7 @@ cpp_library(
         "utilities/simulator_cache/sim_cache.cc",
         "utilities/table_properties_collectors/compact_on_deletion_collector.cc",
         "utilities/trace/file_trace_reader_writer.cc",
+        "utilities/trace/replayer_impl.cc",
         "utilities/transactions/lock/lock_manager.cc",
         "utilities/transactions/lock/point/point_lock_manager.cc",
         "utilities/transactions/lock/point/point_lock_tracker.cc",
@@ -731,19 +779,21 @@ cpp_library(
         "utilities/transactions/write_unprepared_txn.cc",
         "utilities/transactions/write_unprepared_txn_db.cc",
         "utilities/ttl/db_ttl_impl.cc",
+        "utilities/wal_filter.cc",
         "utilities/write_batch_with_index/write_batch_with_index.cc",
         "utilities/write_batch_with_index/write_batch_with_index_internal.cc",
     ],
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
+    link_whole = True,
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
+    unexported_deps_by_default = False,
     deps = [],
     external_deps = ROCKSDB_EXTERNAL_DEPS,
-    link_whole = True,
 )
 
 cpp_library(
@@ -761,15 +811,16 @@ cpp_library(
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
+    link_whole = False,
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
+    unexported_deps_by_default = False,
     deps = [":rocksdb_lib"],
     external_deps = ROCKSDB_EXTERNAL_DEPS + [
         ("googletest", None, "gtest"),
     ],
-    link_whole = False,
 )
 
 cpp_library(
@@ -778,18 +829,36 @@ cpp_library(
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
         "tools/db_bench_tool.cc",
+        "tools/simulated_hybrid_file_system.cc",
         "tools/trace_analyzer_tool.cc",
     ],
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
+    link_whole = False,
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
+    unexported_deps_by_default = False,
     deps = [":rocksdb_lib"],
     external_deps = ROCKSDB_EXTERNAL_DEPS,
+)
+
+cpp_library(
+    name = "rocksdb_cache_bench_tools_lib",
+    srcs = ["cache/cache_bench_tool.cc"],
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
+    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
+    compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
     link_whole = False,
+    os_deps = ROCKSDB_OS_DEPS,
+    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    unexported_deps_by_default = False,
+    deps = [":rocksdb_lib"],
+    external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
 cpp_library(
@@ -800,9 +869,12 @@ cpp_library(
         "db_stress_tool/db_stress_common.cc",
         "db_stress_tool/db_stress_driver.cc",
         "db_stress_tool/db_stress_gflags.cc",
+        "db_stress_tool/db_stress_listener.cc",
         "db_stress_tool/db_stress_shared_state.cc",
+        "db_stress_tool/db_stress_stat.cc",
         "db_stress_tool/db_stress_test_base.cc",
         "db_stress_tool/db_stress_tool.cc",
+        "db_stress_tool/expected_state.cc",
         "db_stress_tool/no_batched_ops_stress.cc",
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
@@ -811,10 +883,11 @@ cpp_library(
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
+    unexported_deps_by_default = False,
     deps = ROCKSDB_LIB_DEPS,
     external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
@@ -823,10 +896,10 @@ cpp_binary(
     name = "c_test_bin",
     srcs = ["db/c_test.c"],
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
     include_paths = ROCKSDB_INCLUDE_PATHS,
+    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
     deps = [":rocksdb_test_lib"],
 ) if not is_opt_mode else None
 
@@ -845,13 +918,14 @@ cpp_library(
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
+    link_whole = False,
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
+    unexported_deps_by_default = False,
     deps = [":rocksdb_test_lib"],
     external_deps = ROCKSDB_EXTERNAL_DEPS,
-    link_whole = False,
 )
 
 # [test_name, test_src, test_type, extra_deps, extra_compiler_flags]
@@ -880,6 +954,13 @@ ROCKS_TESTS = [
     [
         "backupable_db_test",
         "utilities/backupable/backupable_db_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
+        "blob_counting_iterator_test",
+        "db/blob/blob_counting_iterator_test.cc",
         "parallel",
         [],
         [],
@@ -922,6 +1003,13 @@ ROCKS_TESTS = [
     [
         "blob_file_reader_test",
         "db/blob/blob_file_reader_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
+        "blob_garbage_meter_test",
+        "db/blob/blob_garbage_meter_test.cc",
         "parallel",
         [],
         [],
@@ -971,6 +1059,13 @@ ROCKS_TESTS = [
     [
         "bloom_test",
         "util/bloom_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
+        "cache_reservation_manager_test",
+        "cache/cache_reservation_manager_test.cc",
         "parallel",
         [],
         [],
@@ -1032,6 +1127,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "clipping_iterator_test",
+        "db/compaction/clipping_iterator_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
         "coding_test",
         "util/coding_test.cc",
         "parallel",
@@ -1083,6 +1185,13 @@ ROCKS_TESTS = [
     [
         "compaction_picker_test",
         "db/compaction/compaction_picker_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
+        "compaction_service_test",
+        "db/compaction/compaction_service_test.cc",
         "parallel",
         [],
         [],
@@ -1405,6 +1514,13 @@ ROCKS_TESTS = [
     [
         "db_with_timestamp_compaction_test",
         "db/db_with_timestamp_compaction_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
+        "db_write_buffer_manager_test",
+        "db/db_write_buffer_manager_test.cc",
         "parallel",
         [],
         [],
@@ -2126,10 +2242,10 @@ ROCKS_TESTS = [
         name = test_name,
         srcs = [test_cc],
         arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-        os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
         compiler_flags = ROCKSDB_COMPILER_FLAGS + extra_compiler_flags,
-        preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
         include_paths = ROCKSDB_INCLUDE_PATHS,
+        os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+        preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
         deps = [":rocksdb_test_lib"] + extra_deps,
         external_deps = ROCKSDB_EXTERNAL_DEPS + [
             ("googletest", None, "gtest"),

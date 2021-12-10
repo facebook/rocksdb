@@ -9,7 +9,6 @@
 
 #include "test_util/sync_point_impl.h"
 
-int rocksdb_kill_odds = 0;
 std::vector<std::string> rocksdb_kill_exclude_prefixes;
 
 #ifndef NDEBUG
@@ -61,7 +60,7 @@ void SyncPoint::ClearTrace() {
   impl_->ClearTrace();
 }
 
-void SyncPoint::Process(const std::string& point, void* cb_arg) {
+void SyncPoint::Process(const Slice& point, void* cb_arg) {
   impl_->Process(point, cb_arg);
 }
 

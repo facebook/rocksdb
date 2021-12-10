@@ -30,12 +30,26 @@
  * Method:    newSharedStringAppendOperator
  * Signature: (C)J
  */
-jlong Java_org_rocksdb_StringAppendOperator_newSharedStringAppendOperator(
+jlong Java_org_rocksdb_StringAppendOperator_newSharedStringAppendOperator__C(
     JNIEnv* /*env*/, jclass /*jclazz*/, jchar jdelim) {
   auto* sptr_string_append_op =
       new std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>(
           ROCKSDB_NAMESPACE::MergeOperators::CreateStringAppendOperator(
               (char)jdelim));
+  return reinterpret_cast<jlong>(sptr_string_append_op);
+}
+
+jlong Java_org_rocksdb_StringAppendOperator_newSharedStringAppendOperator__Ljava_lang_String_2(
+    JNIEnv* env, jclass /*jclass*/, jstring jdelim) {
+  jboolean has_exception = JNI_FALSE;
+  auto delim =
+      ROCKSDB_NAMESPACE::JniUtil::copyStdString(env, jdelim, &has_exception);
+  if (has_exception == JNI_TRUE) {
+    return 0;
+  }
+  auto* sptr_string_append_op =
+      new std::shared_ptr<ROCKSDB_NAMESPACE::MergeOperator>(
+          ROCKSDB_NAMESPACE::MergeOperators::CreateStringAppendOperator(delim));
   return reinterpret_cast<jlong>(sptr_string_append_op);
 }
 

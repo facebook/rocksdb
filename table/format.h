@@ -134,6 +134,7 @@ class Footer {
 
   // Use this constructor when you plan to write out the footer using
   // EncodeTo(). Never use this constructor with DecodeFrom().
+  // `version` is same as `format_version` for block-based table.
   Footer(uint64_t table_magic_number, uint32_t version);
 
   // The version of the footer in this file
@@ -184,12 +185,13 @@ class Footer {
   // convert this object to a human readable form
   std::string ToString() const;
 
+  // Block trailer size used by file with this footer (e.g. 5 for block-based
+  // table and 0 for plain table)
+  inline size_t GetBlockTrailerSize() const { return block_trailer_size_; }
+
  private:
   // REQUIRES: magic number wasn't initialized.
-  void set_table_magic_number(uint64_t magic_number) {
-    assert(!HasInitializedTableMagicNumber());
-    table_magic_number_ = magic_number;
-  }
+  void set_table_magic_number(uint64_t magic_number);
 
   // return true if @table_magic_number_ is set to a value different
   // from @kInvalidTableMagicNumber.
@@ -199,6 +201,7 @@ class Footer {
 
   uint32_t version_;
   ChecksumType checksum_;
+  uint8_t block_trailer_size_ = 0;  // set based on magic number
   BlockHandle metaindex_handle_;
   BlockHandle index_handle_;
   uint64_t table_magic_number_ = 0;
@@ -212,30 +215,29 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
                           uint64_t file_size, Footer* footer,
                           uint64_t enforce_table_magic_number = 0);
 
-// 1-byte compression type + 32-bit checksum
-static const size_t kBlockTrailerSize = 5;
-
-// Make block size calculation for IO less error prone
-inline uint64_t block_size(const BlockHandle& handle) {
-  return handle.size() + kBlockTrailerSize;
-}
-
-inline CompressionType get_block_compression_type(const char* block_data,
-                                                  size_t block_size) {
-  return static_cast<CompressionType>(block_data[block_size]);
-}
+// Computes a checksum using the given ChecksumType. Sometimes we need to
+// include one more input byte logically at the end but not part of the main
+// data buffer. If data_size >= 1, then
+// ComputeBuiltinChecksum(type, data, size)
+// ==
+// ComputeBuiltinChecksumWithLastByte(type, data, size - 1, data[size - 1])
+uint32_t ComputeBuiltinChecksum(ChecksumType type, const char* data,
+                                size_t size);
+uint32_t ComputeBuiltinChecksumWithLastByte(ChecksumType type, const char* data,
+                                            size_t size, char last_byte);
 
 // Represents the contents of a block read from an SST file. Depending on how
 // it's created, it may or may not own the actual block bytes. As an example,
 // BlockContents objects representing data read from mmapped files only point
 // into the mmapped region.
 struct BlockContents {
-  Slice data;  // Actual contents of data
+  // Points to block payload (without trailer)
+  Slice data;
   CacheAllocationPtr allocation;
 
 #ifndef NDEBUG
-  // Whether the block is a raw block, which contains compression type
-  // byte. It is only used for assertion.
+  // Whether there is a known trailer after what is pointed to by `data`.
+  // See BlockBasedTable::GetCompressionType.
   bool is_raw_block = false;
 #endif  // NDEBUG
 
@@ -256,14 +258,6 @@ struct BlockContents {
 
   // Returns whether the object has ownership of the underlying data bytes.
   bool own_bytes() const { return allocation.get() != nullptr; }
-
-  // It's the caller's responsibility to make sure that this is
-  // for raw block contents, which contains the compression
-  // byte in the end.
-  CompressionType get_compression_type() const {
-    assert(is_raw_block);
-    return get_block_compression_type(data.data(), data.size());
-  }
 
   // The additional memory space taken by the block data.
   size_t usable_size() const {
@@ -300,15 +294,6 @@ struct BlockContents {
   }
 };
 
-// Read the block identified by "handle" from "file".  On failure
-// return non-OK.  On success fill *result and return OK.
-extern Status ReadBlockContents(
-    RandomAccessFileReader* file, FilePrefetchBuffer* prefetch_buffer,
-    const Footer& footer, const ReadOptions& options, const BlockHandle& handle,
-    BlockContents* contents, const ImmutableCFOptions& ioptions,
-    bool do_uncompress = true, const Slice& compression_dict = Slice(),
-    const PersistentCacheOptions& cache_options = PersistentCacheOptions());
-
 // The 'data' points to the raw block contents read in from file.
 // This method allocates a new heap buffer and the raw block
 // contents are uncompresed into this buffer. This buffer is
@@ -320,7 +305,7 @@ extern Status UncompressBlockContents(const UncompressionInfo& info,
                                       const char* data, size_t n,
                                       BlockContents* contents,
                                       uint32_t compress_format_version,
-                                      const ImmutableCFOptions& ioptions,
+                                      const ImmutableOptions& ioptions,
                                       MemoryAllocator* allocator = nullptr);
 
 // This is an extension to UncompressBlockContents that accepts
@@ -329,7 +314,7 @@ extern Status UncompressBlockContents(const UncompressionInfo& info,
 extern Status UncompressBlockContentsForCompressionType(
     const UncompressionInfo& info, const char* data, size_t n,
     BlockContents* contents, uint32_t compress_format_version,
-    const ImmutableCFOptions& ioptions, MemoryAllocator* allocator = nullptr);
+    const ImmutableOptions& ioptions, MemoryAllocator* allocator = nullptr);
 
 // Replace db_host_id contents with the real hostname if necessary
 extern Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id);
@@ -339,8 +324,7 @@ extern Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id);
 // TODO(andrewkr): we should prefer one way of representing a null/uninitialized
 // BlockHandle. Currently we use zeros for null and use negation-of-zeros for
 // uninitialized.
-inline BlockHandle::BlockHandle()
-    : BlockHandle(~static_cast<uint64_t>(0), ~static_cast<uint64_t>(0)) {}
+inline BlockHandle::BlockHandle() : BlockHandle(~uint64_t{0}, ~uint64_t{0}) {}
 
 inline BlockHandle::BlockHandle(uint64_t _offset, uint64_t _size)
     : offset_(_offset), size_(_size) {}

@@ -54,7 +54,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   CachableEntry<Block> block;
   s = RetrieveBlock(prefetch_buffer, ro, handle, dict, &block, block_type,
                     get_context, lookup_context, for_compaction,
-                    /* use_cache */ true);
+                    /* use_cache */ true, /* wait_for_cache */ true);
 
   if (!s.ok()) {
     assert(block.IsEmpty());

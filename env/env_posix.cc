@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors
 
+#include "port/lang.h"
 #if !defined(OS_WIN)
 
 #include <dirent.h>
@@ -36,6 +37,8 @@
 #include <sys/uio.h>
 #endif
 #include <time.h>
+#include <unistd.h>
+
 #include <algorithm>
 // Get nano time includes
 #if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD)
@@ -126,7 +129,10 @@ class PosixDynamicLibrary : public DynamicLibrary {
 
 class PosixClock : public SystemClock {
  public:
-  const char* Name() const override { return "PosixClock"; }
+  static const char* kClassName() { return "PosixClock"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kDefaultName(); }
+
   uint64_t NowMicros() override {
     struct timeval tv;
     gettimeofday(&tv, nullptr);
@@ -298,18 +304,21 @@ class PosixEnv : public CompositeEnv {
     return thread_status_updater_->GetThreadList(thread_list);
   }
 
-  static uint64_t gettid(pthread_t tid) {
+  uint64_t GetThreadID() const override {
     uint64_t thread_id = 0;
+#if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
+#if __GLIBC_PREREQ(2, 30)
+    thread_id = ::gettid();
+#else   // __GLIBC_PREREQ(2, 30)
+    pthread_t tid = pthread_self();
     memcpy(&thread_id, &tid, std::min(sizeof(thread_id), sizeof(tid)));
+#endif  // __GLIBC_PREREQ(2, 30)
+#else   // defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
+    pthread_t tid = pthread_self();
+    memcpy(&thread_id, &tid, std::min(sizeof(thread_id), sizeof(tid)));
+#endif  // defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
     return thread_id;
   }
-
-  static uint64_t gettid() {
-    pthread_t tid = pthread_self();
-    return gettid(tid);
-  }
-
-  uint64_t GetThreadID() const override { return gettid(pthread_self()); }
 
   Status GetHostName(char* name, uint64_t len) override {
     int ret = gethostname(name, static_cast<size_t>(len));
@@ -468,32 +477,6 @@ void PosixEnv::WaitForJoin() {
 
 }  // namespace
 
-std::string Env::GenerateUniqueId() {
-  std::string uuid_file = "/proc/sys/kernel/random/uuid";
-  std::shared_ptr<FileSystem> fs = FileSystem::Default();
-
-  Status s = fs->FileExists(uuid_file, IOOptions(), nullptr);
-  if (s.ok()) {
-    std::string uuid;
-    s = ReadFileToString(fs.get(), uuid_file, &uuid);
-    if (s.ok()) {
-      return uuid;
-    }
-  }
-  // Could not read uuid_file - generate uuid using "nanos-random"
-  Random64 r(time(nullptr));
-  uint64_t random_uuid_portion =
-    r.Uniform(std::numeric_limits<uint64_t>::max());
-  uint64_t nanos_uuid_portion = NowNanos();
-  char uuid2[200];
-  snprintf(uuid2,
-           200,
-           "%lx-%lx",
-           (unsigned long)nanos_uuid_portion,
-           (unsigned long)random_uuid_portion);
-  return uuid2;
-}
-
 //
 // Default Posix Env
 //
@@ -511,6 +494,7 @@ Env* Env::Default() {
   ThreadLocalPtr::InitSingletons();
   CompressionContextCache::InitSingleton();
   INIT_SYNC_POINT_SINGLETONS();
+  // ~PosixEnv must be called on exit
   static PosixEnv default_env;
   return &default_env;
 }
