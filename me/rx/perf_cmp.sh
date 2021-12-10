@@ -24,6 +24,7 @@ cache_meta=${CACHE_META:-1}
 cache_mb=${CACHE_MB:-128}
 pending_ratio=${PENDING_RATIO:-"0.5"}
 ml2_comp=${ML2_COMP:-"-1"}
+pct_comp=${PCT_COMP:-"-1"}
 
 # Leveled compaction configuration
 level_comp_start=${LEVEL_COMP_START:-4}
@@ -80,10 +81,6 @@ else
   fi
 fi
 
-# This is separate because leveled compaction uses it after the load
-# while universal uses it during and after the load.
-comp_args=( MIN_LEVEL_TO_COMPRESS=$ml2_comp )
-
 # Values for published results: 
 # NUM_KEYS=900,000,000 CACHE_SIZE=6,442,450,944 DURATION=5400 MB_WRITE_PER_SEC=2 
 
@@ -105,7 +102,8 @@ function usage {
   echo -e "\tMB_WPS - rate limit for writer that runs concurrent with queries for some tests"
   echo -e "\tNTHREADS - number of user threads"
   echo -e "\tCOMP_TYPE - compression type (zstd, lz4, none, etc)"
-  echo -e "\tML2_COMP - min_level_to_compress"
+  echo -e "\tML2_COMP - min_level_to_compress for leveled"
+  echo -e "\tPCT_COMP - min_level_to_compress for universal"
   echo -e "\tWRITE_BUF_MB - size of write buffer in MB"
   echo -e "\tSST_MB - target_file_size_base in MB"
   echo -e "\tL1_MB - max_bytes_for_level_base in MB"
@@ -136,9 +134,6 @@ function dump_env {
   echo "Base args" > $odir/args
   echo "${base_args[@]}" | tr ' ' '\n' >> $odir/args
 
-  echo -e "\nCompression args" >> $odir/args
-  echo "${comp_args[@]}" | tr ' ' '\n' >> $odir/args
-
   echo -e "\nOther args" >> $odir/args
   echo -e "dbdir\t$dbdir" >> $odir/args
   echo -e "nsecs\t$nsecs" >> $odir/args
@@ -147,12 +142,12 @@ function dump_env {
   echo -e "write_amp_estimate\t$write_amp_estimate" >> $odir/args
   echo -e "univ\t$UNIV" >> $odir/args
 
-  echo -e "\nbenchargs1:" >> $odir/args
-  echo "${benchargs1[@]}" | tr ' ' '\n' >> $odir/args
-  echo -e "\nbenchargs2:" >> $odir/args
-  echo "${benchargs2[@]}" | tr ' ' '\n' >> $odir/args
-  echo -e "\nbenchargs3:" >> $odir/args
-  echo "${benchargs3[@]}" | tr ' ' '\n' >> $odir/args
+  echo -e "\nargs_load:" >> $odir/args
+  echo "${args_load[@]}" | tr ' ' '\n' >> $odir/args
+  echo -e "\nargs_nolim:" >> $odir/args
+  echo "${args_nolim[@]}" | tr ' ' '\n' >> $odir/args
+  echo -e "\nargs_lim:" >> $odir/args
+  echo "${args_lim[@]}" | tr ' ' '\n' >> $odir/args
 }
 
 if [ $# -lt 3 ]; then
@@ -215,23 +210,24 @@ echo Test versions: $@ >> $odir/args
 
 for v in $@ ; do
   my_odir=$odir/$v
-  benchargs1=("${base_args[@]}")
+  args_common=("${base_args[@]}")
 
-  benchargs1+=( OUTPUT_DIR=$my_odir DB_DIR=$dbdir WAL_DIR=$dbdir DB_BENCH_NO_SYNC=1 )
-  benchargs1+=( SOFT_PENDING_COMPACTION_BYTES_LIMIT_IN_GB=$soft_bytes HARD_PENDING_COMPACTION_BYTES_LIMIT_IN_GB=$hard_bytes )
+  args_common+=( OUTPUT_DIR=$my_odir DB_DIR=$dbdir WAL_DIR=$dbdir DB_BENCH_NO_SYNC=1 )
+  args_common+=( SOFT_PENDING_COMPACTION_BYTES_LIMIT_IN_GB=$soft_bytes HARD_PENDING_COMPACTION_BYTES_LIMIT_IN_GB=$hard_bytes )
+  args_common+=( "${comp_args[@]}" )
   if [ ! -z $UNIV ]; then
-    benchargs1+=( "${comp_args[@]}" UNIVERSAL=1 )
+    args_common+=( UNIVERSAL=1 COMPRESSION_SIZE_PERCENT=$pct_comp )
+  else
+    args_common+=( MIN_LEVEL_TO_COMPRESS=$ml2_comp )
   fi
 
-  benchargs2=("${benchargs1[@]}")
-  benchargs2+=("${post_load_args[@]}")
-  benchargs2+=( PENDING_BYTES_RATIO=$pending_ratio )
-  if [ -z $UNIV ]; then
-    benchargs2+=("${comp_args[@]}")
-  fi
+  args_load=("${args_common[@]}")
 
-  benchargs3=("${benchargs2[@]}")
-  benchargs3+=( MB_WRITE_PER_SEC=$mb_wps )
+  args_nolim=("${args_common[@]}")
+  args_nolim+=( PENDING_BYTES_RATIO=$pending_ratio )
+
+  args_lim=("${args_nolim[@]}")
+  args_lim+=( MB_WRITE_PER_SEC=$mb_wps )
 
   dump_env
 
@@ -243,55 +239,42 @@ for v in $@ ; do
   rm -rf $dbdir/*
 
   # Load in key order
-  echo env "${benchargs1[@]}" bash b.sh fillseq_disable_wal
-  env "${benchargs1[@]}" bash b.sh fillseq_disable_wal
-
-  if [ -z $UNIV ]; then
-    # Read-only tests but only for leveled because the LSM tree is in a deterministic
-    # state after fillseq. This is here rather than after flush_mt_l0 because the LSM
-    # tree is friendlier to reads after fillseq -- SSTs are fully ordered and non-overlapping
-    # thanks to trivial move.
-    env "${benchargs2[@]}" DURATION=$nsecs_ro bash b.sh readrandom
-  fi
+  echo env "${args_load[@]}" bash b.sh fillseq_disable_wal
+  env "${args_load[@]}" bash b.sh fillseq_disable_wal
 
   # Write 10% of the keys. The goal is to randomize keys prior to Lmax
   p10=$( echo $nkeys | awk '{ printf "%.0f", $1 / 10.0 }' )
-  env "${benchargs2[@]}" WRITES=$p10        bash b.sh overwritesome
+  env "${args_nolim[@]}" WRITES=$p10        bash b.sh overwritesome
 
+  # These are not supported by older versions
   if [ -z $UNIV ]; then
     # Flush memtable & L0 to get LSM tree into deterministic state
-    # These are not supported by older versions
-    env "${benchargs2[@]}"                    bash b.sh flush_mt_l0
+    env "${args_nolim[@]}"                    bash b.sh flush_mt_l0
   else
-    # These are not supported by older versions
     # For universal don't compact L0 as can have too many sorted runs
-    # Disabled for now because waitforcompaction can hang, see
-    # https://github.com/facebook/rocksdb/issues/9275
+    # waitforcompaction can hang, see https://github.com/facebook/rocksdb/issues/9275
     # While this is disabled the test that follows will have more variance from compaction debt.
-    # env "${benchargs2[@]}"                    bash b.sh waitforcompaction
+    # env "${args_nolim[@]}"                    bash b.sh waitforcompaction
     echo TODO enable when waitforcompaction hang is fixed
   fi
 
-  # While this runs for leveled and universal, the results will have more variance for
-  # universal because nothing is done above to reduce compaction debt and get the LSM tree
-  # into a deterministic state. But it still serves a purpose for universal, it lets compaction
-  # get caught up prior to the read-mostly tests.
+  # Read-only tests
   # Skipping --multiread_batched for now because it isn't supported on older 6.X releases
-  # env "${benchargs2[@]}" DURATION=$nsecs_ro bash b.sh multireadrandom --multiread_batched
+  # env "${args_lim[@]}" DURATION=$nsecs_ro bash b.sh multireadrandom --multiread_batched
   # TODO: implement multireadrandomwhilewriting
-  env "${benchargs2[@]}" DURATION=$nsecs_ro bash b.sh multireadrandom
+  env "${args_lim[@]}" DURATION=$nsecs_ro bash b.sh multireadrandom
 
   # Read-mostly tests with a rate-limited writer
-  env "${benchargs3[@]}" DURATION=$nsecs    bash b.sh revrangewhilewriting
-  env "${benchargs3[@]}" DURATION=$nsecs    bash b.sh fwdrangewhilewriting
-  env "${benchargs3[@]}" DURATION=$nsecs    bash b.sh readwhilewriting
+  env "${args_lim[@]}" DURATION=$nsecs    bash b.sh revrangewhilewriting
+  env "${args_lim[@]}" DURATION=$nsecs    bash b.sh fwdrangewhilewriting
+  env "${args_lim[@]}" DURATION=$nsecs    bash b.sh readwhilewriting
 
   # Write-only tests
 
   # This creates much compaction debt which will be a problem for tests added after it.
   # Also, the compaction stats measured at test end can underestimate write-amp depending
   # on how much compaction debt is allowed.
-  env "${benchargs2[@]}" DURATION=$nsecs    bash b.sh overwrite
+  env "${args_nolim[@]}" DURATION=$nsecs    bash b.sh overwrite
 
   cp $dbdir/LOG* $my_odir
 done

@@ -54,6 +54,8 @@ function display_usage() {
   echo -e "\tCOMPRESSION_MAX_DICT_BYTES"
   echo -e "\tCOMPRESSION_TYPE\t\t(default: zstd)"
   echo -e "\tBOTTOMMOST_COMPRESSION\t\t(default: none)"
+  echo -e "\tMIN_LEVEL_TO_COMPRESS\t\tValue for min_level_to_compress for Leveled"
+  echo -e "\tCOMPRESSION_SIZE_PERCENT\t\tValue for compression_size_percent for Universal"
   echo -e "\tDURATION\t\t\tNumber of seconds for which the test runs"
   echo -e "\tWRITES\t\t\tNumber of writes for which the test runs"
   echo -e "\tWRITE_BUFFER_SIZE_MB\t\tThe size of the write buffer in MB (default: 128)"
@@ -134,6 +136,8 @@ cache_size=${CACHE_SIZE:-$((17179869184))}
 compression_max_dict_bytes=${COMPRESSION_MAX_DICT_BYTES:-0}
 compression_type=${COMPRESSION_TYPE:-zstd}
 min_level_to_compress=${MIN_LEVEL_TO_COMPRESS:-"-1"}
+compression_size_percent=${COMPRESSION_SIZE_PERCENT:-"-1"}
+
 duration=${DURATION:-0}
 writes=${WRITES:-0}
 
@@ -206,7 +210,6 @@ const_params_base="
   --compression_max_dict_bytes=$compression_max_dict_bytes \
   --compression_ratio=0.5 \
   --compression_type=$compression_type \
-  --min_level_to_compress=$min_level_to_compress \
   --bytes_per_sync=$((8 * M)) \
   $cache_meta_flags \
   $o_direct_flags \
@@ -235,6 +238,7 @@ const_params_base="
 level_const_params="
   $const_params_base \
   --compaction_style=0 \
+  --min_level_to_compress=$min_level_to_compress \
   --level_compaction_dynamic_level_bytes=true \
   --pin_l0_filter_and_index_blocks_in_cache=1 \
   $soft_pending_arg \
@@ -246,6 +250,7 @@ level_const_params="
 univ_const_params="
   $const_params_base \
   --compaction_style=1 \
+  --universal_compression_size_percent=$compression_size_percent \
   --pin_l0_filter_and_index_blocks_in_cache=1 \
   --universal_min_merge_width=$univ_min_merge_width \
   --universal_max_merge_width=$univ_max_merge_width \
@@ -592,18 +597,24 @@ function run_fillseq {
   # For Leveled compaction hardwire this to 0 so that data that is trivial-moved
   # to larger levels (3, 4, etc) will be compressed.
   if [ -z $UNIVERSAL ]; then
-    ml2c=0
+    comp_arg="--min_level_to_compress=0"
+  elif [ ! -z $UNIVERSAL_ALLOW_TRIVIAL_MOVE ]; then
+    # See GetCompressionFlush where compression_size_percent < 1 means use the default
+    # compression which is needed because trivial moves are enabled
+    comp_arg="--universal_compression_size_percent=-1"
   else
-    ml2c=$min_level_to_compress
+    # See GetCompressionFlush where compression_size_percent > 0 means no compression.
+    # Don't set anything here because compression_size_percent is set in univ_const_params
+    comp_arg=""
   fi
 
   echo "Loading $num_keys keys sequentially"
   time_cmd=$( get_time_cmd $log_file_name.time )
   cmd="$time_cmd ./db_bench --benchmarks=fillseq \
+       $params_fillseq \
+       $comp_arg \
        --use_existing_db=0 \
        --sync=0 \
-       $params_fillseq \
-       --min_level_to_compress=$ml2c \
        --threads=1 \
        --memtablerep=vector \
        --allow_concurrent_memtable_write=false \
