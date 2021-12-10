@@ -75,11 +75,6 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
       bool defer_purge =
           db_->immutable_db_options().avoid_unnecessary_blocking_io;
       db_->PurgeObsoleteFiles(job_context, defer_purge);
-      if (defer_purge) {
-        mutex_->Lock();
-        db_->SchedulePurge();
-        mutex_->Unlock();
-      }
     }
     job_context.Clean();
   }

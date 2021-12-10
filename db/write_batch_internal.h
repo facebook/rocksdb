@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <array>
 #include <vector>
 
 #include "db/flush_scheduler.h"
@@ -19,6 +20,7 @@
 #include "rocksdb/types.h"
 #include "rocksdb/write_batch.h"
 #include "util/autovector.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -259,5 +261,177 @@ class LocalSavePoint {
   bool committed_;
 #endif
 };
+
+template <typename Derived, typename Checker>
+class TimestampAssignerBase : public WriteBatch::Handler {
+ public:
+  explicit TimestampAssignerBase(WriteBatch::ProtectionInfo* prot_info,
+                                 Checker&& checker)
+      : prot_info_(prot_info), checker_(std::move(checker)) {}
+
+  ~TimestampAssignerBase() override {}
+
+  Status PutCF(uint32_t cf, const Slice& key, const Slice&) override {
+    return AssignTimestamp(cf, key);
+  }
+
+  Status DeleteCF(uint32_t cf, const Slice& key) override {
+    return AssignTimestamp(cf, key);
+  }
+
+  Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
+    return AssignTimestamp(cf, key);
+  }
+
+  Status DeleteRangeCF(uint32_t cf, const Slice& begin_key,
+                       const Slice&) override {
+    return AssignTimestamp(cf, begin_key);
+  }
+
+  Status MergeCF(uint32_t cf, const Slice& key, const Slice&) override {
+    return AssignTimestamp(cf, key);
+  }
+
+  Status PutBlobIndexCF(uint32_t cf, const Slice& key, const Slice&) override {
+    return AssignTimestamp(cf, key);
+  }
+
+  Status MarkBeginPrepare(bool) override { return Status::OK(); }
+
+  Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
+
+  Status MarkCommit(const Slice&) override { return Status::OK(); }
+
+  Status MarkRollback(const Slice&) override { return Status::OK(); }
+
+ protected:
+  Status AssignTimestamp(uint32_t cf, const Slice& key) {
+    Status s = static_cast_with_check<Derived>(this)->AssignTimestampImpl(
+        cf, key, idx_);
+    ++idx_;
+    return s;
+  }
+
+  Status CheckTimestampSize(uint32_t cf, size_t& ts_sz) {
+    return checker_(cf, ts_sz);
+  }
+
+  Status UpdateTimestampIfNeeded(size_t ts_sz, const Slice& key,
+                                 const Slice& ts) {
+    if (ts_sz > 0) {
+      assert(ts_sz == ts.size());
+      UpdateProtectionInformationIfNeeded(key, ts);
+      UpdateTimestamp(key, ts);
+    }
+    return Status::OK();
+  }
+
+  void UpdateProtectionInformationIfNeeded(const Slice& key, const Slice& ts) {
+    if (prot_info_ != nullptr) {
+      const size_t ts_sz = ts.size();
+      SliceParts old_key(&key, 1);
+      Slice key_no_ts(key.data(), key.size() - ts_sz);
+      std::array<Slice, 2> new_key_cmpts{{key_no_ts, ts}};
+      SliceParts new_key(new_key_cmpts.data(), 2);
+      prot_info_->entries_[idx_].UpdateK(old_key, new_key);
+    }
+  }
+
+  void UpdateTimestamp(const Slice& key, const Slice& ts) {
+    const size_t ts_sz = ts.size();
+    char* ptr = const_cast<char*>(key.data() + key.size() - ts_sz);
+    assert(ptr);
+    memcpy(ptr, ts.data(), ts_sz);
+  }
+
+  // No copy or move.
+  TimestampAssignerBase(const TimestampAssignerBase&) = delete;
+  TimestampAssignerBase(TimestampAssignerBase&&) = delete;
+  TimestampAssignerBase& operator=(const TimestampAssignerBase&) = delete;
+  TimestampAssignerBase& operator=(TimestampAssignerBase&&) = delete;
+
+  WriteBatch::ProtectionInfo* const prot_info_ = nullptr;
+  const Checker checker_{};
+  size_t idx_ = 0;
+};
+
+template <typename Checker>
+class SimpleListTimestampAssigner
+    : public TimestampAssignerBase<SimpleListTimestampAssigner<Checker>,
+                                   Checker> {
+ public:
+  explicit SimpleListTimestampAssigner(WriteBatch::ProtectionInfo* prot_info,
+                                       Checker checker,
+                                       const std::vector<Slice>& timestamps)
+      : TimestampAssignerBase<SimpleListTimestampAssigner<Checker>, Checker>(
+            prot_info, std::move(checker)),
+        timestamps_(timestamps) {}
+
+  ~SimpleListTimestampAssigner() override {}
+
+ private:
+  friend class TimestampAssignerBase<SimpleListTimestampAssigner<Checker>,
+                                     Checker>;
+
+  Status AssignTimestampImpl(uint32_t cf, const Slice& key, size_t idx) {
+    if (idx >= timestamps_.size()) {
+      return Status::InvalidArgument("Need more timestamps for the assignment");
+    }
+    const Slice& ts = timestamps_[idx];
+    size_t ts_sz = ts.size();
+    const Status s = this->CheckTimestampSize(cf, ts_sz);
+    if (!s.ok()) {
+      return s;
+    }
+    return this->UpdateTimestampIfNeeded(ts_sz, key, ts);
+  }
+
+  const std::vector<Slice>& timestamps_;
+};
+
+template <typename Checker>
+class TimestampAssigner
+    : public TimestampAssignerBase<TimestampAssigner<Checker>, Checker> {
+ public:
+  explicit TimestampAssigner(WriteBatch::ProtectionInfo* prot_info,
+                             Checker checker, const Slice& ts)
+      : TimestampAssignerBase<TimestampAssigner<Checker>, Checker>(
+            prot_info, std::move(checker)),
+        timestamp_(ts) {
+    assert(!timestamp_.empty());
+  }
+  ~TimestampAssigner() override {}
+
+ private:
+  friend class TimestampAssignerBase<TimestampAssigner<Checker>, Checker>;
+
+  Status AssignTimestampImpl(uint32_t cf, const Slice& key, size_t /*idx*/) {
+    if (timestamp_.empty()) {
+      return Status::InvalidArgument("Timestamp is empty");
+    }
+    size_t ts_sz = timestamp_.size();
+    const Status s = this->CheckTimestampSize(cf, ts_sz);
+    if (!s.ok()) {
+      return s;
+    }
+    return this->UpdateTimestampIfNeeded(ts_sz, key, timestamp_);
+  }
+
+  const Slice timestamp_;
+};
+
+template <typename Checker>
+Status WriteBatch::AssignTimestamp(const Slice& ts, Checker checker) {
+  TimestampAssigner<Checker> ts_assigner(prot_info_.get(), checker, ts);
+  return Iterate(&ts_assigner);
+}
+
+template <typename Checker>
+Status WriteBatch::AssignTimestamps(const std::vector<Slice>& ts_list,
+                                    Checker checker) {
+  SimpleListTimestampAssigner<Checker> ts_assigner(prot_info_.get(), checker,
+                                                   ts_list);
+  return Iterate(&ts_assigner);
+}
 
 }  // namespace ROCKSDB_NAMESPACE

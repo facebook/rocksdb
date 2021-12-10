@@ -66,6 +66,7 @@ class ErrorHandlerFSListener : public EventListener {
   ~ErrorHandlerFSListener() {
     file_creation_error_.PermitUncheckedError();
     bg_error_.PermitUncheckedError();
+    new_bg_error_.PermitUncheckedError();
   }
 
   void OnTableFileCreationStarted(
@@ -94,6 +95,13 @@ class ErrorHandlerFSListener : public EventListener {
     recovery_complete_ = true;
     cv_.SignalAll();
     old_bg_error.PermitUncheckedError();
+  }
+
+  void OnErrorRecoveryEnd(const BackgroundErrorRecoveryInfo& info) override {
+    InstrumentedMutexLock l(&mutex_);
+    recovery_complete_ = true;
+    cv_.SignalAll();
+    new_bg_error_ = info.new_bg_error;
   }
 
   bool WaitForRecovery(uint64_t /*abs_time_us*/) {
@@ -138,6 +146,8 @@ class ErrorHandlerFSListener : public EventListener {
     file_creation_error_ = io_s;
   }
 
+  Status new_bg_error() { return new_bg_error_; }
+
  private:
   InstrumentedMutex mutex_;
   InstrumentedCondVar cv_;
@@ -148,6 +158,7 @@ class ErrorHandlerFSListener : public EventListener {
   int file_count_;
   IOStatus file_creation_error_;
   Status bg_error_;
+  Status new_bg_error_;
   FaultInjectionTestFS* fault_fs_;
 };
 
@@ -2426,6 +2437,42 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover2) {
     }
   }
   Close();
+}
+
+// Fail auto resume from a flush retryable error and verify that
+// OnErrorRecoveryEnd listener callback is called
+TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAbortRecovery) {
+  // Activate the FS before the first resume
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 100000;  // 0.1 second
+  Status s;
+
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  ASSERT_OK(Put(Key(1), "val1"));
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeFinishBuildTable",
+      [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+  ASSERT_EQ(listener->WaitForRecovery(5000000), true);
+  ASSERT_EQ(listener->new_bg_error(), Status::Aborted());
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs_->SetFilesystemActive(true);
+
+  Destroy(options);
 }
 
 class DBErrorHandlingFencingTest : public DBErrorHandlingFSTest,

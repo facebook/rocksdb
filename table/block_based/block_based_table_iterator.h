@@ -161,10 +161,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   }
 
   void SetReadaheadState(ReadaheadFileInfo* readahead_file_info) override {
-    block_prefetcher_.SetReadaheadState(
-        &(readahead_file_info->data_block_readahead_info));
-    if (index_iter_) {
-      index_iter_->SetReadaheadState(readahead_file_info);
+    if (read_options_.adaptive_readahead) {
+      block_prefetcher_.SetReadaheadState(
+          &(readahead_file_info->data_block_readahead_info));
+      if (index_iter_) {
+        index_iter_->SetReadaheadState(readahead_file_info);
+      }
     }
   }
 

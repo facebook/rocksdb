@@ -463,12 +463,13 @@ DEFINE_bool(test_secondary, false, "Test secondary instance.");
 
 DEFINE_string(
     expected_values_dir, "",
-    "Dir where file with array of expected uint32_t values will be stored. If "
-    "provided and non-empty, the DB state will be verified against these "
-    "values after recovery. --max_key and --column_family must be kept the "
-    "same across invocations of this program that use the same "
-    "--expected_values_dir. See --seed and --nooverwritepercent for further "
-    "requirements.");
+    "Dir where files containing info about the latest/historical values will "
+    "be stored. If provided and non-empty, the DB state will be verified "
+    "against values from these files after recovery. --max_key and "
+    "--column_family must be kept the same across invocations of this program "
+    "that use the same --expected_values_dir. Currently historical values are "
+    "only tracked when --sync_fault_injection is set. See --seed and "
+    "--nooverwritepercent for further requirements.");
 
 DEFINE_bool(verify_checksum, false,
             "Verify checksum for every block read from storage");
@@ -805,7 +806,10 @@ DEFINE_int32(get_property_one_in, 1000,
 
 DEFINE_bool(sync_fault_injection, false,
             "If true, FaultInjectionTestFS will be used for write operations, "
-            " and unsynced data in DB will lost after crash.");
+            "and unsynced data in DB will lost after crash. In such a case we "
+            "track DB changes in a trace file (\"*.trace\") in "
+            "--expected_values_dir for verifying there are no holes in the "
+            "recovered data (future work).");
 
 DEFINE_bool(best_efforts_recovery, false,
             "If true, use best efforts recovery.");
@@ -860,5 +864,10 @@ DEFINE_int32(injest_error_severity, 1,
              "The severity of the injested IO Error. 1 is soft error (e.g. "
              "retryable error), 2 is fatal error, and the default is "
              "retryable error.");
+DEFINE_int32(prepopulate_block_cache,
+             static_cast<int32_t>(ROCKSDB_NAMESPACE::BlockBasedTableOptions::
+                                      PrepopulateBlockCache::kDisable),
+             "Options related to cache warming (see `enum "
+             "PrepopulateBlockCache` in table.h)");
 
 #endif  // GFLAGS
