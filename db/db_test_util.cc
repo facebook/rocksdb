@@ -1130,7 +1130,7 @@ std::string DBTestBase::FilesPerLevel(int cf) {
 #endif  // !ROCKSDB_LITE
 
 std::vector<uint64_t> DBTestBase::GetBlobFileNumbers() {
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
 
   ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();

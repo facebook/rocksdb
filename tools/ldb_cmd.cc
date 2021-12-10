@@ -2322,6 +2322,14 @@ class InMemoryHandler : public WriteBatch::Handler {
     return Status::OK();
   }
 
+  Status MarkCommitWithTimestamp(const Slice& xid,
+                                 const Slice& commit_ts) override {
+    row_ << "COMMIT_WITH_TIMESTAMP(";
+    row_ << LDBCommand::StringToHex(xid.ToString()) << ", ";
+    row_ << LDBCommand::StringToHex(commit_ts.ToString()) << ") ";
+    return Status::OK();
+  }
+
   ~InMemoryHandler() override {}
 
  protected:

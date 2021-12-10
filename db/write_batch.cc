@@ -134,6 +134,11 @@ struct BatchContentClassifier : public WriteBatch::Handler {
     return Status::OK();
   }
 
+  Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
+    content_flags |= ContentFlags::HAS_COMMIT;
+    return Status::OK();
+  }
+
   Status MarkRollback(const Slice&) override {
     content_flags |= ContentFlags::HAS_ROLLBACK;
     return Status::OK();
@@ -416,6 +421,11 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
         return Status::Corruption("bad EndPrepare XID");
       }
       break;
+    case kTypeCommitXIDAndTimestamp:
+      if (!GetLengthPrefixedSlice(input, key)) {
+        return Status::Corruption("bad commit timestamp");
+      }
+      FALLTHROUGH_INTENDED;
     case kTypeCommitXID:
       if (!GetLengthPrefixedSlice(input, xid)) {
         return Status::Corruption("bad Commit XID");
@@ -625,6 +635,16 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         assert(s.ok());
         empty_batch = true;
         break;
+      case kTypeCommitXIDAndTimestamp:
+        assert(wb->content_flags_.load(std::memory_order_relaxed) &
+               (ContentFlags::DEFERRED | ContentFlags::HAS_COMMIT));
+        // key stores the commit timestamp.
+        assert(!key.empty());
+        s = handler->MarkCommitWithTimestamp(xid, key);
+        if (LIKELY(s.ok())) {
+          empty_batch = true;
+        }
+        break;
       case kTypeRollbackXID:
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_ROLLBACK));
@@ -817,6 +837,19 @@ Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid,
 
 Status WriteBatchInternal::MarkCommit(WriteBatch* b, const Slice& xid) {
   b->rep_.push_back(static_cast<char>(kTypeCommitXID));
+  PutLengthPrefixedSlice(&b->rep_, xid);
+  b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
+                              ContentFlags::HAS_COMMIT,
+                          std::memory_order_relaxed);
+  return Status::OK();
+}
+
+Status WriteBatchInternal::MarkCommitWithTimestamp(WriteBatch* b,
+                                                   const Slice& xid,
+                                                   const Slice& commit_ts) {
+  assert(!commit_ts.empty());
+  b->rep_.push_back(static_cast<char>(kTypeCommitXIDAndTimestamp));
+  PutLengthPrefixedSlice(&b->rep_, commit_ts);
   PutLengthPrefixedSlice(&b->rep_, xid);
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
                               ContentFlags::HAS_COMMIT,
@@ -2072,6 +2105,8 @@ class MemTableInserter : public WriteBatch::Handler {
     Status s;
 
     if (recovering_log_number_ != 0) {
+      // We must hold db mutex in recovery.
+      db_->mutex()->AssertHeld();
       // in recovery when we encounter a commit marker
       // we lookup this transaction in our set of rebuilt transactions
       // and commit.
@@ -2110,6 +2145,76 @@ class MemTableInserter : public WriteBatch::Handler {
     }
     const bool batch_boundry = true;
     MaybeAdvanceSeq(batch_boundry);
+
+    return s;
+  }
+
+  Status MarkCommitWithTimestamp(const Slice& name,
+                                 const Slice& commit_ts) override {
+    assert(db_);
+
+    Status s;
+
+    if (recovering_log_number_ != 0) {
+      // In recovery, db mutex must be held.
+      db_->mutex()->AssertHeld();
+      // in recovery when we encounter a commit marker
+      // we lookup this transaction in our set of rebuilt transactions
+      // and commit.
+      auto trx = db_->GetRecoveredTransaction(name.ToString());
+      // the log containing the prepared section may have
+      // been released in the last incarnation because the
+      // data was flushed to L0
+      if (trx) {
+        // at this point individual CF lognumbers will prevent
+        // duplicate re-insertion of values.
+        assert(0 == log_number_ref_);
+        if (write_after_commit_) {
+          // write_after_commit_ can only have one batch in trx.
+          assert(trx->batches_.size() == 1);
+          const auto& batch_info = trx->batches_.begin()->second;
+          // all inserts must reference this trx log number
+          log_number_ref_ = batch_info.log_number_;
+          const auto checker = [this](uint32_t cf, size_t& ts_sz) {
+            assert(db_);
+            VersionSet* const vset = db_->GetVersionSet();
+            assert(vset);
+            ColumnFamilySet* const cf_set = vset->GetColumnFamilySet();
+            assert(cf_set);
+            ColumnFamilyData* cfd = cf_set->GetColumnFamily(cf);
+            assert(cfd);
+            const auto* const ucmp = cfd->user_comparator();
+            assert(ucmp);
+            if (ucmp->timestamp_size() == 0) {
+              ts_sz = 0;
+            } else if (ucmp->timestamp_size() != ts_sz) {
+              return Status::InvalidArgument("Timestamp size mismatch");
+            }
+            return Status::OK();
+          };
+          s = batch_info.batch_->AssignTimestamp(commit_ts, checker);
+          if (s.ok()) {
+            s = batch_info.batch_->Iterate(this);
+            log_number_ref_ = 0;
+          }
+        }
+        // else the values are already inserted before the commit
+
+        if (s.ok()) {
+          db_->DeleteRecoveredTransaction(name.ToString());
+        }
+        if (has_valid_writes_) {
+          *has_valid_writes_ = true;
+        }
+      }
+    } else {
+      // When writes are not delayed until commit, there is no connection
+      // between a memtable write and the WAL that supports it. So the commit
+      // need not reference any log as the only log to which it depends.
+      assert(!write_after_commit_ || log_number_ref_ > 0);
+    }
+    constexpr bool batch_boundary = true;
+    MaybeAdvanceSeq(batch_boundary);
 
     return s;
   }

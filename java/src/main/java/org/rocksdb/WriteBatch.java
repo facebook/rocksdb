@@ -321,6 +321,8 @@ public class WriteBatch extends AbstractWriteBatch {
         throws RocksDBException;
     public abstract void markCommit(final byte[] xid)
         throws RocksDBException;
+    public abstract void markCommitWithTimestamp(final byte[] xid, final byte[] ts)
+        throws RocksDBException;
 
     /**
      * shouldContinue is called by the underlying iterator

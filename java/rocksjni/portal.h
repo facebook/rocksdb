@@ -3241,6 +3241,27 @@ class WriteBatchHandlerJni
   }
 
   /**
+   * Get the Java Method: WriteBatch.Handler#markCommitWithTimestamp
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retrieved
+   */
+  static jmethodID getMarkCommitWithTimestampMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "markCommitWithTimestamp", "([B[B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
    * Get the Java Method: WriteBatch.Handler#shouldContinue
    *
    * @param env A pointer to the Java environment
