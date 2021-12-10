@@ -257,7 +257,7 @@ void FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
     cur = metaindex_handle.EncodeTo(cur);
     cur = index_handle.EncodeTo(cur);
     // Zero pad remainder
-    std::fill(cur, end, 0);
+    std::fill(cur, end, char{0});
   }
 }
 
