@@ -189,7 +189,7 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
 TEST_F(ObsoleteFilesTest, BlobFiles) {
   ReopenDB();
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
   assert(versions->GetColumnFamilySet());
 

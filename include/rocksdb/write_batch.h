@@ -288,6 +288,12 @@ class WriteBatch : public WriteBatchBase {
       return Status::InvalidArgument("MarkCommit() handler not defined.");
     }
 
+    virtual Status MarkCommitWithTimestamp(const Slice& /*xid*/,
+                                           const Slice& /*commit_ts*/) {
+      return Status::InvalidArgument(
+          "MarkCommitWithTimestamp() handler not defined.");
+    }
+
     // Continue is called by WriteBatch::Iterate. If it returns false,
     // iteration is halted. Otherwise, it continues iterating. The default
     // implementation always returns true.

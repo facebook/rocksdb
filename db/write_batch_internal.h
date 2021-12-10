@@ -124,6 +124,9 @@ class WriteBatchInternal {
 
   static Status MarkCommit(WriteBatch* batch, const Slice& xid);
 
+  static Status MarkCommitWithTimestamp(WriteBatch* batch, const Slice& xid,
+                                        const Slice& commit_ts);
+
   static Status InsertNoop(WriteBatch* batch);
 
   // Return the number of entries in the batch.
@@ -302,7 +305,13 @@ class TimestampAssignerBase : public WriteBatch::Handler {
 
   Status MarkCommit(const Slice&) override { return Status::OK(); }
 
+  Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
+    return Status::OK();
+  }
+
   Status MarkRollback(const Slice&) override { return Status::OK(); }
+
+  Status MarkNoop(bool /*empty_batch*/) override { return Status::OK(); }
 
  protected:
   Status AssignTimestamp(uint32_t cf, const Slice& key) {

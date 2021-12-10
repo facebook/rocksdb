@@ -382,7 +382,7 @@ TEST_F(DBWALTest, RecoverWithBlob) {
 
   // There should be no files just yet since we haven't flushed.
   {
-    VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+    VersionSet* const versions = dbfull()->GetVersionSet();
     ASSERT_NE(versions, nullptr);
 
     ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
@@ -412,7 +412,7 @@ TEST_F(DBWALTest, RecoverWithBlob) {
   ASSERT_EQ(Get("key1"), short_value);
   ASSERT_EQ(Get("key2"), long_value);
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   ASSERT_NE(versions, nullptr);
 
   ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
@@ -477,7 +477,7 @@ TEST_F(DBWALTest, RecoverWithBlobMultiSST) {
 
   // There should be no files just yet since we haven't flushed.
   {
-    VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+    VersionSet* const versions = dbfull()->GetVersionSet();
     ASSERT_NE(versions, nullptr);
 
     ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
@@ -509,7 +509,7 @@ TEST_F(DBWALTest, RecoverWithBlobMultiSST) {
     ASSERT_EQ(Get(Key(i)), large_value);
   }
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   ASSERT_NE(versions, nullptr);
 
   ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
