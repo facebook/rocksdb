@@ -83,5 +83,15 @@ int main() {
 
   delete db;
 
+  {
+    WriteBatch wb;
+    struct SimpleChecker {
+      Status operator()(uint32_t, size_t&) const { return Status::OK(); }
+    } checker;
+
+    s = wb.AssignTimestamp("12", checker);
+    assert(s.ok());
+  }
+
   return 0;
 }

@@ -1223,6 +1223,21 @@ Status WriteBatch::PopSavePoint() {
   return Status::OK();
 }
 
+Status WriteBatch::AssignTimestamp(
+    const Slice& ts, std::function<Status(uint32_t, size_t&)> checker) {
+  TimestampAssigner<decltype(checker)> ts_assigner(prot_info_.get(), checker,
+                                                   ts);
+  return Iterate(&ts_assigner);
+}
+
+Status WriteBatch::AssignTimestamps(
+    const std::vector<Slice>& ts_list,
+    std::function<Status(uint32_t, size_t&)> checker) {
+  SimpleListTimestampAssigner<decltype(checker)> ts_assigner(prot_info_.get(),
+                                                             checker, ts_list);
+  return Iterate(&ts_assigner);
+}
+
 class MemTableInserter : public WriteBatch::Handler {
 
   SequenceNumber sequence_;

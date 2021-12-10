@@ -429,18 +429,4 @@ class TimestampAssigner
   const Slice timestamp_;
 };
 
-template <typename Checker>
-Status WriteBatch::AssignTimestamp(const Slice& ts, Checker checker) {
-  TimestampAssigner<Checker> ts_assigner(prot_info_.get(), checker, ts);
-  return Iterate(&ts_assigner);
-}
-
-template <typename Checker>
-Status WriteBatch::AssignTimestamps(const std::vector<Slice>& ts_list,
-                                    Checker checker) {
-  SimpleListTimestampAssigner<Checker> ts_assigner(prot_info_.get(), checker,
-                                                   ts_list);
-  return Iterate(&ts_assigner);
-}
-
 }  // namespace ROCKSDB_NAMESPACE
