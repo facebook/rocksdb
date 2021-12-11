@@ -2057,10 +2057,12 @@ ifneq ($(origin JNI_LIBC), undefined)
   JNI_LIBC_POSTFIX = -$(JNI_LIBC)
 endif
 
+ifeq (,$(ROCKSDBJNILIB))
 ifneq (,$(filter ppc% s390x arm64 aarch64 sparc64, $(MACHINE)))
 	ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE)$(JNI_LIBC_POSTFIX).so
 else
 	ROCKSDBJNILIB = librocksdbjni-linux$(ARCH)$(JNI_LIBC_POSTFIX).so
+endif
 endif
 ROCKSDB_JAVA_VERSION ?= $(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-linux$(ARCH)$(JNI_LIBC_POSTFIX).jar
@@ -2087,7 +2089,9 @@ ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 CURL_SSL_OPTS ?= --tlsv1
 
 ifeq ($(PLATFORM), OS_MACOSX)
+ifeq (,$(findstring librocksdbjni-osx,$(ROCKSDBJNILIB)))
 	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
+endif
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-osx.jar
 	SHA256_CMD = openssl sha256 -r
 ifneq ("$(wildcard $(JAVA_HOME)/include/darwin)","")
@@ -2096,6 +2100,7 @@ else
 	JAVA_INCLUDE = -I/System/Library/Frameworks/JavaVM.framework/Headers/
 endif
 endif
+
 ifeq ($(PLATFORM), OS_FREEBSD)
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/freebsd
 	ROCKSDBJNILIB = librocksdbjni-freebsd$(ARCH).so
@@ -2215,23 +2220,29 @@ endif
 	$(MAKE) rocksdbjavastatic_javalib
 	$(MAKE) rocksdbjavastatic_jar
 
-rocksdbjavastaticosxub:
+rocksdbjavastaticosx: rocksdbjavastaticosx_archs
+	mv java/target/librocksdbjni-osx-x86_64.jnilib java/target/librocksdbjni-osx.jnilib
+	mv java/target/librocksdbjni-osx-arm64.jnilib java/target/librocksdbjni-osx-aarch64.jnilib
+
+rocksdbjavastaticosx_ub: rocksdbjavastaticosx_archs
+	lipo -create -output ./java/target/$(ROCKSDBJNILIB) java/target/librocksdbjni-osx-x86_64.jnilib java/target/librocksdbjni-osx-arm64.jnilib
+	$(MAKE) rocksdbjavastatic_jar
+
+rocksdbjavastaticosx_archs: 
+	$(MAKE) clean-ext-libraries-bin 
+	$(MAKE) clean-rocks
+	$(MAKE) rocksdbjavastaticosx_arch_x86_64
+	$(MAKE) clean-ext-libraries-bin 
+	$(MAKE) clean-rocks
+	$(MAKE) rocksdbjavastaticosx_arch_arm64
+
+rocksdbjavastaticosx_arch_%:
 ifeq ($(JAVA_HOME),)
 	$(error JAVA_HOME is not set)
 endif
-	$(MAKE) clean-ext-libraries-bin clean-rocks
-	$(MAKE) rocksdbjavastaticosx_x86_64
-	mv java/target/$(ROCKSDBJNILIB) java/target/$(ROCKSDBJNILIB)_x86_64
-	$(MAKE) clean-ext-libraries-bin clean-rocks
-	$(MAKE) rocksdbjavastaticosx_arm64
-	mv java/target/$(ROCKSDBJNILIB) java/target/$(ROCKSDBJNILIB)_arm64
-	lipo -create -output ./java/target/$(ROCKSDBJNILIB) ./java/target/$(ROCKSDBJNILIB)_x86_64 ./java/target/$(ROCKSDBJNILIB)_arm64
-	$(MAKE) rocksdbjavastatic_jar
-
-rocksdbjavastaticosx_%:
 	CXXFLAGS="$(CXXFLAGS)" ARCHFLAG="-arch $*" $(MAKE) rocksdbjavastatic_deps
 	CXXFLAGS="-arch $* $(CXXFLAGS)" $(MAKE) rocksdbjavastatic_libobjects
-	CXXFLAGS="-arch $* $(CXXFLAGS)" $(MAKE) rocksdbjavastatic_javalib
+	CXXFLAGS="-arch $* $(CXXFLAGS)" ROCKSDBJNILIB="librocksdbjni-osx-$*.jnilib" $(MAKE) rocksdbjavastatic_javalib
 
 ifeq ($(JAR_CMD),)
 ifneq ($(JAVA_HOME),)
@@ -2265,14 +2276,14 @@ rocksdbjavastatic_deps: $(JAVA_COMPRESSIONS)
 
 rocksdbjavastatic_libobjects: $(LIB_OBJECTS)
 
-rocksdbjavastaticrelease: rocksdbjavastaticosxub
+rocksdbjavastaticrelease: rocksdbjavastaticosx
 	cd java/crossbuild && (vagrant destroy -f || true) && vagrant up linux32 && vagrant halt linux32 && vagrant up linux64 && vagrant halt linux64 && vagrant up linux64-musl && vagrant halt linux64-musl
 	cd java; $(JAR_CMD) -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
 	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
 	openssl sha1 java/target/$(ROCKSDB_JAR_ALL) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAR_ALL).sha1
 
-rocksdbjavastaticreleasedocker: rocksdbjavastaticosxub rocksdbjavastaticdockerx86 rocksdbjavastaticdockerx86_64 rocksdbjavastaticdockerx86musl rocksdbjavastaticdockerx86_64musl
+rocksdbjavastaticreleasedocker: rocksdbjavastaticosx rocksdbjavastaticdockerx86 rocksdbjavastaticdockerx86_64 rocksdbjavastaticdockerx86musl rocksdbjavastaticdockerx86_64musl
 	cd java; $(JAR_CMD) -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
 	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
