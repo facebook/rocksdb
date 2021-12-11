@@ -527,6 +527,7 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
           // data. Therefore, clear the buf_ at the WritableFileWriter layer
           // and let caller determine error handling.
           buf_.Size(0);
+          buffered_data_crc32c_checksum_ = 0;
         }
         SetPerfLevel(prev_perf_level);
       }
@@ -625,6 +626,7 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(const char* data,
       // data. Therefore, clear the buf_ at the WritableFileWriter layer
       // and let caller determine error handling.
       buf_.Size(0);
+      buffered_data_crc32c_checksum_ = 0;
       return s;
     }
   }

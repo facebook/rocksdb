@@ -547,8 +547,7 @@ TEST_P(FaultInjectionTest, WriteBatchWalTerminationTest) {
 }
 
 TEST_P(FaultInjectionTest, NoDuplicateTrailingEntries) {
-  std::shared_ptr<FaultInjectionTestFS> fault_fs(
-      new FaultInjectionTestFS(FileSystem::Default()));
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
   fault_fs->EnableWriteErrorInjection();
   fault_fs->SetFilesystemDirectWritable(false);
   const std::string file_name = NormalizePath(dbname_ + "/test_file");
@@ -595,7 +594,7 @@ TEST_P(FaultInjectionTest, NoDuplicateTrailingEntries) {
     class LogReporter : public log::Reader::Reporter {
      public:
       Status* status_;
-      LogReporter(Status* _s) : status_(_s) {}
+      explicit LogReporter(Status* _s) : status_(_s) {}
       void Corruption(size_t /*bytes*/, const Status& _s) override {
         if (status_->ok()) {
           *status_ = _s;
