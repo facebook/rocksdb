@@ -59,7 +59,7 @@ versions="${latest_versions[@]}"
 case $myhw in
 c4r16)
   # Options for 4-core, 16g RAM
-  args=( WRITE_BUF_MB=16 SST_MB=16 L1_MB=64 MAX_BG_JOBS=2 )
+  args=( WRITE_BUF_MB=16 SST_MB=16 L1_MB=64 MAX_BG_JOBS=3 )
   cache_mb=$(( 1024 * 12 ))
   nsub=2
   ;;
