@@ -14,9 +14,9 @@ class CountedSequentialFile : public FSSequentialFileOwnerWrapper {
   CountedFileSystem* fs_;
 
  public:
-  CountedSequentialFile(std::unique_ptr<FSSequentialFile>&& target,
+  CountedSequentialFile(std::unique_ptr<FSSequentialFile>&& f,
                         CountedFileSystem* fs)
-      : FSSequentialFileOwnerWrapper(std::move(target)), fs_(fs) {}
+      : FSSequentialFileOwnerWrapper(std::move(f)), fs_(fs) {}
 
   ~CountedSequentialFile() override { fs_->counters()->closes++; }
 
@@ -42,9 +42,9 @@ class CountedRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
   CountedFileSystem* fs_;
 
  public:
-  CountedRandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& target,
+  CountedRandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& f,
                           CountedFileSystem* fs)
-      : FSRandomAccessFileOwnerWrapper(std::move(target)), fs_(fs) {}
+      : FSRandomAccessFileOwnerWrapper(std::move(f)), fs_(fs) {}
 
   ~CountedRandomAccessFile() override { fs_->counters()->closes++; }
 
@@ -72,9 +72,9 @@ class CountedWritableFile : public FSWritableFileOwnerWrapper {
   bool skip_fsync_;
 
  public:
-  CountedWritableFile(std::unique_ptr<FSWritableFile>&& target,
+  CountedWritableFile(std::unique_ptr<FSWritableFile>&& f,
                       CountedFileSystem* fs, bool skip_fsync)
-      : FSWritableFileOwnerWrapper(std::move(target)),
+      : FSWritableFileOwnerWrapper(std::move(f)),
         fs_(fs),
         skip_fsync_(skip_fsync) {}
 
@@ -164,9 +164,9 @@ class CountedRandomRWFile : public FSRandomRWFileOwnerWrapper {
   bool skip_fsync_;
 
  public:
-  CountedRandomRWFile(std::unique_ptr<FSRandomRWFile>&& target,
+  CountedRandomRWFile(std::unique_ptr<FSRandomRWFile>&& f,
                       CountedFileSystem* fs, bool skip_fsync)
-      : FSRandomRWFileOwnerWrapper(std::move(target)),
+      : FSRandomRWFileOwnerWrapper(std::move(f)),
         fs_(fs),
         skip_fsync_(skip_fsync) {}
   IOStatus Write(uint64_t offset, const Slice& data, const IOOptions& options,
