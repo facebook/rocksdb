@@ -548,7 +548,7 @@ jobs:
 
   build-macos-java-static:
     macos:
-      xcode: 11.3.0
+      xcode: 12.4.0
     resource_class: medium
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
@@ -796,6 +796,7 @@ workflows:
       - build-linux-java-static
       - build-macos-java
       - build-macos-java-static
+      - build-macos-java-static-universal
   build-examples:
     jobs:
       - build-examples
