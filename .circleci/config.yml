@@ -62,7 +62,7 @@ commands:
   pre-steps-macos:
       steps:
         - pre-steps:
-            python-version: "3.6.0"
+            python-version: "3.7.8"
 
   post-steps:
     steps:
