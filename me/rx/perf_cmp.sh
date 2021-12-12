@@ -242,6 +242,14 @@ for v in $@ ; do
   echo env "${args_load[@]}" bash b.sh fillseq_disable_wal
   env "${args_load[@]}" bash b.sh fillseq_disable_wal
 
+  if [ -z $UNIV ]; then
+    # Read-only tests but only for leveled because the LSM tree is in a deterministic
+    # state after fillseq. This is here rather than after flush_mt_l0 because the LSM
+    # tree is friendlier to reads after fillseq -- SSTs are fully ordered and non-overlapping
+    # thanks to trivial move.
+    env "${args_nolim[@]}" DURATION=$nsecs_ro bash b.sh readrandom
+  fi
+
   # Write 10% of the keys. The goal is to randomize keys prior to Lmax
   p10=$( echo $nkeys | awk '{ printf "%.0f", $1 / 10.0 }' )
   env "${args_nolim[@]}" WRITES=$p10        bash b.sh overwritesome
