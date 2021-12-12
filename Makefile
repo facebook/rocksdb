@@ -20,7 +20,6 @@ CXXFLAGS += ${EXTRA_CXXFLAGS}
 LDFLAGS += $(EXTRA_LDFLAGS)
 MACHINE ?= $(shell uname -m)
 ARFLAGS = ${EXTRA_ARFLAGS} rs
-STRIPFLAGS = -S -x
 
 # Transform parallel LOG output into something more readable.
 perl_command = perl -n \
@@ -490,6 +489,20 @@ endif
 
 CFLAGS += $(C_WARNING_FLAGS) $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers
+
+ifeq ($(PLATFORM),OS_MACOSX)
+ifneq (,$(findstring -arch arm64,$(CXXFLAGS)))
+CFLAGS := $(filter-out -march=native -DHAVE_SSE42,$(CFLAGS))
+CXXFLAGS := $(filter-out -march=native -DHAVE_SSE42,$(CXXFLAGS))
+$(info Removed flags incompatible with Apple Silicon, new CXXFLAGS = $(CXXFLAGS))
+else
+$(info Not targeting Apple Silicon - letting flags as they are)
+endif
+else
+$(info Not on OSX - letting flags as they are)
+endif
+
+$(info CXXFLAGS computed : $(CXXFLAGS))
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
 
