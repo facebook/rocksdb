@@ -24,6 +24,13 @@ commands:
           command: |
             HOMEBREW_NO_AUTO_UPDATE=1 brew install cmake
 
+  install-jdk8-on-macos:
+    steps:
+      - run:
+          name: Install JDK 8 on macos
+          command: |
+            brew install --cask adoptopenjdk/openjdk/adoptopenjdk8
+
   increase-max-open-files-on-macos:
     steps:
       - run:
@@ -548,7 +555,7 @@ jobs:
 
   build-macos-java-static:
     macos:
-      xcode: 12.4.0
+      xcode: 12.5.1
     resource_class: medium
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
@@ -557,6 +564,7 @@ jobs:
       - install-pyenv-on-macos
       - install-gflags-on-macos
       - install-cmake-on-macos
+      - install-jdk8-on-macos
       - pre-steps-macos
       - run:
           name: "Set Java Environment"
@@ -572,7 +580,7 @@ jobs:
 
   build-macos-java-static-universal:
     macos:
-      xcode: 12.4.0
+      xcode: 12.5.1
     resource_class: medium
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
@@ -581,6 +589,7 @@ jobs:
       - install-pyenv-on-macos
       - install-gflags-on-macos
       - install-cmake-on-macos
+      - install-jdk8-on-macos
       - pre-steps-macos
       - run:
           name: "Set Java Environment"
