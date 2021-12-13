@@ -136,8 +136,7 @@ class Footer {
   Footer() {}
 
   // Deserialize a footer (populate fields) from `input` and check for various
-  // corruptions. On success (and some error cases) `input` is advanced past
-  // the footer. `input_offset` is the offset within the target file of
+  // corruptions. `input_offset` is the offset within the target file of
   // `input` buffer (future use).
   Status DecodeFrom(Slice input, uint64_t input_offset);
 

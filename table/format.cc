@@ -224,16 +224,19 @@ void FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
   assert(IsSupportedFormatVersion(format_version));
 
   char* part2;
+  char* part3;
   if (format_version > 0) {
     slice_ = Slice(data_.data(), Footer::kNewVersionsEncodedLength);
     // Generate parts 1 and 3
     char* cur = data_.data();
     // Part 1
     *(cur++) = checksum_type;
+    // Part 2
     part2 = cur;
     // Skip over part 2 for now
     cur += kFooterPart2Size;
     // Part 3
+    part3 = cur;
     EncodeFixed32(cur, format_version);
     cur += 4;
     EncodeFixed64(cur, magic_number);
@@ -244,7 +247,8 @@ void FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
     assert(checksum_type == kNoChecksum || checksum_type == kCRC32c);
     // Generate part 3 (part 1 empty, skip part 2 for now)
     part2 = data_.data();
-    char* cur = part2 + kFooterPart2Size;
+    part3 = part2 + kFooterPart2Size;
+    char* cur = part3;
     // Use legacy magic numbers to indicate format_version=0, for
     // compatibility. No other cases should use format_version=0.
     EncodeFixed64(cur, DownconvertToLegacyFooterFormat(magic_number));
@@ -253,11 +257,10 @@ void FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
 
   {
     char* cur = part2;
-    char* end = part2 + kFooterPart2Size;
     cur = metaindex_handle.EncodeTo(cur);
     cur = index_handle.EncodeTo(cur);
     // Zero pad remainder
-    std::fill(cur, end, char{0});
+    std::fill(cur, part3, char{0});
   }
 }
 
