@@ -238,7 +238,11 @@ class PosixFileSystem : public FileSystem {
     }
     SetFD_CLOEXEC(fd, &options);
 
-    if (options.use_mmap_reads && sizeof(void*) >= 8) {
+    // Remove 64 bit OS checking. Both 64 and 32 bit OSes use mmap to read files
+    // There is one issue for 32 bit OS if PosixRandomAccessFile is used to read
+    // files - Here is the comments
+    // https://github.com/facebook/rocksdb/issues/9271#issuecomment-991230315
+    if (options.use_mmap_reads) {
       // Use of mmap for random reads has been removed because it
       // kills performance when storage is fast.
       // Use mmap when virtual address-space is plentiful.
