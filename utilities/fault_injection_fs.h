@@ -507,6 +507,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
 
   int read_error_one_in() const { return read_error_one_in_.load(); }
 
+  int write_error_one_in() const { return write_error_one_in_; }
+
   // We capture a backtrace every time a fault is injected, for debugging
   // purposes. This call prints the backtrace to stderr and frees the
   // saved callstack
