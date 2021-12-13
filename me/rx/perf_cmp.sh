@@ -242,14 +242,6 @@ for v in $@ ; do
   echo env "${args_load[@]}" bash b.sh fillseq_disable_wal
   env "${args_load[@]}" bash b.sh fillseq_disable_wal
 
-  if [ -z $UNIV ]; then
-    # Read-only tests but only for leveled because the LSM tree is in a deterministic
-    # state after fillseq. This is here rather than after flush_mt_l0 because the LSM
-    # tree is friendlier to reads after fillseq -- SSTs are fully ordered and non-overlapping
-    # thanks to trivial move.
-    env "${args_nolim[@]}" DURATION=$nsecs_ro bash b.sh readrandom
-  fi
-
   # Write 10% of the keys. The goal is to randomize keys prior to Lmax
   p10=$( echo $nkeys | awk '{ printf "%.0f", $1 / 10.0 }' )
   env "${args_nolim[@]}" WRITES=$p10        bash b.sh overwritesome
@@ -258,6 +250,11 @@ for v in $@ ; do
   if [ -z $UNIV ]; then
     # Flush memtable & L0 to get LSM tree into deterministic state
     env "${args_nolim[@]}"                    bash b.sh flush_mt_l0
+
+    # Read-only tests but only for leveled because the LSM tree is in a deterministic
+    # state after flush_mt_l0.
+    env "${args_nolim[@]}" DURATION=$nsecs_ro bash b.sh readrandom
+    env "${args_nolim[@]}" DURATION=$nsecs_ro bash b.sh fwdrange
   else
     # For universal don't compact L0 as can have too many sorted runs
     # waitforcompaction can hang, see https://github.com/facebook/rocksdb/issues/9275
@@ -269,7 +266,7 @@ for v in $@ ; do
   # Read-only tests
   # Skipping --multiread_batched for now because it isn't supported on older 6.X releases
   # env "${args_lim[@]}" DURATION=$nsecs_ro bash b.sh multireadrandom --multiread_batched
-  # TODO: implement multireadrandomwhilewriting
+  # TODO: replace with multireadrandomwhilewriting when implemented
   env "${args_lim[@]}" DURATION=$nsecs_ro bash b.sh multireadrandom
 
   # Read-mostly tests with a rate-limited writer

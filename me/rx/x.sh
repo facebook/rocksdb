@@ -52,9 +52,9 @@ v6.26.1 \
 
 latest_versions=( v6.26.1 )
 
-#versions="${some_versions[@]}"
+versions="${some_versions[@]}"
 #versions="${all_versions[@]}"
-versions="${latest_versions[@]}"
+#versions="${latest_versions[@]}"
 
 case $myhw in
 c4r16)
@@ -91,6 +91,12 @@ env "${myargs[@]}" bash perf_cmp.sh /data/m/rx $odir ${versions[@]}
 
 # for universal
 
+odir=bm.uc.nt${nthreads}.cm${cm}.d${odirect}.sc${nsub}.tm
+echo universal+subcomp+trivial_move using $odir at $( date )
+myargs=( "${args[@]}" )
+myargs+=( PCT_COMP=80 UNIV=1 SUBCOMP=$nsub UNIV_ALLOW_TRIVIAL_MOVE=1 )
+env "${myargs[@]}" bash perf_cmp.sh /data/m/rx $odir ${versions[@]}
+
 odir=bm.uc.nt${nthreads}.cm${cm}.d${odirect}.tm
 echo universal+trivial_move using $odir at $( date )
 myargs=( "${args[@]}" )
@@ -104,16 +110,9 @@ myargs+=( PCT_COMP=80 UNIV=1 SUBCOMP=$nsub )
 echo env "${myargs[@]}" bash perf_cmp.sh /data/m/rx $odir ${versions[@]}
 env "${myargs[@]}" bash perf_cmp.sh /data/m/rx $odir ${versions[@]}
 
-
 odir=bm.uc.nt${nthreads}.cm${cm}.d${odirect}
 echo universal using $odir at $( date )
 myargs=( "${args[@]}" )
 myargs+=( PCT_COMP=80 UNIV=1 )
-env "${myargs[@]}" bash perf_cmp.sh /data/m/rx $odir ${versions[@]}
-
-odir=bm.uc.nt${nthreads}.cm${cm}.d${odirect}.sc${nsub}.tm
-echo universal+subcomp+trivial_move using $odir at $( date )
-myargs=( "${args[@]}" )
-myargs+=( PCT_COMP=80 UNIV=1 SUBCOMP=$nsub UNIV_ALLOW_TRIVIAL_MOVE=1 )
 env "${myargs[@]}" bash perf_cmp.sh /data/m/rx $odir ${versions[@]}
 
