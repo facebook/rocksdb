@@ -177,7 +177,7 @@ class Env : public Customizable {
   // Deprecated. Will be removed in a major release. Derived classes
   // should implement this method.
   const char* Name() const override { return ""; }
-  
+
   // Loads the environment specified by the input value into the result
   // The CreateFromString alternative should be used; this method may be
   // deprecated in a future release.
@@ -1372,7 +1372,7 @@ class EnvWrapper : public Env {
   // Deprecated. Will be removed in a major release. Derived classes
   // should implement this method.
   const char* Name() const override { return target_.env->Name(); }
-  
+
   // The following text is boilerplate that forwards all methods to target()
   Status RegisterDbPaths(const std::vector<std::string>& paths) override {
     return target_.env->RegisterDbPaths(paths);

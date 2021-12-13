@@ -209,7 +209,6 @@ class PosixClock : public SystemClock {
 
 class PosixEnv : public CompositeEnv {
  public:
-  PosixEnv(const PosixEnv* default_env, const std::shared_ptr<FileSystem>& fs);
   static const char* kClassName() { return "PosixEnv"; }
   const char* Name() const override { return kClassName(); }
   const char* NickName() const override { return kDefaultName(); }
@@ -421,16 +420,6 @@ PosixEnv::PosixEnv()
     thread_pools_[pool_id].SetHostEnv(this);
   }
   thread_status_updater_ = CreateThreadStatusUpdater();
-}
-
-PosixEnv::PosixEnv(const PosixEnv* default_env,
-                   const std::shared_ptr<FileSystem>& fs)
-    : CompositeEnv(fs, default_env->GetSystemClock()),
-      thread_pools_(default_env->thread_pools_),
-      mu_(default_env->mu_),
-      threads_to_join_(default_env->threads_to_join_),
-      allow_non_owner_access_(default_env->allow_non_owner_access_) {
-  thread_status_updater_ = default_env->thread_status_updater_;
 }
 
 void PosixEnv::Schedule(void (*function)(void* arg1), void* arg, Priority pri,

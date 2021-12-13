@@ -57,9 +57,9 @@ static void RegisterSystemEnvs() {
   std::call_once(loaded, [&]() {
     RegisterBuiltinEnvs(*(ObjectLibrary::Default().get()), "");
   });
+#endif  // ROCKSDB_LITE
 }
 
-#endif  // ROCKSDB_LITE
 class LegacySystemClock : public SystemClock {
  private:
   Env* env_;

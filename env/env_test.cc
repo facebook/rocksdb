@@ -2921,12 +2921,14 @@ TEST_F(EnvTest, CreateDefaultEnv) {
   ASSERT_EQ(env, Env::Default());
   ASSERT_EQ(guard, nullptr);
 
+#ifndef ROCKSDB_LITE
   std::string opt_str = env->ToString(options);
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env));
   ASSERT_EQ(env, Env::Default());
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &guard));
   ASSERT_EQ(env, Env::Default());
   ASSERT_EQ(guard, nullptr);
+#endif  // ROCKSDB_LITE
 }
 
 #ifndef ROCKSDB_LITE
@@ -2968,8 +2970,8 @@ TEST_F(EnvTest, CreateMockEnv) {
   guard.reset(MockEnv::Create(Env::Default(), SystemClock::Default()));
   opt_str = guard->ToString(options);
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
-  guard.reset(
-      MockEnv::Create(new WrappedEnv(Env::Default()), SystemClock::Default()));
+  std::unique_ptr<Env> wrapped_env(new WrappedEnv(Env::Default()));
+  guard.reset(MockEnv::Create(wrapped_env.get(), SystemClock::Default()));
   opt_str = guard->ToString(options);
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
   opt_str = copy->ToString(options);
