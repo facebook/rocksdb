@@ -6799,7 +6799,7 @@ TEST_F(DBTest, LargeBlockSizeTest) {
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_OK(Put(0, "foo", "bar"));
   BlockBasedTableOptions table_options;
-  table_options.block_size = 8LL * 1024 * 1024 * 1024LL;
+  table_options.block_size = (size_t)(8LL * 1024 * 1024 * 1024LL);
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
 }
@@ -6942,8 +6942,9 @@ TEST_F(DBTest, MemoryUsageWithMaxWriteBufferSizeToMaintain) {
     if ((size_all_mem_table > cur_active_mem) &&
         (cur_active_mem >=
          static_cast<uint64_t>(options.max_write_buffer_size_to_maintain)) &&
-        (size_all_mem_table > options.max_write_buffer_size_to_maintain +
-                                  options.write_buffer_size)) {
+        (size_all_mem_table >
+         static_cast<uint64_t>(options.max_write_buffer_size_to_maintain) +
+             options.write_buffer_size)) {
       ASSERT_FALSE(memory_limit_exceeded);
       memory_limit_exceeded = true;
     } else {
