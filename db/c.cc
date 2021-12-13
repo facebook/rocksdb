@@ -4737,6 +4737,11 @@ int rocksdb_livefiles_count(
   return static_cast<int>(lf->rep.size());
 }
 
+const char* rocksdb_livefiles_column_family_name(const rocksdb_livefiles_t* lf,
+                                                 int index) {
+  return lf->rep[index].column_family_name.c_str();
+}
+
 const char* rocksdb_livefiles_name(
   const rocksdb_livefiles_t* lf,
   int index) {

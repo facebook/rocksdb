@@ -1271,8 +1271,8 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
     return s;
   }
 
-  // By setting the magic number to kInvalidTableMagicNumber, we can by
-  // pass the magic number check in the footer.
+  // By setting the magic number to kNullTableMagicNumber, we can bypass
+  // the magic number check in the footer.
   std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(
           std::move(file), file_name, nullptr /* env */, io_tracer_,
@@ -1281,7 +1281,7 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   std::unique_ptr<TableProperties> props;
   s = ReadTableProperties(
       file_reader.get(), file_meta->fd.GetFileSize(),
-      Footer::kInvalidTableMagicNumber /* table's magic number */, *ioptions,
+      Footer::kNullTableMagicNumber /* table's magic number */, *ioptions,
       &props);
   if (!s.ok()) {
     return s;
@@ -5385,13 +5385,13 @@ Status VersionSet::WriteCurrentStateToManifest(
       for (int level = 0; level < cfd->NumberLevels(); level++) {
         for (const auto& f :
              cfd->current()->storage_info()->LevelFiles(level)) {
-          edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
-                       f->fd.GetFileSize(), f->smallest, f->largest,
-                       f->fd.smallest_seqno, f->fd.largest_seqno,
-                       f->marked_for_compaction, f->oldest_blob_file_number,
-                       f->oldest_ancester_time, f->file_creation_time,
-                       f->file_checksum, f->file_checksum_func_name,
-                       f->min_timestamp, f->max_timestamp);
+          edit.AddFile(
+              level, f->fd.GetNumber(), f->fd.GetPathId(), f->fd.GetFileSize(),
+              f->smallest, f->largest, f->fd.smallest_seqno,
+              f->fd.largest_seqno, f->marked_for_compaction, f->temperature,
+              f->oldest_blob_file_number, f->oldest_ancester_time,
+              f->file_creation_time, f->file_checksum,
+              f->file_checksum_func_name, f->min_timestamp, f->max_timestamp);
         }
       }
 

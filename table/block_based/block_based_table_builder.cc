@@ -1221,7 +1221,8 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                            CompressionType type,
                                            BlockHandle* handle,
                                            BlockType block_type,
-                                           const Slice* raw_block_contents) {
+                                           const Slice* raw_block_contents,
+                                           bool is_top_level_filter_block) {
   Rep* r = rep_;
   bool is_data_block = block_type == BlockType::kData;
   Status s = Status::OK();
@@ -1262,9 +1263,11 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
       }
       if (warm_cache) {
         if (type == kNoCompression) {
-          s = InsertBlockInCacheHelper(block_contents, handle, block_type);
+          s = InsertBlockInCacheHelper(block_contents, handle, block_type,
+                                       is_top_level_filter_block);
         } else if (raw_block_contents != nullptr) {
-          s = InsertBlockInCacheHelper(*raw_block_contents, handle, block_type);
+          s = InsertBlockInCacheHelper(*raw_block_contents, handle, block_type,
+                                       is_top_level_filter_block);
         }
         if (!s.ok()) {
           r->SetStatus(s);
@@ -1472,12 +1475,12 @@ Status BlockBasedTableBuilder::InsertBlockInCompressedCache(
 
 Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
     const Slice& block_contents, const BlockHandle* handle,
-    BlockType block_type) {
+    BlockType block_type, bool is_top_level_filter_block) {
   Status s;
   if (block_type == BlockType::kData || block_type == BlockType::kIndex) {
     s = InsertBlockInCache<Block>(block_contents, handle, block_type);
   } else if (block_type == BlockType::kFilter) {
-    if (rep_->filter_builder->IsBlockBased()) {
+    if (rep_->filter_builder->IsBlockBased() || is_top_level_filter_block) {
       s = InsertBlockInCache<Block>(block_contents, handle, block_type);
     } else {
       s = InsertBlockInCache<ParsedFullFilterBlock>(block_contents, handle,
@@ -1564,8 +1567,14 @@ void BlockBasedTableBuilder::WriteFilterBlock(
           rep_->filter_builder->Finish(filter_block_handle, &s, &filter_data);
       assert(s.ok() || s.IsIncomplete());
       rep_->props.filter_size += filter_content.size();
+      bool top_level_filter_block = false;
+      if (s.ok() && rep_->table_options.partition_filters &&
+          !rep_->filter_builder->IsBlockBased()) {
+        top_level_filter_block = true;
+      }
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle,
-                    BlockType::kFilter);
+                    BlockType::kFilter, nullptr /*raw_contents*/,
+                    top_level_filter_block);
     }
     rep_->filter_builder->ResetFilterBitsBuilder();
   }
@@ -1735,7 +1744,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     }
 #endif  // !NDEBUG
 
-    const std::string* properties_block_meta = &kPropertiesBlock;
+    const std::string* properties_block_meta = &kPropertiesBlockName;
     TEST_SYNC_POINT_CALLBACK(
         "BlockBasedTableBuilder::WritePropertiesBlock:Meta",
         &properties_block_meta);
@@ -1760,7 +1769,7 @@ void BlockBasedTableBuilder::WriteCompressionDictBlock(
 #endif  // NDEBUG
     }
     if (ok()) {
-      meta_index_builder->Add(kCompressionDictBlock,
+      meta_index_builder->Add(kCompressionDictBlockName,
                               compression_dict_block_handle);
     }
   }
@@ -1772,7 +1781,7 @@ void BlockBasedTableBuilder::WriteRangeDelBlock(
     BlockHandle range_del_block_handle;
     WriteRawBlock(rep_->range_del_block.Finish(), kNoCompression,
                   &range_del_block_handle, BlockType::kRangeDeletion);
-    meta_index_builder->Add(kRangeDelBlock, range_del_block_handle);
+    meta_index_builder->Add(kRangeDelBlockName, range_del_block_handle);
   }
 }
 
@@ -1790,14 +1799,16 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
   // this is guaranteed by BlockBasedTableBuilder's constructor
   assert(r->table_options.checksum == kCRC32c ||
          r->table_options.format_version != 0);
-  Footer footer(
-      legacy ? kLegacyBlockBasedTableMagicNumber : kBlockBasedTableMagicNumber,
-      r->table_options.format_version);
-  footer.set_metaindex_handle(metaindex_block_handle);
-  footer.set_index_handle(index_block_handle);
-  footer.set_checksum(r->table_options.checksum);
+  Footer footer;
+  footer
+      .set_table_magic_number(legacy ? kLegacyBlockBasedTableMagicNumber
+                                     : kBlockBasedTableMagicNumber)
+      .set_format_version(r->table_options.format_version)
+      .set_metaindex_handle(metaindex_block_handle)
+      .set_index_handle(index_block_handle)
+      .set_checksum_type(r->table_options.checksum);
   std::string footer_encoding;
-  footer.EncodeTo(&footer_encoding);
+  footer.EncodeTo(&footer_encoding, r->get_offset());
   assert(ok());
   IOStatus ios = r->file->Append(footer_encoding);
   if (ios.ok()) {

@@ -279,7 +279,7 @@ Status PlainTableBuilder::Finish() {
   if (!s.ok()) {
     return std::move(s);
   }
-  meta_index_builer.Add(kPropertiesBlock, property_block_handle);
+  meta_index_builer.Add(kPropertiesBlockName, property_block_handle);
 
   // -- write metaindex block
   BlockHandle metaindex_block_handle;
@@ -292,11 +292,13 @@ Status PlainTableBuilder::Finish() {
 
   // Write Footer
   // no need to write out new footer if we're using default checksum
-  Footer footer(kLegacyPlainTableMagicNumber, 0);
-  footer.set_metaindex_handle(metaindex_block_handle);
-  footer.set_index_handle(BlockHandle::NullBlockHandle());
+  Footer footer;
+  footer.set_table_magic_number(kLegacyPlainTableMagicNumber)
+      .set_format_version(0)
+      .set_metaindex_handle(metaindex_block_handle)
+      .set_index_handle(BlockHandle::NullBlockHandle());
   std::string footer_encoding;
-  footer.EncodeTo(&footer_encoding);
+  footer.EncodeTo(&footer_encoding, offset_);
   io_status_ = file_->Append(footer_encoding);
   if (io_status_.ok()) {
     offset_ += footer_encoding.size();
