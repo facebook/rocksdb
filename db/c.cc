@@ -88,6 +88,7 @@ using ROCKSDB_NAMESPACE::NewBloomFilterPolicy;
 using ROCKSDB_NAMESPACE::NewCompactOnDeletionCollectorFactory;
 using ROCKSDB_NAMESPACE::NewGenericRateLimiter;
 using ROCKSDB_NAMESPACE::NewLRUCache;
+using ROCKSDB_NAMESPACE::NewRibbonFilterPolicy;
 using ROCKSDB_NAMESPACE::OptimisticTransactionDB;
 using ROCKSDB_NAMESPACE::OptimisticTransactionOptions;
 using ROCKSDB_NAMESPACE::Options;
@@ -2750,6 +2751,25 @@ double rocksdb_options_get_blob_gc_age_cutoff(rocksdb_options_t* opt) {
   return opt->rep.blob_garbage_collection_age_cutoff;
 }
 
+void rocksdb_options_set_blob_gc_force_threshold(rocksdb_options_t* opt,
+                                                 double val) {
+  opt->rep.blob_garbage_collection_force_threshold = val;
+}
+
+double rocksdb_options_get_blob_gc_force_threshold(rocksdb_options_t* opt) {
+  return opt->rep.blob_garbage_collection_force_threshold;
+}
+
+void rocksdb_options_set_blob_compaction_readahead_size(rocksdb_options_t* opt,
+                                                        uint64_t val) {
+  opt->rep.blob_compaction_readahead_size = val;
+}
+
+uint64_t rocksdb_options_get_blob_compaction_readahead_size(
+    rocksdb_options_t* opt) {
+  return opt->rep.blob_compaction_readahead_size;
+}
+
 void rocksdb_options_set_num_levels(rocksdb_options_t* opt, int n) {
   opt->rep.num_levels = n;
 }
@@ -3026,6 +3046,11 @@ void rocksdb_options_set_advise_random_on_open(
 unsigned char rocksdb_options_get_advise_random_on_open(
     rocksdb_options_t* opt) {
   return opt->rep.advise_random_on_open;
+}
+
+void rocksdb_options_set_experimental_mempurge_threshold(rocksdb_options_t* opt,
+                                                         double v) {
+  opt->rep.experimental_mempurge_threshold = v;
 }
 
 void rocksdb_options_set_access_hint_on_compaction_start(
@@ -3834,7 +3859,8 @@ void rocksdb_filterpolicy_destroy(rocksdb_filterpolicy_t* filter) {
   delete filter;
 }
 
-rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(int bits_per_key, bool original_format) {
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(
+    double bits_per_key, bool original_format) {
   // Make a rocksdb_filterpolicy_t, but override all of its methods so
   // they delegate to a NewBloomFilterPolicy() instead of user
   // supplied C functions.
@@ -3869,12 +3895,61 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(int bits_per_ke
   return wrapper;
 }
 
-rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_full(int bits_per_key) {
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_full(
+    double bits_per_key) {
   return rocksdb_filterpolicy_create_bloom_format(bits_per_key, false);
 }
 
-rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(int bits_per_key) {
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(double bits_per_key) {
   return rocksdb_filterpolicy_create_bloom_format(bits_per_key, true);
+}
+
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon_format(
+    double bloom_equivalent_bits_per_key, int bloom_before_level) {
+  // Make a rocksdb_filterpolicy_t, but override all of its methods so
+  // they delegate to a NewRibbonFilterPolicy() instead of user
+  // supplied C functions.
+  struct Wrapper : public rocksdb_filterpolicy_t {
+    const FilterPolicy* rep_;
+    ~Wrapper() override { delete rep_; }
+    const char* Name() const override { return rep_->Name(); }
+    void CreateFilter(const Slice* keys, int n,
+                      std::string* dst) const override {
+      return rep_->CreateFilter(keys, n, dst);
+    }
+    bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
+      return rep_->KeyMayMatch(key, filter);
+    }
+    ROCKSDB_NAMESPACE::FilterBitsBuilder* GetBuilderWithContext(
+        const ROCKSDB_NAMESPACE::FilterBuildingContext& context)
+        const override {
+      return rep_->GetBuilderWithContext(context);
+    }
+    ROCKSDB_NAMESPACE::FilterBitsReader* GetFilterBitsReader(
+        const Slice& contents) const override {
+      return rep_->GetFilterBitsReader(contents);
+    }
+    static void DoNothing(void*) {}
+  };
+  Wrapper* wrapper = new Wrapper;
+  wrapper->rep_ =
+      NewRibbonFilterPolicy(bloom_equivalent_bits_per_key, bloom_before_level);
+  wrapper->state_ = nullptr;
+  wrapper->delete_filter_ = nullptr;
+  wrapper->destructor_ = &Wrapper::DoNothing;
+  return wrapper;
+}
+
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon(
+    double bloom_equivalent_bits_per_key) {
+  return rocksdb_filterpolicy_create_ribbon_format(
+      bloom_equivalent_bits_per_key, /*bloom_before_level = disabled*/ -1);
+}
+
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon_hybrid(
+    double bloom_equivalent_bits_per_key, int bloom_before_level) {
+  return rocksdb_filterpolicy_create_ribbon_format(
+      bloom_equivalent_bits_per_key, bloom_before_level);
 }
 
 rocksdb_mergeoperator_t* rocksdb_mergeoperator_create(
@@ -4828,6 +4903,27 @@ void rocksdb_optimistictransaction_options_set_set_snapshot(
   opt->rep.set_snapshot = v;
 }
 
+char* rocksdb_optimistictransactiondb_property_value(
+    rocksdb_optimistictransactiondb_t* db, const char* propname) {
+  std::string tmp;
+  if (db->rep->GetProperty(Slice(propname), &tmp)) {
+    // We use strdup() since we expect human readable output.
+    return strdup(tmp.c_str());
+  } else {
+    return nullptr;
+  }
+}
+
+int rocksdb_optimistictransactiondb_property_int(
+    rocksdb_optimistictransactiondb_t* db, const char* propname,
+    uint64_t* out_val) {
+  if (db->rep->GetIntProperty(Slice(propname), out_val)) {
+    return 0;
+  } else {
+    return -1;
+  }
+}
+
 rocksdb_column_family_handle_t* rocksdb_transactiondb_create_column_family(
     rocksdb_transactiondb_t* txn_db,
     const rocksdb_options_t* column_family_options,
@@ -4896,6 +4992,27 @@ void rocksdb_transactiondb_release_snapshot(
     rocksdb_transactiondb_t* txn_db, const rocksdb_snapshot_t* snapshot) {
   txn_db->rep->ReleaseSnapshot(snapshot->rep);
   delete snapshot;
+}
+
+char* rocksdb_transactiondb_property_value(rocksdb_transactiondb_t* db,
+                                           const char* propname) {
+  std::string tmp;
+  if (db->rep->GetProperty(Slice(propname), &tmp)) {
+    // We use strdup() since we expect human readable output.
+    return strdup(tmp.c_str());
+  } else {
+    return nullptr;
+  }
+}
+
+int rocksdb_transactiondb_property_int(rocksdb_transactiondb_t* db,
+                                       const char* propname,
+                                       uint64_t* out_val) {
+  if (db->rep->GetIntProperty(Slice(propname), out_val)) {
+    return 0;
+  } else {
+    return -1;
+  }
 }
 
 rocksdb_transaction_t* rocksdb_transaction_begin(
@@ -5300,10 +5417,29 @@ rocksdb_transaction_t* rocksdb_optimistictransaction_begin(
   return old_txn;
 }
 
+// Write batch into OptimisticTransactionDB
+void rocksdb_optimistictransactiondb_write(
+    rocksdb_optimistictransactiondb_t* otxn_db,
+    const rocksdb_writeoptions_t* options, rocksdb_writebatch_t* batch,
+    char** errptr) {
+  SaveError(errptr, otxn_db->rep->Write(options->rep, &batch->rep));
+}
+
 void rocksdb_optimistictransactiondb_close(
     rocksdb_optimistictransactiondb_t* otxn_db) {
   delete otxn_db->rep;
   delete otxn_db;
+}
+
+rocksdb_checkpoint_t* rocksdb_optimistictransactiondb_checkpoint_object_create(
+    rocksdb_optimistictransactiondb_t* otxn_db, char** errptr) {
+  Checkpoint* checkpoint;
+  if (SaveError(errptr, Checkpoint::Create(otxn_db->rep, &checkpoint))) {
+    return nullptr;
+  }
+  rocksdb_checkpoint_t* result = new rocksdb_checkpoint_t;
+  result->rep = checkpoint;
+  return result;
 }
 
 void rocksdb_free(void* ptr) { free(ptr); }

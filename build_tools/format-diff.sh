@@ -38,7 +38,9 @@ if [ "$CLANG_FORMAT_DIFF" ]; then
   fi
 else
   # First try directly executing the possibilities
-  if clang-format-diff.py --help &> /dev/null < /dev/null; then
+  if clang-format-diff --help &> /dev/null < /dev/null; then
+    CLANG_FORMAT_DIFF=clang-format-diff
+  elif clang-format-diff.py --help &> /dev/null < /dev/null; then
     CLANG_FORMAT_DIFF=clang-format-diff.py
   elif $REPO_ROOT/clang-format-diff.py --help &> /dev/null < /dev/null; then
     CLANG_FORMAT_DIFF=$REPO_ROOT/clang-format-diff.py
@@ -120,16 +122,16 @@ uncommitted_code=`git diff HEAD`
 
 # If there's no uncommitted changes, we assume user are doing post-commit
 # format check, in which case we'll try to check the modified lines vs. the
-# facebook/rocksdb.git master branch. Otherwise, we'll check format of the
+# facebook/rocksdb.git main branch. Otherwise, we'll check format of the
 # uncommitted code only.
 if [ -z "$uncommitted_code" ]
 then
   # Attempt to get name of facebook/rocksdb.git remote.
-  [ "$FORMAT_REMOTE" ] || FORMAT_REMOTE="$(git remote -v | grep 'facebook/rocksdb.git' | head -n 1 | cut -f 1)"
+  [ "$FORMAT_REMOTE" ] || FORMAT_REMOTE="$(LC_ALL=POSIX LANG=POSIX git remote -v | grep 'facebook/rocksdb.git' | head -n 1 | cut -f 1)"
   # Fall back on 'origin' if that fails
   [ "$FORMAT_REMOTE" ] || FORMAT_REMOTE=origin
-  # Use master branch from that remote
-  [ "$FORMAT_UPSTREAM" ] || FORMAT_UPSTREAM="$FORMAT_REMOTE/master"
+  # Use main branch from that remote
+  [ "$FORMAT_UPSTREAM" ] || FORMAT_UPSTREAM="$FORMAT_REMOTE/$(LC_ALL=POSIX LANG=POSIX git remote show $FORMAT_REMOTE | sed -n '/HEAD branch/s/.*: //p')"
   # Get the common ancestor with that remote branch. Everything after that
   # common ancestor would be considered the contents of a pull request, so
   # should be relevant for formatting fixes.

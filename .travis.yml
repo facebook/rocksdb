@@ -6,6 +6,7 @@ os:
 arch:
   - arm64
   - ppc64le
+  - s390x
 compiler:
   - gcc
 cache:

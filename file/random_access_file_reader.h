@@ -60,7 +60,23 @@ class RandomAccessFileReader {
     for (auto& listener : listeners_) {
       listener->OnFileReadFinish(info);
     }
+    info.status.PermitUncheckedError();
   }
+
+  void NotifyOnIOError(const IOStatus& io_status, FileOperationType operation,
+                       const std::string& file_path, size_t length,
+                       uint64_t offset) const {
+    if (listeners_.empty()) {
+      return;
+    }
+    IOErrorInfo io_error_info(io_status, operation, file_path, length, offset);
+
+    for (auto& listener : listeners_) {
+      listener->OnIOError(io_error_info);
+    }
+    io_status.PermitUncheckedError();
+  }
+
 #endif  // ROCKSDB_LITE
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
@@ -73,6 +89,7 @@ class RandomAccessFileReader {
   HistogramImpl* file_read_hist_;
   RateLimiter* rate_limiter_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
+  Temperature file_temperature_;
 
  public:
   explicit RandomAccessFileReader(
@@ -82,7 +99,8 @@ class RandomAccessFileReader {
       Statistics* stats = nullptr, uint32_t hist_type = 0,
       HistogramImpl* file_read_hist = nullptr,
       RateLimiter* rate_limiter = nullptr,
-      const std::vector<std::shared_ptr<EventListener>>& listeners = {})
+      const std::vector<std::shared_ptr<EventListener>>& listeners = {},
+      Temperature file_temperature = Temperature::kUnknown)
       : file_(std::move(raf), io_tracer, _file_name),
         file_name_(std::move(_file_name)),
         clock_(clock),
@@ -90,7 +108,8 @@ class RandomAccessFileReader {
         hist_type_(hist_type),
         file_read_hist_(file_read_hist),
         rate_limiter_(rate_limiter),
-        listeners_() {
+        listeners_(),
+        file_temperature_(file_temperature) {
 #ifndef ROCKSDB_LITE
     std::for_each(listeners.begin(), listeners.end(),
                   [this](const std::shared_ptr<EventListener>& e) {

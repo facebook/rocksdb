@@ -97,6 +97,8 @@ class MultiGetContext {
   // that need to be performed
   static const int MAX_BATCH_SIZE = 32;
 
+  static_assert(MAX_BATCH_SIZE < 64, "MAX_BATCH_SIZE cannot exceed 63");
+
   MultiGetContext(autovector<KeyContext*, MAX_BATCH_SIZE>* sorted_keys,
                   size_t begin, size_t num_keys, SequenceNumber snapshot,
                   const ReadOptions& read_opts)
@@ -104,6 +106,7 @@ class MultiGetContext {
         value_mask_(0),
         value_size_(0),
         lookup_key_ptr_(reinterpret_cast<LookupKey*>(lookup_key_stack_buf)) {
+    assert(num_keys <= MAX_BATCH_SIZE);
     if (num_keys > MAX_LOOKUP_KEYS_ON_STACK) {
       lookup_key_heap_buf.reset(new char[sizeof(LookupKey) * num_keys]);
       lookup_key_ptr_ = reinterpret_cast<LookupKey*>(
@@ -158,12 +161,12 @@ class MultiGetContext {
     class Iterator {
      public:
       // -- iterator traits
-      typedef Iterator self_type;
-      typedef KeyContext value_type;
-      typedef KeyContext& reference;
-      typedef KeyContext* pointer;
-      typedef int difference_type;
-      typedef std::forward_iterator_tag iterator_category;
+      using self_type = Iterator;
+      using value_type = KeyContext;
+      using reference = KeyContext&;
+      using pointer = KeyContext*;
+      using difference_type = int;
+      using iterator_category = std::forward_iterator_tag;
 
       Iterator(const Range* range, size_t idx)
           : range_(range), ctx_(range->ctx_), index_(idx) {
@@ -234,6 +237,10 @@ class MultiGetContext {
 
     void SkipKey(const Iterator& iter) {
       skip_mask_ |= uint64_t{1} << iter.index_;
+    }
+
+    bool IsKeySkipped(const Iterator& iter) const {
+      return skip_mask_ & (uint64_t{1} << iter.index_);
     }
 
     // Update the value_mask_ in MultiGetContext so its

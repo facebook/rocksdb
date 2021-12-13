@@ -49,6 +49,7 @@ enum ChecksumType : char {
   kCRC32c = 0x1,
   kxxHash = 0x2,
   kxxHash64 = 0x3,
+  kXXH3 = 0x4,  // Supported since RocksDB 6.27
 };
 
 // `PinningTier` is used to specify which tier of block-based tables should
@@ -117,9 +118,10 @@ struct BlockBasedTableOptions {
   // caching as they should now apply to range tombstone and compression
   // dictionary meta-blocks, in addition to index and filter meta-blocks.
   //
-  // Indicating if we'd put index/filter blocks to the block cache.
-  // If not specified, each "table reader" object will pre-load index/filter
-  // block during table initialization.
+  // Whether to put index/filter blocks in the block cache. When false,
+  // each "table reader" object will pre-load index/filter blocks during
+  // table initialization. Index and filter partition blocks always use
+  // block cache regardless of this option.
   bool cache_index_and_filter_blocks = false;
 
   // If cache_index_and_filter_blocks is enabled, cache index and filter
@@ -190,6 +192,8 @@ struct BlockBasedTableOptions {
     kHashSearch = 0x01,
 
     // A two-level index implementation. Both levels are binary search indexes.
+    // Second level index blocks ("partitions") use block cache even when
+    // cache_index_and_filter_blocks=false.
     kTwoLevelIndexSearch = 0x02,
 
     // Like kBinarySearch, but index also contains first key of each block.
@@ -281,11 +285,31 @@ struct BlockBasedTableOptions {
   // separately
   uint64_t metadata_block_size = 4096;
 
+  // If true, a dynamically updating charge to block cache, loosely based
+  // on the actual memory usage of table building, will occur to account
+  // the memory, if block cache available.
+  //
+  // Charged memory usage includes:
+  // 1. (new) Bloom Filter and Ribbon Filter construction
+  // 2. More to come...
+  //
+  // Note:
+  // 1. (new) Bloom Filter and Ribbon Filter construction
+  //
+  // If additional temporary memory of Ribbon Filter uses up too much memory
+  // relative to the avaible space left in the block cache
+  // at some point (i.e, causing a cache full when strict_capacity_limit =
+  // true), construction will fall back to (new) Bloom Filter.
+  //
+  // Default: false
+  bool reserve_table_builder_memory = false;
+
   // Note: currently this option requires kTwoLevelIndexSearch to be set as
   // well.
   // TODO(myabandeh): remove the note above once the limitation is lifted
   // Use partitioned full filters for each SST file. This option is
-  // incompatible with block-based filters.
+  // incompatible with block-based filters. Filter partition blocks use
+  // block cache even when cache_index_and_filter_blocks=false.
   bool partition_filters = false;
 
   // Option to generate Bloom/Ribbon filters that minimize memory
@@ -464,22 +488,22 @@ struct BlockBasedTableOptions {
   // Default: 256 KB (256 * 1024).
   size_t max_auto_readahead_size = 256 * 1024;
 
-  // If enabled, prepopulate warm/hot data blocks which are already in memory
-  // into block cache at the time of flush. On a flush, the data block that is
-  // in memory (in memtables) get flushed to the device. If using Direct IO,
-  // additional IO is incurred to read this data back into memory again, which
-  // is avoided by enabling this option. This further helps if the workload
-  // exhibits high temporal locality, where most of the reads go to recently
-  // written data. This also helps in case of Distributed FileSystem.
+  // If enabled, prepopulate warm/hot blocks (data, uncompressed dict, index and
+  // filter blocks) which are already in memory into block cache at the time of
+  // flush. On a flush, the block that is in memory (in memtables) get flushed
+  // to the device. If using Direct IO, additional IO is incurred to read this
+  // data back into memory again, which is avoided by enabling this option. This
+  // further helps if the workload exhibits high temporal locality, where most
+  // of the reads go to recently written data. This also helps in case of
+  // Distributed FileSystem.
   //
-  // Right now, this is enabled only for flush for data blocks. We plan to
-  // expand this option to cover compactions in the future and for other types
-  // of blocks.
+  // This parameter can be changed dynamically by
+  // DB::SetOptions({{"block_based_table_factory",
+  //                  "{prepopulate_block_cache=kFlushOnly;}"}}));
   enum class PrepopulateBlockCache : char {
     // Disable prepopulate block cache.
     kDisable,
-    // Prepopulate data blocks during flush only. Plan to extend it to all block
-    // types.
+    // Prepopulate blocks during flush only.
     kFlushOnly,
   };
 

@@ -1676,12 +1676,10 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BIIJ(
   }
 }
 
-inline void multi_get_helper_release_keys(
-    JNIEnv* env, std::vector<std::pair<jbyte*, jobject>>& keys_to_free) {
+inline void multi_get_helper_release_keys(std::vector<jbyte*>& keys_to_free) {
   auto end = keys_to_free.end();
   for (auto it = keys_to_free.begin(); it != end; ++it) {
-    delete[] it->first;
-    env->DeleteLocalRef(it->second);
+    delete[] * it;
   }
   keys_to_free.clear();
 }
@@ -1703,6 +1701,9 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
     jlong* jcfh = env->GetLongArrayElements(jcolumn_family_handles, nullptr);
     if (jcfh == nullptr) {
       // exception thrown: OutOfMemoryError
+      jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+      (env)->ThrowNew(exception_cls,
+                      "Insufficient Memory for CF handle array.");
       return nullptr;
     }
 
@@ -1714,15 +1715,11 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
     env->ReleaseLongArrayElements(jcolumn_family_handles, jcfh, JNI_ABORT);
   }
 
-  const jsize len_keys = env->GetArrayLength(jkeys);
-  if (env->EnsureLocalCapacity(len_keys) != 0) {
-    // exception thrown: OutOfMemoryError
-    return nullptr;
-  }
-
   jint* jkey_off = env->GetIntArrayElements(jkey_offs, nullptr);
   if (jkey_off == nullptr) {
     // exception thrown: OutOfMemoryError
+    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+    (env)->ThrowNew(exception_cls, "Insufficient Memory for key offset array.");
     return nullptr;
   }
 
@@ -1730,18 +1727,24 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
   if (jkey_len == nullptr) {
     // exception thrown: OutOfMemoryError
     env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
+    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+    (env)->ThrowNew(exception_cls, "Insufficient Memory for key length array.");
     return nullptr;
   }
 
+  const jsize len_keys = env->GetArrayLength(jkeys);
   std::vector<ROCKSDB_NAMESPACE::Slice> keys;
-  std::vector<std::pair<jbyte*, jobject>> keys_to_free;
+  std::vector<jbyte*> keys_to_free;
   for (jsize i = 0; i < len_keys; i++) {
     jobject jkey = env->GetObjectArrayElement(jkeys, i);
     if (env->ExceptionCheck()) {
       // exception thrown: ArrayIndexOutOfBoundsException
       env->ReleaseIntArrayElements(jkey_lens, jkey_len, JNI_ABORT);
       env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
-      multi_get_helper_release_keys(env, keys_to_free);
+      multi_get_helper_release_keys(keys_to_free);
+      jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+      (env)->ThrowNew(exception_cls,
+                      "Insufficient Memory for key object array.");
       return nullptr;
     }
 
@@ -1756,14 +1759,18 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
       env->DeleteLocalRef(jkey);
       env->ReleaseIntArrayElements(jkey_lens, jkey_len, JNI_ABORT);
       env->ReleaseIntArrayElements(jkey_offs, jkey_off, JNI_ABORT);
-      multi_get_helper_release_keys(env, keys_to_free);
+      multi_get_helper_release_keys(keys_to_free);
+      jclass exception_cls =
+          (env)->FindClass("java/lang/ArrayIndexOutOfBoundsException");
+      (env)->ThrowNew(exception_cls, "Invalid byte array region index.");
       return nullptr;
     }
 
     ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), len_key);
     keys.push_back(key_slice);
 
-    keys_to_free.push_back(std::pair<jbyte*, jobject>(key, jkey));
+    env->DeleteLocalRef(jkey);
+    keys_to_free.push_back(key);
   }
 
   // cleanup jkey_off and jken_len
@@ -1779,22 +1786,18 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
   }
 
   // free up allocated byte arrays
-  multi_get_helper_release_keys(env, keys_to_free);
+  multi_get_helper_release_keys(keys_to_free);
 
   // prepare the results
   jobjectArray jresults = ROCKSDB_NAMESPACE::ByteJni::new2dByteArray(
       env, static_cast<jsize>(s.size()));
   if (jresults == nullptr) {
     // exception occurred
+    jclass exception_cls = (env)->FindClass("java/lang/OutOfMemoryError");
+    (env)->ThrowNew(exception_cls, "Insufficient Memory for results.");
     return nullptr;
   }
 
-  // TODO(AR) it is not clear to me why EnsureLocalCapacity is needed for the
-  //     loop as we cleanup references with env->DeleteLocalRef(jentry_value);
-  if (env->EnsureLocalCapacity(static_cast<jint>(s.size())) != 0) {
-    // exception thrown: OutOfMemoryError
-    return nullptr;
-  }
   // add to the jresults
   for (std::vector<ROCKSDB_NAMESPACE::Status>::size_type i = 0; i != s.size();
        i++) {
@@ -1926,6 +1929,49 @@ bool key_may_exist_helper(JNIEnv* env, jlong jdb_handle, jlong jcf_handle,
   return exists;
 }
 
+bool key_may_exist_direct_helper(JNIEnv* env, jlong jdb_handle,
+                                 jlong jcf_handle, jlong jread_opts_handle,
+                                 jobject jkey, jint jkey_offset, jint jkey_len,
+                                 bool* has_exception, std::string* value,
+                                 bool* value_found) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
+  if (jcf_handle == 0) {
+    cf_handle = db->DefaultColumnFamily();
+  } else {
+    cf_handle =
+        reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  }
+  ROCKSDB_NAMESPACE::ReadOptions read_opts =
+      jread_opts_handle == 0
+          ? ROCKSDB_NAMESPACE::ReadOptions()
+          : *(reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(
+                jread_opts_handle));
+
+  char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
+  if (key == nullptr) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid key argument (argument is not a valid direct ByteBuffer)");
+    *has_exception = true;
+    return false;
+  }
+  if (env->GetDirectBufferCapacity(jkey) < (jkey_offset + jkey_len)) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid key argument. Capacity is less than requested region (offset "
+        "+ length).");
+    *has_exception = true;
+    return false;
+  }
+
+  ROCKSDB_NAMESPACE::Slice key_slice(key, jkey_len);
+
+  const bool exists =
+      db->KeyMayExist(read_opts, cf_handle, key_slice, value, value_found);
+
+  return exists;
+}
 
 /*
  * Class:     org_rocksdb_RocksDB
@@ -1956,22 +2002,114 @@ jboolean Java_org_rocksdb_RocksDB_keyMayExist(
 
 /*
  * Class:     org_rocksdb_RocksDB
+ * Method:    keyMayExistDirect
+ * Signature: (JJJLjava/nio/ByteBuffer;II)Z
+ */
+jboolean Java_org_rocksdb_RocksDB_keyMayExistDirect(
+    JNIEnv* env, jobject, jlong jdb_handle, jlong jcf_handle,
+    jlong jread_opts_handle, jobject jkey, jint jkey_offset, jint jkey_len) {
+  bool has_exception = false;
+  std::string value;
+  bool value_found = false;
+
+  const bool exists = key_may_exist_direct_helper(
+      env, jdb_handle, jcf_handle, jread_opts_handle, jkey, jkey_offset,
+      jkey_len, &has_exception, &value, &value_found);
+  if (has_exception) {
+    // java exception already raised
+    return false;
+  }
+
+  return static_cast<jboolean>(exists);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    keyMayExistDirectFoundValue
+ * Signature:
+ * (JJJLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;II)[J
+ */
+jintArray Java_org_rocksdb_RocksDB_keyMayExistDirectFoundValue(
+    JNIEnv* env, jobject, jlong jdb_handle, jlong jcf_handle,
+    jlong jread_opts_handle, jobject jkey, jint jkey_offset, jint jkey_len,
+    jobject jval, jint jval_offset, jint jval_len) {
+  char* val_buffer = reinterpret_cast<char*>(env->GetDirectBufferAddress(jval));
+  if (val_buffer == nullptr) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid value argument (argument is not a valid direct ByteBuffer)");
+    return nullptr;
+  }
+
+  if (env->GetDirectBufferCapacity(jval) < (jval_offset + jval_len)) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid value argument. Capacity is less than requested region "
+        "(offset + length).");
+    return nullptr;
+  }
+
+  bool has_exception = false;
+  std::string cvalue;
+  bool value_found = false;
+
+  const bool exists = key_may_exist_direct_helper(
+      env, jdb_handle, jcf_handle, jread_opts_handle, jkey, jkey_offset,
+      jkey_len, &has_exception, &cvalue, &value_found);
+
+  if (has_exception) {
+    // java exception already raised
+    return nullptr;
+  }
+
+  const jint cvalue_len = static_cast<jint>(cvalue.size());
+  const jint length = std::min(jval_len, cvalue_len);
+  memcpy(val_buffer + jval_offset, cvalue.c_str(), length);
+
+  // keep consistent with java KeyMayExistEnum.values()
+  const int kNotExist = 0;
+  const int kExistsWithoutValue = 1;
+  const int kExistsWithValue = 2;
+
+  // TODO fix return value/type
+  // exists/value_found/neither
+  // cvalue_len
+  jintArray jresult = env->NewIntArray(2);
+  const jint jexists =
+      exists ? (value_found ? kExistsWithValue : kExistsWithoutValue)
+             : kNotExist;
+
+  env->SetIntArrayRegion(jresult, 0, 1, &jexists);
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    env->DeleteLocalRef(jresult);
+    return nullptr;
+  }
+  env->SetIntArrayRegion(jresult, 1, 1, &cvalue_len);
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    env->DeleteLocalRef(jresult);
+    return nullptr;
+  }
+
+  return jresult;
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
  * Method:    keyMayExistFoundValue
  * Signature: (JJJ[BII)[[B
  */
 jobjectArray Java_org_rocksdb_RocksDB_keyMayExistFoundValue(
     JNIEnv* env, jobject, jlong jdb_handle, jlong jcf_handle,
-    jlong jread_opts_handle,
-    jbyteArray jkey, jint jkey_offset, jint jkey_len) {
-
+    jlong jread_opts_handle, jbyteArray jkey, jint jkey_offset, jint jkey_len) {
   bool has_exception = false;
   std::string value;
   bool value_found = false;
 
   const bool exists = key_may_exist_helper(
-      env, jdb_handle, jcf_handle, jread_opts_handle,
-      jkey, jkey_offset, jkey_len,
-      &has_exception, &value, &value_found);
+      env, jdb_handle, jcf_handle, jread_opts_handle, jkey, jkey_offset,
+      jkey_len, &has_exception, &value, &value_found);
 
   if (has_exception) {
     // java exception already raised
@@ -2006,12 +2144,12 @@ jobjectArray Java_org_rocksdb_RocksDB_keyMayExistFoundValue(
     env->DeleteLocalRef(jresult_flags);
     return nullptr;
   }
-  
+
   env->SetObjectArrayElement(jresults, 0, jresult_flags);
   if (env->ExceptionCheck()) {
-      // exception thrown: ArrayIndexOutOfBoundsException
-      env->DeleteLocalRef(jresult_flags);
-      return nullptr;
+    // exception thrown: ArrayIndexOutOfBoundsException
+    env->DeleteLocalRef(jresult_flags);
+    return nullptr;
   }
 
   env->DeleteLocalRef(jresult_flags);
@@ -2571,6 +2709,9 @@ void Java_org_rocksdb_RocksDB_setOptions(
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  if (cf_handle == nullptr) {
+    cf_handle = db->DefaultColumnFamily();
+  }
   auto s = db->SetOptions(cf_handle, options_map);
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
@@ -2637,6 +2778,55 @@ void Java_org_rocksdb_RocksDB_setDBOptions(
 
 /*
  * Class:     org_rocksdb_RocksDB
+ * Method:    getOptions
+ * Signature: (JJ)Ljava/lang/String;
+ */
+jstring Java_org_rocksdb_RocksDB_getOptions(JNIEnv* env, jobject,
+                                            jlong jdb_handle,
+                                            jlong jcf_handle) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+
+  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
+  if (jcf_handle == 0) {
+    cf_handle = db->DefaultColumnFamily();
+  } else {
+    cf_handle =
+        reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  }
+
+  auto options = db->GetOptions(cf_handle);
+  std::string options_as_string;
+  ROCKSDB_NAMESPACE::Status s =
+      GetStringFromColumnFamilyOptions(&options_as_string, options);
+  if (!s.ok()) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+    return nullptr;
+  }
+  return env->NewStringUTF(options_as_string.c_str());
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getDBOptions
+ * Signature: (J)Ljava/lang/String;
+ */
+jstring Java_org_rocksdb_RocksDB_getDBOptions(JNIEnv* env, jobject,
+                                              jlong jdb_handle) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+
+  auto options = db->GetDBOptions();
+  std::string options_as_string;
+  ROCKSDB_NAMESPACE::Status s =
+      GetStringFromDBOptions(&options_as_string, options);
+  if (!s.ok()) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+    return nullptr;
+  }
+  return env->NewStringUTF(options_as_string.c_str());
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
  * Method:    compactFiles
  * Signature: (JJJ[Ljava/lang/String;IIJ)[Ljava/lang/String;
  */
@@ -2692,7 +2882,7 @@ jobjectArray Java_org_rocksdb_RocksDB_compactFiles(
 void Java_org_rocksdb_RocksDB_cancelAllBackgroundWork(
         JNIEnv*, jobject, jlong jdb_handle, jboolean jwait) {
     auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-    rocksdb::CancelAllBackgroundWork(db, jwait);
+    ROCKSDB_NAMESPACE::CancelAllBackgroundWork(db, jwait);
 }
 
 /*

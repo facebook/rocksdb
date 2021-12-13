@@ -8,14 +8,18 @@
 #ifndef ROCKSDB_LITE
 
 #include <functional>
+#include <map>
 #include <memory>
-#include <regex>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
 #include "rocksdb/status.h"
+#include "rocksdb/utilities/regex.h"
 
 namespace ROCKSDB_NAMESPACE {
+class Customizable;
 class Logger;
 class ObjectLibrary;
 
@@ -33,6 +37,9 @@ using FactoryFunc =
 // The RegistrarFunc should return the number of objects loaded into this
 // library
 using RegistrarFunc = std::function<int(ObjectLibrary&, const std::string&)>;
+
+template <typename T>
+using ConfigureFunc = std::function<Status(T*)>;
 
 class ObjectLibrary {
  public:
@@ -53,14 +60,23 @@ class ObjectLibrary {
   };                          // End class Entry
 
   // An Entry containing a FactoryFunc for creating new Objects
+  //
+  // !!!!!! WARNING !!!!!!: The implementation currently uses std::regex, which
+  // has terrible performance in some cases, including possible crash due to
+  // stack overflow. See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582
+  // for example. Avoid complicated regexes as much as possible.
   template <typename T>
   class FactoryEntry : public Entry {
    public:
     FactoryEntry(const std::string& name, FactoryFunc<T> f)
-        : Entry(name), pattern_(std::move(name)), factory_(std::move(f)) {}
+        : Entry(name), factory_(std::move(f)) {
+      // FIXME: the API needs to expose this failure mode. For now, bad regexes
+      // will match nothing.
+      Regex::Parse(name, &regex_).PermitUncheckedError();
+    }
     ~FactoryEntry() override {}
     bool matches(const std::string& target) const override {
-      return std::regex_match(target, pattern_);
+      return regex_.Matches(target);
     }
     // Creates a new T object.
     T* NewFactoryObject(const std::string& target, std::unique_ptr<T>* guard,
@@ -69,7 +85,7 @@ class ObjectLibrary {
     }
 
    private:
-    std::regex pattern_;  // The pattern for this entry
+    Regex regex_;  // The pattern for this entry
     FactoryFunc<T> factory_;
   };  // End class FactoryEntry
  public:
@@ -109,6 +125,8 @@ class ObjectLibrary {
   // Adds the input entry to the list for the given type
   void AddEntry(const std::string& type, std::unique_ptr<Entry>& entry);
 
+  // Protects the entry map
+  mutable std::mutex mu_;
   // ** FactoryFunctions for this loader, organized by type
   std::unordered_map<std::string, std::vector<std::unique_ptr<Entry>>> entries_;
 
@@ -130,11 +148,12 @@ class ObjectRegistry {
 
   std::shared_ptr<ObjectLibrary> AddLibrary(const std::string& id) {
     auto library = std::make_shared<ObjectLibrary>(id);
-    libraries_.push_back(library);
+    AddLibrary(library);
     return library;
   }
 
   void AddLibrary(const std::shared_ptr<ObjectLibrary>& library) {
+    std::unique_lock<std::mutex> lock(library_mutex_);
     libraries_.push_back(library);
   }
 
@@ -147,6 +166,9 @@ class ObjectRegistry {
   // Creates a new T using the factory function that was registered with a
   // pattern that matches the provided "target" string according to
   // std::regex_match.
+  //
+  // WARNING: some regexes are problematic for std::regex; see
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582 for example
   //
   // If no registered functions match, returns nullptr. If multiple functions
   // match, the factory function used is unspecified.
@@ -233,6 +255,111 @@ class ObjectRegistry {
     }
   }
 
+  // Sets the object for the given id/type to be the input object
+  // If the registry does not contain this id/type, the object is added and OK
+  // is returned. If the registry contains a different object, an error is
+  // returned. If the registry contains the input object, OK is returned.
+  template <typename T>
+  Status SetManagedObject(const std::shared_ptr<T>& object) {
+    assert(object != nullptr);
+    return SetManagedObject(object->GetId(), object);
+  }
+
+  template <typename T>
+  Status SetManagedObject(const std::string& id,
+                          const std::shared_ptr<T>& object) {
+    const auto c = std::static_pointer_cast<Customizable>(object);
+    return SetManagedObject(T::Type(), id, c);
+  }
+
+  // Returns the object for the given id, if one exists.
+  // If the object is not found in the registry, a nullptr is returned
+  template <typename T>
+  std::shared_ptr<T> GetManagedObject(const std::string& id) const {
+    auto c = GetManagedObject(T::Type(), id);
+    return std::static_pointer_cast<T>(c);
+  }
+
+  // Returns the set of managed objects found in the registry matching
+  // the input type and ID.
+  // If the input id is not empty, then only objects of that class
+  // (IsInstanceOf(id)) will be returned (for example, only return LRUCache
+  // objects) If the input id is empty, then all objects of that type (all Cache
+  // objects)
+  template <typename T>
+  Status ListManagedObjects(const std::string& id,
+                            std::vector<std::shared_ptr<T>>* results) const {
+    std::vector<std::shared_ptr<Customizable>> customizables;
+    results->clear();
+    Status s = ListManagedObjects(T::Type(), id, &customizables);
+    if (s.ok()) {
+      for (const auto& c : customizables) {
+        results->push_back(std::static_pointer_cast<T>(c));
+      }
+    }
+    return s;
+  }
+
+  template <typename T>
+  Status ListManagedObjects(std::vector<std::shared_ptr<T>>* results) const {
+    return ListManagedObjects("", results);
+  }
+
+  // Creates a new ManagedObject in the registry for the id if one does not
+  // currently exist.  If an object with that ID already exists, the current
+  // object is returned.
+  //
+  // The ID is the identifier of the object to be returned/created and returned
+  // in result
+  // If a new object is created (using the object factories), the cfunc
+  // parameter will be invoked to configure the new object.
+  template <typename T>
+  Status GetOrCreateManagedObject(const std::string& id,
+                                  std::shared_ptr<T>* result,
+                                  const ConfigureFunc<T>& cfunc = nullptr) {
+    if (parent_ != nullptr) {
+      auto object = parent_->GetManagedObject(T::Type(), id);
+      if (object != nullptr) {
+        *result = std::static_pointer_cast<T>(object);
+        return Status::OK();
+      }
+    }
+    {
+      std::unique_lock<std::mutex> lock(objects_mutex_);
+      auto key = ToManagedObjectKey(T::Type(), id);
+      auto iter = managed_objects_.find(key);
+      if (iter != managed_objects_.end()) {
+        auto object = iter->second.lock();
+        if (object != nullptr) {
+          *result = std::static_pointer_cast<T>(object);
+          return Status::OK();
+        }
+      }
+      std::shared_ptr<T> object;
+      Status s = NewSharedObject(id, &object);
+      if (s.ok() && cfunc != nullptr) {
+        s = cfunc(object.get());
+      }
+      if (s.ok()) {
+        auto c = std::static_pointer_cast<Customizable>(object);
+        if (id != c->Name()) {
+          // If the ID is not the base name of the class, add the new
+          // object under the input ID
+          managed_objects_[key] = c;
+        }
+        if (id != c->GetId() && c->GetId() != c->Name()) {
+          // If the input and current ID do not match, and the
+          // current ID is not the base bame, add the new object under
+          // its new ID
+          key = ToManagedObjectKey(T::Type(), c->GetId());
+          managed_objects_[key] = c;
+        }
+        *result = object;
+      }
+      return s;
+    }
+  }
+
   // Dump the contents of the registry to the logger
   void Dump(Logger* logger) const;
 
@@ -240,6 +367,24 @@ class ObjectRegistry {
   explicit ObjectRegistry(const std::shared_ptr<ObjectLibrary>& library) {
     libraries_.push_back(library);
   }
+  static std::string ToManagedObjectKey(const std::string& type,
+                                        const std::string& id) {
+    return type + "://" + id;
+  }
+
+  // Returns the Customizable managed object associated with the key (Type/ID).
+  // If not found, nullptr is returned.
+  std::shared_ptr<Customizable> GetManagedObject(const std::string& type,
+                                                 const std::string& id) const;
+  Status ListManagedObjects(
+      const std::string& type, const std::string& pattern,
+      std::vector<std::shared_ptr<Customizable>>* results) const;
+  // Sets the managed object associated with the key (Type/ID) to c.
+  // If the named managed object does not exist, the object is added and OK is
+  // returned If the object exists and is the same as c, OK is returned
+  // Otherwise, an error status is returned.
+  Status SetManagedObject(const std::string& type, const std::string& id,
+                          const std::shared_ptr<Customizable>& c);
 
   const ObjectLibrary::Entry* FindEntry(const std::string& type,
                                         const std::string& name) const;
@@ -248,7 +393,10 @@ class ObjectRegistry {
   // The libraries are searched in reverse order (back to front) when
   // searching for entries.
   std::vector<std::shared_ptr<ObjectLibrary>> libraries_;
+  std::map<std::string, std::weak_ptr<Customizable>> managed_objects_;
   std::shared_ptr<ObjectRegistry> parent_;
+  mutable std::mutex objects_mutex_;  // Mutex for managed objects
+  mutable std::mutex library_mutex_;  // Mutex for managed libraries
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

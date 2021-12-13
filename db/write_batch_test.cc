@@ -116,7 +116,7 @@ static std::string PrintContents(WriteBatch* b,
           break;
       }
       state.append("@");
-      state.append(NumberToString(ikey.sequence));
+      state.append(ToString(ikey.sequence));
     }
     EXPECT_OK(iter->status());
   }

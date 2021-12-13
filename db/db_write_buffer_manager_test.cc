@@ -17,7 +17,7 @@ class DBWriteBufferManagerTest : public DBTestBase,
                                  public testing::WithParamInterface<bool> {
  public:
   DBWriteBufferManagerTest()
-      : DBTestBase("/db_write_buffer_manager_test", /*env_do_fsync=*/false) {}
+      : DBTestBase("db_write_buffer_manager_test", /*env_do_fsync=*/false) {}
   bool cost_cache_;
 };
 
@@ -784,14 +784,6 @@ INSTANTIATE_TEST_CASE_P(DBWriteBufferManagerTest, DBWriteBufferManagerTest,
                         testing::Bool());
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
-}
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

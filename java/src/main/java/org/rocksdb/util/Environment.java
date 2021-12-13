@@ -106,7 +106,7 @@ public class Environment {
       if (isPowerPC() || isAarch64()) {
         return String.format("%sjni-linux-%s%s", name, ARCH, getLibcPostfix());
       } else if (isS390x()) {
-        return String.format("%sjni-linux%s", name, ARCH);
+        return String.format("%sjni-linux-%s", name, ARCH);
       } else {
         return String.format("%sjni-linux%s%s", name, arch, getLibcPostfix());
       }

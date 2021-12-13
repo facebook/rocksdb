@@ -12,6 +12,7 @@
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
+#include "db/event_helpers.h"
 #include "db/version_set.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
@@ -36,13 +37,14 @@ BlobFileBuilder::BlobFileBuilder(
     Env::WriteLifeTimeHint write_hint,
     const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCompletionCallback* blob_callback,
+    BlobFileCreationReason creation_reason,
     std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, fs,
                       immutable_options, mutable_cf_options, file_options,
                       job_id, column_family_id, column_family_name, io_priority,
-                      write_hint, io_tracer, blob_callback, blob_file_paths,
-                      blob_file_additions) {}
+                      write_hint, io_tracer, blob_callback, creation_reason,
+                      blob_file_paths, blob_file_additions) {}
 
 BlobFileBuilder::BlobFileBuilder(
     std::function<uint64_t()> file_number_generator, FileSystem* fs,
@@ -53,6 +55,7 @@ BlobFileBuilder::BlobFileBuilder(
     Env::WriteLifeTimeHint write_hint,
     const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCompletionCallback* blob_callback,
+    BlobFileCreationReason creation_reason,
     std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : file_number_generator_(std::move(file_number_generator)),
@@ -69,6 +72,7 @@ BlobFileBuilder::BlobFileBuilder(
       write_hint_(write_hint),
       io_tracer_(io_tracer),
       blob_callback_(blob_callback),
+      creation_reason_(creation_reason),
       blob_file_paths_(blob_file_paths),
       blob_file_additions_(blob_file_additions),
       blob_count_(0),
@@ -161,6 +165,11 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   std::string blob_file_path =
       BlobFileName(immutable_options_->cf_paths.front().path, blob_file_number);
 
+  if (blob_callback_) {
+    blob_callback_->OnBlobFileCreationStarted(
+        blob_file_path, column_family_name_, job_id_, creation_reason_);
+  }
+
   std::unique_ptr<FSWritableFile> file;
 
   {
@@ -191,7 +200,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
       immutable_options_->clock, io_tracer_, statistics,
       immutable_options_->listeners,
       immutable_options_->file_checksum_gen_factory.get(),
-      tmp_set.Contains(FileType::kBlobFile)));
+      tmp_set.Contains(FileType::kBlobFile), false));
 
   constexpr bool do_flush = false;
 
@@ -228,6 +237,7 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
   assert(blob);
   assert(compressed_blob);
   assert(compressed_blob->empty());
+  assert(immutable_options_);
 
   if (blob_compression_type_ == kNoCompression) {
     return Status::OK();
@@ -242,7 +252,16 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
 
   constexpr uint32_t compression_format_version = 2;
 
-  if (!CompressData(*blob, info, compression_format_version, compressed_blob)) {
+  bool success = false;
+
+  {
+    StopWatch stop_watch(immutable_options_->clock, immutable_options_->stats,
+                         BLOB_DB_COMPRESSION_MICROS);
+    success =
+        CompressData(*blob, info, compression_format_version, compressed_blob);
+  }
+
+  if (!success) {
     return Status::Corruption("Error compressing blob");
   }
 
@@ -295,6 +314,13 @@ Status BlobFileBuilder::CloseBlobFile() {
 
   const uint64_t blob_file_number = writer_->get_log_number();
 
+  if (blob_callback_) {
+    s = blob_callback_->OnBlobFileCompleted(
+        blob_file_paths_->back(), column_family_name_, job_id_,
+        blob_file_number, creation_reason_, s, checksum_value, checksum_method,
+        blob_count_, blob_bytes_);
+  }
+
   assert(blob_file_additions_);
   blob_file_additions_->emplace_back(blob_file_number, blob_count_, blob_bytes_,
                                      std::move(checksum_method),
@@ -306,9 +332,6 @@ Status BlobFileBuilder::CloseBlobFile() {
                  " total blobs, %" PRIu64 " total bytes",
                  column_family_name_.c_str(), job_id_, blob_file_number,
                  blob_count_, blob_bytes_);
-  if (blob_callback_) {
-    s = blob_callback_->OnBlobFileCompleted(blob_file_paths_->back());
-  }
 
   writer_.reset();
   blob_count_ = 0;
@@ -330,15 +353,18 @@ Status BlobFileBuilder::CloseBlobFileIfNeeded() {
   return CloseBlobFile();
 }
 
-void BlobFileBuilder::Abandon() {
+void BlobFileBuilder::Abandon(const Status& s) {
   if (!IsBlobFileOpen()) {
     return;
   }
-
   if (blob_callback_) {
     // BlobFileBuilder::Abandon() is called because of error while writing to
     // Blob files. So we can ignore the below error.
-    blob_callback_->OnBlobFileCompleted(blob_file_paths_->back())
+    blob_callback_
+        ->OnBlobFileCompleted(blob_file_paths_->back(), column_family_name_,
+                              job_id_, writer_->get_log_number(),
+                              creation_reason_, s, "", "", blob_count_,
+                              blob_bytes_)
         .PermitUncheckedError();
   }
 

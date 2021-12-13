@@ -17,6 +17,7 @@
 #include "db/db_iter.h"
 #include "db/read_callback.h"
 #include "db/snapshot_checker.h"
+#include "logging/logging.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/pre_release_callback.h"
@@ -1080,6 +1081,8 @@ SnapshotBackup WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
     *min =
         static_cast_with_check<const SnapshotImpl>(snapshot)->min_uncommitted_;
     *max = static_cast_with_check<const SnapshotImpl>(snapshot)->number_;
+    // A duplicate of the check in EnhanceSnapshot().
+    assert(*min <= *max + 1);
     return kBackedByDBSnapshot;
   } else {
     *min = SmallestUnCommittedSeq();

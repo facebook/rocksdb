@@ -861,13 +861,13 @@ Status CloudEnvImpl::LoadLocalCloudManifest(
     std::unique_ptr<CloudManifest>* cloud_manifest) {
   std::unique_ptr<SequentialFileReader> reader;
   auto cloud_manifest_file_name = CloudManifestFile(dbname);
-  auto s = SequentialFileReader::Create(base_env->GetFileSystem(),
-                                        cloud_manifest_file_name, FileOptions(),
-                                        &reader, nullptr);
-  if (!s.ok()) {
-    return s;
+  Status s = SequentialFileReader::Create(base_env->GetFileSystem(),
+                                          cloud_manifest_file_name,
+                                          FileOptions(), &reader, nullptr);
+  if (s.ok()) {
+    s = CloudManifest::LoadFromLog(std::move(reader), cloud_manifest);
   }
-  return CloudManifest::LoadFromLog(std::move(reader), cloud_manifest);
+  return s;
 }
 
 std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {

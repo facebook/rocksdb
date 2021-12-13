@@ -10,8 +10,8 @@
 #include "rocksdb/rocksdb_namespace.h"
 
 #define ROCKSDB_MAJOR 6
-#define ROCKSDB_MINOR 22
-#define ROCKSDB_PATCH 1
+#define ROCKSDB_MINOR 27
+#define ROCKSDB_PATCH 2
 
 // Do not use these. We made the mistake of declaring macros starting with
 // double underscore. Now we have to live with our choice. We'll deprecate these

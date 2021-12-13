@@ -182,12 +182,21 @@ class MemTableListTest : public testing::Test {
     for (auto& meta : file_metas) {
       file_meta_ptrs.push_back(&meta);
     }
+    std::vector<std::list<std::unique_ptr<FlushJobInfo>>>
+        committed_flush_jobs_info_storage(cf_ids.size());
+    autovector<std::list<std::unique_ptr<FlushJobInfo>>*>
+        committed_flush_jobs_info;
+    for (int i = 0; i < static_cast<int>(cf_ids.size()); ++i) {
+      committed_flush_jobs_info.push_back(
+          &committed_flush_jobs_info_storage[i]);
+    }
+
     InstrumentedMutex mutex;
     InstrumentedMutexLock l(&mutex);
     return InstallMemtableAtomicFlushResults(
         &lists, cfds, mutable_cf_options_list, mems_list, &versions,
-        nullptr /* prep_tracker */, &mutex, file_meta_ptrs, to_delete, nullptr,
-        &log_buffer);
+        nullptr /* prep_tracker */, &mutex, file_meta_ptrs,
+        committed_flush_jobs_info, to_delete, nullptr, &log_buffer);
   }
 };
 

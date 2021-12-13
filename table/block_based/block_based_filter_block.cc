@@ -117,9 +117,10 @@ inline void BlockBasedFilterBlockBuilder::AddPrefix(const Slice& key) {
   }
 }
 
-Slice BlockBasedFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
-                                           Status* status) {
-  // In this impl we ignore BlockHandle
+Slice BlockBasedFilterBlockBuilder::Finish(
+    const BlockHandle& /*tmp*/, Status* status,
+    std::unique_ptr<const char[]>* /* filter_data */) {
+  // In this impl we ignore BlockHandle and filter_data
   *status = Status::OK();
 
   if (!start_.empty()) {
@@ -257,6 +258,7 @@ bool BlockBasedFilterBlockReader::MayMatch(
   const Status s =
       GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
   if (!s.ok()) {
+    IGNORE_STATUS_IF_ERROR(s);
     return true;
   }
 
@@ -315,6 +317,7 @@ std::string BlockBasedFilterBlockReader::ToString() const {
       GetOrReadFilterBlock(false /* no_io */, nullptr /* get_context */,
                            nullptr /* lookup_context */, &filter_block);
   if (!s.ok()) {
+    IGNORE_STATUS_IF_ERROR(s);
     return std::string("Unable to retrieve filter block");
   }
 

@@ -14,26 +14,41 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class Slice;
+struct ConfigOptions;
 
-/*
- * A SliceTransform is a generic pluggable way of transforming one string
- * to another. Its primary use-case is in configuring rocksdb
- * to store prefix blooms by setting prefix_extractor in
- * ColumnFamilyOptions.
- */
-class SliceTransform {
+// A SliceTransform is a generic pluggable way of transforming one string
+// to another. Its primary use-case is in configuring rocksdb
+// to store prefix blooms by setting prefix_extractor in
+// ColumnFamilyOptions.
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
+class SliceTransform : public Customizable {
  public:
   virtual ~SliceTransform(){};
 
   // Return the name of this transformation.
   virtual const char* Name() const = 0;
+  static const char* Type() { return "SliceTransform"; }
+
+  // Creates and configures a new SliceTransform from the input options and id.
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& id,
+                                 std::shared_ptr<const SliceTransform>* result);
+
+  // Returns a string representation of this SliceTransform, representing the ID
+  // and any additional properties
+  std::string AsString() const;
 
   // Extract a prefix from a specified key. This method is called when
   // a key is inserted into the db, and the returned slice is used to
@@ -54,7 +69,7 @@ class SliceTransform {
   // prefix size of 4.
   //
   // Wiki documentation here:
-  // https://github.com/facebook/rocksdb/wiki/Prefix-Seek-API-Changes
+  // https://github.com/facebook/rocksdb/wiki/Prefix-Seek
   //
   virtual bool InDomain(const Slice& key) const = 0;
 
@@ -94,10 +109,15 @@ class SliceTransform {
   }
 };
 
+// The prefix is the first `prefix_len` bytes of the key, and keys shorter
+// then `prefix_len` are not InDomain.
 extern const SliceTransform* NewFixedPrefixTransform(size_t prefix_len);
 
+// The prefix is the first min(length(key),`cap_len`) bytes of the key, and
+// all keys are InDomain.
 extern const SliceTransform* NewCappedPrefixTransform(size_t cap_len);
 
+// Prefix is equal to key. All keys are InDomain.
 extern const SliceTransform* NewNoopTransform();
 
 }  // namespace ROCKSDB_NAMESPACE

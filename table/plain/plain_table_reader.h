@@ -12,7 +12,6 @@
 #include <string>
 #include <stdint.h>
 
-#include "db/dbformat.h"
 #include "file/random_access_file_reader.h"
 #include "memory/arena.h"
 #include "rocksdb/env.h"

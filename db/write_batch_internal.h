@@ -66,7 +66,7 @@ class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
 struct WriteBatch::ProtectionInfo {
   // `WriteBatch` usually doesn't contain a huge number of keys so protecting
   // with a fixed, non-configurable eight bytes per key may work well enough.
-  autovector<ProtectionInfoKVOTC64> entries_;
+  autovector<ProtectionInfoKVOC64> entries_;
 
   size_t GetBytesPerKey() const { return 8; }
 };
@@ -214,7 +214,7 @@ class WriteBatchInternal {
 
   // This write batch includes the latest state that should be persisted. Such
   // state meant to be used only during recovery.
-  static void SetAsLastestPersistentState(WriteBatch* b);
+  static void SetAsLatestPersistentState(WriteBatch* b);
   static bool IsLatestPersistentState(const WriteBatch* b);
 };
 

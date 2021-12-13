@@ -117,7 +117,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * as a delta and baseIterator as a base
    *
    * Updating write batch with the current key of the iterator is not safe.
-   * We strongly recommand users not to do it. It will invalidate the current
+   * We strongly recommend users not to do it. It will invalidate the current
    * key() and value() of the iterator. This invalidation happens even before
    * the write batch update finishes. The state may recover after Next() is
    * called.
@@ -140,7 +140,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * as a delta and baseIterator as a base
    *
    * Updating write batch with the current key of the iterator is not safe.
-   * We strongly recommand users not to do it. It will invalidate the current
+   * We strongly recommend users not to do it. It will invalidate the current
    * key() and value() of the iterator. This invalidation happens even before
    * the write batch update finishes. The state may recover after Next() is
    * called.

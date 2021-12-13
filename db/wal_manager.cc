@@ -37,7 +37,7 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 
 Status WalManager::DeleteFile(const std::string& fname, uint64_t number) {
-  auto s = env_->DeleteFile(db_options_.wal_dir + "/" + fname);
+  auto s = env_->DeleteFile(wal_dir_ + "/" + fname);
   if (s.ok()) {
     MutexLock l(&read_first_record_cache_mutex_);
     read_first_record_cache_.erase(number);
@@ -52,7 +52,7 @@ Status WalManager::GetSortedWalFiles(VectorLogPtr& files) {
   Status s;
   // list wal files in main db dir.
   VectorLogPtr logs;
-  s = GetSortedWalsOfType(db_options_.wal_dir, logs, kAliveLogFile);
+  s = GetSortedWalsOfType(wal_dir_, logs, kAliveLogFile);
   if (!s.ok()) {
     return s;
   }
@@ -65,7 +65,7 @@ Status WalManager::GetSortedWalFiles(VectorLogPtr& files) {
 
   files.clear();
   // list wal files in archive dir.
-  std::string archivedir = ArchivalDirectory(db_options_.wal_dir);
+  std::string archivedir = ArchivalDirectory(wal_dir_);
   Status exists = env_->FileExists(archivedir);
   if (exists.ok()) {
     s = GetSortedWalsOfType(archivedir, files, kArchivedLogFile);
@@ -120,7 +120,7 @@ Status WalManager::GetUpdatesSince(
     return s;
   }
   iter->reset(new TransactionLogIteratorImpl(
-      db_options_.wal_dir, &db_options_, read_options, file_options_, seq,
+      wal_dir_, &db_options_, read_options, file_options_, seq,
       std::move(wal_files), version_set, seq_per_batch_, io_tracer_));
   return (*iter)->status();
 }
@@ -159,7 +159,7 @@ void WalManager::PurgeObsoleteWALFiles() {
 
   purge_wal_files_last_run_ = now_seconds;
 
-  std::string archival_dir = ArchivalDirectory(db_options_.wal_dir);
+  std::string archival_dir = ArchivalDirectory(wal_dir_);
   std::vector<std::string> files;
   s = env_->GetChildren(archival_dir, &files);
   if (!s.ok()) {
@@ -257,8 +257,7 @@ void WalManager::PurgeObsoleteWALFiles() {
 
   for (size_t i = 0; i < files_del_num; ++i) {
     std::string const file_path = archived_logs[i]->PathName();
-    s = DeleteDBFile(&db_options_, db_options_.wal_dir + "/" + file_path,
-                     db_options_.wal_dir, false,
+    s = DeleteDBFile(&db_options_, wal_dir_ + "/" + file_path, wal_dir_, false,
                      /*force_fg=*/!wal_in_db_path_);
     if (!s.ok()) {
       ROCKS_LOG_WARN(db_options_.info_log, "Unable to delete file: %s: %s",
@@ -272,7 +271,7 @@ void WalManager::PurgeObsoleteWALFiles() {
 }
 
 void WalManager::ArchiveWALFile(const std::string& fname, uint64_t number) {
-  auto archived_log_name = ArchivedLogFileName(db_options_.wal_dir, number);
+  auto archived_log_name = ArchivedLogFileName(wal_dir_, number);
   // The sync point below is used in (DBTest,TransactionLogIteratorRace)
   TEST_SYNC_POINT("WalManager::PurgeObsoleteFiles:1");
   Status s = env_->RenameFile(fname, archived_log_name);
@@ -388,7 +387,7 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
   }
   Status s;
   if (type == kAliveLogFile) {
-    std::string fname = LogFileName(db_options_.wal_dir, number);
+    std::string fname = LogFileName(wal_dir_, number);
     s = ReadFirstLine(fname, number, sequence);
     if (!s.ok() && env_->FileExists(fname).ok()) {
       // return any error that is not caused by non-existing file
@@ -398,8 +397,7 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
 
   if (type == kArchivedLogFile || !s.ok()) {
     //  check if the file got moved to archive.
-    std::string archived_file =
-        ArchivedLogFileName(db_options_.wal_dir, number);
+    std::string archived_file = ArchivedLogFileName(wal_dir_, number);
     s = ReadFirstLine(archived_file, number, sequence);
     // maybe the file was deleted from archive dir. If that's the case, return
     // Status::OK(). The caller with identify this as empty file because
@@ -429,7 +427,7 @@ Status WalManager::GetLiveWalFile(uint64_t number,
   Status s;
 
   uint64_t size_bytes;
-  s = env_->GetFileSize(LogFileName(db_options_.wal_dir, number), &size_bytes);
+  s = env_->GetFileSize(LogFileName(wal_dir_, number), &size_bytes);
 
   if (!s.ok()) {
     return s;

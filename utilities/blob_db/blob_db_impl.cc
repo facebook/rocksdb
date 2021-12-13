@@ -177,7 +177,8 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
                     "Failed to create blob_dir %s, status: %s",
                     blob_dir_.c_str(), s.ToString().c_str());
   }
-  s = env_->NewDirectory(blob_dir_, &dir_ent_);
+  s = env_->GetFileSystem()->NewDirectory(blob_dir_, IOOptions(), &dir_ent_,
+                                          nullptr);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log,
                     "Failed to open blob_dir %s, status: %s", blob_dir_.c_str(),
@@ -1913,7 +1914,7 @@ Status BlobDBImpl::SyncBlobFiles() {
     }
   }
 
-  s = dir_ent_->Fsync();
+  s = dir_ent_->FsyncWithDirOptions(IOOptions(), nullptr, DirFsyncOptions());
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log,
                     "Failed to sync blob directory, status: %s",
@@ -2005,7 +2006,9 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
 
   // directory change. Fsync
   if (file_deleted) {
-    Status s = dir_ent_->Fsync();
+    Status s = dir_ent_->FsyncWithDirOptions(
+        IOOptions(), nullptr,
+        DirFsyncOptions(DirFsyncOptions::FsyncReason::kFileDeleted));
     if (!s.ok()) {
       ROCKS_LOG_ERROR(db_options_.info_log, "Failed to sync dir %s: %s",
                       blob_dir_.c_str(), s.ToString().c_str());

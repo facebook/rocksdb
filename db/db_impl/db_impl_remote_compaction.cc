@@ -19,6 +19,8 @@
 #include "util/cast_util.h"
 #include "util/concurrent_task_limiter_impl.h"
 
+#include "logging/logging.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 //

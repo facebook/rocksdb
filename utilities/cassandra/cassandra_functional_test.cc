@@ -6,9 +6,10 @@
 #include <iostream>
 
 #include "db/db_impl/db_impl.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "test_util/testharness.h"
 #include "util/cast_util.h"
 #include "util/random.h"
@@ -317,6 +318,99 @@ TEST_F(CassandraFunctionalTest, CompactionShouldRemoveTombstoneFromPut) {
   ASSERT_OK(store.Compact());
   ASSERT_FALSE(std::get<0>(store.Get("k1")));
 }
+
+#ifndef ROCKSDB_LITE
+TEST_F(CassandraFunctionalTest, LoadMergeOperator) {
+  ConfigOptions config_options;
+  std::shared_ptr<MergeOperator> mo;
+  config_options.ignore_unsupported_options = false;
+
+  ASSERT_NOK(MergeOperator::CreateFromString(
+      config_options, CassandraValueMergeOperator::kClassName(), &mo));
+
+  config_options.registry->AddLibrary("cassandra", RegisterCassandraObjects,
+                                      "cassandra");
+
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options, CassandraValueMergeOperator::kClassName(), &mo));
+  ASSERT_NE(mo, nullptr);
+  ASSERT_STREQ(mo->Name(), CassandraValueMergeOperator::kClassName());
+  mo.reset();
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options,
+      std::string("operands_limit=20;gc_grace_period_in_seconds=42;id=") +
+          CassandraValueMergeOperator::kClassName(),
+      &mo));
+  ASSERT_NE(mo, nullptr);
+  ASSERT_STREQ(mo->Name(), CassandraValueMergeOperator::kClassName());
+  const auto* opts = mo->GetOptions<CassandraOptions>();
+  ASSERT_NE(opts, nullptr);
+  ASSERT_EQ(opts->gc_grace_period_in_seconds, 42);
+  ASSERT_EQ(opts->operands_limit, 20);
+}
+
+TEST_F(CassandraFunctionalTest, LoadCompactionFilter) {
+  ConfigOptions config_options;
+  const CompactionFilter* filter = nullptr;
+  config_options.ignore_unsupported_options = false;
+
+  ASSERT_NOK(CompactionFilter::CreateFromString(
+      config_options, CassandraCompactionFilter::kClassName(), &filter));
+  config_options.registry->AddLibrary("cassandra", RegisterCassandraObjects,
+                                      "cassandra");
+
+  ASSERT_OK(CompactionFilter::CreateFromString(
+      config_options, CassandraCompactionFilter::kClassName(), &filter));
+  ASSERT_NE(filter, nullptr);
+  ASSERT_STREQ(filter->Name(), CassandraCompactionFilter::kClassName());
+  delete filter;
+  filter = nullptr;
+  ASSERT_OK(CompactionFilter::CreateFromString(
+      config_options,
+      std::string(
+          "purge_ttl_on_expiration=true;gc_grace_period_in_seconds=42;id=") +
+          CassandraCompactionFilter::kClassName(),
+      &filter));
+  ASSERT_NE(filter, nullptr);
+  ASSERT_STREQ(filter->Name(), CassandraCompactionFilter::kClassName());
+  const auto* opts = filter->GetOptions<CassandraOptions>();
+  ASSERT_NE(opts, nullptr);
+  ASSERT_EQ(opts->gc_grace_period_in_seconds, 42);
+  ASSERT_TRUE(opts->purge_ttl_on_expiration);
+  delete filter;
+}
+
+TEST_F(CassandraFunctionalTest, LoadCompactionFilterFactory) {
+  ConfigOptions config_options;
+  std::shared_ptr<CompactionFilterFactory> factory;
+
+  config_options.ignore_unsupported_options = false;
+  ASSERT_NOK(CompactionFilterFactory::CreateFromString(
+      config_options, CassandraCompactionFilterFactory::kClassName(),
+      &factory));
+  config_options.registry->AddLibrary("cassandra", RegisterCassandraObjects,
+                                      "cassandra");
+
+  ASSERT_OK(CompactionFilterFactory::CreateFromString(
+      config_options, CassandraCompactionFilterFactory::kClassName(),
+      &factory));
+  ASSERT_NE(factory, nullptr);
+  ASSERT_STREQ(factory->Name(), CassandraCompactionFilterFactory::kClassName());
+  factory.reset();
+  ASSERT_OK(CompactionFilterFactory::CreateFromString(
+      config_options,
+      std::string(
+          "purge_ttl_on_expiration=true;gc_grace_period_in_seconds=42;id=") +
+          CassandraCompactionFilterFactory::kClassName(),
+      &factory));
+  ASSERT_NE(factory, nullptr);
+  ASSERT_STREQ(factory->Name(), CassandraCompactionFilterFactory::kClassName());
+  const auto* opts = factory->GetOptions<CassandraOptions>();
+  ASSERT_NE(opts, nullptr);
+  ASSERT_EQ(opts->gc_grace_period_in_seconds, 42);
+  ASSERT_TRUE(opts->purge_ttl_on_expiration);
+}
+#endif  // ROCKSDB_LITE
 
 } // namespace cassandra
 }  // namespace ROCKSDB_NAMESPACE

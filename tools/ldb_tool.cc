@@ -94,6 +94,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   DropColumnFamilyCommand::Help(ret);
   DBFileDumperCommand::Help(ret);
   InternalDumpCommand::Help(ret);
+  DBLiveFilesMetadataDumperCommand::Help(ret);
   RepairCommand::Help(ret);
   BackupCommand::Help(ret);
   RestoreCommand::Help(ret);

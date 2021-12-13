@@ -327,7 +327,8 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
   }
 
   // Allow some error specific overrides
-  if (new_bg_err == Status::NoSpace()) {
+  if (new_bg_err.subcode() == IOStatus::SubCode::kNoSpace ||
+      new_bg_err.subcode() == IOStatus::SubCode::kSpaceLimit) {
     new_bg_err = OverrideNoSpaceError(new_bg_err, &auto_recovery);
   }
 
@@ -349,7 +350,8 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
     recovery_in_prog_ = true;
 
     // Kick-off error specific recovery
-    if (bg_error_ == Status::NoSpace()) {
+    if (new_bg_err.subcode() == IOStatus::SubCode::kNoSpace ||
+        new_bg_err.subcode() == IOStatus::SubCode::kSpaceLimit) {
       RecoverFromNoSpace();
     }
   }
@@ -392,6 +394,7 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
   if (BackgroundErrorReason::kManifestWrite == reason ||
       BackgroundErrorReason::kManifestWriteNoWAL == reason) {
     // Always returns ok
+    ROCKS_LOG_INFO(db_options_.info_log, "Disabling File Deletions");
     db_->DisableFileDeletionsWithLock().PermitUncheckedError();
   }
 
@@ -403,10 +406,7 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
     // it can directly overwrite any existing bg_error_.
     bool auto_recovery = false;
     Status bg_err(new_bg_io_err, Status::Severity::kUnrecoverableError);
-    bg_error_ = bg_err;
-    if (recovery_in_prog_ && recovery_error_.ok()) {
-      recovery_error_ = bg_err;
-    }
+    CheckAndSetRecoveryAndBGError(bg_err);
     if (bg_error_stats_ != nullptr) {
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT);
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
@@ -465,24 +465,14 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
       // to many small memtable being generated during auto resume, the flush
       // reason is set to kErrorRecoveryRetryFlush.
       Status bg_err(new_bg_io_err, Status::Severity::kSoftError);
-      if (recovery_in_prog_ && recovery_error_.ok()) {
-        recovery_error_ = bg_err;
-      }
-      if (bg_err.severity() > bg_error_.severity()) {
-        bg_error_ = bg_err;
-      }
+      CheckAndSetRecoveryAndBGError(bg_err);
       soft_error_no_bg_work_ = true;
       context.flush_reason = FlushReason::kErrorRecoveryRetryFlush;
       recover_context_ = context;
       return StartRecoverFromRetryableBGIOError(bg_io_err);
     } else {
       Status bg_err(new_bg_io_err, Status::Severity::kHardError);
-      if (recovery_in_prog_ && recovery_error_.ok()) {
-        recovery_error_ = bg_err;
-      }
-      if (bg_err.severity() > bg_error_.severity()) {
-        bg_error_ = bg_err;
-      }
+      CheckAndSetRecoveryAndBGError(bg_err);
       recover_context_ = context;
       return StartRecoverFromRetryableBGIOError(bg_io_err);
     }
@@ -660,7 +650,6 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
   if (recovery_io_error_.ok() && recovery_error_.ok()) {
     return recovery_error_;
   } else {
-    TEST_SYNC_POINT("StartRecoverRetryableBGIOError:RecoverFail");
     return bg_error_;
   }
 #else
@@ -674,7 +663,6 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
 void ErrorHandler::RecoverFromRetryableBGIOError() {
 #ifndef ROCKSDB_LITE
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart");
-  TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart1");
   InstrumentedMutexLock l(db_mutex_);
   if (end_recovery_) {
     return;
@@ -694,8 +682,6 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     recovery_error_ = Status::OK();
     retry_count++;
     Status s = db_->ResumeImpl(context);
-    TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterResume0");
-    TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterResume1");
     if (bg_error_stats_ != nullptr) {
       RecordTick(bg_error_stats_.get(),
                  ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT);
@@ -704,7 +690,6 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         bg_error_.severity() >= Status::Severity::kFatalError) {
       // If DB shutdown in progress or the error severity is higher than
       // Hard Error, stop auto resume and returns.
-      TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverFail0");
       recovery_in_prog_ = false;
       if (bg_error_stats_ != nullptr) {
         RecordInHistogram(bg_error_stats_.get(),
@@ -722,7 +707,6 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
       TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeWait1");
       int64_t wait_until = db_options_.clock->NowMicros() + wait_interval;
       cv_.TimedWait(wait_until);
-      TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterWait0");
     } else {
       // There are three possibility: 1) recover_io_error is set during resume
       // and the error is not retryable, 2) recover is successful, 3) other
@@ -748,7 +732,6 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         }
         return;
       } else {
-        TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverFail1");
         // In this case: 1) recovery_io_error is more serious or not retryable
         // 2) other Non IO recovery_error happens. The auto recovery stops.
         recovery_in_prog_ = false;
@@ -771,6 +754,16 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
 #else
   return;
 #endif
+}
+
+void ErrorHandler::CheckAndSetRecoveryAndBGError(const Status& bg_err) {
+  if (recovery_in_prog_ && recovery_error_.ok()) {
+    recovery_error_ = bg_err;
+  }
+  if (bg_err.severity() > bg_error_.severity()) {
+    bg_error_ = bg_err;
+  }
+  return;
 }
 
 void ErrorHandler::EndAutoRecovery() {
