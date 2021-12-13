@@ -7843,6 +7843,52 @@ jboolean Java_org_rocksdb_WriteOptions_lowPri(
   return reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jhandle)->low_pri;
 }
 
+/*
+ * Class:     org_rocksdb_WriteOptions
+ * Method:    memtableInsertHintPerBatch
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_WriteOptions_memtableInsertHintPerBatch(
+    JNIEnv*, jobject, jlong jhandle) {
+  return reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jhandle)
+      ->memtable_insert_hint_per_batch;
+}
+
+/*
+ * Class:     org_rocksdb_WriteOptions
+ * Method:    setMemtableInsertHintPerBatch
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_WriteOptions_setMemtableInsertHintPerBatch(
+    JNIEnv*, jobject, jlong jhandle, jboolean jmemtable_insert_hint_per_batch) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jhandle)
+      ->memtable_insert_hint_per_batch =
+      static_cast<bool>(jmemtable_insert_hint_per_batch);
+}
+
+/*
+ * Class:     org_rocksdb_WriteOptions
+ * Method:    timestamp
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_WriteOptions_timestamp(JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jhandle);
+  auto& timestamp_slice_handle = opt->timestamp;
+  return reinterpret_cast<jlong>(timestamp_slice_handle);
+}
+
+/*
+ * Class:     org_rocksdb_WriteOptions
+ * Method:    setTimestamp
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_WriteOptions_setTimestamp(JNIEnv*, jobject, jlong jhandle,
+                                                jlong jtimestamp_slice_handle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jhandle);
+  opt->timestamp =
+      reinterpret_cast<ROCKSDB_NAMESPACE::Slice*>(jtimestamp_slice_handle);
+}
+
 /////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::ReadOptions
 

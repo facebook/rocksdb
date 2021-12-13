@@ -5,12 +5,12 @@
 
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.Arrays;
+import java.util.Random;
 import org.junit.ClassRule;
 import org.junit.Test;
-
-import java.util.Random;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 public class WriteOptionsTest {
 
@@ -50,6 +50,17 @@ public class WriteOptionsTest {
       assertThat(writeOptions.lowPri()).isTrue();
       writeOptions.setLowPri(false);
       assertThat(writeOptions.lowPri()).isFalse();
+
+      writeOptions.setMemtableInsertHintPerBatch(true);
+      assertThat(writeOptions.memtableInsertHintPerBatch()).isTrue();
+      writeOptions.setMemtableInsertHintPerBatch(false);
+      assertThat(writeOptions.memtableInsertHintPerBatch()).isFalse();
+
+      Slice timestampSlice = buildRandomSlice();
+      writeOptions.setTimestamp(timestampSlice);
+      assertThat(Arrays.equals(writeOptions.timestamp().data(), timestampSlice.data())).isTrue();
+      writeOptions.setTimestamp(null);
+      assertThat(writeOptions.timestamp()).isNull();
     }
   }
 
@@ -59,11 +70,22 @@ public class WriteOptionsTest {
     origOpts.setDisableWAL(rand.nextBoolean());
     origOpts.setIgnoreMissingColumnFamilies(rand.nextBoolean());
     origOpts.setSync(rand.nextBoolean());
+    origOpts.setMemtableInsertHintPerBatch(true);
+    origOpts.setTimestamp(buildRandomSlice());
     WriteOptions copyOpts = new WriteOptions(origOpts);
     assertThat(origOpts.disableWAL()).isEqualTo(copyOpts.disableWAL());
     assertThat(origOpts.ignoreMissingColumnFamilies()).isEqualTo(
             copyOpts.ignoreMissingColumnFamilies());
     assertThat(origOpts.sync()).isEqualTo(copyOpts.sync());
+    assertThat(origOpts.memtableInsertHintPerBatch())
+        .isEqualTo(copyOpts.memtableInsertHintPerBatch());
+    assertThat(Arrays.equals(origOpts.timestamp().data(), copyOpts.timestamp().data())).isTrue();
   }
 
+  private Slice buildRandomSlice() {
+    final Random rand = new Random();
+    byte[] sliceBytes = new byte[rand.nextInt(100) + 1];
+    rand.nextBytes(sliceBytes);
+    return new Slice(sliceBytes);
+  }
 }
