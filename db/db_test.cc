@@ -2738,7 +2738,10 @@ TEST_P(MultiThreadedDBTest, MultiThreaded) {
     thread[id].state = &mt;
     thread[id].id = id;
     thread[id].multiget_batched = multiget_batched_;
-    env_->StartThread(MTThreadBody, &thread[id]);
+    // Cannot use env_->StartThread because the thread needs to be detached.
+    // There is no function in env_ to detach the thread.
+    // std::thread can be used in multiple OSes
+    std::thread(MTThreadBody, &thread[id]).detach();
   }
 
   // Let them run for a while
@@ -6801,7 +6804,13 @@ TEST_F(DBTest, LargeBlockSizeTest) {
   BlockBasedTableOptions table_options;
   table_options.block_size = (size_t)(8LL * 1024 * 1024 * 1024LL);
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+  // size_t in 32 bit OS is defined as unsigned integer
+  // It cannot make large block size in 32 bit OS
+  if (sizeof(table_options.block_size) >= 8) {
+    ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+  } else {
+    ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+  }
 }
 
 #ifndef ROCKSDB_LITE
