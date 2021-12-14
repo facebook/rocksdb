@@ -53,14 +53,21 @@ class ObjectLibrary {
   // Class for matching target strings to a pattern.
   // Entries consist of a name that starts the pattern and attributes
   // The following attributes can be added to the entry:
-  //   -Suffix: Comparable to [name][suffix]
-  //   -Pattern: Comparable to [name][suffix].+
-  //   -Number: Comparable to [name][suffix].[0-9]+
-  //   -AltName: Comparable to ([name]|[alt])
-  //   -NameOnly: Comparable to ([name][pattern]*
+  //   -Suffix: Comparable to name(pattern)
+  //   -Pattern: Comparable to name(pattern).+
+  //   -Number: Comparable to name(pattern).[0-9]+
+  //   -AltName: Comparable to (name|alt)
+  //   -PatternOptional: Comparable to name(pattern)?
   // Multiple patterns can be combined and cause multiple matches.
   // For example, Pattern("A").AddName("B"),AddPattern("@").AddNumber("#")
   // is roughly equivalent to "(A|B)@.+#.+"
+  //
+  // Note that though this class does provide some regex-style matching,
+  // it is not a full regex parser and has some key differences:
+  //   - Patterns are matched left-most.  For example, an entry
+  //     Name("Hello").AddPattern(" ").AddSuffix("!") would match
+  //     "Hello world!", but not "Hello world!!"
+  //   - No backtracking is necessary, enabling reliably efficient matching
   class PatternEntry : public Entry {
    private:
     enum Quantifier {
@@ -79,10 +86,10 @@ class ObjectLibrary {
       return entry;
     }
 
-    // Creates a new pattern entry for "name".  If name_only is true,
-    // Matches will return true if name==target
-    PatternEntry(const std::string& name, bool name_only = true)
-        : name_(name), name_only_(name_only), plength_(0) {
+    // Creates a new pattern entry for "name".  If pattern_optional is true,
+    // Matches will also return true if name==target
+    explicit PatternEntry(const std::string& name, bool pattern_optional = true)
+        : name_(name), pattern_optional_(pattern_optional), plength_(0) {
       nlength_ = name_.size();
     }
 
@@ -115,8 +122,8 @@ class ObjectLibrary {
       return *this;
     }
 
-    PatternEntry& SetNameOnly(bool b) {
-      name_only_ = b;
+    PatternEntry& SetPatternOptional(bool b) {
+      pattern_optional_ = b;
       return *this;
     }
 
@@ -125,12 +132,16 @@ class ObjectLibrary {
     const char* Name() const override { return name_.c_str(); }
 
    private:
+    size_t MatchPatternAt(size_t start, Quantifier mode,
+                          const std::string& target, size_t tlen,
+                          const std::string& pattern) const;
+
     bool MatchesPattern(const std::string& name, size_t nlen,
                         const std::string& pattern, size_t plen) const;
     std::string name_;                // The base name for this pattern
     size_t nlength_;                  // The length of name_
     std::vector<std::string> names_;  // Alternative names for this pattern
-    bool name_only_;  // Whether to match only the name or patterns are required
+    bool pattern_optional_;  // Whether matching of patterns is required
     size_t plength_;  // The minimum required length to match the patterns
     std::vector<std::pair<std::string, Quantifier>> patterns_;  // What to match
   };  // End class Entry

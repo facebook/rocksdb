@@ -12,53 +12,72 @@
 
 namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
+size_t ObjectLibrary::PatternEntry::MatchPatternAt(
+    size_t start, Quantifier mode, const std::string &target, size_t tlen,
+    const std::string &pattern) const {
+  size_t plen = pattern.size();
+  // See if there is enough space.  If so, find the pattern
+  if (tlen < start + plen) {
+    return std::string::npos;  // not enough space left
+  } else if (mode == kMatchExact) {
+    // Exact mode means the next thing we are looking for is the pattern
+    if (target.compare(start, plen, pattern) != 0) {
+      return std::string::npos;
+    } else {
+      return start + plen;  // Found the pattern, return where we found it
+    }
+  } else {
+    auto pos = start + 1;
+    if (!pattern.empty()) {
+      pos = target.find(pattern, pos);
+    }
+    if (pos == std::string::npos) {
+      return pos;
+    } else if (mode == kMatchNumeric) {
+      // If it is numeric, everything up to the match must be a number
+      while (start < pos) {
+        if (!std::isdigit(target[start++])) {
+          return std::string::npos;
+        }
+      }
+    }
+    return pos + plen;
+  }
+}
+
 bool ObjectLibrary::PatternEntry::MatchesPattern(const std::string &name,
                                                  size_t nlen,
                                                  const std::string &target,
                                                  size_t tlen) const {
-  if (nlen == tlen) {  // The lengths are the same
-    return (name_only_ || patterns_.empty()) && name == target;
-  } else if (patterns_.empty()) {
+  if (patterns_.empty()) {
+    assert(pattern_optional_);  // If there are no patterns, it must be only a
+                                // nmae
     return nlen == tlen && name == target;
+  } else if (nlen == tlen) {  // The lengths are the same
+    return pattern_optional_ && name == target;
   } else if (tlen < nlen + plength_) {
     // The target is not long enough
     return false;
   } else if (target.compare(0, nlen, name) != 0) {
     return false;  // Target does not start with name
   } else {
+    // Loop through all of the patterns one at a time matching them.
+    // Note that we first match the pattern and then its quantifiers.
+    // Since we expect the pattern first, we start with an exact match
+    // Subsequent matches will use the quantifier of the previous pattern
     size_t start = nlen;
     auto mode = kMatchExact;
     for (size_t idx = 0; idx < patterns_.size(); ++idx) {
       const auto &pattern = patterns_[idx];
-      size_t plen = pattern.first.size();
-      if (tlen < start + plen) {
-        return false;  // not enough space left
-      } else if (mode == kMatchExact) {
-        if (target.compare(start, plen, pattern.first) != 0) {
-          return false;
-        } else {
-          start += plen;
-        }
+      start = MatchPatternAt(start, mode, target, tlen, pattern.first);
+      if (start == std::string::npos) {
+        return false;
       } else {
-        auto pos = start + 1;
-        if (!pattern.first.empty()) {
-          pos = target.find(pattern.first, pos);
-        }
-        if (pos == std::string::npos) {
-          return false;
-        } else if (mode == kMatchPattern) {
-          start = pos + plen;
-        } else if (mode == kMatchNumeric) {
-          while (start < pos) {
-            if (!std::isdigit(target[start++])) {
-              return false;
-            }
-          }
-          start += plen;
-        }
+        mode = pattern.second;
       }
-      mode = pattern.second;
     }
+    // We have matched all of the pattern entries.  Now check that what is left
+    // unmatched in the target is acceptable.
     if (mode == kMatchExact) {
       return (start == tlen);
     } else if (start >= tlen) {

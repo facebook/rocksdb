@@ -436,18 +436,16 @@ TEST_F(ObjRegistryTest, TestGetOrCreateManagedObject) {
 class PatternEntryTest : public testing::Test {};
 
 TEST_F(PatternEntryTest, TestSimpleEntry) {
-  ObjectLibrary::PatternEntry entry("A", true);
+  ObjectLibrary::PatternEntry entry("ABC", true);
 
-  ASSERT_TRUE(entry.Matches("A"));
-  ASSERT_FALSE(entry.Matches("AA"));
+  ASSERT_TRUE(entry.Matches("ABC"));
+  ASSERT_FALSE(entry.Matches("AABC"));
+  ASSERT_FALSE(entry.Matches("ABCA"));
+  ASSERT_FALSE(entry.Matches("AABCA"));
   ASSERT_FALSE(entry.Matches("AB"));
-  ASSERT_FALSE(entry.Matches("B"));
-
-  entry.SetNameOnly(false);
-  ASSERT_TRUE(entry.Matches("A"));
-  ASSERT_FALSE(entry.Matches("AA"));
-  ASSERT_FALSE(entry.Matches("AB"));
-  ASSERT_FALSE(entry.Matches("B"));
+  ASSERT_FALSE(entry.Matches("BC"));
+  ASSERT_FALSE(entry.Matches("ABD"));
+  ASSERT_FALSE(entry.Matches("BCA"));
 }
 
 TEST_F(PatternEntryTest, TestPatternEntry) {
@@ -465,7 +463,7 @@ TEST_F(PatternEntryTest, TestPatternEntry) {
   ASSERT_TRUE(entry.Matches("A:B"));
   ASSERT_TRUE(entry.Matches("A:BB"));
 
-  entry.SetNameOnly(true);  // Now matches "A" or "A:+"
+  entry.SetPatternOptional(true);  // Now matches "A" or "A:+"
   ASSERT_TRUE(entry.Matches("A"));
   ASSERT_FALSE(entry.Matches("AA"));
   ASSERT_FALSE(entry.Matches("AB"));
@@ -601,6 +599,7 @@ TEST_F(PatternEntryTest, TestPatternAndSuffix) {
   ASSERT_FALSE(entry.Matches("AB::1##2"));
   ASSERT_FALSE(entry.Matches("AA##1::"));
   ASSERT_TRUE(entry.Matches("AA::1##"));
+  ASSERT_FALSE(entry.Matches("AA::1###"));
 
   ObjectLibrary::PatternEntry entry2("AA", false);
   entry2.AddSuffix("::");
@@ -626,7 +625,7 @@ TEST_F(PatternEntryTest, TestTwoNamesAndPattern) {
   ASSERT_FALSE(entry.Matches("AAA::"));
   ASSERT_FALSE(entry.Matches("BBB::"));
 
-  entry.SetNameOnly(false);
+  entry.SetPatternOptional(false);
   ASSERT_FALSE(entry.Matches("AA"));
   ASSERT_FALSE(entry.Matches("BBB"));
 
