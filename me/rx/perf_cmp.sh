@@ -56,7 +56,11 @@ base_args+=( STATS_INTERVAL_SECONDS=$stats_seconds )
 base_args+=( CACHE_INDEX_AND_FILTER_BLOCKS=$cache_meta )
 
 if [ ! -z $DIRECT_IO ]; then
-  base_flags+=( USE_O_DIRECT=1 )
+  base_args+=( USE_O_DIRECT=1 )
+fi
+
+if [ ! -z $NUMA ]; then
+  base_args+=( NUMACTL=1 )
 fi
 
 if [ ! -z $CACHE_MB ]; then

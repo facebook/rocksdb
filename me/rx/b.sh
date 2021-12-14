@@ -47,6 +47,7 @@ function display_usage() {
   echo -e "\tVALUE_SIZE\t\t\tThe size of the values to use in the benchmark (default: 400 bytes)"
   echo -e "\tBLOCK_SIZE\t\t\tThe size of the database blocks in the benchmark (default: 8 KB)"
   echo -e "\tDB_BENCH_NO_SYNC\t\tDisable fsync on the WAL"
+  echo -e "\tNUMACTL\t\tWhen defined use numactl --interleave=all"
   echo -e "\tNUM_THREADS\t\t\tThe number of threads to use (default: 64)"
   echo -e "\tMB_WRITE_PER_SEC"
   echo -e "\tNUM_NEXTS_PER_SEEK\t\t(default: 10)"
@@ -320,9 +321,15 @@ params_univ_compact="$const_params \
                 --level0_slowdown_writes_trigger=16 \
                 --level0_stop_writes_trigger=20"
 
-function get_time_cmd() {
+function get_cmd() {
   output=$1
-  echo "/usr/bin/time -f '%e %U %S' -o $output"
+
+  numa=""
+  if [ ! -z $NUMACTL ]; then
+    numa="numactl --interleave=all "
+  fi
+
+  echo "/usr/bin/time -f '%e %U %S' -o $output $numa"
 }
 
 function month_to_num() {
@@ -431,7 +438,7 @@ function run_bulkload {
   # client can discover where to restart a load after a crash. I think this is a good way to load.
   echo "Bulk loading $num_keys random keys"
   log_file_name=$output_dir/benchmark_bulkload_fillrandom.log
-  time_cmd=$( get_time_cmd $log_file_name.time )
+  time_cmd=$( get_cmd $log_file_name.time )
   cmd="$time_cmd ./db_bench --benchmarks=fillrandom \
        --use_existing_db=0 \
        --disable_auto_compactions=1 \
@@ -454,7 +461,7 @@ function run_bulkload {
 
   echo "Compacting..."
   log_file_name=$output_dir/benchmark_bulkload_compact.log
-  time_cmd=$( get_time_cmd $log_file_name.time )
+  time_cmd=$( get_cmd $log_file_name.time )
   cmd="$time_cmd ./db_bench --benchmarks=compact \
        --use_existing_db=1 \
        --disable_auto_compactions=1 \
@@ -494,7 +501,7 @@ function run_manual_compaction_worker {
   fi
 
   # Make sure that fillrandom uses the same compaction options as compact.
-  time_cmd=$( get_time_cmd $log_file_name.time )
+  time_cmd=$( get_cmd $log_file_name.time )
   cmd="$time_cmd ./db_bench --benchmarks=fillrandom \
        --use_existing_db=0 \
        --disable_auto_compactions=0 \
@@ -609,7 +616,7 @@ function run_fillseq {
   fi
 
   echo "Loading $num_keys keys sequentially"
-  time_cmd=$( get_time_cmd $log_file_name.time )
+  time_cmd=$( get_cmd $log_file_name.time )
   cmd="$time_cmd ./db_bench --benchmarks=fillseq \
        $params_fillseq \
        $comp_arg \
@@ -651,7 +658,7 @@ function run_lsm {
   fi
 
   log_file_name=$output_dir/benchmark_${job}.log
-  time_cmd=$( get_time_cmd $log_file_name.time )
+  time_cmd=$( get_cmd $log_file_name.time )
   cmd="$time_cmd ./db_bench --benchmarks=$benchmarks \
        --use_existing_db=1 \
        --sync=0 \
@@ -679,7 +686,7 @@ function run_change {
   benchmarks=$3
   echo "Do $num_keys random $output_name"
   log_file_name="$output_dir/benchmark_${output_name}.t${num_threads}.s${syncval}.log"
-  time_cmd=$( get_time_cmd $log_file_name.time )
+  time_cmd=$( get_cmd $log_file_name.time )
   cmd="$time_cmd ./db_bench --benchmarks=$benchmarks \
        --use_existing_db=1 \
        --sync=$syncval \
@@ -703,7 +710,7 @@ function run_change {
 function run_filluniquerandom {
   echo "Loading $num_keys unique keys randomly"
   log_file_name=$output_dir/benchmark_filluniquerandom.log
-  time_cmd=$( get_time_cmd $log_file_name.time )
+  time_cmd=$( get_cmd $log_file_name.time )
   cmd="$time_cmd ./db_bench --benchmarks=filluniquerandom \
        --use_existing_db=0 \
        --sync=0 \
@@ -726,7 +733,7 @@ function run_filluniquerandom {
 function run_readrandom {
   echo "Reading $num_keys random keys"
   log_file_name="${output_dir}/benchmark_readrandom.t${num_threads}.log"
-  time_cmd=$( get_time_cmd $log_file_name.time )
+  time_cmd=$( get_cmd $log_file_name.time )
   cmd="$time_cmd ./db_bench --benchmarks=readrandom \
        --use_existing_db=1 \
        $params_w \
@@ -748,7 +755,7 @@ function run_readrandom {
 function run_multireadrandom {
   echo "Multi-Reading $num_keys random keys"
   log_file_name="${output_dir}/benchmark_multireadrandom.t${num_threads}.log"
-  time_cmd=$( get_time_cmd $log_file_name.time )
+  time_cmd=$( get_cmd $log_file_name.time )
   cmd="$time_cmd ./db_bench --benchmarks=multireadrandom \
        --use_existing_db=1 \
        --threads=$num_threads \
@@ -772,7 +779,7 @@ function run_readwhile {
   operation=$1
   echo "Reading $num_keys random keys while $operation"
   log_file_name="${output_dir}/benchmark_readwhile${operation}.t${num_threads}.log"
-  time_cmd=$( get_time_cmd $log_file_name.time )
+  time_cmd=$( get_cmd $log_file_name.time )
   cmd="$time_cmd ./db_bench --benchmarks=readwhile${operation} \
        --use_existing_db=1 \
        --sync=$syncval \
@@ -798,7 +805,7 @@ function run_rangewhile {
   full_name=$2
   reverse_arg=$3
   log_file_name="${output_dir}/benchmark_${full_name}.t${num_threads}.log"
-  time_cmd=$( get_time_cmd $log_file_name.time )
+  time_cmd=$( get_cmd $log_file_name.time )
   echo "Range scan $num_keys random keys while ${operation} for reverse_iter=${reverse_arg}"
   cmd="$time_cmd ./db_bench --benchmarks=seekrandomwhile${operation} \
        --use_existing_db=1 \
@@ -821,7 +828,7 @@ function run_range {
   full_name=$1
   reverse_arg=$2
   log_file_name="${output_dir}/benchmark_${full_name}.t${num_threads}.log"
-  time_cmd=$( get_time_cmd $log_file_name.time )
+  time_cmd=$( get_cmd $log_file_name.time )
   echo "Range scan $num_keys random keys for reverse_iter=${reverse_arg}"
   cmd="$time_cmd ./db_bench --benchmarks=seekrandom \
        --use_existing_db=1 \
@@ -846,7 +853,7 @@ function run_range {
 function run_randomtransaction {
   echo "..."
   log_file_name=$output_dir/benchmark_randomtransaction.log
-  time_cmd=$( get_time_cmd $log_file_name.time )
+  time_cmd=$( get_cmd $log_file_name.time )
   cmd="$time_cmd ./db_bench $params_r --benchmarks=randomtransaction \
        --num=$num_keys \
        --transaction_db \

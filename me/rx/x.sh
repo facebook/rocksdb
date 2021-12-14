@@ -4,6 +4,8 @@ secs_ro=$3
 nkeys=$4
 nthreads=$5
 odirect=$6
+comp=$7
+numa=$8
 
 dflags=""
 if [ $odirect -eq 1 ]; then
@@ -80,7 +82,11 @@ c16r64)
   exit -1
 esac
 
-args+=( NKEYS=$nkeys CACHE_MB=$cache_mb NSECS=$secs NSECS_RO=$secs_ro MB_WPS=2 NTHREADS=$nthreads COMP_TYPE=lz4 CACHE_META=$cm $dflags )
+args+=( NKEYS=$nkeys CACHE_MB=$cache_mb NSECS=$secs NSECS_RO=$secs_ro MB_WPS=2 NTHREADS=$nthreads COMP_TYPE=$comp CACHE_META=$cm $dflags )
+
+if [ $numa -eq 1 ]; then
+  args+=( NUMA=1 )
+fi
 
 # for leveled
 odir=bm.lc.nt${nthreads}.cm${cm}.d${odirect}
