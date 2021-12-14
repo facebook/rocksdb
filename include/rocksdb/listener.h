@@ -453,6 +453,16 @@ struct ExternalFileIngestionInfo {
   TableProperties table_properties;
 };
 
+// Result of auto background error recovery
+struct BackgroundErrorRecoveryInfo {
+  // The original error that triggered the recovery
+  Status old_bg_error;
+
+  // The final bg_error after all recovery attempts. Status::OK() means
+  // the recovery was successful and the database is fully operational.
+  Status new_bg_error;
+};
+
 struct IOErrorInfo {
   IOErrorInfo(const IOStatus& _io_status, FileOperationType _operation,
               const std::string& _file_path, size_t _length, uint64_t _offset)
@@ -691,11 +701,20 @@ class EventListener : public Customizable {
                                     Status /* bg_error */,
                                     bool* /* auto_recovery */) {}
 
+  // DEPRECATED
   // A callback function for RocksDB which will be called once the database
   // is recovered from read-only mode after an error. When this is called, it
   // means normal writes to the database can be issued and the user can
   // initiate any further recovery actions needed
   virtual void OnErrorRecoveryCompleted(Status /* old_bg_error */) {}
+
+  // A callback function for RocksDB which will be called once the recovery
+  // attempt from a background retryable error is completed. The recovery
+  // may have been successful or not. In either case, the callback is called
+  // with the old and new error. If info.new_bg_error is Status::OK(), that
+  // means the recovery succeeded.
+  virtual void OnErrorRecoveryEnd(const BackgroundErrorRecoveryInfo& /*info*/) {
+  }
 
   // A callback function for RocksDB which will be called before
   // a blob file is being created. It will follow by OnBlobFileCreated after

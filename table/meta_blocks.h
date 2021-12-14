@@ -31,10 +31,10 @@ class RandomAccessFile;
 struct TableProperties;
 
 // Meta block names for metaindex
-extern const std::string kPropertiesBlock;
+extern const std::string kPropertiesBlockName;
 extern const std::string kPropertiesBlockOldName;
-extern const std::string kCompressionDictBlock;
-extern const std::string kRangeDelBlock;
+extern const std::string kCompressionDictBlockName;
+extern const std::string kRangeDelBlockName;
 
 class MetaIndexBuilder {
  public:

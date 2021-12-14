@@ -20,6 +20,7 @@
 #include "table/block_based/filter_block.h"
 #include "table/block_based/uncompression_dict_reader.h"
 #include "table/format.h"
+#include "table/persistent_cache_options.h"
 #include "table/table_properties_internal.h"
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"

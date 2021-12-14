@@ -569,7 +569,6 @@ ifdef ASSERT_STATUS_CHECKED
 	# TODO: finish fixing all tests to pass this check
 	TESTS_FAILING_ASC = \
 		c_test \
-		db_test \
 		env_test \
 		range_locking_test \
 		testutil_test \

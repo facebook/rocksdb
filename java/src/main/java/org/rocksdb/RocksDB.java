@@ -4651,7 +4651,7 @@ public class RocksDB extends RocksObject {
     return rangeSliceHandles;
   }
 
-  protected void storeOptionsInstance(DBOptionsInterface options) {
+  protected void storeOptionsInstance(DBOptionsInterface<?> options) {
     options_ = options;
   }
 
@@ -4974,7 +4974,7 @@ public class RocksDB extends RocksObject {
 
   private native static int version();
 
-  protected DBOptionsInterface options_;
+  protected DBOptionsInterface<?> options_;
   private static Version version;
 
   public static class Version {

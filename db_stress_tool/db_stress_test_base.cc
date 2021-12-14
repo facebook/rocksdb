@@ -307,6 +307,15 @@ void StressTest::FinishInitDb(SharedState* shared) {
     fprintf(stdout, "Compaction filter factory: %s\n",
             compaction_filter_factory->Name());
   }
+  // TODO(ajkr): First restore if there's already a trace.
+  if (FLAGS_sync_fault_injection && IsStateTracked()) {
+    Status s = shared->SaveAtAndAfter(db_);
+    if (!s.ok()) {
+      fprintf(stderr, "Error enabling history tracing: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
+  }
 }
 
 bool StressTest::VerifySecondaries() {
@@ -2227,6 +2236,9 @@ void StressTest::Open() {
         FLAGS_optimize_filters_for_memory;
     block_based_options.index_type =
         static_cast<BlockBasedTableOptions::IndexType>(FLAGS_index_type);
+    block_based_options.prepopulate_block_cache =
+        static_cast<BlockBasedTableOptions::PrepopulateBlockCache>(
+            FLAGS_prepopulate_block_cache);
     options_.table_factory.reset(
         NewBlockBasedTableFactory(block_based_options));
     options_.db_write_buffer_size = FLAGS_db_write_buffer_size;
@@ -2790,6 +2802,15 @@ void StressTest::Reopen(ThreadState* thread) {
   fprintf(stdout, "%s Reopening database for the %dth time\n",
           clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
   Open();
+
+  if (FLAGS_sync_fault_injection && IsStateTracked()) {
+    Status s = thread->shared->SaveAtAndAfter(db_);
+    if (!s.ok()) {
+      fprintf(stderr, "Error enabling history tracing: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
+  }
 }
 
 void StressTest::CheckAndSetOptionsForUserTimestamp() {
