@@ -65,6 +65,9 @@ class StressTest {
 
   virtual bool ShouldAcquireMutexOnKey() const { return false; }
 
+  // Returns true if DB state is tracked by the stress test.
+  virtual bool IsStateTracked() const = 0;
+
   virtual std::vector<int> GenerateColumnFamilies(
       const int /* num_column_families */, int rand_column_family) const {
     return {rand_column_family};

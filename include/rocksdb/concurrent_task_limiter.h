@@ -9,11 +9,16 @@
 
 #pragma once
 
-#include "rocksdb/env.h"
-#include "rocksdb/statistics.h"
+#include <stdint.h>
+
+#include <string>
+
+#include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 
+// This is NOT an extensible interface but a public interface for result of
+// NewConcurrentTaskLimiter. Any derived classes must be RocksDB internal.
 class ConcurrentTaskLimiter {
  public:
   virtual ~ConcurrentTaskLimiter() {}

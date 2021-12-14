@@ -17,6 +17,8 @@
 #include <vector>
 
 #include "rocksdb/env.h"
+#include "rocksdb/io_status.h"
+#include "rocksdb/metadata.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
@@ -76,6 +78,9 @@ struct BackupEngineOptions {
 
   // Max bytes that can be transferred in a second during backup.
   // If 0, go as fast as you can
+  // This limit only applies to writes. To also limit reads,
+  // a rate limiter able to also limit reads (e.g, its mode = kAllIo)
+  // have to be passed in through the option "backup_rate_limiter"
   // Default: 0
   uint64_t backup_rate_limit;
 
@@ -86,6 +91,9 @@ struct BackupEngineOptions {
 
   // Max bytes that can be transferred in a second during restore.
   // If 0, go as fast as you can
+  // This limit only applies to writes. To also limit reads,
+  // a rate limiter able to also limit reads (e.g, its mode = kAllIo)
+  // have to be passed in through the option "restore_rate_limiter"
   // Default: 0
   uint64_t restore_rate_limit;
 
@@ -254,6 +262,10 @@ struct CreateBackupOptions {
   bool flush_before_backup = false;
 
   // Callback for reporting progress, based on callback_trigger_interval_size.
+  //
+  // RocksDB callbacks are NOT exception-safe. A callback completing with an
+  // exception can lead to undefined behavior in RocksDB, including data loss,
+  // unreported corruption, deadlocks, and more.
   std::function<void()> progress_callback = []() {};
 
   // If false, background_thread_cpu_priority is ignored.
@@ -277,15 +289,9 @@ struct RestoreOptions {
       : keep_log_files(_keep_log_files) {}
 };
 
-struct BackupFileInfo {
-  // File name and path relative to the backup_dir directory.
-  std::string relative_filename;
+using BackupID = uint32_t;
 
-  // Size of the file in bytes, not including filesystem overheads.
-  uint64_t size;
-};
-
-typedef uint32_t BackupID;
+using BackupFileInfo = FileStorageInfo;
 
 struct BackupInfo {
   BackupID backup_id = 0U;
@@ -385,10 +391,10 @@ class BackupEngineReadOnlyBase {
   virtual Status GetBackupInfo(BackupID backup_id, BackupInfo* backup_info,
                                bool include_file_details = false) const = 0;
 
-  // Returns info about backups in backup_info
+  // Returns info about non-corrupt backups in backup_infos.
   // Setting include_file_details=true provides information about each
   // backed-up file in BackupInfo::file_details and more.
-  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info,
+  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_infos,
                              bool include_file_details = false) const = 0;
 
   // Returns info about corrupt backups in corrupt_backups.
@@ -400,25 +406,25 @@ class BackupEngineReadOnlyBase {
       std::vector<BackupID>* corrupt_backup_ids) const = 0;
 
   // Restore to specified db_dir and wal_dir from backup_id.
-  virtual Status RestoreDBFromBackup(const RestoreOptions& options,
-                                     BackupID backup_id,
-                                     const std::string& db_dir,
-                                     const std::string& wal_dir) const = 0;
+  virtual IOStatus RestoreDBFromBackup(const RestoreOptions& options,
+                                       BackupID backup_id,
+                                       const std::string& db_dir,
+                                       const std::string& wal_dir) const = 0;
 
   // keep for backward compatibility.
-  virtual Status RestoreDBFromBackup(
+  virtual IOStatus RestoreDBFromBackup(
       BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
       const RestoreOptions& options = RestoreOptions()) const {
     return RestoreDBFromBackup(options, backup_id, db_dir, wal_dir);
   }
 
   // Like RestoreDBFromBackup but restores from latest non-corrupt backup_id
-  virtual Status RestoreDBFromLatestBackup(
+  virtual IOStatus RestoreDBFromLatestBackup(
       const RestoreOptions& options, const std::string& db_dir,
       const std::string& wal_dir) const = 0;
 
   // keep for backward compatibility.
-  virtual Status RestoreDBFromLatestBackup(
+  virtual IOStatus RestoreDBFromLatestBackup(
       const std::string& db_dir, const std::string& wal_dir,
       const RestoreOptions& options = RestoreOptions()) const {
     return RestoreDBFromLatestBackup(options, db_dir, wal_dir);
@@ -439,8 +445,8 @@ class BackupEngineReadOnlyBase {
   // their sizes (and checksums) when the BackupEngine was opened.
   //
   // Returns Status::OK() if all checks are good
-  virtual Status VerifyBackup(BackupID backup_id,
-                              bool verify_with_checksum = false) const = 0;
+  virtual IOStatus VerifyBackup(BackupID backup_id,
+                                bool verify_with_checksum = false) const = 0;
 };
 
 // Append-only functions of a BackupEngine. See BackupEngine comment for
@@ -451,12 +457,12 @@ class BackupEngineAppendOnlyBase {
   virtual ~BackupEngineAppendOnlyBase() {}
 
   // same as CreateNewBackup, but stores extra application metadata.
-  virtual Status CreateNewBackupWithMetadata(
+  virtual IOStatus CreateNewBackupWithMetadata(
       const CreateBackupOptions& options, DB* db,
       const std::string& app_metadata, BackupID* new_backup_id = nullptr) = 0;
 
   // keep here for backward compatibility.
-  virtual Status CreateNewBackupWithMetadata(
+  virtual IOStatus CreateNewBackupWithMetadata(
       DB* db, const std::string& app_metadata, bool flush_before_backup = false,
       std::function<void()> progress_callback = []() {}) {
     CreateBackupOptions options;
@@ -468,13 +474,16 @@ class BackupEngineAppendOnlyBase {
   // Captures the state of the database by creating a new (latest) backup.
   // On success (OK status), the BackupID of the new backup is saved to
   // *new_backup_id when not nullptr.
-  virtual Status CreateNewBackup(const CreateBackupOptions& options, DB* db,
-                                 BackupID* new_backup_id = nullptr) {
+  // NOTE: db_paths and cf_paths are not supported for creating backups,
+  // and NotSupported will be returned when the DB (without WALs) uses more
+  // than one directory.
+  virtual IOStatus CreateNewBackup(const CreateBackupOptions& options, DB* db,
+                                   BackupID* new_backup_id = nullptr) {
     return CreateNewBackupWithMetadata(options, db, "", new_backup_id);
   }
 
   // keep here for backward compatibility.
-  virtual Status CreateNewBackup(
+  virtual IOStatus CreateNewBackup(
       DB* db, bool flush_before_backup = false,
       std::function<void()> progress_callback = []() {}) {
     CreateBackupOptions options;
@@ -508,7 +517,7 @@ class BackupEngineAppendOnlyBase {
   // with Append or Write operations in another BackupEngine on the same
   // backup_dir, because temporary files will be treated as obsolete and
   // deleted.
-  virtual Status GarbageCollect() = 0;
+  virtual IOStatus GarbageCollect() = 0;
 };
 
 // A backup engine for organizing and managing backups.
@@ -568,24 +577,24 @@ class BackupEngine : public BackupEngineReadOnlyBase,
 
   // BackupEngineOptions have to be the same as the ones used in previous
   // BackupEngines for the same backup directory.
-  static Status Open(const BackupEngineOptions& options, Env* db_env,
-                     BackupEngine** backup_engine_ptr);
+  static IOStatus Open(const BackupEngineOptions& options, Env* db_env,
+                       BackupEngine** backup_engine_ptr);
 
   // keep for backward compatibility.
-  static Status Open(Env* db_env, const BackupEngineOptions& options,
-                     BackupEngine** backup_engine_ptr) {
+  static IOStatus Open(Env* db_env, const BackupEngineOptions& options,
+                       BackupEngine** backup_engine_ptr) {
     return BackupEngine::Open(options, db_env, backup_engine_ptr);
   }
 
   // Deletes old backups, keeping latest num_backups_to_keep alive.
   // See also DeleteBackup.
-  virtual Status PurgeOldBackups(uint32_t num_backups_to_keep) = 0;
+  virtual IOStatus PurgeOldBackups(uint32_t num_backups_to_keep) = 0;
 
   // Deletes a specific backup. If this operation (or PurgeOldBackups)
   // is not completed due to crash, power failure, etc. the state
   // will be cleaned up the next time you call DeleteBackup,
   // PurgeOldBackups, or GarbageCollect.
-  virtual Status DeleteBackup(BackupID backup_id) = 0;
+  virtual IOStatus DeleteBackup(BackupID backup_id) = 0;
 };
 
 // A variant of BackupEngine that only allows "Read" operations. See
@@ -594,11 +603,11 @@ class BackupEngineReadOnly : public BackupEngineReadOnlyBase {
  public:
   virtual ~BackupEngineReadOnly() {}
 
-  static Status Open(const BackupEngineOptions& options, Env* db_env,
-                     BackupEngineReadOnly** backup_engine_ptr);
+  static IOStatus Open(const BackupEngineOptions& options, Env* db_env,
+                       BackupEngineReadOnly** backup_engine_ptr);
   // keep for backward compatibility.
-  static Status Open(Env* db_env, const BackupEngineOptions& options,
-                     BackupEngineReadOnly** backup_engine_ptr) {
+  static IOStatus Open(Env* db_env, const BackupEngineOptions& options,
+                       BackupEngineReadOnly** backup_engine_ptr) {
     return BackupEngineReadOnly::Open(options, db_env, backup_engine_ptr);
   }
 };

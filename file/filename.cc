@@ -20,9 +20,14 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+const std::string kCurrentFileName = "CURRENT";
+const std::string kOptionsFileNamePrefix = "OPTIONS-";
+const std::string kTempFileNameSuffix = "dbtmp";
+
 static const std::string kRocksDbTFileExt = "sst";
 static const std::string kLevelDbTFileExt = "ldb";
 static const std::string kRocksDBBlobFileExt = "blob";
+static const std::string kArchivalDirName = "archive";
 
 // Given a path, flatten the path name by replacing all chars not in
 // {[0-9,a-z,A-Z,-,_,.]} with _. And append '_LOG\0' at the end.
@@ -96,11 +101,11 @@ std::string BlobFileName(const std::string& dbname, const std::string& blob_dir,
 }
 
 std::string ArchivalDirectory(const std::string& dir) {
-  return dir + "/" + ARCHIVAL_DIR;
+  return dir + "/" + kArchivalDirName;
 }
 std::string ArchivedLogFileName(const std::string& name, uint64_t number) {
   assert(number > 0);
-  return MakeFileName(name + "/" + ARCHIVAL_DIR, number, "log");
+  return MakeFileName(name + "/" + kArchivalDirName, number, "log");
 }
 
 std::string MakeTableFileName(const std::string& path, uint64_t number) {
@@ -155,16 +160,20 @@ void FormatFileNumber(uint64_t number, uint32_t path_id, char* out_buf,
   }
 }
 
-std::string DescriptorFileName(const std::string& dbname, uint64_t number) {
+std::string DescriptorFileName(uint64_t number) {
   assert(number > 0);
   char buf[100];
-  snprintf(buf, sizeof(buf), "/MANIFEST-%06llu",
+  snprintf(buf, sizeof(buf), "MANIFEST-%06llu",
            static_cast<unsigned long long>(number));
-  return dbname + buf;
+  return buf;
+}
+
+std::string DescriptorFileName(const std::string& dbname, uint64_t number) {
+  return dbname + "/" + DescriptorFileName(number);
 }
 
 std::string CurrentFileName(const std::string& dbname) {
-  return dbname + "/CURRENT";
+  return dbname + "/" + kCurrentFileName;
 }
 
 std::string LockFileName(const std::string& dbname) {
@@ -213,11 +222,14 @@ std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
   return log_dir + "/" + info_log_prefix.buf + ".old." + buf;
 }
 
-std::string OptionsFileName(const std::string& dbname, uint64_t file_num) {
+std::string OptionsFileName(uint64_t file_num) {
   char buffer[256];
   snprintf(buffer, sizeof(buffer), "%s%06" PRIu64,
            kOptionsFileNamePrefix.c_str(), file_num);
-  return dbname + "/" + buffer;
+  return buffer;
+}
+std::string OptionsFileName(const std::string& dbname, uint64_t file_num) {
+  return dbname + "/" + OptionsFileName(file_num);
 }
 
 std::string TempOptionsFileName(const std::string& dbname, uint64_t file_num) {
@@ -331,11 +343,12 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
     // Avoid strtoull() to keep filename format independent of the
     // current locale
     bool archive_dir_found = false;
-    if (rest.starts_with(ARCHIVAL_DIR)) {
-      if (rest.size() <= ARCHIVAL_DIR.size()) {
+    if (rest.starts_with(kArchivalDirName)) {
+      if (rest.size() <= kArchivalDirName.size()) {
         return false;
       }
-      rest.remove_prefix(ARCHIVAL_DIR.size() + 1); // Add 1 to remove / also
+      rest.remove_prefix(kArchivalDirName.size() +
+                         1);  // Add 1 to remove / also
       if (log_type) {
         *log_type = kArchivedLogFile;
       }
@@ -392,7 +405,8 @@ IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
   }
   if (s.ok()) {
     if (directory_to_fsync != nullptr) {
-      s = directory_to_fsync->Fsync(IOOptions(), nullptr);
+      s = directory_to_fsync->FsyncWithDirOptions(
+          IOOptions(), nullptr, DirFsyncOptions(CurrentFileName(dbname)));
     }
   } else {
     fs->DeleteFile(tmp, IOOptions(), nullptr)
@@ -415,9 +429,19 @@ Status SetIdentityFile(Env* env, const std::string& dbname,
   assert(!id.empty());
   // Reserve the filename dbname/000000.dbtmp for the temporary identity file
   std::string tmp = TempFileName(dbname, 0);
+  std::string identify_file_name = IdentityFileName(dbname);
   Status s = WriteStringToFile(env, id, tmp, true);
   if (s.ok()) {
-    s = env->RenameFile(tmp, IdentityFileName(dbname));
+    s = env->RenameFile(tmp, identify_file_name);
+  }
+  std::unique_ptr<FSDirectory> dir_obj;
+  if (s.ok()) {
+    s = env->GetFileSystem()->NewDirectory(dbname, IOOptions(), &dir_obj,
+                                           nullptr);
+  }
+  if (s.ok()) {
+    s = dir_obj->FsyncWithDirOptions(IOOptions(), nullptr,
+                                     DirFsyncOptions(identify_file_name));
   }
   if (!s.ok()) {
     env->DeleteFile(tmp).PermitUncheckedError();

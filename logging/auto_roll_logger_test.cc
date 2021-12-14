@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "db/db_test_util.h"
+#include "env/emulated_clock.h"
 #include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
@@ -30,25 +31,6 @@
 #include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
-namespace {
-class NoSleepClock : public SystemClockWrapper {
- public:
-  NoSleepClock(
-      const std::shared_ptr<SystemClock>& base = SystemClock::Default())
-      : SystemClockWrapper(base) {}
-  const char* Name() const override { return "NoSleepClock"; }
-  void SleepForMicroseconds(int micros) override {
-    fake_time_ += static_cast<uint64_t>(micros);
-  }
-
-  uint64_t NowNanos() override { return fake_time_ * 1000; }
-
-  uint64_t NowMicros() override { return fake_time_; }
-
- private:
-  uint64_t fake_time_ = 6666666666;
-};
-}  // namespace
 
 // In this test we only want to Log some simple log message with
 // no format. LogMessage() provides such a simple interface and
@@ -219,7 +201,8 @@ TEST_F(AutoRollLoggerTest, RollLogFileBySize) {
 }
 
 TEST_F(AutoRollLoggerTest, RollLogFileByTime) {
-  auto nsc = std::make_shared<NoSleepClock>();
+  auto nsc =
+      std::make_shared<EmulatedSystemClock>(SystemClock::Default(), true);
 
   size_t time = 2;
   size_t log_size = 1024 * 5;
@@ -288,7 +271,8 @@ TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
 
   InitTestDb();
 
-  auto nsc = std::make_shared<NoSleepClock>();
+  auto nsc =
+      std::make_shared<EmulatedSystemClock>(SystemClock::Default(), true);
   AutoRollLogger logger(FileSystem::Default(), nsc, kTestDir, "", log_max_size,
                         time, keep_log_file_num);
 
@@ -306,7 +290,8 @@ TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
 // port
 TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   DBOptions options;
-  auto nsc = std::make_shared<NoSleepClock>();
+  auto nsc =
+      std::make_shared<EmulatedSystemClock>(SystemClock::Default(), true);
   std::unique_ptr<Env> nse(new CompositeEnvWrapper(Env::Default(), nsc));
 
   std::shared_ptr<Logger> logger;

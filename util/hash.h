@@ -63,6 +63,25 @@ inline uint64_t NPHash64(const char* data, size_t n) {
 #endif
 }
 
+// Convenient and equivalent version of Hash128 without depending on 128-bit
+// scalars
+void Hash2x64(const char* data, size_t n, uint64_t* high64, uint64_t* low64);
+void Hash2x64(const char* data, size_t n, uint64_t seed, uint64_t* high64,
+              uint64_t* low64);
+
+// Hash 128 bits to 128 bits, guaranteed not to lose data (equivalent to
+// Hash2x64 on 16 bytes little endian)
+void BijectiveHash2x64(uint64_t in_high64, uint64_t in_low64,
+                       uint64_t* out_high64, uint64_t* out_low64);
+void BijectiveHash2x64(uint64_t in_high64, uint64_t in_low64, uint64_t seed,
+                       uint64_t* out_high64, uint64_t* out_low64);
+
+// Inverse of above (mostly for testing)
+void BijectiveUnhash2x64(uint64_t in_high64, uint64_t in_low64,
+                         uint64_t* out_high64, uint64_t* out_low64);
+void BijectiveUnhash2x64(uint64_t in_high64, uint64_t in_low64, uint64_t seed,
+                         uint64_t* out_high64, uint64_t* out_low64);
+
 // Stable/persistent 32-bit hash. Moderate quality and high speed on
 // small inputs.
 // TODO: consider rename to Hash32

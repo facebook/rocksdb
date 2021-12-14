@@ -3,15 +3,15 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "table/block_based/partitioned_filter_block.h"
+
 #include <map>
 
-#include "rocksdb/filter_policy.h"
-
-#include "table/block_based/block_based_table_reader.h"
-#include "table/block_based/partitioned_filter_block.h"
-#include "table/block_based/filter_policy_internal.h"
-
 #include "index_builder.h"
+#include "rocksdb/filter_policy.h"
+#include "table/block_based/block_based_table_reader.h"
+#include "table/block_based/filter_policy_internal.h"
+#include "table/format.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
@@ -136,8 +136,9 @@ class PartitionedFilterBlockTest
     BlockHandle bh;
     Status status;
     Slice slice;
+    std::unique_ptr<const char[]> filter_data;
     do {
-      slice = builder->Finish(bh, &status);
+      slice = builder->Finish(bh, &status, &filter_data);
       bh = Write(slice);
     } while (status.IsIncomplete());
 
@@ -291,10 +292,11 @@ class PartitionedFilterBlockTest
   }
 };
 
-INSTANTIATE_TEST_CASE_P(FormatDef, PartitionedFilterBlockTest,
-                        testing::Values(test::kDefaultFormatVersion));
-INSTANTIATE_TEST_CASE_P(FormatLatest, PartitionedFilterBlockTest,
-                        testing::Values(test::kLatestFormatVersion));
+// Format versions potentially intersting to partitioning
+INSTANTIATE_TEST_CASE_P(FormatVersions, PartitionedFilterBlockTest,
+                        testing::ValuesIn(std::set<uint32_t>{
+                            2, 3, 4, test::kDefaultFormatVersion,
+                            kLatestFormatVersion}));
 
 TEST_P(PartitionedFilterBlockTest, EmptyBuilder) {
   std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());

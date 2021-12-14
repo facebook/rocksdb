@@ -633,7 +633,8 @@ bool DataBlockIter::ParseNextKey(bool* is_shared) {
     if (global_seqno_ != kDisableGlobalSequenceNumber) {
       // If we are reading a file with a global sequence number we should
       // expect that all encoded sequence numbers are zeros and any value
-      // type is kTypeValue, kTypeMerge, kTypeDeletion, or kTypeRangeDeletion.
+      // type is kTypeValue, kTypeMerge, kTypeDeletion,
+      // kTypeDeletionWithTimestamp, or kTypeRangeDeletion.
       uint64_t packed = ExtractInternalKeyFooter(raw_key_.GetKey());
       SequenceNumber seqno;
       ValueType value_type;
@@ -641,6 +642,7 @@ bool DataBlockIter::ParseNextKey(bool* is_shared) {
       assert(value_type == ValueType::kTypeValue ||
              value_type == ValueType::kTypeMerge ||
              value_type == ValueType::kTypeDeletion ||
+             value_type == ValueType::kTypeDeletionWithTimestamp ||
              value_type == ValueType::kTypeRangeDeletion);
       assert(seqno == 0);
     }

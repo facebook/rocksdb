@@ -17,8 +17,7 @@ TraceExecutionHandler::TraceExecutionHandler(
     : TraceRecord::Handler(),
       db_(db),
       write_opts_(WriteOptions()),
-      read_opts_(ReadOptions()),
-      clock_(SystemClock::Default()) {
+      read_opts_(ReadOptions()) {
   assert(db != nullptr);
   assert(!handles.empty());
   cf_map_.reserve(handles.size());
@@ -26,6 +25,7 @@ TraceExecutionHandler::TraceExecutionHandler(
     assert(handle != nullptr);
     cf_map_.insert({handle->GetID(), handle});
   }
+  clock_ = db_->GetEnv()->GetSystemClock().get();
 }
 
 TraceExecutionHandler::~TraceExecutionHandler() { cf_map_.clear(); }

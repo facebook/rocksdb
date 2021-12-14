@@ -19,7 +19,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 // Our test skip list stores 8-byte unsigned integers
-typedef uint64_t Key;
+using Key = uint64_t;
 
 static const char* Encode(const uint64_t* key) {
   return reinterpret_cast<const char*>(key);
@@ -32,7 +32,7 @@ static Key Decode(const char* key) {
 }
 
 struct TestComparator {
-  typedef Key DecodedType;
+  using DecodedType = Key;
 
   static DecodedType decode_key(const char* b) {
     return Decode(b);
@@ -59,7 +59,7 @@ struct TestComparator {
   }
 };
 
-typedef InlineSkipList<TestComparator> TestInlineSkipList;
+using TestInlineSkipList = InlineSkipList<TestComparator>;
 
 class InlineSkipTest : public testing::Test {
  public:

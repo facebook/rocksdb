@@ -602,7 +602,14 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFilesWithGC) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_F(DBSSTTest, RateLimitedDelete) {
+class DBSSTTestRateLimit : public DBSSTTest,
+                           public ::testing::WithParamInterface<bool> {
+ public:
+  DBSSTTestRateLimit() : DBSSTTest() {}
+  ~DBSSTTestRateLimit() override {}
+};
+
+TEST_P(DBSSTTestRateLimit, RateLimitedDelete) {
   Destroy(last_options_);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"DBSSTTest::RateLimitedDelete:1",
@@ -640,11 +647,15 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
+  bool different_wal_dir = GetParam();
   Options options = CurrentOptions();
   SetTimeElapseOnlySleepOnReopen(&options);
   options.disable_auto_compactions = true;
   options.env = env_;
   options.statistics = CreateDBStatistics();
+  if (different_wal_dir) {
+    options.wal_dir = alternative_wal_dir_;
+  }
 
   int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
   Status s;
@@ -656,7 +667,9 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   sfm->delete_scheduler()->SetMaxTrashDBRatio(1.1);
 
   WriteOptions wo;
-  wo.disableWAL = true;
+  if (!different_wal_dir) {
+    wo.disableWAL = true;
+  }
   Reopen(options);
   // Create 4 files in L0
   for (char v = 'a'; v <= 'd'; v++) {
@@ -700,6 +713,9 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
+
+INSTANTIATE_TEST_CASE_P(RateLimitedDelete, DBSSTTestRateLimit,
+                        ::testing::Bool());
 
 TEST_F(DBSSTTest, RateLimitedWALDelete) {
   Destroy(last_options_);
@@ -809,9 +825,11 @@ TEST_P(DBWALTestWithParam, WALTrashCleanupOnOpen) {
 
   // Create 4 files in L0
   for (char v = 'a'; v <= 'd'; v++) {
-    if (v == 'd') {
+    if (v == 'c') {
       // Maximize the change that the last log file will be preserved in trash
       // before restarting the DB.
+      // We have to set this on the 2nd to last file for it to delay deletion
+      // on the last file. (Quirk of DeleteScheduler::BackgroundEmptyTrash())
       options.sst_file_manager->SetDeleteRateBytesPerSecond(1);
     }
     ASSERT_OK(Put("Key2", DummyString(1024, v)));
@@ -1012,7 +1030,9 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
 
   sfm->SetDeleteRateBytesPerSecond(1024 * 1024);
-  sfm->delete_scheduler()->SetMaxTrashDBRatio(1.1);
+  // Set an extra high trash ratio to prevent immediate/non-rate limited
+  // deletions
+  sfm->delete_scheduler()->SetMaxTrashDBRatio(1000.0);
   ASSERT_OK(DestroyDB(dbname_, options));
   sfm->WaitForEmptyTrash();
   ASSERT_EQ(bg_delete_file, num_sst_files + num_wal_files);
@@ -1079,7 +1099,7 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedWithBlobFiles) {
   ASSERT_EQ(sfm->GetTotalSize(), total_files_size);
 
   // Set the maximum allowed space usage to the current total size.
-  sfm->SetMaxAllowedSpaceUsage(files_size + 1);
+  sfm->SetMaxAllowedSpaceUsage(total_files_size + 1);
 
   bool max_allowed_space_reached = false;
   bool delete_blob_file = false;
@@ -1646,14 +1666,20 @@ TEST_F(DBSSTTest, DBWithSFMForBlobFilesAtomicFlush) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
 
   ASSERT_EQ(files_added, 1);
-  ASSERT_EQ(files_deleted, 1);
   ASSERT_EQ(files_scheduled_to_delete, 1);
+
+  sfm->WaitForEmptyTrash();
+
+  ASSERT_EQ(files_deleted, 1);
 
   Close();
   ASSERT_OK(DestroyDB(dbname_, options));
-  sfm->WaitForEmptyTrash();
-  ASSERT_EQ(files_deleted, 4);
+
   ASSERT_EQ(files_scheduled_to_delete, 4);
+
+  sfm->WaitForEmptyTrash();
+
+  ASSERT_EQ(files_deleted, 4);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -1666,5 +1692,6 @@ TEST_F(DBSSTTest, DBWithSFMForBlobFilesAtomicFlush) {
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

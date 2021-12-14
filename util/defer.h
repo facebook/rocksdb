@@ -7,6 +7,8 @@
 
 #include <functional>
 
+#include "rocksdb/rocksdb_namespace.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 // Defers the execution of the provided function until the Defer

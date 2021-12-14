@@ -16,6 +16,8 @@ class BatchedOpsStressTest : public StressTest {
   BatchedOpsStressTest() {}
   virtual ~BatchedOpsStressTest() {}
 
+  bool IsStateTracked() const override { return false; }
+
   // Given a key K and value V, this puts ("0"+K, "0"+V), ("1"+K, "1"+V), ...
   // ("9"+K, "9"+V) in DB atomically i.e in a single batch.
   // Also refer BatchedOpsStressTest::TestGet
@@ -31,7 +33,7 @@ class BatchedOpsStressTest : public StressTest {
     std::string keys[10] = {"9", "8", "7", "6", "5", "4", "3", "2", "1", "0"};
     std::string values[10] = {"9", "8", "7", "6", "5", "4", "3", "2", "1", "0"};
     Slice value_slices[10];
-    WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */, 0 /* ts_sz */,
+    WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
                      FLAGS_batch_protection_bytes_per_key);
     Status s;
     auto cfh = column_families_[rand_column_families[0]];
@@ -67,7 +69,7 @@ class BatchedOpsStressTest : public StressTest {
                     std::unique_ptr<MutexLock>& /* lock */) override {
     std::string keys[10] = {"9", "7", "5", "3", "1", "8", "6", "4", "2", "0"};
 
-    WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */, 0 /* ts_sz */,
+    WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
                      FLAGS_batch_protection_bytes_per_key);
     Status s;
     auto cfh = column_families_[rand_column_families[0]];

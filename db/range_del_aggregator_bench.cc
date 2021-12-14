@@ -19,15 +19,16 @@ int main() {
 #include <string>
 #include <vector>
 
+#include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/system_clock.h"
-#include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/gflags_compat.h"
 #include "util/random.h"
 #include "util/stop_watch.h"
+#include "util/vector_iterator.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
@@ -146,8 +147,8 @@ std::unique_ptr<InternalIterator> MakeRangeDelIterator(
     keys.push_back(key_and_value.first.Encode().ToString());
     values.push_back(key_and_value.second.ToString());
   }
-  return std::unique_ptr<test::VectorIterator>(
-      new test::VectorIterator(keys, values));
+  return std::unique_ptr<VectorIterator>(
+      new VectorIterator(keys, values, &icmp));
 }
 
 // convert long to a big-endian slice key
@@ -207,8 +208,6 @@ int main(int argc, char** argv) {
                 ROCKSDB_NAMESPACE::Key(start), ROCKSDB_NAMESPACE::Key(end), j);
       }
 
-      auto range_del_iter =
-          ROCKSDB_NAMESPACE::MakeRangeDelIterator(persistent_range_tombstones);
       fragmented_range_tombstone_lists.emplace_back(
           new ROCKSDB_NAMESPACE::FragmentedRangeTombstoneList(
               ROCKSDB_NAMESPACE::MakeRangeDelIterator(

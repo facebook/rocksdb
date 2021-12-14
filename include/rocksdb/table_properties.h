@@ -5,8 +5,12 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <map>
+#include <memory>
 #include <string>
+
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
@@ -26,7 +30,7 @@ namespace ROCKSDB_NAMESPACE {
 //      ++pos) {
 //   ...
 // }
-typedef std::map<std::string, std::string> UserCollectedProperties;
+using UserCollectedProperties = std::map<std::string, std::string>;
 
 // table properties' human-readable names in the property block.
 struct TablePropertiesNames {
@@ -67,16 +71,19 @@ struct TablePropertiesNames {
   static const std::string kFastCompressionEstimatedDataSize;
 };
 
-extern const std::string kPropertiesBlock;
-extern const std::string kCompressionDictBlock;
-extern const std::string kRangeDelBlock;
-
 // `TablePropertiesCollector` provides the mechanism for users to collect
 // their own properties that they are interested in. This class is essentially
 // a collection of callback functions that will be invoked during table
 // building. It is constructed with TablePropertiesCollectorFactory. The methods
 // don't need to be thread-safe, as we will create exactly one
-// TablePropertiesCollector object per table and then call it sequentially
+// TablePropertiesCollector object per table and then call it sequentially.
+//
+// Statuses from these callbacks are currently logged when not OK, but
+// otherwise ignored by RocksDB.
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class TablePropertiesCollector {
  public:
   virtual ~TablePropertiesCollector() {}
@@ -129,20 +136,33 @@ class TablePropertiesCollector {
 
 // Constructs TablePropertiesCollector. Internals create a new
 // TablePropertiesCollector for each new table
-class TablePropertiesCollectorFactory {
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
+class TablePropertiesCollectorFactory : public Customizable {
  public:
   struct Context {
     uint32_t column_family_id;
+    // The level at creating the SST file (i.e, table), of which the
+    // properties are being collected.
+    int level_at_creation = kUnknownLevelAtCreation;
     static const uint32_t kUnknownColumnFamily;
+    static const int kUnknownLevelAtCreation = -1;
   };
 
   virtual ~TablePropertiesCollectorFactory() {}
+  static const char* Type() { return "TablePropertiesCollectorFactory"; }
+  static Status CreateFromString(
+      const ConfigOptions& options, const std::string& value,
+      std::shared_ptr<TablePropertiesCollectorFactory>* result);
+
   // has to be thread-safe
   virtual TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context context) = 0;
 
   // The name of the properties collector can be used for debugging purpose.
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
 
   // Can be overridden by sub-classes to return the Name, followed by
   // configuration info that will // be logged to the info log when the
@@ -212,6 +232,10 @@ struct TableProperties {
   // compression algorithm (see `ColumnFamilyOptions::sample_for_compression`).
   // 0 means unknown.
   uint64_t fast_compression_estimated_data_size = 0;
+  // Offset of the value of the property "external sst file global seqno" in the
+  // file if the property exists.
+  // 0 means not exists.
+  uint64_t external_sst_file_global_seqno_offset = 0;
 
   // DB identity
   // db_id is an identifier generated the first time the DB is created
@@ -263,9 +287,6 @@ struct TableProperties {
   // user collected properties
   UserCollectedProperties user_collected_properties;
   UserCollectedProperties readable_properties;
-
-  // The offset of the value of each property in the file.
-  std::map<std::string, uint64_t> properties_offsets;
 
   // convert this object to a human readable form
   //   @prop_delim: delimiter for each property.

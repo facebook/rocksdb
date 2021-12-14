@@ -15,6 +15,7 @@
 
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
+#include "port/lang.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -360,7 +361,10 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
       if (handle == nullptr) {
         LRU_Insert(e);
       } else {
-        e->Ref();
+        // If caller already holds a ref, no need to take one here
+        if (!e->HasRefs()) {
+          e->Ref();
+        }
         *handle = reinterpret_cast<Cache::Handle*>(e);
       }
     }
@@ -398,11 +402,7 @@ void LRUCacheShard::Promote(LRUHandle* e) {
   if (e->value) {
     Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(e);
     Status s = InsertItem(e, &handle, /*free_handle_on_fail=*/false);
-    if (s.ok()) {
-      // InsertItem would have taken a reference on the item, so decrement it
-      // here as we expect the caller to already hold a reference
-      e->Unref();
-    } else {
+    if (!s.ok()) {
       // Item is in memory, but not accounted against the cache capacity.
       // When the handle is released, the item should get deleted
       assert(!e->InCache());
@@ -705,11 +705,11 @@ uint32_t LRUCache::GetHash(Handle* handle) const {
 }
 
 void LRUCache::DisownData() {
-// Do not drop data if compile with ASAN to suppress leak warning.
-#ifndef MUST_FREE_HEAP_ALLOCATIONS
-  shards_ = nullptr;
-  num_shards_ = 0;
-#endif
+  // Leak data only if that won't generate an ASAN/valgrind warning
+  if (!kMustFreeHeapAllocations) {
+    shards_ = nullptr;
+    num_shards_ = 0;
+  }
 }
 
 size_t LRUCache::TEST_GetLRUSize() {

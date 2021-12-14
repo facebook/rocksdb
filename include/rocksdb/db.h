@@ -121,12 +121,15 @@ struct RangePtr {
 // empty (no checksum information is provided for ingestion). Otherwise,
 // their sizes should be the same as external_files. The file order should
 // be the same in three vectors and guaranteed by the caller.
+// Note that, we assume the temperatures of this batch of files to be
+// ingested are the same.
 struct IngestExternalFileArg {
   ColumnFamilyHandle* column_family = nullptr;
   std::vector<std::string> external_files;
   IngestExternalFileOptions options;
   std::vector<std::string> files_checksums;
   std::vector<std::string> files_checksum_func_names;
+  Temperature file_temperature = Temperature::kUnknown;
 };
 
 struct GetMergeOperandsOptions {
@@ -136,8 +139,8 @@ struct GetMergeOperandsOptions {
 // A collections of table properties objects, where
 //  key: is the table's file name.
 //  value: the table properties object of the given table.
-typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
-    TablePropertiesCollection;
+using TablePropertiesCollection =
+    std::unordered_map<std::string, std::shared_ptr<const TableProperties>>;
 
 // A DB is a persistent, versioned ordered map from keys to values.
 // A DB is safe for concurrent access from multiple threads without
@@ -282,9 +285,9 @@ class DB {
   // If the return status is Aborted(), closing fails because there is
   // unreleased snapshot in the system. In this case, users can release
   // the unreleased snapshots and try again and expect it to succeed. For
-  // other status, recalling Close() will be no-op.
-  // If the return status is NotSupported(), then the DB implementation does
-  // cleanup in the destructor
+  // other status, re-calling Close() will be no-op and return the original
+  // close status. If the return status is NotSupported(), then the DB
+  // implementation does cleanup in the destructor
   virtual Status Close() { return Status::NotSupported(); }
 
   // ListColumnFamilies will open the DB specified by argument name
@@ -786,9 +789,11 @@ class DB {
     //      level, as well as the histogram of latency of single requests.
     static const std::string kCFFileHistogram;
 
-    //  "rocksdb.dbstats" - returns a multi-line string with general database
-    //      stats, both cumulative (over the db's lifetime) and interval (since
-    //      the last retrieval of kDBStats).
+    //  "rocksdb.dbstats" - As a string property, returns a multi-line string
+    //      with general database stats, both cumulative (over the db's
+    //      lifetime) and interval (since the last retrieval of kDBStats).
+    //      As a map property, returns cumulative stats only and does not
+    //      update the baseline for the interval stats.
     static const std::string kDBStats;
 
     //  "rocksdb.levelstats" - returns multi-line string containing the number
@@ -893,7 +898,8 @@ class DB {
     static const std::string kCurrentSuperVersionNumber;
 
     //  "rocksdb.estimate-live-data-size" - returns an estimate of the amount of
-    //      live data in bytes.
+    //      live data in bytes. For BlobDB, it also includes the exact value of
+    //      live bytes in the blob files of the version.
     static const std::string kEstimateLiveDataSize;
 
     //  "rocksdb.min-log-number-to-keep" - return the minimum log number of the
@@ -966,6 +972,23 @@ class DB {
     // "rocksdb.options-statistics" - returns multi-line string
     //      of options.statistics
     static const std::string kOptionsStatistics;
+
+    // "rocksdb.num-blob-files" - returns number of blob files in the current
+    //      version.
+    static const std::string kNumBlobFiles;
+
+    // "rocksdb.blob-stats" - return the total number and size of all blob
+    //      files, and total amount of garbage (bytes) in the blob files in
+    //      the current version.
+    static const std::string kBlobStats;
+
+    // "rocksdb.total-blob-file-size" - returns the total size of all blob
+    //      files over all versions.
+    static const std::string kTotalBlobFileSize;
+
+    // "rocksdb.live-blob-file-size" - returns the total size of all blob
+    //      files in the current version.
+    static const std::string kLiveBlobFileSize;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -1026,6 +1049,11 @@ class DB {
   //  "rocksdb.block-cache-capacity"
   //  "rocksdb.block-cache-usage"
   //  "rocksdb.block-cache-pinned-usage"
+  //
+  //  Properties dedicated for BlobDB:
+  //  "rocksdb.num-blob-files"
+  //  "rocksdb.total-blob-file-size"
+  //  "rocksdb.live-blob-file-size"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
@@ -1424,6 +1452,15 @@ class DB {
   // synchronized with GetLiveFiles.
   virtual Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) = 0;
 
+  // EXPERIMENTAL: This function is not yet feature-complete.
+  // Get information about all live files that make up a DB, for making
+  // live copies (Checkpoint, backups, etc.) or other storage-related purposes.
+  // Use DisableFileDeletions() before and EnableFileDeletions() after to
+  // preserve the files for live copy.
+  virtual Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& opts,
+      std::vector<LiveFileStorageInfo>* files) = 0;
+
   // Obtains the meta data of the specified column family of the DB.
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,
                                        ColumnFamilyMetaData* /*metadata*/) {}
@@ -1490,13 +1527,14 @@ class DB {
   // this column family.
   // (1) External SST files can be created using SstFileWriter.
   // (2) External SST files can be exported from a particular column family in
-  //     an existing DB.
+  //     an existing DB using Checkpoint::ExportColumnFamily.
   // Option in import_options specifies whether the external files are copied or
   // moved (default is copy). When option specifies copy, managing files at
   // external_file_path is caller's responsibility. When option specifies a
-  // move, the call ensures that the specified files at external_file_path are
-  // deleted on successful return and files are not modified on any error
-  // return.
+  // move, the call makes a best effort to delete the specified files at
+  // external_file_path on successful return, logging any failure to delete
+  // rather than returning in Status. Files are not modified on any error
+  // return, and a best effort is made to remove any newly-created files.
   // On error return, column family handle returned will be nullptr.
   // ColumnFamily will be present on successful return and will not be present
   // on error return. ColumnFamily may be present on any crash during this call.

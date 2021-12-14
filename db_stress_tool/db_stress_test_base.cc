@@ -14,6 +14,7 @@
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_table_properties_collector.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/types.h"
@@ -21,6 +22,7 @@
 #include "util/cast_util.h"
 #include "utilities/backupable/backupable_db_impl.h"
 #include "utilities/fault_injection_fs.h"
+#include "utilities/fault_injection_secondary_cache.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -147,6 +149,11 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
                 FLAGS_secondary_cache_uri.c_str(), s.ToString().c_str());
         exit(1);
       }
+      if (FLAGS_secondary_cache_fault_one_in > 0) {
+        secondary_cache = std::make_shared<FaultInjectionSecondaryCache>(
+            secondary_cache, static_cast<uint32_t>(FLAGS_seed),
+            FLAGS_secondary_cache_fault_one_in);
+      }
       opts.secondary_cache = secondary_cache;
     }
 #endif
@@ -261,6 +268,10 @@ bool StressTest::BuildOptionsTable() {
     options_tbl.emplace(
         "blob_garbage_collection_age_cutoff",
         std::vector<std::string>{"0.0", "0.25", "0.5", "0.75", "1.0"});
+    options_tbl.emplace("blob_garbage_collection_force_threshold",
+                        std::vector<std::string>{"0.5", "0.75", "1.0"});
+    options_tbl.emplace("blob_compaction_readahead_size",
+                        std::vector<std::string>{"0", "1M", "4M"});
   }
 
   options_table_ = std::move(options_tbl);
@@ -295,6 +306,15 @@ void StressTest::FinishInitDb(SharedState* shared) {
     compaction_filter_factory->SetSharedState(shared);
     fprintf(stdout, "Compaction filter factory: %s\n",
             compaction_filter_factory->Name());
+  }
+  // TODO(ajkr): First restore if there's already a trace.
+  if (FLAGS_sync_fault_injection && IsStateTracked()) {
+    Status s = shared->SaveAtAndAfter(db_);
+    if (!s.ok()) {
+      fprintf(stderr, "Error enabling history tracing: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
   }
 }
 
@@ -1809,6 +1829,10 @@ void StressTest::TestCompactFiles(ThreadState* thread,
   ROCKSDB_NAMESPACE::ColumnFamilyMetaData cf_meta_data;
   db_->GetColumnFamilyMetaData(column_family, &cf_meta_data);
 
+  if (cf_meta_data.levels.empty()) {
+    return;
+  }
+
   // Randomly compact up to three consecutive files from a level
   const int kMaxRetry = 3;
   for (int attempt = 0; attempt < kMaxRetry; ++attempt) {
@@ -2087,7 +2111,7 @@ void StressTest::PrintEnv() const {
           (unsigned long)FLAGS_ops_per_thread);
   std::string ttl_state("unused");
   if (FLAGS_ttl > 0) {
-    ttl_state = NumberToString(FLAGS_ttl);
+    ttl_state = ToString(FLAGS_ttl);
   }
   fprintf(stdout, "Time to live(sec)         : %s\n", ttl_state.c_str());
   fprintf(stdout, "Read percentage           : %d%%\n", FLAGS_readpercent);
@@ -2212,6 +2236,9 @@ void StressTest::Open() {
         FLAGS_optimize_filters_for_memory;
     block_based_options.index_type =
         static_cast<BlockBasedTableOptions::IndexType>(FLAGS_index_type);
+    block_based_options.prepopulate_block_cache =
+        static_cast<BlockBasedTableOptions::PrepopulateBlockCache>(
+            FLAGS_prepopulate_block_cache);
     options_.table_factory.reset(
         NewBlockBasedTableFactory(block_based_options));
     options_.db_write_buffer_size = FLAGS_db_write_buffer_size;
@@ -2309,6 +2336,10 @@ void StressTest::Open() {
         FLAGS_enable_blob_garbage_collection;
     options_.blob_garbage_collection_age_cutoff =
         FLAGS_blob_garbage_collection_age_cutoff;
+    options_.blob_garbage_collection_force_threshold =
+        FLAGS_blob_garbage_collection_force_threshold;
+    options_.blob_compaction_readahead_size =
+        FLAGS_blob_compaction_readahead_size;
   } else {
 #ifdef ROCKSDB_LITE
     fprintf(stderr, "--options_file not supported in lite mode\n");
@@ -2408,18 +2439,18 @@ void StressTest::Open() {
     exit(1);
   }
 
-  if (options_.enable_blob_files) {
-    fprintf(stdout,
-            "Integrated BlobDB: blob files enabled, min blob size %" PRIu64
-            ", blob file size %" PRIu64 ", blob compression type %s\n",
-            options_.min_blob_size, options_.blob_file_size,
-            CompressionTypeToString(options_.blob_compression_type).c_str());
-  }
-
-  if (options_.enable_blob_garbage_collection) {
-    fprintf(stdout, "Integrated BlobDB: blob GC enabled, cutoff %f\n",
-            options_.blob_garbage_collection_age_cutoff);
-  }
+  fprintf(stdout,
+          "Integrated BlobDB: blob files enabled %d, min blob size %" PRIu64
+          ", blob file size %" PRIu64
+          ", blob compression type %s, blob GC enabled %d, cutoff %f, force "
+          "threshold %f, blob compaction readahead size %" PRIu64 "\n",
+          options_.enable_blob_files, options_.min_blob_size,
+          options_.blob_file_size,
+          CompressionTypeToString(options_.blob_compression_type).c_str(),
+          options_.enable_blob_garbage_collection,
+          options_.blob_garbage_collection_age_cutoff,
+          options_.blob_garbage_collection_force_threshold,
+          options_.blob_compaction_readahead_size);
 
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
@@ -2478,8 +2509,10 @@ void StressTest::Open() {
       column_family_names_.push_back(name);
     }
     options_.listeners.clear();
+#ifndef ROCKSDB_LITE
     options_.listeners.emplace_back(
         new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors));
+#endif  // !ROCKSDB_LITE
     options_.create_missing_column_families = true;
     if (!FLAGS_use_txn) {
 #ifndef NDEBUG
@@ -2643,7 +2676,7 @@ void StressTest::Open() {
     assert(!s.ok() || column_families_.size() ==
                           static_cast<size_t>(FLAGS_column_families));
 
-    if (FLAGS_test_secondary) {
+    if (s.ok() && FLAGS_test_secondary) {
 #ifndef ROCKSDB_LITE
       secondaries_.resize(FLAGS_threads);
       std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
@@ -2664,13 +2697,12 @@ void StressTest::Open() {
           break;
         }
       }
-      assert(s.ok());
 #else
       fprintf(stderr, "Secondary is not supported in RocksDBLite\n");
       exit(1);
 #endif
     }
-    if (FLAGS_continuous_verification_interval > 0 && !cmp_db_) {
+    if (s.ok() && FLAGS_continuous_verification_interval > 0 && !cmp_db_) {
       Options tmp_opts;
       // TODO(yanqin) support max_open_files != -1 for secondary instance.
       tmp_opts.max_open_files = -1;
@@ -2770,6 +2802,15 @@ void StressTest::Reopen(ThreadState* thread) {
   fprintf(stdout, "%s Reopening database for the %dth time\n",
           clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
   Open();
+
+  if (FLAGS_sync_fault_injection && IsStateTracked()) {
+    Status s = thread->shared->SaveAtAndAfter(db_);
+    if (!s.ok()) {
+      fprintf(stderr, "Error enabling history tracing: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
+  }
 }
 
 void StressTest::CheckAndSetOptionsForUserTimestamp() {
@@ -2780,12 +2821,6 @@ void StressTest::CheckAndSetOptionsForUserTimestamp() {
     fprintf(stderr,
             "Only -user_timestamp_size=%d is supported in stress test.\n",
             static_cast<int>(cmp->timestamp_size()));
-    exit(1);
-  }
-  if (FLAGS_nooverwritepercent > 0) {
-    fprintf(stderr,
-            "-nooverwritepercent must be 0 because SingleDelete must be "
-            "disabled.\n");
     exit(1);
   }
   if (FLAGS_use_merge || FLAGS_use_full_merge_v1) {

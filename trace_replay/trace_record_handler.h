@@ -38,7 +38,7 @@ class TraceExecutionHandler : public TraceRecord::Handler {
   std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
   WriteOptions write_opts_;
   ReadOptions read_opts_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
 };
 
 // To do: Handler for trace_analyzer.

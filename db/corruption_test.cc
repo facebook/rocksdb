@@ -544,9 +544,9 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
       fs->GetFileSize(filename, file_opts.io_options, &file_size, nullptr));
 
   BlockHandle range_del_handle;
-  ASSERT_OK(FindMetaBlock(
+  ASSERT_OK(FindMetaBlockInFile(
       file_reader.get(), file_size, kBlockBasedTableMagicNumber,
-      ImmutableOptions(options_), kRangeDelBlock, &range_del_handle));
+      ImmutableOptions(options_), kRangeDelBlockName, &range_del_handle));
 
   ASSERT_OK(TryReopen());
   ASSERT_OK(test::CorruptFile(env_, filename,
@@ -889,14 +889,6 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
-}
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

@@ -9,6 +9,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+const PersistentCacheOptions PersistentCacheOptions::kEmpty;
+
 void PersistentCacheHelper::InsertRawPage(
     const PersistentCacheOptions& cache_options, const BlockHandle& handle,
     const char* data, const size_t size) {
@@ -70,7 +72,8 @@ Status PersistentCacheHelper::LookupRawPage(
   }
 
   // cache hit
-  assert(raw_data_size == handle.size() + kBlockTrailerSize);
+  // Block-based table is assumed
+  assert(raw_data_size == handle.size() + BlockBasedTable::kBlockTrailerSize);
   assert(size == raw_data_size);
   RecordTick(cache_options.statistics, PERSISTENT_CACHE_HIT);
   return Status::OK();

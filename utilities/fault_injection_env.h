@@ -175,6 +175,8 @@ class FaultInjectionTestEnv : public EnvWrapper {
   virtual Status RenameFile(const std::string& s,
                             const std::string& t) override;
 
+  virtual Status LinkFile(const std::string& s, const std::string& t) override;
+
 // Undef to eliminate clash on Windows
 #undef GetFreeSpace
   virtual Status GetFreeSpace(const std::string& path,
@@ -237,13 +239,13 @@ class FaultInjectionTestEnv : public EnvWrapper {
     SetFilesystemActiveNoLock(active, error);
     error.PermitUncheckedError();
   }
-  void AssertNoOpenFile() { assert(open_files_.empty()); }
+  void AssertNoOpenFile() { assert(open_managed_files_.empty()); }
   Status GetError() { return error_; }
 
  private:
   port::Mutex mutex_;
   std::map<std::string, FileState> db_file_state_;
-  std::set<std::string> open_files_;
+  std::set<std::string> open_managed_files_;
   std::unordered_map<std::string, std::set<std::string>>
       dir_to_new_files_since_last_sync_;
   bool filesystem_active_;  // Record flushes, syncs, writes

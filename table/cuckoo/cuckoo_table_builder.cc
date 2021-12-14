@@ -381,7 +381,7 @@ Status CuckooTableBuilder::Finish() {
     return status_;
   }
 
-  meta_index_builder.Add(kPropertiesBlock, property_block_handle);
+  meta_index_builder.Add(kPropertiesBlockName, property_block_handle);
   Slice meta_index_block = meta_index_builder.Finish();
 
   BlockHandle meta_index_block_handle;
@@ -393,11 +393,14 @@ Status CuckooTableBuilder::Finish() {
     return status_;
   }
 
-  Footer footer(kCuckooTableMagicNumber, 1);
-  footer.set_metaindex_handle(meta_index_block_handle);
-  footer.set_index_handle(BlockHandle::NullBlockHandle());
+  Footer footer;
+  footer.set_table_magic_number(kCuckooTableMagicNumber)
+      .set_format_version(1)
+      .set_metaindex_handle(meta_index_block_handle)
+      .set_index_handle(BlockHandle::NullBlockHandle())
+      .set_checksum_type(kNoChecksum);
   std::string footer_encoding;
-  footer.EncodeTo(&footer_encoding);
+  footer.EncodeTo(&footer_encoding, offset);
   io_status_ = file_->Append(footer_encoding);
   status_ = io_status_;
   return status_;

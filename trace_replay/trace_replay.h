@@ -106,21 +106,12 @@ class TracerHelper {
   static bool SetPayloadMap(uint64_t& payload_map,
                             const TracePayloadType payload_type);
 
-  // Decode the write payload and store in WrteiPayload
-  static Status DecodeWriteRecord(Trace* trace, int trace_file_version,
+  // Decode a Trace object into the corresponding TraceRecord.
+  // Return Status::OK() if nothing is wrong, record will be set accordingly.
+  // Return Status::NotSupported() if the trace type is not support, or the
+  // corresponding error status, record will be set to nullptr.
+  static Status DecodeTraceRecord(Trace* trace, int trace_file_version,
                                   std::unique_ptr<TraceRecord>* record);
-
-  // Decode the get payload and store in WrteiPayload
-  static Status DecodeGetRecord(Trace* trace, int trace_file_version,
-                                std::unique_ptr<TraceRecord>* record);
-
-  // Decode the iter payload and store in WrteiPayload
-  static Status DecodeIterRecord(Trace* trace, int trace_file_version,
-                                 std::unique_ptr<TraceRecord>* record);
-
-  // Decode the multiget payload and store in MultiGetPayload
-  static Status DecodeMultiGetRecord(Trace* trace, int trace_file_version,
-                                     std::unique_ptr<TraceRecord>* record);
 };
 
 // Tracer captures all RocksDB operations using a user-provided TraceWriter.

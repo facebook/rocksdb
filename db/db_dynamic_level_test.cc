@@ -13,9 +13,9 @@
 #if !defined(ROCKSDB_LITE)
 
 #include "db/db_test_util.h"
-#include "env/mock_env.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/env.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -30,7 +30,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
     return;
   }
   // Use InMemoryEnv, or it would be too slow.
-  std::unique_ptr<Env> env(new MockEnv(env_));
+  std::unique_ptr<Env> env(NewMemEnv(env_));
 
   const int kNKeys = 1000;
   int keys[kNKeys];

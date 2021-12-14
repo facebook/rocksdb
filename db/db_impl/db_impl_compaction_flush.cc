@@ -14,6 +14,7 @@
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "file/sst_file_manager_impl.h"
+#include "logging/logging.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_updater.h"
@@ -102,6 +103,8 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
   if (!logs_to_sync.empty()) {
     mutex_.Unlock();
 
+    assert(job_context);
+
     for (log::Writer* log : logs_to_sync) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "[JOB %d] Syncing log #%" PRIu64, job_context->job_id,
@@ -119,9 +122,13 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
       }
     }
     if (io_s.ok()) {
-      io_s = directories_.GetWalDir()->Fsync(IOOptions(), nullptr);
+      io_s = directories_.GetWalDir()->FsyncWithDirOptions(
+          IOOptions(), nullptr,
+          DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
     }
 
+    TEST_SYNC_POINT_CALLBACK("DBImpl::SyncClosedLogs:BeforeReLock",
+                             /*arg=*/nullptr);
     mutex_.Lock();
 
     // "number <= current_log_number - 1" is equivalent to
@@ -150,14 +157,34 @@ Status DBImpl::FlushMemTableToOutputFile(
     Env::Priority thread_pri) {
   mutex_.AssertHeld();
   assert(cfd);
+  assert(cfd->imm());
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
+  assert(versions_);
+  assert(versions_->GetColumnFamilySet());
+  // If there are more than one column families, we need to make sure that
+  // all the log files except the most recent one are synced. Otherwise if
+  // the host crashes after flushing and before WAL is persistent, the
+  // flushed SST may contain data from write batches whose updates to
+  // other (unflushed) column families are missing.
+  const bool needs_to_sync_closed_wals =
+      logfile_number_ > 0 &&
+      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1;
+  // If needs_to_sync_closed_wals is true, we need to record the current
+  // maximum memtable ID of this column family so that a later PickMemtables()
+  // call will not pick memtables whose IDs are higher. This is due to the fact
+  // that SyncClosedLogs() may release the db mutex, and memtable switch can
+  // happen for this column family in the meantime. The newly created memtables
+  // have their data backed by unsynced WALs, thus they cannot be included in
+  // this flush job.
+  uint64_t max_memtable_id = needs_to_sync_closed_wals
+                                 ? cfd->imm()->GetLatestMemTableID()
+                                 : port::kMaxUint64;
   FlushJob flush_job(
-      dbname_, cfd, immutable_db_options_, mutable_cf_options,
-      port::kMaxUint64 /* memtable_id */, file_options_for_compaction_,
-      versions_.get(), &mutex_, &shutting_down_, snapshot_seqs,
-      earliest_write_conflict_snapshot, snapshot_checker, job_context,
-      log_buffer, directories_.GetDbDir(), GetDataDir(cfd, 0U),
+      dbname_, cfd, immutable_db_options_, mutable_cf_options, max_memtable_id,
+      file_options_for_compaction_, versions_.get(), &mutex_, &shutting_down_,
+      snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
+      job_context, log_buffer, directories_.GetDbDir(), GetDataDir(cfd, 0U),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats,
       true /* sync_output_directory */, true /* write_manifest */, thread_pri,
@@ -173,13 +200,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   Status s;
   bool need_cancel = false;
   IOStatus log_io_s = IOStatus::OK();
-  if (logfile_number_ > 0 &&
-      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1) {
-    // If there are more than one column families, we need to make sure that
-    // all the log files except the most recent one are synced. Otherwise if
-    // the host crashes after flushing and before WAL is persistent, the
-    // flushed SST may contain data from write batches whose updates to
-    // other column families are missing.
+  if (needs_to_sync_closed_wals) {
     // SyncClosedLogs() may unlock and re-lock the db_mutex.
     log_io_s = SyncClosedLogs(job_context);
     if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
@@ -198,7 +219,8 @@ Status DBImpl::FlushMemTableToOutputFile(
     flush_job.PickMemTable();
     need_cancel = true;
   }
-  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:AfterPickMemtables");
+  TEST_SYNC_POINT_CALLBACK(
+      "DBImpl::FlushMemTableToOutputFile:AfterPickMemtables", &flush_job);
   bool switched_to_mempurge = false;
   // Within flush_job.Run, rocksdb may call event listener to notify
   // file creation and deletion.
@@ -531,7 +553,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // Sync on all distinct output directories.
     for (auto dir : distinct_output_dirs) {
       if (dir != nullptr) {
-        Status error_status = dir->Fsync(IOOptions(), nullptr);
+        Status error_status = dir->FsyncWithDirOptions(
+            IOOptions(), nullptr,
+            DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
         if (!error_status.ok()) {
           s = error_status;
           break;
@@ -558,7 +582,15 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   }
 
   if (s.ok()) {
-    auto wait_to_install_func = [&]() {
+    const auto wait_to_install_func =
+        [&]() -> std::pair<Status, bool /*continue to wait*/> {
+      if (!versions_->io_status().ok()) {
+        // Something went wrong elsewhere, we cannot count on waiting for our
+        // turn to write/sync to MANIFEST or CURRENT. Just return.
+        return std::make_pair(versions_->io_status(), false);
+      } else if (shutting_down_.load(std::memory_order_acquire)) {
+        return std::make_pair(Status::ShutdownInProgress(), false);
+      }
       bool ready = true;
       for (size_t i = 0; i != cfds.size(); ++i) {
         const auto& mems = jobs[i]->GetMemTables();
@@ -582,18 +614,40 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
           break;
         }
       }
-      return ready;
+      return std::make_pair(Status::OK(), !ready);
     };
 
     bool resuming_from_bg_err = error_handler_.IsDBStopped();
-    while ((!error_handler_.IsDBStopped() ||
-            error_handler_.GetRecoveryError().ok()) &&
-           !wait_to_install_func()) {
+    while ((!resuming_from_bg_err || error_handler_.GetRecoveryError().ok())) {
+      std::pair<Status, bool> res = wait_to_install_func();
+
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::AtomicFlushMemTablesToOutputFiles:WaitToCommit", &res);
+
+      if (!res.first.ok()) {
+        s = res.first;
+        break;
+      } else if (!res.second) {
+        break;
+      }
       atomic_flush_install_cv_.Wait();
+
+      resuming_from_bg_err = error_handler_.IsDBStopped();
     }
 
-    s = resuming_from_bg_err ? error_handler_.GetRecoveryError()
-                             : error_handler_.GetBGError();
+    if (!resuming_from_bg_err) {
+      // If not resuming from bg err, then we determine future action based on
+      // whether we hit background error.
+      if (s.ok()) {
+        s = error_handler_.GetBGError();
+      }
+    } else if (s.ok()) {
+      // If resuming from bg err, we still rely on wait_to_install_func()'s
+      // result to determine future action. If wait_to_install_func() returns
+      // non-ok already, then we should not proceed to flush result
+      // installation.
+      s = error_handler_.GetRecoveryError();
+    }
   }
 
   if (s.ok()) {
@@ -1079,6 +1133,8 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
       assert(temp_s.ok());
     }
     EnableManualCompaction();
+    TEST_SYNC_POINT(
+        "DBImpl::CompactRange:PostRefitLevel:ManualCompactionEnabled");
   }
   LogFlush(immutable_db_options_.info_log);
 
@@ -1353,10 +1409,15 @@ Status DBImpl::CompactFilesImpl(
 
   if (output_file_names != nullptr) {
     for (const auto& newf : c->edit()->GetNewFiles()) {
-      (*output_file_names)
-          .push_back(TableFileName(c->immutable_options()->cf_paths,
-                                   newf.second.fd.GetNumber(),
-                                   newf.second.fd.GetPathId()));
+      output_file_names->push_back(TableFileName(
+          c->immutable_options()->cf_paths, newf.second.fd.GetNumber(),
+          newf.second.fd.GetPathId()));
+    }
+
+    for (const auto& blob_file : c->edit()->GetBlobFileAdditions()) {
+      output_file_names->push_back(
+          BlobFileName(c->immutable_options()->cf_paths.front().path,
+                       blob_file.GetBlobFileNumber()));
     }
   }
 
@@ -1547,12 +1608,12 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     edit.SetColumnFamily(cfd->GetID());
     for (const auto& f : vstorage->LevelFiles(level)) {
       edit.DeleteFile(level, f->fd.GetNumber());
-      edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetPathId(),
-                   f->fd.GetFileSize(), f->smallest, f->largest,
-                   f->fd.smallest_seqno, f->fd.largest_seqno,
-                   f->marked_for_compaction, f->oldest_blob_file_number,
-                   f->oldest_ancester_time, f->file_creation_time,
-                   f->file_checksum, f->file_checksum_func_name);
+      edit.AddFile(
+          to_level, f->fd.GetNumber(), f->fd.GetPathId(), f->fd.GetFileSize(),
+          f->smallest, f->largest, f->fd.smallest_seqno, f->fd.largest_seqno,
+          f->marked_for_compaction, f->temperature, f->oldest_blob_file_number,
+          f->oldest_ancester_time, f->file_creation_time, f->file_checksum,
+          f->file_checksum_func_name, f->min_timestamp, f->max_timestamp);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
@@ -1707,10 +1768,24 @@ Status DBImpl::RunManualCompaction(
   TEST_SYNC_POINT("DBImpl::RunManualCompaction:1");
   InstrumentedMutexLock l(&mutex_);
 
+  if (manual_compaction_paused_ > 0) {
+    // Does not make sense to `AddManualCompaction()` in this scenario since
+    // `DisableManualCompaction()` just waited for the manual compaction queue
+    // to drain. So return immediately.
+    TEST_SYNC_POINT("DBImpl::RunManualCompaction:PausedAtStart");
+    manual.status =
+        Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+    manual.done = true;
+    return manual.status;
+  }
+
   // When a manual compaction arrives, temporarily disable scheduling of
   // non-manual compactions and wait until the number of scheduled compaction
-  // jobs drops to zero. This is needed to ensure that this manual compaction
-  // can compact any range of keys/files.
+  // jobs drops to zero. This used to be needed to ensure that this manual
+  // compaction can compact any range of keys/files. Now it is optional
+  // (see `CompactRangeOptions::exclusive_manual_compaction`). The use case for
+  // `exclusive_manual_compaction=true` (the default) is unclear beyond not
+  // trusting the new code.
   //
   // HasPendingManualCompaction() is true when at least one thread is inside
   // RunManualCompaction(), i.e. during that time no other compaction will
@@ -1724,8 +1799,20 @@ Status DBImpl::RunManualCompaction(
   AddManualCompaction(&manual);
   TEST_SYNC_POINT_CALLBACK("DBImpl::RunManualCompaction:NotScheduled", &mutex_);
   if (exclusive) {
+    // Limitation: there's no way to wake up the below loop when user sets
+    // `*manual.canceled`. So `CompactRangeOptions::exclusive_manual_compaction`
+    // and `CompactRangeOptions::canceled` might not work well together.
     while (bg_bottom_compaction_scheduled_ > 0 ||
            bg_compaction_scheduled_ > 0) {
+      if (manual_compaction_paused_ > 0 ||
+          (manual.canceled != nullptr && *manual.canceled == true)) {
+        // Pretend the error came from compaction so the below cleanup/error
+        // handling code can process it.
+        manual.done = true;
+        manual.status =
+            Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+        break;
+      }
       TEST_SYNC_POINT("DBImpl::RunManualCompaction:WaitScheduled");
       ROCKS_LOG_INFO(
           immutable_db_options_.info_log,
@@ -1775,7 +1862,6 @@ Status DBImpl::RunManualCompaction(
       }
       ca = new CompactionArg;
       ca->db = this;
-      ca->compaction_pri_ = Env::Priority::LOW;
       ca->prepicked_compaction = new PrepickedCompaction;
       ca->prepicked_compaction->manual_compaction_state = &manual;
       ca->prepicked_compaction->compaction = compaction;
@@ -1785,14 +1871,19 @@ Status DBImpl::RunManualCompaction(
         assert(false);
       }
       manual.incomplete = false;
-      bg_compaction_scheduled_++;
-      Env::Priority thread_pool_pri = Env::Priority::LOW;
       if (compaction->bottommost_level() &&
           env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
-        thread_pool_pri = Env::Priority::BOTTOM;
+        bg_bottom_compaction_scheduled_++;
+        ca->compaction_pri_ = Env::Priority::BOTTOM;
+        env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca,
+                       Env::Priority::BOTTOM, this,
+                       &DBImpl::UnscheduleCompactionCallback);
+      } else {
+        bg_compaction_scheduled_++;
+        ca->compaction_pri_ = Env::Priority::LOW;
+        env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
+                       &DBImpl::UnscheduleCompactionCallback);
       }
-      env_->Schedule(&DBImpl::BGWorkCompaction, ca, thread_pool_pri, this,
-                     &DBImpl::UnscheduleCompactionCallback);
       scheduled = true;
     }
   }
@@ -2218,6 +2309,10 @@ Status DBImpl::EnableAutoCompaction(
 void DBImpl::DisableManualCompaction() {
   InstrumentedMutexLock l(&mutex_);
   manual_compaction_paused_.fetch_add(1, std::memory_order_release);
+
+  // Wake up manual compactions waiting to start.
+  bg_cv_.SignalAll();
+
   // Wait for any pending manual compactions to finish (typically through
   // failing with `Status::Incomplete`) prior to returning. This way we are
   // guaranteed no pending manual compaction will commit while manual
@@ -2303,7 +2398,8 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     return;
   }
 
-  while (bg_compaction_scheduled_ < bg_job_limits.max_compactions &&
+  while (bg_compaction_scheduled_ + bg_bottom_compaction_scheduled_ <
+             bg_job_limits.max_compactions &&
          unscheduled_compactions_ > 0) {
     CompactionArg* ca = new CompactionArg;
     ca->db = this;
@@ -2492,8 +2588,7 @@ void DBImpl::BGWorkBottomCompaction(void* arg) {
   IOSTATS_SET_THREAD_POOL_ID(Env::Priority::BOTTOM);
   TEST_SYNC_POINT("DBImpl::BGWorkBottomCompaction");
   auto* prepicked_compaction = ca.prepicked_compaction;
-  assert(prepicked_compaction && prepicked_compaction->compaction &&
-         !prepicked_compaction->manual_compaction_state);
+  assert(prepicked_compaction && prepicked_compaction->compaction);
   ca.db->BackgroundCallCompaction(prepicked_compaction, Env::Priority::BOTTOM);
   delete prepicked_compaction;
 }
@@ -2628,7 +2723,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
   bool made_progress = false;
   JobContext job_context(next_job_id_.fetch_add(1), true);
 
-  TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:start");
+  TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCallFlush:start", nullptr);
 
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());
@@ -3008,8 +3103,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           status = Status::CompactionTooLarge();
         } else {
           // update statistics
-          RecordInHistogram(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
-                            c->inputs(0)->size());
+          size_t num_files = 0;
+          for (auto& each_level : *c->inputs()) {
+            num_files += each_level.files.size();
+          }
+          RecordInHistogram(stats_, NUM_FILES_IN_SINGLE_COMPACTION, num_files);
+
           // There are three things that can change compaction score:
           // 1) When flush or compaction finish. This case is covered by
           // InstallSuperVersionAndScheduleWork
@@ -3094,13 +3193,13 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       for (size_t i = 0; i < c->num_input_files(l); i++) {
         FileMetaData* f = c->input(l, i);
         c->edit()->DeleteFile(c->level(l), f->fd.GetNumber());
-        c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
-                           f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
-                           f->largest, f->fd.smallest_seqno,
-                           f->fd.largest_seqno, f->marked_for_compaction,
-                           f->oldest_blob_file_number, f->oldest_ancester_time,
-                           f->file_creation_time, f->file_checksum,
-                           f->file_checksum_func_name);
+        c->edit()->AddFile(
+            c->output_level(), f->fd.GetNumber(), f->fd.GetPathId(),
+            f->fd.GetFileSize(), f->smallest, f->largest, f->fd.smallest_seqno,
+            f->fd.largest_seqno, f->marked_for_compaction, f->temperature,
+            f->oldest_blob_file_number, f->oldest_ancester_time,
+            f->file_creation_time, f->file_checksum, f->file_checksum_func_name,
+            f->min_timestamp, f->max_timestamp);
 
         ROCKS_LOG_BUFFER(
             log_buffer,
@@ -3329,6 +3428,7 @@ bool DBImpl::HasPendingManualCompaction() {
 }
 
 void DBImpl::AddManualCompaction(DBImpl::ManualCompactionState* m) {
+  assert(manual_compaction_paused_ == 0);
   manual_compaction_dequeue_.push_back(m);
 }
 
@@ -3460,6 +3560,30 @@ void DBImpl::BuildCompactionJobInfo(
         c->immutable_options()->cf_paths, file_number, desc.GetPathId()));
     compaction_job_info->output_file_infos.push_back(CompactionFileInfo{
         newf.first, file_number, meta.oldest_blob_file_number});
+  }
+  compaction_job_info->blob_compression_type =
+      c->mutable_cf_options()->blob_compression_type;
+
+  // Update BlobFilesInfo.
+  for (const auto& blob_file : c->edit()->GetBlobFileAdditions()) {
+    BlobFileAdditionInfo blob_file_addition_info(
+        BlobFileName(c->immutable_options()->cf_paths.front().path,
+                     blob_file.GetBlobFileNumber()) /*blob_file_path*/,
+        blob_file.GetBlobFileNumber(), blob_file.GetTotalBlobCount(),
+        blob_file.GetTotalBlobBytes());
+    compaction_job_info->blob_file_addition_infos.emplace_back(
+        std::move(blob_file_addition_info));
+  }
+
+  // Update BlobFilesGarbageInfo.
+  for (const auto& blob_file : c->edit()->GetBlobFileGarbages()) {
+    BlobFileGarbageInfo blob_file_garbage_info(
+        BlobFileName(c->immutable_options()->cf_paths.front().path,
+                     blob_file.GetBlobFileNumber()) /*blob_file_path*/,
+        blob_file.GetBlobFileNumber(), blob_file.GetGarbageBlobCount(),
+        blob_file.GetGarbageBlobBytes());
+    compaction_job_info->blob_file_garbage_infos.emplace_back(
+        std::move(blob_file_garbage_info));
   }
 }
 #endif
