@@ -490,10 +490,14 @@ endif
 CFLAGS += $(C_WARNING_FLAGS) $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers
 
+LDFLAGS += $(PLATFORM_LDFLAGS)
+
 ifeq ($(PLATFORM),OS_MACOSX)
 ifneq (,$(findstring -arch arm64,$(CXXFLAGS)))
-CFLAGS := $(filter-out -march=native -DHAVE_SSE42,$(CFLAGS))
-CXXFLAGS := $(filter-out -march=native -DHAVE_SSE42,$(CXXFLAGS))
+CFLAGS := $(filter-out -march=native -DHAVE_SSE42 -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE $(JEMALLOC_INCLUDE) $(JEMALLOC_INCLUDE),$(CFLAGS))
+CXXFLAGS := $(filter-out -march=native -DHAVE_SSE42 -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE $(JEMALLOC_INCLUDE) $(JEMALLOC_INCLUDE),$(CXXFLAGS))
+LDFLAGS := $(filter-out -ljemalloc,$(LDFLAGS))
+JAVA_LDFLAGS := $(filter-out -ljemalloc,$(JAVA_LDFLAGS))
 $(info Removed flags incompatible with Apple Silicon, new CXXFLAGS = $(CXXFLAGS))
 else
 $(info Not targeting Apple Silicon - letting flags as they are)
@@ -503,8 +507,6 @@ $(info Not on OSX - letting flags as they are)
 endif
 
 $(info CXXFLAGS computed : $(CXXFLAGS))
-
-LDFLAGS += $(PLATFORM_LDFLAGS)
 
 LIB_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(LIB_SOURCES))
 LIB_OBJECTS += $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ROCKSDB_PLUGIN_SOURCES))
