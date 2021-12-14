@@ -198,6 +198,8 @@ class MultiOpsTxnsStressTest : public StressTest {
 
   void ReopenAndPreloadDb(SharedState* shared);
 
+  bool IsStateTracked() const override { return false; }
+
   Status TestGet(ThreadState* thread, const ReadOptions& read_opts,
                  const std::vector<int>& rand_column_families,
                  const std::vector<int64_t>& rand_keys) override;
