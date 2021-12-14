@@ -246,19 +246,23 @@ for v in $@ ; do
   echo env "${args_load[@]}" bash b.sh fillseq_disable_wal
   env "${args_load[@]}" bash b.sh fillseq_disable_wal
 
+  # Read-only tests. The LSM tree shape is in a deterministic state if trivial move
+  # was used during the load.
+
+  env "${args_nolim[@]}" DURATION=$nsecs_ro bash b.sh readrandom
+  env "${args_nolim[@]}" DURATION=$nsecs_ro bash b.sh fwdrange
+  env "${args_lim[@]}"   DURATION=$nsecs_ro bash b.sh multireadrandom
+  # Skipping --multiread_batched for now because it isn't supported on older 6.X releases
+  # env "${args_lim[@]}" DURATION=$nsecs_ro bash b.sh multireadrandom --multiread_batched
+
   # Write 10% of the keys. The goal is to randomize keys prior to Lmax
   p10=$( echo $nkeys | awk '{ printf "%.0f", $1 / 10.0 }' )
   env "${args_nolim[@]}" WRITES=$p10        bash b.sh overwritesome
 
-  # These are not supported by older versions
   if [ -z $UNIV ]; then
+    # These are not supported by older versions
     # Flush memtable & L0 to get LSM tree into deterministic state
-    env "${args_nolim[@]}"                    bash b.sh flush_mt_l0
-
-    # Read-only tests but only for leveled because the LSM tree is in a deterministic
-    # state after flush_mt_l0.
-    env "${args_nolim[@]}" DURATION=$nsecs_ro bash b.sh readrandom
-    env "${args_nolim[@]}" DURATION=$nsecs_ro bash b.sh fwdrange
+    env "${args_nolim[@]}"                  bash b.sh flush_mt_l0
   else
     # For universal don't compact L0 as can have too many sorted runs
     # waitforcompaction can hang, see https://github.com/facebook/rocksdb/issues/9275
@@ -266,12 +270,6 @@ for v in $@ ; do
     # env "${args_nolim[@]}"                    bash b.sh waitforcompaction
     echo TODO enable when waitforcompaction hang is fixed
   fi
-
-  # Read-only tests
-  # Skipping --multiread_batched for now because it isn't supported on older 6.X releases
-  # env "${args_lim[@]}" DURATION=$nsecs_ro bash b.sh multireadrandom --multiread_batched
-  # TODO: replace with multireadrandomwhilewriting when implemented
-  env "${args_lim[@]}" DURATION=$nsecs_ro bash b.sh multireadrandom
 
   # Read-mostly tests with a rate-limited writer
   env "${args_lim[@]}" DURATION=$nsecs    bash b.sh revrangewhilewriting
@@ -283,7 +281,7 @@ for v in $@ ; do
   # This creates much compaction debt which will be a problem for tests added after it.
   # Also, the compaction stats measured at test end can underestimate write-amp depending
   # on how much compaction debt is allowed.
-  env "${args_nolim[@]}" DURATION=$nsecs    bash b.sh overwrite
+  env "${args_nolim[@]}" DURATION=$nsecs  bash b.sh overwrite
 
   cp $dbdir/LOG* $my_odir
 done
