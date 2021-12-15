@@ -6127,7 +6127,7 @@ TEST_F(DBCompactionTest, CompactionWithBlob) {
   ASSERT_EQ(Get(first_key), third_value);
   ASSERT_EQ(Get(second_key), third_value);
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
 
   ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
@@ -6230,7 +6230,7 @@ TEST_P(DBCompactionTestBlobError, CompactionError) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
 
   ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
@@ -6352,7 +6352,7 @@ TEST_P(DBCompactionTestBlobGC, CompactionWithBlobGC) {
     ASSERT_EQ(new_blob_files[i - cutoff_index], original_blob_files[i]);
   }
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
   assert(versions->GetColumnFamilySet());
 

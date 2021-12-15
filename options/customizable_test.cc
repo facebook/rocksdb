@@ -23,6 +23,7 @@
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/memory_allocator.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/sst_partitioner.h"
@@ -36,6 +37,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/file_checksum_helper.h"
+#include "util/rate_limiter.h"
 #include "util/string_util.h"
 #include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
 #include "utilities/memory_allocators.h"
@@ -614,11 +616,20 @@ static std::unordered_map<std::string, OptionTypeInfo> inner_option_info = {
 #endif  // ROCKSDB_LITE
 };
 
+struct InnerOptions {
+  static const char* kName() { return "InnerOptions"; }
+  std::shared_ptr<Customizable> inner;
+};
+
 class InnerCustomizable : public Customizable {
  public:
-  explicit InnerCustomizable(const std::shared_ptr<Customizable>& w)
-      : inner_(w) {}
+  explicit InnerCustomizable(const std::shared_ptr<Customizable>& w) {
+    iopts_.inner = w;
+    RegisterOptions(&iopts_, &inner_option_info);
+  }
   static const char* kClassName() { return "Inner"; }
+  const char* Name() const override { return kClassName(); }
+
   bool IsInstanceOf(const std::string& name) const override {
     if (name == kClassName()) {
       return true;
@@ -628,26 +639,51 @@ class InnerCustomizable : public Customizable {
   }
 
  protected:
-  const Customizable* Inner() const override { return inner_.get(); }
+  const Customizable* Inner() const override { return iopts_.inner.get(); }
 
  private:
-  std::shared_ptr<Customizable> inner_;
+  InnerOptions iopts_;
+};
+
+struct WrappedOptions1 {
+  static const char* kName() { return "WrappedOptions1"; }
+  int i = 42;
 };
 
 class WrappedCustomizable1 : public InnerCustomizable {
  public:
   explicit WrappedCustomizable1(const std::shared_ptr<Customizable>& w)
-      : InnerCustomizable(w) {}
+      : InnerCustomizable(w) {
+    RegisterOptions(&wopts_, nullptr);
+  }
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "Wrapped1"; }
+
+ private:
+  WrappedOptions1 wopts_;
 };
 
+struct WrappedOptions2 {
+  static const char* kName() { return "WrappedOptions2"; }
+  std::string s = "42";
+};
 class WrappedCustomizable2 : public InnerCustomizable {
  public:
   explicit WrappedCustomizable2(const std::shared_ptr<Customizable>& w)
       : InnerCustomizable(w) {}
+  const void* GetOptionsPtr(const std::string& name) const override {
+    if (name == WrappedOptions2::kName()) {
+      return &wopts_;
+    } else {
+      return InnerCustomizable::GetOptionsPtr(name);
+    }
+  }
+
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "Wrapped2"; }
+
+ private:
+  WrappedOptions2 wopts_;
 };
 }  // namespace
 
@@ -677,6 +713,29 @@ TEST_F(CustomizableTest, WrappedInnerTest) {
   ASSERT_EQ(wc2->CheckedCast<WrappedCustomizable1>(), wc1.get());
   ASSERT_EQ(wc2->CheckedCast<InnerCustomizable>(), wc2.get());
   ASSERT_EQ(wc2->CheckedCast<TestCustomizable>(), ac.get());
+}
+
+TEST_F(CustomizableTest, CustomizableInnerTest) {
+  std::shared_ptr<Customizable> c =
+      std::make_shared<InnerCustomizable>(std::make_shared<ACustomizable>("a"));
+  std::shared_ptr<Customizable> wc1 = std::make_shared<WrappedCustomizable1>(c);
+  std::shared_ptr<Customizable> wc2 = std::make_shared<WrappedCustomizable2>(c);
+  auto inner = c->GetOptions<InnerOptions>();
+  ASSERT_NE(inner, nullptr);
+
+  auto aopts = c->GetOptions<AOptions>();
+  ASSERT_NE(aopts, nullptr);
+  ASSERT_EQ(aopts, wc1->GetOptions<AOptions>());
+  ASSERT_EQ(aopts, wc2->GetOptions<AOptions>());
+  auto w1opts = wc1->GetOptions<WrappedOptions1>();
+  ASSERT_NE(w1opts, nullptr);
+  ASSERT_EQ(c->GetOptions<WrappedOptions1>(), nullptr);
+  ASSERT_EQ(wc2->GetOptions<WrappedOptions1>(), nullptr);
+
+  auto w2opts = wc2->GetOptions<WrappedOptions2>();
+  ASSERT_NE(w2opts, nullptr);
+  ASSERT_EQ(c->GetOptions<WrappedOptions2>(), nullptr);
+  ASSERT_EQ(wc1->GetOptions<WrappedOptions2>(), nullptr);
 }
 
 TEST_F(CustomizableTest, CopyObjectTest) {
@@ -716,20 +775,9 @@ TEST_F(CustomizableTest, CopyObjectTest) {
 }
 
 TEST_F(CustomizableTest, TestStringDepth) {
-  class ShallowCustomizable : public Customizable {
-   public:
-    ShallowCustomizable() {
-      inner_ = std::make_shared<ACustomizable>("a");
-      RegisterOptions("inner", &inner_, &inner_option_info);
-    }
-    static const char* kClassName() { return "shallow"; }
-    const char* Name() const override { return kClassName(); }
-
-   private:
-    std::shared_ptr<TestCustomizable> inner_;
-  };
   ConfigOptions shallow = config_options_;
-  std::unique_ptr<Configurable> c(new ShallowCustomizable());
+  std::unique_ptr<Configurable> c(
+      new InnerCustomizable(std::make_shared<ACustomizable>("a")));
   std::string opt_str;
   shallow.depth = ConfigOptions::Depth::kDepthShallow;
   ASSERT_OK(c->GetOptionString(shallow, &opt_str));
@@ -1353,6 +1401,21 @@ class MockFileChecksumGenFactory : public FileChecksumGenFactory {
   }
 };
 
+class MockRateLimiter : public RateLimiter {
+ public:
+  static const char* kClassName() { return "MockRateLimiter"; }
+  const char* Name() const override { return kClassName(); }
+  void SetBytesPerSecond(int64_t /*bytes_per_second*/) override {}
+  int64_t GetBytesPerSecond() const override { return 0; }
+  int64_t GetSingleBurstBytes() const override { return 0; }
+  int64_t GetTotalBytesThrough(const Env::IOPriority /*pri*/) const override {
+    return 0;
+  }
+  int64_t GetTotalRequests(const Env::IOPriority /*pri*/) const override {
+    return 0;
+  }
+};
+
 #ifndef ROCKSDB_LITE
 static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
@@ -1466,6 +1529,15 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         guard->reset(new MockTablePropertiesCollectorFactory());
         return guard->get();
       });
+
+  library.Register<RateLimiter>(
+      MockRateLimiter::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<RateLimiter>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockRateLimiter());
+        return guard->get();
+      });
+
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 #endif  // !ROCKSDB_LITE
@@ -1878,6 +1950,36 @@ TEST_F(LoadCustomizableTest, LoadMemoryAllocatorTest) {
     ASSERT_NE(result, nullptr);
     ASSERT_STREQ(result->Name(), MockMemoryAllocator::kClassName());
   }
+}
+
+TEST_F(LoadCustomizableTest, LoadRateLimiterTest) {
+  std::shared_ptr<RateLimiter> result;
+  ASSERT_NOK(RateLimiter::CreateFromString(
+      config_options_, MockRateLimiter::kClassName(), &result));
+  ASSERT_OK(RateLimiter::CreateFromString(
+      config_options_, std::string(GenericRateLimiter::kClassName()) + ":1234",
+      &result));
+  ASSERT_NE(result, nullptr);
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(RateLimiter::CreateFromString(
+      config_options_, GenericRateLimiter::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_OK(GetDBOptionsFromString(
+      config_options_, db_opts_,
+      std::string("rate_limiter=") + GenericRateLimiter::kClassName(),
+      &db_opts_));
+  ASSERT_NE(db_opts_.rate_limiter, nullptr);
+  if (RegisterTests("Test")) {
+    ASSERT_OK(RateLimiter::CreateFromString(
+        config_options_, MockRateLimiter::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_OK(GetDBOptionsFromString(
+        config_options_, db_opts_,
+        std::string("rate_limiter=") + MockRateLimiter::kClassName(),
+        &db_opts_));
+    ASSERT_NE(db_opts_.rate_limiter, nullptr);
+  }
+#endif  // ROCKSDB_LITE
 }
 
 TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {

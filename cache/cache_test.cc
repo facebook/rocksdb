@@ -609,6 +609,9 @@ TEST_P(CacheTest, SetCapacity) {
   for (size_t i = 5; i < 10; i++) {
     cache->Release(handles[i]);
   }
+
+  // Make sure this doesn't crash or upset ASAN/valgrind
+  cache->DisownData();
 }
 
 TEST_P(LRUCacheTest, SetStrictCapacityLimit) {

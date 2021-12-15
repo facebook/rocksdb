@@ -650,7 +650,7 @@ Status BlockBasedTableFactory::ValidateOptions(
         "Enable pin_l0_filter_and_index_blocks_in_cache, "
         ", but block cache is disabled");
   }
-  if (!BlockBasedTableSupportedVersion(table_options_.format_version)) {
+  if (!IsSupportedFormatVersion(table_options_.format_version)) {
     return Status::InvalidArgument(
         "Unsupported BlockBasedTable format_version. Please check "
         "include/rocksdb/table.h for more info");

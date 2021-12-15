@@ -112,13 +112,12 @@ class CompactionPickerTest : public testing::Test {
         file_number, path_id, file_size,
         InternalKey(smallest, smallest_seq, kTypeValue),
         InternalKey(largest, largest_seq, kTypeValue), smallest_seq,
-        largest_seq, marked_for_compact, kInvalidBlobFileNumber,
+        largest_seq, marked_for_compact, temperature, kInvalidBlobFileNumber,
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
         kUnknownFileChecksum, kUnknownFileChecksumFuncName,
         kDisableUserTimestamp, kDisableUserTimestamp);
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
-    f->temperature = temperature;
     f->oldest_ancester_time = oldest_ancestor_time;
     vstorage->AddFile(level, f);
     files_.emplace_back(f);

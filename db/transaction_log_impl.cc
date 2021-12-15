@@ -266,6 +266,10 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
       sequence_++;
       return Status::OK();
     }
+    Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
+      ++sequence_;
+      return Status::OK();
+    }
 
     Status PutCF(uint32_t /*cf*/, const Slice& /*key*/,
                  const Slice& /*val*/) override {
