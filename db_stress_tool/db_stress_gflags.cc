@@ -818,7 +818,7 @@ DEFINE_bool(sync_fault_injection, false,
             "and unsynced data in DB will lost after crash. In such a case we "
             "track DB changes in a trace file (\"*.trace\") in "
             "--expected_values_dir for verifying there are no holes in the "
-            "recovered data (future work).");
+            "recovered data.");
 
 DEFINE_bool(best_efforts_recovery, false,
             "If true, use best efforts recovery.");
