@@ -597,9 +597,8 @@ class DataBlockIter final : public BlockIter<Slice> {
 
 class MetaBlockIter final : public BlockIter<Slice> {
  public:
-  MetaBlockIter(const char* data, uint32_t restarts, uint32_t num_restarts,
-                bool block_contents_pinned)
-      : BlockIter() {
+  void Initialize(const char* data, uint32_t restarts, uint32_t num_restarts,
+                  bool block_contents_pinned) {
     InitializeBase(BytewiseComparator(), data, restarts, num_restarts,
                    kDisableGlobalSequenceNumber, block_contents_pinned);
     raw_key_.SetIsUserKey(true);

@@ -1038,8 +1038,18 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
 }
 
 MetaBlockIter* Block::NewMetaIterator(bool block_contents_pinned) {
-  return new MetaBlockIter(data_, restart_offset_, num_restarts_,
-                           block_contents_pinned);
+  MetaBlockIter* iter = new MetaBlockIter();
+  if (size_ < 2 * sizeof(uint32_t)) {
+    iter->Invalidate(Status::Corruption("bad block contents"));
+    return iter;
+  } else if (num_restarts_ == 0) {
+    // Empty block.
+    iter->Invalidate(Status::OK());
+  } else {
+    iter->Initialize(data_, restart_offset_, num_restarts_,
+                     block_contents_pinned);
+  }
+  return iter;
 }
 
 DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
