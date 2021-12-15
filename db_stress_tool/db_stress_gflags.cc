@@ -90,6 +90,11 @@ DEFINE_bool(test_cf_consistency, false,
             "multiple column families are consistent. Setting this implies "
             "`atomic_flush=true` is set true if `disable_wal=false`.\n");
 
+DEFINE_bool(test_multi_ops_txns, false,
+            "If set, runs stress test dedicated to verifying multi-ops "
+            "transactions on a simple relational table with primary and "
+            "secondary index.");
+
 DEFINE_int32(threads, 32, "Number of concurrent threads to run.");
 
 DEFINE_int32(ttl, -1,
@@ -674,6 +679,10 @@ static const bool FLAGS_iterpercent_dummy __attribute__((__unused__)) =
 DEFINE_uint64(num_iterations, 10, "Number of iterations per MultiIterate run");
 static const bool FLAGS_num_iterations_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
+
+DEFINE_int32(
+    customopspercent, 0,
+    "Ratio of custom operations to total workload (expressed as a percentage)");
 
 DEFINE_string(compression_type, "snappy",
               "Algorithm to use to compress the database");

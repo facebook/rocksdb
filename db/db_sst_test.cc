@@ -310,6 +310,7 @@ TEST_F(DBSSTTest, DBWithSstFileManager) {
     ASSERT_EQ(sfm->GetTrackedFiles(), files_in_db);
   }
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   std::unordered_map<std::string, uint64_t> files_in_db;
   ASSERT_OK(GetAllDataFiles(kTableFile, &files_in_db));
@@ -416,6 +417,7 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFiles) {
   ASSERT_EQ(files_moved, 0);
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   std::unordered_map<std::string, uint64_t> files_in_db;
   ASSERT_OK(GetAllDataFiles(kTableFile, &files_in_db));
@@ -561,6 +563,7 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFilesWithGC) {
   constexpr Slice* end = nullptr;
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   sfm->WaitForEmptyTrash();
 
   ASSERT_EQ(Get(first_key), first_value);
@@ -1664,6 +1667,7 @@ TEST_F(DBSSTTest, DBWithSFMForBlobFilesAtomicFlush) {
   constexpr Slice* end = nullptr;
   // Compaction job will create a new file and delete the older files.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ASSERT_EQ(files_added, 1);
   ASSERT_EQ(files_scheduled_to_delete, 1);

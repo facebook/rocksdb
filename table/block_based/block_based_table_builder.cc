@@ -1788,31 +1788,18 @@ void BlockBasedTableBuilder::WriteRangeDelBlock(
 void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
                                          BlockHandle& index_block_handle) {
   Rep* r = rep_;
-  // No need to write out new footer if we're using default checksum.
-  // We're writing legacy magic number because we want old versions of RocksDB
-  // be able to read files generated with new release (just in case if
-  // somebody wants to roll back after an upgrade)
-  // TODO(icanadi) at some point in the future, when we're absolutely sure
-  // nobody will roll back to RocksDB 2.x versions, retire the legacy magic
-  // number and always write new table files with new magic number
-  bool legacy = (r->table_options.format_version == 0);
   // this is guaranteed by BlockBasedTableBuilder's constructor
   assert(r->table_options.checksum == kCRC32c ||
          r->table_options.format_version != 0);
-  Footer footer;
-  footer
-      .set_table_magic_number(legacy ? kLegacyBlockBasedTableMagicNumber
-                                     : kBlockBasedTableMagicNumber)
-      .set_format_version(r->table_options.format_version)
-      .set_metaindex_handle(metaindex_block_handle)
-      .set_index_handle(index_block_handle)
-      .set_checksum_type(r->table_options.checksum);
-  std::string footer_encoding;
-  footer.EncodeTo(&footer_encoding, r->get_offset());
   assert(ok());
-  IOStatus ios = r->file->Append(footer_encoding);
+
+  FooterBuilder footer;
+  footer.Build(kBlockBasedTableMagicNumber, r->table_options.format_version,
+               r->get_offset(), r->table_options.checksum,
+               metaindex_block_handle, index_block_handle);
+  IOStatus ios = r->file->Append(footer.GetSlice());
   if (ios.ok()) {
-    r->set_offset(r->get_offset() + footer_encoding.size());
+    r->set_offset(r->get_offset() + footer.GetSlice().size());
   } else {
     r->SetIOStatus(ios);
     r->SetStatus(ios);

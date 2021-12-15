@@ -393,15 +393,10 @@ Status CuckooTableBuilder::Finish() {
     return status_;
   }
 
-  Footer footer;
-  footer.set_table_magic_number(kCuckooTableMagicNumber)
-      .set_format_version(1)
-      .set_metaindex_handle(meta_index_block_handle)
-      .set_index_handle(BlockHandle::NullBlockHandle())
-      .set_checksum_type(kNoChecksum);
-  std::string footer_encoding;
-  footer.EncodeTo(&footer_encoding, offset);
-  io_status_ = file_->Append(footer_encoding);
+  FooterBuilder footer;
+  footer.Build(kCuckooTableMagicNumber, /* format_version */ 1, offset,
+               kNoChecksum, meta_index_block_handle);
+  io_status_ = file_->Append(footer.GetSlice());
   status_ = io_status_;
   return status_;
 }
