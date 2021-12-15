@@ -39,32 +39,6 @@ class MemoryAllocator : public Customizable {
   std::string GetId() const override { return GenerateIndividualId(); }
 };
 
-class MemoryAllocatorWrapper : public MemoryAllocator {
- public:
-  // Initialize an EnvWrapper that delegates all calls to *t
-  explicit MemoryAllocatorWrapper(const std::shared_ptr<MemoryAllocator>& t);
-  ~MemoryAllocatorWrapper() override {}
-
-  // Return the target to which to forward all calls
-  MemoryAllocator* target() const { return target_.get(); }
-  // Allocate a block of at least size. Has to be thread-safe.
-  void* Allocate(size_t size) override { return target_->Allocate(size); }
-
-  // Deallocate previously allocated block. Has to be thread-safe.
-  void Deallocate(void* p) override { return target_->Deallocate(p); }
-
-  // Returns the memory size of the block allocated at p. The default
-  // implementation that just returns the original allocation_size is fine.
-  size_t UsableSize(void* p, size_t allocation_size) const override {
-    return target_->UsableSize(p, allocation_size);
-  }
-
-  const Customizable* Inner() const override { return target_.get(); }
-
- protected:
-  std::shared_ptr<MemoryAllocator> target_;
-};
-
 struct JemallocAllocatorOptions {
   static const char* kName() { return "JemallocAllocatorOptions"; }
   // Jemalloc tcache cache allocations by size class. For each size class,

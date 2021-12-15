@@ -148,8 +148,8 @@ class MemTable {
 
   // used by MemTableListVersion::MemoryAllocatedBytesExcludingLast
   size_t MemoryAllocatedBytes() const {
-    return table_->ApproximateMemoryUsage() + 
-           range_del_table_->ApproximateMemoryUsage() + 
+    return table_->ApproximateMemoryUsage() +
+           range_del_table_->ApproximateMemoryUsage() +
            arena_.MemoryAllocatedBytes();
   }
 
