@@ -333,8 +333,7 @@ bool FileExpectedStateManager::HasHistory() {
 class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                                         public WriteBatch::Handler {
  public:
-  ExpectedStateTraceRecordHandler(uint64_t max_write_ops,
-                                  ExpectedState* state)
+  ExpectedStateTraceRecordHandler(uint64_t max_write_ops, ExpectedState* state)
       : max_write_ops_(max_write_ops), state_(state) {}
 
   ~ExpectedStateTraceRecordHandler() {
@@ -398,8 +397,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     return Status::OK();
   }
 
-  Status SingleDeleteCF(uint32_t column_family_id,
-                        const Slice& key) override {
+  Status SingleDeleteCF(uint32_t column_family_id, const Slice& key) override {
     return DeleteCF(column_family_id, key);
   }
 
@@ -411,13 +409,11 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                                 begin_key.ToString());
     }
     if (!GetIntVal(end_key.ToString(), &end_key_id)) {
-      return Status::Corruption("unable to parse end key",
-                                end_key.ToString());
+      return Status::Corruption("unable to parse end key", end_key.ToString());
     }
 
     state_->DeleteRange(column_family_id, static_cast<int64_t>(begin_key_id),
-                        static_cast<int64_t>(end_key_id),
-                        false /* pending */);
+                        static_cast<int64_t>(end_key_id), false /* pending */);
     ++num_write_ops_;
     return Status::OK();
   }
