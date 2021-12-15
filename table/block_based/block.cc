@@ -128,7 +128,7 @@ struct DecodeKeyV4 {
 
 void DataBlockIter::NextImpl() {
   bool is_shared;
-  ParseNextKey(&is_shared);
+  ParseNextDataKey(&is_shared);
 }
 
 void MetaBlockIter::NextImpl() {
@@ -237,7 +237,7 @@ void DataBlockIter::PrevImpl() {
 
   do {
     bool is_shared;
-    if (!ParseNextKey(&is_shared)) {
+    if (!ParseNextDataKey(&is_shared)) {
       break;
     }
     Slice current_key = raw_key_.GetKey();
@@ -364,7 +364,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     //
     // TODO(fwu): check the left and right boundary of the restart interval
     // to avoid linear seek a target key that is out of range.
-    if (!ParseNextKey(&shared) || CompareCurrentKey(target) >= 0) {
+    if (!ParseNextDataKey(&shared) || CompareCurrentKey(target) >= 0) {
       // we stop at the first potential matching user key.
       break;
     }
@@ -522,7 +522,7 @@ void DataBlockIter::SeekToFirstImpl() {
   }
   SeekToRestartPoint(0);
   bool is_shared;
-  ParseNextKey(&is_shared);
+  ParseNextDataKey(&is_shared);
 }
 
 void MetaBlockIter::SeekToFirstImpl() {
@@ -549,7 +549,7 @@ void DataBlockIter::SeekToLastImpl() {
   }
   SeekToRestartPoint(num_restarts_ - 1);
   bool is_shared;
-  while (ParseNextKey(&is_shared) && NextEntryOffset() < restarts_) {
+  while (ParseNextDataKey(&is_shared) && NextEntryOffset() < restarts_) {
     // Keep skipping
   }
 }
@@ -627,8 +627,8 @@ bool BlockIter<TValue>::ParseNextKey(bool* is_shared) {
   }
 }
 
-bool DataBlockIter::ParseNextKey(bool* is_shared) {
-  if (BlockIter::ParseNextKey(is_shared)) {
+bool DataBlockIter::ParseNextDataKey(bool* is_shared) {
+  if (ParseNextKey(is_shared)) {
 #ifndef NDEBUG
     if (global_seqno_ != kDisableGlobalSequenceNumber) {
       // If we are reading a file with a global sequence number we should

@@ -406,7 +406,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   virtual const char* DecodeKV(const char* p, const char* limit,
                                uint32_t* shared, uint32_t* non_shared,
                                uint32_t* value_length) const = 0;
-  virtual bool ParseNextKey(bool* is_shared);
+  bool ParseNextKey(bool* is_shared);
 
   InternalKeyComparator icmp() {
     return InternalKeyComparator(raw_ucmp_, false /* named */);
@@ -553,7 +553,7 @@ class DataBlockIter final : public BlockIter<Slice> {
   virtual const char* DecodeKV(const char* p, const char* limit,
                                uint32_t* shared, uint32_t* non_shared,
                                uint32_t* value_length) const override;
-  bool ParseNextKey(bool* is_shared) override;
+  bool ParseNextDataKey(bool* is_shared);
   virtual void SeekToFirstImpl() override;
   virtual void SeekToLastImpl() override;
   virtual void SeekImpl(const Slice& target) override;
