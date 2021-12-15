@@ -1480,9 +1480,14 @@ Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
   if (block_type == BlockType::kData || block_type == BlockType::kIndex) {
     s = InsertBlockInCache<Block>(block_contents, handle, block_type);
   } else if (block_type == BlockType::kFilter) {
-    if (rep_->filter_builder->IsBlockBased() || is_top_level_filter_block) {
+    if (rep_->filter_builder->IsBlockBased()) {
+      // for block-based filter which is deprecated.
+      s = InsertBlockInCache<BlockContents>(block_contents, handle, block_type);
+    } else if (is_top_level_filter_block) {
+      // for top level filter block in partitioned filter.
       s = InsertBlockInCache<Block>(block_contents, handle, block_type);
     } else {
+      // for second level partitioned filters and full filters.
       s = InsertBlockInCache<ParsedFullFilterBlock>(block_contents, handle,
                                                     block_type);
     }
@@ -1567,6 +1572,10 @@ void BlockBasedTableBuilder::WriteFilterBlock(
           rep_->filter_builder->Finish(filter_block_handle, &s, &filter_data);
       assert(s.ok() || s.IsIncomplete());
       rep_->props.filter_size += filter_content.size();
+
+      // TODO: Refactor code so that BlockType can determine both the C++ type
+      // of a block cache entry (TBlocklike) and the CacheEntryRole while
+      // inserting blocks in cache.
       bool top_level_filter_block = false;
       if (s.ok() && rep_->table_options.partition_filters &&
           !rep_->filter_builder->IsBlockBased()) {
