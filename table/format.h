@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 
@@ -128,65 +129,44 @@ inline bool IsSupportedFormatVersion(uint32_t version) {
 // elsewhere under the metaindex block. For example, checksum_type is
 // required for verifying metaindex block checksum (when applicable), but
 // index block handle can easily go in metaindex block (possible future).
+// See also FooterBuilder below.
 class Footer {
  public:
+  // Create empty. Populate using DecodeFrom.
   Footer() {}
 
-  // Uses builder pattern rather than distinctive ctors
+  // Deserialize a footer (populate fields) from `input` and check for various
+  // corruptions. `input_offset` is the offset within the target file of
+  // `input` buffer (future use).
+  Status DecodeFrom(Slice input, uint64_t input_offset);
 
   // Table magic number identifies file as RocksDB SST file and which kind of
   // SST format is use.
-  Footer& set_table_magic_number(uint64_t tmn);
   uint64_t table_magic_number() const { return table_magic_number_; }
 
   // A version (footer and more) within a kind of SST. (It would add more
   // unnecessary complexity to separate footer versions and
   // BBTO::format_version.)
-  Footer& set_format_version(uint32_t fv) {
-    format_version_ = fv;
-    return *this;
-  }
   uint32_t format_version() const { return format_version_; }
 
   // Block handle for metaindex block.
-  Footer& set_metaindex_handle(const BlockHandle& h) {
-    metaindex_handle_ = h;
-    return *this;
-  }
   const BlockHandle& metaindex_handle() const { return metaindex_handle_; }
 
   // Block handle for (top-level) index block.
-  Footer& set_index_handle(const BlockHandle& h) {
-    index_handle_ = h;
-    return *this;
-  }
   const BlockHandle& index_handle() const { return index_handle_; }
 
   // Checksum type used in the file.
-  Footer& set_checksum_type(ChecksumType ct) {
-    checksum_type_ = ct;
-    return *this;
-  }
   ChecksumType checksum_type() const {
     return static_cast<ChecksumType>(checksum_type_);
   }
 
-  // Appends serialized footer to `dst`. The starting offset of the footer
-  // within the file is required for future work.
-  void EncodeTo(std::string* dst, uint64_t footer_offset) const;
-
-  // Deserialize a footer (populate fields) from `input` and check for various
-  // corruptions. On success (and some error cases) `input` is advanced past
-  // the footer. Like EncodeTo, the offset within the file will be nedded for
-  // future work
-  Status DecodeFrom(Slice* input, uint64_t input_offset);
+  // Block trailer size used by file with this footer (e.g. 5 for block-based
+  // table and 0 for plain table). This is inferred from magic number so
+  // not in the serialized form.
+  inline size_t GetBlockTrailerSize() const { return block_trailer_size_; }
 
   // Convert this object to a human readable form
   std::string ToString() const;
-
-  // Block trailer size used by file with this footer (e.g. 5 for block-based
-  // table and 0 for plain table)
-  inline size_t GetBlockTrailerSize() const { return block_trailer_size_; }
 
   // Encoded lengths of Footers. Bytes for serialized Footer will always be
   // >= kMinEncodedLength and <= kMaxEncodedLength.
@@ -207,8 +187,9 @@ class Footer {
 
   static constexpr uint64_t kNullTableMagicNumber = 0;
 
- private:
   static constexpr uint32_t kInvalidFormatVersion = 0xffffffffU;
+
+ private:
   static constexpr int kInvalidChecksumType =
       (1 << (sizeof(ChecksumType) * 8)) | kNoChecksum;
 
@@ -217,7 +198,40 @@ class Footer {
   BlockHandle metaindex_handle_;
   BlockHandle index_handle_;
   int checksum_type_ = kInvalidChecksumType;
-  uint8_t block_trailer_size_ = 0;  // set based on magic number
+  uint8_t block_trailer_size_ = 0;
+};
+
+// Builder for Footer
+class FooterBuilder {
+ public:
+  // Run builder in inputs. This is a single step with lots of parameters for
+  // efficiency (based on perf testing).
+  // * table_magic_number identifies file as RocksDB SST file and which kind of
+  // SST format is use.
+  // * format_version is a version for the footer and can also apply to other
+  // aspects of the SST file (see BlockBasedTableOptions::format_version).
+  // NOTE: To save complexity in the caller, when format_version == 0 and
+  // there is a corresponding legacy magic number to the one specified, the
+  // legacy magic number will be written for forward compatibility.
+  // * footer_offset is the file offset where the footer will be written
+  // (for future use).
+  // * checksum_type is for formats using block checksums.
+  // * index_handle is optional for some kinds of SST files.
+  void Build(uint64_t table_magic_number, uint32_t format_version,
+             uint64_t footer_offset, ChecksumType checksum_type,
+             const BlockHandle& metaindex_handle,
+             const BlockHandle& index_handle = BlockHandle::NullBlockHandle());
+
+  // After Builder, get a Slice for the serialized Footer, backed by this
+  // FooterBuilder.
+  const Slice& GetSlice() const {
+    assert(slice_.size());
+    return slice_;
+  }
+
+ private:
+  Slice slice_;
+  std::array<char, Footer::kMaxEncodedLength> data_;
 };
 
 // Read the footer from file

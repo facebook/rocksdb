@@ -4175,17 +4175,12 @@ TEST(TableTest, FooterTests) {
   BlockHandle meta_index(data_size + index_size + 2 * 5, metaindex_size);
   uint64_t footer_offset = data_size + metaindex_size + index_size + 3 * 5;
   {
-    // upconvert legacy block based
-    std::string encoded;
-    Footer footer;
-    footer.set_table_magic_number(kLegacyBlockBasedTableMagicNumber)
-        .set_format_version(0)
-        .set_metaindex_handle(meta_index)
-        .set_index_handle(index);
-    footer.EncodeTo(&encoded, footer_offset);
+    // legacy block based
+    FooterBuilder footer;
+    footer.Build(kBlockBasedTableMagicNumber, /* format_version */ 0,
+                 footer_offset, kCRC32c, meta_index, index);
     Footer decoded_footer;
-    Slice encoded_slice(encoded);
-    ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice, footer_offset));
+    ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
     ASSERT_EQ(decoded_footer.table_magic_number(), kBlockBasedTableMagicNumber);
     ASSERT_EQ(decoded_footer.checksum_type(), kCRC32c);
     ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
@@ -4194,21 +4189,19 @@ TEST(TableTest, FooterTests) {
     ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
     ASSERT_EQ(decoded_footer.format_version(), 0U);
     ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 5U);
+    // Ensure serialized with legacy magic
+    ASSERT_EQ(
+        DecodeFixed64(footer.GetSlice().data() + footer.GetSlice().size() - 8),
+        kLegacyBlockBasedTableMagicNumber);
   }
   // block based, various checksums, various versions
   for (auto t : GetSupportedChecksums()) {
     for (uint32_t fv = 1; IsSupportedFormatVersion(fv); ++fv) {
-      std::string encoded;
-      Footer footer;
-      footer.set_table_magic_number(kBlockBasedTableMagicNumber)
-          .set_format_version(fv)
-          .set_metaindex_handle(meta_index)
-          .set_index_handle(index)
-          .set_checksum_type(t);
-      footer.EncodeTo(&encoded, footer_offset);
+      FooterBuilder footer;
+      footer.Build(kBlockBasedTableMagicNumber, fv, footer_offset, t,
+                   meta_index, index);
       Footer decoded_footer;
-      Slice encoded_slice(encoded);
-      ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice, footer_offset));
+      ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
       ASSERT_EQ(decoded_footer.table_magic_number(),
                 kBlockBasedTableMagicNumber);
       ASSERT_EQ(decoded_footer.checksum_type(), t);
@@ -4224,45 +4217,38 @@ TEST(TableTest, FooterTests) {
 // Plain table is not supported in ROCKSDB_LITE
 #ifndef ROCKSDB_LITE
   {
-    // upconvert legacy plain table
-    std::string encoded;
-    Footer footer;
-    footer.set_table_magic_number(kLegacyPlainTableMagicNumber)
-        .set_format_version(0)
-        .set_metaindex_handle(meta_index)
-        .set_index_handle(index);
-    footer.EncodeTo(&encoded, footer_offset);
+    // legacy plain table
+    FooterBuilder footer;
+    footer.Build(kPlainTableMagicNumber, /* format_version */ 0, footer_offset,
+                 kNoChecksum, meta_index);
     Footer decoded_footer;
-    Slice encoded_slice(encoded);
-    ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice, footer_offset));
+    ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
     ASSERT_EQ(decoded_footer.table_magic_number(), kPlainTableMagicNumber);
     ASSERT_EQ(decoded_footer.checksum_type(), kCRC32c);
     ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
     ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
-    ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
-    ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
+    ASSERT_EQ(decoded_footer.index_handle().offset(), 0U);
+    ASSERT_EQ(decoded_footer.index_handle().size(), 0U);
     ASSERT_EQ(decoded_footer.format_version(), 0U);
     ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 0U);
+    // Ensure serialized with legacy magic
+    ASSERT_EQ(
+        DecodeFixed64(footer.GetSlice().data() + footer.GetSlice().size() - 8),
+        kLegacyPlainTableMagicNumber);
   }
   {
     // xxhash plain table (not currently used)
-    std::string encoded;
-    Footer footer;
-    footer.set_table_magic_number(kPlainTableMagicNumber)
-        .set_format_version(1)
-        .set_metaindex_handle(meta_index)
-        .set_index_handle(index)
-        .set_checksum_type(kxxHash);
-    footer.EncodeTo(&encoded, footer_offset);
+    FooterBuilder footer;
+    footer.Build(kPlainTableMagicNumber, /* format_version */ 1, footer_offset,
+                 kxxHash, meta_index);
     Footer decoded_footer;
-    Slice encoded_slice(encoded);
-    ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice, footer_offset));
+    ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
     ASSERT_EQ(decoded_footer.table_magic_number(), kPlainTableMagicNumber);
     ASSERT_EQ(decoded_footer.checksum_type(), kxxHash);
     ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
     ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
-    ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
-    ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
+    ASSERT_EQ(decoded_footer.index_handle().offset(), 0U);
+    ASSERT_EQ(decoded_footer.index_handle().size(), 0U);
     ASSERT_EQ(decoded_footer.format_version(), 1U);
     ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 0U);
   }
