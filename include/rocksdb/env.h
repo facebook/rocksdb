@@ -151,7 +151,7 @@ struct EnvOptions {
 // including data loss, unreported corruption, deadlocks, and more.
 class Env : public Customizable {
  public:
-  static const char* kDefaultName() { return "DefaultFileEnv"; }
+  static const char* kDefaultName() { return "DefaultEnv"; }
   struct FileAttributes {
     // File name
     std::string name;
@@ -1345,12 +1345,29 @@ extern Status ReadFileToString(Env* env, const std::string& fname,
 // functionality of another Env.
 class EnvWrapper : public Env {
  public:
+  // The Target struct allows an Env to be stored as a raw (Env*) or
+  // std::shared_ptr<Env>.  By using this struct, the wrapping/calling
+  // class does not need to worry about the ownership/lifetime of the
+  // wrapped target env.  If the guard is set, then the Env will point
+  // to the guard.get().
   struct Target {
-    Env* env;
-    std::shared_ptr<Env> guard;
-    Target(Env* t) : env(t) {}
-    Target(std::unique_ptr<Env>&& t) : guard(t.release()) { env = guard.get(); }
-    Target(const std::shared_ptr<Env>& t) : guard(t) { env = guard.get(); }
+    Env* env;                    // The raw Env
+    std::shared_ptr<Env> guard;  // The guarded Env
+
+    // Creates a Target without assuming ownership of the target Env
+    explicit Target(Env* t) : env(t) {}
+
+    // Creates a Target from the guarded env, assuming ownership
+    explicit Target(std::unique_ptr<Env>&& t) : guard(t.release()) {
+      env = guard.get();
+    }
+
+    // Creates a Target from the guarded env, assuming ownership
+    explicit Target(const std::shared_ptr<Env>& t) : guard(t) {
+      env = guard.get();
+    }
+
+    // Makes sure the raw Env is not nullptr
     void Prepare() {
       if (guard.get() != nullptr) {
         env = guard.get();
