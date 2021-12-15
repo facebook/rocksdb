@@ -326,7 +326,7 @@ Status ReadTablePropertiesHelper(
 
     if (key == ExternalSstFilePropertyNames::kGlobalSeqno) {
       new_table_properties->external_sst_file_global_seqno_offset =
-          handle.offset() + iter.ValueOffset();
+          handle.offset() + iter->ValueOffset();
     }
 
     if (pos != predefined_uint64_properties.end()) {
