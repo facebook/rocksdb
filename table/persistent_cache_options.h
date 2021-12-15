@@ -30,6 +30,8 @@ struct PersistentCacheOptions {
   std::shared_ptr<PersistentCache> persistent_cache;
   OffsetableCacheKey base_cache_key;
   Statistics* statistics = nullptr;
+
+  static const PersistentCacheOptions kEmpty;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

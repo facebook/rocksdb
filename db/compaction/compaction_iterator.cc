@@ -8,8 +8,10 @@
 #include <iterator>
 #include <limits>
 
+#include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_file_builder.h"
 #include "db/blob/blob_index.h"
+#include "db/blob/prefetch_buffer_collection.h"
 #include "db/snapshot_checker.h"
 #include "logging/logging.h"
 #include "port/likely.h"
@@ -88,6 +90,9 @@ CompactionIterator::CompactionIterator(
       merge_out_iter_(merge_helper_),
       blob_garbage_collection_cutoff_file_number_(
           ComputeBlobGarbageCollectionCutoffFileNumber(compaction_.get())),
+      blob_fetcher_(CreateBlobFetcherIfNeeded(compaction_.get())),
+      prefetch_buffers_(
+          CreatePrefetchBufferCollectionIfNeeded(compaction_.get())),
       current_key_committed_(false),
       cmp_with_history_ts_low_(0),
       level_(compaction_ == nullptr ? 0 : compaction_->level()) {
@@ -225,6 +230,13 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           compaction_filter_skip_until_.rep());
       if (CompactionFilter::Decision::kUndetermined == filter &&
           !compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
+        if (compaction_ == nullptr) {
+          status_ =
+              Status::Corruption("Unexpected blob index outside of compaction");
+          valid_ = false;
+          return false;
+        }
+
         // For integrated BlobDB impl, CompactionIterator reads blob value.
         // For Stacked BlobDB impl, the corresponding CompactionFilter's
         // FilterV2 method should read the blob value.
@@ -235,23 +247,19 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           valid_ = false;
           return false;
         }
-        if (blob_index.HasTTL() || blob_index.IsInlined()) {
-          status_ = Status::Corruption("Unexpected TTL/inlined blob index");
-          valid_ = false;
-          return false;
-        }
-        if (compaction_ == nullptr) {
-          status_ =
-              Status::Corruption("Unexpected blob index outside of compaction");
-          valid_ = false;
-          return false;
-        }
-        const Version* const version = compaction_->input_version();
-        assert(version);
+
+        FilePrefetchBuffer* prefetch_buffer =
+            prefetch_buffers_ ? prefetch_buffers_->GetOrCreatePrefetchBuffer(
+                                    blob_index.file_number())
+                              : nullptr;
 
         uint64_t bytes_read = 0;
-        s = version->GetBlob(ReadOptions(), ikey_.user_key, blob_index,
-                             &blob_value_, &bytes_read);
+
+        assert(blob_fetcher_);
+
+        s = blob_fetcher_->FetchBlob(ikey_.user_key, blob_index,
+                                     prefetch_buffer, &blob_value_,
+                                     &bytes_read);
         if (!s.ok()) {
           status_ = s;
           valid_ = false;
@@ -831,15 +839,15 @@ void CompactionIterator::NextFromInput() {
       }
 
       pinned_iters_mgr_.StartPinning();
-      Version* version = compaction_ ? compaction_->input_version() : nullptr;
 
       // We know the merge type entry is not hidden, otherwise we would
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      Status s = merge_helper_->MergeUntil(&input_, range_del_agg_,
-                                           prev_snapshot, bottommost_level_,
-                                           allow_data_in_errors_, version);
+      Status s = merge_helper_->MergeUntil(
+          &input_, range_del_agg_, prev_snapshot, bottommost_level_,
+          allow_data_in_errors_, blob_fetcher_.get(), prefetch_buffers_.get(),
+          &iter_stats_);
       merge_out_iter_.SeekToFirst();
 
       if (!s.ok() && !s.IsMergeInProgress()) {
@@ -959,26 +967,23 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
       }
     }
 
-    if (blob_index.IsInlined() || blob_index.HasTTL()) {
-      status_ = Status::Corruption("Unexpected TTL/inlined blob index");
-      valid_ = false;
-
-      return;
-    }
-
     if (blob_index.file_number() >=
         blob_garbage_collection_cutoff_file_number_) {
       return;
     }
 
-    const Version* const version = compaction_->input_version();
-    assert(version);
+    FilePrefetchBuffer* prefetch_buffer =
+        prefetch_buffers_ ? prefetch_buffers_->GetOrCreatePrefetchBuffer(
+                                blob_index.file_number())
+                          : nullptr;
 
     uint64_t bytes_read = 0;
 
     {
-      const Status s = version->GetBlob(ReadOptions(), user_key(), blob_index,
-                                        &blob_value_, &bytes_read);
+      assert(blob_fetcher_);
+
+      const Status s = blob_fetcher_->FetchBlob(
+          user_key(), blob_index, prefetch_buffer, &blob_value_, &bytes_read);
 
       if (!s.ok()) {
         status_ = s;
@@ -1151,7 +1156,7 @@ uint64_t CompactionIterator::ComputeBlobGarbageCollectionCutoffFileNumber(
     return 0;
   }
 
-  Version* const version = compaction->input_version();
+  const Version* const version = compaction->input_version();
   assert(version);
 
   const VersionStorageInfo* const storage_info = version->storage_info();
@@ -1165,6 +1170,44 @@ uint64_t CompactionIterator::ComputeBlobGarbageCollectionCutoffFileNumber(
 
   return it != blob_files.end() ? it->first
                                 : std::numeric_limits<uint64_t>::max();
+}
+
+std::unique_ptr<BlobFetcher> CompactionIterator::CreateBlobFetcherIfNeeded(
+    const CompactionProxy* compaction) {
+  if (!compaction) {
+    return nullptr;
+  }
+
+  const Version* const version = compaction->input_version();
+  if (!version) {
+    return nullptr;
+  }
+
+  return std::unique_ptr<BlobFetcher>(new BlobFetcher(version, ReadOptions()));
+}
+
+std::unique_ptr<PrefetchBufferCollection>
+CompactionIterator::CreatePrefetchBufferCollectionIfNeeded(
+    const CompactionProxy* compaction) {
+  if (!compaction) {
+    return nullptr;
+  }
+
+  if (!compaction->input_version()) {
+    return nullptr;
+  }
+
+  if (compaction->allow_mmap_reads()) {
+    return nullptr;
+  }
+
+  const uint64_t readahead_size = compaction->blob_compaction_readahead_size();
+  if (!readahead_size) {
+    return nullptr;
+  }
+
+  return std::unique_ptr<PrefetchBufferCollection>(
+      new PrefetchBufferCollection(readahead_size));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -143,6 +143,7 @@ struct MutableCFOptions {
             options.blob_garbage_collection_age_cutoff),
         blob_garbage_collection_force_threshold(
             options.blob_garbage_collection_force_threshold),
+        blob_compaction_readahead_size(options.blob_compaction_readahead_size),
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
         check_flush_compaction_key_order(
@@ -190,6 +191,7 @@ struct MutableCFOptions {
         enable_blob_garbage_collection(false),
         blob_garbage_collection_age_cutoff(0.0),
         blob_garbage_collection_force_threshold(0.0),
+        blob_compaction_readahead_size(0),
         max_sequential_skip_in_iterations(0),
         check_flush_compaction_key_order(true),
         paranoid_file_checks(false),
@@ -255,6 +257,7 @@ struct MutableCFOptions {
   bool enable_blob_garbage_collection;
   double blob_garbage_collection_age_cutoff;
   double blob_garbage_collection_force_threshold;
+  uint64_t blob_compaction_readahead_size;
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;

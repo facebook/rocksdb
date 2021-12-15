@@ -17,6 +17,7 @@
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "monitoring/perf_context_imp.h"
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/statistics.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/get_context.h"
@@ -108,6 +109,7 @@ Status TableCache::GetTableReader(
       TableFileName(ioptions_.cf_paths, fd.GetNumber(), fd.GetPathId());
   std::unique_ptr<FSRandomAccessFile> file;
   FileOptions fopts = file_options;
+  fopts.temperature = file_temperature;
   Status s = PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
   if (s.ok()) {
     s = ioptions_.fs->NewRandomAccessFile(fname, fopts, &file, nullptr);
@@ -653,6 +655,16 @@ size_t TableCache::GetMemoryUsageByTableReader(
   auto ret = table->ApproximateMemoryUsage();
   ReleaseHandle(table_handle);
   return ret;
+}
+
+bool TableCache::HasEntry(Cache* cache, uint64_t file_number) {
+  Cache::Handle* handle = cache->Lookup(GetSliceForFileNumber(&file_number));
+  if (handle) {
+    cache->Release(handle);
+    return true;
+  } else {
+    return false;
+  }
 }
 
 void TableCache::Evict(Cache* cache, uint64_t file_number) {

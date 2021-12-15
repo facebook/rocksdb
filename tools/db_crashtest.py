@@ -154,6 +154,7 @@ default_params = {
         [0, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024]),
     "user_timestamp_size": 0,
     "secondary_cache_fault_one_in" : lambda: random.choice([0, 0, 32]),
+    "prepopulate_block_cache" : lambda: random.choice([0, 1]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -294,6 +295,7 @@ blob_params = {
     "enable_blob_garbage_collection": lambda: random.choice([0] + [1] * 3),
     "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
     "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
+    "blob_compaction_readahead_size": lambda: random.choice([0, 1048576, 4194304]),
 }
 
 ts_params = {

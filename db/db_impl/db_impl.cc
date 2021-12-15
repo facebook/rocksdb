@@ -1546,6 +1546,8 @@ void DBImpl::BackgroundCallPurge() {
     mutex_.Lock();
   }
 
+  assert(bg_purge_scheduled_ > 0);
+
   // Can't use iterator to go over purge_files_ because inside the loop we're
   // unlocking the mutex that protects purge_files_.
   while (!purge_files_.empty()) {
@@ -1613,17 +1615,7 @@ static void CleanupIteratorState(void* arg1, void* /*arg2*/) {
       delete state->super_version;
     }
     if (job_context.HaveSomethingToDelete()) {
-      if (state->background_purge) {
-        // PurgeObsoleteFiles here does not delete files. Instead, it adds the
-        // files to be deleted to a job queue, and deletes it in a separate
-        // background thread.
-        state->db->PurgeObsoleteFiles(job_context, true /* schedule only */);
-        state->mu->Lock();
-        state->db->SchedulePurge();
-        state->mu->Unlock();
-      } else {
-        state->db->PurgeObsoleteFiles(job_context);
-      }
+      state->db->PurgeObsoleteFiles(job_context, state->background_purge);
     }
     job_context.Clean();
   }
@@ -2903,6 +2895,13 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   }
   // if iterator wants internal keys, we can only proceed if
   // we can guarantee the deletes haven't been processed yet
+  if (read_options.iter_start_seqnum > 0 &&
+      !iter_start_seqnum_deprecation_warned_.exchange(true)) {
+    ROCKS_LOG_WARN(
+        immutable_db_options_.info_log,
+        "iter_start_seqnum is deprecated, will be removed in a future release. "
+        "Please try using user-defined timestamp instead.");
+  }
   if (immutable_db_options_.preserve_deletes &&
       read_options.iter_start_seqnum > 0 &&
       read_options.iter_start_seqnum < preserve_deletes_seqnum_.load()) {

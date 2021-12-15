@@ -37,6 +37,7 @@ class SequentialFileReader {
     for (auto& listener : listeners_) {
       listener->OnFileReadFinish(info);
     }
+    info.status.PermitUncheckedError();
   }
 
   void AddFileIOListeners(

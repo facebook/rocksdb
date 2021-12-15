@@ -434,6 +434,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    blob_garbage_collection_force_threshold),
           OptionType::kDouble, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"blob_compaction_readahead_size",
+         {offsetof(struct MutableCFOptions, blob_compaction_readahead_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"sample_for_compression",
          {offsetof(struct MutableCFOptions, sample_for_compression),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -593,7 +597,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                 static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
             Status s =
                 MemTableRepFactory::CreateFromString(opts, value, &factory);
-            if (s.ok()) {
+            if (factory && s.ok()) {
               shared->reset(factory.release());
             }
             return s;
@@ -609,7 +613,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                 static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
             Status s =
                 MemTableRepFactory::CreateFromString(opts, value, &factory);
-            if (s.ok()) {
+            if (factory && s.ok()) {
               shared->reset(factory.release());
             }
             return s;
@@ -1055,6 +1059,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  blob_garbage_collection_age_cutoff);
   ROCKS_LOG_INFO(log, "  blob_garbage_collection_force_threshold: %f",
                  blob_garbage_collection_force_threshold);
+  ROCKS_LOG_INFO(log, "           blob_compaction_readahead_size: %" PRIu64,
+                 blob_compaction_readahead_size);
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)

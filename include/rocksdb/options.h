@@ -663,7 +663,7 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   int base_background_compactions = -1;
 
-  // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
+  // DEPRECATED: RocksDB automatically decides this based on the
   // value of max_background_jobs. For backwards compatibility we will set
   // `max_background_jobs = max_background_compactions + max_background_flushes`
   // in the case where user sets at least one of `max_background_compactions` or
@@ -689,7 +689,7 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   uint32_t max_subcompactions = 1;
 
-  // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
+  // DEPRECATED: RocksDB automatically decides this based on the
   // value of max_background_jobs. For backwards compatibility we will set
   // `max_background_jobs = max_background_compactions + max_background_flushes`
   // in the case where user sets at least one of `max_background_compactions` or
@@ -1209,16 +1209,9 @@ struct DBOptions {
   // Immutable.
   bool allow_ingest_behind = false;
 
-  // Needed to support differential snapshots.
-  // If set to true then DB will only process deletes with sequence number
-  // less than what was set by SetPreserveDeletesSequenceNumber(uint64_t ts).
-  // Clients are responsible to periodically call this method to advance
-  // the cutoff time. If this method is never called and preserve_deletes
-  // is set to true NO deletes will ever be processed.
-  // At the moment this only keeps normal deletes, SingleDeletes will
-  // not be preserved.
+  // Deprecated, will be removed in a future release.
+  // Please try using user-defined timestamp instead.
   // DEFAULT: false
-  // Immutable (TODO: make it dynamically changeable)
   bool preserve_deletes = false;
 
   // If enabled it uses two queues for writes, one for the ones with
@@ -1557,10 +1550,8 @@ struct ReadOptions {
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
 
-  // Needed to support differential snapshots. Has 2 effects:
-  // 1) Iterator will skip all internal keys with seqnum < iter_start_seqnum
-  // 2) if this param > 0 iterator will return INTERNAL keys instead of
-  //    user keys; e.g. return tombstones as well.
+  // Deprecated, will be removed in a future release.
+  // Please try using user-defined timestamp instead.
   // Default: 0 (don't filter by seqnum, return user keys)
   SequenceNumber iter_start_seqnum;
 

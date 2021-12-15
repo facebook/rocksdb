@@ -3973,7 +3973,9 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
         ASSERT_OK(Put(Key(j), DummyString(kBytesPerKey)));
       }
       ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-      ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
+      if (i + 1 < kNumL0Files) {
+        ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
+      }
     }
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(0, NumTableFilesAtLevel(0));
@@ -6599,6 +6601,12 @@ TEST_F(DBTest2, BottommostTemperature) {
       DB::Properties::kLiveSstFilesSizeAtTemperature + std::to_string(22),
       &prop));
   ASSERT_EQ(std::atoi(prop.c_str()), 0);
+
+  Reopen(options);
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(2, metadata.file_count);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
 }
 
 TEST_F(DBTest2, BottommostTemperatureUniversal) {

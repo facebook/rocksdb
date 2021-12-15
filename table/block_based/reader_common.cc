@@ -22,6 +22,7 @@ void ForceReleaseCachedEntry(void* arg, void* h) {
   cache->Release(handle, true /* force_erase */);
 }
 
+// WART: this is specific to block-based table
 Status VerifyBlockChecksum(ChecksumType type, const char* data,
                            size_t block_size, const std::string& file_name,
                            uint64_t offset) {

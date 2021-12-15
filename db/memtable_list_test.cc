@@ -344,7 +344,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   // Create MemTableList
   int min_write_buffer_number_to_merge = 2;
   int max_write_buffer_number_to_maintain = 2;
-  int64_t max_write_buffer_size_to_maintain = 2000;
+  int64_t max_write_buffer_size_to_maintain = 2 * Arena::kInlineSize;
   MemTableList list(min_write_buffer_number_to_merge,
                     max_write_buffer_number_to_maintain,
                     max_write_buffer_size_to_maintain);

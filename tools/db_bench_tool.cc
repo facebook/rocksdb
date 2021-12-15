@@ -236,9 +236,9 @@ IF_ROCKSDB_LITE("",
     "\tmemstats  -- Print memtable stats\n"
     "\tsstables    -- Print sstable info\n"
     "\theapprofile -- Dump a heap profile (if supported by this port)\n"
-#ifndef ROCKSDB_LITE
+IF_ROCKSDB_LITE("",
     "\treplay      -- replay the trace file specified with trace_file\n"
-#endif  // ROCKSDB_LITE
+)
     "\tgetmergeoperands -- Insert lots of merge records which are a list of "
     "sorted ints for a key and then compare performance of lookup for another "
     "key "
@@ -1001,6 +1001,11 @@ DEFINE_double(blob_garbage_collection_force_threshold,
                   .blob_garbage_collection_force_threshold,
               "[Integrated BlobDB] The threshold for the ratio of garbage in "
               "the oldest blob files for forcing garbage collection.");
+
+DEFINE_uint64(blob_compaction_readahead_size,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_compaction_readahead_size,
+              "[Integrated BlobDB] Compaction readahead for blob files.");
 
 #ifndef ROCKSDB_LITE
 
@@ -4365,6 +4370,8 @@ class Benchmark {
         FLAGS_blob_garbage_collection_age_cutoff;
     options.blob_garbage_collection_force_threshold =
         FLAGS_blob_garbage_collection_force_threshold;
+    options.blob_compaction_readahead_size =
+        FLAGS_blob_compaction_readahead_size;
 
 #ifndef ROCKSDB_LITE
     if (FLAGS_readonly && FLAGS_transaction_db) {

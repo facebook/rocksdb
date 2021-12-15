@@ -14,8 +14,10 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
+#include "rocksdb/types.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "table/format.h"
+#include "table/meta_blocks.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
@@ -63,21 +65,49 @@ class DBTablePropertiesTest : public DBTestBase,
 TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 8;
+  // Part of strategy to prevent pinning table files
+  options.max_open_files = 42;
   Reopen(options);
+
   // Create 4 tables
   for (int table = 0; table < 4; ++table) {
+    // Use old meta name for table properties for one file
+    if (table == 3) {
+      SyncPoint::GetInstance()->SetCallBack(
+          "BlockBasedTableBuilder::WritePropertiesBlock:Meta", [&](void* meta) {
+            *reinterpret_cast<const std::string**>(meta) =
+                &kPropertiesBlockOldName;
+          });
+      SyncPoint::GetInstance()->EnableProcessing();
+    }
+    // Build file
     for (int i = 0; i < 10 + table; ++i) {
       ASSERT_OK(db_->Put(WriteOptions(), ToString(table * 100 + i), "val"));
     }
     ASSERT_OK(db_->Flush(FlushOptions()));
   }
+  SyncPoint::GetInstance()->DisableProcessing();
+  std::string original_session_id;
+  ASSERT_OK(db_->GetDbSessionId(original_session_id));
+
+  // Part of strategy to prevent pinning table files
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionEditHandler::LoadTables:skip_load_table_files",
+      [&](void* skip_load) { *reinterpret_cast<bool*>(skip_load) = true; });
+  SyncPoint::GetInstance()->EnableProcessing();
 
   // 1. Read table properties directly from file
   Reopen(options);
+  // Clear out auto-opened files
+  dbfull()->TEST_table_cache()->EraseUnRefEntries();
+  ASSERT_EQ(dbfull()->TEST_table_cache()->GetUsage(), 0U);
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
 
   // 2. Put two tables to table cache and
   Reopen(options);
+  // Clear out auto-opened files
+  dbfull()->TEST_table_cache()->EraseUnRefEntries();
+  ASSERT_EQ(dbfull()->TEST_table_cache()->GetUsage(), 0U);
   // fetch key from 1st and 2nd table, which will internally place that table to
   // the table cache.
   for (int i = 0; i < 2; ++i) {
@@ -88,12 +118,82 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
 
   // 3. Put all tables to table cache
   Reopen(options);
-  // fetch key from 1st and 2nd table, which will internally place that table to
-  // the table cache.
+  // fetch key from all tables, which will place them in table cache.
   for (int i = 0; i < 4; ++i) {
     Get(ToString(i * 100 + 0));
   }
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
+
+  // 4. Try to read CORRUPT properties (a) directly from file, and (b)
+  // through reader on Get
+
+  // It's not practical to prevent table file read on Open, so we
+  // corrupt after open and after purging table cache.
+  for (bool direct : {true, false}) {
+    Reopen(options);
+    // Clear out auto-opened files
+    dbfull()->TEST_table_cache()->EraseUnRefEntries();
+    ASSERT_EQ(dbfull()->TEST_table_cache()->GetUsage(), 0U);
+
+    TablePropertiesCollection props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+    std::string sst_file = props.begin()->first;
+
+    // Corrupt the file's TableProperties using session id
+    std::string contents;
+    ASSERT_OK(
+        ReadFileToString(env_->GetFileSystem().get(), sst_file, &contents));
+    size_t pos = contents.find(original_session_id);
+    ASSERT_NE(pos, std::string::npos);
+    ASSERT_OK(test::CorruptFile(env_, sst_file, static_cast<int>(pos), 1,
+                                /*verify checksum fails*/ false));
+
+    // Try to read CORRUPT properties
+    if (direct) {
+      ASSERT_TRUE(db_->GetPropertiesOfAllTables(&props).IsCorruption());
+    } else {
+      bool found_corruption = false;
+      for (int i = 0; i < 4; ++i) {
+        std::string result = Get(ToString(i * 100 + 0));
+        if (result.find_first_of("Corruption: block checksum mismatch") !=
+            std::string::npos) {
+          found_corruption = true;
+        }
+      }
+      ASSERT_TRUE(found_corruption);
+    }
+
+    // UN-corrupt file for next iteration
+    ASSERT_OK(test::CorruptFile(env_, sst_file, static_cast<int>(pos), 1,
+                                /*verify checksum fails*/ false));
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTablePropertiesTest, InvalidIgnored) {
+  // RocksDB versions 2.5 - 2.7 generate some properties that Block considers
+  // invalid in some way. This approximates that.
+
+  // Inject properties block data that Block considers invalid
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::WritePropertiesBlock:BlockData",
+      [&](void* block_data) {
+        *reinterpret_cast<Slice*>(block_data) = Slice("X");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Build file
+  for (int i = 0; i < 10; ++i) {
+    ASSERT_OK(db_->Put(WriteOptions(), ToString(i), "val"));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // Not crashing is good enough
+  TablePropertiesCollection props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
 }
 
 TEST_F(DBTablePropertiesTest, CreateOnDeletionCollectorFactory) {
