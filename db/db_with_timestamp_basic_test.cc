@@ -772,11 +772,13 @@ TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithPrefixLessThanKey) {
   Close();
 }
 
-TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithPrefixLongerThanKey) {
+TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithCappedPrefix) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
-  options.prefix_extractor.reset(NewCappedPrefixTransform(3));
+  // All of the keys or this test must be longer than 3 characters
+  static int kMinKeyLen = 3;
+  options.prefix_extractor.reset(NewCappedPrefixTransform(kMinKeyLen));
   options.memtable_whole_key_filtering = true;
   options.memtable_prefix_bloom_size_ratio = 0.1;
   BlockBasedTableOptions bbto;

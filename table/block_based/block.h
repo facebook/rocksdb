@@ -193,6 +193,19 @@ class Block {
                                  Statistics* stats = nullptr,
                                  bool block_contents_pinned = false);
 
+  // Returns an MetaBlockIter for iterating over blocks containing metadata
+  // (like Properties blocks).  Unlike data blocks, the keys for these blocks
+  // do not contain sequence numbers, do not use a user-define comparator, and
+  // do not track read amplification/statistics.  Additionally, MetaBlocks will
+  // not assert if the block is formatted improperly.
+  //
+  // If `block_contents_pinned` is true, the caller will guarantee that when
+  // the cleanup functions are transferred from the iterator to other
+  // classes, e.g. PinnableSlice, the pointer to the bytes will still be
+  // valid. Either the iterator holds cache handle or ownership of some resource
+  // and release them in a release function, or caller is sure that the data
+  // will not go away (for example, it's from mmapped file which will not be
+  // closed).
   MetaBlockIter* NewMetaIterator(bool block_contents_pinned = false);
 
   // raw_ucmp is a raw (i.e., not wrapped by `UserComparatorWrapper`) user key
