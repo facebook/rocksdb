@@ -325,112 +325,116 @@ bool FileExpectedStateManager::HasHistory() {
 }
 
 #ifndef ROCKSDB_LITE
-Status FileExpectedStateManager::Restore(DB* db) {
-  // An `ExpectedStateTraceRecordHandler` applies a configurable number of
-  // write operation trace records to the configured expected state.
-  class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
-                                          public WriteBatch::Handler {
-   public:
-    ExpectedStateTraceRecordHandler(uint64_t max_write_ops,
-                                    ExpectedState* state)
-        : max_write_ops_(max_write_ops), state_(state) {}
 
-    ~ExpectedStateTraceRecordHandler() {
-      assert(num_write_ops_ == max_write_ops_);
-    }
+// An `ExpectedStateTraceRecordHandler` applies a configurable number of
+// write operation trace records to the configured expected state. It is used in
+// `FileExpectedStateManager::Restore()` to sync the expected state with the
+// DB's post-recovery state.
+class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
+                                        public WriteBatch::Handler {
+ public:
+  ExpectedStateTraceRecordHandler(uint64_t max_write_ops,
+                                  ExpectedState* state)
+      : max_write_ops_(max_write_ops), state_(state) {}
 
-    Status Handle(const WriteQueryTraceRecord& record,
-                  std::unique_ptr<TraceRecordResult>* /* result */) override {
-      if (num_write_ops_ == max_write_ops_) {
-        return Status::OK();
-      }
-      WriteBatch batch(record.GetWriteBatchRep().ToString());
-      return batch.Iterate(this);
-    }
+  ~ExpectedStateTraceRecordHandler() {
+    assert(num_write_ops_ == max_write_ops_);
+  }
 
-    // Ignore reads.
-    Status Handle(const GetQueryTraceRecord& /* record */,
-                  std::unique_ptr<TraceRecordResult>* /* result */) override {
+  Status Handle(const WriteQueryTraceRecord& record,
+                std::unique_ptr<TraceRecordResult>* /* result */) override {
+    if (num_write_ops_ == max_write_ops_) {
       return Status::OK();
     }
+    WriteBatch batch(record.GetWriteBatchRep().ToString());
+    return batch.Iterate(this);
+  }
 
-    // Ignore reads.
-    Status Handle(const IteratorSeekQueryTraceRecord& /* record */,
-                  std::unique_ptr<TraceRecordResult>* /* result */) override {
-      return Status::OK();
+  // Ignore reads.
+  Status Handle(const GetQueryTraceRecord& /* record */,
+                std::unique_ptr<TraceRecordResult>* /* result */) override {
+    return Status::OK();
+  }
+
+  // Ignore reads.
+  Status Handle(const IteratorSeekQueryTraceRecord& /* record */,
+                std::unique_ptr<TraceRecordResult>* /* result */) override {
+    return Status::OK();
+  }
+
+  // Ignore reads.
+  Status Handle(const MultiGetQueryTraceRecord& /* record */,
+                std::unique_ptr<TraceRecordResult>* /* result */) override {
+    return Status::OK();
+  }
+
+  // Below are the WriteBatch::Handler overrides. We could use a separate
+  // object, but it's convenient and works to share state with the
+  // `TraceRecord::Handler`.
+
+  Status PutCF(uint32_t column_family_id, const Slice& key,
+               const Slice& value) override {
+    uint64_t key_id;
+    if (!GetIntVal(key.ToString(), &key_id)) {
+      return Status::Corruption("unable to parse key", key.ToString());
+    }
+    uint32_t value_id = GetValueBase(value);
+
+    state_->Put(column_family_id, static_cast<int64_t>(key_id), value_id,
+                false /* pending */);
+    ++num_write_ops_;
+    return Status::OK();
+  }
+
+  Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
+    uint64_t key_id;
+    if (!GetIntVal(key.ToString(), &key_id)) {
+      return Status::Corruption("unable to parse key", key.ToString());
     }
 
-    // Ignore reads.
-    Status Handle(const MultiGetQueryTraceRecord& /* record */,
-                  std::unique_ptr<TraceRecordResult>* /* result */) override {
-      return Status::OK();
+    state_->Delete(column_family_id, static_cast<int64_t>(key_id),
+                   false /* pending */);
+    ++num_write_ops_;
+    return Status::OK();
+  }
+
+  Status SingleDeleteCF(uint32_t column_family_id,
+                        const Slice& key) override {
+    return DeleteCF(column_family_id, key);
+  }
+
+  Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
+                       const Slice& end_key) override {
+    uint64_t begin_key_id, end_key_id;
+    if (!GetIntVal(begin_key.ToString(), &begin_key_id)) {
+      return Status::Corruption("unable to parse begin key",
+                                begin_key.ToString());
+    }
+    if (!GetIntVal(end_key.ToString(), &end_key_id)) {
+      return Status::Corruption("unable to parse end key",
+                                end_key.ToString());
     }
 
-    // Below are the WriteBatch::Handler overrides. We could use a separate
-    // object, but it's convenient and works to share state with the
-    // `TraceRecord::Handler`.
+    state_->DeleteRange(column_family_id, static_cast<int64_t>(begin_key_id),
+                        static_cast<int64_t>(end_key_id),
+                        false /* pending */);
+    ++num_write_ops_;
+    return Status::OK();
+  }
 
-    Status PutCF(uint32_t column_family_id, const Slice& key,
+  Status MergeCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value) override {
-      uint64_t key_id;
-      if (!GetIntVal(key.ToString(), &key_id)) {
-        return Status::Corruption("unable to parse key", key.ToString());
-      }
-      uint32_t value_id = GetValueBase(value);
+    return PutCF(column_family_id, key, value);
+  }
 
-      state_->Put(column_family_id, static_cast<int64_t>(key_id), value_id,
-                  false /* pending */);
-      ++num_write_ops_;
-      return Status::OK();
-    }
+ private:
+  uint64_t num_write_ops_ = 0;
+  uint64_t max_write_ops_;
+  ExpectedState* state_;
+};
 
-    Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
-      uint64_t key_id;
-      if (!GetIntVal(key.ToString(), &key_id)) {
-        return Status::Corruption("unable to parse key", key.ToString());
-      }
-
-      state_->Delete(column_family_id, static_cast<int64_t>(key_id),
-                     false /* pending */);
-      ++num_write_ops_;
-      return Status::OK();
-    }
-
-    Status SingleDeleteCF(uint32_t column_family_id,
-                          const Slice& key) override {
-      return DeleteCF(column_family_id, key);
-    }
-
-    Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
-                         const Slice& end_key) override {
-      uint64_t begin_key_id, end_key_id;
-      if (!GetIntVal(begin_key.ToString(), &begin_key_id)) {
-        return Status::Corruption("unable to parse begin key",
-                                  begin_key.ToString());
-      }
-      if (!GetIntVal(end_key.ToString(), &end_key_id)) {
-        return Status::Corruption("unable to parse end key",
-                                  end_key.ToString());
-      }
-
-      state_->DeleteRange(column_family_id, static_cast<int64_t>(begin_key_id),
-                          static_cast<int64_t>(end_key_id),
-                          false /* pending */);
-      ++num_write_ops_;
-      return Status::OK();
-    }
-
-    Status MergeCF(uint32_t column_family_id, const Slice& key,
-                   const Slice& value) override {
-      return PutCF(column_family_id, key, value);
-    }
-
-   private:
-    uint64_t num_write_ops_ = 0;
-    uint64_t max_write_ops_;
-    ExpectedState* state_;
-  };
-
+Status FileExpectedStateManager::Restore(DB* db) {
+  assert(HasHistory());
   SequenceNumber seqno = db->GetLatestSequenceNumber();
   if (seqno < saved_seqno_) {
     return Status::Corruption("DB is older than any restorable expected state");
@@ -481,7 +485,7 @@ Status FileExpectedStateManager::Restore(DB* db) {
     if (s.ok()) {
       s = replayer->Prepare();
     }
-    while (true) {
+    for (;;) {
       std::unique_ptr<TraceRecord> record;
       s = replayer->Next(&record);
       if (!s.ok()) {
