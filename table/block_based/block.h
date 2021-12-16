@@ -403,9 +403,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
   virtual void PrevImpl() = 0;
 
-  virtual const char* DecodeKV(const char* p, const char* limit,
-                               uint32_t* shared, uint32_t* non_shared,
-                               uint32_t* value_length) const = 0;
+  template <typename DecodeEntryFunc>
   bool ParseNextKey(bool* is_shared);
 
   InternalKeyComparator icmp() {
@@ -485,6 +483,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   void CorruptionError();
 
  protected:
+  template <typename DecodeKeyFunc>
   inline bool BinarySeek(const Slice& target, uint32_t* index,
                          bool* is_index_key_result);
 
@@ -550,9 +549,6 @@ class DataBlockIter final : public BlockIter<Slice> {
 
  protected:
   friend Block;
-  virtual const char* DecodeKV(const char* p, const char* limit,
-                               uint32_t* shared, uint32_t* non_shared,
-                               uint32_t* value_length) const override;
   bool ParseNextDataKey(bool* is_shared);
   virtual void SeekToFirstImpl() override;
   virtual void SeekToLastImpl() override;
@@ -610,9 +606,6 @@ class MetaBlockIter final : public BlockIter<Slice> {
   }
 
  protected:
-  virtual const char* DecodeKV(const char* p, const char* limit,
-                               uint32_t* shared, uint32_t* non_shared,
-                               uint32_t* value_length) const override;
   virtual void SeekToFirstImpl() override;
   virtual void SeekToLastImpl() override;
   virtual void SeekImpl(const Slice& target) override;
@@ -671,9 +664,6 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
   }
 
  protected:
-  virtual const char* DecodeKV(const char* p, const char* limit,
-                               uint32_t* shared, uint32_t* non_shared,
-                               uint32_t* value_length) const override;
   // IndexBlockIter follows a different contract for prefix iterator
   // from data iterators.
   // If prefix of the seek key `target` exists in the file, it must
