@@ -674,7 +674,7 @@ else
   fi
 
   if [[ "${PLATFORM}" == "OS_MACOSX" ]]; then
-    # For portability compile for macOS 10.14 or newer
+    # For portability compile for macOS 10.14 (2018) or newer
     COMMON_FLAGS="$COMMON_FLAGS -mmacosx-version-min=10.14"
     PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -mmacosx-version-min=10.14"
     # -mmacosx-version-min must come first here.
