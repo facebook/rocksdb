@@ -404,7 +404,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   virtual void PrevImpl() = 0;
 
   template <typename DecodeEntryFunc>
-  bool ParseNextKey(bool* is_shared);
+  inline bool ParseNextKey(bool* is_shared);
 
   InternalKeyComparator icmp() {
     return InternalKeyComparator(raw_ucmp_, false /* named */);
@@ -549,7 +549,7 @@ class DataBlockIter final : public BlockIter<Slice> {
 
  protected:
   friend Block;
-  bool ParseNextDataKey(bool* is_shared);
+  inline bool ParseNextDataKey(bool* is_shared);
   virtual void SeekToFirstImpl() override;
   virtual void SeekToLastImpl() override;
   virtual void SeekImpl(const Slice& target) override;
