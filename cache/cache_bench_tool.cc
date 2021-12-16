@@ -79,7 +79,8 @@ static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
 DEFINE_bool(use_clock_cache, false, "");
 
 // ## BEGIN stress_cache_key sub-tool options ##
-DEFINE_bool(stress_cache_key, false, "If true, run cache key stress test instead");
+DEFINE_bool(stress_cache_key, false,
+            "If true, run cache key stress test instead");
 DEFINE_uint32(sck_files_per_day, 2500000,
               "(-stress_cache_key) Simulated files generated per day");
 DEFINE_uint32(sck_duration, 90,
@@ -95,14 +96,12 @@ DEFINE_uint32(sck_reopen_nfiles, 100,
 DEFINE_uint32(
     sck_restarts_per_day, 24,
     "(-stress_cache_key) Simulated process restarts per day (across DBs)");
-DEFINE_uint32(
-    sck_db_count, 100,
-    "(-stress_cache_key) Parallel DBs in operation");
+DEFINE_uint32(sck_db_count, 100,
+              "(-stress_cache_key) Parallel DBs in operation");
 DEFINE_uint32(sck_table_bits, 20,
               "(-stress_cache_key) Log2 number of tracked files");
-DEFINE_uint32(
-    sck_keep_bits, 50,
-    "(-stress_cache_key) Number of cache key bits to keep");
+DEFINE_uint32(sck_keep_bits, 50,
+              "(-stress_cache_key) Number of cache key bits to keep");
 DEFINE_bool(sck_randomize, false,
             "(-stress_cache_key) Randomize (hash) cache key");
 // ## END stress_cache_key sub-tool options ##
@@ -584,7 +583,7 @@ class CacheBench {
 
 // TODO: better description (see PR #9126 for some info)
 class StressCacheKey {
-public:
+ public:
   void Run() {
     uint64_t mb_per_day =
         uint64_t{FLAGS_sck_files_per_day} * FLAGS_sck_file_size_mb;
@@ -656,7 +655,9 @@ public:
     uint32_t collisions_this_run = 0;
     // Round robin through DBs
     for (size_t db_i = 0;; ++db_i) {
-      if (db_i >= db_count) { db_i = 0; }
+      if (db_i >= db_count) {
+        db_i = 0;
+      }
       if (file_count >= max_file_count) {
         break;
       }
@@ -690,7 +691,8 @@ public:
       file_count++;
       uint64_t h = NPHash64(reinterpret_cast<char*>(&stripped), 8);
       // Skew lifetimes
-      size_t pos = std::min(Lower32of64(h) & table_mask, Upper32of64(h) & table_mask);
+      size_t pos =
+          std::min(Lower32of64(h) & table_mask, Upper32of64(h) & table_mask);
       if (table_[pos] == stripped) {
         collisions_this_run++;
         // To predict probability of no collisions, we have to get rid of
@@ -736,7 +738,7 @@ public:
     }
   }
 
-private:
+ private:
   // Use db_session_id and orig_file_number from TableProperties
   std::unique_ptr<TableProperties[]> dbs_;
   std::unique_ptr<uint64_t[]> table_;

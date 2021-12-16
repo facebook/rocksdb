@@ -3953,11 +3953,9 @@ SemiStructuredUniqueIdGen* DbSessionIdGen() {
   static SemiStructuredUniqueIdGen gen;
   return &gen;
 }
-} // namespace
+}  // namespace
 
-void DBImpl::TEST_ResetDbSessionIdGen() {
-  DbSessionIdGen()->Reset();
-}
+void DBImpl::TEST_ResetDbSessionIdGen() { DbSessionIdGen()->Reset(); }
 
 std::string DBImpl::GenerateDbSessionId(Env*) {
   // See SemiStructuredUniqueIdGen for its desirable properties.
