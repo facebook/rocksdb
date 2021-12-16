@@ -104,6 +104,8 @@ DEFINE_uint32(sck_keep_bits, 50,
               "(-stress_cache_key) Number of cache key bits to keep");
 DEFINE_bool(sck_randomize, false,
             "(-stress_cache_key) Randomize (hash) cache key");
+DEFINE_bool(sck_footer_unique_id, false,
+            "(-stress_cache_key) Simulate using proposed footer unique id");
 // ## END stress_cache_key sub-tool options ##
 
 namespace ROCKSDB_NAMESPACE {
@@ -585,6 +587,10 @@ class CacheBench {
 class StressCacheKey {
  public:
   void Run() {
+    if (FLAGS_sck_footer_unique_id) {
+      FLAGS_sck_db_count = 1;
+    }
+
     uint64_t mb_per_day =
         uint64_t{FLAGS_sck_files_per_day} * FLAGS_sck_file_size_mb;
     printf("Total cache or DBs size: %gTiB  Writing %g MiB/s or %gTiB/day\n",
@@ -632,7 +638,7 @@ class StressCacheKey {
 
   void RunOnce() {
     const size_t db_count = FLAGS_sck_db_count;
-    dbs_.reset(new TableProperties[db_count]);
+    dbs_.reset(new TableProperties[db_count]{});
     const size_t table_mask = (size_t{1} << FLAGS_sck_table_bits) - 1;
     table_.reset(new uint64_t[table_mask + 1]{});
     if (FLAGS_sck_keep_bits > 64) {
@@ -661,7 +667,7 @@ class StressCacheKey {
       if (file_count >= max_file_count) {
         break;
       }
-      if (r.OneIn(FLAGS_sck_reopen_nfiles)) {
+      if (!FLAGS_sck_footer_unique_id && r.OneIn(FLAGS_sck_reopen_nfiles)) {
         ResetSession(db_i);
       } else if (r.OneIn(restart_nfiles_)) {
         ResetProcess();
@@ -678,6 +684,10 @@ class StressCacheKey {
       uint64_t stripped;
       if (FLAGS_sck_randomize) {
         stripped = GetSliceHash64(ck.AsSlice()) >> shift_away;
+      } else if (FLAGS_sck_footer_unique_id) {
+        uint32_t a = DecodeFixed32(ck.AsSlice().data() + 4) >> shift_away_a;
+        uint32_t b = DecodeFixed32(ck.AsSlice().data() + 12) >> shift_away_b;
+        stripped = (uint64_t{a} << 32) + b;
       } else {
         uint32_t a = DecodeFixed32(ck.AsSlice().data()) << shift_away_a;
         uint32_t b = DecodeFixed32(ck.AsSlice().data() + 12) >> shift_away_b;
@@ -720,6 +730,7 @@ class StressCacheKey {
             file_count / FLAGS_sck_files_per_day, process_count_,
             session_count_, collisions_this_run, 100.0 * sampled_count / 1000.0,
             100.0 * (1.0 - sampled_count / 1000.0 * table_mask / file_count));
+        fflush(stdout);
       }
     }
     collisions_ += collisions_this_run;
@@ -735,6 +746,9 @@ class StressCacheKey {
     DBImpl::TEST_ResetDbSessionIdGen();
     for (size_t i = 0; i < FLAGS_sck_db_count; ++i) {
       ResetSession(i);
+    }
+    if (FLAGS_sck_footer_unique_id) {
+      dbs_[0].orig_file_number = 0;
     }
   }
 
