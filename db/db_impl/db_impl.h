@@ -1128,6 +1128,7 @@ class DBImpl : public DB {
     State state_;
   };
 
+  static void TEST_ResetDbSessionIdGen();
   static std::string GenerateDbSessionId(Env* env);
 
  protected:
