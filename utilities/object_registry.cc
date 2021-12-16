@@ -5,6 +5,8 @@
 
 #include "rocksdb/utilities/object_registry.h"
 
+#include <ctype.h>
+
 #include "logging/logging.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
@@ -36,7 +38,7 @@ size_t ObjectLibrary::PatternEntry::MatchPatternAt(
     } else if (mode == kMatchNumeric) {
       // If it is numeric, everything up to the match must be a number
       while (start < pos) {
-        if (!std::isdigit(target[start++])) {
+        if (!isdigit(target[start++])) {
           return std::string::npos;
         }
       }
@@ -84,7 +86,7 @@ bool ObjectLibrary::PatternEntry::MatchesPattern(const std::string &name,
       return false;
     } else if (mode == kMatchNumeric) {
       while (start < tlen) {
-        if (!std::isdigit(target[start++])) {
+        if (!isdigit(target[start++])) {
           return false;
         }
       }
