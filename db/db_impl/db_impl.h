@@ -355,11 +355,13 @@ class DBImpl : public DB {
 
   virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
 
-  // This functions can only be called when db_mutex is NOT held
+  // IncreaseFullHistoryTsLow(ColumnFamilyHandle*, std::string) will acquire
+  // and release db_mutex
   Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
                                   std::string ts_low) override;
 
-  // This functions can only be called when db_mutex is NOT held
+  // GetFullHistoryTsLow(ColumnFamilyHandle*, std::string*) will acquire and
+  // release db_mutex
   Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
                              std::string* ts_low) override;
 

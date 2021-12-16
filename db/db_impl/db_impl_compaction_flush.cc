@@ -919,7 +919,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
 
 Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
                                         std::string ts_low) {
-  ColumnFamilyData* cfd;
+  ColumnFamilyData* cfd = nullptr;
   if (column_family == nullptr) {
     cfd = default_cf_handle_->cfd();
   } else {
@@ -927,9 +927,13 @@ Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
     assert(cfh != nullptr);
     cfd = cfh->cfd();
   }
+  assert(cfd != nullptr && cfd->user_comparator() != nullptr);
   if (cfd->user_comparator()->timestamp_size() == 0) {
-    return Status::NotSupported(
+    return Status::InvalidArgument(
         "Timestamp is not enabled in this column family");
+  }
+  if (cfd->user_comparator()->timestamp_size() != ts_low.size()) {
+    return Status::InvalidArgument("ts_low size mismatch");
   }
   return IncreaseFullHistoryTsLowImpl(cfd, ts_low);
 }
@@ -943,7 +947,7 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
   InstrumentedMutexLock l(&mutex_);
   std::string current_ts_low = cfd->GetFullHistoryTsLow();
   const Comparator* ucmp = cfd->user_comparator();
-  assert(ucmp->timestamp_size() != 0);
+  assert(ucmp->timestamp_size() == ts_low.size() && !ts_low.empty());
   if (!current_ts_low.empty() &&
       ucmp->CompareTimestamp(ts_low, current_ts_low) < 0) {
     return Status::InvalidArgument(
