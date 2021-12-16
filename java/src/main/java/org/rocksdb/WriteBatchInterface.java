@@ -227,8 +227,8 @@ public interface WriteBatchInterface {
      *     native library.
      */
     @Experimental("Performance optimization for a very specific workload")
-    void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
-            final byte[] key) throws RocksDBException;
+    void singleDelete(final ColumnFamilyHandle columnFamilyHandle, final byte[] key) 
+        throws RocksDBException;
 
     /**
      * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
