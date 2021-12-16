@@ -70,6 +70,12 @@ struct CacheDumpOptions {
   SystemClock* clock;
 };
 
+// This is used in
+struct CacheDumpArg {
+  std::vector<DB*> db_list;
+  CacheDumpWriter* writer;
+};
+
 // NOTE that: this class is EXPERIMENTAL! May be changed in the future!
 // This the class to dump out the block in the block cache, store/transfer them
 // via CacheDumpWriter. In order to dump out the blocks belonging to a certain
@@ -96,6 +102,16 @@ class CacheDumper {
   // process may take some time.
   virtual IOStatus DumpCacheEntriesToWriter() {
     return IOStatus::NotSupported("DumpCacheEntriesToWriter is not supported");
+  }
+  // This is a buck mode of the cache dump. When this funciton is called, it
+  // will ignore the filters provided by SetDumpFilter. Each of the argument
+  // will contain a writer and a list of DBs that will be dumped to this writer.
+  // By using this API, user is able to dump the required blocks to different
+  // writers by one block cache scan.
+  virtual IOStatus DumpCacheEntriesToFilterPairedWriters(
+      const std::vector<CacheDumpArg>& /*arg_list*/) {
+    return IOStatus::NotSupported(
+        "DumpCacheEntriesToFilterPairedWriters is not supported");
   }
 };
 

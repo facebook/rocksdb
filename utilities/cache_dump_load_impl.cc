@@ -23,21 +23,7 @@ namespace ROCKSDB_NAMESPACE {
 // Therefore, a filter is need to decide if the key of the block satisfy the
 // requirement.
 Status CacheDumperImpl::SetDumpFilter(std::vector<DB*> db_list) {
-  Status s = Status::OK();
-  for (size_t i = 0; i < db_list.size(); i++) {
-    assert(i < db_list.size());
-    TablePropertiesCollection ptc;
-    assert(db_list[i] != nullptr);
-    s = db_list[i]->GetPropertiesOfAllTables(&ptc);
-    if (!s.ok()) {
-      return s;
-    }
-    for (auto id = ptc.begin(); id != ptc.end(); id++) {
-      assert(id->second->db_session_id.size() == 20);
-      prefix_filter_.insert(id->second->db_session_id);
-    }
-  }
-  return s;
+  return FinalizeDumpFilter(db_list, prefix_filter_);
 }
 
 // This is the main function to dump out the cache block entries to the writer.
@@ -56,13 +42,18 @@ IOStatus CacheDumperImpl::DumpCacheEntriesToWriter() {
     return IOStatus::InvalidArgument("System clock is null");
   }
   clock_ = options_.clock;
+  dump_arg_list_.clear();
+  DumpArg tmp_arg;
+  tmp_arg.writer = writer_.get();
+  tmp_arg.prefix_filter = prefix_filter_;
+  dump_arg_list_.push_back(tmp_arg);
   // We copy the Cache Deleter Role Map as its member.
   role_map_ = CopyCacheDeleterRoleMap();
   // Set the sequence number
   sequence_num_ = 0;
 
   // Dump stage, first, we write the hader
-  IOStatus io_s = WriteHeader();
+  IOStatus io_s = WriteHeader(tmp_arg.writer);
   if (!io_s.ok()) {
     return io_s;
   }
@@ -72,23 +63,84 @@ IOStatus CacheDumperImpl::DumpCacheEntriesToWriter() {
   cache_->ApplyToAllEntries(DumpOneBlockCallBack(), {});
 
   // Finally, write the footer
-  io_s = WriteFooter();
+  io_s = WriteFooter(tmp_arg.writer);
   if (!io_s.ok()) {
     return io_s;
   }
-  io_s = writer_->Close();
+  io_s = tmp_arg.writer->Close();
+  return io_s;
+}
+
+IOStatus CacheDumperImpl::DumpCacheEntriesToFilterPairedWriters(
+    const std::vector<CacheDumpArg>& arg_list) {
+  // Prepare stage, check the parameters.
+  if (cache_ == nullptr) {
+    return IOStatus::InvalidArgument("Cache is null");
+  }
+  // Set the system clock
+  if (options_.clock == nullptr) {
+    return IOStatus::InvalidArgument("System clock is null");
+  }
+  clock_ = options_.clock;
+
+  dump_arg_list_.clear();
+  for (size_t i = 0; i < arg_list.size(); i++) {
+    assert(i < arg_list.size());
+    if (arg_list[i].writer == nullptr) {
+      return IOStatus::InvalidArgument("CacheDumpWriter is null");
+    }
+    DumpArg tmp_arg;
+    tmp_arg.writer = arg_list[i].writer;
+    Status s = FinalizeDumpFilter(arg_list[i].db_list, tmp_arg.prefix_filter);
+    if (!s.ok()) {
+      return status_to_io_status(std::move(s));
+    }
+    dump_arg_list_.push_back(tmp_arg);
+  }
+  // We copy the Cache Deleter Role Map as its member.
+  role_map_ = CopyCacheDeleterRoleMap();
+  // Set the sequence number
+  sequence_num_ = 0;
+
+  // Dump stage, first, we write the hader
+  IOStatus io_s = IOStatus::OK();
+  for (size_t i = 0; i < dump_arg_list_.size(); i++) {
+    assert(dump_arg_list_[i].writer != nullptr);
+    io_s = WriteHeader(dump_arg_list_[i].writer);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+  }
+
+  // Then, we iterate the block cache and dump out the blocks that are not
+  // filtered out.
+  cache_->ApplyToAllEntries(DumpOneBlockCallBack(), {});
+
+  // Finally, write the footer and close the writer
+  for (size_t i = 0; i < dump_arg_list_.size(); i++) {
+    assert(dump_arg_list_[i].writer != nullptr);
+    io_s = WriteFooter(dump_arg_list_[i].writer);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+    io_s = dump_arg_list_[i].writer->Close();
+    if (!io_s.ok()) {
+      return io_s;
+    }
+  }
   return io_s;
 }
 
 // Check if we need to filter out the block based on its key
-bool CacheDumperImpl::ShouldFilterOut(const Slice& key) {
+bool CacheDumperImpl::ShouldFilterOut(const std::set<std::string>& filter,
+                                      const Slice& key) {
   // Since now we use db_session_id as the prefix, the prefix size is 20. If
   // Anything changes in the future, we need to update it here.
   bool filter_out = true;
   size_t prefix_size = 20;
   Slice key_prefix(key.data(), prefix_size);
   std::string prefix = key_prefix.ToString();
-  if (prefix_filter_.find(prefix) != prefix_filter_.end()) {
+  if (filter.find(prefix) != filter.end()) {
     filter_out = false;
   }
   return filter_out;
@@ -113,12 +165,7 @@ CacheDumperImpl::DumpOneBlockCallBack() {
     }
     bool filter_out = false;
 
-    // Step 2: based on the key prefix, check if the block should be filter out.
-    if (ShouldFilterOut(key)) {
-      filter_out = true;
-    }
-
-    // Step 3: based on the block type, get the block raw pointer and length.
+    // Step 2: based on the block type, get the block raw pointer and length.
     const char* block_start = nullptr;
     size_t block_len = 0;
     switch (role) {
@@ -164,14 +211,21 @@ CacheDumperImpl::DumpOneBlockCallBack() {
         filter_out = true;
     }
 
-    // Step 4: if the block should not be filter out, write the block to the
-    // CacheDumpWriter
+    // Step 4: if the block should not be filter out by its block category,
+    // check the block in all the filters. If ther block should not be filtered
+    // out, write the block to the corresponding CacheDumpWriter.
     if (!filter_out && block_start != nullptr) {
-      char* buffer = new char[block_len];
-      memcpy(buffer, block_start, block_len);
-      WriteCacheBlock(type, key, (void*)buffer, block_len)
-          .PermitUncheckedError();
-      delete[] buffer;
+      for (size_t i = 0; i < dump_arg_list_.size(); i++) {
+        if (dump_arg_list_[i].writer != nullptr &&
+            !ShouldFilterOut(dump_arg_list_[i].prefix_filter, key)) {
+          char* buffer = new char[block_len];
+          memcpy(buffer, block_start, block_len);
+          WriteCacheBlock(dump_arg_list_[i].writer, type, key, (void*)buffer,
+                          block_len)
+              .PermitUncheckedError();
+          delete[] buffer;
+        }
+      }
     }
   };
 }
@@ -182,7 +236,8 @@ CacheDumperImpl::DumpOneBlockCallBack() {
 // the how dump unit string and store it in the dump unit metadata.
 // First, we write the metadata first, which is a fixed size string. Then, we
 // Append the dump unit string to the writer.
-IOStatus CacheDumperImpl::WriteRawBlock(uint64_t timestamp,
+IOStatus CacheDumperImpl::WriteRawBlock(CacheDumpWriter* writer,
+                                        uint64_t timestamp,
                                         CacheDumpUnitType type,
                                         const Slice& key, void* value,
                                         size_t len, uint32_t checksum) {
@@ -210,18 +265,18 @@ IOStatus CacheDumperImpl::WriteRawBlock(uint64_t timestamp,
   CacheDumperHelper::EncodeDumpUnitMeta(unit_meta, &encoded_meta);
 
   // We write the metadata first.
-  assert(writer_ != nullptr);
-  IOStatus io_s = writer_->WriteMetadata(Slice(encoded_meta));
+  assert(writer != nullptr);
+  IOStatus io_s = writer->WriteMetadata(Slice(encoded_meta));
   if (!io_s.ok()) {
     return io_s;
   }
   // followed by the dump unit.
-  return writer_->WritePacket(Slice(encoded_data));
+  return writer->WritePacket(Slice(encoded_data));
 }
 
 // Before we write any block, we write the header first to store the cache dump
 // format version, rocksdb version, and brief intro.
-IOStatus CacheDumperImpl::WriteHeader() {
+IOStatus CacheDumperImpl::WriteHeader(CacheDumpWriter* writer) {
   std::string header_key = "header";
   std::ostringstream s;
   s << kTraceMagic << "\t"
@@ -236,22 +291,24 @@ IOStatus CacheDumperImpl::WriteHeader() {
   uint64_t timestamp = clock_->NowMicros();
   uint32_t header_checksum =
       crc32c::Value(header_value.c_str(), header_value.size());
-  return WriteRawBlock(timestamp, type, Slice(header_key),
+  return WriteRawBlock(writer, timestamp, type, Slice(header_key),
                        (void*)header_value.c_str(), header_value.size(),
                        header_checksum);
 }
 
 // Write the block dumped from cache
-IOStatus CacheDumperImpl::WriteCacheBlock(const CacheDumpUnitType type,
+IOStatus CacheDumperImpl::WriteCacheBlock(CacheDumpWriter* writer,
+                                          const CacheDumpUnitType type,
                                           const Slice& key, void* value,
                                           size_t len) {
   uint64_t timestamp = clock_->NowMicros();
   uint32_t value_checksum = crc32c::Value((char*)value, len);
-  return WriteRawBlock(timestamp, type, key, value, len, value_checksum);
+  return WriteRawBlock(writer, timestamp, type, key, value, len,
+                       value_checksum);
 }
 
 // Write the footer after all the blocks are stored to indicate the ending.
-IOStatus CacheDumperImpl::WriteFooter() {
+IOStatus CacheDumperImpl::WriteFooter(CacheDumpWriter* writer) {
   std::string footer_key = "footer";
   std::ostringstream s;
   std::string footer_value("cache dump completed");
@@ -259,9 +316,28 @@ IOStatus CacheDumperImpl::WriteFooter() {
   uint64_t timestamp = clock_->NowMicros();
   uint32_t footer_checksum =
       crc32c::Value(footer_value.c_str(), footer_value.size());
-  return WriteRawBlock(timestamp, type, Slice(footer_key),
+  return WriteRawBlock(writer, timestamp, type, Slice(footer_key),
                        (void*)footer_value.c_str(), footer_value.size(),
                        footer_checksum);
+}
+
+Status CacheDumperImpl::FinalizeDumpFilter(
+    const std::vector<DB*>& db_list, std::set<std::string>& prefix_filter) {
+  Status s = Status::OK();
+  for (size_t i = 0; i < db_list.size(); i++) {
+    assert(i < db_list.size());
+    TablePropertiesCollection ptc;
+    assert(db_list[i] != nullptr);
+    s = db_list[i]->GetPropertiesOfAllTables(&ptc);
+    if (!s.ok()) {
+      return s;
+    }
+    for (auto id = ptc.begin(); id != ptc.end(); id++) {
+      assert(id->second->db_session_id.size() == 20);
+      prefix_filter.insert(id->second->db_session_id);
+    }
+  }
+  return s;
 }
 
 // This is the main function to restore the cache entries to secondary cache.
