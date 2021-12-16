@@ -567,6 +567,7 @@ extern std::vector<int64_t> GenerateNKeys(ThreadState* thread, int num_keys,
                                           uint64_t iteration);
 
 extern size_t GenerateValue(uint32_t rand, char* v, size_t max_sz);
+extern uint32_t GetValueBase(Slice s);
 
 extern StressTest* CreateCfConsistencyStressTest();
 extern StressTest* CreateBatchedOpsStressTest();
