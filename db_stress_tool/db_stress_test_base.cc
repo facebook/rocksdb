@@ -307,7 +307,20 @@ void StressTest::FinishInitDb(SharedState* shared) {
     fprintf(stdout, "Compaction filter factory: %s\n",
             compaction_filter_factory->Name());
   }
-  // TODO(ajkr): First restore if there's already a trace.
+
+  if (shared->HasHistory() && IsStateTracked()) {
+    // The way it works right now is, if there's any history, that means the
+    // previous run mutating the DB had all its operations traced, in which case
+    // we should always be able to `Restore()` the expected values to match the
+    // `db_`'s current seqno.
+    Status s = shared->Restore(db_);
+    if (!s.ok()) {
+      fprintf(stderr, "Error restoring historical expected values: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
+  }
+
   if (FLAGS_sync_fault_injection && IsStateTracked()) {
     Status s = shared->SaveAtAndAfter(db_);
     if (!s.ok()) {
@@ -625,11 +638,15 @@ void StressTest::OperateDb(ThreadState* thread) {
     write_opts.sync = true;
   }
   write_opts.disableWAL = FLAGS_disable_wal;
-  const int prefixBound = static_cast<int>(FLAGS_readpercent) +
-                          static_cast<int>(FLAGS_prefixpercent);
-  const int writeBound = prefixBound + static_cast<int>(FLAGS_writepercent);
-  const int delBound = writeBound + static_cast<int>(FLAGS_delpercent);
-  const int delRangeBound = delBound + static_cast<int>(FLAGS_delrangepercent);
+  const int prefix_bound = static_cast<int>(FLAGS_readpercent) +
+                           static_cast<int>(FLAGS_prefixpercent);
+  const int write_bound = prefix_bound + static_cast<int>(FLAGS_writepercent);
+  const int del_bound = write_bound + static_cast<int>(FLAGS_delpercent);
+  const int delrange_bound =
+      del_bound + static_cast<int>(FLAGS_delrangepercent);
+  const int iterate_bound =
+      delrange_bound + static_cast<int>(FLAGS_iterpercent);
+
   const uint64_t ops_per_open = FLAGS_ops_per_thread / (FLAGS_reopen + 1);
 
 #ifndef NDEBUG
@@ -885,7 +902,7 @@ void StressTest::OperateDb(ThreadState* thread) {
         } else {
           TestGet(thread, read_opts, rand_column_families, rand_keys);
         }
-      } else if (prob_op < prefixBound) {
+      } else if (prob_op < prefix_bound) {
         assert(static_cast<int>(FLAGS_readpercent) <= prob_op);
         // OPERATION prefix scan
         // keys are 8 bytes long, prefix size is FLAGS_prefix_size. There are
@@ -893,22 +910,22 @@ void StressTest::OperateDb(ThreadState* thread) {
         // be 2 ^ ((8 - FLAGS_prefix_size) * 8) possible keys with the same
         // prefix
         TestPrefixScan(thread, read_opts, rand_column_families, rand_keys);
-      } else if (prob_op < writeBound) {
-        assert(prefixBound <= prob_op);
+      } else if (prob_op < write_bound) {
+        assert(prefix_bound <= prob_op);
         // OPERATION write
         TestPut(thread, write_opts, read_opts, rand_column_families, rand_keys,
                 value, lock);
-      } else if (prob_op < delBound) {
-        assert(writeBound <= prob_op);
+      } else if (prob_op < del_bound) {
+        assert(write_bound <= prob_op);
         // OPERATION delete
         TestDelete(thread, write_opts, rand_column_families, rand_keys, lock);
-      } else if (prob_op < delRangeBound) {
-        assert(delBound <= prob_op);
+      } else if (prob_op < delrange_bound) {
+        assert(del_bound <= prob_op);
         // OPERATION delete range
         TestDeleteRange(thread, write_opts, rand_column_families, rand_keys,
                         lock);
-      } else {
-        assert(delRangeBound <= prob_op);
+      } else if (prob_op < iterate_bound) {
+        assert(delrange_bound <= prob_op);
         // OPERATION iterate
         int num_seeks = static_cast<int>(
             std::min(static_cast<uint64_t>(thread->rand.Uniform(4)),
@@ -916,6 +933,9 @@ void StressTest::OperateDb(ThreadState* thread) {
         rand_keys = GenerateNKeys(thread, num_seeks, i);
         i += num_seeks - 1;
         TestIterate(thread, read_opts, rand_column_families, rand_keys);
+      } else {
+        assert(iterate_bound <= prob_op);
+        TestCustomOperations(thread, rand_column_families);
       }
       thread->stats.FinishedSingleOp();
 #ifndef ROCKSDB_LITE
@@ -2122,6 +2142,7 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "No overwrite percentage   : %d%%\n",
           FLAGS_nooverwritepercent);
   fprintf(stdout, "Iterate percentage        : %d%%\n", FLAGS_iterpercent);
+  fprintf(stdout, "Custom ops percentage     : %d%%\n", FLAGS_customopspercent);
   fprintf(stdout, "DB-write-buffer-size      : %" PRIu64 "\n",
           FLAGS_db_write_buffer_size);
   fprintf(stdout, "Write-buffer-size         : %d\n", FLAGS_write_buffer_size);
@@ -2236,6 +2257,9 @@ void StressTest::Open() {
         FLAGS_optimize_filters_for_memory;
     block_based_options.index_type =
         static_cast<BlockBasedTableOptions::IndexType>(FLAGS_index_type);
+    block_based_options.prepopulate_block_cache =
+        static_cast<BlockBasedTableOptions::PrepopulateBlockCache>(
+            FLAGS_prepopulate_block_cache);
     options_.table_factory.reset(
         NewBlockBasedTableFactory(block_based_options));
     options_.db_write_buffer_size = FLAGS_db_write_buffer_size;
@@ -2749,7 +2773,7 @@ void StressTest::Reopen(ThreadState* thread) {
   // the db via a callbac ii) they hold on to a snapshot and the upcoming
   // ::Close would complain about it.
   const bool write_prepared = FLAGS_use_txn && FLAGS_txn_write_policy != 0;
-  bool bg_canceled = false;
+  bool bg_canceled __attribute__((unused)) = false;
   if (write_prepared || thread->rand.OneIn(2)) {
     const bool wait =
         write_prepared || static_cast<bool>(thread->rand.OneIn(2));
@@ -2757,7 +2781,6 @@ void StressTest::Reopen(ThreadState* thread) {
     bg_canceled = wait;
   }
   assert(!write_prepared || bg_canceled);
-  (void) bg_canceled;
 #else
   (void) thread;
 #endif

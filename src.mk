@@ -354,6 +354,7 @@ STRESS_LIB_SOURCES =                                            \
   db_stress_tool/db_stress_tool.cc                             \
   db_stress_tool/expected_state.cc                             \
   db_stress_tool/no_batched_ops_stress.cc                      \
+  db_stress_tool/multi_ops_txns_stress.cc                      \
 
 TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \

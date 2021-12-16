@@ -254,6 +254,10 @@ class SharedState {
     return expected_state_manager_->SaveAtAndAfter(db);
   }
 
+  bool HasHistory() { return expected_state_manager_->HasHistory(); }
+
+  Status Restore(DB* db) { return expected_state_manager_->Restore(db); }
+
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) {
     return expected_state_manager_->ClearColumnFamily(cf);

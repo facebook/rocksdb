@@ -310,6 +310,7 @@ TEST_F(DBSSTTest, DBWithSstFileManager) {
     ASSERT_EQ(sfm->GetTrackedFiles(), files_in_db);
   }
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   std::unordered_map<std::string, uint64_t> files_in_db;
   ASSERT_OK(GetAllDataFiles(kTableFile, &files_in_db));
@@ -416,6 +417,7 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFiles) {
   ASSERT_EQ(files_moved, 0);
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   std::unordered_map<std::string, uint64_t> files_in_db;
   ASSERT_OK(GetAllDataFiles(kTableFile, &files_in_db));
@@ -561,6 +563,7 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFilesWithGC) {
   constexpr Slice* end = nullptr;
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   sfm->WaitForEmptyTrash();
 
   ASSERT_EQ(Get(first_key), first_value);
@@ -1030,7 +1033,9 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
 
   sfm->SetDeleteRateBytesPerSecond(1024 * 1024);
-  sfm->delete_scheduler()->SetMaxTrashDBRatio(1.1);
+  // Set an extra high trash ratio to prevent immediate/non-rate limited
+  // deletions
+  sfm->delete_scheduler()->SetMaxTrashDBRatio(1000.0);
   ASSERT_OK(DestroyDB(dbname_, options));
   sfm->WaitForEmptyTrash();
   ASSERT_EQ(bg_delete_file, num_sst_files + num_wal_files);
@@ -1097,7 +1102,7 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedWithBlobFiles) {
   ASSERT_EQ(sfm->GetTotalSize(), total_files_size);
 
   // Set the maximum allowed space usage to the current total size.
-  sfm->SetMaxAllowedSpaceUsage(files_size + 1);
+  sfm->SetMaxAllowedSpaceUsage(total_files_size + 1);
 
   bool max_allowed_space_reached = false;
   bool delete_blob_file = false;
@@ -1662,6 +1667,7 @@ TEST_F(DBSSTTest, DBWithSFMForBlobFilesAtomicFlush) {
   constexpr Slice* end = nullptr;
   // Compaction job will create a new file and delete the older files.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ASSERT_EQ(files_added, 1);
   ASSERT_EQ(files_scheduled_to_delete, 1);
