@@ -1246,7 +1246,7 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
   }
 
   const VersionStorageInfo::BlobFiles& GetBlobFiles() {
-    VersionSet* const versions = test_->dbfull()->TEST_GetVersionSet();
+    VersionSet* const versions = test_->dbfull()->GetVersionSet();
     assert(versions);
 
     ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
@@ -1548,6 +1548,7 @@ TEST_F(EventListenerTest, BlobDBFileTest) {
   // On compaction, because of blob_garbage_collection_age_cutoff, it will
   // delete the oldest blob file and create new blob file during compaction.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   blob_event_listener->CheckCounters();
 }

@@ -942,6 +942,8 @@ class DBImpl : public DB {
                                      int max_entries_to_print,
                                      std::string* out_str);
 
+  VersionSet* GetVersionSet() const { return versions_.get(); }
+
 #ifndef NDEBUG
   // Compact any files in the named level that overlap [*begin, *end]
   Status TEST_CompactRange(int level, const Slice* begin, const Slice* end,
@@ -1048,8 +1050,6 @@ class DBImpl : public DB {
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   void TEST_WaitForStatsDumpRun(std::function<void()> callback) const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
-
-  VersionSet* TEST_GetVersionSet() const { return versions_.get(); }
 
   uint64_t TEST_GetCurrentLogNumber() const {
     InstrumentedMutexLock l(mutex());

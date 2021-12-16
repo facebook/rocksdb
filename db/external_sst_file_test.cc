@@ -41,16 +41,33 @@ class ExternalSSTTestEnv : public EnvWrapper {
   bool fail_link_;
 };
 
+class ExternalSSTFileTestBase : public DBTestBase {
+ public:
+  ExternalSSTFileTestBase()
+      : DBTestBase("external_sst_file_test", /*env_do_fsync=*/true) {
+    sst_files_dir_ = dbname_ + "/sst_files/";
+    DestroyAndRecreateExternalSSTFilesDir();
+  }
+
+  void DestroyAndRecreateExternalSSTFilesDir() {
+    ASSERT_OK(DestroyDir(env_, sst_files_dir_));
+    ASSERT_OK(env_->CreateDir(sst_files_dir_));
+  }
+
+  ~ExternalSSTFileTestBase() override {
+    DestroyDir(env_, sst_files_dir_).PermitUncheckedError();
+  }
+
+ protected:
+  std::string sst_files_dir_;
+};
+
 class ExternSSTFileLinkFailFallbackTest
-    : public DBTestBase,
+    : public ExternalSSTFileTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   ExternSSTFileLinkFailFallbackTest()
-      : DBTestBase("external_sst_file_test", /*env_do_fsync=*/true),
-        test_env_(new ExternalSSTTestEnv(env_, true)) {
-    sst_files_dir_ = dbname_ + "/sst_files/";
-    EXPECT_EQ(DestroyDir(env_, sst_files_dir_), Status::OK());
-    EXPECT_EQ(env_->CreateDir(sst_files_dir_), Status::OK());
+      : test_env_(new ExternalSSTTestEnv(env_, true)) {
     options_ = CurrentOptions();
     options_.disable_auto_compactions = true;
     options_.env = test_env_;
@@ -65,25 +82,15 @@ class ExternSSTFileLinkFailFallbackTest
   }
 
  protected:
-  std::string sst_files_dir_;
   Options options_;
   ExternalSSTTestEnv* test_env_;
 };
 
 class ExternalSSTFileTest
-    : public DBTestBase,
+    : public ExternalSSTFileTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  ExternalSSTFileTest()
-      : DBTestBase("external_sst_file_test", /*env_do_fsync=*/true) {
-    sst_files_dir_ = dbname_ + "/sst_files/";
-    DestroyAndRecreateExternalSSTFilesDir();
-  }
-
-  void DestroyAndRecreateExternalSSTFilesDir() {
-    ASSERT_OK(DestroyDir(env_, sst_files_dir_));
-    ASSERT_OK(env_->CreateDir(sst_files_dir_));
-  }
+  ExternalSSTFileTest() {}
 
   Status GenerateOneExternalFile(
       const Options& options, ColumnFamilyHandle* cfh,
@@ -282,13 +289,8 @@ class ExternalSSTFileTest
     return db_->IngestExternalFile(files, opts);
   }
 
-  ~ExternalSSTFileTest() override {
-    DestroyDir(env_, sst_files_dir_).PermitUncheckedError();
-  }
-
  protected:
   int last_file_id_ = 0;
-  std::string sst_files_dir_;
 };
 
 TEST_F(ExternalSSTFileTest, Basic) {
@@ -2382,10 +2384,18 @@ TEST_F(ExternalSSTFileTest, IngestFileWrittenWithCompressionDictionary) {
   ASSERT_EQ(1, num_compression_dicts);
 }
 
+class ExternalSSTBlockChecksumTest
+    : public ExternalSSTFileTestBase,
+      public testing::WithParamInterface<uint32_t> {};
+
+INSTANTIATE_TEST_CASE_P(FormatVersions, ExternalSSTBlockChecksumTest,
+                        testing::ValuesIn(test::kFooterFormatVersionsToTest));
+
 // Very slow, not worth the cost to run regularly
-TEST_F(ExternalSSTFileTest, DISABLED_HugeBlockChecksum) {
+TEST_P(ExternalSSTBlockChecksumTest, DISABLED_HugeBlockChecksum) {
+  BlockBasedTableOptions table_options;
+  table_options.format_version = GetParam();
   for (auto t : GetSupportedChecksums()) {
-    BlockBasedTableOptions table_options;
     table_options.checksum = t;
     Options options = CurrentOptions();
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));

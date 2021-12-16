@@ -663,6 +663,10 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
       return Status::InvalidArgument();
     }
 
+    Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
+      return Status::InvalidArgument();
+    }
+
     Status MarkRollback(const Slice&) override {
       return Status::InvalidArgument();
     }

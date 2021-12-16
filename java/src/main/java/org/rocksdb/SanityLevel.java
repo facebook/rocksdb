@@ -16,8 +16,7 @@ public enum SanityLevel {
    *
    * @return the internal representation value.
    */
-  // TODO(AR) should be made package-private
-  public byte getValue() {
+  byte getValue() {
     return value;
   }
 

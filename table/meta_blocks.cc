@@ -26,11 +26,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-const std::string kPropertiesBlock = "rocksdb.properties";
+const std::string kPropertiesBlockName = "rocksdb.properties";
 // Old property block name for backward compatibility
 const std::string kPropertiesBlockOldName = "rocksdb.stats";
-const std::string kCompressionDictBlock = "rocksdb.compression_dict";
-const std::string kRangeDelBlock = "rocksdb.range_del";
+const std::string kCompressionDictBlockName = "rocksdb.compression_dict";
+const std::string kRangeDelBlockName = "rocksdb.range_del";
 
 MetaIndexBuilder::MetaIndexBuilder()
     : meta_index_block_(new BlockBuilder(1 /* restart interval */)) {}
@@ -326,8 +326,10 @@ Status ReadTablePropertiesHelper(
     auto raw_val = iter.value();
     auto pos = predefined_uint64_properties.find(key);
 
-    new_table_properties->properties_offsets.insert(
-        {key, handle.offset() + iter.ValueOffset()});
+    if (key == ExternalSstFilePropertyNames::kGlobalSeqno) {
+      new_table_properties->external_sst_file_global_seqno_offset =
+          handle.offset() + iter.ValueOffset();
+    }
 
     if (pos != predefined_uint64_properties.end()) {
       if (key == TablePropertiesNames::kDeletedKeys ||
@@ -379,18 +381,18 @@ Status ReadTablePropertiesHelper(
   // Modified version of BlockFetcher checksum verification
   // (See write_global_seqno comment above)
   if (s.ok() && footer.GetBlockTrailerSize() > 0) {
-    s = VerifyBlockChecksum(footer.checksum(), properties_block.data(),
+    s = VerifyBlockChecksum(footer.checksum_type(), properties_block.data(),
                             block_size, file->file_name(), handle.offset());
     if (s.IsCorruption()) {
-      const auto seqno_pos_iter = new_table_properties->properties_offsets.find(
-          ExternalSstFilePropertyNames::kGlobalSeqno);
-      if (seqno_pos_iter != new_table_properties->properties_offsets.end()) {
+      if (new_table_properties->external_sst_file_global_seqno_offset != 0) {
         std::string tmp_buf(properties_block.data(),
                             block_fetcher.GetBlockSizeWithTrailer());
-        uint64_t global_seqno_offset = seqno_pos_iter->second - handle.offset();
+        uint64_t global_seqno_offset =
+            new_table_properties->external_sst_file_global_seqno_offset -
+            handle.offset();
         EncodeFixed64(&tmp_buf[static_cast<size_t>(global_seqno_offset)], 0);
-        s = VerifyBlockChecksum(footer.checksum(), tmp_buf.data(), block_size,
-                                file->file_name(), handle.offset());
+        s = VerifyBlockChecksum(footer.checksum_type(), tmp_buf.data(),
+                                block_size, file->file_name(), handle.offset());
       }
     }
   }
@@ -411,7 +413,7 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   BlockHandle block_handle;
   Footer footer;
   Status s = FindMetaBlockInFile(file, file_size, table_magic_number, ioptions,
-                                 kPropertiesBlock, &block_handle,
+                                 kPropertiesBlockName, &block_handle,
                                  memory_allocator, prefetch_buffer, &footer);
   if (!s.ok()) {
     return s;
@@ -436,7 +438,7 @@ Status FindOptionalMetaBlock(InternalIterator* meta_index_iter,
     if (meta_index_iter->Valid() && meta_index_iter->key() == meta_block_name) {
       Slice v = meta_index_iter->value();
       return block_handle->DecodeFrom(&v);
-    } else if (meta_block_name == kPropertiesBlock) {
+    } else if (meta_block_name == kPropertiesBlockName) {
       // Have to try old name for compatibility
       meta_index_iter->Seek(kPropertiesBlockOldName);
       if (meta_index_iter->status().ok() && meta_index_iter->Valid() &&

@@ -938,6 +938,31 @@ list(APPEND SOURCES
   utilities/transactions/lock/range/range_tree/lib/util/dbt.cc
   utilities/transactions/lock/range/range_tree/lib/util/memarena.cc)
 
+message(STATUS "ROCKSDB_PLUGINS: ${ROCKSDB_PLUGINS}")
+if ( ROCKSDB_PLUGINS )
+  string(REPLACE " " ";" PLUGINS ${ROCKSDB_PLUGINS})
+  foreach (plugin ${PLUGINS})
+    add_subdirectory("plugin/${plugin}")
+    foreach (src ${${plugin}_SOURCES})
+      list(APPEND SOURCES plugin/${plugin}/${src})
+      set_source_files_properties(
+        plugin/${plugin}/${src}
+        PROPERTIES COMPILE_FLAGS "${${plugin}_COMPILE_FLAGS}")
+    endforeach()
+    foreach (path ${${plugin}_INCLUDE_PATHS})
+      include_directories(${path})
+    endforeach()
+    foreach (lib ${${plugin}_LIBS})
+      list(APPEND THIRDPARTY_LIBS ${lib})
+    endforeach()
+    foreach (link_path ${${plugin}_LINK_PATHS})
+      link_directories(AFTER ${link_path})
+    endforeach()
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${${plugin}_CMAKE_SHARED_LINKER_FLAGS}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${${plugin}_CMAKE_EXE_LINKER_FLAGS}")
+  endforeach()
+endif()
+
 if(HAVE_SSE42 AND NOT MSVC)
   set_source_files_properties(
     util/crc32c.cc
