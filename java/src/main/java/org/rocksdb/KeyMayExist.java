@@ -23,7 +23,7 @@ public class KeyMayExist {
     return Objects.hash(exists, valueLength);
   }
 
-  enum KeyMayExistEnum { kNotExist, kExistsWithoutValue, kExistsWithValue }
+  public enum KeyMayExistEnum { kNotExist, kExistsWithoutValue, kExistsWithValue }
   ;
 
   public KeyMayExist(final KeyMayExistEnum exists, final int valueLength) {
@@ -31,6 +31,6 @@ public class KeyMayExist {
     this.valueLength = valueLength;
   }
 
-  final KeyMayExistEnum exists;
-  final int valueLength;
+  public final KeyMayExistEnum exists;
+  public final int valueLength;
 }
