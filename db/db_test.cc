@@ -4914,8 +4914,12 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
-  ASSERT_LT(SizeAtLevel(0) + SizeAtLevel(3) + SizeAtLevel(4),
-            120U * 4000U + 50U * 24);
+  // The default compaction method snappy does not work on Alpine 32 platform
+  // This test case has been disabled on 32 bit platform
+  if (sizeof(void*) >= 8) {
+    ASSERT_LT(SizeAtLevel(0) + SizeAtLevel(3) + SizeAtLevel(4),
+              120U * 4000U + 50U * 24);
+  }
   // Make sure data in files in L3 is not compacted by removing all files
   // in L4 and calculate number of rows
   ASSERT_OK(dbfull()->SetOptions({
