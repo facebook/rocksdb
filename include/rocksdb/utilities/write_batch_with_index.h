@@ -270,6 +270,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
                               const size_t num_keys, const Slice* keys,
                               PinnableSlice* values, Status* statuses,
                               bool sorted_input, ReadCallback* callback);
+  Status RebuildIndex();
+
   struct Rep;
   std::unique_ptr<Rep> rep;
 };

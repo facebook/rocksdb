@@ -614,6 +614,8 @@ class Transaction {
 
   virtual uint64_t GetLastLogNumber() const { return log_number_; }
 
+  virtual bool IsIndexingEnabled() const = 0;
+
  private:
   friend class PessimisticTransactionDB;
   friend class WriteUnpreparedTxnDB;

@@ -125,13 +125,15 @@ class PessimisticTransactionDB : public TransactionDB {
   // is expirable (GetExpirationTime() > 0) and that it is expired.
   bool TryStealingExpiredTransactionLocks(TransactionID tx_id);
 
-  Transaction* GetTransactionByName(const TransactionName& name) override;
+  Transaction* GetTransactionByName(const TransactionName& name,
+                                    bool for_read) override;
 
   void RegisterTransaction(Transaction* txn);
   void UnregisterTransaction(Transaction* txn);
 
   // not thread safe. current use case is during recovery (single thread)
-  void GetAllPreparedTransactions(std::vector<Transaction*>* trans) override;
+  void GetAllPreparedTransactions(std::vector<Transaction*>* trans,
+                                  bool for_read) override;
 
   LockManager::PointLockStatus GetLockStatusData() override;
 
