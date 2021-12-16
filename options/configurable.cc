@@ -53,12 +53,12 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
                 opt_info.AsRawPointer<Configurable>(opt_iter.opt_ptr);
             if (config != nullptr) {
               status = config->PrepareOptions(opts);
-              if (!status.ok()) {
-                return status;
-              }
             } else if (!opt_info.CanBeNull()) {
               status = Status::NotFound("Missing configurable object",
                                         map_iter.first);
+            }
+            if (!status.ok()) {
+              return status;
             }
           }
         }

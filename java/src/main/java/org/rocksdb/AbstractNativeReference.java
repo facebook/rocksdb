@@ -67,7 +67,7 @@ public abstract class AbstractNativeReference implements AutoCloseable {
   @Override
   @Deprecated
   protected void finalize() throws Throwable {
-    if(isOwningHandle()) {
+    if (isOwningHandle()) {
       //TODO(AR) log a warning message... developer should have called close()
     }
     dispose();

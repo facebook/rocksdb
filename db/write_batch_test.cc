@@ -318,6 +318,11 @@ namespace {
       seen += "MarkCommit(" + xid.ToString() + ")";
       return Status::OK();
     }
+    Status MarkCommitWithTimestamp(const Slice& xid, const Slice& ts) override {
+      seen += "MarkCommitWithTimestamp(" + xid.ToString() + ", " +
+              ts.ToString(true) + ")";
+      return Status::OK();
+    }
     Status MarkRollback(const Slice& xid) override {
       seen += "MarkRollback(" + xid.ToString() + ")";
       return Status::OK();
@@ -1055,6 +1060,20 @@ TEST_F(WriteBatchTest, AssignTimestamps) {
   ASSERT_OK(batch.AssignTimestamps(ts_vec, checker3));
   ASSERT_OK(CheckTimestampsInWriteBatch(
       batch, std::string(timestamp_size, '\xee'), cf_to_ucmps));
+}
+
+TEST_F(WriteBatchTest, CommitWithTimestamp) {
+  WriteBatch wb;
+  const std::string txn_name = "xid1";
+  std::string ts;
+  constexpr uint64_t commit_ts = 23;
+  PutFixed64(&ts, commit_ts);
+  ASSERT_OK(WriteBatchInternal::MarkCommitWithTimestamp(&wb, txn_name, ts));
+  TestHandler handler;
+  ASSERT_OK(wb.Iterate(&handler));
+  ASSERT_EQ("MarkCommitWithTimestamp(" + txn_name + ", " +
+                Slice(ts).ToString(true) + ")",
+            handler.seen);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

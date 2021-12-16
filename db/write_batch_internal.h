@@ -124,6 +124,9 @@ class WriteBatchInternal {
 
   static Status MarkCommit(WriteBatch* batch, const Slice& xid);
 
+  static Status MarkCommitWithTimestamp(WriteBatch* batch, const Slice& xid,
+                                        const Slice& commit_ts);
+
   static Status InsertNoop(WriteBatch* batch);
 
   // Return the number of entries in the batch.
@@ -262,11 +265,12 @@ class LocalSavePoint {
 #endif
 };
 
-template <typename Derived, typename Checker>
+template <typename Derived>
 class TimestampAssignerBase : public WriteBatch::Handler {
  public:
-  explicit TimestampAssignerBase(WriteBatch::ProtectionInfo* prot_info,
-                                 Checker&& checker)
+  explicit TimestampAssignerBase(
+      WriteBatch::ProtectionInfo* prot_info,
+      std::function<Status(uint32_t, size_t&)>&& checker)
       : prot_info_(prot_info), checker_(std::move(checker)) {}
 
   ~TimestampAssignerBase() override {}
@@ -302,7 +306,13 @@ class TimestampAssignerBase : public WriteBatch::Handler {
 
   Status MarkCommit(const Slice&) override { return Status::OK(); }
 
+  Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
+    return Status::OK();
+  }
+
   Status MarkRollback(const Slice&) override { return Status::OK(); }
+
+  Status MarkNoop(bool /*empty_batch*/) override { return Status::OK(); }
 
  protected:
   Status AssignTimestamp(uint32_t cf, const Slice& key) {
@@ -351,27 +361,25 @@ class TimestampAssignerBase : public WriteBatch::Handler {
   TimestampAssignerBase& operator=(TimestampAssignerBase&&) = delete;
 
   WriteBatch::ProtectionInfo* const prot_info_ = nullptr;
-  const Checker checker_{};
+  const std::function<Status(uint32_t, size_t&)> checker_{};
   size_t idx_ = 0;
 };
 
-template <typename Checker>
 class SimpleListTimestampAssigner
-    : public TimestampAssignerBase<SimpleListTimestampAssigner<Checker>,
-                                   Checker> {
+    : public TimestampAssignerBase<SimpleListTimestampAssigner> {
  public:
-  explicit SimpleListTimestampAssigner(WriteBatch::ProtectionInfo* prot_info,
-                                       Checker checker,
-                                       const std::vector<Slice>& timestamps)
-      : TimestampAssignerBase<SimpleListTimestampAssigner<Checker>, Checker>(
-            prot_info, std::move(checker)),
+  explicit SimpleListTimestampAssigner(
+      WriteBatch::ProtectionInfo* prot_info,
+      std::function<Status(uint32_t, size_t&)>&& checker,
+      const std::vector<Slice>& timestamps)
+      : TimestampAssignerBase<SimpleListTimestampAssigner>(prot_info,
+                                                           std::move(checker)),
         timestamps_(timestamps) {}
 
   ~SimpleListTimestampAssigner() override {}
 
  private:
-  friend class TimestampAssignerBase<SimpleListTimestampAssigner<Checker>,
-                                     Checker>;
+  friend class TimestampAssignerBase<SimpleListTimestampAssigner>;
 
   Status AssignTimestampImpl(uint32_t cf, const Slice& key, size_t idx) {
     if (idx >= timestamps_.size()) {
@@ -389,21 +397,19 @@ class SimpleListTimestampAssigner
   const std::vector<Slice>& timestamps_;
 };
 
-template <typename Checker>
-class TimestampAssigner
-    : public TimestampAssignerBase<TimestampAssigner<Checker>, Checker> {
+class TimestampAssigner : public TimestampAssignerBase<TimestampAssigner> {
  public:
   explicit TimestampAssigner(WriteBatch::ProtectionInfo* prot_info,
-                             Checker checker, const Slice& ts)
-      : TimestampAssignerBase<TimestampAssigner<Checker>, Checker>(
-            prot_info, std::move(checker)),
+                             std::function<Status(uint32_t, size_t&)>&& checker,
+                             const Slice& ts)
+      : TimestampAssignerBase<TimestampAssigner>(prot_info, std::move(checker)),
         timestamp_(ts) {
     assert(!timestamp_.empty());
   }
   ~TimestampAssigner() override {}
 
  private:
-  friend class TimestampAssignerBase<TimestampAssigner<Checker>, Checker>;
+  friend class TimestampAssignerBase<TimestampAssigner>;
 
   Status AssignTimestampImpl(uint32_t cf, const Slice& key, size_t /*idx*/) {
     if (timestamp_.empty()) {
@@ -419,19 +425,5 @@ class TimestampAssigner
 
   const Slice timestamp_;
 };
-
-template <typename Checker>
-Status WriteBatch::AssignTimestamp(const Slice& ts, Checker checker) {
-  TimestampAssigner<Checker> ts_assigner(prot_info_.get(), checker, ts);
-  return Iterate(&ts_assigner);
-}
-
-template <typename Checker>
-Status WriteBatch::AssignTimestamps(const std::vector<Slice>& ts_list,
-                                    Checker checker) {
-  SimpleListTimestampAssigner<Checker> ts_assigner(prot_info_.get(), checker,
-                                                   ts_list);
-  return Iterate(&ts_assigner);
-}
 
 }  // namespace ROCKSDB_NAMESPACE

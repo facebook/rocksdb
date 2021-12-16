@@ -74,7 +74,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
   // Warning about 'magic_number' being uninitialized shows up only in UBsan
   // builds. Though access is guarded by 's.ok()' checks, fix the issue to
   // avoid any warnings.
-  uint64_t magic_number = Footer::kInvalidTableMagicNumber;
+  uint64_t magic_number = Footer::kNullTableMagicNumber;
 
   // read table magic number
   Footer footer;
