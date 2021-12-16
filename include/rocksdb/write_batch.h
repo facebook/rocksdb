@@ -25,10 +25,13 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
+
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch_base.h"
 
@@ -285,6 +288,12 @@ class WriteBatch : public WriteBatchBase {
       return Status::InvalidArgument("MarkCommit() handler not defined.");
     }
 
+    virtual Status MarkCommitWithTimestamp(const Slice& /*xid*/,
+                                           const Slice& /*commit_ts*/) {
+      return Status::InvalidArgument(
+          "MarkCommitWithTimestamp() handler not defined.");
+    }
+
     // Continue is called by WriteBatch::Iterate. If it returns false,
     // iteration is halted. Otherwise, it continues iterating. The default
     // implementation always returns true.
@@ -333,18 +342,56 @@ class WriteBatch : public WriteBatchBase {
   // Returns true if MarkRollback will be called during Iterate
   bool HasRollback() const;
 
+  // Experimental.
   // Assign timestamp to write batch.
-  // This requires that all keys (possibly from multiple column families) in
-  // the write batch have timestamps of the same format.
-  Status AssignTimestamp(const Slice& ts);
+  // This requires that all keys, if enable timestamp, (possibly from multiple
+  // column families) in the write batch have timestamps of the same format.
+  //
+  // checker: callable object to check the timestamp sizes of column families.
+  //
+  // in: cf, the column family id.
+  // in/out: ts_sz. Input as the expected timestamp size of the column
+  //         family, output as the actual timestamp size of the column family.
+  // ret: OK if assignment succeeds.
+  // Status checker(uint32_t cf, size_t& ts_sz);
+  //
+  // User can call checker(uint32_t cf, size_t& ts_sz) which does the
+  // following:
+  // 1. find out the timestamp size of the column family whose id equals `cf`.
+  // 2. if cf's timestamp size is 0, then set ts_sz to 0 and return OK.
+  // 3. otherwise, compare ts_sz with cf's timestamp size and return
+  //    Status::InvalidArgument() if different.
+  Status AssignTimestamp(
+      const Slice& ts,
+      std::function<Status(uint32_t, size_t&)> checker =
+          [](uint32_t /*cf*/, size_t& /*ts_sz*/) { return Status::OK(); });
 
+  // Experimental.
   // Assign timestamps to write batch.
   // This API allows the write batch to include keys from multiple column
   // families whose timestamps' formats can differ. For example, some column
   // families can enable timestamp, while others disable the feature.
   // If key does not have timestamp, then put an empty Slice in ts_list as
   // a placeholder.
-  Status AssignTimestamps(const std::vector<Slice>& ts_list);
+  //
+  // checker: callable object specified by caller to check the timestamp sizes
+  // of column families.
+  //
+  // in: cf, the column family id.
+  // in/out: ts_sz. Input as the expected timestamp size of the column
+  //         family, output as the actual timestamp size of the column family.
+  // ret: OK if assignment succeeds.
+  // Status checker(uint32_t cf, size_t& ts_sz);
+  //
+  // User can call checker(uint32_t cf, size_t& ts_sz) which does the
+  // following:
+  // 1. find out the timestamp size of the column family whose id equals `cf`.
+  // 2. compare ts_sz with cf's timestamp size and return
+  //    Status::InvalidArgument() if different.
+  Status AssignTimestamps(
+      const std::vector<Slice>& ts_list,
+      std::function<Status(uint32_t, size_t&)> checker =
+          [](uint32_t /*cf*/, size_t& /*ts_sz*/) { return Status::OK(); });
 
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }

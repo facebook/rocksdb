@@ -290,6 +290,10 @@ class DBImplSecondary : public DBImpl {
 
     Status MarkCommit(const Slice&) override { return Status::OK(); }
 
+    Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
+      return Status::OK();
+    }
+
     Status MarkNoop(bool) override { return Status::OK(); }
 
     const std::unordered_set<uint32_t>& column_families() const {

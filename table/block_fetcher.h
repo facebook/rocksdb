@@ -12,6 +12,7 @@
 #include "table/block_based/block.h"
 #include "table/block_based/block_type.h"
 #include "table/format.h"
+#include "table/persistent_cache_options.h"
 
 namespace ROCKSDB_NAMESPACE {
 

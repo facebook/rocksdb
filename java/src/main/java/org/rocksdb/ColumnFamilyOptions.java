@@ -52,6 +52,7 @@ public class ColumnFamilyOptions extends RocksObject
     this.bottommostCompressionOptions_ = other.bottommostCompressionOptions_;
     this.compressionOptions_ = other.compressionOptions_;
     this.compactionThreadLimiter_ = other.compactionThreadLimiter_;
+    this.sstPartitionerFactory_ = other.sstPartitionerFactory_;
   }
 
   /**

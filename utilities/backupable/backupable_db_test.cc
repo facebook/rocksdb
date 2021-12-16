@@ -1014,12 +1014,12 @@ class BackupEngineTestWithParam : public BackupEngineTest,
 };
 
 TEST_F(BackupEngineTest, FileCollision) {
-  const int keys_iteration = 5000;
+  const int keys_iteration = 100;
   for (const auto& sopt : kAllShareOptions) {
     OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
     FillDB(db_.get(), 0, keys_iteration);
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
-    FillDB(db_.get(), 0, keys_iteration);
+    FillDB(db_.get(), keys_iteration, keys_iteration * 2);
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     CloseDBAndBackupEngine();
 
@@ -1027,10 +1027,12 @@ TEST_F(BackupEngineTest, FileCollision) {
     // collision.
     ASSERT_OK(DestroyDB(dbname_, options_));
 
-    // open with old backup
+    // open fresh DB, but old backups present
     OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
                           sopt);
-    FillDB(db_.get(), 0, keys_iteration * 2);
+    FillDB(db_.get(), 0, keys_iteration);
+    ASSERT_OK(db_->Flush(FlushOptions()));  // like backup would do
+    FillDB(db_.get(), keys_iteration, keys_iteration * 2);
     if (sopt != kShareNoChecksum) {
       ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     } else {

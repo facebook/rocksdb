@@ -38,7 +38,12 @@ namespace ROCKSDB_NAMESPACE {
 namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
-const uint32_t kLatestFormatVersion = 5u;
+const std::set<uint32_t> kFooterFormatVersionsToTest{
+    5U,
+    // In case any interesting future changes
+    kDefaultFormatVersion,
+    kLatestFormatVersion,
+};
 
 std::string RandomKey(Random* rnd, int len, RandomKeyType type) {
   // Make sure to generate a wide variety of characters so we

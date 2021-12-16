@@ -498,8 +498,11 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
   }
 #endif
   // update statistics
-  RecordInHistogram(ioptions_.stats, NUM_FILES_IN_SINGLE_COMPACTION,
-                    c->inputs(0)->size());
+  size_t num_files = 0;
+  for (auto& each_level : *c->inputs()) {
+    num_files += each_level.files.size();
+  }
+  RecordInHistogram(ioptions_.stats, NUM_FILES_IN_SINGLE_COMPACTION, num_files);
 
   picker_->RegisterCompaction(c);
   vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_);
