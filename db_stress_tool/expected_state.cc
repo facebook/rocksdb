@@ -554,7 +554,8 @@ Status FileExpectedStateManager::Restore(
   return s;
 }
 #else   // ROCKSDB_LITE
-Status FileExpectedStateManager::Restore(DB* /* db */) {
+Status FileExpectedStateManager::Restore(
+    DB* /* db */, const std::vector<ColumnFamilyHandle*>& /* cfhs */) {
   return Status::NotSupported();
 }
 #endif  // ROCKSDB_LITE
