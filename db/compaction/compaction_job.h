@@ -167,6 +167,10 @@ class CompactionJob {
   void UpdateCompactionInputStatsHelper(
       int* num_files, uint64_t* bytes_read, int input_level);
 
+  void NotifyOnSubcompactionBegin(SubcompactionState* sub_compact);
+
+  void NotifyOnSubcompactionCompleted(SubcompactionState* sub_compact);
+
   uint32_t job_id_;
 
   CompactionJobStats* compaction_job_stats_;

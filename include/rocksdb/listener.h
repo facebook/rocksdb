@@ -375,6 +375,9 @@ struct CompactionJobInfo {
   uint64_t thread_id;
   // the job id, which is unique in the same thread.
   int job_id;
+
+  // sub-compaction job id, which is only unique within the same compaction.
+  int subcompaction_job_id;
   // the smallest input level of the compaction.
   int base_input_level;
   // the output level of the compaction.
@@ -578,6 +581,32 @@ class EventListener : public Customizable {
   //  outside of this function.
   virtual void OnCompactionCompleted(DB* /*db*/,
                                      const CompactionJobInfo& /*ci*/) {}
+
+  // A callback function to RocksDB which will be called before a sub-compaction
+  // begins. The default implementation is a no-op.
+  //
+  // Note that this function must be implemented in a way such that
+  // it should not run for an extended period of time before the function
+  // returns.  Otherwise, RocksDB may be blocked.
+  //
+  // @param ci a reference to a CompactionJobInfo struct, it contains a
+  //  `sub_job_id` which is only unique within the specified compaction (which
+  //  can be identified by `job_id`). 'ci' is released after this function is
+  //  returned, and must be copied if it's needed outside this function.
+  virtual void OnSubcompactionBegin(const CompactionJobInfo& /*ci*/) {}
+
+  // A callback function to RocksDB which will be called whenever a
+  // sub-compaction completed. The default implementation is a no-op.
+  //
+  // Note that this function must be implemented in a way such that
+  // it should not run for an extended period of time before the function
+  // returns.  Otherwise, RocksDB may be blocked.
+  //
+  // @param ci a reference to a CompactionJobInfo struct, it contains a
+  //  `sub_job_id` which is only unique within the specified compaction (which
+  //  can be identified by `job_id`). 'ci' is released after this function is
+  //  returned, and must be copied if it's needed outside this function.
+  virtual void OnSubcompactionCompleted(const CompactionJobInfo& /*ci*/) {}
 
   // A callback function for RocksDB which will be called whenever
   // a SST file is created.  Different from OnCompactionCompleted and

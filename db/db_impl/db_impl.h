@@ -1889,11 +1889,6 @@ class DBImpl : public DB {
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
 #ifndef ROCKSDB_LITE
-  void BuildCompactionJobInfo(const ColumnFamilyData* cfd, Compaction* c,
-                              const Status& st,
-                              const CompactionJobStats& compaction_job_stats,
-                              const int job_id, const Version* current,
-                              CompactionJobInfo* compaction_job_info) const;
   // Reserve the next 'num' file numbers for to-be-ingested external SST files,
   // and return the current file_number in 'next_file_number'.
   // Write a version edit to the MANIFEST.
@@ -2383,6 +2378,12 @@ extern uint64_t FindMinPrepLogReferencedByMemTable(
 extern uint64_t FindMinPrepLogReferencedByMemTable(
     VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
     const autovector<const autovector<MemTable*>*>& memtables_to_flush);
+
+extern void BuildCompactionJobInfo(
+    const ColumnFamilyData* cfd, Compaction* c, const Status& st,
+    const CompactionJobStats& compaction_job_stats, const int job_id,
+    const int subcompaction_job_id, const Version* current, Env* env,
+    CompactionJobInfo* compaction_job_info);
 
 // Fix user-supplied options to be reasonable
 template <class T, class V>

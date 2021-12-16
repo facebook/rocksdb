@@ -292,7 +292,7 @@ class Compaction {
 
   int GetInputBaseLevel() const;
 
-  CompactionReason compaction_reason() { return compaction_reason_; }
+  CompactionReason compaction_reason() const { return compaction_reason_; }
 
   const std::vector<FileMetaData*>& grandparents() const {
     return grandparents_;
