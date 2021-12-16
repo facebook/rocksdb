@@ -13,16 +13,16 @@
 #if !defined(ROCKSDB_LITE)
 
 #include "db/db_test_util.h"
-#include "env/mock_env.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/env.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 class DBTestDynamicLevel : public DBTestBase {
  public:
   DBTestDynamicLevel()
-      : DBTestBase("/db_dynamic_level_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_dynamic_level_test", /*env_do_fsync=*/true) {}
 };
 
 TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
@@ -30,7 +30,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
     return;
   }
   // Use InMemoryEnv, or it would be too slow.
-  std::unique_ptr<Env> env(new MockEnv(env_));
+  std::unique_ptr<Env> env(NewMemEnv(env_));
 
   const int kNKeys = 1000;
   int keys[kNKeys];

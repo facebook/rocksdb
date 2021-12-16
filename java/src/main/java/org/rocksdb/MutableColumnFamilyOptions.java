@@ -39,42 +39,24 @@ public class MutableColumnFamilyOptions
    *
    * The format is: key1=value1;key2=value2;key3=value3 etc
    *
-   * For int[] values, each int should be separated by a comma, e.g.
+   * For int[] values, each int should be separated by a colon, e.g.
    *
-   * key1=value1;intArrayKey1=1,2,3
+   * key1=value1;intArrayKey1=1:2:3
    *
    * @param str The string representation of the mutable column family options
    *
    * @return A builder for the mutable column family options
    */
-  public static MutableColumnFamilyOptionsBuilder parse(final String str) {
+  public static MutableColumnFamilyOptionsBuilder parse(
+      final String str, final boolean ignoreUnknown) {
     Objects.requireNonNull(str);
 
-    final MutableColumnFamilyOptionsBuilder builder =
-        new MutableColumnFamilyOptionsBuilder();
+    final List<OptionString.Entry> parsedOptions = OptionString.Parser.parse(str);
+    return new MutableColumnFamilyOptionsBuilder().fromParsed(parsedOptions, ignoreUnknown);
+  }
 
-    final String[] options = str.trim().split(KEY_VALUE_PAIR_SEPARATOR);
-    for(final String option : options) {
-      final int equalsOffset = option.indexOf(KEY_VALUE_SEPARATOR);
-      if(equalsOffset <= 0) {
-        throw new IllegalArgumentException(
-            "options string has an invalid key=value pair");
-      }
-
-      final String key = option.substring(0, equalsOffset);
-      if(key.isEmpty()) {
-        throw new IllegalArgumentException("options string is invalid");
-      }
-
-      final String value = option.substring(equalsOffset + 1);
-      if(value.isEmpty()) {
-        throw new IllegalArgumentException("options string is invalid");
-      }
-
-      builder.fromString(key, value);
-    }
-
-    return builder;
+  public static MutableColumnFamilyOptionsBuilder parse(final String str) {
+    return parse(str, false);
   }
 
   private interface MutableColumnFamilyOptionKey extends MutableOptionKey {}
@@ -117,10 +99,31 @@ public class MutableColumnFamilyOptions
     max_bytes_for_level_base(ValueType.LONG),
     max_bytes_for_level_multiplier(ValueType.INT),
     max_bytes_for_level_multiplier_additional(ValueType.INT_ARRAY),
-    ttl(ValueType.LONG);
+    ttl(ValueType.LONG),
+    periodic_compaction_seconds(ValueType.LONG);
 
     private final ValueType valueType;
     CompactionOption(final ValueType valueType) {
+      this.valueType = valueType;
+    }
+
+    @Override
+    public ValueType getValueType() {
+      return valueType;
+    }
+  }
+
+  public enum BlobOption implements MutableColumnFamilyOptionKey {
+    enable_blob_files(ValueType.BOOLEAN),
+    min_blob_size(ValueType.LONG),
+    blob_file_size(ValueType.LONG),
+    blob_compression_type(ValueType.ENUM),
+    enable_blob_garbage_collection(ValueType.BOOLEAN),
+    blob_garbage_collection_age_cutoff(ValueType.DOUBLE),
+    blob_garbage_collection_force_threshold(ValueType.DOUBLE);
+
+    private final ValueType valueType;
+    BlobOption(final ValueType valueType) {
       this.valueType = valueType;
     }
 
@@ -134,7 +137,7 @@ public class MutableColumnFamilyOptions
     max_sequential_skip_in_iterations(ValueType.LONG),
     paranoid_file_checks(ValueType.BOOLEAN),
     report_bg_io_stats(ValueType.BOOLEAN),
-    compression_type(ValueType.ENUM);
+    compression(ValueType.ENUM);
 
     private final ValueType valueType;
     MiscOption(final ValueType valueType) {
@@ -162,6 +165,10 @@ public class MutableColumnFamilyOptions
       }
 
       for(final MutableColumnFamilyOptionKey key : MiscOption.values()) {
+        ALL_KEYS_LOOKUP.put(key.name(), key);
+      }
+
+      for (final MutableColumnFamilyOptionKey key : BlobOption.values()) {
         ALL_KEYS_LOOKUP.put(key.name(), key);
       }
     }
@@ -437,12 +444,12 @@ public class MutableColumnFamilyOptions
     @Override
     public MutableColumnFamilyOptionsBuilder setCompressionType(
         final CompressionType compressionType) {
-      return setEnum(MiscOption.compression_type, compressionType);
+      return setEnum(MiscOption.compression, compressionType);
     }
 
     @Override
     public CompressionType compressionType() {
-      return (CompressionType)getEnum(MiscOption.compression_type);
+      return (CompressionType) getEnum(MiscOption.compression);
     }
 
     @Override
@@ -464,6 +471,93 @@ public class MutableColumnFamilyOptions
     @Override
     public long ttl() {
       return getLong(CompactionOption.ttl);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setPeriodicCompactionSeconds(
+        final long periodicCompactionSeconds) {
+      return setLong(CompactionOption.periodic_compaction_seconds, periodicCompactionSeconds);
+    }
+
+    @Override
+    public long periodicCompactionSeconds() {
+      return getLong(CompactionOption.periodic_compaction_seconds);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setEnableBlobFiles(final boolean enableBlobFiles) {
+      return setBoolean(BlobOption.enable_blob_files, enableBlobFiles);
+    }
+
+    @Override
+    public boolean enableBlobFiles() {
+      return getBoolean(BlobOption.enable_blob_files);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setMinBlobSize(final long minBlobSize) {
+      return setLong(BlobOption.min_blob_size, minBlobSize);
+    }
+
+    @Override
+    public long minBlobSize() {
+      return getLong(BlobOption.min_blob_size);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setBlobFileSize(final long blobFileSize) {
+      return setLong(BlobOption.blob_file_size, blobFileSize);
+    }
+
+    @Override
+    public long blobFileSize() {
+      return getLong(BlobOption.blob_file_size);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setBlobCompressionType(
+        final CompressionType compressionType) {
+      return setEnum(BlobOption.blob_compression_type, compressionType);
+    }
+
+    @Override
+    public CompressionType blobCompressionType() {
+      return (CompressionType) getEnum(BlobOption.blob_compression_type);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setEnableBlobGarbageCollection(
+        final boolean enableBlobGarbageCollection) {
+      return setBoolean(BlobOption.enable_blob_garbage_collection, enableBlobGarbageCollection);
+    }
+
+    @Override
+    public boolean enableBlobGarbageCollection() {
+      return getBoolean(BlobOption.enable_blob_garbage_collection);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setBlobGarbageCollectionAgeCutoff(
+        final double blobGarbageCollectionAgeCutoff) {
+      return setDouble(
+          BlobOption.blob_garbage_collection_age_cutoff, blobGarbageCollectionAgeCutoff);
+    }
+
+    @Override
+    public double blobGarbageCollectionAgeCutoff() {
+      return getDouble(BlobOption.blob_garbage_collection_age_cutoff);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setBlobGarbageCollectionForceThreshold(
+        final double blobGarbageCollectionForceThreshold) {
+      return setDouble(
+          BlobOption.blob_garbage_collection_force_threshold, blobGarbageCollectionForceThreshold);
+    }
+
+    @Override
+    public double blobGarbageCollectionForceThreshold() {
+      return getDouble(BlobOption.blob_garbage_collection_force_threshold);
     }
   }
 }

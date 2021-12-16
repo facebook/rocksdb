@@ -23,7 +23,7 @@ class StressTest {
 
   virtual ~StressTest();
 
-  std::shared_ptr<Cache> NewCache(size_t capacity);
+  std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
 
   static std::vector<std::string> GetBlobCompressionTags();
 
@@ -32,7 +32,7 @@ class StressTest {
   void InitDb();
   // The initialization work is split into two parts to avoid a circular
   // dependency with `SharedState`.
-  void FinishInitDb(SharedState*);
+  virtual void FinishInitDb(SharedState*);
 
   // Return false if verification fails.
   bool VerifySecondaries();
@@ -64,6 +64,9 @@ class StressTest {
   virtual void MaybeClearOneColumnFamily(ThreadState* /* thread */) {}
 
   virtual bool ShouldAcquireMutexOnKey() const { return false; }
+
+  // Returns true if DB state is tracked by the stress test.
+  virtual bool IsStateTracked() const = 0;
 
   virtual std::vector<int> GenerateColumnFamilies(
       const int /* num_column_families */, int rand_column_family) const {
@@ -200,6 +203,12 @@ class StressTest {
       const std::vector<int64_t>& rand_keys);
 #endif  // !ROCKSDB_LITE
 
+  virtual Status TestCustomOperations(
+      ThreadState* /*thread*/,
+      const std::vector<int>& /*rand_column_families*/) {
+    return Status::NotSupported("TestCustomOperations() must be overridden");
+  }
+
   void VerificationAbort(SharedState* shared, std::string msg, Status s) const;
 
   void VerificationAbort(SharedState* shared, std::string msg, int cf,
@@ -237,6 +246,7 @@ class StressTest {
   // Fields used for continuous verification from another thread
   DB* cmp_db_;
   std::vector<ColumnFamilyHandle*> cmp_cfhs_;
+  bool is_db_stopped_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

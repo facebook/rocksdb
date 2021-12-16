@@ -15,9 +15,11 @@
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "db/column_family.h"
 #include "file/filename.h"
 #include "logging/log_buffer.h"
+#include "logging/logging.h"
 #include "monitoring/statistics.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
@@ -148,7 +150,7 @@ CompressionOptions GetCompressionOptions(const MutableCFOptions& cf_options,
   return cf_options.compression_opts;
 }
 
-CompactionPicker::CompactionPicker(const ImmutableCFOptions& ioptions,
+CompactionPicker::CompactionPicker(const ImmutableOptions& ioptions,
                                    const InternalKeyComparator* icmp)
     : ioptions_(ioptions), icmp_(icmp) {}
 
@@ -358,7 +360,7 @@ Compaction* CompactionPicker::CompactFiles(
       output_level, compact_options.output_file_size_limit,
       mutable_cf_options.max_compaction_bytes, output_path_id, compression_type,
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
-      compact_options.max_subcompactions,
+      Temperature::kUnknown, compact_options.max_subcompactions,
       /* grandparents */ {}, true);
   RegisterCompaction(c);
   return c;
@@ -530,7 +532,7 @@ bool CompactionPicker::SetupOtherInputs(
       }
     }
     if (expand_inputs) {
-      ROCKS_LOG_INFO(ioptions_.info_log,
+      ROCKS_LOG_INFO(ioptions_.logger,
                      "[%s] Expanding@%d %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt
                      "(%" PRIu64 "+%" PRIu64 " bytes) to %" ROCKSDB_PRIszt
                      "+%" ROCKSDB_PRIszt " (%" PRIu64 "+%" PRIu64 " bytes)\n",
@@ -552,10 +554,14 @@ void CompactionPicker::GetGrandparents(
   InternalKey start, limit;
   GetRange(inputs, output_level_inputs, &start, &limit);
   // Compute the set of grandparent files that overlap this compaction
-  // (parent == level+1; grandparent == level+2)
-  if (output_level_inputs.level + 1 < NumberLevels()) {
-    vstorage->GetOverlappingInputs(output_level_inputs.level + 1, &start,
-                                   &limit, grandparents);
+  // (parent == level+1; grandparent == level+2 or the first
+  // level after that has overlapping files)
+  for (int level = output_level_inputs.level + 1; level < NumberLevels();
+       level++) {
+    vstorage->GetOverlappingInputs(level, &start, &limit, grandparents);
+    if (!grandparents->empty()) {
+      break;
+    }
   }
 }
 
@@ -634,7 +640,8 @@ Compaction* CompactionPicker::CompactRange(
         GetCompressionType(ioptions_, vstorage, mutable_cf_options,
                            output_level, 1),
         GetCompressionOptions(mutable_cf_options, vstorage, output_level),
-        compact_range_options.max_subcompactions, /* grandparents */ {},
+        Temperature::kUnknown, compact_range_options.max_subcompactions,
+        /* grandparents */ {},
         /* is manual */ true);
     RegisterCompaction(c);
     vstorage->ComputeCompactionScore(ioptions_, mutable_cf_options);
@@ -670,17 +677,41 @@ Compaction* CompactionPicker::CompactRange(
   // two files overlap.
   if (input_level > 0) {
     const uint64_t limit = mutable_cf_options.max_compaction_bytes;
-    uint64_t total = 0;
+    uint64_t input_level_total = 0;
+    int hint_index = -1;
+    InternalKey* smallest = nullptr;
+    InternalKey* largest = nullptr;
     for (size_t i = 0; i + 1 < inputs.size(); ++i) {
+      if (!smallest) {
+        smallest = &inputs[i]->smallest;
+      }
+      largest = &inputs[i]->largest;
+
       uint64_t s = inputs[i]->compensated_file_size;
-      total += s;
-      if (total >= limit) {
+      uint64_t output_level_total = 0;
+      if (output_level < vstorage->num_non_empty_levels()) {
+        std::vector<FileMetaData*> files;
+        vstorage->GetOverlappingInputsRangeBinarySearch(
+            output_level, smallest, largest, &files, hint_index, &hint_index);
+        for (const auto& file : files) {
+          output_level_total += file->compensated_file_size;
+        }
+      }
+
+      input_level_total += s;
+
+      if (input_level_total + output_level_total >= limit) {
         covering_the_whole_range = false;
+        // still include the current file, so the compaction could be larger
+        // than max_compaction_bytes, which is also to make sure the compaction
+        // can make progress even `max_compaction_bytes` is small (e.g. smaller
+        // than an SST file).
         inputs.files.resize(i + 1);
         break;
       }
     }
   }
+
   assert(compact_range_options.target_path_id <
          static_cast<uint32_t>(ioptions_.cf_paths.size()));
 
@@ -788,7 +819,8 @@ Compaction* CompactionPicker::CompactRange(
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, output_level,
                          vstorage->base_level()),
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
-      compact_range_options.max_subcompactions, std::move(grandparents),
+      Temperature::kUnknown, compact_range_options.max_subcompactions,
+      std::move(grandparents),
       /* is manual compaction */ true);
 
   TEST_SYNC_POINT_CALLBACK("CompactionPicker::CompactRange:Return", compaction);

@@ -5,20 +5,22 @@
 
 #pragma once
 
+#include <deque>
 #include <list>
 #include <string>
 #include <unordered_map>
-#include "db/dbformat.h"
-#include "index_builder.h"
+
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "table/block_based/block.h"
 #include "table/block_based/filter_block_reader_common.h"
 #include "table/block_based/full_filter_block.h"
+#include "table/block_based/index_builder.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
+class InternalKeyComparator;
 
 class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
  public:
@@ -33,9 +35,11 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
 
   void AddKey(const Slice& key) override;
   void Add(const Slice& key) override;
+  size_t EstimateEntriesAdded() override;
 
-  virtual Slice Finish(const BlockHandle& last_partition_block_handle,
-                       Status* status) override;
+  virtual Slice Finish(
+      const BlockHandle& last_partition_block_handle, Status* status,
+      std::unique_ptr<const char[]>* filter_data = nullptr) override;
 
  private:
   // Filter data
@@ -45,10 +49,13 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   struct FilterEntry {
     std::string key;
     Slice filter;
+    std::unique_ptr<const char[]> filter_data;
   };
-  std::list<FilterEntry> filters;  // list of partitioned indexes and their keys
+  std::deque<FilterEntry> filters;  // list of partitioned filters and keys used
+                                    // in building the index
+  std::string last_filter_entry_key;
+  std::unique_ptr<const char[]> last_filter_data;
   std::unique_ptr<IndexBuilder> value;
-  std::vector<std::unique_ptr<const char[]>> filter_gc;
   bool finishing_filters =
       false;  // true if Finish is called once but not complete yet.
   // The policy of when cut a filter block and Finish it
@@ -62,6 +69,9 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   uint32_t keys_per_partition_;
   // The number of keys added to the last partition so far
   uint32_t keys_added_to_partition_;
+  // According to the bits builders, how many keys/prefixes added
+  // in all the filters we have fully built
+  uint64_t total_added_in_built_;
   BlockHandle last_encoded_handle_;
 };
 
@@ -137,6 +147,8 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
   bool index_value_is_full() const;
 
  protected:
+  // For partition blocks pinned in cache. Can be a subset of blocks
+  // in case some fail insertion on attempt to pin.
   std::unordered_map<uint64_t, CachableEntry<ParsedFullFilterBlock>>
       filter_map_;
 };

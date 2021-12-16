@@ -7,6 +7,10 @@
 
 #include <string>
 
+#include "db/blob/blob_fetcher.h"
+#include "db/blob/blob_index.h"
+#include "db/blob/prefetch_buffer_collection.h"
+#include "db/compaction/compaction_iteration_stats.h"
 #include "db/dbformat.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
@@ -119,7 +123,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
                                CompactionRangeDelAggregator* range_del_agg,
                                const SequenceNumber stop_before,
                                const bool at_bottom,
-                               const bool allow_data_in_errors) {
+                               const bool allow_data_in_errors,
+                               const BlobFetcher* blob_fetcher,
+                               PrefetchBufferCollection* prefetch_buffers,
+                               CompactionIterationStats* c_iter_stats) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
   assert(HasOperator());
@@ -203,12 +210,45 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // want. Also if we're in compaction and it's a put, it would be nice to
       // run compaction filter on it.
       const Slice val = iter->value();
+      PinnableSlice blob_value;
       const Slice* val_ptr;
-      if (kTypeValue == ikey.type &&
+      if ((kTypeValue == ikey.type || kTypeBlobIndex == ikey.type) &&
           (range_del_agg == nullptr ||
            !range_del_agg->ShouldDelete(
                ikey, RangeDelPositioningMode::kForwardTraversal))) {
-        val_ptr = &val;
+        if (ikey.type == kTypeBlobIndex) {
+          BlobIndex blob_index;
+
+          s = blob_index.DecodeFrom(val);
+          if (!s.ok()) {
+            return s;
+          }
+
+          FilePrefetchBuffer* prefetch_buffer =
+              prefetch_buffers ? prefetch_buffers->GetOrCreatePrefetchBuffer(
+                                     blob_index.file_number())
+                               : nullptr;
+
+          uint64_t bytes_read = 0;
+
+          assert(blob_fetcher);
+
+          s = blob_fetcher->FetchBlob(ikey.user_key, blob_index,
+                                      prefetch_buffer, &blob_value,
+                                      &bytes_read);
+          if (!s.ok()) {
+            return s;
+          }
+
+          val_ptr = &blob_value;
+
+          if (c_iter_stats) {
+            ++c_iter_stats->num_blobs_read;
+            c_iter_stats->total_blob_bytes_read += bytes_read;
+          }
+        } else {
+          val_ptr = &val;
+        }
       } else {
         val_ptr = nullptr;
       }
