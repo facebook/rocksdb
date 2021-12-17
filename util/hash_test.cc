@@ -10,18 +10,21 @@
 #include "util/hash.h"
 
 #include <cstring>
+#include <type_traits>
 #include <vector>
 
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/coding_lean.h"
 #include "util/hash128.h"
+#include "util/math.h"
 #include "util/math128.h"
 
 using ROCKSDB_NAMESPACE::BijectiveHash2x64;
 using ROCKSDB_NAMESPACE::BijectiveUnhash2x64;
 using ROCKSDB_NAMESPACE::DecodeFixed64;
 using ROCKSDB_NAMESPACE::EncodeFixed32;
+using ROCKSDB_NAMESPACE::EndianSwapValue;
 using ROCKSDB_NAMESPACE::GetSliceHash64;
 using ROCKSDB_NAMESPACE::Hash;
 using ROCKSDB_NAMESPACE::Hash128;
@@ -29,6 +32,7 @@ using ROCKSDB_NAMESPACE::Hash2x64;
 using ROCKSDB_NAMESPACE::Hash64;
 using ROCKSDB_NAMESPACE::Lower32of64;
 using ROCKSDB_NAMESPACE::Lower64of128;
+using ROCKSDB_NAMESPACE::ReverseBits;
 using ROCKSDB_NAMESPACE::Slice;
 using ROCKSDB_NAMESPACE::Unsigned128;
 using ROCKSDB_NAMESPACE::Upper32of64;
@@ -620,6 +624,18 @@ static void test_BitOps() {
     EXPECT_EQ(BitParity(vm1), i & 1);
     EXPECT_EQ(BitParity(vm1 & everyOtherBit), ((i + 1) / 2) & 1);
 
+    // EndianSwapValue
+    T ev = T{1} << (((sizeof(T) - 1 - (i / 8)) * 8) + i % 8);
+    EXPECT_EQ(EndianSwapValue(v), ev);
+
+    // ReverseBits
+    EXPECT_EQ(ReverseBits(v), static_cast<T>(T{1} << (8 * sizeof(T) - 1 - i)));
+#ifdef HAVE_UINT128_EXTENSION          // Uses multiplication
+    if (std::is_unsigned<T>::value) {  // Technical UB on signed type
+      T rv = T{1} << (8 * sizeof(T) - 1 - i);
+      EXPECT_EQ(ReverseBits(vm1), static_cast<T>(rv * ~T{1}));
+    }
+#endif
     vm1 = (vm1 << 1) | 1;
   }
 }

@@ -1128,10 +1128,12 @@ class DBImpl : public DB {
     State state_;
   };
 
+  static void TEST_ResetDbSessionIdGen();
   static std::string GenerateDbSessionId(Env* env);
 
  protected:
   const std::string dbname_;
+  // TODO(peterd): unify with VersionSet::db_id_
   std::string db_id_;
   // db_session_id_ is an identifier that gets reset
   // every time the DB is opened

@@ -1091,6 +1091,8 @@ class VersionSet {
 
 #endif  // ROCKSDB_LITE
 
+  const std::string& DbSessionId() const { return db_session_id_; }
+
   // Return the current manifest file number
   uint64_t manifest_file_number() const { return manifest_file_number_; }
 
