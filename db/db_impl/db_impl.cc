@@ -3948,16 +3948,25 @@ Status DBImpl::GetDbSessionId(std::string& session_id) const {
   return Status::OK();
 }
 
+namespace {
+SemiStructuredUniqueIdGen* DbSessionIdGen() {
+  static SemiStructuredUniqueIdGen gen;
+  return &gen;
+}
+}  // namespace
+
+void DBImpl::TEST_ResetDbSessionIdGen() { DbSessionIdGen()->Reset(); }
+
 std::string DBImpl::GenerateDbSessionId(Env*) {
   // See SemiStructuredUniqueIdGen for its desirable properties.
-  static SemiStructuredUniqueIdGen gen;
+  auto gen = DbSessionIdGen();
 
   uint64_t lo, hi;
-  gen.GenerateNext(&hi, &lo);
+  gen->GenerateNext(&hi, &lo);
   if (lo == 0) {
     // Avoid emitting session ID with lo==0, so that SST unique
     // IDs can be more easily ensured non-zero
-    gen.GenerateNext(&hi, &lo);
+    gen->GenerateNext(&hi, &lo);
     assert(lo != 0);
   }
   return EncodeSessionId(hi, lo);
