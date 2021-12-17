@@ -636,6 +636,7 @@ find_package(Threads REQUIRED)
 set(SOURCES
         cache/cache.cc
         cache/cache_entry_roles.cc
+        cache/cache_key.cc
         cache/cache_reservation_manager.cc
         cache/clock_cache.cc
         cache/lru_cache.cc
