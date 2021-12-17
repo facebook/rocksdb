@@ -593,6 +593,8 @@ class EventListener : public Customizable {
   //  `sub_job_id` which is only unique within the specified compaction (which
   //  can be identified by `job_id`). 'ci' is released after this function is
   //  returned, and must be copied if it's needed outside this function.
+  //  Note: `table_properties` is not set for sub-compaction, the information
+  //  could be got from `OnCompactionBegin()`.
   virtual void OnSubcompactionBegin(const CompactionJobInfo& /*ci*/) {}
 
   // A callback function to RocksDB which will be called whenever a
@@ -606,6 +608,8 @@ class EventListener : public Customizable {
   //  `sub_job_id` which is only unique within the specified compaction (which
   //  can be identified by `job_id`). 'ci' is released after this function is
   //  returned, and must be copied if it's needed outside this function.
+  //  Note: `table_properties` is not set for sub-compaction, the information
+  //  could be got from `OnCompactionCompleted()`.
   virtual void OnSubcompactionCompleted(const CompactionJobInfo& /*ci*/) {}
 
   // A callback function for RocksDB which will be called whenever

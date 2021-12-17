@@ -1235,9 +1235,9 @@ void CompactionJob::NotifyOnSubcompactionBegin(
   sub_compact->notify_on_subcompaction_completion = true;
 
   CompactionJobInfo info{};
-  BuildCompactionJobInfo(
-      cfd, c, sub_compact->status, sub_compact->compaction_job_stats, job_id_,
-      info.subcompaction_job_id, cfd->current(), env_, &info);
+  BuildCompactionJobInfo(cfd, c, sub_compact->status,
+                         sub_compact->compaction_job_stats, job_id_,
+                         info.subcompaction_job_id, nullptr, env_, &info);
 
   for (auto listener : db_options_.listeners) {
     listener->OnSubcompactionBegin(info);
@@ -1267,9 +1267,9 @@ void CompactionJob::NotifyOnSubcompactionCompleted(
   }
 
   CompactionJobInfo info{};
-  BuildCompactionJobInfo(
-      cfd, c, sub_compact->status, sub_compact->compaction_job_stats, job_id_,
-      info.subcompaction_job_id, cfd->current(), env_, &info);
+  BuildCompactionJobInfo(cfd, c, sub_compact->status,
+                         sub_compact->compaction_job_stats, job_id_,
+                         info.subcompaction_job_id, nullptr, env_, &info);
 
   for (auto listener : db_options_.listeners) {
     listener->OnSubcompactionCompleted(info);
