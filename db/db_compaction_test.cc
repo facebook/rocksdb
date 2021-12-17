@@ -4675,7 +4675,7 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
 TEST_F(DBCompactionTest, SubcompactionEvent) {
   class SubCompactionEventListener : public EventListener {
    public:
-    void OnCompactionBegin(DB* db, const CompactionJobInfo& ci) override {
+    void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& ci) override {
       InstrumentedMutexLock l(&mutex_);
       ASSERT_EQ(running_compactions_.find(ci.job_id),
                 running_compactions_.end());
@@ -4683,7 +4683,8 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
       running_compactions_.emplace(ci.job_id, 0);
     }
 
-    void OnCompactionCompleted(DB* db, const CompactionJobInfo& ci) override {
+    void OnCompactionCompleted(DB* /*db*/,
+                               const CompactionJobInfo& ci) override {
       InstrumentedMutexLock l(&mutex_);
       auto it = running_compactions_.find(ci.job_id);
       ASSERT_NE(it, running_compactions_.end());
