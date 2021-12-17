@@ -1125,9 +1125,7 @@ class VersionSet {
   // (manifest file).
   //
   // Requires DB mutex held.
-  uint64_t DescriptorLastSequence() const {
-    return descriptor_last_sequence_;
-  }
+  uint64_t DescriptorLastSequence() const { return descriptor_last_sequence_; }
 
   // Note: memory_order_acquire must be sufficient.
   uint64_t LastAllocatedSequence() const {
