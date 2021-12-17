@@ -1546,6 +1546,8 @@ void DBImpl::BackgroundCallPurge() {
     mutex_.Lock();
   }
 
+  assert(bg_purge_scheduled_ > 0);
+
   // Can't use iterator to go over purge_files_ because inside the loop we're
   // unlocking the mutex that protects purge_files_.
   while (!purge_files_.empty()) {
@@ -1613,17 +1615,7 @@ static void CleanupIteratorState(void* arg1, void* /*arg2*/) {
       delete state->super_version;
     }
     if (job_context.HaveSomethingToDelete()) {
-      if (state->background_purge) {
-        // PurgeObsoleteFiles here does not delete files. Instead, it adds the
-        // files to be deleted to a job queue, and deletes it in a separate
-        // background thread.
-        state->db->PurgeObsoleteFiles(job_context, true /* schedule only */);
-        state->mu->Lock();
-        state->db->SchedulePurge();
-        state->mu->Unlock();
-      } else {
-        state->db->PurgeObsoleteFiles(job_context);
-      }
+      state->db->PurgeObsoleteFiles(job_context, state->background_purge);
     }
     job_context.Clean();
   }
@@ -3956,16 +3948,25 @@ Status DBImpl::GetDbSessionId(std::string& session_id) const {
   return Status::OK();
 }
 
+namespace {
+SemiStructuredUniqueIdGen* DbSessionIdGen() {
+  static SemiStructuredUniqueIdGen gen;
+  return &gen;
+}
+}  // namespace
+
+void DBImpl::TEST_ResetDbSessionIdGen() { DbSessionIdGen()->Reset(); }
+
 std::string DBImpl::GenerateDbSessionId(Env*) {
   // See SemiStructuredUniqueIdGen for its desirable properties.
-  static SemiStructuredUniqueIdGen gen;
+  auto gen = DbSessionIdGen();
 
   uint64_t lo, hi;
-  gen.GenerateNext(&hi, &lo);
+  gen->GenerateNext(&hi, &lo);
   if (lo == 0) {
     // Avoid emitting session ID with lo==0, so that SST unique
     // IDs can be more easily ensured non-zero
-    gen.GenerateNext(&hi, &lo);
+    gen->GenerateNext(&hi, &lo);
     assert(lo != 0);
   }
   return EncodeSessionId(hi, lo);

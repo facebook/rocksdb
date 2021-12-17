@@ -87,6 +87,7 @@ DECLARE_int64(active_width);
 DECLARE_bool(test_batches_snapshots);
 DECLARE_bool(atomic_flush);
 DECLARE_bool(test_cf_consistency);
+DECLARE_bool(test_multi_ops_txns);
 DECLARE_int32(threads);
 DECLARE_int32(ttl);
 DECLARE_int32(value_size_mult);
@@ -203,6 +204,7 @@ DECLARE_int32(delrangepercent);
 DECLARE_int32(nooverwritepercent);
 DECLARE_int32(iterpercent);
 DECLARE_uint64(num_iterations);
+DECLARE_int32(customopspercent);
 DECLARE_string(compression_type);
 DECLARE_string(bottommost_compression_type);
 DECLARE_int32(compression_max_dict_bytes);
@@ -268,6 +270,8 @@ DECLARE_uint64(batch_protection_bytes_per_key);
 DECLARE_uint64(user_timestamp_size);
 DECLARE_string(secondary_cache_uri);
 DECLARE_int32(secondary_cache_fault_one_in);
+
+DECLARE_int32(prepopulate_block_cache);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
@@ -563,10 +567,13 @@ extern std::vector<int64_t> GenerateNKeys(ThreadState* thread, int num_keys,
                                           uint64_t iteration);
 
 extern size_t GenerateValue(uint32_t rand, char* v, size_t max_sz);
+extern uint32_t GetValueBase(Slice s);
 
 extern StressTest* CreateCfConsistencyStressTest();
 extern StressTest* CreateBatchedOpsStressTest();
 extern StressTest* CreateNonBatchedOpsStressTest();
+extern StressTest* CreateMultiOpsTxnsStressTest();
+extern void CheckAndSetOptionsForMultiOpsTxnStressTest();
 extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 

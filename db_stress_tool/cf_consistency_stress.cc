@@ -18,6 +18,8 @@ class CfConsistencyStressTest : public StressTest {
 
   ~CfConsistencyStressTest() override {}
 
+  bool IsStateTracked() const override { return false; }
+
   Status TestPut(ThreadState* thread, WriteOptions& write_opts,
                  const ReadOptions& /* read_opts */,
                  const std::vector<int>& rand_column_families,

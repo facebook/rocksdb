@@ -303,7 +303,8 @@ public interface EventListener {
    * false, then they won't be called.
    *
    * Default: false
-   * @return {@code false} by default
+   *
+   * @return whether to callback when file read/write is finished
    */
   boolean shouldBeNotifiedOnFileIO();
 

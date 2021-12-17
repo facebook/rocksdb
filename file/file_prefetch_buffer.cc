@@ -123,6 +123,8 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
   //    If readahead is enabled: prefetch the remaining bytes + readahead bytes
   //        and satisfy the request.
   //    If readahead is not enabled: return false.
+  TEST_SYNC_POINT_CALLBACK("FilePrefetchBuffer::TryReadFromCache",
+                           &readahead_size_);
   if (offset + n > buffer_offset_ + buffer_.CurrentSize()) {
     if (readahead_size_ > 0) {
       assert(reader != nullptr);
@@ -161,8 +163,6 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
 #endif
         return false;
       }
-      TEST_SYNC_POINT_CALLBACK("FilePrefetchBuffer::TryReadFromCache",
-                               &readahead_size_);
       readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
     } else {
       return false;
