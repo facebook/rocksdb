@@ -69,6 +69,7 @@
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
 #include "util/string_util.h"
+#include "utilities/memory_allocators.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -3635,30 +3636,10 @@ TEST_P(BlockBasedTableTest, BlockCacheLeak) {
   c.ResetTableReader();
 }
 
-namespace {
-class CustomMemoryAllocator : public MemoryAllocator {
- public:
-  const char* Name() const override { return "CustomMemoryAllocator"; }
-
-  void* Allocate(size_t size) override {
-    ++numAllocations;
-    auto ptr = new char[size + 16];
-    memcpy(ptr, "memory_allocator_", 16);  // mangle first 16 bytes
-    return reinterpret_cast<void*>(ptr + 16);
-  }
-  void Deallocate(void* p) override {
-    ++numDeallocations;
-    char* ptr = reinterpret_cast<char*>(p) - 16;
-    delete[] ptr;
-  }
-
-  std::atomic<int> numAllocations;
-  std::atomic<int> numDeallocations;
-};
-}  // namespace
-
 TEST_P(BlockBasedTableTest, MemoryAllocator) {
-  auto custom_memory_allocator = std::make_shared<CustomMemoryAllocator>();
+  auto default_memory_allocator = std::make_shared<DefaultMemoryAllocator>();
+  auto custom_memory_allocator =
+      std::make_shared<CountedMemoryAllocator>(default_memory_allocator);
   {
     Options opt;
     std::unique_ptr<InternalKeyComparator> ikc;
@@ -3701,10 +3682,10 @@ TEST_P(BlockBasedTableTest, MemoryAllocator) {
 
   // out of scope, block cache should have been deleted, all allocations
   // deallocated
-  EXPECT_EQ(custom_memory_allocator->numAllocations.load(),
-            custom_memory_allocator->numDeallocations.load());
+  EXPECT_EQ(custom_memory_allocator->GetNumAllocations(),
+            custom_memory_allocator->GetNumDeallocations());
   // make sure that allocations actually happened through the cache allocator
-  EXPECT_GT(custom_memory_allocator->numAllocations.load(), 0);
+  EXPECT_GT(custom_memory_allocator->GetNumAllocations(), 0);
 }
 
 // Test the file checksum of block based table

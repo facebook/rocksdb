@@ -5,9 +5,10 @@
 
 #pragma once
 
-#include "rocksdb/status.h"
-
 #include <memory>
+
+#include "rocksdb/customizable.h"
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -15,12 +16,12 @@ namespace ROCKSDB_NAMESPACE {
 // memory allocation and deallocation methods. See rocksdb/cache.h for more
 // information.
 // All methods should be thread-safe.
-class MemoryAllocator {
+class MemoryAllocator : public Customizable {
  public:
-  virtual ~MemoryAllocator() = default;
-
-  // Name of the cache allocator, printed in the log
-  virtual const char* Name() const = 0;
+  static const char* Type() { return "MemoryAllocator"; }
+  static Status CreateFromString(const ConfigOptions& options,
+                                 const std::string& value,
+                                 std::shared_ptr<MemoryAllocator>* result);
 
   // Allocate a block of at least size. Has to be thread-safe.
   virtual void* Allocate(size_t size) = 0;
@@ -34,9 +35,12 @@ class MemoryAllocator {
     // default implementation just returns the allocation size
     return allocation_size;
   }
+
+  std::string GetId() const override { return GenerateIndividualId(); }
 };
 
 struct JemallocAllocatorOptions {
+  static const char* kName() { return "JemallocAllocatorOptions"; }
   // Jemalloc tcache cache allocations by size class. For each size class,
   // it caches between 20 (for large size classes) to 200 (for small size
   // classes). To reduce tcache memory usage in case the allocator is access
