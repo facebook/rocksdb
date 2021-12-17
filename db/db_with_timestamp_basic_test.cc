@@ -777,7 +777,7 @@ TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithCappedPrefix) {
   options.env = env_;
   options.create_if_missing = true;
   // All of the keys or this test must be longer than 3 characters
-  static int kMinKeyLen = 3;
+  constexpr int kMinKeyLen = 3;
   options.prefix_extractor.reset(NewCappedPrefixTransform(kMinKeyLen));
   options.memtable_whole_key_filtering = true;
   options.memtable_prefix_bloom_size_ratio = 0.1;

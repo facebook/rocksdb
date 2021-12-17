@@ -130,17 +130,19 @@ struct DecodeEntryV4 {
   inline const char* operator()(const char* p, const char* limit,
                                 uint32_t* shared, uint32_t* non_shared,
                                 uint32_t* value_length) {
+    assert(value_length);
+
     *value_length = 0;
     return DecodeKeyV4()(p, limit, shared, non_shared);
   }
 };
 void DataBlockIter::NextImpl() {
-  bool is_shared;
+  bool is_shared = false;
   ParseNextDataKey(&is_shared);
 }
 
 void MetaBlockIter::NextImpl() {
-  bool is_shared;
+  bool is_shared = false;
   ParseNextKey<CheckAndDecodeEntry>(&is_shared);
 }
 
@@ -179,7 +181,7 @@ void MetaBlockIter::PrevImpl() {
     restart_index_--;
   }
   SeekToRestartPoint(restart_index_);
-  bool is_shared;
+  bool is_shared = false;
   // Loop until end of current entry hits the start of original entry
   while (ParseNextKey<CheckAndDecodeEntry>(&is_shared) &&
          NextEntryOffset() < original) {
@@ -245,7 +247,7 @@ void DataBlockIter::PrevImpl() {
   SeekToRestartPoint(restart_index_);
 
   do {
-    bool is_shared;
+    bool is_shared = false;
     if (!ParseNextDataKey(&is_shared)) {
       break;
     }
@@ -509,7 +511,7 @@ void DataBlockIter::SeekToFirstImpl() {
     return;
   }
   SeekToRestartPoint(0);
-  bool is_shared;
+  bool is_shared = false;
   ParseNextDataKey(&is_shared);
 }
 
@@ -518,7 +520,7 @@ void MetaBlockIter::SeekToFirstImpl() {
     return;
   }
   SeekToRestartPoint(0);
-  bool is_shared;
+  bool is_shared = false;
   ParseNextKey<CheckAndDecodeEntry>(&is_shared);
 }
 
@@ -536,7 +538,7 @@ void DataBlockIter::SeekToLastImpl() {
     return;
   }
   SeekToRestartPoint(num_restarts_ - 1);
-  bool is_shared;
+  bool is_shared = false;
   while (ParseNextDataKey(&is_shared) && NextEntryOffset() < restarts_) {
     // Keep skipping
   }
@@ -547,7 +549,7 @@ void MetaBlockIter::SeekToLastImpl() {
     return;
   }
   SeekToRestartPoint(num_restarts_ - 1);
-  bool is_shared;
+  bool is_shared = false;
   while (ParseNextKey<CheckAndDecodeEntry>(&is_shared) &&
          NextEntryOffset() < restarts_) {
     // Keep skipping
@@ -644,7 +646,7 @@ bool DataBlockIter::ParseNextDataKey(bool* is_shared) {
 }
 
 bool IndexBlockIter::ParseNextIndexKey() {
-  bool is_shared;
+  bool is_shared = false;
   bool ok = (value_delta_encoded_) ? ParseNextKey<DecodeEntryV4>(&is_shared)
                                    : ParseNextKey<DecodeEntry>(&is_shared);
   if (ok) {
@@ -663,7 +665,7 @@ bool IndexBlockIter::ParseNextIndexKey() {
 // where, k is key, v is value, and its encoding is in parenthesis.
 // The format of each key is (shared_size, non_shared_size, shared, non_shared)
 // The format of each value, i.e., block handle, is (offset, size) whenever the
-// shared_size is 0, which included the first entry in each restart point.
+// is_shared is false, which included the first entry in each restart point.
 // Otherwise the format is delta-size = block handle size - size of last block
 // handle.
 void IndexBlockIter::DecodeCurrentValue(bool is_shared) {

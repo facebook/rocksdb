@@ -550,12 +550,12 @@ class DataBlockIter final : public BlockIter<Slice> {
  protected:
   friend Block;
   inline bool ParseNextDataKey(bool* is_shared);
-  virtual void SeekToFirstImpl() override;
-  virtual void SeekToLastImpl() override;
-  virtual void SeekImpl(const Slice& target) override;
-  virtual void SeekForPrevImpl(const Slice& target) override;
-  virtual void NextImpl() override;
-  virtual void PrevImpl() override;
+  void SeekToFirstImpl() override;
+  void SeekToLastImpl() override;
+  void SeekImpl(const Slice& target) override;
+  void SeekForPrevImpl(const Slice& target) override;
+  void NextImpl() override;
+  void PrevImpl() override;
 
  private:
   // read-amp bitmap
@@ -591,10 +591,17 @@ class DataBlockIter final : public BlockIter<Slice> {
   bool SeekForGetImpl(const Slice& target);
 };
 
+// Iterator over MetaBlocks.  MetaBlocks are similar to Data Blocks and
+// are used to store Properties associated with table.
+// Meta blocks always store user keys (no sequence number) and always
+// use the BytewiseComparator.  Additionally, MetaBlock accesses are
+// not recorded in the Statistics or for Read-Amplification.
 class MetaBlockIter final : public BlockIter<Slice> {
  public:
   void Initialize(const char* data, uint32_t restarts, uint32_t num_restarts,
                   bool block_contents_pinned) {
+    // Initializes the iterator with a BytewiseComparator and
+    // the raw key being a user key.
     InitializeBase(BytewiseComparator(), data, restarts, num_restarts,
                    kDisableGlobalSequenceNumber, block_contents_pinned);
     raw_key_.SetIsUserKey(true);
@@ -606,12 +613,12 @@ class MetaBlockIter final : public BlockIter<Slice> {
   }
 
  protected:
-  virtual void SeekToFirstImpl() override;
-  virtual void SeekToLastImpl() override;
-  virtual void SeekImpl(const Slice& target) override;
-  virtual void SeekForPrevImpl(const Slice& target) override;
-  virtual void NextImpl() override;
-  virtual void PrevImpl() override;
+  void SeekToFirstImpl() override;
+  void SeekToLastImpl() override;
+  void SeekImpl(const Slice& target) override;
+  void SeekForPrevImpl(const Slice& target) override;
+  void NextImpl() override;
+  void PrevImpl() override;
 };
 
 class IndexBlockIter final : public BlockIter<IndexValue> {
