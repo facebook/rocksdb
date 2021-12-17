@@ -58,7 +58,6 @@ extern std::string RandomKey(Random* rnd, int len,
 extern Slice CompressibleString(Random* rnd, double compressed_fraction,
                                 int len, std::string* dst);
 
-
 #ifndef NDEBUG
 // An internal comparator that just forward comparing results from the
 // user comparator in it. Can be used to test entities that have no dependency
