@@ -11,6 +11,7 @@
 #include <mutex>
 
 #include "cache/cache_helpers.h"
+#include "cache/cache_key.h"
 #include "port/lang.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/status.h"
@@ -112,13 +113,7 @@ class CacheEntryStatsCollector {
   // entry in cache until all refs are destroyed.
   static Status GetShared(Cache *cache, SystemClock *clock,
                           std::shared_ptr<CacheEntryStatsCollector> *ptr) {
-    std::array<uint64_t, 3> cache_key_data{
-        {// First 16 bytes == md5 of class name
-         0x7eba5a8fb5437c90U, 0x8ca68c9b11655855U,
-         // Last 8 bytes based on a function pointer to make unique for each
-         // template instantiation
-         reinterpret_cast<uint64_t>(&CacheEntryStatsCollector::GetShared)}};
-    Slice cache_key = GetSlice(&cache_key_data);
+    const Slice &cache_key = GetCacheKey();
 
     Cache::Handle *h = cache->Lookup(cache_key);
     if (h == nullptr) {
@@ -164,6 +159,13 @@ class CacheEntryStatsCollector {
 
   static void Deleter(const Slice &, void *value) {
     delete static_cast<CacheEntryStatsCollector *>(value);
+  }
+
+  static const Slice &GetCacheKey() {
+    // For each template instantiation
+    static CacheKey ckey = CacheKey::CreateUniqueForProcessLifetime();
+    static Slice ckey_slice = ckey.AsSlice();
+    return ckey_slice;
   }
 
   std::mutex saved_mutex_;

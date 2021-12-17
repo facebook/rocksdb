@@ -99,6 +99,7 @@ default_params = {
     "subcompactions": lambda: random.randint(1, 4),
     "target_file_size_base": 2097152,
     "target_file_size_multiplier": 2,
+    "test_batches_snapshots": lambda: random.randint(0, 1),
     "top_level_index_pinning": lambda: random.randint(0, 3),
     "unpartitioned_pinning": lambda: random.randint(0, 3),
     "use_direct_reads": lambda: random.randint(0, 1),
@@ -213,7 +214,6 @@ blackbox_default_params = {
     # since we will be killing anyway, use large value for ops_per_thread
     "ops_per_thread": 100000000,
     "set_options_one_in": 10000,
-    "test_batches_snapshots": 1,
 }
 
 whitebox_default_params = {
@@ -221,7 +221,6 @@ whitebox_default_params = {
     "log2_keys_per_lock": 10,
     "ops_per_thread": 200000,
     "random_kill_odd": 888887,
-    "test_batches_snapshots": lambda: random.randint(0, 1),
 }
 
 simple_default_params = {
