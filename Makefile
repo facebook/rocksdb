@@ -20,6 +20,7 @@ CXXFLAGS += ${EXTRA_CXXFLAGS}
 LDFLAGS += $(EXTRA_LDFLAGS)
 MACHINE ?= $(shell uname -m)
 ARFLAGS = ${EXTRA_ARFLAGS} rs
+STRIPFLAGS = -S -x
 
 # Transform parallel LOG output into something more readable.
 perl_command = perl -n \
@@ -498,15 +499,8 @@ CFLAGS := $(filter-out -march=native -DHAVE_SSE42 -DROCKSDB_JEMALLOC -DJEMALLOC_
 CXXFLAGS := $(filter-out -march=native -DHAVE_SSE42 -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE $(JEMALLOC_INCLUDE) $(JEMALLOC_INCLUDE),$(CXXFLAGS))
 LDFLAGS := $(filter-out -ljemalloc,$(LDFLAGS))
 JAVA_LDFLAGS := $(filter-out -ljemalloc,$(JAVA_LDFLAGS))
-$(info Removed flags incompatible with Apple Silicon, new CXXFLAGS = $(CXXFLAGS))
-else
-$(info Not targeting Apple Silicon - letting flags as they are)
 endif
-else
-$(info Not on OSX - letting flags as they are)
 endif
-
-$(info CXXFLAGS computed : $(CXXFLAGS))
 
 LIB_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(LIB_SOURCES))
 LIB_OBJECTS += $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ROCKSDB_PLUGIN_SOURCES))
@@ -2273,12 +2267,12 @@ rocksdbjavastatic_javalib:
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
 	  $(LIB_OBJECTS) $(COVERAGEFLAGS) \
 	  $(JAVA_COMPRESSIONS) $(JAVA_STATIC_LDFLAGS)
-
-rocksdbjavastatic_jar:
 	cd java/target;if [ "$(DEBUG_LEVEL)" == "0" ]; then \
 		strip $(STRIPFLAGS) $(ROCKSDBJNILIB); \
 	fi
-	cd java; $(JAR_CMD) -cf target/$(ROCKSDB_JAR) HISTORY*.md
+
+rocksdbjavastatic_jar:
+	cd java; $(JAR_CMD)  -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
 	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
 	cd java/target/apidocs; $(JAR_CMD) -cf ../$(ROCKSDB_JAVADOCS_JAR) *
