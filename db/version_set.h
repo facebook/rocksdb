@@ -1121,6 +1121,14 @@ class VersionSet {
     return last_sequence_.load(std::memory_order_acquire);
   }
 
+  // Returns the last sequence number of any data referred to by the descriptor
+  // (manifest file).
+  //
+  // Requires DB mutex held.
+  uint64_t DescriptorLastSequence() const {
+    return descriptor_last_sequence_;
+  }
+
   // Note: memory_order_acquire must be sufficient.
   uint64_t LastAllocatedSequence() const {
     return last_allocated_sequence_.load(std::memory_order_seq_cst);
@@ -1137,6 +1145,16 @@ class VersionSet {
     // Last visible sequence must always be less than last written seq
     assert(!db_options_->two_write_queues || s <= last_allocated_sequence_);
     last_sequence_.store(s, std::memory_order_release);
+  }
+
+  // Marks sequence numbers through `s` as referred to by the descriptor
+  // (manifest file).
+  //
+  // Requires DB mutex held.
+  void MarkDescriptorLastSequence(uint64_t s) {
+    if (s > descriptor_last_sequence_) {
+      descriptor_last_sequence_ = s;
+    }
   }
 
   // Note: memory_order_release must be sufficient
@@ -1386,6 +1404,9 @@ class VersionSet {
   // the memtable but when using two write queues it could also indicate the
   // last sequence in the WAL visible to reads.
   std::atomic<uint64_t> last_sequence_;
+  // The last sequence number of data committed to the descriptor (manifest
+  // file).
+  uint64_t descriptor_last_sequence_ = 0;
   // The last seq that is already allocated. It is applicable only when we have
   // two write queues. In that case seq might or might not have appreated in
   // memtable but it is expected to appear in the WAL.

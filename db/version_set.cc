@@ -4530,6 +4530,7 @@ Status VersionSet::ProcessManifestWrites(
       // For each column family, update its log number indicating that logs
       // with number smaller than this should be ignored.
       uint64_t last_min_log_number_to_keep = 0;
+      uint64_t last_sequence = 0;
       for (const auto& e : batch_edits) {
         ColumnFamilyData* cfd = nullptr;
         if (!e->IsColumnFamilyManipulation()) {
@@ -4550,11 +4551,17 @@ Status VersionSet::ProcessManifestWrites(
           last_min_log_number_to_keep =
               std::max(last_min_log_number_to_keep, e->min_log_number_to_keep_);
         }
+        if (e->has_last_sequence_) {
+          last_sequence = std::max(last_sequence, e->last_sequence_);
+        }
       }
 
       if (last_min_log_number_to_keep != 0) {
         // Should only be set in 2PC mode.
         MarkMinLogNumberToKeep2PC(last_min_log_number_to_keep);
+      }
+      if (last_sequence != 0) {
+        MarkDescriptorLastSequence(last_sequence);
       }
 
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
@@ -4754,13 +4761,10 @@ Status VersionSet::LogAndApply(
 void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
   assert(edit->IsColumnFamilyManipulation());
   edit->SetNextFile(next_file_number_.load());
-  // The log might have data that is not visible to memtbale and hence have not
-  // updated the last_sequence_ yet. It is also possible that the log has is
-  // expecting some new data that is not written yet. Since LastSequence is an
-  // upper bound on the sequence, it is ok to record
-  // last_allocated_sequence_ as the last sequence.
-  edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
-                                                      : last_sequence_);
+  if (!edit->HasLastSequence() ||
+      descriptor_last_sequence_ > edit->GetLastSequence()) {
+    edit->SetLastSequence(descriptor_last_sequence_);
+  }
   if (edit->is_column_family_drop_) {
     // if we drop column family, we have to make sure to save max column family,
     // so that we don't reuse existing ID
@@ -4786,13 +4790,10 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
     edit->SetPrevLogNumber(prev_log_number_);
   }
   edit->SetNextFile(next_file_number_.load());
-  // The log might have data that is not visible to memtbale and hence have not
-  // updated the last_sequence_ yet. It is also possible that the log has is
-  // expecting some new data that is not written yet. Since LastSequence is an
-  // upper bound on the sequence, it is ok to record
-  // last_allocated_sequence_ as the last sequence.
-  edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
-                                                      : last_sequence_);
+  if (!edit->HasLastSequence() ||
+      descriptor_last_sequence_ > edit->GetLastSequence()) {
+    edit->SetLastSequence(descriptor_last_sequence_);
+  }
 
   // The builder can be nullptr only if edit is WAL manipulation,
   // because WAL edits do not need to be applied to versions,

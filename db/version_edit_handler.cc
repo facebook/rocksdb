@@ -442,6 +442,10 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
         last_seq > version_set_->last_sequence_.load()) {
       version_set_->last_sequence_.store(last_seq);
     }
+    if (last_seq != kMaxSequenceNumber &&
+        last_seq > version_set_->descriptor_last_sequence_) {
+      version_set_->descriptor_last_sequence_ = last_seq;
+    }
     version_set_->prev_log_number_ = version_edit_params_.prev_log_number_;
   }
 }
@@ -597,7 +601,13 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
                    edit.min_log_number_to_keep_);
     }
     if (edit.has_last_sequence_) {
-      version_edit_params_.SetLastSequence(edit.last_sequence_);
+      // Within a batch commit of `VersionEdit`s, the last `VersionEdit` is
+      // not guaranteed to have the largest `last_sequence_`. So, we need to
+      // look for the largest `last_sequence_` over all `VersionEdit`s.
+      if (!version_edit_params_.has_last_sequence_ ||
+          edit.last_sequence_ > version_edit_params_.last_sequence_) {
+        version_edit_params_.SetLastSequence(edit.last_sequence_);
+      }
     }
     if (!version_edit_params_.has_prev_log_number_) {
       version_edit_params_.SetPrevLogNumber(0);
