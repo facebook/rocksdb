@@ -256,9 +256,7 @@ class SharedState {
 
   bool HasHistory() { return expected_state_manager_->HasHistory(); }
 
-  Status Restore(DB* db, const std::vector<ColumnFamilyHandle*>& cfhs) {
-    return expected_state_manager_->Restore(db, cfhs);
-  }
+  Status Restore(DB* db) { return expected_state_manager_->Restore(db); }
 
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) {

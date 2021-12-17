@@ -326,8 +326,6 @@ bool FileExpectedStateManager::HasHistory() {
 
 #ifndef ROCKSDB_LITE
 
-namespace {
-
 // An `ExpectedStateTraceRecordHandler` applies a configurable number of
 // write operation trace records to the configured expected state. It is used in
 // `FileExpectedStateManager::Restore()` to sync the expected state with the
@@ -431,40 +429,9 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
   ExpectedState* state_;
 };
 
-Status GetLatestRecordSequenceNumber(
-    DB* db, const std::vector<ColumnFamilyHandle*>& cfhs,
-    SequenceNumber* seqno) {
-  // Unfortunately, `DBImpl::GetLatestSequenceNumber()` returns an upper-bound
-  // on the latest record's sequence number, rather than the exact value. To get
-  // the exact value, we can do a workaround by inspecting the SST file metadata
-  // ourselves.
-  //
-  // We need to first flush to ensure the latest record is in an SST file, not a
-  // WAL.
-  *seqno = 0;
-  Status s = db->Flush(FlushOptions(), cfhs);
-  if (s.ok()) {
-    std::vector<LiveFileMetaData> sst_metadatas;
-    db->GetLiveFilesMetaData(&sst_metadatas);
-    for (const auto& sst_metadata : sst_metadatas) {
-      if (sst_metadata.largest_seqno > *seqno) {
-        *seqno = sst_metadata.largest_seqno;
-      }
-    }
-  }
-  return s;
-}
-
-}  // anonymous namespace
-
-Status FileExpectedStateManager::Restore(
-    DB* db, const std::vector<ColumnFamilyHandle*>& cfhs) {
+Status FileExpectedStateManager::Restore(DB* db) {
   assert(HasHistory());
-  SequenceNumber seqno;
-  Status s = GetLatestRecordSequenceNumber(db, cfhs, &seqno);
-  if (!s.ok()) {
-    return s;
-  }
+  SequenceNumber seqno = db->GetLatestSequenceNumber();
   if (seqno < saved_seqno_) {
     return Status::Corruption("DB is older than any restorable expected state");
   }
@@ -481,8 +448,8 @@ Status FileExpectedStateManager::Restore(
   std::string trace_file_path = GetPathForFilename(trace_filename);
 
   std::unique_ptr<TraceReader> trace_reader;
-  s = NewFileTraceReader(Env::Default(), EnvOptions(), trace_file_path,
-                         &trace_reader);
+  Status s = NewFileTraceReader(Env::Default(), EnvOptions(), trace_file_path,
+                                &trace_reader);
 
   if (s.ok()) {
     // We are going to replay on top of "`seqno`.state" to create a new
