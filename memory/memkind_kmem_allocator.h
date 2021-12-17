@@ -13,8 +13,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class MemkindKmemAllocator : public BaseMemoryAllocator {
  public:
-  static const char* kClassName() { return "MemkindKmemAllocator"; };
-  const char* Name() const override { return kClassName(); };
+  static const char* kClassName() { return "MemkindKmemAllocator"; }
+  const char* Name() const override { return kClassName(); }
   static bool IsSupported() {
     std::string unused;
     return IsSupported(&unused);

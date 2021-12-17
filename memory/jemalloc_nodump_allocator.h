@@ -26,7 +26,7 @@
 namespace ROCKSDB_NAMESPACE {
 class JemallocNodumpAllocator : public BaseMemoryAllocator {
  public:
-  JemallocNodumpAllocator(JemallocAllocatorOptions& options);
+  explicit JemallocNodumpAllocator(JemallocAllocatorOptions& options);
 #ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
   ~JemallocNodumpAllocator();
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
