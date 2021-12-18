@@ -4756,7 +4756,7 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
   comp_opts.max_subcompactions = 4;
   Status s = dbfull()->CompactRange(comp_opts, nullptr, nullptr);
   ASSERT_OK(s);
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   // make sure there's no running compaction
   ASSERT_EQ(listener->GetRunningCompactionCount(), 0);
   // and sub compaction is triggered
