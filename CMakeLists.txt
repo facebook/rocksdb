@@ -352,25 +352,17 @@ int main() {
   return 0;
 }
 " BUILTIN_ATOMIC)
-if (NOT BUILTIN_ATOMIC)
-  #TODO: Check if -latomic exists
-  list(APPEND THIRDPARTY_LIBS atomic)
-endif()
+  if (NOT BUILTIN_ATOMIC)
+    #TODO: Check if -latomic exists
+    list(APPEND THIRDPARTY_LIBS atomic)
+  endif()
 endif()
 
 if (WITH_LIBURING)
-  set(CMAKE_REQUIRED_FLAGS "-luring")
-  CHECK_CXX_SOURCE_COMPILES("
-#include <liburing.h>
-int main() {
-  struct io_uring ring;
-  io_uring_queue_init(1, &ring, 0);
-  return 0;
-}
-" HAS_LIBURING)
-  if (HAS_LIBURING)
+  find_package(uring)
+  if (uring_FOUND)
     add_definitions(-DROCKSDB_IOURING_PRESENT)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -luring")
+    list(APPEND THIRDPARTY_LIBS uring::uring)
   endif()
 endif()
 
