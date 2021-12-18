@@ -326,6 +326,8 @@ bool FileExpectedStateManager::HasHistory() {
 
 #ifndef ROCKSDB_LITE
 
+namespace {
+
 // An `ExpectedStateTraceRecordHandler` applies a configurable number of
 // write operation trace records to the configured expected state. It is used in
 // `FileExpectedStateManager::Restore()` to sync the expected state with the
@@ -428,6 +430,8 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
   uint64_t max_write_ops_;
   ExpectedState* state_;
 };
+
+}  // anonymous namespace
 
 Status FileExpectedStateManager::Restore(DB* db) {
   assert(HasHistory());
