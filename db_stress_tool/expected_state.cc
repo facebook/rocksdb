@@ -296,7 +296,9 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
                            &trace_writer);
   }
   if (s.ok()) {
-    s = db->StartTrace(TraceOptions(), std::move(trace_writer));
+    TraceOptions trace_opts;
+    trace_opts.filter |= kTraceFilterGet;
+    s = db->StartTrace(trace_opts, std::move(trace_writer));
   }
 
   // Delete old state/trace files. Deletion order does not matter since we only
