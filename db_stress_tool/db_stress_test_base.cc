@@ -298,15 +298,6 @@ void StressTest::FinishInitDb(SharedState* shared) {
             clock_->TimeToString(now / 1000000).c_str(), FLAGS_max_key);
     PreloadDbAndReopenAsReadOnly(FLAGS_max_key, shared);
   }
-  if (FLAGS_enable_compaction_filter) {
-    auto* compaction_filter_factory =
-        reinterpret_cast<DbStressCompactionFilterFactory*>(
-            options_.compaction_filter_factory.get());
-    assert(compaction_filter_factory);
-    compaction_filter_factory->SetSharedState(shared);
-    fprintf(stdout, "Compaction filter factory: %s\n",
-            compaction_filter_factory->Name());
-  }
 
   if (shared->HasHistory()) {
     // The way it works right now is, if there's any history, that means the
@@ -328,6 +319,19 @@ void StressTest::FinishInitDb(SharedState* shared) {
               s.ToString().c_str());
       exit(1);
     }
+  }
+
+  if (FLAGS_enable_compaction_filter) {
+    auto* compaction_filter_factory =
+        reinterpret_cast<DbStressCompactionFilterFactory*>(
+            options_.compaction_filter_factory.get());
+    assert(compaction_filter_factory);
+    // This must be called only after any potential `SharedState::Restore()` has
+    // completed in order for the `compaction_filter_factory` to operate on the
+    // correct latest values file.
+    compaction_filter_factory->SetSharedState(shared);
+    fprintf(stdout, "Compaction filter factory: %s\n",
+            compaction_filter_factory->Name());
   }
 }
 
