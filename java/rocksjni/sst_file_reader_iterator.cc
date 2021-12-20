@@ -219,13 +219,14 @@ jint Java_org_rocksdb_SstFileReaderIterator_keyByteArray0(
     jint jkey_len) {
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
   ROCKSDB_NAMESPACE::Slice key_slice = it->key();
-  jsize copy_size = std::min(static_cast<uint32_t>(key_slice.size()),
+  auto slice_size = key_slice.size();
+  jsize copy_size = std::min(static_cast<uint32_t>(slice_size),
                              static_cast<uint32_t>(jkey_len));
   env->SetByteArrayRegion(
       jkey, jkey_off, copy_size,
       const_cast<jbyte*>(reinterpret_cast<const jbyte*>(key_slice.data())));
 
-  return static_cast<jsize>(key_slice.size());
+  return static_cast<jsize>(slice_size);
 }
 
 /*
@@ -255,13 +256,14 @@ jint Java_org_rocksdb_SstFileReaderIterator_valueByteArray0(
     jint jvalue_off, jint jvalue_len) {
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
   ROCKSDB_NAMESPACE::Slice value_slice = it->value();
-  jsize copy_size = std::min(static_cast<uint32_t>(value_slice.size()),
+  auto slice_size = value_slice.size();
+  jsize copy_size = std::min(static_cast<uint32_t>(slice_size),
                              static_cast<uint32_t>(jvalue_len));
   env->SetByteArrayRegion(
       jvalue_target, jvalue_off, copy_size,
       const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value_slice.data())));
 
-  return static_cast<jsize>(value_slice.size());
+  return static_cast<jsize>(slice_size);
 }
 
 /*
