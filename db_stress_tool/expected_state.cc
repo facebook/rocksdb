@@ -338,13 +338,14 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
   ExpectedStateTraceRecordHandler(uint64_t max_write_ops, ExpectedState* state)
       : max_write_ops_(max_write_ops), state_(state) {}
 
-  ~ExpectedStateTraceRecordHandler() {
-    assert(num_write_ops_ == max_write_ops_);
-  }
+  ~ExpectedStateTraceRecordHandler() { assert(IsDone()); }
+
+  // True if we have already reached the limit on write operations to apply.
+  bool IsDone() { return num_write_ops_ == max_write_ops_; }
 
   Status Handle(const WriteQueryTraceRecord& record,
                 std::unique_ptr<TraceRecordResult>* /* result */) override {
-    if (num_write_ops_ == max_write_ops_) {
+    if (IsDone()) {
       return Status::OK();
     }
     WriteBatch batch(record.GetWriteBatchRep().ToString());
@@ -466,7 +467,7 @@ Status FileExpectedStateManager::Restore(DB* db) {
   {
     std::unique_ptr<Replayer> replayer;
     std::unique_ptr<ExpectedState> state;
-    std::unique_ptr<TraceRecord::Handler> handler;
+    std::unique_ptr<ExpectedStateTraceRecordHandler> handler;
     if (s.ok()) {
       state.reset(new FileExpectedState(latest_file_temp_path, max_key_,
                                         num_column_families_));
@@ -493,6 +494,13 @@ Status FileExpectedStateManager::Restore(DB* db) {
       }
       std::unique_ptr<TraceRecordResult> res;
       record->Accept(handler.get(), &res);
+    }
+    if (s.IsCorruption() && handler->IsDone()) {
+      // There could be a corruption reading the tail record of the trace due to
+      // `db_stress` crashing while writing it. It shouldn't matter as long as
+      // we already found all the write ops we need to catch up the expected
+      // state.
+      s = Status::OK();
     }
     if (s.IsIncomplete()) {
       // OK because `Status::Incomplete` is expected upon finishing all the
