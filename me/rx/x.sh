@@ -77,6 +77,12 @@ c16r64)
   cache_mb=$(( 1024 * 48 ))
   nsub=4
   ;;
+c16bc1g)
+  # Options for 16-core, 1g block cache
+  args=( WRITE_BUF_MB=16 SST_MB=16 L1_MB=64 MAX_BG_JOBS=8 )
+  cache_mb=$(( 1024 * 1 ))
+  nsub=4
+  ;;
 *)
   echo "HW config ( $myhw ) not supported"
   exit -1
