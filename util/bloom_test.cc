@@ -1244,7 +1244,7 @@ INSTANTIATE_TEST_CASE_P(Full, FullBloomTest,
 
 static double GetEffectiveBitsPerKey(FilterBitsBuilder* builder) {
   union {
-    uint64_t key_value;
+    uint64_t key_value = 0;
     char key_bytes[8];
   };
 

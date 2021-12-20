@@ -112,6 +112,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/BlockBasedTableConfig.java
   src/main/java/org/rocksdb/BloomFilter.java
   src/main/java/org/rocksdb/BuiltinComparator.java
+  src/main/java/org/rocksdb/ByteBufferGetStatus.java
   src/main/java/org/rocksdb/Cache.java
   src/main/java/org/rocksdb/CassandraCompactionFilter.java
   src/main/java/org/rocksdb/CassandraValueMergeOperator.java

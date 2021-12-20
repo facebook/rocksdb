@@ -159,9 +159,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = [{deps}],
-    external_deps = ROCKSDB_EXTERNAL_DEPS{extra_external_deps},
+    exported_deps = [{deps}],
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS{extra_external_deps},
 )
 """
 
@@ -176,9 +175,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = ROCKSDB_LIB_DEPS,
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    exported_deps = ROCKSDB_LIB_DEPS,
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 """
 

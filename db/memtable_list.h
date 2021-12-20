@@ -287,9 +287,9 @@ class MemTableList {
   // Returns the cached current_has_history_ value.
   bool HasHistory() const;
 
-  // Updates current_memory_allocted_bytes_excluding_last_ and current_has_history_
-  // from MemTableListVersion. Must be called whenever InstallNewVersion is
-  // called.
+  // Updates current_memory_allocted_bytes_excluding_last_ and
+  // current_has_history_ from MemTableListVersion. Must be called whenever
+  // InstallNewVersion is called.
   void UpdateCachedValuesFromMemTableListVersion();
 
   // `usage` is the current size of the mutable Memtable. When

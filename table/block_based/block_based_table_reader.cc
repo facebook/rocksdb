@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "cache/cache_entry_roles.h"
+#include "cache/cache_key.h"
 #include "cache/sharded_cache.h"
 #include "db/compaction/compaction_picker.h"
 #include "db/dbformat.h"
@@ -78,8 +79,6 @@ extern const std::string kHashIndexPrefixesMetadataBlock;
 BlockBasedTable::~BlockBasedTable() {
   delete rep_;
 }
-
-std::atomic<uint64_t> BlockBasedTable::next_cache_key_id_(0);
 
 namespace {
 // Read the block identified by "handle" from "file".
@@ -393,42 +392,6 @@ Status BlockBasedTable::InsertEntryToCache(
   return s;
 }
 
-// Helper function to setup the cache key's prefix for the Table.
-void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep,
-                                          const std::string& db_session_id,
-                                          uint64_t file_num) {
-  assert(kMaxCacheKeyPrefixSize >= 10);
-  rep->cache_key_prefix_size = 0;
-  rep->compressed_cache_key_prefix_size = 0;
-  if (rep->table_options.block_cache != nullptr) {
-    GenerateCachePrefix<Cache, FSRandomAccessFile>(
-        rep->table_options.block_cache.get(), rep->file->file(),
-        &rep->cache_key_prefix[0], &rep->cache_key_prefix_size, db_session_id,
-        file_num);
-  }
-  if (rep->table_options.block_cache_compressed != nullptr) {
-    GenerateCachePrefix<Cache, FSRandomAccessFile>(
-        rep->table_options.block_cache_compressed.get(), rep->file->file(),
-        &rep->compressed_cache_key_prefix[0],
-        &rep->compressed_cache_key_prefix_size, db_session_id, file_num);
-  }
-  if (rep->table_options.persistent_cache != nullptr) {
-    char persistent_cache_key_prefix[kMaxCacheKeyPrefixSize];
-    size_t persistent_cache_key_prefix_size = 0;
-
-    GenerateCachePrefix<PersistentCache, FSRandomAccessFile>(
-        rep->table_options.persistent_cache.get(), rep->file->file(),
-        &persistent_cache_key_prefix[0], &persistent_cache_key_prefix_size,
-        db_session_id, file_num);
-
-    rep->persistent_cache_options =
-        PersistentCacheOptions(rep->table_options.persistent_cache,
-                               std::string(persistent_cache_key_prefix,
-                                           persistent_cache_key_prefix_size),
-                               rep->ioptions.stats);
-  }
-}
-
 namespace {
 // Return True if table_properties has `user_prop_name` has a `true` value
 // or it doesn't contain this property (for backward compatible).
@@ -523,16 +486,62 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
 }
 }  // namespace
 
-Slice BlockBasedTable::GetCacheKey(const char* cache_key_prefix,
-                                   size_t cache_key_prefix_size,
-                                   const BlockHandle& handle, char* cache_key) {
-  assert(cache_key != nullptr);
-  assert(cache_key_prefix_size != 0);
-  assert(cache_key_prefix_size <= kMaxCacheKeyPrefixSize);
-  memcpy(cache_key, cache_key_prefix, cache_key_prefix_size);
-  char* end =
-      EncodeVarint64(cache_key + cache_key_prefix_size, handle.offset());
-  return Slice(cache_key, static_cast<size_t>(end - cache_key));
+void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
+                                        const std::string& cur_db_session_id,
+                                        uint64_t cur_file_number,
+                                        uint64_t file_size,
+                                        OffsetableCacheKey* out_base_cache_key,
+                                        bool* out_is_stable) {
+  // Use a stable cache key if sufficient data is in table properties
+  std::string db_session_id;
+  uint64_t file_num;
+  std::string db_id;
+  if (properties && !properties->db_session_id.empty() &&
+      properties->orig_file_number > 0) {
+    // (Newer SST file case)
+    // We must have both properties to get a stable unique id because
+    // CreateColumnFamilyWithImport or IngestExternalFiles can change the
+    // file numbers on a file.
+    db_session_id = properties->db_session_id;
+    file_num = properties->orig_file_number;
+    // Less critical, populated in earlier release than above
+    db_id = properties->db_id;
+    if (out_is_stable) {
+      *out_is_stable = true;
+    }
+  } else {
+    // (Old SST file case)
+    // We use (unique) cache keys based on current identifiers. These are at
+    // least stable across table file close and re-open, but not across
+    // different DBs nor DB close and re-open.
+    db_session_id = cur_db_session_id;
+    file_num = cur_file_number;
+    // Plumbing through the DB ID to here would be annoying, and of limited
+    // value because of the case of VersionSet::Recover opening some table
+    // files and later setting the DB ID. So we just rely on uniqueness
+    // level provided by session ID.
+    db_id = "unknown";
+    if (out_is_stable) {
+      *out_is_stable = false;
+    }
+  }
+
+  // Too many tests to update to get these working
+  // assert(file_num > 0);
+  // assert(!db_session_id.empty());
+  // assert(!db_id.empty());
+
+  // Minimum block size is 5 bytes; therefore we can trim off two lower bits
+  // from offets. See GetCacheKey.
+  *out_base_cache_key = OffsetableCacheKey(db_id, db_session_id, file_num,
+                                           /*max_offset*/ file_size >> 2);
+}
+
+CacheKey BlockBasedTable::GetCacheKey(const OffsetableCacheKey& base_cache_key,
+                                      const BlockHandle& handle) {
+  // Minimum block size is 5 bytes; therefore we can trim off two lower bits
+  // from offet.
+  return base_cache_key.WithOffset(handle.offset() >> 2);
 }
 
 Status BlockBasedTable::Open(
@@ -653,24 +662,13 @@ Status BlockBasedTable::Open(
     return s;
   }
 
-  // With properties loaded, we can set up portable/stable cache keys if
-  // necessary info is available
-  std::string db_session_id;
-  uint64_t file_num;
-  if (rep->table_properties && !rep->table_properties->db_session_id.empty() &&
-      rep->table_properties->orig_file_number > 0) {
-    // We must have both properties to get a stable unique id because
-    // CreateColumnFamilyWithImport or IngestExternalFiles can change the
-    // file numbers on a file.
-    db_session_id = rep->table_properties->db_session_id;
-    file_num = rep->table_properties->orig_file_number;
-  } else {
-    // We have to use transient (but unique) cache keys based on current
-    // identifiers.
-    db_session_id = cur_db_session_id;
-    file_num = cur_file_num;
-  }
-  SetupCacheKeyPrefix(rep, db_session_id, file_num);
+  // With properties loaded, we can set up portable/stable cache keys
+  SetupBaseCacheKey(rep->table_properties.get(), cur_db_session_id,
+                    cur_file_num, file_size, &rep->base_cache_key);
+
+  rep->persistent_cache_options =
+      PersistentCacheOptions(rep->table_options.persistent_cache,
+                             rep->base_cache_key, rep->ioptions.stats);
 
   s = new_table->ReadRangeDelBlock(ro, prefetch_buffer.get(),
                                    metaindex_iter.get(), internal_comparator,
@@ -1121,8 +1119,7 @@ Status BlockBasedTable::ReadMetaIndexBlock(
 
 template <typename TBlocklike>
 Status BlockBasedTable::GetDataBlockFromCache(
-    const Slice& block_cache_key, const Slice& compressed_block_cache_key,
-    Cache* block_cache, Cache* block_cache_compressed,
+    const Slice& cache_key, Cache* block_cache, Cache* block_cache_compressed,
     const ReadOptions& read_options, CachableEntry<TBlocklike>* block,
     const UncompressionDict& uncompression_dict, BlockType block_type,
     const bool wait, GetContext* get_context) const {
@@ -1151,9 +1148,10 @@ Status BlockBasedTable::GetDataBlockFromCache(
 
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
+    assert(!cache_key.empty());
     Cache::Handle* cache_handle = nullptr;
     cache_handle = GetEntryFromCache(
-        rep_->ioptions.lowest_used_cache_tier, block_cache, block_cache_key,
+        rep_->ioptions.lowest_used_cache_tier, block_cache, cache_key,
         block_type, wait, get_context,
         BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), create_cb,
         priority);
@@ -1172,19 +1170,19 @@ Status BlockBasedTable::GetDataBlockFromCache(
     return s;
   }
 
-  assert(!compressed_block_cache_key.empty());
+  assert(!cache_key.empty());
   BlockContents contents;
   if (rep_->ioptions.lowest_used_cache_tier ==
       CacheTier::kNonVolatileBlockTier) {
     Cache::CreateCallback create_cb_special = GetCreateCallback<BlockContents>(
         read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
     block_cache_compressed_handle = block_cache_compressed->Lookup(
-        compressed_block_cache_key,
+        cache_key,
         BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),
         create_cb_special, priority, true);
   } else {
     block_cache_compressed_handle =
-        block_cache_compressed->Lookup(compressed_block_cache_key, statistics);
+        block_cache_compressed->Lookup(cache_key, statistics);
   }
 
   // if we found in the compressed cache, then uncompress and insert into
@@ -1223,7 +1221,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
       size_t charge = block_holder->ApproximateMemoryUsage();
       Cache::Handle* cache_handle = nullptr;
       s = InsertEntryToCache(
-          rep_->ioptions.lowest_used_cache_tier, block_cache, block_cache_key,
+          rep_->ioptions.lowest_used_cache_tier, block_cache, cache_key,
           BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type),
           block_holder, charge, &cache_handle, priority);
       if (s.ok()) {
@@ -1248,8 +1246,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
 
 template <typename TBlocklike>
 Status BlockBasedTable::PutDataBlockToCache(
-    const Slice& block_cache_key, const Slice& compressed_block_cache_key,
-    Cache* block_cache, Cache* block_cache_compressed,
+    const Slice& cache_key, Cache* block_cache, Cache* block_cache_compressed,
     CachableEntry<TBlocklike>* cached_block, BlockContents* raw_block_contents,
     CompressionType raw_block_comp_type,
     const UncompressionDict& uncompression_dict,
@@ -1304,9 +1301,8 @@ Status BlockBasedTable::PutDataBlockToCache(
   if (block_cache_compressed != nullptr &&
       raw_block_comp_type != kNoCompression && raw_block_contents != nullptr &&
       raw_block_contents->own_bytes()) {
-#ifndef NDEBUG
     assert(raw_block_contents->is_raw_block);
-#endif  // NDEBUG
+    assert(!cache_key.empty());
 
     // We cannot directly put raw_block_contents because this could point to
     // an object in the stack.
@@ -1314,7 +1310,7 @@ Status BlockBasedTable::PutDataBlockToCache(
         new BlockContents(std::move(*raw_block_contents)));
     s = InsertEntryToCache(
         rep_->ioptions.lowest_used_cache_tier, block_cache_compressed,
-        compressed_block_cache_key,
+        cache_key,
         BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),
         block_cont_for_comp_cache,
         block_cont_for_comp_cache->ApproximateMemoryUsage(), nullptr,
@@ -1335,7 +1331,7 @@ Status BlockBasedTable::PutDataBlockToCache(
     size_t charge = block_holder->ApproximateMemoryUsage();
     Cache::Handle* cache_handle = nullptr;
     s = InsertEntryToCache(
-        rep_->ioptions.lowest_used_cache_tier, block_cache, block_cache_key,
+        rep_->ioptions.lowest_used_cache_tier, block_cache, cache_key,
         BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type),
         block_holder, charge, &cache_handle, priority);
     if (s.ok()) {
@@ -1446,27 +1442,17 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
   //
   // If either block cache is enabled, we'll try to read from it.
   Status s;
-  char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-  char compressed_cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-  Slice key /* key to the block cache */;
-  Slice ckey /* key to the compressed block cache */;
+  CacheKey key_data;
+  Slice key;
   bool is_cache_hit = false;
   if (block_cache != nullptr || block_cache_compressed != nullptr) {
     // create key for block cache
-    if (block_cache != nullptr) {
-      key = GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
-                        handle, cache_key);
-    }
-
-    if (block_cache_compressed != nullptr) {
-      ckey = GetCacheKey(rep_->compressed_cache_key_prefix,
-                         rep_->compressed_cache_key_prefix_size, handle,
-                         compressed_cache_key);
-    }
+    key_data = GetCacheKey(rep_->base_cache_key, handle);
+    key = key_data.AsSlice();
 
     if (!contents) {
-      s = GetDataBlockFromCache(key, ckey, block_cache, block_cache_compressed,
-                                ro, block_entry, uncompression_dict, block_type,
+      s = GetDataBlockFromCache(key, block_cache, block_cache_compressed, ro,
+                                block_entry, uncompression_dict, block_type,
                                 wait, get_context);
       // Value could still be null at this point, so check the cache handle
       // and update the read pattern for prefetching
@@ -1532,8 +1518,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         // If filling cache is allowed and a cache is configured, try to put the
         // block to the cache.
         s = PutDataBlockToCache(
-            key, ckey, block_cache, block_cache_compressed, block_entry,
-            contents, raw_block_comp_type, uncompression_dict,
+            key, block_cache, block_cache_compressed, block_entry, contents,
+            raw_block_comp_type, uncompression_dict,
             GetMemoryAllocator(rep_->table_options), block_type, get_context);
       }
     }
@@ -3077,12 +3063,9 @@ bool BlockBasedTable::TEST_BlockInCache(const BlockHandle& handle) const {
     return false;
   }
 
-  char cache_key_storage[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-  Slice cache_key =
-      GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size, handle,
-                  cache_key_storage);
+  CacheKey key = GetCacheKey(rep_->base_cache_key, handle);
 
-  Cache::Handle* const cache_handle = cache->Lookup(cache_key);
+  Cache::Handle* const cache_handle = cache->Lookup(key.AsSlice());
   if (cache_handle == nullptr) {
     return false;
   }
@@ -3257,7 +3240,8 @@ uint64_t BlockBasedTable::ApproximateSize(const Slice& start, const Slice& end,
 
 bool BlockBasedTable::TEST_FilterBlockInCache() const {
   assert(rep_ != nullptr);
-  return TEST_BlockInCache(rep_->filter_handle);
+  return rep_->filter_type != Rep::FilterType::kNoFilter &&
+         TEST_BlockInCache(rep_->filter_handle);
 }
 
 bool BlockBasedTable::TEST_IndexBlockInCache() const {

@@ -22,6 +22,7 @@
 #include <utility>
 
 #include "cache/cache_entry_roles.h"
+#include "cache/cache_key.h"
 #include "cache/cache_reservation_manager.h"
 #include "db/dbformat.h"
 #include "index_builder.h"
@@ -321,10 +322,7 @@ struct BlockBasedTableBuilder::Rep {
       compression_dict_buffer_cache_res_mgr;
   const bool use_delta_encoding_for_index_values;
   std::unique_ptr<FilterBlockBuilder> filter_builder;
-  char cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
-  size_t cache_key_prefix_size;
-  char compressed_cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
-  size_t compressed_cache_key_prefix_size;
+  OffsetableCacheKey base_cache_key;
   const TableFileCreationReason reason;
 
   BlockHandle pending_handle;  // Handle to add to index block
@@ -436,8 +434,6 @@ struct BlockBasedTableBuilder::Rep {
                                                         : State::kUnbuffered),
         use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
                                             !table_opt.block_align),
-        cache_key_prefix_size(0),
-        compressed_cache_key_prefix_size(0),
         reason(tbo.reason),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
@@ -887,7 +883,16 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     rep_->filter_builder->StartBlock(0);
   }
 
-  SetupCacheKeyPrefix(tbo);
+  TEST_SYNC_POINT_CALLBACK(
+      "BlockBasedTableBuilder::BlockBasedTableBuilder:PreSetupBaseCacheKey",
+      const_cast<TableProperties*>(&rep_->props));
+
+  // Extremely large files use atypical cache key encoding, and we don't
+  // know ahead of time how big the file will be. But assuming it's less
+  // than 4TB, we will correctly predict the cache keys.
+  BlockBasedTable::SetupBaseCacheKey(
+      &rep_->props, tbo.db_session_id, tbo.cur_file_num,
+      BlockBasedTable::kMaxFileSizeStandardEncoding, &rep_->base_cache_key);
 
   if (rep_->IsParallelCompressionEnabled()) {
     StartParallelCompression();
@@ -1408,25 +1413,6 @@ void DeleteEntryCached(const Slice& /*key*/, void* value) {
 }
 }  // namespace
 
-// Helper function to setup the cache key's prefix for the Table.
-void BlockBasedTableBuilder::SetupCacheKeyPrefix(
-    const TableBuilderOptions& tbo) {
-  // FIXME: Unify with BlockBasedTable::SetupCacheKeyPrefix
-  if (rep_->table_options.block_cache.get() != nullptr) {
-    BlockBasedTable::GenerateCachePrefix<Cache, FSWritableFile>(
-        rep_->table_options.block_cache.get(), rep_->file->writable_file(),
-        &rep_->cache_key_prefix[0], &rep_->cache_key_prefix_size,
-        tbo.db_session_id, tbo.cur_file_num);
-  }
-  if (rep_->table_options.block_cache_compressed.get() != nullptr) {
-    BlockBasedTable::GenerateCachePrefix<Cache, FSWritableFile>(
-        rep_->table_options.block_cache_compressed.get(),
-        rep_->file->writable_file(), &rep_->compressed_cache_key_prefix[0],
-        &rep_->compressed_cache_key_prefix_size, tbo.db_session_id,
-        tbo.cur_file_num);
-  }
-}
-
 //
 // Make a copy of the block contents and insert into compressed block cache
 //
@@ -1450,15 +1436,10 @@ Status BlockBasedTableBuilder::InsertBlockInCompressedCache(
     block_contents_to_cache->is_raw_block = true;
 #endif  // NDEBUG
 
-    // make cache key by appending the file offset to the cache prefix id
-    char* end = EncodeVarint64(
-        r->compressed_cache_key_prefix + r->compressed_cache_key_prefix_size,
-        handle->offset());
-    Slice key(r->compressed_cache_key_prefix,
-              static_cast<size_t>(end - r->compressed_cache_key_prefix));
+    CacheKey key = BlockBasedTable::GetCacheKey(rep_->base_cache_key, *handle);
 
     s = block_cache_compressed->Insert(
-        key, block_contents_to_cache,
+        key.AsSlice(), block_contents_to_cache,
         block_contents_to_cache->ApproximateMemoryUsage(),
         &DeleteEntryCached<BlockContents>);
     if (s.ok()) {
@@ -1480,9 +1461,14 @@ Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
   if (block_type == BlockType::kData || block_type == BlockType::kIndex) {
     s = InsertBlockInCache<Block>(block_contents, handle, block_type);
   } else if (block_type == BlockType::kFilter) {
-    if (rep_->filter_builder->IsBlockBased() || is_top_level_filter_block) {
+    if (rep_->filter_builder->IsBlockBased()) {
+      // for block-based filter which is deprecated.
+      s = InsertBlockInCache<BlockContents>(block_contents, handle, block_type);
+    } else if (is_top_level_filter_block) {
+      // for top level filter block in partitioned filter.
       s = InsertBlockInCache<Block>(block_contents, handle, block_type);
     } else {
+      // for second level partitioned filters and full filters.
       s = InsertBlockInCache<ParsedFullFilterBlock>(block_contents, handle,
                                                     block_type);
     }
@@ -1506,11 +1492,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     memcpy(buf.get(), block_contents.data(), size);
     BlockContents results(std::move(buf), size);
 
-    char
-        cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-    Slice key = BlockBasedTable::GetCacheKey(rep_->cache_key_prefix,
-                                             rep_->cache_key_prefix_size,
-                                             *handle, cache_key);
+    CacheKey key = BlockBasedTable::GetCacheKey(rep_->base_cache_key, *handle);
 
     const size_t read_amp_bytes_per_bit =
         rep_->table_options.read_amp_bytes_per_bit;
@@ -1527,7 +1509,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     assert(block_holder->own_bytes());
     size_t charge = block_holder->ApproximateMemoryUsage();
     s = block_cache->Insert(
-        key, block_holder.get(),
+        key.AsSlice(), block_holder.get(),
         BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), charge,
         nullptr, Cache::Priority::LOW);
 
@@ -1567,6 +1549,10 @@ void BlockBasedTableBuilder::WriteFilterBlock(
           rep_->filter_builder->Finish(filter_block_handle, &s, &filter_data);
       assert(s.ok() || s.IsIncomplete());
       rep_->props.filter_size += filter_content.size();
+
+      // TODO: Refactor code so that BlockType can determine both the C++ type
+      // of a block cache entry (TBlocklike) and the CacheEntryRole while
+      // inserting blocks in cache.
       bool top_level_filter_block = false;
       if (s.ok() && rep_->table_options.partition_filters &&
           !rep_->filter_builder->IsBlockBased()) {
