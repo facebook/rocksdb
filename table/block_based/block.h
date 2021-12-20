@@ -598,6 +598,7 @@ class DataBlockIter final : public BlockIter<Slice> {
 // not recorded in the Statistics or for Read-Amplification.
 class MetaBlockIter final : public BlockIter<Slice> {
  public:
+  MetaBlockIter() : BlockIter() { raw_key_.SetIsUserKey(true); }
   void Initialize(const char* data, uint32_t restarts, uint32_t num_restarts,
                   bool block_contents_pinned) {
     // Initializes the iterator with a BytewiseComparator and
