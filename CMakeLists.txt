@@ -352,25 +352,17 @@ int main() {
   return 0;
 }
 " BUILTIN_ATOMIC)
-if (NOT BUILTIN_ATOMIC)
-  #TODO: Check if -latomic exists
-  list(APPEND THIRDPARTY_LIBS atomic)
-endif()
+  if (NOT BUILTIN_ATOMIC)
+    #TODO: Check if -latomic exists
+    list(APPEND THIRDPARTY_LIBS atomic)
+  endif()
 endif()
 
 if (WITH_LIBURING)
-  set(CMAKE_REQUIRED_FLAGS "-luring")
-  CHECK_CXX_SOURCE_COMPILES("
-#include <liburing.h>
-int main() {
-  struct io_uring ring;
-  io_uring_queue_init(1, &ring, 0);
-  return 0;
-}
-" HAS_LIBURING)
-  if (HAS_LIBURING)
+  find_package(uring)
+  if (uring_FOUND)
     add_definitions(-DROCKSDB_IOURING_PRESENT)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -luring")
+    list(APPEND THIRDPARTY_LIBS uring::uring)
   endif()
 endif()
 
@@ -746,6 +738,7 @@ set(SOURCES
         memory/concurrent_arena.cc
         memory/jemalloc_nodump_allocator.cc
         memory/memkind_kmem_allocator.cc
+        memory/memory_allocator.cc
         memtable/alloc_tracker.cc
         memtable/hash_linklist_rep.cc
         memtable/hash_skiplist_rep.cc
@@ -1270,7 +1263,7 @@ if(WITH_TESTS)
         logging/env_logger_test.cc
         logging/event_logger_test.cc
         memory/arena_test.cc
-        memory/memkind_kmem_allocator_test.cc
+        memory/memory_allocator_test.cc
         memtable/inlineskiplist_test.cc
         memtable/skiplist_test.cc
         memtable/write_buffer_manager_test.cc

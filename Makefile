@@ -1361,7 +1361,7 @@ db_repl_stress: $(OBJ_DIR)/tools/db_repl_stress.o $(LIBRARY)
 arena_test: $(OBJ_DIR)/memory/arena_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-memkind_kmem_allocator_test: memory/memkind_kmem_allocator_test.o $(TEST_LIBRARY) $(LIBRARY)
+memory_allocator_test: memory/memory_allocator_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 autovector_test: $(OBJ_DIR)/util/autovector_test.o $(TEST_LIBRARY) $(LIBRARY)
