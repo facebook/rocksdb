@@ -1,20 +1,41 @@
 package org.rocksdb.api;
 
+import org.rocksdb.RocksDBException;
+
+import java.util.concurrent.atomic.AtomicBoolean;
+
 public abstract class RocksNative implements AutoCloseable {
 
   /**
    * The reference is final, and the fact that it has been closed (and is no longer valid) must be checked
-   * in native (C++) code where all synchronization is performed.
+   * with the atomic flag.
    */
-  protected final long nativeReference;
+  private final long nativeReference_;
+  protected final AtomicBoolean isOpen;
 
   protected RocksNative(long nativeReference) {
-    this.nativeReference = nativeReference;
+    this(nativeReference, true);
+  }
+
+  protected RocksNative(long nativeReference, boolean isOpen) {
+    this.nativeReference_ = nativeReference;
+    this.isOpen = new AtomicBoolean(isOpen);
   }
 
   @Override
   public final void close() {
-    nativeClose(nativeReference);
+
+    if (isOpen.getAndSet(false)) {
+      nativeClose(nativeReference_);
+    }
+  }
+
+  public long getNative() throws RocksDBException {
+    if (isOpen.get()) {
+      return nativeReference_;
+    } else {
+      throw new RocksDBException("RocksDB native reference was previously closed");
+    }
   }
 
   /**
