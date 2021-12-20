@@ -287,8 +287,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // nothing. Calls cleanup functions.
   virtual void Invalidate(const Status& s) {
     // Assert that the BlockIter is never deleted while Pinning is Enabled.
-    assert(!pinned_iters_mgr_ ||
-           (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
+    assert(!pinned_iters_mgr_ || !pinned_iters_mgr_->PinningEnabled());
 
     data_ = nullptr;
     current_ = restarts_;
