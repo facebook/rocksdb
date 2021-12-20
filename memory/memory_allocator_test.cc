@@ -17,6 +17,11 @@
 #include "utilities/memory_allocators.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+// TODO: the tests do not work in LITE mode due to relying on
+// `CreateFromString()` to create non-default memory allocators.
+#ifndef ROCKSDB_LITE
+
 class MemoryAllocatorTest
     : public testing::Test,
       public ::testing::WithParamInterface<std::tuple<std::string, bool>> {
@@ -227,6 +232,8 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(std::make_tuple(JemallocNodumpAllocator::kClassName(),
                                       JemallocNodumpAllocator::IsSupported())));
 #endif  // ROCKSDB_JEMALLOC
+
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 
