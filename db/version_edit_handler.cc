@@ -10,6 +10,7 @@
 #include "db/version_edit_handler.h"
 
 #include <cinttypes>
+#include <sstream>
 
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
@@ -76,21 +77,17 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
       assert(reader.file());
 
       // build a new error message
-      std::string message;
+      std::stringstream message;
       // append previous dynamic state message
       const char* state = s.getState();
       if (state != nullptr) {
-        message.append(state);
-      }
-      if (!message.empty() && message.back() != ' ') {
-        // avoid adding redundant whitespace
-        message += " ";
+        message << state;
+        message << ' ';
       }
       // append the filename to the corruption message
-      message += "in file ";
-      message += reader.file()->file_name();
+      message << "in file " << reader.file()->file_name();
       // overwrite the status with the extended status
-      s = Status(s.code(), s.subcode(), s.severity(), message);
+      s = Status(s.code(), s.subcode(), s.severity(), message.str());
     }
     status_ = s;
   }
