@@ -22,6 +22,7 @@
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/memory_allocator.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/slice_transform.h"
@@ -39,6 +40,7 @@
 #include "util/rate_limiter.h"
 #include "util/string_util.h"
 #include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
+#include "utilities/memory_allocators.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
@@ -1305,6 +1307,12 @@ class MockSliceTransform : public SliceTransform {
   bool InRange(const Slice& /*key*/) const override { return false; }
 };
 
+class MockMemoryAllocator : public BaseMemoryAllocator {
+ public:
+  static const char* kClassName() { return "MockMemoryAllocator"; }
+  const char* Name() const override { return kClassName(); }
+};
+
 #ifndef ROCKSDB_LITE
 class MockEncryptionProvider : public EncryptionProvider {
  public:
@@ -1463,6 +1471,13 @@ static int RegisterLocalObjects(ObjectLibrary& library,
     guard->reset(new MockCipher());
     return guard->get();
   });
+  library.Register<MemoryAllocator>(
+      MockMemoryAllocator::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<MemoryAllocator>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockMemoryAllocator());
+        return guard->get();
+      });
   library.Register<FlushBlockPolicyFactory>(
       TestFlushBlockPolicyFactory::kClassName(),
       [](const std::string& /*uri*/,
@@ -1918,6 +1933,22 @@ TEST_F(LoadCustomizableTest, LoadSystemClockTest) {
         config_options_, MockSystemClock::kClassName(), &result));
     ASSERT_NE(result, nullptr);
     ASSERT_STREQ(result->Name(), MockSystemClock::kClassName());
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadMemoryAllocatorTest) {
+  std::shared_ptr<MemoryAllocator> result;
+  ASSERT_NOK(MemoryAllocator::CreateFromString(
+      config_options_, MockMemoryAllocator::kClassName(), &result));
+  ASSERT_OK(MemoryAllocator::CreateFromString(
+      config_options_, DefaultMemoryAllocator::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), DefaultMemoryAllocator::kClassName());
+  if (RegisterTests("Test")) {
+    ASSERT_OK(MemoryAllocator::CreateFromString(
+        config_options_, MockMemoryAllocator::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), MockMemoryAllocator::kClassName());
   }
 }
 

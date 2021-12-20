@@ -438,10 +438,8 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
       ASSERT_TRUE(wp_db->old_commit_map_empty_);
       ROCKSDB_NAMESPACE::port::Thread t1(
           [&]() { wp_db->UpdateSnapshots(new_snapshots, version); });
-      ROCKSDB_NAMESPACE::port::Thread t2(
-          [&]() { wp_db->CheckAgainstSnapshots(entry); });
+      wp_db->CheckAgainstSnapshots(entry);
       t1.join();
-      t2.join();
       ASSERT_FALSE(wp_db->old_commit_map_empty_);
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -467,10 +465,8 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
       ASSERT_TRUE(wp_db->old_commit_map_empty_);
       ROCKSDB_NAMESPACE::port::Thread t1(
           [&]() { wp_db->UpdateSnapshots(new_snapshots, version); });
-      ROCKSDB_NAMESPACE::port::Thread t2(
-          [&]() { wp_db->CheckAgainstSnapshots(entry); });
+      wp_db->CheckAgainstSnapshots(entry);
       t1.join();
-      t2.join();
       ASSERT_FALSE(wp_db->old_commit_map_empty_);
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();

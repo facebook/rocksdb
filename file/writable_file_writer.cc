@@ -516,6 +516,19 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
         } else {
           s = writable_file_->Append(Slice(src, allowed), IOOptions(), nullptr);
         }
+        if (!s.ok()) {
+          // If writable_file_->Append() failed, then the data may or may not
+          // exist in the underlying memory buffer, OS page cache, remote file
+          // system's buffer, etc. If WritableFileWriter keeps the data in
+          // buf_, then a future Close() or write retry may send the data to
+          // the underlying file again. If the data does exist in the
+          // underlying buffer and gets written to the file eventually despite
+          // returning error, the file may end up with two duplicate pieces of
+          // data. Therefore, clear the buf_ at the WritableFileWriter layer
+          // and let caller determine error handling.
+          buf_.Size(0);
+          buffered_data_crc32c_checksum_ = 0;
+        }
         SetPerfLevel(prev_perf_level);
       }
 #ifndef ROCKSDB_LITE
@@ -603,6 +616,17 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(const char* data,
     }
 #endif
     if (!s.ok()) {
+      // If writable_file_->Append() failed, then the data may or may not
+      // exist in the underlying memory buffer, OS page cache, remote file
+      // system's buffer, etc. If WritableFileWriter keeps the data in
+      // buf_, then a future Close() or write retry may send the data to
+      // the underlying file again. If the data does exist in the
+      // underlying buffer and gets written to the file eventually despite
+      // returning error, the file may end up with two duplicate pieces of
+      // data. Therefore, clear the buf_ at the WritableFileWriter layer
+      // and let caller determine error handling.
+      buf_.Size(0);
+      buffered_data_crc32c_checksum_ = 0;
       return s;
     }
   }
@@ -652,13 +676,13 @@ IOStatus WritableFileWriter::WriteDirect() {
   assert((next_write_offset_ % alignment) == 0);
 
   // Calculate whole page final file advance if all writes succeed
-  size_t file_advance = TruncateToPageBoundary(alignment, buf_.CurrentSize());
+  const size_t file_advance =
+      TruncateToPageBoundary(alignment, buf_.CurrentSize());
 
   // Calculate the leftover tail, we write it here padded with zeros BUT we
-  // will write
-  // it again in the future either on Close() OR when the current whole page
-  // fills out
-  size_t leftover_tail = buf_.CurrentSize() - file_advance;
+  // will write it again in the future either on Close() OR when the current
+  // whole page fills out.
+  const size_t leftover_tail = buf_.CurrentSize() - file_advance;
 
   // Round up and pad
   buf_.PadToAlignmentWith(0);
@@ -741,13 +765,13 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum() {
   assert((next_write_offset_ % alignment) == 0);
 
   // Calculate whole page final file advance if all writes succeed
-  size_t file_advance = TruncateToPageBoundary(alignment, buf_.CurrentSize());
+  const size_t file_advance =
+      TruncateToPageBoundary(alignment, buf_.CurrentSize());
 
   // Calculate the leftover tail, we write it here padded with zeros BUT we
-  // will write
-  // it again in the future either on Close() OR when the current whole page
-  // fills out
-  size_t leftover_tail = buf_.CurrentSize() - file_advance;
+  // will write it again in the future either on Close() OR when the current
+  // whole page fills out.
+  const size_t leftover_tail = buf_.CurrentSize() - file_advance;
 
   // Round up, pad, and combine the checksum.
   size_t last_cur_size = buf_.CurrentSize();

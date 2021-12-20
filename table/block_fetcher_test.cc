@@ -18,32 +18,10 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
 #include "test_util/testharness.h"
+#include "utilities/memory_allocators.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
-
-class CountedMemoryAllocator : public MemoryAllocator {
- public:
-  const char* Name() const override { return "CountedMemoryAllocator"; }
-
-  void* Allocate(size_t size) override {
-    num_allocations_++;
-    return static_cast<void*>(new char[size]);
-  }
-
-  void Deallocate(void* p) override {
-    num_deallocations_++;
-    delete[] static_cast<char*>(p);
-  }
-
-  int GetNumAllocations() const { return num_allocations_; }
-  int GetNumDeallocations() const { return num_deallocations_; }
-
- private:
-  int num_allocations_ = 0;
-  int num_deallocations_ = 0;
-};
-
 struct MemcpyStats {
   int num_stack_buf_memcpy;
   int num_heap_buf_memcpy;

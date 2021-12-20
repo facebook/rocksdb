@@ -18,7 +18,7 @@ class DBBlobCompactionTest : public DBTestBase {
 
 #ifndef ROCKSDB_LITE
   const std::vector<InternalStats::CompactionStats>& GetCompactionStats() {
-    VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+    VersionSet* const versions = dbfull()->GetVersionSet();
     assert(versions);
     assert(versions->GetColumnFamilySet());
 
@@ -495,7 +495,7 @@ TEST_F(DBBlobCompactionTest, TrackGarbage) {
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
   assert(versions->GetColumnFamilySet());
 

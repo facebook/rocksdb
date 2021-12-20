@@ -381,7 +381,7 @@ Status CuckooTableBuilder::Finish() {
     return status_;
   }
 
-  meta_index_builder.Add(kPropertiesBlock, property_block_handle);
+  meta_index_builder.Add(kPropertiesBlockName, property_block_handle);
   Slice meta_index_block = meta_index_builder.Finish();
 
   BlockHandle meta_index_block_handle;
@@ -393,12 +393,10 @@ Status CuckooTableBuilder::Finish() {
     return status_;
   }
 
-  Footer footer(kCuckooTableMagicNumber, 1);
-  footer.set_metaindex_handle(meta_index_block_handle);
-  footer.set_index_handle(BlockHandle::NullBlockHandle());
-  std::string footer_encoding;
-  footer.EncodeTo(&footer_encoding);
-  io_status_ = file_->Append(footer_encoding);
+  FooterBuilder footer;
+  footer.Build(kCuckooTableMagicNumber, /* format_version */ 1, offset,
+               kNoChecksum, meta_index_block_handle);
+  io_status_ = file_->Append(footer.GetSlice());
   status_ = io_status_;
   return status_;
 }
