@@ -3443,6 +3443,27 @@ TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   ASSERT_EQ("v1", Get("k1"));
   ASSERT_EQ("v2", Get("k2"));
 }
+TEST_F(DBTest, BlockBasedTablePrefixHashIndexTest) {
+  // create a DB with block prefix index
+  BlockBasedTableOptions table_options;
+  Options options = CurrentOptions();
+  table_options.index_type = BlockBasedTableOptions::kHashSearch;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.prefix_extractor.reset(NewCappedPrefixTransform(2));
+
+  Reopen(options);
+  ASSERT_OK(Put("kk1", "v1"));
+  ASSERT_OK(Put("kk2", "v2"));
+  ASSERT_OK(Put("kk", "v3"));
+  ASSERT_OK(Put("k", "v4"));
+  Flush();
+
+  ASSERT_EQ("v1", Get("kk1"));
+  ASSERT_EQ("v2", Get("kk2"));
+
+  ASSERT_EQ("v3", Get("kk"));
+  ASSERT_EQ("v4", Get("k"));
+}
 
 TEST_F(DBTest, BlockBasedTablePrefixIndexTotalOrderSeek) {
   // create a DB with block prefix index
