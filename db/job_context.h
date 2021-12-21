@@ -67,6 +67,7 @@ struct SuperVersionContext {
     notif.write_stall_info.cf_name = name;
     notif.write_stall_info.condition.prev = old_cond;
     notif.write_stall_info.condition.cur = new_cond;
+    // copy listeners, ioptions could delete before background compaction completes
     notif.immutable_options_listeners = ioptions->listeners;
     write_stall_notifications.push_back(notif);
 #else
