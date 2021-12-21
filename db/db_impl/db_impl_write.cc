@@ -2058,7 +2058,9 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                const Slice& key, const Slice& ts, const Slice& value) {
-  column_family = column_family ? column_family : DefaultColumnFamily();
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be null");
+  }
   assert(column_family);
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
@@ -2072,18 +2074,12 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
     assert(false);
     return Status::InvalidArgument("Timestamp size mismatch");
   }
-  WriteBatch batch;
-  Status s;
-  if (key.data() + key.size() == ts.data()) {
-    Slice key_with_ts = Slice(key.data(), key.size() + ts_sz);
-    s = batch.Put(column_family, key_with_ts, value);
-  } else {
-    std::array<Slice, 2> key_with_ts_slices{{key, ts}};
-    SliceParts key_with_ts(key_with_ts_slices.data(), 2);
-    std::array<Slice, 1> value_slices{{value}};
-    SliceParts values(value_slices.data(), 1);
-    s = batch.Put(column_family, key_with_ts, values);
-  }
+  ColumnFamilyHandle* default_cf = DefaultColumnFamily();
+  assert(default_cf);
+  const Comparator* const default_cf_ucmp = default_cf->GetComparator();
+  assert(default_cf_ucmp);
+  WriteBatch batch(0, 0, 0, default_cf_ucmp->timestamp_size());
+  Status s = batch.Put(column_family, key, ts, value);
   if (!s.ok()) {
     return s;
   }
@@ -2112,7 +2108,9 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                   const Slice& key, const Slice& ts) {
-  column_family = column_family ? column_family : DefaultColumnFamily();
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be null");
+  }
   assert(column_family);
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
@@ -2126,16 +2124,12 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
     assert(false);
     return Status::InvalidArgument("Timestamp size mismatch");
   }
-  WriteBatch batch;
-  Status s;
-  if (key.data() + key.size() == ts.data()) {
-    Slice key_with_ts = Slice(key.data(), key.size() + ts_sz);
-    s = batch.Delete(column_family, key_with_ts);
-  } else {
-    std::array<Slice, 2> key_with_ts_slices{{key, ts}};
-    SliceParts key_with_ts(key_with_ts_slices.data(), 2);
-    s = batch.Delete(column_family, key_with_ts);
-  }
+  ColumnFamilyHandle* default_cf = DefaultColumnFamily();
+  assert(default_cf);
+  const Comparator* const default_cf_ucmp = default_cf->GetComparator();
+  assert(default_cf_ucmp);
+  WriteBatch batch(0, 0, 0, default_cf_ucmp->timestamp_size());
+  Status s = batch.Delete(column_family, key, ts);
   if (!s.ok()) {
     return s;
   }
@@ -2165,7 +2159,9 @@ Status DB::SingleDelete(const WriteOptions& opt,
 Status DB::SingleDelete(const WriteOptions& opt,
                         ColumnFamilyHandle* column_family, const Slice& key,
                         const Slice& ts) {
-  column_family = column_family ? column_family : DefaultColumnFamily();
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be null");
+  }
   assert(column_family);
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
@@ -2179,16 +2175,12 @@ Status DB::SingleDelete(const WriteOptions& opt,
     assert(false);
     return Status::InvalidArgument("Timestamp size mismatch");
   }
-  WriteBatch batch;
-  Status s;
-  if (key.data() + key.size() == ts.data()) {
-    Slice key_with_ts = Slice(key.data(), key.size() + ts_sz);
-    s = batch.SingleDelete(column_family, key_with_ts);
-  } else {
-    std::array<Slice, 2> key_with_ts_slices{{key, ts}};
-    SliceParts key_with_ts(key_with_ts_slices.data(), 2);
-    s = batch.SingleDelete(column_family, key_with_ts);
-  }
+  ColumnFamilyHandle* default_cf = DefaultColumnFamily();
+  assert(default_cf);
+  const Comparator* const default_cf_ucmp = default_cf->GetComparator();
+  assert(default_cf_ucmp);
+  WriteBatch batch(0, 0, 0, default_cf_ucmp->timestamp_size());
+  Status s = batch.SingleDelete(column_family, key, ts);
   if (!s.ok()) {
     return s;
   }

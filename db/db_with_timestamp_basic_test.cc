@@ -216,13 +216,8 @@ TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
   ASSERT_OK(wb.Put("a", "value"));
   {
     std::string key("a");
-    std::string ts(kTimestampSize, '\0');
-    std::array<Slice, 2> key_with_ts_slices{{key, ts}};
-    SliceParts key_with_ts(key_with_ts_slices.data(), 2);
-    std::string value_str("value");
-    Slice value_slice(value_str.data(), value_str.size());
-    SliceParts value(&value_slice, 1);
-    ASSERT_OK(wb.Put(handle, key_with_ts, value));
+    std::string value("value");
+    ASSERT_OK(wb.Put(handle, key, value));
   }
   {
     std::string ts = Timestamp(1, 0);
@@ -929,15 +924,11 @@ TEST_F(DBBasicTestWithTimestamp, ChangeIterationDirection) {
   const std::vector<std::tuple<std::string, std::string>> kvs = {
       std::make_tuple("aa", "value1"), std::make_tuple("ab", "value2")};
   for (const auto& ts : timestamps) {
-    WriteBatch wb;
+    WriteBatch wb(0, 0, 0, kTimestampSize);
     for (const auto& kv : kvs) {
       const std::string& key = std::get<0>(kv);
       const std::string& value = std::get<1>(kv);
-      std::array<Slice, 2> key_with_ts_slices{{Slice(key), Slice(ts)}};
-      SliceParts key_with_ts(key_with_ts_slices.data(), 2);
-      std::array<Slice, 1> value_slices{{Slice(value)}};
-      SliceParts values(value_slices.data(), 1);
-      ASSERT_OK(wb.Put(key_with_ts, values));
+      ASSERT_OK(wb.Put(key, value));
     }
 
     ASSERT_OK(wb.AssignTimestamp(ts));
@@ -1145,20 +1136,10 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
   }
   {
     std::string ts_str = Timestamp(static_cast<uint64_t>(kNumKeys + 1), 0);
-    WriteBatch batch;
+    WriteBatch batch(0, 0, 0, kTimestampSize);
     const std::string dummy_ts(kTimestampSize, '\0');
-    {
-      std::array<Slice, 2> key_with_ts_slices{{"a", dummy_ts}};
-      SliceParts key_with_ts(key_with_ts_slices.data(), 2);
-      std::array<Slice, 1> value_slices{{"new_value"}};
-      SliceParts values(value_slices.data(), 1);
-      ASSERT_OK(batch.Put(key_with_ts, values));
-    }
-    {
-      std::string key_with_ts("b");
-      key_with_ts.append(dummy_ts);
-      ASSERT_OK(batch.Put(key_with_ts, "new_value"));
-    }
+    { ASSERT_OK(batch.Put("a", "new_value")); }
+    { ASSERT_OK(batch.Put("b", "new_value")); }
     s = batch.AssignTimestamp(ts_str);
     ASSERT_OK(s);
     s = db_->Write(write_opts, &batch);
@@ -2662,16 +2643,12 @@ TEST_F(DBBasicTestWithTimestamp, BatchWriteAndMultiGet) {
     const Slice& write_ts = write_ts_list.back();
     for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
       WriteOptions wopts;
-      WriteBatch batch;
+      WriteBatch batch(0, 0, 0, ts_sz);
       for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
         const std::string key = Key1(j);
         const std::string value =
             "value_" + std::to_string(j) + "_" + std::to_string(i);
-        std::array<Slice, 2> key_with_ts_slices{{key, dummy_ts}};
-        SliceParts key_with_ts(key_with_ts_slices.data(), 2);
-        std::array<Slice, 1> value_slices{{value}};
-        SliceParts values(value_slices.data(), 1);
-        ASSERT_OK(batch.Put(handles_[cf], key_with_ts, values));
+        ASSERT_OK(batch.Put(handles_[cf], key, value));
       }
       ASSERT_OK(batch.AssignTimestamp(write_ts));
       ASSERT_OK(db_->Write(wopts, &batch));

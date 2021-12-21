@@ -160,8 +160,11 @@ WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes)
 }
 
 WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes,
-                       size_t protection_bytes_per_key)
-    : content_flags_(0), max_bytes_(max_bytes), rep_() {
+                       size_t protection_bytes_per_key, size_t default_cf_ts_sz)
+    : content_flags_(0),
+      max_bytes_(max_bytes),
+      default_cf_ts_sz_(default_cf_ts_sz),
+      rep_() {
   // Currently `protection_bytes_per_key` can only be enabled at 8 bytes per
   // entry.
   assert(protection_bytes_per_key == 0 || protection_bytes_per_key == 8);
@@ -186,6 +189,7 @@ WriteBatch::WriteBatch(const WriteBatch& src)
     : wal_term_point_(src.wal_term_point_),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
+      default_cf_ts_sz_(src.default_cf_ts_sz_),
       rep_(src.rep_) {
   if (src.save_points_ != nullptr) {
     save_points_.reset(new SavePoints());
@@ -203,6 +207,7 @@ WriteBatch::WriteBatch(WriteBatch&& src) noexcept
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
       prot_info_(std::move(src.prot_info_)),
+      default_cf_ts_sz_(src.default_cf_ts_sz_),
       rep_(std::move(src.rep_)) {}
 
 WriteBatch& WriteBatch::operator=(const WriteBatch& src) {
@@ -250,6 +255,7 @@ void WriteBatch::Clear() {
     prot_info_->entries_.clear();
   }
   wal_term_point_.clear();
+  default_cf_ts_sz_ = 0;
 }
 
 uint32_t WriteBatch::Count() const { return WriteBatchInternal::Count(this); }
@@ -738,8 +744,45 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
 
 Status WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& value) {
-  return WriteBatchInternal::Put(this, GetColumnFamilyID(column_family), key,
-                                 value);
+  size_t ts_sz = 0;
+  uint32_t cf_id = GetColumnFamilyID(column_family);
+  if (column_family) {
+    const Comparator* const ucmp = column_family->GetComparator();
+    if (ucmp) {
+      ts_sz = ucmp->timestamp_size();
+      if (0 == cf_id && default_cf_ts_sz_ != ts_sz) {
+        return Status::InvalidArgument("Default cf timestamp size mismatch");
+      }
+    }
+  } else if (default_cf_ts_sz_ > 0) {
+    ts_sz = default_cf_ts_sz_;
+  }
+  if (0 == ts_sz) {
+    return WriteBatchInternal::Put(this, cf_id, key, value);
+  }
+  std::string dummy_ts(ts_sz, '\0');
+  std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
+  return WriteBatchInternal::Put(this, cf_id, SliceParts(key_with_ts.data(), 2),
+                                 SliceParts(&value, 1));
+}
+
+Status WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
+                       const Slice& ts, const Slice& value) {
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be null");
+  }
+  const Comparator* const ucmp = column_family->GetComparator();
+  size_t cf_ts_sz = ucmp->timestamp_size();
+  if (0 == cf_ts_sz) {
+    return Status::InvalidArgument("timestamp disabled");
+  }
+  if (cf_ts_sz != ts.size()) {
+    return Status::InvalidArgument("timestamp size mismatch");
+  }
+  uint32_t cf_id = column_family->GetID();
+  std::array<Slice, 2> key_with_ts{{key, ts}};
+  return WriteBatchInternal::Put(this, cf_id, SliceParts(key_with_ts.data(), 2),
+                                 SliceParts(&value, 1));
 }
 
 Status WriteBatchInternal::CheckSlicePartsLength(const SliceParts& key,
@@ -892,8 +935,45 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
 }
 
 Status WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key) {
-  return WriteBatchInternal::Delete(this, GetColumnFamilyID(column_family),
-                                    key);
+  size_t ts_sz = 0;
+  uint32_t cf_id = GetColumnFamilyID(column_family);
+  if (column_family) {
+    const Comparator* const ucmp = column_family->GetComparator();
+    if (ucmp) {
+      ts_sz = ucmp->timestamp_size();
+      if (0 == cf_id && default_cf_ts_sz_ != ts_sz) {
+        return Status::InvalidArgument("Default cf timestamp size mismatch");
+      }
+    }
+  } else if (default_cf_ts_sz_ > 0) {
+    ts_sz = default_cf_ts_sz_;
+  }
+  if (0 == ts_sz) {
+    return WriteBatchInternal::Delete(this, cf_id, key);
+  }
+  std::string dummy_ts(ts_sz, '\0');
+  std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
+  return WriteBatchInternal::Delete(this, cf_id,
+                                    SliceParts(key_with_ts.data(), 2));
+}
+
+Status WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key,
+                          const Slice& ts) {
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be null");
+  }
+  const Comparator* const ucmp = column_family->GetComparator();
+  size_t cf_ts_sz = ucmp->timestamp_size();
+  if (0 == cf_ts_sz) {
+    return Status::InvalidArgument("timestamp disabled");
+  }
+  if (cf_ts_sz != ts.size()) {
+    return Status::InvalidArgument("timestamp size mismatch");
+  }
+  uint32_t cf_id = column_family->GetID();
+  std::array<Slice, 2> key_with_ts{{key, ts}};
+  return WriteBatchInternal::Delete(this, cf_id,
+                                    SliceParts(key_with_ts.data(), 2));
 }
 
 Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
@@ -957,8 +1037,45 @@ Status WriteBatchInternal::SingleDelete(WriteBatch* b,
 
 Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
                                 const Slice& key) {
-  return WriteBatchInternal::SingleDelete(
-      this, GetColumnFamilyID(column_family), key);
+  size_t ts_sz = 0;
+  uint32_t cf_id = GetColumnFamilyID(column_family);
+  if (column_family) {
+    const Comparator* const ucmp = column_family->GetComparator();
+    if (ucmp) {
+      ts_sz = ucmp->timestamp_size();
+      if (0 == cf_id && default_cf_ts_sz_ != ts_sz) {
+        return Status::InvalidArgument("Default cf timestamp size mismatch");
+      }
+    }
+  } else if (default_cf_ts_sz_ > 0) {
+    ts_sz = default_cf_ts_sz_;
+  }
+  if (0 == ts_sz) {
+    return WriteBatchInternal::SingleDelete(this, cf_id, key);
+  }
+  std::string dummy_ts(ts_sz, '\0');
+  std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
+  return WriteBatchInternal::SingleDelete(this, cf_id,
+                                          SliceParts(key_with_ts.data(), 2));
+}
+
+Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
+                                const Slice& key, const Slice& ts) {
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be null");
+  }
+  const Comparator* const ucmp = column_family->GetComparator();
+  size_t cf_ts_sz = ucmp->timestamp_size();
+  if (0 == cf_ts_sz) {
+    return Status::InvalidArgument("timestamp disabled");
+  }
+  if (cf_ts_sz != ts.size()) {
+    return Status::InvalidArgument("timestamp size mismatch");
+  }
+  uint32_t cf_id = column_family->GetID();
+  std::array<Slice, 2> key_with_ts{{key, ts}};
+  return WriteBatchInternal::SingleDelete(this, cf_id,
+                                          SliceParts(key_with_ts.data(), 2));
 }
 
 Status WriteBatchInternal::SingleDelete(WriteBatch* b,

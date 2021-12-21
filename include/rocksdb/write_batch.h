@@ -68,7 +68,7 @@ class WriteBatch : public WriteBatchBase {
   // protection information for each key entry. Currently supported values are
   // zero (disabled) and eight.
   explicit WriteBatch(size_t reserved_bytes, size_t max_bytes,
-                      size_t protection_bytes_per_key);
+                      size_t protection_bytes_per_key, size_t default_cf_ts_sz);
   ~WriteBatch() override;
 
   using WriteBatchBase::Put;
@@ -82,6 +82,8 @@ class WriteBatch : public WriteBatchBase {
   Status Put(const Slice& key, const Slice& value) override {
     return Put(nullptr, key, value);
   }
+  Status Put(ColumnFamilyHandle* column_family, const Slice& key,
+             const Slice& ts, const Slice& value) override;
 
   // Variant of Put() that gathers output like writev(2).  The key and value
   // that will be written to the database are concatenations of arrays of
@@ -104,6 +106,8 @@ class WriteBatch : public WriteBatchBase {
   // up the memory buffer pointed to by `key`.
   Status Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
   Status Delete(const Slice& key) override { return Delete(nullptr, key); }
+  Status Delete(ColumnFamilyHandle* column_family, const Slice& key,
+                const Slice& ts) override;
 
   // variant that takes SliceParts
   // These two variants of Delete(..., const SliceParts& key) can be used when
@@ -121,6 +125,8 @@ class WriteBatch : public WriteBatchBase {
   Status SingleDelete(const Slice& key) override {
     return SingleDelete(nullptr, key);
   }
+  Status SingleDelete(ColumnFamilyHandle* column_family, const Slice& key,
+                      const Slice& ts) override;
 
   // variant that takes SliceParts
   Status SingleDelete(ColumnFamilyHandle* column_family,
@@ -445,6 +451,8 @@ class WriteBatch : public WriteBatchBase {
   bool is_latest_persistent_state_ = false;
 
   std::unique_ptr<ProtectionInfo> prot_info_;
+
+  size_t default_cf_ts_sz_ = 0;
 
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
