@@ -221,8 +221,19 @@ TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
   }
   {
     std::string ts = Timestamp(1, 0);
-    std::vector<Slice> ts_list({Slice(), ts});
-    ASSERT_OK(wb.AssignTimestamps(ts_list));
+    const auto checker = [&kTimestampSize, handle](uint32_t cf_id,
+                                                   size_t& ts_sz) {
+      assert(handle);
+      if (cf_id == 0) {
+        ts_sz = 0;
+      } else if (cf_id == handle->GetID()) {
+        ts_sz = kTimestampSize;
+      } else {
+        assert(false);
+      }
+      return Status::OK();
+    };
+    ASSERT_OK(wb.AssignTimestamp(ts, checker));
     ASSERT_OK(db_->Write(WriteOptions(), &wb));
   }
 

@@ -1032,34 +1032,6 @@ TEST_F(WriteBatchTest, AssignTimestamps) {
       batch.AssignTimestamp(std::string(timestamp_size, '\xef'), checker2));
   ASSERT_OK(CheckTimestampsInWriteBatch(
       batch, std::string(timestamp_size, '\xef'), cf_to_ucmps));
-
-  std::vector<std::string> ts_strs;
-  for (size_t i = 0; i < 3 * key_strs.size(); ++i) {
-    if (0 == (i % 3)) {
-      ts_strs.emplace_back();
-    } else {
-      ts_strs.emplace_back(std::string(timestamp_size, '\xee'));
-    }
-  }
-  std::vector<Slice> ts_vec(ts_strs.size());
-  for (size_t i = 0; i < ts_vec.size(); ++i) {
-    ts_vec[i] = ts_strs[i];
-  }
-  const auto checker3 = [&cf_to_ucmps](uint32_t cf, size_t& ts_sz) {
-    auto cf_iter = cf_to_ucmps.find(cf);
-    if (cf_iter == cf_to_ucmps.end()) {
-      return Status::Corruption("Invalid cf");
-    }
-    const Comparator* const ucmp = cf_iter->second;
-    assert(ucmp);
-    if (ucmp->timestamp_size() != ts_sz) {
-      return Status::InvalidArgument("Timestamp size mismatch");
-    }
-    return Status::OK();
-  };
-  ASSERT_OK(batch.AssignTimestamps(ts_vec, checker3));
-  ASSERT_OK(CheckTimestampsInWriteBatch(
-      batch, std::string(timestamp_size, '\xee'), cf_to_ucmps));
 }
 
 TEST_F(WriteBatchTest, CommitWithTimestamp) {

@@ -365,38 +365,6 @@ class TimestampAssignerBase : public WriteBatch::Handler {
   size_t idx_ = 0;
 };
 
-class SimpleListTimestampAssigner
-    : public TimestampAssignerBase<SimpleListTimestampAssigner> {
- public:
-  explicit SimpleListTimestampAssigner(
-      WriteBatch::ProtectionInfo* prot_info,
-      std::function<Status(uint32_t, size_t&)>&& checker,
-      const std::vector<Slice>& timestamps)
-      : TimestampAssignerBase<SimpleListTimestampAssigner>(prot_info,
-                                                           std::move(checker)),
-        timestamps_(timestamps) {}
-
-  ~SimpleListTimestampAssigner() override {}
-
- private:
-  friend class TimestampAssignerBase<SimpleListTimestampAssigner>;
-
-  Status AssignTimestampImpl(uint32_t cf, const Slice& key, size_t idx) {
-    if (idx >= timestamps_.size()) {
-      return Status::InvalidArgument("Need more timestamps for the assignment");
-    }
-    const Slice& ts = timestamps_[idx];
-    size_t ts_sz = ts.size();
-    const Status s = this->CheckTimestampSize(cf, ts_sz);
-    if (!s.ok()) {
-      return s;
-    }
-    return this->UpdateTimestampIfNeeded(ts_sz, key, ts);
-  }
-
-  const std::vector<Slice>& timestamps_;
-};
-
 class TimestampAssigner : public TimestampAssignerBase<TimestampAssigner> {
  public:
   explicit TimestampAssigner(WriteBatch::ProtectionInfo* prot_info,
