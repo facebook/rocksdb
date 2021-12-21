@@ -65,6 +65,12 @@ c4r16)
   cache_mb=$(( 1024 * 12 ))
   nsub=2
   ;;
+c4bc1g)
+  # Options for 4-core, 1g block cache
+  args=( WRITE_BUF_MB=16 SST_MB=16 L1_MB=64 MAX_BG_JOBS=3 )
+  cache_mb=$(( 1024 * 1 ))
+  nsub=2
+  ;;
 c16r16)
   # Options for 16-core, 16g RAM
   args=( WRITE_BUF_MB=16 SST_MB=16 L1_MB=64 MAX_BG_JOBS=8 )
