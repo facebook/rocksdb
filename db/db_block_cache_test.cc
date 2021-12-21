@@ -1761,6 +1761,7 @@ int CountBitsDifferent(const T& t1, const T& t2) {
   int diff = 0;
   const uint8_t* p1 = reinterpret_cast<const uint8_t*>(&t1);
   const uint8_t* p2 = reinterpret_cast<const uint8_t*>(&t2);
+  static_assert(sizeof(*p1) == 1, "Expecting uint8_t byte");
   for (size_t i = 0; i < sizeof(T); ++i) {
     diff += BitsSetToOne(p1[i] ^ p2[i]);
   }
@@ -1870,8 +1871,13 @@ TEST_F(CacheKeyTest, Encodings) {
     }
     db_id_ = r.Next();
 
-    CacheKey last_base;
+#ifndef __clang_analyzer__
+    CacheKey last_base;  // Clang analyzer thinks this is garbage
     ASSERT_TRUE(last_base.IsEmpty());
+#else
+    // Work-around
+    CacheKey last_base = CacheKey::CreateUniqueForProcessLifetime();
+#endif
 
     std::unordered_set<std::string> seen;
     int num_encodings = 0;
