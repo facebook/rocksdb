@@ -221,17 +221,16 @@ TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
   }
   {
     std::string ts = Timestamp(1, 0);
-    const auto checker = [&kTimestampSize, handle](uint32_t cf_id,
-                                                   size_t& ts_sz) {
+    const auto checker = [kTimestampSize, handle](uint32_t cf_id) {
       assert(handle);
       if (cf_id == 0) {
-        ts_sz = 0;
+        return static_cast<size_t>(0);
       } else if (cf_id == handle->GetID()) {
-        ts_sz = kTimestampSize;
+        return kTimestampSize;
       } else {
         assert(false);
+        return std::numeric_limits<size_t>::max();
       }
-      return Status::OK();
     };
     ASSERT_OK(wb.AssignTimestamp(ts, checker));
     ASSERT_OK(db_->Write(WriteOptions(), &wb));
@@ -942,7 +941,8 @@ TEST_F(DBBasicTestWithTimestamp, ChangeIterationDirection) {
       ASSERT_OK(wb.Put(key, value));
     }
 
-    ASSERT_OK(wb.AssignTimestamp(ts));
+    ASSERT_OK(wb.AssignTimestamp(
+        ts, [kTimestampSize](uint32_t) { return kTimestampSize; }));
     ASSERT_OK(db_->Write(WriteOptions(), &wb));
   }
   std::string read_ts_str = Timestamp(5, 3);
@@ -1151,7 +1151,8 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
     const std::string dummy_ts(kTimestampSize, '\0');
     { ASSERT_OK(batch.Put("a", "new_value")); }
     { ASSERT_OK(batch.Put("b", "new_value")); }
-    s = batch.AssignTimestamp(ts_str);
+    s = batch.AssignTimestamp(
+        ts_str, [kTimestampSize](uint32_t) { return kTimestampSize; });
     ASSERT_OK(s);
     s = db_->Write(write_opts, &batch);
     ASSERT_OK(s);
@@ -2661,7 +2662,8 @@ TEST_F(DBBasicTestWithTimestamp, BatchWriteAndMultiGet) {
             "value_" + std::to_string(j) + "_" + std::to_string(i);
         ASSERT_OK(batch.Put(handles_[cf], key, value));
       }
-      ASSERT_OK(batch.AssignTimestamp(write_ts));
+      ASSERT_OK(
+          batch.AssignTimestamp(write_ts, [ts_sz](uint32_t) { return ts_sz; }));
       ASSERT_OK(db_->Write(wopts, &batch));
 
       verify_records_func(i, handles_[cf]);

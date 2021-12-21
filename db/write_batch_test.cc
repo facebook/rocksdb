@@ -974,18 +974,14 @@ TEST_F(WriteBatchTest, AssignTimestamps) {
   }
 
   static constexpr size_t timestamp_size = sizeof(uint64_t);
-  const auto checker1 = [](uint32_t cf, size_t& ts_sz) {
+  const auto checker1 = [](uint32_t cf) {
     if (cf == 4 || cf == 5) {
-      if (ts_sz != timestamp_size) {
-        return Status::InvalidArgument("Timestamp size mismatch");
-      }
+      return timestamp_size;
     } else if (cf == 0) {
-      ts_sz = 0;
-      return Status::OK();
+      return static_cast<size_t>(0);
     } else {
-      return Status::Corruption("Invalid cf");
+      return std::numeric_limits<size_t>::max();
     }
-    return Status::OK();
   };
   ASSERT_OK(
       batch.AssignTimestamp(std::string(timestamp_size, '\xfe'), checker1));
@@ -1007,26 +1003,19 @@ TEST_F(WriteBatchTest, AssignTimestamps) {
   std::unordered_map<uint32_t, const Comparator*> indexed_cf_to_ucmps = {
       {0, cf0.GetComparator()}, {4, cf4.GetComparator()}};
   std::unordered_set<uint32_t> non_indexed_cfs_with_ts = {cf5.GetID()};
-  const auto checker2 = [&indexed_cf_to_ucmps, &non_indexed_cfs_with_ts](
-                            uint32_t cf, size_t& ts_sz) {
+  const auto checker2 = [&indexed_cf_to_ucmps,
+                         &non_indexed_cfs_with_ts](uint32_t cf) {
     if (non_indexed_cfs_with_ts.count(cf) > 0) {
-      if (ts_sz != timestamp_size) {
-        return Status::InvalidArgument("Timestamp size mismatch");
-      }
-      return Status::OK();
+      return timestamp_size;
     }
     auto cf_iter = indexed_cf_to_ucmps.find(cf);
     if (cf_iter == indexed_cf_to_ucmps.end()) {
-      return Status::Corruption("Unknown cf");
+      assert(false);
+      return std::numeric_limits<size_t>::max();
     }
     const Comparator* const ucmp = cf_iter->second;
     assert(ucmp);
-    if (ucmp->timestamp_size() == 0) {
-      ts_sz = 0;
-    } else if (ts_sz != ucmp->timestamp_size()) {
-      return Status::InvalidArgument("Timestamp size mismatch");
-    }
-    return Status::OK();
+    return ucmp->timestamp_size();
   };
   ASSERT_OK(
       batch.AssignTimestamp(std::string(timestamp_size, '\xef'), checker2));

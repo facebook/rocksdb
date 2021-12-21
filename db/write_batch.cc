@@ -1340,9 +1340,10 @@ Status WriteBatch::PopSavePoint() {
   return Status::OK();
 }
 
-Status WriteBatch::AssignTimestamp(
-    const Slice& ts, std::function<Status(uint32_t, size_t&)> checker) {
-  TimestampAssigner ts_assigner(prot_info_.get(), std::move(checker), ts);
+Status WriteBatch::AssignTimestamp(const Slice& ts,
+                                   std::function<size_t(uint32_t)> checker) {
+  TimestampAssigner<decltype(checker)> ts_assigner(prot_info_.get(),
+                                                   std::move(checker), ts);
   return Iterate(&ts_assigner);
 }
 
@@ -2298,7 +2299,7 @@ class MemTableInserter : public WriteBatch::Handler {
           const auto& batch_info = trx->batches_.begin()->second;
           // all inserts must reference this trx log number
           log_number_ref_ = batch_info.log_number_;
-          const auto checker = [this](uint32_t cf, size_t& ts_sz) {
+          const auto checker = [this](uint32_t cf) {
             assert(db_);
             VersionSet* const vset = db_->GetVersionSet();
             assert(vset);
@@ -2308,12 +2309,7 @@ class MemTableInserter : public WriteBatch::Handler {
             assert(cfd);
             const auto* const ucmp = cfd->user_comparator();
             assert(ucmp);
-            if (ucmp->timestamp_size() == 0) {
-              ts_sz = 0;
-            } else if (ucmp->timestamp_size() != ts_sz) {
-              return Status::InvalidArgument("Timestamp size mismatch");
-            }
-            return Status::OK();
+            return ucmp->timestamp_size();
           };
           s = batch_info.batch_->AssignTimestamp(commit_ts, checker);
           if (s.ok()) {

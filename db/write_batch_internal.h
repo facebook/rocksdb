@@ -79,7 +79,7 @@ class WriteBatchInternal {
  public:
 
   // WriteBatch header has an 8-byte sequence number followed by a 4-byte count.
-  static const size_t kHeader = 12;
+  static constexpr size_t kHeader = 12;
 
   // WriteBatch methods with column_family_id instead of ColumnFamilyHandle*
   static Status Put(WriteBatch* batch, uint32_t column_family_id,
@@ -265,15 +265,16 @@ class LocalSavePoint {
 #endif
 };
 
-template <typename Derived>
-class TimestampAssignerBase : public WriteBatch::Handler {
+template <typename Checker>
+class TimestampAssigner : public WriteBatch::Handler {
  public:
-  explicit TimestampAssignerBase(
-      WriteBatch::ProtectionInfo* prot_info,
-      std::function<Status(uint32_t, size_t&)>&& checker)
-      : prot_info_(prot_info), checker_(std::move(checker)) {}
+  explicit TimestampAssigner(WriteBatch::ProtectionInfo* prot_info,
+                             Checker&& checker, const Slice& ts)
+      : prot_info_(prot_info), checker_(std::move(checker)), timestamp_(ts) {
+    assert(!timestamp_.empty());
+  }
 
-  ~TimestampAssignerBase() override {}
+  ~TimestampAssigner() override {}
 
   Status PutCF(uint32_t cf, const Slice& key, const Slice&) override {
     return AssignTimestamp(cf, key);
@@ -314,25 +315,29 @@ class TimestampAssignerBase : public WriteBatch::Handler {
 
   Status MarkNoop(bool /*empty_batch*/) override { return Status::OK(); }
 
- protected:
+ private:
   Status AssignTimestamp(uint32_t cf, const Slice& key) {
-    Status s = static_cast_with_check<Derived>(this)->AssignTimestampImpl(
-        cf, key, idx_);
+    Status s = AssignTimestampImpl(cf, key, idx_);
     ++idx_;
     return s;
   }
 
-  Status CheckTimestampSize(uint32_t cf, size_t& ts_sz) {
-    return checker_(cf, ts_sz);
-  }
-
-  Status UpdateTimestampIfNeeded(size_t ts_sz, const Slice& key,
-                                 const Slice& ts) {
-    if (ts_sz > 0) {
-      assert(ts_sz == ts.size());
-      UpdateProtectionInformationIfNeeded(key, ts);
-      UpdateTimestamp(key, ts);
+  Status AssignTimestampImpl(uint32_t cf, const Slice& key, size_t /*idx*/) {
+    if (timestamp_.empty()) {
+      return Status::InvalidArgument("Timestamp is empty");
     }
+    size_t cf_ts_sz = checker_(cf);
+    if (0 == cf_ts_sz) {
+      // Skip this column family.
+      return Status::OK();
+    } else if (std::numeric_limits<size_t>::max() == cf_ts_sz) {
+      // Column family timestamp info not found.
+      return Status::NotFound();
+    } else if (cf_ts_sz != timestamp_.size()) {
+      return Status::InvalidArgument("timestamp size mismatch");
+    }
+    UpdateProtectionInformationIfNeeded(key, timestamp_);
+    UpdateTimestamp(key, timestamp_);
     return Status::OK();
   }
 
@@ -355,43 +360,15 @@ class TimestampAssignerBase : public WriteBatch::Handler {
   }
 
   // No copy or move.
-  TimestampAssignerBase(const TimestampAssignerBase&) = delete;
-  TimestampAssignerBase(TimestampAssignerBase&&) = delete;
-  TimestampAssignerBase& operator=(const TimestampAssignerBase&) = delete;
-  TimestampAssignerBase& operator=(TimestampAssignerBase&&) = delete;
+  TimestampAssigner(const TimestampAssigner&) = delete;
+  TimestampAssigner(TimestampAssigner&&) = delete;
+  TimestampAssigner& operator=(const TimestampAssigner&) = delete;
+  TimestampAssigner& operator=(TimestampAssigner&&) = delete;
 
   WriteBatch::ProtectionInfo* const prot_info_ = nullptr;
-  const std::function<Status(uint32_t, size_t&)> checker_{};
-  size_t idx_ = 0;
-};
-
-class TimestampAssigner : public TimestampAssignerBase<TimestampAssigner> {
- public:
-  explicit TimestampAssigner(WriteBatch::ProtectionInfo* prot_info,
-                             std::function<Status(uint32_t, size_t&)>&& checker,
-                             const Slice& ts)
-      : TimestampAssignerBase<TimestampAssigner>(prot_info, std::move(checker)),
-        timestamp_(ts) {
-    assert(!timestamp_.empty());
-  }
-  ~TimestampAssigner() override {}
-
- private:
-  friend class TimestampAssignerBase<TimestampAssigner>;
-
-  Status AssignTimestampImpl(uint32_t cf, const Slice& key, size_t /*idx*/) {
-    if (timestamp_.empty()) {
-      return Status::InvalidArgument("Timestamp is empty");
-    }
-    size_t ts_sz = timestamp_.size();
-    const Status s = this->CheckTimestampSize(cf, ts_sz);
-    if (!s.ok()) {
-      return s;
-    }
-    return this->UpdateTimestampIfNeeded(ts_sz, key, timestamp_);
-  }
-
+  const Checker checker_{};
   const Slice timestamp_;
+  size_t idx_ = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

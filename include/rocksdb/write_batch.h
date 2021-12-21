@@ -354,23 +354,18 @@ class WriteBatch : public WriteBatchBase {
   // column families) in the write batch have timestamps of the same format.
   //
   // checker: callable object to check the timestamp sizes of column families.
+  // If checker() accesses data structures, then the caller must guarantee
+  // thread-safety.
+  // Like other parts of RocksDB, this API is not exception-safe. Therefore,
+  // checker() must not throw.
   //
   // in: cf, the column family id.
-  // in/out: ts_sz. Input as the expected timestamp size of the column
-  //         family, output as the actual timestamp size of the column family.
-  // ret: OK if assignment succeeds.
-  // Status checker(uint32_t cf, size_t& ts_sz);
-  //
-  // User can call checker(uint32_t cf, size_t& ts_sz) which does the
-  // following:
-  // 1. find out the timestamp size of the column family whose id equals `cf`.
-  // 2. if cf's timestamp size is 0, then set ts_sz to 0 and return OK.
-  // 3. otherwise, compare ts_sz with cf's timestamp size and return
-  //    Status::InvalidArgument() if different.
-  Status AssignTimestamp(
-      const Slice& ts,
-      std::function<Status(uint32_t, size_t&)> checker =
-          [](uint32_t /*cf*/, size_t& /*ts_sz*/) { return Status::OK(); });
+  // ret: timestamp size of the given column family. Return
+  //      std::numeric_limits<size_t>::max() indicating "dont know or column
+  //      family info not found", this will cause AssignTimestamp() to fail.
+  // size_t checker(uint32_t cf);
+  Status AssignTimestamp(const Slice& ts,
+                         std::function<size_t(uint32_t /*cf*/)> checker);
 
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }
