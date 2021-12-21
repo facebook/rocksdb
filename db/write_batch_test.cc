@@ -949,7 +949,7 @@ Status CheckTimestampsInWriteBatch(
 }
 }  // namespace
 
-TEST_F(WriteBatchTest, AssignTimestamps) {
+TEST_F(WriteBatchTest, UpdateTimestamps) {
   // We assume the last eight bytes of each key is reserved for timestamps.
   // Therefore, we must make sure each key is longer than eight bytes.
   constexpr size_t key_size = 16;
@@ -984,7 +984,7 @@ TEST_F(WriteBatchTest, AssignTimestamps) {
     }
   };
   ASSERT_OK(
-      batch.AssignTimestamp(std::string(timestamp_size, '\xfe'), checker1));
+      batch.UpdateTimestamp(std::string(timestamp_size, '\xfe'), checker1));
   ASSERT_OK(CheckTimestampsInWriteBatch(
       batch, std::string(timestamp_size, '\xfe'), cf_to_ucmps));
 
@@ -997,7 +997,7 @@ TEST_F(WriteBatchTest, AssignTimestamps) {
   // mapping from cf to user comparators. If indexing is disabled, a transaction
   // writes directly to the underlying raw WriteBatch. We will need to track the
   // comparator information for the column families to which un-indexed writes
-  // are performed. When calling AssignTimestamp(s) API of WriteBatch, we need
+  // are performed. When calling UpdateTimestamp API of WriteBatch, we need
   // indexed_cf_to_ucmps, non_indexed_cfs_with_ts, and timestamp_size to perform
   // checking.
   std::unordered_map<uint32_t, const Comparator*> indexed_cf_to_ucmps = {
@@ -1018,7 +1018,7 @@ TEST_F(WriteBatchTest, AssignTimestamps) {
     return ucmp->timestamp_size();
   };
   ASSERT_OK(
-      batch.AssignTimestamp(std::string(timestamp_size, '\xef'), checker2));
+      batch.UpdateTimestamp(std::string(timestamp_size, '\xef'), checker2));
   ASSERT_OK(CheckTimestampsInWriteBatch(
       batch, std::string(timestamp_size, '\xef'), cf_to_ucmps));
 }

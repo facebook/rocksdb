@@ -1340,11 +1340,11 @@ Status WriteBatch::PopSavePoint() {
   return Status::OK();
 }
 
-Status WriteBatch::AssignTimestamp(const Slice& ts,
+Status WriteBatch::UpdateTimestamp(const Slice& ts,
                                    std::function<size_t(uint32_t)> checker) {
-  TimestampAssigner<decltype(checker)> ts_assigner(prot_info_.get(),
-                                                   std::move(checker), ts);
-  return Iterate(&ts_assigner);
+  TimestampUpdater<decltype(checker)> ts_updater(prot_info_.get(),
+                                                 std::move(checker), ts);
+  return Iterate(&ts_updater);
 }
 
 class MemTableInserter : public WriteBatch::Handler {
@@ -2311,7 +2311,7 @@ class MemTableInserter : public WriteBatch::Handler {
             assert(ucmp);
             return ucmp->timestamp_size();
           };
-          s = batch_info.batch_->AssignTimestamp(commit_ts, checker);
+          s = batch_info.batch_->UpdateTimestamp(commit_ts, checker);
           if (s.ok()) {
             s = batch_info.batch_->Iterate(this);
             log_number_ref_ = 0;

@@ -349,22 +349,25 @@ class WriteBatch : public WriteBatchBase {
   bool HasRollback() const;
 
   // Experimental.
-  // Assign timestamp to write batch.
+  //
+  // Update timestamps of existing entries in the write batch if
+  // applicable. If a key is intended for a column family that disables
+  // timestamp, then this API won't set the timestamp for this key.
   // This requires that all keys, if enable timestamp, (possibly from multiple
   // column families) in the write batch have timestamps of the same format.
   //
   // checker: callable object to check the timestamp sizes of column families.
-  // If checker() accesses data structures, then the caller must guarantee
-  // thread-safety.
+  // If checker() accesses data structures, then the caller of this API must
+  // guarantee thread-safety.
   // Like other parts of RocksDB, this API is not exception-safe. Therefore,
   // checker() must not throw.
   //
   // in: cf, the column family id.
   // ret: timestamp size of the given column family. Return
   //      std::numeric_limits<size_t>::max() indicating "dont know or column
-  //      family info not found", this will cause AssignTimestamp() to fail.
+  //      family info not found", this will cause UpdateTimestamp() to fail.
   // size_t checker(uint32_t cf);
-  Status AssignTimestamp(const Slice& ts,
+  Status UpdateTimestamp(const Slice& ts,
                          std::function<size_t(uint32_t /*cf*/)> checker);
 
   using WriteBatchBase::GetWriteBatch;

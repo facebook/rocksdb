@@ -266,39 +266,39 @@ class LocalSavePoint {
 };
 
 template <typename Checker>
-class TimestampAssigner : public WriteBatch::Handler {
+class TimestampUpdater : public WriteBatch::Handler {
  public:
-  explicit TimestampAssigner(WriteBatch::ProtectionInfo* prot_info,
-                             Checker&& checker, const Slice& ts)
+  explicit TimestampUpdater(WriteBatch::ProtectionInfo* prot_info,
+                            Checker&& checker, const Slice& ts)
       : prot_info_(prot_info), checker_(std::move(checker)), timestamp_(ts) {
     assert(!timestamp_.empty());
   }
 
-  ~TimestampAssigner() override {}
+  ~TimestampUpdater() override {}
 
   Status PutCF(uint32_t cf, const Slice& key, const Slice&) override {
-    return AssignTimestamp(cf, key);
+    return UpdateTimestamp(cf, key);
   }
 
   Status DeleteCF(uint32_t cf, const Slice& key) override {
-    return AssignTimestamp(cf, key);
+    return UpdateTimestamp(cf, key);
   }
 
   Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
-    return AssignTimestamp(cf, key);
+    return UpdateTimestamp(cf, key);
   }
 
   Status DeleteRangeCF(uint32_t cf, const Slice& begin_key,
                        const Slice&) override {
-    return AssignTimestamp(cf, begin_key);
+    return UpdateTimestamp(cf, begin_key);
   }
 
   Status MergeCF(uint32_t cf, const Slice& key, const Slice&) override {
-    return AssignTimestamp(cf, key);
+    return UpdateTimestamp(cf, key);
   }
 
   Status PutBlobIndexCF(uint32_t cf, const Slice& key, const Slice&) override {
-    return AssignTimestamp(cf, key);
+    return UpdateTimestamp(cf, key);
   }
 
   Status MarkBeginPrepare(bool) override { return Status::OK(); }
@@ -316,13 +316,13 @@ class TimestampAssigner : public WriteBatch::Handler {
   Status MarkNoop(bool /*empty_batch*/) override { return Status::OK(); }
 
  private:
-  Status AssignTimestamp(uint32_t cf, const Slice& key) {
-    Status s = AssignTimestampImpl(cf, key, idx_);
+  Status UpdateTimestamp(uint32_t cf, const Slice& key) {
+    Status s = UpdateTimestampImpl(cf, key, idx_);
     ++idx_;
     return s;
   }
 
-  Status AssignTimestampImpl(uint32_t cf, const Slice& key, size_t /*idx*/) {
+  Status UpdateTimestampImpl(uint32_t cf, const Slice& key, size_t /*idx*/) {
     if (timestamp_.empty()) {
       return Status::InvalidArgument("Timestamp is empty");
     }
@@ -337,7 +337,10 @@ class TimestampAssigner : public WriteBatch::Handler {
       return Status::InvalidArgument("timestamp size mismatch");
     }
     UpdateProtectionInformationIfNeeded(key, timestamp_);
-    UpdateTimestamp(key, timestamp_);
+
+    char* ptr = const_cast<char*>(key.data() + key.size() - cf_ts_sz);
+    assert(ptr);
+    memcpy(ptr, timestamp_.data(), timestamp_.size());
     return Status::OK();
   }
 
@@ -352,18 +355,11 @@ class TimestampAssigner : public WriteBatch::Handler {
     }
   }
 
-  void UpdateTimestamp(const Slice& key, const Slice& ts) {
-    const size_t ts_sz = ts.size();
-    char* ptr = const_cast<char*>(key.data() + key.size() - ts_sz);
-    assert(ptr);
-    memcpy(ptr, ts.data(), ts_sz);
-  }
-
   // No copy or move.
-  TimestampAssigner(const TimestampAssigner&) = delete;
-  TimestampAssigner(TimestampAssigner&&) = delete;
-  TimestampAssigner& operator=(const TimestampAssigner&) = delete;
-  TimestampAssigner& operator=(TimestampAssigner&&) = delete;
+  TimestampUpdater(const TimestampUpdater&) = delete;
+  TimestampUpdater(TimestampUpdater&&) = delete;
+  TimestampUpdater& operator=(const TimestampUpdater&) = delete;
+  TimestampUpdater& operator=(TimestampUpdater&&) = delete;
 
   WriteBatch::ProtectionInfo* const prot_info_ = nullptr;
   const Checker checker_{};
