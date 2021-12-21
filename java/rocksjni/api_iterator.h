@@ -6,6 +6,8 @@
 // This file defines the "bridge" object between Java and C++ for
 // ROCKSDB_NAMESPACE::Iterator.
 
+#pragma once
+
 #include "rocksdb/db.h"
 
 class APIIterator {

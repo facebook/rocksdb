@@ -6,10 +6,15 @@
 // This file implements the "bridge" between Java and C++ for
 // ROCKSDB_NAMESPACE::RocksDB.
 
+#pragma once
+
 #include "rocksdb/db.h"
 
 class APIRocksDB {
+ public:
   std::shared_ptr<ROCKSDB_NAMESPACE::DB> db;
   std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>>
       columnFamilyHandles;
+
+  APIRocksDB(std::shared_ptr<ROCKSDB_NAMESPACE::DB> db) : db(db){};
 };

@@ -15,15 +15,19 @@
 #include "api_columnfamilyhandle.h"
 #include "api_rocksdb.h"
 #include "api_rocksnative.h"
-#include "org_rocksdb_api_RocksDB.h"
+#include "include/org_rocksdb_api_RocksDB.h"
 #include "rocksjni/portal.h"
 
 // TODO AP - put this extern into a header, and/or refactor
-jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
-                          std::function<ROCKSDB_NAMESPACE::Status(
-                              const ROCKSDB_NAMESPACE::Options&,
-                              const std::string&, ROCKSDB_NAMESPACE::DB**)>
-                              open_fn);
+jlongArray rocksdb_open_helper(
+    JNIEnv* env, jlong jopt_handle, jstring jdb_path,
+    jobjectArray jcolumn_names, jlongArray jcolumn_options,
+    std::function<ROCKSDB_NAMESPACE::Status(
+        const ROCKSDB_NAMESPACE::DBOptions&, const std::string&,
+        const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&,
+        std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>*,
+        ROCKSDB_NAMESPACE::DB**)>
+        open_fn);
 /*
  * Class:     org_rocksdb_api_RocksDB
  * Method:    open
@@ -55,7 +59,7 @@ jlongArray Java_org_rocksdb_api_RocksDB_open(JNIEnv* env, jclass,
   std::shared_ptr<ROCKSDB_NAMESPACE::DB> db(
       reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jresults[0]));
   std::unique_ptr<APIRocksDB> apiRocksDB(new APIRocksDB(db));
-  jresults[0] = reinterpret_cast<jlong>(apiRocksDB.get());
+  jresults[0] = reinterpret_cast<jlong>(apiRocksDB.release());
   // TODO AP - there is no error checking, nullptr return, or JVM
   // element release implemented
 
@@ -63,10 +67,11 @@ jlongArray Java_org_rocksdb_api_RocksDB_open(JNIEnv* env, jclass,
     std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh(
         reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jresults[i]));
     apiRocksDB->columnFamilyHandles.push_back(cfh);
-    std::unique_ptr<APIColumnFamilyHandle> apiColumnFamilyHandle(db, cfh);
-    jresults[i] = reinterpret_cast<jlong>(apiColumnFamilyHandle.get());
+    std::unique_ptr<APIColumnFamilyHandle> apiColumnFamilyHandle(
+        new APIColumnFamilyHandle(db, cfh));
+    jresults[i] = reinterpret_cast<jlong>(apiColumnFamilyHandle.release());
   }
 
-  env->ReleaseLongArrayElements(jresults, nullptr);
+  env->ReleaseLongArrayElements(jresult_handles, jresults, 0);
   return jresult_handles;
 }

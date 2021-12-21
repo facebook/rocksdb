@@ -6,9 +6,17 @@
 // This file defines the "bridge" object between Java and C++ for
 // ROCKSDB_NAMESPACE::ColumnFamilyHandle.
 
+#pragma once
+
 #include "rocksdb/db.h"
 
 class APIColumnFamilyHandle {
-  std::shared_ptr<ROCKSDB_NAMESPACE::DB> db;
-  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> columnFamilyHandle;
+ public:
+  std::weak_ptr<ROCKSDB_NAMESPACE::DB> db;
+  std::weak_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh;
+
+  APIColumnFamilyHandle(
+      std::shared_ptr<ROCKSDB_NAMESPACE::DB> db,
+      std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh)
+      : db(db), cfh(cfh){};
 };

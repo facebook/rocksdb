@@ -1,7 +1,5 @@
 package org.rocksdb.api;
 
-import org.rocksdb.RocksDBException;
-
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public abstract class RocksNative implements AutoCloseable {
