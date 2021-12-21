@@ -1142,14 +1142,18 @@ class BlockBasedTableTest
     test_path_ = test::PerThreadDBPath("block_based_table_tracing_test");
     EXPECT_OK(env_->CreateDir(test_path_));
     trace_file_path_ = test_path_ + "/block_cache_trace_file";
-    TraceOptions trace_opt;
+    BlockCacheTraceWriterOptions trace_writer_opt;
+    BlockCacheTraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     EXPECT_OK(NewFileTraceWriter(env_, EnvOptions(), trace_file_path_,
                                  &trace_writer));
+    std::unique_ptr<BlockCacheTraceWriter> block_cache_trace_writer =
+        NewBlockCacheTraceWriter(env_->GetSystemClock().get(), trace_writer_opt,
+                                 std::move(trace_writer));
+    ASSERT_NE(block_cache_trace_writer, nullptr);
     // Always return Status::OK().
     assert(c->block_cache_tracer_
-               .StartTrace(env_->GetSystemClock().get(), trace_opt,
-                           std::move(trace_writer))
+               .StartTrace(trace_opt, std::move(block_cache_trace_writer))
                .ok());
     {
       std::string user_key = "k01";

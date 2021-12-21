@@ -2635,7 +2635,8 @@ class Benchmark {
   Options open_options_;  // keep options around to properly destroy db later
 #ifndef ROCKSDB_LITE
   TraceOptions trace_options_;
-  TraceOptions block_cache_trace_options_;
+  BlockCacheTraceWriterOptions block_cache_trace_writer_options_;
+  BlockCacheTraceOptions block_cache_trace_options_;
 #endif
   int64_t reads_;
   int64_t deletes_;
@@ -3592,20 +3593,24 @@ class Benchmark {
                     "higher than 0.\n");
             ErrorExit();
           }
-          block_cache_trace_options_.max_trace_file_size =
+          block_cache_trace_writer_options_.max_trace_file_size =
               FLAGS_block_cache_trace_max_trace_file_size_in_bytes;
           block_cache_trace_options_.sampling_frequency =
               FLAGS_block_cache_trace_sampling_frequency;
-          std::unique_ptr<TraceWriter> block_cache_trace_writer;
-          Status s = NewFileTraceWriter(FLAGS_env, EnvOptions(),
-                                        FLAGS_block_cache_trace_file,
-                                        &block_cache_trace_writer);
+          std::unique_ptr<TraceWriter> trace_writer;
+          Status s =
+              NewFileTraceWriter(FLAGS_env, EnvOptions(),
+                                 FLAGS_block_cache_trace_file, &trace_writer);
           if (!s.ok()) {
             fprintf(stderr,
                     "Encountered an error when creating trace writer, %s\n",
                     s.ToString().c_str());
             ErrorExit();
           }
+          std::unique_ptr<BlockCacheTraceWriter> block_cache_trace_writer =
+              NewBlockCacheTraceWriter(FLAGS_env->GetSystemClock().get(),
+                                       block_cache_trace_writer_options_,
+                                       std::move(trace_writer));
           s = db_.db->StartBlockCacheTrace(block_cache_trace_options_,
                                            std::move(block_cache_trace_writer));
           if (!s.ok()) {

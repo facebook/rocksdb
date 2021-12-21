@@ -5206,10 +5206,9 @@ Status DBImpl::NewDefaultReplayer(
 }
 
 Status DBImpl::StartBlockCacheTrace(
-    const TraceOptions& trace_options,
-    std::unique_ptr<TraceWriter>&& trace_writer) {
-  return block_cache_tracer_.StartTrace(immutable_db_options_.clock,
-                                        trace_options, std::move(trace_writer));
+    const BlockCacheTraceOptions& trace_options,
+    std::unique_ptr<BlockCacheTraceWriter>&& trace_writer) {
+  return block_cache_tracer_.StartTrace(trace_options, std::move(trace_writer));
 }
 
 Status DBImpl::EndBlockCacheTrace() {

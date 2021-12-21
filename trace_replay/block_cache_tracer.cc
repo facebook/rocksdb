@@ -20,7 +20,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
-bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
+bool ShouldTrace(const Slice& block_key,
+                 const BlockCacheTraceOptions& trace_options) {
   if (trace_options.sampling_frequency == 0 ||
       trace_options.sampling_frequency == 1) {
     return true;
@@ -99,14 +100,14 @@ uint64_t BlockCacheTraceHelper::GetBlockOffsetInFile(
   return offset;
 }
 
-BlockCacheTraceWriter::BlockCacheTraceWriter(
-    SystemClock* clock, const TraceOptions& trace_options,
+BlockCacheTraceWriterImpl::BlockCacheTraceWriterImpl(
+    SystemClock* clock, const BlockCacheTraceWriterOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer)
     : clock_(clock),
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)) {}
 
-Status BlockCacheTraceWriter::WriteBlockAccess(
+Status BlockCacheTraceWriterImpl::WriteBlockAccess(
     const BlockCacheTraceRecord& record, const Slice& block_key,
     const Slice& cf_name, const Slice& referenced_key) {
   uint64_t trace_file_size = trace_writer_->GetFileSize();
@@ -141,7 +142,7 @@ Status BlockCacheTraceWriter::WriteBlockAccess(
   return trace_writer_->Write(encoded_trace);
 }
 
-Status BlockCacheTraceWriter::WriteHeader() {
+Status BlockCacheTraceWriterImpl::WriteHeader() {
   Trace trace;
   trace.ts = clock_->NowMicros();
   trace.type = TraceType::kTraceBegin;
@@ -445,16 +446,15 @@ BlockCacheTracer::BlockCacheTracer() { writer_.store(nullptr); }
 BlockCacheTracer::~BlockCacheTracer() { EndTrace(); }
 
 Status BlockCacheTracer::StartTrace(
-    SystemClock* clock, const TraceOptions& trace_options,
-    std::unique_ptr<TraceWriter>&& trace_writer) {
+    const BlockCacheTraceOptions& trace_options,
+    std::unique_ptr<BlockCacheTraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
   if (writer_.load()) {
     return Status::Busy();
   }
   get_id_counter_.store(1);
   trace_options_ = trace_options;
-  writer_.store(
-      new BlockCacheTraceWriter(clock, trace_options, std::move(trace_writer)));
+  writer_.store(trace_writer.release());
   return writer_.load()->WriteHeader();
 }
 
@@ -492,6 +492,13 @@ uint64_t BlockCacheTracer::NextGetId() {
     return get_id_counter_.fetch_add(1);
   }
   return prev_value;
+}
+
+std::unique_ptr<BlockCacheTraceWriter> NewBlockCacheTraceWriter(
+    SystemClock* clock, const BlockCacheTraceWriterOptions& trace_options,
+    std::unique_ptr<TraceWriter>&& trace_writer) {
+  return std::unique_ptr<BlockCacheTraceWriter>(new BlockCacheTraceWriterImpl(
+      clock, trace_options, std::move(trace_writer)));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
