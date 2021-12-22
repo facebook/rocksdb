@@ -26,7 +26,7 @@ bool Regex::Matches(const std::string &str) const {
     return std::regex_match(str, *impl_);
   } else {
     // Should not call Matches on unset Regex
-    // assert(false);
+    assert(false);
     return false;
   }
 }
