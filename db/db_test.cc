@@ -2576,9 +2576,7 @@ static const int kNumKeys = 1000;
 
 struct MTState {
   DBTest* test;
-  std::atomic<bool> stop;
   std::atomic<int> counter[kNumThreads];
-  std::atomic<bool> thread_done[kNumThreads];
 };
 
 struct MTThread {
@@ -2587,15 +2585,23 @@ struct MTThread {
   bool multiget_batched;
 };
 
+// Based on Peter Dillinger's suggestion, the threads have been changed from
+// detached threads to joinable threads
 static void MTThreadBody(void* arg) {
   MTThread* t = reinterpret_cast<MTThread*>(arg);
   int id = t->id;
   DB* db = t->state->test->db_;
   int counter = 0;
+  auto start = std::chrono::high_resolution_clock::now();
+  auto elapsed = std::chrono::high_resolution_clock::now() - start;
+  long long runForMicroseconds(kTestSeconds * 1000000);
+
   fprintf(stderr, "... starting thread %d\n", id);
   Random rnd(1000 + id);
   char valbuf[1500];
-  while (t->state->stop.load(std::memory_order_acquire) == false) {
+  long long microseconds =
+      std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+  while (microseconds < runForMicroseconds) {
     t->state->counter[id].store(counter, std::memory_order_release);
 
     int key = rnd.Uniform(kNumKeys);
@@ -2691,8 +2697,10 @@ static void MTThreadBody(void* arg) {
       }
     }
     counter++;
+    elapsed = std::chrono::high_resolution_clock::now() - start;
+    microseconds =
+        std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
   }
-  t->state->thread_done[id].store(true, std::memory_order_release);
   fprintf(stderr, "... stopping thread %d after %d ops\n", id, int(counter));
 }
 
@@ -2731,10 +2739,8 @@ TEST_P(MultiThreadedDBTest, MultiThreaded) {
   // Initialize state
   MTState mt;
   mt.test = this;
-  mt.stop.store(false, std::memory_order_release);
   for (int id = 0; id < kNumThreads; id++) {
     mt.counter[id].store(0, std::memory_order_release);
-    mt.thread_done[id].store(false, std::memory_order_release);
   }
 
   // Start threads
@@ -2743,22 +2749,12 @@ TEST_P(MultiThreadedDBTest, MultiThreaded) {
     thread[id].state = &mt;
     thread[id].id = id;
     thread[id].multiget_batched = multiget_batched_;
-    // Cannot use env_->StartThread because the thread needs to be detached.
-    // There is no function in env_ to detach the thread.
-    // std::thread can be used in multiple OSes
-    std::thread(MTThreadBody, &thread[id]).detach();
+    env_->StartThread(MTThreadBody, &thread[id]);
   }
 
-  // Let them run for a while
-  env_->SleepForMicroseconds(kTestSeconds * 1000000);
-
-  // Stop the threads and wait for them to finish
-  mt.stop.store(true, std::memory_order_release);
-  for (int id = 0; id < kNumThreads; id++) {
-    while (mt.thread_done[id].load(std::memory_order_acquire) == false) {
-      env_->SleepForMicroseconds(100000);
-    }
-  }
+  // Based on Peter Dillinger's suggestion, the threads have been changed from
+  // detached threads to joinable threads
+  env_->WaitForJoin();
 }
 
 INSTANTIATE_TEST_CASE_P(
@@ -4914,8 +4910,10 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
+
   // The default compaction method snappy does not work on Alpine 32 platform
-  // This test case has been disabled on 32 bit platform
+  // That means there is no compression
+  // The following test case has been disabled on 32 bit platform
   if (sizeof(void*) >= 8) {
     ASSERT_LT(SizeAtLevel(0) + SizeAtLevel(3) + SizeAtLevel(4),
               120U * 4000U + 50U * 24);
@@ -6843,15 +6841,9 @@ TEST_F(DBTest, LargeBlockSizeTest) {
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_OK(Put(0, "foo", "bar"));
   BlockBasedTableOptions table_options;
-  table_options.block_size = (size_t)(8LL * 1024 * 1024 * 1024LL);
+  table_options.block_size = 8LL * 1024 * 1024 * 1024LL;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  // size_t in 32 bit OS is defined as unsigned integer
-  // It cannot make large block size in 32 bit OS
-  if (sizeof(table_options.block_size) >= 8) {
-    ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
-  } else {
-    ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
-  }
+  ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
 }
 
 #ifndef ROCKSDB_LITE
