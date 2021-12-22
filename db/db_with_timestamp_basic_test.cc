@@ -214,11 +214,7 @@ TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
 
   WriteBatch wb;
   ASSERT_OK(wb.Put("a", "value"));
-  {
-    std::string key("a");
-    std::string value("value");
-    ASSERT_OK(wb.Put(handle, key, value));
-  }
+  ASSERT_OK(wb.Put(handle, "a", "value"));
   {
     std::string ts = Timestamp(1, 0);
     const auto checker = [kTimestampSize, handle](uint32_t cf_id) {
@@ -236,18 +232,27 @@ TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
     ASSERT_OK(db_->Write(WriteOptions(), &wb));
   }
 
-  const auto verify_db = [this](ColumnFamilyHandle* h) {
-    ASSERT_EQ("value", Get("a"));
-    std::string ts = Timestamp(1, 0);
+  const auto verify_db = [this](ColumnFamilyHandle* h, std::string key,
+                                std::string ts, std::string expected_value) {
+    ASSERT_EQ(expected_value, Get(key));
     Slice read_ts_slice(ts);
     ReadOptions read_opts;
     read_opts.timestamp = &read_ts_slice;
     std::string value;
-    ASSERT_OK(db_->Get(read_opts, h, "a", &value));
-    ASSERT_EQ("value", value);
+    ASSERT_OK(db_->Get(read_opts, h, key, &value));
+    ASSERT_EQ(expected_value, value);
   };
 
-  verify_db(handle);
+  verify_db(handle, "a", Timestamp(1, 0), "value");
+
+  WriteBatch wb1;
+  ASSERT_OK(wb1.Put("b", "value1"));
+  ASSERT_OK(wb1.Put(handle, "b", "value1"));
+  {
+    std::string ts = Timestamp(2, 0);
+    ASSERT_OK(db_->Write(WriteOptions(), &wb1, ts));
+  }
+  verify_db(handle, "b", Timestamp(2, 0), "value1");
 
   delete handle;
   Close();
@@ -259,7 +264,7 @@ TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
   s = DB::Open(options, dbname_, cf_descs, &handles_, &db_);
   ASSERT_OK(s);
 
-  verify_db(handles_[1]);
+  verify_db(handles_[1], "a", Timestamp(1, 0), "value");
 
   Close();
 }
