@@ -5121,7 +5121,7 @@ class Benchmark {
       }
       if (user_timestamp_size_ > 0) {
         Slice user_ts = mock_app_clock_->Allocate(ts_guard.get());
-        s = batch.UpdateTimestamp(
+        s = batch.UpdateTimestamps(
             user_ts, [this](uint32_t) { return user_timestamp_size_; });
         if (!s.ok()) {
           fprintf(stderr, "assign timestamp to write batch: %s\n",
@@ -6533,7 +6533,7 @@ class Benchmark {
       Status s;
       if (user_timestamp_size_ > 0) {
         ts = mock_app_clock_->Allocate(ts_guard.get());
-        s = batch.UpdateTimestamp(
+        s = batch.UpdateTimestamps(
             ts, [this](uint32_t) { return user_timestamp_size_; });
         if (!s.ok()) {
           fprintf(stderr, "assign timestamp: %s\n", s.ToString().c_str());
@@ -6721,7 +6721,7 @@ class Benchmark {
     if (user_timestamp_size_ > 0) {
       ts_guard.reset(new char[user_timestamp_size_]);
       Slice ts = mock_app_clock_->Allocate(ts_guard.get());
-      s = batch.UpdateTimestamp(
+      s = batch.UpdateTimestamps(
           ts, [this](uint32_t) { return user_timestamp_size_; });
       if (!s.ok()) {
         fprintf(stderr, "assign timestamp to batch: %s\n",
@@ -6753,7 +6753,7 @@ class Benchmark {
     if (user_timestamp_size_ > 0) {
       ts_guard.reset(new char[user_timestamp_size_]);
       Slice ts = mock_app_clock_->Allocate(ts_guard.get());
-      s = batch.UpdateTimestamp(
+      s = batch.UpdateTimestamps(
           ts, [this](uint32_t) { return user_timestamp_size_; });
       if (!s.ok()) {
         fprintf(stderr, "assign timestamp to batch: %s\n",

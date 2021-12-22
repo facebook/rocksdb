@@ -984,7 +984,7 @@ TEST_F(WriteBatchTest, UpdateTimestamps) {
     }
   };
   ASSERT_OK(
-      batch.UpdateTimestamp(std::string(timestamp_size, '\xfe'), checker1));
+      batch.UpdateTimestamps(std::string(timestamp_size, '\xfe'), checker1));
   ASSERT_OK(CheckTimestampsInWriteBatch(
       batch, std::string(timestamp_size, '\xfe'), cf_to_ucmps));
 
@@ -1018,7 +1018,7 @@ TEST_F(WriteBatchTest, UpdateTimestamps) {
     return ucmp->timestamp_size();
   };
   ASSERT_OK(
-      batch.UpdateTimestamp(std::string(timestamp_size, '\xef'), checker2));
+      batch.UpdateTimestamps(std::string(timestamp_size, '\xef'), checker2));
   ASSERT_OK(CheckTimestampsInWriteBatch(
       batch, std::string(timestamp_size, '\xef'), cf_to_ucmps));
 }

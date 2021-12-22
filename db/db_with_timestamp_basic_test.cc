@@ -232,7 +232,7 @@ TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
         return std::numeric_limits<size_t>::max();
       }
     };
-    ASSERT_OK(wb.UpdateTimestamp(ts, checker));
+    ASSERT_OK(wb.UpdateTimestamps(ts, checker));
     ASSERT_OK(db_->Write(WriteOptions(), &wb));
   }
 
@@ -941,7 +941,7 @@ TEST_F(DBBasicTestWithTimestamp, ChangeIterationDirection) {
       ASSERT_OK(wb.Put(key, value));
     }
 
-    ASSERT_OK(wb.UpdateTimestamp(
+    ASSERT_OK(wb.UpdateTimestamps(
         ts, [kTimestampSize](uint32_t) { return kTimestampSize; }));
     ASSERT_OK(db_->Write(WriteOptions(), &wb));
   }
@@ -1151,7 +1151,7 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
     const std::string dummy_ts(kTimestampSize, '\0');
     { ASSERT_OK(batch.Put("a", "new_value")); }
     { ASSERT_OK(batch.Put("b", "new_value")); }
-    s = batch.UpdateTimestamp(
+    s = batch.UpdateTimestamps(
         ts_str, [kTimestampSize](uint32_t) { return kTimestampSize; });
     ASSERT_OK(s);
     s = db_->Write(write_opts, &batch);
@@ -2662,8 +2662,8 @@ TEST_F(DBBasicTestWithTimestamp, BatchWriteAndMultiGet) {
             "value_" + std::to_string(j) + "_" + std::to_string(i);
         ASSERT_OK(batch.Put(handles_[cf], key, value));
       }
-      ASSERT_OK(
-          batch.UpdateTimestamp(write_ts, [ts_sz](uint32_t) { return ts_sz; }));
+      ASSERT_OK(batch.UpdateTimestamps(write_ts,
+                                       [ts_sz](uint32_t) { return ts_sz; }));
       ASSERT_OK(db_->Write(wopts, &batch));
 
       verify_records_func(i, handles_[cf]);

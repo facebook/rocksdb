@@ -376,10 +376,10 @@ class WriteBatch : public WriteBatchBase {
   // in: cf, the column family id.
   // ret: timestamp size of the given column family. Return
   //      std::numeric_limits<size_t>::max() indicating "dont know or column
-  //      family info not found", this will cause UpdateTimestamp() to fail.
+  //      family info not found", this will cause UpdateTimestamps() to fail.
   // size_t checker(uint32_t cf);
-  Status UpdateTimestamp(const Slice& ts,
-                         std::function<size_t(uint32_t /*cf*/)> checker);
+  Status UpdateTimestamps(const Slice& ts,
+                          std::function<size_t(uint32_t /*cf*/)> checker);
 
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }
