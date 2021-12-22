@@ -78,6 +78,11 @@ class DBWithTTLImpl : public DBWithTTL {
 
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
+  Status Write(const WriteOptions& /*opts*/, WriteBatch* /*updates*/,
+               const Slice& /*ts*/) override {
+    return Status::NotSupported();
+  }
+
   using StackableDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& opts,
                                 ColumnFamilyHandle* column_family) override;

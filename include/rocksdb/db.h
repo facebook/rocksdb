@@ -457,6 +457,9 @@ class DB {
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
 
+  virtual Status Write(const WriteOptions& options, WriteBatch* updates,
+                       const Slice& ts) = 0;
+
   // If the database contains an entry for "key" store the
   // corresponding value in *value and return OK.
   //

@@ -221,6 +221,11 @@ class WriteBatchInternal {
   // state meant to be used only during recovery.
   static void SetAsLatestPersistentState(WriteBatch* b);
   static bool IsLatestPersistentState(const WriteBatch* b);
+
+  // Called with DB mutex held or in a write thread.
+  template <typename Checker>
+  static Status UpdateTimestampsForWriter(WriteThread::Writer& writer,
+                                          const Slice& ts, Checker checker);
 };
 
 // LocalSavePoint is similar to a scope guard
@@ -366,5 +371,15 @@ class TimestampUpdater : public WriteBatch::Handler {
   const Slice timestamp_;
   size_t idx_ = 0;
 };
+
+template <typename Checker>
+Status WriteBatchInternal::UpdateTimestampsForWriter(
+    WriteThread::Writer& writer, const Slice& ts, Checker checker) {
+  WriteBatch* wb = writer.batch;
+  assert(wb);
+  TimestampUpdater<decltype(checker)> timestamp_updater(wb->prot_info_.get(),
+                                                        std::move(checker), ts);
+  return wb->Iterate(&timestamp_updater);
+}
 
 }  // namespace ROCKSDB_NAMESPACE

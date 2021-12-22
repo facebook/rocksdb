@@ -139,6 +139,10 @@ class DBImplSecondary : public DBImpl {
                WriteBatch* /*updates*/) override {
     return Status::NotSupported("Not supported operation in secondary mode.");
   }
+  Status Write(const WriteOptions& /*options*/, WriteBatch* /*updates*/,
+               const Slice& /*ts*/) override {
+    return Status::NotSupported("Not supported operation in secondary mode.");
+  }
 
   using DBImpl::CompactRange;
   Status CompactRange(const CompactRangeOptions& /*options*/,

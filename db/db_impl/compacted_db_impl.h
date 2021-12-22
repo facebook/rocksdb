@@ -57,6 +57,10 @@ class CompactedDBImpl : public DBImpl {
                        WriteBatch* /*updates*/) override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
+  Status Write(const WriteOptions& /*options*/, WriteBatch* /*updates*/,
+               const Slice& /*ts*/) override {
+    return Status::NotSupported("Not supported in compacted db mode.");
+  }
   using DBImpl::CompactRange;
   virtual Status CompactRange(const CompactRangeOptions& /*options*/,
                               ColumnFamilyHandle* /*column_family*/,

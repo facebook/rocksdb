@@ -198,6 +198,11 @@ class StackableDB : public DB {
     return db_->Write(opts, updates);
   }
 
+  Status Write(const WriteOptions& opts, WriteBatch* updates,
+               const Slice& ts) override {
+    return db_->Write(opts, updates, ts);
+  }
+
   using DB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& opts,
                                 ColumnFamilyHandle* column_family) override {

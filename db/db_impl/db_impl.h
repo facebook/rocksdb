@@ -175,6 +175,9 @@ class DBImpl : public DB {
   virtual Status Write(const WriteOptions& options,
                        WriteBatch* updates) override;
 
+  Status Write(const WriteOptions& options, WriteBatch* updates,
+               const Slice& ts) override;
+
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
@@ -1299,13 +1302,15 @@ class DBImpl : public DB {
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                    bool disable_memtable = false, uint64_t* seq_used = nullptr,
                    size_t batch_cnt = 0,
-                   PreReleaseCallback* pre_release_callback = nullptr);
+                   PreReleaseCallback* pre_release_callback = nullptr,
+                   const Slice* const ts = nullptr);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
                             uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                             bool disable_memtable = false,
-                            uint64_t* seq_used = nullptr);
+                            uint64_t* seq_used = nullptr,
+                            const Slice* const ts = nullptr);
 
   // Write only to memtables without joining any write queue
   Status UnorderedWriteMemtable(const WriteOptions& write_options,
@@ -1332,7 +1337,8 @@ class DBImpl : public DB {
       WriteBatch* updates, WriteCallback* callback, uint64_t* log_used,
       const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
       PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
-      const PublishLastSeq publish_last_seq, const bool disable_memtable);
+      const PublishLastSeq publish_last_seq, const bool disable_memtable,
+      const Slice* const ts = nullptr);
 
   // write cached_recoverable_state_ to memtable if it is not empty
   // The writer must be the leader in write_thread_ and holding mutex_
@@ -1535,6 +1541,29 @@ class DBImpl : public DB {
     // background compaction takes ownership of `prepicked_compaction`.
     PrepickedCompaction* prepicked_compaction;
     Env::Priority compaction_pri_;
+  };
+
+  // Can only be used with DB mutex held or from a write thread.
+  class DbTimestampSizeChecker {
+   public:
+    explicit DbTimestampSizeChecker(ColumnFamilySet* cfds)
+        : column_families_(cfds) {
+      assert(column_families_);
+    }
+    inline size_t operator()(uint32_t cf) const {
+      assert(column_families_);
+      ColumnFamilyData* cfd = column_families_->GetColumnFamily(cf);
+      if (!cfd) {
+        return std::numeric_limits<size_t>::max();
+      }
+      assert(cfd->user_comparator());
+      return cfd->user_comparator()->timestamp_size();
+    }
+
+   private:
+    friend class DBImpl;
+
+    const ColumnFamilySet* const column_families_;
   };
 
   // Initialize the built-in column family for persistent stats. Depending on

@@ -265,6 +265,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
+  assert(versions_.get());
+  assert(versions_->GetColumnFamilySet());
+  timestamp_checker_.reset(
+      new DbTimestampSizeChecker(versions_->GetColumnFamilySet()));
+
   DumpRocksDBBuildVersion(immutable_db_options_.info_log.get());
   DumpDBFileSummary(immutable_db_options_, dbname_, db_session_id_);
   immutable_db_options_.Dump(immutable_db_options_.info_log.get());

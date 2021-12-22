@@ -3033,6 +3033,11 @@ class ModelDB : public DB {
     return batch->Iterate(&handler);
   }
 
+  Status Write(const WriteOptions& /*options*/, WriteBatch* /*batch*/,
+               const Slice& /*ts*/) override {
+    return Status::NotSupported();
+  }
+
   using DB::GetProperty;
   bool GetProperty(ColumnFamilyHandle* /*column_family*/,
                    const Slice& /*property*/, std::string* /*value*/) override {
