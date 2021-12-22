@@ -222,6 +222,9 @@ class WriteBatchInternal {
   static void SetAsLatestPersistentState(WriteBatch* b);
   static bool IsLatestPersistentState(const WriteBatch* b);
 
+  static std::tuple<Status, uint32_t, size_t> GetColumnFamilyIdAndTimestampSize(
+      WriteBatch* b, ColumnFamilyHandle* column_family);
+
   // Called with DB mutex held or in a write thread.
   template <typename Checker>
   static Status UpdateTimestampsForWriter(WriteThread::Writer& writer,

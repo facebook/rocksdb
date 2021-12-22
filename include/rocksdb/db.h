@@ -437,6 +437,13 @@ class DB {
   virtual Status DeleteRange(const WriteOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key);
+  virtual Status DeleteRange(const WriteOptions& /*options*/,
+                             ColumnFamilyHandle* /*column_family*/,
+                             const Slice& /*begin_key*/,
+                             const Slice& /*end_key*/, const Slice& /*ts*/) {
+    return Status::NotSupported(
+        "DeleteRange does not support user-defined timestamp yet");
+  }
 
   // Merge the database entry for "key" with "value".  Returns OK on success,
   // and a non-OK status on error. The semantics of this operation is
@@ -448,6 +455,13 @@ class DB {
   virtual Status Merge(const WriteOptions& options, const Slice& key,
                        const Slice& value) {
     return Merge(options, DefaultColumnFamily(), key, value);
+  }
+  virtual Status Merge(const WriteOptions& /*options*/,
+                       ColumnFamilyHandle* /*column_family*/,
+                       const Slice& /*key*/, const Slice& /*ts*/,
+                       const Slice& /*value*/) {
+    return Status::NotSupported(
+        "Merge does not support user-defined timestamp yet");
   }
 
   // Apply the specified updates to the database.

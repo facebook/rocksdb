@@ -706,6 +706,26 @@ size_t WriteBatchInternal::GetFirstOffset(WriteBatch* /*b*/) {
   return WriteBatchInternal::kHeader;
 }
 
+std::tuple<Status, uint32_t, size_t>
+WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(
+    WriteBatch* b, ColumnFamilyHandle* column_family) {
+  uint32_t cf_id = GetColumnFamilyID(column_family);
+  size_t ts_sz = 0;
+  Status s;
+  if (column_family) {
+    const Comparator* const ucmp = column_family->GetComparator();
+    if (ucmp) {
+      ts_sz = ucmp->timestamp_size();
+      if (0 == cf_id && b->default_cf_ts_sz_ != ts_sz) {
+        s = Status::InvalidArgument("Default cf timestamp size mismatch");
+      }
+    }
+  } else if (b->default_cf_ts_sz_ > 0) {
+    ts_sz = b->default_cf_ts_sz_;
+  }
+  return std::make_tuple(s, cf_id, ts_sz);
+}
+
 Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
                                const Slice& key, const Slice& value) {
   if (key.size() > size_t{port::kMaxUint32}) {
@@ -745,21 +765,21 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
 Status WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& value) {
   size_t ts_sz = 0;
-  uint32_t cf_id = GetColumnFamilyID(column_family);
-  if (column_family) {
-    const Comparator* const ucmp = column_family->GetComparator();
-    if (ucmp) {
-      ts_sz = ucmp->timestamp_size();
-      if (0 == cf_id && default_cf_ts_sz_ != ts_sz) {
-        return Status::InvalidArgument("Default cf timestamp size mismatch");
-      }
-    }
-  } else if (default_cf_ts_sz_ > 0) {
-    ts_sz = default_cf_ts_sz_;
+  uint32_t cf_id = 0;
+  Status s;
+
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(this,
+                                                            column_family);
+
+  if (!s.ok()) {
+    return s;
   }
+
   if (0 == ts_sz) {
     return WriteBatchInternal::Put(this, cf_id, key, value);
   }
+
   std::string dummy_ts(ts_sz, '\0');
   std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
   return WriteBatchInternal::Put(this, cf_id, SliceParts(key_with_ts.data(), 2),
@@ -837,8 +857,24 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
 
 Status WriteBatch::Put(ColumnFamilyHandle* column_family, const SliceParts& key,
                        const SliceParts& value) {
-  return WriteBatchInternal::Put(this, GetColumnFamilyID(column_family), key,
-                                 value);
+  size_t ts_sz = 0;
+  uint32_t cf_id = 0;
+  Status s;
+
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(this,
+                                                            column_family);
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (ts_sz == 0) {
+    return WriteBatchInternal::Put(this, cf_id, key, value);
+  }
+
+  return Status::InvalidArgument(
+      "Cannot call this method on column family enabling timestamp");
 }
 
 Status WriteBatchInternal::InsertNoop(WriteBatch* b) {
@@ -936,21 +972,21 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
 
 Status WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key) {
   size_t ts_sz = 0;
-  uint32_t cf_id = GetColumnFamilyID(column_family);
-  if (column_family) {
-    const Comparator* const ucmp = column_family->GetComparator();
-    if (ucmp) {
-      ts_sz = ucmp->timestamp_size();
-      if (0 == cf_id && default_cf_ts_sz_ != ts_sz) {
-        return Status::InvalidArgument("Default cf timestamp size mismatch");
-      }
-    }
-  } else if (default_cf_ts_sz_ > 0) {
-    ts_sz = default_cf_ts_sz_;
+  uint32_t cf_id = 0;
+  Status s;
+
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(this,
+                                                            column_family);
+
+  if (!s.ok()) {
+    return s;
   }
+
   if (0 == ts_sz) {
     return WriteBatchInternal::Delete(this, cf_id, key);
   }
+
   std::string dummy_ts(ts_sz, '\0');
   std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
   return WriteBatchInternal::Delete(this, cf_id,
@@ -1005,8 +1041,24 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
 
 Status WriteBatch::Delete(ColumnFamilyHandle* column_family,
                           const SliceParts& key) {
-  return WriteBatchInternal::Delete(this, GetColumnFamilyID(column_family),
-                                    key);
+  size_t ts_sz = 0;
+  uint32_t cf_id = 0;
+  Status s;
+
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(this,
+                                                            column_family);
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (0 == ts_sz) {
+    return WriteBatchInternal::Delete(this, cf_id, key);
+  }
+
+  return Status::InvalidArgument(
+      "Cannot call this method on column family enabling timestamp");
 }
 
 Status WriteBatchInternal::SingleDelete(WriteBatch* b,
@@ -1038,21 +1090,21 @@ Status WriteBatchInternal::SingleDelete(WriteBatch* b,
 Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
                                 const Slice& key) {
   size_t ts_sz = 0;
-  uint32_t cf_id = GetColumnFamilyID(column_family);
-  if (column_family) {
-    const Comparator* const ucmp = column_family->GetComparator();
-    if (ucmp) {
-      ts_sz = ucmp->timestamp_size();
-      if (0 == cf_id && default_cf_ts_sz_ != ts_sz) {
-        return Status::InvalidArgument("Default cf timestamp size mismatch");
-      }
-    }
-  } else if (default_cf_ts_sz_ > 0) {
-    ts_sz = default_cf_ts_sz_;
+  uint32_t cf_id = 0;
+  Status s;
+
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(this,
+                                                            column_family);
+
+  if (!s.ok()) {
+    return s;
   }
+
   if (0 == ts_sz) {
     return WriteBatchInternal::SingleDelete(this, cf_id, key);
   }
+
   std::string dummy_ts(ts_sz, '\0');
   std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
   return WriteBatchInternal::SingleDelete(this, cf_id,
@@ -1109,8 +1161,24 @@ Status WriteBatchInternal::SingleDelete(WriteBatch* b,
 
 Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
                                 const SliceParts& key) {
-  return WriteBatchInternal::SingleDelete(
-      this, GetColumnFamilyID(column_family), key);
+  size_t ts_sz = 0;
+  uint32_t cf_id = 0;
+  Status s;
+
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(this,
+                                                            column_family);
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (0 == ts_sz) {
+    return WriteBatchInternal::SingleDelete(this, cf_id, key);
+  }
+
+  return Status::InvalidArgument(
+      "Cannot call this method on column family enabling timestamp");
 }
 
 Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
@@ -1143,8 +1211,24 @@ Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
 
 Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
                                const Slice& begin_key, const Slice& end_key) {
-  return WriteBatchInternal::DeleteRange(this, GetColumnFamilyID(column_family),
-                                         begin_key, end_key);
+  size_t ts_sz = 0;
+  uint32_t cf_id = 0;
+  Status s;
+
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(this,
+                                                            column_family);
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (0 == ts_sz) {
+    return WriteBatchInternal::DeleteRange(this, cf_id, begin_key, end_key);
+  }
+
+  return Status::InvalidArgument(
+      "Cannot call this method on column family enabling timestamp");
 }
 
 Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
@@ -1178,8 +1262,24 @@ Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
 Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
                                const SliceParts& begin_key,
                                const SliceParts& end_key) {
-  return WriteBatchInternal::DeleteRange(this, GetColumnFamilyID(column_family),
-                                         begin_key, end_key);
+  size_t ts_sz = 0;
+  uint32_t cf_id = 0;
+  Status s;
+
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(this,
+                                                            column_family);
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (0 == ts_sz) {
+    return WriteBatchInternal::DeleteRange(this, cf_id, begin_key, end_key);
+  }
+
+  return Status::InvalidArgument(
+      "Cannot call this method on column family enabling timestamp");
 }
 
 Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
@@ -1216,8 +1316,24 @@ Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
 
 Status WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
                          const Slice& value) {
-  return WriteBatchInternal::Merge(this, GetColumnFamilyID(column_family), key,
-                                   value);
+  size_t ts_sz = 0;
+  uint32_t cf_id = 0;
+  Status s;
+
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(this,
+                                                            column_family);
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (0 == ts_sz) {
+    return WriteBatchInternal::Merge(this, cf_id, key, value);
+  }
+
+  return Status::InvalidArgument(
+      "Cannot call this method on column family enabling timestamp");
 }
 
 Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
@@ -1253,8 +1369,24 @@ Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
 
 Status WriteBatch::Merge(ColumnFamilyHandle* column_family,
                          const SliceParts& key, const SliceParts& value) {
-  return WriteBatchInternal::Merge(this, GetColumnFamilyID(column_family), key,
-                                   value);
+  size_t ts_sz = 0;
+  uint32_t cf_id = 0;
+  Status s;
+
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(this,
+                                                            column_family);
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (0 == ts_sz) {
+    return WriteBatchInternal::Merge(this, cf_id, key, value);
+  }
+
+  return Status::InvalidArgument(
+      "Cannot call this method on column family enabling timestamp");
 }
 
 Status WriteBatchInternal::PutBlobIndex(WriteBatch* b,

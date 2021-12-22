@@ -118,6 +118,11 @@ class WriteBatchWithIndex : public WriteBatchBase {
                const Slice& value) override;
 
   Status Merge(const Slice& key, const Slice& value) override;
+  Status Merge(ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
+               const Slice& /*ts*/, const Slice& /*value*/) override {
+    return Status::NotSupported(
+        "Merge does not support user-defined timestamp");
+  }
 
   using WriteBatchBase::Delete;
   Status Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
@@ -141,6 +146,12 @@ class WriteBatchWithIndex : public WriteBatchBase {
   }
   Status DeleteRange(const Slice& /* begin_key */,
                      const Slice& /* end_key */) override {
+    return Status::NotSupported(
+        "DeleteRange unsupported in WriteBatchWithIndex");
+  }
+  Status DeleteRange(ColumnFamilyHandle* /*column_family*/,
+                     const Slice& /*begin_key*/, const Slice& /*end_key*/,
+                     const Slice& /*ts*/) override {
     return Status::NotSupported(
         "DeleteRange unsupported in WriteBatchWithIndex");
   }
