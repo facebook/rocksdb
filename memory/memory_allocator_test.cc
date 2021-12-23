@@ -25,11 +25,7 @@ class MemoryAllocatorTest
     std::tie(id_, supported_) = GetParam();
     Status s =
         MemoryAllocator::CreateFromString(ConfigOptions(), id_, &allocator_);
-    if (supported_) {
-      EXPECT_OK(s);
-    } else if (!s.ok()) {
-      EXPECT_TRUE(s.IsNotSupported());
-    }
+    EXPECT_EQ(supported_, s.ok());
   }
   bool IsSupported() { return supported_; }
 
@@ -135,7 +131,7 @@ TEST_F(CreateMemoryAllocatorTest, JemallocOptionsTest) {
   std::string id = std::string("id=") + JemallocNodumpAllocator::kClassName();
   Status s = MemoryAllocator::CreateFromString(config_options_, id, &allocator);
   if (!JemallocNodumpAllocator::IsSupported()) {
-    ASSERT_TRUE(s.IsNotSupported());
+    ASSERT_NOK(s);
     ROCKSDB_GTEST_SKIP("JEMALLOC not supported");
     return;
   }
@@ -187,7 +183,7 @@ TEST_F(CreateMemoryAllocatorTest, NewJemallocNodumpAllocator) {
   Status s = NewJemallocNodumpAllocator(jopts, &allocator);
   std::string msg;
   if (!JemallocNodumpAllocator::IsSupported(&msg)) {
-    ASSERT_TRUE(s.IsNotSupported());
+    ASSERT_NOK(s);
     ROCKSDB_GTEST_SKIP("JEMALLOC not supported");
     return;
   }

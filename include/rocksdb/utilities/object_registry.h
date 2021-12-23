@@ -138,6 +138,34 @@ class ObjectLibrary {
 // name/pattern at run-time where the specific implementation of the object may
 // not be known in advance.
 class ObjectRegistry {
+ private:
+  // Finds the factory for target and instantiates a new T.
+  // Returns NotSupported if no factory is found
+  // Returns InvalidArgument if a factory is found but the factory failed.
+  template <typename T>
+  Status NewObject(const std::string& target, T** object,
+                   std::unique_ptr<T>* guard) {
+    std::string errmsg;
+
+    const auto* basic = FindEntry(T::Type(), target);
+    if (basic != nullptr) {
+      const auto* factory =
+          static_cast<const ObjectLibrary::FactoryEntry<T>*>(basic);
+      *object = factory->NewFactoryObject(target, guard, &errmsg);
+      if (*object != nullptr) {
+        return Status::OK();
+      } else if (errmsg.empty()) {
+        return Status::InvalidArgument(
+            std::string("Could not load ") + T::Type(), target);
+      } else {
+        return Status::InvalidArgument(errmsg, target);
+      }
+    } else {
+      return Status::NotSupported(std::string("Could not load ") + T::Type(),
+                                  target);
+    }
+  }
+
  public:
   static std::shared_ptr<ObjectRegistry> NewInstance();
   static std::shared_ptr<ObjectRegistry> NewInstance(
@@ -164,16 +192,15 @@ class ObjectRegistry {
   }
 
   // Creates a new T using the factory function that was registered with a
-  // pattern that matches the provided "target" string according to
-  // std::regex_match.
-  //
-  // WARNING: some regexes are problematic for std::regex; see
-  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582 for example
+  // pattern that matches the provided "target" string
   //
   // If no registered functions match, returns nullptr. If multiple functions
   // match, the factory function used is unspecified.
   //
-  // Populates res_guard with result pointer if caller is granted ownership.
+  // Populates guard with result pointer if caller is granted ownership.
+  //
+  // DEPRECATED: This method will be removed in a future version.
+  // The NewStatic/Unique/SharedObject methods should be used instead.
   template <typename T>
   T* NewObject(const std::string& target, std::unique_ptr<T>* guard,
                std::string* errmsg) {
@@ -197,11 +224,13 @@ class ObjectRegistry {
   template <typename T>
   Status NewUniqueObject(const std::string& target,
                          std::unique_ptr<T>* result) {
-    std::string errmsg;
-    T* ptr = NewObject(target, result, &errmsg);
-    if (ptr == nullptr) {
-      return Status::NotSupported(errmsg, target);
-    } else if (*result) {
+    T* ptr = nullptr;
+    std::unique_ptr<T> guard;
+    Status s = NewObject(target, &ptr, &guard);
+    if (!s.ok()) {
+      return s;
+    } else if (guard) {
+      result->reset(guard.release());
       return Status::OK();
     } else {
       return Status::InvalidArgument(std::string("Cannot make a unique ") +
@@ -218,11 +247,11 @@ class ObjectRegistry {
   template <typename T>
   Status NewSharedObject(const std::string& target,
                          std::shared_ptr<T>* result) {
-    std::string errmsg;
     std::unique_ptr<T> guard;
-    T* ptr = NewObject(target, &guard, &errmsg);
-    if (ptr == nullptr) {
-      return Status::NotSupported(errmsg, target);
+    T* ptr = nullptr;
+    Status s = NewObject(target, &ptr, &guard);
+    if (!s.ok()) {
+      return s;
     } else if (guard) {
       result->reset(guard.release());
       return Status::OK();
@@ -240,11 +269,11 @@ class ObjectRegistry {
   //                      (meaning it is managed by a unique ptr)
   template <typename T>
   Status NewStaticObject(const std::string& target, T** result) {
-    std::string errmsg;
     std::unique_ptr<T> guard;
-    T* ptr = NewObject(target, &guard, &errmsg);
-    if (ptr == nullptr) {
-      return Status::NotSupported(errmsg, target);
+    T* ptr = nullptr;
+    Status s = NewObject(target, &ptr, &guard);
+    if (!s.ok()) {
+      return s;
     } else if (guard.get()) {
       return Status::InvalidArgument(std::string("Cannot make a static ") +
                                          T::Type() + " from a guarded one ",
