@@ -1797,7 +1797,10 @@ TEST_F(CacheKeyTest, StandardEncodingLimit) {
 
   file_size_ = 42;
   SetupStableBase();
-  CacheKey ck1 = WithOffset(0);
+  CacheKey ck1;
+  ASSERT_TRUE(ck1.IsEmpty());
+  ck1 = WithOffset(0);
+  ASSERT_FALSE(ck1.IsEmpty());
 
   // Should use same encoding
   file_size_ = BlockBasedTable::kMaxFileSizeStandardEncoding;
@@ -1871,13 +1874,8 @@ TEST_F(CacheKeyTest, Encodings) {
     }
     db_id_ = r.Next();
 
-#ifndef __clang_analyzer__
-    CacheKey last_base;  // Clang analyzer thinks this is garbage
-    ASSERT_TRUE(last_base.IsEmpty());
-#else
-    // Work-around
+    // Work-around clang-analyzer which thinks empty last_base is garbage
     CacheKey last_base = CacheKey::CreateUniqueForProcessLifetime();
-#endif
 
     std::unordered_set<std::string> seen;
     int num_encodings = 0;
