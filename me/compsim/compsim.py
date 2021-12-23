@@ -1,5 +1,6 @@
 
 import argparse
+import math
 import os
 import random
 import sys
@@ -17,7 +18,7 @@ import sys
 def parse_options(argv):
   parser = argparse.ArgumentParser()
   parser.add_argument('--seed', type=int, default=1, help='Seed for RNG')
-  parser.add_argument('--algorithm', choices=['stcs', 'prefix', 'tower'],
+  parser.add_argument('--algorithm', choices=['stcs', 'prefix', 'tower', 'greedy'],
                       required=True, help='The algorithm to simulate')
   parser.add_argument('--workload', choices=['insert', 'overwrite'], default='overwrite', 
                       help='Workload is insert-only or overwrite-only')
@@ -58,13 +59,17 @@ def parse_options(argv):
   parser.add_argument('--prefix_max_merge_width', type=int, default=16)
 
   # Options for tower
-  # TODO ???
   parser.add_argument('--tower_l0_trigger', type=int, default=8, 
                       help='Trigger minor compaction when the L0 has this many runs')
   parser.add_argument('--tower_size_ratio', type=float, default=1.5,
                       help='Similar to --prefix_size_ratio')
   parser.add_argument('--tower_min_merge_width', type=int, default=4)
   parser.add_argument('--tower_max_merge_width', type=int, default=16)
+
+  # Options for greedy
+  parser.add_argument('--greedy_read_amp_trigger', type=int, default=8, 
+                      help='Trigger minor compaction when there are this many sorted runs')
+  parser.add_argument('--greedy_max_merge_width', type=int, default=16)
 
   args = parser.parse_args()
   return args
@@ -103,25 +108,27 @@ def update_stats(now, runs, interval_stats, global_stats):
   s = { 'runs':len(runs), 'ingest':ingest, 'size':sum_run_sizes(runs) }
   interval_stats.append(s)
 
-def final_stats(runs, interval_stats, global_stats):
+def final_stats(runs, interval_stats, global_stats, args, read_amp_config, name):
   ingest = global_stats['ingest']
   write_amp = (global_stats['compact_wr'] + ingest) / ingest
 
+  init_size_mb = args.init_size_gb * 1024
   sum_size = 0
   max_size = 0
   sum_runs = 0
   max_runs = 0
-
+  
   for s in interval_stats:
     sum_size += s['size']
     if s['size'] > max_size: max_size = s['size']
     sum_runs += s['runs']
     if s['runs'] > max_runs: max_runs = s['runs']
 
-  print('final: %s %.1f runs(max,avg), %.0f %.1f size(max,avg), %s ingest, %.1f write-amp, %d sa_major, %d ra_major, %d minor' % (
-      max_runs, sum_runs/len(interval_stats), 
-      max_size, sum_size/len(interval_stats), 
-      ingest, write_amp, global_stats['sa_major'], global_stats['ra_major'], global_stats['minor']))
+  print('final: %d %.1f runs(max,avg), %.2f %.2f space-amp(max,avg), %.1f write-amp, %d sa_major, %d ra_major, %d minor, %d ra, %d sag, %s' % (
+      max_runs, sum_runs / len(interval_stats), 
+      max_size / init_size_mb, (sum_size / len(interval_stats)) / init_size_mb,
+      write_amp, global_stats['sa_major'], global_stats['ra_major'], global_stats['minor'],
+      read_amp_config, args.space_amp_goal, name))
 
 def  merge_runs(runs_to_merge, args, now, all_runs, global_stats, sort_by_size):
   assert args.workload  == 'overwrite'
@@ -440,8 +447,73 @@ def prefix_compact(args, now, runs, global_stats):
   elif prefix_compact_too_many_runs(args, now, runs, False, global_stats):
     return
 
-  # if not prefix_major_compact(args, now, runs, global_stats):
-  #   prefix_minor_compact(args, now, runs, global_stats)
+def greedy_compact_too_many_runs(args, now, runs, global_stats):
+  if len(runs) < args.greedy_read_amp_trigger: return False
+
+  init_size_mb = args.init_size_gb * 1024
+  best = (0, 0, -1)
+
+  # TODO: for now don't allow major compaction here, thus the "-2" and "-1" for
+  # the stopping condition of the next two loops
+
+  for startx in range(len(runs) - 2):
+    for stopx in range(startx+1, len(runs) - 1):
+      if (stopx - startx + 1) > args.greedy_max_merge_width:
+        break
+      if args.debug: print('greedy_ra: try range (%d, %d)' % (startx, stopx))
+
+      sum_sizes = sum_run_sizes(runs[startx:(stopx+1)])
+      m_after = math.log2(init_size_mb / sum_sizes)
+
+      m_before = 0
+      for r in runs[startx:(stopx+1)]:
+        m_before += (r['size'] / sum_sizes) * math.log2(init_size_mb / r['size'])
+
+      # benefit = m_before / m_after
+      benefit = m_before - m_after
+      if args.debug: print('greedy_ra: range(%d, %d) b(%.3f), before(%.3f), after(%.3f)' % (startx, stopx, benefit, m_before, m_after))
+
+      if benefit > best[2]:
+        best = (startx, stopx, benefit)
+        if args.debug: print('greedy_ra: best range (%d, %d) benefit %.3f' % (best[0], best[1], best[2]))
+
+  assert best[1] != 0
+ 
+  runs_to_merge = runs[ best[0] : (best[1] + 1) ]
+  if len(runs_to_merge) < len(runs):
+    global_stats['minor'] += 1
+  else:
+    global_stats['ra_major'] += 1
+  merge_runs(runs_to_merge, args, now, runs, global_stats, False)
+  return True
+
+def greedy_compact_space(args, now, runs, global_stats):
+  if args.space_amp_goal == 0 or len(runs) < 2:
+    return False
+
+  size_without_max = sum_run_sizes(runs[:-1])
+  if size_without_max < ((args.space_amp_goal/100.0) * runs[-1]['size']):
+    return False
+
+  # There is too much space-amp, do a major compaction
+  runs_to_merge = runs
+  if len(runs_to_merge) > args.greedy_max_merge_width:
+    runs_to_merge = runs[(len(runs) - args.greedy_max_merge_width):]
+    assert len(runs_to_merge) == args.greedy_max_merge_width
+ 
+  new_len = len(runs) - len(runs_to_merge) + 1 
+  if args.debug: print('greedy_major')
+  merge_runs(runs_to_merge, args, now, runs, global_stats, False)
+  global_stats['sa_major'] += 1
+  assert new_len == len(runs)
+
+  return True
+
+def greedy_compact(args, now, runs, global_stats):
+  if greedy_compact_space(args, now, runs, global_stats):
+    return
+  elif greedy_compact_too_many_runs(args, now, runs, global_stats):
+    return
 
 def tower_minor_compact(args, now, runs, global_stats):
   assert len(runs) >= args.tower_l0_trigger
@@ -512,7 +584,7 @@ def tower_compact(args, now, runs, global_stats):
     global_stats['tower_l0_size'] = 0
     return
  
-def run_sim(args, compact_func):
+def run_sim(args, compact_func, read_amp_config, name):
   runs = []
   interval_stats = []
   global_stats = { 'ingest':0, 'compact_wr':0, 'minor':0, 'sa_major':0, 'ra_major':0, 'tower_l0_size':0 }
@@ -532,16 +604,21 @@ def run_sim(args, compact_func):
         x, iw, cw, (cw + iw) / (iw * 1.0), runs_to_str(runs, short=True)))
     compact_func(args, x, runs, global_stats)
  
-  final_stats(runs, interval_stats, global_stats)
+  final_stats(runs, interval_stats, global_stats, args, read_amp_config, name)
 
 def stcs_sim(args):
-  run_sim(args, stcs_compact)
+  run_sim(args, stcs_compact, args.stcs_min_threshold, 'stcs')
 
 def prefix_sim(args):
-  run_sim(args, prefix_compact)
+  name = 'prefix'
+  if args.prefix_v2: name = 'prefix_v2'
+  run_sim(args, prefix_compact, args.prefix_read_amp_trigger, name)
 
 def tower_sim(args):
-  run_sim(args, tower_compact)
+  run_sim(args, tower_compact, args.tower_l0_trigger, 'tower')
+
+def greedy_sim(args):
+  run_sim(args, greedy_compact, args.greedy_read_amp_trigger, 'greedy')
 
 def main(argv):
   args = parse_options(argv)
@@ -568,6 +645,8 @@ def main(argv):
     prefix_sim(args)
   elif args.algorithm == 'tower':
     tower_sim(args)
+  elif args.algorithm == 'greedy':
+    greedy_sim(args)
   else:
     print('Value for algorithm(%s) not supported' % args.algorithm)
     sys.exit(-1)
