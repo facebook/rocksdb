@@ -75,12 +75,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
-  if (tracer_) {
+  if (tracer_ && !tracer_->IsWriteOrderPreserved()) {
+    // We don't have to preserve write order so can trace anywhere. It's more
+    // efficient to trace here than to add latency to a phase of the log/apply
+    // pipeline.
     InstrumentedMutexLock lock(&trace_mutex_);
-    if (tracer_) {
-      // TODO: maybe handle the tracing status?
-      tracer_->Write(my_batch).PermitUncheckedError();
-    }
+    // TODO: maybe handle the tracing status?
+    tracer_->Write(my_batch).PermitUncheckedError();
   }
   if (write_options.sync && write_options.disableWAL) {
     return Status::InvalidArgument("Sync writes has to enable WAL.");
