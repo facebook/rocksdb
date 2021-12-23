@@ -167,27 +167,26 @@ Status CloudEnvImpl::NewSequentialFile(const std::string& logical_fname,
   }
 
   if (sstfile || manifest || identity) {
-    // We read first from local storage and then from cloud storage.
-    st = base_env_->NewSequentialFile(fname, result, options);
-
-    if (!st.ok()) {
-      if (cloud_env_options.keep_local_sst_files || !sstfile) {
+    if (cloud_env_options.keep_local_sst_files || !sstfile) {
+      // We read first from local storage and then from cloud storage.
+      st = base_env_->NewSequentialFile(fname, result, options);
+      if (!st.ok()) {
         // copy the file to the local storage if keep_local_sst_files is true
         st = GetCloudObject(fname);
         if (st.ok()) {
           // we successfully copied the file, try opening it locally now
           st = base_env_->NewSequentialFile(fname, result, options);
         }
-      } else {
-        std::unique_ptr<CloudStorageReadableFile> file;
-        st = NewCloudReadableFile(fname, &file, options);
-        if (st.ok()) {
-          result->reset(file.release());
-        }
       }
-      // Do not update the sst_file_cache for sequential read patterns.
-      // These are mostly used by compaction.
+    } else {
+      std::unique_ptr<CloudStorageReadableFile> file;
+      st = NewCloudReadableFile(fname, &file, options);
+      if (st.ok()) {
+        result->reset(file.release());
+      }
     }
+    // Do not update the sst_file_cache for sequential read patterns.
+    // These are mostly used by compaction.
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
         "[%s] NewSequentialFile file %s %s", Name(), fname.c_str(),
         st.ToString().c_str());
@@ -237,28 +236,28 @@ Status CloudEnvImpl::NewRandomAccessFile(
   }
 
   if (sstfile || manifest || identity) {
-    // Read from local storage and then from cloud storage.
-    st = base_env_->NewRandomAccessFile(fname, result, options);
-
-    // Found in local storage. Update LRU cache.
-    // There is a loose coupling between the sst_file_cache and the files on
-    // local storage. The sst_file_cache is only used for accounting of sst
-    // files. We do not keep a reference to the LRU cache handle when the sst
-    // file remains open by the db. If the LRU policy causes the file to be
-    // evicted, it will be deleted from local storage, but because the db
-    // already has an open file handle to it, it can continue to occupy local
-    // storage space until the time the db decides to close the sst file.
-    if (sstfile && st.ok()) {
-      FileCacheAccess(fname);
-    }
-
-    if (!st.ok() && !base_env_->FileExists(fname).IsNotFound()) {
-      // if status is not OK, but file does exist locally, something is wrong
-      return st;
-    }
-
     if (cloud_env_options.keep_local_sst_files ||
         cloud_env_options.hasSstFileCache() || !sstfile) {
+      // Read from local storage and then from cloud storage.
+      st = base_env_->NewRandomAccessFile(fname, result, options);
+
+      // Found in local storage. Update LRU cache.
+      // There is a loose coupling between the sst_file_cache and the files on
+      // local storage. The sst_file_cache is only used for accounting of sst
+      // files. We do not keep a reference to the LRU cache handle when the sst
+      // file remains open by the db. If the LRU policy causes the file to be
+      // evicted, it will be deleted from local storage, but because the db
+      // already has an open file handle to it, it can continue to occupy local
+      // storage space until the time the db decides to close the sst file.
+      if (sstfile && st.ok()) {
+        FileCacheAccess(fname);
+      }
+
+      if (!st.ok() && !base_env_->FileExists(fname).IsNotFound()) {
+        // if status is not OK, but file does exist locally, something is wrong
+        return st;
+      }
+
       if (!st.ok()) {
         // copy the file to the local storage
         st = GetCloudObject(fname);
@@ -300,7 +299,7 @@ Status CloudEnvImpl::NewRandomAccessFile(
           return Status::IOError(msg);
         }
       }
-    } else if (!st.ok()) {
+    } else {
       // Only execute this code path if files are not cached locally
       std::unique_ptr<CloudStorageReadableFile> file;
       st = NewCloudReadableFile(fname, &file, options);
