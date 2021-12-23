@@ -2244,17 +2244,15 @@ rocksdbjavastaticosx_ub: rocksdbjavastaticosx_archs
 	$(MAKE) rocksdbjavastatic_jar
 
 rocksdbjavastaticosx_archs: 
-	$(MAKE) clean-ext-libraries-bin 
-	$(MAKE) clean-rocks
 	$(MAKE) rocksdbjavastaticosx_arch_x86_64
-	$(MAKE) clean-ext-libraries-bin 
-	$(MAKE) clean-rocks
 	$(MAKE) rocksdbjavastaticosx_arch_arm64
 
 rocksdbjavastaticosx_arch_%:
 ifeq ($(JAVA_HOME),)
 	$(error JAVA_HOME is not set)
 endif
+	$(MAKE) clean-ext-libraries-bin
+	$(MAKE) clean-rocks
 	ARCHFLAG="-arch $*" $(MAKE) rocksdbjavastatic_deps
 	ARCHFLAG="-arch $*" $(MAKE) rocksdbjavastatic_libobjects
 	ARCHFLAG="-arch $*" ROCKSDBJNILIB="librocksdbjni-osx-$*.jnilib" $(MAKE) rocksdbjavastatic_javalib
