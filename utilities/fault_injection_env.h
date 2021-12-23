@@ -54,7 +54,7 @@ class TestRandomAccessFile : public RandomAccessFile {
 
   Status Read(uint64_t offset, size_t n, Slice* result,
               char* scratch) const override;
-  
+
   Status Prefetch(uint64_t offset, size_t n) override;
 
   Status MultiRead(ReadRequest* reqs, size_t num_reqs) override;

@@ -66,7 +66,7 @@ class TestFSWritableFile : public FSWritableFile {
   virtual IOStatus Append(const Slice& data, const IOOptions&,
                           IODebugContext*) override;
   virtual async_result AsyncAppend(const Slice& data, const IOOptions&,
-                                       IODebugContext*) override {
+                                   IODebugContext*) override {
     (void)data;
     throw "Not implemented";
   }
@@ -149,10 +149,10 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override;
-  
+
   async_result AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
-                Slice* result, char* scratch,
-                IODebugContext* dbg) const override {
+                         Slice* result, char* scratch,
+                         IODebugContext* dbg) const override {
     (void)offset;
     (void)n;
     (void)options;

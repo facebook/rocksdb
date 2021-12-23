@@ -110,11 +110,12 @@ class TableReader {
                      const SliceTransform* prefix_extractor,
                      bool skip_filters = false) = 0;
 
-  virtual async_result AsyncGet(const ReadOptions& readOptions, const Slice& key,
-                                GetContext* get_context,
+  virtual async_result AsyncGet(const ReadOptions& readOptions,
+                                const Slice& key, GetContext* get_context,
                                 const SliceTransform* prefix_extractor,
                                 bool skip_filters = false) {
-    assert(readOptions.fill_cache || key.size_ != 0 || get_context != nullptr || prefix_extractor != nullptr || !skip_filters);
+    assert(readOptions.fill_cache || key.size_ != 0 || get_context != nullptr ||
+           prefix_extractor != nullptr || !skip_filters);
     (void)readOptions;
     (void)key;
     (void)get_context;

@@ -1485,7 +1485,8 @@ async_result DBImpl::AsSyncWAL() {
   Status status;
   IOStatus io_s;
   for (log::Writer* log : logs_to_sync) {
-    auto result = log->file()->AsSyncWithoutFlush(immutable_db_options_.use_fsync);
+    auto result =
+        log->file()->AsSyncWithoutFlush(immutable_db_options_.use_fsync);
     co_await result;
     io_s = result.io_result();
     if (!io_s.ok()) {
@@ -1814,14 +1815,17 @@ Status DBImpl::Get(const ReadOptions& read_options,
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value, std::string* timestamp) {
-  GetImplOptions get_impl_options = { .column_family = column_family, .value = value, .timestamp = timestamp };
+  GetImplOptions get_impl_options = {
+      .column_family = column_family, .value = value, .timestamp = timestamp};
   return GetImpl(read_options, key, get_impl_options);
 }
 
 async_result DBImpl::AsyncGet(const ReadOptions& read_options,
-                ColumnFamilyHandle* column_family, const Slice& key,
-                PinnableSlice* value, std::string* timestamp) {
-  GetImplOptions get_impl_options = { .column_family = column_family, .value = value, .timestamp = timestamp };
+                              ColumnFamilyHandle* column_family,
+                              const Slice& key, PinnableSlice* value,
+                              std::string* timestamp) {
+  GetImplOptions get_impl_options = {
+      .column_family = column_family, .value = value, .timestamp = timestamp};
   auto result = AsyncGetImpl(read_options, key, get_impl_options);
   co_await result;
   co_return result.result();
@@ -1838,11 +1842,10 @@ class GetWithTimestampReadCallback : public ReadCallback {
 };
 }  // namespace
 
-inline std::tuple<SequenceNumber, SuperVersion*, size_t, ColumnFamilyData*> DBImpl::GetSnapshot(
-  const ReadOptions& read_options,
-  const Slice& key, 
-  GetImplOptions& get_impl_options,
-  const bool useThreadLocalCache) {
+inline std::tuple<SequenceNumber, SuperVersion*, size_t, ColumnFamilyData*>
+DBImpl::GetSnapshot(const ReadOptions& read_options, const Slice& key,
+                    GetImplOptions& get_impl_options,
+                    const bool useThreadLocalCache) {
   assert(get_impl_options.value != nullptr ||
          get_impl_options.merge_operands != nullptr);
   assert(get_impl_options.column_family);
@@ -1917,21 +1920,18 @@ inline std::tuple<SequenceNumber, SuperVersion*, size_t, ColumnFamilyData*> DBIm
 }
 
 inline std::tuple<DBImpl::MemtableLookupStatus, Status> DBImpl::LookupMemtable(
-  const ReadOptions& read_options,
-  const LookupKey& lkey, 
-  std::string* timestamp,
-  SuperVersion* sv,
-  ColumnFamilyData* cfd,
-  MergeContext& merge_context,
-  SequenceNumber& max_covering_tombstone_seq,
-  GetImplOptions& get_impl_options) {
+    const ReadOptions& read_options, const LookupKey& lkey,
+    std::string* timestamp, SuperVersion* sv, ColumnFamilyData* cfd,
+    MergeContext& merge_context, SequenceNumber& max_covering_tombstone_seq,
+    GetImplOptions& get_impl_options) {
   // First look in the memtable, then in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
   Status s;
   bool skip_memtable = (read_options.read_tier == kPersistedTier &&
                         has_unpersisted_data_.load(std::memory_order_relaxed));
-  DBImpl::MemtableLookupStatus lookup_status = DBImpl::MemtableLookupStatus::NotFound;
+  DBImpl::MemtableLookupStatus lookup_status =
+      DBImpl::MemtableLookupStatus::NotFound;
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
@@ -1969,7 +1969,8 @@ inline std::tuple<DBImpl::MemtableLookupStatus, Status> DBImpl::LookupMemtable(
       }
     }
 
-    if (lookup_status == MemtableLookupStatus::NotFound && !s.ok() && !s.IsMergeInProgress()) {
+    if (lookup_status == MemtableLookupStatus::NotFound && !s.ok() &&
+        !s.IsMergeInProgress()) {
       ReturnAndCleanupSuperVersion(cfd, sv);
       return std::make_tuple(MemtableLookupStatus::Failed, s);
     }
@@ -1988,21 +1989,23 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   SuperVersion* sv;
   size_t ts_sz;
   ColumnFamilyData* cfd;
-  std::tie(snapshot, sv, ts_sz, cfd) = GetSnapshot(read_options, key, get_impl_options);
+  std::tie(snapshot, sv, ts_sz, cfd) =
+      GetSnapshot(read_options, key, get_impl_options);
 
   // If timestamp is used, we use read callback to ensure <key,t,s> is returned
   // only if t <= read_opts.timestamp and s <= snapshot.
   // HACK: temporarily overwrite input struct field but restore
-  SaveAndRestore<ReadCallback*> restore_callback(&get_impl_options.callback); 
+  SaveAndRestore<ReadCallback*> restore_callback(&get_impl_options.callback);
   if (ts_sz > 0) {
-    assert(!get_impl_options.callback);  // timestamp with callback is not supported
+    assert(!get_impl_options
+                .callback);  // timestamp with callback is not supported
     read_cb.Refresh(snapshot);
     get_impl_options.callback = &read_cb;
   }
 
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
-  
+
   // Prepare to store a list of merge operations if merge occurs.
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq = 0;
@@ -2012,12 +2015,11 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   LookupKey lkey(key, snapshot, read_options.timestamp);
   std::string* timestamp = ts_sz > 0 ? get_impl_options.timestamp : nullptr;
 
-  std::tie(lookup_status, s) = LookupMemtable(
-    read_options, lkey, timestamp, sv, cfd, 
-    merge_context, max_covering_tombstone_seq, get_impl_options);
+  std::tie(lookup_status, s) =
+      LookupMemtable(read_options, lkey, timestamp, sv, cfd, merge_context,
+                     max_covering_tombstone_seq, get_impl_options);
 
-  if (lookup_status == DBImpl::MemtableLookupStatus::Failed)
-    return s;
+  if (lookup_status == DBImpl::MemtableLookupStatus::Failed) return s;
 
   if (lookup_status == DBImpl::MemtableLookupStatus::NotFound) {
     PERF_TIMER_GUARD(get_from_output_files_time);
@@ -2067,27 +2069,30 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   return s;
 }
 
-async_result DBImpl::AsyncGetImpl(const ReadOptions& read_options, const Slice& key,
-                       GetImplOptions& get_impl_options) {
+async_result DBImpl::AsyncGetImpl(const ReadOptions& read_options,
+                                  const Slice& key,
+                                  GetImplOptions& get_impl_options) {
   GetWithTimestampReadCallback read_cb(0);  // Will call Refresh
   SequenceNumber snapshot;
   SuperVersion* sv;
   size_t ts_sz;
   ColumnFamilyData* cfd;
-  std::tie(snapshot, sv, ts_sz, cfd) = GetSnapshot(read_options, key, get_impl_options, false);
+  std::tie(snapshot, sv, ts_sz, cfd) =
+      GetSnapshot(read_options, key, get_impl_options, false);
 
   // If timestamp is used, we use read callback to ensure <key,t,s> is returned
   // only if t <= read_opts.timestamp and s <= snapshot.
   // HACK: temporarily overwrite input struct field but restore
   // BUGBUG: in coroutine, RAII may not work?
-  SaveAndRestore<ReadCallback*> restore_callback(&get_impl_options.callback); 
+  SaveAndRestore<ReadCallback*> restore_callback(&get_impl_options.callback);
   if (ts_sz > 0) {
-    assert(!get_impl_options.callback);  // timestamp with callback is not supported
+    assert(!get_impl_options
+                .callback);  // timestamp with callback is not supported
     read_cb.Refresh(snapshot);
     get_impl_options.callback = &read_cb;
   }
 
-   // Prepare to store a list of merge operations if merge occurs.
+  // Prepare to store a list of merge operations if merge occurs.
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq = 0;
 
@@ -2096,12 +2101,11 @@ async_result DBImpl::AsyncGetImpl(const ReadOptions& read_options, const Slice& 
   LookupKey lkey(key, snapshot, read_options.timestamp);
   std::string* timestamp = ts_sz > 0 ? get_impl_options.timestamp : nullptr;
 
-  std::tie(lookup_status, s) = LookupMemtable(
-    read_options, lkey, timestamp, sv, cfd, 
-    merge_context, max_covering_tombstone_seq, get_impl_options);
+  std::tie(lookup_status, s) =
+      LookupMemtable(read_options, lkey, timestamp, sv, cfd, merge_context,
+                     max_covering_tombstone_seq, get_impl_options);
 
-  if (lookup_status == DBImpl::MemtableLookupStatus::Failed)
-    co_return s;
+  if (lookup_status == DBImpl::MemtableLookupStatus::Failed) co_return s;
 
   if (lookup_status == DBImpl::MemtableLookupStatus::NotFound) {
     co_await sv->current->AsyncGet(
@@ -2154,6 +2158,15 @@ std::vector<Status> DBImpl::MultiGet(
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
   return MultiGet(read_options, column_family, keys, values,
                   /*timestamps=*/nullptr);
+}
+
+async_result DBImpl::AsyncMultiGet(
+    const ReadOptions& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_family,
+    const std::vector<Slice>& keys, std::vector<std::string>* values) {
+  r = co_await AsyncMultiGet(read_options, column_family, keys, values,
+                             /*timestamps=*/nullptr);
+  co_return r.async_result();
 }
 
 std::vector<Status> DBImpl::MultiGet(
@@ -2339,6 +2352,191 @@ std::vector<Status> DBImpl::MultiGet(
   PERF_TIMER_STOP(get_post_process_time);
 
   return stat_list;
+}
+
+async_result DBImpl::AsyncMultiGet(
+    const ReadOptions& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_family,
+    const std::vector<Slice>& keys, std::vector<std::string>* values,
+    std::vector<std::string>* timestamps) {
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
+  StopWatch sw(immutable_db_options_.clock, stats_, DB_MULTIGET);
+  PERF_TIMER_GUARD(get_snapshot_time);
+
+#ifndef NDEBUG
+  for (const auto* cfh : column_family) {
+    assert(cfh);
+    const Comparator* const ucmp = cfh->GetComparator();
+    assert(ucmp);
+    if (ucmp->timestamp_size() > 0) {
+      assert(read_options.timestamp);
+      assert(ucmp->timestamp_size() == read_options.timestamp->size());
+    } else {
+      assert(!read_options.timestamp);
+    }
+  }
+#endif  // NDEBUG
+
+  if (tracer_) {
+    // TODO: This mutex should be removed later, to improve performance when
+    // tracing is enabled.
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      // TODO: maybe handle the tracing status?
+      tracer_->MultiGet(column_family, keys).PermitUncheckedError();
+    }
+  }
+
+  SequenceNumber consistent_seqnum;
+
+  std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(
+      column_family.size());
+  for (auto cf : column_family) {
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
+    auto cfd = cfh->cfd();
+    if (multiget_cf_data.find(cfd->GetID()) == multiget_cf_data.end()) {
+      multiget_cf_data.emplace(cfd->GetID(),
+                               MultiGetColumnFamilyData(cfh, nullptr));
+    }
+  }
+
+  std::function<MultiGetColumnFamilyData*(
+      std::unordered_map<uint32_t, MultiGetColumnFamilyData>::iterator&)>
+      iter_deref_lambda =
+          [](std::unordered_map<uint32_t, MultiGetColumnFamilyData>::iterator&
+                 cf_iter) { return &cf_iter->second; };
+
+  bool unref_only =
+      MultiCFSnapshot<std::unordered_map<uint32_t, MultiGetColumnFamilyData>>(
+          read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
+          &consistent_seqnum);
+
+  TEST_SYNC_POINT("DBImpl::MultiGet:AfterGetSeqNum1");
+  TEST_SYNC_POINT("DBImpl::MultiGet:AfterGetSeqNum2");
+
+  // Contain a list of merge operations if merge occurs.
+  MergeContext merge_context;
+
+  // Note: this always resizes the values array
+  size_t num_keys = keys.size();
+  std::vector<Status> stat_list(num_keys);
+  values->resize(num_keys);
+  if (timestamps) {
+    timestamps->resize(num_keys);
+  }
+
+  // Keep track of bytes that we read for statistics-recording later
+  uint64_t bytes_read = 0;
+  PERF_TIMER_STOP(get_snapshot_time);
+
+  // For each of the given keys, apply the entire "get" process as follows:
+  // First look in the memtable, then in the immutable memtable (if any).
+  // s is both in/out. When in, s could either be OK or MergeInProgress.
+  // merge_operands will contain the sequence of merges in the latter case.
+  size_t num_found = 0;
+  size_t keys_read;
+  uint64_t curr_value_size = 0;
+
+  GetWithTimestampReadCallback timestamp_read_callback(0);
+  ReadCallback* read_callback = nullptr;
+  if (read_options.timestamp && read_options.timestamp->size() > 0) {
+    timestamp_read_callback.Refresh(consistent_seqnum);
+    read_callback = &timestamp_read_callback;
+  }
+
+  for (keys_read = 0; keys_read < num_keys; ++keys_read) {
+    merge_context.Clear();
+    Status& s = stat_list[keys_read];
+    std::string* value = &(*values)[keys_read];
+    std::string* timestamp = timestamps ? &(*timestamps)[keys_read] : nullptr;
+
+    LookupKey lkey(keys[keys_read], consistent_seqnum, read_options.timestamp);
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+        column_family[keys_read]);
+    SequenceNumber max_covering_tombstone_seq = 0;
+    auto mgd_iter = multiget_cf_data.find(cfh->cfd()->GetID());
+    assert(mgd_iter != multiget_cf_data.end());
+    auto mgd = mgd_iter->second;
+    auto super_version = mgd.super_version;
+    bool skip_memtable =
+        (read_options.read_tier == kPersistedTier &&
+         has_unpersisted_data_.load(std::memory_order_relaxed));
+    bool done = false;
+    if (!skip_memtable) {
+      if (super_version->mem->Get(lkey, value, timestamp, &s, &merge_context,
+                                  &max_covering_tombstone_seq, read_options,
+                                  read_callback)) {
+        done = true;
+        RecordTick(stats_, MEMTABLE_HIT);
+      } else if (super_version->imm->Get(lkey, value, timestamp, &s,
+                                         &merge_context,
+                                         &max_covering_tombstone_seq,
+                                         read_options, read_callback)) {
+        done = true;
+        RecordTick(stats_, MEMTABLE_HIT);
+      }
+    }
+    if (!done) {
+      PinnableSlice pinnable_val;
+      PERF_TIMER_GUARD(get_from_output_files_time);
+      co_await super_version->current->Get(
+          read_options, lkey, &pinnable_val, timestamp, &s, &merge_context,
+          &max_covering_tombstone_seq, /*value_found=*/nullptr,
+          /*key_exists=*/nullptr,
+          /*seq=*/nullptr, read_callback);
+      value->assign(pinnable_val.data(), pinnable_val.size());
+      RecordTick(stats_, MEMTABLE_MISS);
+    }
+
+    if (s.ok()) {
+      bytes_read += value->size();
+      num_found++;
+      curr_value_size += value->size();
+      if (curr_value_size > read_options.value_size_soft_limit) {
+        while (++keys_read < num_keys) {
+          stat_list[keys_read] = Status::Aborted();
+        }
+        break;
+      }
+    }
+    if (read_options.deadline.count() &&
+        immutable_db_options_.clock->NowMicros() >
+            static_cast<uint64_t>(read_options.deadline.count())) {
+      break;
+    }
+  }
+
+  if (keys_read < num_keys) {
+    // The only reason to break out of the loop is when the deadline is
+    // exceeded
+    assert(immutable_db_options_.clock->NowMicros() >
+           static_cast<uint64_t>(read_options.deadline.count()));
+    for (++keys_read; keys_read < num_keys; ++keys_read) {
+      stat_list[keys_read] = Status::TimedOut();
+    }
+  }
+
+  // Post processing (decrement reference counts and record statistics)
+  PERF_TIMER_GUARD(get_post_process_time);
+  autovector<SuperVersion*> superversions_to_delete;
+
+  for (auto mgd_iter : multiget_cf_data) {
+    auto mgd = mgd_iter.second;
+    if (!unref_only) {
+      ReturnAndCleanupSuperVersion(mgd.cfd, mgd.super_version);
+    } else {
+      mgd.cfd->GetSuperVersion()->Unref();
+    }
+  }
+  RecordTick(stats_, NUMBER_MULTIGET_CALLS);
+  RecordTick(stats_, NUMBER_MULTIGET_KEYS_READ, num_keys);
+  RecordTick(stats_, NUMBER_MULTIGET_KEYS_FOUND, num_found);
+  RecordTick(stats_, NUMBER_MULTIGET_BYTES_READ, bytes_read);
+  RecordInHistogram(stats_, BYTES_PER_MULTIGET, bytes_read);
+  PERF_COUNTER_ADD(multiget_read_bytes, bytes_read);
+  PERF_TIMER_STOP(get_post_process_time);
+
+  co_return stat_list;
 }
 
 template <class T>
@@ -3650,7 +3848,8 @@ bool DBImpl::GetAggregatedIntProperty(const Slice& property,
   return ret;
 }
 
-SuperVersion* DBImpl::GetAndRefSuperVersion(ColumnFamilyData* cfd, bool useThreadLocalCache) {
+SuperVersion* DBImpl::GetAndRefSuperVersion(ColumnFamilyData* cfd,
+                                            bool useThreadLocalCache) {
   if (useThreadLocalCache) {
     // TODO(ljin): consider using GetReferencedSuperVersion() directly
     return cfd->GetThreadLocalSuperVersion(this);

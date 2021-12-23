@@ -8,10 +8,10 @@
 
 #pragma once
 
+#include <liburing.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#include <liburing.h>
 #include <limits>
 #include <memory>
 #include <string>
@@ -1403,26 +1403,24 @@ enum ReadTier {
   kMemtableTier = 0x3     // data in memtable. used for memtable-only iterators.
 };
 
-
 struct IOUringOptions {
-  enum class Ops {
-    Read,
-    Write
-  };
+  enum class Ops { Read, Write };
 
-  struct io_uring *ioring;
+  struct io_uring* ioring;
   std::atomic<int> sqe_count;
   std::function<async_result(FilePage*, int, uint64_t, Ops)> delegate;
 
-  IOUringOptions(struct io_uring *ring) : ioring{ring}, sqe_count{0} {
+  IOUringOptions(struct io_uring* ring) : ioring{ring}, sqe_count{0} {
     assert(ring != nullptr);
   }
 
-  IOUringOptions(std::function<async_result(FilePage*, int, uint64_t, Ops)>&& deleg) : 
-    ioring {nullptr},
-    sqe_count{0},
-    delegate{std::forward<std::function<async_result(FilePage*, int, uint64_t, Ops)>>(deleg)}{
-  }
+  IOUringOptions(
+      std::function<async_result(FilePage*, int, uint64_t, Ops)>&& deleg)
+      : ioring{nullptr},
+        sqe_count{0},
+        delegate{std::forward<
+            std::function<async_result(FilePage*, int, uint64_t, Ops)>>(
+            deleg)} {}
 };
 
 // Options that control read operations
@@ -1613,7 +1611,7 @@ struct ReadOptions {
   // Default: std::numeric_limits<uint64_t>::max()
   uint64_t value_size_soft_limit;
 
-  // 
+  //
   IOUringOptions* io_uring_option;
 
   ReadOptions();
@@ -1688,7 +1686,7 @@ struct WriteOptions {
   // and the API is subject to change.
   const Slice* timestamp;
 
-  // 
+  //
   const IOUringOptions* io_uring_option;
 
   WriteOptions()

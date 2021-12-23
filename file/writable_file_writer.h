@@ -14,6 +14,7 @@
 #include "db/version_edit.h"
 #include "env/file_system_tracer.h"
 #include "port/port.h"
+#include "rocksdb/async_result.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/io_status.h"
@@ -21,7 +22,6 @@
 #include "rocksdb/rate_limiter.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
-#include "rocksdb/async_result.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Statistics;

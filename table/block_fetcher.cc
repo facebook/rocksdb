@@ -322,7 +322,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
 }
 
 async_result BlockFetcher::AsyncReadBlockContents() {
-    if (TryGetUncompressBlockFromPersistentCache()) {
+  if (TryGetUncompressBlockFromPersistentCache()) {
     compression_type_ = kNoCompression;
 #ifndef NDEBUG
     contents_->is_raw_block = true;
@@ -341,12 +341,12 @@ async_result BlockFetcher::AsyncReadBlockContents() {
     if (io_status_.ok()) {
       if (file_->use_direct_io()) {
         PERF_TIMER_GUARD(block_read_time);
-        a_result =
-            file_->AsyncRead(opts, handle_.offset(), block_size_with_trailer_,
-                        &slice_, nullptr, &direct_io_buf_, for_compaction_);
+        a_result = file_->AsyncRead(opts, handle_.offset(),
+                                    block_size_with_trailer_, &slice_, nullptr,
+                                    &direct_io_buf_, for_compaction_);
         co_await a_result;
 
-        //io_status_ = a_result.result();
+        // io_status_ = a_result.result();
         PERF_COUNTER_ADD(block_read_count, 1);
         used_buf_ = const_cast<char*>(slice_.data());
       } else {
@@ -354,10 +354,10 @@ async_result BlockFetcher::AsyncReadBlockContents() {
         PERF_TIMER_GUARD(block_read_time);
         a_result =
             file_->AsyncRead(opts, handle_.offset(), block_size_with_trailer_,
-                        &slice_, used_buf_, nullptr, for_compaction_);
+                             &slice_, used_buf_, nullptr, for_compaction_);
         co_await a_result;
-        
-        //io_status_ = a_result.result();
+
+        // io_status_ = a_result.result();
         PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
         if (slice_.data() == &stack_buf_[0]) {
@@ -396,11 +396,11 @@ async_result BlockFetcher::AsyncReadBlockContents() {
     }
 
     if (slice_.size() != block_size_with_trailer_) {
-      co_return IOStatus::Corruption("truncated block read from " +
-                                  file_->file_name() + " offset " +
-                                  ToString(handle_.offset()) + ", expected " +
-                                  ToString(block_size_with_trailer_) +
-                                  " bytes, got " + ToString(slice_.size()));
+      co_return IOStatus::Corruption(
+          "truncated block read from " + file_->file_name() + " offset " +
+          ToString(handle_.offset()) + ", expected " +
+          ToString(block_size_with_trailer_) + " bytes, got " +
+          ToString(slice_.size()));
     }
 
     CheckBlockChecksum();

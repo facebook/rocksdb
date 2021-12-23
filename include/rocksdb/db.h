@@ -10,11 +10,13 @@
 
 #include <stdint.h>
 #include <stdio.h>
+
 #include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
 #include "rocksdb/async_result.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
@@ -363,13 +365,13 @@ class DB {
   }
 
   virtual async_result AsyncPut(const WriteOptions& options,
-                                    ColumnFamilyHandle* column_family,
-                                    const Slice& key, const Slice& value) {
-      (void)options;
-      (void)column_family;
-      (void)key;
-      (void)value;
-      co_return Status::NotSupported("AsyncPut() not implemented.");
+                                ColumnFamilyHandle* column_family,
+                                const Slice& key, const Slice& value) {
+    (void)options;
+    (void)column_family;
+    (void)key;
+    (void)value;
+    co_return Status::NotSupported("AsyncPut() not implemented.");
   }
 
   // Remove the database entry (if any) for "key".  Returns OK on
@@ -443,10 +445,11 @@ class DB {
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
 
-  virtual async_result AsyncWrite(const WriteOptions& options, WriteBatch* updates) {
-      (void)options;
-      (void)updates;
-      co_return Status::NotSupported("AsyncWrite() not implemented.");
+  virtual async_result AsyncWrite(const WriteOptions& options,
+                                  WriteBatch* updates) {
+    (void)options;
+    (void)updates;
+    co_return Status::NotSupported("AsyncWrite() not implemented.");
   }
 
   // If the database contains an entry for "key" store the
@@ -480,9 +483,11 @@ class DB {
   }
 
   virtual async_result AsyncGet(const ReadOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     PinnableSlice* value, std::string* timestamp) {
-    assert(options.verify_checksums || column_family != nullptr || key != nullptr || value != nullptr || timestamp != nullptr);
+                                ColumnFamilyHandle* column_family,
+                                const Slice& key, PinnableSlice* value,
+                                std::string* timestamp) {
+    assert(options.verify_checksums || column_family != nullptr ||
+           key != nullptr || value != nullptr || timestamp != nullptr);
     (void)options;
     (void)column_family;
     (void)key;
@@ -562,6 +567,19 @@ class DB {
         keys, values);
   }
 
+  virtual async_result AsyncMultiGet(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_family,
+      const std::vector<Slice>& keys, std::vector<std::string>* values) = 0;
+  virtual async_result AsyncMultiGet(const ReadOptions& options,
+                                     const std::vector<Slice>& keys,
+                                     std::vector<std::string>* values) {
+    co_return AsyncMultiGet(
+        options,
+        std::vector<ColumnFamilyHandle*>(keys.size(), DefaultColumnFamily()),
+        keys, values);
+  }
+
   virtual std::vector<Status> MultiGet(
       const ReadOptions& /*options*/,
       const std::vector<ColumnFamilyHandle*>& /*column_family*/,
@@ -579,6 +597,16 @@ class DB {
         options,
         std::vector<ColumnFamilyHandle*>(keys.size(), DefaultColumnFamily()),
         keys, values, timestamps);
+  }
+  virtual async_result AsyncMultiGet(
+      const ReadOptions& /*options*/,
+      const std::vector<ColumnFamilyHandle*>& /*column_family*/,
+      const std::vector<Slice>& keys, std::vector<std::string>* /*values*/,
+      std::vector<std::string>* /*timestamps*/) {
+    co_return std::vector<Status>(
+        keys.size(),
+        Status::NotSupported(
+            "AsyncMultiGet() returning timestamps not implemented."));
   }
 
   // Overloaded MultiGet API that improves performance by batching operations

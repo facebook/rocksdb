@@ -143,7 +143,6 @@ async_result AsyncReadBlockFromFile(
   co_return s;
 }
 
-
 // Release the cached entry and decrement its ref count.
 // Do not force erase
 void ReleaseCachedEntry(void* arg, void* h) {
@@ -2810,10 +2809,11 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   return s;
 }
 
-async_result BlockBasedTable::AsyncGet(const ReadOptions& read_options, const Slice& key,
-                                      GetContext* get_context,
-                                      const SliceTransform* prefix_extractor,
-                                      bool skip_filters) {
+async_result BlockBasedTable::AsyncGet(const ReadOptions& read_options,
+                                       const Slice& key,
+                                       GetContext* get_context,
+                                       const SliceTransform* prefix_extractor,
+                                       bool skip_filters) {
   assert(key.size() >= 8);  // key must be internal key
   assert(get_context != nullptr);
   Status s;
