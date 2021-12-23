@@ -301,6 +301,7 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
     trace_opts.filter |= kTraceFilterMultiGet;
     trace_opts.filter |= kTraceFilterIteratorSeek;
     trace_opts.filter |= kTraceFilterIteratorSeekForPrev;
+    trace_opts.preserve_write_order = true;
     s = db->StartTrace(trace_opts, std::move(trace_writer));
   }
 
