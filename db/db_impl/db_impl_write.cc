@@ -250,6 +250,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   IOStatus io_s;
   Status pre_release_cb_status;
   if (status.ok()) {
+    if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
+      InstrumentedMutexLock lock(&trace_mutex_);
+      for (auto* writer : write_group) {
+        // TODO: maybe handle the tracing status?
+        tracer_->Write(writer->batch).PermitUncheckedError();
+      }
+    }
     // Rules for when we can update the memtable concurrently
     // 1. supported by memtable
     // 2. Puts are not okay if inplace_update_support
@@ -499,6 +506,13 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     size_t total_byte_size = 0;
 
     if (w.status.ok()) {
+      if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
+        InstrumentedMutexLock lock(&trace_mutex_);
+        for (auto* writer : wal_write_group) {
+          // TODO: maybe handle the tracing status?
+          tracer_->Write(writer->batch).PermitUncheckedError();
+        }
+      }
       SequenceNumber next_sequence = current_sequence;
       for (auto writer : wal_write_group) {
         if (writer->CheckCallback(this)) {
@@ -723,6 +737,13 @@ Status DBImpl::WriteImplWALOnly(
   write_thread->EnterAsBatchGroupLeader(&w, &write_group);
   // Note: no need to update last_batch_group_size_ here since the batch writes
   // to WAL only
+  if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    for (auto* writer : write_group) {
+      // TODO: maybe handle the tracing status?
+      tracer_->Write(writer->batch).PermitUncheckedError();
+    }
+  }
 
   size_t pre_release_callback_cnt = 0;
   size_t total_byte_size = 0;
