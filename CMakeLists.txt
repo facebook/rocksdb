@@ -713,6 +713,7 @@ set(SOURCES
         db/version_set.cc
         db/wal_edit.cc
         db/wal_manager.cc
+        db/wal_dump.cc
         db/write_batch.cc
         db/write_batch_base.cc
         db/write_controller.cc
