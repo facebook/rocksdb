@@ -289,14 +289,11 @@ TEST_F(RangeLockingTest, BasicLockEscalation) {
 #endif
 
 TEST_F(RangeLockingTest, LockWaitCount) {
-  WriteOptions write_options;
   TransactionOptions txn_options;
-  std::string value;
-  ReadOptions read_options;
   auto cf = db->DefaultColumnFamily();
   txn_options.lock_timeout = 50;
-  Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  Transaction* txn0 = db->BeginTransaction(WriteOptions(), txn_options);
+  Transaction* txn1 = db->BeginTransaction(WriteOptions(), txn_options);
 
   // Get a range lock
   ASSERT_OK(txn0->GetRangeLock(cf, Endpoint("a"), Endpoint("c")));
