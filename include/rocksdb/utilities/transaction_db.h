@@ -411,8 +411,13 @@ class TransactionDB : public StackableDB {
       const TransactionOptions& txn_options = TransactionOptions(),
       Transaction* old_txn = nullptr) = 0;
 
-  virtual Transaction* GetTransactionByName(const TransactionName& name) = 0;
-  virtual void GetAllPreparedTransactions(std::vector<Transaction*>* trans) = 0;
+  inline Transaction* GetTransactionByName(const TransactionName& name) {
+    return GetTransactionByName(name, /*for_read=*/true);
+  }
+
+  inline void GetAllPreparedTransactions(std::vector<Transaction*>* trans) {
+    GetAllPreparedTransactions(trans, /*for_read=*/true);
+  }
 
   // Returns set of all locks held.
   //
@@ -430,6 +435,24 @@ class TransactionDB : public StackableDB {
   // No copying allowed
   TransactionDB(const TransactionDB&) = delete;
   void operator=(const TransactionDB&) = delete;
+
+  // Return the transaction with 'name'.
+  // If 'for_read' is true, then the returned transaction will be used for
+  // reading data (either from the transaction's write batch or from db).
+  // Therefore, the returned transaction's write batch will be indexed.
+  // If 'for_read' is false, then the returned transaction will not be used for
+  // reading data. Therefore, its write batch will not be indexed.
+  virtual Transaction* GetTransactionByName(const TransactionName& name,
+                                            bool for_read) = 0;
+
+  // Return all transactions that have successfully prepared.
+  // If 'for_read' is true, then the returned transactions will be used for
+  // reading data (either from the transaction's write batch or from db).
+  // Therefore, the returned transactions' write batches will be indexed.
+  // If 'for_read' is false, then the returned transactions will not be used for
+  // reading data. Therefore, their write batches will not be indexed.
+  virtual void GetAllPreparedTransactions(std::vector<Transaction*>* trans,
+                                          bool for_read) = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

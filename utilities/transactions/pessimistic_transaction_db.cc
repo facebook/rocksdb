@@ -133,8 +133,17 @@ Status PessimisticTransactionDB::Initialize(
     assert(real_trx);
     real_trx->SetLogNumber(batch_info.log_number_);
     assert(seq != kMaxSequenceNumber);
+    assert(real_trx->IsIndexingEnabled());
     if (GetTxnDBOptions().write_policy != WRITE_COMMITTED) {
       real_trx->SetId(seq);
+    } else {
+      // TODO: evaluate whether we can disable indexing for
+      // write-prepared/write-unprepared transactions. It is more complex than
+      // the case write-committed because write-prepared/write-unprepared
+      // transactions will need to update WBWI::sub_batch_cnt_ and check/use it
+      // later. For now, we disable indexing only for write-committed
+      // transactions.
+      real_trx->DisableIndexing();
     }
 
     s = real_trx->SetName(recovered_trx->name_);
@@ -560,23 +569,39 @@ void PessimisticTransactionDB::ReinitializeTransaction(
 }
 
 Transaction* PessimisticTransactionDB::GetTransactionByName(
-    const TransactionName& name) {
+    const TransactionName& name, bool for_read) {
   std::lock_guard<std::mutex> lock(name_map_mutex_);
   auto it = transactions_.find(name);
   if (it == transactions_.end()) {
     return nullptr;
   } else {
+    if (for_read) {
+      Transaction* txn = it->second;
+      assert(txn);
+      if (!txn->IsIndexingEnabled()) {
+        assert(txn->GetWriteBatch());
+        txn->GetWriteBatch()->RebuildIndex();
+      }
+    }
     return it->second;
   }
 }
 
 void PessimisticTransactionDB::GetAllPreparedTransactions(
-    std::vector<Transaction*>* transv) {
+    std::vector<Transaction*>* transv, bool for_read) {
   assert(transv);
   transv->clear();
   std::lock_guard<std::mutex> lock(name_map_mutex_);
   for (auto it = transactions_.begin(); it != transactions_.end(); ++it) {
     if (it->second->GetState() == Transaction::PREPARED) {
+      if (for_read) {
+        Transaction* txn = it->second;
+        assert(txn);
+        if (!txn->IsIndexingEnabled()) {
+          assert(txn->GetWriteBatch());
+          txn->GetWriteBatch()->RebuildIndex();
+        }
+      }
       transv->push_back(it->second);
     }
   }
@@ -597,7 +622,7 @@ void PessimisticTransactionDB::SetDeadlockInfoBufferSize(uint32_t target_size) {
 void PessimisticTransactionDB::RegisterTransaction(Transaction* txn) {
   assert(txn);
   assert(txn->GetName().length() > 0);
-  assert(GetTransactionByName(txn->GetName()) == nullptr);
+  assert(GetTransactionByName(txn->GetName(), /*for_read=*/false) == nullptr);
   assert(txn->GetState() == Transaction::STARTED);
   std::lock_guard<std::mutex> lock(name_map_mutex_);
   transactions_[txn->GetName()] = txn;

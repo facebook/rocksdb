@@ -220,6 +220,8 @@ class TransactionBaseImpl : public Transaction {
 
   void EnableIndexing() override { indexing_enabled_ = true; }
 
+  bool IsIndexingEnabled() const override { return indexing_enabled_; }
+
   uint64_t GetElapsedTime() const override;
 
   uint64_t GetNumPuts() const override;

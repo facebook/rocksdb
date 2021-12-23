@@ -628,5 +628,7 @@ size_t WriteBatchWithIndex::GetDataSize() const {
   return rep->write_batch.GetDataSize();
 }
 
+Status WriteBatchWithIndex::RebuildIndex() { return rep->ReBuildIndex(); }
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE
