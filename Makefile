@@ -258,6 +258,8 @@ $(error pkg-config failed)
 endif
 endif
 
+CXXFLAGS += $(ARCHFLAG)
+
 ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc+crypto -xc /dev/null 2>&1))
 ifneq ($(PLATFORM),OS_MACOSX)
 CXXFLAGS += -march=armv8-a+crc+crypto
@@ -313,6 +315,19 @@ endif
 ifeq ($(LIB_MODE),shared)
 # So that binaries are executable from build location, in addition to install location
 EXEC_LDFLAGS += -Wl,-rpath -Wl,'$$ORIGIN'
+endif
+
+ifeq ($(PLATFORM), OS_MACOSX)
+ifeq ($(ARCHFLAG), -arch arm64)
+ifneq ($(MACHINE), arm64)
+# If we're building on a non-arm64 machine but targeting arm64 Mac, we need to disable
+# linking with jemalloc (as it won't be arm64-compatible) and remove some other options
+# set during platform detection
+DISABLE_JEMALLOC=1
+PLATFORM_CFLAGS := $(filter-out -march=native -DHAVE_SSE42, $(PLATFORM_CFLAGS))
+PLATFORM_CXXFLAGS := $(filter-out -march=native -DHAVE_SSE42, $(PLATFORM_CXXFLAGS))
+endif
+endif
 endif
 
 # ASAN doesn't work well with jemalloc. If we're compiling with ASAN, we should use regular malloc.
@@ -492,15 +507,6 @@ CFLAGS += $(C_WARNING_FLAGS) $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
-
-ifeq ($(PLATFORM),OS_MACOSX)
-ifneq (,$(findstring -arch arm64,$(CXXFLAGS)))
-CFLAGS := $(filter-out -march=native -DHAVE_SSE42 -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE $(JEMALLOC_INCLUDE) $(JEMALLOC_INCLUDE),$(CFLAGS))
-CXXFLAGS := $(filter-out -march=native -DHAVE_SSE42 -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE $(JEMALLOC_INCLUDE) $(JEMALLOC_INCLUDE),$(CXXFLAGS))
-LDFLAGS := $(filter-out -ljemalloc,$(LDFLAGS))
-JAVA_LDFLAGS := $(filter-out -ljemalloc,$(JAVA_LDFLAGS))
-endif
-endif
 
 LIB_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(LIB_SOURCES))
 LIB_OBJECTS += $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ROCKSDB_PLUGIN_SOURCES))
@@ -2249,9 +2255,9 @@ rocksdbjavastaticosx_arch_%:
 ifeq ($(JAVA_HOME),)
 	$(error JAVA_HOME is not set)
 endif
-	CXXFLAGS="$(CXXFLAGS)" ARCHFLAG="-arch $*" $(MAKE) rocksdbjavastatic_deps
-	CXXFLAGS="-arch $* $(CXXFLAGS)" $(MAKE) rocksdbjavastatic_libobjects
-	CXXFLAGS="-arch $* $(CXXFLAGS)" ROCKSDBJNILIB="librocksdbjni-osx-$*.jnilib" $(MAKE) rocksdbjavastatic_javalib
+	ARCHFLAG="-arch $*" $(MAKE) rocksdbjavastatic_deps
+	ARCHFLAG="-arch $*" $(MAKE) rocksdbjavastatic_libobjects
+	ARCHFLAG="-arch $*" ROCKSDBJNILIB="librocksdbjni-osx-$*.jnilib" $(MAKE) rocksdbjavastatic_javalib
 
 ifeq ($(JAR_CMD),)
 ifneq ($(JAVA_HOME),)
