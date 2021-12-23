@@ -3214,6 +3214,16 @@ class ModelDB : public DB {
     return true;
   }
 
+  Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* /*cf*/,
+                                  std::string /*ts_low*/) override {
+    return Status::OK();
+  }
+
+  Status GetFullHistoryTsLow(ColumnFamilyHandle* /*cf*/,
+                             std::string* /*ts_low*/) override {
+    return Status::OK();
+  }
+
   ColumnFamilyHandle* DefaultColumnFamily() const override { return nullptr; }
 
  private:

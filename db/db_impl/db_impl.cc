@@ -1496,6 +1496,30 @@ bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
   }
 }
 
+Status DBImpl::GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                   std::string* ts_low) {
+  if (ts_low == nullptr) {
+    return Status::InvalidArgument("ts_low is nullptr");
+  }
+  ColumnFamilyData* cfd = nullptr;
+  if (column_family == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  } else {
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+    assert(cfh != nullptr);
+    cfd = cfh->cfd();
+  }
+  assert(cfd != nullptr && cfd->user_comparator() != nullptr);
+  if (cfd->user_comparator()->timestamp_size() == 0) {
+    return Status::InvalidArgument(
+        "Timestamp is not enabled in this column family");
+  }
+  InstrumentedMutexLock l(&mutex_);
+  *ts_low = cfd->GetFullHistoryTsLow();
+  assert(cfd->user_comparator()->timestamp_size() == ts_low->size());
+  return Status::OK();
+}
+
 InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
                                               Arena* arena,
                                               RangeDelAggregator* range_del_agg,

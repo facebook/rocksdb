@@ -435,6 +435,51 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
   Close();
 }
 
+TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLowWithPublicAPI) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  std::string ts_low_str = Timestamp(9, 0);
+  ASSERT_OK(
+      db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(), ts_low_str));
+  std::string result_ts_low;
+  ASSERT_OK(db_->GetFullHistoryTsLow(nullptr, &result_ts_low));
+  ASSERT_TRUE(test_cmp.CompareTimestamp(ts_low_str, result_ts_low) == 0);
+  // test increase full_history_low backward
+  std::string ts_low_str_back = Timestamp(8, 0);
+  auto s = db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
+                                         ts_low_str_back);
+  ASSERT_EQ(s, Status::InvalidArgument());
+  // test IncreaseFullHistoryTsLow with a timestamp whose length is longger
+  // than the cf's timestamp size
+  std::string ts_low_str_long(Timestamp(0, 0).size() + 1, 'a');
+  s = db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
+                                    ts_low_str_long);
+  ASSERT_EQ(s, Status::InvalidArgument());
+  // test IncreaseFullHistoryTsLow with a timestamp which is null
+  std::string ts_low_str_null = "";
+  s = db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
+                                    ts_low_str_null);
+  ASSERT_EQ(s, Status::InvalidArgument());
+  // test IncreaseFullHistoryTsLow for a column family that does not enable
+  // timestamp
+  options.comparator = BytewiseComparator();
+  DestroyAndReopen(options);
+  ts_low_str = Timestamp(10, 0);
+  s = db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(), ts_low_str);
+  ASSERT_EQ(s, Status::InvalidArgument());
+  // test GetFullHistoryTsLow for a column family that does not enable
+  // timestamp
+  std::string current_ts_low;
+  s = db_->GetFullHistoryTsLow(db_->DefaultColumnFamily(), &current_ts_low);
+  ASSERT_EQ(s, Status::InvalidArgument());
+  Close();
+}
+
 TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
   Options options = CurrentOptions();
   options.write_buffer_size = 100000000;  // Large write buffer

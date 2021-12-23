@@ -17,6 +17,8 @@
 ### Public API change
 * Extend WriteBatch::AssignTimestamp and AssignTimestamps API so that both functions can accept an optional `checker` argument that performs additional checking on timestamp sizes.
 * Introduce a new EventListener callback that will be called upon the end of automatic error recovery.
+* Add IncreaseFullHistoryTsLow API so users can advance each column family's full_history_ts_low seperately.
+* Add GetFullHistoryTsLow API so users can query current full_history_low value of specified column family.
 
 ### Performance Improvements
 * Replaced map property `TableProperties::properties_offsets`  with uint64_t property `external_sst_file_global_seqno_offset` to save table properties's memory.
