@@ -329,6 +329,10 @@ RangeLockManagerHandle::Counters RangeTreeLockManager::GetStatus() {
       res.escalation_count = status->value.num;
       continue;
     }
+    if (strcmp(status->keyname, "LTM_WAIT_COUNT") == 0) {
+      res.lock_wait_count = status->value.num;
+      continue;
+    }
     if (strcmp(status->keyname, "LTM_SIZE_CURRENT") == 0) {
       res.current_lock_memory = status->value.num;
     }
