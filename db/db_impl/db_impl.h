@@ -1728,9 +1728,8 @@ class DBImpl : public DB {
                          WriteBatch* tmp_batch, size_t* write_with_wal,
                          WriteBatch** to_be_cached_state);
 
-  IOStatus WriteToWALInternal(const WriteBatch& merged_batch,
-                              log::Writer* log_writer, uint64_t* log_used,
-                              uint64_t* log_size);
+  IOStatus WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
+                      uint64_t* log_used, uint64_t* log_size);
 
   IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
                       log::Writer* log_writer, uint64_t* log_used,
