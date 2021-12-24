@@ -94,6 +94,10 @@ DEFINE_bool(net_includes_hashing, false,
 DEFINE_bool(optimize_filters_for_memory, false,
             "Setting for BlockBasedTableOptions::optimize_filters_for_memory");
 
+DEFINE_bool(detect_filter_construct_corruption, false,
+            "Setting for "
+            "BlockBasedTableOptions::detect_filter_construct_corruption");
+
 DEFINE_uint32(block_cache_capacity_MB, 8,
               "Setting for "
               "LRUCacheOptions::capacity");
@@ -210,6 +214,7 @@ struct FilterInfo {
   uint32_t filter_id_ = 0;
   std::unique_ptr<const char[]> owner_;
   Slice filter_;
+  bool filter_construction_corrupted = false;
   uint32_t keys_added_ = 0;
   std::unique_ptr<FilterBitsReader> reader_;
   std::unique_ptr<FullFilterBlockReader> full_block_reader_;
@@ -300,6 +305,7 @@ struct FilterBench : public MockBlockBasedTableTester {
     ioptions_.logger = &stderr_logger_;
     table_options_.optimize_filters_for_memory =
         FLAGS_optimize_filters_for_memory;
+    table_options_.detect_filter_construct_corruption = FLAGS_detect_filter_construct_corruption;
     if (FLAGS_reserve_table_builder_memory) {
       table_options_.reserve_table_builder_memory = true;
       table_options_.no_block_cache = false;
@@ -420,6 +426,7 @@ void FilterBench::Go() {
         builder->AddKey(kms_[0].Get(filter_id, i));
       }
       info.filter_ = builder->Finish(&info.owner_);
+      info.filter_construction_corrupted = (builder->PostVerify(info.filter_)).IsCorruption();
 #ifdef PREDICT_FP_RATE
       weighted_predicted_fp_rate +=
           keys_to_add *

@@ -29,6 +29,7 @@
 #include "util/ribbon_config.h"
 #include "util/ribbon_impl.h"
 
+
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
@@ -53,9 +54,9 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
  public:
   explicit XXPH3FilterBitsBuilder(
       std::atomic<int64_t>* aggregate_rounding_balance,
-      std::shared_ptr<CacheReservationManager> cache_res_mgr)
+      std::shared_ptr<CacheReservationManager> cache_res_mgr, bool detect_filter_construct_corruption)
       : aggregate_rounding_balance_(aggregate_rounding_balance),
-        cache_res_mgr_(cache_res_mgr) {}
+        cache_res_mgr_(cache_res_mgr), detect_filter_construct_corruption_(detect_filter_construct_corruption), hash_entries_checksum_(0) {}
 
   ~XXPH3FilterBitsBuilder() override {}
 
@@ -66,6 +67,10 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     // recognize and collapse for estimating true filter space
     // requirements.
     if (hash_entries_.empty() || hash != hash_entries_.back()) {
+      // TODO: xor
+      if (detect_filter_construct_corruption_) {
+        hash_entries_checksum_ ^= hash;
+      }
       hash_entries_.push_back(hash);
       if (cache_res_mgr_ &&
           // Traditional rounding to whole bucket size
@@ -100,6 +105,19 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     if (cache_res_mgr_) {
       std::swap(hash_entry_cache_res_bucket_handles_,
                 other->hash_entry_cache_res_bucket_handles_);
+    }
+    if (detect_filter_construct_corruption_) {
+      std::swap(hash_entries_checksum_, other->hash_entries_checksum_);
+    }
+  }
+
+  void ResetEntries() {
+    hash_entries_.clear();
+    if (cache_res_mgr_) {
+      hash_entry_cache_res_bucket_handles_.clear();
+    }
+    if (detect_filter_construct_corruption_) {
+      hash_entries_checksum_ = 0;
     }
   }
 
@@ -203,6 +221,15 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     return rv;
   }
 
+  Status VerifyHashEntriesChecksum() {
+    TEST_SYNC_POINT_CALLBACK("XXPH3FilterBitsBuilder::VerifyHashEntriesChecksum::PreVerification", &hash_entries_);
+    uint64_t actual_hash_entries_checksum = 0;
+    for (uint64_t h : hash_entries_){
+       actual_hash_entries_checksum ^= h;
+    }
+    return (actual_hash_entries_checksum == hash_entries_checksum_) ? Status::OK() : Status::Corruption("Hash entries checksum mismatched");
+  }
+
   // A deque avoids unnecessary copying of already-saved values
   // and has near-minimal peak memory use.
   std::deque<uint64_t> hash_entries_;
@@ -225,6 +252,10 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
   std::deque<std::unique_ptr<
       CacheReservationHandle<CacheEntryRole::kFilterConstruction>>>
       final_filter_cache_res_handles_;
+
+  bool detect_filter_construct_corruption_;
+
+  uint64_t hash_entries_checksum_;
 };
 
 // #################### FastLocalBloom implementation ################## //
@@ -237,8 +268,9 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
   explicit FastLocalBloomBitsBuilder(
       const int millibits_per_key,
       std::atomic<int64_t>* aggregate_rounding_balance,
-      std::shared_ptr<CacheReservationManager> cache_res_mgr)
-      : XXPH3FilterBitsBuilder(aggregate_rounding_balance, cache_res_mgr),
+      std::shared_ptr<CacheReservationManager> cache_res_mgr,
+      bool detect_filter_construct_corruption)
+      : XXPH3FilterBitsBuilder(aggregate_rounding_balance, cache_res_mgr, detect_filter_construct_corruption),
         millibits_per_key_(millibits_per_key) {
     assert(millibits_per_key >= 1000);
   }
@@ -282,12 +314,19 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
 
     uint32_t len = static_cast<uint32_t>(len_with_metadata - kMetadataLen);
     if (len > 0) {
+      if (detect_filter_construct_corruption_) {
+        Status verify_hash_entries_checksum_status = VerifyHashEntriesChecksum();
+        // TODO-question: error handling with FinishAlwaysFalse
+        if (verify_hash_entries_checksum_status.IsCorruption()) {
+          return FinishAlwaysFalse(buf);
+        }
+      }
       AddAllEntries(mutable_buf.get(), len, num_probes);
     }
 
-    assert(hash_entries_.empty());
-    // Release cache for hash entries
-    hash_entry_cache_res_bucket_handles_.clear();
+    if (!detect_filter_construct_corruption_) {
+      ResetEntries();
+    }
 
     // See BloomFilterPolicy::GetBloomBitsReader re: metadata
     // -1 = Marker for newer Bloom implementations
@@ -302,6 +341,40 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
     *buf = std::move(mutable_buf);
     return rv;
   }
+
+  Status PostVerify(Slice filter_content) override {
+    Status s = Status::OK();
+
+    if (!detect_filter_construct_corruption_) {
+      s = Status::NotSupported(
+          "Detection of filter construction corruption is not supported since "
+          "BlockBasedTableOptions::detect_filter_construct_corruption = false");
+    } else if (filter_content.empty()) {
+      s = Status::NotSupported(
+          "Detection of filter construction corruption is not supported for "
+          "empty filter content");
+    } else {
+      const size_t len_with_metadata = filter_content.size();
+      assert(len_with_metadata >= kMetadataLen);
+      const uint32_t len =
+          static_cast<uint32_t>(len_with_metadata - kMetadataLen);
+
+      for (uint64_t h : hash_entries_) {
+        bool may_match = FastLocalBloomImpl::HashMayMatch(
+            Lower32of64(h), Upper32of64(h), len,
+            GetNumProbes(hash_entries_.size(), len_with_metadata),
+            filter_content.data());
+        if (!may_match) {
+          s = Status::Corruption("Corrupted filter content");
+          break;
+        }
+      }
+    }
+
+    ResetEntries();
+    return s;
+  }
+
 
   size_t ApproximateNumEntries(size_t bytes) override {
     size_t bytes_no_meta =
@@ -384,6 +457,10 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
     for (; i <= kBufferMask && i < num_entries; ++i) {
       uint64_t h = hash_entries_.front();
       hash_entries_.pop_front();
+      // TODO: api to decide enqueue again for another data structure
+      if (detect_filter_construct_corruption_) {
+        hash_entries_.push_back(h);
+      }
       FastLocalBloomImpl::PrepareHash(Lower32of64(h), len, data,
                                       /*out*/ &byte_offsets[i]);
       hashes[i] = Upper32of64(h);
@@ -399,6 +476,10 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
       // And buffer
       uint64_t h = hash_entries_.front();
       hash_entries_.pop_front();
+      // TODO: api to decide enqueue again for another data structure
+      if (detect_filter_construct_corruption_) {
+        hash_entries_.push_back(h);
+      }
       FastLocalBloomImpl::PrepareHash(Lower32of64(h), len, data,
                                       /*out*/ &byte_offset_ref);
       hash_ref = Upper32of64(h);
@@ -486,12 +567,12 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
   explicit Standard128RibbonBitsBuilder(
       double desired_one_in_fp_rate, int bloom_millibits_per_key,
       std::atomic<int64_t>* aggregate_rounding_balance,
-      std::shared_ptr<CacheReservationManager> cache_res_mgr, Logger* info_log)
-      : XXPH3FilterBitsBuilder(aggregate_rounding_balance, cache_res_mgr),
+      std::shared_ptr<CacheReservationManager> cache_res_mgr, bool detect_filter_construct_corruption, Logger* info_log)
+      : XXPH3FilterBitsBuilder(aggregate_rounding_balance, cache_res_mgr, detect_filter_construct_corruption),
         desired_one_in_fp_rate_(desired_one_in_fp_rate),
         info_log_(info_log),
         bloom_fallback_(bloom_millibits_per_key, aggregate_rounding_balance,
-                        cache_res_mgr) {
+                        cache_res_mgr, detect_filter_construct_corruption) {
     assert(desired_one_in_fp_rate >= 1.0);
   }
 
@@ -558,6 +639,15 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
       return bloom_fallback_.Finish(buf);
     }
 
+    if(detect_filter_construct_corruption_) {
+      Status verify_hash_entries_checksum_status = VerifyHashEntriesChecksum();
+      // TODO: error handling
+      if (verify_hash_entries_checksum_status.IsCorruption()) {
+        ROCKS_LOG_WARN(info_log_, "Corruption: hash entries checksum mismatched");
+        return FinishAlwaysFalse(buf);
+      }
+    }
+
     bool success = banding.ResetAndFindSeedToSolve(
         num_slots, hash_entries_.begin(), hash_entries_.end(),
         /*starting seed*/ entropy & 255, /*seed mask*/ 255);
@@ -570,9 +660,10 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
       assert(hash_entries_.empty());
       return bloom_fallback_.Finish(buf);
     }
-    hash_entries_.clear();
-    // Release cache for hash entries
-    hash_entry_cache_res_bucket_handles_.clear();
+
+    if (!detect_filter_construct_corruption_) {
+      ResetEntries();
+    }
 
     uint32_t seed = banding.GetOrdinalSeed();
     assert(seed < 256);
@@ -622,6 +713,61 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
     Slice rv(mutable_buf.get(), len_with_metadata);
     *buf = std::move(mutable_buf);
     return rv;
+  }
+
+
+  Status PostVerify(Slice filter_content) override {
+    Status s = Status::OK();
+
+    if (!detect_filter_construct_corruption_){
+      ResetEntries();
+      return Status::NotSupported("Detection of filter construction corruption is not supported since BlockBasedTableOptions::detect_filter_construct_corruption = false");
+    } else if (filter_content.empty()) {
+      ResetEntries();
+      return Status::NotSupported("Detection of filter construction corruption is not supported for empty filter content");
+    }
+
+    const size_t len_with_metadata = filter_content.size();
+    assert(len_with_metadata >= kMetadataLen);
+    const size_t len = len_with_metadata - kMetadataLen;
+
+    bool did_fallback = (filter_content.data()[len] == static_cast<char>(-1));
+    if (did_fallback) {
+      s = bloom_fallback_.PostVerify(filter_content);
+    } else {
+      // TODO-question: why different length of soln between finding solution
+      // and key may match; same soln
+      SolnType soln(const_cast<char*>(filter_content.data()), len);
+
+      uint32_t num_blocks =
+          static_cast<uint8_t>(filter_content.data()[len + 2]);
+      num_blocks |= static_cast<uint8_t>(filter_content.data()[len + 3]) << 8;
+      num_blocks |= static_cast<uint8_t>(filter_content.data()[len + 4]) << 16;
+
+      // TODO-question: num blocks < 2 not supported postverify
+      if (num_blocks < 2) {
+        s = Status::NotSupported("");
+      } else {
+        // TODO-question: complicated lower level ribbon filter check
+        soln.ConfigureForNumBlocks(num_blocks);
+
+        HasherType hasher;
+        uint32_t seed = static_cast<uint8_t>(filter_content.data()[len + 1]);
+        hasher.SetOrdinalSeed(seed);
+
+        assert(!hash_entries_.empty());
+        for (uint64_t h : hash_entries_) {
+          bool may_match = soln.FilterQuery(h, hasher);
+          if (!may_match) {
+            s = Status::Corruption("Hash does not match");
+            break;
+          }
+        }
+      }
+    }
+
+    ResetEntries();
+    return s;
   }
 
   // Setting num_slots to 0 means "fall back on Bloom filter."
@@ -779,6 +925,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
   using SolnType = ribbon::SerializableInterleavedSolution<TS>;
   using BandingType = ribbon::StandardBanding<TS>;
   using ConfigHelper = ribbon::BandingConfigHelper1TS<ribbon::kOneIn20, TS>;
+  using HasherType = ribbon::StandardHasher<TS>;
 
   static uint32_t NumEntriesToNumSlots(uint32_t num_entries) {
     uint32_t num_slots1 = ConfigHelper::GetNumSlots(num_entries);
@@ -1261,7 +1408,7 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
       case kFastLocalBloom:
         return new FastLocalBloomBitsBuilder(
             millibits_per_key_, offm ? &aggregate_rounding_balance_ : nullptr,
-            cache_res_mgr);
+            cache_res_mgr, context.table_options.detect_filter_construct_corruption);
       case kLegacyBloom:
         if (whole_bits_per_key_ >= 14 && context.info_log &&
             !warned_.load(std::memory_order_relaxed)) {
@@ -1286,7 +1433,7 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
       case kStandard128Ribbon:
         return new Standard128RibbonBitsBuilder(
             desired_one_in_fp_rate_, millibits_per_key_,
-            offm ? &aggregate_rounding_balance_ : nullptr, cache_res_mgr,
+            offm ? &aggregate_rounding_balance_ : nullptr, cache_res_mgr, context.table_options.detect_filter_construct_corruption,
             context.info_log);
     }
   }

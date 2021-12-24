@@ -65,6 +65,9 @@ class FilterBitsBuilder {
   // The ownership of actual data is set to buf
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
 
+  // TODO: comment
+  virtual Status PostVerify(Slice /* filter_content */) {return Status::NotSupported();}
+
   // Approximate the number of keys that can be added and generate a filter
   // <= the specified number of bytes. Callers (including RocksDB) should
   // only use this result for optimizing performance and not as a guarantee.
