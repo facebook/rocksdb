@@ -2082,7 +2082,6 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
   if (ucmp->timestamp_size() > 0) {
-    assert(false);
     return Status::InvalidArgument(
         "Cannot call this method on column family enabling timestamp");
   }
@@ -2106,13 +2105,11 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
   if (0 == ucmp->timestamp_size()) {
-    assert(false);
     return Status::InvalidArgument(
         "Cannot call this method on column family disabling timestamp");
   }
   size_t ts_sz = ts.size();
   if (ts_sz != ucmp->timestamp_size()) {
-    assert(false);
     return Status::InvalidArgument("Timestamp size mismatch");
   }
   ColumnFamilyHandle* default_cf = DefaultColumnFamily();
@@ -2134,7 +2131,6 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
   if (ucmp->timestamp_size() > 0) {
-    assert(false);
     return Status::InvalidArgument(
         "Cannot call this method on column family enabling timestamp");
   }
@@ -2156,13 +2152,11 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
   if (0 == ucmp->timestamp_size()) {
-    assert(false);
     return Status::InvalidArgument(
         "Cannot call this method on column family disabling timestamp");
   }
   size_t ts_sz = ts.size();
   if (ts_sz != ucmp->timestamp_size()) {
-    assert(false);
     return Status::InvalidArgument("Timestamp size mismatch");
   }
   ColumnFamilyHandle* default_cf = DefaultColumnFamily();
@@ -2184,7 +2178,6 @@ Status DB::SingleDelete(const WriteOptions& opt,
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
   if (ucmp->timestamp_size() > 0) {
-    assert(false);
     return Status::InvalidArgument(
         "Cannot call this method on column family enabling timestamp");
   }
@@ -2207,13 +2200,11 @@ Status DB::SingleDelete(const WriteOptions& opt,
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
   if (0 == ucmp->timestamp_size()) {
-    assert(false);
     return Status::InvalidArgument(
         "Cannot call this method on column family disabling timestamp");
   }
   size_t ts_sz = ts.size();
   if (ts_sz != ucmp->timestamp_size()) {
-    assert(false);
     return Status::InvalidArgument("Timestamp size mismatch");
   }
   ColumnFamilyHandle* default_cf = DefaultColumnFamily();
@@ -2236,7 +2227,6 @@ Status DB::DeleteRange(const WriteOptions& opt,
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
   if (ucmp->timestamp_size() > 0) {
-    assert(false);
     return Status::InvalidArgument(
         "Cannot call this method on column family enabling timestamp");
   }
@@ -2255,7 +2245,6 @@ Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
   if (ucmp->timestamp_size() > 0) {
-    assert(false);
     return Status::InvalidArgument(
         "Cannot call this method on column family enabling timestamp");
   }
