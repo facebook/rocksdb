@@ -357,6 +357,12 @@ class StackableDB : public DB {
     return db_->GetLiveFilesChecksumInfo(checksum_list);
   }
 
+  virtual Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& opts,
+      std::vector<LiveFileStorageInfo>* files) override {
+    return db_->GetLiveFilesStorageInfo(opts, files);
+  }
+
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                        ColumnFamilyMetaData* cf_meta) override {
     db_->GetColumnFamilyMetaData(column_family, cf_meta);
@@ -390,6 +396,13 @@ class StackableDB : public DB {
   using DB::EndTrace;
   Status EndTrace() override { return db_->EndTrace(); }
 
+  using DB::NewDefaultReplayer;
+  Status NewDefaultReplayer(const std::vector<ColumnFamilyHandle*>& handles,
+                            std::unique_ptr<TraceReader>&& reader,
+                            std::unique_ptr<Replayer>* replayer) override {
+    return db_->NewDefaultReplayer(handles, std::move(reader), replayer);
+  }
+
 #endif  // ROCKSDB_LITE
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
@@ -404,6 +417,16 @@ class StackableDB : public DB {
   virtual bool SetPreserveDeletesSequenceNumber(
       SequenceNumber seqnum) override {
     return db_->SetPreserveDeletesSequenceNumber(seqnum);
+  }
+
+  Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                  std::string ts_low) override {
+    return db_->IncreaseFullHistoryTsLow(column_family, ts_low);
+  }
+
+  Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                             std::string* ts_low) override {
+    return db_->GetFullHistoryTsLow(column_family, ts_low);
   }
 
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override {

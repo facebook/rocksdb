@@ -40,7 +40,7 @@ Status s = DB::Open(options, kDBPath, &db);
 
 # Performance Test
 ## Compile
-Check this [link](https://github.com/facebook/rocksdb/blob/master/INSTALL.md) to install the dependencies of RocksDB. Then you can compile it by running `$ make env_librados_test ROCKSDB_USE_LIBRADOS=1` under `rocksdb\`. The configure file used by env_librados_test is `../ceph/src/ceph.conf`. For Ubuntu 14.04, just run following commands:
+Check this [link](https://github.com/facebook/rocksdb/blob/main/INSTALL.md) to install the dependencies of RocksDB. Then you can compile it by running `$ make env_librados_test ROCKSDB_USE_LIBRADOS=1` under `rocksdb\`. The configure file used by env_librados_test is `../ceph/src/ceph.conf`. For Ubuntu 14.04, just run following commands:
 ```bash
 $ sudo apt-get install libgflags-dev
 $ sudo apt-get install libsnappy-dev

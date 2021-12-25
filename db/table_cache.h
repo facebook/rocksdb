@@ -48,10 +48,11 @@ class HistogramImpl;
 // ioptions.row_cache
 class TableCache {
  public:
-  TableCache(const ImmutableCFOptions& ioptions,
-             const FileOptions& storage_options, Cache* cache,
+  TableCache(const ImmutableOptions& ioptions,
+             const FileOptions* storage_options, Cache* cache,
              BlockCacheTracer* const block_cache_tracer,
-             const std::shared_ptr<IOTracer>& io_tracer);
+             const std::shared_ptr<IOTracer>& io_tracer,
+             const std::string& db_session_id);
   ~TableCache();
 
   // Return an iterator for the specified file number (the corresponding
@@ -124,6 +125,9 @@ class TableCache {
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
 
+  // Query whether specified file number is currently in cache
+  static bool HasEntry(Cache* cache, uint64_t file_number);
+
   // Clean table handle and erase it from the table cache
   // Used in DB close, or the file is not live anymore.
   void EraseHandle(const FileDescriptor& fd, Cache::Handle* handle);
@@ -139,7 +143,8 @@ class TableCache {
                    HistogramImpl* file_read_hist = nullptr,
                    bool skip_filters = false, int level = -1,
                    bool prefetch_index_and_filter_in_cache = true,
-                   size_t max_file_size_for_l0_meta_pin = 0);
+                   size_t max_file_size_for_l0_meta_pin = 0,
+                   Temperature file_temperature = Temperature::kUnknown);
 
   // Get TableReader from a cache handle.
   TableReader* GetTableReaderFromHandle(Cache::Handle* handle);
@@ -205,7 +210,8 @@ class TableCache {
                         const SliceTransform* prefix_extractor = nullptr,
                         bool skip_filters = false, int level = -1,
                         bool prefetch_index_and_filter_in_cache = true,
-                        size_t max_file_size_for_l0_meta_pin = 0);
+                        size_t max_file_size_for_l0_meta_pin = 0,
+                        Temperature file_temperature = Temperature::kUnknown);
 
   // Create a key prefix for looking up the row cache. The prefix is of the
   // format row_cache_id + fd_number + seq_no. Later, the user key can be
@@ -220,7 +226,7 @@ class TableCache {
   bool GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
                        size_t prefix_size, GetContext* get_context);
 
-  const ImmutableCFOptions& ioptions_;
+  const ImmutableOptions& ioptions_;
   const FileOptions& file_options_;
   Cache* const cache_;
   std::string row_cache_id_;
@@ -228,6 +234,7 @@ class TableCache {
   BlockCacheTracer* const block_cache_tracer_;
   Striped<port::Mutex, Slice> loader_mutex_;
   std::shared_ptr<IOTracer> io_tracer_;
+  std::string db_session_id_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

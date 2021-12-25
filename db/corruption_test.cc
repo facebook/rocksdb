@@ -55,14 +55,9 @@ class CorruptionTest : public testing::Test {
     // bug in recovery code. Keep it 4 for now to make the test passes.
     tiny_cache_ = NewLRUCache(100, 4);
     Env* base_env = Env::Default();
-#ifndef ROCKSDB_LITE
-    const char* test_env_uri = getenv("TEST_ENV_URI");
-    if (test_env_uri) {
-      Status s = Env::LoadEnv(test_env_uri, &base_env, &env_guard_);
-      EXPECT_OK(s);
-      EXPECT_NE(Env::Default(), base_env);
-    }
-#endif  //! ROCKSDB_LITE
+    EXPECT_OK(
+        test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
+    EXPECT_NE(base_env, nullptr);
     env_ = new test::ErrorEnv(base_env);
     options_.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
     options_.env = env_;
@@ -549,9 +544,9 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
       fs->GetFileSize(filename, file_opts.io_options, &file_size, nullptr));
 
   BlockHandle range_del_handle;
-  ASSERT_OK(FindMetaBlock(
+  ASSERT_OK(FindMetaBlockInFile(
       file_reader.get(), file_size, kBlockBasedTableMagicNumber,
-      ImmutableCFOptions(options_), kRangeDelBlock, &range_del_handle));
+      ImmutableOptions(options_), kRangeDelBlockName, &range_del_handle));
 
   ASSERT_OK(TryReopen());
   ASSERT_OK(test::CorruptFile(env_, filename,
@@ -894,14 +889,6 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
-}
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

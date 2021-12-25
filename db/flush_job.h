@@ -19,7 +19,6 @@
 
 #include "db/blob/blob_file_completion_callback.h"
 #include "db/column_family.h"
-#include "db/dbformat.h"
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"
 #include "db/job_context.h"
@@ -83,7 +82,8 @@ class FlushJob {
   // Once PickMemTable() is called, either Run() or Cancel() has to be called.
   void PickMemTable();
   Status Run(LogsWithPrepTracker* prep_tracker = nullptr,
-             FileMetaData* file_meta = nullptr);
+             FileMetaData* file_meta = nullptr,
+             bool* switched_to_mempurge = nullptr);
   void Cancel();
   const autovector<MemTable*>& GetMemTables() const { return mems_; }
 
@@ -101,6 +101,29 @@ class FlushJob {
   void ReportFlushInputSize(const autovector<MemTable*>& mems);
   void RecordFlushIOStats();
   Status WriteLevel0Table();
+
+  // Memtable Garbage Collection algorithm: a MemPurge takes the list
+  // of immutable memtables and filters out (or "purge") the outdated bytes
+  // out of it. The output (the filtered bytes, or "useful payload") is
+  // then transfered into a new memtable. If this memtable is filled, then
+  // the mempurge is aborted and rerouted to a regular flush process. Else,
+  // depending on the heuristics, placed onto the immutable memtable list.
+  // The addition to the imm list will not trigger a flush operation. The
+  // flush of the imm list will instead be triggered once the mutable memtable
+  // is added to the imm list.
+  // This process is typically intended for workloads with heavy overwrites
+  // when we want to avoid SSD writes (and reads) as much as possible.
+  // "MemPurge" is an experimental feature still at a very early stage
+  // of development. At the moment it is only compatible with the Get, Put,
+  // Delete operations as well as Iterators and CompactionFilters.
+  // For this early version, "MemPurge" is called by setting the
+  // options.experimental_mempurge_threshold value as >0.0. When this is
+  // the case, ALL automatic flush operations (kWRiteBufferManagerFull) will
+  // first go through the MemPurge process. Therefore, we strongly
+  // recommend all users not to set this flag as true given that the MemPurge
+  // process has not matured yet.
+  Status MemPurge();
+  bool MemPurgeDecider();
 #ifndef ROCKSDB_LITE
   std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
 #endif  // !ROCKSDB_LITE

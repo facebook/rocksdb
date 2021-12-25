@@ -687,6 +687,16 @@ public class OptionsTest {
   }
 
   @Test
+  public void setWriteBufferManagerWithAllowStall() throws RocksDBException {
+    try (final Options opt = new Options(); final Cache cache = new LRUCache(1 * 1024 * 1024);
+         final WriteBufferManager writeBufferManager = new WriteBufferManager(2000l, cache, true)) {
+      opt.setWriteBufferManager(writeBufferManager);
+      assertThat(opt.writeBufferManager()).isEqualTo(writeBufferManager);
+      assertThat(opt.writeBufferManager().allowStall()).isEqualTo(true);
+    }
+  }
+
+  @Test
   public void accessHintOnCompactionStart() {
     try (final Options opt = new Options()) {
       final AccessHint accessHint = AccessHint.SEQUENTIAL;
@@ -1253,6 +1263,14 @@ public class OptionsTest {
       options.setTtl(1000 * 60);
       assertThat(options.ttl()).
           isEqualTo(1000 * 60);
+    }
+  }
+
+  @Test
+  public void periodicCompactionSeconds() {
+    try (final Options options = new Options()) {
+      options.setPeriodicCompactionSeconds(1000 * 60);
+      assertThat(options.periodicCompactionSeconds()).isEqualTo(1000 * 60);
     }
   }
 

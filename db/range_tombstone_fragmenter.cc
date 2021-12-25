@@ -25,12 +25,15 @@ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
     return;
   }
   bool is_sorted = true;
-  int num_tombstones = 0;
   InternalKey pinned_last_start_key;
   Slice last_start_key;
+  num_unfragmented_tombstones_ = 0;
+  total_tombstone_payload_bytes_ = 0;
   for (unfragmented_tombstones->SeekToFirst(); unfragmented_tombstones->Valid();
-       unfragmented_tombstones->Next(), num_tombstones++) {
-    if (num_tombstones > 0 &&
+       unfragmented_tombstones->Next(), num_unfragmented_tombstones_++) {
+    total_tombstone_payload_bytes_ += unfragmented_tombstones->key().size() +
+                                      unfragmented_tombstones->value().size();
+    if (num_unfragmented_tombstones_ > 0 &&
         icmp.Compare(last_start_key, unfragmented_tombstones->key()) > 0) {
       is_sorted = false;
       break;
@@ -50,10 +53,14 @@ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
 
   // Sort the tombstones before fragmenting them.
   std::vector<std::string> keys, values;
-  keys.reserve(num_tombstones);
-  values.reserve(num_tombstones);
+  keys.reserve(num_unfragmented_tombstones_);
+  values.reserve(num_unfragmented_tombstones_);
+  // Reset the counter to zero for the next iteration over keys.
+  total_tombstone_payload_bytes_ = 0;
   for (unfragmented_tombstones->SeekToFirst(); unfragmented_tombstones->Valid();
        unfragmented_tombstones->Next()) {
+    total_tombstone_payload_bytes_ += unfragmented_tombstones->key().size() +
+                                      unfragmented_tombstones->value().size();
     keys.emplace_back(unfragmented_tombstones->key().data(),
                       unfragmented_tombstones->key().size());
     values.emplace_back(unfragmented_tombstones->value().data(),

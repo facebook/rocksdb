@@ -132,6 +132,10 @@ class Status {
   };
 
   Status(const Status& s, Severity sev);
+
+  Status(Code _code, SubCode _subcode, Severity _sev, const Slice& msg)
+      : Status(_code, _subcode, msg, "", _sev) {}
+
   Severity severity() const {
     MarkChecked();
     return sev_;
@@ -447,14 +451,11 @@ class Status {
   std::string ToString() const;
 
  protected:
-  // A nullptr state_ (which is always the case for OK) means the message
-  // is empty.
-  // of the following form:
-  //    state_[0..3] == length of message
-  //    state_[4..]  == message
   Code code_;
   SubCode subcode_;
   Severity sev_;
+  // A nullptr state_ (which is at least the case for OK) means the extra
+  // message is empty.
   const char* state_;
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
   mutable bool checked_ = false;
@@ -463,7 +464,8 @@ class Status {
   explicit Status(Code _code, SubCode _subcode = kNone)
       : code_(_code), subcode_(_subcode), sev_(kNoError), state_(nullptr) {}
 
-  Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2);
+  Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2,
+         Severity sev = kNoError);
   Status(Code _code, const Slice& msg, const Slice& msg2)
       : Status(_code, kNone, msg, msg2) {}
 

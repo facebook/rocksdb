@@ -9,7 +9,7 @@
 int main() {
   fprintf(stderr,
           "Please install gflags to run block_cache_trace_analyzer_test\n");
-  return 1;
+  return 0;
 }
 #else
 
@@ -18,9 +18,11 @@ int main() {
 #include <map>
 #include <vector>
 
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "rocksdb/trace_reader_writer.h"
+#include "rocksdb/trace_record.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "tools/block_cache_analyzer/block_cache_trace_analyzer.h"

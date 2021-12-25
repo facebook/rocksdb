@@ -8,11 +8,18 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/comparator.h"
+
 #include <stdint.h>
+
 #include <algorithm>
 #include <memory>
+#include <mutex>
+
 #include "port/port.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/utilities/customizable_util.h"
+#include "rocksdb/utilities/object_registry.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -20,8 +27,8 @@ namespace {
 class BytewiseComparatorImpl : public Comparator {
  public:
   BytewiseComparatorImpl() { }
-
-  const char* Name() const override { return "leveldb.BytewiseComparator"; }
+  static const char* kClassName() { return "leveldb.BytewiseComparator"; }
+  const char* Name() const override { return kClassName(); }
 
   int Compare(const Slice& a, const Slice& b) const override {
     return a.compare(b);
@@ -139,9 +146,10 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
  public:
   ReverseBytewiseComparatorImpl() { }
 
-  const char* Name() const override {
+  static const char* kClassName() {
     return "rocksdb.ReverseBytewiseComparator";
   }
+  const char* Name() const override { return kClassName(); }
 
   int Compare(const Slice& a, const Slice& b) const override {
     return -a.compare(b);
@@ -220,4 +228,67 @@ const Comparator* ReverseBytewiseComparator() {
   return &rbytewise;
 }
 
+#ifndef ROCKSDB_LITE
+static int RegisterBuiltinComparators(ObjectLibrary& library,
+                                      const std::string& /*arg*/) {
+  library.Register<const Comparator>(
+      BytewiseComparatorImpl::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const Comparator>* /*guard */,
+         std::string* /* errmsg */) { return BytewiseComparator(); });
+  library.Register<const Comparator>(
+      ReverseBytewiseComparatorImpl::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const Comparator>* /*guard */,
+         std::string* /* errmsg */) { return ReverseBytewiseComparator(); });
+  return 2;
+}
+#endif  // ROCKSDB_LITE
+
+Status Comparator::CreateFromString(const ConfigOptions& config_options,
+                                    const std::string& value,
+                                    const Comparator** result) {
+#ifndef ROCKSDB_LITE
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterBuiltinComparators(*(ObjectLibrary::Default().get()), "");
+  });
+#endif  // ROCKSDB_LITE
+  std::string id;
+  std::unordered_map<std::string, std::string> opt_map;
+  Status status = Customizable::GetOptionsMap(config_options, *result, value,
+                                              &id, &opt_map);
+  if (!status.ok()) {  // GetOptionsMap failed
+    return status;
+  }
+  if (id == BytewiseComparatorImpl::kClassName()) {
+    *result = BytewiseComparator();
+  } else if (id == ReverseBytewiseComparatorImpl::kClassName()) {
+    *result = ReverseBytewiseComparator();
+  } else if (value.empty()) {
+    // No Id and no options.  Clear the object
+    *result = nullptr;
+    return Status::OK();
+  } else if (id.empty()) {  // We have no Id but have options.  Not good
+    return Status::NotSupported("Cannot reset object ", id);
+  } else {
+#ifndef ROCKSDB_LITE
+    status = config_options.registry->NewStaticObject(id, result);
+#else
+    status = Status::NotSupported("Cannot load object in LITE mode ", id);
+#endif  // ROCKSDB_LITE
+    if (!status.ok()) {
+      if (config_options.ignore_unsupported_options &&
+          status.IsNotSupported()) {
+        return Status::OK();
+      } else {
+        return status;
+      }
+    } else if (!opt_map.empty()) {
+      Comparator* comparator = const_cast<Comparator*>(*result);
+      status = comparator->ConfigureFromMap(config_options, opt_map);
+    }
+  }
+  return status;
+}
 }  // namespace ROCKSDB_NAMESPACE

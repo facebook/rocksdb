@@ -413,6 +413,32 @@ public class MergeTest {
   }
 
   @Test
+  public void emptyStringAsStringAppendDelimiter() throws RocksDBException {
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator("");
+         final Options opt =
+             new Options().setCreateIfMissing(true).setMergeOperator(stringAppendOperator);
+         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+      db.put("key".getBytes(), "aa".getBytes());
+      db.merge("key".getBytes(), "bb".getBytes());
+      final byte[] value = db.get("key".getBytes());
+      assertThat(new String(value)).isEqualTo("aabb");
+    }
+  }
+
+  @Test
+  public void multiCharStringAsStringAppendDelimiter() throws RocksDBException {
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator("<>");
+         final Options opt =
+             new Options().setCreateIfMissing(true).setMergeOperator(stringAppendOperator);
+         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+      db.put("key".getBytes(), "aa".getBytes());
+      db.merge("key".getBytes(), "bb".getBytes());
+      final byte[] value = db.get("key".getBytes());
+      assertThat(new String(value)).isEqualTo("aa<>bb");
+    }
+  }
+
+  @Test
   public void emptyStringInSetMergeOperatorByName() {
     try (final Options opt = new Options()
         .setMergeOperatorName("");

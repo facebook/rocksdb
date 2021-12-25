@@ -215,8 +215,7 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
                            compression);
     s = UncompressBlockContentsForCompressionType(
         info, slice.data() + key_size, static_cast<size_t>(value_size),
-        &contents, 2 /*compress_format_version*/,
-        ImmutableCFOptions(Options()));
+        &contents, 2 /*compress_format_version*/, ImmutableOptions(Options()));
     if (!s.ok()) {
       return s;
     }

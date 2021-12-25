@@ -114,8 +114,6 @@ PointLockManager::PointLockManager(PessimisticTransactionDB* txn_db,
                          ? opt.custom_mutex_factory
                          : std::make_shared<TransactionDBMutexFactoryImpl>()) {}
 
-PointLockManager::~PointLockManager() {}
-
 size_t LockMap::GetStripe(const std::string& key) const {
   assert(num_stripes_ > 0);
   return FastRange64(GetSliceNPHash64(key), num_stripes_);

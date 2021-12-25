@@ -58,9 +58,8 @@ static const char* msgs[static_cast<int>(Status::kMaxSubCode)] = {
 };
 
 Status::Status(Code _code, SubCode _subcode, const Slice& msg,
-               const Slice& msg2)
-    : code_(_code), subcode_(_subcode), sev_(kNoError) {
-  assert(code_ != kOk);
+               const Slice& msg2, Severity sev)
+    : code_(_code), subcode_(_subcode), sev_(sev) {
   assert(subcode_ != kMaxSubCode);
   const size_t len1 = msg.size();
   const size_t len2 = msg2.size();

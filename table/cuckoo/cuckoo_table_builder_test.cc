@@ -14,6 +14,7 @@
 
 #include "file/random_access_file_reader.h"
 #include "file/writable_file_writer.h"
+#include "rocksdb/db.h"
 #include "rocksdb/file_system.h"
 #include "table/meta_blocks.h"
 #include "test_util/testharness.h"
@@ -64,13 +65,12 @@ class CuckooBuilderTest : public testing::Test {
 
     Options options;
     options.allow_mmap_reads = true;
-    ImmutableCFOptions ioptions(options);
+    ImmutableOptions ioptions(options);
 
     // Assert Table Properties.
-    TableProperties* props = nullptr;
+    std::unique_ptr<TableProperties> props;
     ASSERT_OK(ReadTableProperties(file_reader.get(), read_file_size,
-                                  kCuckooTableMagicNumber, ioptions,
-                                  &props, true /* compression_type_missing */));
+                                  kCuckooTableMagicNumber, ioptions, &props));
     // Check unused bucket.
     std::string unused_key = props->user_collected_properties[
       CuckooTablePropertyNames::kEmptyKey];
@@ -107,7 +107,6 @@ class CuckooBuilderTest : public testing::Test {
     ASSERT_EQ(props->raw_key_size, keys.size()*props->fixed_key_len);
     ASSERT_EQ(props->column_family_id, 0);
     ASSERT_EQ(props->column_family_name, kDefaultColumnFamilyName);
-    delete props;
 
     // Check contents of the bucket.
     std::vector<bool> keys_found(keys.size(), false);

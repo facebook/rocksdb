@@ -45,8 +45,13 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
   virtual bool IsBlockBased() override { return true; }
   virtual void StartBlock(uint64_t block_offset) override;
   virtual void Add(const Slice& key_without_ts) override;
-  virtual size_t NumAdded() const override { return num_added_; }
-  virtual Slice Finish(const BlockHandle& tmp, Status* status) override;
+  virtual bool IsEmpty() const override {
+    return start_.empty() && filter_offsets_.empty();
+  }
+  virtual size_t EstimateEntriesAdded() override;
+  virtual Slice Finish(
+      const BlockHandle& tmp, Status* status,
+      std::unique_ptr<const char[]>* filter_data = nullptr) override;
   using FilterBlockBuilder::Finish;
 
  private:
@@ -70,7 +75,7 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
   std::string result_;              // Filter data computed so far
   std::vector<Slice> tmp_entries_;  // policy_->CreateFilter() argument
   std::vector<uint32_t> filter_offsets_;
-  size_t num_added_;  // Number of keys added
+  uint64_t total_added_in_built_;  // Total keys added to filters built so far
 };
 
 // A FilterBlockReader is used to parse filter from SST table.
