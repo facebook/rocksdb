@@ -98,6 +98,7 @@ class LegacySystemClock : public SystemClock {
     return env_->TimeToString(time);
   }
 
+#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& /*config_options*/,
                                const std::string& /*prefix*/) const override {
     // We do not want the LegacySystemClock to appear in the serialized output.
@@ -105,6 +106,7 @@ class LegacySystemClock : public SystemClock {
     // would be part of the Env.  As such, do not serialize it here.
     return "";
   }
+#endif  // ROCKSDB_LITE
 };
 
 class LegacySequentialFileWrapper : public FSSequentialFile {
@@ -600,6 +602,7 @@ class LegacyFileSystemWrapper : public FileSystem {
     return status_to_io_status(target_->IsDirectory(path, is_dir));
   }
 
+#ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& /*config_options*/,
                                const std::string& /*prefix*/) const override {
     // We do not want the LegacyFileSystem to appear in the serialized output.
@@ -607,7 +610,7 @@ class LegacyFileSystemWrapper : public FileSystem {
     // would be part of the Env.  As such, do not serialize it here.
     return "";
   }
-
+#endif  // ROCKSDB_LITE
  private:
   Env* target_;
 };
