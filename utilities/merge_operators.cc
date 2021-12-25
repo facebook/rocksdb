@@ -57,7 +57,7 @@ static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
   size_t num_types;
   library.Register<MergeOperator>(
       ObjectLibrary::PatternEntry(StringAppendOperator::kClassName())
-          .AddName(StringAppendOperator::kNickName()),
+          .AnotherName(StringAppendOperator::kNickName()),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new StringAppendOperator(","));
@@ -65,7 +65,7 @@ static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
       });
   library.Register<MergeOperator>(
       ObjectLibrary::PatternEntry(StringAppendTESTOperator::kClassName())
-          .AddName(StringAppendTESTOperator::kNickName()),
+          .AnotherName(StringAppendTESTOperator::kNickName()),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new StringAppendTESTOperator(","));
@@ -73,7 +73,7 @@ static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
       });
   library.Register<MergeOperator>(
       ObjectLibrary::PatternEntry(SortList::kClassName())
-          .AddName(SortList::kNickName()),
+          .AnotherName(SortList::kNickName()),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new SortList());
@@ -81,7 +81,7 @@ static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
       });
   library.Register<MergeOperator>(
       ObjectLibrary::PatternEntry(BytesXOROperator::kClassName())
-          .AddName(BytesXOROperator::kNickName()),
+          .AnotherName(BytesXOROperator::kNickName()),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new BytesXOROperator());

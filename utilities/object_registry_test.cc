@@ -20,7 +20,7 @@ class ObjRegistryTest : public testing::Test {
 int ObjRegistryTest::num_a = 0;
 int ObjRegistryTest::num_b = 0;
 static FactoryFunc<Env> test_reg_a = ObjectLibrary::Default()->Register<Env>(
-    ObjectLibrary::PatternEntry("a", false).AddPattern("://"),
+    ObjectLibrary::PatternEntry("a", false).AddSeparator("://"),
     [](const std::string& /*uri*/, std::unique_ptr<Env>* /*env_guard*/,
        std::string* /* errmsg */) {
       ++ObjRegistryTest::num_a;
@@ -28,7 +28,7 @@ static FactoryFunc<Env> test_reg_a = ObjectLibrary::Default()->Register<Env>(
     });
 
 static FactoryFunc<Env> test_reg_b = ObjectLibrary::Default()->Register<Env>(
-    ObjectLibrary::PatternEntry("b", false).AddPattern("://"),
+    ObjectLibrary::PatternEntry("b", false).AddSeparator("://"),
     [](const std::string& /*uri*/, std::unique_ptr<Env>* env_guard,
        std::string* /* errmsg */) {
       ++ObjRegistryTest::num_b;
@@ -451,7 +451,7 @@ TEST_F(PatternEntryTest, TestSimpleEntry) {
 TEST_F(PatternEntryTest, TestPatternEntry) {
   // Matches A:+
   ObjectLibrary::PatternEntry entry("A", false);
-  entry.AddPattern(":");
+  entry.AddSeparator(":");
   ASSERT_FALSE(entry.Matches("A"));
   ASSERT_FALSE(entry.Matches("AA"));
   ASSERT_FALSE(entry.Matches("AB"));
@@ -463,7 +463,7 @@ TEST_F(PatternEntryTest, TestPatternEntry) {
   ASSERT_TRUE(entry.Matches("A:B"));
   ASSERT_TRUE(entry.Matches("A:BB"));
 
-  entry.SetPatternOptional(true);  // Now matches "A" or "A:+"
+  entry.SetOptional(true);  // Now matches "A" or "A:+"
   ASSERT_TRUE(entry.Matches("A"));
   ASSERT_FALSE(entry.Matches("AA"));
   ASSERT_FALSE(entry.Matches("AB"));
@@ -524,7 +524,7 @@ TEST_F(PatternEntryTest, TestIndividualIdEntry) {
 
 TEST_F(PatternEntryTest, TestTwoNameEntry) {
   ObjectLibrary::PatternEntry entry("A");
-  entry.AddName("B");
+  entry.AnotherName("B");
   ASSERT_TRUE(entry.Matches("A"));
   ASSERT_TRUE(entry.Matches("B"));
   ASSERT_FALSE(entry.Matches("AA"));
@@ -536,8 +536,8 @@ TEST_F(PatternEntryTest, TestTwoNameEntry) {
 
 TEST_F(PatternEntryTest, TestTwoPatternEntry) {
   ObjectLibrary::PatternEntry entry("AA", false);
-  entry.AddPattern(":");
-  entry.AddPattern(":");
+  entry.AddSeparator(":");
+  entry.AddSeparator(":");
   ASSERT_FALSE(entry.Matches("AA"));
   ASSERT_FALSE(entry.Matches("AA:"));
   ASSERT_FALSE(entry.Matches("AA::"));
@@ -546,8 +546,8 @@ TEST_F(PatternEntryTest, TestTwoPatternEntry) {
   ASSERT_TRUE(entry.Matches("AA:1:2:"));
 
   ObjectLibrary::PatternEntry entry2("AA", false);
-  entry2.AddPattern("::");
-  entry2.AddPattern("##");
+  entry2.AddSeparator("::");
+  entry2.AddSeparator("##");
   ASSERT_FALSE(entry2.Matches("AA"));
   ASSERT_FALSE(entry2.Matches("AA:"));
   ASSERT_FALSE(entry2.Matches("AA::"));
@@ -590,7 +590,7 @@ TEST_F(PatternEntryTest, TestTwoNumbersEntry) {
 
 TEST_F(PatternEntryTest, TestPatternAndSuffix) {
   ObjectLibrary::PatternEntry entry("AA", false);
-  entry.AddPattern("::");
+  entry.AddSeparator("::");
   entry.AddSuffix("##");
   ASSERT_FALSE(entry.Matches("AA"));
   ASSERT_FALSE(entry.Matches("AA::"));
@@ -603,7 +603,7 @@ TEST_F(PatternEntryTest, TestPatternAndSuffix) {
 
   ObjectLibrary::PatternEntry entry2("AA", false);
   entry2.AddSuffix("::");
-  entry2.AddPattern("##");
+  entry2.AddSeparator("##");
   ASSERT_FALSE(entry2.Matches("AA"));
   ASSERT_FALSE(entry2.Matches("AA::"));
   ASSERT_FALSE(entry2.Matches("AA::##"));
@@ -614,8 +614,8 @@ TEST_F(PatternEntryTest, TestPatternAndSuffix) {
 
 TEST_F(PatternEntryTest, TestTwoNamesAndPattern) {
   ObjectLibrary::PatternEntry entry("AA", true);
-  entry.AddPattern("::");
-  entry.AddName("BBB");
+  entry.AddSeparator("::");
+  entry.AnotherName("BBB");
   ASSERT_TRUE(entry.Matches("AA"));
   ASSERT_TRUE(entry.Matches("AA::1"));
   ASSERT_TRUE(entry.Matches("BBB"));
@@ -625,7 +625,7 @@ TEST_F(PatternEntryTest, TestTwoNamesAndPattern) {
   ASSERT_FALSE(entry.Matches("AAA::"));
   ASSERT_FALSE(entry.Matches("BBB::"));
 
-  entry.SetPatternOptional(false);
+  entry.SetOptional(false);
   ASSERT_FALSE(entry.Matches("AA"));
   ASSERT_FALSE(entry.Matches("BBB"));
 

@@ -178,7 +178,7 @@ static int A_count = 0;
 static int RegisterCustomTestObjects(ObjectLibrary& library,
                                      const std::string& /*arg*/) {
   library.Register<TestCustomizable>(
-      ObjectLibrary::PatternEntry("A", true).AddPattern("_"),
+      ObjectLibrary::PatternEntry("A", true).AddSeparator("_"),
       [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
         guard->reset(new ACustomizable(name));
@@ -323,7 +323,7 @@ class CustomizableTest : public testing::Test {
 //    - a property with a name
 TEST_F(CustomizableTest, CreateByNameTest) {
   ObjectLibrary::Default()->Register<TestCustomizable>(
-      ObjectLibrary::PatternEntry("TEST", false).AddPattern("_"),
+      ObjectLibrary::PatternEntry("TEST", false).AddSeparator("_"),
       [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
         guard->reset(new TestCustomizable(name));
@@ -1018,7 +1018,7 @@ TEST_F(CustomizableTest, FactoryFunctionTest) {
 TEST_F(CustomizableTest, URLFactoryTest) {
   std::unique_ptr<TestCustomizable> unique;
   config_options_.registry->AddLibrary("URL")->Register<TestCustomizable>(
-      ObjectLibrary::PatternEntry("Z", false).AddPattern(""),
+      ObjectLibrary::PatternEntry("Z", false).AddSeparator(""),
       [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
         guard->reset(new TestCustomizable(name));

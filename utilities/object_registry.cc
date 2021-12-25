@@ -14,24 +14,24 @@
 
 namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
-size_t ObjectLibrary::PatternEntry::MatchPatternAt(
+size_t ObjectLibrary::PatternEntry::MatchSeparatorAt(
     size_t start, Quantifier mode, const std::string &target, size_t tlen,
-    const std::string &pattern) const {
-  size_t plen = pattern.size();
-  // See if there is enough space.  If so, find the pattern
-  if (tlen < start + plen) {
+    const std::string &separator) const {
+  size_t slen = separator.size();
+  // See if there is enough space.  If so, find the separator
+  if (tlen < start + slen) {
     return std::string::npos;  // not enough space left
   } else if (mode == kMatchExact) {
-    // Exact mode means the next thing we are looking for is the pattern
-    if (target.compare(start, plen, pattern) != 0) {
+    // Exact mode means the next thing we are looking for is the separator
+    if (target.compare(start, slen, separator) != 0) {
       return std::string::npos;
     } else {
-      return start + plen;  // Found the pattern, return where we found it
+      return start + slen;  // Found the separator, return where we found it
     }
   } else {
     auto pos = start + 1;
-    if (!pattern.empty()) {
-      pos = target.find(pattern, pos);
+    if (!separator.empty()) {
+      pos = target.find(separator, pos);
     }
     if (pos == std::string::npos) {
       return pos;
@@ -43,42 +43,41 @@ size_t ObjectLibrary::PatternEntry::MatchPatternAt(
         }
       }
     }
-    return pos + plen;
+    return pos + slen;
   }
 }
 
-bool ObjectLibrary::PatternEntry::MatchesPattern(const std::string &name,
-                                                 size_t nlen,
-                                                 const std::string &target,
-                                                 size_t tlen) const {
-  if (patterns_.empty()) {
-    assert(pattern_optional_);  // If there are no patterns, it must be only a
-                                // nmae
+bool ObjectLibrary::PatternEntry::MatchesTarget(const std::string &name,
+                                                size_t nlen,
+                                                const std::string &target,
+                                                size_t tlen) const {
+  if (separators_.empty()) {
+    assert(optional_);  // If there are no separators, it must be only a name
     return nlen == tlen && name == target;
   } else if (nlen == tlen) {  // The lengths are the same
-    return pattern_optional_ && name == target;
-  } else if (tlen < nlen + plength_) {
+    return optional_ && name == target;
+  } else if (tlen < nlen + slength_) {
     // The target is not long enough
     return false;
   } else if (target.compare(0, nlen, name) != 0) {
     return false;  // Target does not start with name
   } else {
-    // Loop through all of the patterns one at a time matching them.
-    // Note that we first match the pattern and then its quantifiers.
-    // Since we expect the pattern first, we start with an exact match
-    // Subsequent matches will use the quantifier of the previous pattern
+    // Loop through all of the separators one at a time matching them.
+    // Note that we first match the separator and then its quantifiers.
+    // Since we expect the separator first, we start with an exact match
+    // Subsequent matches will use the quantifier of the previous separator
     size_t start = nlen;
     auto mode = kMatchExact;
-    for (size_t idx = 0; idx < patterns_.size(); ++idx) {
-      const auto &pattern = patterns_[idx];
-      start = MatchPatternAt(start, mode, target, tlen, pattern.first);
+    for (size_t idx = 0; idx < separators_.size(); ++idx) {
+      const auto &separator = separators_[idx];
+      start = MatchSeparatorAt(start, mode, target, tlen, separator.first);
       if (start == std::string::npos) {
         return false;
       } else {
-        mode = pattern.second;
+        mode = separator.second;
       }
     }
-    // We have matched all of the pattern entries.  Now check that what is left
+    // We have matched all of the separators.  Now check that what is left
     // unmatched in the target is acceptable.
     if (mode == kMatchExact) {
       return (start == tlen);
@@ -97,11 +96,11 @@ bool ObjectLibrary::PatternEntry::MatchesPattern(const std::string &name,
 
 bool ObjectLibrary::PatternEntry::Matches(const std::string &target) const {
   auto tlen = target.size();
-  if (MatchesPattern(name_, nlength_, target, tlen)) {
+  if (MatchesTarget(name_, nlength_, target, tlen)) {
     return true;
   } else if (!names_.empty()) {
     for (const auto &alt : names_) {
-      if (MatchesPattern(alt, alt.size(), target, tlen)) {
+      if (MatchesTarget(alt, alt.size(), target, tlen)) {
         return true;
       }
     }

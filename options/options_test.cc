@@ -2081,7 +2081,7 @@ TEST_F(OptionsTest, OptionTablePropertiesTest) {
       ->Register<TablePropertiesCollectorFactory>(
           ObjectLibrary::PatternEntry(
               TestTablePropertiesCollectorFactory::kClassName(), false)
-              .AddPattern(":"),
+              .AddSeparator(":"),
           [](const std::string& name,
              std::unique_ptr<TablePropertiesCollectorFactory>* guard,
              std::string* /* errmsg */) {

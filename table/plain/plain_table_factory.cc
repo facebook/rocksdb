@@ -163,7 +163,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
   // where # is the "size" of the factory.
   auto AsPattern = [](const std::string& name, const std::string& alt) {
     auto pattern = ObjectLibrary::PatternEntry(name, true);
-    pattern.AddName(alt);
+    pattern.AnotherName(alt);
     pattern.AddNumber(":");
     return pattern;
   };

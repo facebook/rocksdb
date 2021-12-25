@@ -53,19 +53,19 @@ class ObjectLibrary {
   // Class for matching target strings to a pattern.
   // Entries consist of a name that starts the pattern and attributes
   // The following attributes can be added to the entry:
-  //   -Suffix: Comparable to name(pattern)
-  //   -Pattern: Comparable to name(pattern).+
-  //   -Number: Comparable to name(pattern).[0-9]+
+  //   -Suffix: Comparable to name(suffic)
+  //   -Separator: Comparable to name(separator).+
+  //   -Number: Comparable to name(separator).[0-9]+
   //   -AltName: Comparable to (name|alt)
-  //   -PatternOptional: Comparable to name(pattern)?
-  // Multiple patterns can be combined and cause multiple matches.
-  // For example, Pattern("A").AddName("B"),AddPattern("@").AddNumber("#")
+  //   -Optional: Comparable to name(separator)?
+  // Multiple separators can be combined and cause multiple matches.
+  // For example, Pattern("A").AnotherName("B"),AddSeparator("@").AddNumber("#")
   // is roughly equivalent to "(A|B)@.+#.+"
   //
   // Note that though this class does provide some regex-style matching,
   // it is not a full regex parser and has some key differences:
-  //   - Patterns are matched left-most.  For example, an entry
-  //     Name("Hello").AddPattern(" ").AddSuffix("!") would match
+  //   - Separatorss are matched left-most.  For example, an entry
+  //     Name("Hello").AddSeparator(" ").AddSuffix("!") would match
   //     "Hello world!", but not "Hello world!!"
   //   - No backtracking is necessary, enabling reliably efficient matching
   class PatternEntry : public Entry {
@@ -81,49 +81,53 @@ class ObjectLibrary {
     // Customizable::IndividualId
     static PatternEntry AsIndividualId(const std::string& name) {
       PatternEntry entry(name, true);
-      entry.AddPattern("@");
-      entry.AddPattern("#");
+      entry.AddSeparator("@");
+      entry.AddSeparator("#");
       return entry;
     }
 
-    // Creates a new pattern entry for "name".  If pattern_optional is true,
+    // Creates a new pattern entry for "name".  If optional is true,
     // Matches will also return true if name==target
-    explicit PatternEntry(const std::string& name, bool pattern_optional = true)
-        : name_(name), pattern_optional_(pattern_optional), plength_(0) {
+    explicit PatternEntry(const std::string& name, bool optional = true)
+        : name_(name), optional_(optional), slength_(0) {
       nlength_ = name_.size();
     }
 
-    // Adds a suffix (exact match of pattern with no trailing characters) to the
-    // pattern
-    PatternEntry& AddSuffix(const std::string& pattern) {
-      patterns_.emplace_back(pattern, kMatchExact);
-      plength_ += pattern.size();
+    // Adds a suffix (exact match of separator with no trailing characters) to
+    // the separator
+    PatternEntry& AddSuffix(const std::string& suffix) {
+      separators_.emplace_back(suffix, kMatchExact);
+      slength_ += suffix.size();
       return *this;
     }
 
-    // Adds a suffix (exact match of pattern with trailing characters) to the
-    // pattern
-    PatternEntry& AddPattern(const std::string& pattern) {
-      patterns_.emplace_back(pattern, kMatchPattern);
-      plength_ += pattern.size() + 1;
+    // Adds a separator (exact match of separator with trailing characters) to
+    // the entry
+    PatternEntry& AddSeparator(const std::string& separator) {
+      separators_.emplace_back(separator, kMatchPattern);
+      slength_ += separator.size() + 1;
       return *this;
     }
 
-    // Adds a suffix (exact match of pattern with trailing numbers) to the
-    // pattern
-    PatternEntry& AddNumber(const std::string& pattern) {
-      patterns_.emplace_back(pattern, kMatchNumeric);
-      plength_ += pattern.size() + 1;
+    // Adds a separator (exact match of separator with trailing numbers) to the
+    // entry
+    PatternEntry& AddNumber(const std::string& separator) {
+      separators_.emplace_back(separator, kMatchNumeric);
+      slength_ += separator.size() + 1;
       return *this;
     }
 
-    PatternEntry& AddName(const std::string& name) {
-      names_.emplace_back(name);
+    // Sets another name that this entry will match, similar to (name|alt)
+    PatternEntry& AnotherName(const std::string& alt) {
+      names_.emplace_back(alt);
       return *this;
     }
 
-    PatternEntry& SetPatternOptional(bool b) {
-      pattern_optional_ = b;
+    // Sets whether the separators are required -- similar to name(separator)?
+    // If optional is true, then name(separator)? would match
+    // If optional is false, then the separators must also match
+    PatternEntry& SetOptional(bool optional) {
+      optional_ = optional;
       return *this;
     }
 
@@ -132,18 +136,19 @@ class ObjectLibrary {
     const char* Name() const override { return name_.c_str(); }
 
    private:
-    size_t MatchPatternAt(size_t start, Quantifier mode,
-                          const std::string& target, size_t tlen,
-                          const std::string& pattern) const;
+    size_t MatchSeparatorAt(size_t start, Quantifier mode,
+                            const std::string& target, size_t tlen,
+                            const std::string& pattern) const;
 
-    bool MatchesPattern(const std::string& name, size_t nlen,
-                        const std::string& pattern, size_t plen) const;
-    std::string name_;                // The base name for this pattern
+    bool MatchesTarget(const std::string& name, size_t nlen,
+                       const std::string& target, size_t ylen) const;
+    std::string name_;                // The base name for this entry
     size_t nlength_;                  // The length of name_
-    std::vector<std::string> names_;  // Alternative names for this pattern
-    bool pattern_optional_;  // Whether matching of patterns is required
-    size_t plength_;  // The minimum required length to match the patterns
-    std::vector<std::pair<std::string, Quantifier>> patterns_;  // What to match
+    std::vector<std::string> names_;  // Alternative names for this entry
+    bool optional_;   // Whether matching of separators is required
+    size_t slength_;  // The minimum required length to match the separators
+    std::vector<std::pair<std::string, Quantifier>>
+        separators_;  // What to match
   };  // End class Entry
 
   // An Entry containing a FactoryFunc for creating new Objects
