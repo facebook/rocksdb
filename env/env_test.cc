@@ -2142,7 +2142,7 @@ class TestEnv : public EnvWrapper {
     class TestLogger : public Logger {
      public:
       using Logger::Logv;
-      TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
+      explicit TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
       ~TestLogger() override {
         if (!closed_) {
           Status s = CloseHelper();
@@ -2157,7 +2157,6 @@ class TestEnv : public EnvWrapper {
      private:
       Status CloseHelper() {
         env->CloseCountInc();
-        ;
         return Status::OK();
       }
       TestEnv* env;

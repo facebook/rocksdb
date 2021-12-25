@@ -66,7 +66,7 @@ class LegacySystemClock : public SystemClock {
 
  public:
   explicit LegacySystemClock(Env* env) : env_(env) {}
-  const char* Name() const override { return ""; }
+  const char* Name() const override { return "LegacySystemClock"; }
 
   // Returns the number of micro-seconds since some fixed point in time.
   // It is often used as system time such as in GenericRateLimiter
@@ -96,6 +96,14 @@ class LegacySystemClock : public SystemClock {
   // Converts seconds-since-Jan-01-1970 to a printable string
   std::string TimeToString(uint64_t time) override {
     return env_->TimeToString(time);
+  }
+
+  std::string SerializeOptions(const ConfigOptions& /*config_options*/,
+                               const std::string& /*prefix*/) const override {
+    // We do not want the LegacySystemClock to appear in the serialized output.
+    // This clock is an internal class for those who do not implement one and
+    // would be part of the Env.  As such, do not serialize it here.
+    return "";
   }
 };
 
@@ -355,7 +363,8 @@ class LegacyFileSystemWrapper : public FileSystem {
   explicit LegacyFileSystemWrapper(Env* t) : target_(t) {}
   ~LegacyFileSystemWrapper() override {}
 
-  const char* Name() const override { return ""; }
+  static const char* kClassName() { return "LegacyFileSystem"; }
+  const char* Name() const override { return kClassName(); }
 
   // Return the target to which this Env forwards all calls
   Env* target() const { return target_; }
@@ -589,6 +598,14 @@ class LegacyFileSystemWrapper : public FileSystem {
   IOStatus IsDirectory(const std::string& path, const IOOptions& /*options*/,
                        bool* is_dir, IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->IsDirectory(path, is_dir));
+  }
+
+  std::string SerializeOptions(const ConfigOptions& /*config_options*/,
+                               const std::string& /*prefix*/) const override {
+    // We do not want the LegacyFileSystem to appear in the serialized output.
+    // This clock is an internal class for those who do not implement one and
+    // would be part of the Env.  As such, do not serialize it here.
+    return "";
   }
 
  private:
@@ -1076,7 +1093,7 @@ static std::unordered_map<std::string, OptionTypeInfo> env_wrapper_type_info = {
       OptionTypeFlags::kDontSerialize | OptionTypeFlags::kRawPointer,
       [](const ConfigOptions& opts, const std::string& /*name*/,
          const std::string& value, void* addr) {
-        auto target = static_cast<EnvWrapper::Target*>(addr);
+        EnvWrapper::Target* target = static_cast<EnvWrapper::Target*>(addr);
         return Env::CreateFromString(opts, value, &(target->env),
                                      &(target->guard));
       },
