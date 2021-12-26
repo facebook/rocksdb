@@ -343,11 +343,12 @@ struct BlockBasedTableOptions {
   // the block cache better at using space it is allowed. (These issues
   // should not arise with partitioned filters.)
   //
-  // NOTE: Do not set to true if you do not trust malloc_usable_size. With
-  // this option, RocksDB might access an allocated memory object beyond its
-  // original size if malloc_usable_size says it is safe to do so. While this
-  // can be considered bad practice, it should not produce undefined behavior
-  // unless malloc_usable_size is buggy or broken.
+  // NOTE: Do not set to true if you do not trust
+  // malloc_usable_size/malloc_size. With this option, RocksDB might access an
+  // allocated memory object beyond its original size if
+  // malloc_usable_size/malloc_size says it is safe to do so.  While this can be
+  // considered bad practice, it should not produce undefined behavior unless
+  // malloc_usable_size/malloc_size is buggy or broken.
   bool optimize_filters_for_memory = false;
 
   // Use delta encoding to compress keys in blocks.

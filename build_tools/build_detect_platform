@@ -455,15 +455,28 @@ EOF
     fi
 
     if ! test $ROCKSDB_DISABLE_MALLOC_USABLE_SIZE; then
-        # Test whether malloc_usable_size is available
-        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-          #include <malloc.h>
-          int main() {
-            size_t res = malloc_usable_size(0);
-            (void)res;
-            return 0;
-          }
+        if [ "$PLATFORM" != "OS_MACOSX" ]; then
+          # Test whether malloc_usable_size is available
+          $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+            #include <malloc.h>
+            int main() {
+              size_t res = malloc_usable_size(0);
+              (void)res;
+              return 0;
+            }
 EOF
+        else
+          # Test whether malloc_size is available
+          $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+            #include <malloc/malloc.h>
+            int main() {
+              size_t res = malloc_size(0);
+              (void)res;
+              return 0;
+            }
+EOF
+        fi
+
         if [ "$?" = 0 ]; then
             COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_MALLOC_USABLE_SIZE"
         fi

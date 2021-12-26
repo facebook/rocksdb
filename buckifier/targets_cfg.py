@@ -73,6 +73,7 @@ ROCKSDB_OS_PREPROCESSOR_FLAGS_0 = [
         "macos",
         [
             "-DOS_MACOSX",
+            "-DROCKSDB_MALLOC_USABLE_SIZE",
             "-DROCKSDB_PLATFORM_POSIX",
             "-DROCKSDB_LIB_IO_POSIX",
             "-DTBB",

@@ -11,6 +11,9 @@
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
 #ifdef OS_FREEBSD
 #include <malloc_np.h>
+#elif defined(OS_MACOSX)
+#include <malloc/malloc.h>
+#define malloc_usable_size malloc_size
 #else
 #include <malloc.h>
 #endif  // OS_FREEBSD
