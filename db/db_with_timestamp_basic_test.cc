@@ -196,6 +196,53 @@ class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
       : DBBasicTestWithTimestampBase("db_basic_test_with_timestamp") {}
 };
 
+TEST_F(DBBasicTestWithTimestamp, SanityChecks) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.avoid_flush_during_shutdown = true;
+  options.merge_operator = MergeOperators::CreateStringAppendTESTOperator();
+  DestroyAndReopen(options);
+
+  Options options1 = CurrentOptions();
+  options1.env = env_;
+  options1.comparator = test::ComparatorWithU64Ts();
+  options1.merge_operator = MergeOperators::CreateStringAppendTESTOperator();
+  assert(options1.comparator ||
+         options1.comparator->timestamp_size() == sizeof(uint64_t));
+  ColumnFamilyHandle* handle = nullptr;
+  Status s = db_->CreateColumnFamily(options1, "data", &handle);
+  ASSERT_OK(s);
+
+  std::string dummy_ts(sizeof(uint64_t), '\0');
+  // Perform timestamp operations on default cf.
+  ASSERT_TRUE(
+      db_->Put(WriteOptions(), "key", dummy_ts, "value").IsInvalidArgument());
+  ASSERT_TRUE(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), "key",
+                         dummy_ts, "value")
+                  .IsNotSupported());
+  ASSERT_TRUE(db_->Delete(WriteOptions(), "key", dummy_ts).IsInvalidArgument());
+  ASSERT_TRUE(
+      db_->SingleDelete(WriteOptions(), "key", dummy_ts).IsInvalidArgument());
+  ASSERT_TRUE(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               "begin_key", "end_key", dummy_ts)
+                  .IsNotSupported());
+
+  // Perform non-timestamp operations on "data" cf.
+  ASSERT_TRUE(
+      db_->Put(WriteOptions(), handle, "key", "value").IsInvalidArgument());
+  ASSERT_TRUE(db_->Delete(WriteOptions(), handle, "key").IsInvalidArgument());
+  ASSERT_TRUE(
+      db_->SingleDelete(WriteOptions(), handle, "key").IsInvalidArgument());
+
+  ASSERT_TRUE(
+      db_->Merge(WriteOptions(), handle, "key", "value").IsInvalidArgument());
+  ASSERT_TRUE(db_->DeleteRange(WriteOptions(), handle, "begin_key", "end_key")
+                  .IsInvalidArgument());
+
+  delete handle;
+}
+
 TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
   Options options = CurrentOptions();
   options.env = env_;
@@ -3005,6 +3052,46 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::IndexType::kHashSearch,
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
             BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey)));
+
+class DBBasicTestWithTsPipelinedWrite
+    : public DBBasicTestWithTimestampBase,
+      public testing::WithParamInterface<bool> {
+ public:
+  explicit DBBasicTestWithTsPipelinedWrite()
+      : DBBasicTestWithTimestampBase("/db_basic_ts_pipelined_write") {}
+};
+
+TEST_P(DBBasicTestWithTsPipelinedWrite, FailToUpdateTsDuringWrite) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env_;
+  options.comparator = test::ComparatorWithU64Ts();
+  constexpr size_t ts_sz = sizeof(uint64_t);
+  options.enable_pipelined_write = GetParam();
+  const std::string cf1_name = "cf1";
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({cf1_name}, options);
+  assert(handles_.size() == 2);
+  for (auto* h : handles_) {
+    assert(h && h->GetComparator() &&
+           h->GetComparator()->timestamp_size() == ts_sz);
+  }
+  WriteBatch wb(0, 0, 0, ts_sz);
+  ASSERT_OK(wb.Put(handles_[0], "key", "value"));
+  ASSERT_OK(wb.Put(handles_[1], "key", "value"));
+  {
+    std::string ts;
+    ASSERT_TRUE(db_->Write(WriteOptions(), &wb, ts).IsInvalidArgument());
+  }
+  {
+    std::string ts;
+    PutFixed32(&ts, 100);  // Encode ts of wrong size
+    ASSERT_TRUE(db_->Write(WriteOptions(), &wb, ts).IsInvalidArgument());
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(Timestamp, DBBasicTestWithTsPipelinedWrite,
+                        ::testing::Bool());
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 }  // namespace ROCKSDB_NAMESPACE

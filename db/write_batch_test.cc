@@ -949,6 +949,47 @@ Status CheckTimestampsInWriteBatch(
 }
 }  // namespace
 
+TEST_F(WriteBatchTest, SanityChecks) {
+  ColumnFamilyHandleImplDummy cf0(0, test::ComparatorWithU64Ts());
+  ColumnFamilyHandleImplDummy cf4(4);
+
+  WriteBatch wb(0, 0, 0, /*default_cf_ts_sz=*/sizeof(uint64_t));
+
+  // Sanity checks for the new WriteBatch APIs with extra 'ts' arg.
+  ASSERT_TRUE(wb.Put(nullptr, "key", "ts", "value").IsInvalidArgument());
+  ASSERT_TRUE(wb.Delete(nullptr, "key", "ts").IsInvalidArgument());
+  ASSERT_TRUE(wb.SingleDelete(nullptr, "key", "ts").IsInvalidArgument());
+  ASSERT_TRUE(wb.Merge(nullptr, "key", "ts", "value").IsNotSupported());
+  ASSERT_TRUE(
+      wb.DeleteRange(nullptr, "begin_key", "end_key", "ts").IsNotSupported());
+
+  ASSERT_TRUE(wb.Put(&cf4, "key", "ts", "value").IsInvalidArgument());
+  ASSERT_TRUE(wb.Delete(&cf4, "key", "ts").IsInvalidArgument());
+  ASSERT_TRUE(wb.SingleDelete(&cf4, "key", "ts").IsInvalidArgument());
+  ASSERT_TRUE(wb.Merge(&cf4, "key", "ts", "value").IsNotSupported());
+  ASSERT_TRUE(
+      wb.DeleteRange(&cf4, "begin_key", "end_key", "ts").IsNotSupported());
+
+  constexpr size_t wrong_ts_sz = 1 + sizeof(uint64_t);
+  std::string ts(wrong_ts_sz, '\0');
+
+  ASSERT_TRUE(wb.Put(&cf0, "key", ts, "value").IsInvalidArgument());
+  ASSERT_TRUE(wb.Delete(&cf0, "key", ts).IsInvalidArgument());
+  ASSERT_TRUE(wb.SingleDelete(&cf0, "key", ts).IsInvalidArgument());
+  ASSERT_TRUE(wb.Merge(&cf0, "key", ts, "value").IsNotSupported());
+  ASSERT_TRUE(
+      wb.DeleteRange(&cf0, "begin_key", "end_key", ts).IsNotSupported());
+
+  // Sanity checks for the new WriteBatch APIs without extra 'ts' arg.
+  WriteBatch wb1(0, 0, 0, wrong_ts_sz);
+  ASSERT_TRUE(wb1.Put(&cf0, "key", "value").IsInvalidArgument());
+  ASSERT_TRUE(wb1.Delete(&cf0, "key").IsInvalidArgument());
+  ASSERT_TRUE(wb1.SingleDelete(&cf0, "key").IsInvalidArgument());
+  ASSERT_TRUE(wb1.Merge(&cf0, "key", "value").IsInvalidArgument());
+  ASSERT_TRUE(
+      wb1.DeleteRange(&cf0, "begin_key", "end_key").IsInvalidArgument());
+}
+
 TEST_F(WriteBatchTest, UpdateTimestamps) {
   // We assume the last eight bytes of each key is reserved for timestamps.
   // Therefore, we must make sure each key is longer than eight bytes.
