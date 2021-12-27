@@ -10,6 +10,7 @@
 #include <coroutine>
 #include <iostream>
 #include <memory>
+#include <vector>
 
 #include "io_status.h"
 #include "rocksdb/status.h"
@@ -75,18 +76,23 @@ struct async_result {
     ret_back* ret_back_promise;
   };
 
-  async_result() : async_(false) {}
+  async_result() : ret_back_(nullptr), async_(false) {}
 
   async_result(bool async, FilePage* context)
-      : async_(async), context_{context} {}
+      : ret_back_(nullptr), async_(async), context_{context} {}
 
   async_result(std::coroutine_handle<promise_type> h, ret_back& ret_back)
       : h_{h} {
     ret_back_ = &ret_back;
   }
 
+  ~async_result() {
+    delete ret_back_;
+    ret_back_ = nullptr;
+  }
+
   bool await_ready() const noexcept {
-    if (async_)
+    if (async_ || ret_back_ == nullptr)
       return false;
     else
       return ret_back_->result_set_;

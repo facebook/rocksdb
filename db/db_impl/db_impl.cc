@@ -2108,7 +2108,7 @@ async_result DBImpl::AsyncGetImpl(const ReadOptions& read_options,
   if (lookup_status == DBImpl::MemtableLookupStatus::Failed) co_return s;
 
   if (lookup_status == DBImpl::MemtableLookupStatus::NotFound) {
-    co_await sv->current->AsyncGet(
+    auto r = sv->current->AsyncGet(
         read_options, lkey, get_impl_options.value, timestamp, &s,
         &merge_context, &max_covering_tombstone_seq,
         get_impl_options.get_value ? get_impl_options.value_found : nullptr,
@@ -2116,6 +2116,8 @@ async_result DBImpl::AsyncGetImpl(const ReadOptions& read_options,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
         get_impl_options.get_value ? get_impl_options.is_blob_index : nullptr,
         get_impl_options.get_value);
+    co_await r;
+    (void)r;  // hold async_result after await
     RecordTick(stats_, MEMTABLE_MISS);
   }
 
@@ -2158,15 +2160,6 @@ std::vector<Status> DBImpl::MultiGet(
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
   return MultiGet(read_options, column_family, keys, values,
                   /*timestamps=*/nullptr);
-}
-
-async_result DBImpl::AsyncMultiGet(
-    const ReadOptions& read_options,
-    const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<std::string>* values) {
-  r = co_await AsyncMultiGet(read_options, column_family, keys, values,
-                             /*timestamps=*/nullptr);
-  co_return r.async_result();
 }
 
 std::vector<Status> DBImpl::MultiGet(
@@ -2479,11 +2472,13 @@ async_result DBImpl::AsyncMultiGet(
     if (!done) {
       PinnableSlice pinnable_val;
       PERF_TIMER_GUARD(get_from_output_files_time);
-      co_await super_version->current->Get(
+      auto r = super_version->current->AsyncGet(
           read_options, lkey, &pinnable_val, timestamp, &s, &merge_context,
           &max_covering_tombstone_seq, /*value_found=*/nullptr,
           /*key_exists=*/nullptr,
           /*seq=*/nullptr, read_callback);
+      co_await r;
+      (void)r;  // hold async_result after await
       value->assign(pinnable_val.data(), pinnable_val.size());
       RecordTick(stats_, MEMTABLE_MISS);
     }

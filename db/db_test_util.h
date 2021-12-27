@@ -855,39 +855,6 @@ class DBAsyncTestBase : public testing::Test {
     test_delegation_ = test_delegation;
   }
 
-  bool RunAsyncTest(std::function<async_result(DBAsyncTestBase*)> test_func,
-                    DBAsyncTestBase* testBase) {
-    std::cout << "Enter RunAsyncTest\n";
-    std::mutex mtx;
-    std::condition_variable cv;
-    bool success = false;
-
-    std::thread test_thread(InternalRunAsyncTest, test_func, testBase,
-                            std::ref(mtx), std::ref(cv), std::ref(success));
-
-    std::unique_lock<std::mutex> lck(mtx);
-    cv.wait(lck);
-    std::cout << "RunAsyncTest wait returned\n";
-    test_thread.join();
-    return success;
-  }
-
-  static async_result InternalRunAsyncTest(
-      std::function<async_result(DBAsyncTestBase*)> test_func,
-      DBAsyncTestBase* testBase, std::mutex& mtx, std::condition_variable& cv,
-      bool& success) {
-    std::cout << "Enter InternalRunAsyncTest\n";
-
-    auto result = test_func(testBase);
-    co_await result;
-    success = result.ret_back_->result_.ok();
-    std::cout << "InternalRunAsyncTest returned\n";
-
-    std::unique_lock<std::mutex> lck(mtx);
-    cv.notify_one();
-    co_return Status::OK();
-  }
-
   DB* db() { return db_; }
 
  private:

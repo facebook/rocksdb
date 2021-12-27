@@ -215,11 +215,7 @@ class DBImpl : public DB {
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys, std::vector<std::string>* values,
       std::vector<std::string>* timestamps) override;
-  virtual async_result AsyncMultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override;
+  using DB::AsyncMultiGet;
   virtual async_result AsyncMultiGet(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
