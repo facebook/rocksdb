@@ -1505,11 +1505,9 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.push_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options);
   if (db_options.persist_stats_to_disk) {
-    column_families.push_back(
-        ColumnFamilyDescriptor(kPersistentStatsColumnFamilyName, cf_options));
+    column_families.emplace_back(kPersistentStatsColumnFamilyName, cf_options);
   }
   std::vector<ColumnFamilyHandle*> handles;
   Status s = DB::Open(db_options, dbname, column_families, &handles, dbptr);
@@ -1608,25 +1606,29 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   DBImpl* impl = new DBImpl(db_options, dbname, seq_per_batch, batch_per_txn);
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.GetWalDir());
   if (s.ok()) {
-    std::vector<std::string> paths;
+    int32_t pathSize = 0;
     for (auto& db_path : impl->immutable_db_options_.db_paths) {
-      paths.emplace_back(db_path.path);
+      s = impl->env_->CreateDirIfMissing(db_path.path);
+      if (!s.ok()) {
+        delete impl;
+        return s;
+      }
+      pathSize += 1;
     }
     for (auto& cf : column_families) {
       for (auto& cf_path : cf.options.cf_paths) {
-        paths.emplace_back(cf_path.path);
-      }
-    }
-    for (auto& path : paths) {
-      s = impl->env_->CreateDirIfMissing(path);
-      if (!s.ok()) {
-        break;
+        s = impl->env_->CreateDirIfMissing(cf_path.path);
+        if (!s.ok()) {
+          delete impl;
+          return s;
+        }
+        pathSize += 1;
       }
     }
 
     // For recovery from NoSpace() error, we can only handle
     // the case where the database is stored in a single path
-    if (paths.size() <= 1) {
+    if (pathSize <= 1) {
       impl->error_handler_.EnableAutoRecovery();
     }
   }
@@ -1651,15 +1653,14 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         impl->GetWalPreallocateBlockSize(max_write_buffer_size);
     s = impl->CreateWAL(new_log_number, 0 /*recycle_log_number*/,
                         preallocate_block_size, &new_log);
+
     if (s.ok()) {
       InstrumentedMutexLock wl(&impl->log_write_mutex_);
       impl->logfile_number_ = new_log_number;
       assert(new_log != nullptr);
       assert(impl->logs_.empty());
       impl->logs_.emplace_back(new_log_number, new_log);
-    }
 
-    if (s.ok()) {
       // set column family handles
       for (auto cf : column_families) {
         auto cfd =
