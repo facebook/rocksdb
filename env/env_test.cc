@@ -2149,7 +2149,7 @@ class TestEnv : public EnvWrapper {
           s.PermitUncheckedError();
         }
       }
-      void Logv(const char* /*format*/, va_list /*ap*/) override{};
+      void Logv(const char* /*format*/, va_list /*ap*/) override {}
 
      protected:
       Status CloseImpl() override { return CloseHelper(); }

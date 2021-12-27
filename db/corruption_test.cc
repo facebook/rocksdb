@@ -46,7 +46,7 @@ class ErrorEnv : public EnvWrapper {
   bool writable_file_error_;
   int num_writable_file_errors_;
 
-  ErrorEnv(Env* _target)
+  explicit ErrorEnv(Env* _target)
       : EnvWrapper(_target),
         writable_file_error_(false),
         num_writable_file_errors_(0) {}

@@ -869,8 +869,9 @@ TEST_F(LdbCmdTest, TestBadDbPath) {
 namespace {
 class WrappedEnv : public EnvWrapper {
  public:
-  WrappedEnv(Env* t) : EnvWrapper(t) {}
-  const char* Name() const override { return "WrappedEnv"; }
+  explicit WrappedEnv(Env* t) : EnvWrapper(t) {}
+  static const char* kClassName() { return "WrappedEnv"; }
+  const char* Name() const override { return kClassName(); }
 };
 }  // namespace
 TEST_F(LdbCmdTest, LoadCFOptionsAndOverride) {
