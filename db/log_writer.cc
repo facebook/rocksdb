@@ -24,6 +24,7 @@ Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
       block_offset_(0),
       log_number_(log_number),
       recycle_log_files_(recycle_log_files),
+      size_at_close_(0),
       manual_flush_(manual_flush) {
   for (int i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
@@ -43,9 +44,18 @@ IOStatus Writer::Close() {
   IOStatus s;
   if (dest_) {
     s = dest_->Close();
+    size_at_close_ = dest_->GetFileSize();
     dest_.reset();
   }
   return s;
+}
+
+uint64_t Writer::GetFileSize() const {
+  if (dest_) {
+    return dest_->GetFileSize();
+  } else {
+    return size_at_close_;
+  }
 }
 
 IOStatus Writer::AddRecord(const Slice& slice) {

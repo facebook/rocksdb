@@ -86,6 +86,8 @@ class Writer {
 
   uint64_t get_log_number() const { return log_number_; }
 
+  uint64_t GetFileSize() const;
+
   IOStatus WriteBuffer();
 
   IOStatus Close();
@@ -97,6 +99,7 @@ class Writer {
   size_t block_offset_;       // Current offset in block
   uint64_t log_number_;
   bool recycle_log_files_;
+  uint64_t size_at_close_;
 
   // crc32c values for all supported record types.  These are
   // pre-computed to reduce the overhead of computing the crc of the

@@ -848,15 +848,13 @@ TEST_F(DBWALTest, PreallocateBlock) {
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
 #ifndef ROCKSDB_LITE
-TEST_F(DBWALTest, DISABLED_FullPurgePreservesRecycledLog) {
-  // TODO(ajkr): Disabled until WAL recycling is fixed for
-  // `kPointInTimeRecovery`.
-
+TEST_F(DBWALTest, FullPurgePreservesRecycledLog) {
   // For github issue #1303
   for (int i = 0; i < 2; ++i) {
     Options options = CurrentOptions();
     options.create_if_missing = true;
     options.recycle_log_file_num = 2;
+    options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
     if (i != 0) {
       options.wal_dir = alternative_wal_dir_;
     }
@@ -887,16 +885,14 @@ TEST_F(DBWALTest, DISABLED_FullPurgePreservesRecycledLog) {
   }
 }
 
-TEST_F(DBWALTest, DISABLED_FullPurgePreservesLogPendingReuse) {
-  // TODO(ajkr): Disabled until WAL recycling is fixed for
-  // `kPointInTimeRecovery`.
-
+TEST_F(DBWALTest, FullPurgePreservesLogPendingReuse) {
   // Ensures full purge cannot delete a WAL while it's in the process of being
   // recycled. In particular, we force the full purge after a file has been
   // chosen for reuse, but before it has been renamed.
   for (int i = 0; i < 2; ++i) {
     Options options = CurrentOptions();
     options.recycle_log_file_num = 1;
+    options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
     if (i != 0) {
       options.wal_dir = alternative_wal_dir_;
     }
@@ -1563,6 +1559,89 @@ TEST_P(DBWALTestWithParams, kSkipAnyCorruptedRecords) {
 
   if (!trunc) {
     ASSERT_TRUE(corrupt_offset != 0 || recovered_row_count > 0);
+  }
+}
+
+class DBWALTestWithParamsRecycling
+    : public DBWALTestBase,
+      public ::testing::WithParamInterface<
+          std::tuple<bool, int, int, WALRecoveryMode>> {
+ public:
+  DBWALTestWithParamsRecycling()
+      : DBWALTestBase("/db_wal_test_with_params_recovery_hole") {}
+};
+
+INSTANTIATE_TEST_CASE_P(
+    Wal, DBWALTestWithParamsRecycling,
+    ::testing::Combine(
+        ::testing::Bool(), ::testing::Values(0, 2),
+        ::testing::Values(0 /*beginning*/, 1 /*middle*/, 2 /*end*/),
+        ::testing::Values(WALRecoveryMode::kTolerateCorruptedTailRecords,
+                          WALRecoveryMode::kAbsoluteConsistency,
+                          WALRecoveryMode::kPointInTimeRecovery,
+                          WALRecoveryMode::kSkipAnyCorruptedRecords)));
+
+TEST_P(DBWALTestWithParamsRecycling, RecoveryHole) {
+  Options options = CurrentOptions();
+  options.track_and_verify_wals_in_manifest = std::get<0>(GetParam());
+  options.recycle_log_file_num = std::get<1>(GetParam());
+  int corruption_point = std::get<2>(GetParam());
+  options.wal_recovery_mode = std::get<3>(GetParam());
+
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put(1, "ok", "ok"));
+
+  // Record the offset at this point
+  Env* env = options.env;
+  uint64_t wal_file_id = dbfull()->TEST_LogfileNumber();
+  std::string fname = LogFileName(dbname_, wal_file_id);
+  uint64_t record_offset_begin;
+  uint64_t record_offset_end;
+  ASSERT_OK(env->GetFileSize(fname, &record_offset_begin));
+  ASSERT_GT(record_offset_begin, 0);
+  ASSERT_OK(Put(0, "key1", "wal1"));
+  ASSERT_OK(env->GetFileSize(fname, &record_offset_end));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Put(0, "key2", "wal2"));
+
+  int offset_to_corrupt;
+  const int bytes_to_corrupt = 1;
+  switch (corruption_point) {
+    case 0: {
+      offset_to_corrupt = static_cast<int>(record_offset_begin);
+    } break;
+    case 1: {
+      uint64_t record_size = record_offset_end - record_offset_begin;
+      ASSERT_GT(record_size, bytes_to_corrupt);
+      offset_to_corrupt = static_cast<int>(
+          record_offset_begin + ((record_size - bytes_to_corrupt) / 2));
+    } break;
+    case 2: {
+      // < 0 means from end of file
+      offset_to_corrupt = 0 - bytes_to_corrupt;
+    } break;
+    default:
+      FAIL();
+  }
+
+  // Corrupt WAL1 somewhere in key1
+  ASSERT_OK(test::CorruptFile(env, fname, offset_to_corrupt, bytes_to_corrupt,
+                              false));
+
+  if (options.wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency ||
+      options.wal_recovery_mode ==
+          WALRecoveryMode::kTolerateCorruptedTailRecords) {
+    ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+  } else if (options.wal_recovery_mode ==
+             WALRecoveryMode::kPointInTimeRecovery) {
+    // sst/WAL inconsistency
+    ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+  } else if (options.wal_recovery_mode ==
+             WALRecoveryMode::kSkipAnyCorruptedRecords) {
+    ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+    ASSERT_EQ("ok", Get(1, "ok"));
+    ASSERT_EQ("NOT_FOUND", Get(0, "key1"));
+    ASSERT_EQ("wal2", Get(0, "key2"));
   }
 }
 
