@@ -35,6 +35,12 @@ std::string Customizable::GenerateIndividualId() const {
   return ostr.str();
 }
 
+std::string Customizable::RegexIndividualId(const std::string& name) {
+  std::string regex = name;
+  regex.append("(@.+#[0-9]+)?");
+  return regex;
+}
+
 #ifndef ROCKSDB_LITE
 Status Customizable::GetOption(const ConfigOptions& config_options,
                                const std::string& opt_name,

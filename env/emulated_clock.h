@@ -33,6 +33,7 @@ class EmulatedSystemClock : public SystemClockWrapper {
 
   static const char* kClassName() { return "TimeEmulatedSystemClock"; }
   const char* Name() const override { return kClassName(); }
+  std::string GetId() const override { return GenerateIndividualId(); }
 
   virtual void SleepForMicroseconds(int micros) override {
     sleep_counter_++;

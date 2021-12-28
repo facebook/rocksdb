@@ -324,9 +324,10 @@ class ObjectRegistry {
         return Status::OK();
       }
     }
+    auto key = ToManagedObjectKey(T::Type(), id);
     {
+      // Get a lock and see if the object already exists.  If so, return it
       std::unique_lock<std::mutex> lock(objects_mutex_);
-      auto key = ToManagedObjectKey(T::Type(), id);
       auto iter = managed_objects_.find(key);
       if (iter != managed_objects_.end()) {
         auto object = iter->second.lock();
@@ -335,13 +336,27 @@ class ObjectRegistry {
           return Status::OK();
         }
       }
-      std::shared_ptr<T> object;
-      Status s = NewSharedObject(id, &object);
+    }
+    {
+      // The object does not exist.  Create one
+      std::shared_ptr<T> new_object;
+      Status s = NewSharedObject(id, &new_object);
       if (s.ok() && cfunc != nullptr) {
-        s = cfunc(object.get());
+        s = cfunc(new_object.get());
       }
       if (s.ok()) {
-        auto c = std::static_pointer_cast<Customizable>(object);
+        // Get a lock and see if the object was created already.
+        // If so, discard the new one and return the existing one
+        std::unique_lock<std::mutex> lock(objects_mutex_);
+        auto iter = managed_objects_.find(key);
+        if (iter != managed_objects_.end()) {
+          auto object = iter->second.lock();
+          if (object != nullptr) {
+            *result = std::static_pointer_cast<T>(object);
+            return Status::OK();
+          }
+        }
+        auto c = std::static_pointer_cast<Customizable>(new_object);
         if (id != c->Name()) {
           // If the ID is not the base name of the class, add the new
           // object under the input ID
@@ -349,12 +364,12 @@ class ObjectRegistry {
         }
         if (id != c->GetId() && c->GetId() != c->Name()) {
           // If the input and current ID do not match, and the
-          // current ID is not the base bame, add the new object under
+          // current ID is not the base name, add the new object under
           // its new ID
           key = ToManagedObjectKey(T::Type(), c->GetId());
           managed_objects_[key] = c;
         }
-        *result = object;
+        *result = new_object;
       }
       return s;
     }
