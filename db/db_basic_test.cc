@@ -3962,9 +3962,9 @@ static async_result SimpleAsyncGetTest(DBAsyncTestBase* testBase) {
   co_await asyncResult;
   dynamic_cast<DBBasicTestWithAsyncIO*>(testBase)->shutdown();
   delete io_uring_option;
-  delete v;
 
   auto r = v->ToString();
+  delete v;
   if (r == "e1") {
     std::cout << "SimpleAsyncGetTest succeeded:" << r << "\n";
     co_return Status::OK();
