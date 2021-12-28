@@ -168,9 +168,9 @@ class HdfsEnv : public Env {
 
  private:
   std::string fsname_;  // string of the form "hdfs://hostname:port/"
-  hdfsFS fileSys_;      //  a single FileSystem object for all files
-  Env*  posixEnv;       // This object is derived from Env, but not from
-                        // posixEnv. We have posixnv as an encapsulated
+  hdfsFS fileSys_;      // a single FileSystem object for all files
+  Env* posixEnv;        // This object is derived from Env, but not from
+                        // posixEnv. We have posixEnv as an encapsulated
                         // object here so that we can use posix timers,
                         // posix threads, etc.
 
