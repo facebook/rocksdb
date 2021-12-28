@@ -42,18 +42,10 @@ using ConfigureFunc = std::function<Status(T*)>;
 
 class ObjectLibrary {
  public:
-  // Base class for an Entry in the Registry.
-  class Entry {
-   public:
-    virtual ~Entry() {}
-    virtual bool Matches(const std::string& target) const = 0;
-    virtual const char* Name() const = 0;
-  };
-
   // Class for matching target strings to a pattern.
   // Entries consist of a name that starts the pattern and attributes
   // The following attributes can be added to the entry:
-  //   -Suffix: Comparable to name(suffic)
+  //   -Suffix: Comparable to name(suffix)
   //   -Separator: Comparable to name(separator).+
   //   -Number: Comparable to name(separator).[0-9]+
   //   -AltName: Comparable to (name|alt)
@@ -64,11 +56,11 @@ class ObjectLibrary {
   //
   // Note that though this class does provide some regex-style matching,
   // it is not a full regex parser and has some key differences:
-  //   - Separatorss are matched left-most.  For example, an entry
+  //   - Separators are matched left-most.  For example, an entry
   //     Name("Hello").AddSeparator(" ").AddSuffix("!") would match
   //     "Hello world!", but not "Hello world!!"
   //   - No backtracking is necessary, enabling reliably efficient matching
-  class PatternEntry : public Entry {
+  class PatternEntry {
    private:
     enum Quantifier {
       kMatchPattern,  // [suffix].+
@@ -132,8 +124,8 @@ class ObjectLibrary {
     }
 
     // Checks to see if the target matches this entry
-    bool Matches(const std::string& target) const override;
-    const char* Name() const override { return name_.c_str(); }
+    bool Matches(const std::string& target) const;
+    const char* Name() const { return name_.c_str(); }
 
    private:
     size_t MatchSeparatorAt(size_t start, Quantifier mode,
@@ -150,6 +142,15 @@ class ObjectLibrary {
     std::vector<std::pair<std::string, Quantifier>>
         separators_;  // What to match
   };                  // End class Entry
+
+ private:
+  // Base class for an Entry in the Registry.
+  class Entry {
+   public:
+    virtual ~Entry() {}
+    virtual bool Matches(const std::string& target) const = 0;
+    virtual const char* Name() const = 0;
+  };
 
   // An Entry containing a FactoryFunc for creating new Objects
   template <typename T>
