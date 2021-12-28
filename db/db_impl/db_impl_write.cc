@@ -75,13 +75,17 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
-  if (tracer_ && !tracer_->IsWriteOrderPreserved()) {
-    // We don't have to preserve write order so can trace anywhere. It's more
-    // efficient to trace here than to add latency to a phase of the log/apply
-    // pipeline.
+  // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
+  // grabs but does not seem thread-safe.
+  if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
-    // TODO: maybe handle the tracing status?
-    tracer_->Write(my_batch).PermitUncheckedError();
+    if (tracer_ && !tracer_->IsWriteOrderPreserved()) {
+      // We don't have to preserve write order so can trace anywhere. It's more
+      // efficient to trace here than to add latency to a phase of the log/apply
+      // pipeline.
+      // TODO: maybe handle the tracing status?
+      tracer_->Write(my_batch).PermitUncheckedError();
+    }
   }
   if (write_options.sync && write_options.disableWAL) {
     return Status::InvalidArgument("Sync writes has to enable WAL.");
@@ -250,11 +254,15 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   IOStatus io_s;
   Status pre_release_cb_status;
   if (status.ok()) {
-    if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
+    // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
+    // grabs but does not seem thread-safe.
+    if (tracer_) {
       InstrumentedMutexLock lock(&trace_mutex_);
-      for (auto* writer : write_group) {
-        // TODO: maybe handle the tracing status?
-        tracer_->Write(writer->batch).PermitUncheckedError();
+      if (tracer_ && tracer_->IsWriteOrderPreserved()) {
+        for (auto* writer : write_group) {
+          // TODO: maybe handle the tracing status?
+          tracer_->Write(writer->batch).PermitUncheckedError();
+        }
       }
     }
     // Rules for when we can update the memtable concurrently
@@ -506,11 +514,15 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     size_t total_byte_size = 0;
 
     if (w.status.ok()) {
-      if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
+      // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
+      // grabs but does not seem thread-safe.
+      if (tracer_) {
         InstrumentedMutexLock lock(&trace_mutex_);
-        for (auto* writer : wal_write_group) {
-          // TODO: maybe handle the tracing status?
-          tracer_->Write(writer->batch).PermitUncheckedError();
+        if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
+          for (auto* writer : wal_write_group) {
+            // TODO: maybe handle the tracing status?
+            tracer_->Write(writer->batch).PermitUncheckedError();
+          }
         }
       }
       SequenceNumber next_sequence = current_sequence;
@@ -737,11 +749,15 @@ Status DBImpl::WriteImplWALOnly(
   write_thread->EnterAsBatchGroupLeader(&w, &write_group);
   // Note: no need to update last_batch_group_size_ here since the batch writes
   // to WAL only
-  if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
+  // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
+  // grabs but does not seem thread-safe.
+  if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
-    for (auto* writer : write_group) {
-      // TODO: maybe handle the tracing status?
-      tracer_->Write(writer->batch).PermitUncheckedError();
+    if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
+      for (auto* writer : write_group) {
+        // TODO: maybe handle the tracing status?
+        tracer_->Write(writer->batch).PermitUncheckedError();
+      }
     }
   }
 
