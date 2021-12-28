@@ -367,19 +367,18 @@ class WriteBatch : public WriteBatchBase {
   // This requires that all keys, if enable timestamp, (possibly from multiple
   // column families) in the write batch have timestamps of the same format.
   //
-  // checker: callable object to check the timestamp sizes of column families.
-  // If checker() accesses data structures, then the caller of this API must
-  // guarantee thread-safety.
-  // Like other parts of RocksDB, this API is not exception-safe. Therefore,
-  // checker() must not throw.
+  // ts_sz_func: callable object to obtain the timestamp sizes of column
+  // families. If ts_sz_func() accesses data structures, then the caller of this
+  // API must guarantee thread-safety. Like other parts of RocksDB, this API is
+  // not exception-safe. Therefore, ts_sz_func() must not throw.
   //
   // in: cf, the column family id.
   // ret: timestamp size of the given column family. Return
   //      std::numeric_limits<size_t>::max() indicating "dont know or column
   //      family info not found", this will cause UpdateTimestamps() to fail.
-  // size_t checker(uint32_t cf);
+  // size_t ts_sz_func(uint32_t cf);
   Status UpdateTimestamps(const Slice& ts,
-                          std::function<size_t(uint32_t /*cf*/)> checker);
+                          std::function<size_t(uint32_t /*cf*/)> ts_sz_func);
 
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }

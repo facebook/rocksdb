@@ -268,12 +268,14 @@ class LocalSavePoint {
 #endif
 };
 
-template <typename Checker>
+template <typename TimestampSizeFuncType>
 class TimestampUpdater : public WriteBatch::Handler {
  public:
   explicit TimestampUpdater(WriteBatch::ProtectionInfo* prot_info,
-                            Checker&& checker, const Slice& ts)
-      : prot_info_(prot_info), checker_(std::move(checker)), timestamp_(ts) {
+                            TimestampSizeFuncType&& ts_sz_func, const Slice& ts)
+      : prot_info_(prot_info),
+        ts_sz_func_(std::move(ts_sz_func)),
+        timestamp_(ts) {
     assert(!timestamp_.empty());
   }
 
@@ -329,7 +331,7 @@ class TimestampUpdater : public WriteBatch::Handler {
     if (timestamp_.empty()) {
       return Status::InvalidArgument("Timestamp is empty");
     }
-    size_t cf_ts_sz = checker_(cf);
+    size_t cf_ts_sz = ts_sz_func_(cf);
     if (0 == cf_ts_sz) {
       // Skip this column family.
       return Status::OK();
@@ -365,7 +367,7 @@ class TimestampUpdater : public WriteBatch::Handler {
   TimestampUpdater& operator=(TimestampUpdater&&) = delete;
 
   WriteBatch::ProtectionInfo* const prot_info_ = nullptr;
-  const Checker checker_{};
+  const TimestampSizeFuncType ts_sz_func_{};
   const Slice timestamp_;
   size_t idx_ = 0;
 };
