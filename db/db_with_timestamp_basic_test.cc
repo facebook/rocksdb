@@ -208,7 +208,7 @@ TEST_F(DBBasicTestWithTimestamp, SanityChecks) {
   options1.env = env_;
   options1.comparator = test::ComparatorWithU64Ts();
   options1.merge_operator = MergeOperators::CreateStringAppendTESTOperator();
-  assert(options1.comparator ||
+  assert(options1.comparator &&
          options1.comparator->timestamp_size() == sizeof(uint64_t));
   ColumnFamilyHandle* handle = nullptr;
   Status s = db_->CreateColumnFamily(options1, "data", &handle);
