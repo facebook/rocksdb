@@ -63,11 +63,6 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
     return OptimisticTransactionDB::Write(write_opts, batch);
   }
 
-  Status Write(const WriteOptions& /*write_opts*/, WriteBatch* /*batch*/,
-               const Slice& /*ts*/) override {
-    return Status::NotSupported();
-  }
-
   size_t GetLockBucketsSize() const { return bucketed_locks_.size(); }
 
   OccValidationPolicy GetValidatePolicy() const { return validate_policy_; }

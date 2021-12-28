@@ -297,7 +297,19 @@ TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
   ASSERT_OK(wb1.Put(handle, "b", "value1"));
   {
     std::string ts = Timestamp(2, 0);
-    ASSERT_OK(db_->Write(WriteOptions(), &wb1, ts));
+    const auto checker = [kTimestampSize, handle](uint32_t cf_id) {
+      assert(handle);
+      if (cf_id == 0) {
+        return static_cast<size_t>(0);
+      } else if (cf_id == handle->GetID()) {
+        return kTimestampSize;
+      } else {
+        assert(false);
+        return std::numeric_limits<size_t>::max();
+      }
+    };
+    ASSERT_OK(wb1.UpdateTimestamps(ts, checker));
+    ASSERT_OK(db_->Write(WriteOptions(), &wb1));
   }
   verify_db(handle, "b", Timestamp(2, 0), "value1");
 
@@ -3052,46 +3064,6 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::IndexType::kHashSearch,
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
             BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey)));
-
-class DBBasicTestWithTsPipelinedWrite
-    : public DBBasicTestWithTimestampBase,
-      public testing::WithParamInterface<bool> {
- public:
-  explicit DBBasicTestWithTsPipelinedWrite()
-      : DBBasicTestWithTimestampBase("/db_basic_ts_pipelined_write") {}
-};
-
-TEST_P(DBBasicTestWithTsPipelinedWrite, FailToUpdateTsDuringWrite) {
-  Options options = GetDefaultOptions();
-  options.create_if_missing = true;
-  options.env = env_;
-  options.comparator = test::ComparatorWithU64Ts();
-  constexpr size_t ts_sz = sizeof(uint64_t);
-  options.enable_pipelined_write = GetParam();
-  const std::string cf1_name = "cf1";
-  DestroyAndReopen(options);
-  CreateAndReopenWithCF({cf1_name}, options);
-  assert(handles_.size() == 2);
-  for (auto* h : handles_) {
-    assert(h && h->GetComparator() &&
-           h->GetComparator()->timestamp_size() == ts_sz);
-  }
-  WriteBatch wb(0, 0, 0, ts_sz);
-  ASSERT_OK(wb.Put(handles_[0], "key", "value"));
-  ASSERT_OK(wb.Put(handles_[1], "key", "value"));
-  {
-    std::string ts;
-    ASSERT_TRUE(db_->Write(WriteOptions(), &wb, ts).IsInvalidArgument());
-  }
-  {
-    std::string ts;
-    PutFixed32(&ts, 100);  // Encode ts of wrong size
-    ASSERT_TRUE(db_->Write(WriteOptions(), &wb, ts).IsInvalidArgument());
-  }
-}
-
-INSTANTIATE_TEST_CASE_P(Timestamp, DBBasicTestWithTsPipelinedWrite,
-                        ::testing::Bool());
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 }  // namespace ROCKSDB_NAMESPACE

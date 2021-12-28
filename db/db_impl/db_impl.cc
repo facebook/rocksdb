@@ -267,8 +267,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
 
   assert(versions_.get());
   assert(versions_->GetColumnFamilySet());
-  timestamp_checker_.reset(
-      new DbTimestampSizeChecker(versions_->GetColumnFamilySet()));
 
   DumpRocksDBBuildVersion(immutable_db_options_.info_log.get());
   DumpDBFileSummary(immutable_db_options_, dbname_, db_session_id_);
