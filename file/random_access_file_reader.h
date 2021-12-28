@@ -128,9 +128,9 @@ class RandomAccessFileReader {
                 char* scratch, AlignedBuf* aligned_buf,
                 bool for_compaction = false) const;
 
-  async_result AsyncRead(const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
-                char* scratch, AlignedBuf* aligned_buf,
-                bool for_compaction = false) const;
+  async_result AsyncRead(const IOOptions& opts, uint64_t offset, size_t n,
+                         Slice* result, char* scratch, AlignedBuf* aligned_buf,
+                         bool for_compaction = false) const;
 
   // REQUIRES:
   // num_reqs > 0, reqs do not overlap, and offsets in reqs are increasing.

@@ -233,10 +233,11 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
   return io_s;
 }
 
-async_result RandomAccessFileReader::AsyncRead(const IOOptions& opts, uint64_t offset,
-                                      size_t n, Slice* result, char* scratch,
-                                      AlignedBuf* aligned_buf,
-                                      bool for_compaction) const {
+async_result RandomAccessFileReader::AsyncRead(const IOOptions& opts,
+                                               uint64_t offset, size_t n,
+                                               Slice* result, char* scratch,
+                                               AlignedBuf* aligned_buf,
+                                               bool for_compaction) const {
   (void)aligned_buf;
 
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read", nullptr);
@@ -285,8 +286,9 @@ async_result RandomAccessFileReader::AsyncRead(const IOOptions& opts, uint64_t o
           // one iteration of this loop, so we don't need to check and adjust
           // the opts.timeout before calling file_->Read
           assert(!opts.timeout.count() || allowed == read_size);
-          auto a_result = file_->AsyncRead(aligned_offset + buf.CurrentSize(), allowed, opts,
-                             &tmp, buf.Destination(), nullptr);
+          auto a_result =
+              file_->AsyncRead(aligned_offset + buf.CurrentSize(), allowed,
+                               opts, &tmp, buf.Destination(), nullptr);
           co_await a_result;
           io_s = a_result.result();
         }
@@ -347,10 +349,12 @@ async_result RandomAccessFileReader::AsyncRead(const IOOptions& opts, uint64_t o
           // one iteration of this loop, so we don't need to check and adjust
           // the opts.timeout before calling file_->Read
           assert(!opts.timeout.count() || allowed == n);
-          std::cout<<"RandomAccessFileReader this pointer:"<<(void*)this<<"\n";
-          std::cout<<"RandomAccessFileReader file address:"<<(void*)(&file_)<<"\n";
-          auto a_result = file_->AsyncRead(offset + pos, allowed, opts, &tmp_result,
-                             scratch + pos, nullptr);
+          std::cout << "RandomAccessFileReader this pointer:" << (void*)this
+                    << "\n";
+          std::cout << "RandomAccessFileReader file address:" << (void*)(&file_)
+                    << "\n";
+          auto a_result = file_->AsyncRead(offset + pos, allowed, opts,
+                                           &tmp_result, scratch + pos, nullptr);
           co_await a_result;
           io_s = a_result.result();
         }
@@ -386,7 +390,6 @@ async_result RandomAccessFileReader::AsyncRead(const IOOptions& opts, uint64_t o
 
   co_return io_s;
 }
-
 
 size_t End(const FSReadRequest& r) {
   return static_cast<size_t>(r.offset) + r.len;

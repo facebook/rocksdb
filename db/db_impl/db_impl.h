@@ -143,7 +143,6 @@ class DBImpl : public DB {
 
   virtual ~DBImpl();
 
-
   // ---- Implementations of the DB interface ----
 
   using DB::Resume;
@@ -155,9 +154,8 @@ class DBImpl : public DB {
                      const Slice& value) override;
 
   virtual async_result AsyncPut(const WriteOptions& options,
-                                    ColumnFamilyHandle* column_family,
-                                    const Slice& key,
-                                    const Slice& value) override;
+                                ColumnFamilyHandle* column_family,
+                                const Slice& key, const Slice& value) override;
 
   using DB::Merge;
   virtual Status Merge(const WriteOptions& options,
@@ -176,7 +174,7 @@ class DBImpl : public DB {
                        WriteBatch* updates) override;
 
   virtual async_result AsyncWrite(const WriteOptions& options,
-                                      WriteBatch* updates) override;
+                                  WriteBatch* updates) override;
 
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
@@ -187,8 +185,9 @@ class DBImpl : public DB {
                      PinnableSlice* value, std::string* timestamp) override;
 
   virtual async_result AsyncGet(const ReadOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     PinnableSlice* value, std::string* timestamp) override;
+                                ColumnFamilyHandle* column_family,
+                                const Slice& key, PinnableSlice* value,
+                                std::string* timestamp) override;
 
   using DB::GetMergeOperands;
   Status GetMergeOperands(const ReadOptions& options,
@@ -212,6 +211,12 @@ class DBImpl : public DB {
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override;
   virtual std::vector<Status> MultiGet(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_family,
+      const std::vector<Slice>& keys, std::vector<std::string>* values,
+      std::vector<std::string>* timestamps) override;
+  using DB::AsyncMultiGet;
+  virtual async_result AsyncMultiGet(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys, std::vector<std::string>* values,
@@ -549,9 +554,9 @@ class DBImpl : public DB {
   // get_impl_options.key via get_impl_options.merge_operands
   Status GetImpl(const ReadOptions& options, const Slice& key,
                  GetImplOptions& get_impl_options);
-  
+
   async_result AsyncGetImpl(const ReadOptions& options, const Slice& key,
-                 GetImplOptions& get_impl_options);
+                            GetImplOptions& get_impl_options);
 
   // If `snapshot` == kMaxSequenceNumber, set a recent one inside the file.
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
@@ -748,7 +753,8 @@ class DBImpl : public DB {
   // Find Super version and reference it. Based on options, it might return
   // the thread local cached one.
   // Call ReturnAndCleanupSuperVersion() when it is no longer needed.
-  SuperVersion* GetAndRefSuperVersion(ColumnFamilyData* cfd, bool useThreadLocalCache = true);
+  SuperVersion* GetAndRefSuperVersion(ColumnFamilyData* cfd,
+                                      bool useThreadLocalCache = true);
 
   // Similar to the previous function but looks up based on a column family id.
   // nullptr will be returned if this column family no longer exists.
@@ -1286,12 +1292,12 @@ class DBImpl : public DB {
                    size_t batch_cnt = 0,
                    PreReleaseCallback* pre_release_callback = nullptr);
 
-  async_result AsyncWriteImpl(const WriteOptions& options, WriteBatch* updates,
-                                  WriteCallback* callback = nullptr,
-                                  uint64_t* log_used = nullptr, uint64_t log_ref = 0,
-                                  bool disable_memtable = false, uint64_t* seq_used = nullptr,
-                                  size_t batch_cnt = 0,
-                                  PreReleaseCallback* pre_release_callback = nullptr);
+  async_result AsyncWriteImpl(
+      const WriteOptions& options, WriteBatch* updates,
+      WriteCallback* callback = nullptr, uint64_t* log_used = nullptr,
+      uint64_t log_ref = 0, bool disable_memtable = false,
+      uint64_t* seq_used = nullptr, size_t batch_cnt = 0,
+      PreReleaseCallback* pre_release_callback = nullptr);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
@@ -1544,22 +1550,17 @@ class DBImpl : public DB {
     Env::Priority compaction_pri_;
   };
 
-std::tuple<SequenceNumber, SuperVersion*, size_t, ColumnFamilyData*> GetSnapshot(
-    const ReadOptions& read_options, 
-    const Slice& key, 
-    GetImplOptions& get_impl_options,
-    const bool useThreadLocalCache = true);
+  std::tuple<SequenceNumber, SuperVersion*, size_t, ColumnFamilyData*>
+  GetSnapshot(const ReadOptions& read_options, const Slice& key,
+              GetImplOptions& get_impl_options,
+              const bool useThreadLocalCache = true);
 
-enum class MemtableLookupStatus { NotFound, Failed, Found };
-std::tuple<DBImpl::MemtableLookupStatus, Status> LookupMemtable(
-  const ReadOptions& read_options,
-  const LookupKey& lkey, 
-  std::string* timestamp,
-  SuperVersion* sv,
-  ColumnFamilyData* cfd,
-  MergeContext& merge_context,
-  SequenceNumber& max_covering_tombstone_seq,
-  GetImplOptions& get_impl_options);
+  enum class MemtableLookupStatus { NotFound, Failed, Found };
+  std::tuple<DBImpl::MemtableLookupStatus, Status> LookupMemtable(
+      const ReadOptions& read_options, const LookupKey& lkey,
+      std::string* timestamp, SuperVersion* sv, ColumnFamilyData* cfd,
+      MergeContext& merge_context, SequenceNumber& max_covering_tombstone_seq,
+      GetImplOptions& get_impl_options);
 
   // Initialize the built-in column family for persistent stats. Depending on
   // whether on-disk persistent stats have been enabled before, it may either
@@ -1765,8 +1766,9 @@ std::tuple<DBImpl::MemtableLookupStatus, Status> LookupMemtable(
   IOStatus WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
                       uint64_t* log_used, uint64_t* log_size);
 
-  async_result AsyncWriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
-                                   uint64_t* log_used, uint64_t* log_size);
+  async_result AsyncWriteToWAL(const WriteBatch& merged_batch,
+                               log::Writer* log_writer, uint64_t* log_used,
+                               uint64_t* log_size);
 
   IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
                       log::Writer* log_writer, uint64_t* log_used,
@@ -1774,9 +1776,9 @@ std::tuple<DBImpl::MemtableLookupStatus, Status> LookupMemtable(
                       SequenceNumber sequence);
 
   async_result AsyncWriteToWAL(const WriteThread::WriteGroup& write_group,
-                                   log::Writer* log_writer, uint64_t* log_used,
-                                   bool need_log_sync, bool need_log_dir_sync,
-                                   SequenceNumber sequence);
+                               log::Writer* log_writer, uint64_t* log_used,
+                               bool need_log_sync, bool need_log_dir_sync,
+                               SequenceNumber sequence);
 
   IOStatus ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
                                 uint64_t* log_used,

@@ -120,11 +120,11 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
 
 template <typename TBlockIter>
 async_result BlockBasedTable::AsyncNewDataBlockIterator(
-      const ReadOptions& ro, const BlockHandle& handle,
-      TBlockIter* input_iter, BlockType block_type, GetContext* get_context,
-      BlockCacheLookupContext* lookup_context, Status s,
-      TBlockIter** result_iterator,
-      FilePrefetchBuffer* prefetch_buffer, bool for_compaction) const {
+    const ReadOptions& ro, const BlockHandle& handle, TBlockIter* input_iter,
+    BlockType block_type, GetContext* get_context,
+    BlockCacheLookupContext* lookup_context, Status s,
+    TBlockIter** result_iterator, FilePrefetchBuffer* prefetch_buffer,
+    bool for_compaction) const {
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
 
   TBlockIter* iter = input_iter != nullptr ? input_iter : new TBlockIter;
@@ -151,9 +151,10 @@ async_result BlockBasedTable::AsyncNewDataBlockIterator(
                                       : UncompressionDict::GetEmptyDict();
 
   CachableEntry<Block> block;
-  auto result = AsyncRetrieveBlock(prefetch_buffer, ro, handle, dict, &block, block_type,
-                    get_context, lookup_context, for_compaction,
-                    /* use_cache */ true, /* wait_for_cache */ true);
+  auto result =
+      AsyncRetrieveBlock(prefetch_buffer, ro, handle, dict, &block, block_type,
+                         get_context, lookup_context, for_compaction,
+                         /* use_cache */ true, /* wait_for_cache */ true);
   co_await result;
   s = result.result();
 

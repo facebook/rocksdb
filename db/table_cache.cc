@@ -479,13 +479,12 @@ Status TableCache::Get(const ReadOptions& options,
   return s;
 }
 
-async_result TableCache::AsyncGet(const ReadOptions& options,
-                                  const InternalKeyComparator& internal_comparator,
-                                  const FileMetaData& file_meta, const Slice& k,
-                                  GetContext* get_context,
-                                  const SliceTransform* prefix_extractor,
-                                  HistogramImpl* file_read_hist, bool skip_filters,
-                                  int level, size_t max_file_size_for_l0_meta_pin) {
+async_result TableCache::AsyncGet(
+    const ReadOptions& options,
+    const InternalKeyComparator& internal_comparator,
+    const FileMetaData& file_meta, const Slice& k, GetContext* get_context,
+    const SliceTransform* prefix_extractor, HistogramImpl* file_read_hist,
+    bool skip_filters, int level, size_t max_file_size_for_l0_meta_pin) {
   auto& fd = file_meta.fd;
   std::string* row_cache_entry = nullptr;
   bool done = false;
@@ -535,7 +534,8 @@ async_result TableCache::AsyncGet(const ReadOptions& options,
     }
     if (s.ok()) {
       get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.
-      auto a_result = t->AsyncGet(options, k, get_context, prefix_extractor, skip_filters);
+      auto a_result =
+          t->AsyncGet(options, k, get_context, prefix_extractor, skip_filters);
       co_await a_result;
       s = a_result.result();
       get_context->SetReplayLog(nullptr);

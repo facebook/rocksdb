@@ -379,11 +379,13 @@ async_result WritableFileWriter::AsyncFlush() {
 #endif  // !ROCKSDB_LITE
     } else {
       if (perform_data_verification_ && buffered_data_with_checksum_) {
-        auto result = AsyncWriteBufferedWithChecksum(buf_.BufferStart(), buf_.CurrentSize());
+        auto result = AsyncWriteBufferedWithChecksum(buf_.BufferStart(),
+                                                     buf_.CurrentSize());
         co_await result;
         s = result.io_result();
       } else {
-        auto result = AsyncWriteBuffered(buf_.BufferStart(), buf_.CurrentSize());
+        auto result =
+            AsyncWriteBuffered(buf_.BufferStart(), buf_.CurrentSize());
         co_await result;
         s = result.io_result();
       }
@@ -434,7 +436,8 @@ async_result WritableFileWriter::AsyncFlush() {
       assert(offset_sync_to >= last_sync_size_);
       if (offset_sync_to > 0 &&
           offset_sync_to - last_sync_size_ >= bytes_per_sync_) {
-        auto result = AsRangeSync(last_sync_size_, offset_sync_to - last_sync_size_);
+        auto result =
+            AsRangeSync(last_sync_size_, offset_sync_to - last_sync_size_);
         co_await result;
         s = result.io_result();
         last_sync_size_ = offset_sync_to;
@@ -616,7 +619,8 @@ async_result WritableFileWriter::AsRangeSync(uint64_t offset, uint64_t nbytes) {
     start_ts = FileOperationInfo::StartNow();
   }
 #endif
-  auto result = writable_file_->AsRangeSync(offset, nbytes, IOOptions(), nullptr);
+  auto result =
+      writable_file_->AsRangeSync(offset, nbytes, IOOptions(), nullptr);
   co_await result;
   IOStatus s = result.io_result();
 #ifndef ROCKSDB_LITE
@@ -696,7 +700,8 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
   return s;
 }
 
-async_result WritableFileWriter::AsyncWriteBuffered(const char* data, size_t size) {
+async_result WritableFileWriter::AsyncWriteBuffered(const char* data,
+                                                    size_t size) {
   IOStatus s;
   assert(!use_direct_io());
   const char* src = data;
@@ -738,7 +743,8 @@ async_result WritableFileWriter::AsyncWriteBuffered(const char* data, size_t siz
           co_await result;
           s = result.io_result();
         } else {
-          auto result = writable_file_->AsyncAppend(Slice(src, allowed), IOOptions(), nullptr);
+          auto result = writable_file_->AsyncAppend(Slice(src, allowed),
+                                                    IOOptions(), nullptr);
           co_await result;
           s = result.io_result();
         }

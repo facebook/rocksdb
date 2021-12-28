@@ -2148,12 +2148,14 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   }
 }
 
-async_result Version::AsyncGet(const ReadOptions& read_options, const LookupKey& k, PinnableSlice* value,
-        std::string* timestamp, Status* status, MergeContext* merge_context,
-        SequenceNumber* max_covering_tombstone_seq,
-        bool* value_found, bool* key_exists,
-        SequenceNumber* seq, ReadCallback* callback,
-        bool* is_blob, bool do_merge) {
+async_result Version::AsyncGet(const ReadOptions& read_options,
+                               const LookupKey& k, PinnableSlice* value,
+                               std::string* timestamp, Status* status,
+                               MergeContext* merge_context,
+                               SequenceNumber* max_covering_tombstone_seq,
+                               bool* value_found, bool* key_exists,
+                               SequenceNumber* seq, ReadCallback* callback,
+                               bool* is_blob, bool do_merge) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
 
@@ -2299,7 +2301,7 @@ async_result Version::AsyncGet(const ReadOptions& read_options, const LookupKey&
       co_return Status::OK();
     }
     if (!merge_operator_) {
-      *status =  Status::InvalidArgument(
+      *status = Status::InvalidArgument(
           "merge_operator is not properly initialized.");
       co_return Status::OK();
     }
@@ -2317,7 +2319,7 @@ async_result Version::AsyncGet(const ReadOptions& read_options, const LookupKey&
     if (key_exists != nullptr) {
       *key_exists = false;
     }
-    *status = Status::NotFound(); // Use an empty error message for speed
+    *status = Status::NotFound();  // Use an empty error message for speed
     co_return Status::NotFound();
   }
 }

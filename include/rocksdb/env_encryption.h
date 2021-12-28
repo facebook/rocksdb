@@ -9,11 +9,11 @@
 
 #include <string>
 
+#include "rocksdb/async_result.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/rocksdb_namespace.h"
-#include "rocksdb/async_result.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -256,8 +256,8 @@ class EncryptedRandomAccessFile : public FSRandomAccessFile {
                 IODebugContext* dbg) const override;
 
   async_result AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
-                Slice* result, char* scratch,
-                IODebugContext* dbg) const override {
+                         Slice* result, char* scratch,
+                         IODebugContext* dbg) const override {
     (void)offset;
     (void)n;
     (void)options;
@@ -326,7 +326,7 @@ class EncryptedWritableFile : public FSWritableFile {
   IOStatus Append(const Slice& data, const IOOptions& options,
                   IODebugContext* dbg) override;
   async_result AsyncAppend(const Slice& data, const IOOptions& options,
-                               IODebugContext* dbg) override {
+                           IODebugContext* dbg) override {
     (void)data;
     (void)options;
     (void)dbg;

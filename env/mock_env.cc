@@ -326,9 +326,9 @@ class MockRandomAccessFile : public FSRandomAccessFile {
     }
   }
 
-    async_result AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
-                Slice* result, char* scratch,
-                IODebugContext* dbg) const override {
+  async_result AsyncRead(uint64_t offset, size_t n, const IOOptions& options,
+                         Slice* result, char* scratch,
+                         IODebugContext* dbg) const override {
     (void)offset;
     (void)n;
     (void)options;
@@ -407,7 +407,7 @@ class MockWritableFile : public FSWritableFile {
     return IOStatus::OK();
   }
   async_result AsyncAppend(const Slice& data, const IOOptions& options,
-                               IODebugContext* dbg) override {
+                           IODebugContext* dbg) override {
     (void)data;
     (void)options;
     (void)dbg;

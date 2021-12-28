@@ -133,7 +133,7 @@ class BlockBasedTable : public TableReader {
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
-    
+
   async_result AsyncGet(const ReadOptions& readOptions, const Slice& key,
                         GetContext* get_context,
                         const SliceTransform* prefix_extractor,
@@ -252,8 +252,8 @@ class BlockBasedTable : public TableReader {
       const ReadOptions& ro, const BlockHandle& block_handle,
       TBlockIter* input_iter, BlockType block_type, GetContext* get_context,
       BlockCacheLookupContext* lookup_context, Status s,
-      TBlockIter** result_iterator,
-      FilePrefetchBuffer* prefetch_buffer, bool for_compaction = false) const;
+      TBlockIter** result_iterator, FilePrefetchBuffer* prefetch_buffer,
+      bool for_compaction = false) const;
 
   // input_iter: if it is not null, update this one and return it as Iterator
   template <typename TBlockIter>
@@ -351,14 +351,12 @@ class BlockBasedTable : public TableReader {
                        bool wait_for_cache) const;
 
   template <typename TBlocklike>
-  async_result AsyncRetrieveBlock(FilePrefetchBuffer* prefetch_buffer,
-                       const ReadOptions& ro, const BlockHandle& handle,
-                       const UncompressionDict& uncompression_dict,
-                       CachableEntry<TBlocklike>* block_entry,
-                       BlockType block_type, GetContext* get_context,
-                       BlockCacheLookupContext* lookup_context,
-                       bool for_compaction, bool use_cache,
-                       bool wait_for_cache) const;
+  async_result AsyncRetrieveBlock(
+      FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
+      const BlockHandle& handle, const UncompressionDict& uncompression_dict,
+      CachableEntry<TBlocklike>* block_entry, BlockType block_type,
+      GetContext* get_context, BlockCacheLookupContext* lookup_context,
+      bool for_compaction, bool use_cache, bool wait_for_cache) const;
 
   void RetrieveMultipleBlocks(
       const ReadOptions& options, const MultiGetRange* batch,

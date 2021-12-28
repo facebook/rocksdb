@@ -6,11 +6,14 @@
 #pragma once
 #include <liburing.h>
 #include <sys/uio.h>
+
 #include <coroutine>
 #include <iostream>
 #include <memory>
-#include "rocksdb/status.h"
+#include <vector>
+
 #include "io_status.h"
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -25,6 +28,7 @@ struct ret_back {
   Status result_;
   IOStatus io_result_;
   bool posix_write_result_;
+  std::vector<Status> results_;
 };
 
 struct async_result {
@@ -35,7 +39,7 @@ struct async_result {
       return async_result(h, *ret_back_promise);
     }
 
-    auto initial_suspend() { return std::suspend_never{};}
+    auto initial_suspend() { return std::suspend_never{}; }
 
     auto final_suspend() noexcept {
       if (prev_ != nullptr) {
@@ -53,6 +57,11 @@ struct async_result {
       ret_back_promise->result_set_ = true;
     }
 
+    void return_value(std::vector<Status>&& results) {
+      ret_back_promise->results_ = std::move(results);
+      ret_back_promise->result_set_ = true;
+    }
+
     void return_value(IOStatus io_result) {
       ret_back_promise->io_result_ = io_result;
       ret_back_promise->result_set_ = true;
@@ -64,22 +73,28 @@ struct async_result {
     }
 
     promise_type* prev_ = nullptr;
-    ret_back *ret_back_promise;
+    ret_back* ret_back_promise;
   };
 
-  async_result() : async_(false) {}
+  async_result() : ret_back_(nullptr), async_(false) {}
 
-  async_result(bool async, FilePage* context) : async_(async), context_{context} {
-  }
+  async_result(bool async, FilePage* context)
+      : ret_back_(nullptr), async_(async), context_{context} {}
 
-  async_result(std::coroutine_handle<promise_type> h, ret_back& ret_back) : h_{h} {
+  async_result(std::coroutine_handle<promise_type> h, ret_back& ret_back)
+      : h_{h} {
     ret_back_ = &ret_back;
   }
 
+  ~async_result() {
+    delete ret_back_;
+    ret_back_ = nullptr;
+  }
+
   bool await_ready() const noexcept {
-    if (async_) 
+    if (async_ || ret_back_ == nullptr)
       return false;
-    else 
+    else
       return ret_back_->result_set_;
   }
 
@@ -93,8 +108,10 @@ struct async_result {
 
   bool posix_result() { return ret_back_->posix_write_result_; }
 
+  std::vector<Status> results() { return std::move(ret_back_->results_); }
+
   std::coroutine_handle<promise_type> h_;
-  ret_back *ret_back_;
+  ret_back* ret_back_;
   bool async_ = false;
   FilePage* context_;
 };
@@ -105,16 +122,11 @@ struct file_page {
     iov = (iovec*)calloc(pages, sizeof(struct iovec));
   }
 
-  ~file_page() {
-    free(iov);
-  }
+  ~file_page() { free(iov); }
 
   async_result::promise_type* promise;
-  struct iovec *iov;
+  struct iovec* iov;
   int pages_;
 };
 
-}// namespace ROCKSDB_NAMESPACE
-
-
-
+}  // namespace ROCKSDB_NAMESPACE
