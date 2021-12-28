@@ -224,6 +224,10 @@ class WriteBatchInternal {
 
   static std::tuple<Status, uint32_t, size_t> GetColumnFamilyIdAndTimestampSize(
       WriteBatch* b, ColumnFamilyHandle* column_family);
+
+  static bool TimestampsUpdateNeeded(const WriteBatch& wb) {
+    return wb.needs_in_place_update_ts_;
+  }
 };
 
 // LocalSavePoint is similar to a scope guard

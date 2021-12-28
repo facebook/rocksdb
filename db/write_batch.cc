@@ -780,6 +780,7 @@ Status WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
     return WriteBatchInternal::Put(this, cf_id, key, value);
   }
 
+  needs_in_place_update_ts_ = true;
   std::string dummy_ts(ts_sz, '\0');
   std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
   return WriteBatchInternal::Put(this, cf_id, SliceParts(key_with_ts.data(), 2),
@@ -987,6 +988,7 @@ Status WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key) {
     return WriteBatchInternal::Delete(this, cf_id, key);
   }
 
+  needs_in_place_update_ts_ = true;
   std::string dummy_ts(ts_sz, '\0');
   std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
   return WriteBatchInternal::Delete(this, cf_id,
@@ -1105,6 +1107,7 @@ Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
     return WriteBatchInternal::SingleDelete(this, cf_id, key);
   }
 
+  needs_in_place_update_ts_ = true;
   std::string dummy_ts(ts_sz, '\0');
   std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
   return WriteBatchInternal::SingleDelete(this, cf_id,
@@ -1476,7 +1479,11 @@ Status WriteBatch::UpdateTimestamps(const Slice& ts,
                                     std::function<size_t(uint32_t)> checker) {
   TimestampUpdater<decltype(checker)> ts_updater(prot_info_.get(),
                                                  std::move(checker), ts);
-  return Iterate(&ts_updater);
+  const Status s = Iterate(&ts_updater);
+  if (s.ok()) {
+    needs_in_place_update_ts_ = false;
+  }
+  return s;
 }
 
 class MemTableInserter : public WriteBatch::Handler {

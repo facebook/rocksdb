@@ -240,6 +240,22 @@ TEST_F(DBBasicTestWithTimestamp, SanityChecks) {
   ASSERT_TRUE(db_->DeleteRange(WriteOptions(), handle, "begin_key", "end_key")
                   .IsInvalidArgument());
 
+  {
+    WriteBatch wb;
+    ASSERT_OK(wb.Put(handle, "key", "value"));
+    ASSERT_TRUE(db_->Write(WriteOptions(), &wb).IsInvalidArgument());
+  }
+  {
+    WriteBatch wb;
+    ASSERT_OK(wb.Delete(handle, "key"));
+    ASSERT_TRUE(db_->Write(WriteOptions(), &wb).IsInvalidArgument());
+  }
+  {
+    WriteBatch wb;
+    ASSERT_OK(wb.SingleDelete(handle, "key"));
+    ASSERT_TRUE(db_->Write(WriteOptions(), &wb).IsInvalidArgument());
+  }
+
   delete handle;
 }
 

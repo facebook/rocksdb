@@ -92,6 +92,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   assert(!seq_per_batch_ || batch_cnt != 0);
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
+  } else if (WriteBatchInternal::TimestampsUpdateNeeded(*my_batch)) {
+    return Status::InvalidArgument("write batch must have timestamp(s) set");
   }
   // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
   // grabs but does not seem thread-safe.
