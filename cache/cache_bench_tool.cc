@@ -5,11 +5,14 @@
 
 #ifdef GFLAGS
 #include <cinttypes>
+#include <cstddef>
 #include <cstdio>
 #include <limits>
+#include <memory>
 #include <set>
 #include <sstream>
 
+#include "db/db_impl/db_impl.h"
 #include "monitoring/histogram.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
@@ -18,6 +21,8 @@
 #include "rocksdb/env.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/system_clock.h"
+#include "rocksdb/table_properties.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/cachable_entry.h"
 #include "util/coding.h"
 #include "util/gflags_compat.h"
@@ -72,6 +77,36 @@ static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
 #endif  // ROCKSDB_LITE
 
 DEFINE_bool(use_clock_cache, false, "");
+
+// ## BEGIN stress_cache_key sub-tool options ##
+DEFINE_bool(stress_cache_key, false,
+            "If true, run cache key stress test instead");
+DEFINE_uint32(sck_files_per_day, 2500000,
+              "(-stress_cache_key) Simulated files generated per day");
+DEFINE_uint32(sck_duration, 90,
+              "(-stress_cache_key) Number of days to simulate in each run");
+DEFINE_uint32(
+    sck_min_collision, 15,
+    "(-stress_cache_key) Keep running until this many collisions seen");
+DEFINE_uint32(
+    sck_file_size_mb, 32,
+    "(-stress_cache_key) Simulated file size in MiB, for accounting purposes");
+DEFINE_uint32(sck_reopen_nfiles, 100,
+              "(-stress_cache_key) Re-opens DB average every n files");
+DEFINE_uint32(
+    sck_restarts_per_day, 24,
+    "(-stress_cache_key) Simulated process restarts per day (across DBs)");
+DEFINE_uint32(sck_db_count, 100,
+              "(-stress_cache_key) Parallel DBs in operation");
+DEFINE_uint32(sck_table_bits, 20,
+              "(-stress_cache_key) Log2 number of tracked files");
+DEFINE_uint32(sck_keep_bits, 50,
+              "(-stress_cache_key) Number of cache key bits to keep");
+DEFINE_bool(sck_randomize, false,
+            "(-stress_cache_key) Randomize (hash) cache key");
+DEFINE_bool(sck_footer_unique_id, false,
+            "(-stress_cache_key) Simulate using proposed footer unique id");
+// ## END stress_cache_key sub-tool options ##
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -220,7 +255,7 @@ class CacheBench {
     if (skewed_) {
       uint64_t max_key = max_key_;
       while (max_key >>= 1) max_log_++;
-      if (max_key > (1u << max_log_)) max_log_++;
+      if (max_key > (static_cast<uint64_t>(1) << max_log_)) max_log_++;
     }
 
     if (FLAGS_use_clock_cache) {
@@ -380,7 +415,8 @@ class CacheBench {
                  << "Average key size: "
                  << (1.0 * total_key_size / total_entry_count) << "\n"
                  << "Average charge: "
-                 << BytesToHumanString(1.0 * total_charge / total_entry_count)
+                 << BytesToHumanString(static_cast<uint64_t>(
+                        1.0 * total_charge / total_entry_count))
                  << "\n"
                  << "Unique deleters: " << deleters.size() << "\n";
             *stats_report = ostr.str();
@@ -547,8 +583,194 @@ class CacheBench {
   }
 };
 
+// TODO: better description (see PR #9126 for some info)
+class StressCacheKey {
+ public:
+  void Run() {
+    if (FLAGS_sck_footer_unique_id) {
+      FLAGS_sck_db_count = 1;
+    }
+
+    uint64_t mb_per_day =
+        uint64_t{FLAGS_sck_files_per_day} * FLAGS_sck_file_size_mb;
+    printf("Total cache or DBs size: %gTiB  Writing %g MiB/s or %gTiB/day\n",
+           FLAGS_sck_file_size_mb / 1024.0 / 1024.0 *
+               std::pow(2.0, FLAGS_sck_table_bits),
+           mb_per_day / 86400.0, mb_per_day / 1024.0 / 1024.0);
+    multiplier_ = std::pow(2.0, 128 - FLAGS_sck_keep_bits) /
+                  (FLAGS_sck_file_size_mb * 1024.0 * 1024.0);
+    printf(
+        "Multiply by %g to correct for simulation losses (but still assume "
+        "whole file cached)\n",
+        multiplier_);
+    restart_nfiles_ = FLAGS_sck_files_per_day / FLAGS_sck_restarts_per_day;
+    double without_ejection =
+        std::pow(1.414214, FLAGS_sck_keep_bits) / FLAGS_sck_files_per_day;
+    printf(
+        "Without ejection, expect random collision after %g days (%g "
+        "corrected)\n",
+        without_ejection, without_ejection * multiplier_);
+    double with_full_table =
+        std::pow(2.0, FLAGS_sck_keep_bits - FLAGS_sck_table_bits) /
+        FLAGS_sck_files_per_day;
+    printf(
+        "With ejection and full table, expect random collision after %g "
+        "days (%g corrected)\n",
+        with_full_table, with_full_table * multiplier_);
+    collisions_ = 0;
+
+    for (int i = 1; collisions_ < FLAGS_sck_min_collision; i++) {
+      RunOnce();
+      if (collisions_ == 0) {
+        printf(
+            "No collisions after %d x %u days                              "
+            "                   \n",
+            i, FLAGS_sck_duration);
+      } else {
+        double est = 1.0 * i * FLAGS_sck_duration / collisions_;
+        printf("%" PRIu64
+               " collisions after %d x %u days, est %g days between (%g "
+               "corrected)        \n",
+               collisions_, i, FLAGS_sck_duration, est, est * multiplier_);
+      }
+    }
+  }
+
+  void RunOnce() {
+    const size_t db_count = FLAGS_sck_db_count;
+    dbs_.reset(new TableProperties[db_count]{});
+    const size_t table_mask = (size_t{1} << FLAGS_sck_table_bits) - 1;
+    table_.reset(new uint64_t[table_mask + 1]{});
+    if (FLAGS_sck_keep_bits > 64) {
+      FLAGS_sck_keep_bits = 64;
+    }
+    uint32_t shift_away = 64 - FLAGS_sck_keep_bits;
+    uint32_t shift_away_b = shift_away / 3;
+    uint32_t shift_away_a = shift_away - shift_away_b;
+
+    process_count_ = 0;
+    session_count_ = 0;
+    ResetProcess();
+
+    Random64 r{std::random_device{}()};
+
+    uint64_t max_file_count =
+        uint64_t{FLAGS_sck_files_per_day} * FLAGS_sck_duration;
+    uint64_t file_count = 0;
+    uint32_t report_count = 0;
+    uint32_t collisions_this_run = 0;
+    // Round robin through DBs
+    for (size_t db_i = 0;; ++db_i) {
+      if (db_i >= db_count) {
+        db_i = 0;
+      }
+      if (file_count >= max_file_count) {
+        break;
+      }
+      if (!FLAGS_sck_footer_unique_id && r.OneIn(FLAGS_sck_reopen_nfiles)) {
+        ResetSession(db_i);
+      } else if (r.OneIn(restart_nfiles_)) {
+        ResetProcess();
+      }
+      OffsetableCacheKey ock;
+      dbs_[db_i].orig_file_number += 1;
+      // skip some file numbers, unless 1 DB so that that can simulate
+      // better (DB-independent) unique IDs
+      if (db_count > 1) {
+        dbs_[db_i].orig_file_number += (r.Next() & 3);
+      }
+      BlockBasedTable::SetupBaseCacheKey(&dbs_[db_i], "", 42, 42, &ock);
+      CacheKey ck = ock.WithOffset(0);
+      uint64_t stripped;
+      if (FLAGS_sck_randomize) {
+        stripped = GetSliceHash64(ck.AsSlice()) >> shift_away;
+      } else if (FLAGS_sck_footer_unique_id) {
+        uint32_t a = DecodeFixed32(ck.AsSlice().data() + 4) >> shift_away_a;
+        uint32_t b = DecodeFixed32(ck.AsSlice().data() + 12) >> shift_away_b;
+        stripped = (uint64_t{a} << 32) + b;
+      } else {
+        uint32_t a = DecodeFixed32(ck.AsSlice().data()) << shift_away_a;
+        uint32_t b = DecodeFixed32(ck.AsSlice().data() + 12) >> shift_away_b;
+        stripped = (uint64_t{a} << 32) + b;
+      }
+      if (stripped == 0) {
+        // Unlikely, but we need to exclude tracking this value
+        printf("Hit Zero!                                                  \n");
+        continue;
+      }
+      file_count++;
+      uint64_t h = NPHash64(reinterpret_cast<char*>(&stripped), 8);
+      // Skew lifetimes
+      size_t pos =
+          std::min(Lower32of64(h) & table_mask, Upper32of64(h) & table_mask);
+      if (table_[pos] == stripped) {
+        collisions_this_run++;
+        // To predict probability of no collisions, we have to get rid of
+        // correlated collisions, which this takes care of:
+        ResetProcess();
+      } else {
+        // Replace
+        table_[pos] = stripped;
+      }
+
+      if (++report_count == FLAGS_sck_files_per_day) {
+        report_count = 0;
+        // Estimate fill %
+        size_t incr = table_mask / 1000;
+        size_t sampled_count = 0;
+        for (size_t i = 0; i <= table_mask; i += incr) {
+          if (table_[i] != 0) {
+            sampled_count++;
+          }
+        }
+        // Report
+        printf(
+            "%" PRIu64 " days, %" PRIu64 " proc, %" PRIu64
+            " sess, %u coll, occ %g%%, ejected %g%%   \r",
+            file_count / FLAGS_sck_files_per_day, process_count_,
+            session_count_, collisions_this_run, 100.0 * sampled_count / 1000.0,
+            100.0 * (1.0 - sampled_count / 1000.0 * table_mask / file_count));
+        fflush(stdout);
+      }
+    }
+    collisions_ += collisions_this_run;
+  }
+
+  void ResetSession(size_t i) {
+    dbs_[i].db_session_id = DBImpl::GenerateDbSessionId(nullptr);
+    session_count_++;
+  }
+
+  void ResetProcess() {
+    process_count_++;
+    DBImpl::TEST_ResetDbSessionIdGen();
+    for (size_t i = 0; i < FLAGS_sck_db_count; ++i) {
+      ResetSession(i);
+    }
+    if (FLAGS_sck_footer_unique_id) {
+      dbs_[0].orig_file_number = 0;
+    }
+  }
+
+ private:
+  // Use db_session_id and orig_file_number from TableProperties
+  std::unique_ptr<TableProperties[]> dbs_;
+  std::unique_ptr<uint64_t[]> table_;
+  uint64_t process_count_ = 0;
+  uint64_t session_count_ = 0;
+  uint64_t collisions_ = 0;
+  uint32_t restart_nfiles_ = 0;
+  double multiplier_ = 0.0;
+};
+
 int cache_bench_tool(int argc, char** argv) {
   ParseCommandLineFlags(&argc, &argv, true);
+
+  if (FLAGS_stress_cache_key) {
+    // Alternate tool
+    StressCacheKey().Run();
+    return 0;
+  }
 
   if (FLAGS_threads <= 0) {
     fprintf(stderr, "threads number <= 0\n");

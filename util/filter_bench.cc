@@ -19,6 +19,7 @@ int main() {
 #include "memory/arena.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/system_clock.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
@@ -93,6 +94,18 @@ DEFINE_bool(net_includes_hashing, false,
 DEFINE_bool(optimize_filters_for_memory, false,
             "Setting for BlockBasedTableOptions::optimize_filters_for_memory");
 
+DEFINE_uint32(block_cache_capacity_MB, 8,
+              "Setting for "
+              "LRUCacheOptions::capacity");
+
+DEFINE_bool(reserve_table_builder_memory, false,
+            "Setting for "
+            "BlockBasedTableOptions::reserve_table_builder_memory");
+
+DEFINE_bool(strict_capacity_limit, false,
+            "Setting for "
+            "LRUCacheOptions::strict_capacity_limit");
+
 DEFINE_bool(quick, false, "Run more limited set of tests, fewer queries");
 
 DEFINE_bool(best_case, false, "Run limited tests only for best-case");
@@ -125,6 +138,7 @@ using ROCKSDB_NAMESPACE::BloomFilterPolicy;
 using ROCKSDB_NAMESPACE::BloomHash;
 using ROCKSDB_NAMESPACE::BuiltinFilterBitsBuilder;
 using ROCKSDB_NAMESPACE::CachableEntry;
+using ROCKSDB_NAMESPACE::Cache;
 using ROCKSDB_NAMESPACE::EncodeFixed32;
 using ROCKSDB_NAMESPACE::FastRange32;
 using ROCKSDB_NAMESPACE::FilterBitsReader;
@@ -133,6 +147,7 @@ using ROCKSDB_NAMESPACE::FullFilterBlockReader;
 using ROCKSDB_NAMESPACE::GetSliceHash;
 using ROCKSDB_NAMESPACE::GetSliceHash64;
 using ROCKSDB_NAMESPACE::Lower32of64;
+using ROCKSDB_NAMESPACE::LRUCacheOptions;
 using ROCKSDB_NAMESPACE::ParsedFullFilterBlock;
 using ROCKSDB_NAMESPACE::PlainTableBloomV1;
 using ROCKSDB_NAMESPACE::Random32;
@@ -285,6 +300,16 @@ struct FilterBench : public MockBlockBasedTableTester {
     ioptions_.logger = &stderr_logger_;
     table_options_.optimize_filters_for_memory =
         FLAGS_optimize_filters_for_memory;
+    if (FLAGS_reserve_table_builder_memory) {
+      table_options_.reserve_table_builder_memory = true;
+      table_options_.no_block_cache = false;
+      LRUCacheOptions lo;
+      lo.capacity = FLAGS_block_cache_capacity_MB * 1024 * 1024;
+      lo.num_shard_bits = 0;  // 2^0 shard
+      lo.strict_capacity_limit = FLAGS_strict_capacity_limit;
+      std::shared_ptr<Cache> cache(NewLRUCache(lo));
+      table_options_.block_cache = cache;
+    }
   }
 
   void Go();

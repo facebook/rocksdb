@@ -45,7 +45,7 @@ default_params = {
         random.choice(
             ["none", "snappy", "zlib", "bzip2", "lz4", "lz4hc", "xpress",
              "zstd"]),
-    "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64"]),
+    "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64", "kXXH3"]),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
     # Disabled compression_parallel_threads as the feature is not stable
@@ -78,6 +78,9 @@ default_params = {
     "max_key": 100000000,
     "max_write_buffer_number": 3,
     "mmap_read": lambda: random.randint(0, 1),
+    # Setting `nooverwritepercent > 0` is only possible because we do not vary
+    # the random seed, so the same keys are chosen by every run for disallowing
+    # overwrites.
     "nooverwritepercent": 1,
     "open_files": lambda : random.choice([-1, -1, 100, 500000]),
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
@@ -96,6 +99,7 @@ default_params = {
     "subcompactions": lambda: random.randint(1, 4),
     "target_file_size_base": 2097152,
     "target_file_size_multiplier": 2,
+    "test_batches_snapshots": lambda: random.randint(0, 1),
     "top_level_index_pinning": lambda: random.randint(0, 3),
     "unpartitioned_pinning": lambda: random.randint(0, 3),
     "use_direct_reads": lambda: random.randint(0, 1),
@@ -150,6 +154,8 @@ default_params = {
     "max_write_buffer_size_to_maintain": lambda: random.choice(
         [0, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024]),
     "user_timestamp_size": 0,
+    "secondary_cache_fault_one_in" : lambda: random.choice([0, 0, 32]),
+    "prepopulate_block_cache" : lambda: random.choice([0, 1]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -208,7 +214,6 @@ blackbox_default_params = {
     # since we will be killing anyway, use large value for ops_per_thread
     "ops_per_thread": 100000000,
     "set_options_one_in": 10000,
-    "test_batches_snapshots": 1,
 }
 
 whitebox_default_params = {
@@ -216,7 +221,6 @@ whitebox_default_params = {
     "log2_keys_per_lock": 10,
     "ops_per_thread": 200000,
     "random_kill_odd": 888887,
-    "test_batches_snapshots": lambda: random.randint(0, 1),
 }
 
 simple_default_params = {
@@ -289,6 +293,8 @@ blob_params = {
     "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
     "enable_blob_garbage_collection": lambda: random.choice([0] + [1] * 3),
     "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
+    "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
+    "blob_compaction_readahead_size": lambda: random.choice([0, 1048576, 4194304]),
 }
 
 ts_params = {

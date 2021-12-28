@@ -75,11 +75,6 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
       bool defer_purge =
           db_->immutable_db_options().avoid_unnecessary_blocking_io;
       db_->PurgeObsoleteFiles(job_context, defer_purge);
-      if (defer_purge) {
-        mutex_->Lock();
-        db_->SchedulePurge();
-        mutex_->Unlock();
-      }
     }
     job_context.Clean();
   }
@@ -211,7 +206,8 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   size_t clamp_max = std::conditional<
       sizeof(size_t) == 4, std::integral_constant<size_t, 0xffffffff>,
       std::integral_constant<uint64_t, 64ull << 30>>::type::value;
-  ClipToRange(&result.write_buffer_size, ((size_t)64) << 10, clamp_max);
+  ClipToRange(&result.write_buffer_size, (static_cast<size_t>(64)) << 10,
+              clamp_max);
   // if user sets arena_block_size, we trust user to use this value. Otherwise,
   // calculate a proper value from writer_buffer_size;
   if (result.arena_block_size <= 0) {
@@ -349,12 +345,18 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   }
 
   if (result.level_compaction_dynamic_level_bytes) {
-    if (result.compaction_style != kCompactionStyleLevel ||
-        result.cf_paths.size() > 1U) {
-      // 1. level_compaction_dynamic_level_bytes only makes sense for
-      //    level-based compaction.
-      // 2. we don't yet know how to make both of this feature and multiple
-      //    DB path work.
+    if (result.compaction_style != kCompactionStyleLevel) {
+      ROCKS_LOG_WARN(db_options.info_log.get(),
+                     "level_compaction_dynamic_level_bytes only makes sense"
+                     "for level-based compaction");
+      result.level_compaction_dynamic_level_bytes = false;
+    } else if (result.cf_paths.size() > 1U) {
+      // we don't yet know how to make both of this feature and multiple
+      // DB path work.
+      ROCKS_LOG_WARN(db_options.info_log.get(),
+                     "multiple cf_paths/db_paths and"
+                     "level_compaction_dynamic_level_bytes"
+                     "can't be used together");
       result.level_compaction_dynamic_level_bytes = false;
     }
   }
@@ -1352,12 +1354,19 @@ Status ColumnFamilyData::ValidateOptions(
     }
   }
 
-  if (cf_options.enable_blob_garbage_collection &&
-      (cf_options.blob_garbage_collection_age_cutoff < 0.0 ||
-       cf_options.blob_garbage_collection_age_cutoff > 1.0)) {
-    return Status::InvalidArgument(
-        "The age cutoff for blob garbage collection should be in the range "
-        "[0.0, 1.0].");
+  if (cf_options.enable_blob_garbage_collection) {
+    if (cf_options.blob_garbage_collection_age_cutoff < 0.0 ||
+        cf_options.blob_garbage_collection_age_cutoff > 1.0) {
+      return Status::InvalidArgument(
+          "The age cutoff for blob garbage collection should be in the range "
+          "[0.0, 1.0].");
+    }
+    if (cf_options.blob_garbage_collection_force_threshold < 0.0 ||
+        cf_options.blob_garbage_collection_force_threshold > 1.0) {
+      return Status::InvalidArgument(
+          "The garbage ratio threshold for forcing blob garbage collection "
+          "should be in the range [0.0, 1.0].");
+    }
   }
 
   if (cf_options.compaction_style == kCompactionStyleFIFO &&

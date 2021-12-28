@@ -656,6 +656,30 @@ TEST_F(ConfigurableTest, TestNoCompare) {
   ASSERT_TRUE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
   ASSERT_FALSE(copy->AreEquivalent(config_options_, base.get(), &mismatch));
 }
+
+TEST_F(ConfigurableTest, NullOptionMapTest) {
+  std::unique_ptr<Configurable> base;
+  std::unordered_set<std::string> names;
+  std::string str;
+
+  base.reset(
+      SimpleConfigurable::Create("c", TestConfigMode::kDefaultMode, nullptr));
+  ASSERT_NOK(base->ConfigureFromString(config_options_, "int=10"));
+  ASSERT_NOK(base->ConfigureFromString(config_options_, "int=20"));
+  ASSERT_NOK(base->ConfigureOption(config_options_, "int", "20"));
+  ASSERT_NOK(base->GetOption(config_options_, "int", &str));
+  ASSERT_NE(base->GetOptions<TestOptions>("c"), nullptr);
+  ASSERT_OK(base->GetOptionNames(config_options_, &names));
+  ASSERT_EQ(names.size(), 0UL);
+  ASSERT_OK(base->PrepareOptions(config_options_));
+  ASSERT_OK(base->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  std::unique_ptr<Configurable> copy;
+  copy.reset(
+      SimpleConfigurable::Create("c", TestConfigMode::kDefaultMode, nullptr));
+  ASSERT_OK(base->GetOptionString(config_options_, &str));
+  ASSERT_OK(copy->ConfigureFromString(config_options_, str));
+  ASSERT_TRUE(base->AreEquivalent(config_options_, copy.get(), &str));
+}
 #endif
 
 static std::unordered_map<std::string, ConfigTestFactoryFunc> TestFactories = {

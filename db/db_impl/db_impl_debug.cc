@@ -156,6 +156,12 @@ Status DBImpl::TEST_AtomicFlushMemTables(
   return AtomicFlushMemTables(cfds, flush_opts, FlushReason::kTest);
 }
 
+Status DBImpl::TEST_WaitForBackgroundWork() {
+  InstrumentedMutexLock l(&mutex_);
+  WaitForBackgroundWork();
+  return Status::OK();
+}
+
 Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
   ColumnFamilyData* cfd;
   if (column_family == nullptr) {
@@ -179,6 +185,14 @@ Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
           bg_flush_scheduled_ ||
           (wait_unscheduled && unscheduled_compactions_)) &&
          (error_handler_.GetBGError().ok())) {
+    bg_cv_.Wait();
+  }
+  return error_handler_.GetBGError();
+}
+
+Status DBImpl::TEST_WaitForPurge() {
+  InstrumentedMutexLock l(&mutex_);
+  while (bg_purge_scheduled_ && error_handler_.GetBGError().ok()) {
     bg_cv_.Wait();
   }
   return error_handler_.GetBGError();

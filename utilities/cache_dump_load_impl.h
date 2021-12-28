@@ -79,6 +79,8 @@ struct DumpUnit {
   // address of the begin of the block in this string.
   void* value;
 
+  DumpUnit() { reset(); }
+
   void reset() {
     timestamp = 0;
     type = CacheDumpUnitType::kBlockTypeMax;

@@ -122,7 +122,7 @@ struct WriteBatchIndexEntry {
   // make the entry just larger than all entries with the search key so
   // SeekForPrev() will see all the keys with the same key.
   size_t offset;
-  uint32_t column_family;  // c1olumn family of the entry.
+  uint32_t column_family;  // column family of the entry.
   size_t key_offset;       // offset of the key in write batch's string buffer.
   size_t key_size;         // size of the key. kFlagMinInCf indicates
                            // that this is a dummy look up entry for

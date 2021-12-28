@@ -22,6 +22,8 @@
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/memory_allocator.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/sst_partitioner.h"
@@ -35,8 +37,10 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/file_checksum_helper.h"
+#include "util/rate_limiter.h"
 #include "util/string_util.h"
 #include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
+#include "utilities/memory_allocators.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
@@ -612,11 +616,20 @@ static std::unordered_map<std::string, OptionTypeInfo> inner_option_info = {
 #endif  // ROCKSDB_LITE
 };
 
+struct InnerOptions {
+  static const char* kName() { return "InnerOptions"; }
+  std::shared_ptr<Customizable> inner;
+};
+
 class InnerCustomizable : public Customizable {
  public:
-  explicit InnerCustomizable(const std::shared_ptr<Customizable>& w)
-      : inner_(w) {}
+  explicit InnerCustomizable(const std::shared_ptr<Customizable>& w) {
+    iopts_.inner = w;
+    RegisterOptions(&iopts_, &inner_option_info);
+  }
   static const char* kClassName() { return "Inner"; }
+  const char* Name() const override { return kClassName(); }
+
   bool IsInstanceOf(const std::string& name) const override {
     if (name == kClassName()) {
       return true;
@@ -626,26 +639,51 @@ class InnerCustomizable : public Customizable {
   }
 
  protected:
-  const Customizable* Inner() const override { return inner_.get(); }
+  const Customizable* Inner() const override { return iopts_.inner.get(); }
 
  private:
-  std::shared_ptr<Customizable> inner_;
+  InnerOptions iopts_;
+};
+
+struct WrappedOptions1 {
+  static const char* kName() { return "WrappedOptions1"; }
+  int i = 42;
 };
 
 class WrappedCustomizable1 : public InnerCustomizable {
  public:
   explicit WrappedCustomizable1(const std::shared_ptr<Customizable>& w)
-      : InnerCustomizable(w) {}
+      : InnerCustomizable(w) {
+    RegisterOptions(&wopts_, nullptr);
+  }
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "Wrapped1"; }
+
+ private:
+  WrappedOptions1 wopts_;
 };
 
+struct WrappedOptions2 {
+  static const char* kName() { return "WrappedOptions2"; }
+  std::string s = "42";
+};
 class WrappedCustomizable2 : public InnerCustomizable {
  public:
   explicit WrappedCustomizable2(const std::shared_ptr<Customizable>& w)
       : InnerCustomizable(w) {}
+  const void* GetOptionsPtr(const std::string& name) const override {
+    if (name == WrappedOptions2::kName()) {
+      return &wopts_;
+    } else {
+      return InnerCustomizable::GetOptionsPtr(name);
+    }
+  }
+
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "Wrapped2"; }
+
+ private:
+  WrappedOptions2 wopts_;
 };
 }  // namespace
 
@@ -675,6 +713,29 @@ TEST_F(CustomizableTest, WrappedInnerTest) {
   ASSERT_EQ(wc2->CheckedCast<WrappedCustomizable1>(), wc1.get());
   ASSERT_EQ(wc2->CheckedCast<InnerCustomizable>(), wc2.get());
   ASSERT_EQ(wc2->CheckedCast<TestCustomizable>(), ac.get());
+}
+
+TEST_F(CustomizableTest, CustomizableInnerTest) {
+  std::shared_ptr<Customizable> c =
+      std::make_shared<InnerCustomizable>(std::make_shared<ACustomizable>("a"));
+  std::shared_ptr<Customizable> wc1 = std::make_shared<WrappedCustomizable1>(c);
+  std::shared_ptr<Customizable> wc2 = std::make_shared<WrappedCustomizable2>(c);
+  auto inner = c->GetOptions<InnerOptions>();
+  ASSERT_NE(inner, nullptr);
+
+  auto aopts = c->GetOptions<AOptions>();
+  ASSERT_NE(aopts, nullptr);
+  ASSERT_EQ(aopts, wc1->GetOptions<AOptions>());
+  ASSERT_EQ(aopts, wc2->GetOptions<AOptions>());
+  auto w1opts = wc1->GetOptions<WrappedOptions1>();
+  ASSERT_NE(w1opts, nullptr);
+  ASSERT_EQ(c->GetOptions<WrappedOptions1>(), nullptr);
+  ASSERT_EQ(wc2->GetOptions<WrappedOptions1>(), nullptr);
+
+  auto w2opts = wc2->GetOptions<WrappedOptions2>();
+  ASSERT_NE(w2opts, nullptr);
+  ASSERT_EQ(c->GetOptions<WrappedOptions2>(), nullptr);
+  ASSERT_EQ(wc1->GetOptions<WrappedOptions2>(), nullptr);
 }
 
 TEST_F(CustomizableTest, CopyObjectTest) {
@@ -714,20 +775,9 @@ TEST_F(CustomizableTest, CopyObjectTest) {
 }
 
 TEST_F(CustomizableTest, TestStringDepth) {
-  class ShallowCustomizable : public Customizable {
-   public:
-    ShallowCustomizable() {
-      inner_ = std::make_shared<ACustomizable>("a");
-      RegisterOptions("inner", &inner_, &inner_option_info);
-    }
-    static const char* kClassName() { return "shallow"; }
-    const char* Name() const override { return kClassName(); }
-
-   private:
-    std::shared_ptr<TestCustomizable> inner_;
-  };
   ConfigOptions shallow = config_options_;
-  std::unique_ptr<Configurable> c(new ShallowCustomizable());
+  std::unique_ptr<Configurable> c(
+      new InnerCustomizable(std::make_shared<ACustomizable>("a")));
   std::string opt_str;
   shallow.depth = ConfigOptions::Depth::kDepthShallow;
   ASSERT_OK(c->GetOptionString(shallow, &opt_str));
@@ -1257,6 +1307,12 @@ class MockSliceTransform : public SliceTransform {
   bool InRange(const Slice& /*key*/) const override { return false; }
 };
 
+class MockMemoryAllocator : public BaseMemoryAllocator {
+ public:
+  static const char* kClassName() { return "MockMemoryAllocator"; }
+  const char* Name() const override { return kClassName(); }
+};
+
 #ifndef ROCKSDB_LITE
 class MockEncryptionProvider : public EncryptionProvider {
  public:
@@ -1299,6 +1355,17 @@ class MockCipher : public BlockCipher {
   Status Encrypt(char* /*data*/) override { return Status::NotSupported(); }
   Status Decrypt(char* data) override { return Encrypt(data); }
 };
+#endif  // ROCKSDB_LITE
+
+class DummyFileSystem : public FileSystemWrapper {
+ public:
+  explicit DummyFileSystem(const std::shared_ptr<FileSystem>& t)
+      : FileSystemWrapper(t) {}
+  static const char* kClassName() { return "DummyFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+};
+
+#ifndef ROCKSDB_LITE
 
 #endif  // ROCKSDB_LITE
 
@@ -1331,6 +1398,21 @@ class MockFileChecksumGenFactory : public FileChecksumGenFactory {
   std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
       const FileChecksumGenContext& /*context*/) override {
     return nullptr;
+  }
+};
+
+class MockRateLimiter : public RateLimiter {
+ public:
+  static const char* kClassName() { return "MockRateLimiter"; }
+  const char* Name() const override { return kClassName(); }
+  void SetBytesPerSecond(int64_t /*bytes_per_second*/) override {}
+  int64_t GetBytesPerSecond() const override { return 0; }
+  int64_t GetSingleBurstBytes() const override { return 0; }
+  int64_t GetTotalBytesThrough(const Env::IOPriority /*pri*/) const override {
+    return 0;
+  }
+  int64_t GetTotalRequests(const Env::IOPriority /*pri*/) const override {
+    return 0;
   }
 };
 
@@ -1389,6 +1471,13 @@ static int RegisterLocalObjects(ObjectLibrary& library,
     guard->reset(new MockCipher());
     return guard->get();
   });
+  library.Register<MemoryAllocator>(
+      MockMemoryAllocator::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<MemoryAllocator>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockMemoryAllocator());
+        return guard->get();
+      });
   library.Register<FlushBlockPolicyFactory>(
       TestFlushBlockPolicyFactory::kClassName(),
       [](const std::string& /*uri*/,
@@ -1403,6 +1492,14 @@ static int RegisterLocalObjects(ObjectLibrary& library,
       [](const std::string& /*uri*/, std::unique_ptr<SecondaryCache>* guard,
          std::string* /* errmsg */) {
         guard->reset(new TestSecondaryCache());
+        return guard->get();
+      });
+
+  library.Register<FileSystem>(
+      DummyFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new DummyFileSystem(nullptr));
         return guard->get();
       });
 
@@ -1432,6 +1529,15 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         guard->reset(new MockTablePropertiesCollectorFactory());
         return guard->get();
       });
+
+  library.Register<RateLimiter>(
+      MockRateLimiter::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<RateLimiter>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockRateLimiter());
+        return guard->get();
+      });
+
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 #endif  // !ROCKSDB_LITE
@@ -1463,7 +1569,6 @@ class LoadCustomizableTest : public testing::Test {
 };
 
 TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
-  ColumnFamilyOptions cf_opts;
   std::shared_ptr<TableFactory> factory;
   ASSERT_NOK(TableFactory::CreateFromString(
       config_options_, mock::MockTableFactory::kClassName(), &factory));
@@ -1474,10 +1579,10 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
 #ifndef ROCKSDB_LITE
   std::string opts_str = "table_factory=";
   ASSERT_OK(GetColumnFamilyOptionsFromString(
-      config_options_, ColumnFamilyOptions(),
-      opts_str + TableFactory::kBlockBasedTableName(), &cf_opts));
-  ASSERT_NE(cf_opts.table_factory.get(), nullptr);
-  ASSERT_STREQ(cf_opts.table_factory->Name(),
+      config_options_, cf_opts_,
+      opts_str + TableFactory::kBlockBasedTableName(), &cf_opts_));
+  ASSERT_NE(cf_opts_.table_factory.get(), nullptr);
+  ASSERT_STREQ(cf_opts_.table_factory->Name(),
                TableFactory::kBlockBasedTableName());
 #endif  // ROCKSDB_LITE
   if (RegisterTests("Test")) {
@@ -1487,12 +1592,30 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
     ASSERT_STREQ(factory->Name(), mock::MockTableFactory::kClassName());
 #ifndef ROCKSDB_LITE
     ASSERT_OK(GetColumnFamilyOptionsFromString(
-        config_options_, ColumnFamilyOptions(),
-        opts_str + mock::MockTableFactory::kClassName(), &cf_opts));
-    ASSERT_NE(cf_opts.table_factory.get(), nullptr);
-    ASSERT_STREQ(cf_opts.table_factory->Name(),
+        config_options_, cf_opts_,
+        opts_str + mock::MockTableFactory::kClassName(), &cf_opts_));
+    ASSERT_NE(cf_opts_.table_factory.get(), nullptr);
+    ASSERT_STREQ(cf_opts_.table_factory->Name(),
                  mock::MockTableFactory::kClassName());
 #endif  // ROCKSDB_LITE
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadFileSystemTest) {
+  ColumnFamilyOptions cf_opts;
+  std::shared_ptr<FileSystem> result;
+  ASSERT_NOK(FileSystem::CreateFromString(
+      config_options_, DummyFileSystem::kClassName(), &result));
+  ASSERT_OK(FileSystem::CreateFromString(config_options_,
+                                         FileSystem::kDefaultName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(FileSystem::kDefaultName()));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(FileSystem::CreateFromString(
+        config_options_, DummyFileSystem::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), DummyFileSystem::kClassName());
+    ASSERT_FALSE(result->IsInstanceOf(FileSystem::kDefaultName()));
   }
 }
 
@@ -1763,12 +1886,12 @@ TEST_F(LoadCustomizableTest, LoadEncryptionProviderTest) {
       EncryptionProvider::CreateFromString(config_options_, "CTR", &result));
   ASSERT_NE(result, nullptr);
   ASSERT_STREQ(result->Name(), "CTR");
-  ASSERT_NOK(result->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  ASSERT_NOK(result->ValidateOptions(db_opts_, cf_opts_));
   ASSERT_OK(EncryptionProvider::CreateFromString(config_options_, "CTR://test",
                                                  &result));
   ASSERT_NE(result, nullptr);
   ASSERT_STREQ(result->Name(), "CTR");
-  ASSERT_OK(result->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  ASSERT_OK(result->ValidateOptions(db_opts_, cf_opts_));
 
   if (RegisterTests("Test")) {
     ASSERT_OK(
@@ -1779,7 +1902,7 @@ TEST_F(LoadCustomizableTest, LoadEncryptionProviderTest) {
                                                    "Mock://test", &result));
     ASSERT_NE(result, nullptr);
     ASSERT_STREQ(result->Name(), "Mock");
-    ASSERT_OK(result->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+    ASSERT_OK(result->ValidateOptions(db_opts_, cf_opts_));
   }
 }
 
@@ -1811,6 +1934,52 @@ TEST_F(LoadCustomizableTest, LoadSystemClockTest) {
     ASSERT_NE(result, nullptr);
     ASSERT_STREQ(result->Name(), MockSystemClock::kClassName());
   }
+}
+
+TEST_F(LoadCustomizableTest, LoadMemoryAllocatorTest) {
+  std::shared_ptr<MemoryAllocator> result;
+  ASSERT_NOK(MemoryAllocator::CreateFromString(
+      config_options_, MockMemoryAllocator::kClassName(), &result));
+  ASSERT_OK(MemoryAllocator::CreateFromString(
+      config_options_, DefaultMemoryAllocator::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), DefaultMemoryAllocator::kClassName());
+  if (RegisterTests("Test")) {
+    ASSERT_OK(MemoryAllocator::CreateFromString(
+        config_options_, MockMemoryAllocator::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), MockMemoryAllocator::kClassName());
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadRateLimiterTest) {
+  std::shared_ptr<RateLimiter> result;
+  ASSERT_NOK(RateLimiter::CreateFromString(
+      config_options_, MockRateLimiter::kClassName(), &result));
+  ASSERT_OK(RateLimiter::CreateFromString(
+      config_options_, std::string(GenericRateLimiter::kClassName()) + ":1234",
+      &result));
+  ASSERT_NE(result, nullptr);
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(RateLimiter::CreateFromString(
+      config_options_, GenericRateLimiter::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_OK(GetDBOptionsFromString(
+      config_options_, db_opts_,
+      std::string("rate_limiter=") + GenericRateLimiter::kClassName(),
+      &db_opts_));
+  ASSERT_NE(db_opts_.rate_limiter, nullptr);
+  if (RegisterTests("Test")) {
+    ASSERT_OK(RateLimiter::CreateFromString(
+        config_options_, MockRateLimiter::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_OK(GetDBOptionsFromString(
+        config_options_, db_opts_,
+        std::string("rate_limiter=") + MockRateLimiter::kClassName(),
+        &db_opts_));
+    ASSERT_NE(db_opts_.rate_limiter, nullptr);
+  }
+#endif  // ROCKSDB_LITE
 }
 
 TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {

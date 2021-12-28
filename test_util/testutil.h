@@ -25,6 +25,14 @@
 #include "table/internal_iterator.h"
 #include "util/mutexlock.h"
 
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int argc, char** argv);
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
 namespace ROCKSDB_NAMESPACE {
 class FileSystem;
 class MemTableRepFactory;
@@ -36,7 +44,7 @@ class SequentialFileReader;
 namespace test {
 
 extern const uint32_t kDefaultFormatVersion;
-extern const uint32_t kLatestFormatVersion;
+extern const std::set<uint32_t> kFooterFormatVersionsToTest;
 
 // Return a random key with the specified length that may contain interesting
 // characters (e.g. \x00, \xff, etc.).
@@ -554,6 +562,9 @@ class StringFS : public FileSystemWrapper {
   explicit StringFS(const std::shared_ptr<FileSystem>& t)
       : FileSystemWrapper(t) {}
   ~StringFS() override {}
+
+  static const char* kClassName() { return "StringFS"; }
+  const char* Name() const override { return kClassName(); }
 
   const std::string& GetContent(const std::string& f) { return files_[f]; }
 

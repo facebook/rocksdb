@@ -27,7 +27,8 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
   for (const auto& file_metadata : metadata_) {
     const auto file_path = file_metadata.db_path + "/" + file_metadata.name;
     IngestedFileInfo file_to_import;
-    status = GetIngestedFileInfo(file_path, &file_to_import, sv);
+    status =
+        GetIngestedFileInfo(file_path, next_file_number++, &file_to_import, sv);
     if (!status.ok()) {
       return status;
     }
@@ -86,8 +87,6 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
   // Copy/Move external files into DB
   auto hardlink_files = import_options_.move_files;
   for (auto& f : files_to_import_) {
-    f.fd = FileDescriptor(next_file_number++, 0, f.file_size);
-
     const auto path_outside_db = f.external_file_path;
     const auto path_inside_db = TableFileName(
         cfd_->ioptions()->cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
@@ -153,9 +152,10 @@ Status ImportColumnFamilyJob::Run() {
     edit_.AddFile(file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
                   f.fd.GetFileSize(), f.smallest_internal_key,
                   f.largest_internal_key, file_metadata.smallest_seqno,
-                  file_metadata.largest_seqno, false, kInvalidBlobFileNumber,
-                  oldest_ancester_time, current_time, kUnknownFileChecksum,
-                  kUnknownFileChecksumFuncName);
+                  file_metadata.largest_seqno, false, file_metadata.temperature,
+                  kInvalidBlobFileNumber, oldest_ancester_time, current_time,
+                  kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                  kDisableUserTimestamp, kDisableUserTimestamp);
 
     // If incoming sequence number is higher, update local sequence number.
     if (file_metadata.largest_seqno > versions_->LastSequence()) {
@@ -197,8 +197,8 @@ void ImportColumnFamilyJob::Cleanup(const Status& status) {
 }
 
 Status ImportColumnFamilyJob::GetIngestedFileInfo(
-    const std::string& external_file, IngestedFileInfo* file_to_import,
-    SuperVersion* sv) {
+    const std::string& external_file, uint64_t new_file_number,
+    IngestedFileInfo* file_to_import, SuperVersion* sv) {
   file_to_import->external_file_path = external_file;
 
   // Get external file size
@@ -207,6 +207,10 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   if (!status.ok()) {
     return status;
   }
+
+  // Assign FD with number
+  file_to_import->fd =
+      FileDescriptor(new_file_number, 0, file_to_import->file_size);
 
   // Create TableReader for external file
   std::unique_ptr<TableReader> table_reader;
@@ -222,9 +226,14 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
       std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
-      TableReaderOptions(*cfd_->ioptions(),
-                         sv->mutable_cf_options.prefix_extractor.get(),
-                         env_options_, cfd_->internal_comparator()),
+      TableReaderOptions(
+          *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor.get(),
+          env_options_, cfd_->internal_comparator(),
+          /*skip_filters*/ false, /*immortal*/ false,
+          /*force_direct_prefetch*/ false, /*level*/ -1,
+          /*block_cache_tracer*/ nullptr,
+          /*max_file_size_for_l0_meta_pin*/ 0, versions_->DbSessionId(),
+          /*cur_file_num*/ new_file_number),
       std::move(sst_file_reader), file_to_import->file_size, &table_reader);
   if (!status.ok()) {
     return status;

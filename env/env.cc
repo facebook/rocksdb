@@ -13,7 +13,7 @@
 
 #include "env/composite_env_wrapper.h"
 #include "env/emulated_clock.h"
-#include "env/unique_id.h"
+#include "env/unique_id_gen.h"
 #include "logging/env_logger.h"
 #include "memory/arena.h"
 #include "options/db_options.h"
@@ -324,7 +324,8 @@ class LegacyFileSystemWrapper : public FileSystem {
   explicit LegacyFileSystemWrapper(Env* t) : target_(t) {}
   ~LegacyFileSystemWrapper() override {}
 
-  const char* Name() const override { return "Legacy File System"; }
+  static const char* kClassName() { return "LegacyFileSystem"; }
+  const char* Name() const override { return kClassName(); }
 
   // Return the target to which this Env forwards all calls
   Env* target() const { return target_; }
@@ -733,7 +734,7 @@ Status Env::GetChildrenFileAttributes(const std::string& dir,
 }
 
 Status Env::GetHostNameString(std::string* result) {
-  std::array<char, kMaxHostNameLen> hostname_buf;
+  std::array<char, kMaxHostNameLen> hostname_buf{};
   Status s = GetHostName(hostname_buf.data(), hostname_buf.size());
   if (s.ok()) {
     hostname_buf[hostname_buf.size() - 1] = '\0';

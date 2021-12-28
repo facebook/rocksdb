@@ -65,7 +65,8 @@ enum ValueType : unsigned char {
   // another.
   kTypeBeginUnprepareXID = 0x13,  // WAL only.
   kTypeDeletionWithTimestamp = 0x14,
-  kMaxValue = 0x7F  // Not used for storing records.
+  kTypeCommitXIDAndTimestamp = 0x15,  // WAL only
+  kMaxValue = 0x7F                    // Not used for storing records.
 };
 
 // Defined in dbformat.cc
@@ -92,6 +93,9 @@ static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
 
 constexpr uint64_t kNumInternalBytes = 8;
+
+// Defined in dbformat.cc
+extern const std::string kDisableUserTimestamp;
 
 // The data structure that represents an internal key in the way that user_key,
 // sequence number and type are stored in separated forms.
@@ -651,7 +655,7 @@ extern bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key,
 
 // Read record from a write batch piece from input.
 // tag, column_family, key, value and blob are return values. Callers own the
-// Slice they point to.
+// slice they point to.
 // Tag is defined as ValueType.
 // input will be advanced to after the record.
 extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,

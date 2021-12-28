@@ -39,6 +39,9 @@ class MockFS : public FileSystemWrapper {
                   bool support_prefetch)
       : FileSystemWrapper(wrapped), support_prefetch_(support_prefetch) {}
 
+  static const char* kClassName() { return "MockFS"; }
+  const char* Name() const override { return kClassName(); }
+
   IOStatus NewRandomAccessFile(const std::string& fname,
                                const FileOptions& opts,
                                std::unique_ptr<FSRandomAccessFile>* result,
@@ -664,6 +667,331 @@ TEST_P(PrefetchTest, PrefetchWhenReseekwithCache) {
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
+}
+
+class PrefetchTest1
+    : public DBTestBase,
+      public ::testing::WithParamInterface<std::tuple<bool, bool>> {
+ public:
+  PrefetchTest1() : DBTestBase("prefetch_test1", true) {}
+};
+
+INSTANTIATE_TEST_CASE_P(PrefetchTest1, PrefetchTest1,
+                        ::testing::Combine(::testing::Bool(),
+                                           ::testing::Bool()));
+
+#ifndef ROCKSDB_LITE
+TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
+  const int kNumKeys = 1000;
+  // Set options
+  std::shared_ptr<MockFS> fs =
+      std::make_shared<MockFS>(env_->GetFileSystem(), false);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+
+  bool is_adaptive_readahead = std::get<1>(GetParam());
+  Options options = CurrentOptions();
+  options.write_buffer_size = 1024;
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.env = env.get();
+  if (std::get<0>(GetParam())) {
+    options.use_direct_reads = true;
+    options.use_direct_io_for_flush_and_compaction = true;
+  }
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.metadata_block_size = 1024;
+  table_options.index_type =
+      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  Status s = TryReopen(options);
+  if (std::get<0>(GetParam()) &&
+      (s.IsNotSupported() || s.IsInvalidArgument())) {
+    // If direct IO is not supported, skip the test
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
+
+  WriteBatch batch;
+  Random rnd(309);
+  for (int j = 0; j < 5; j++) {
+    for (int i = j * kNumKeys; i < (j + 1) * kNumKeys; i++) {
+      ASSERT_OK(batch.Put(BuildKey(i), rnd.RandomString(1000)));
+    }
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
+    ASSERT_OK(Flush());
+  }
+  MoveFilesToLevel(2);
+  int buff_prefetch_count = 0;
+  int readahead_carry_over_count = 0;
+  int num_sst_files = NumTableFilesAtLevel(2);
+  size_t current_readahead_size = 0;
+
+  // Test - Iterate over the keys sequentially.
+  {
+    SyncPoint::GetInstance()->SetCallBack(
+        "FilePrefetchBuffer::Prefetch:Start",
+        [&](void*) { buff_prefetch_count++; });
+
+    // The callback checks, since reads are sequential, readahead_size doesn't
+    // start from 8KB when iterator moves to next file and its called
+    // num_sst_files-1 times (excluding for first file).
+    SyncPoint::GetInstance()->SetCallBack(
+        "BlockPrefetcher::SetReadaheadState", [&](void* arg) {
+          readahead_carry_over_count++;
+          size_t readahead_size = *reinterpret_cast<size_t*>(arg);
+          if (readahead_carry_over_count) {
+            ASSERT_GT(readahead_size, 8 * 1024);
+            // ASSERT_GE(readahead_size, current_readahead_size);
+          }
+        });
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "FilePrefetchBuffer::TryReadFromCache", [&](void* arg) {
+          current_readahead_size = *reinterpret_cast<size_t*>(arg);
+          ASSERT_GT(current_readahead_size, 0);
+        });
+
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    ReadOptions ro;
+    if (is_adaptive_readahead) {
+      ro.adaptive_readahead = true;
+    }
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    int num_keys = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      num_keys++;
+    }
+
+    ASSERT_GT(buff_prefetch_count, 0);
+    buff_prefetch_count = 0;
+    // For index and data blocks.
+    if (is_adaptive_readahead) {
+      ASSERT_EQ(readahead_carry_over_count, 2 * (num_sst_files - 1));
+    } else {
+      ASSERT_EQ(readahead_carry_over_count, 0);
+    }
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
+  Close();
+}
+#endif  //! ROCKSDB_LITE
+
+class PrefetchTest2 : public DBTestBase,
+                      public ::testing::WithParamInterface<bool> {
+ public:
+  PrefetchTest2() : DBTestBase("prefetch_test2", true) {}
+};
+
+INSTANTIATE_TEST_CASE_P(PrefetchTest2, PrefetchTest2, ::testing::Bool());
+
+#ifndef ROCKSDB_LITE
+TEST_P(PrefetchTest2, NonSequentialReads) {
+  const int kNumKeys = 1000;
+  // Set options
+  std::shared_ptr<MockFS> fs =
+      std::make_shared<MockFS>(env_->GetFileSystem(), false);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+
+  Options options = CurrentOptions();
+  options.write_buffer_size = 1024;
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.env = env.get();
+  if (GetParam()) {
+    options.use_direct_reads = true;
+    options.use_direct_io_for_flush_and_compaction = true;
+  }
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.metadata_block_size = 1024;
+  table_options.index_type =
+      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  Status s = TryReopen(options);
+  if (GetParam() && (s.IsNotSupported() || s.IsInvalidArgument())) {
+    // If direct IO is not supported, skip the test
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
+
+  WriteBatch batch;
+  Random rnd(309);
+  for (int j = 0; j < 5; j++) {
+    for (int i = j * kNumKeys; i < (j + 1) * kNumKeys; i++) {
+      ASSERT_OK(batch.Put(BuildKey(i), rnd.RandomString(1000)));
+    }
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
+    ASSERT_OK(Flush());
+  }
+  MoveFilesToLevel(2);
+
+  int buff_prefetch_count = 0;
+  int set_readahead = 0;
+  size_t readahead_size = 0;
+
+  SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
+                                        [&](void*) { buff_prefetch_count++; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockPrefetcher::SetReadaheadState",
+      [&](void* /*arg*/) { set_readahead++; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::TryReadFromCache",
+      [&](void* arg) { readahead_size = *reinterpret_cast<size_t*>(arg); });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  {
+    // Iterate until prefetch is done.
+    ReadOptions ro;
+    ro.adaptive_readahead = true;
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    iter->SeekToFirst();
+    while (iter->Valid() && buff_prefetch_count == 0) {
+      iter->Next();
+    }
+    ASSERT_EQ(readahead_size, 8 * 1024);
+    ASSERT_EQ(buff_prefetch_count, 1);
+    ASSERT_EQ(set_readahead, 0);
+    buff_prefetch_count = 0;
+
+    // Move to last file and check readahead size fallbacks to 8KB. So next
+    // readahead size after prefetch should be 8 * 1024;
+    iter->Seek(BuildKey(4004));
+    while (iter->Valid() && buff_prefetch_count == 0) {
+      iter->Next();
+    }
+    ASSERT_EQ(readahead_size, 8 * 1024);
+    ASSERT_EQ(set_readahead, 0);
+    ASSERT_EQ(buff_prefetch_count, 1);
+  }
+  Close();
+}
+#endif  //! ROCKSDB_LITE
+
+TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
+  const int kNumKeys = 2000;
+  // Set options
+  std::shared_ptr<MockFS> fs =
+      std::make_shared<MockFS>(env_->GetFileSystem(), false);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+
+  Options options = CurrentOptions();
+  options.write_buffer_size = 1024;
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.env = env.get();
+  if (GetParam()) {
+    options.use_direct_reads = true;
+    options.use_direct_io_for_flush_and_compaction = true;
+  }
+  BlockBasedTableOptions table_options;
+  std::shared_ptr<Cache> cache = NewLRUCache(4 * 1024 * 1024, 2);  // 8MB
+  table_options.block_cache = cache;
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.metadata_block_size = 1024;
+  table_options.index_type =
+      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  Status s = TryReopen(options);
+  if (GetParam() && (s.IsNotSupported() || s.IsInvalidArgument())) {
+    // If direct IO is not supported, skip the test
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
+
+  WriteBatch batch;
+  Random rnd(309);
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(batch.Put(BuildKey(i), rnd.RandomString(1000)));
+  }
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  std::string start_key = BuildKey(0);
+  std::string end_key = BuildKey(kNumKeys - 1);
+  Slice least(start_key.data(), start_key.size());
+  Slice greatest(end_key.data(), end_key.size());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+
+  int buff_prefetch_count = 0;
+  size_t current_readahead_size = 0;
+  size_t expected_current_readahead_size = 8 * 1024;
+  size_t decrease_readahead_size = 8 * 1024;
+
+  SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
+                                        [&](void*) { buff_prefetch_count++; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::TryReadFromCache", [&](void* arg) {
+        current_readahead_size = *reinterpret_cast<size_t*>(arg);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  ReadOptions ro;
+  ro.adaptive_readahead = true;
+  {
+    /*
+     * Reseek keys from sequential Data Blocks within same partitioned
+     * index. After 2 sequential reads it will prefetch the data block.
+     * Data Block size is nearly 4076 so readahead will fetch 8 * 1024 data
+     * more initially (2 more data blocks).
+     */
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    // Warm up the cache
+    iter->Seek(BuildKey(1011));
+    iter->Seek(BuildKey(1015));
+    iter->Seek(BuildKey(1019));
+    buff_prefetch_count = 0;
+  }
+  {
+    // After caching, blocks will be read from cache (Sequential blocks)
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    iter->Seek(BuildKey(0));
+    iter->Seek(BuildKey(1000));
+    iter->Seek(BuildKey(1004));  // Prefetch data (not in cache).
+    ASSERT_EQ(current_readahead_size, expected_current_readahead_size);
+
+    // Missed one sequential block but 1011 is already in buffer so
+    // readahead will not be reset.
+    iter->Seek(BuildKey(1011));
+    ASSERT_EQ(current_readahead_size, expected_current_readahead_size);
+
+    // Eligible to Prefetch data (not in buffer) but block is in cache so no
+    // prefetch will happen and will result in decrease in readahead_size.
+    // readahead_size will be 8 * 1024
+    iter->Seek(BuildKey(1015));
+    expected_current_readahead_size -= decrease_readahead_size;
+
+    // 1016 is the same block as 1015. So no change in readahead_size.
+    iter->Seek(BuildKey(1016));
+
+    // Prefetch data (not in buffer) but found in cache. So decrease
+    // readahead_size. Since it will 0 after decrementing so readahead_size will
+    // be set to initial value.
+    iter->Seek(BuildKey(1019));
+    expected_current_readahead_size = std::max(
+        decrease_readahead_size,
+        (expected_current_readahead_size >= decrease_readahead_size
+             ? (expected_current_readahead_size - decrease_readahead_size)
+             : 0));
+
+    // Prefetch next sequential data.
+    iter->Seek(BuildKey(1022));
+    ASSERT_EQ(current_readahead_size, expected_current_readahead_size);
+    ASSERT_EQ(buff_prefetch_count, 2);
+    buff_prefetch_count = 0;
+  }
   Close();
 }
 

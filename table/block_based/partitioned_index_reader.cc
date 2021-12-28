@@ -9,6 +9,7 @@
 #include "table/block_based/partitioned_index_reader.h"
 
 #include "file/random_access_file_reader.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/partitioned_index_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -79,6 +80,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     ro.fill_cache = read_options.fill_cache;
     ro.deadline = read_options.deadline;
     ro.io_timeout = read_options.io_timeout;
+    ro.adaptive_readahead = read_options.adaptive_readahead;
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
     std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter(
@@ -114,10 +116,12 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
   Statistics* kNullStats = nullptr;
 
   CachableEntry<Block> index_block;
-  Status s = GetOrReadIndexBlock(false /* no_io */, nullptr /* get_context */,
-                                 &lookup_context, &index_block);
-  if (!s.ok()) {
-    return s;
+  {
+    Status s = GetOrReadIndexBlock(false /* no_io */, nullptr /* get_context */,
+                                   &lookup_context, &index_block);
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   // We don't return pinned data from index blocks, so no need
@@ -143,29 +147,37 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
     return biter.status();
   }
   handle = biter.value().handle;
-  uint64_t last_off = handle.offset() + block_size(handle);
+  uint64_t last_off =
+      handle.offset() + BlockBasedTable::BlockSizeWithTrailer(handle);
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
   rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer,
                                 false /*Implicit auto readahead*/);
   IOOptions opts;
-  s = rep->file->PrepareIOOptions(ro, opts);
-  if (s.ok()) {
-    s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
-                                  static_cast<size_t>(prefetch_len));
+  {
+    Status s = rep->file->PrepareIOOptions(ro, opts);
+    if (s.ok()) {
+      s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
+                                    static_cast<size_t>(prefetch_len));
+    }
+    if (!s.ok()) {
+      return s;
+    }
   }
-  if (!s.ok()) {
-    return s;
-  }
+
+  // For saving "all or nothing" to partition_map_
+  std::unordered_map<uint64_t, CachableEntry<Block>> map_in_progress;
 
   // After prefetch, read the partitions one by one
   biter.SeekToFirst();
+  size_t partition_count = 0;
   for (; biter.Valid(); biter.Next()) {
     handle = biter.value().handle;
     CachableEntry<Block> block;
+    ++partition_count;
     // TODO: Support counter batch update for partitioned index and
     // filter blocks
-    s = table()->MaybeReadBlockAndLoadToCache(
+    Status s = table()->MaybeReadBlockAndLoadToCache(
         prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
         /*wait=*/true, &block, BlockType::kIndex, /*get_context=*/nullptr,
         &lookup_context, /*contents=*/nullptr);
@@ -174,14 +186,22 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
       return s;
     }
     if (block.GetValue() != nullptr) {
+      // Might need to "pin" some mmap-read blocks (GetOwnValue) if some
+      // partitions are successfully compressed (cached) and some are not
+      // compressed (mmap eligible)
       if (block.IsCached() || block.GetOwnValue()) {
         if (pin) {
-          partition_map_[handle.offset()] = std::move(block);
+          map_in_progress[handle.offset()] = std::move(block);
         }
       }
     }
   }
-  return biter.status();
+  Status s = biter.status();
+  // Save (pin) them only if everything checks out
+  if (map_in_progress.size() == partition_count && s.ok()) {
+    std::swap(partition_map_, map_in_progress);
+  }
+  return s;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

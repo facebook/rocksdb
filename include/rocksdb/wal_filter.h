@@ -19,6 +19,10 @@ struct ConfigOptions;
 // WALFilter allows an application to inspect write-ahead-log (WAL)
 // records or modify their processing on recovery.
 // Please see the details below.
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class WalFilter : public Customizable {
  public:
   static const char* Type() { return "WalFilter"; }
@@ -101,7 +105,7 @@ class WalFilter : public Customizable {
 
   // Returns a name that identifies this WAL filter.
   // The name will be printed to LOG file on start up for diagnosis.
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

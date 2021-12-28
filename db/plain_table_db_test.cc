@@ -266,24 +266,22 @@ class TestPlainTableReader : public PlainTableReader {
       const EnvOptions& env_options, const InternalKeyComparator& icomparator,
       EncodingType encoding_type, uint64_t file_size, int bloom_bits_per_key,
       double hash_table_ratio, size_t index_sparseness,
-      const TableProperties* table_properties,
+      std::unique_ptr<TableProperties>&& props,
       std::unique_ptr<RandomAccessFileReader>&& file,
       const ImmutableOptions& ioptions, const SliceTransform* prefix_extractor,
       bool* expect_bloom_not_match, bool store_index_in_file,
       uint32_t column_family_id, const std::string& column_family_name)
       : PlainTableReader(ioptions, std::move(file), env_options, icomparator,
-                         encoding_type, file_size, table_properties,
+                         encoding_type, file_size, props.get(),
                          prefix_extractor),
         expect_bloom_not_match_(expect_bloom_not_match) {
     Status s = MmapDataIfNeeded();
     EXPECT_TRUE(s.ok());
 
-    s = PopulateIndex(const_cast<TableProperties*>(table_properties),
-                      bloom_bits_per_key, hash_table_ratio, index_sparseness,
-                      2 * 1024 * 1024);
+    s = PopulateIndex(props.get(), bloom_bits_per_key, hash_table_ratio,
+                      index_sparseness, 2 * 1024 * 1024);
     EXPECT_TRUE(s.ok());
 
-    TableProperties* props = const_cast<TableProperties*>(table_properties);
     EXPECT_EQ(column_family_id, static_cast<uint32_t>(props->column_family_id));
     EXPECT_EQ(column_family_name, props->column_family_name);
     if (store_index_in_file) {
@@ -297,7 +295,7 @@ class TestPlainTableReader : public PlainTableReader {
         EXPECT_TRUE(num_blocks_ptr != props->user_collected_properties.end());
       }
     }
-    table_properties_.reset(props);
+    table_properties_ = std::move(props);
   }
 
   ~TestPlainTableReader() override {}
@@ -337,26 +335,24 @@ class TestPlainTableFactory : public PlainTableFactory {
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       std::unique_ptr<TableReader>* table,
       bool /*prefetch_index_and_filter_in_cache*/) const override {
-    TableProperties* props = nullptr;
-    auto s =
-        ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                            table_reader_options.ioptions, &props,
-                            true /* compression_type_missing */);
+    std::unique_ptr<TableProperties> props;
+    auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
+                                 table_reader_options.ioptions, &props);
     EXPECT_TRUE(s.ok());
 
     if (store_index_in_file_) {
       BlockHandle bloom_block_handle;
-      s = FindMetaBlock(file.get(), file_size, kPlainTableMagicNumber,
-                        table_reader_options.ioptions,
-                        BloomBlockBuilder::kBloomBlock, &bloom_block_handle,
-                        /* compression_type_missing */ true);
+      s = FindMetaBlockInFile(file.get(), file_size, kPlainTableMagicNumber,
+                              table_reader_options.ioptions,
+                              BloomBlockBuilder::kBloomBlock,
+                              &bloom_block_handle);
       EXPECT_TRUE(s.ok());
 
       BlockHandle index_block_handle;
-      s = FindMetaBlock(file.get(), file_size, kPlainTableMagicNumber,
-                        table_reader_options.ioptions,
-                        PlainTableIndexBuilder::kPlainTableIndexBlock,
-                        &index_block_handle, /* compression_type_missing */ true);
+      s = FindMetaBlockInFile(file.get(), file_size, kPlainTableMagicNumber,
+                              table_reader_options.ioptions,
+                              PlainTableIndexBuilder::kPlainTableIndexBlock,
+                              &index_block_handle);
       EXPECT_TRUE(s.ok());
     }
 
@@ -370,8 +366,8 @@ class TestPlainTableFactory : public PlainTableFactory {
     std::unique_ptr<PlainTableReader> new_reader(new TestPlainTableReader(
         table_reader_options.env_options,
         table_reader_options.internal_comparator, encoding_type, file_size,
-        bloom_bits_per_key_, hash_table_ratio_, index_sparseness_, props,
-        std::move(file), table_reader_options.ioptions,
+        bloom_bits_per_key_, hash_table_ratio_, index_sparseness_,
+        std::move(props), std::move(file), table_reader_options.ioptions,
         table_reader_options.prefix_extractor, expect_bloom_not_match_,
         store_index_in_file_, column_family_id_, column_family_name_));
 

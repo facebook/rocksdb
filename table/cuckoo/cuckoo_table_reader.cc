@@ -58,14 +58,16 @@ CuckooTableReader::CuckooTableReader(
     status_ = Status::InvalidArgument("File is not mmaped");
     return;
   }
-  TableProperties* props = nullptr;
-  status_ = ReadTableProperties(file_.get(), file_size, kCuckooTableMagicNumber,
-      ioptions, &props, true /* compression_type_missing */);
-  if (!status_.ok()) {
-    return;
+  {
+    std::unique_ptr<TableProperties> props;
+    status_ = ReadTableProperties(file_.get(), file_size,
+                                  kCuckooTableMagicNumber, ioptions, &props);
+    if (!status_.ok()) {
+      return;
+    }
+    table_props_ = std::move(props);
   }
-  table_props_.reset(props);
-  auto& user_props = props->user_collected_properties;
+  auto& user_props = table_props_->user_collected_properties;
   auto hash_funs = user_props.find(CuckooTablePropertyNames::kNumHashFunc);
   if (hash_funs == user_props.end()) {
     status_ = Status::Corruption("Number of hash functions not found");
@@ -79,7 +81,7 @@ CuckooTableReader::CuckooTableReader(
   }
   unused_key_ = unused_key->second;
 
-  key_length_ = static_cast<uint32_t>(props->fixed_key_len);
+  key_length_ = static_cast<uint32_t>(table_props_->fixed_key_len);
   auto user_key_len = user_props.find(CuckooTablePropertyNames::kUserKeyLength);
   if (user_key_len == user_props.end()) {
     status_ = Status::Corruption("User key length not found");

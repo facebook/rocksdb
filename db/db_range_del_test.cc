@@ -169,17 +169,36 @@ TEST_F(DBRangeDelTest, MaxCompactionBytesCutsOutputFiles) {
   opts.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
   // Want max_compaction_bytes to trigger the end of compaction output file, not
   // target_file_size_base, so make the latter much bigger
-  opts.target_file_size_base = 100 * opts.max_compaction_bytes;
+  //  opts.target_file_size_base = 100 * opts.max_compaction_bytes;
+  opts.target_file_size_base = 1;
   DestroyAndReopen(opts);
 
   // snapshot protects range tombstone from dropping due to becoming obsolete.
   const Snapshot* snapshot = db_->GetSnapshot();
 
+  Random rnd(301);
+
+  ASSERT_OK(Put(GetNumericStr(0), rnd.RandomString(kBytesPerVal)));
+  ASSERT_OK(
+      Put(GetNumericStr(kNumPerFile - 1), rnd.RandomString(kBytesPerVal)));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(GetNumericStr(kNumPerFile), rnd.RandomString(kBytesPerVal)));
+  ASSERT_OK(
+      Put(GetNumericStr(kNumPerFile * 2 - 1), rnd.RandomString(kBytesPerVal)));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(NumTableFilesAtLevel(2), 2);
+
+  ASSERT_OK(db_->SetOptions(
+      db_->DefaultColumnFamily(),
+      {{"target_file_size_base", ToString(100 * opts.max_compaction_bytes)}}));
+
   // It spans the whole key-range, thus will be included in all output files
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                              GetNumericStr(0),
                              GetNumericStr(kNumFiles * kNumPerFile - 1)));
-  Random rnd(301);
+
   for (int i = 0; i < kNumFiles; ++i) {
     std::vector<std::string> values;
     // Write 1MB (256 values, each 4K)
@@ -193,11 +212,11 @@ TEST_F(DBRangeDelTest, MaxCompactionBytesCutsOutputFiles) {
     ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
   }
 
-  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
-                                        true /* disallow_trivial_move */));
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr,
+                                        /*column_family=*/nullptr,
+                                        /*disallow_trivial_move=*/true));
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
   ASSERT_GE(NumTableFilesAtLevel(1), 2);
-
   std::vector<std::vector<FileMetaData>> files;
   dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files);
 
@@ -1628,6 +1647,7 @@ TEST_F(DBRangeDelTest, OverlappedTombstones) {
   const int kNumPerFile = 4, kNumFiles = 2;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  options.target_file_size_base = 9 * 1024;
   options.max_compaction_bytes = 9 * 1024;
   DestroyAndReopen(options);
   Random rnd(301);
@@ -1667,6 +1687,7 @@ TEST_F(DBRangeDelTest, OverlappedKeys) {
   const int kNumPerFile = 4, kNumFiles = 2;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  options.target_file_size_base = 9 * 1024;
   options.max_compaction_bytes = 9 * 1024;
   DestroyAndReopen(options);
   Random rnd(301);

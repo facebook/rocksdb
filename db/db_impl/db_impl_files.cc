@@ -56,6 +56,8 @@ Status DBImpl::DisableFileDeletions() {
   return s;
 }
 
+// FIXME: can be inconsistent with DisableFileDeletions in cases like
+// DBImplReadOnly
 Status DBImpl::DisableFileDeletionsWithLock() {
   mutex_.AssertHeld();
   ++disable_delete_obsolete_files_;
@@ -642,6 +644,11 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   InstrumentedMutexLock l(&mutex_);
   --pending_purge_obsolete_files_;
   assert(pending_purge_obsolete_files_ >= 0);
+  if (schedule_only) {
+    // Must change from pending_purge_obsolete_files_ to bg_purge_scheduled_
+    // while holding mutex (for GetSortedWalFiles() etc.)
+    SchedulePurge();
+  }
   if (pending_purge_obsolete_files_ == 0) {
     bg_cv_.SignalAll();
   }
@@ -655,7 +662,8 @@ void DBImpl::DeleteObsoleteFiles() {
 
   mutex_.Unlock();
   if (job_context.HaveSomethingToDelete()) {
-    PurgeObsoleteFiles(job_context);
+    bool defer_purge = immutable_db_options_.avoid_unnecessary_blocking_io;
+    PurgeObsoleteFiles(job_context, defer_purge);
   }
   job_context.Clean();
   mutex_.Lock();
