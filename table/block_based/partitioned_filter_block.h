@@ -50,6 +50,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
     std::string key;
     Slice filter;
     std::unique_ptr<const char[]> filter_data;
+    Status filter_construction_status;
   };
   std::deque<FilterEntry> filters;  // list of partitioned filters and keys used
                                     // in building the index

@@ -1547,16 +1547,13 @@ void BlockBasedTableBuilder::WriteFilterBlock(
       std::unique_ptr<const char[]> filter_data;
       Slice filter_content =
           rep_->filter_builder->Finish(filter_block_handle, &s, &filter_data);
-      assert(s.ok() || s.IsIncomplete());
-      // TODO: comment on partition filter last returned content
-      if (!rep_->table_options.partition_filters || s.IsIncomplete()) {
-        Status post_verify_status = rep_->filter_builder->PostVerifyFilterBitsBuilder(filter_content);
-        // TODO-question: what about can't be verification due to internal error/empty instead of not turning on option
-        if (post_verify_status.IsCorruption()) {
-          rep_->SetStatus(post_verify_status);
-          break;
-        }
+
+      assert(s.ok() || s.IsIncomplete() || s.IsCorruption());
+      if (s.IsCorruption()) {
+        rep_->SetStatus(s);
+        break;
       }
+
       rep_->props.filter_size += filter_content.size();
 
       // TODO: Refactor code so that BlockType can determine both the C++ type

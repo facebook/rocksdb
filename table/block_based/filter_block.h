@@ -83,10 +83,6 @@ class FilterBlockBuilder {
       ,
       Status* status, std::unique_ptr<const char[]>* filter_data = nullptr) = 0;
 
-  virtual Status PostVerifyFilterBitsBuilder(Slice /* filter_content */) {
-    return Status::NotSupported("");
-  }
-
   // It is for releasing the memory usage and cache reservation of filter bits
   // builder in FullFilter and PartitionedFilter
   virtual void ResetFilterBitsBuilder() {}

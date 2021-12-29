@@ -88,9 +88,15 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
 
   total_added_in_built_ += filter_bits_builder_->EstimateEntriesAdded();
   std::unique_ptr<const char[]> filter_data;
-  Slice filter = filter_bits_builder_->Finish(&filter_data);
+  Status filter_construction_status = Status::OK();
+  Slice filter =
+      filter_bits_builder_->Finish(&filter_data, &filter_construction_status);
+  if (filter_construction_status.ok()) {
+    filter_construction_status = filter_bits_builder_->PostVerify(filter);
+  }
   std::string& index_key = p_index_builder_->GetPartitionKey();
-  filters.push_back({index_key, filter, std::move(filter_data)});
+  filters.push_back(
+      {index_key, filter, std::move(filter_data), filter_construction_status});
   keys_added_to_partition_ = 0;
   Reset();
 }
@@ -160,6 +166,9 @@ Slice PartitionedFilterBlockBuilder::Finish(
     last_filter_data = std::move(filters.front().filter_data);
     if (filter_data != nullptr) {
       *filter_data = std::move(last_filter_data);
+    }
+    if (!filters.front().filter_construction_status.ok()) {
+      *status = filters.front().filter_construction_status;
     }
     filters.pop_front();
     return filter;

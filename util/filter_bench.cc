@@ -157,6 +157,7 @@ using ROCKSDB_NAMESPACE::PlainTableBloomV1;
 using ROCKSDB_NAMESPACE::Random32;
 using ROCKSDB_NAMESPACE::Slice;
 using ROCKSDB_NAMESPACE::static_cast_with_check;
+using ROCKSDB_NAMESPACE::Status;
 using ROCKSDB_NAMESPACE::StderrLogger;
 using ROCKSDB_NAMESPACE::mock::MockBlockBasedTableTester;
 
@@ -214,7 +215,7 @@ struct FilterInfo {
   uint32_t filter_id_ = 0;
   std::unique_ptr<const char[]> owner_;
   Slice filter_;
-  bool filter_construction_corrupted = false;
+  Status filter_construction_status = Status::OK();
   uint32_t keys_added_ = 0;
   std::unique_ptr<FilterBitsReader> reader_;
   std::unique_ptr<FullFilterBlockReader> full_block_reader_;
@@ -305,7 +306,8 @@ struct FilterBench : public MockBlockBasedTableTester {
     ioptions_.logger = &stderr_logger_;
     table_options_.optimize_filters_for_memory =
         FLAGS_optimize_filters_for_memory;
-    table_options_.detect_filter_construct_corruption = FLAGS_detect_filter_construct_corruption;
+    table_options_.detect_filter_construct_corruption =
+        FLAGS_detect_filter_construct_corruption;
     if (FLAGS_reserve_table_builder_memory) {
       table_options_.reserve_table_builder_memory = true;
       table_options_.no_block_cache = false;
@@ -425,8 +427,14 @@ void FilterBench::Go() {
       for (uint32_t i = 0; i < keys_to_add; ++i) {
         builder->AddKey(kms_[0].Get(filter_id, i));
       }
-      info.filter_ = builder->Finish(&info.owner_);
-      info.filter_construction_corrupted = (builder->PostVerify(info.filter_)).IsCorruption();
+      info.filter_ =
+          builder->Finish(&info.owner_, &info.filter_construction_status);
+      if (info.filter_construction_status.ok()) {
+        info.filter_construction_status = builder->PostVerify(info.filter_);
+      }
+      if (info.filter_construction_status.IsCorruption()) {
+        std::cout << "Encounter filter construction corruption" << std::endl;
+      }
 #ifdef PREDICT_FP_RATE
       weighted_predicted_fp_rate +=
           keys_to_add *

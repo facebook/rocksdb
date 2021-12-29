@@ -51,6 +51,7 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/flush_block_policy.h"
 #include "table/block_fetcher.h"
 #include "table/format.h"
@@ -2545,6 +2546,146 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
   }
 
   c.ResetTableReader();
+}
+
+class BlockBasedTableFilterConstructCorruptionTest
+    : public testing::Test,
+      public testing::WithParamInterface<
+          std::tuple<bool /* detect_filter_construct_corruption */,
+                     BloomFilterPolicy::Mode, bool /* partition_filters */>> {
+ public:
+  BlockBasedTableFilterConstructCorruptionTest() {}
+
+  BlockBasedTableOptions GetBlockBasedTableOptions() {
+    BlockBasedTableOptions table_options;
+    table_options.detect_filter_construct_corruption = std::get<0>(GetParam());
+    table_options.filter_policy.reset(
+        new BloomFilterPolicy(10, std::get<1>(GetParam())));
+    table_options.partition_filters = std::get<2>(GetParam());
+    if (table_options.partition_filters) {
+      table_options.index_type =
+          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    }
+    return table_options;
+  }
+};
+
+INSTANTIATE_TEST_CASE_P(
+    BlockBasedTableFilterConstructCorruptionTest,
+    BlockBasedTableFilterConstructCorruptionTest,
+    ::testing::Values(
+        std::make_tuple(false, BloomFilterPolicy::Mode::kFastLocalBloom, false),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kFastLocalBloom, false),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kFastLocalBloom, true),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kStandard128Ribbon,
+                        false),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kStandard128Ribbon,
+                        true)));
+
+TEST_P(BlockBasedTableFilterConstructCorruptionTest,
+       FilterConstructCorruption) {
+  const std::string ALPHABETS = "abcdefghijklmnopqrstuvwxyz";
+
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  Options options;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  IntTblPropCollectorFactories int_tbl_prop_collector_factories;
+
+  test::StringSink* sink = new test::StringSink();
+  std::unique_ptr<FSWritableFile> holder(sink);
+  std::unique_ptr<WritableFileWriter> file_writer(
+      new WritableFileWriter(std::move(holder), "test_file_1", FileOptions()));
+
+  std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, moptions, ikc,
+                          &int_tbl_prop_collector_factories, kSnappyCompression,
+                          options.compression_opts, kUnknownColumnFamily,
+                          "test_cf", -1 /* level */),
+      file_writer.get()));
+
+  for (size_t i = 0; i < ALPHABETS.size(); ++i) {
+    InternalKey ik(std::string(1, ALPHABETS[i]), i /* sequnce number */,
+                   kTypeValue);
+    std::string value = "v";
+    builder->Add(ik.Encode(), value);
+  }
+  // Detect hash entries corruption during filter construction
+  SyncPoint::GetInstance()->SetCallBack(
+      "XXPH3FilterBitsBuilder::VerifyHashEntriesChecksum::PreVerification",
+      [&](void* arg) {
+        std::deque<uint64_t>* hash_entries = (std::deque<uint64_t>*)arg;
+        uint64_t first_h = (*hash_entries)[0];
+        uint64_t corrupted_first_h = first_h ^ static_cast<uint64_t>(1);
+        (*hash_entries)[0] = corrupted_first_h;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = builder->Finish();
+  if (table_options.detect_filter_construct_corruption) {
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(
+        s.ToString().find("Filter's hash entries checksum mismatched") !=
+        std::string::npos);
+  } else {
+    ASSERT_TRUE(s.ok());
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearCallBack(
+      "XXPH3FilterBitsBuilder::VerifyHashEntriesChecksum::PreVerification");
+
+  builder.reset();
+
+  sink = new test::StringSink();
+  holder.reset(sink);
+  file_writer.reset(
+      new WritableFileWriter(std::move(holder), "test_file_2", FileOptions()));
+  builder.reset(options.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, moptions, ikc,
+                          &int_tbl_prop_collector_factories, kSnappyCompression,
+                          options.compression_opts, kUnknownColumnFamily,
+                          "test_cf", -1 /* level */),
+      file_writer.get()));
+
+  for (size_t i = 0; i < ALPHABETS.size(); ++i) {
+    InternalKey ik(std::string(1, ALPHABETS[i]), i /* sequnce number */,
+                   kTypeValue);
+    std::string value = "v";
+    builder->Add(ik.Encode(), value);
+  }
+
+  // Detect filter content corruption during filter construction
+  SyncPoint::GetInstance()->SetCallBack(
+      "XXPH3FilterBitsBuilder::PostVerify::PreVerification", [&](void* arg) {
+        auto arg_pair =
+            (std::pair<std::unique_ptr<FilterBitsReader>*, std::string>*)arg;
+        std::unique_ptr<FilterBitsReader>* bits_reader_p = arg_pair->first;
+        std::string filter_content_string = arg_pair->second;
+        std::string corrupted_filter_string = filter_content_string.replace(
+            filter_content_string.size() - 5, 1, 1, static_cast<char>(0));
+        const Slice corrupted_filter_content(corrupted_filter_string);
+        (*bits_reader_p)
+            .reset(table_options.filter_policy->GetFilterBitsReader(
+                corrupted_filter_content));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  s = builder->Finish();
+  if (table_options.detect_filter_construct_corruption) {
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(s.ToString().find("Corrupted filter content") !=
+                std::string::npos);
+  } else {
+    ASSERT_TRUE(s.ok());
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearCallBack(
+      "XXPH3FilterBitsBuilder::PostVerify::PreVerification");
 }
 
 TEST_P(BlockBasedTableTest, BinaryIndexTest) {

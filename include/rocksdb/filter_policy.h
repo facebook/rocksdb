@@ -65,8 +65,31 @@ class FilterBitsBuilder {
   // The ownership of actual data is set to buf
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
 
-  // TODO: comment
-  virtual Status PostVerify(Slice /* filter_content */) {return Status::NotSupported();}
+  // Similar to Finish(std::unique_ptr<const char[]>* buf), except that
+  // for a non-null status pointer argument, it should point to
+  // Status::Corruption() when there is any corruption during filter
+  // construction or Status::OK() otherwise.
+  virtual Slice Finish(std::unique_ptr<const char[]>* buf,
+                       Status* /* status */) {
+    return Finish(buf);
+  }
+
+  // Verify the filter returned from calling FilterBitsBuilder::Finish.
+  // The function returns Status::Corruption() if there is any corruption on the
+  // constructed filter or Status::OK() otherwise.
+  //
+  // The verification will only take effects
+  // when BlockBasedTableOptions::detect_filter_construct_corruption = true.
+  // Otherwise it is no-op and always returns Status::OK().
+  //
+  // RocksDB internal will always call PostVerify() on the filter right after
+  // it is returned from calling FilterBitsBuilder::Finish,
+  // except for the previous FilterBitsBuilder::Finish resulting a corruption
+  // status, indicating the filter is already in a state where it should not be
+  // further used.
+  virtual Status PostVerify(const Slice& /* filter_content */) {
+    return Status::OK();
+  }
 
   // Approximate the number of keys that can be added and generate a filter
   // <= the specified number of bytes. Callers (including RocksDB) should
@@ -104,6 +127,11 @@ class FilterBitsReader {
       may_match[i] = MayMatch(*keys[i]);
     }
   }
+
+  // Check if the hash of the entry match the bits in filter
+  virtual bool HashMayMatch(const uint64_t /* h */) { return false; }
+
+  virtual bool IsAlwaysTrueFilter() { return false; }
 };
 
 // Contextual information passed to BloomFilterPolicy at filter building time.
