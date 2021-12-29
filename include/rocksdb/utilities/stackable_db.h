@@ -322,7 +322,6 @@ class StackableDB : public DB {
 
   Status UnlockWAL() override { return db_->UnlockWAL(); }
 
-#ifndef ROCKSDB_LITE
 
   Status DisableFileDeletions() override { return db_->DisableFileDeletions(); }
 
@@ -330,6 +329,7 @@ class StackableDB : public DB {
     return db_->EnableFileDeletions(force);
   }
 
+#ifndef ROCKSDB_LITE
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) override {
     db_->GetLiveFilesMetaData(metadata);
   }

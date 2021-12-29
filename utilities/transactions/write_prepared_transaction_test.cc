@@ -1940,7 +1940,6 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   ASSERT_OK(wp_db->db_impl_->FlushWAL(true));
   ASSERT_OK(ReOpenNoDelete());
   ASSERT_NE(db, nullptr);
-  wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
   wp_db = db->CheckedCast<WritePreparedTxnDB>();
   ASSERT_NE(wp_db, nullptr);
 
@@ -1981,6 +1980,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotEmptyMap) {
     ASSERT_NE(db_impl, nullptr);
     ASSERT_OK(db_impl->FlushWAL(true));
     ASSERT_OK(ReOpenNoDelete());
+    ASSERT_NE(db, nullptr);
     wp_db = db->CheckedCast<WritePreparedTxnDB>();
     ASSERT_NE(wp_db, nullptr);
     ASSERT_GT(wp_db->max_evicted_seq_, 0);  // max after recovery

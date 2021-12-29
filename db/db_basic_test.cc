@@ -3642,6 +3642,7 @@ TEST_F(DBBasicTest, CheckedCast) {
   db_ = nullptr;
   wrapped.reset();
 
+#ifndef ROCKSDB_LITE
   ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_TRUE(db_->IsInstanceOf(DBImpl::kClassName()));
   ASSERT_TRUE(db_->IsInstanceOf(DBImplReadOnly::kClassName()));
@@ -3653,6 +3654,7 @@ TEST_F(DBBasicTest, CheckedCast) {
   ASSERT_EQ(db_, wrapped->CheckedCast<DBImpl>());
   ASSERT_EQ(db_, wrapped->CheckedCast<DBImplReadOnly>());
   db_ = nullptr;
+#endif  // ROCKSDB_LITE
 }
 
 #ifndef ROCKSDB_LITE
