@@ -44,6 +44,7 @@ public class MutableColumnFamilyOptions
    * key1=value1;intArrayKey1=1:2:3
    *
    * @param str The string representation of the mutable column family options
+   * @param ignoreUnknown what to do if the key is not one of the keys we expect
    *
    * @return A builder for the mutable column family options
    */

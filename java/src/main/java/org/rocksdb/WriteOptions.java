@@ -171,7 +171,7 @@ public class WriteOptions extends RocksObject {
 
   /**
    * If true, this write request is of lower priority if compaction is
-   * behind. In this case that, {@link #noSlowdown()} == true, the request
+   * behind. In the case that, {@link #noSlowdown()} == true, the request
    * will be cancelled immediately with {@link Status.Code#Incomplete} returned.
    * Otherwise, it will be slowed down. The slowdown value is determined by
    * RocksDB to guarantee it introduces minimum impacts to high priority writes.

@@ -597,8 +597,8 @@ size_t MemTableList::ApproximateUnflushedMemTablesMemoryUsage() {
 size_t MemTableList::ApproximateMemoryUsage() { return current_memory_usage_; }
 
 size_t MemTableList::MemoryAllocatedBytesExcludingLast() const {
-  const size_t usage =
-      current_memory_allocted_bytes_excluding_last_.load(std::memory_order_relaxed);
+  const size_t usage = current_memory_allocted_bytes_excluding_last_.load(
+      std::memory_order_relaxed);
   return usage;
 }
 
@@ -610,8 +610,8 @@ bool MemTableList::HasHistory() const {
 void MemTableList::UpdateCachedValuesFromMemTableListVersion() {
   const size_t total_memtable_size =
       current_->MemoryAllocatedBytesExcludingLast();
-  current_memory_allocted_bytes_excluding_last_.store(total_memtable_size,
-                                             std::memory_order_relaxed);
+  current_memory_allocted_bytes_excluding_last_.store(
+      total_memtable_size, std::memory_order_relaxed);
 
   const bool has_history = current_->HasHistory();
   current_has_history_.store(has_history, std::memory_order_relaxed);

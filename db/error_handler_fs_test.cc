@@ -90,13 +90,6 @@ class ErrorHandlerFSListener : public EventListener {
     }
   }
 
-  void OnErrorRecoveryCompleted(Status old_bg_error) override {
-    InstrumentedMutexLock l(&mutex_);
-    recovery_complete_ = true;
-    cv_.SignalAll();
-    old_bg_error.PermitUncheckedError();
-  }
-
   void OnErrorRecoveryEnd(const BackgroundErrorRecoveryInfo& info) override {
     InstrumentedMutexLock l(&mutex_);
     recovery_complete_ = true;
