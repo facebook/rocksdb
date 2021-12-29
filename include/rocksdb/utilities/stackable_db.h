@@ -116,6 +116,7 @@ class StackableDB : public DB {
                          values, statuses, sorted_input);
   }
 
+#ifndef ROCKSDB_LITE
   using DB::IngestExternalFile;
   Status IngestExternalFile(ColumnFamilyHandle* column_family,
                             const std::vector<std::string>& external_files,
@@ -149,6 +150,7 @@ class StackableDB : public DB {
   Status VerifyChecksum(const ReadOptions& options) override {
     return db_->VerifyChecksum(options);
   }
+#endif  // ROCKSDB_LITE
 
   using DB::KeyMayExist;
   bool KeyMayExist(const ReadOptions& options,
@@ -382,12 +384,11 @@ class StackableDB : public DB {
     return db_->NewDefaultReplayer(handles, std::move(reader), replayer);
   }
 
-#endif  // ROCKSDB_LITE
-
   Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
                       bool flush_memtable = true) override {
     return db_->GetLiveFiles(vec, mfs, flush_memtable);
   }
+#endif  // ROCKSDB_LITE
 
   SequenceNumber GetLatestSequenceNumber() const override {
     return db_->GetLatestSequenceNumber();
@@ -407,6 +408,7 @@ class StackableDB : public DB {
     return db_->GetFullHistoryTsLow(column_family, ts_low);
   }
 
+#ifndef ROCKSDB_LITE
   Status GetSortedWalFiles(VectorLogPtr& files) override {
     return db_->GetSortedWalFiles(files);
   }
@@ -428,6 +430,7 @@ class StackableDB : public DB {
   // until its removal. Any user is encouraged to read the implementation
   // carefully and migrate away from it when possible.
   Status DeleteFile(std::string name) override { return db_->DeleteFile(name); }
+#endif  // ROCKSDB_LITE
 
   Status GetDbIdentity(std::string& identity) const override {
     return db_->GetDbIdentity(identity);
@@ -452,6 +455,7 @@ class StackableDB : public DB {
   using DB::ResetStats;
   Status ResetStats() override { return db_->ResetStats(); }
 
+#ifndef ROCKSDB_LITE
   using DB::GetPropertiesOfAllTables;
   Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
                                   TablePropertiesCollection* props) override {
@@ -480,6 +484,7 @@ class StackableDB : public DB {
                    int target_level) override {
     return db_->PromoteL0(column_family, target_level);
   }
+#endif  // ROCKSDB_LITE
 
   ColumnFamilyHandle* DefaultColumnFamily() const override {
     return db_->DefaultColumnFamily();
