@@ -2079,8 +2079,9 @@ TEST_F(OptionsTest, OptionTablePropertiesTest) {
   // properties as the original
   cfg_opts.registry->AddLibrary("collector")
       ->Register<TablePropertiesCollectorFactory>(
-          std::string(TestTablePropertiesCollectorFactory::kClassName()) +
-              ":.*",
+          ObjectLibrary::PatternEntry(
+              TestTablePropertiesCollectorFactory::kClassName(), false)
+              .AddSeparator(":"),
           [](const std::string& name,
              std::unique_ptr<TablePropertiesCollectorFactory>* guard,
              std::string* /* errmsg */) {
