@@ -38,7 +38,7 @@ class WrappedEnv : public EnvWrapper {
 };
 static FactoryFunc<Env> test_reg_b = ObjectLibrary::Default()->Register<Env>(
     ObjectLibrary::PatternEntry("b", false).AddSeparator("://"),
-    [](const std::string& /*uri*/, std::unique_ptr<Env>* env_guard,
+    [](const std::string& uri, std::unique_ptr<Env>* env_guard,
        std::string* /* errmsg */) {
       ++ObjRegistryTest::num_b;
       // Env::Default() is a singleton so we can't grant ownership directly to
