@@ -40,11 +40,11 @@
 #include "util/rate_limiter.h"
 #include "util/string_util.h"
 #include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
+#include "utilities/memory_allocators.h"
 #include "utilities/merge_operators/bytesxor.h"
 #include "utilities/merge_operators/sortlist.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
-#include "utilities/memory_allocators.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
