@@ -706,7 +706,9 @@ class EventListener : public Customizable {
   // is recovered from read-only mode after an error. When this is called, it
   // means normal writes to the database can be issued and the user can
   // initiate any further recovery actions needed
-  virtual void OnErrorRecoveryCompleted(Status /* old_bg_error */) {}
+  virtual void OnErrorRecoveryCompleted(Status old_bg_error) {
+    old_bg_error.PermitUncheckedError();
+  }
 
   // A callback function for RocksDB which will be called once the recovery
   // attempt from a background retryable error is completed. The recovery

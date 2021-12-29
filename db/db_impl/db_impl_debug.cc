@@ -156,6 +156,12 @@ Status DBImpl::TEST_AtomicFlushMemTables(
   return AtomicFlushMemTables(cfds, flush_opts, FlushReason::kTest);
 }
 
+Status DBImpl::TEST_WaitForBackgroundWork() {
+  InstrumentedMutexLock l(&mutex_);
+  WaitForBackgroundWork();
+  return Status::OK();
+}
+
 Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
   ColumnFamilyData* cfd;
   if (column_family == nullptr) {

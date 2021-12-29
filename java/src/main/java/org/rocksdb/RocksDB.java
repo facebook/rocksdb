@@ -3068,10 +3068,11 @@ public class RocksDB extends RocksObject {
    * That is to say that this method is probabilistic and may return false
    * positives, but never a false negative.
    *
-   * @param columnFamilyHandle
-   * @param readOptions
-   * @param key
-   * @return
+   * @param columnFamilyHandle the {@link ColumnFamilyHandle} to look for the key in
+   * @param readOptions the {@link ReadOptions} to use when reading the key/value
+   * @param key bytebuffer containing the value of the key
+   * @return false if the key definitely does not exist in the database,
+   *     otherwise true.
    */
   public boolean keyMayExist(final ColumnFamilyHandle columnFamilyHandle,
       final ReadOptions readOptions, final ByteBuffer key) {

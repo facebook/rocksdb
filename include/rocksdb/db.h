@@ -1356,6 +1356,15 @@ class DB {
   // times have the same effect as calling it once.
   virtual Status DisableFileDeletions() = 0;
 
+  // Increase the full_history_ts of column family. The new ts_low value should
+  // be newer than current full_history_ts value.
+  virtual Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                          std::string ts_low) = 0;
+
+  // Get current full_history_ts value.
+  virtual Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                     std::string* ts_low) = 0;
+
   // Allow compactions to delete obsolete files.
   // If force == true, the call to EnableFileDeletions() will guarantee that
   // file deletions are enabled after the call, even if DisableFileDeletions()

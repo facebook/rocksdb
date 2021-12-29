@@ -274,6 +274,9 @@ class TestFlushListener : public EventListener {
     ASSERT_TRUE(test_);
     if (db == test_->db_) {
       std::vector<std::vector<FileMetaData>> files_by_level;
+      ASSERT_LT(info.cf_id, test_->handles_.size());
+      ASSERT_GE(info.cf_id, 0u);
+      ASSERT_NE(test_->handles_[info.cf_id], nullptr);
       test_->dbfull()->TEST_GetFilesMetaData(test_->handles_[info.cf_id],
                                              &files_by_level);
 

@@ -355,6 +355,16 @@ class DBImpl : public DB {
 
   virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
 
+  // IncreaseFullHistoryTsLow(ColumnFamilyHandle*, std::string) will acquire
+  // and release db_mutex
+  Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                  std::string ts_low) override;
+
+  // GetFullHistoryTsLow(ColumnFamilyHandle*, std::string*) will acquire and
+  // release db_mutex
+  Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                             std::string* ts_low) override;
+
   virtual Status GetDbIdentity(std::string& identity) const override;
 
   virtual Status GetDbIdentityFromIdentityFile(std::string* identity) const;
@@ -974,6 +984,9 @@ class DBImpl : public DB {
   Status TEST_AtomicFlushMemTables(const autovector<ColumnFamilyData*>& cfds,
                                    const FlushOptions& flush_opts);
 
+  // Wait for background threads to complete scheduled work.
+  Status TEST_WaitForBackgroundWork();
+
   // Wait for memtable compaction
   Status TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family = nullptr);
 
@@ -1128,10 +1141,12 @@ class DBImpl : public DB {
     State state_;
   };
 
+  static void TEST_ResetDbSessionIdGen();
   static std::string GenerateDbSessionId(Env* env);
 
  protected:
   const std::string dbname_;
+  // TODO(peterd): unify with VersionSet::db_id_
   std::string db_id_;
   // db_session_id_ is an identifier that gets reset
   // every time the DB is opened
@@ -1982,7 +1997,8 @@ class DBImpl : public DB {
 
   Status DisableFileDeletionsWithLock();
 
-  Status IncreaseFullHistoryTsLow(ColumnFamilyData* cfd, std::string ts_low);
+  Status IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
+                                      std::string ts_low);
 
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
