@@ -4599,6 +4599,7 @@ struct Wrapper : public rocksdb_slicetransform_t {
   const SliceTransform* rep_;
   ~Wrapper() override { delete rep_; }
   const char* Name() const override { return rep_->Name(); }
+  std::string GetId() const override { return rep_->GetId(); }
   Slice Transform(const Slice& src) const override {
     return rep_->Transform(src);
   }
