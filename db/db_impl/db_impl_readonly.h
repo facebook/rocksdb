@@ -21,6 +21,8 @@ class DBImplReadOnly : public DBImpl {
   void operator=(const DBImplReadOnly&) = delete;
 
   virtual ~DBImplReadOnly();
+  static const char* kClassName() { return "DBImplReadOnly"; }
+  const char* Name() const override { return kClassName(); }
 
   // Implementations of the DB interface
   using DB::Get;

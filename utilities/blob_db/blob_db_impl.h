@@ -77,6 +77,9 @@ class BlobDBImpl : public BlobDB {
   friend class BlobIndexCompactionFilterGC;
 
  public:
+  static const char* kClassName() { return "BlobDBImpl"; }
+  const char* Name() const override { return kClassName(); }
+
   // deletions check period
   static constexpr uint32_t kDeleteCheckPeriodMillisecs = 2 * 1000;
 

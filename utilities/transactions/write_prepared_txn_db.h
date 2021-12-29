@@ -60,6 +60,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   }
 
   virtual ~WritePreparedTxnDB();
+  static const char* kClassName() { return "WritePreparedTxnDB"; }
+  const char* Name() const override { return kClassName(); }
 
   virtual Status Initialize(
       const std::vector<size_t>& compaction_enabled_cf_indices,

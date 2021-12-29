@@ -725,6 +725,26 @@ TEST_F(TtlTest, DeleteRangeTest) {
   CloseTtl();
 }
 
+TEST_F(TtlTest, CheckedCast) {
+  OpenTtl();
+  ASSERT_TRUE(db_ttl_->IsInstanceOf(DBWithTTL::kClassName()));
+  ASSERT_FALSE(db_ttl_->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_EQ(db_ttl_, db_ttl_->CheckedCast<DBWithTTL>());
+
+  DB* root_db = db_ttl_->GetRootDB();
+  ASSERT_NE(root_db, nullptr);
+  ASSERT_FALSE(root_db->IsInstanceOf(DBWithTTL::kClassName()));
+  ASSERT_TRUE(root_db->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_EQ(root_db, db_ttl_->CheckedCast<DBImpl>());
+
+  DB* base_db = db_ttl_->GetBaseDB();
+  ASSERT_NE(base_db, nullptr);
+  ASSERT_FALSE(base_db->IsInstanceOf(DBWithTTL::kClassName()));
+  ASSERT_TRUE(base_db->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_EQ(root_db, base_db->CheckedCast<DBImpl>());
+  CloseTtl();
+}
+
 class DummyFilter : public CompactionFilter {
  public:
   bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,

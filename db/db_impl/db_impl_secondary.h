@@ -77,6 +77,9 @@ class DBImplSecondary : public DBImpl {
                   std::string secondary_path);
   ~DBImplSecondary() override;
 
+  static const char* kClassName() { return "DBImplSecondary"; }
+  const char* Name() const override { return kClassName(); }
+
   // Recover by replaying MANIFEST and WAL. Also initialize manifest_reader_
   // and log_readers_ to facilitate future operations.
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,

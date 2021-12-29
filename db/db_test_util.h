@@ -35,6 +35,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
+#include "rocksdb/utilities/stackable_db.h"
 #include "table/mock_table.h"
 #include "table/scoped_arena_iterator.h"
 #include "test_util/sync_point.h"
@@ -725,6 +726,13 @@ class FlushCounterListener : public EventListener {
 };
 #endif
 
+class WrappedDB : public StackableDB {
+ public:
+  explicit WrappedDB(DB* db) : StackableDB(db) {}
+  static const char* kClassName() { return "WrappedDB"; }
+  const char* Name() const override { return kClassName(); }
+};
+
 // A test merge operator mimics put but also fails if one of merge operands is
 // "corrupted".
 class TestPutOperator : public MergeOperator {
@@ -960,7 +968,11 @@ class DBTestBase : public testing::Test {
                      const anon::OptionsOverride& options_override =
                          anon::OptionsOverride()) const;
 
-  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
+  DBImpl* dbfull() {
+    auto impl = db_->CheckedCast<DBImpl>();
+    EXPECT_NE(impl, nullptr);
+    return impl;
+  }
 
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
                             const Options& options);

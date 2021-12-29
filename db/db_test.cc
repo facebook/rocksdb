@@ -2863,6 +2863,8 @@ class ModelDB : public DB {
   };
 
   explicit ModelDB(const Options& options) : options_(options) {}
+  static const char* kClassName() { return "ModelDB"; }
+  const char* Name() const override { return kClassName(); }
   using DB::Put;
   Status Put(const WriteOptions& o, ColumnFamilyHandle* cf, const Slice& k,
              const Slice& v) override {

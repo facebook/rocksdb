@@ -339,6 +339,15 @@ struct DeadlockPath {
 
 class TransactionDB : public StackableDB {
  public:
+  static const char* kClassName() { return "TransactionDB"; }
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == kClassName()) {
+      return true;
+    } else {
+      return StackableDB::IsInstanceOf(name);
+    }
+  }
+
   // Optimized version of ::Write that receives more optimization request such
   // as skip_concurrency_control.
   using StackableDB::Write;

@@ -88,6 +88,15 @@ struct BlobDBOptions {
 
 class BlobDB : public StackableDB {
  public:
+  static const char* kClassName() { return "BlobDB"; }
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == kClassName()) {
+      return true;
+    } else {
+      return StackableDB::IsInstanceOf(name);
+    }
+  }
+
   using ROCKSDB_NAMESPACE::StackableDB::Put;
   virtual Status Put(const WriteOptions& options, const Slice& key,
                      const Slice& value) override = 0;

@@ -1246,6 +1246,25 @@ TEST_F(DBSecondaryTest, OpenWithTransactionDB) {
   ASSERT_OK(TryOpenSecondary(options));
 }
 
+TEST_F(DBSecondaryTest, CheckedCast) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.max_open_files = -1;
+
+  ASSERT_OK(TryOpenSecondary(options));
+  ASSERT_TRUE(db_secondary_->IsInstanceOf(DBImplSecondary::kClassName()));
+  ASSERT_TRUE(db_secondary_->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_EQ(db_secondary_, db_secondary_->CheckedCast<DBImpl>());
+  ASSERT_EQ(db_secondary_, db_secondary_->GetRootDB());
+  std::unique_ptr<WrappedDB> wrapped(new WrappedDB(db_secondary_));
+
+  ASSERT_FALSE(wrapped->IsInstanceOf(DBImplSecondary::kClassName()));
+  ASSERT_FALSE(wrapped->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_EQ(db_secondary_, wrapped->CheckedCast<DBImpl>());
+  ASSERT_EQ(db_secondary_, wrapped->CheckedCast<DBImplSecondary>());
+  ASSERT_EQ(db_secondary_, wrapped->GetRootDB());
+  db_secondary_ = nullptr;  // Deleted via wrapped
+}
 #endif  //! ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

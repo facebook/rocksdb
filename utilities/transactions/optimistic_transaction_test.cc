@@ -365,7 +365,8 @@ TEST_P(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
       ASSERT_OK(txn_db->Flush(flush_ops));
     } else {
       ASSERT_EQ(attempt, kAttemptImmMemTable);
-      DBImpl* db_impl = static_cast<DBImpl*>(txn_db->GetRootDB());
+      DBImpl* db_impl = txn_db->CheckedCast<DBImpl>();
+      ASSERT_NE(db_impl, nullptr);
       ASSERT_OK(db_impl->TEST_SwitchMemtable());
     }
     uint64_t num_imm_mems;
@@ -1390,6 +1391,26 @@ TEST_P(OptimisticTransactionTest, SequenceNumberAfterRecoverTest) {
   ASSERT_OK(s);
 
   delete transaction;
+}
+
+TEST_P(OptimisticTransactionTest, CheckedCast) {
+  ASSERT_FALSE(txn_db->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_TRUE(txn_db->IsInstanceOf(OptimisticTransactionDB::kClassName()));
+  ASSERT_EQ(txn_db, txn_db->CheckedCast<OptimisticTransactionDB>());
+  DB* root_db = txn_db->GetRootDB();
+  ASSERT_NE(root_db, nullptr);
+  ASSERT_TRUE(root_db->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_FALSE(root_db->IsInstanceOf(OptimisticTransactionDB::kClassName()));
+  ASSERT_EQ(root_db, root_db->CheckedCast<DBImpl>());
+  ASSERT_EQ(nullptr, root_db->CheckedCast<OptimisticTransactionDB>());
+  ASSERT_EQ(root_db, txn_db->CheckedCast<DBImpl>());
+  DB* base_db = txn_db->GetBaseDB();
+  ASSERT_NE(base_db, nullptr);
+  ASSERT_TRUE(base_db->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_FALSE(base_db->IsInstanceOf(OptimisticTransactionDB::kClassName()));
+  ASSERT_EQ(base_db, base_db->CheckedCast<DBImpl>());
+  ASSERT_EQ(nullptr, base_db->CheckedCast<OptimisticTransactionDB>());
+  ASSERT_EQ(base_db, txn_db->CheckedCast<DBImpl>());
 }
 
 INSTANTIATE_TEST_CASE_P(

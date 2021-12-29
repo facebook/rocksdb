@@ -143,6 +143,16 @@ class DBImpl : public DB {
 
   virtual ~DBImpl();
 
+  static const char* kClassName() { return "DBImpl"; }
+  const char* Name() const override { return kClassName(); }
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == kClassName()) {
+      return true;
+    } else {
+      return DB::IsInstanceOf(name);
+    }
+  }
+
   // ---- Implementations of the DB interface ----
 
   using DB::Resume;

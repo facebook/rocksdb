@@ -170,7 +170,7 @@ class TransactionTestBase : public ::testing::Test {
         txn_db_options.write_policy == WRITE_PREPARED;
     Status s = DBImpl::Open(options_copy, dbname, cfs, handles, &root_db,
                             use_seq_per_batch, use_batch_per_txn);
-    StackableDB* stackable_db = new StackableDB(root_db);
+    StackableDB* stackable_db = new WrappedDB(root_db);
     if (s.ok()) {
       assert(root_db != nullptr);
       s = TransactionDB::WrapStackableDB(stackable_db, txn_db_options,
@@ -205,7 +205,7 @@ class TransactionTestBase : public ::testing::Test {
       delete root_db;
       return s;
     }
-    StackableDB* stackable_db = new StackableDB(root_db);
+    StackableDB* stackable_db = new WrappedDB(root_db);
     assert(root_db != nullptr);
     assert(handles.size() == 1);
     s = TransactionDB::WrapStackableDB(stackable_db, txn_db_options,

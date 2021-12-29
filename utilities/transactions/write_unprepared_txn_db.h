@@ -17,6 +17,9 @@ class WriteUnpreparedTxnDB : public WritePreparedTxnDB {
  public:
   using WritePreparedTxnDB::WritePreparedTxnDB;
 
+  static const char* kClassName() { return "WriteUnpreparedTxnDB"; }
+  const char* Name() const override { return kClassName(); }
+
   Status Initialize(const std::vector<size_t>& compaction_enabled_cf_indices,
                     const std::vector<ColumnFamilyHandle*>& handles) override;
 

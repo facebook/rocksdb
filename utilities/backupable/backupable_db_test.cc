@@ -67,6 +67,9 @@ class DummyDB : public StackableDB {
     return ++sequence_number_;
   }
 
+  static const char* kClassName() { return "DummyDB"; }
+  const char* Name() const override { return kClassName(); }
+
   const std::string& GetName() const override { return dbname_; }
 
   Env* GetEnv() const override { return options_.env; }

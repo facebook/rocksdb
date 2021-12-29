@@ -36,6 +36,14 @@ class PessimisticTransactionDB : public TransactionDB {
                                     const TransactionDBOptions& txn_db_options);
 
   virtual ~PessimisticTransactionDB();
+  static const char* kClassName() { return "PessimisticTransactionDB"; }
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == kClassName()) {
+      return true;
+    } else {
+      return TransactionDB::IsInstanceOf(name);
+    }
+  }
 
   virtual const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }
 
@@ -210,6 +218,9 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
       : PessimisticTransactionDB(db, txn_db_options) {}
 
   virtual ~WriteCommittedTxnDB() {}
+
+  static const char* kClassName() { return "WriteCommittedTxnDB"; }
+  const char* Name() const override { return kClassName(); }
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,

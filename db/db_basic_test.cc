@@ -9,6 +9,7 @@
 
 #include <cstring>
 
+#include "db/db_impl/db_impl_readonly.h"
 #include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
@@ -3626,6 +3627,32 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
+}
+
+TEST_F(DBBasicTest, CheckedCast) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env_;
+  ASSERT_OK(TryReopen(options));
+  ASSERT_TRUE(db_->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_EQ(db_, db_->CheckedCast<DBImpl>());
+  std::unique_ptr<DB> wrapped(new WrappedDB(db_));
+  ASSERT_FALSE(wrapped->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_EQ(db_, wrapped->CheckedCast<DBImpl>());
+  db_ = nullptr;
+  wrapped.reset();
+
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_TRUE(db_->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_TRUE(db_->IsInstanceOf(DBImplReadOnly::kClassName()));
+  ASSERT_EQ(db_, db_->CheckedCast<DBImpl>());
+  ASSERT_EQ(db_, db_->CheckedCast<DBImplReadOnly>());
+  wrapped.reset(new WrappedDB(db_));
+  ASSERT_FALSE(wrapped->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_FALSE(wrapped->IsInstanceOf(DBImplReadOnly::kClassName()));
+  ASSERT_EQ(db_, wrapped->CheckedCast<DBImpl>());
+  ASSERT_EQ(db_, wrapped->CheckedCast<DBImplReadOnly>());
+  db_ = nullptr;
 }
 
 #ifndef ROCKSDB_LITE
