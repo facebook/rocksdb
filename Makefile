@@ -2105,7 +2105,11 @@ CURL_SSL_OPTS ?= --tlsv1
 
 ifeq ($(PLATFORM), OS_MACOSX)
 ifeq (,$(findstring librocksdbjni-osx,$(ROCKSDBJNILIB)))
+ifeq ($(MACHINE),arm64)
+	ROCKSDBJNILIB = librocksdbjni-osx-aarch64.jnilib
+else
 	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
+endif
 endif
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-osx.jar
 	SHA256_CMD = openssl sha256 -r
