@@ -2974,7 +2974,7 @@ int main(int argc, char** argv) {
 
     int i;
     for (i = 0; i < 10; ++i) {
-      char key = '0' + i;
+      char key = '0' + (char)i;
       rocksdb_put(db, woptions, &key, 1, "", 1, &err);
       CheckNoError(err);
     }
