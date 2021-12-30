@@ -8,6 +8,9 @@
 ### Behavior Changes
 * `DB::DestroyColumnFamilyHandle()` will return Status::InvalidArgument() if called with `DB::DefaultColumnFamily()`.
 
+### Performance Improvements
+* Released the cache reservation of the hash entries associated with the Ribbon Filter that has falled back to Bloom Filter earlier for `BlockBasedTableOptions::reserve_table_builder_memory = true`.
+
 ## 6.28.0 (2021-12-17)
 ### New Features
 * Introduced 'CommitWithTimestamp' as a new tag. Currently, there is no API for user to trigger a write with this tag to the WAL. This is part of the efforts to support write-commited transactions with user-defined timestamps.
