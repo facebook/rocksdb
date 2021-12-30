@@ -45,6 +45,9 @@ Note: The next release will be major release 7.0. See https://github.com/faceboo
 ### New Features
 * Added RocksJava support for MacOS universal binary (ARM+x86)
 
+### Behavior Changes
+* Disallow the combination of DBOptions.use_direct_io_for_flush_and_compaction == true and DBOptions.writable_file_max_buffer_size == 0. This combination can cause WritableFileWriter::Append() to loop forever, and it does not make much sense in direct IO.
+
 ## 6.28.0 (2021-12-17)
 ### New Features
 * Introduced 'CommitWithTimestamp' as a new tag. Currently, there is no API for user to trigger a write with this tag to the WAL. This is part of the efforts to support write-commited transactions with user-defined timestamps.
