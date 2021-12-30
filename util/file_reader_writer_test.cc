@@ -300,10 +300,6 @@ TEST_F(WritableFileWriterTest, BufferWithZeroCapacityDirectIO) {
                                    /*dbg=*/nullptr);
     ASSERT_TRUE(s.IsInvalidArgument());
   }
-  std::unique_ptr<FakeWF> wf(new FakeWF());
-  std::unique_ptr<WritableFileWriter> writer(
-      new WritableFileWriter(std::move(wf), "" /* dont care */, env_opts));
-  ASSERT_OK(writer->Append("test data"));
 }
 
 class DBWritableFileWriterTest : public DBTestBase {
