@@ -294,6 +294,12 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "atomic_flush is currently incompatible with best-efforts recovery");
   }
 
+  if (db_options.use_direct_io_for_flush_and_compaction &&
+      0 == db_options.writable_file_max_buffer_size) {
+    return Status::InvalidArgument(
+        "writes in direct IO require writable_file_max_buffer_size > 0");
+  }
+
   return Status::OK();
 }
 
