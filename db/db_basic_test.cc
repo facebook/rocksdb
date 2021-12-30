@@ -3640,9 +3640,9 @@ TEST_F(DBBasicTest, DestroyDefaultCfHandle) {
   // We have two handles to the default column family. The two handles point to
   // different ColumnFamilyHandle objects.
   assert(db_->DefaultColumnFamily());
-  ASSERT_EQ(0, db_->DefaultColumnFamily()->GetID());
+  ASSERT_EQ(0U, db_->DefaultColumnFamily()->GetID());
   assert(handles_[0]);
-  ASSERT_EQ(0, handles_[0]->GetID());
+  ASSERT_EQ(0U, handles_[0]->GetID());
 
   // You can destroy handles_[...].
   for (auto* h : handles_) {
