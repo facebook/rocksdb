@@ -25,7 +25,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class WritableFileWriterTest : public testing::Test {};
 
-const uint32_t kMb = 1 << 20;
+constexpr uint32_t kMb = static_cast<uint32_t>(1) << 20;
 
 TEST_F(WritableFileWriterTest, RangeSync) {
   class FakeWF : public FSWritableFile {
@@ -251,7 +251,7 @@ TEST_F(DBWritableFileWriterTest, AppendWithChecksum) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   DestroyAndReopen(options);
-  std::string fname = this->dbname_ + "/test_file";
+  std::string fname = dbname_ + "/test_file";
   std::unique_ptr<FSWritableFile> writable_file_ptr;
   ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options, &writable_file_ptr,
                                        /*dbg*/ nullptr));
@@ -291,7 +291,7 @@ TEST_F(DBWritableFileWriterTest, AppendVerifyNoChecksum) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   DestroyAndReopen(options);
-  std::string fname = this->dbname_ + "/test_file";
+  std::string fname = dbname_ + "/test_file";
   std::unique_ptr<FSWritableFile> writable_file_ptr;
   ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options, &writable_file_ptr,
                                        /*dbg*/ nullptr));
@@ -334,7 +334,7 @@ TEST_F(DBWritableFileWriterTest, AppendWithChecksumRateLimiter) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   DestroyAndReopen(options);
-  std::string fname = this->dbname_ + "/test_file";
+  std::string fname = dbname_ + "/test_file";
   std::unique_ptr<FSWritableFile> writable_file_ptr;
   ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options, &writable_file_ptr,
                                        /*dbg*/ nullptr));
@@ -376,7 +376,7 @@ TEST_F(DBWritableFileWriterTest, AppendWithChecksumRateLimiter) {
   FileOptions file_options1 = FileOptions();
   file_options1.rate_limiter =
       NewGenericRateLimiter(static_cast<int64_t>(0.5 * raw_rate));
-  fname = this->dbname_ + "/test_file_1";
+  fname = dbname_ + "/test_file_1";
   std::unique_ptr<FSWritableFile> writable_file_ptr1;
   ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options1,
                                        &writable_file_ptr1,
@@ -857,7 +857,7 @@ TEST_F(DBWritableFileWriterTest, IOErrorNotification) {
   DestroyAndReopen(options);
   ImmutableOptions ioptions(options);
 
-  std::string fname = this->dbname_ + "/test_file";
+  std::string fname = dbname_ + "/test_file";
   std::unique_ptr<FakeWF> writable_file_ptr(new FakeWF);
 
   std::unique_ptr<WritableFileWriter> file_writer;
