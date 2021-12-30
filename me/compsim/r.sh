@@ -12,34 +12,46 @@ touch o.sag${sag}.s0
 
 for ra in 4 6 8 12 16; do
 
+  if [ $ra -le 8 ]; then
+
   a=stcs
   pypy3 compsim.py --algorithm=$a --run_time=$rt --init_size_gb=$gb --space_amp_goal=$sag --stcs_min_threshold=$ra --workload=$wl > o.sag${sag}.r${ra}.$a 
   tail -1 o.sag${sag}.r${ra}.$a >> o.sag${sag}.s0
   gzip o.sag${sag}.r${ra}.$a
 
-  if [ $ra -lt 8 ]; then
-    continue
   fi
 
+  if [ $ra -ge 8 ]; then
+
   a=tower
-  pypy3 compsim.py --algorithm=$a --run_time=$rt --init_size_gb=$gb --space_amp_goal=$sag --tower_min_merge_width=$minmw --tower_l0_trigger=$ra --workload=$wl > o.sag${sag}.r${ra}.$a 
-  tail -1 o.sag${sag}.r${ra}.$a >> o.sag${sag}.s0
-  gzip o.sag${sag}.r${ra}.$a
+  pypy3 compsim.py --algorithm=$a --run_time=$rt --init_size_gb=$gb --space_amp_goal=$sag --tower_min_merge_width=$minmw --tower_l0_trigger=$ra --workload=$wl --tower_size_ratio=1.5 > o.sag${sag}.r${ra}.$a.sr15
+  tail -1 o.sag${sag}.r${ra}.$a.sr15 >> o.sag${sag}.s0
+  gzip o.sag${sag}.r${ra}.$a.sr15
+
+  pypy3 compsim.py --algorithm=$a --run_time=$rt --init_size_gb=$gb --space_amp_goal=$sag --tower_min_merge_width=$minmw --tower_l0_trigger=$ra --workload=$wl --tower_size_ratio=1.1 > o.sag${sag}.r${ra}.$a.sr11
+  tail -1 o.sag${sag}.r${ra}.$a.sr11 >> o.sag${sag}.s0
+  gzip o.sag${sag}.r${ra}.$a.sr11
 
   a=greedy
-  pypy3 compsim.py --algorithm=$a --run_time=$rt --init_size_gb=$gb --space_amp_goal=$sag --greedy_read_amp_trigger=$ra --workload=$wl > o.sag${sag}.r${ra}.$a 
+  pypy3 compsim.py --algorithm=$a --run_time=$rt --init_size_gb=$gb --space_amp_goal=$sag --greedy_read_amp_trigger=$ra --workload=$wl > o.sag${sag}.r${ra}.$a
   tail -1 o.sag${sag}.r${ra}.$a >> o.sag${sag}.s0
   gzip o.sag${sag}.r${ra}.$a
 
   a=prefix
-  pypy3 compsim.py --algorithm=$a --run_time=$rt --init_size_gb=$gb --space_amp_goal=$sag --prefix_min_merge_width=$minmw --prefix_read_amp_trigger=$ra --workload=$wl > o.sag${sag}.r${ra}.$a 
-  tail -1 o.sag${sag}.r${ra}.$a >> o.sag${sag}.s0
-  gzip o.sag${sag}.r${ra}.$a
+  pypy3 compsim.py --algorithm=$a --run_time=$rt --init_size_gb=$gb --space_amp_goal=$sag --prefix_min_merge_width=$minmw --prefix_read_amp_trigger=$ra --workload=$wl --prefix_size_ratio=1.5 > o.sag${sag}.r${ra}.$a.sr15 
+  tail -1 o.sag${sag}.r${ra}.$a.sr15 >> o.sag${sag}.s0
+  gzip o.sag${sag}.r${ra}.$a.sr15
 
   a=prefix
-  pypy3 compsim.py --algorithm=$a --run_time=$rt --init_size_gb=$gb --space_amp_goal=$sag --prefix_min_merge_width=$minmw --prefix_read_amp_trigger=$ra --workload=$wl --prefix_v2 > o.sag${sag}.r${ra}.${a}_v2
-  tail -1 o.sag${sag}.r${ra}.${a}_v2 >> o.sag${sag}.s0
-  gzip o.sag${sag}.r${ra}.${a}_v2
+  pypy3 compsim.py --algorithm=$a --run_time=$rt --init_size_gb=$gb --space_amp_goal=$sag --prefix_min_merge_width=$minmw --prefix_read_amp_trigger=$ra --workload=$wl --prefix_size_ratio=1.5 --prefix_v2 > o.sag${sag}.r${ra}.${a}_v2.sr15
+  tail -1 o.sag${sag}.r${ra}.${a}_v2.sr15 >> o.sag${sag}.s0
+  gzip o.sag${sag}.r${ra}.${a}_v2.sr15
+
+  pypy3 compsim.py --algorithm=$a --run_time=$rt --init_size_gb=$gb --space_amp_goal=$sag --prefix_min_merge_width=$minmw --prefix_read_amp_trigger=$ra --workload=$wl --prefix_size_ratio=1.1 --prefix_v2 > o.sag${sag}.r${ra}.${a}_v2.sr11
+  tail -1 o.sag${sag}.r${ra}.${a}_v2.sr11 >> o.sag${sag}.s0
+  gzip o.sag${sag}.r${ra}.${a}_v2.sr11
+
+  fi
 
 done
 
@@ -51,7 +63,7 @@ cat o.sag${sag}.s1 | awk '{ printf "%.1f\t%d\t%.1f\t%.1f\t%.1f\t%s.r%d\n", $8, $
 
 cat o.sag${sag}.s1.tsv
 echo
-cat o.sag${sag}.s1
+#cat o.sag${sag}.s1
 
 # final: 35 18.6 runs(max,avg), 2.00 1.50 space-amp(max,avg), 4.0 write-amp, 195 sa_major, 0 ra_major, 13281 minor, 16 ra, 80 sag, stcs
 

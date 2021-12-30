@@ -612,10 +612,10 @@ def stcs_sim(args):
 def prefix_sim(args):
   name = 'prefix'
   if args.prefix_v2: name = 'prefix_v2'
-  run_sim(args, prefix_compact, args.prefix_read_amp_trigger, name)
+  run_sim(args, prefix_compact, args.prefix_read_amp_trigger, '%s.sr%s' % (name, args.prefix_size_ratio))
 
 def tower_sim(args):
-  run_sim(args, tower_compact, args.tower_l0_trigger, 'tower')
+  run_sim(args, tower_compact, args.tower_l0_trigger, 'tower.sr%s' % args.tower_size_ratio)
 
 def greedy_sim(args):
   run_sim(args, greedy_compact, args.greedy_read_amp_trigger, 'greedy')
