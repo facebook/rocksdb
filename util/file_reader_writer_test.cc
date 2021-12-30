@@ -290,7 +290,16 @@ TEST_F(WritableFileWriterTest, BufferWithZeroCapacityDirectIO) {
   };
 
   EnvOptions env_opts;
+  env_opts.use_direct_writes = true;
   env_opts.writable_file_max_buffer_size = 0;
+  {
+    std::unique_ptr<WritableFileWriter> writer;
+    const Status s =
+        WritableFileWriter::Create(FileSystem::Default(), /*fname=*/"dont_care",
+                                   FileOptions(env_opts), &writer,
+                                   /*dbg=*/nullptr);
+    ASSERT_TRUE(s.IsInvalidArgument());
+  }
   std::unique_ptr<FakeWF> wf(new FakeWF());
   std::unique_ptr<WritableFileWriter> writer(
       new WritableFileWriter(std::move(wf), "" /* dont care */, env_opts));
