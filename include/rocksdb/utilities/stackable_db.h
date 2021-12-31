@@ -322,7 +322,6 @@ class StackableDB : public DB {
 
   Status UnlockWAL() override { return db_->UnlockWAL(); }
 
-
   Status DisableFileDeletions() override { return db_->DisableFileDeletions(); }
 
   Status EnableFileDeletions(bool force) override {
