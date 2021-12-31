@@ -9,8 +9,12 @@
 #include "port/port.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/table.h"
 #include "rocksdb/write_batch.h"
+#include "table/block_based/filter_policy_internal.h"
+#include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 
 using namespace ROCKSDB_NAMESPACE;
@@ -119,6 +123,62 @@ TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
     delete db;
     DestroyDB(dbname_, options);
   }
+}
+
+TEST_F(ManualCompactionTest, FilterConstructCorruptionRetry) {
+  DB* db;
+  BlockBasedTableOptions table_options;
+  table_options.detect_filter_construct_corruption = true;
+  table_options.filter_policy.reset(
+      new BloomFilterPolicy(10, BloomFilterPolicy::Mode::kFastLocalBloom));
+  Options options;
+  options.compaction_style = kCompactionStyleLevel;
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.compaction_filter = new DestroyAllCompactionFilter();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ASSERT_OK(DB::Open(options, dbname_, &db));
+
+  ASSERT_OK(db->Put(WriteOptions(), Slice("key1"), Slice("destroy")));
+  ASSERT_OK(db->Put(WriteOptions(), Slice("key2"), Slice("destroy")));
+  ASSERT_OK(db->Put(WriteOptions(), Slice("key3"), Slice("value3")));
+  ASSERT_OK(db->Put(WriteOptions(), Slice("key4"), Slice("destroy")));
+  ASSERT_OK(db->Flush(FlushOptions()));
+  Slice key4("key4");
+  // Detect filter content corruption during filter construction
+  bool tempered = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "XXPH3FilterBitsBuilder::PostVerify::PreVerification", [&](void* arg) {
+        if (tempered) {
+          return;
+        }
+        auto arg_pair =
+            (std::pair<std::unique_ptr<FilterBitsReader>*, std::string>*)arg;
+        std::unique_ptr<FilterBitsReader>* bits_reader_p = arg_pair->first;
+        std::string filter_content_string = arg_pair->second;
+        std::string corrupted_filter_string = filter_content_string.replace(
+            filter_content_string.size() - 5, 1, 1, static_cast<char>(0));
+        const Slice corrupted_filter_content(corrupted_filter_string);
+        (*bits_reader_p)
+            .reset(table_options.filter_policy->GetFilterBitsReader(
+                corrupted_filter_content));
+        tempered = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, &key4));
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearCallBack(
+      "XXPH3FilterBitsBuilder::PostVerify::PreVerification");
+  Iterator* itr = db->NewIterator(ReadOptions());
+  itr->SeekToFirst();
+  ASSERT_TRUE(itr->Valid());
+  ASSERT_EQ("key3", itr->key().ToString());
+  itr->Next();
+  ASSERT_TRUE(!itr->Valid());
+  delete itr;
+  delete options.compaction_filter;
+  delete db;
+  DestroyDB(dbname_, options);
 }
 
 TEST_F(ManualCompactionTest, Test) {

@@ -3323,8 +3323,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     mutex_.Unlock();
     TEST_SYNC_POINT_CALLBACK(
         "DBImpl::BackgroundCompaction:NonTrivial:BeforeRun", nullptr);
-    // Should handle erorr?
-    compaction_job.Run().PermitUncheckedError();
+    Status compaction_job_run_status = compaction_job.Run();
+    if (compaction_job_run_status.IsCorruption() &&
+        compaction_job_run_status.ToString().find("Corrupted filter content") !=
+            std::string::npos) {
+      compaction_job_run_status = compaction_job.Run();
+    }
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
     mutex_.Lock();
 
