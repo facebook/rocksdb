@@ -141,7 +141,7 @@ TEST_F(CreateMemoryAllocatorTest, JemallocOptionsTest) {
   Status s = MemoryAllocator::CreateFromString(config_options_, id, &allocator);
   if (!JemallocNodumpAllocator::IsSupported()) {
     ASSERT_TRUE(s.IsNotSupported());
-    ROCKSDB_GTEST_SKIP("JEMALLOC not supported");
+    ROCKSDB_GTEST_BYPASS("JEMALLOC not supported");
     return;
   }
   ASSERT_OK(s);
@@ -193,7 +193,7 @@ TEST_F(CreateMemoryAllocatorTest, NewJemallocNodumpAllocator) {
   std::string msg;
   if (!JemallocNodumpAllocator::IsSupported(&msg)) {
     ASSERT_TRUE(s.IsNotSupported());
-    ROCKSDB_GTEST_SKIP("JEMALLOC not supported");
+    ROCKSDB_GTEST_BYPASS("JEMALLOC not supported");
     return;
   }
   ASSERT_NOK(s);  // Invalid options

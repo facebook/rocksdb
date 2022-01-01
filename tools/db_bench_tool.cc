@@ -1154,6 +1154,10 @@ DEFINE_string(simulate_hybrid_fs_file, "",
               "File for Store Metadata for Simulate hybrid FS. Empty means "
               "disable the feature. Now, if it is set, "
               "bottommost_temperature is set to kWarm.");
+DEFINE_int32(simulate_hybrid_hdd_multipliers, 1,
+             "In simulate_hybrid_fs_file or simulate_hdd mode, how many HDDs "
+             "are simulated.");
+DEFINE_bool(simulate_hdd, false, "Simulate read/write latency on HDD.");
 
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 
@@ -8135,12 +8139,15 @@ int db_bench_tool(int argc, char** argv) {
       fprintf(stderr, "Failed creating env: %s\n", s.ToString().c_str());
       exit(1);
     }
-  } else if (FLAGS_simulate_hybrid_fs_file != "") {
+  } else if (FLAGS_simulate_hdd || FLAGS_simulate_hybrid_fs_file != "") {
     //**TODO: Make the simulate fs something that can be loaded
     // from the ObjectRegistry...
     static std::shared_ptr<ROCKSDB_NAMESPACE::Env> composite_env =
         NewCompositeEnv(std::make_shared<SimulatedHybridFileSystem>(
-            FileSystem::Default(), FLAGS_simulate_hybrid_fs_file));
+            FileSystem::Default(), FLAGS_simulate_hybrid_fs_file,
+            /*throughput_multiplier=*/
+            int{FLAGS_simulate_hybrid_hdd_multipliers},
+            /*is_full_fs_warm=*/FLAGS_simulate_hdd));
     FLAGS_env = composite_env.get();
   }
 #endif  // ROCKSDB_LITE
