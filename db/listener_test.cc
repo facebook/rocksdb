@@ -448,7 +448,7 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
   for (size_t c = 0; c < cf_names.size(); ++c) {
     for (int d = 0; d < kNumDBs; ++d) {
       ASSERT_OK(dbs[d]->Flush(FlushOptions(), vec_handles[d][c]));
-      ASSERT_OK(AsDBImpl(dbs[d])->TEST_WaitForFlushMemTable());
+      ASSERT_OK(DBImpl::AsDBImpl(dbs[d])->TEST_WaitForFlushMemTable());
     }
   }
 

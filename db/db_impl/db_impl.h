@@ -153,6 +153,12 @@ class DBImpl : public DB {
     }
   }
 
+  static DBImpl* AsDBImpl(DB* db) {
+    auto impl = db->CheckedCast<DBImpl>();
+    assert(impl);
+    return impl;
+  }
+
   // ---- Implementations of the DB interface ----
 
   using DB::Resume;

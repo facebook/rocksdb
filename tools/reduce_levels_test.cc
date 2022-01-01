@@ -48,14 +48,12 @@ public:
     if (db_ == nullptr) {
       return Status::InvalidArgument("DB not opened.");
     }
-    DBImpl* db_impl = db_->CheckedCast<DBImpl>();
-    assert(db_impl);
+    DBImpl* db_impl = DBImpl::AsDBImpl(db_);
     return db_impl->TEST_FlushMemTable();
   }
 
   void MoveL0FileToLevel(int level) {
-    DBImpl* db_impl = db_->CheckedCast<DBImpl>();
-    ASSERT_NE(db_impl, nullptr);
+    DBImpl* db_impl = DBImpl::AsDBImpl(db_);
     for (int i = 0; i < level; ++i) {
       ASSERT_OK(db_impl->TEST_CompactRange(i, nullptr, nullptr));
     }

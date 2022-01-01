@@ -28,12 +28,6 @@ class CompactFilesTest : public testing::Test {
     db_name_ = test::PerThreadDBPath("compact_files_test");
   }
 
-  DBImpl* AsDBImpl(DB* db) {
-    DBImpl* impl = db->CheckedCast<DBImpl>();
-    EXPECT_NE(impl, nullptr);
-    return impl;
-  }
-
   std::string db_name_;
   Env* env_;
 };
@@ -227,7 +221,7 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
 
   auto l0_files = collector->GetFlushedFiles();
   ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files, 1));
-  ASSERT_OK(AsDBImpl(db)->TEST_WaitForCompact());
+  ASSERT_OK(DBImpl::AsDBImpl(db)->TEST_WaitForCompact());
 
   // verify all compaction input files are deleted
   for (auto fname : l0_files) {
@@ -263,14 +257,14 @@ TEST_F(CompactFilesTest, NotCutOutputOnLevel0) {
     ASSERT_OK(db->Put(WriteOptions(), ToString(i),
                       std::string(1000, 'a' + (i % 26))));
   }
-  ASSERT_OK(AsDBImpl(db)->TEST_WaitForFlushMemTable());
+  ASSERT_OK(DBImpl::AsDBImpl(db)->TEST_WaitForFlushMemTable());
   auto l0_files_1 = collector->GetFlushedFiles();
   collector->ClearFlushedFiles();
   for (int i = 0; i < 500; ++i) {
     ASSERT_OK(db->Put(WriteOptions(), ToString(i),
                       std::string(1000, 'a' + (i % 26))));
   }
-  ASSERT_OK(AsDBImpl(db)->TEST_WaitForFlushMemTable());
+  ASSERT_OK(DBImpl::AsDBImpl(db)->TEST_WaitForFlushMemTable());
   auto l0_files_2 = collector->GetFlushedFiles();
   ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files_1, 0));
   ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files_2, 0));
@@ -465,7 +459,7 @@ TEST_F(CompactFilesTest, GetCompactionJobInfo) {
     ASSERT_OK(db->Put(WriteOptions(), ToString(i),
                       std::string(1000, 'a' + (i % 26))));
   }
-  ASSERT_OK(AsDBImpl(db)->TEST_WaitForFlushMemTable());
+  ASSERT_OK(DBImpl::AsDBImpl(db)->TEST_WaitForFlushMemTable());
   auto l0_files_1 = collector->GetFlushedFiles();
   CompactionOptions co;
   co.compression = CompressionType::kLZ4Compression;

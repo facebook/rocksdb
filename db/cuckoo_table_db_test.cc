@@ -48,11 +48,7 @@ class CuckooTableDBTest : public testing::Test {
     return options;
   }
 
-  DBImpl* dbfull() {
-    auto impl = db_->CheckedCast<DBImpl>();
-    EXPECT_NE(impl, nullptr);
-    return impl;
-  }
+  DBImpl* dbfull() { return DBImpl::AsDBImpl(db_); }
 
   // The following util methods are copied from plain_table_db_test.
   void Reopen(Options* options = nullptr) {

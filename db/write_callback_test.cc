@@ -185,8 +185,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     assert(handles.size() == 1);
     delete handles[0];
 
-    db_impl = db->CheckedCast<DBImpl>();
-    ASSERT_NE(db_impl, nullptr);
+    db_impl = DBImpl::AsDBImpl(db);
 
     // Writers that have called JoinBatchGroup.
     std::atomic<uint64_t> threads_joining(0);
@@ -393,7 +392,7 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   Status s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
 
-  db_impl = db->CheckedCast<DBImpl>();
+  db_impl = DBImpl::AsDBImpl(db);
   ASSERT_NE(db_impl, nullptr);
 
   WriteBatch wb;

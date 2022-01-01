@@ -216,11 +216,7 @@ class ColumnFamilyTestBase : public testing::Test {
     Open({"default"});
   }
 
-  DBImpl* dbfull() {
-    auto impl = db_->CheckedCast<DBImpl>();
-    EXPECT_NE(impl, nullptr);
-    return impl;
-  }
+  DBImpl* dbfull() { return DBImpl::AsDBImpl(db_); }
 
   int GetProperty(int cf, std::string property) {
     std::string value;

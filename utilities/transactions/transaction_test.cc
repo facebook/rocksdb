@@ -223,7 +223,7 @@ TEST_P(TransactionTest, ValidateSnapshotTest) {
       }
 
       if (with_flush) {
-        auto db_impl = AsDBImpl(db->GetRootDB());
+        auto db_impl = DBImpl::AsDBImpl(db->GetRootDB());
         ASSERT_OK(db_impl->TEST_FlushMemTable(true));
         // Make sure the flushed memtable is not kept in memory
         int max_memtable_in_history =
@@ -882,7 +882,7 @@ TEST_P(TransactionTest, LogMarkLeakTest) {
   assert(db != nullptr);
   Random rnd(47);
   std::vector<Transaction*> txns;
-  DBImpl* db_impl = AsDBImpl(db->GetRootDB());
+  DBImpl* db_impl = DBImpl::AsDBImpl(db->GetRootDB());
   // At the beginning there should be no log containing prepare data
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
   for (size_t i = 0; i < 100; i++) {
@@ -923,7 +923,7 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
     string value;
     Status s;
 
-    DBImpl* db_impl = AsDBImpl(db->GetRootDB());
+    DBImpl* db_impl = DBImpl::AsDBImpl(db->GetRootDB());
 
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
     s = txn->SetName("xid");
@@ -1163,7 +1163,7 @@ TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
         ASSERT_EQ(value, "bar");
       } else {
         if (test_with_empty_wal) {
-          DBImpl* db_impl = AsDBImpl(db->GetRootDB());
+          DBImpl* db_impl = DBImpl::AsDBImpl(db->GetRootDB());
           ASSERT_OK(db_impl->TEST_FlushMemTable(true));
           // After flush the state must be visible
           s = db->Get(read_options, "foo", &value);
@@ -1225,7 +1225,7 @@ TEST_P(TransactionTest, TwoPhaseRollbackTest) {
   std::string value;
   Status s;
 
-  DBImpl* db_impl = AsDBImpl(db->GetRootDB());
+  DBImpl* db_impl = DBImpl::AsDBImpl(db->GetRootDB());
   Transaction* txn = db->BeginTransaction(write_options, txn_options);
   s = txn->SetName("xid");
   ASSERT_OK(s);
@@ -1296,7 +1296,7 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   std::string value;
   Status s;
 
-  DBImpl* db_impl = AsDBImpl(db->GetRootDB());
+  DBImpl* db_impl = DBImpl::AsDBImpl(db->GetRootDB());
 
   Transaction* txn = db->BeginTransaction(write_options, txn_options);
   s = txn->SetName("xid");
@@ -1343,7 +1343,7 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   s = ReOpenNoDelete();
   ASSERT_OK(s);
   assert(db != nullptr);
-  db_impl = AsDBImpl(db->GetRootDB());
+  db_impl = DBImpl::AsDBImpl(db->GetRootDB());
 
   // find trans in list of prepared transactions
   std::vector<Transaction*> prepared_trans;
@@ -1692,7 +1692,7 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
 }
 
 TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
-  DBImpl* db_impl = AsDBImpl(db->GetRootDB());
+  DBImpl* db_impl = DBImpl::AsDBImpl(db->GetRootDB());
 
   Status s;
   std::string v;
@@ -1844,7 +1844,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
 }
 
 TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
-  DBImpl* db_impl = AsDBImpl(db->GetRootDB());
+  DBImpl* db_impl = DBImpl::AsDBImpl(db->GetRootDB());
 
   Status s;
   ColumnFamilyHandle *cfa, *cfb;
@@ -1989,7 +1989,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
  * hidden behind improperly summed sequence ids
  */
 TEST_P(TransactionTest, TwoPhaseOutOfOrderDelete) {
-  DBImpl* db_impl = AsDBImpl(db->GetRootDB());
+  DBImpl* db_impl = DBImpl::AsDBImpl(db->GetRootDB());
   WriteOptions wal_on, wal_off;
   wal_on.sync = true;
   wal_on.disableWAL = false;
@@ -2308,7 +2308,7 @@ TEST_P(TransactionTest, FlushTest2) {
     TransactionOptions txn_options;
     string value;
 
-    DBImpl* db_impl = AsDBImpl(db->GetRootDB());
+    DBImpl* db_impl = DBImpl::AsDBImpl(db->GetRootDB());
 
     ASSERT_OK(db->Put(write_options, Slice("foo"), Slice("bar")));
     ASSERT_OK(db->Put(write_options, Slice("foo2"), Slice("bar2")));
@@ -5550,7 +5550,7 @@ TEST_P(TransactionStressTest, SeqAdvanceTest) {
   };
   const size_t max_n = static_cast<size_t>(1) << NUM_BRANCHES;
   for (size_t n = 0; n < max_n; n++) {
-    DBImpl* db_impl = AsDBImpl(db->GetRootDB());
+    DBImpl* db_impl = DBImpl::AsDBImpl(db->GetRootDB());
     size_t branch = 0;
     auto seq = db_impl->GetLatestSequenceNumber();
     exp_seq = seq;
@@ -5566,7 +5566,7 @@ TEST_P(TransactionStressTest, SeqAdvanceTest) {
     if (!short_test && branch_do(n, &branch)) {
       ASSERT_OK(db_impl->FlushWAL(true));
       ASSERT_OK(ReOpenNoDelete());
-      db_impl = AsDBImpl(db->GetRootDB());
+      db_impl = DBImpl::AsDBImpl(db->GetRootDB());
       seq = db_impl->GetLatestSequenceNumber();
       ASSERT_EQ(exp_seq, seq);
     }
@@ -5588,7 +5588,7 @@ TEST_P(TransactionStressTest, SeqAdvanceTest) {
     if (!short_test && branch_do(n, &branch)) {
       ASSERT_OK(db_impl->FlushWAL(true));
       ASSERT_OK(ReOpenNoDelete());
-      db_impl = AsDBImpl(db->GetRootDB());
+      db_impl = DBImpl::AsDBImpl(db->GetRootDB());
       seq = db_impl->GetLatestSequenceNumber();
       ASSERT_EQ(exp_seq, seq);
     }
@@ -5605,7 +5605,7 @@ TEST_P(TransactionStressTest, SeqAdvanceTest) {
     if (!short_test && branch_do(n, &branch)) {
       ASSERT_OK(db_impl->FlushWAL(true));
       ASSERT_OK(ReOpenNoDelete());
-      db_impl = AsDBImpl(db->GetRootDB());
+      db_impl = DBImpl::AsDBImpl(db->GetRootDB());
       seq = db_impl->GetLatestSequenceNumber();
       ASSERT_EQ(exp_seq, seq);
     }
@@ -5623,7 +5623,7 @@ TEST_P(TransactionStressTest, SeqAdvanceTest) {
     if (!short_test && branch_do(n, &branch)) {
       ASSERT_OK(db_impl->FlushWAL(true));
       ASSERT_OK(ReOpenNoDelete());
-      db_impl = AsDBImpl(db->GetRootDB());
+      db_impl = DBImpl::AsDBImpl(db->GetRootDB());
       seq = db_impl->GetLatestSequenceNumber();
       ASSERT_EQ(exp_seq, seq);
     }
@@ -5640,7 +5640,7 @@ TEST_P(TransactionStressTest, SeqAdvanceTest) {
     if (!short_test && branch_do(n, &branch)) {
       ASSERT_OK(db_impl->FlushWAL(true));
       ASSERT_OK(ReOpenNoDelete());
-      db_impl = AsDBImpl(db->GetRootDB());
+      db_impl = DBImpl::AsDBImpl(db->GetRootDB());
       seq = db_impl->GetLatestSequenceNumber();
       ASSERT_EQ(exp_seq, seq);
     }
@@ -6028,8 +6028,8 @@ TEST_P(TransactionTest, DuplicateKeys) {
     // This will check the asserts inside recovery code
     ASSERT_OK(db->FlushWAL(true));
     // Flush only cf 1
-    ASSERT_OK(
-        AsDBImpl(db->GetRootDB())->TEST_FlushMemTable(true, false, handles[1]));
+    ASSERT_OK(DBImpl::AsDBImpl(db->GetRootDB())
+                  ->TEST_FlushMemTable(true, false, handles[1]));
     TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
@@ -6066,8 +6066,8 @@ TEST_P(TransactionTest, DuplicateKeys) {
     // This will check the asserts inside recovery code
     ASSERT_OK(db->FlushWAL(true));
     // Flush only cf 1
-    ASSERT_OK(
-        AsDBImpl(db->GetRootDB())->TEST_FlushMemTable(true, false, handles[1]));
+    ASSERT_OK(DBImpl::AsDBImpl(db->GetRootDB())
+                  ->TEST_FlushMemTable(true, false, handles[1]));
     TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
@@ -6099,8 +6099,8 @@ TEST_P(TransactionTest, DuplicateKeys) {
     // This will check the asserts inside recovery code
     ASSERT_OK(db->FlushWAL(true));
     // Flush only cf 1
-    ASSERT_OK(
-        AsDBImpl(db->GetRootDB())->TEST_FlushMemTable(true, false, handles[1]));
+    ASSERT_OK(DBImpl::AsDBImpl(db->GetRootDB())
+                  ->TEST_FlushMemTable(true, false, handles[1]));
     TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
@@ -6126,8 +6126,8 @@ TEST_P(TransactionTest, DuplicateKeys) {
     // This will check the asserts inside recovery code
     ASSERT_OK(db->FlushWAL(true));
     // Flush only cf 1
-    ASSERT_OK(
-        AsDBImpl(db->GetRootDB())->TEST_FlushMemTable(true, false, handles[1]));
+    ASSERT_OK(DBImpl::AsDBImpl(db->GetRootDB())
+                  ->TEST_FlushMemTable(true, false, handles[1]));
     TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
@@ -6153,8 +6153,8 @@ TEST_P(TransactionTest, DuplicateKeys) {
     // This will check the asserts inside recovery code
     ASSERT_OK(db->FlushWAL(true));
     // Flush only cf 1
-    ASSERT_OK(
-        AsDBImpl(db->GetRootDB())->TEST_FlushMemTable(true, false, handles[1]));
+    ASSERT_OK(DBImpl::AsDBImpl(db->GetRootDB())
+                  ->TEST_FlushMemTable(true, false, handles[1]));
     TEST_Crash();
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
     txn0 = db->GetTransactionByName("xid");
@@ -6268,7 +6268,7 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
       ASSERT_OK(db->Put(write_options, "foo4", "bar4"));
 
       ASSERT_OK(db->FlushWAL(true));
-      DBImpl* db_impl = AsDBImpl(db->GetRootDB());
+      DBImpl* db_impl = DBImpl::AsDBImpl(db->GetRootDB());
       uint64_t wal_file_id = db_impl->TEST_LogfileNumber();
       std::string fname = LogFileName(dbname, wal_file_id);
       TEST_Crash();

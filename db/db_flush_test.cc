@@ -1514,7 +1514,7 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
     }
 
     void CheckFlushResultCommitted(DB* db, SequenceNumber seq) {
-      DBImpl* db_impl = AsDBImpl(db);
+      DBImpl* db_impl = DBImpl::AsDBImpl(db);
       InstrumentedMutex* mutex = db_impl->mutex();
       mutex->Lock();
       auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(

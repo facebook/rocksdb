@@ -693,11 +693,7 @@ class BackupEngineTest : public testing::Test {
     return db;
   }
 
-  DBImpl* dbfull() {
-    auto impl = db_->CheckedCast<DBImpl>();
-    EXPECT_NE(impl, nullptr);
-    return impl;
-  }
+  DBImpl* dbfull() { return DBImpl::AsDBImpl(db_.get()); }
 
   void CloseAndReopenDB(bool read_only = false) {
     // Close DB

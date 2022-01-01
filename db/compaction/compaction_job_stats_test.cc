@@ -125,11 +125,7 @@ class CompactionJobStatsTest : public testing::Test,
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
 
-  DBImpl* dbfull() {
-    auto impl = db_->CheckedCast<DBImpl>();
-    EXPECT_NE(impl, nullptr);
-    return impl;
-  }
+  DBImpl* dbfull() { return DBImpl::AsDBImpl(db_); }
 
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
                             const Options& options) {

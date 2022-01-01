@@ -219,11 +219,6 @@ class SamePrefixTransform : public SliceTransform {
 
 class PrefixTest : public testing::Test {
  public:
-  DBImpl* AsDBImpl(const std::shared_ptr<DB>& db) const {
-    DBImpl* impl = db->CheckedCast<DBImpl>();
-    EXPECT_NE(impl, nullptr);
-    return impl;
-  }
 
   std::shared_ptr<DB> OpenDb() {
     DB* db;
@@ -821,13 +816,13 @@ TEST_F(PrefixTest, PrefixSeekModePrev2) {
   PutKey(db.get(), write_options, TestKey(3, 3), "v33");
   PutKey(db.get(), write_options, TestKey(3, 4), "v34");
   ASSERT_OK(db->Flush(FlushOptions()));
-  ASSERT_OK(AsDBImpl(db)->TEST_WaitForFlushMemTable());
+  ASSERT_OK(DBImpl::AsDBImpl(db.get())->TEST_WaitForFlushMemTable());
   PutKey(db.get(), write_options, TestKey(1, 1), "v11");
   PutKey(db.get(), write_options, TestKey(1, 3), "v13");
   PutKey(db.get(), write_options, TestKey(2, 1), "v21");
   PutKey(db.get(), write_options, TestKey(2, 2), "v22");
   ASSERT_OK(db->Flush(FlushOptions()));
-  ASSERT_OK(AsDBImpl(db)->TEST_WaitForFlushMemTable());
+  ASSERT_OK(DBImpl::AsDBImpl(db.get())->TEST_WaitForFlushMemTable());
   std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
   SeekIterator(iter.get(), 1, 5);
   iter->Prev();
@@ -854,13 +849,13 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
     PutKey(db.get(), write_options, TestKey(1, 2), "v12");
     PutKey(db.get(), write_options, TestKey(1, 4), "v14");
     ASSERT_OK(db->Flush(FlushOptions()));
-    ASSERT_OK(AsDBImpl(db)->TEST_WaitForFlushMemTable());
+    ASSERT_OK(DBImpl::AsDBImpl(db.get())->TEST_WaitForFlushMemTable());
     PutKey(db.get(), write_options, TestKey(1, 1), "v11");
     PutKey(db.get(), write_options, TestKey(1, 3), "v13");
     PutKey(db.get(), write_options, TestKey(2, 1), "v21");
     PutKey(db.get(), write_options, TestKey(2, 2), "v22");
     ASSERT_OK(db->Flush(FlushOptions()));
-    ASSERT_OK(AsDBImpl(db)->TEST_WaitForFlushMemTable());
+    ASSERT_OK(DBImpl::AsDBImpl(db.get())->TEST_WaitForFlushMemTable());
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
     iter->SeekToLast();
     ASSERT_EQ(iter->value(), v14);
@@ -876,11 +871,11 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
     PutKey(db.get(), write_options, TestKey(3, 3), "v33");
     PutKey(db.get(), write_options, TestKey(3, 4), "v34");
     ASSERT_OK(db->Flush(FlushOptions()));
-    ASSERT_OK(AsDBImpl(db)->TEST_WaitForFlushMemTable());
+    ASSERT_OK(DBImpl::AsDBImpl(db.get())->TEST_WaitForFlushMemTable());
     PutKey(db.get(), write_options, TestKey(1, 1), "v11");
     PutKey(db.get(), write_options, TestKey(1, 3), "v13");
     ASSERT_OK(db->Flush(FlushOptions()));
-    ASSERT_OK(AsDBImpl(db)->TEST_WaitForFlushMemTable());
+    ASSERT_OK(DBImpl::AsDBImpl(db.get())->TEST_WaitForFlushMemTable());
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
     iter->SeekToLast();
     ASSERT_EQ(iter->value(), v14);

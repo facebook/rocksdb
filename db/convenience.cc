@@ -14,8 +14,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 void CancelAllBackgroundWork(DB* db, bool wait) {
-  (static_cast_with_check<DBImpl>(db->GetRootDB()))
-      ->CancelAllBackgroundWork(wait);
+  DBImpl::AsDBImpl(db)->CancelAllBackgroundWork(wait);
 }
 
 Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
@@ -28,7 +27,7 @@ Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
 Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
                            const RangePtr* ranges, size_t n,
                            bool include_end) {
-  return (static_cast_with_check<DBImpl>(db->GetRootDB()))
+  return DBImpl::AsDBImpl(db->GetRootDB())
       ->DeleteFilesInRanges(column_family, ranges, n, include_end);
 }
 

@@ -586,7 +586,7 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[0]));
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[2]));
-    ASSERT_OK(static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable());
+    ASSERT_OK(DBImpl::AsDBImpl(db2)->TEST_WaitForFlushMemTable());
   };
 
   // Trigger a flush on cf2
@@ -602,7 +602,7 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
 
   ASSERT_OK(Put(2, Key(1), DummyString(1), wo));
   wait_flush();
-  ASSERT_OK(static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable());
+  ASSERT_OK(DBImpl::AsDBImpl(db2)->TEST_WaitForFlushMemTable());
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default") +
                   GetNumberOfSstFilesForColumnFamily(db_, "cf1") +
@@ -633,7 +633,7 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
   wait_flush();
   ASSERT_OK(db2->Put(wo, Key(1), DummyString(1)));
   wait_flush();
-  ASSERT_OK(static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable());
+  ASSERT_OK(DBImpl::AsDBImpl(db2)->TEST_WaitForFlushMemTable());
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
               static_cast<uint64_t>(1));
@@ -2045,7 +2045,7 @@ TEST_F(DBTest2, DuplicateSnapshot) {
   Options options;
   options = CurrentOptions(options);
   std::vector<const Snapshot*> snapshots;
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  DBImpl* dbi = DBImpl::AsDBImpl(db_);
   SequenceNumber oldest_ww_snap, first_ww_snap;
 
   ASSERT_OK(Put("k", "v"));  // inc seq
@@ -5445,7 +5445,7 @@ TEST_F(DBTest2, TestGetColumnFamilyHandleUnlocked) {
   CreateColumnFamilies({"test1", "test2"}, Options());
   ASSERT_EQ(handles_.size(), 2);
 
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  DBImpl* dbi = DBImpl::AsDBImpl(db_);
   port::Thread user_thread1([&]() {
     auto cfh = dbi->GetColumnFamilyHandleUnlocked(handles_[0]->GetID());
     ASSERT_EQ(cfh->GetID(), handles_[0]->GetID());
