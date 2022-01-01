@@ -152,7 +152,7 @@ TEST_F(PeriodicWorkSchedulerTest, MultiInstances) {
         DB::Open(options, test::PerThreadDBPath(std::to_string(i)), &(dbs[i])));
   }
 
-  auto dbi = static_cast_with_check<DBImpl>(dbs[kInstanceNum - 1]);
+  auto dbi = AsDBImpl(dbs[kInstanceNum - 1]);
   auto scheduler = dbi->TEST_GetPeriodicWorkScheduler();
   ASSERT_EQ(kInstanceNum * 3, scheduler->TEST_GetValidTaskNum());
 
@@ -217,7 +217,7 @@ TEST_F(PeriodicWorkSchedulerTest, MultiEnv) {
   std::string dbname = test::PerThreadDBPath("multi_env_test");
   DB* db;
   ASSERT_OK(DB::Open(options2, dbname, &db));
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db);
+  DBImpl* dbi = AsDBImpl(db);
 
   ASSERT_EQ(dbi->TEST_GetPeriodicWorkScheduler(),
             dbfull()->TEST_GetPeriodicWorkScheduler());

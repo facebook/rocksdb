@@ -62,7 +62,9 @@ class DBSecondaryTest : public DBTestBase {
   }
 
   DBImplSecondary* db_secondary_full() {
-    return static_cast<DBImplSecondary*>(db_secondary_);
+    auto impl = db_secondary_->CheckedCast<DBImplSecondary>();
+    EXPECT_NE(impl, nullptr);
+    return impl;
   }
 
   void CheckFileTypeCounts(const std::string& dir, int expected_log,
@@ -142,7 +144,7 @@ TEST_F(DBSecondaryTest, ReopenAsSecondary) {
   ASSERT_EQ("bar_value", Get("bar"));
   ReadOptions ropts;
   ropts.verify_checksums = true;
-  auto db1 = static_cast<DBImplSecondary*>(db_);
+  auto db1 = db_->CheckedCast<DBImplSecondary>();
   ASSERT_NE(nullptr, db1);
   Iterator* iter = db1->NewIterator(ropts);
   ASSERT_NE(nullptr, iter);

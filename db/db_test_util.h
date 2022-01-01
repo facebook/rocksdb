@@ -968,11 +968,13 @@ class DBTestBase : public testing::Test {
                      const anon::OptionsOverride& options_override =
                          anon::OptionsOverride()) const;
 
-  DBImpl* dbfull() {
-    auto impl = db_->CheckedCast<DBImpl>();
+  static DBImpl* AsDBImpl(DB* db) {
+    auto impl = db->CheckedCast<DBImpl>();
     EXPECT_NE(impl, nullptr);
     return impl;
   }
+
+  DBImpl* dbfull() { return AsDBImpl(db_); }
 
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
                             const Options& options);

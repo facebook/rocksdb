@@ -104,6 +104,23 @@ class TransactionTestBase : public ::testing::Test {
     delete env;
   }
 
+  DBImpl* AsDBImpl(DB* dbi) {
+    auto impl = dbi->CheckedCast<DBImpl>();
+    EXPECT_NE(impl, nullptr);
+    return impl;
+  }
+
+  PessimisticTransactionDB* AsPessimistic(DB* txn_db) {
+    auto ptdb = txn_db->CheckedCast<PessimisticTransactionDB>();
+    EXPECT_NE(ptdb, nullptr);
+    return ptdb;
+  }
+
+  void TEST_Crash() {
+    auto pt_db = AsPessimistic(db);
+    pt_db->TEST_Crash();
+  }
+
   Status ReOpenNoDelete() {
     delete db;
     db = nullptr;
@@ -446,7 +463,7 @@ class TransactionTestBase : public ::testing::Test {
     if (txn_db_options.write_policy == WRITE_COMMITTED) {
       options.unordered_write = false;
     }
-    auto db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+    auto db_impl = AsDBImpl(db->GetRootDB());
     // Before upgrade/downgrade the WAL must be emptied
     if (empty_wal) {
       ASSERT_OK(db_impl->TEST_FlushMemTable());
@@ -462,7 +479,7 @@ class TransactionTestBase : public ::testing::Test {
       ASSERT_TRUE(s.IsNotSupported());
       return;
     }
-    db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+    db_impl = AsDBImpl(db->GetRootDB());
     // Check that WAL is empty
     VectorLogPtr log_files;
     ASSERT_OK(db_impl->GetSortedWalFiles(log_files));

@@ -146,7 +146,11 @@ class PlainTableDBTest : public testing::Test,
     return options;
   }
 
-  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
+  DBImpl* dbfull() {
+    auto impl = db_->CheckedCast<DBImpl>();
+    EXPECT_NE(impl, nullptr);
+    return impl;
+  }
 
   void Reopen(Options* options = nullptr) {
     ASSERT_OK(TryReopen(options));
@@ -217,6 +221,9 @@ class PlainTableDBTest : public testing::Test,
     return result;
   }
 
+  Status GetPropertiesOfAllTables(TablePropertiesCollection* ptc) {
+    return db_->GetPropertiesOfAllTables(ptc);
+  }
 
   int NumTableFilesAtLevel(int level) {
     std::string property;
@@ -503,8 +510,7 @@ TEST_P(PlainTableDBTest, Flush) {
           ASSERT_GT(int_num, 0U);
 
           TablePropertiesCollection ptc;
-          ASSERT_OK(
-              reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+          ASSERT_OK(GetPropertiesOfAllTables(&ptc));
           ASSERT_EQ(1U, ptc.size());
           auto row = ptc.begin();
           auto tp = row->second;

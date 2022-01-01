@@ -378,13 +378,16 @@ void testCountersWithFlushAndCompaction(Counters& counters, DB* db) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   port::Thread set_options_thread([&]() {
-    ASSERT_OK(reinterpret_cast<DBImpl*>(db)->SetOptions(
-        {{"disable_auto_compactions", "false"}}));
+    DBImpl* impl = db->CheckedCast<DBImpl>();
+    ASSERT_NE(impl, nullptr);
+    ASSERT_OK(impl->SetOptions({{"disable_auto_compactions", "false"}}));
   });
   TEST_SYNC_POINT("testCountersWithCompactionAndFlush:BeforeCompact");
   port::Thread compact_thread([&]() {
-    ASSERT_OK(reinterpret_cast<DBImpl*>(db)->CompactRange(
-        CompactRangeOptions(), db->DefaultColumnFamily(), nullptr, nullptr));
+    DBImpl* impl = db->CheckedCast<DBImpl>();
+    ASSERT_NE(impl, nullptr);
+    ASSERT_OK(impl->CompactRange(CompactRangeOptions(),
+                                 db->DefaultColumnFamily(), nullptr, nullptr));
   });
 
   TEST_SYNC_POINT("testCountersWithFlushAndCompaction:BeforeIncCounters");

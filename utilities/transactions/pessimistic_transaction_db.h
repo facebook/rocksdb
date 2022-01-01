@@ -158,6 +158,12 @@ class PessimisticTransactionDB : public TransactionDB {
     return lock_manager_->GetLockTrackerFactory();
   }
 
+#ifndef NDEBUG
+  // Signal that we are testing a crash scenario. Some asserts could be relaxed
+  // in such cases.
+  virtual void TEST_Crash() {}
+#endif  // NDEBUG
+
  protected:
   DBImpl* db_impl_;
   std::shared_ptr<Logger> info_log_;
@@ -173,12 +179,6 @@ class PessimisticTransactionDB : public TransactionDB {
   friend class WritePreparedTxnDB;
   friend class WritePreparedTxnDBMock;
   friend class WriteUnpreparedTxn;
-  friend class TransactionTest_DoubleCrashInRecovery_Test;
-  friend class TransactionTest_DoubleEmptyWrite_Test;
-  friend class TransactionTest_DuplicateKeys_Test;
-  friend class TransactionTest_PersistentTwoPhaseTransactionTest_Test;
-  friend class TransactionTest_TwoPhaseDoubleRecoveryTest_Test;
-  friend class TransactionTest_TwoPhaseOutOfOrderDelete_Test;
   friend class TransactionStressTest_TwoPhaseLongPrepareTest_Test;
   friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
   friend class WriteUnpreparedTransactionTest_MarkLogWithPrepSection_Test;
@@ -200,9 +200,6 @@ class PessimisticTransactionDB : public TransactionDB {
   std::mutex name_map_mutex_;
   std::unordered_map<TransactionName, Transaction*> transactions_;
 
-  // Signal that we are testing a crash scenario. Some asserts could be relaxed
-  // in such cases.
-  virtual void TEST_Crash() {}
 };
 
 // A PessimisticTransactionDB that writes the data to the DB after the commit.

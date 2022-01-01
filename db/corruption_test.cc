@@ -90,6 +90,12 @@ class CorruptionTest : public testing::Test {
     delete env_;
   }
 
+  DBImpl* AsDBImpl() {
+    auto impl = db_->CheckedCast<DBImpl>();
+    EXPECT_NE(impl, nullptr);
+    return impl;
+  }
+
   void CloseDb() {
     delete db_;
     db_ = nullptr;
@@ -127,7 +133,7 @@ class CorruptionTest : public testing::Test {
     WriteBatch batch;
     for (int i = 0; i < n; i++) {
       if (flush_every != 0 && i != 0 && i % flush_every == 0) {
-        DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+        DBImpl* dbi = AsDBImpl();
         ASSERT_OK(dbi->TEST_FlushMemTable());
       }
       //if ((i % 100) == 0) fprintf(stderr, "@ %d of %d\n", i, n);
@@ -307,7 +313,7 @@ TEST_F(CorruptionTest, NewFileErrorDuringWrite) {
 
 TEST_F(CorruptionTest, TableFile) {
   Build(100);
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  DBImpl* dbi = AsDBImpl();
   ASSERT_OK(dbi->TEST_FlushMemTable());
   ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr));
   ASSERT_OK(dbi->TEST_CompactRange(1, nullptr, nullptr));
@@ -330,7 +336,7 @@ TEST_F(CorruptionTest, VerifyChecksumReadahead) {
   Reopen(&options);
 
   Build(10000);
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  DBImpl* dbi = AsDBImpl();
   ASSERT_OK(dbi->TEST_FlushMemTable());
   ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr));
   ASSERT_OK(dbi->TEST_CompactRange(1, nullptr, nullptr));
@@ -364,7 +370,7 @@ TEST_F(CorruptionTest, VerifyChecksumReadahead) {
   // disabled).
   options.allow_mmap_reads = true;
   Reopen(&options);
-  dbi = static_cast<DBImpl*>(db_);
+  dbi = AsDBImpl();
   ASSERT_OK(dbi->VerifyChecksum(ro));
 
   CloseDb();
@@ -377,14 +383,14 @@ TEST_F(CorruptionTest, TableFileIndexData) {
   Reopen(&options);
   // build 2 tables, flush at 5000
   Build(10000, 5000);
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  DBImpl* dbi = AsDBImpl();
   ASSERT_OK(dbi->TEST_FlushMemTable());
 
   // corrupt an index block of an entire file
   Corrupt(kTableFile, -2000, 500);
   options.paranoid_checks = false;
   Reopen(&options);
-  dbi = static_cast_with_check<DBImpl>(db_);
+  dbi = AsDBImpl();
   // one full file may be readable, since only one was corrupted
   // the other file should be fully non-readable, since index was corrupted
   Check(0, 5000);
@@ -424,7 +430,7 @@ TEST_F(CorruptionTest, SequenceNumberRecovery) {
 
 TEST_F(CorruptionTest, CorruptedDescriptor) {
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "hello"));
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  DBImpl* dbi = AsDBImpl();
   ASSERT_OK(dbi->TEST_FlushMemTable());
   ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr));
 
@@ -444,7 +450,7 @@ TEST_F(CorruptionTest, CompactionInputError) {
   options.env = env_;
   Reopen(&options);
   Build(10);
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  DBImpl* dbi = AsDBImpl();
   ASSERT_OK(dbi->TEST_FlushMemTable());
   ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr));
   ASSERT_OK(dbi->TEST_CompactRange(1, nullptr, nullptr));
@@ -467,7 +473,7 @@ TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
   options.write_buffer_size = 131072;
   options.max_write_buffer_number = 2;
   Reopen(&options);
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  DBImpl* dbi = AsDBImpl();
 
   // Fill levels >= 1
   for (int level = 1; level < dbi->NumberLevels(); level++) {
@@ -482,7 +488,7 @@ TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
 
   Reopen(&options);
 
-  dbi = static_cast_with_check<DBImpl>(db_);
+  dbi = AsDBImpl();
   Build(10);
   ASSERT_OK(dbi->TEST_FlushMemTable());
   ASSERT_OK(dbi->TEST_WaitForCompact());
@@ -509,7 +515,7 @@ TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
 
 TEST_F(CorruptionTest, UnrelatedKeys) {
   Build(10);
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  DBImpl* dbi = AsDBImpl();
   ASSERT_OK(dbi->TEST_FlushMemTable());
   Corrupt(kTableFile, 100, 1);
   ASSERT_NOK(dbi->VerifyChecksum());
@@ -563,7 +569,7 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
     Reopen(&options);
     Build(10);
     ASSERT_OK(db_->Flush(FlushOptions()));
-    DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+    DBImpl* dbi = AsDBImpl();
     std::vector<LiveFileMetaData> metadata;
     dbi->GetLiveFilesMetaData(&metadata);
     ASSERT_GT(metadata.size(), 0);
@@ -640,7 +646,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
     assert(db_ != nullptr);  // suppress false clang-analyze report
     Build(100, 2);
     // ASSERT_OK(db_->Flush(FlushOptions()));
-    DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+    DBImpl* dbi = AsDBImpl();
     ASSERT_OK(dbi->TEST_FlushMemTable());
     mock->SetCorruptionMode(mode);
     s = dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true);
@@ -677,7 +683,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeFirst) {
     if (do_flush) {
       ASSERT_OK(db_->Flush(FlushOptions()));
     } else {
-      DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+      DBImpl* dbi = AsDBImpl();
       ASSERT_OK(dbi->TEST_FlushMemTable());
       ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
     }
@@ -713,7 +719,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRange) {
     if (do_flush) {
       ASSERT_OK(db_->Flush(FlushOptions()));
     } else {
-      DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+      DBImpl* dbi = AsDBImpl();
       ASSERT_OK(dbi->TEST_FlushMemTable());
       ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
     }
@@ -746,7 +752,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeLast) {
     if (do_flush) {
       ASSERT_OK(db_->Flush(FlushOptions()));
     } else {
-      DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+      DBImpl* dbi = AsDBImpl();
       ASSERT_OK(dbi->TEST_FlushMemTable());
       ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
     }
@@ -773,7 +779,7 @@ TEST_F(CorruptionTest, LogCorruptionErrorsInCompactionIterator) {
   assert(db_ != nullptr);  // suppress false clang-analyze report
   Build(100, 2);
 
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  DBImpl* dbi = AsDBImpl();
   ASSERT_OK(dbi->TEST_FlushMemTable());
   Status s = dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true);
   ASSERT_NOK(s);
@@ -796,7 +802,7 @@ TEST_F(CorruptionTest, CompactionKeyOrderCheck) {
   assert(db_ != nullptr);  // suppress false clang-analyze report
   mock->SetCorruptionMode(mock::MockTableFactory::kCorruptReorderKey);
   Build(100, 2);
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  DBImpl* dbi = AsDBImpl();
   ASSERT_OK(dbi->TEST_FlushMemTable());
 
   mock->SetCorruptionMode(mock::MockTableFactory::kCorruptNone);
@@ -828,7 +834,7 @@ TEST_F(CorruptionTest, FlushKeyOrderCheck) {
         }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-  Status s = static_cast_with_check<DBImpl>(db_)->TEST_FlushMemTable();
+  Status s = AsDBImpl()->TEST_FlushMemTable();
   ASSERT_NOK(s);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -836,7 +842,7 @@ TEST_F(CorruptionTest, FlushKeyOrderCheck) {
 
 TEST_F(CorruptionTest, DisableKeyOrderCheck) {
   ASSERT_OK(db_->SetOptions({{"check_flush_compaction_key_order", "false"}}));
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  DBImpl* dbi = AsDBImpl();
 
   SyncPoint::GetInstance()->SetCallBack(
       "OutputValidator::Add:order_check",

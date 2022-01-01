@@ -48,7 +48,11 @@ class CuckooTableDBTest : public testing::Test {
     return options;
   }
 
-  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
+  DBImpl* dbfull() {
+    auto impl = db_->CheckedCast<DBImpl>();
+    EXPECT_NE(impl, nullptr);
+    return impl;
+  }
 
   // The following util methods are copied from plain_table_db_test.
   void Reopen(Options* options = nullptr) {
@@ -93,6 +97,10 @@ class CuckooTableDBTest : public testing::Test {
     return result;
   }
 
+  Status GetPropertiesOfAllTables(TablePropertiesCollection* ptc) {
+    return db_->GetPropertiesOfAllTables(ptc);
+  }
+
   int NumTableFilesAtLevel(int level) {
     std::string property;
     EXPECT_TRUE(db_->GetProperty("rocksdb.num-files-at-level" + ToString(level),
@@ -133,7 +141,7 @@ TEST_F(CuckooTableDBTest, Flush) {
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   TablePropertiesCollection ptc;
-  ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  ASSERT_OK(GetPropertiesOfAllTables(&ptc));
   VerifySstUniqueIds(ptc);
   ASSERT_EQ(1U, ptc.size());
   ASSERT_EQ(3U, ptc.begin()->second->num_entries);
@@ -150,7 +158,7 @@ TEST_F(CuckooTableDBTest, Flush) {
   ASSERT_OK(Put("key6", "v6"));
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
-  ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  ASSERT_OK(GetPropertiesOfAllTables(&ptc));
   VerifySstUniqueIds(ptc);
   ASSERT_EQ(2U, ptc.size());
   auto row = ptc.begin();
@@ -168,7 +176,7 @@ TEST_F(CuckooTableDBTest, Flush) {
   ASSERT_OK(Delete("key5"));
   ASSERT_OK(Delete("key4"));
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
-  ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  ASSERT_OK(GetPropertiesOfAllTables(&ptc));
   VerifySstUniqueIds(ptc);
   ASSERT_EQ(3U, ptc.size());
   row = ptc.begin();
@@ -193,7 +201,7 @@ TEST_F(CuckooTableDBTest, FlushWithDuplicateKeys) {
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   TablePropertiesCollection ptc;
-  ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  ASSERT_OK(GetPropertiesOfAllTables(&ptc));
   VerifySstUniqueIds(ptc);
   ASSERT_EQ(1U, ptc.size());
   ASSERT_EQ(2U, ptc.begin()->second->num_entries);

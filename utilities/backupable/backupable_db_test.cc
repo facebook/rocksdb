@@ -693,6 +693,12 @@ class BackupEngineTest : public testing::Test {
     return db;
   }
 
+  DBImpl* dbfull() {
+    auto impl = db_->CheckedCast<DBImpl>();
+    EXPECT_NE(impl, nullptr);
+    return impl;
+  }
+
   void CloseAndReopenDB(bool read_only = false) {
     // Close DB
     db_.reset();
@@ -1776,7 +1782,7 @@ TEST_F(BackupEngineTest, FlushCompactDuringBackupCheckpoint) {
           "BackupEngineTest::FlushCompactDuringBackupCheckpoint:Before");
       FillDB(db_.get(), keys_iteration, 2 * keys_iteration);
       ASSERT_OK(db_->Flush(FlushOptions()));
-      DBImpl* dbi = static_cast<DBImpl*>(db_.get());
+      DBImpl* dbi = dbfull();
       ASSERT_OK(dbi->TEST_WaitForFlushMemTable());
       ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
       ASSERT_OK(dbi->TEST_WaitForCompact());
@@ -1854,7 +1860,7 @@ TEST_F(BackupEngineTest, SetOptionsBackupRaceCondition) {
   ROCKSDB_NAMESPACE::port::Thread setoptions_thread{[this]() {
     TEST_SYNC_POINT(
         "BackupEngineTest::SetOptionsBackupRaceCondition:BeforeSetOptions");
-    DBImpl* dbi = static_cast<DBImpl*>(db_.get());
+    DBImpl* dbi = dbfull();
     // Change arbitrary option to trigger OPTIONS file deletion
     ASSERT_OK(dbi->SetOptions(dbi->DefaultColumnFamily(),
                               {{"paranoid_file_checks", "false"}}));
@@ -2115,7 +2121,7 @@ TEST_F(BackupEngineTest, TableFileCorruptionBeforeIncremental) {
         backupable_options_->share_files_with_checksum_naming = option;
       }
       OpenDBAndBackupEngine(true, false, share);
-      DBImpl* dbi = static_cast<DBImpl*>(db_.get());
+      DBImpl* dbi = dbfull();
       // A small SST file
       ASSERT_OK(dbi->Put(WriteOptions(), "x", "y"));
       ASSERT_OK(dbi->Flush(FlushOptions()));
@@ -3155,7 +3161,7 @@ TEST_F(BackupEngineTest, ChangeManifestDuringBackupCreation) {
   // The last manifest roll would've already been cleaned up by the full scan
   // that happens when CreateNewBackup invokes EnableFileDeletions. We need to
   // trigger another roll to verify non-full scan purges stale manifests.
-  DBImpl* db_impl = static_cast_with_check<DBImpl>(db_.get());
+  DBImpl* db_impl = dbfull();
   std::string prev_manifest_path =
       DescriptorFileName(dbname_, db_impl->TEST_Current_Manifest_FileNo());
   FillDB(db_.get(), 0, 100, kAutoFlushOnly);
