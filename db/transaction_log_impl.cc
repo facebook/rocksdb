@@ -6,9 +6,12 @@
 #ifndef ROCKSDB_LITE
 
 #include "db/transaction_log_impl.h"
+
 #include <cinttypes>
+
 #include "db/write_batch_internal.h"
 #include "file/sequence_file_reader.h"
+#include "util/defer.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -94,6 +97,18 @@ void TransactionLogIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
   Slice record;
   started_ = false;
   is_valid_ = false;
+
+  // Check invariant of TransactionLogIterator when SeekToStartSequence()
+  // succeeds.
+  const Defer defer([this]() {
+    if (is_valid_) {
+      assert(current_status_.ok());
+      if (starting_sequence_number_ > current_batch_seq_) {
+        assert(current_batch_seq_ < current_last_seq_);
+        assert(current_last_seq_ >= starting_sequence_number_);
+      }
+    }
+  });
   if (files_->size() <= start_file_index) {
     return;
   }
