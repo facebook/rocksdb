@@ -199,7 +199,6 @@ class PessimisticTransactionDB : public TransactionDB {
   // map from name to two phase transaction instance
   std::mutex name_map_mutex_;
   std::unordered_map<TransactionName, Transaction*> transactions_;
-
 };
 
 // A PessimisticTransactionDB that writes the data to the DB after the commit.
