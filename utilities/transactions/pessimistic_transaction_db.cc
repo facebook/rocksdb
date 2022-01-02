@@ -30,7 +30,7 @@ namespace ROCKSDB_NAMESPACE {
 PessimisticTransactionDB::PessimisticTransactionDB(
     DB* db, const TransactionDBOptions& txn_db_options)
     : TransactionDB(db),
-      db_impl_(static_cast_with_check<DBImpl>(db)),
+      db_impl_(DBImpl::AsDBImpl(db)),
       txn_db_options_(txn_db_options),
       lock_manager_(NewLockManager(this, txn_db_options)) {
   assert(db_impl_ != nullptr);
@@ -56,7 +56,7 @@ PessimisticTransactionDB::PessimisticTransactionDB(
 PessimisticTransactionDB::PessimisticTransactionDB(
     StackableDB* db, const TransactionDBOptions& txn_db_options)
     : TransactionDB(db),
-      db_impl_(static_cast_with_check<DBImpl>(db->GetRootDB())),
+      db_impl_(DBImpl::AsDBImpl(db->GetRootDB())),
       txn_db_options_(txn_db_options),
       lock_manager_(NewLockManager(this, txn_db_options)) {
   assert(db_impl_ != nullptr);
@@ -104,7 +104,7 @@ Status PessimisticTransactionDB::Initialize(
   Status s = EnableAutoCompaction(compaction_enabled_cf_handles);
 
   // create 'real' transactions from recovered shell transactions
-  auto dbimpl = static_cast_with_check<DBImpl>(GetRootDB());
+  auto dbimpl = DBImpl::AsDBImpl(GetRootDB());
   assert(dbimpl != nullptr);
   auto rtrxs = dbimpl->recovered_transactions();
 

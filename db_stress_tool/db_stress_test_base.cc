@@ -1931,7 +1931,7 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
   ColumnFamilyHandle* column_family = column_families_[rand_column_family];
   ReadOptions ropt;
 #ifndef ROCKSDB_LITE
-  auto db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
+  auto db_impl = DBImpl::AsDBImpl(db_->GetRootDB());
   const bool ww_snapshot = thread->rand.OneIn(10);
   const Snapshot* snapshot =
       ww_snapshot ? db_impl->GetSnapshotForWriteConflictBoundary()
@@ -2623,8 +2623,8 @@ void StressTest::Open() {
             // Ingested errors might happen in background compactions. We
             // wait for all compactions to finish to make sure DB is in
             // clean state before executing queries.
-            s = static_cast_with_check<DBImpl>(db_->GetRootDB())
-                    ->TEST_WaitForCompact(true);
+            auto impl = DBImpl::AsDBImpl(db_->GetRootDB());
+            s = impl->TEST_WaitForCompact(true);
             if (!s.ok()) {
               for (auto cf : column_families_) {
                 delete cf;

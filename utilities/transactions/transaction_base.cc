@@ -25,7 +25,7 @@ TransactionBaseImpl::TransactionBaseImpl(
     DB* db, const WriteOptions& write_options,
     const LockTrackerFactory& lock_tracker_factory)
     : db_(db),
-      dbimpl_(static_cast_with_check<DBImpl>(db)),
+      dbimpl_(DBImpl::AsDBImpl(db)),
       write_options_(write_options),
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
       lock_tracker_factory_(lock_tracker_factory),
@@ -33,7 +33,7 @@ TransactionBaseImpl::TransactionBaseImpl(
       write_batch_(cmp_, 0, true, 0),
       tracked_locks_(lock_tracker_factory_.Create()),
       indexing_enabled_(true) {
-  assert(dynamic_cast<DBImpl*>(db_) != nullptr);
+  assert(dbimpl_ != nullptr);
   log_number_ = 0;
   if (dbimpl_->allow_2pc()) {
     InitWriteBatch();

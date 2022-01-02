@@ -629,9 +629,9 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
       return Status::InvalidArgument(
           "Merge_operator must be set for column_family");
     } else if (db_ != nullptr) {
+      auto impl = DBImpl::AsDBImpl(db_->GetRootDB());
       const ImmutableDBOptions& immutable_db_options =
-          static_cast_with_check<DBImpl>(db_->GetRootDB())
-              ->immutable_db_options();
+          impl->immutable_db_options();
       Statistics* statistics = immutable_db_options.statistics.get();
       Logger* logger = immutable_db_options.info_log.get();
       SystemClock* clock = immutable_db_options.clock;

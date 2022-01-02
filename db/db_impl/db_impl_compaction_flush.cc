@@ -2588,7 +2588,7 @@ void DBImpl::BGWorkFlush(void* arg) {
 
   IOSTATS_SET_THREAD_POOL_ID(fta.thread_pri_);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush");
-  static_cast_with_check<DBImpl>(fta.db_)->BackgroundCallFlush(fta.thread_pri_);
+  DBImpl::AsDBImpl(fta.db_)->BackgroundCallFlush(fta.thread_pri_);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush:done");
 }
 
@@ -2599,8 +2599,8 @@ void DBImpl::BGWorkCompaction(void* arg) {
   TEST_SYNC_POINT("DBImpl::BGWorkCompaction");
   auto prepicked_compaction =
       static_cast<PrepickedCompaction*>(ca.prepicked_compaction);
-  static_cast_with_check<DBImpl>(ca.db)->BackgroundCallCompaction(
-      prepicked_compaction, Env::Priority::LOW);
+  DBImpl::AsDBImpl(ca.db)->BackgroundCallCompaction(prepicked_compaction,
+                                                    Env::Priority::LOW);
   delete prepicked_compaction;
 }
 
@@ -2615,10 +2615,11 @@ void DBImpl::BGWorkBottomCompaction(void* arg) {
   delete prepicked_compaction;
 }
 
-void DBImpl::BGWorkPurge(void* db) {
+void DBImpl::BGWorkPurge(void* arg) {
   IOSTATS_SET_THREAD_POOL_ID(Env::Priority::HIGH);
   TEST_SYNC_POINT("DBImpl::BGWorkPurge:start");
-  reinterpret_cast<DBImpl*>(db)->BackgroundCallPurge();
+  DB* db = static_cast<DB*>(arg);
+  DBImpl::AsDBImpl(db)->BackgroundCallPurge();
   TEST_SYNC_POINT("DBImpl::BGWorkPurge:end");
 }
 

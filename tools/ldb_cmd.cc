@@ -3782,7 +3782,7 @@ void ListFileRangeDeletesCommand::DoCommand() {
     return;
   }
 
-  DBImpl* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
+  DBImpl* db_impl = DBImpl::AsDBImpl(db_->GetRootDB());
 
   std::string out_str;
 

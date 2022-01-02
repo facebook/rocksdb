@@ -13,6 +13,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "file/file_util.h"
+#include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/transaction_log.h"
@@ -405,6 +406,7 @@ TEST_F(RepairTest, DbNameContainsTrailingSlash) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

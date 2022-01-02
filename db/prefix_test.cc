@@ -219,7 +219,6 @@ class SamePrefixTransform : public SliceTransform {
 
 class PrefixTest : public testing::Test {
  public:
-
   std::shared_ptr<DB> OpenDb() {
     DB* db;
 
