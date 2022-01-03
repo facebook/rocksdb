@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <vector>
+
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 #include "rocksdb/write_batch.h"
@@ -54,29 +55,11 @@ class LogFile {
 };
 
 struct BatchResult {
-  SequenceNumber sequence = 0;
-  std::unique_ptr<WriteBatch> writeBatchPtr;
-
-  // Add empty __ctor and __dtor for the rule of five
-  // However, preserve the original semantics and prohibit copying
-  // as the std::unique_ptr member does not copy.
-  BatchResult() {}
-
-  ~BatchResult() {}
-
-  BatchResult(const BatchResult&) = delete;
-
-  BatchResult& operator=(const BatchResult&) = delete;
-
-  BatchResult(BatchResult&& bResult)
-      : sequence(std::move(bResult.sequence)),
-        writeBatchPtr(std::move(bResult.writeBatchPtr)) {}
-
-  BatchResult& operator=(BatchResult&& bResult) {
-    sequence = std::move(bResult.sequence);
-    writeBatchPtr = std::move(bResult.writeBatchPtr);
-    return *this;
-  }
+  SequenceNumber start_sequence = 0;
+  SequenceNumber end_sequence = 0;
+  // Do not pass the write_batch to smart pointers for lifecycle management.
+  // Not intended for ownership transfer.
+  const WriteBatch* write_batch = nullptr;
 };
 
 // A TransactionLogIterator is used to iterate over the transactions in a db.

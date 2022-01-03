@@ -110,9 +110,9 @@ int main(int argc, const char** argv) {
     fprintf(stderr, "Refreshing iterator\n");
     for (; iter->Valid(); iter->Next(), num_read++, currentSeqNum++) {
       BatchResult res = iter->GetBatch();
-      if (res.sequence != currentSeqNum) {
+      if (res.start_sequence != currentSeqNum) {
         fprintf(stderr, "Missed a seq no. b/w %ld and %ld\n",
-                (long)currentSeqNum, (long)res.sequence);
+                (long)currentSeqNum, (long)res.start_sequence);
         exit(1);
       }
     }

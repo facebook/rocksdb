@@ -1290,12 +1290,17 @@ void rocksdb_wal_iter_destroy (const rocksdb_wal_iterator_t* iter) {
   delete iter;
 }
 
-rocksdb_writebatch_t* rocksdb_wal_iter_get_batch (const rocksdb_wal_iterator_t* iter, uint64_t* seq) {
+rocksdb_writebatch_t* rocksdb_wal_iter_get_batch(
+    const rocksdb_wal_iterator_t* iter, uint64_t* start_seq,
+    uint64_t* end_seq) {
   rocksdb_writebatch_t* result = rocksdb_writebatch_create();
   BatchResult wal_batch = iter->rep->GetBatch();
-  result->rep = std::move(*wal_batch.writeBatchPtr);
-  if (seq != nullptr) {
-    *seq = wal_batch.sequence;
+  result->rep = *wal_batch.write_batch;
+  if (start_seq != nullptr) {
+    *start_seq = wal_batch.start_sequence;
+  }
+  if (end_seq != nullptr) {
+    *end_seq = wal_batch.end_sequence;
   }
   return result;
 }

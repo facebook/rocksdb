@@ -76,8 +76,9 @@ Status TransactionLogIteratorImpl::OpenLogFile(
 BatchResult TransactionLogIteratorImpl::GetBatch()  {
   assert(is_valid_);  //  cannot call in a non valid state.
   BatchResult result;
-  result.sequence = current_batch_seq_;
-  result.writeBatchPtr = std::move(current_batch_);
+  result.start_sequence = current_batch_seq_;
+  result.end_sequence = current_last_seq_;
+  result.write_batch = current_batch_.get();
   return result;
 }
 
