@@ -279,6 +279,7 @@ constexpr int kValueMaxLen = 100;
 
 // wrapped posix or hdfs environment
 extern ROCKSDB_NAMESPACE::Env* db_stress_env;
+extern ROCKSDB_NAMESPACE::Env* db_stress_listener_env;
 #ifndef NDEBUG
 namespace ROCKSDB_NAMESPACE {
 class FaultInjectionTestFS;

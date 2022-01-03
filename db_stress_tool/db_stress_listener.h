@@ -11,6 +11,7 @@
 
 #include "file/filename.h"
 #include "rocksdb/db.h"
+#include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/table_properties.h"
@@ -26,7 +27,7 @@ namespace ROCKSDB_NAMESPACE {
 // Verify across process executions that all seen IDs are unique
 class UniqueIdVerifier {
  public:
-  explicit UniqueIdVerifier(const std::string& db_name);
+  explicit UniqueIdVerifier(const std::string& db_name, Env* env);
   ~UniqueIdVerifier();
 
   void Verify(const std::string& id);
@@ -49,12 +50,13 @@ class DbStressListener : public EventListener {
  public:
   DbStressListener(const std::string& db_name,
                    const std::vector<DbPath>& db_paths,
-                   const std::vector<ColumnFamilyDescriptor>& column_families)
+                   const std::vector<ColumnFamilyDescriptor>& column_families,
+                   Env* env)
       : db_name_(db_name),
         db_paths_(db_paths),
         column_families_(column_families),
         num_pending_file_creations_(0),
-        unique_ids_(db_name) {}
+        unique_ids_(db_name, env) {}
 
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "DBStressListener"; }
