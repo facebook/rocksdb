@@ -27,14 +27,14 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
       soptions_(soptions),
       starting_sequence_number_(seq),
       files_(std::move(files)),
+      versions_(versions),
+      seq_per_batch_(seq_per_batch),
+      io_tracer_(io_tracer),
       started_(false),
       is_valid_(false),
       current_file_index_(0),
       current_batch_seq_(0),
-      current_last_seq_(0),
-      versions_(versions),
-      seq_per_batch_(seq_per_batch),
-      io_tracer_(io_tracer) {
+      current_last_seq_(0) {
   assert(files_ != nullptr);
   assert(versions_ != nullptr);
   assert(!seq_per_batch_);
