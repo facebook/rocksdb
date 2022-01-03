@@ -1424,9 +1424,14 @@ class DB {
 
   // Note: this API is not yet consistent with WritePrepared transactions.
   //
-  // Sets iter to an iterator that is positioned at a write-batch containing
-  // seq_number. If the sequence number is non existent, it returns an iterator
-  // at the first available seq_no after the requested seq_no
+  // Each write batch covers a contiguous range of sequence numbers, and we
+  // denote the range as [start_seq, end_seq] (both are inclusive).
+  //
+  // Sets iter to an iterator that is positioned at a write-batch whose
+  // sequence number range [start_seq, end_seq] covers seq_number. If no such
+  // write-batch exists, then iter is positioned at the next write-batch whose
+  // start_seq > seq_number.
+  //
   // Returns Status::OK if iterator is valid
   // Must set WAL_ttl_seconds or WAL_size_limit_MB to large values to
   // use this api, else the WAL files will get
