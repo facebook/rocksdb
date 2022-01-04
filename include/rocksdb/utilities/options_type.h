@@ -38,6 +38,7 @@ enum class OptionType {
   kCompactionFilter,
   kCompactionFilterFactory,
   kCompactionStopStyle,
+  kFilePreload,
   kMergeOperator,
   kMemTableRepFactory,
   kFilterPolicy,
