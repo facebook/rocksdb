@@ -25,6 +25,11 @@ die_usage() {
   exit 1
 }
 
+die_error() {
+  echo "$1" >& 2
+  exit 1
+}
+
 while :; do
   case "$1" in
       -h|--help)

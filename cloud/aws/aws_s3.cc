@@ -557,7 +557,7 @@ Status S3StorageProvider::EmptyBucket(const std::string& bucket_name,
       results.size(), bucket_name.c_str());
 
   // Delete all objects from bucket
-  for (auto path : results) {
+  for (const auto& path : results) {
     st = DeleteCloudObject(bucket_name, path);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
@@ -641,7 +641,7 @@ Status S3StorageProvider::ListCloudObjects(const std::string& bucket_name,
     }
     const Aws::S3::Model::ListObjectsResult& res = outcome.GetResult();
     const Aws::Vector<Aws::S3::Model::Object>& objs = res.GetContents();
-    for (auto o : objs) {
+    for (const auto& o : objs) {
       const Aws::String& key = o.GetKey();
       // Our path should be a prefix of the fetched value
       std::string keystr(key.c_str(), key.size());
@@ -650,7 +650,7 @@ Status S3StorageProvider::ListCloudObjects(const std::string& bucket_name,
         return Status::IOError("Unexpected result from AWS S3: " + keystr);
       }
       auto fname = keystr.substr(prefix.size());
-      result->push_back(fname);
+      result->push_back(std::move(fname));
     }
 
     // If there are no more entries, then we are done.
@@ -756,13 +756,13 @@ Status S3StorageProvider::HeadObject(
   bool isSuccess = outcome.IsSuccess();
   if (!isSuccess) {
     const auto& error = outcome.GetError();
-    auto errMessage = error.GetMessage();
+    const auto& errMessage = error.GetMessage();
     if (IsNotFound(error.GetErrorType())) {
       return Status::NotFound(object_path, errMessage.c_str());
     }
     return Status::IOError(object_path, errMessage.c_str());
   }
-  auto& res = outcome.GetResult();
+  const auto& res = outcome.GetResult();
   if (metadata != nullptr) {
     for (const auto& m : res.GetMetadata()) {
       (*metadata)[m.first.c_str()] = m.second.c_str();
@@ -997,7 +997,7 @@ Status S3StorageProvider::DoPutCloudObject(const std::string& local_file,
 
     auto outcome = s3client_->PutCloudObject(putRequest, file_size);
     if (!outcome.IsSuccess()) {
-      auto error = outcome.GetError();
+      const auto& error = outcome.GetError();
       std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
       Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
           "[s3] PutCloudObject %s/%s, size %" PRIu64 ", ERROR %s",
