@@ -235,60 +235,6 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
 }
 
 TEST_F(WritableFileWriterTest, BufferWithZeroCapacityDirectIO) {
-  class FakeWF : public FSWritableFile {
-   public:
-    explicit FakeWF() = default;
-    ~FakeWF() override {}
-
-    using FSWritableFile::Append;
-    IOStatus Append(const Slice& /*data*/, const IOOptions& /*options*/,
-                    IODebugContext* /*dbg*/) override {
-      return IOStatus::OK();
-    }
-    using FSWritableFile::PositionedAppend;
-    IOStatus PositionedAppend(const Slice& /*data*/, uint64_t /*pos*/,
-                              const IOOptions& /*options*/,
-                              IODebugContext* /*dbg*/) override {
-      return IOStatus::OK();
-    }
-
-    IOStatus Truncate(uint64_t /*size*/, const IOOptions& /*options*/,
-                      IODebugContext* /*dbg*/) override {
-      return IOStatus::OK();
-    }
-    IOStatus Close(const IOOptions& /*options*/,
-                   IODebugContext* /*dbg*/) override {
-      return IOStatus::OK();
-    }
-    IOStatus Flush(const IOOptions& /*options*/,
-                   IODebugContext* /*dbg*/) override {
-      return IOStatus::OK();
-    }
-    IOStatus Sync(const IOOptions& /*options*/,
-                  IODebugContext* /*dbg*/) override {
-      return IOStatus::OK();
-    }
-    IOStatus Fsync(const IOOptions& /*options*/,
-                   IODebugContext* /*dbg*/) override {
-      return IOStatus::OK();
-    }
-    void SetIOPriority(Env::IOPriority /*pri*/) override {}
-    uint64_t GetFileSize(const IOOptions& /*options*/,
-                         IODebugContext* /*dbg*/) override {
-      return 0;
-    }
-    void GetPreallocationStatus(size_t* /*block_size*/,
-                                size_t* /*last_allocated_block*/) override {}
-    size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const override {
-      return 0;
-    }
-    IOStatus InvalidateCache(size_t /*offset*/, size_t /*length*/) override {
-      return IOStatus::OK();
-    }
-
-    bool use_direct_io() const override { return true; }
-  };
-
   EnvOptions env_opts;
   env_opts.use_direct_writes = true;
   env_opts.writable_file_max_buffer_size = 0;
