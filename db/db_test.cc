@@ -2585,23 +2585,18 @@ struct MTThread {
   bool multiget_batched;
 };
 
-// Based on Peter Dillinger's suggestion, the threads have been changed from
-// detached threads to joinable threads
 static void MTThreadBody(void* arg) {
   MTThread* t = reinterpret_cast<MTThread*>(arg);
   int id = t->id;
   DB* db = t->state->test->db_;
   int counter = 0;
-  auto start = std::chrono::high_resolution_clock::now();
-  auto elapsed = std::chrono::high_resolution_clock::now() - start;
-  long long runForMicroseconds(kTestSeconds * 1000000);
+  std::shared_ptr<SystemClock> clock = SystemClock::Default();
+  auto end_micros = clock->NowMicros() + kTestSeconds * 1000000U;
 
   fprintf(stderr, "... starting thread %d\n", id);
   Random rnd(1000 + id);
   char valbuf[1500];
-  long long microseconds =
-      std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
-  while (microseconds < runForMicroseconds) {
+  while (clock->NowMicros() < end_micros) {
     t->state->counter[id].store(counter, std::memory_order_release);
 
     int key = rnd.Uniform(kNumKeys);
@@ -2697,9 +2692,6 @@ static void MTThreadBody(void* arg) {
       }
     }
     counter++;
-    elapsed = std::chrono::high_resolution_clock::now() - start;
-    microseconds =
-        std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
   }
   fprintf(stderr, "... stopping thread %d after %d ops\n", id, int(counter));
 }
@@ -2752,8 +2744,6 @@ TEST_P(MultiThreadedDBTest, MultiThreaded) {
     env_->StartThread(MTThreadBody, &thread[id]);
   }
 
-  // Based on Peter Dillinger's suggestion, the threads have been changed from
-  // detached threads to joinable threads
   env_->WaitForJoin();
 }
 
@@ -4914,10 +4904,8 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   // The default compaction method snappy does not work on Alpine 32 platform
   // That means there is no compression
   // The following test case has been disabled on 32 bit platform
-  if (sizeof(void*) >= 8) {
-    ASSERT_LT(SizeAtLevel(0) + SizeAtLevel(3) + SizeAtLevel(4),
-              120U * 4000U + 50U * 24);
-  }
+  ASSERT_LT(SizeAtLevel(0) + SizeAtLevel(3) + SizeAtLevel(4),
+            120U * 4000U + 50U * 24);
   // Make sure data in files in L3 is not compacted by removing all files
   // in L4 and calculate number of rows
   ASSERT_OK(dbfull()->SetOptions({
