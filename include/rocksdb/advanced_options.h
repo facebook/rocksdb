@@ -56,6 +56,25 @@ enum CompactionPri : char {
   kMinOverlappingRatio = 0x3,
 };
 
+// RocksDB uses the first 25% of num_open_files for precaching during
+//  start-up and after compactions.  The files precached in this fashion
+//  provide faster access.  However, these files are also never released.
+//  Scenarios that have large bloom filters not cached or scenarios where
+//  user is manually lowering the num_open_files at runtime might want
+//  to disable this behavior.
+enum FilePreload : char {
+  // RocksDB uses the first 25% of num_open_files for precaching during
+  //  start-up and after compactions.  The files precached in this fashion
+  //  provide faster access.  However, these files are also never released.
+  kFilePreloadWithPinning = 0x0,
+  // RocksDB uses the first 25% of num_open_files for precaching during
+  //  start-up and after compactions.  No pinning within cache, so access
+  //  has one additional layer of indirection.  But cache space can free.
+  kFilePreloadWithoutPinning = 0x1,
+  // RocksDB does not open existing table files during start-up.
+  kFilePreloadDisabled = 0x2,
+};
+
 struct CompactionOptionsFIFO {
   // once the total sum of table files reaches this, we will delete the oldest
   // table file
@@ -703,14 +722,12 @@ struct AdvancedColumnFamilyOptions {
   // Default: true
   bool force_consistency_checks = true;
 
-  // RocksDB uses the first 25% of num_open_files for precaching during
-  //  start-up and after compactions.  The files precached in this fashion
-  //  provide faster access.  However, these files are also never released.
-  //  Scenarios that have large bloom filters not cached or scenarios where
-  //  user is manually lowering the num_open_files at runtime might want
-  //  to disable this behavior.
-  // Default: false
-  bool disable_preload_pinning = false;
+  // RocksDB can preload and optionally pin table files within the table
+  //  cache at start-up and after compactions.  The files precached in this
+  //  fashion provide faster access.  However, these files are also never
+  //  released from the table cache.
+  // Default: kFilePreloadWithPinning
+  FilePreload file_preload = kFilePreloadWithPinning;
 
   // Measure IO stats in compactions and flushes, if true.
   //
