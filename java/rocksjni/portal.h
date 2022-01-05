@@ -4413,21 +4413,33 @@ class BatchResultJni : public JavaClass {
       return nullptr;
     }
 
-    jmethodID mid = env->GetMethodID(
-      jclazz, "<init>", "(JJ)V");
+    jmethodID mid = env->GetMethodID(jclazz, "<init>", "()V");
     if(mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
     }
 
-    jobject jbatch_result = env->NewObject(jclazz, mid,
-      batch_result.sequence, batch_result.writeBatchPtr.get());
+    jobject jbatch_result = env->NewObject(jclazz, mid);
     if(jbatch_result == nullptr) {
       // exception thrown: InstantiationException or OutOfMemoryError
       return nullptr;
     }
 
-    batch_result.writeBatchPtr.release();
+    jfieldID jstart_seq_fid = env->GetFieldID(jclazz, "start_sequence", "L");
+    assert(jstart_seq_fid);
+    jfieldID jend_seq_fid = env->GetFieldID(jclazz, "end_sequence", "L");
+    assert(jend_seq_fid);
+    jfieldID jwrite_batch_fid = env->GetFieldID(jclazz, "write_batch", "L");
+    assert(jwrite_batch_fid);
+
+    env->SetLongField(jbatch_result, jstart_seq_fid,
+                      batch_result.start_sequence);
+    env->SetLongField(jbatch_result, jend_seq_fid, batch_result.end_sequence);
+    env->SetLongField(
+        jbatch_result, jwrite_batch_fid,
+        reinterpret_cast<jlong>(const_cast<ROCKSDB_NAMESPACE::WriteBatch*>(
+            batch_result.write_batch)));
+
     return jbatch_result;
   }
 };

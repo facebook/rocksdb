@@ -259,7 +259,8 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
     ReopenWithColumnFamilies({"default", "pikachu"}, options);
   }
 
-  auto res = OpenTransactionLogIter(0)->GetBatch();
+  std::unique_ptr<TransactionLogIterator> log_iter = OpenTransactionLogIter(0);
+  auto res = log_iter->GetBatch();
   struct Handler : public WriteBatch::Handler {
     std::string seen;
     Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override {
