@@ -63,9 +63,10 @@ class ObjectLibrary {
   class PatternEntry {
    private:
     enum Quantifier {
-      kMatchPattern,  // [suffix].+
-      kMatchExact,    // [suffix]
-      kMatchNumeric,  // [suffix][0-9]+
+      kMatchZeroOrMore,  // [suffix].*
+      kMatchAtLeastOne,  // [suffix].+
+      kMatchExact,       // [suffix]
+      kMatchNumeric,     // [suffix][0-9]+
     };
 
    public:
@@ -80,10 +81,7 @@ class ObjectLibrary {
 
     // Creates a new pattern entry for "name".  If optional is true,
     // Matches will also return true if name==target
-    explicit PatternEntry(const std::string& name, bool optional = true)
-        : name_(name), optional_(optional), slength_(0) {
-      nlength_ = name_.size();
-    }
+    explicit PatternEntry(const std::string& name, bool optional = true);
 
     // Adds a suffix (exact match of separator with no trailing characters) to
     // the separator
@@ -95,9 +93,19 @@ class ObjectLibrary {
 
     // Adds a separator (exact match of separator with trailing characters) to
     // the entry
-    PatternEntry& AddSeparator(const std::string& separator) {
-      separators_.emplace_back(separator, kMatchPattern);
-      slength_ += separator.size() + 1;
+    // If at_least_one is true, the separator must be followed by at least
+    // one character (e.g. separator.+).
+    // If at_least_one is false, the separator may be followed by zero or
+    // more characters (e.g. separator.*).
+    PatternEntry& AddSeparator(const std::string& separator,
+                               bool at_least_one = true) {
+      slength_ += separator.size();
+      if (at_least_one) {
+        separators_.emplace_back(separator, kMatchAtLeastOne);
+        ++slength_;
+      } else {
+        separators_.emplace_back(separator, kMatchZeroOrMore);
+      }
       return *this;
     }
 
