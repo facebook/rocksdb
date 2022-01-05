@@ -931,7 +931,6 @@ class VersionBuilder::Rep {
 #else
     bool debug_override = false;
 #endif
-    (void) debug_override;
     if (FilePreload::kFilePreloadDisabled == ioptions_->file_preload) {
       max_load = 0;
       always_load = true;
@@ -1007,12 +1006,12 @@ class VersionBuilder::Rep {
         //  2. create higher performance via a cache lookup avoidance
         // The issue is that number 2 creates permanent objects in the
         //  table cache which over time are no longer useful.  The
-        //  disable_preload_pinning option keeps #1 and disables #2.
+        //  kFilePreloadWithoutPinning option keeps #1 and disables #2.
         if (file_meta->table_reader_handle != nullptr) {
-          if (ioptions_->file_preload == kFilePreloadWithPinning) {
+          if (ioptions_->file_preload == kFilePreloadWithPinning || debug_override) {
             file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(
                 file_meta->table_reader_handle);
-          } else {
+          } else { // kFilePreloadWithoutPinning
             table_cache_->ReleaseHandle(file_meta->table_reader_handle);
             file_meta->table_reader_handle = nullptr;
           }
