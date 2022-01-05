@@ -1139,16 +1139,6 @@ class VersionSet {
     last_sequence_.store(s, std::memory_order_release);
   }
 
-  // Marks sequence numbers through `s` as referred to by the descriptor
-  // (manifest file).
-  //
-  // Requires DB mutex held.
-  void MarkDescriptorLastSequence(SequenceNumber s) {
-    if (s > descriptor_last_sequence_) {
-      descriptor_last_sequence_ = s;
-    }
-  }
-
   // Note: memory_order_release must be sufficient
   void SetLastPublishedSequence(uint64_t s) {
     assert(s >= last_published_sequence_);
@@ -1447,9 +1437,11 @@ class VersionSet {
                                bool new_descriptor_log,
                                const ColumnFamilyOptions* new_cf_options);
 
-  void LogAndApplyCFHelper(VersionEdit* edit);
+  void LogAndApplyCFHelper(VersionEdit* edit,
+                           SequenceNumber* max_last_sequence);
   Status LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b,
-                           VersionEdit* edit, InstrumentedMutex* mu);
+                           VersionEdit* edit, SequenceNumber* max_last_sequence,
+                           InstrumentedMutex* mu);
 };
 
 // ReactiveVersionSet represents a collection of versions of the column
