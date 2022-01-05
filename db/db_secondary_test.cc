@@ -426,6 +426,9 @@ namespace {
 class TraceFileEnv : public EnvWrapper {
  public:
   explicit TraceFileEnv(Env* _target) : EnvWrapper(_target) {}
+  static const char* kClassName() { return "TraceFileEnv"; }
+  const char* Name() const override { return kClassName(); }
+
   Status NewRandomAccessFile(const std::string& f,
                              std::unique_ptr<RandomAccessFile>* r,
                              const EnvOptions& env_options) override {

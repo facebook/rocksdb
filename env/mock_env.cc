@@ -565,12 +565,21 @@ class TestMemLogger : public Logger {
   }
   size_t GetLogFileSize() const override { return log_size_; }
 };
+
+static std::unordered_map<std::string, OptionTypeInfo> mock_fs_type_info = {
+#ifndef ROCKSDB_LITE
+    {"supports_direct_io",
+     {0, OptionType::kBoolean, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
+#endif  // ROCKSDB_LITE
+};
 }  // namespace
 
 MockFileSystem::MockFileSystem(const std::shared_ptr<SystemClock>& clock,
                                bool supports_direct_io)
     : system_clock_(clock), supports_direct_io_(supports_direct_io) {
   clock_ = system_clock_.get();
+  RegisterOptions("", &supports_direct_io_, &mock_fs_type_info);
 }
 
 MockFileSystem::~MockFileSystem() {
@@ -578,6 +587,16 @@ MockFileSystem::~MockFileSystem() {
     i->second->Unref();
   }
 }
+
+Status MockFileSystem::PrepareOptions(const ConfigOptions& options) {
+  Status s = FileSystem::PrepareOptions(options);
+  if (s.ok() && system_clock_ == SystemClock::Default()) {
+    system_clock_ = options.env->GetSystemClock();
+    clock_ = system_clock_.get();
+  }
+  return s;
+}
+
 IOStatus MockFileSystem::GetAbsolutePath(const std::string& db_path,
                                          const IOOptions& /*options*/,
                                          std::string* output_path,

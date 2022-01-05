@@ -48,6 +48,10 @@ class HdfsEnv : public Env {
     posixEnv = Env::Default();
     fileSys_ = connectToPath(fsname_);
   }
+  static const char* kClassName() { return "HdfsEnv"; }
+  const char* Name() const override { return kClassName(); }
+  static const char* kNickName() { return "hdfs"; }
+  const char* NickName() const override { return kNickName(); }
 
   virtual ~HdfsEnv() {
     fprintf(stderr, "Destroying HdfsEnv::Default()\n");
@@ -242,6 +246,10 @@ class HdfsEnv : public Env {
     fprintf(stderr, "Please see hdfs/README for details\n");
     abort();
   }
+  static const char* kClassName() { return "HdfsEnv"; }
+  const char* Name() const override { return kClassName(); }
+  static const char* kNickName() { return "hdfs"; }
+  const char* NickName() const override { return kNickName(); }
 
   virtual ~HdfsEnv() {
   }
