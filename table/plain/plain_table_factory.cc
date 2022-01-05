@@ -275,7 +275,7 @@ Status MemTableRepFactory::CreateFromString(
     if (opts_list.empty() || opts_list.size() > 2 || !opt_map.empty()) {
       status = Status::InvalidArgument("Can't parse memtable_factory option ",
                                        value);
-    } else if (opts_list[0] == "skip_list" ||
+    } else if (opts_list[0] == SkipListFactory::kNickName() ||
                opts_list[0] == SkipListFactory::kClassName()) {
       // Expecting format
       // skip_list:<lookahead>
@@ -291,6 +291,17 @@ Status MemTableRepFactory::CreateFromString(
 #endif  // ROCKSDB_LITE
   }
   return status;
+}
+
+Status MemTableRepFactory::CreateFromString(
+    const ConfigOptions& config_options, const std::string& value,
+    std::shared_ptr<MemTableRepFactory>* result) {
+  std::unique_ptr<MemTableRepFactory> factory;
+  Status s = CreateFromString(config_options, value, &factory);
+  if (factory && s.ok()) {
+    result->reset(factory.release());
+  }
+  return s;
 }
 
 #ifndef ROCKSDB_LITE

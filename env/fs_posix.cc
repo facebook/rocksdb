@@ -146,6 +146,13 @@ class PosixFileSystem : public FileSystem {
   const char* NickName() const override { return kDefaultName(); }
 
   ~PosixFileSystem() override {}
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == "posix") {
+      return true;
+    } else {
+      return FileSystem::IsInstanceOf(name);
+    }
+  }
 
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
     if ((options == nullptr || options->set_fd_cloexec) && fd > 0) {
@@ -1125,7 +1132,7 @@ std::shared_ptr<FileSystem> FileSystem::Default() {
 #ifndef ROCKSDB_LITE
 static FactoryFunc<FileSystem> posix_filesystem_reg =
     ObjectLibrary::Default()->Register<FileSystem>(
-        "posix://.*",
+        ObjectLibrary::PatternEntry("posix").AddSeparator("://"),
         [](const std::string& /* uri */, std::unique_ptr<FileSystem>* f,
            std::string* /* errmsg */) {
           f->reset(new PosixFileSystem());
