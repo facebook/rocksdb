@@ -10,18 +10,12 @@ rm -f o.sag${sag}.s1
 rm -f o.sag${sag}.s0
 touch o.sag${sag}.s0
 
-for ra in 4 6 8 12 16; do
-
-  if [ $ra -le 8 ]; then
+for ra in 4 ; do
 
   a=stcs
   pypy3 compsim.py --algorithm=$a --run_time=$rt --init_size_gb=$gb --space_amp_goal=$sag --stcs_min_threshold=$ra --workload=$wl > o.sag${sag}.r${ra}.$a 
   tail -1 o.sag${sag}.r${ra}.$a >> o.sag${sag}.s0
   gzip o.sag${sag}.r${ra}.$a
-
-  fi
-
-  if [ $ra -ge 8 ]; then
 
   a=tower
   pypy3 compsim.py --algorithm=$a --run_time=$rt --init_size_gb=$gb --space_amp_goal=$sag --tower_min_merge_width=$minmw --tower_l0_trigger=$ra --workload=$wl --tower_size_ratio=1.5 > o.sag${sag}.r${ra}.$a.sr15
@@ -31,6 +25,10 @@ for ra in 4 6 8 12 16; do
   pypy3 compsim.py --algorithm=$a --run_time=$rt --init_size_gb=$gb --space_amp_goal=$sag --tower_min_merge_width=$minmw --tower_l0_trigger=$ra --workload=$wl --tower_size_ratio=1.1 > o.sag${sag}.r${ra}.$a.sr11
   tail -1 o.sag${sag}.r${ra}.$a.sr11 >> o.sag${sag}.s0
   gzip o.sag${sag}.r${ra}.$a.sr11
+
+done
+
+for ra in 8 12 16; do
 
   a=greedy
   pypy3 compsim.py --algorithm=$a --run_time=$rt --init_size_gb=$gb --space_amp_goal=$sag --greedy_read_amp_trigger=$ra --workload=$wl > o.sag${sag}.r${ra}.$a
@@ -50,8 +48,6 @@ for ra in 4 6 8 12 16; do
   pypy3 compsim.py --algorithm=$a --run_time=$rt --init_size_gb=$gb --space_amp_goal=$sag --prefix_min_merge_width=$minmw --prefix_read_amp_trigger=$ra --workload=$wl --prefix_size_ratio=1.1 --prefix_v2 > o.sag${sag}.r${ra}.${a}_v2.sr11
   tail -1 o.sag${sag}.r${ra}.${a}_v2.sr11 >> o.sag${sag}.s0
   gzip o.sag${sag}.r${ra}.${a}_v2.sr11
-
-  fi
 
 done
 
