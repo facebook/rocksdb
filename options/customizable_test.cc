@@ -1588,7 +1588,7 @@ class LoadCustomizableTest : public testing::Test {
     Status s = T::CreateFromString(config_options_, name, result);
     if (s.ok()) {
       EXPECT_NE(*result, nullptr);
-      EXPECT_TRUE((*result)->IsInstanceOf(name));
+      EXPECT_TRUE(*result != nullptr && (*result)->IsInstanceOf(name));
     }
     if (delete_result) {
       delete *result;
@@ -1945,28 +1945,25 @@ TEST_F(LoadCustomizableTest, LoadMemTableRepFactoryTest) {
 TEST_F(LoadCustomizableTest, LoadMergeOperatorTest) {
   std::shared_ptr<MergeOperator> result;
   std::vector<std::string> failed;
-  ASSERT_OK(TestExpectedBuiltins<MergeOperator>(
-      "Changling",
-      {
-          "put",
-          "put_v1",
-          "PutOperator",
-          "uint64add",
-          "UInt64AddOperator",
-          "max",
-          "MaxOperator",
+  std::unordered_set<std::string> expected = {
+      "put", "put_v1",      "PutOperator", "uint64add", "UInt64AddOperator",
+      "max", "MaxOperator",
+  };
 #ifndef ROCKSDB_LITE
-          StringAppendOperator::kClassName(),
-          StringAppendOperator::kNickName(),
-          StringAppendTESTOperator::kClassName(),
-          StringAppendTESTOperator::kNickName(),
-          SortList::kClassName(),
-          SortList::kNickName(),
-          BytesXOROperator::kClassName(),
-          BytesXOROperator::kNickName(),
+  expected.insert({
+      StringAppendOperator::kClassName(),
+      StringAppendOperator::kNickName(),
+      StringAppendTESTOperator::kClassName(),
+      StringAppendTESTOperator::kNickName(),
+      SortList::kClassName(),
+      SortList::kNickName(),
+      BytesXOROperator::kClassName(),
+      BytesXOROperator::kNickName(),
+  });
 #endif  // ROCKSDB_LITE
-      },
-      &result, &failed));
+
+  ASSERT_OK(TestExpectedBuiltins<MergeOperator>("Changling", expected, &result,
+                                                &failed));
   if (RegisterTests("Test")) {
     ExpectCreateShared<MergeOperator>("Changling");
   }
