@@ -4533,7 +4533,7 @@ Status VersionSet::ProcessManifestWrites(
       // This tracks the maximum `last_sequence` in any of the `VersionEdit`s
       // being applied. We use it to update the `VersionSet` if we find the
       // MANIFEST now refers to data with a new highest sequence number.
-      uint64_t last_sequence = 0;
+      SequenceNumber last_sequence = 0;
       for (const auto& e : batch_edits) {
         ColumnFamilyData* cfd = nullptr;
         if (!e->IsColumnFamilyManipulation()) {
