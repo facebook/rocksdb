@@ -1637,7 +1637,6 @@ void BlockBasedTableBuilder::WriteIndexBlock(
       }
       // The last index_block_handle will be for the partition index block
     }
-    s.PermitUncheckedError();
   }
 }
 
