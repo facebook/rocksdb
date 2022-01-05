@@ -4159,8 +4159,8 @@ Status VersionSet::ProcessManifestWrites(
   std::vector<std::unique_ptr<BaseReferencedVersionBuilder>> builder_guards;
 
   // Tracking `max_last_sequence` is needed to ensure we write
-  // `VersionEdit::last_sequence_`s in non-decreasing order for downgrade
-  // compatibility. It also allows us to defer updating
+  // `VersionEdit::last_sequence_`s in non-decreasing order according to the
+  // recovery code's requirement. It also allows us to defer updating
   // `descriptor_last_sequence_` until the apply phase, after the log phase
   // succeeds.
   SequenceNumber max_last_sequence = descriptor_last_sequence_;
@@ -4642,7 +4642,7 @@ Status VersionSet::ProcessManifestWrites(
 
 #ifndef NDEBUG
   // This is here kind of awkwardly because there's no other consistency
-  // checks on `VersionSet`'s updates for the new `Version`. We might want
+  // checks on `VersionSet`'s updates for the new `Version`s. We might want
   // to move it to a dedicated function, or remove it if we gain enough
   // confidence in `descriptor_last_sequence_`.
   if (s.ok()) {
