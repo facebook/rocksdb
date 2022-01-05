@@ -462,29 +462,4 @@ public interface AdvancedColumnFamilyOptionsInterface<
    * @return true if consistency checks are enforced
    */
   boolean forceConsistencyChecks();
-
-  /**
-   * RocksDB uses the first 25% of num_open_files for precaching during
-   *  start-up and after compactions.  The files precached in this fashion
-   *  provide faster access.  However, these files are also never released.
-   *  Scenarios that have large bloom filters not cached or scenarios where
-   *  user is manually lowering the num_open_files at runtime might want
-   *  to disable this behavior.
-   *
-   * Default: false
-   *
-   * @param disablePreloadPinning true to stop pinning preload files in cache
-   *
-   * @return the reference to the current options.
-   */
-  T setDisablePreloadPinning(boolean disablePreloadPinning);
-
-  /**
-   * RocksDB uses the first 25% of num_open_files for precaching during
-   *  start-up and after compactions.  The files precached in this fashion
-   *  might or might not be pinned in the table cache.
-   *
-   * @return true when pinning preloaded files into cache is disable
-   */
-  boolean disablePreloadPinning();
 }

@@ -896,17 +896,6 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setDisablePreloadPinning(final boolean disablePreloadPinning) {
-    setDisablePreloadPinning(nativeHandle_, disablePreloadPinning);
-    return this;
-  }
-
-  @Override
-  public boolean disablePreloadPinning() {
-    return disablePreloadPinning(nativeHandle_);
-  }
-
-  @Override
   public ColumnFamilyOptions setSstPartitionerFactory(SstPartitionerFactory sstPartitionerFactory) {
     setSstPartitionerFactory(nativeHandle_, sstPartitionerFactory.nativeHandle_);
     this.sstPartitionerFactory_ = sstPartitionerFactory;
@@ -1101,9 +1090,6 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setForceConsistencyChecks(final long handle,
     final boolean forceConsistencyChecks);
   private native boolean forceConsistencyChecks(final long handle);
-  private native void setDisablePreloadPinning(
-      final long handle, final boolean disablePreloadPinning);
-  private native boolean disablePreloadPinning(final long handle);
   private native void setSstPartitionerFactory(long nativeHandle_, long newFactoryHandle);
   private static native void setCompactionThreadLimiter(
       final long nativeHandle_, final long compactionThreadLimiterHandle);

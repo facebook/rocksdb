@@ -3665,17 +3665,6 @@ void Java_org_rocksdb_Options_setForceConsistencyChecks(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setDisablePreloadPinning
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setDisablePreloadPinning(
-    JNIEnv*, jobject, jlong jhandle, jboolean jdisable_preload_pinning) {
-  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  opts->disable_preload_pinning = static_cast<bool>(jdisable_preload_pinning);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    forceConsistencyChecks
  * Signature: (J)Z
  */
@@ -3683,17 +3672,6 @@ jboolean Java_org_rocksdb_Options_forceConsistencyChecks(
     JNIEnv*, jobject, jlong jhandle) {
   auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
   return static_cast<bool>(opts->force_consistency_checks);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    disablePreloadPinning
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_disablePreloadPinning(JNIEnv*, jobject,
-                                                        jlong jhandle) {
-  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  return static_cast<bool>(opts->disable_preload_pinning);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -5223,31 +5201,6 @@ jboolean Java_org_rocksdb_ColumnFamilyOptions_forceConsistencyChecks(
   auto* cf_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
   return static_cast<bool>(cf_opts->force_consistency_checks);
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    setDisablePreloadPinning
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_ColumnFamilyOptions_setDisablePreloadPinning(
-    JNIEnv*, jobject, jlong jhandle, jboolean jdisable_preload_pinning) {
-  auto* cf_opts =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
-  cf_opts->disable_preload_pinning =
-      static_cast<bool>(jdisable_preload_pinning);
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    disablePreloadPinning
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_ColumnFamilyOptions_disablePreloadPinning(
-    JNIEnv*, jobject, jlong jhandle) {
-  auto* cf_opts =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
-  return static_cast<bool>(cf_opts->disable_preload_pinning);
 }
 
 /////////////////////////////////////////////////////////////////////

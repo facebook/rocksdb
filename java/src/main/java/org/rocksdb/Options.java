@@ -1887,17 +1887,6 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setDisablePreloadPinning(final boolean disablePreloadPinning) {
-    setDisablePreloadPinning(nativeHandle_, disablePreloadPinning);
-    return this;
-  }
-
-  @Override
-  public boolean disablePreloadPinning() {
-    return disablePreloadPinning(nativeHandle_);
-  }
-
-  @Override
   public Options setAtomicFlush(final boolean atomicFlush) {
     setAtomicFlush(nativeHandle_, atomicFlush);
     return this;
@@ -2401,9 +2390,6 @@ public class Options extends RocksObject
   private native void setForceConsistencyChecks(final long handle,
       final boolean forceConsistencyChecks);
   private native boolean forceConsistencyChecks(final long handle);
-  private native void setDisablePreloadPinning(
-      final long handle, final boolean disablePreloadPinning);
-  private native boolean disablePreloadPinning(final long handle);
   private native void setAtomicFlush(final long handle,
       final boolean atomicFlush);
   private native boolean atomicFlush(final long handle);

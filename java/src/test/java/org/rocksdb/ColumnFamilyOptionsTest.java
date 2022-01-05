@@ -626,15 +626,6 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void disablePreloadPinning() {
-    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
-      final boolean booleanValue = true;
-      opt.setDisablePreloadPinning(booleanValue);
-      assertThat(opt.disablePreloadPinning()).isEqualTo(booleanValue);
-    }
-  }
-
-  @Test
   public void compactionFilter() {
     try(final ColumnFamilyOptions options = new ColumnFamilyOptions();
         final RemoveEmptyValueCompactionFilter cf = new RemoveEmptyValueCompactionFilter()) {
