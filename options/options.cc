@@ -85,7 +85,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       optimize_filters_for_hits(options.optimize_filters_for_hits),
       paranoid_file_checks(options.paranoid_file_checks),
       force_consistency_checks(options.force_consistency_checks),
-      disable_preload_pinning(options.disable_preload_pinning),
+      file_preload(options.file_preload),
       report_bg_io_stats(options.report_bg_io_stats),
       ttl(options.ttl),
       periodic_compaction_seconds(options.periodic_compaction_seconds),
@@ -379,8 +379,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      paranoid_file_checks);
     ROCKS_LOG_HEADER(log, "               Options.force_consistency_checks: %d",
                      force_consistency_checks);
-    ROCKS_LOG_HEADER(log, "               Options.disable_preload_pinning: %d",
-                     disable_preload_pinning);
+    ROCKS_LOG_HEADER(log, "               Options.file_preload: %d",
+                     file_preload);
     ROCKS_LOG_HEADER(log, "               Options.report_bg_io_stats: %d",
                      report_bg_io_stats);
     ROCKS_LOG_HEADER(log, "                              Options.ttl: %" PRIu64,

@@ -83,6 +83,8 @@ struct OptionsHelper {
   static std::unordered_map<std::string, CompactionPri>
       compaction_pri_string_map;
 #endif  // !ROCKSDB_LITE
+  static std::map<FilePreload, std::string> file_preload_to_string;
+  static std::unordered_map<std::string, FilePreload> file_preload_string_map;
 };
 
 // Some aliasing
@@ -103,5 +105,6 @@ static auto& compaction_style_string_map =
 static auto& compaction_pri_string_map =
     OptionsHelper::compaction_pri_string_map;
 #endif  // !ROCKSDB_LITE
+static auto& file_preload_string_map = OptionsHelper::file_preload_string_map;
 
 }  // namespace ROCKSDB_NAMESPACE

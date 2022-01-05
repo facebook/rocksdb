@@ -1499,9 +1499,9 @@ TEST_F(OptionsTest, MutableCFOptions) {
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(
       config_options, cf_opts, {{"force_consistency_checks", "true"}},
       &cf_opts));
-  // disable preload pinning is not mutable
+  // file_preload is not mutable
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(
-      config_options, cf_opts, {{"disable_preload_pinning", "true"}},
+      config_options, cf_opts, {{"file_preload", "kFilePreloadWithPinning"}},
       &cf_opts));
 
   // Attempt to change the table.  It is not mutable, so this should fail and

@@ -294,7 +294,7 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->num_levels = ioptions.num_levels;
   cf_opts->optimize_filters_for_hits = ioptions.optimize_filters_for_hits;
   cf_opts->force_consistency_checks = ioptions.force_consistency_checks;
-  cf_opts->disable_preload_pinning = ioptions.disable_preload_pinning;
+  cf_opts->file_preload = ioptions.file_preload;
   cf_opts->memtable_insert_with_hint_prefix_extractor =
       ioptions.memtable_insert_with_hint_prefix_extractor;
   cf_opts->cf_paths = ioptions.cf_paths;
@@ -317,6 +317,11 @@ std::map<CompactionPri, std::string> OptionsHelper::compaction_pri_to_string = {
     {kOldestLargestSeqFirst, "kOldestLargestSeqFirst"},
     {kOldestSmallestSeqFirst, "kOldestSmallestSeqFirst"},
     {kMinOverlappingRatio, "kMinOverlappingRatio"}};
+
+std::map<FilePreload, std::string> OptionsHelper::file_preload_to_string = {
+    {kFilePreloadWithPinning, "kFilePreloadWithPinning"},
+    {kFilePreloadWithoutPinning, "kFilePreloadWithoutPinning"},
+    {kFilePreloadDisabled, "kFilePreloadDisabled"}};
 
 std::map<CompactionStopStyle, std::string>
     OptionsHelper::compaction_stop_style_to_string = {
@@ -467,6 +472,10 @@ static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
       return ParseEnum<CompressionType>(
           compression_type_string_map, value,
           static_cast<CompressionType*>(opt_address));
+    case OptionType::kFilePreload:
+      return ParseEnum<FilePreload>(
+          file_preload_string_map, value,
+          reinterpret_cast<FilePreload*>(opt_address));
     case OptionType::kSliceTransform:
       return ParseSliceTransform(
           value,
@@ -555,6 +564,10 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       return SerializeEnum<CompressionType>(
           compression_type_string_map,
           *(static_cast<const CompressionType*>(opt_address)), value);
+    case OptionType::kFilePreload:
+      return SerializeEnum<FilePreload>(
+          file_preload_string_map,
+          *(reinterpret_cast<const FilePreload*>(opt_address)), value);
     case OptionType::kSliceTransform: {
       const auto* slice_transform_ptr =
           static_cast<const std::shared_ptr<const SliceTransform>*>(
@@ -907,6 +920,12 @@ std::unordered_map<std::string, CompactionStopStyle>
         {"kCompactionStopStyleSimilarSize", kCompactionStopStyleSimilarSize},
         {"kCompactionStopStyleTotalSize", kCompactionStopStyleTotalSize}};
 
+std::unordered_map<std::string, FilePreload>
+    OptionsHelper::file_preload_string_map = {
+        {"kFilePreloadWithPinning", FilePreload::kFilePreloadWithPinning},
+        {"kFilePreloadWithoutPinning", FilePreload::kFilePreloadWithoutPinning},
+        {"kFilePreloadDisabled", FilePreload::kFilePreloadDisabled}};
+
 Status OptionTypeInfo::NextToken(const std::string& opts, char delimiter,
                                  size_t pos, size_t* end, std::string* token) {
   while (pos < opts.size() && isspace(opts[pos])) {
@@ -1245,6 +1264,8 @@ static bool AreOptionsEqual(OptionType type, const void* this_offset,
       return IsOptionEqual<CompactionPri>(this_offset, that_offset);
     case OptionType::kCompressionType:
       return IsOptionEqual<CompressionType>(this_offset, that_offset);
+    case OptionType::kFilePreload:
+      return IsOptionEqual<FilePreload>(this_offset, that_offset);
     case OptionType::kChecksumType:
       return IsOptionEqual<ChecksumType>(this_offset, that_offset);
     case OptionType::kEncodingType:
