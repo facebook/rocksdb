@@ -96,7 +96,7 @@ public class TransactionLogIterator extends RocksObject {
      *
      * @return End sequence number.
      */
-    public long startSequenceNumber() {
+    public long endSequenceNumber() {
       return endSequenceNumber_;
     }
 
