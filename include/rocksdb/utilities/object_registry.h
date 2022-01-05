@@ -67,6 +67,7 @@ class ObjectLibrary {
    private:
     std::string name_;
     Regex regex_;  // The pattern for this entry
+  };
 
  public:
   // Class for matching target strings to a pattern.
