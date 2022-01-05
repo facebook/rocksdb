@@ -14,24 +14,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
-ObjectLibrary::PatternEntry::PatternEntry(const std::string &name,
-                                          bool optional)
-    : name_(name), optional_(optional), slength_(0) {
-  nlength_ = name_.size();
-  if (optional && nlength_ >= 3 && name[nlength_ - 2] == '.' &&
-      (name[nlength_ - 1] == '*' || name[nlength_ - 1] == '+')) {
-    // This might be an old-style regex (like a://.* or a://.+)
-    std::string separator;
-    size_t pos = nlength_ - 3;
-    while (pos > 1 && !isalnum(name[pos - 1])) --pos;
-    separator = name.substr(pos, nlength_ - pos - 2);
-    name_ = name.substr(0, pos);
-    AddSeparator(separator, name[nlength_ - 1] == '+');
-    nlength_ = pos;
-    optional_ = false;
-  }
-}
-
 size_t ObjectLibrary::PatternEntry::MatchSeparatorAt(
     size_t start, Quantifier mode, const std::string &target, size_t tlen,
     const std::string &separator) const {
@@ -88,19 +70,18 @@ bool ObjectLibrary::PatternEntry::MatchesTarget(const std::string &name,
     auto mode = kMatchExact;
     for (size_t idx = 0; idx < separators_.size(); ++idx) {
       const auto &separator = separators_[idx];
-      auto next = MatchSeparatorAt(start, mode, target, tlen, separator.first);
+      start = MatchSeparatorAt(start, mode, target, tlen, separator.first);
       if (start == std::string::npos) {
         return false;
       } else {
         mode = separator.second;
       }
-      start = next;
     }
     // We have matched all of the separators.  Now check that what is left
     // unmatched in the target is acceptable.
     if (mode == kMatchExact) {
       return (start == tlen);
-    } else if (start > tlen || (start == tlen && mode != kMatchZeroOrMore)) {
+    } else if (start >= tlen) {
       return false;
     } else if (mode == kMatchNumeric) {
       while (start < tlen) {
