@@ -3,6 +3,7 @@
 ### Public API change
 * Added values to `TraceFilterType`: `kTraceFilterIteratorSeek`, `kTraceFilterIteratorSeekForPrev`, and `kTraceFilterMultiGet`. They can be set in `TraceOptions` to filter out the operation types after which they are named.
 * Added `TraceOptions::preserve_write_order`. When enabled it  guarantees write records are traced in the same order they are logged to WAL and applied to the DB. By default it is disabled (false) to match the legacy behavior and prevent regression.
+* Made the Env class extend the Customizable class.  Implementations need to be registered with the ObjectRegistry and to implement a Name() method in order to be created via this method.
 
 ## 6.28.0 (2021-12-17)
 ### New Features

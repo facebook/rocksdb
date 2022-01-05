@@ -1048,6 +1048,8 @@ TEST_F(DBBasicTest, MmapAndBufferOptions) {
 class TestEnv : public EnvWrapper {
  public:
   explicit TestEnv(Env* base_env) : EnvWrapper(base_env), close_count(0) {}
+  static const char* kClassName() { return "TestEnv"; }
+  const char* Name() const override { return kClassName(); }
 
   class TestLogger : public Logger {
    public:
@@ -3064,6 +3066,8 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
 
    public:
     FakeDirectIOEnv(Env* env) : EnvWrapper(env) {}
+    static const char* kClassName() { return "FakeDirectIOEnv"; }
+    const char* Name() const override { return kClassName(); }
 
     Status NewRandomAccessFile(const std::string& fname,
                                std::unique_ptr<RandomAccessFile>* result,
