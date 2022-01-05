@@ -4530,6 +4530,9 @@ Status VersionSet::ProcessManifestWrites(
       // For each column family, update its log number indicating that logs
       // with number smaller than this should be ignored.
       uint64_t last_min_log_number_to_keep = 0;
+      // This tracks the maximum `last_sequence` in any of the `VersionEdit`s
+      // being applied. We use it to update the `VersionSet` if we find the
+      // MANIFEST now refers to data with a new highest sequence number.
       uint64_t last_sequence = 0;
       for (const auto& e : batch_edits) {
         ColumnFamilyData* cfd = nullptr;
@@ -4763,6 +4766,9 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
   edit->SetNextFile(next_file_number_.load());
   if (!edit->HasLastSequence() ||
       descriptor_last_sequence_ > edit->GetLastSequence()) {
+    // This is for the edge case where there are no AddFile entries in the
+    // MANIFEST. Otherwise, this is redundant since any AddFile entry will carry
+    // with it the maximum sequence number to which the MANIFEST refers.
     edit->SetLastSequence(descriptor_last_sequence_);
   }
   if (edit->is_column_family_drop_) {
@@ -4792,6 +4798,9 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   edit->SetNextFile(next_file_number_.load());
   if (!edit->HasLastSequence() ||
       descriptor_last_sequence_ > edit->GetLastSequence()) {
+    // This is for the edge case where there are no AddFile entries in the
+    // MANIFEST. Otherwise, this is redundant since any AddFile entry will carry
+    // with it the maximum sequence number to which the MANIFEST refers.
     edit->SetLastSequence(descriptor_last_sequence_);
   }
 
