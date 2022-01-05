@@ -1622,7 +1622,7 @@ void BlockBasedTableBuilder::WriteIndexBlock(
       } else if (s.IsIncomplete()) {
         // More partitioned index after this one
         assert(!index_building_finished);
-      } else if (!s.IsIncomplete()) {
+      } else {
         // Error
         rep_->SetStatus(s);
         return;
