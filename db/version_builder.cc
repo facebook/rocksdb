@@ -63,7 +63,10 @@ class VersionBuilder::Rep {
   // kLevel0 -- NewestFirstBySeqNo
   // kLevelNon0 -- BySmallestKey
   struct FileComparator {
-    enum SortMethod { kLevel0 = 0, kLevelNon0 = 1, } sort_method;
+    enum SortMethod {
+      kLevel0 = 0,
+      kLevelNon0 = 1,
+    } sort_method;
     const InternalKeyComparator* internal_comparator;
 
     FileComparator() : internal_comparator(nullptr) {}
@@ -902,7 +905,7 @@ class VersionBuilder::Rep {
       auto added_end = added_files.end();
       while (added_iter != added_end || base_iter != base_end) {
         if (base_iter == base_end ||
-                (added_iter != added_end && cmp(*added_iter, *base_iter))) {
+            (added_iter != added_end && cmp(*added_iter, *base_iter))) {
           MaybeAddFile(vstorage, level, *added_iter++);
         } else {
           MaybeAddFile(vstorage, level, *base_iter++);
@@ -927,7 +930,8 @@ class VersionBuilder::Rep {
     bool always_load = (table_cache_capacity == TableCache::kInfiniteCapacity);
     size_t max_load = port::kMaxSizet;
 #ifndef NDEBUG
-    bool debug_override = true;  // to enable CompactedDB related tests and some property tests
+    bool debug_override =
+        true;  // to enable CompactedDB related tests and some property tests
 #else
     bool debug_override = false;
 #endif
@@ -1008,10 +1012,11 @@ class VersionBuilder::Rep {
         //  table cache which over time are no longer useful.  The
         //  kFilePreloadWithoutPinning option keeps #1 and disables #2.
         if (file_meta->table_reader_handle != nullptr) {
-          if (ioptions_->file_preload == kFilePreloadWithPinning || debug_override) {
+          if (ioptions_->file_preload == kFilePreloadWithPinning ||
+              debug_override) {
             file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(
                 file_meta->table_reader_handle);
-          } else { // kFilePreloadWithoutPinning
+          } else {  // kFilePreloadWithoutPinning
             table_cache_->ReleaseHandle(file_meta->table_reader_handle);
             file_meta->table_reader_handle = nullptr;
           }

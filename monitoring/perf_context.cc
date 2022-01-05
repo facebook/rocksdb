@@ -23,12 +23,11 @@ thread_local PerfContext perf_context;
 #error "No thread-local support. Disable perf context with -DNPERF_CONTEXT."
 #endif
 
-PerfContext* get_perf_context() {
-  return &perf_context;
-}
+PerfContext* get_perf_context() { return &perf_context; }
 
 PerfContext::~PerfContext() {
-#if !defined(NPERF_CONTEXT) && defined(ROCKSDB_SUPPORT_THREAD_LOCAL) && !defined(OS_SOLARIS)
+#if !defined(NPERF_CONTEXT) && defined(ROCKSDB_SUPPORT_THREAD_LOCAL) && \
+    !defined(OS_SOLARIS)
   ClearPerLevelPerfContext();
 #endif
 }
@@ -422,15 +421,14 @@ void PerfContext::Reset() {
     ss << #counter << " = " << counter << ", ";  \
   }
 
-#define PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(counter)         \
-  if (per_level_perf_context_enabled && \
-      level_to_perf_context) {                                    \
-    ss << #counter << " = ";                                      \
-    for (auto& kv : *level_to_perf_context) {                     \
-      if (!exclude_zero_counters || (kv.second.counter > 0)) {    \
-        ss << kv.second.counter << "@level" << kv.first << ", ";  \
-      }                                                           \
-    }                                                             \
+#define PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(counter)        \
+  if (per_level_perf_context_enabled && level_to_perf_context) { \
+    ss << #counter << " = ";                                     \
+    for (auto& kv : *level_to_perf_context) {                    \
+      if (!exclude_zero_counters || (kv.second.counter > 0)) {   \
+        ss << kv.second.counter << "@level" << kv.first << ", "; \
+      }                                                          \
+    }                                                            \
   }
 
 void PerfContextByLevel::Reset() {
@@ -546,11 +544,11 @@ void PerfContext::EnablePerLevelPerfContext() {
   per_level_perf_context_enabled = true;
 }
 
-void PerfContext::DisablePerLevelPerfContext(){
+void PerfContext::DisablePerLevelPerfContext() {
   per_level_perf_context_enabled = false;
 }
 
-void PerfContext::ClearPerLevelPerfContext(){
+void PerfContext::ClearPerLevelPerfContext() {
   if (level_to_perf_context != nullptr) {
     level_to_perf_context->clear();
     delete level_to_perf_context;
