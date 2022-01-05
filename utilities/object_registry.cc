@@ -264,7 +264,7 @@ size_t ObjectRegistry::GetFactoryCount(const std::string &type) const {
     count = parent_->GetFactoryCount(type);
   }
   std::unique_lock<std::mutex> lock(library_mutex_);
-  for (const auto library : libraries_) {
+  for (const auto &library : libraries_) {
     count += library->GetFactoryCount(type);
   }
   return count;
@@ -278,7 +278,7 @@ void ObjectRegistry::GetFactoryNames(const std::string &type,
     parent_->GetFactoryNames(type, names);
   }
   std::unique_lock<std::mutex> lock(library_mutex_);
-  for (const auto library : libraries_) {
+  for (const auto &library : libraries_) {
     library->GetFactoryNames(type, names);
   }
 }
@@ -290,7 +290,7 @@ void ObjectRegistry::GetFactoryTypes(
     parent_->GetFactoryTypes(types);
   }
   std::unique_lock<std::mutex> lock(library_mutex_);
-  for (const auto library : libraries_) {
+  for (const auto &library : libraries_) {
     library->GetFactoryTypes(types);
   }
 }
