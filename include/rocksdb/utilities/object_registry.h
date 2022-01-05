@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "rocksdb/status.h"
+#include "rocksdb/utilities/regex.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Customizable;
@@ -41,6 +42,32 @@ template <typename T>
 using ConfigureFunc = std::function<Status(T*)>;
 
 class ObjectLibrary {
+ private:
+  // Base class for an Entry in the Registry.
+  class Entry {
+   public:
+    virtual ~Entry() {}
+    virtual bool Matches(const std::string& target) const = 0;
+    virtual const char* Name() const = 0;
+  };
+
+  // A class that implements an Entry based on Regex.
+  // To be deprecated
+  class RegexEntry : public Entry {
+   public:
+    RegexEntry(const std::string& name) : name_(name) {
+      Regex::Parse(name, &regex_).PermitUncheckedError();
+    }
+
+    bool Matches(const std::string& target) const override {
+      return regex_.Matches(target);
+    }
+    const char* Name() const override { return name_.c_str(); }
+
+   private:
+    std::string name_;
+    Regex regex_;  // The pattern for this entry
+
  public:
   // Class for matching target strings to a pattern.
   // Entries consist of a name that starts the pattern and attributes
@@ -60,12 +87,13 @@ class ObjectLibrary {
   //     Name("Hello").AddSeparator(" ").AddSuffix("!") would match
   //     "Hello world!", but not "Hello world!!"
   //   - No backtracking is necessary, enabling reliably efficient matching
-  class PatternEntry {
+  class PatternEntry : public Entry {
    private:
     enum Quantifier {
-      kMatchPattern,  // [suffix].+
-      kMatchExact,    // [suffix]
-      kMatchNumeric,  // [suffix][0-9]+
+      kMatchZeroOrMore,  // [suffix].*
+      kMatchAtLeastOne,  // [suffix].+
+      kMatchExact,       // [suffix]
+      kMatchNumeric,     // [suffix][0-9]+
     };
 
    public:
@@ -95,9 +123,19 @@ class ObjectLibrary {
 
     // Adds a separator (exact match of separator with trailing characters) to
     // the entry
-    PatternEntry& AddSeparator(const std::string& separator) {
-      separators_.emplace_back(separator, kMatchPattern);
-      slength_ += separator.size() + 1;
+    // If at_least_one is true, the separator must be followed by at least
+    // one character (e.g. separator.+).
+    // If at_least_one is false, the separator may be followed by zero or
+    // more characters (e.g. separator.*).
+    PatternEntry& AddSeparator(const std::string& separator,
+                               bool at_least_one = true) {
+      slength_ += separator.size();
+      if (at_least_one) {
+        separators_.emplace_back(separator, kMatchAtLeastOne);
+        ++slength_;
+      } else {
+        separators_.emplace_back(separator, kMatchZeroOrMore);
+      }
       return *this;
     }
 
@@ -124,8 +162,8 @@ class ObjectLibrary {
     }
 
     // Checks to see if the target matches this entry
-    bool Matches(const std::string& target) const;
-    const char* Name() const { return name_.c_str(); }
+    bool Matches(const std::string& target) const override;
+    const char* Name() const override { return name_.c_str(); }
 
    private:
     size_t MatchSeparatorAt(size_t start, Quantifier mode,
@@ -144,24 +182,17 @@ class ObjectLibrary {
   };                  // End class Entry
 
  private:
-  // Base class for an Entry in the Registry.
-  class Entry {
-   public:
-    virtual ~Entry() {}
-    virtual bool Matches(const std::string& target) const = 0;
-    virtual const char* Name() const = 0;
-  };
 
   // An Entry containing a FactoryFunc for creating new Objects
   template <typename T>
   class FactoryEntry : public Entry {
    public:
-    FactoryEntry(const PatternEntry& e, FactoryFunc<T> f)
-        : entry_(e), factory_(std::move(f)) {}
+    FactoryEntry(Entry* e, FactoryFunc<T> f)
+        : pattern_(e), factory_(std::move(f)) {}
     bool Matches(const std::string& target) const override {
-      return entry_.Matches(target);
+      return pattern_->Matches(target);
     }
-    const char* Name() const override { return entry_.Name(); }
+    const char* Name() const override { return pattern_->Name(); }
 
     // Creates a new T object.
     T* NewFactoryObject(const std::string& target, std::unique_ptr<T>* guard,
@@ -171,7 +202,7 @@ class ObjectLibrary {
     const FactoryFunc<T>& GetFactory() const { return factory_; }
 
    private:
-    PatternEntry entry_;  // The pattern for this entry
+    std::unique_ptr<Entry> pattern_;  // The pattern for this entry
     FactoryFunc<T> factory_;
   };  // End class FactoryEntry
  public:
@@ -204,20 +235,35 @@ class ObjectLibrary {
 
   // Registers the factory with the library for the pattern.
   // If the pattern matches, the factory may be used to create a new object.
+  //
+  // Deprecated. Will be removed in a major release. Code should use AddFactory
+  // instead
   template <typename T>
   const FactoryFunc<T>& Register(const std::string& pattern,
                                  const FactoryFunc<T>& factory) {
-    PatternEntry entry(pattern);
-    return Register(entry, factory);
+    std::unique_ptr<Entry> entry(
+        new FactoryEntry<T>(new RegexEntry(pattern), factory));
+    AddFactoryEntry(T::Type(), std::move(entry));
+    return factory;
+  }
+
+  // Registers the factory with the library for the pattern.
+  // If the pattern matches, the factory may be used to create a new object.
+  template <typename T>
+  const FactoryFunc<T>& AddFactory(const std::string& pattern,
+                                   const FactoryFunc<T>& func) {
+    std::unique_ptr<Entry> entry(
+        new FactoryEntry<T>(new PatternEntry(pattern), func));
+    AddFactoryEntry(T::Type(), std::move(entry));
+    return func;
   }
 
   template <typename T>
-  const FactoryFunc<T>& Register(const PatternEntry& pattern,
-                                 const FactoryFunc<T>& func) {
-    std::unique_ptr<Entry> entry(new FactoryEntry<T>(pattern, func));
-    std::unique_lock<std::mutex> lock(mu_);
-    auto& factories = factories_[T::Type()];
-    factories.emplace_back(std::move(entry));
+  const FactoryFunc<T>& AddFactory(const PatternEntry& pattern,
+                                   const FactoryFunc<T>& func) {
+    std::unique_ptr<Entry> entry(
+        new FactoryEntry<T>(new PatternEntry(pattern), func));
+    AddFactoryEntry(T::Type(), std::move(entry));
     return func;
   }
 
@@ -230,6 +276,12 @@ class ObjectLibrary {
   static std::shared_ptr<ObjectLibrary>& Default();
 
  private:
+  void AddFactoryEntry(const char* type, std::unique_ptr<Entry>&& entry) {
+    std::unique_lock<std::mutex> lock(mu_);
+    auto& factories = factories_[type];
+    factories.emplace_back(std::move(entry));
+  }
+
   // Protects the entry map
   mutable std::mutex mu_;
   // ** FactoryFunctions for this loader, organized by type
