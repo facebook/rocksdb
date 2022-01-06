@@ -442,6 +442,14 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
         last_seq > version_set_->last_sequence_.load()) {
       version_set_->last_sequence_.store(last_seq);
     }
+    if (last_seq != kMaxSequenceNumber &&
+        last_seq > version_set_->descriptor_last_sequence_) {
+      // This is the maximum last sequence of all `VersionEdit`s iterated. It
+      // may be greater than the maximum `largest_seqno` of all files in case
+      // the newest data referred to by the MANIFEST has been dropped or had its
+      // sequence number zeroed through compaction.
+      version_set_->descriptor_last_sequence_ = last_seq;
+    }
     version_set_->prev_log_number_ = version_edit_params_.prev_log_number_;
   }
 }
@@ -597,6 +605,11 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
                    edit.min_log_number_to_keep_);
     }
     if (edit.has_last_sequence_) {
+      // `VersionEdit::last_sequence_`s are assumed to be non-decreasing. This
+      // is legacy behavior that cannot change without breaking downgrade
+      // compatibility.
+      assert(!version_edit_params_.has_last_sequence_ ||
+             version_edit_params_.last_sequence_ <= edit.last_sequence_);
       version_edit_params_.SetLastSequence(edit.last_sequence_);
     }
     if (!version_edit_params_.has_prev_log_number_) {
