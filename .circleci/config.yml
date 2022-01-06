@@ -706,6 +706,13 @@ jobs:
             tools/check_format_compatible.sh
       - post-steps
 
+  benchmark-linux:
+    machine: true
+    resource_class: facebook/rocksdb-benchmark-sys1
+    steps:
+      - run: hostname
+      - run: uname -av
+
 workflows:
   version: 2
   build-linux:
@@ -813,6 +820,9 @@ workflows:
   build-microbench:
     jobs:
       - build-linux-microbench
+  benchmark-linux:
+    jobs:
+      - benchmark-linux
   nightly:
     triggers:
       - schedule:
