@@ -187,7 +187,6 @@ class ObjectLibrary {
   };                  // End class Entry
 
  private:
-
   // An Entry containing a FactoryFunc for creating new Objects
   template <typename T>
   class FactoryEntry : public Entry {
