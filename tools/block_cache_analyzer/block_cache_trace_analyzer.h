@@ -11,6 +11,7 @@
 
 #include "db/dbformat.h"
 #include "rocksdb/env.h"
+#include "rocksdb/trace_record.h"
 #include "rocksdb/utilities/sim_cache.h"
 #include "trace_replay/block_cache_tracer.h"
 #include "utilities/simulator_cache/cache_simulator.h"

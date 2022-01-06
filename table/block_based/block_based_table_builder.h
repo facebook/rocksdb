@@ -9,6 +9,8 @@
 
 #pragma once
 #include <stdint.h>
+
+#include <array>
 #include <limits>
 #include <string>
 #include <utility>
@@ -19,6 +21,7 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/table.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
 #include "util/compression.h"
@@ -108,17 +111,31 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Call block's Finish() method and then
   // - in buffered mode, buffer the uncompressed block contents.
   // - in unbuffered mode, write the compressed block contents to file.
-  void WriteBlock(BlockBuilder* block, BlockHandle* handle, bool is_data_block);
+  void WriteBlock(BlockBuilder* block, BlockHandle* handle,
+                  BlockType blocktype);
 
   // Compress and write block content to the file.
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
-                  bool is_data_block);
+                  BlockType block_type);
   // Directly write data to the file.
   void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle,
-                     bool is_data_block = false);
+                     BlockType block_type, const Slice* raw_data = nullptr,
+                     bool is_top_level_filter_block = false);
+
+  void SetupCacheKeyPrefix(const TableBuilderOptions& tbo);
+
+  template <typename TBlocklike>
   Status InsertBlockInCache(const Slice& block_contents,
-                            const CompressionType type,
-                            const BlockHandle* handle);
+                            const BlockHandle* handle, BlockType block_type);
+
+  Status InsertBlockInCacheHelper(const Slice& block_contents,
+                                  const BlockHandle* handle,
+                                  BlockType block_type,
+                                  bool is_top_level_filter_block);
+
+  Status InsertBlockInCompressedCache(const Slice& block_contents,
+                                      const CompressionType type,
+                                      const BlockHandle* handle);
 
   void WriteFilterBlock(MetaIndexBuilder* meta_index_builder);
   void WriteIndexBlock(MetaIndexBuilder* meta_index_builder,

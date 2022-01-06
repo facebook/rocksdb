@@ -267,6 +267,13 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|AARCH64")
   endif(HAS_ARMV8_CRC)
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|AARCH64")
 
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "s390x")
+  CHECK_C_COMPILER_FLAG("-march=native" HAS_S390X_MARCH_NATIVE)
+  if(HAS_S390X_MARCH_NATIVE)
+    message(STATUS " HAS_S390X_MARCH_NATIVE yes")
+  endif(HAS_S390X_MARCH_NATIVE)
+endif(CMAKE_SYSTEM_PROCESSOR MATCHES "s390x")
+
 option(PORTABLE "build a portable binary" OFF)
 option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
 option(FORCE_AVX "force building with AVX, even when PORTABLE=ON" OFF)
@@ -292,12 +299,17 @@ if(PORTABLE)
     if(FORCE_AVX2)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mbmi -mlzcnt")
     endif()
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^s390x")
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=z196")
+    endif()
   endif()
 else()
   if(MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
   else()
-    if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64" AND NOT HAS_ARMV8_CRC)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^s390x" AND NOT HAS_S390X_MARCH_NATIVE)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=z196")
+    elseif(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64" AND NOT HAS_ARMV8_CRC)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
     endif()
   endif()
@@ -340,25 +352,17 @@ int main() {
   return 0;
 }
 " BUILTIN_ATOMIC)
-if (NOT BUILTIN_ATOMIC)
-  #TODO: Check if -latomic exists
-  list(APPEND THIRDPARTY_LIBS atomic)
-endif()
+  if (NOT BUILTIN_ATOMIC)
+    #TODO: Check if -latomic exists
+    list(APPEND THIRDPARTY_LIBS atomic)
+  endif()
 endif()
 
 if (WITH_LIBURING)
-  set(CMAKE_REQUIRED_FLAGS "-luring")
-  CHECK_CXX_SOURCE_COMPILES("
-#include <liburing.h>
-int main() {
-  struct io_uring ring;
-  io_uring_queue_init(1, &ring, 0);
-  return 0;
-}
-" HAS_LIBURING)
-  if (HAS_LIBURING)
+  find_package(uring)
+  if (uring_FOUND)
     add_definitions(-DROCKSDB_IOURING_PRESENT)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -luring")
+    list(APPEND THIRDPARTY_LIBS uring::uring)
   endif()
 endif()
 
@@ -624,6 +628,8 @@ find_package(Threads REQUIRED)
 set(SOURCES
         cache/cache.cc
         cache/cache_entry_roles.cc
+        cache/cache_key.cc
+        cache/cache_reservation_manager.cc
         cache/clock_cache.cc
         cache/lru_cache.cc
         cache/sharded_cache.cc
@@ -635,9 +641,11 @@ set(SOURCES
         db/blob/blob_file_garbage.cc
         db/blob/blob_file_meta.cc
         db/blob/blob_file_reader.cc
+        db/blob/blob_garbage_meter.cc
         db/blob/blob_log_format.cc
         db/blob/blob_log_sequential_reader.cc
         db/blob/blob_log_writer.cc
+        db/blob/prefetch_buffer_collection.cc
         db/builder.cc
         db/c.cc
         db/column_family.cc
@@ -711,6 +719,7 @@ set(SOURCES
         env/file_system_tracer.cc
         env/fs_remap.cc
         env/mock_env.cc
+        env/unique_id_gen.cc
         file/delete_scheduler.cc
         file/file_prefetch_buffer.cc
         file/file_util.cc
@@ -729,6 +738,7 @@ set(SOURCES
         memory/concurrent_arena.cc
         memory/jemalloc_nodump_allocator.cc
         memory/memkind_kmem_allocator.cc
+        memory/memory_allocator.cc
         memtable/alloc_tracker.cc
         memtable/hash_linklist_rep.cc
         memtable/hash_skiplist_rep.cc
@@ -804,6 +814,7 @@ set(SOURCES
         table/table_factory.cc
         table/table_properties.cc
         table/two_level_iterator.cc
+        table/unique_id.cc
         test_util/sync_point.cc
         test_util/sync_point_impl.cc
         test_util/testutil.cc
@@ -815,9 +826,12 @@ set(SOURCES
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
         tools/trace_analyzer_tool.cc
-        trace_replay/trace_replay.cc
         trace_replay/block_cache_tracer.cc
         trace_replay/io_tracer.cc
+        trace_replay/trace_record_handler.cc
+        trace_replay/trace_record_result.cc
+        trace_replay/trace_record.cc
+        trace_replay/trace_replay.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
@@ -830,6 +844,7 @@ set(SOURCES
         util/random.cc
         util/rate_limiter.cc
         util/ribbon_config.cc
+        util/regex.cc
         util/slice.cc
         util/file_checksum_helper.cc
         util/status.cc
@@ -844,18 +859,23 @@ set(SOURCES
         utilities/blob_db/blob_db_impl_filesnapshot.cc
         utilities/blob_db/blob_dump_tool.cc
         utilities/blob_db/blob_file.cc
+        utilities/cache_dump_load.cc
+        utilities/cache_dump_load_impl.cc
         utilities/cassandra/cassandra_compaction_filter.cc
         utilities/cassandra/format.cc
         utilities/cassandra/merge_operator.cc
         utilities/checkpoint/checkpoint_impl.cc
+        utilities/compaction_filters.cc
         utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc
         utilities/debug.cc
         utilities/env_mirror.cc
         utilities/env_timed.cc
         utilities/fault_injection_env.cc
         utilities/fault_injection_fs.cc
+        utilities/fault_injection_secondary_cache.cc
         utilities/leveldb_options/leveldb_options.cc
         utilities/memory/memory_util.cc
+        utilities/merge_operators.cc
         utilities/merge_operators/bytesxor.cc
         utilities/merge_operators/max.cc
         utilities/merge_operators/put.cc
@@ -875,6 +895,7 @@ set(SOURCES
         utilities/simulator_cache/sim_cache.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
         utilities/trace/file_trace_reader_writer.cc
+        utilities/trace/replayer_impl.cc
         utilities/transactions/lock/lock_manager.cc
         utilities/transactions/lock/point/point_lock_tracker.cc
         utilities/transactions/lock/point/point_lock_manager.cc
@@ -893,6 +914,7 @@ set(SOURCES
         utilities/transactions/write_unprepared_txn.cc
         utilities/transactions/write_unprepared_txn_db.cc
         utilities/ttl/db_ttl_impl.cc
+        utilities/wal_filter.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc)
 
@@ -909,6 +931,31 @@ list(APPEND SOURCES
   utilities/transactions/lock/range/range_tree/lib/standalone_port.cc
   utilities/transactions/lock/range/range_tree/lib/util/dbt.cc
   utilities/transactions/lock/range/range_tree/lib/util/memarena.cc)
+
+message(STATUS "ROCKSDB_PLUGINS: ${ROCKSDB_PLUGINS}")
+if ( ROCKSDB_PLUGINS )
+  string(REPLACE " " ";" PLUGINS ${ROCKSDB_PLUGINS})
+  foreach (plugin ${PLUGINS})
+    add_subdirectory("plugin/${plugin}")
+    foreach (src ${${plugin}_SOURCES})
+      list(APPEND SOURCES plugin/${plugin}/${src})
+      set_source_files_properties(
+        plugin/${plugin}/${src}
+        PROPERTIES COMPILE_FLAGS "${${plugin}_COMPILE_FLAGS}")
+    endforeach()
+    foreach (path ${${plugin}_INCLUDE_PATHS})
+      include_directories(${path})
+    endforeach()
+    foreach (lib ${${plugin}_LIBS})
+      list(APPEND THIRDPARTY_LIBS ${lib})
+    endforeach()
+    foreach (link_path ${${plugin}_LINK_PATHS})
+      link_directories(AFTER ${link_path})
+    endforeach()
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${${plugin}_CMAKE_SHARED_LINKER_FLAGS}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${${plugin}_CMAKE_EXE_LINKER_FLAGS}")
+  endforeach()
+endif()
 
 if(HAVE_SSE42 AND NOT MSVC)
   set_source_files_properties(
@@ -933,13 +980,8 @@ if(WIN32)
     port/win/env_win.cc
     port/win/env_default.cc
     port/win/port_win.cc
-    port/win/win_logger.cc)
-  if(NOT MINGW)
-    # Mingw only supports std::thread when using
-    # posix threads.
-    list(APPEND SOURCES
-      port/win/win_thread.cc)
-  endif()
+    port/win/win_logger.cc
+    port/win/win_thread.cc)
 if(WITH_XPRESS)
   list(APPEND SOURCES
     port/win/xpress_win.cc)
@@ -1121,13 +1163,16 @@ if(WITH_TESTS)
   )
   if(WITH_ALL_TESTS)
     list(APPEND TESTS
+        cache/cache_reservation_manager_test.cc
         cache/cache_test.cc
         cache/lru_cache_test.cc
+        db/blob/blob_counting_iterator_test.cc
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc
         db/blob/blob_file_cache_test.cc
         db/blob/blob_file_garbage_test.cc
         db/blob/blob_file_reader_test.cc
+        db/blob/blob_garbage_meter_test.cc
         db/blob/db_blob_basic_test.cc
         db/blob/db_blob_compaction_test.cc
         db/blob/db_blob_corruption_test.cc
@@ -1218,7 +1263,7 @@ if(WITH_TESTS)
         logging/env_logger_test.cc
         logging/event_logger_test.cc
         memory/arena_test.cc
-        memory/memkind_kmem_allocator_test.cc
+        memory/memory_allocator_test.cc
         memtable/inlineskiplist_test.cc
         memtable/skiplist_test.cc
         memtable/write_buffer_manager_test.cc
@@ -1423,4 +1468,9 @@ endif()
 option(WITH_EXAMPLES "build with examples" OFF)
 if(WITH_EXAMPLES)
   add_subdirectory(examples)
+endif()
+
+option(WITH_BENCHMARK "build benchmark tests" OFF)
+if(WITH_BENCHMARK)
+  add_subdirectory(${PROJECT_SOURCE_DIR}/microbench/)
 endif()

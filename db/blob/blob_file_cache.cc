@@ -26,13 +26,13 @@ BlobFileCache::BlobFileCache(Cache* cache,
                              const std::shared_ptr<IOTracer>& io_tracer)
     : cache_(cache),
       mutex_(kNumberOfMutexStripes, kGetSliceNPHash64UnseededFnPtr),
-      immutable_cf_options_(immutable_options),
+      immutable_options_(immutable_options),
       file_options_(file_options),
       column_family_id_(column_family_id),
       blob_file_read_hist_(blob_file_read_hist),
       io_tracer_(io_tracer) {
   assert(cache_);
-  assert(immutable_cf_options_);
+  assert(immutable_options_);
   assert(file_options_);
 }
 
@@ -63,8 +63,8 @@ Status BlobFileCache::GetBlobFileReader(
     return Status::OK();
   }
 
-  assert(immutable_cf_options_);
-  Statistics* const statistics = immutable_cf_options_->stats;
+  assert(immutable_options_);
+  Statistics* const statistics = immutable_options_->stats;
 
   RecordTick(statistics, NO_FILE_OPENS);
 
@@ -73,7 +73,7 @@ Status BlobFileCache::GetBlobFileReader(
   {
     assert(file_options_);
     const Status s = BlobFileReader::Create(
-        *immutable_cf_options_, *file_options_, column_family_id_,
+        *immutable_options_, *file_options_, column_family_id_,
         blob_file_read_hist_, blob_file_number, io_tracer_, &reader);
     if (!s.ok()) {
       RecordTick(statistics, NO_FILE_ERRORS);

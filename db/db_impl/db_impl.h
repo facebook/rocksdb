@@ -20,8 +20,8 @@
 #include <vector>
 
 #include "db/column_family.h"
+#include "db/compaction/compaction_iterator.h"
 #include "db/compaction/compaction_job.h"
-#include "db/dbformat.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "db/external_sst_file_ingestion_job.h"
@@ -50,9 +50,15 @@
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
+#ifndef ROCKSDB_LITE
 #include "rocksdb/trace_reader_writer.h"
+#endif  // ROCKSDB_LITE
 #include "rocksdb/transaction_log.h"
+#ifndef ROCKSDB_LITE
+#include "rocksdb/utilities/replayer.h"
+#endif  // ROCKSDB_LITE
 #include "rocksdb/write_buffer_manager.h"
+#include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/autovector.h"
 #include "util/hash.h"
@@ -349,6 +355,16 @@ class DBImpl : public DB {
 
   virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
 
+  // IncreaseFullHistoryTsLow(ColumnFamilyHandle*, std::string) will acquire
+  // and release db_mutex
+  Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                  std::string ts_low) override;
+
+  // GetFullHistoryTsLow(ColumnFamilyHandle*, std::string*) will acquire and
+  // release db_mutex
+  Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                             std::string* ts_low) override;
+
   virtual Status GetDbIdentity(std::string& identity) const override;
 
   virtual Status GetDbIdentityFromIdentityFile(std::string* identity) const;
@@ -399,12 +415,17 @@ class DBImpl : public DB {
   virtual Status GetLiveFilesChecksumInfo(
       FileChecksumList* checksum_list) override;
 
+  virtual Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& opts,
+      std::vector<LiveFileStorageInfo>* files) override;
+
   // Obtains the meta data of the specified column family of the DB.
-  // Status::NotFound() will be returned if the current DB does not have
-  // any column family match the specified name.
   // TODO(yhchiang): output parameter is placed in the end in this codebase.
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                        ColumnFamilyMetaData* metadata) override;
+
+  void GetAllColumnFamilyMetaData(
+      std::vector<ColumnFamilyMetaData>* metadata) override;
 
   Status SuggestCompactRange(ColumnFamilyHandle* column_family,
                              const Slice* begin, const Slice* end) override;
@@ -460,6 +481,12 @@ class DBImpl : public DB {
 
   using DB::EndTrace;
   virtual Status EndTrace() override;
+
+  using DB::NewDefaultReplayer;
+  virtual Status NewDefaultReplayer(
+      const std::vector<ColumnFamilyHandle*>& handles,
+      std::unique_ptr<TraceReader>&& reader,
+      std::unique_ptr<Replayer>* replayer) override;
 
   using DB::StartBlockCacheTrace;
   Status StartBlockCacheTrace(
@@ -565,9 +592,15 @@ class DBImpl : public DB {
   // in the memtables, including memtable history.  If cache_only is false,
   // SST files will also be checked.
   //
+  // `key` should NOT have user-defined timestamp appended to user key even if
+  // timestamp is enabled.
+  //
   // If a key is found, *found_record_for_key will be set to true and
   // *seq will be set to the stored sequence number for the latest
-  // operation on this key or kMaxSequenceNumber if unknown.
+  // operation on this key or kMaxSequenceNumber if unknown. If user-defined
+  // timestamp is enabled for this column family and timestamp is not nullptr,
+  // then *timestamp will be set to the stored timestamp for the latest
+  // operation on this key.
   // If no key is found, *found_record_for_key will be set to false.
   //
   // Note: If cache_only=false, it is possible for *seq to be set to 0 if
@@ -591,9 +624,9 @@ class DBImpl : public DB {
   Status GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
                                  bool cache_only,
                                  SequenceNumber lower_bound_seq,
-                                 SequenceNumber* seq,
+                                 SequenceNumber* seq, std::string* timestamp,
                                  bool* found_record_for_key,
-                                 bool* is_blob_index = nullptr);
+                                 bool* is_blob_index);
 
   Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key,
                            const Slice& lower_bound, const Slice upper_bound);
@@ -919,6 +952,8 @@ class DBImpl : public DB {
                                      int max_entries_to_print,
                                      std::string* out_str);
 
+  VersionSet* GetVersionSet() const { return versions_.get(); }
+
 #ifndef NDEBUG
   // Compact any files in the named level that overlap [*begin, *end]
   Status TEST_CompactRange(int level, const Slice* begin, const Slice* end,
@@ -949,6 +984,9 @@ class DBImpl : public DB {
   Status TEST_AtomicFlushMemTables(const autovector<ColumnFamilyData*>& cfds,
                                    const FlushOptions& flush_opts);
 
+  // Wait for background threads to complete scheduled work.
+  Status TEST_WaitForBackgroundWork();
+
   // Wait for memtable compaction
   Status TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family = nullptr);
 
@@ -957,12 +995,15 @@ class DBImpl : public DB {
   // is only for the special test of CancelledCompactions
   Status TEST_WaitForCompact(bool waitUnscheduled = false);
 
+  // Wait for any background purge
+  Status TEST_WaitForPurge();
+
   // Get the background error status
   Status TEST_GetBGError();
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
-  int64_t TEST_MaxNextLevelOverlappingBytes(
+  uint64_t TEST_MaxNextLevelOverlappingBytes(
       ColumnFamilyHandle* column_family = nullptr);
 
   // Return the current manifest file no.
@@ -974,8 +1015,10 @@ class DBImpl : public DB {
   // get total level0 file size. Only for testing.
   uint64_t TEST_GetLevel0TotalSize();
 
-  void TEST_GetFilesMetaData(ColumnFamilyHandle* column_family,
-                             std::vector<std::vector<FileMetaData>>* metadata);
+  void TEST_GetFilesMetaData(
+      ColumnFamilyHandle* column_family,
+      std::vector<std::vector<FileMetaData>>* metadata,
+      std::vector<std::shared_ptr<BlobFileMetaData>>* blob_metadata = nullptr);
 
   void TEST_LockMutex();
 
@@ -1020,8 +1063,6 @@ class DBImpl : public DB {
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   void TEST_WaitForStatsDumpRun(std::function<void()> callback) const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
-
-  VersionSet* TEST_GetVersionSet() const { return versions_.get(); }
 
   uint64_t TEST_GetCurrentLogNumber() const {
     InstrumentedMutexLock l(mutex());
@@ -1083,8 +1124,10 @@ class DBImpl : public DB {
     // Called from WriteBufferManager. This function changes the state_
     // to State::RUNNING indicating the stall is cleared and DB can proceed.
     void Signal() override {
-      MutexLock lock(&state_mutex_);
-      state_ = State::RUNNING;
+      {
+        MutexLock lock(&state_mutex_);
+        state_ = State::RUNNING;
+      }
       state_cv_.Signal();
     }
 
@@ -1098,8 +1141,12 @@ class DBImpl : public DB {
     State state_;
   };
 
+  static void TEST_ResetDbSessionIdGen();
+  static std::string GenerateDbSessionId(Env* env);
+
  protected:
   const std::string dbname_;
+  // TODO(peterd): unify with VersionSet::db_id_
   std::string db_id_;
   // db_session_id_ is an identifier that gets reset
   // every time the DB is opened
@@ -1184,11 +1231,6 @@ class DBImpl : public DB {
                               ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end);
 
-  Status GetApproximateSizesInternal(const SizeApproximationOptions& options,
-                                     ColumnFamilyHandle* column_family,
-                                     const Range* range, int n,
-                                     uint64_t* sizes);
-
   // The following two functions can only be called when:
   // 1. WriteThread::Writer::EnterUnbatched() is used.
   // 2. db_mutex is NOT held
@@ -1217,6 +1259,8 @@ class DBImpl : public DB {
 #ifndef ROCKSDB_LITE
   void NotifyOnExternalFileIngested(
       ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job);
+
+  Status FlushForGetLiveFiles();
 #endif  // !ROCKSDB_LITE
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;
@@ -1740,7 +1784,7 @@ class DBImpl : public DB {
   // specified value, this flush request is considered to have completed its
   // work of flushing this column family. After completing the work for all
   // column families in this request, this flush is considered complete.
-  typedef std::vector<std::pair<ColumnFamilyData*, uint64_t>> FlushRequest;
+  using FlushRequest = std::vector<std::pair<ColumnFamilyData*, uint64_t>>;
 
   void GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
                             FlushRequest* req);
@@ -1953,7 +1997,8 @@ class DBImpl : public DB {
 
   Status DisableFileDeletionsWithLock();
 
-  Status IncreaseFullHistoryTsLow(ColumnFamilyData* cfd, std::string ts_low);
+  Status IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
+                                      std::string ts_low);
 
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
@@ -2002,7 +2047,7 @@ class DBImpl : public DB {
   // accessed from the same write_thread_ without any locks. With
   // two_write_queues writes, where it can be updated in different threads,
   // read and writes are protected by log_write_mutex_ instead. This is to avoid
-  // expesnive mutex_ lock during WAL write, which update log_empty_.
+  // expensive mutex_ lock during WAL write, which update log_empty_.
   bool log_empty_;
 
   ColumnFamilyHandleImpl* persist_stats_cf_handle_;
@@ -2270,6 +2315,10 @@ class DBImpl : public DB {
 
   // Flag to check whether Close() has been called on this DB
   bool closed_;
+  // save the closing status, for re-calling the close()
+  Status closing_status_;
+  // mutex for DB::Close()
+  InstrumentedMutex closing_mutex_;
 
   // Conditional variable to coordinate installation of atomic flush results.
   // With atomic flush, each bg thread installs the result of flushing multiple
@@ -2288,6 +2337,10 @@ class DBImpl : public DB {
 
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;
+
+  // Indicate if deprecation warning message is logged before. Will be removed
+  // soon with the deprecated feature.
+  std::atomic_bool iter_start_seqnum_deprecation_warned_{false};
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,

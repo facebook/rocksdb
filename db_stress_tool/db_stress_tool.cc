@@ -86,7 +86,8 @@ int db_stress_tool(int argc, char** argv) {
 
 #ifndef NDEBUG
   if (FLAGS_read_fault_one_in || FLAGS_sync_fault_injection ||
-      FLAGS_write_fault_one_in || FLAGS_open_metadata_write_fault_one_in) {
+      FLAGS_write_fault_one_in || FLAGS_open_metadata_write_fault_one_in ||
+      FLAGS_open_write_fault_one_in || FLAGS_open_read_fault_one_in) {
     FaultInjectionTestFS* fs =
         new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);
@@ -149,14 +150,18 @@ int db_stress_tool(int argc, char** argv) {
     exit(1);
   }
   if ((FLAGS_readpercent + FLAGS_prefixpercent + FLAGS_writepercent +
-       FLAGS_delpercent + FLAGS_delrangepercent + FLAGS_iterpercent) != 100) {
-    fprintf(stderr,
-            "Error: "
-            "Read(%d)+Prefix(%d)+Write(%d)+Delete(%d)+DeleteRange(%d)"
-            "+Iterate(%d) percents != "
-            "100!\n",
-            FLAGS_readpercent, FLAGS_prefixpercent, FLAGS_writepercent,
-            FLAGS_delpercent, FLAGS_delrangepercent, FLAGS_iterpercent);
+       FLAGS_delpercent + FLAGS_delrangepercent + FLAGS_iterpercent +
+       FLAGS_customopspercent) != 100) {
+    fprintf(
+        stderr,
+        "Error: "
+        "Read(-readpercent=%d)+Prefix(-prefixpercent=%d)+Write(-writepercent=%"
+        "d)+Delete(-delpercent=%d)+DeleteRange(-delrangepercent=%d)"
+        "+Iterate(-iterpercent=%d)+CustomOps(-customopspercent=%d) percents != "
+        "100!\n",
+        FLAGS_readpercent, FLAGS_prefixpercent, FLAGS_writepercent,
+        FLAGS_delpercent, FLAGS_delrangepercent, FLAGS_iterpercent,
+        FLAGS_customopspercent);
     exit(1);
   }
   if (FLAGS_disable_wal == 1 && FLAGS_reopen > 0) {
@@ -286,6 +291,9 @@ int db_stress_tool(int argc, char** argv) {
             "batch_protection_bytes_per_key > 0\n");
     exit(1);
   }
+  if (FLAGS_test_multi_ops_txns) {
+    CheckAndSetOptionsForMultiOpsTxnStressTest();
+  }
 
 #ifndef NDEBUG
   KillPoint* kp = KillPoint::GetInstance();
@@ -330,6 +338,8 @@ int db_stress_tool(int argc, char** argv) {
     stress.reset(CreateCfConsistencyStressTest());
   } else if (FLAGS_test_batches_snapshots) {
     stress.reset(CreateBatchedOpsStressTest());
+  } else if (FLAGS_test_multi_ops_txns) {
+    stress.reset(CreateMultiOpsTxnsStressTest());
   } else {
     stress.reset(CreateNonBatchedOpsStressTest());
   }

@@ -62,8 +62,9 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(true, true, WRITE_PREPARED, kOrderedWrite),
         std::make_tuple(true, true, WRITE_UNPREPARED, kOrderedWrite)));
 
-// MySQLStyleTransactionTest takes far too long for valgrind to run.
-#ifndef ROCKSDB_VALGRIND_RUN
+// MySQLStyleTransactionTest takes far too long for valgrind to run. Only do it
+// in full mode (`ROCKSDB_FULL_VALGRIND_RUN` compiler flag is set).
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 INSTANTIATE_TEST_CASE_P(
     MySQLStyleTransactionTest, MySQLStyleTransactionTest,
     ::testing::Values(
@@ -79,7 +80,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite, true),
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, false),
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, true)));
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
   WriteOptions write_options;
@@ -686,7 +687,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   }
 }
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 TEST_P(TransactionStressTest, DeadlockCycle) {
   WriteOptions write_options;
   ReadOptions read_options;
@@ -849,7 +850,7 @@ TEST_P(TransactionStressTest, DeadlockStress) {
     t.join();
   }
 }
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(TransactionTest, CommitTimeBatchFailTest) {
   WriteOptions write_options;
@@ -1182,7 +1183,7 @@ TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
   }
 }
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 TEST_P(TransactionStressTest, TwoPhaseExpirationTest) {
   Status s;
 
@@ -1420,7 +1421,7 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   // deleting transaction should unregister transaction
   ASSERT_EQ(db->GetTransactionByName("xid"), nullptr);
 }
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 // TODO this test needs to be updated with serial commits
 TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
@@ -1504,6 +1505,7 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
   }
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 TEST_P(TransactionStressTest, TwoPhaseLongPrepareTest) {
   WriteOptions write_options;
   write_options.sync = true;
@@ -1614,6 +1616,7 @@ TEST_P(TransactionTest, TwoPhaseSequenceTest) {
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(value, "bar4");
 }
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
   WriteOptions write_options;
@@ -5356,7 +5359,7 @@ TEST_P(TransactionStressTest, ExpiredTransactionDataRace1) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 namespace {
 // cmt_delay_ms is the delay between prepare and commit
 // first_id is the id of the first transaction
@@ -5486,7 +5489,7 @@ TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
                                                !TAKE_SNAPSHOT);
   ASSERT_OK(s);
 }
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(TransactionTest, MemoryLimitTest) {
   TransactionOptions txn_options;
@@ -5520,6 +5523,7 @@ TEST_P(TransactionTest, MemoryLimitTest) {
   delete txn;
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // This test clarifies the existing expectation from the sequence number
 // algorithm. It could detect mistakes in updating the code but it is not
 // necessarily the one acceptable way. If the algorithm is legitimately changed,
@@ -5643,6 +5647,7 @@ TEST_P(TransactionStressTest, SeqAdvanceTest) {
     ASSERT_OK(ReOpen());
   }
 }
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 // Verify that the optimization would not compromize the correctness
 TEST_P(TransactionTest, Optimizations) {
@@ -5693,7 +5698,7 @@ class ThreeBytewiseComparator : public Comparator {
   }
 };
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 TEST_P(TransactionTest, GetWithoutSnapshot) {
   WriteOptions write_options;
   std::atomic<bool> finish = {false};
@@ -5722,7 +5727,7 @@ TEST_P(TransactionTest, GetWithoutSnapshot) {
   commit_thread.join();
   read_thread.join();
 }
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 // Test that the transactional db can handle duplicate keys in the write batch
 TEST_P(TransactionTest, DuplicateKeys) {

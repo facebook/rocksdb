@@ -96,6 +96,11 @@ struct LevelStat {
   std::string header_name;
 };
 
+struct DBStatInfo {
+  // This what will be property_name in the flat map returned to the user
+  std::string property_name;
+};
+
 class InternalStats {
  public:
   static const std::map<LevelStatType, LevelStat> compaction_level_stats;
@@ -129,6 +134,8 @@ class InternalStats {
     kIntStatsWriteStallMicros,
     kIntStatsNumMax,
   };
+
+  static const std::map<InternalDBStatsType, DBStatInfo> db_stats_type_to_info;
 
   InternalStats(int num_levels, SystemClock* clock, ColumnFamilyData* cfd);
 
@@ -392,7 +399,6 @@ class InternalStats {
       cf_stats_count_[i] = 0;
       cf_stats_value_[i] = 0;
     }
-    cache_entry_stats_.Clear();
     for (auto& comp_stat : comp_stats_) {
       comp_stat.Clear();
     }
@@ -459,26 +465,27 @@ class InternalStats {
   bool GetIntPropertyOutOfMutex(const DBPropertyInfo& property_info,
                                 Version* version, uint64_t* value);
 
+  // Unless there is a recent enough collection of the stats, collect and
+  // saved new cache entry stats. If `foreground`, require data to be more
+  // recent to skip re-collection.
+  //
+  // This should only be called while NOT holding the DB mutex.
+  void CollectCacheEntryStats(bool foreground);
+
   const uint64_t* TEST_GetCFStatsValue() const { return cf_stats_value_; }
 
   const std::vector<CompactionStats>& TEST_GetCompactionStats() const {
     return comp_stats_;
   }
 
-  const CacheEntryRoleStats& TEST_GetCacheEntryRoleStats(bool foreground) {
-    Status s = CollectCacheEntryStats(foreground);
-    if (!s.ok()) {
-      assert(false);
-      cache_entry_stats_.Clear();
-    }
-    return cache_entry_stats_;
-  }
+  void TEST_GetCacheEntryRoleStats(CacheEntryRoleStats* stats, bool foreground);
 
   // Store a mapping from the user-facing DB::Properties string to our
   // DBPropertyInfo struct used internally for retrieving properties.
   static const std::unordered_map<std::string, DBPropertyInfo> ppt_name_to_info;
 
  private:
+  void DumpDBMapStats(std::map<std::string, std::string>* db_stats);
   void DumpDBStats(std::string* value);
   void DumpCFMapStats(std::map<std::string, std::string>* cf_stats);
   void DumpCFMapStats(
@@ -492,16 +499,18 @@ class InternalStats {
   void DumpCFStatsNoFileHistogram(std::string* value);
   void DumpCFFileHistogram(std::string* value);
 
-  bool HandleBlockCacheStat(Cache** block_cache);
-
-  Status CollectCacheEntryStats(bool foreground);
+  bool GetBlockCacheForStats(Cache** block_cache);
 
   // Per-DB stats
   std::atomic<uint64_t> db_stats_[kIntStatsNumMax];
   // Per-ColumnFamily stats
   uint64_t cf_stats_value_[INTERNAL_CF_STATS_ENUM_MAX];
   uint64_t cf_stats_count_[INTERNAL_CF_STATS_ENUM_MAX];
-  CacheEntryRoleStats cache_entry_stats_;
+  // Initialize/reference the collector in constructor so that we don't need
+  // additional synchronization in InternalStats, relying on synchronization
+  // in CacheEntryStatsCollector::GetStats. This collector is pinned in cache
+  // (through a shared_ptr) so that it does not get immediately ejected from
+  // a full cache, which would force a re-scan on the next GetStats.
   std::shared_ptr<CacheEntryStatsCollector<CacheEntryRoleStats>>
       cache_entry_stats_collector_;
   // Per-ColumnFamily/level compaction stats
@@ -609,6 +618,8 @@ class InternalStats {
   bool HandleCFStats(std::string* value, Slice suffix);
   bool HandleCFStatsNoFileHistogram(std::string* value, Slice suffix);
   bool HandleCFFileHistogram(std::string* value, Slice suffix);
+  bool HandleDBMapStats(std::map<std::string, std::string>* compaction_stats,
+                        Slice suffix);
   bool HandleDBStats(std::string* value, Slice suffix);
   bool HandleSsTables(std::string* value, Slice suffix);
   bool HandleAggregatedTableProperties(std::string* value, Slice suffix);
@@ -674,6 +685,11 @@ class InternalStats {
   bool HandleBlockCacheEntryStats(std::string* value, Slice suffix);
   bool HandleBlockCacheEntryStatsMap(std::map<std::string, std::string>* values,
                                      Slice suffix);
+  bool HandleLiveSstFilesSizeAtTemperature(std::string* value, Slice suffix);
+  bool HandleNumBlobFiles(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleBlobStats(std::string* value, Slice suffix);
+  bool HandleTotalBlobFileSize(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleLiveBlobFileSize(uint64_t* value, DBImpl* db, Version* version);
   // Total number of background errors encountered. Every time a flush task
   // or compaction task fails, this counter is incremented. The failure can
   // be caused by any possible reason, including file system errors, out of

@@ -40,7 +40,7 @@ class BlobFileCache {
   // Note: mutex_ below is used to guard against multiple threads racing to open
   // the same file.
   Striped<port::Mutex, Slice> mutex_;
-  const ImmutableOptions* immutable_cf_options_;
+  const ImmutableOptions* immutable_options_;
   const FileOptions* file_options_;
   uint32_t column_family_id_;
   HistogramImpl* blob_file_read_hist_;

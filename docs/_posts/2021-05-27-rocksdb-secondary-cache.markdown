@@ -168,7 +168,7 @@ struct LRUCacheOptions {
 
 ## Current Status
 
-The initial RocksDB support for the secondary cache has been merged into the master branch, and will be available in the 6.21 release. This includes providing a way for the user to configure a secondary cache when instantiating RocksDB’s LRU cache (volatile block cache), spilling blocks evicted from the LRU cache to the flash cache, promoting a block read from the SecondaryCache to the LRU cache, update tools such as cache_bench and db_bench to specify a flash cache. The relevant PRs are [#8271](https://github.com/facebook/rocksdb/pull/8271), [#8191](https://github.com/facebook/rocksdb/pull/8191), and [#8312](https://github.com/facebook/rocksdb/pull/8312).
+The initial RocksDB support for the secondary cache has been merged into the main branch, and will be available in the 6.21 release. This includes providing a way for the user to configure a secondary cache when instantiating RocksDB’s LRU cache (volatile block cache), spilling blocks evicted from the LRU cache to the flash cache, promoting a block read from the SecondaryCache to the LRU cache, update tools such as cache_bench and db_bench to specify a flash cache. The relevant PRs are [#8271](https://github.com/facebook/rocksdb/pull/8271), [#8191](https://github.com/facebook/rocksdb/pull/8191), and [#8312](https://github.com/facebook/rocksdb/pull/8312).
 
 We prototyped an end-to-end solution, with the above PRs as well as a Cachelib based implementation of the SecondaryCache. We ran a mixgraph benchmark to simulate a realistic read/write workload. The results showed a 15% gain with the local flash cache over no local cache, and a ~25-30% reduction in network reads with a corresponding decrease in cache misses.
 

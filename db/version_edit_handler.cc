@@ -13,6 +13,7 @@
 
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
+#include "logging/logging.h"
 #include "monitoring/persistent_stats_history.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -427,11 +428,28 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
     assert(version_set_->manifest_file_size_ > 0);
     version_set_->next_file_number_.store(
         version_edit_params_.next_file_number_ + 1);
-    version_set_->last_allocated_sequence_ =
-        version_edit_params_.last_sequence_;
-    version_set_->last_published_sequence_ =
-        version_edit_params_.last_sequence_;
-    version_set_->last_sequence_ = version_edit_params_.last_sequence_;
+    SequenceNumber last_seq = version_edit_params_.last_sequence_;
+    assert(last_seq != kMaxSequenceNumber);
+    if (last_seq != kMaxSequenceNumber &&
+        last_seq > version_set_->last_allocated_sequence_.load()) {
+      version_set_->last_allocated_sequence_.store(last_seq);
+    }
+    if (last_seq != kMaxSequenceNumber &&
+        last_seq > version_set_->last_published_sequence_.load()) {
+      version_set_->last_published_sequence_.store(last_seq);
+    }
+    if (last_seq != kMaxSequenceNumber &&
+        last_seq > version_set_->last_sequence_.load()) {
+      version_set_->last_sequence_.store(last_seq);
+    }
+    if (last_seq != kMaxSequenceNumber &&
+        last_seq > version_set_->descriptor_last_sequence_) {
+      // This is the maximum last sequence of all `VersionEdit`s iterated. It
+      // may be greater than the maximum `largest_seqno` of all files in case
+      // the newest data referred to by the MANIFEST has been dropped or had its
+      // sequence number zeroed through compaction.
+      version_set_->descriptor_last_sequence_ = last_seq;
+    }
     version_set_->prev_log_number_ = version_edit_params_.prev_log_number_;
   }
 }
@@ -508,7 +526,11 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
 Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
                                       bool prefetch_index_and_filter_in_cache,
                                       bool is_initial_load) {
-  if (skip_load_table_files_) {
+  bool skip_load_table_files = skip_load_table_files_;
+  TEST_SYNC_POINT_CALLBACK(
+      "VersionEditHandler::LoadTables:skip_load_table_files",
+      &skip_load_table_files);
+  if (skip_load_table_files) {
     return Status::OK();
   }
   assert(cfd != nullptr);
@@ -584,6 +606,11 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
                    edit.min_log_number_to_keep_);
     }
     if (edit.has_last_sequence_) {
+      // `VersionEdit::last_sequence_`s are assumed to be non-decreasing. This
+      // is legacy behavior that cannot change without breaking downgrade
+      // compatibility.
+      assert(!version_edit_params_.has_last_sequence_ ||
+             version_edit_params_.last_sequence_ <= edit.last_sequence_);
       version_edit_params_.SetLastSequence(edit.last_sequence_);
     }
     if (!version_edit_params_.has_prev_log_number_) {
@@ -625,6 +652,11 @@ void VersionEditHandlerPointInTime::CheckIterationResult(
         versions_.erase(v_iter);
       }
     }
+  } else {
+    for (const auto& elem : versions_) {
+      delete elem.second;
+    }
+    versions_.clear();
   }
 }
 
@@ -862,7 +894,7 @@ Status ManifestTailer::OnColumnFamilyAdd(VersionEdit& edit,
 
 #ifndef NDEBUG
   auto version_iter = versions_.find(edit.GetColumnFamily());
-  assert(version_iter != versions_.end());
+  assert(version_iter == versions_.end());
 #endif  // !NDEBUG
   return Status::OK();
 }

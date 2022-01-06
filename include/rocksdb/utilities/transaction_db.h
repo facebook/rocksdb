@@ -104,6 +104,11 @@ class RangeLockManagerHandle : public LockManagerHandle {
     // Number of times lock escalation was triggered (for all column families)
     uint64_t escalation_count;
 
+    // Number of times lock acquisition had to wait for a conflicting lock
+    // to be released. This counts both successful waits (where the desired
+    // lock was acquired) and waits that timed out or got other error.
+    uint64_t lock_wait_count;
+
     // How much memory is currently used for locks (total for all column
     // families)
     uint64_t current_lock_memory;

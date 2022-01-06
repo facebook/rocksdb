@@ -15,7 +15,6 @@
 
 #include "db/blob/blob_file_builder.h"
 #include "db/compaction/compaction_iterator.h"
-#include "db/dbformat.h"
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
@@ -65,11 +64,13 @@ Status BuildTable(
     SequenceNumber earliest_write_conflict_snapshot,
     SnapshotChecker* snapshot_checker, bool paranoid_file_checks,
     InternalStats* internal_stats, IOStatus* io_status,
-    const std::shared_ptr<IOTracer>& io_tracer, EventLogger* event_logger,
+    const std::shared_ptr<IOTracer>& io_tracer,
+    BlobFileCreationReason blob_creation_reason, EventLogger* event_logger,
     int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
     const std::string* full_history_ts_low,
-    BlobFileCompletionCallback* blob_callback, uint64_t* num_input_entries) {
+    BlobFileCompletionCallback* blob_callback, uint64_t* num_input_entries,
+    uint64_t* memtable_payload_bytes, uint64_t* memtable_garbage_bytes) {
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
@@ -89,9 +90,12 @@ Status BuildTable(
       new CompactionRangeDelAggregator(&tboptions.internal_comparator,
                                        snapshots));
   uint64_t num_unfragmented_tombstones = 0;
+  uint64_t total_tombstone_payload_bytes = 0;
   for (auto& range_del_iter : range_del_iters) {
     num_unfragmented_tombstones +=
         range_del_iter->num_unfragmented_tombstones();
+    total_tombstone_payload_bytes +=
+        range_del_iter->total_tombstone_payload_bytes();
     range_del_agg->AddTombstones(std::move(range_del_iter));
   }
 
@@ -161,7 +165,7 @@ Status BuildTable(
           std::move(file), fname, file_options, ioptions.clock, io_tracer,
           ioptions.stats, ioptions.listeners,
           ioptions.file_checksum_gen_factory.get(),
-          tmp_set.Contains(FileType::kTableFile)));
+          tmp_set.Contains(FileType::kTableFile), false));
 
       builder = NewTableBuilder(tboptions, file_writer.get());
     }
@@ -174,12 +178,12 @@ Status BuildTable(
 
     std::unique_ptr<BlobFileBuilder> blob_file_builder(
         (mutable_cf_options.enable_blob_files && blob_file_additions)
-            ? new BlobFileBuilder(versions, fs, &ioptions, &mutable_cf_options,
-                                  &file_options, job_id,
-                                  tboptions.column_family_id,
-                                  tboptions.column_family_name, io_priority,
-                                  write_hint, io_tracer, blob_callback,
-                                  &blob_file_paths, blob_file_additions)
+            ? new BlobFileBuilder(
+                  versions, fs, &ioptions, &mutable_cf_options, &file_options,
+                  job_id, tboptions.column_family_id,
+                  tboptions.column_family_name, io_priority, write_hint,
+                  io_tracer, blob_callback, blob_creation_reason,
+                  &blob_file_paths, blob_file_additions)
             : nullptr);
 
     CompactionIterator c_iter(
@@ -200,6 +204,8 @@ Status BuildTable(
       const Slice& value = c_iter.value();
       const ParsedInternalKey& ikey = c_iter.ikey();
       // Generate a rolling 64-bit hash of the key and values
+      // Note :
+      // Here "key" integrates 'sequence_number'+'kType'+'user key'.
       s = output_validator.Add(key, value);
       if (!s.ok()) {
         break;
@@ -254,6 +260,25 @@ Status BuildTable(
       meta->marked_for_compaction = builder->NeedCompact();
       assert(meta->fd.GetFileSize() > 0);
       tp = builder->GetTableProperties(); // refresh now that builder is finished
+      if (memtable_payload_bytes != nullptr &&
+          memtable_garbage_bytes != nullptr) {
+        const CompactionIterationStats& ci_stats = c_iter.iter_stats();
+        uint64_t total_payload_bytes = ci_stats.total_input_raw_key_bytes +
+                                       ci_stats.total_input_raw_value_bytes +
+                                       total_tombstone_payload_bytes;
+        uint64_t total_payload_bytes_written =
+            (tp.raw_key_size + tp.raw_value_size);
+        // Prevent underflow, which may still happen at this point
+        // since we only support inserts, deletes, and deleteRanges.
+        if (total_payload_bytes_written <= total_payload_bytes) {
+          *memtable_payload_bytes = total_payload_bytes;
+          *memtable_garbage_bytes =
+              total_payload_bytes - total_payload_bytes_written;
+        } else {
+          *memtable_payload_bytes = 0;
+          *memtable_garbage_bytes = 0;
+        }
+      }
       if (table_properties) {
         *table_properties = tp;
       }
@@ -286,7 +311,7 @@ Status BuildTable(
       if (s.ok()) {
         s = blob_file_builder->Finish();
       } else {
-        blob_file_builder->Abandon();
+        blob_file_builder->Abandon(s);
       }
       blob_file_builder.reset();
     }
@@ -355,14 +380,19 @@ Status BuildTable(
     }
   }
 
+  Status status_for_listener = s;
   if (meta->fd.GetFileSize() == 0) {
     fname = "(nil)";
+    if (s.ok()) {
+      status_for_listener = Status::Aborted("Empty SST file not kept");
+    }
   }
   // Output to event logger and fire events.
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger, ioptions.listeners, dbname, tboptions.column_family_name,
       fname, job_id, meta->fd, meta->oldest_blob_file_number, tp,
-      tboptions.reason, s, file_checksum, file_checksum_func_name);
+      tboptions.reason, status_for_listener, file_checksum,
+      file_checksum_func_name);
 
   return s;
 }

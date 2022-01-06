@@ -751,7 +751,8 @@ TEST_F(CheckpointTest, CheckpointInvalidDirectoryName) {
   for (std::string checkpoint_dir : {"", "/", "////"}) {
     Checkpoint* checkpoint;
     ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-    ASSERT_TRUE(checkpoint->CreateCheckpoint("").IsInvalidArgument());
+    ASSERT_TRUE(
+        checkpoint->CreateCheckpoint(checkpoint_dir).IsInvalidArgument());
     delete checkpoint;
   }
 }
@@ -899,6 +900,19 @@ TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
   }
   snapshot_handles.clear();
   delete snapshot_db;
+}
+
+TEST_F(CheckpointTest, CheckpointWithDbPath) {
+  Options options = CurrentOptions();
+  options.db_paths.emplace_back(dbname_ + "_2", 0);
+  Reopen(options);
+  ASSERT_OK(Put("key1", "val1"));
+  Flush();
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  // Currently not supported
+  ASSERT_TRUE(checkpoint->CreateCheckpoint(snapshot_name_).IsNotSupported());
+  delete checkpoint;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

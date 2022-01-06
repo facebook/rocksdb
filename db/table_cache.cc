@@ -17,6 +17,7 @@
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "monitoring/perf_context_imp.h"
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/statistics.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/get_context.h"
@@ -66,12 +67,12 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 const int kLoadConcurency = 128;
 
 TableCache::TableCache(const ImmutableOptions& ioptions,
-                       const FileOptions& file_options, Cache* const cache,
+                       const FileOptions* file_options, Cache* const cache,
                        BlockCacheTracer* const block_cache_tracer,
                        const std::shared_ptr<IOTracer>& io_tracer,
                        const std::string& db_session_id)
     : ioptions_(ioptions),
-      file_options_(file_options),
+      file_options_(*file_options),
       cache_(cache),
       immortal_tables_(false),
       block_cache_tracer_(block_cache_tracer),
@@ -103,11 +104,12 @@ Status TableCache::GetTableReader(
     std::unique_ptr<TableReader>* table_reader,
     const SliceTransform* prefix_extractor, bool skip_filters, int level,
     bool prefetch_index_and_filter_in_cache,
-    size_t max_file_size_for_l0_meta_pin) {
+    size_t max_file_size_for_l0_meta_pin, Temperature file_temperature) {
   std::string fname =
       TableFileName(ioptions_.cf_paths, fd.GetNumber(), fd.GetPathId());
   std::unique_ptr<FSRandomAccessFile> file;
   FileOptions fopts = file_options;
+  fopts.temperature = file_temperature;
   Status s = PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
   if (s.ok()) {
     s = ioptions_.fs->NewRandomAccessFile(fname, fopts, &file, nullptr);
@@ -132,7 +134,8 @@ Status TableCache::GetTableReader(
         new RandomAccessFileReader(
             std::move(file), fname, ioptions_.clock, io_tracer_,
             record_read_stats ? ioptions_.stats : nullptr, SST_READ_MICROS,
-            file_read_hist, ioptions_.rate_limiter.get(), ioptions_.listeners));
+            file_read_hist, ioptions_.rate_limiter.get(), ioptions_.listeners,
+            file_temperature));
     s = ioptions_.table_factory->NewTableReader(
         ro,
         TableReaderOptions(
@@ -154,15 +157,13 @@ void TableCache::EraseHandle(const FileDescriptor& fd, Cache::Handle* handle) {
   cache_->Erase(key);
 }
 
-Status TableCache::FindTable(const ReadOptions& ro,
-                             const FileOptions& file_options,
-                             const InternalKeyComparator& internal_comparator,
-                             const FileDescriptor& fd, Cache::Handle** handle,
-                             const SliceTransform* prefix_extractor,
-                             const bool no_io, bool record_read_stats,
-                             HistogramImpl* file_read_hist, bool skip_filters,
-                             int level, bool prefetch_index_and_filter_in_cache,
-                             size_t max_file_size_for_l0_meta_pin) {
+Status TableCache::FindTable(
+    const ReadOptions& ro, const FileOptions& file_options,
+    const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
+    Cache::Handle** handle, const SliceTransform* prefix_extractor,
+    const bool no_io, bool record_read_stats, HistogramImpl* file_read_hist,
+    bool skip_filters, int level, bool prefetch_index_and_filter_in_cache,
+    size_t max_file_size_for_l0_meta_pin, Temperature file_temperature) {
   PERF_TIMER_GUARD_WITH_CLOCK(find_table_nanos, ioptions_.clock);
   uint64_t number = fd.GetNumber();
   Slice key = GetSliceForFileNumber(&number);
@@ -186,7 +187,7 @@ Status TableCache::FindTable(const ReadOptions& ro,
         ro, file_options, internal_comparator, fd, false /* sequential mode */,
         record_read_stats, file_read_hist, &table_reader, prefix_extractor,
         skip_filters, level, prefetch_index_and_filter_in_cache,
-        max_file_size_for_l0_meta_pin);
+        max_file_size_for_l0_meta_pin, file_temperature);
     if (!s.ok()) {
       assert(table_reader == nullptr);
       RecordTick(ioptions_.stats, NO_FILE_ERRORS);
@@ -231,7 +232,7 @@ InternalIterator* TableCache::NewIterator(
         options.read_tier == kBlockCacheTier /* no_io */,
         !for_compaction /* record_read_stats */, file_read_hist, skip_filters,
         level, true /* prefetch_index_and_filter_in_cache */,
-        max_file_size_for_l0_meta_pin);
+        max_file_size_for_l0_meta_pin, file_meta.temperature);
     if (s.ok()) {
       table_reader = GetTableReaderFromHandle(handle);
     }
@@ -297,6 +298,7 @@ Status TableCache::GetRangeTombstoneIterator(
     const InternalKeyComparator& internal_comparator,
     const FileMetaData& file_meta,
     std::unique_ptr<FragmentedRangeTombstoneIterator>* out_iter) {
+  assert(out_iter);
   const FileDescriptor& fd = file_meta.fd;
   Status s;
   TableReader* t = fd.table_reader;
@@ -308,8 +310,15 @@ Status TableCache::GetRangeTombstoneIterator(
     }
   }
   if (s.ok()) {
+    // Note: NewRangeTombstoneIterator could return nullptr
     out_iter->reset(t->NewRangeTombstoneIterator(options));
-    assert(out_iter);
+  }
+  if (handle) {
+    if (*out_iter) {
+      (*out_iter)->RegisterCleanup(&UnrefEntry, cache_, handle);
+    } else {
+      ReleaseHandle(handle);
+    }
   }
   return s;
 }
@@ -423,7 +432,7 @@ Status TableCache::Get(const ReadOptions& options,
                     options.read_tier == kBlockCacheTier /* no_io */,
                     true /* record_read_stats */, file_read_hist, skip_filters,
                     level, true /* prefetch_index_and_filter_in_cache */,
-                    max_file_size_for_l0_meta_pin);
+                    max_file_size_for_l0_meta_pin, file_meta.temperature);
       if (s.ok()) {
         t = GetTableReaderFromHandle(handle);
       }
@@ -523,10 +532,12 @@ Status TableCache::MultiGet(const ReadOptions& options,
   // found in the row cache and thus the range may now be empty
   if (s.ok() && !table_range.empty()) {
     if (t == nullptr) {
-      s = FindTable(
-          options, file_options_, internal_comparator, fd, &handle,
-          prefix_extractor, options.read_tier == kBlockCacheTier /* no_io */,
-          true /* record_read_stats */, file_read_hist, skip_filters, level);
+      s = FindTable(options, file_options_, internal_comparator, fd, &handle,
+                    prefix_extractor,
+                    options.read_tier == kBlockCacheTier /* no_io */,
+                    true /* record_read_stats */, file_read_hist, skip_filters,
+                    level, true /* prefetch_index_and_filter_in_cache */,
+                    0 /*max_file_size_for_l0_meta_pin*/, file_meta.temperature);
       TEST_SYNC_POINT_CALLBACK("TableCache::MultiGet:FindTable", &s);
       if (s.ok()) {
         t = GetTableReaderFromHandle(handle);
@@ -644,6 +655,16 @@ size_t TableCache::GetMemoryUsageByTableReader(
   auto ret = table->ApproximateMemoryUsage();
   ReleaseHandle(table_handle);
   return ret;
+}
+
+bool TableCache::HasEntry(Cache* cache, uint64_t file_number) {
+  Cache::Handle* handle = cache->Lookup(GetSliceForFileNumber(&file_number));
+  if (handle) {
+    cache->Release(handle);
+    return true;
+  } else {
+    return false;
+  }
 }
 
 void TableCache::Evict(Cache* cache, uint64_t file_number) {

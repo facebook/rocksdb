@@ -112,21 +112,40 @@ class SstFileWriter {
 
   // Add a Put key with value to currently opened file (deprecated)
   // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: comparator is *not* timestamp-aware.
   ROCKSDB_DEPRECATED_FUNC Status Add(const Slice& user_key, const Slice& value);
 
   // Add a Put key with value to currently opened file
   // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: comparator is *not* timestamp-aware.
   Status Put(const Slice& user_key, const Slice& value);
+
+  // Add a Put (key with timestamp, value) to the currently opened file
+  // REQUIRES: key is after any previously added key according to the
+  // comparator.
+  // REQUIRES: the timestamp's size is equal to what is expected by
+  // the comparator.
+  Status Put(const Slice& user_key, const Slice& timestamp, const Slice& value);
 
   // Add a Merge key with value to currently opened file
   // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: comparator is *not* timestamp-aware.
   Status Merge(const Slice& user_key, const Slice& value);
 
   // Add a deletion key to currently opened file
   // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: comparator is *not* timestamp-aware.
   Status Delete(const Slice& user_key);
 
+  // Add a deletion key with timestamp to the currently opened file
+  // REQUIRES: key is after any previously added key according to the
+  // comparator.
+  // REQUIRES: the timestamp's size is equal to what is expected by
+  // the comparator.
+  Status Delete(const Slice& user_key, const Slice& timestamp);
+
   // Add a range deletion tombstone to currently opened file
+  // REQUIRES: comparator is *not* timestamp-aware.
   Status DeleteRange(const Slice& begin_key, const Slice& end_key);
 
   // Finalize writing to sst file and close file.

@@ -21,6 +21,7 @@
 #include "db/version_set.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
@@ -73,9 +74,7 @@ class CompactionJobTestBase : public testing::Test {
  protected:
   CompactionJobTestBase(std::string dbname, const Comparator* ucmp,
                         std::function<std::string(uint64_t)> encode_u64_ts)
-      : env_(Env::Default()),
-        fs_(env_->GetFileSystem()),
-        dbname_(std::move(dbname)),
+      : dbname_(std::move(dbname)),
         ucmp_(ucmp),
         db_options_(),
         mutable_cf_options_(cf_options_),
@@ -91,7 +90,13 @@ class CompactionJobTestBase : public testing::Test {
         preserve_deletes_seqnum_(0),
         mock_table_factory_(new mock::MockTableFactory()),
         error_handler_(nullptr, db_options_, &mutex_),
-        encode_u64_ts_(std::move(encode_u64_ts)) {}
+        encode_u64_ts_(std::move(encode_u64_ts)) {
+    Env* base_env = Env::Default();
+    EXPECT_OK(
+        test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
+    env_ = base_env;
+    fs_ = env_->GetFileSystem();
+  }
 
   void SetUp() override {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
@@ -198,9 +203,11 @@ class CompactionJobTestBase : public testing::Test {
 
     VersionEdit edit;
     edit.AddFile(level, file_number, 0, 10, smallest_key, largest_key,
-                 smallest_seqno, largest_seqno, false, oldest_blob_file_number,
-                 kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-                 kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+                 smallest_seqno, largest_seqno, false, Temperature::kUnknown,
+                 oldest_blob_file_number, kUnknownOldestAncesterTime,
+                 kUnknownFileCreationTime, kUnknownFileChecksum,
+                 kUnknownFileChecksumFuncName, kDisableUserTimestamp,
+                 kDisableUserTimestamp);
 
     mutex_.Lock();
     EXPECT_OK(
@@ -334,8 +341,8 @@ class CompactionJobTestBase : public testing::Test {
         cfd->current()->storage_info(), *cfd->ioptions(),
         *cfd->GetLatestMutableCFOptions(), mutable_db_options_,
         compaction_input_files, output_level, 1024 * 1024, 10 * 1024 * 1024, 0,
-        kNoCompression, cfd->GetLatestMutableCFOptions()->compression_opts, 0,
-        {}, true);
+        kNoCompression, cfd->GetLatestMutableCFOptions()->compression_opts,
+        Temperature::kUnknown, 0, {}, true);
     compaction.SetInputVersion(cfd->current());
 
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
@@ -386,6 +393,7 @@ class CompactionJobTestBase : public testing::Test {
     }
   }
 
+  std::shared_ptr<Env> env_guard_;
   Env* env_;
   std::shared_ptr<FileSystem> fs_;
   std::string dbname_;
@@ -1120,7 +1128,9 @@ TEST_F(CompactionJobTest, InputSerialization) {
     input.snapshots.emplace_back(rnd64.Uniform(UINT64_MAX));
   }
   while (!rnd.OneIn(10)) {
-    input.input_files.emplace_back(rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+    input.input_files.emplace_back(rnd.RandomString(
+        rnd.Uniform(kStrMaxLen - 1) +
+        1));  // input file name should have at least one character
   }
   input.output_level = 4;
   input.has_begin = rnd.OneIn(2);
@@ -1291,13 +1301,16 @@ TEST_F(CompactionJobTimestampTest, GCDisabled) {
   auto file1 =
       mock::MakeMockFile({{KeyStr("a", 10, ValueType::kTypeValue, 100), "a10"},
                           {KeyStr("a", 9, ValueType::kTypeValue, 99), "a9"},
-                          {KeyStr("b", 8, ValueType::kTypeValue, 98), "b8"}});
+                          {KeyStr("b", 8, ValueType::kTypeValue, 98), "b8"},
+                          {KeyStr("d", 7, ValueType::kTypeValue, 97), "d7"}});
+
   AddMockFile(file1);
 
   auto file2 = mock::MakeMockFile(
-      {{KeyStr("b", 7, ValueType::kTypeDeletionWithTimestamp, 97), ""},
-       {KeyStr("c", 6, ValueType::kTypeDeletionWithTimestamp, 96), ""},
-       {KeyStr("c", 5, ValueType::kTypeValue, 95), "c5"}});
+      {{KeyStr("b", 6, ValueType::kTypeDeletionWithTimestamp, 96), ""},
+       {KeyStr("c", 5, ValueType::kTypeDeletionWithTimestamp, 95), ""},
+       {KeyStr("c", 4, ValueType::kTypeValue, 94), "c5"},
+       {KeyStr("d", 3, ValueType::kTypeSingleDeletion, 93), ""}});
   AddMockFile(file2);
 
   SetLastSequence(10);
@@ -1306,9 +1319,11 @@ TEST_F(CompactionJobTimestampTest, GCDisabled) {
       {{KeyStr("a", 10, ValueType::kTypeValue, 100), "a10"},
        {KeyStr("a", 9, ValueType::kTypeValue, 99), "a9"},
        {KeyStr("b", 8, ValueType::kTypeValue, 98), "b8"},
-       {KeyStr("b", 7, ValueType::kTypeDeletionWithTimestamp, 97), ""},
-       {KeyStr("c", 6, ValueType::kTypeDeletionWithTimestamp, 96), ""},
-       {KeyStr("c", 5, ValueType::kTypeValue, 95), "c5"}});
+       {KeyStr("b", 6, ValueType::kTypeDeletionWithTimestamp, 96), ""},
+       {KeyStr("c", 5, ValueType::kTypeDeletionWithTimestamp, 95), ""},
+       {KeyStr("c", 4, ValueType::kTypeValue, 94), "c5"},
+       {KeyStr("d", 7, ValueType::kTypeValue, 97), "d7"},
+       {KeyStr("d", 3, ValueType::kTypeSingleDeletion, 93), ""}});
   const auto& files = cfd_->current()->storage_info()->LevelFiles(0);
   RunCompaction({files}, expected_results);
 }
@@ -1346,19 +1361,21 @@ TEST_F(CompactionJobTimestampTest, AllKeysExpired) {
 
   auto file1 = mock::MakeMockFile(
       {{KeyStr("a", 5, ValueType::kTypeDeletionWithTimestamp, 100), ""},
-       {KeyStr("b", 6, ValueType::kTypeValue, 99), "b6"}});
+       {KeyStr("b", 6, ValueType::kTypeSingleDeletion, 99), ""},
+       {KeyStr("c", 7, ValueType::kTypeValue, 98), "c7"}});
   AddMockFile(file1);
 
   auto file2 = mock::MakeMockFile(
-      {{KeyStr("a", 4, ValueType::kTypeValue, 98), "a4"},
-       {KeyStr("b", 3, ValueType::kTypeDeletionWithTimestamp, 97), ""},
-       {KeyStr("b", 2, ValueType::kTypeValue, 96), "b2"}});
+      {{KeyStr("a", 4, ValueType::kTypeValue, 97), "a4"},
+       {KeyStr("b", 3, ValueType::kTypeValue, 96), "b3"},
+       {KeyStr("c", 2, ValueType::kTypeDeletionWithTimestamp, 95), ""},
+       {KeyStr("c", 1, ValueType::kTypeValue, 94), "c1"}});
   AddMockFile(file2);
 
-  SetLastSequence(6);
+  SetLastSequence(7);
 
   auto expected_results =
-      mock::MakeMockFile({{KeyStr("b", 0, ValueType::kTypeValue, 0), "b6"}});
+      mock::MakeMockFile({{KeyStr("c", 0, ValueType::kTypeValue, 0), "c7"}});
   const auto& files = cfd_->current()->storage_info()->LevelFiles(0);
 
   full_history_ts_low_ = encode_u64_ts_(std::numeric_limits<uint64_t>::max());
@@ -1383,6 +1400,7 @@ TEST_F(CompactionJobTimestampTest, SomeKeysExpired) {
 
   auto expected_results =
       mock::MakeMockFile({{KeyStr("a", 5, ValueType::kTypeValue, 50), "a5"},
+                          {KeyStr("a", 0, ValueType::kTypeValue, 0), "a3"},
                           {KeyStr("b", 6, ValueType::kTypeValue, 49), "b6"}});
   const auto& files = cfd_->current()->storage_info()->LevelFiles(0);
 
@@ -1394,6 +1412,7 @@ TEST_F(CompactionJobTimestampTest, SomeKeysExpired) {
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
 

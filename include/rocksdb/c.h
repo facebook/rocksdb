@@ -1117,6 +1117,17 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_blob_gc_age_cutoff(
 extern ROCKSDB_LIBRARY_API double rocksdb_options_get_blob_gc_age_cutoff(
     rocksdb_options_t* opt);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_blob_gc_force_threshold(
+    rocksdb_options_t* opt, double val);
+extern ROCKSDB_LIBRARY_API double rocksdb_options_get_blob_gc_force_threshold(
+    rocksdb_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_blob_compaction_readahead_size(rocksdb_options_t* opt,
+                                                   uint64_t val);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_options_get_blob_compaction_readahead_size(rocksdb_options_t* opt);
+
 /* returns a pointer to a malloc()-ed, null terminated string */
 extern ROCKSDB_LIBRARY_API char* rocksdb_options_statistics_get_string(
     rocksdb_options_t* opt);
@@ -1599,9 +1610,14 @@ extern ROCKSDB_LIBRARY_API void rocksdb_filterpolicy_destroy(
     rocksdb_filterpolicy_t*);
 
 extern ROCKSDB_LIBRARY_API rocksdb_filterpolicy_t*
-rocksdb_filterpolicy_create_bloom(int bits_per_key);
+rocksdb_filterpolicy_create_bloom(double bits_per_key);
 extern ROCKSDB_LIBRARY_API rocksdb_filterpolicy_t*
-rocksdb_filterpolicy_create_bloom_full(int bits_per_key);
+rocksdb_filterpolicy_create_bloom_full(double bits_per_key);
+extern ROCKSDB_LIBRARY_API rocksdb_filterpolicy_t*
+rocksdb_filterpolicy_create_ribbon(double bloom_equivalent_bits_per_key);
+extern ROCKSDB_LIBRARY_API rocksdb_filterpolicy_t*
+rocksdb_filterpolicy_create_ribbon_hybrid(double bloom_equivalent_bits_per_key,
+                                          int bloom_before_level);
 
 /* Merge Operator */
 
@@ -1979,6 +1995,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_fifo_compaction_options_destroy(
 
 extern ROCKSDB_LIBRARY_API int rocksdb_livefiles_count(
     const rocksdb_livefiles_t*);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_livefiles_column_family_name(
+    const rocksdb_livefiles_t*, int index);
 extern ROCKSDB_LIBRARY_API const char* rocksdb_livefiles_name(
     const rocksdb_livefiles_t*, int index);
 extern ROCKSDB_LIBRARY_API int rocksdb_livefiles_level(
@@ -2036,6 +2054,12 @@ rocksdb_transactiondb_create_snapshot(rocksdb_transactiondb_t* txn_db);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_release_snapshot(
     rocksdb_transactiondb_t* txn_db, const rocksdb_snapshot_t* snapshot);
+
+extern ROCKSDB_LIBRARY_API char* rocksdb_transactiondb_property_value(
+    rocksdb_transactiondb_t* db, const char* propname);
+
+extern ROCKSDB_LIBRARY_API int rocksdb_transactiondb_property_int(
+    rocksdb_transactiondb_t* db, const char* propname, uint64_t* out_val);
 
 extern ROCKSDB_LIBRARY_API rocksdb_transaction_t* rocksdb_transaction_begin(
     rocksdb_transactiondb_t* txn_db,
@@ -2194,8 +2218,17 @@ rocksdb_optimistictransaction_begin(
     const rocksdb_optimistictransaction_options_t* otxn_options,
     rocksdb_transaction_t* old_txn);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_optimistictransactiondb_write(
+    rocksdb_optimistictransactiondb_t* otxn_db,
+    const rocksdb_writeoptions_t* options, rocksdb_writebatch_t* batch,
+    char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_optimistictransactiondb_close(
     rocksdb_optimistictransactiondb_t* otxn_db);
+
+extern ROCKSDB_LIBRARY_API rocksdb_checkpoint_t*
+rocksdb_optimistictransactiondb_checkpoint_object_create(
+    rocksdb_optimistictransactiondb_t* otxn_db, char** errptr);
 
 /* Transaction Options */
 
@@ -2254,6 +2287,13 @@ extern ROCKSDB_LIBRARY_API void rocksdb_optimistictransaction_options_destroy(
 extern ROCKSDB_LIBRARY_API void
 rocksdb_optimistictransaction_options_set_set_snapshot(
     rocksdb_optimistictransaction_options_t* opt, unsigned char v);
+
+extern ROCKSDB_LIBRARY_API char* rocksdb_optimistictransactiondb_property_value(
+    rocksdb_optimistictransactiondb_t* db, const char* propname);
+
+extern ROCKSDB_LIBRARY_API int rocksdb_optimistictransactiondb_property_int(
+    rocksdb_optimistictransactiondb_t* db, const char* propname,
+    uint64_t* out_val);
 
 // referring to convention (3), this should be used by client
 // to free memory that was malloc()ed

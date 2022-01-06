@@ -154,6 +154,14 @@ class IteratorWrapperBase {
     return iter_->user_key();
   }
 
+  void UpdateReadaheadState(InternalIteratorBase<TValue>* old_iter) {
+    if (old_iter && iter_) {
+      ReadaheadFileInfo readahead_file_info;
+      old_iter->GetReadaheadState(&readahead_file_info);
+      iter_->SetReadaheadState(&readahead_file_info);
+    }
+  }
+
  private:
   void Update() {
     valid_ = iter_->Valid();

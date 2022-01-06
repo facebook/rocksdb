@@ -331,6 +331,40 @@ TEST_F(ConfigurableTest, PrepareOptionsTest) {
   ASSERT_EQ(*up, 0);
 }
 
+TEST_F(ConfigurableTest, CopyObjectTest) {
+  class CopyConfigurable : public Configurable {
+   public:
+    CopyConfigurable() : prepared_(0), validated_(0) {}
+    Status PrepareOptions(const ConfigOptions& options) override {
+      prepared_++;
+      return Configurable::PrepareOptions(options);
+    }
+    Status ValidateOptions(const DBOptions& db_opts,
+                           const ColumnFamilyOptions& cf_opts) const override {
+      validated_++;
+      return Configurable::ValidateOptions(db_opts, cf_opts);
+    }
+    int prepared_;
+    mutable int validated_;
+  };
+
+  CopyConfigurable c1;
+  ConfigOptions config_options;
+  Options options;
+
+  ASSERT_OK(c1.PrepareOptions(config_options));
+  ASSERT_OK(c1.ValidateOptions(options, options));
+  ASSERT_EQ(c1.prepared_, 1);
+  ASSERT_EQ(c1.validated_, 1);
+  CopyConfigurable c2 = c1;
+  ASSERT_OK(c1.PrepareOptions(config_options));
+  ASSERT_OK(c1.ValidateOptions(options, options));
+  ASSERT_EQ(c2.prepared_, 1);
+  ASSERT_EQ(c2.validated_, 1);
+  ASSERT_EQ(c1.prepared_, 2);
+  ASSERT_EQ(c1.validated_, 2);
+}
+
 TEST_F(ConfigurableTest, MutableOptionsTest) {
   static std::unordered_map<std::string, OptionTypeInfo> imm_option_info = {
 #ifndef ROCKSDB_LITE
@@ -621,6 +655,30 @@ TEST_F(ConfigurableTest, TestNoCompare) {
   ASSERT_EQ(cvalue, "20");
   ASSERT_TRUE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
   ASSERT_FALSE(copy->AreEquivalent(config_options_, base.get(), &mismatch));
+}
+
+TEST_F(ConfigurableTest, NullOptionMapTest) {
+  std::unique_ptr<Configurable> base;
+  std::unordered_set<std::string> names;
+  std::string str;
+
+  base.reset(
+      SimpleConfigurable::Create("c", TestConfigMode::kDefaultMode, nullptr));
+  ASSERT_NOK(base->ConfigureFromString(config_options_, "int=10"));
+  ASSERT_NOK(base->ConfigureFromString(config_options_, "int=20"));
+  ASSERT_NOK(base->ConfigureOption(config_options_, "int", "20"));
+  ASSERT_NOK(base->GetOption(config_options_, "int", &str));
+  ASSERT_NE(base->GetOptions<TestOptions>("c"), nullptr);
+  ASSERT_OK(base->GetOptionNames(config_options_, &names));
+  ASSERT_EQ(names.size(), 0UL);
+  ASSERT_OK(base->PrepareOptions(config_options_));
+  ASSERT_OK(base->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  std::unique_ptr<Configurable> copy;
+  copy.reset(
+      SimpleConfigurable::Create("c", TestConfigMode::kDefaultMode, nullptr));
+  ASSERT_OK(base->GetOptionString(config_options_, &str));
+  ASSERT_OK(copy->ConfigureFromString(config_options_, str));
+  ASSERT_TRUE(base->AreEquivalent(config_options_, copy.get(), &str));
 }
 #endif
 

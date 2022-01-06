@@ -27,20 +27,22 @@ class WriteBatchWithIndex;
 class TransactionUtil {
  public:
   // Verifies there have been no commits to this key in the db since this
-  // sequence number.
+  // sequence number. If user-defined timestamp is enabled, then also check
+  // no commits to this key in the db since the given ts.
   //
   // If cache_only is true, then this function will not attempt to read any
   // SST files.  This will make it more likely this function will
   // return an error if it is unable to determine if there are any conflicts.
   //
-  // See comment of CheckKey() for explanation of `snap_seq`, `snap_checker`
-  // and `min_uncommitted`.
+  // See comment of CheckKey() for explanation of `snap_seq`, `ts`,
+  // `snap_checker` and `min_uncommitted`.
   //
   // Returns OK on success, BUSY if there is a conflicting write, or other error
   // status for any unexpected errors.
   static Status CheckKeyForConflicts(
       DBImpl* db_impl, ColumnFamilyHandle* column_family,
-      const std::string& key, SequenceNumber snap_seq, bool cache_only,
+      const std::string& key, SequenceNumber snap_seq,
+      const std::string* const ts, bool cache_only,
       ReadCallback* snap_checker = nullptr,
       SequenceNumber min_uncommitted = kMaxSequenceNumber);
 
@@ -68,10 +70,13 @@ class TransactionUtil {
   //  seq < `min_uncommitted`: no conflict
   //  seq > `snap_seq`: applicable to conflict
   //  `min_uncommitted` <= seq <= `snap_seq`: call `snap_checker` to determine.
+  //
+  // If user-defined timestamp is enabled, a write conflict is detected if an
+  // operation for `key` with timestamp greater than `ts` exists.
   static Status CheckKey(DBImpl* db_impl, SuperVersion* sv,
                          SequenceNumber earliest_seq, SequenceNumber snap_seq,
-                         const std::string& key, bool cache_only,
-                         ReadCallback* snap_checker = nullptr,
+                         const std::string& key, const std::string* const ts,
+                         bool cache_only, ReadCallback* snap_checker = nullptr,
                          SequenceNumber min_uncommitted = kMaxSequenceNumber);
 };
 

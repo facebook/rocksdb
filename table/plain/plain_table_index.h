@@ -10,7 +10,6 @@
 #include <string>
 #include <vector>
 
-#include "db/dbformat.h"
 #include "memory/arena.h"
 #include "monitoring/histogram.h"
 #include "options/cf_options.h"
@@ -244,6 +243,6 @@ class PlainTableIndexBuilder {
   static const size_t kRecordsPerGroup = 256;
 };
 
-};  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

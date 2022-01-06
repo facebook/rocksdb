@@ -15,10 +15,6 @@ extern __thread IOStatsContext iostats_context;
 // increment a specific counter by the specified value
 #define IOSTATS_ADD(metric, value) (iostats_context.metric += value)
 
-// Increase metric value only when it is positive
-#define IOSTATS_ADD_IF_POSITIVE(metric, value)   \
-  if (value > 0) { IOSTATS_ADD(metric, value); }
-
 // reset a specific counter to zero
 #define IOSTATS_RESET(metric) (iostats_context.metric = 0)
 

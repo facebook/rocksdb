@@ -76,7 +76,8 @@ class Compaction {
              std::vector<CompactionInputFiles> inputs, int output_level,
              uint64_t target_file_size, uint64_t max_compaction_bytes,
              uint32_t output_path_id, CompressionType compression,
-             CompressionOptions compression_opts, uint32_t max_subcompactions,
+             CompressionOptions compression_opts,
+             Temperature output_temperature, uint32_t max_subcompactions,
              std::vector<FileMetaData*> grandparents,
              bool manual_compaction = false, double score = -1,
              bool deletion_compaction = false,
@@ -223,9 +224,9 @@ class Compaction {
   // How many total levels are there?
   int number_levels() const { return number_levels_; }
 
-  // Return the ImmutableCFOptions that should be used throughout the compaction
+  // Return the ImmutableOptions that should be used throughout the compaction
   // procedure
-  const ImmutableOptions* immutable_cf_options() const {
+  const ImmutableOptions* immutable_options() const {
     return &immutable_options_;
   }
 
@@ -266,6 +267,11 @@ class Compaction {
   // Should this compaction be broken up into smaller ones run in parallel?
   bool ShouldFormSubcompactions() const;
 
+  // Returns true iff at least one input file references a blob file.
+  //
+  // PRE: input version has been set.
+  bool DoesInputReferenceBlobFiles() const;
+
   // test function to validate the functionality of IsBottommostLevel()
   // function -- determines if compaction with inputs and storage is bottommost
   static bool TEST_IsBottommostLevel(
@@ -294,9 +300,24 @@ class Compaction {
 
   uint64_t max_compaction_bytes() const { return max_compaction_bytes_; }
 
+  Temperature output_temperature() const { return output_temperature_; }
+
   uint32_t max_subcompactions() const { return max_subcompactions_; }
 
-  uint64_t MinInputFileOldestAncesterTime() const;
+  // start and end are sub compact range. Null if no boundary.
+  // This is used to filter out some input files' ancester's time range.
+  uint64_t MinInputFileOldestAncesterTime(const InternalKey* start,
+                                          const InternalKey* end) const;
+
+  // Called by DBImpl::NotifyOnCompactionCompleted to make sure number of
+  // compaction begin and compaction completion callbacks match.
+  void SetNotifyOnCompactionCompleted() {
+    notify_on_compaction_completion_ = true;
+  }
+
+  bool ShouldNotifyOnCompactionCompleted() const {
+    return notify_on_compaction_completion_;
+  }
 
  private:
   // mark (or clear) all files that are being compacted
@@ -341,6 +362,7 @@ class Compaction {
   const uint32_t output_path_id_;
   CompressionType output_compression_;
   CompressionOptions output_compression_opts_;
+  Temperature output_temperature_;
   // If true, then the compaction can be done by simply deleting input files.
   const bool deletion_compaction_;
 
@@ -381,6 +403,10 @@ class Compaction {
 
   // Reason for compaction
   CompactionReason compaction_reason_;
+
+  // Notify on compaction completion only if listener was notified on compaction
+  // begin.
+  bool notify_on_compaction_completion_;
 };
 
 // Return sum of sizes of all files in `files`.

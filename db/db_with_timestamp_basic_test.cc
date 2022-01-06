@@ -16,6 +16,7 @@
 #if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
 #endif
+#include "test_util/testutil.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -195,6 +196,69 @@ class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
       : DBBasicTestWithTimestampBase("db_basic_test_with_timestamp") {}
 };
 
+TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.avoid_flush_during_shutdown = true;
+  DestroyAndReopen(options);
+
+  Options options1 = CurrentOptions();
+  options1.env = env_;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options1.comparator = &test_cmp;
+  ColumnFamilyHandle* handle = nullptr;
+  Status s = db_->CreateColumnFamily(options1, "data", &handle);
+  ASSERT_OK(s);
+
+  WriteBatch wb;
+  ASSERT_OK(wb.Put("a", "value"));
+  {
+    std::string key("a");
+    std::string ts(kTimestampSize, '\0');
+    std::array<Slice, 2> key_with_ts_slices{{key, ts}};
+    SliceParts key_with_ts(key_with_ts_slices.data(), 2);
+    std::string value_str("value");
+    Slice value_slice(value_str.data(), value_str.size());
+    SliceParts value(&value_slice, 1);
+    ASSERT_OK(wb.Put(handle, key_with_ts, value));
+  }
+  {
+    std::string ts = Timestamp(1, 0);
+    std::vector<Slice> ts_list({Slice(), ts});
+    ASSERT_OK(wb.AssignTimestamps(ts_list));
+    ASSERT_OK(db_->Write(WriteOptions(), &wb));
+  }
+
+  const auto verify_db = [this](ColumnFamilyHandle* h) {
+    ASSERT_EQ("value", Get("a"));
+    std::string ts = Timestamp(1, 0);
+    Slice read_ts_slice(ts);
+    ReadOptions read_opts;
+    read_opts.timestamp = &read_ts_slice;
+    std::string value;
+    ASSERT_OK(db_->Get(read_opts, h, "a", &value));
+    ASSERT_EQ("value", value);
+  };
+
+  verify_db(handle);
+
+  delete handle;
+  Close();
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+  cf_descs.emplace_back("data", options1);
+  options.create_if_missing = false;
+  s = DB::Open(options, dbname_, cf_descs, &handles_, &db_);
+  ASSERT_OK(s);
+
+  verify_db(handles_[1]);
+
+  Close();
+}
+
 TEST_F(DBBasicTestWithTimestamp, CompactRangeWithSpecifiedRange) {
   Options options = CurrentOptions();
   options.env = env_;
@@ -219,6 +283,51 @@ TEST_F(DBBasicTestWithTimestamp, CompactRangeWithSpecifiedRange) {
   std::string end_str = "foo2";
   Slice start(start_str), end(end_str);
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, GcPreserveLatestVersionBelowFullHistoryLow) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  std::string ts_str = Timestamp(1, 0);
+  WriteOptions wopts;
+  Slice ts = ts_str;
+  wopts.timestamp = &ts;
+  ASSERT_OK(db_->Put(wopts, "k1", "v1"));
+  ASSERT_OK(db_->Put(wopts, "k2", "v2"));
+  ASSERT_OK(db_->Put(wopts, "k3", "v3"));
+
+  ts_str = Timestamp(2, 0);
+  ts = ts_str;
+  wopts.timestamp = &ts;
+  ASSERT_OK(db_->Delete(wopts, "k3"));
+
+  ts_str = Timestamp(4, 0);
+  ts = ts_str;
+  wopts.timestamp = &ts;
+  ASSERT_OK(db_->Put(wopts, "k1", "v5"));
+
+  ts_str = Timestamp(3, 0);
+  ts = ts_str;
+  CompactRangeOptions cro;
+  cro.full_history_ts_low = &ts;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  ASSERT_OK(Flush());
+
+  ReadOptions ropts;
+  ropts.timestamp = &ts;
+  std::string value;
+  Status s = db_->Get(ropts, "k1", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("v1", value);
 
   Close();
 }
@@ -260,6 +369,7 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
   }
   ASSERT_OK(Flush());
 
+  // TODO return a non-ok for read ts < current_ts_low and test it.
   for (int i = 0; i < 10; i++) {
     ReadOptions read_opts;
     std::string ts_str = Timestamp(i, 0);
@@ -267,7 +377,7 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
     read_opts.timestamp = &ts;
     std::string value;
     Status status = db_->Get(read_opts, kKey, &value);
-    if (i < current_ts_low) {
+    if (i < current_ts_low - 1) {
       ASSERT_TRUE(status.IsNotFound());
     } else {
       ASSERT_OK(status);
@@ -294,19 +404,16 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
   result_ts_low = cfd->GetFullHistoryTsLow();
   ASSERT_TRUE(test_cmp.CompareTimestamp(ts_low, result_ts_low) == 0);
 
-  for (int i = 0; i < 20; i++) {
+  // TODO return a non-ok for read ts < current_ts_low and test it.
+  for (int i = current_ts_low; i < 20; i++) {
     ReadOptions read_opts;
     std::string ts_str = Timestamp(i, 0);
     Slice ts = ts_str;
     read_opts.timestamp = &ts;
     std::string value;
     Status status = db_->Get(read_opts, kKey, &value);
-    if (i < current_ts_low) {
-      ASSERT_TRUE(status.IsNotFound());
-    } else {
-      ASSERT_OK(status);
-      ASSERT_TRUE(value.compare(Key(i)) == 0);
-    }
+    ASSERT_OK(status);
+    ASSERT_TRUE(value.compare(Key(i)) == 0);
   }
 
   // Test invalid compaction with range
@@ -325,6 +432,51 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
   s = db_->CompactRange(comp_opts, nullptr, nullptr);
   ASSERT_TRUE(s.IsInvalidArgument());
 
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLowWithPublicAPI) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  std::string ts_low_str = Timestamp(9, 0);
+  ASSERT_OK(
+      db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(), ts_low_str));
+  std::string result_ts_low;
+  ASSERT_OK(db_->GetFullHistoryTsLow(nullptr, &result_ts_low));
+  ASSERT_TRUE(test_cmp.CompareTimestamp(ts_low_str, result_ts_low) == 0);
+  // test increase full_history_low backward
+  std::string ts_low_str_back = Timestamp(8, 0);
+  auto s = db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
+                                         ts_low_str_back);
+  ASSERT_EQ(s, Status::InvalidArgument());
+  // test IncreaseFullHistoryTsLow with a timestamp whose length is longger
+  // than the cf's timestamp size
+  std::string ts_low_str_long(Timestamp(0, 0).size() + 1, 'a');
+  s = db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
+                                    ts_low_str_long);
+  ASSERT_EQ(s, Status::InvalidArgument());
+  // test IncreaseFullHistoryTsLow with a timestamp which is null
+  std::string ts_low_str_null = "";
+  s = db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
+                                    ts_low_str_null);
+  ASSERT_EQ(s, Status::InvalidArgument());
+  // test IncreaseFullHistoryTsLow for a column family that does not enable
+  // timestamp
+  options.comparator = BytewiseComparator();
+  DestroyAndReopen(options);
+  ts_low_str = Timestamp(10, 0);
+  s = db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(), ts_low_str);
+  ASSERT_EQ(s, Status::InvalidArgument());
+  // test GetFullHistoryTsLow for a column family that does not enable
+  // timestamp
+  std::string current_ts_low;
+  s = db_->GetFullHistoryTsLow(db_->DefaultColumnFamily(), &current_ts_low);
+  ASSERT_EQ(s, Status::InvalidArgument());
   Close();
 }
 
@@ -415,7 +567,8 @@ TEST_F(DBBasicTestWithTimestamp, SimpleIterate) {
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   DestroyAndReopen(options);
   const std::vector<uint64_t> start_keys = {1, 0};
   const std::vector<std::string> write_timestamps = {Timestamp(1, 0),
@@ -486,6 +639,41 @@ TEST_F(DBBasicTestWithTimestamp, SimpleIterate) {
   }
   Close();
 }
+
+#ifndef ROCKSDB_LITE
+TEST_F(DBBasicTestWithTimestamp, GetTimestampTableProperties) {
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  // Create 2 tables
+  for (int table = 0; table < 2; ++table) {
+    for (int i = 0; i < 10; i++) {
+      WriteOptions write_opts;
+      std::string ts_str = Timestamp(i, 0);
+      Slice ts = ts_str;
+      write_opts.timestamp = &ts;
+      ASSERT_OK(db_->Put(write_opts, "key", Key(i)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  TablePropertiesCollection props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+  ASSERT_EQ(2U, props.size());
+  for (const auto& item : props) {
+    auto& user_collected = item.second->user_collected_properties;
+    ASSERT_TRUE(user_collected.find("rocksdb.timestamp_min") !=
+                user_collected.end());
+    ASSERT_TRUE(user_collected.find("rocksdb.timestamp_max") !=
+                user_collected.end());
+    ASSERT_EQ(user_collected.at("rocksdb.timestamp_min"), Timestamp(0, 0));
+    ASSERT_EQ(user_collected.at("rocksdb.timestamp_max"), Timestamp(9, 0));
+  }
+  Close();
+}
+#endif  // !ROCKSDB_LITE
 
 class DBBasicTestWithTimestampTableOptions
     : public DBBasicTestWithTimestampBase,
@@ -629,11 +817,13 @@ TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithPrefixLessThanKey) {
   Close();
 }
 
-TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithPrefixLongerThanKey) {
+TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithCappedPrefix) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
-  options.prefix_extractor.reset(NewFixedPrefixTransform(20));
+  // All of the keys or this test must be longer than 3 characters
+  constexpr int kMinKeyLen = 3;
+  options.prefix_extractor.reset(NewCappedPrefixTransform(kMinKeyLen));
   options.memtable_whole_key_filtering = true;
   options.memtable_prefix_bloom_size_ratio = 0.1;
   BlockBasedTableOptions bbto;
@@ -764,11 +954,15 @@ TEST_F(DBBasicTestWithTimestamp, ChangeIterationDirection) {
   const std::vector<std::tuple<std::string, std::string>> kvs = {
       std::make_tuple("aa", "value1"), std::make_tuple("ab", "value2")};
   for (const auto& ts : timestamps) {
-    WriteBatch wb(0, 0, kTimestampSize);
+    WriteBatch wb;
     for (const auto& kv : kvs) {
       const std::string& key = std::get<0>(kv);
       const std::string& value = std::get<1>(kv);
-      ASSERT_OK(wb.Put(key, value));
+      std::array<Slice, 2> key_with_ts_slices{{Slice(key), Slice(ts)}};
+      SliceParts key_with_ts(key_with_ts_slices.data(), 2);
+      std::array<Slice, 1> value_slices{{Slice(value)}};
+      SliceParts values(value_slices.data(), 1);
+      ASSERT_OK(wb.Put(key_with_ts, values));
     }
 
     ASSERT_OK(wb.AssignTimestamp(ts));
@@ -842,7 +1036,8 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   DestroyAndReopen(options);
   const std::vector<std::string> write_timestamps = {Timestamp(1, 0),
                                                      Timestamp(3, 0)};
@@ -913,13 +1108,27 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
   Close();
 }
 
-TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
+class DBBasicDeletionTestWithTimestamp
+    : public DBBasicTestWithTimestampBase,
+      public testing::WithParamInterface<enum ValueType> {
+ public:
+  DBBasicDeletionTestWithTimestamp()
+      : DBBasicTestWithTimestampBase("db_basic_deletion_test_with_timestamp") {}
+};
+
+INSTANTIATE_TEST_CASE_P(
+    Timestamp, DBBasicDeletionTestWithTimestamp,
+    ::testing::Values(ValueType::kTypeSingleDeletion,
+                      ValueType::kTypeDeletionWithTimestamp));
+
+TEST_P(DBBasicDeletionTestWithTimestamp, ForwardIterateStartSeqnum) {
   const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 0xffffffffffffffff;
   const uint64_t kMinKey = kMaxKey - 1023;
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
+  ValueType op_type = GetParam();
   // Need to disable compaction to bottommost level when sequence number will be
   // zeroed out, causing the verification of sequence number to fail in this
   // test.
@@ -927,7 +1136,8 @@ TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   DestroyAndReopen(options);
   std::vector<SequenceNumber> start_seqs;
 
@@ -945,7 +1155,11 @@ TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
       if (k % 2) {
         s = db_->Put(write_opts, Key1(k), "value" + std::to_string(i));
       } else {
-        s = db_->Delete(write_opts, Key1(k));
+        if (op_type == ValueType::kTypeDeletionWithTimestamp) {
+          s = db_->Delete(write_opts, Key1(k));
+        } else if (op_type == ValueType::kTypeSingleDeletion) {
+          s = db_->SingleDelete(write_opts, Key1(k));
+        }
       }
       ASSERT_OK(s);
     }
@@ -967,8 +1181,7 @@ TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
     uint64_t key = kMinKey;
     for (iter->Seek(Key1(kMinKey)); iter->Valid(); iter->Next()) {
       CheckIterEntry(
-          iter.get(), Key1(key), expected_seq,
-          (key % 2) ? kTypeValue : kTypeDeletionWithTimestamp,
+          iter.get(), Key1(key), expected_seq, (key % 2) ? kTypeValue : op_type,
           (key % 2) ? "value" + std::to_string(i + 1) : std::string(),
           write_ts_list[i + 1]);
       ++key;
@@ -991,7 +1204,7 @@ TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
     SequenceNumber expected_seq = start_seqs[i] + (kMaxKey - kMinKey) + 1;
     for (it->Seek(Key1(kMinKey)); it->Valid(); it->Next()) {
       CheckIterEntry(it.get(), Key1(key), expected_seq,
-                     (key % 2) ? kTypeValue : kTypeDeletionWithTimestamp,
+                     (key % 2) ? kTypeValue : op_type,
                      "value" + std::to_string(i + 1), write_ts_list[i + 1]);
       ++key;
       --expected_seq;
@@ -1068,9 +1281,20 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
   }
   {
     std::string ts_str = Timestamp(static_cast<uint64_t>(kNumKeys + 1), 0);
-    WriteBatch batch(0, 0, kTimestampSize);
-    ASSERT_OK(batch.Put("a", "new_value"));
-    ASSERT_OK(batch.Put("b", "new_value"));
+    WriteBatch batch;
+    const std::string dummy_ts(kTimestampSize, '\0');
+    {
+      std::array<Slice, 2> key_with_ts_slices{{"a", dummy_ts}};
+      SliceParts key_with_ts(key_with_ts_slices.data(), 2);
+      std::array<Slice, 1> value_slices{{"new_value"}};
+      SliceParts values(value_slices.data(), 1);
+      ASSERT_OK(batch.Put(key_with_ts, values));
+    }
+    {
+      std::string key_with_ts("b");
+      key_with_ts.append(dummy_ts);
+      ASSERT_OK(batch.Put(key_with_ts, "new_value"));
+    }
     s = batch.AssignTimestamp(ts_str);
     ASSERT_OK(s);
     s = db_->Write(write_opts, &batch);
@@ -1317,7 +1541,7 @@ TEST_P(DBBasicTestWithTimestampTableOptions, MultiGetPrefixFilter) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
-  options.prefix_extractor.reset(NewCappedPrefixTransform(5));
+  options.prefix_extractor.reset(NewCappedPrefixTransform(3));
   BlockBasedTableOptions bbto;
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.cache_index_and_filter_blocks = true;
@@ -1494,6 +1718,7 @@ TEST_F(DBBasicTestWithTimestamp, CompactDeletionWithTimestampMarkerToBottom) {
   Close();
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 class DBBasicTestWithTimestampFilterPrefixSettings
     : public DBBasicTestWithTimestampBase,
       public testing::WithParamInterface<
@@ -1625,6 +1850,7 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::IndexType::kHashSearch,
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
             BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey)));
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 class DataVisibilityTest : public DBBasicTestWithTimestampBase {
  public:
@@ -2215,6 +2441,7 @@ TEST_F(DataVisibilityTest, MultiGetCrossCF) {
   Close();
 }
 
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 class DBBasicTestWithTimestampCompressionSettings
     : public DBBasicTestWithTimestampBase,
       public testing::WithParamInterface<
@@ -2232,7 +2459,8 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGet) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.env = env_;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   size_t ts_sz = Timestamp(0, 0).size();
   TestComparator test_cmp(ts_sz);
   options.comparator = &test_cmp;
@@ -2310,7 +2538,8 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
   const int kNumKeysPerFile = 1024;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   BlockBasedTableOptions bbto;
   bbto.filter_policy = std::get<0>(GetParam());
   bbto.whole_key_filtering = true;
@@ -2342,13 +2571,15 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
   const size_t kNumL0Files =
       static_cast<size_t>(Options().level0_file_num_compaction_trigger);
   {
-    // Generate enough L0 files with ts=1 to trigger compaction to L1
+    // Half of the keys will go through Deletion and remaining half with
+    // SingleDeletion. Generate enough L0 files with ts=1 to trigger compaction
+    // to L1
     std::string ts_str = Timestamp(1, 0);
     Slice ts = ts_str;
     WriteOptions wopts;
     wopts.timestamp = &ts;
-    for (size_t i = 0; i != kNumL0Files; ++i) {
-      for (int j = 0; j != kNumKeysPerFile; ++j) {
+    for (size_t i = 0; i < kNumL0Files; ++i) {
+      for (int j = 0; j < kNumKeysPerFile; ++j) {
         ASSERT_OK(db_->Put(wopts, Key1(j), "value" + std::to_string(i)));
       }
       ASSERT_OK(db_->Flush(FlushOptions()));
@@ -2358,11 +2589,15 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
     ts_str = Timestamp(3, 0);
     ts = ts_str;
     wopts.timestamp = &ts;
-    for (int i = 0; i != kNumKeysPerFile; ++i) {
+    for (int i = 0; i < kNumKeysPerFile; ++i) {
       std::string key_str = Key1(i);
       Slice key(key_str);
       if ((i % 3) == 0) {
-        ASSERT_OK(db_->Delete(wopts, key));
+        if (i < kNumKeysPerFile / 2) {
+          ASSERT_OK(db_->Delete(wopts, key));
+        } else {
+          ASSERT_OK(db_->SingleDelete(wopts, key));
+        }
       } else {
         ASSERT_OK(db_->Put(wopts, key, "new_value"));
       }
@@ -2376,7 +2611,11 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
       std::string key_str = Key1(i);
       Slice key(key_str);
       if ((i % 3) == 1) {
-        ASSERT_OK(db_->Delete(wopts, key));
+        if (i < kNumKeysPerFile / 2) {
+          ASSERT_OK(db_->Delete(wopts, key));
+        } else {
+          ASSERT_OK(db_->SingleDelete(wopts, key));
+        }
       } else if ((i % 3) == 2) {
         ASSERT_OK(db_->Put(wopts, key, "new_value_2"));
       }
@@ -2439,7 +2678,8 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.env = env_;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
 
   FlushedFileCollector* collector = new FlushedFileCollector();
   options.listeners.emplace_back(collector);
@@ -2517,6 +2757,8 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
           // incremental positions such that lowerlevel[1].smallest.userkey ==
           // higherlevel[0].largest.userkey
           ASSERT_OK(Flush(cf));
+          ASSERT_OK(dbfull()->TEST_WaitForCompact());  // wait for flush (which
+                                                       // is also a compaction)
 
           // compact files (2 at each level) to a lower level such that all
           // keys with the same timestamp is at one level, with newer versions
@@ -2555,7 +2797,8 @@ TEST_F(DBBasicTestWithTimestamp, BatchWriteAndMultiGet) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.env = env_;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   options.memtable_prefix_bloom_size_ratio = 0.1;
   options.memtable_whole_key_filtering = true;
 
@@ -2604,17 +2847,23 @@ TEST_F(DBBasicTestWithTimestamp, BatchWriteAndMultiGet) {
     }
   };
 
+  const std::string dummy_ts(ts_sz, '\0');
   for (size_t i = 0; i != kNumTimestamps; ++i) {
     write_ts_list.push_back(Timestamp(i * 2, 0));
     read_ts_list.push_back(Timestamp(1 + i * 2, 0));
     const Slice& write_ts = write_ts_list.back();
     for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
       WriteOptions wopts;
-      WriteBatch batch(0, 0, ts_sz);
+      WriteBatch batch;
       for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
-        ASSERT_OK(
-            batch.Put(handles_[cf], Key1(j),
-                      "value_" + std::to_string(j) + "_" + std::to_string(i)));
+        const std::string key = Key1(j);
+        const std::string value =
+            "value_" + std::to_string(j) + "_" + std::to_string(i);
+        std::array<Slice, 2> key_with_ts_slices{{key, dummy_ts}};
+        SliceParts key_with_ts(key_with_ts_slices.data(), 2);
+        std::array<Slice, 1> value_slices{{value}};
+        SliceParts values(value_slices.data(), 1);
+        ASSERT_OK(batch.Put(handles_[cf], key_with_ts, values));
       }
       ASSERT_OK(batch.AssignTimestamp(write_ts));
       ASSERT_OK(db_->Write(wopts, &batch));
@@ -2722,7 +2971,8 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, IterateWithPrefix) {
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
   options.prefix_extractor = std::get<0>(GetParam());
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   BlockBasedTableOptions bbto;
   bbto.filter_policy = std::get<1>(GetParam());
   bbto.index_type = std::get<3>(GetParam());
@@ -2876,7 +3126,8 @@ TEST_P(DBBasicTestWithTsIterTombstones, IterWithDelete) {
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
   options.prefix_extractor = std::get<0>(GetParam());
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   BlockBasedTableOptions bbto;
   bbto.filter_policy = std::get<1>(GetParam());
   bbto.index_type = std::get<3>(GetParam());
@@ -2954,16 +3205,9 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::IndexType::kHashSearch,
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
             BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey)));
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
-}
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

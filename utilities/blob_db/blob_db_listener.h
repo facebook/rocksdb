@@ -37,6 +37,9 @@ class BlobDBListener : public EventListener {
     blob_db_impl_->UpdateLiveSSTSize();
   }
 
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "BlobDBListener"; }
+
  protected:
   BlobDBImpl* blob_db_impl_;
 };
@@ -46,6 +49,8 @@ class BlobDBListenerGC : public BlobDBListener {
   explicit BlobDBListenerGC(BlobDBImpl* blob_db_impl)
       : BlobDBListener(blob_db_impl) {}
 
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "BlobDBListenerGC"; }
   void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
     BlobDBListener::OnFlushCompleted(db, info);
 

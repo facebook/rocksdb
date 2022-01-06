@@ -10,6 +10,7 @@
 #include <string>
 
 #include "rocksdb/cache.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
@@ -21,9 +22,9 @@ namespace ROCKSDB_NAMESPACE {
 // ready, and call Wait() in order to block until it becomes ready.
 // The caller must call value() after it becomes ready to determine if the
 // handle successfullly read the item.
-class SecondaryCacheHandle {
+class SecondaryCacheResultHandle {
  public:
-  virtual ~SecondaryCacheHandle() {}
+  virtual ~SecondaryCacheResultHandle() {}
 
   // Returns whether the handle is ready or not
   virtual bool IsReady() = 0;
@@ -42,13 +43,18 @@ class SecondaryCacheHandle {
 //
 // Cache interface for caching blocks on a secondary tier (which can include
 // non-volatile media, or alternate forms of caching such as compressed data)
-class SecondaryCache {
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
+class SecondaryCache : public Customizable {
  public:
   virtual ~SecondaryCache() {}
 
-  virtual std::string Name() = 0;
-
-  static const std::string Type() { return "SecondaryCache"; }
+  static const char* Type() { return "SecondaryCache"; }
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& id,
+                                 std::shared_ptr<SecondaryCache>* result);
 
   // Insert the given value into this cache. The value is not written
   // directly. Rather, the SaveToCallback provided by helper_cb will be
@@ -63,7 +69,7 @@ class SecondaryCache {
   // will be used to create the object. The handle returned may not be
   // ready yet, unless wait=true, in which case Lookup() will block until
   // the handle is ready
-  virtual std::unique_ptr<SecondaryCacheHandle> Lookup(
+  virtual std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb, bool wait) = 0;
 
   // At the discretion of the implementation, erase the data associated
@@ -71,9 +77,9 @@ class SecondaryCache {
   virtual void Erase(const Slice& key) = 0;
 
   // Wait for a collection of handles to become ready
-  virtual void WaitAll(std::vector<SecondaryCacheHandle*> handles) = 0;
+  virtual void WaitAll(std::vector<SecondaryCacheResultHandle*> handles) = 0;
 
-  virtual std::string GetPrintableOptions() const = 0;
+  virtual std::string GetPrintableOptions() const override = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

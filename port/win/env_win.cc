@@ -31,7 +31,6 @@
 #include "port/port_dirent.h"
 #include "port/win/io_win.h"
 #include "port/win/win_logger.h"
-#include "port/win/win_thread.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "strsafe.h"
@@ -55,10 +54,10 @@ static const size_t kSectorSize = 512;
 
 // RAII helpers for HANDLEs
 const auto CloseHandleFunc = [](HANDLE h) { ::CloseHandle(h); };
-typedef std::unique_ptr<void, decltype(CloseHandleFunc)> UniqueCloseHandlePtr;
+using UniqueCloseHandlePtr = std::unique_ptr<void, decltype(CloseHandleFunc)>;
 
 const auto FindCloseFunc = [](HANDLE h) { ::FindClose(h); };
-typedef std::unique_ptr<void, decltype(FindCloseFunc)> UniqueFindClosePtr;
+using UniqueFindClosePtr = std::unique_ptr<void, decltype(FindCloseFunc)>;
 
 void WinthreadCall(const char* label, std::error_code result) {
   if (0 != result.value()) {
@@ -349,8 +348,7 @@ IOStatus WinFileSystem::NewRandomAccessFile(
       fileGuard.release();
     }
   } else {
-    result->reset(new WinRandomAccessFile(
-        fname, hFile, std::max(GetSectorSize(fname), page_size_), options));
+    result->reset(new WinRandomAccessFile(fname, hFile, page_size_, options));
     fileGuard.release();
   }
   return s;
@@ -435,9 +433,8 @@ IOStatus WinFileSystem::OpenWritableFile(
   } else {
     // Here we want the buffer allocation to be aligned by the SSD page size
     // and to be a multiple of it
-    result->reset(new WinWritableFile(
-        fname, hFile, std::max(GetSectorSize(fname), GetPageSize()),
-        c_BufferCapacity, local_options));
+    result->reset(new WinWritableFile(fname, hFile, GetPageSize(),
+                                      c_BufferCapacity, local_options));
   }
   return s;
 }
@@ -489,8 +486,7 @@ IOStatus WinFileSystem::NewRandomRWFile(const std::string& fname,
   }
 
   UniqueCloseHandlePtr fileGuard(hFile, CloseHandleFunc);
-  result->reset(new WinRandomRWFile(
-      fname, hFile, std::max(GetSectorSize(fname), GetPageSize()), options));
+  result->reset(new WinRandomRWFile(fname, hFile, GetPageSize(), options));
   fileGuard.release();
 
   return s;
@@ -1185,13 +1181,23 @@ bool WinFileSystem::DirExists(const std::string& dname) {
 size_t WinFileSystem::GetSectorSize(const std::string& fname) {
   size_t sector_size = kSectorSize;
 
-  if (RX_PathIsRelative(RX_FN(fname).c_str())) {
-    return sector_size;
-  }
-
   // obtain device handle
   char devicename[7] = "\\\\.\\";
-  int erresult = strncat_s(devicename, sizeof(devicename), fname.c_str(), 2);
+  int erresult = 0;
+  if (RX_PathIsRelative(RX_FN(fname).c_str())) {
+    RX_FILESTRING rx_current_dir;
+    rx_current_dir.resize(MAX_PATH);
+    DWORD len = RX_GetCurrentDirectory(MAX_PATH, &rx_current_dir[0]);
+    if (len == 0) {
+      return sector_size;
+    }
+    rx_current_dir.resize(len);
+    std::string current_dir = FN_TO_RX(rx_current_dir);
+    erresult =
+        strncat_s(devicename, sizeof(devicename), current_dir.c_str(), 2);
+  } else {
+    erresult = strncat_s(devicename, sizeof(devicename), fname.c_str(), 2);
+  }
 
   if (erresult) {
     assert(false);
@@ -1292,7 +1298,7 @@ void WinEnvThreads::StartThread(void (*function)(void* arg), void* arg) {
   state->user_function = function;
   state->arg = arg;
   try {
-    ROCKSDB_NAMESPACE::port::WindowsThread th(&StartThreadWrapper, state.get());
+    Thread th(&StartThreadWrapper, state.get());
     state.release();
 
     std::lock_guard<std::mutex> lg(mu_);
@@ -1399,25 +1405,6 @@ void WinEnv::IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) {
 
 }  // namespace port
 
-std::string Env::GenerateUniqueId() {
-  std::string result;
-
-  UUID uuid;
-  UuidCreateSequential(&uuid);
-
-  RPC_CSTR rpc_str;
-  auto status = UuidToStringA(&uuid, &rpc_str);
-  (void)status;
-  assert(status == RPC_S_OK);
-
-  result = reinterpret_cast<char*>(rpc_str);
-
-  status = RpcStringFreeA(&rpc_str);
-  assert(status == RPC_S_OK);
-
-  return result;
-}
-
 std::shared_ptr<FileSystem> FileSystem::Default() {
   return port::WinFileSystem::Default();
 }
@@ -1426,10 +1413,6 @@ const std::shared_ptr<SystemClock>& SystemClock::Default() {
   static std::shared_ptr<SystemClock> clock =
       std::make_shared<port::WinClock>();
   return clock;
-}
-
-std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs) {
-  return std::unique_ptr<Env>(new CompositeEnvWrapper(Env::Default(), fs));
 }
 }  // namespace ROCKSDB_NAMESPACE
 

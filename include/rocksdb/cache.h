@@ -170,6 +170,10 @@ class Cache {
   // The SizeCallback takes a void* pointer to the object and returns the size
   // of the persistable data. It can be used by the secondary cache to allocate
   // memory if needed.
+  //
+  // RocksDB callbacks are NOT exception-safe. A callback completing with an
+  // exception can lead to undefined behavior in RocksDB, including data loss,
+  // unreported corruption, deadlocks, and more.
   using SizeCallback = size_t (*)(void* obj);
 
   // The SaveToCallback takes a void* object pointer and saves the persistable
@@ -202,9 +206,6 @@ class Cache {
   // takes in a buffer from the NVM cache and constructs an object using
   // it. The callback doesn't have ownership of the buffer and should
   // copy the contents into its own buffer.
-  // typedef std::function<Status(void* buf, size_t size, void** out_obj,
-  //                             size_t* charge)>
-  //    CreateCallback;
   using CreateCallback = std::function<Status(void* buf, size_t size,
                                               void** out_obj, size_t* charge)>;
 
@@ -472,7 +473,9 @@ class Cache {
     return Release(handle, force_erase);
   }
 
-  // Determines if the handle returned by Lookup() has a valid value yet.
+  // Determines if the handle returned by Lookup() has a valid value yet. The
+  // call is not thread safe and should be called only by someone holding a
+  // reference to the handle.
   virtual bool IsReady(Handle* /*handle*/) { return true; }
 
   // If the handle returned by Lookup() is not ready yet, wait till it
@@ -482,7 +485,9 @@ class Cache {
   virtual void Wait(Handle* /*handle*/) {}
 
   // Wait for a vector of handles to become ready. As with Wait(), the user
-  // should check the Value() of each handle for nullptr
+  // should check the Value() of each handle for nullptr. This call is not
+  // thread safe and should only be called by the caller holding a reference
+  // to each of the handles.
   virtual void WaitAll(std::vector<Handle*>& /*handles*/) {}
 
  private:
