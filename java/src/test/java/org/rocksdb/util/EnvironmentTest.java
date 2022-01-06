@@ -57,12 +57,10 @@ public class EnvironmentTest {
   public void macAarch64() {
     setEnvironmentClassFields("mac", "aarch64");
     assertThat(Environment.isWindows()).isFalse();
-    assertThat(Environment.getJniLibraryExtension()).
-        isEqualTo(".jnilib");
-    assertThat(Environment.getJniLibraryFileName("rocksdb")).
-        isEqualTo("librocksdbjni-osx-aarch64.jnilib");
-    assertThat(Environment.getSharedLibraryFileName("rocksdb")).
-        isEqualTo("librocksdbjni.dylib");
+    assertThat(Environment.getJniLibraryExtension()).isEqualTo(".jnilib");
+    assertThat(Environment.getJniLibraryFileName("rocksdb"))
+        .isEqualTo("librocksdbjni-osx-aarch64.jnilib");
+    assertThat(Environment.getSharedLibraryFileName("rocksdb")).isEqualTo("librocksdbjni.dylib");
   }
 
   @Test
