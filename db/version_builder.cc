@@ -929,12 +929,7 @@ class VersionBuilder::Rep {
     size_t table_cache_capacity = table_cache_->get_cache()->GetCapacity();
     bool always_load = (table_cache_capacity == TableCache::kInfiniteCapacity);
     size_t max_load = port::kMaxSizet;
-#ifndef NDEBUG
-    bool debug_override =
-        true;  // to enable CompactedDB related tests and some property tests
-#else
-    bool debug_override = false;
-#endif
+
     if (FilePreload::kFilePreloadDisabled == ioptions_->file_preload) {
       max_load = 0;
       always_load = true;
@@ -1012,8 +1007,7 @@ class VersionBuilder::Rep {
         //  table cache which over time are no longer useful.  The
         //  kFilePreloadWithoutPinning option keeps #1 and disables #2.
         if (file_meta->table_reader_handle != nullptr) {
-          if (ioptions_->file_preload == kFilePreloadWithPinning ||
-              debug_override) {
+          if (ioptions_->file_preload == kFilePreloadWithPinning) {
             file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(
                 file_meta->table_reader_handle);
           } else {  // kFilePreloadWithoutPinning
@@ -1024,19 +1018,22 @@ class VersionBuilder::Rep {
       }
     });
 
-    std::vector<port::Thread> threads;
-    for (int i = 1; i < max_threads; i++) {
-      threads.emplace_back(load_handlers_func);
-    }
-    load_handlers_func();
-    for (auto& t : threads) {
-      t.join();
-    }
     Status ret;
-    for (const auto& s : statuses) {
-      if (!s.ok()) {
-        if (ret.ok()) {
-          ret = s;
+    if (0 < max_load) {
+      std::vector<port::Thread> threads;
+      for (int i = 1; i < max_threads; i++) {
+        threads.emplace_back(load_handlers_func);
+      }
+      load_handlers_func();
+      for (auto& t : threads) {
+        t.join();
+      }
+
+      for (const auto& s : statuses) {
+        if (!s.ok()) {
+          if (ret.ok()) {
+            ret = s;
+          }
         }
       }
     }
