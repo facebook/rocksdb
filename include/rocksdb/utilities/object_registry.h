@@ -52,6 +52,10 @@ class ObjectLibrary {
   };
 
   // A class that implements an Entry based on Regex.
+  //
+  // WARNING: some regexes are problematic for std::regex; see
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582 for example
+  //
   // To be deprecated
   class RegexEntry : public Entry {
    public:
@@ -237,8 +241,11 @@ class ObjectLibrary {
   // Registers the factory with the library for the pattern.
   // If the pattern matches, the factory may be used to create a new object.
   //
+  // WARNING: some regexes are problematic for std::regex; see
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582 for example
+  //
   // Deprecated. Will be removed in a major release. Code should use AddFactory
-  // instead
+  // instead.
   template <typename T>
   const FactoryFunc<T>& Register(const std::string& pattern,
                                  const FactoryFunc<T>& factory) {
@@ -325,9 +332,6 @@ class ObjectRegistry {
   // Creates a new T using the factory function that was registered with a
   // pattern that matches the provided "target" string according to
   // std::regex_match.
-  //
-  // WARNING: some regexes are problematic for std::regex; see
-  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582 for example
   //
   // If no registered functions match, returns nullptr. If multiple functions
   // match, the factory function used is unspecified.
