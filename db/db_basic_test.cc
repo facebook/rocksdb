@@ -3632,6 +3632,35 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
   Reopen(options);
 }
 
+TEST_F(DBBasicTest, DestroyDefaultCfHandle) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  for (const auto* h : handles_) {
+    ASSERT_NE(db_->DefaultColumnFamily(), h);
+  }
+
+  // We have two handles to the default column family. The two handles point to
+  // different ColumnFamilyHandle objects.
+  assert(db_->DefaultColumnFamily());
+  ASSERT_EQ(0U, db_->DefaultColumnFamily()->GetID());
+  assert(handles_[0]);
+  ASSERT_EQ(0U, handles_[0]->GetID());
+
+  // You can destroy handles_[...].
+  for (auto* h : handles_) {
+    ASSERT_OK(db_->DestroyColumnFamilyHandle(h));
+  }
+  handles_.clear();
+
+  // But you should not destroy db_->DefaultColumnFamily(), since it's going to
+  // be deleted in `DBImpl::CloseHelper()`. Before that, it may be used
+  // elsewhere internally too.
+  ColumnFamilyHandle* default_cf = db_->DefaultColumnFamily();
+  ASSERT_TRUE(db_->DestroyColumnFamilyHandle(default_cf).IsInvalidArgument());
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, VerifyFileChecksums) {
   Options options = GetDefaultOptions();
