@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 
+#include "db/db_test_util.h"
 #include "db/version_edit.h"
 #include "db/version_set.h"
 #include "test_util/testharness.h"
@@ -1541,6 +1542,47 @@ TEST_F(VersionBuilderTest, EstimatedActiveKeys) {
   // 1x for each deletion entry will actually remove one data entry.
   ASSERT_EQ(vstorage_.GetEstimatedActiveKeys(),
             (kEntriesPerFile - 2 * kDeletionsPerFile) * kNumFiles);
+}
+
+class FilePreloadTest : public DBTestBase {
+ public:
+  FilePreloadTest() : DBTestBase("/file_preload_test", /*env_do_fsync=*/true) {}
+};
+
+TEST_F(FilePreloadTest, PreloadOptions) {
+  // create a DB with 3 files
+  // the day.
+  ASSERT_OK(Put("key", "val"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key3", "val3"));
+  ASSERT_OK(Flush());
+
+  DBImpl* db_impl = dbfull();
+  Cache* table_cache = db_impl->TEST_table_cache();
+
+  ASSERT_EQ(table_cache->GetUsage(), 3);
+  table_cache->EraseUnRefEntries();
+  ASSERT_EQ(table_cache->GetUsage(), 3);
+
+  Options new_options = GetOptions(kFilePreloadWithoutPinning);
+  Reopen(new_options);
+  db_impl = dbfull();
+  table_cache = db_impl->TEST_table_cache();
+
+  ASSERT_EQ(table_cache->GetUsage(), 3);
+  table_cache->EraseUnRefEntries();
+  ASSERT_EQ(table_cache->GetUsage(), 0);
+
+  new_options = GetOptions(kFilePreloadDisabled);
+  Reopen(new_options);
+  db_impl = dbfull();
+  table_cache = db_impl->TEST_table_cache();
+
+  ASSERT_EQ(table_cache->GetUsage(), 0);
+  table_cache->EraseUnRefEntries();
+  ASSERT_EQ(table_cache->GetUsage(), 0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
