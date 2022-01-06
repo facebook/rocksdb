@@ -941,6 +941,8 @@ class DBTestBase : public testing::Test {
     kUniversalSubcompactions,
     kxxHash64Checksum,
     kUnorderedWrite,
+    kFilePreloadWithoutPinning,
+    kFilePreloadDisabled,
     // This must be the last line
     kEnd,
   };

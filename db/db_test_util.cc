@@ -558,6 +558,14 @@ Options DBTestBase::GetOptions(
       options.unordered_write = false;
       break;
     }
+    case kFilePreloadWithoutPinning: {
+      options.file_preload = FilePreload::kFilePreloadWithoutPinning;
+      break;
+    }
+    case kFilePreloadDisabled: {
+      options.file_preload = FilePreload::kFilePreloadDisabled;
+      break;
+    }
 
     default:
       break;
