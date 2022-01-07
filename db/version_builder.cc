@@ -1186,65 +1186,65 @@ class VersionBuilder::Rep {
       }
     }
 
-    // <file metadata, level>
-    std::vector<std::pair<FileMetaData*, int>> files_meta;
-    std::vector<Status> statuses;
-    for (int level = 0; level < num_levels_; level++) {
-      for (auto& file_meta_pair : levels_[level].added_files) {
-        auto* file_meta = file_meta_pair.second;
-        // If the file has been opened before, just skip it.
-        if (!file_meta->table_reader_handle) {
-          files_meta.emplace_back(file_meta, level);
-          statuses.emplace_back(Status::OK());
+    Status ret;
+    if (0 < max_load) {
+      // <file metadata, level>
+      std::vector<std::pair<FileMetaData*, int>> files_meta;
+      std::vector<Status> statuses;
+      for (int level = 0; level < num_levels_; level++) {
+        for (auto& file_meta_pair : levels_[level].added_files) {
+          auto* file_meta = file_meta_pair.second;
+          // If the file has been opened before, just skip it.
+          if (!file_meta->table_reader_handle) {
+            files_meta.emplace_back(file_meta, level);
+            statuses.emplace_back(Status::OK());
+          }
+          if (files_meta.size() >= max_load) {
+            break;
+          }
         }
         if (files_meta.size() >= max_load) {
           break;
         }
       }
-      if (files_meta.size() >= max_load) {
-        break;
-      }
-    }
 
-    std::atomic<size_t> next_file_meta_idx(0);
-    std::function<void()> load_handlers_func([&]() {
-      while (true) {
-        size_t file_idx = next_file_meta_idx.fetch_add(1);
-        if (file_idx >= files_meta.size()) {
-          break;
-        }
+      std::atomic<size_t> next_file_meta_idx(0);
+      std::function<void()> load_handlers_func([&]() {
+          while (true) {
+            size_t file_idx = next_file_meta_idx.fetch_add(1);
+            if (file_idx >= files_meta.size()) {
+              break;
+            }
 
-        auto* file_meta = files_meta[file_idx].first;
-        int level = files_meta[file_idx].second;
-        statuses[file_idx] = table_cache_->FindTable(
-            ReadOptions(), file_options_,
-            *(base_vstorage_->InternalComparator()), file_meta->fd,
-            &file_meta->table_reader_handle, prefix_extractor, false /*no_io */,
-            true /* record_read_stats */,
-            internal_stats->GetFileReadHist(level), false, level,
-            prefetch_index_and_filter_in_cache, max_file_size_for_l0_meta_pin,
-            file_meta->temperature);
+            auto* file_meta = files_meta[file_idx].first;
+            int level = files_meta[file_idx].second;
+            statuses[file_idx] = table_cache_->FindTable(
+                ReadOptions(), file_options_,
+                *(base_vstorage_->InternalComparator()), file_meta->fd,
+                &file_meta->table_reader_handle, prefix_extractor, false /*no_io */,
+                true /* record_read_stats */,
+                internal_stats->GetFileReadHist(level), false, level,
+                prefetch_index_and_filter_in_cache, max_file_size_for_l0_meta_pin,
+                file_meta->temperature);
 
-        // The code is attempting two things:
-        //  1. preload / warm the table cache with new file objects
-        //  2. create higher performance via a cache lookup avoidance
-        // The issue is that number 2 creates permanent objects in the
-        //  table cache which over time are no longer useful.  The
-        //  kFilePreloadWithoutPinning option keeps #1 and disables #2.
-        if (file_meta->table_reader_handle != nullptr) {
-          if (ioptions_->file_preload == kFilePreloadWithPinning) {
-            file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(
-                file_meta->table_reader_handle);
-          } else {  // kFilePreloadWithoutPinning
-            table_cache_->ReleaseHandle(file_meta->table_reader_handle);
-            file_meta->table_reader_handle = nullptr;
+            // The code is attempting two things:
+            //  1. preload / warm the table cache with new file objects
+            //  2. create higher performance via a cache lookup avoidance
+            // The issue is that number 2 creates permanent objects in the
+            //  table cache which over time are no longer useful.  The
+            //  kFilePreloadWithoutPinning option keeps #1 and disables #2.
+            if (file_meta->table_reader_handle != nullptr) {
+              if (ioptions_->file_preload == kFilePreloadWithPinning) {
+                file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(
+                    file_meta->table_reader_handle);
+              } else {  // kFilePreloadWithoutPinning
+                table_cache_->ReleaseHandle(file_meta->table_reader_handle);
+                file_meta->table_reader_handle = nullptr;
+              }
+            }
           }
-        }
-      }
-    });
+        });
 
-    Status ret;
-    if (0 < max_load) {
       std::vector<port::Thread> threads;
       for (int i = 1; i < max_threads; i++) {
         threads.emplace_back(load_handlers_func);
@@ -1261,9 +1261,8 @@ class VersionBuilder::Rep {
           }
         }
       }
-    } else {
-      (void) ret.ok(); // for testing
     }
+
     return ret;
   }
 };
