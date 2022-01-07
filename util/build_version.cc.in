@@ -26,7 +26,7 @@ extern "C" {
 @ROCKSDB_PLUGIN_EXTERNS@
 } // extern "C"
 
-std::unordered_map<std::string, ROCKSDB_NAMESPACE::PluginFunc> ROCKSDB_NAMESPACE::ObjectRegistry::builtins_ = {
+std::unordered_map<std::string, ROCKSDB_NAMESPACE::RegistrarFunc> ROCKSDB_NAMESPACE::ObjectRegistry::builtins_ = {
   @ROCKSDB_PLUGIN_BUILTINS@                                                                        
 };
 #endif //ROCKSDB_LITE

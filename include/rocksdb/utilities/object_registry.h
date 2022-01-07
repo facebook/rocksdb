@@ -22,7 +22,6 @@ namespace ROCKSDB_NAMESPACE {
 class Customizable;
 class Logger;
 class ObjectLibrary;
-struct Plugin;
 
 // Returns a new T when called with a string. Populates the std::unique_ptr
 // argument if granting ownership to caller.
@@ -38,23 +37,6 @@ using FactoryFunc =
 // The RegistrarFunc should return the number of objects loaded into this
 // library
 using RegistrarFunc = std::function<int(ObjectLibrary&, const std::string&)>;
-
-// The signature of the function for loading plugins
-// Plugin contains the struct of properties associated with this Plugin.
-// Plugin is passed to the PluginFunc and the fields should be initalized
-// by the Plugin.
-// On success, this function should return 0.  On failure, this function should
-// return non-zero and set the std::string* to an appropriate error message.
-using PluginFunc = std::function<int(Plugin*, std::string*)>;
-
-struct Plugin {
-  // Function to use to register the factories for this plugin
-  // This field must be specified by th plugin for the plugin to be valid.
-  RegistrarFunc registrar;
-
-  // The argument to pass to the registrar function
-  std::string arg;
-};
 
 template <typename T>
 using ConfigureFunc = std::function<Status(T*)>;
@@ -382,12 +364,7 @@ class ObjectRegistry {
   void Dump(Logger* logger) const;
 
   // Invokes the input function to retrieve the properties for this plugin.
-  // On success, registers the retrieved properties with this registry.
-  Status RegisterPlugin(const std::string& name, const PluginFunc& func);
-
-  // Checks that the input plugin is valid and, if so,
-  // registers the plugin with this ObjectRegistry
-  Status RegisterPlugin(const std::string& name, const Plugin& plugin);
+  int RegisterPlugin(const std::string& name, const RegistrarFunc& func);
 
  private:
   explicit ObjectRegistry(const std::shared_ptr<ObjectLibrary>& library);
@@ -419,7 +396,7 @@ class ObjectRegistry {
   // searching for entries.
   std::vector<std::shared_ptr<ObjectLibrary>> libraries_;
   std::vector<std::string> plugins_;
-  static std::unordered_map<std::string, PluginFunc> builtins_;
+  static std::unordered_map<std::string, RegistrarFunc> builtins_;
   std::map<std::string, std::weak_ptr<Customizable>> managed_objects_;
   std::shared_ptr<ObjectRegistry> parent_;
   mutable std::mutex objects_mutex_;  // Mutex for managed objects

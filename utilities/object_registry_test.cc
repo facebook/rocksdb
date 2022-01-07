@@ -7,6 +7,7 @@
 
 #include "rocksdb/utilities/object_registry.h"
 
+#include "rocksdb/convenience.h"
 #include "rocksdb/customizable.h"
 #include "test_util/testharness.h"
 
@@ -410,31 +411,16 @@ TEST_F(EnvRegistryTest, TestGetOrCreateManagedObject) {
   ASSERT_EQ(2, obj.use_count());
 }
 
-class PluginRegistryTest : public testing::Test {
- public:
-};
-
-static int test_FailedPlugin(Plugin* plugin, std::string* errmsg) {
-  plugin->registrar = RegisterTestUnguarded;
-  *errmsg = "Invalid plugin";
-  return -1;
-}
-
-static int test_MissingPlugin(Plugin* plugin, std::string*) {
-  plugin->registrar = nullptr;
-  return 0;
-}
-
-static int test_ValidPlugin(Plugin* plugin, std::string*) {
-  plugin->registrar = RegisterTestUnguarded;
-  return 0;
-}
-TEST_F(PluginRegistryTest, Register) {
+TEST_F(EnvRegistryTest, RegisterPlugin) {
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  ASSERT_NOK(registry->RegisterPlugin("Failed", test_FailedPlugin));
-  ASSERT_NOK(registry->RegisterPlugin("Missing", test_MissingPlugin));
-  ASSERT_NOK(registry->RegisterPlugin("", test_ValidPlugin));
-  ASSERT_OK(registry->RegisterPlugin("Valid", test_ValidPlugin));
+  std::unique_ptr<Env> guard;
+  std::string msg;
+
+  ASSERT_EQ(registry->NewObject<Env>("unguarded", &guard, &msg), nullptr);
+  ASSERT_EQ(registry->RegisterPlugin("Missing", nullptr), -1);
+  ASSERT_EQ(registry->RegisterPlugin("", RegisterTestUnguarded), -1);
+  ASSERT_GT(registry->RegisterPlugin("Valid", RegisterTestUnguarded), 0);
+  ASSERT_NE(registry->NewObject<Env>("unguarded", &guard, &msg), nullptr);
 }
 }  // namespace ROCKSDB_NAMESPACE
 
