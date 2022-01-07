@@ -638,6 +638,9 @@ if test "0$PORTABLE" -eq 0; then
       COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
     fi
     COMMON_FLAGS="$COMMON_FLAGS"
+  elif test -n "`echo $TARGET_ARCHITECTURE | grep ^riscv64`"; then
+    RISC_ISA=$(cat /proc/cpuinfo | grep isa | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
+    COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
   elif [ "$TARGET_OS" == "IOS" ]; then
     COMMON_FLAGS="$COMMON_FLAGS"
   elif [ "$TARGET_OS" == "AIX" ] || [ "$TARGET_OS" == "SunOS" ]; then
@@ -656,6 +659,11 @@ else
 
   if test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
     COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
+  fi
+
+  if test -n "`echo $TARGET_ARCHITECTURE | grep ^riscv64`"; then
+    RISC_ISA=$(cat /proc/cpuinfo | grep isa | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
+    COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
   fi
 
   if [[ "${PLATFORM}" == "OS_MACOSX" ]]; then
