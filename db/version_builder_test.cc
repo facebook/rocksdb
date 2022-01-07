@@ -1678,7 +1678,7 @@ TEST_F(FilePreloadTest, PreloadOptions) {
   table_cache->EraseUnRefEntries();
   ASSERT_EQ(table_cache->GetUsage(), 3);
 
-  Options new_options = GetOptions(kFilePreloadWithoutPinning);
+  Options new_options = GetOptions(kPreloadWithoutPinning);
   Reopen(new_options);
   db_impl = dbfull();
   table_cache = db_impl->TEST_table_cache();
@@ -1687,7 +1687,7 @@ TEST_F(FilePreloadTest, PreloadOptions) {
   table_cache->EraseUnRefEntries();
   ASSERT_EQ(table_cache->GetUsage(), 0);
 
-  new_options = GetOptions(kFilePreloadDisabled);
+  new_options = GetOptions(kPreloadDisabled);
   Reopen(new_options);
   db_impl = dbfull();
   table_cache = db_impl->TEST_table_cache();

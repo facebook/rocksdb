@@ -874,8 +874,8 @@ class DBTestBase : public testing::Test {
     kPartitionedFilterWithNewTableReaderForCompactions,
     kUniversalSubcompactions,
     kUnorderedWrite,
-    kFilePreloadWithoutPinning,
-    kFilePreloadDisabled,
+    kPreloadWithoutPinning,
+    kPreloadDisabled,
     // This must be the last line
     kEnd,
   };
