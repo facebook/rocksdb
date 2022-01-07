@@ -608,7 +608,7 @@ Status ConfigurableHelper::SerializeOptions(const ConfigOptions& config_options,
           }
           if (!s.ok()) {
             return s;
-          } else if (!value.empty()) {
+          } else if (opt_info.IsVector() || !value.empty()) {
             // <prefix><opt_name>=<value><delimiter>
             result->append(prefix + opt_name + "=" + value +
                            config_options.delimiter);
