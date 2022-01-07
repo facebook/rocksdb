@@ -1261,6 +1261,8 @@ class VersionBuilder::Rep {
           }
         }
       }
+    } else {
+      (void) ret.ok(); // for testing
     }
     return ret;
   }
