@@ -17,11 +17,13 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/iostats_context.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/trace_record.h"
 #include "rocksdb/trace_record_result.h"
 #include "rocksdb/utilities/replayer.h"
 #include "rocksdb/wal_filter.h"
+#include "test_util/testutil.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
 
@@ -35,11 +37,10 @@ class DBTest2 : public DBTestBase {
 #ifndef ROCKSDB_LITE
   uint64_t GetSstSizeHelper(Temperature temperature) {
     std::string prop;
-    bool s =
+    EXPECT_TRUE(
         dbfull()->GetProperty(DB::Properties::kLiveSstFilesSizeAtTemperature +
                                   ToString(static_cast<uint8_t>(temperature)),
-                              &prop);
-    assert(s);
+                              &prop));
     return static_cast<uint64_t>(std::atoi(prop.c_str()));
   }
 #endif  // ROCKSDB_LITE
@@ -1264,7 +1265,7 @@ TEST_F(DBTest2, PresetCompressionDict) {
   options.disable_auto_compactions = true;
   options.level0_file_num_compaction_trigger = kNumL0Files;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kL0FileBytes / kBlockSizeBytes));
+      test::NewSpecialSkipListFactory(kL0FileBytes / kBlockSizeBytes));
   options.num_levels = 2;
   options.target_file_size_base = kL0FileBytes;
   options.target_file_size_multiplier = 2;
@@ -1484,7 +1485,7 @@ TEST_P(PresetCompressionDictTest, Flush) {
     options.compression_opts.max_dict_bytes = kDictLen;
     options.compression_opts.max_dict_buffer_bytes = kBlockLen;
   }
-  options.memtable_factory.reset(new SpecialSkipListFactory(kKeysPerFile));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(kKeysPerFile));
   options.statistics = CreateDBStatistics();
   BlockBasedTableOptions bbto;
   bbto.block_size = kBlockLen;
@@ -2319,8 +2320,8 @@ INSTANTIATE_TEST_CASE_P(PinL0IndexAndFilterBlocksTest,
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, MaxCompactionBytesTest) {
   Options options = CurrentOptions();
-  options.memtable_factory.reset(
-      new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(
+      DBTestBase::kNumKeysByGenerateNewRandomFile));
   options.compaction_style = kCompactionStyleLevel;
   options.write_buffer_size = 200 << 10;
   options.arena_block_size = 4 << 10;
@@ -3669,14 +3670,15 @@ TEST_F(DBTest2, IterRaceFlush1) {
     TEST_SYNC_POINT("DBTest2::IterRaceFlush:2");
   });
 
-  // iterator is created after the first Put(), so it should see either
-  // "v1" or "v2".
+  // iterator is created after the first Put(), and its snapshot sequence is
+  // assigned after second Put(), so it must see v2.
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->Seek("foo");
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
     ASSERT_EQ("foo", it->key().ToString());
+    ASSERT_EQ("v2", it->value().ToString());
   }
 
   t1.join();
@@ -3699,14 +3701,15 @@ TEST_F(DBTest2, IterRaceFlush2) {
     TEST_SYNC_POINT("DBTest2::IterRaceFlush2:2");
   });
 
-  // iterator is created after the first Put(), so it should see either
-  // "v1" or "v2".
+  // iterator is created after the first Put(), and its snapshot sequence is
+  // assigned before second Put(), thus it must see v1.
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     it->Seek("foo");
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
     ASSERT_EQ("foo", it->key().ToString());
+    ASSERT_EQ("v1", it->value().ToString());
   }
 
   t1.join();
@@ -3729,8 +3732,8 @@ TEST_F(DBTest2, IterRefreshRaceFlush) {
     TEST_SYNC_POINT("DBTest2::IterRefreshRaceFlush:2");
   });
 
-  // iterator is created after the first Put(), so it should see either
-  // "v1" or "v2".
+  // iterator is refreshed after the first Put(), and its sequence number is
+  // assigned after second Put(), thus it must see v2.
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
     ASSERT_OK(it->status());
@@ -3739,6 +3742,7 @@ TEST_F(DBTest2, IterRefreshRaceFlush) {
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
     ASSERT_EQ("foo", it->key().ToString());
+    ASSERT_EQ("v2", it->value().ToString());
   }
 
   t1.join();
@@ -3945,7 +3949,8 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
     Options options = CurrentOptions();
     options.compression = kNoCompression;
     options.level0_file_num_compaction_trigger = kNumL0Files;
-    options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+    options.memtable_factory.reset(
+        test::NewSpecialSkipListFactory(kNumKeysPerFile));
     options.new_table_reader_for_compaction_inputs = true;
     // takes roughly one second, split into 100 x 10ms intervals. Each interval
     // permits 5.12KB, which is smaller than the block size, so this test
@@ -3968,7 +3973,9 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
         ASSERT_OK(Put(Key(j), DummyString(kBytesPerKey)));
       }
       ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-      ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
+      if (i + 1 < kNumL0Files) {
+        ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
+      }
     }
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(0, NumTableFilesAtLevel(0));
@@ -5532,8 +5539,6 @@ TEST_F(DBTest2, TestCompactFiles) {
 }
 #endif  // ROCKSDB_LITE
 
-// TODO: figure out why this test fails in appveyor
-#ifndef OS_WIN
 TEST_F(DBTest2, MultiDBParallelOpenTest) {
   const int kNumDbs = 2;
   Options options = CurrentOptions();
@@ -5564,7 +5569,6 @@ TEST_F(DBTest2, MultiDBParallelOpenTest) {
   }
 
   // Verify non-empty DBs can be recovered in parallel
-  dbs.clear();
   open_threads.clear();
   for (int i = 0; i < kNumDbs; ++i) {
     open_threads.emplace_back(
@@ -5581,11 +5585,11 @@ TEST_F(DBTest2, MultiDBParallelOpenTest) {
     ASSERT_OK(DestroyDB(dbnames[i], options));
   }
 }
-#endif  // OS_WIN
 
 namespace {
 class DummyOldStats : public Statistics {
  public:
+  const char* Name() const override { return "DummyOldStats"; }
   uint64_t getTickerCount(uint32_t /*ticker_type*/) const override { return 0; }
   void recordTick(uint32_t /* ticker_type */, uint64_t /* count */) override {
     num_rt++;
@@ -6499,6 +6503,7 @@ TEST_F(DBTest2, BottommostTemperature) {
   Options options = CurrentOptions();
   options.bottommost_temperature = Temperature::kWarm;
   options.level0_file_num_compaction_trigger = 2;
+  options.statistics = CreateDBStatistics();
   Reopen(options);
 
   auto size = GetSstSizeHelper(Temperature::kUnknown);
@@ -6516,6 +6521,9 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
+  get_iostats_context()->Reset();
+  IOStatsContext* iostats = get_iostats_context();
+
   ColumnFamilyMetaData metadata;
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(1, metadata.file_count);
@@ -6524,11 +6532,46 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_EQ(size, 0);
   size = GetSstSizeHelper(Temperature::kWarm);
   ASSERT_GT(size, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_BYTES), 0);
+  ASSERT_GT(options.statistics->getTickerCount(WARM_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_BYTES), 0);
+
+  ASSERT_EQ("bar", Get("foo"));
+
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 1);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_bytes_read, 0);
+  ASSERT_GT(iostats->file_io_stats_by_temperature.warm_file_bytes_read, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.cold_file_bytes_read, 0);
+  ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_BYTES), 0);
+  ASSERT_GT(options.statistics->getTickerCount(WARM_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_COUNT), 0);
+  ASSERT_GT(options.statistics->getTickerCount(WARM_FILE_READ_COUNT), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_COUNT), 0);
 
   // non-bottommost file still has unknown temperature
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("bar", "bar"));
   ASSERT_OK(Flush());
+  ASSERT_EQ("bar", Get("bar"));
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 1);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_bytes_read, 0);
+  ASSERT_GT(iostats->file_io_stats_by_temperature.warm_file_bytes_read, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.cold_file_bytes_read, 0);
+  ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_BYTES), 0);
+  ASSERT_GT(options.statistics->getTickerCount(WARM_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_COUNT), 0);
+  ASSERT_GT(options.statistics->getTickerCount(WARM_FILE_READ_COUNT), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_COUNT), 0);
+
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
   ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
@@ -6558,6 +6601,12 @@ TEST_F(DBTest2, BottommostTemperature) {
       DB::Properties::kLiveSstFilesSizeAtTemperature + std::to_string(22),
       &prop));
   ASSERT_EQ(std::atoi(prop.c_str()), 0);
+
+  Reopen(options);
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(2, metadata.file_count);
+  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
 }
 
 TEST_F(DBTest2, BottommostTemperatureUniversal) {
@@ -6568,7 +6617,7 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   options.compaction_style = kCompactionStyleUniversal;
   options.level0_file_num_compaction_trigger = kTriggerNum;
   options.num_levels = kNumLevels;
-
+  options.statistics = CreateDBStatistics();
   DestroyAndReopen(options);
 
   auto size = GetSstSizeHelper(Temperature::kUnknown);
@@ -6577,6 +6626,8 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(size, 0);
   size = GetSstSizeHelper(Temperature::kHot);
   ASSERT_EQ(size, 0);
+  get_iostats_context()->Reset();
+  IOStatsContext* iostats = get_iostats_context();
 
   for (int i = 0; i < kTriggerNum; i++) {
     ASSERT_OK(Put("foo", "bar"));
@@ -6594,6 +6645,29 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_GT(size, 0);
   size = GetSstSizeHelper(Temperature::kWarm);
   ASSERT_EQ(size, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(WARM_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_COUNT), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(WARM_FILE_READ_COUNT), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_COUNT), 0);
+  ASSERT_EQ("bar", Get("foo"));
+
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_read_count, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.hot_file_bytes_read, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.warm_file_bytes_read, 0);
+  ASSERT_EQ(iostats->file_io_stats_by_temperature.cold_file_bytes_read, 0);
+  ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(WARM_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_COUNT), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(WARM_FILE_READ_COUNT), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_COUNT), 0);
 
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("bar", "bar"));
@@ -6629,6 +6703,12 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(size, 0);
   size = GetSstSizeHelper(Temperature::kWarm);
   ASSERT_GT(size, 0);
+  ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_BYTES), 0);
+  ASSERT_GT(options.statistics->getTickerCount(WARM_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(HOT_FILE_READ_COUNT), 0);
+  ASSERT_GT(options.statistics->getTickerCount(WARM_FILE_READ_COUNT), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(COLD_FILE_READ_COUNT), 0);
 
   // non-bottommost file still has unknown temperature
   ASSERT_OK(Put("foo", "bar"));
@@ -6725,15 +6805,70 @@ TEST_F(DBTest2, RenameDirectory) {
   Destroy(options);
   dbname_ = old_dbname;
 }
-}  // namespace ROCKSDB_NAMESPACE
 
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
+#ifndef ROCKSDB_LITE
+TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
+  Destroy(last_options_);
+
+  Options options = CurrentOptions();
+  options.max_write_buffer_size_to_maintain = 64 << 10;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.comparator = test::ComparatorWithU64Ts();
+  options.statistics = CreateDBStatistics();
+
+  Reopen(options);
+
+  constexpr uint64_t kTsU64Value = 12;
+
+  for (uint64_t key = 0; key < 100; ++key) {
+    std::string ts_str;
+    PutFixed64(&ts_str, kTsU64Value);
+    Slice ts = ts_str;
+    WriteOptions write_opts;
+    write_opts.timestamp = &ts;
+
+    std::string key_str;
+    PutFixed64(&key_str, key);
+    std::reverse(key_str.begin(), key_str.end());
+    ASSERT_OK(Put(key_str, "value", write_opts));
+  }
+
+  ASSERT_OK(Flush());
+
+  constexpr bool cache_only = true;
+  constexpr SequenceNumber lower_bound_seq = 0;
+  auto* cfhi = static_cast_with_check<ColumnFamilyHandleImpl>(
+      dbfull()->DefaultColumnFamily());
+  assert(cfhi);
+  assert(cfhi->cfd());
+  SuperVersion* sv = cfhi->cfd()->GetSuperVersion();
+  for (uint64_t key = 0; key < 100; ++key) {
+    std::string key_str;
+    PutFixed64(&key_str, key);
+    std::reverse(key_str.begin(), key_str.end());
+    std::string ts;
+    SequenceNumber seq = kMaxSequenceNumber;
+    bool found_record_for_key = false;
+    bool is_blob_index = false;
+
+    const Status s = dbfull()->GetLatestSequenceForKey(
+        sv, key_str, cache_only, lower_bound_seq, &seq, &ts,
+        &found_record_for_key, &is_blob_index);
+    ASSERT_OK(s);
+    std::string expected_ts;
+    PutFixed64(&expected_ts, kTsU64Value);
+    ASSERT_EQ(expected_ts, ts);
+    ASSERT_TRUE(found_record_for_key);
+    ASSERT_FALSE(is_blob_index);
+  }
+
+  // Verify that no read to SST files.
+  ASSERT_EQ(0, options.statistics->getTickerCount(GET_HIT_L0));
 }
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+#endif  // ROCKSDB_LITE
+
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

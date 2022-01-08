@@ -38,7 +38,11 @@ ROCKSDB_EXTERNAL_DEPS = [
 ROCKSDB_OS_DEPS_0 = [
     (
         "linux",
-        ["third-party//numa:numa", "third-party//liburing:uring", "third-party//tbb:tbb"],
+        [
+            "third-party//numa:numa",
+            "third-party//liburing:uring",
+            "third-party//tbb:tbb",
+        ],
     ),
     (
         "macos",
@@ -76,7 +80,13 @@ ROCKSDB_OS_PREPROCESSOR_FLAGS_0 = [
     ),
     (
         "windows",
-        [ "-DOS_WIN", "-DWIN32", "-D_MBCS", "-DWIN64", "-DNOMINMAX" ]
+        [
+            "-DOS_WIN",
+            "-DWIN32",
+            "-D_MBCS",
+            "-DWIN64",
+            "-DNOMINMAX",
+        ],
     ),
 ]
 
@@ -144,13 +154,13 @@ cpp_library(
     {headers_attr_prefix}headers = {headers},
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
+    link_whole = {link_whole},
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
-    deps = [{deps}],
-    external_deps = ROCKSDB_EXTERNAL_DEPS{extra_external_deps},
-    link_whole = {link_whole},
+    exported_deps = [{deps}],
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS{extra_external_deps},
 )
 """
 
@@ -161,12 +171,12 @@ cpp_library(
     {headers_attr_prefix}headers = {headers},
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
-    deps = ROCKSDB_LIB_DEPS,
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    exported_deps = ROCKSDB_LIB_DEPS,
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 """
 
@@ -205,10 +215,10 @@ ROCKS_TESTS = [
         name = test_name,
         srcs = [test_cc],
         arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-        os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
         compiler_flags = ROCKSDB_COMPILER_FLAGS + extra_compiler_flags,
-        preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
         include_paths = ROCKSDB_INCLUDE_PATHS,
+        os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+        preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
         deps = [":rocksdb_test_lib"] + extra_deps,
         external_deps = ROCKSDB_EXTERNAL_DEPS + [
             ("googletest", None, "gtest"),

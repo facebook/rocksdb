@@ -17,19 +17,34 @@
 #include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
+#include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/memory_allocator.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/secondary_cache.h"
+#include "rocksdb/slice_transform.h"
+#include "rocksdb/sst_partitioner.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/flush_block_policy.h"
 #include "table/mock_table.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/file_checksum_helper.h"
+#include "util/rate_limiter.h"
 #include "util/string_util.h"
 #include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
+#include "utilities/memory_allocators.h"
+#include "utilities/merge_operators/bytesxor.h"
+#include "utilities/merge_operators/sortlist.h"
+#include "utilities/merge_operators/string_append/stringappend.h"
+#include "utilities/merge_operators/string_append/stringappend2.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
@@ -166,7 +181,7 @@ static int A_count = 0;
 static int RegisterCustomTestObjects(ObjectLibrary& library,
                                      const std::string& /*arg*/) {
   library.Register<TestCustomizable>(
-      "A.*",
+      ObjectLibrary::PatternEntry("A", true).AddSeparator("_"),
       [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
         guard->reset(new ACustomizable(name));
@@ -311,7 +326,7 @@ class CustomizableTest : public testing::Test {
 //    - a property with a name
 TEST_F(CustomizableTest, CreateByNameTest) {
   ObjectLibrary::Default()->Register<TestCustomizable>(
-      "TEST.*",
+      ObjectLibrary::PatternEntry("TEST", false).AddSeparator("_"),
       [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
         guard->reset(new TestCustomizable(name));
@@ -605,11 +620,20 @@ static std::unordered_map<std::string, OptionTypeInfo> inner_option_info = {
 #endif  // ROCKSDB_LITE
 };
 
+struct InnerOptions {
+  static const char* kName() { return "InnerOptions"; }
+  std::shared_ptr<Customizable> inner;
+};
+
 class InnerCustomizable : public Customizable {
  public:
-  explicit InnerCustomizable(const std::shared_ptr<Customizable>& w)
-      : inner_(w) {}
+  explicit InnerCustomizable(const std::shared_ptr<Customizable>& w) {
+    iopts_.inner = w;
+    RegisterOptions(&iopts_, &inner_option_info);
+  }
   static const char* kClassName() { return "Inner"; }
+  const char* Name() const override { return kClassName(); }
+
   bool IsInstanceOf(const std::string& name) const override {
     if (name == kClassName()) {
       return true;
@@ -619,26 +643,51 @@ class InnerCustomizable : public Customizable {
   }
 
  protected:
-  const Customizable* Inner() const override { return inner_.get(); }
+  const Customizable* Inner() const override { return iopts_.inner.get(); }
 
  private:
-  std::shared_ptr<Customizable> inner_;
+  InnerOptions iopts_;
+};
+
+struct WrappedOptions1 {
+  static const char* kName() { return "WrappedOptions1"; }
+  int i = 42;
 };
 
 class WrappedCustomizable1 : public InnerCustomizable {
  public:
   explicit WrappedCustomizable1(const std::shared_ptr<Customizable>& w)
-      : InnerCustomizable(w) {}
+      : InnerCustomizable(w) {
+    RegisterOptions(&wopts_, nullptr);
+  }
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "Wrapped1"; }
+
+ private:
+  WrappedOptions1 wopts_;
 };
 
+struct WrappedOptions2 {
+  static const char* kName() { return "WrappedOptions2"; }
+  std::string s = "42";
+};
 class WrappedCustomizable2 : public InnerCustomizable {
  public:
   explicit WrappedCustomizable2(const std::shared_ptr<Customizable>& w)
       : InnerCustomizable(w) {}
+  const void* GetOptionsPtr(const std::string& name) const override {
+    if (name == WrappedOptions2::kName()) {
+      return &wopts_;
+    } else {
+      return InnerCustomizable::GetOptionsPtr(name);
+    }
+  }
+
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "Wrapped2"; }
+
+ private:
+  WrappedOptions2 wopts_;
 };
 }  // namespace
 
@@ -668,6 +717,29 @@ TEST_F(CustomizableTest, WrappedInnerTest) {
   ASSERT_EQ(wc2->CheckedCast<WrappedCustomizable1>(), wc1.get());
   ASSERT_EQ(wc2->CheckedCast<InnerCustomizable>(), wc2.get());
   ASSERT_EQ(wc2->CheckedCast<TestCustomizable>(), ac.get());
+}
+
+TEST_F(CustomizableTest, CustomizableInnerTest) {
+  std::shared_ptr<Customizable> c =
+      std::make_shared<InnerCustomizable>(std::make_shared<ACustomizable>("a"));
+  std::shared_ptr<Customizable> wc1 = std::make_shared<WrappedCustomizable1>(c);
+  std::shared_ptr<Customizable> wc2 = std::make_shared<WrappedCustomizable2>(c);
+  auto inner = c->GetOptions<InnerOptions>();
+  ASSERT_NE(inner, nullptr);
+
+  auto aopts = c->GetOptions<AOptions>();
+  ASSERT_NE(aopts, nullptr);
+  ASSERT_EQ(aopts, wc1->GetOptions<AOptions>());
+  ASSERT_EQ(aopts, wc2->GetOptions<AOptions>());
+  auto w1opts = wc1->GetOptions<WrappedOptions1>();
+  ASSERT_NE(w1opts, nullptr);
+  ASSERT_EQ(c->GetOptions<WrappedOptions1>(), nullptr);
+  ASSERT_EQ(wc2->GetOptions<WrappedOptions1>(), nullptr);
+
+  auto w2opts = wc2->GetOptions<WrappedOptions2>();
+  ASSERT_NE(w2opts, nullptr);
+  ASSERT_EQ(c->GetOptions<WrappedOptions2>(), nullptr);
+  ASSERT_EQ(wc1->GetOptions<WrappedOptions2>(), nullptr);
 }
 
 TEST_F(CustomizableTest, CopyObjectTest) {
@@ -707,20 +779,9 @@ TEST_F(CustomizableTest, CopyObjectTest) {
 }
 
 TEST_F(CustomizableTest, TestStringDepth) {
-  class ShallowCustomizable : public Customizable {
-   public:
-    ShallowCustomizable() {
-      inner_ = std::make_shared<ACustomizable>("a");
-      RegisterOptions("inner", &inner_, &inner_option_info);
-    }
-    static const char* kClassName() { return "shallow"; }
-    const char* Name() const override { return kClassName(); }
-
-   private:
-    std::shared_ptr<TestCustomizable> inner_;
-  };
   ConfigOptions shallow = config_options_;
-  std::unique_ptr<Configurable> c(new ShallowCustomizable());
+  std::unique_ptr<Configurable> c(
+      new InnerCustomizable(std::make_shared<ACustomizable>("a")));
   std::string opt_str;
   shallow.depth = ConfigOptions::Depth::kDepthShallow;
   ASSERT_OK(c->GetOptionString(shallow, &opt_str));
@@ -874,12 +935,12 @@ TEST_F(CustomizableTest, NoNameTest) {
   auto copts = copy.GetOptions<SimpleOptions>();
   sopts->cu.reset(new ACustomizable(""));
   orig.cv.push_back(std::make_shared<ACustomizable>(""));
-  orig.cv.push_back(std::make_shared<ACustomizable>("A1"));
+  orig.cv.push_back(std::make_shared<ACustomizable>("A_1"));
   std::string opt_str, mismatch;
   ASSERT_OK(orig.GetOptionString(config_options_, &opt_str));
   ASSERT_OK(copy.ConfigureFromString(config_options_, opt_str));
   ASSERT_EQ(copy.cv.size(), 1U);
-  ASSERT_EQ(copy.cv[0]->GetId(), "A1");
+  ASSERT_EQ(copy.cv[0]->GetId(), "A_1");
   ASSERT_EQ(copts->cu, nullptr);
 }
 
@@ -959,19 +1020,27 @@ TEST_F(CustomizableTest, FactoryFunctionTest) {
 
 TEST_F(CustomizableTest, URLFactoryTest) {
   std::unique_ptr<TestCustomizable> unique;
+  config_options_.registry->AddLibrary("URL")->Register<TestCustomizable>(
+      ObjectLibrary::PatternEntry("Z", false).AddSeparator(""),
+      [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
+         std::string* /* msg */) {
+        guard->reset(new TestCustomizable(name));
+        return guard->get();
+      });
+
   ConfigOptions ignore = config_options_;
   ignore.ignore_unsupported_options = false;
   ignore.ignore_unsupported_options = false;
-  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "A=1;x=y", &unique));
+  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "Z=1;x=y", &unique));
   ASSERT_NE(unique, nullptr);
-  ASSERT_EQ(unique->GetId(), "A=1;x=y");
-  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "A;x=y", &unique));
+  ASSERT_EQ(unique->GetId(), "Z=1;x=y");
+  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "Z;x=y", &unique));
   ASSERT_NE(unique, nullptr);
-  ASSERT_EQ(unique->GetId(), "A;x=y");
+  ASSERT_EQ(unique->GetId(), "Z;x=y");
   unique.reset();
-  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "A=1?x=y", &unique));
+  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "Z=1?x=y", &unique));
   ASSERT_NE(unique, nullptr);
-  ASSERT_EQ(unique->GetId(), "A=1?x=y");
+  ASSERT_EQ(unique->GetId(), "Z=1?x=y");
 }
 
 TEST_F(CustomizableTest, MutableOptionsTest) {
@@ -1064,6 +1133,138 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
   ASSERT_FALSE(mc.AreEquivalent(options, &mc2, &mismatch));
   ASSERT_EQ(mismatch, "immutable");
 }
+
+TEST_F(CustomizableTest, CustomManagedObjects) {
+  std::shared_ptr<TestCustomizable> object1, object2;
+  ASSERT_OK(LoadManagedObject<TestCustomizable>(
+      config_options_, "id=A_1;int=1;bool=true", &object1));
+  ASSERT_NE(object1, nullptr);
+  ASSERT_OK(
+      LoadManagedObject<TestCustomizable>(config_options_, "A_1", &object2));
+  ASSERT_EQ(object1, object2);
+  auto* opts = object2->GetOptions<AOptions>("A");
+  ASSERT_NE(opts, nullptr);
+  ASSERT_EQ(opts->i, 1);
+  ASSERT_EQ(opts->b, true);
+  ASSERT_OK(
+      LoadManagedObject<TestCustomizable>(config_options_, "A_2", &object2));
+  ASSERT_NE(object1, object2);
+  object1.reset();
+  ASSERT_OK(LoadManagedObject<TestCustomizable>(
+      config_options_, "id=A_1;int=2;bool=false", &object1));
+  opts = object1->GetOptions<AOptions>("A");
+  ASSERT_NE(opts, nullptr);
+  ASSERT_EQ(opts->i, 2);
+  ASSERT_EQ(opts->b, false);
+}
+
+TEST_F(CustomizableTest, CreateManagedObjects) {
+  class ManagedCustomizable : public Customizable {
+   public:
+    static const char* Type() { return "ManagedCustomizable"; }
+    static const char* kClassName() { return "Managed"; }
+    const char* Name() const override { return kClassName(); }
+    std::string GetId() const override { return id_; }
+    ManagedCustomizable() { id_ = GenerateIndividualId(); }
+    static Status CreateFromString(
+        const ConfigOptions& opts, const std::string& value,
+        std::shared_ptr<ManagedCustomizable>* result) {
+      return LoadManagedObject<ManagedCustomizable>(opts, value, result);
+    }
+
+   private:
+    std::string id_;
+  };
+
+  config_options_.registry->AddLibrary("Managed")
+      ->Register<ManagedCustomizable>(
+          ObjectLibrary::PatternEntry::AsIndividualId(
+              ManagedCustomizable::kClassName()),
+          [](const std::string& /*name*/,
+             std::unique_ptr<ManagedCustomizable>* guard,
+             std::string* /* msg */) {
+            guard->reset(new ManagedCustomizable());
+            return guard->get();
+          });
+
+  std::shared_ptr<ManagedCustomizable> mc1, mc2, mc3, obj;
+  // Create a "deadbeef" customizable
+  std::string deadbeef =
+      std::string(ManagedCustomizable::kClassName()) + "@0xdeadbeef#0001";
+  ASSERT_OK(
+      ManagedCustomizable::CreateFromString(config_options_, deadbeef, &mc1));
+  // Create an object with the base/class name
+  ASSERT_OK(ManagedCustomizable::CreateFromString(
+      config_options_, ManagedCustomizable::kClassName(), &mc2));
+  // Creating another with the base name returns a different object
+  ASSERT_OK(ManagedCustomizable::CreateFromString(
+      config_options_, ManagedCustomizable::kClassName(), &mc3));
+  // At this point, there should be 4 managed objects (deadbeef, mc1, 2, and 3)
+  std::vector<std::shared_ptr<ManagedCustomizable>> objects;
+  ASSERT_OK(config_options_.registry->ListManagedObjects(&objects));
+  ASSERT_EQ(objects.size(), 4U);
+  objects.clear();
+  // Three separate object, none of them equal
+  ASSERT_NE(mc1, mc2);
+  ASSERT_NE(mc1, mc3);
+  ASSERT_NE(mc2, mc3);
+
+  // Creating another object with "deadbeef" object
+  ASSERT_OK(
+      ManagedCustomizable::CreateFromString(config_options_, deadbeef, &obj));
+  ASSERT_EQ(mc1, obj);
+  // Create another with the IDs of the instances
+  ASSERT_OK(ManagedCustomizable::CreateFromString(config_options_, mc1->GetId(),
+                                                  &obj));
+  ASSERT_EQ(mc1, obj);
+  ASSERT_OK(ManagedCustomizable::CreateFromString(config_options_, mc2->GetId(),
+                                                  &obj));
+  ASSERT_EQ(mc2, obj);
+  ASSERT_OK(ManagedCustomizable::CreateFromString(config_options_, mc3->GetId(),
+                                                  &obj));
+  ASSERT_EQ(mc3, obj);
+
+  // Now get rid of deadbeef.  2 Objects left (m2+m3)
+  mc1.reset();
+  ASSERT_EQ(
+      config_options_.registry->GetManagedObject<ManagedCustomizable>(deadbeef),
+      nullptr);
+  ASSERT_OK(config_options_.registry->ListManagedObjects(&objects));
+  ASSERT_EQ(objects.size(), 2U);
+  objects.clear();
+
+  // Associate deadbeef with #2
+  ASSERT_OK(config_options_.registry->SetManagedObject(deadbeef, mc2));
+  ASSERT_OK(
+      ManagedCustomizable::CreateFromString(config_options_, deadbeef, &obj));
+  ASSERT_EQ(mc2, obj);
+  obj.reset();
+
+  // Get the ID of mc2 and then reset it.  1 Object left
+  std::string mc2id = mc2->GetId();
+  mc2.reset();
+  ASSERT_EQ(
+      config_options_.registry->GetManagedObject<ManagedCustomizable>(mc2id),
+      nullptr);
+  ASSERT_OK(config_options_.registry->ListManagedObjects(&objects));
+  ASSERT_EQ(objects.size(), 1U);
+  objects.clear();
+
+  // Create another object with the old mc2id.
+  ASSERT_OK(
+      ManagedCustomizable::CreateFromString(config_options_, mc2id, &mc2));
+  ASSERT_OK(
+      ManagedCustomizable::CreateFromString(config_options_, mc2id, &obj));
+  ASSERT_EQ(mc2, obj);
+
+  // For good measure, create another deadbeef object
+  ASSERT_OK(
+      ManagedCustomizable::CreateFromString(config_options_, deadbeef, &mc1));
+  ASSERT_OK(
+      ManagedCustomizable::CreateFromString(config_options_, deadbeef, &obj));
+  ASSERT_EQ(mc1, obj);
+}
+
 #endif  // !ROCKSDB_LITE
 
 namespace {
@@ -1088,11 +1289,51 @@ class TestSecondaryCache : public SecondaryCache {
   std::string GetPrintableOptions() const override { return ""; }
 };
 
+class TestStatistics : public StatisticsImpl {
+ public:
+  TestStatistics() : StatisticsImpl(nullptr) {}
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "Test"; }
+};
+
+class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
+ public:
+  TestFlushBlockPolicyFactory() {}
+
+  static const char* kClassName() { return "TestFlushBlockPolicyFactory"; }
+  const char* Name() const override { return kClassName(); }
+
+  FlushBlockPolicy* NewFlushBlockPolicy(
+      const BlockBasedTableOptions& /*table_options*/,
+      const BlockBuilder& /*data_block_builder*/) const override {
+    return nullptr;
+  }
+};
+
+class MockSliceTransform : public SliceTransform {
+ public:
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "Mock"; }
+
+  Slice Transform(const Slice& /*key*/) const override { return Slice(); }
+
+  bool InDomain(const Slice& /*key*/) const override { return false; }
+
+  bool InRange(const Slice& /*key*/) const override { return false; }
+};
+
+class MockMemoryAllocator : public BaseMemoryAllocator {
+ public:
+  static const char* kClassName() { return "MockMemoryAllocator"; }
+  const char* Name() const override { return kClassName(); }
+};
+
 #ifndef ROCKSDB_LITE
 class MockEncryptionProvider : public EncryptionProvider {
  public:
   explicit MockEncryptionProvider(const std::string& id) : id_(id) {}
-  const char* Name() const override { return "Mock"; }
+  static const char* kClassName() { return "Mock"; }
+  const char* Name() const override { return kClassName(); }
   size_t GetPrefixLength() const override { return 0; }
   Status CreateNewPrefix(const std::string& /*fname*/, char* /*prefix*/,
                          size_t /*prefixLength*/) const override {
@@ -1132,17 +1373,62 @@ class MockCipher : public BlockCipher {
 };
 #endif  // ROCKSDB_LITE
 
-class TestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
+class DummyFileSystem : public FileSystemWrapper {
  public:
-  TestFlushBlockPolicyFactory() {}
-
-  static const char* kClassName() { return "TestFlushBlockPolicyFactory"; }
+  explicit DummyFileSystem(const std::shared_ptr<FileSystem>& t)
+      : FileSystemWrapper(t) {}
+  static const char* kClassName() { return "DummyFileSystem"; }
   const char* Name() const override { return kClassName(); }
+};
 
-  FlushBlockPolicy* NewFlushBlockPolicy(
-      const BlockBasedTableOptions& /*table_options*/,
-      const BlockBuilder& /*data_block_builder*/) const override {
+#ifndef ROCKSDB_LITE
+
+#endif  // ROCKSDB_LITE
+
+class MockTablePropertiesCollectorFactory
+    : public TablePropertiesCollectorFactory {
+ private:
+ public:
+  TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context /*context*/) override {
     return nullptr;
+  }
+  static const char* kClassName() { return "Mock"; }
+  const char* Name() const override { return kClassName(); }
+};
+
+class MockSstPartitionerFactory : public SstPartitionerFactory {
+ public:
+  static const char* kClassName() { return "Mock"; }
+  const char* Name() const override { return kClassName(); }
+  std::unique_ptr<SstPartitioner> CreatePartitioner(
+      const SstPartitioner::Context& /* context */) const override {
+    return nullptr;
+  }
+};
+
+class MockFileChecksumGenFactory : public FileChecksumGenFactory {
+ public:
+  static const char* kClassName() { return "Mock"; }
+  const char* Name() const override { return kClassName(); }
+  std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+      const FileChecksumGenContext& /*context*/) override {
+    return nullptr;
+  }
+};
+
+class MockRateLimiter : public RateLimiter {
+ public:
+  static const char* kClassName() { return "MockRateLimiter"; }
+  const char* Name() const override { return kClassName(); }
+  void SetBytesPerSecond(int64_t /*bytes_per_second*/) override {}
+  int64_t GetBytesPerSecond() const override { return 0; }
+  int64_t GetSingleBurstBytes() const override { return 0; }
+  int64_t GetTotalBytesThrough(const Env::IOPriority /*pri*/) const override {
+    return 0;
+  }
+  int64_t GetTotalRequests(const Env::IOPriority /*pri*/) const override {
+    return 0;
   }
 };
 
@@ -1172,8 +1458,25 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
   // Load any locally defined objects here
+  library.Register<const SliceTransform>(
+      MockSliceTransform::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const SliceTransform>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockSliceTransform());
+        return guard->get();
+      });
+  library.Register<Statistics>(
+      TestStatistics::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<Statistics>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TestStatistics());
+        return guard->get();
+      });
+
   library.Register<EncryptionProvider>(
-      "Mock(://test)?",
+      ObjectLibrary::PatternEntry(MockEncryptionProvider::kClassName(), true)
+          .AddSuffix("://test"),
       [](const std::string& uri, std::unique_ptr<EncryptionProvider>* guard,
          std::string* /* errmsg */) {
         guard->reset(new MockEncryptionProvider(uri));
@@ -1185,6 +1488,13 @@ static int RegisterLocalObjects(ObjectLibrary& library,
     guard->reset(new MockCipher());
     return guard->get();
   });
+  library.Register<MemoryAllocator>(
+      MockMemoryAllocator::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<MemoryAllocator>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockMemoryAllocator());
+        return guard->get();
+      });
   library.Register<FlushBlockPolicyFactory>(
       TestFlushBlockPolicyFactory::kClassName(),
       [](const std::string& /*uri*/,
@@ -1201,6 +1511,50 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         guard->reset(new TestSecondaryCache());
         return guard->get();
       });
+
+  library.Register<FileSystem>(
+      DummyFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new DummyFileSystem(nullptr));
+        return guard->get();
+      });
+
+  library.Register<SstPartitionerFactory>(
+      MockSstPartitionerFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<SstPartitionerFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockSstPartitionerFactory());
+        return guard->get();
+      });
+
+  library.Register<FileChecksumGenFactory>(
+      MockFileChecksumGenFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<FileChecksumGenFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockFileChecksumGenFactory());
+        return guard->get();
+      });
+
+  library.Register<TablePropertiesCollectorFactory>(
+      MockTablePropertiesCollectorFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<TablePropertiesCollectorFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockTablePropertiesCollectorFactory());
+        return guard->get();
+      });
+
+  library.Register<RateLimiter>(
+      MockRateLimiter::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<RateLimiter>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockRateLimiter());
+        return guard->get();
+      });
+
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 #endif  // !ROCKSDB_LITE
@@ -1232,7 +1586,6 @@ class LoadCustomizableTest : public testing::Test {
 };
 
 TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
-  ColumnFamilyOptions cf_opts;
   std::shared_ptr<TableFactory> factory;
   ASSERT_NOK(TableFactory::CreateFromString(
       config_options_, mock::MockTableFactory::kClassName(), &factory));
@@ -1243,10 +1596,10 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
 #ifndef ROCKSDB_LITE
   std::string opts_str = "table_factory=";
   ASSERT_OK(GetColumnFamilyOptionsFromString(
-      config_options_, ColumnFamilyOptions(),
-      opts_str + TableFactory::kBlockBasedTableName(), &cf_opts));
-  ASSERT_NE(cf_opts.table_factory.get(), nullptr);
-  ASSERT_STREQ(cf_opts.table_factory->Name(),
+      config_options_, cf_opts_,
+      opts_str + TableFactory::kBlockBasedTableName(), &cf_opts_));
+  ASSERT_NE(cf_opts_.table_factory.get(), nullptr);
+  ASSERT_STREQ(cf_opts_.table_factory->Name(),
                TableFactory::kBlockBasedTableName());
 #endif  // ROCKSDB_LITE
   if (RegisterTests("Test")) {
@@ -1256,12 +1609,30 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
     ASSERT_STREQ(factory->Name(), mock::MockTableFactory::kClassName());
 #ifndef ROCKSDB_LITE
     ASSERT_OK(GetColumnFamilyOptionsFromString(
-        config_options_, ColumnFamilyOptions(),
-        opts_str + mock::MockTableFactory::kClassName(), &cf_opts));
-    ASSERT_NE(cf_opts.table_factory.get(), nullptr);
-    ASSERT_STREQ(cf_opts.table_factory->Name(),
+        config_options_, cf_opts_,
+        opts_str + mock::MockTableFactory::kClassName(), &cf_opts_));
+    ASSERT_NE(cf_opts_.table_factory.get(), nullptr);
+    ASSERT_STREQ(cf_opts_.table_factory->Name(),
                  mock::MockTableFactory::kClassName());
 #endif  // ROCKSDB_LITE
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadFileSystemTest) {
+  ColumnFamilyOptions cf_opts;
+  std::shared_ptr<FileSystem> result;
+  ASSERT_NOK(FileSystem::CreateFromString(
+      config_options_, DummyFileSystem::kClassName(), &result));
+  ASSERT_OK(FileSystem::CreateFromString(config_options_,
+                                         FileSystem::kDefaultName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(FileSystem::kDefaultName()));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(FileSystem::CreateFromString(
+        config_options_, DummyFileSystem::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), DummyFileSystem::kClassName());
+    ASSERT_FALSE(result->IsInstanceOf(FileSystem::kDefaultName()));
   }
 }
 
@@ -1274,6 +1645,58 @@ TEST_F(LoadCustomizableTest, LoadSecondaryCacheTest) {
         config_options_, TestSecondaryCache::kClassName(), &result));
     ASSERT_NE(result, nullptr);
     ASSERT_STREQ(result->Name(), TestSecondaryCache::kClassName());
+  }
+}
+
+#ifndef ROCKSDB_LITE
+TEST_F(LoadCustomizableTest, LoadSstPartitionerFactoryTest) {
+  std::shared_ptr<SstPartitionerFactory> factory;
+  ASSERT_NOK(SstPartitionerFactory::CreateFromString(config_options_, "Mock",
+                                                     &factory));
+  ASSERT_OK(SstPartitionerFactory::CreateFromString(
+      config_options_, SstPartitionerFixedPrefixFactory::kClassName(),
+      &factory));
+  ASSERT_NE(factory, nullptr);
+  ASSERT_STREQ(factory->Name(), SstPartitionerFixedPrefixFactory::kClassName());
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(SstPartitionerFactory::CreateFromString(config_options_, "Mock",
+                                                      &factory));
+    ASSERT_NE(factory, nullptr);
+    ASSERT_STREQ(factory->Name(), "Mock");
+  }
+}
+#endif  // ROCKSDB_LITE
+
+TEST_F(LoadCustomizableTest, LoadChecksumGenFactoryTest) {
+  std::shared_ptr<FileChecksumGenFactory> factory;
+  ASSERT_NOK(FileChecksumGenFactory::CreateFromString(config_options_, "Mock",
+                                                      &factory));
+  ASSERT_OK(FileChecksumGenFactory::CreateFromString(
+      config_options_, FileChecksumGenCrc32cFactory::kClassName(), &factory));
+  ASSERT_NE(factory, nullptr);
+  ASSERT_STREQ(factory->Name(), FileChecksumGenCrc32cFactory::kClassName());
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(FileChecksumGenFactory::CreateFromString(config_options_, "Mock",
+                                                       &factory));
+    ASSERT_NE(factory, nullptr);
+    ASSERT_STREQ(factory->Name(), "Mock");
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadTablePropertiesCollectorFactoryTest) {
+  std::shared_ptr<TablePropertiesCollectorFactory> factory;
+  ASSERT_NOK(TablePropertiesCollectorFactory::CreateFromString(
+      config_options_, MockTablePropertiesCollectorFactory::kClassName(),
+      &factory));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(TablePropertiesCollectorFactory::CreateFromString(
+        config_options_, MockTablePropertiesCollectorFactory::kClassName(),
+        &factory));
+    ASSERT_NE(factory, nullptr);
+    ASSERT_STREQ(factory->Name(),
+                 MockTablePropertiesCollectorFactory::kClassName());
   }
 }
 
@@ -1302,14 +1725,177 @@ TEST_F(LoadCustomizableTest, LoadComparatorTest) {
   }
 }
 
+TEST_F(LoadCustomizableTest, LoadSliceTransformFactoryTest) {
+  std::shared_ptr<const SliceTransform> result;
+  ASSERT_NOK(
+      SliceTransform::CreateFromString(config_options_, "Mock", &result));
+  ASSERT_OK(
+      SliceTransform::CreateFromString(config_options_, "fixed:16", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf("fixed"));
+  ASSERT_OK(SliceTransform::CreateFromString(
+      config_options_, "rocksdb.FixedPrefix.22", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf("fixed"));
+
+  ASSERT_OK(
+      SliceTransform::CreateFromString(config_options_, "capped:16", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf("capped"));
+
+  ASSERT_OK(SliceTransform::CreateFromString(
+      config_options_, "rocksdb.CappedPrefix.11", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf("capped"));
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(
+        SliceTransform::CreateFromString(config_options_, "Mock", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "Mock");
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadStatisticsTest) {
+  std::shared_ptr<Statistics> stats;
+  ASSERT_NOK(Statistics::CreateFromString(
+      config_options_, TestStatistics::kClassName(), &stats));
+  ASSERT_OK(
+      Statistics::CreateFromString(config_options_, "BasicStatistics", &stats));
+  ASSERT_NE(stats, nullptr);
+  ASSERT_EQ(stats->Name(), std::string("BasicStatistics"));
+#ifndef ROCKSDB_LITE
+  ASSERT_NOK(GetDBOptionsFromString(config_options_, db_opts_,
+                                    "statistics=Test", &db_opts_));
+  ASSERT_OK(GetDBOptionsFromString(config_options_, db_opts_,
+                                   "statistics=BasicStatistics", &db_opts_));
+  ASSERT_NE(db_opts_.statistics, nullptr);
+  ASSERT_STREQ(db_opts_.statistics->Name(), "BasicStatistics");
+
+  if (RegisterTests("test")) {
+    ASSERT_OK(Statistics::CreateFromString(
+        config_options_, TestStatistics::kClassName(), &stats));
+    ASSERT_NE(stats, nullptr);
+    ASSERT_STREQ(stats->Name(), TestStatistics::kClassName());
+
+    ASSERT_OK(GetDBOptionsFromString(config_options_, db_opts_,
+                                     "statistics=Test", &db_opts_));
+    ASSERT_NE(db_opts_.statistics, nullptr);
+    ASSERT_STREQ(db_opts_.statistics->Name(), TestStatistics::kClassName());
+
+    ASSERT_OK(GetDBOptionsFromString(
+        config_options_, db_opts_, "statistics={id=Test;inner=BasicStatistics}",
+        &db_opts_));
+    ASSERT_NE(db_opts_.statistics, nullptr);
+    ASSERT_STREQ(db_opts_.statistics->Name(), TestStatistics::kClassName());
+    auto* inner = db_opts_.statistics->GetOptions<std::shared_ptr<Statistics>>(
+        "StatisticsOptions");
+    ASSERT_NE(inner, nullptr);
+    ASSERT_NE(inner->get(), nullptr);
+    ASSERT_STREQ(inner->get()->Name(), "BasicStatistics");
+
+    ASSERT_OK(Statistics::CreateFromString(
+        config_options_, "id=BasicStatistics;inner=Test", &stats));
+    ASSERT_NE(stats, nullptr);
+    ASSERT_STREQ(stats->Name(), "BasicStatistics");
+    inner = stats->GetOptions<std::shared_ptr<Statistics>>("StatisticsOptions");
+    ASSERT_NE(inner, nullptr);
+    ASSERT_NE(inner->get(), nullptr);
+    ASSERT_STREQ(inner->get()->Name(), TestStatistics::kClassName());
+  }
+#endif
+}
+
+TEST_F(LoadCustomizableTest, LoadMemTableRepFactoryTest) {
+  std::unique_ptr<MemTableRepFactory> result;
+  ASSERT_NOK(MemTableRepFactory::CreateFromString(
+      config_options_, "SpecialSkipListFactory", &result));
+  ASSERT_OK(MemTableRepFactory::CreateFromString(
+      config_options_, SkipListFactory::kClassName(), &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(SkipListFactory::kClassName()));
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(MemTableRepFactory::CreateFromString(
+        config_options_, "SpecialSkipListFactory", &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), "SpecialSkipListFactory");
+  }
+}
+
 TEST_F(LoadCustomizableTest, LoadMergeOperatorTest) {
   std::shared_ptr<MergeOperator> result;
 
   ASSERT_NOK(
       MergeOperator::CreateFromString(config_options_, "Changling", &result));
+  //**TODO: MJR: Use the constants when these names are in public classes
   ASSERT_OK(MergeOperator::CreateFromString(config_options_, "put", &result));
   ASSERT_NE(result, nullptr);
   ASSERT_STREQ(result->Name(), "PutOperator");
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options_, "PutOperator", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "PutOperator");
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options_, "put_v1", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "PutOperator");
+
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options_, "uint64add", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "UInt64AddOperator");
+  ASSERT_OK(MergeOperator::CreateFromString(config_options_,
+                                            "UInt64AddOperator", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "UInt64AddOperator");
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options_, "max", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "MaxOperator");
+  ASSERT_OK(
+      MergeOperator::CreateFromString(config_options_, "MaxOperator", &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), "MaxOperator");
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options_, StringAppendOperator::kNickName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), StringAppendOperator::kClassName());
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options_, StringAppendOperator::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), StringAppendOperator::kClassName());
+
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options_, StringAppendTESTOperator::kNickName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), StringAppendTESTOperator::kClassName());
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options_, StringAppendTESTOperator::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), StringAppendTESTOperator::kClassName());
+
+  ASSERT_OK(MergeOperator::CreateFromString(config_options_,
+                                            SortList::kNickName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), SortList::kClassName());
+  ASSERT_OK(MergeOperator::CreateFromString(config_options_,
+                                            SortList::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), SortList::kClassName());
+
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options_, BytesXOROperator::kNickName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), BytesXOROperator::kClassName());
+  ASSERT_OK(MergeOperator::CreateFromString(
+      config_options_, BytesXOROperator::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), BytesXOROperator::kClassName());
+#endif  // ROCKSDB_LITE
+  ASSERT_NOK(
+      MergeOperator::CreateFromString(config_options_, "Changling", &result));
   if (RegisterTests("Test")) {
     ASSERT_OK(
         MergeOperator::CreateFromString(config_options_, "Changling", &result));
@@ -1382,12 +1968,12 @@ TEST_F(LoadCustomizableTest, LoadEncryptionProviderTest) {
       EncryptionProvider::CreateFromString(config_options_, "CTR", &result));
   ASSERT_NE(result, nullptr);
   ASSERT_STREQ(result->Name(), "CTR");
-  ASSERT_NOK(result->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  ASSERT_NOK(result->ValidateOptions(db_opts_, cf_opts_));
   ASSERT_OK(EncryptionProvider::CreateFromString(config_options_, "CTR://test",
                                                  &result));
   ASSERT_NE(result, nullptr);
   ASSERT_STREQ(result->Name(), "CTR");
-  ASSERT_OK(result->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  ASSERT_OK(result->ValidateOptions(db_opts_, cf_opts_));
 
   if (RegisterTests("Test")) {
     ASSERT_OK(
@@ -1398,7 +1984,7 @@ TEST_F(LoadCustomizableTest, LoadEncryptionProviderTest) {
                                                    "Mock://test", &result));
     ASSERT_NE(result, nullptr);
     ASSERT_STREQ(result->Name(), "Mock");
-    ASSERT_OK(result->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+    ASSERT_OK(result->ValidateOptions(db_opts_, cf_opts_));
   }
 }
 
@@ -1416,11 +2002,73 @@ TEST_F(LoadCustomizableTest, LoadEncryptionCipherTest) {
 }
 #endif  // !ROCKSDB_LITE
 
+TEST_F(LoadCustomizableTest, LoadSystemClockTest) {
+  std::shared_ptr<SystemClock> result;
+  ASSERT_NOK(SystemClock::CreateFromString(
+      config_options_, MockSystemClock::kClassName(), &result));
+  ASSERT_OK(SystemClock::CreateFromString(
+      config_options_, SystemClock::kDefaultName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(SystemClock::kDefaultName()));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(SystemClock::CreateFromString(
+        config_options_, MockSystemClock::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), MockSystemClock::kClassName());
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadMemoryAllocatorTest) {
+  std::shared_ptr<MemoryAllocator> result;
+  ASSERT_NOK(MemoryAllocator::CreateFromString(
+      config_options_, MockMemoryAllocator::kClassName(), &result));
+  ASSERT_OK(MemoryAllocator::CreateFromString(
+      config_options_, DefaultMemoryAllocator::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), DefaultMemoryAllocator::kClassName());
+  if (RegisterTests("Test")) {
+    ASSERT_OK(MemoryAllocator::CreateFromString(
+        config_options_, MockMemoryAllocator::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), MockMemoryAllocator::kClassName());
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadRateLimiterTest) {
+  std::shared_ptr<RateLimiter> result;
+  ASSERT_NOK(RateLimiter::CreateFromString(
+      config_options_, MockRateLimiter::kClassName(), &result));
+  ASSERT_OK(RateLimiter::CreateFromString(
+      config_options_, std::string(GenericRateLimiter::kClassName()) + ":1234",
+      &result));
+  ASSERT_NE(result, nullptr);
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(RateLimiter::CreateFromString(
+      config_options_, GenericRateLimiter::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_OK(GetDBOptionsFromString(
+      config_options_, db_opts_,
+      std::string("rate_limiter=") + GenericRateLimiter::kClassName(),
+      &db_opts_));
+  ASSERT_NE(db_opts_.rate_limiter, nullptr);
+  if (RegisterTests("Test")) {
+    ASSERT_OK(RateLimiter::CreateFromString(
+        config_options_, MockRateLimiter::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_OK(GetDBOptionsFromString(
+        config_options_, db_opts_,
+        std::string("rate_limiter=") + MockRateLimiter::kClassName(),
+        &db_opts_));
+    ASSERT_NE(db_opts_.rate_limiter, nullptr);
+  }
+#endif  // ROCKSDB_LITE
+}
+
 TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
   std::shared_ptr<TableFactory> table;
   std::shared_ptr<FlushBlockPolicyFactory> result;
   ASSERT_NOK(FlushBlockPolicyFactory::CreateFromString(
-      config_options_, "TestFlushBlockPolicyFactory", &result));
+      config_options_, TestFlushBlockPolicyFactory::kClassName(), &result));
 
   ASSERT_OK(
       FlushBlockPolicyFactory::CreateFromString(config_options_, "", &result));
@@ -1448,16 +2096,17 @@ TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
                FlushBlockEveryKeyPolicyFactory::kClassName());
   if (RegisterTests("Test")) {
     ASSERT_OK(FlushBlockPolicyFactory::CreateFromString(
-        config_options_, "TestFlushBlockPolicyFactory", &result));
+        config_options_, TestFlushBlockPolicyFactory::kClassName(), &result));
     ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), "TestFlushBlockPolicyFactory");
+    ASSERT_STREQ(result->Name(), TestFlushBlockPolicyFactory::kClassName());
     ASSERT_OK(TableFactory::CreateFromString(
-        config_options_, table_opts + "TestFlushBlockPolicyFactory", &table));
+        config_options_, table_opts + TestFlushBlockPolicyFactory::kClassName(),
+        &table));
     bbto = table->GetOptions<BlockBasedTableOptions>();
     ASSERT_NE(bbto, nullptr);
     ASSERT_NE(bbto->flush_block_policy_factory.get(), nullptr);
     ASSERT_STREQ(bbto->flush_block_policy_factory->Name(),
-                 "TestFlushBlockPolicyFactory");
+                 TestFlushBlockPolicyFactory::kClassName());
   }
 #endif  // ROCKSDB_LITE
 }
@@ -1465,6 +2114,7 @@ TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
 #ifdef GFLAGS
   ParseCommandLineFlags(&argc, &argv, true);
 #endif  // GFLAGS

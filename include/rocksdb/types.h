@@ -15,7 +15,7 @@ namespace ROCKSDB_NAMESPACE {
 using ColumnFamilyId = uint32_t;
 
 // Represents a sequence number in a WAL file.
-typedef uint64_t SequenceNumber;
+using SequenceNumber = uint64_t;
 
 const SequenceNumber kMinUnCommittedSeq = 1;  // 0 is always committed
 
@@ -24,6 +24,12 @@ enum class TableFileCreationReason {
   kCompaction,
   kRecovery,
   kMisc,
+};
+
+enum class BlobFileCreationReason {
+  kFlush,
+  kCompaction,
+  kRecovery,
 };
 
 // The types of files RocksDB uses in a DB directory. (Available for

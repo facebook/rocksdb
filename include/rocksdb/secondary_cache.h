@@ -43,6 +43,10 @@ class SecondaryCacheResultHandle {
 //
 // Cache interface for caching blocks on a secondary tier (which can include
 // non-volatile media, or alternate forms of caching such as compressed data)
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class SecondaryCache : public Customizable {
  public:
   virtual ~SecondaryCache() {}
@@ -75,7 +79,7 @@ class SecondaryCache : public Customizable {
   // Wait for a collection of handles to become ready
   virtual void WaitAll(std::vector<SecondaryCacheResultHandle*> handles) = 0;
 
-  virtual std::string GetPrintableOptions() const = 0;
+  virtual std::string GetPrintableOptions() const override = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

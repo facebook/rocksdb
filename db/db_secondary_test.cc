@@ -12,6 +12,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
+#include "test_util/testutil.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -425,6 +426,9 @@ namespace {
 class TraceFileEnv : public EnvWrapper {
  public:
   explicit TraceFileEnv(Env* _target) : EnvWrapper(_target) {}
+  static const char* kClassName() { return "TraceFileEnv"; }
+  const char* Name() const override { return kClassName(); }
+
   Status NewRandomAccessFile(const std::string& f,
                              std::unique_ptr<RandomAccessFile>* r,
                              const EnvOptions& env_options) override {
@@ -689,7 +693,7 @@ TEST_F(DBSecondaryTest, SwitchToNewManifestDuringOpen) {
   SyncPoint::GetInstance()->LoadDependency(
       {{"ReactiveVersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:0",
         "VersionSet::ProcessManifestWrites:BeforeNewManifest"},
-       {"DBImpl::Open:AfterDeleteFilesAndSyncDir",
+       {"DBImpl::Open:AfterDeleteFiles",
         "ReactiveVersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:"
         "1"}});
   SyncPoint::GetInstance()->EnableProcessing();
@@ -850,12 +854,14 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
   Options options;
   options.env = env_;
   options.level0_file_num_compaction_trigger = 4;
-  Reopen(options);
+  const std::string cf1_name("test_cf");
+  CreateAndReopenWithCF({cf1_name}, options);
 
   Options options1;
   options1.env = env_;
   options1.max_open_files = -1;
-  OpenSecondary(options1);
+  OpenSecondaryWithColumnFamilies({kDefaultColumnFamilyName, cf1_name},
+                                  options1);
 
   const int kNumFiles = options.level0_file_num_compaction_trigger - 1;
   // Keep it smaller than 10 so that key0, key1, ..., key9 are sorted as 0, 1,
@@ -889,11 +895,11 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
   // restart primary, performs full compaction, close again, restart again so
   // that next time secondary tries to catch up with primary, the secondary
   // will skip the MANIFEST in middle.
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name}, options);
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name}, options);
   ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
@@ -904,12 +910,14 @@ TEST_F(DBSecondaryTest, SwitchManifestTwice) {
   Options options;
   options.env = env_;
   options.disable_auto_compactions = true;
-  Reopen(options);
+  const std::string cf1_name("test_cf");
+  CreateAndReopenWithCF({cf1_name}, options);
 
   Options options1;
   options1.env = env_;
   options1.max_open_files = -1;
-  OpenSecondary(options1);
+  OpenSecondaryWithColumnFamilies({kDefaultColumnFamilyName, cf1_name},
+                                  options1);
 
   ASSERT_OK(Put("0", "value0"));
   ASSERT_OK(Flush());
@@ -920,9 +928,9 @@ TEST_F(DBSecondaryTest, SwitchManifestTwice) {
   ASSERT_OK(db_secondary_->Get(ropts, "0", &value));
   ASSERT_EQ("value0", value);
 
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name}, options);
   ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name}, options);
   ASSERT_OK(Put("0", "value1"));
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
 
@@ -937,7 +945,7 @@ TEST_F(DBSecondaryTest, DISABLED_SwitchWAL) {
   options.max_write_buffer_number = 4;
   options.min_write_buffer_number_to_merge = 2;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
   Reopen(options);
 
   Options options1;
@@ -992,7 +1000,7 @@ TEST_F(DBSecondaryTest, DISABLED_SwitchWALMultiColumnFamilies) {
   options.max_write_buffer_number = 4;
   options.min_write_buffer_number_to_merge = 2;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
   CreateAndReopenWithCF({kCFName1}, options);
 
   Options options1;
@@ -1056,7 +1064,7 @@ TEST_F(DBSecondaryTest, CatchUpAfterFlush) {
   options.max_write_buffer_number = 4;
   options.min_write_buffer_number_to_merge = 2;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
   Reopen(options);
 
   Options options1;

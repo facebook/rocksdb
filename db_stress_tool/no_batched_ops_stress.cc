@@ -179,6 +179,8 @@ class NonBatchedOpsStressTest : public StressTest {
 
   bool ShouldAcquireMutexOnKey() const override { return true; }
 
+  bool IsStateTracked() const override { return true; }
+
   Status TestGet(ThreadState* thread, const ReadOptions& read_opts,
                  const std::vector<int>& rand_column_families,
                  const std::vector<int64_t>& rand_keys) override {
@@ -349,7 +351,9 @@ class NonBatchedOpsStressTest : public StressTest {
         // Grab mutex so multiple thread don't try to print the
         // stack trace at the same time
         MutexLock l(thread->shared->GetMutex());
-        fprintf(stderr, "Didn't get expected error from MultiGet\n");
+        fprintf(stderr, "Didn't get expected error from MultiGet. \n");
+        fprintf(stderr, "num_keys %zu Expected %d errors, seen %d\n", num_keys,
+                error_count, stat_nok);
         fprintf(stderr, "Callstack that injected the fault\n");
         fault_fs_guard->PrintFaultBacktrace();
         std::terminate();

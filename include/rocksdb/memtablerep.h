@@ -35,13 +35,15 @@
 
 #pragma once
 
-#include <rocksdb/slice.h>
 #include <stdint.h>
 #include <stdlib.h>
 
 #include <memory>
 #include <stdexcept>
 #include <unordered_set>
+
+#include "rocksdb/customizable.h"
+#include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -50,8 +52,9 @@ class Allocator;
 class LookupKey;
 class SliceTransform;
 class Logger;
+struct DBOptions;
 
-typedef void* KeyHandle;
+using KeyHandle = void*;
 
 extern Slice GetLengthPrefixedSlice(const char* data);
 
@@ -61,7 +64,7 @@ class MemTableRep {
   // concatenated with values.
   class KeyComparator {
    public:
-    typedef ROCKSDB_NAMESPACE::Slice DecodedType;
+    using DecodedType = ROCKSDB_NAMESPACE::Slice;
 
     virtual DecodedType decode_key(const char* key) const {
       // The format of key is frozen and can be treated as a part of the API
@@ -289,9 +292,14 @@ class MemTableRep {
 
 // This is the base class for all factories that are used by RocksDB to create
 // new MemTableRep objects
-class MemTableRepFactory {
+class MemTableRepFactory : public Customizable {
  public:
   virtual ~MemTableRepFactory() {}
+
+  static const char* Type() { return "MemTableRepFactory"; }
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& id,
+                                 std::unique_ptr<MemTableRepFactory>* factory);
 
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
                                          Allocator*, const SliceTransform*,
@@ -303,7 +311,7 @@ class MemTableRepFactory {
     return CreateMemTableRep(key_cmp, allocator, slice_transform, logger);
   }
 
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
 
   // Return true if the current MemTableRep supports concurrent inserts
   // Default: false
@@ -325,20 +333,27 @@ class MemTableRepFactory {
 //     seeks with consecutive keys.
 class SkipListFactory : public MemTableRepFactory {
  public:
-  explicit SkipListFactory(size_t lookahead = 0) : lookahead_(lookahead) {}
+  explicit SkipListFactory(size_t lookahead = 0);
 
+  // Methods for Configurable/Customizable class overrides
+  static const char* kClassName() { return "SkipListFactory"; }
+  static const char* kNickName() { return "skip_list"; }
+  virtual const char* Name() const override { return kClassName(); }
+  virtual const char* NickName() const override { return kNickName(); }
+  std::string GetId() const override;
+
+  // Methods for MemTableRepFactory class overrides
   using MemTableRepFactory::CreateMemTableRep;
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
                                          Allocator*, const SliceTransform*,
                                          Logger* logger) override;
-  virtual const char* Name() const override { return "SkipListFactory"; }
 
   bool IsInsertConcurrentlySupported() const override { return true; }
 
   bool CanHandleDuplicatedKey() const override { return true; }
 
  private:
-  const size_t lookahead_;
+  size_t lookahead_;
 };
 
 #ifndef ROCKSDB_LITE
@@ -351,17 +366,22 @@ class SkipListFactory : public MemTableRepFactory {
 //     VectorRep. On initialization, the underlying array will be at least count
 //     bytes reserved for usage.
 class VectorRepFactory : public MemTableRepFactory {
-  const size_t count_;
+  size_t count_;
 
  public:
-  explicit VectorRepFactory(size_t count = 0) : count_(count) {}
+  explicit VectorRepFactory(size_t count = 0);
 
+  // Methods for Configurable/Customizable class overrides
+  static const char* kClassName() { return "VectorRepFactory"; }
+  static const char* kNickName() { return "vector"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kNickName(); }
+
+  // Methods for MemTableRepFactory class overrides
   using MemTableRepFactory::CreateMemTableRep;
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
                                          Allocator*, const SliceTransform*,
                                          Logger* logger) override;
-
-  virtual const char* Name() const override { return "VectorRepFactory"; }
 };
 
 // This class contains a fixed array of buckets, each

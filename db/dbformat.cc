@@ -9,7 +9,10 @@
 #include "db/dbformat.h"
 
 #include <stdio.h>
+
 #include <cinttypes>
+
+#include "db/lookup_key.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "util/coding.h"
@@ -25,6 +28,7 @@ namespace ROCKSDB_NAMESPACE {
 // ValueType, not the lowest).
 const ValueType kValueTypeForSeek = kTypeDeletionWithTimestamp;
 const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
+const std::string kDisableUserTimestamp("");
 
 EntryType GetEntryType(ValueType value_type) {
   switch (value_type) {

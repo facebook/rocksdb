@@ -17,8 +17,9 @@
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
-typedef Env* CreateEnvFunc();
 namespace {
+using CreateEnvFunc = Env*();
+
 // These functions are used to create the various environments under which this
 // test can execute. These functions are used to allow the test cases to be
 // created without the Env being initialized, thereby eliminating a potential
@@ -28,7 +29,7 @@ namespace {
 static Env* GetDefaultEnv() { return Env::Default(); }
 
 static Env* GetMockEnv() {
-  static std::unique_ptr<Env> mock_env(new MockEnv(Env::Default()));
+  static std::unique_ptr<Env> mock_env(MockEnv::Create(Env::Default()));
   return mock_env.get();
 }
 #ifndef ROCKSDB_LITE

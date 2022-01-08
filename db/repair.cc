@@ -62,6 +62,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <cinttypes>
+
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
@@ -73,6 +74,7 @@
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
 #include "file/writable_file_writer.h"
+#include "logging/logging.h"
 #include "options/cf_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
@@ -450,8 +452,9 @@ class Repairer {
           std::move(range_del_iters), &meta, nullptr /* blob_file_additions */,
           {}, kMaxSequenceNumber, snapshot_checker,
           false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
-          nullptr /*IOTracer*/, nullptr /* event_logger */, 0 /* job_id */,
-          Env::IO_HIGH, nullptr /* table_properties */, write_hint);
+          nullptr /*IOTracer*/, BlobFileCreationReason::kRecovery,
+          nullptr /* event_logger */, 0 /* job_id */, Env::IO_HIGH,
+          nullptr /* table_properties */, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,
                      "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s",
                      log, counter, meta.fd.GetNumber(),
@@ -630,9 +633,10 @@ class Repairer {
             table->meta.fd.GetFileSize(), table->meta.smallest,
             table->meta.largest, table->meta.fd.smallest_seqno,
             table->meta.fd.largest_seqno, table->meta.marked_for_compaction,
-            table->meta.oldest_blob_file_number,
+            table->meta.temperature, table->meta.oldest_blob_file_number,
             table->meta.oldest_ancester_time, table->meta.file_creation_time,
-            table->meta.file_checksum, table->meta.file_checksum_func_name);
+            table->meta.file_checksum, table->meta.file_checksum_func_name,
+            table->meta.min_timestamp, table->meta.max_timestamp);
       }
       assert(next_file_number_ > 0);
       vset_.MarkFileNumberUsed(next_file_number_ - 1);

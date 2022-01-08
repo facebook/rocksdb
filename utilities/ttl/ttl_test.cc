@@ -25,7 +25,7 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-typedef std::map<std::string, std::string> KVMap;
+using KVMap = std::map<std::string, std::string>;
 
 enum BatchOperation { OP_PUT = 0, OP_DELETE = 1 };
 }
@@ -35,7 +35,7 @@ class SpecialTimeEnv : public EnvWrapper {
   explicit SpecialTimeEnv(Env* base) : EnvWrapper(base) {
     EXPECT_OK(base->GetCurrentTime(&current_time_));
   }
-
+  const char* Name() const override { return "SpecialTimeEnv"; }
   void Sleep(int64_t sleep_time) { current_time_ += sleep_time; }
   Status GetCurrentTime(int64_t* current_time) override {
     *current_time = current_time_;

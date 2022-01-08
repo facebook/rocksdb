@@ -11,6 +11,7 @@
 
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
+#include "logging/logging.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
@@ -659,6 +660,10 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
     }
 
     Status MarkCommit(const Slice&) override {
+      return Status::InvalidArgument();
+    }
+
+    Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
       return Status::InvalidArgument();
     }
 

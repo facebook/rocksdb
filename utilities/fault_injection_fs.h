@@ -138,6 +138,8 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override;
+  IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                     const IOOptions& options, IODebugContext* dbg) override;
   size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
   }
@@ -150,10 +152,11 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
   FaultInjectionTestFS* fs_;
 };
 
-class TestFSSequentialFile : public FSSequentialFileWrapper {
+class TestFSSequentialFile : public FSSequentialFileOwnerWrapper {
  public:
-  explicit TestFSSequentialFile(FSSequentialFile* f, FaultInjectionTestFS* fs)
-      : FSSequentialFileWrapper(f), target_guard_(f), fs_(fs) {}
+  explicit TestFSSequentialFile(std::unique_ptr<FSSequentialFile>&& f,
+                                FaultInjectionTestFS* fs)
+      : FSSequentialFileOwnerWrapper(std::move(f)), fs_(fs) {}
   IOStatus Read(size_t n, const IOOptions& options, Slice* result,
                 char* scratch, IODebugContext* dbg) override;
   IOStatus PositionedRead(uint64_t offset, size_t n, const IOOptions& options,
@@ -161,7 +164,6 @@ class TestFSSequentialFile : public FSSequentialFileWrapper {
                           IODebugContext* dbg) override;
 
  private:
-  std::unique_ptr<FSSequentialFile> target_guard_;
   FaultInjectionTestFS* fs_;
 };
 
@@ -174,6 +176,10 @@ class TestFSDirectory : public FSDirectory {
 
   virtual IOStatus Fsync(const IOOptions& options,
                          IODebugContext* dbg) override;
+
+  virtual IOStatus FsyncWithDirOptions(
+      const IOOptions& options, IODebugContext* dbg,
+      const DirFsyncOptions& dir_fsync_options) override;
 
  private:
   FaultInjectionTestFS* fs_;
@@ -198,7 +204,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
         fail_get_file_unique_id_(false) {}
   virtual ~FaultInjectionTestFS() { error_.PermitUncheckedError(); }
 
-  const char* Name() const override { return "FaultInjectionTestFS"; }
+  static const char* kClassName() { return "FaultInjectionTestFS"; }
+  const char* Name() const override { return kClassName(); }
 
   IOStatus NewDirectory(const std::string& name, const IOOptions& options,
                         std::unique_ptr<FSDirectory>* result,
@@ -233,6 +240,10 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   virtual IOStatus RenameFile(const std::string& s, const std::string& t,
                               const IOOptions& options,
                               IODebugContext* dbg) override;
+
+  virtual IOStatus LinkFile(const std::string& src, const std::string& target,
+                            const IOOptions& options,
+                            IODebugContext* dbg) override;
 
 // Undef to eliminate clash on Windows
 #undef GetFreeSpace
@@ -319,7 +330,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     MutexLock l(&mutex_);
     filesystem_writable_ = writable;
   }
-  void AssertNoOpenFile() { assert(open_files_.empty()); }
+  void AssertNoOpenFile() { assert(open_managed_files_.empty()); }
 
   IOStatus GetError() { return error_; }
 
@@ -368,6 +379,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // Specify what the operation, so we can inject the right type of error
   enum ErrorOperation : char {
     kRead = 0,
+    kMultiReadSingleReq = 1,
+    kMultiRead = 2,
     kOpen,
   };
 
@@ -438,8 +451,12 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // corruption in the contents of scratch, or truncation of slice
   // are the types of error with equal probability. For OPEN,
   // its always an IOError.
+  // fault_injected returns whether a fault is injected. It is needed
+  // because some fault is inected with IOStatus to be OK.
   IOStatus InjectThreadSpecificReadError(ErrorOperation op, Slice* slice,
-                                         bool direct_io, char* scratch);
+                                         bool direct_io, char* scratch,
+                                         bool need_count_increase,
+                                         bool* fault_injected);
 
   // Get the count of how many times we injected since the previous call
   int GetAndResetErrorCount() {
@@ -490,6 +507,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
 
   int read_error_one_in() const { return read_error_one_in_.load(); }
 
+  int write_error_one_in() const { return write_error_one_in_; }
+
   // We capture a backtrace every time a fault is injected, for debugging
   // purposes. This call prints the backtrace to stderr and frees the
   // saved callstack
@@ -498,7 +517,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
  private:
   port::Mutex mutex_;
   std::map<std::string, FSFileState> db_file_state_;
-  std::set<std::string> open_files_;
+  std::set<std::string> open_managed_files_;
   // directory -> (file name -> file contents to recover)
   // When data is recovered from unsyned parent directory, the files with
   // empty file contents to recover is deleted. Those with non-empty ones
@@ -523,6 +542,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     int count;
     bool enable_error_injection;
     void* callstack;
+    std::string message;
     int frames;
     ErrorType type;
 

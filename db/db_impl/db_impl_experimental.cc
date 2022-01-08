@@ -14,6 +14,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
+#include "logging/logging.h"
 #include "rocksdb/status.h"
 #include "util/cast_util.h"
 
@@ -75,7 +76,8 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
                      "PromoteL0 FAILED. Target level %d does not exist\n",
                      target_level);
       job_context.Clean();
-      return Status::InvalidArgument("Target level does not exist");
+      status = Status::InvalidArgument("Target level does not exist");
+      return status;
     }
 
     // Sort L0 files by range.
@@ -95,7 +97,9 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
                        "PromoteL0 FAILED. File %" PRIu64 " being compacted\n",
                        f->fd.GetNumber());
         job_context.Clean();
-        return Status::InvalidArgument("PromoteL0 called during L0 compaction");
+        status =
+            Status::InvalidArgument("PromoteL0 called during L0 compaction");
+        return status;
       }
 
       if (i == 0) continue;
@@ -106,7 +110,8 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
                        " have overlapping ranges\n",
                        prev_f->fd.GetNumber(), f->fd.GetNumber());
         job_context.Clean();
-        return Status::InvalidArgument("L0 has overlapping files");
+        status = Status::InvalidArgument("L0 has overlapping files");
+        return status;
       }
     }
 
@@ -116,21 +121,23 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "PromoteL0 FAILED. Level %d not empty\n", level);
         job_context.Clean();
-        return Status::InvalidArgument(
+        status = Status::InvalidArgument(
             "All levels up to target_level "
             "must be empty");
+        return status;
       }
     }
 
     edit.SetColumnFamily(cfd->GetID());
     for (const auto& f : l0_files) {
       edit.DeleteFile(0, f->fd.GetNumber());
-      edit.AddFile(target_level, f->fd.GetNumber(), f->fd.GetPathId(),
-                   f->fd.GetFileSize(), f->smallest, f->largest,
-                   f->fd.smallest_seqno, f->fd.largest_seqno,
-                   f->marked_for_compaction, f->oldest_blob_file_number,
-                   f->oldest_ancester_time, f->file_creation_time,
-                   f->file_checksum, f->file_checksum_func_name);
+      edit.AddFile(
+          target_level, f->fd.GetNumber(), f->fd.GetPathId(),
+          f->fd.GetFileSize(), f->smallest, f->largest, f->fd.smallest_seqno,
+          f->fd.largest_seqno, f->marked_for_compaction, f->temperature,
+          f->oldest_blob_file_number, f->oldest_ancester_time,
+          f->file_creation_time, f->file_checksum, f->file_checksum_func_name,
+          f->min_timestamp, f->max_timestamp);
     }
 
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),

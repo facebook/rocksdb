@@ -53,10 +53,10 @@ static const size_t kSectorSize = 512;
 
 // RAII helpers for HANDLEs
 const auto CloseHandleFunc = [](HANDLE h) { ::CloseHandle(h); };
-typedef std::unique_ptr<void, decltype(CloseHandleFunc)> UniqueCloseHandlePtr;
+using UniqueCloseHandlePtr = std::unique_ptr<void, decltype(CloseHandleFunc)>;
 
 const auto FindCloseFunc = [](HANDLE h) { ::FindClose(h); };
-typedef std::unique_ptr<void, decltype(FindCloseFunc)> UniqueFindClosePtr;
+using UniqueFindClosePtr = std::unique_ptr<void, decltype(FindCloseFunc)>;
 
 void WinthreadCall(const char* label, std::error_code result) {
   if (0 != result.value()) {
@@ -1412,10 +1412,6 @@ const std::shared_ptr<SystemClock>& SystemClock::Default() {
   static std::shared_ptr<SystemClock> clock =
       std::make_shared<port::WinClock>();
   return clock;
-}
-
-std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs) {
-  return std::unique_ptr<Env>(new CompositeEnvWrapper(Env::Default(), fs));
 }
 }  // namespace ROCKSDB_NAMESPACE
 

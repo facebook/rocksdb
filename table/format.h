@@ -8,21 +8,21 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <stdint.h>
+
+#include <array>
+#include <cstdint>
 #include <string>
+
 #include "file/file_prefetch_buffer.h"
 #include "file/random_access_file_reader.h"
-
-#include "rocksdb/options.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/status.h"
-#include "rocksdb/table.h"
-
 #include "memory/memory_allocator.h"
 #include "options/cf_options.h"
 #include "port/malloc.h"
 #include "port/port.h"  // noexcept
-#include "table/persistent_cache_options.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/status.h"
+#include "rocksdb/table.h"
+#include "util/hash.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -32,7 +32,7 @@ struct ReadOptions;
 extern bool ShouldReportDetailedTime(Env* env, Statistics* stats);
 
 // the length of the magic number in bytes.
-const int kMagicNumberLengthByte = 8;
+constexpr uint32_t kMagicNumberLengthByte = 8;
 
 // BlockHandle is a pointer to the extent of a file that stores a data
 // block or a meta block.
@@ -52,6 +52,7 @@ class BlockHandle {
   void set_size(uint64_t _size) { size_ = _size; }
 
   void EncodeTo(std::string* dst) const;
+  char* EncodeTo(char* dst) const;
   Status DecodeFrom(Slice* input);
   Status DecodeSizeFrom(uint64_t offset, Slice* input);
 
@@ -65,7 +66,7 @@ class BlockHandle {
   static const BlockHandle& NullBlockHandle() { return kNullBlockHandle; }
 
   // Maximum encoding length of a BlockHandle
-  enum { kMaxEncodedLength = 10 + 10 };
+  static constexpr uint32_t kMaxEncodedLength = 2 * kMaxVarint64Length;
 
   inline bool operator==(const BlockHandle& rhs) const {
     return offset_ == rhs.offset_ && size_ == rhs.size_;
@@ -117,91 +118,120 @@ inline uint32_t GetCompressFormatForVersion(uint32_t format_version) {
   return format_version >= 2 ? 2 : 1;
 }
 
-inline bool BlockBasedTableSupportedVersion(uint32_t version) {
-  return version <= 5;
+constexpr uint32_t kLatestFormatVersion = 5;
+
+inline bool IsSupportedFormatVersion(uint32_t version) {
+  return version <= kLatestFormatVersion;
 }
 
-// Footer encapsulates the fixed information stored at the tail
-// end of every table file.
+// Footer encapsulates the fixed information stored at the tail end of every
+// SST file. In general, it should only include things that cannot go
+// elsewhere under the metaindex block. For example, checksum_type is
+// required for verifying metaindex block checksum (when applicable), but
+// index block handle can easily go in metaindex block (possible future).
+// See also FooterBuilder below.
 class Footer {
  public:
-  // Constructs a footer without specifying its table magic number.
-  // In such case, the table magic number of such footer should be
-  // initialized via @ReadFooterFromFile().
-  // Use this when you plan to load Footer with DecodeFrom(). Never use this
-  // when you plan to EncodeTo.
-  Footer() : Footer(kInvalidTableMagicNumber, 0) {}
+  // Create empty. Populate using DecodeFrom.
+  Footer() {}
 
-  // Use this constructor when you plan to write out the footer using
-  // EncodeTo(). Never use this constructor with DecodeFrom().
-  Footer(uint64_t table_magic_number, uint32_t version);
+  // Deserialize a footer (populate fields) from `input` and check for various
+  // corruptions. `input_offset` is the offset within the target file of
+  // `input` buffer (future use).
+  Status DecodeFrom(Slice input, uint64_t input_offset);
 
-  // The version of the footer in this file
-  uint32_t version() const { return version_; }
-
-  // The checksum type used in this file
-  ChecksumType checksum() const { return checksum_; }
-  void set_checksum(const ChecksumType c) { checksum_ = c; }
-
-  // The block handle for the metaindex block of the table
-  const BlockHandle& metaindex_handle() const { return metaindex_handle_; }
-  void set_metaindex_handle(const BlockHandle& h) { metaindex_handle_ = h; }
-
-  // The block handle for the index block of the table
-  const BlockHandle& index_handle() const { return index_handle_; }
-
-  void set_index_handle(const BlockHandle& h) { index_handle_ = h; }
-
+  // Table magic number identifies file as RocksDB SST file and which kind of
+  // SST format is use.
   uint64_t table_magic_number() const { return table_magic_number_; }
 
-  void EncodeTo(std::string* dst) const;
+  // A version (footer and more) within a kind of SST. (It would add more
+  // unnecessary complexity to separate footer versions and
+  // BBTO::format_version.)
+  uint32_t format_version() const { return format_version_; }
 
-  // Set the current footer based on the input slice.
-  //
-  // REQUIRES: table_magic_number_ is not set (i.e.,
-  // HasInitializedTableMagicNumber() is true). The function will initialize the
-  // magic number
-  Status DecodeFrom(Slice* input);
+  // Block handle for metaindex block.
+  const BlockHandle& metaindex_handle() const { return metaindex_handle_; }
 
-  // Encoded length of a Footer.  Note that the serialization of a Footer will
-  // always occupy at least kMinEncodedLength bytes.  If fields are changed
-  // the version number should be incremented and kMaxEncodedLength should be
-  // increased accordingly.
-  enum {
-    // Footer version 0 (legacy) will always occupy exactly this many bytes.
-    // It consists of two block handles, padding, and a magic number.
-    kVersion0EncodedLength = 2 * BlockHandle::kMaxEncodedLength + 8,
-    // Footer of versions 1 and higher will always occupy exactly this many
-    // bytes. It consists of the checksum type, two block handles, padding,
-    // a version number (bigger than 1), and a magic number
-    kNewVersionsEncodedLength = 1 + 2 * BlockHandle::kMaxEncodedLength + 4 + 8,
-    kMinEncodedLength = kVersion0EncodedLength,
-    kMaxEncodedLength = kNewVersionsEncodedLength,
-  };
+  // Block handle for (top-level) index block.
+  const BlockHandle& index_handle() const { return index_handle_; }
 
-  static const uint64_t kInvalidTableMagicNumber = 0;
+  // Checksum type used in the file.
+  ChecksumType checksum_type() const {
+    return static_cast<ChecksumType>(checksum_type_);
+  }
 
-  // convert this object to a human readable form
+  // Block trailer size used by file with this footer (e.g. 5 for block-based
+  // table and 0 for plain table). This is inferred from magic number so
+  // not in the serialized form.
+  inline size_t GetBlockTrailerSize() const { return block_trailer_size_; }
+
+  // Convert this object to a human readable form
   std::string ToString() const;
 
+  // Encoded lengths of Footers. Bytes for serialized Footer will always be
+  // >= kMinEncodedLength and <= kMaxEncodedLength.
+  //
+  // Footer version 0 (legacy) will always occupy exactly this many bytes.
+  // It consists of two block handles, padding, and a magic number.
+  static constexpr uint32_t kVersion0EncodedLength =
+      2 * BlockHandle::kMaxEncodedLength + kMagicNumberLengthByte;
+  static constexpr uint32_t kMinEncodedLength = kVersion0EncodedLength;
+
+  // Footer of versions 1 and higher will always occupy exactly this many
+  // bytes. It originally consisted of the checksum type, two block handles,
+  // padding (to maximum handle encoding size), a format version number, and a
+  // magic number.
+  static constexpr uint32_t kNewVersionsEncodedLength =
+      1 + 2 * BlockHandle::kMaxEncodedLength + 4 + kMagicNumberLengthByte;
+  static constexpr uint32_t kMaxEncodedLength = kNewVersionsEncodedLength;
+
+  static constexpr uint64_t kNullTableMagicNumber = 0;
+
+  static constexpr uint32_t kInvalidFormatVersion = 0xffffffffU;
+
  private:
-  // REQUIRES: magic number wasn't initialized.
-  void set_table_magic_number(uint64_t magic_number) {
-    assert(!HasInitializedTableMagicNumber());
-    table_magic_number_ = magic_number;
-  }
+  static constexpr int kInvalidChecksumType =
+      (1 << (sizeof(ChecksumType) * 8)) | kNoChecksum;
 
-  // return true if @table_magic_number_ is set to a value different
-  // from @kInvalidTableMagicNumber.
-  bool HasInitializedTableMagicNumber() const {
-    return (table_magic_number_ != kInvalidTableMagicNumber);
-  }
-
-  uint32_t version_;
-  ChecksumType checksum_;
+  uint64_t table_magic_number_ = kNullTableMagicNumber;
+  uint32_t format_version_ = kInvalidFormatVersion;
   BlockHandle metaindex_handle_;
   BlockHandle index_handle_;
-  uint64_t table_magic_number_ = 0;
+  int checksum_type_ = kInvalidChecksumType;
+  uint8_t block_trailer_size_ = 0;
+};
+
+// Builder for Footer
+class FooterBuilder {
+ public:
+  // Run builder in inputs. This is a single step with lots of parameters for
+  // efficiency (based on perf testing).
+  // * table_magic_number identifies file as RocksDB SST file and which kind of
+  // SST format is use.
+  // * format_version is a version for the footer and can also apply to other
+  // aspects of the SST file (see BlockBasedTableOptions::format_version).
+  // NOTE: To save complexity in the caller, when format_version == 0 and
+  // there is a corresponding legacy magic number to the one specified, the
+  // legacy magic number will be written for forward compatibility.
+  // * footer_offset is the file offset where the footer will be written
+  // (for future use).
+  // * checksum_type is for formats using block checksums.
+  // * index_handle is optional for some kinds of SST files.
+  void Build(uint64_t table_magic_number, uint32_t format_version,
+             uint64_t footer_offset, ChecksumType checksum_type,
+             const BlockHandle& metaindex_handle,
+             const BlockHandle& index_handle = BlockHandle::NullBlockHandle());
+
+  // After Builder, get a Slice for the serialized Footer, backed by this
+  // FooterBuilder.
+  const Slice& GetSlice() const {
+    assert(slice_.size());
+    return slice_;
+  }
+
+ private:
+  Slice slice_;
+  std::array<char, Footer::kMaxEncodedLength> data_;
 };
 
 // Read the footer from file
@@ -212,30 +242,29 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
                           uint64_t file_size, Footer* footer,
                           uint64_t enforce_table_magic_number = 0);
 
-// 1-byte compression type + 32-bit checksum
-static const size_t kBlockTrailerSize = 5;
-
-// Make block size calculation for IO less error prone
-inline uint64_t block_size(const BlockHandle& handle) {
-  return handle.size() + kBlockTrailerSize;
-}
-
-inline CompressionType get_block_compression_type(const char* block_data,
-                                                  size_t block_size) {
-  return static_cast<CompressionType>(block_data[block_size]);
-}
+// Computes a checksum using the given ChecksumType. Sometimes we need to
+// include one more input byte logically at the end but not part of the main
+// data buffer. If data_size >= 1, then
+// ComputeBuiltinChecksum(type, data, size)
+// ==
+// ComputeBuiltinChecksumWithLastByte(type, data, size - 1, data[size - 1])
+uint32_t ComputeBuiltinChecksum(ChecksumType type, const char* data,
+                                size_t size);
+uint32_t ComputeBuiltinChecksumWithLastByte(ChecksumType type, const char* data,
+                                            size_t size, char last_byte);
 
 // Represents the contents of a block read from an SST file. Depending on how
 // it's created, it may or may not own the actual block bytes. As an example,
 // BlockContents objects representing data read from mmapped files only point
 // into the mmapped region.
 struct BlockContents {
-  Slice data;  // Actual contents of data
+  // Points to block payload (without trailer)
+  Slice data;
   CacheAllocationPtr allocation;
 
 #ifndef NDEBUG
-  // Whether the block is a raw block, which contains compression type
-  // byte. It is only used for assertion.
+  // Whether there is a known trailer after what is pointed to by `data`.
+  // See BlockBasedTable::GetCompressionType.
   bool is_raw_block = false;
 #endif  // NDEBUG
 
@@ -256,14 +285,6 @@ struct BlockContents {
 
   // Returns whether the object has ownership of the underlying data bytes.
   bool own_bytes() const { return allocation.get() != nullptr; }
-
-  // It's the caller's responsibility to make sure that this is
-  // for raw block contents, which contains the compression
-  // byte in the end.
-  CompressionType get_compression_type() const {
-    assert(is_raw_block);
-    return get_block_compression_type(data.data(), data.size());
-  }
 
   // The additional memory space taken by the block data.
   size_t usable_size() const {
@@ -300,15 +321,6 @@ struct BlockContents {
   }
 };
 
-// Read the block identified by "handle" from "file".  On failure
-// return non-OK.  On success fill *result and return OK.
-extern Status ReadBlockContents(
-    RandomAccessFileReader* file, FilePrefetchBuffer* prefetch_buffer,
-    const Footer& footer, const ReadOptions& options, const BlockHandle& handle,
-    BlockContents* contents, const ImmutableOptions& ioptions,
-    bool do_uncompress = true, const Slice& compression_dict = Slice(),
-    const PersistentCacheOptions& cache_options = PersistentCacheOptions());
-
 // The 'data' points to the raw block contents read in from file.
 // This method allocates a new heap buffer and the raw block
 // contents are uncompresed into this buffer. This buffer is
@@ -339,8 +351,7 @@ extern Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id);
 // TODO(andrewkr): we should prefer one way of representing a null/uninitialized
 // BlockHandle. Currently we use zeros for null and use negation-of-zeros for
 // uninitialized.
-inline BlockHandle::BlockHandle()
-    : BlockHandle(~static_cast<uint64_t>(0), ~static_cast<uint64_t>(0)) {}
+inline BlockHandle::BlockHandle() : BlockHandle(~uint64_t{0}, ~uint64_t{0}) {}
 
 inline BlockHandle::BlockHandle(uint64_t _offset, uint64_t _size)
     : offset_(_offset), size_(_size) {}

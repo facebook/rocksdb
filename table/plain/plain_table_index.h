@@ -10,7 +10,6 @@
 #include <string>
 #include <vector>
 
-#include "db/dbformat.h"
 #include "memory/arena.h"
 #include "monitoring/histogram.h"
 #include "options/cf_options.h"

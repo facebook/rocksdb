@@ -5,7 +5,10 @@
 
 #include "rocksdb/customizable.h"
 
+#include <sstream>
+
 #include "options/options_helper.h"
+#include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/options_type.h"
@@ -23,6 +26,13 @@ std::string Customizable::GetOptionName(const std::string& long_name) const {
   } else {
     return Configurable::GetOptionName(long_name);
   }
+}
+
+std::string Customizable::GenerateIndividualId() const {
+  std::ostringstream ostr;
+  ostr << Name() << "@" << static_cast<const void*>(this) << "#"
+       << port::GetProcessID();
+  return ostr.str();
 }
 
 #ifndef ROCKSDB_LITE

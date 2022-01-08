@@ -4,7 +4,6 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/dbformat.h"
 #include "db/external_sst_file_ingestion_job.h"
 #include "db/snapshot_impl.h"
 #include "options/db_options.h"
@@ -57,6 +56,7 @@ class ImportColumnFamilyJob {
   // Open the external file and populate `file_to_import` with all the
   // external information we need to import this file.
   Status GetIngestedFileInfo(const std::string& external_file,
+                             uint64_t new_file_number,
                              IngestedFileInfo* file_to_import,
                              SuperVersion* sv);
 

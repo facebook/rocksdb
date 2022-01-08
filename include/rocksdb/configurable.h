@@ -261,7 +261,6 @@ class Configurable {
   virtual Status ValidateOptions(const DBOptions& db_opts,
                                  const ColumnFamilyOptions& cf_opts) const;
 
-
   // Splits the input opt_value into the ID field and the remaining options.
   // The input opt_value can be in the form of "name" or "name=value
   // [;name=value]". The first form uses the "name" as an id with no options The

@@ -12,8 +12,9 @@
 #include <string>
 #include <vector>
 
-#include "db/log_writer.h"
 #include "db/column_family.h"
+#include "db/log_writer.h"
+#include "db/version_set.h"
 
 namespace ROCKSDB_NAMESPACE {
 

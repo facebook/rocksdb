@@ -419,7 +419,7 @@ class BlobDBImpl : public BlobDB {
   std::string blob_dir_;
 
   // pointer to directory
-  std::unique_ptr<Directory> dir_ent_;
+  std::unique_ptr<FSDirectory> dir_ent_;
 
   // Read Write Mutex, which protects all the data structures
   // HEAVILY TRAFFICKED

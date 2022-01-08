@@ -3241,6 +3241,27 @@ class WriteBatchHandlerJni
   }
 
   /**
+   * Get the Java Method: WriteBatch.Handler#markCommitWithTimestamp
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retrieved
+   */
+  static jmethodID getMarkCommitWithTimestampMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "markCommitWithTimestamp", "([B[B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
    * Get the Java Method: WriteBatch.Handler#shouldContinue
    *
    * @param env A pointer to the Java environment
@@ -4876,7 +4897,7 @@ class TickerTypeJni {
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_FOUND:
         return 0x5E;
       case ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_CREATED:
-        // -0x01 to fixate the new value that incorrectly changed TICKER_ENUM_MAX.
+        // -0x01 so we can skip over the already taken 0x5F (TICKER_ENUM_MAX).
         return -0x01;
       case ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_DELETED:
         return 0x60;
@@ -5002,8 +5023,37 @@ class TickerTypeJni {
         return -0x1D;
       case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_HITS:
         return -0x1E;
+      case ROCKSDB_NAMESPACE::Tickers::VERIFY_CHECKSUM_READ_BYTES:
+        return -0x1F;
+      case ROCKSDB_NAMESPACE::Tickers::BACKUP_READ_BYTES:
+        return -0x20;
+      case ROCKSDB_NAMESPACE::Tickers::BACKUP_WRITE_BYTES:
+        return -0x21;
+      case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_READ_BYTES:
+        return -0x22;
+      case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_WRITE_BYTES:
+        return -0x23;
+      case ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES:
+        return -0x24;
+      case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES:
+        return -0x25;
+      case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_BYTES:
+        return -0x26;
+      case ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_COUNT:
+        return -0x27;
+      case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT:
+        return -0x28;
+      case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT:
+        return -0x29;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
-        // 0x5F for backwards compatibility on current minor version.
+        // 0x5F was the max value in the initial copy of tickers to Java.
+        // Since these values are exposed directly to Java clients, we keep
+        // the value the same forever.
+        //
+        // TODO: This particular case seems confusing and unnecessary to pin the
+        // value since it's meant to be the number of tickers, not an actual
+        // ticker value. But we aren't yet in a position to fix it since the
+        // number of tickers doesn't fit in the Java representation (jbyte).
         return 0x5F;
       default:
         // undefined/default
@@ -5206,7 +5256,7 @@ class TickerTypeJni {
       case 0x5E:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_FOUND;
       case -0x01:
-        // -0x01 to fixate the new value that incorrectly changed TICKER_ENUM_MAX.
+        // -0x01 so we can skip over the already taken 0x5F (TICKER_ENUM_MAX).
         return ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_CREATED;
       case 0x60:
         return ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_DELETED;
@@ -5334,8 +5384,37 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
       case -0x1E:
         return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_HITS;
+      case -0x1F:
+        return ROCKSDB_NAMESPACE::Tickers::VERIFY_CHECKSUM_READ_BYTES;
+      case -0x20:
+        return ROCKSDB_NAMESPACE::Tickers::BACKUP_READ_BYTES;
+      case -0x21:
+        return ROCKSDB_NAMESPACE::Tickers::BACKUP_WRITE_BYTES;
+      case -0x22:
+        return ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_READ_BYTES;
+      case -0x23:
+        return ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_WRITE_BYTES;
+      case -0x24:
+        return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES;
+      case -0x25:
+        return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES;
+      case -0x26:
+        return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_BYTES;
+      case -0x27:
+        return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_COUNT;
+      case -0x28:
+        return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT;
+      case -0x29:
+        return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT;
       case 0x5F:
-        // 0x5F for backwards compatibility on current minor version.
+        // 0x5F was the max value in the initial copy of tickers to Java.
+        // Since these values are exposed directly to Java clients, we keep
+        // the value the same forever.
+        //
+        // TODO: This particular case seems confusing and unnecessary to pin the
+        // value since it's meant to be the number of tickers, not an actual
+        // ticker value. But we aren't yet in a position to fix it since the
+        // number of tickers doesn't fit in the Java representation (jbyte).
         return ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX;
 
       default:
@@ -6089,9 +6168,9 @@ class TablePropertiesJni : public JavaClass {
 
     jmethodID mid = env->GetMethodID(
         jclazz, "<init>",
-        "(JJJJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/"
+        "(JJJJJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/"
         "lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/"
-        "String;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;)V");
+        "String;Ljava/util/Map;Ljava/util/Map;)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -6200,23 +6279,6 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    // Map<String, Long>
-    jobject jproperties_offsets = ROCKSDB_NAMESPACE::HashMapJni::fromCppMap(
-        env, &table_properties.properties_offsets);
-    if (env->ExceptionCheck()) {
-      // exception occurred creating java map
-      env->DeleteLocalRef(jcolumn_family_name);
-      env->DeleteLocalRef(jfilter_policy_name);
-      env->DeleteLocalRef(jcomparator_name);
-      env->DeleteLocalRef(jmerge_operator_name);
-      env->DeleteLocalRef(jprefix_extractor_name);
-      env->DeleteLocalRef(jproperty_collectors_names);
-      env->DeleteLocalRef(jcompression_name);
-      env->DeleteLocalRef(juser_collected_properties);
-      env->DeleteLocalRef(jreadable_properties);
-      return nullptr;
-    }
-
     jobject jtable_properties = env->NewObject(
         jclazz, mid, static_cast<jlong>(table_properties.data_size),
         static_cast<jlong>(table_properties.index_size),
@@ -6241,10 +6303,12 @@ class TablePropertiesJni : public JavaClass {
             table_properties.slow_compression_estimated_data_size),
         static_cast<jlong>(
             table_properties.fast_compression_estimated_data_size),
+        static_cast<jlong>(
+            table_properties.external_sst_file_global_seqno_offset),
         jcolumn_family_name, jfilter_policy_name, jcomparator_name,
         jmerge_operator_name, jprefix_extractor_name,
         jproperty_collectors_names, jcompression_name,
-        juser_collected_properties, jreadable_properties, jproperties_offsets);
+        juser_collected_properties, jreadable_properties);
 
     if (env->ExceptionCheck()) {
       return nullptr;

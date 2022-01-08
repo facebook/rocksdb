@@ -25,8 +25,17 @@
 #include "table/internal_iterator.h"
 #include "util/mutexlock.h"
 
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int argc, char** argv);
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
 namespace ROCKSDB_NAMESPACE {
 class FileSystem;
+class MemTableRepFactory;
 class ObjectLibrary;
 class Random;
 class SequentialFile;
@@ -35,7 +44,7 @@ class SequentialFileReader;
 namespace test {
 
 extern const uint32_t kDefaultFormatVersion;
-extern const uint32_t kLatestFormatVersion;
+extern const std::set<uint32_t> kFooterFormatVersionsToTest;
 
 // Return a random key with the specified length that may contain interesting
 // characters (e.g. \x00, \xff, etc.).
@@ -48,29 +57,6 @@ extern std::string RandomKey(Random* rnd, int len,
 // the generated data.
 extern Slice CompressibleString(Random* rnd, double compressed_fraction,
                                 int len, std::string* dst);
-
-// A wrapper that allows injection of errors.
-class ErrorEnv : public EnvWrapper {
- public:
-  bool writable_file_error_;
-  int num_writable_file_errors_;
-
-  ErrorEnv(Env* _target)
-      : EnvWrapper(_target),
-        writable_file_error_(false),
-        num_writable_file_errors_(0) {}
-
-  virtual Status NewWritableFile(const std::string& fname,
-                                 std::unique_ptr<WritableFile>* result,
-                                 const EnvOptions& soptions) override {
-    result->reset();
-    if (writable_file_error_) {
-      ++num_writable_file_errors_;
-      return Status::IOError(fname, "fake error");
-    }
-    return target()->NewWritableFile(fname, result, soptions);
-  }
-};
 
 #ifndef NDEBUG
 // An internal comparator that just forward comparing results from the
@@ -126,58 +112,6 @@ class SimpleSuffixReverseComparator : public Comparator {
 // Symantics of comparison would differ from Bytewise comparator in little
 // endian machines.
 extern const Comparator* Uint64Comparator();
-
-// Iterator over a vector of keys/values
-class VectorIterator : public InternalIterator {
- public:
-  explicit VectorIterator(const std::vector<std::string>& keys)
-      : keys_(keys), current_(keys.size()) {
-    std::sort(keys_.begin(), keys_.end());
-    values_.resize(keys.size());
-  }
-
-  VectorIterator(const std::vector<std::string>& keys,
-      const std::vector<std::string>& values)
-    : keys_(keys), values_(values), current_(keys.size()) {
-    assert(keys_.size() == values_.size());
-  }
-
-  virtual bool Valid() const override { return current_ < keys_.size(); }
-
-  virtual void SeekToFirst() override { current_ = 0; }
-  virtual void SeekToLast() override { current_ = keys_.size() - 1; }
-
-  virtual void Seek(const Slice& target) override {
-    current_ = std::lower_bound(keys_.begin(), keys_.end(), target.ToString()) -
-               keys_.begin();
-  }
-
-  virtual void SeekForPrev(const Slice& target) override {
-    current_ = std::upper_bound(keys_.begin(), keys_.end(), target.ToString()) -
-               keys_.begin();
-    if (!Valid()) {
-      SeekToLast();
-    } else {
-      Prev();
-    }
-  }
-
-  virtual void Next() override { current_++; }
-  virtual void Prev() override { current_--; }
-
-  virtual Slice key() const override { return Slice(keys_[current_]); }
-  virtual Slice value() const override { return Slice(values_[current_]); }
-
-  virtual Status status() const override { return Status::OK(); }
-
-  virtual bool IsKeyPinned() const override { return true; }
-  virtual bool IsValuePinned() const override { return true; }
-
- private:
-  std::vector<std::string> keys_;
-  std::vector<std::string> values_;
-  size_t current_;
-};
 
 class StringSink : public FSWritableFile {
  public:
@@ -606,6 +540,9 @@ class StringFS : public FileSystemWrapper {
       : FileSystemWrapper(t) {}
   ~StringFS() override {}
 
+  static const char* kClassName() { return "StringFS"; }
+  const char* Name() const override { return kClassName(); }
+
   const std::string& GetContent(const std::string& f) { return files_[f]; }
 
   const IOStatus WriteToNewFile(const std::string& file_name,
@@ -853,6 +790,10 @@ class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
   std::string name_;
 };
 
+// The factory for the hacky skip list mem table that triggers flush after
+// number of entries exceeds a threshold.
+extern MemTableRepFactory* NewSpecialSkipListFactory(int num_entries_per_flush);
+
 extern const Comparator* ComparatorWithU64Ts();
 
 CompressionType RandomCompressionType(Random* rnd);
@@ -901,5 +842,8 @@ Status CreateEnvFromSystem(const ConfigOptions& options, Env** result,
 // Registers the testutil classes with the ObjectLibrary
 int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/);
 #endif  // ROCKSDB_LITE
+
+// Register the testutil classes with the default ObjectRegistry/Library
+void RegisterTestLibrary(const std::string& arg = "");
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE
