@@ -1697,6 +1697,9 @@ TEST_F(FilePreloadTest, PreloadCaching) {
       << "disabled pinning:  should not happen";
 }
 
+#ifndef ROCKSDB_LITE
+// lite does not support GetColumnFamilyMetaData()
+
 TEST_F(FilePreloadTest, PreloadCorruption) {
   // create a DB with 3 files
   // the day.
@@ -1740,7 +1743,7 @@ TEST_F(FilePreloadTest, PreloadCorruption) {
   ASSERT_TRUE(TryReopen(new_options).ok())
       << "reopen should fail with preload disabled";
 }
-
+#endif
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
