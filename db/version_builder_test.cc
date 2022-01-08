@@ -1661,7 +1661,43 @@ class FilePreloadTest : public DBTestBase {
   FilePreloadTest() : DBTestBase("/file_preload_test", /*env_do_fsync=*/true) {}
 };
 
-TEST_F(FilePreloadTest, PreloadOptions) {
+TEST_F(FilePreloadTest, PreloadCaching) {
+  // create a DB with 3 files
+  // the day.
+  ASSERT_OK(Put("key", "val"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key3", "val3"));
+  ASSERT_OK(Flush());
+
+  DBImpl* db_impl = dbfull();
+  Cache* table_cache = db_impl->TEST_table_cache();
+
+  ASSERT_EQ(table_cache->GetUsage(), 3) << "preload: failed";
+  table_cache->EraseUnRefEntries();
+  ASSERT_EQ(table_cache->GetUsage(), 3) << "pinning: failed";
+
+  Options new_options = GetOptions(kPreloadWithoutPinning);
+  Reopen(new_options);
+  db_impl = dbfull();
+  table_cache = db_impl->TEST_table_cache();
+
+  ASSERT_EQ(table_cache->GetUsage(), 3) << "preload: failed";
+  table_cache->EraseUnRefEntries();
+  ASSERT_EQ(table_cache->GetUsage(), 0) << "pinning: should not happen";
+
+  new_options = GetOptions(kPreloadDisabled);
+  Reopen(new_options);
+  db_impl = dbfull();
+  table_cache = db_impl->TEST_table_cache();
+
+  ASSERT_EQ(table_cache->GetUsage(), 0) << "preload: should not happen";
+  table_cache->EraseUnRefEntries();
+  ASSERT_EQ(table_cache->GetUsage(), 0) << "pinning:  should not happen";
+}
+
+TEST_F(FilePreloadTest, PreloadCorruption) {
   // create a DB with 3 files
   // the day.
   ASSERT_OK(Put("key", "val"));
@@ -1678,23 +1714,28 @@ TEST_F(FilePreloadTest, PreloadOptions) {
   table_cache->EraseUnRefEntries();
   ASSERT_EQ(table_cache->GetUsage(), 3);
 
-  Options new_options = GetOptions(kPreloadWithoutPinning);
-  Reopen(new_options);
+  Options new_options = GetOptions(kDefault);
+  ASSERT_TRUE(TryReopen(new_options).ok());
   db_impl = dbfull();
   table_cache = db_impl->TEST_table_cache();
 
   ASSERT_EQ(table_cache->GetUsage(), 3);
   table_cache->EraseUnRefEntries();
-  ASSERT_EQ(table_cache->GetUsage(), 0);
+  ASSERT_EQ(table_cache->GetUsage(), 3);
+
+    // find name of txn file
+  rocksdb::ColumnFamilyMetaData meta;
+  db_->GetColumnFamilyMetaData(&meta);
+  // name starts with slash
+  std::string fail_file = meta.levels[0].files[0].db_path + meta.levels[0].files[0].name;
+
+  ASSERT_TRUE(WriteStringToFile(db_->GetEnv(), ":#)", fail_file, true).ok());
+  ASSERT_FALSE(TryReopen(new_options).ok());
 
   new_options = GetOptions(kPreloadDisabled);
-  Reopen(new_options);
-  db_impl = dbfull();
-  table_cache = db_impl->TEST_table_cache();
-
-  ASSERT_EQ(table_cache->GetUsage(), 0);
-  table_cache->EraseUnRefEntries();
-  ASSERT_EQ(table_cache->GetUsage(), 0);
+  new_options.paranoid_checks = false;
+  Status ns = TryReopen(new_options);
+  ASSERT_TRUE(TryReopen(new_options).ok());
 }
 
 }  // namespace ROCKSDB_NAMESPACE
