@@ -1624,10 +1624,10 @@ TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
   ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
   VersionBuilder version_builder2(env_options, &ioptions_, table_cache,
-                                 &new_vstorage, version_set);
+                                  &new_vstorage, version_set);
   VersionStorageInfo new_vstorage2(&icmp_, ucmp_, options_.num_levels,
-                                  kCompactionStyleLevel, nullptr,
-                                  true /* force_consistency_checks */);
+                                   kCompactionStyleLevel, nullptr,
+                                   true /* force_consistency_checks */);
   ASSERT_NOK(version_builder2.Apply(&version_edit));
 
   UnrefFilesInVersion(&new_vstorage);
@@ -1644,10 +1644,8 @@ TEST_F(VersionBuilderTest, EstimatedActiveKeys) {
   for (uint32_t i = 0; i < kNumFiles; ++i) {
     Add(static_cast<int>(i / kFilesPerLevel), i + 1,
         ToString((i + 100) * 1000).c_str(),
-        ToString((i + 100) * 1000 + 999).c_str(),
-        100U,  0, 100, 100,
-        kEntriesPerFile, kDeletionsPerFile,
-        (i < kTotalSamples));
+        ToString((i + 100) * 1000 + 999).c_str(), 100U, 0, 100, 100,
+        kEntriesPerFile, kDeletionsPerFile, (i < kTotalSamples));
   }
   // minus 2X for the number of deletion entries because:
   // 1x for deletion entry does not count as a data entry.
@@ -1674,27 +1672,29 @@ TEST_F(FilePreloadTest, PreloadCaching) {
   DBImpl* db_impl = dbfull();
   Cache* table_cache = db_impl->TEST_table_cache();
 
-  ASSERT_EQ(table_cache->GetUsage(), 3) << "preload: failed";
+  ASSERT_EQ(table_cache->GetUsage(), 3) << "with preload: failed";
   table_cache->EraseUnRefEntries();
-  ASSERT_EQ(table_cache->GetUsage(), 3) << "pinning: failed";
+  ASSERT_EQ(table_cache->GetUsage(), 3) << "with pinning: failed";
 
   Options new_options = GetOptions(kPreloadWithoutPinning);
   Reopen(new_options);
   db_impl = dbfull();
   table_cache = db_impl->TEST_table_cache();
 
-  ASSERT_EQ(table_cache->GetUsage(), 3) << "preload: failed";
+  ASSERT_EQ(table_cache->GetUsage(), 3) << "without preload: failed";
   table_cache->EraseUnRefEntries();
-  ASSERT_EQ(table_cache->GetUsage(), 0) << "pinning: should not happen";
+  ASSERT_EQ(table_cache->GetUsage(), 0) << "without pinning: should not happen";
 
   new_options = GetOptions(kPreloadDisabled);
   Reopen(new_options);
   db_impl = dbfull();
   table_cache = db_impl->TEST_table_cache();
 
-  ASSERT_EQ(table_cache->GetUsage(), 0) << "preload: should not happen";
+  ASSERT_EQ(table_cache->GetUsage(), 0)
+      << "disabled preload: should not happen";
   table_cache->EraseUnRefEntries();
-  ASSERT_EQ(table_cache->GetUsage(), 0) << "pinning:  should not happen";
+  ASSERT_EQ(table_cache->GetUsage(), 0)
+      << "disabled pinning:  should not happen";
 }
 
 TEST_F(FilePreloadTest, PreloadCorruption) {
@@ -1723,19 +1723,22 @@ TEST_F(FilePreloadTest, PreloadCorruption) {
   table_cache->EraseUnRefEntries();
   ASSERT_EQ(table_cache->GetUsage(), 3);
 
-    // find name of txn file
+  // find name of txn file
+  //  must corrupt file of same size to bypass paranoid_checks fail
   rocksdb::ColumnFamilyMetaData meta;
   db_->GetColumnFamilyMetaData(&meta);
   // name starts with slash
-  std::string fail_file = meta.levels[0].files[0].db_path + meta.levels[0].files[0].name;
+  std::string fail_file =
+      meta.levels[0].files[0].db_path + meta.levels[0].files[0].name;
+  std::string garbage(meta.levels[0].files[0].size, '@');
+  ASSERT_TRUE(WriteStringToFile(db_->GetEnv(), garbage, fail_file, true).ok());
 
-  ASSERT_TRUE(WriteStringToFile(db_->GetEnv(), ":#)", fail_file, true).ok());
-  ASSERT_FALSE(TryReopen(new_options).ok());
+  ASSERT_FALSE(TryReopen(new_options).ok())
+      << "reopen should fail with corrupted .sst";
 
   new_options = GetOptions(kPreloadDisabled);
-  new_options.paranoid_checks = false;
-  Status ns = TryReopen(new_options);
-  ASSERT_TRUE(TryReopen(new_options).ok());
+  ASSERT_TRUE(TryReopen(new_options).ok())
+      << "reopen should fail with preload disabled";
 }
 
 }  // namespace ROCKSDB_NAMESPACE
