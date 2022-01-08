@@ -851,11 +851,6 @@ class Version {
   // This accumulated stats will be used in compaction.
   void UpdateAccumulatedStats(bool update_stats);
 
-  // Sort all files for this version based on their file size and
-  // record results in files_by_compaction_pri_. The largest files are listed
-  // first.
-  void UpdateFilesByCompactionPri();
-
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   Logger* info_log_;
   Statistics* db_statistics_;
