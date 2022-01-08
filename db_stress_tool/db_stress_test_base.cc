@@ -67,7 +67,8 @@ StressTest::StressTest()
       num_times_reopened_(0),
       db_preload_finished_(false),
       cmp_db_(nullptr),
-      is_db_stopped_(false) {
+      is_db_stopped_(false),
+      db_stress_listener_(nullptr) {
   if (FLAGS_destroy_db_initially) {
     std::vector<std::string> files;
     db_stress_env->GetChildren(FLAGS_db, &files);
@@ -102,6 +103,12 @@ StressTest::~StressTest() {
   }
   column_families_.clear();
   delete db_;
+
+  if (db_stress_listener_) {
+    db_stress_listener_->CheckCompactionJobsNum();
+    delete db_stress_listener_;
+    db_stress_listener_ = nullptr;
+  }
 
   assert(secondaries_.size() == secondary_cfh_lists_.size());
   size_t n = secondaries_.size();
@@ -550,6 +557,11 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
     column_families_.clear();
     delete db_;
     db_ = nullptr;
+    if (db_stress_listener_) {
+      db_stress_listener_->CheckCompactionJobsNum();
+      delete db_stress_listener_;
+      db_stress_listener_ = nullptr;
+    }
 #ifndef ROCKSDB_LITE
     txn_db_ = nullptr;
 #endif
@@ -1536,6 +1548,9 @@ Status StressTest::TestBackupRestore(
   if (s.ok() && !FLAGS_use_txn && !FLAGS_use_blob_db) {
     Options restore_options(options_);
     restore_options.listeners.clear();
+    db_stress_listener_ = new DBStressCompactionListener();
+    restore_options.listeners.emplace_back(db_stress_listener_);
+
     // Avoid dangling/shared file descriptors, for reliable destroy
     restore_options.sst_file_manager = nullptr;
     std::vector<ColumnFamilyDescriptor> cf_descriptors;
@@ -1696,6 +1711,8 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
       FLAGS_db + "/.checkpoint" + ToString(thread->tid);
   Options tmp_opts(options_);
   tmp_opts.listeners.clear();
+  db_stress_listener_ = new DBStressCompactionListener();
+  tmp_opts.listeners.emplace_back(db_stress_listener_);
   tmp_opts.env = db_stress_env;
 
   DestroyDB(checkpoint_dir, tmp_opts);
@@ -1736,6 +1753,9 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   if (s.ok()) {
     Options options(options_);
     options.listeners.clear();
+    db_stress_listener_ = new DBStressCompactionListener();
+    options.listeners.emplace_back(db_stress_listener_);
+
     std::vector<ColumnFamilyDescriptor> cf_descs;
     // TODO(ajkr): `column_family_names_` is not safe to access here when
     // `clear_column_family_one_in != 0`. But we can't easily switch to
@@ -2550,9 +2570,16 @@ void StressTest::Open() {
       column_family_names_.push_back(name);
     }
     options_.listeners.clear();
+    if (db_stress_listener_) {
+      delete db_stress_listener_;
+      db_stress_listener_ = nullptr;
+    }
 #ifndef ROCKSDB_LITE
     options_.listeners.emplace_back(
         new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors));
+    db_stress_listener_ = new DBStressCompactionListener();
+    options_.listeners.emplace_back(db_stress_listener_);
+
 #endif  // !ROCKSDB_LITE
     options_.create_missing_column_families = true;
     if (!FLAGS_use_txn) {
@@ -2648,6 +2675,11 @@ void StressTest::Open() {
               column_families_.clear();
               delete db_;
               db_ = nullptr;
+              if (db_stress_listener_) {
+                db_stress_listener_->CheckCompactionJobsNum();
+                delete db_stress_listener_;
+                db_stress_listener_ = nullptr;
+              }
             }
           }
           if (!s.ok()) {
@@ -2822,6 +2854,11 @@ void StressTest::Reopen(ThreadState* thread) {
 #endif
   delete db_;
   db_ = nullptr;
+  if (db_stress_listener_) {
+    db_stress_listener_->CheckCompactionJobsNum();
+    delete db_stress_listener_;
+    db_stress_listener_ = nullptr;
+  }
 #ifndef ROCKSDB_LITE
   txn_db_ = nullptr;
 #endif
