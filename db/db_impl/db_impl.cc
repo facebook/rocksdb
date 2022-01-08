@@ -4031,6 +4031,10 @@ Status DB::DropColumnFamilies(
 }
 
 Status DB::DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family) {
+  if (DefaultColumnFamily() == column_family) {
+    return Status::InvalidArgument(
+        "Cannot destroy the handle returned by DefaultColumnFamily()");
+  }
   delete column_family;
   return Status::OK();
 }
