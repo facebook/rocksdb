@@ -1728,7 +1728,7 @@ TEST_F(FilePreloadTest, PreloadCorruption) {
 
   // find name of txn file
   //  must corrupt file of same size to bypass paranoid_checks fail
-  rocksdb::ColumnFamilyMetaData meta;
+  ColumnFamilyMetaData meta;
   db_->GetColumnFamilyMetaData(&meta);
   // name starts with slash
   std::string fail_file =
