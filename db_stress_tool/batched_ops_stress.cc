@@ -232,7 +232,8 @@ class BatchedOpsStressTest : public StressTest {
       for (size_t i = 1; i < num_prefixes; i++) {
         if (values[i] != values[0]) {
           fprintf(stderr, "error : inconsistent values for key %s: %s, %s\n",
-                  key_str[i].c_str(), StringToHex(values[0].ToString()).c_str(),
+                  StringToHex(key_str[i]).c_str(),
+                  StringToHex(values[0].ToString()).c_str(),
                   StringToHex(values[i].ToString()).c_str());
           // we continue after error rather than exiting so that we can
           // find more errors if any

@@ -4819,8 +4819,7 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
 
   // verify properties block comes last
   std::unique_ptr<InternalIterator> metaindex_iter{
-      metaindex_block.NewDataIterator(options.comparator,
-                                      kDisableGlobalSequenceNumber)};
+      metaindex_block.NewMetaIterator()};
   uint64_t max_offset = 0;
   std::string key_at_max_offset;
   for (metaindex_iter->SeekToFirst(); metaindex_iter->Valid();
@@ -4837,6 +4836,90 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
   // index handle is stored in footer rather than metaindex block, so need
   // separate logic to verify it comes before properties block.
   ASSERT_GT(max_offset, footer.index_handle().offset());
+  c.ResetTableReader();
+}
+
+TEST_P(BlockBasedTableTest, SeekMetaBlocks) {
+  TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
+  c.Add("foo_a1", "val1");
+  c.Add("foo_b2", "val2");
+  c.Add("foo_c3", "val3");
+  c.Add("foo_d4", "val4");
+  c.Add("foo_e5", "val5");
+  c.Add("foo_f6", "val6");
+  c.Add("foo_g7", "val7");
+  c.Add("foo_h8", "val8");
+  c.Add("foo_j9", "val9");
+
+  // write an SST file
+  Options options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  table_options.index_type = BlockBasedTableOptions::kHashSearch;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(
+      8 /* bits_per_key */, false /* use_block_based_filter */));
+  options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  c.Finish(options, ioptions, moptions, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+
+  // get file reader
+  test::StringSink* table_sink = c.TEST_GetSink();
+  std::unique_ptr<FSRandomAccessFile> source(new test::StringSource(
+      table_sink->contents(), 0 /* unique_id */, false /* allow_mmap_reads */));
+
+  std::unique_ptr<RandomAccessFileReader> table_reader(
+      new RandomAccessFileReader(std::move(source), "test"));
+  size_t table_size = table_sink->contents().size();
+
+  // read footer
+  Footer footer;
+  IOOptions opts;
+  ASSERT_OK(ReadFooterFromFile(opts, table_reader.get(),
+                               nullptr /* prefetch_buffer */, table_size,
+                               &footer, kBlockBasedTableMagicNumber));
+
+  // read metaindex
+  auto metaindex_handle = footer.metaindex_handle();
+  BlockContents metaindex_contents;
+  PersistentCacheOptions pcache_opts;
+  BlockFetcher block_fetcher(
+      table_reader.get(), nullptr /* prefetch_buffer */, footer, ReadOptions(),
+      metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
+      false /*maybe_compressed*/, BlockType::kMetaIndex,
+      UncompressionDict::GetEmptyDict(), pcache_opts,
+      nullptr /*memory_allocator*/);
+  ASSERT_OK(block_fetcher.ReadBlockContents());
+  Block metaindex_block(std::move(metaindex_contents));
+
+  // verify properties block comes last
+  std::unique_ptr<MetaBlockIter> metaindex_iter(
+      metaindex_block.NewMetaIterator());
+  bool has_hash_prefixes = false;
+  bool has_hash_metadata = false;
+  for (metaindex_iter->SeekToFirst(); metaindex_iter->Valid();
+       metaindex_iter->Next()) {
+    if (metaindex_iter->key().ToString() == kHashIndexPrefixesBlock) {
+      has_hash_prefixes = true;
+    } else if (metaindex_iter->key().ToString() ==
+               kHashIndexPrefixesMetadataBlock) {
+      has_hash_metadata = true;
+    }
+  }
+  if (has_hash_metadata) {
+    metaindex_iter->Seek(kHashIndexPrefixesMetadataBlock);
+    ASSERT_TRUE(metaindex_iter->Valid());
+    ASSERT_EQ(kHashIndexPrefixesMetadataBlock,
+              metaindex_iter->key().ToString());
+  }
+  if (has_hash_prefixes) {
+    metaindex_iter->Seek(kHashIndexPrefixesBlock);
+    ASSERT_TRUE(metaindex_iter->Valid());
+    ASSERT_EQ(kHashIndexPrefixesBlock, metaindex_iter->key().ToString());
+  }
   c.ResetTableReader();
 }
 

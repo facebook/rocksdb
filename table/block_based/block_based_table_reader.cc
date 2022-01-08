@@ -1112,8 +1112,7 @@ Status BlockBasedTable::ReadMetaIndexBlock(
 
   *metaindex_block = std::move(metaindex);
   // meta block uses bytewise comparator.
-  iter->reset(metaindex_block->get()->NewDataIterator(
-      BytewiseComparator(), kDisableGlobalSequenceNumber));
+  iter->reset(metaindex_block->get()->NewMetaIterator());
   return Status::OK();
 }
 
