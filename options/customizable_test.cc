@@ -202,22 +202,31 @@ struct SimpleOptions {
   TestCustomizable* cp = nullptr;
 };
 
+static SimpleOptions dummy_simple_options;
+template <typename T1>
+int offset_of(T1 SimpleOptions::*member) {
+  return static_cast<int>(
+      reinterpret_cast<uintptr_t>(
+          std::addressof(dummy_simple_options.*member)) -
+      reinterpret_cast<uintptr_t>(std::addressof(dummy_simple_options)));
+}
+
 static std::unordered_map<std::string, OptionTypeInfo> simple_option_info = {
 #ifndef ROCKSDB_LITE
     {"bool",
-     {offsetof(struct SimpleOptions, b), OptionType::kBoolean,
+     {offset_of(&SimpleOptions::b), OptionType::kBoolean,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"unique",
      OptionTypeInfo::AsCustomUniquePtr<TestCustomizable>(
-         offsetof(struct SimpleOptions, cu), OptionVerificationType::kNormal,
+         offset_of(&SimpleOptions::cu), OptionVerificationType::kNormal,
          OptionTypeFlags::kAllowNull)},
     {"shared",
      OptionTypeInfo::AsCustomSharedPtr<TestCustomizable>(
-         offsetof(struct SimpleOptions, cs), OptionVerificationType::kNormal,
+         offset_of(&SimpleOptions::cs), OptionVerificationType::kNormal,
          OptionTypeFlags::kAllowNull)},
     {"pointer",
      OptionTypeInfo::AsCustomRawPtr<TestCustomizable>(
-         offsetof(struct SimpleOptions, cp), OptionVerificationType::kNormal,
+         offset_of(&SimpleOptions::cp), OptionVerificationType::kNormal,
          OptionTypeFlags::kAllowNull)},
 #endif  // ROCKSDB_LITE
 };
