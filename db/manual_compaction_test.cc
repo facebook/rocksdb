@@ -13,9 +13,7 @@
 #include "rocksdb/write_batch.h"
 #include "test_util/testharness.h"
 
-using namespace ROCKSDB_NAMESPACE;
-
-namespace {
+namespace ROCKSDB_NAMESPACE {
 
 // Reasoning: previously the number was 1100000. Since the keys are written to
 // the batch in one write each write will result into one SST file. each write
@@ -288,7 +286,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
   DestroyDB(dbname_, options);
 }
 
-}  // anonymous namespace
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

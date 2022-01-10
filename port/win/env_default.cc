@@ -32,11 +32,10 @@ namespace {
 }
 
 Env* Env::Default() {
-  using namespace port;
   ThreadLocalPtr::InitSingletons();
   CompressionContextCache::InitSingleton();
   INIT_SYNC_POINT_SINGLETONS();
-  std::call_once(winenv_once_flag, []() { envptr = new WinEnv(); });
+  std::call_once(port::winenv_once_flag, []() { envptr = new WinEnv(); });
   return envptr;
 }
 
