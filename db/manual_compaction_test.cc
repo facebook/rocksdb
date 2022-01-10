@@ -13,7 +13,21 @@
 #include "rocksdb/write_batch.h"
 #include "test_util/testharness.h"
 
-namespace ROCKSDB_NAMESPACE {
+using ROCKSDB_NAMESPACE::CompactionFilter;
+using ROCKSDB_NAMESPACE::CompactionStyle;
+using ROCKSDB_NAMESPACE::CompactRangeOptions;
+using ROCKSDB_NAMESPACE::DB;
+using ROCKSDB_NAMESPACE::DestroyDB;
+using ROCKSDB_NAMESPACE::FlushOptions;
+using ROCKSDB_NAMESPACE::Iterator;
+using ROCKSDB_NAMESPACE::kNoCompression;
+using ROCKSDB_NAMESPACE::Options;
+using ROCKSDB_NAMESPACE::ReadOptions;
+using ROCKSDB_NAMESPACE::Slice;
+using ROCKSDB_NAMESPACE::WriteBatch;
+using ROCKSDB_NAMESPACE::WriteOptions;
+
+namespace {
 
 // Reasoning: previously the number was 1100000. Since the keys are written to
 // the batch in one write each write will result into one SST file. each write
@@ -36,7 +50,8 @@ class ManualCompactionTest : public testing::Test {
  public:
   ManualCompactionTest() {
     // Get rid of any state from an old run.
-    dbname_ = test::PerThreadDBPath("rocksdb_manual_compaction_test");
+    dbname_ = ROCKSDB_NAMESPACE::test::PerThreadDBPath(
+        "rocksdb_manual_compaction_test");
     DestroyDB(dbname_, Options());
   }
 
@@ -89,9 +104,9 @@ TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
     Options options;
     if (iter == 0) { // level compaction
       options.num_levels = 3;
-      options.compaction_style = kCompactionStyleLevel;
+      options.compaction_style = CompactionStyle::kCompactionStyleLevel;
     } else { // universal compaction
-      options.compaction_style = kCompactionStyleUniversal;
+      options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
     }
     options.create_if_missing = true;
     options.compression = kNoCompression;
@@ -180,7 +195,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
   options.num_levels = 3;
   // Initially, flushed L0 files won't exceed 100.
   options.level0_file_num_compaction_trigger = 100;
-  options.compaction_style = kCompactionStyleLevel;
+  options.compaction_style = CompactionStyle::kCompactionStyleLevel;
   options.create_if_missing = true;
   options.compression = kNoCompression;
   LogCompactionFilter* filter = new LogCompactionFilter();
@@ -286,7 +301,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
   DestroyDB(dbname_, options);
 }
 
-}  // namespace ROCKSDB_NAMESPACE
+}  // anonymous namespace
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
