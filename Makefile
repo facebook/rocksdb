@@ -247,13 +247,20 @@ include make_config.mk
 
 ROCKSDB_PLUGIN_MKS = $(foreach plugin, $(ROCKSDB_PLUGINS), plugin/$(plugin)/*.mk)
 include $(ROCKSDB_PLUGIN_MKS)
-ROCKSDB_PLUGIN_PROTO ="const std::string&, const ROCKSDB_NAMESPACE::RegistrarFunc&"
-ROCKSDB_PLUGIN_SOURCES = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach source, $($(plugin)_SOURCES), plugin/$(plugin)/$(source)))
-ROCKSDB_PLUGIN_HEADERS = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach header, $($(plugin)_HEADERS), plugin/$(plugin)/$(header)))
-ROCKSDB_PLUGIN_EXTERNS = $(foreach plugin, $(ROCKSDB_PLUGINS), int $($(plugin)_FUNC)($(ROCKSDB_PLUGIN_PROTO)); )
-ROCKSDB_PLUGIN_BUILTINS = $(foreach plugin, $(ROCKSDB_PLUGINS), {\"$(plugin)\", $($(plugin)_FUNC) }, )
+ROCKSDB_PLUGIN_PROTO =ROCKSDB_NAMESPACE::ObjectLibrary\&, const std::string\&
+ROCKSDB_PLUGIN_SOURCES = $(foreach p, $(ROCKSDB_PLUGINS), $(foreach source, $($(p)_SOURCES), plugin/$(p)/$(source)))
+ROCKSDB_PLUGIN_HEADERS = $(foreach p, $(ROCKSDB_PLUGINS), $(foreach header, $($(p)_HEADERS), plugin/$(p)/$(header)))
+ROCKSDB_PLUGIN_LIBS = $(foreach p, $(ROCKSDB_PLUGINS), $(foreach lib, $($(p)_LIBS), -l$(lib)))
+ROCKSDB_PLUGIN_W_FUNCS = $(foreach p, $(ROCKSDB_PLUGINS), $(if $($(p)_FUNC), $(p)))
+ROCKSDB_PLUGIN_EXTERNS = $(foreach p, $(ROCKSDB_PLUGIN_W_FUNCS), int $($(p)_FUNC)($(ROCKSDB_PLUGIN_PROTO));)
+ROCKSDB_PLUGIN_BUILTINS = $(foreach p, $(ROCKSDB_PLUGIN_W_FUNCS), {\"$(p)\"\, $($(p)_FUNC)}\,)
+#ROCKSDB_PLUGIN_EXTERNS = $(foreach plugin, $(ROCKSDB_PLUGINS), int $($(plugin)_FUNC)($(ROCKSDB_PLUGIN_PROTO)); )
 
-PLATFORM_LDFLAGS += $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_LDFLAGS))
+
+PLATFORM_LDFLAGS += $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_LDFLAGS)) $(ROCKSDB_PLUGIN_LIBS)
+$(info LIBS=$(ROCKSDB_PLUGIN_LIBS))
+$(info EXTERNS=$(ROCKSDB_PLUGIN_EXTERNS))
+$(info BUILTINS=$(ROCKSDB_PLUGIN_BUILTINS))
 
 export JAVAC_ARGS
 CLEAN_FILES += make_config.mk rocksdb.pc
