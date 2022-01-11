@@ -10,6 +10,7 @@
 #include "db/version_edit_handler.h"
 
 #include <cinttypes>
+#include <sstream>
 
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
@@ -68,6 +69,26 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
   CheckIterationResult(reader, &s);
 
   if (!s.ok()) {
+    if (s.IsCorruption()) {
+      // when we find a Corruption error, something is
+      // wrong with the underlying file. in this case we
+      // want to report the filename, so in here we append
+      // the filename to the Corruption message
+      assert(reader.file());
+
+      // build a new error message
+      std::stringstream message;
+      // append previous dynamic state message
+      const char* state = s.getState();
+      if (state != nullptr) {
+        message << state;
+        message << ' ';
+      }
+      // append the filename to the corruption message
+      message << "in file " << reader.file()->file_name();
+      // overwrite the status with the extended status
+      s = Status(s.code(), s.subcode(), s.severity(), message.str());
+    }
     status_ = s;
   }
   TEST_SYNC_POINT_CALLBACK("VersionEditHandlerBase::Iterate:Finish",

@@ -2629,6 +2629,7 @@ TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest0) {
   if (iter == cf_names.end()) {
     ASSERT_TRUE(s.IsInvalidArgument());
   } else {
+    ASSERT_NE(s.ToString().find(manifest_path), std::string::npos);
     ASSERT_TRUE(s.IsCorruption());
   }
 }
@@ -2670,6 +2671,7 @@ TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest1) {
   if (iter == cf_names.end()) {
     ASSERT_TRUE(s.IsInvalidArgument());
   } else {
+    ASSERT_NE(s.ToString().find(manifest_path), std::string::npos);
     ASSERT_TRUE(s.IsCorruption());
   }
 }
@@ -2716,6 +2718,7 @@ TEST_P(VersionSetTestEmptyDb, OpenFromInCompleteManifest2) {
   if (iter == cf_names.end()) {
     ASSERT_TRUE(s.IsInvalidArgument());
   } else {
+    ASSERT_NE(s.ToString().find(manifest_path), std::string::npos);
     ASSERT_TRUE(s.IsCorruption());
   }
 }
@@ -2773,6 +2776,7 @@ TEST_P(VersionSetTestEmptyDb, OpenManifestWithUnknownCF) {
   if (iter == cf_names.end()) {
     ASSERT_TRUE(s.IsInvalidArgument());
   } else {
+    ASSERT_NE(s.ToString().find(manifest_path), std::string::npos);
     ASSERT_TRUE(s.IsCorruption());
   }
 }
