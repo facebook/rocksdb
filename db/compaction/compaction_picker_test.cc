@@ -967,8 +967,8 @@ TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
   for (int i = 1; i <= kFileCount; ++i) {
     NewVersionStorage(1, kCompactionStyleFIFO);
     Add(0, i, ToString((i + 100) * 1000).c_str(),
-        ToString((i + 100) * 1000 + 999).c_str(),
-        kFileSize, 0, i * 100, i * 100 + 99);
+        ToString((i + 100) * 1000 + 999).c_str(), kFileSize, 0, i * 100,
+        i * 100 + 99);
     UpdateVersionStorageInfo();
     ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()),
               vstorage_->CompactionScore(0) >= 1);
