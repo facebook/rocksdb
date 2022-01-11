@@ -27,7 +27,7 @@ class SequentialFileMirror : public SequentialFile {
     if (as == Status::OK()) {
       char* bscratch = new char[n];
       Slice bslice;
-      size_t off = 0;
+      size_t off __attribute__((__unused__)) = 0;
       size_t left = aslice.size();
       while (left) {
         Status bs = b_->Read(left, &bslice, bscratch);
