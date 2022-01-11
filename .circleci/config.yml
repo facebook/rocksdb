@@ -414,7 +414,7 @@ jobs:
     steps:
       - pre-steps
       - install-clang-13
-      - run: CC=clang-13 CXX=clang++-13 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make -j16 all 2>&1 | .circleci/cat_ignore_eagain
+      - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j16 all 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   # This job is only to make sure the microbench tests are able to run, the benchmark result is not meaningful as the CI host is changing.
