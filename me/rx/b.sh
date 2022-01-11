@@ -329,7 +329,16 @@ function get_cmd() {
     numa="numactl --interleave=all "
   fi
 
-  echo "/usr/bin/time -f '%e %U %S' -o $output $numa"
+  # Try to use timeout when duration is set because some tests (revrange*) hang
+  # for some versions (v6.10, v6.11).
+  timeout_cmd=""
+  if [ $duration -gt 0 ]; then
+    if hash timeout ; then
+      timeout_cmd="timeout $(( $duration + 600 ))"
+    fi
+  fi
+
+  echo "/usr/bin/time -f '%e %U %S' -o $output $numa $timeout_cmd"
 }
 
 function month_to_num() {
@@ -353,10 +362,15 @@ function start_stats {
   output=$1
   iostat -y -mx 1  >& $output.io &
   vmstat 1 >& $output.vm &
+  # tail -1 because "ps | grep db_bench" returns 2 entries and we want the second
+  while :; do ps aux | grep db_bench | grep -v grep | tail -1; sleep 10; done >& $output.ps &
+  # This sets a global value
+  pspid=$!
 }
 
 function stop_stats {
   output=$1
+  kill $pspid
   killall iostat
   killall vmstat
   sleep 1
@@ -404,6 +418,11 @@ function summarize_result {
   u_cpu=$( awk '{ printf "%.1f", $2 / 1000.0 }' $time_out )
   s_cpu=$( awk '{ printf "%.1f", $3 / 1000.0  }' $time_out )
 
+  rss="na"
+  if [ -f $test_out.stats.ps ]; then
+    rss=$(  tail -1 $test_out.stats.ps | awk '{ printf "%.1f\n", $6 / (1024 * 1024) }' )
+  fi
+
   # if the report TSV (Tab Separate Values) file does not yet exist, create it and write the header row to it
   if [ ! -f "$report" ]; then
     echo -e "# ops_sec - operations per second" >> $report
@@ -421,15 +440,16 @@ function summarize_result {
     echo -e "# Nstall - Number of stalls" >> $report
     echo -e "# u_cpu - #seconds/1000 of user CPU" >> $report
     echo -e "# s_cpu - #seconds/1000 of system CPU" >> $report
+    echo -e "# rss - max RSS in GB for db_bench process" >> $report
     echo -e "# test - Name of test" >> $report
     echo -e "# date - Date/time of test" >> $report
     echo -e "# version - RocksDB version" >> $report
     echo -e "# job_id - User-provided job ID" >> $report
-    echo -e "ops_sec\tmb_sec\tdb_size\tc_wgb\tw_amp\tc_mbps\tc_secs\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\ttest\tdate\tversion\tjob_id" \
+    echo -e "ops_sec\tmb_sec\tdb_size\tc_wgb\tw_amp\tc_mbps\tc_secs\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id" \
       >> $report
   fi
 
-  echo -e "$ops_sec\t$mb_sec\t$sum_size\t$sum_wgb\t$wamp\t$cmb_ps\t$c_secs\t$usecs_op\t$p50\t$p99\t$p999\t$p9999\t$pmax\t$uptime\t$stall_pct\t$nstall\t$u_cpu\t$s_cpu\t$test_name\t$my_date\t$version\t$job_id" \
+  echo -e "$ops_sec\t$mb_sec\t$sum_size\t$sum_wgb\t$wamp\t$cmb_ps\t$c_secs\t$usecs_op\t$p50\t$p99\t$p999\t$p9999\t$pmax\t$uptime\t$stall_pct\t$nstall\t$u_cpu\t$s_cpu\t$rss\t$test_name\t$my_date\t$version\t$job_id" \
     >> $report
 }
 
@@ -948,7 +968,7 @@ for job in ${jobs[@]}; do
     echo "Completed $job (ID: $job_id) in $((end-start)) seconds" | tee -a $schedule
   fi
 
-  echo -e "ops_sec\tmb_sec\tdb_size\tc_wgb\tw_amp\tc_mbps\tc_secs\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\ttest\tdate\tversion\tjob_id"
+  echo -e "ops_sec\tmb_sec\tdb_size\tc_wgb\tw_amp\tc_mbps\tc_secs\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id"
   tail -1 $report
 
 done

@@ -284,6 +284,8 @@ for v in $@ ; do
   env "${args_nolim[@]}" DURATION=$nsecs  bash b.sh overwrite
 
   cp $dbdir/LOG* $my_odir
+  gzip -9 $my_odir/LOG*
+
 done
 
 # Generate a file that groups lines from the same test for all versions
