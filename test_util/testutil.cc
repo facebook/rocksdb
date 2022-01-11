@@ -678,7 +678,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
  public:
 #ifndef ROCKSDB_LITE
   static bool Register(ObjectLibrary& library, const std::string& /*arg*/) {
-    library.Register<MemTableRepFactory>(
+    library.AddFactory<MemTableRepFactory>(
         ObjectLibrary::PatternEntry(SpecialSkipListFactory::kClassName(), true)
             .AddNumber(":"),
         [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
@@ -738,7 +738,7 @@ MemTableRepFactory* NewSpecialSkipListFactory(int num_entries_per_flush) {
 // This method loads existing test classes into the ObjectRegistry
 int RegisterTestObjects(ObjectLibrary& library, const std::string& arg) {
   size_t num_types;
-  library.Register<const Comparator>(
+  library.AddFactory<const Comparator>(
       test::SimpleSuffixReverseComparator::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<const Comparator>* /*guard*/,
@@ -747,27 +747,27 @@ int RegisterTestObjects(ObjectLibrary& library, const std::string& arg) {
         return &ssrc;
       });
   SpecialSkipListFactory::Register(library, arg);
-  library.Register<MergeOperator>(
+  library.AddFactory<MergeOperator>(
       "Changling",
       [](const std::string& uri, std::unique_ptr<MergeOperator>* guard,
          std::string* /* errmsg */) {
         guard->reset(new test::ChanglingMergeOperator(uri));
         return guard->get();
       });
-  library.Register<CompactionFilter>(
+  library.AddFactory<CompactionFilter>(
       "Changling",
       [](const std::string& uri, std::unique_ptr<CompactionFilter>* /*guard*/,
          std::string* /* errmsg */) {
         return new test::ChanglingCompactionFilter(uri);
       });
-  library.Register<CompactionFilterFactory>(
+  library.AddFactory<CompactionFilterFactory>(
       "Changling", [](const std::string& uri,
                       std::unique_ptr<CompactionFilterFactory>* guard,
                       std::string* /* errmsg */) {
         guard->reset(new test::ChanglingCompactionFilterFactory(uri));
         return guard->get();
       });
-  library.Register<SystemClock>(
+  library.AddFactory<SystemClock>(
       MockSystemClock::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<SystemClock>* guard,
          std::string* /* errmsg */) {
