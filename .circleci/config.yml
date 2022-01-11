@@ -83,6 +83,17 @@ commands:
             echo "APT::Acquire::Retries \"10\";" | sudo tee -a /etc/apt/apt.conf.d/80-retries # llvm.org unreliable
             sudo apt-get update -y && sudo apt-get install -y clang-10
 
+  install-clang-13:
+    steps:
+      - run:
+          name: Install Clang 13
+          command: |
+            echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-13 main" | sudo tee -a /etc/apt/sources.list
+            echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-13 main" | sudo tee -a /etc/apt/sources.list
+            echo "APT::Acquire::Retries \"10\";" | sudo tee -a /etc/apt/apt.conf.d/80-retries # llvm.org unreliable
+            wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
+            sudo apt-get update -y && sudo apt-get install -y clang-13
+
   install-gflags:
     steps:
       - run:
@@ -394,6 +405,16 @@ jobs:
       - pre-steps
       - run: sudo apt-get update -y && sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get install gcc-11 g++-11 libgflags-dev
       - run: CC=gcc-11 CXX=g++-11 V=1 SKIP_LINK=1 make -j16 all 2>&1 | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - post-steps
+
+  build-linux-clang-13-no_test_run:
+    machine:
+      image: ubuntu-2004:202010-01
+    resource_class: xlarge
+    steps:
+      - pre-steps
+      - install-clang-13
+      - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j16 all 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   # This job is only to make sure the microbench tests are able to run, the benchmark result is not meaningful as the CI host is changing.
@@ -792,6 +813,7 @@ workflows:
   build-linux-compilers-no_test_run:
     jobs:
       - build-linux-clang-no_test_run
+      - build-linux-clang-13-no_test_run
       - build-linux-gcc-4_8-no_test_run
       - build-linux-gcc-8-no_test_run
       - build-linux-gcc-9-no_test_run
