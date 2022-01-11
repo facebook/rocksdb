@@ -44,7 +44,7 @@ while read v1 v2 ; do
     if [ $makeres -ne 0 ]; then
       echo Make failed
     else
-      bash x.sh $myhw $secs $secs_ro $nkeys $nthreads $odirect $comp $numa db_bench.$t
+      bash x.sh $myhw $secs $secs_ro $nkeys $nthreads $odirect $comp $numa $t
     fi
 
   else

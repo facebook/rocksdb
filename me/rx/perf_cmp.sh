@@ -239,6 +239,7 @@ for v in $@ ; do
 
   echo Run benchmark for $v at $( date ) with results at $my_odir
   rm -f db_bench
+  echo ln -s db_bench.$v db_bench
   ln -s db_bench.$v db_bench
 
   # rm -rf $my_odir
