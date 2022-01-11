@@ -146,7 +146,7 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
   // For the builtin transforms, the format is typically
   // [Name] or [Name].[0-9]+
   // [NickName]:[0-9]+
-  library.Register<const SliceTransform>(
+  library.AddFactory<const SliceTransform>(
       NoopTransform::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<const SliceTransform>* guard,
@@ -154,7 +154,7 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         guard->reset(NewNoopTransform());
         return guard->get();
       });
-  library.Register<const SliceTransform>(
+  library.AddFactory<const SliceTransform>(
       ObjectLibrary::PatternEntry(FixedPrefixTransform::kNickName(), false)
           .AddNumber(":"),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
@@ -164,7 +164,7 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         guard->reset(NewFixedPrefixTransform(len));
         return guard->get();
       });
-  library.Register<const SliceTransform>(
+  library.AddFactory<const SliceTransform>(
       ObjectLibrary::PatternEntry(FixedPrefixTransform::kClassName(), true)
           .AddNumber("."),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
@@ -178,7 +178,7 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         }
         return guard->get();
       });
-  library.Register<const SliceTransform>(
+  library.AddFactory<const SliceTransform>(
       ObjectLibrary::PatternEntry(CappedPrefixTransform::kNickName(), false)
           .AddNumber(":"),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
@@ -188,7 +188,7 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         guard->reset(NewCappedPrefixTransform(len));
         return guard->get();
       });
-  library.Register<const SliceTransform>(
+  library.AddFactory<const SliceTransform>(
       ObjectLibrary::PatternEntry(CappedPrefixTransform::kClassName(), true)
           .AddNumber("."),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,

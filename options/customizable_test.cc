@@ -180,7 +180,7 @@ static bool LoadSharedB(const std::string& id,
 static int A_count = 0;
 static int RegisterCustomTestObjects(ObjectLibrary& library,
                                      const std::string& /*arg*/) {
-  library.Register<TestCustomizable>(
+  library.AddFactory<TestCustomizable>(
       ObjectLibrary::PatternEntry("A", true).AddSeparator("_"),
       [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
@@ -189,7 +189,7 @@ static int RegisterCustomTestObjects(ObjectLibrary& library,
         return guard->get();
       });
 
-  library.Register<TestCustomizable>(
+  library.AddFactory<TestCustomizable>(
       "S", [](const std::string& name,
               std::unique_ptr<TestCustomizable>* /* guard */,
               std::string* /* msg */) { return new BCustomizable(name); });
@@ -334,7 +334,7 @@ class CustomizableTest : public testing::Test {
 //    - a XXX.id option
 //    - a property with a name
 TEST_F(CustomizableTest, CreateByNameTest) {
-  ObjectLibrary::Default()->Register<TestCustomizable>(
+  ObjectLibrary::Default()->AddFactory<TestCustomizable>(
       ObjectLibrary::PatternEntry("TEST", false).AddSeparator("_"),
       [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
@@ -565,7 +565,7 @@ TEST_F(CustomizableTest, PrepareOptionsTest) {
     }
   };
 
-  ObjectLibrary::Default()->Register<TestCustomizable>(
+  ObjectLibrary::Default()->AddFactory<TestCustomizable>(
       "P",
       [](const std::string& /*name*/, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
@@ -1029,7 +1029,7 @@ TEST_F(CustomizableTest, FactoryFunctionTest) {
 
 TEST_F(CustomizableTest, URLFactoryTest) {
   std::unique_ptr<TestCustomizable> unique;
-  config_options_.registry->AddLibrary("URL")->Register<TestCustomizable>(
+  config_options_.registry->AddLibrary("URL")->AddFactory<TestCustomizable>(
       ObjectLibrary::PatternEntry("Z", false).AddSeparator(""),
       [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
@@ -1186,7 +1186,7 @@ TEST_F(CustomizableTest, CreateManagedObjects) {
   };
 
   config_options_.registry->AddLibrary("Managed")
-      ->Register<ManagedCustomizable>(
+      ->AddFactory<ManagedCustomizable>(
           ObjectLibrary::PatternEntry::AsIndividualId(
               ManagedCustomizable::kClassName()),
           [](const std::string& /*name*/,
@@ -1445,21 +1445,21 @@ class MockRateLimiter : public RateLimiter {
 static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
   size_t num_types;
-  library.Register<TableFactory>(
+  library.AddFactory<TableFactory>(
       mock::MockTableFactory::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
          std::string* /* errmsg */) {
         guard->reset(new mock::MockTableFactory());
         return guard->get();
       });
-  library.Register<EventListener>(
+  library.AddFactory<EventListener>(
       OnFileDeletionListener::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<EventListener>* guard,
          std::string* /* errmsg */) {
         guard->reset(new OnFileDeletionListener());
         return guard->get();
       });
-  library.Register<EventListener>(
+  library.AddFactory<EventListener>(
       FlushCounterListener::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<EventListener>* guard,
          std::string* /* errmsg */) {
@@ -1467,7 +1467,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
   // Load any locally defined objects here
-  library.Register<const SliceTransform>(
+  library.AddFactory<const SliceTransform>(
       MockSliceTransform::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<const SliceTransform>* guard,
@@ -1475,7 +1475,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         guard->reset(new MockSliceTransform());
         return guard->get();
       });
-  library.Register<Statistics>(
+  library.AddFactory<Statistics>(
       TestStatistics::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<Statistics>* guard,
          std::string* /* errmsg */) {
@@ -1483,7 +1483,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
 
-  library.Register<EncryptionProvider>(
+  library.AddFactory<EncryptionProvider>(
       ObjectLibrary::PatternEntry(MockEncryptionProvider::kClassName(), true)
           .AddSuffix("://test"),
       [](const std::string& uri, std::unique_ptr<EncryptionProvider>* guard,
@@ -1491,20 +1491,21 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         guard->reset(new MockEncryptionProvider(uri));
         return guard->get();
       });
-  library.Register<BlockCipher>("Mock", [](const std::string& /*uri*/,
-                                           std::unique_ptr<BlockCipher>* guard,
-                                           std::string* /* errmsg */) {
-    guard->reset(new MockCipher());
-    return guard->get();
-  });
-  library.Register<MemoryAllocator>(
+  library.AddFactory<BlockCipher>(
+      "Mock",
+      [](const std::string& /*uri*/, std::unique_ptr<BlockCipher>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockCipher());
+        return guard->get();
+      });
+  library.AddFactory<MemoryAllocator>(
       MockMemoryAllocator::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<MemoryAllocator>* guard,
          std::string* /* errmsg */) {
         guard->reset(new MockMemoryAllocator());
         return guard->get();
       });
-  library.Register<FlushBlockPolicyFactory>(
+  library.AddFactory<FlushBlockPolicyFactory>(
       TestFlushBlockPolicyFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<FlushBlockPolicyFactory>* guard,
@@ -1513,7 +1514,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
 
-  library.Register<SecondaryCache>(
+  library.AddFactory<SecondaryCache>(
       TestSecondaryCache::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<SecondaryCache>* guard,
          std::string* /* errmsg */) {
@@ -1521,7 +1522,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
 
-  library.Register<FileSystem>(
+  library.AddFactory<FileSystem>(
       DummyFileSystem::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
          std::string* /* errmsg */) {
@@ -1529,7 +1530,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
 
-  library.Register<SstPartitionerFactory>(
+  library.AddFactory<SstPartitionerFactory>(
       MockSstPartitionerFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<SstPartitionerFactory>* guard,
@@ -1538,7 +1539,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
 
-  library.Register<FileChecksumGenFactory>(
+  library.AddFactory<FileChecksumGenFactory>(
       MockFileChecksumGenFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<FileChecksumGenFactory>* guard,
@@ -1547,7 +1548,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
 
-  library.Register<TablePropertiesCollectorFactory>(
+  library.AddFactory<TablePropertiesCollectorFactory>(
       MockTablePropertiesCollectorFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<TablePropertiesCollectorFactory>* guard,
@@ -1556,7 +1557,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
 
-  library.Register<RateLimiter>(
+  library.AddFactory<RateLimiter>(
       MockRateLimiter::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<RateLimiter>* guard,
          std::string* /* errmsg */) {
