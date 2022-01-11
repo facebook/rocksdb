@@ -41,9 +41,9 @@ SequenceNumber ReadRecords(std::unique_ptr<TransactionLogIterator>& iter,
   BatchResult res;
   while (iter->Valid()) {
     res = iter->GetBatch();
-    EXPECT_TRUE(res.sequence > lastSequence);
+    EXPECT_TRUE(res.start_sequence > lastSequence);
     ++count;
-    lastSequence = res.sequence;
+    lastSequence = res.end_sequence;
     EXPECT_OK(iter->status());
     iter->Next();
   }
@@ -52,7 +52,7 @@ SequenceNumber ReadRecords(std::unique_ptr<TransactionLogIterator>& iter,
   } else {
     EXPECT_NOK(iter->status());
   }
-  return res.sequence;
+  return res.end_sequence;
 }
 
 void ExpectRecords(
@@ -259,7 +259,8 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
     ReopenWithColumnFamilies({"default", "pikachu"}, options);
   }
 
-  auto res = OpenTransactionLogIter(0)->GetBatch();
+  std::unique_ptr<TransactionLogIterator> log_iter = OpenTransactionLogIter(0);
+  auto res = log_iter->GetBatch();
   struct Handler : public WriteBatch::Handler {
     std::string seen;
     Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override {
@@ -280,7 +281,7 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
       return Status::OK();
     }
   } handler;
-  ASSERT_OK(res.writeBatchPtr->Iterate(&handler));
+  ASSERT_OK(res.write_batch->Iterate(&handler));
   ASSERT_EQ(
       "Put(1, key1, 1024)"
       "Put(0, key2, 1024)"

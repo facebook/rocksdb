@@ -70,23 +70,34 @@ public class TransactionLogIterator extends RocksObject {
     /**
      * <p>Constructor of BatchResult class.</p>
      *
-     * @param sequenceNumber related to this BatchResult instance.
+     * @param startSequenceNumber related to this BatchResult instance.
+     * @param endSequenceNumber related to this BatchResult instance.
      * @param nativeHandle to {@link org.rocksdb.WriteBatch}
      *     native instance.
      */
-    public BatchResult(final long sequenceNumber,
-        final long nativeHandle) {
-      sequenceNumber_ = sequenceNumber;
-      writeBatch_ = new WriteBatch(nativeHandle, true);
+    public BatchResult(
+        final long startSequenceNumber, final long endSequenceNumber, final long nativeHandle) {
+      startSequenceNumber_ = startSequenceNumber;
+      endSequenceNumber_ = endSequenceNumber;
+      writeBatch_ = new WriteBatch(nativeHandle, false);
     }
 
     /**
-     * <p>Return sequence number related to this BatchResult.</p>
+     * <p>Return start sequence number related to this BatchResult.</p>
      *
-     * @return Sequence number.
+     * @return Start sequence number.
      */
-    public long sequenceNumber() {
-      return sequenceNumber_;
+    public long startSequenceNumber() {
+      return startSequenceNumber_;
+    }
+
+    /**
+     * <p>Return end sequence number related to this BatchResult.</p>
+     *
+     * @return End sequence number.
+     */
+    public long endSequenceNumber() {
+      return endSequenceNumber_;
     }
 
     /**
@@ -99,7 +110,8 @@ public class TransactionLogIterator extends RocksObject {
       return writeBatch_;
     }
 
-    private final long sequenceNumber_;
+    private final long startSequenceNumber_;
+    private final long endSequenceNumber_;
     private final WriteBatch writeBatch_;
   }
 

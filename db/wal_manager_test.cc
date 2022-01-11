@@ -205,9 +205,9 @@ int CountRecords(TransactionLogIterator* iter) {
   BatchResult res;
   while (iter->Valid()) {
     res = iter->GetBatch();
-    EXPECT_TRUE(res.sequence > lastSequence);
+    EXPECT_TRUE(res.start_sequence > lastSequence);
     ++count;
-    lastSequence = res.sequence;
+    lastSequence = res.end_sequence;
     EXPECT_OK(iter->status());
     iter->Next();
   }

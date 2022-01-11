@@ -4413,21 +4413,20 @@ class BatchResultJni : public JavaClass {
       return nullptr;
     }
 
-    jmethodID mid = env->GetMethodID(
-      jclazz, "<init>", "(JJ)V");
+    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(JJJ)V");
     if(mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
     }
 
-    jobject jbatch_result = env->NewObject(jclazz, mid,
-      batch_result.sequence, batch_result.writeBatchPtr.get());
+    jobject jbatch_result =
+        env->NewObject(jclazz, mid, batch_result.start_sequence,
+                       batch_result.end_sequence, batch_result.write_batch);
     if(jbatch_result == nullptr) {
       // exception thrown: InstantiationException or OutOfMemoryError
       return nullptr;
     }
 
-    batch_result.writeBatchPtr.release();
     return jbatch_result;
   }
 };

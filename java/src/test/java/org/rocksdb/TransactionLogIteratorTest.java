@@ -70,7 +70,7 @@ public class TransactionLogIteratorTest {
           // The first sequence number is 1
           final TransactionLogIterator.BatchResult batchResult =
               transactionLogIterator.getBatch();
-          assertThat(batchResult.sequenceNumber()).isEqualTo(1);
+          assertThat(batchResult.startSequenceNumber()).isEqualTo(1);
         }
       }
     }
