@@ -506,9 +506,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"file_preload",
-         {offset_of(&ImmutableCFOptions::file_preload),
-          OptionType::kFilePreload, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
+         OptionTypeInfo::Enum<FilePreload>(
+             offset_of(&ImmutableCFOptions::file_preload),
+                    &file_preload_string_map)},
         {"inplace_update_support",
          {offset_of(&ImmutableCFOptions::inplace_update_support),
           OptionType::kBoolean, OptionVerificationType::kNormal,

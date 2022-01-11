@@ -89,7 +89,6 @@ struct OptionsHelper {
   static std::unordered_map<std::string, CompactionPri>
       compaction_pri_string_map;
 #endif  // !ROCKSDB_LITE
-  static std::map<FilePreload, std::string> file_preload_to_string;
   static std::unordered_map<std::string, FilePreload> file_preload_string_map;
 };
 

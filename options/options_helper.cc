@@ -322,11 +322,6 @@ std::map<CompactionPri, std::string> OptionsHelper::compaction_pri_to_string = {
     {kOldestSmallestSeqFirst, "kOldestSmallestSeqFirst"},
     {kMinOverlappingRatio, "kMinOverlappingRatio"}};
 
-std::map<FilePreload, std::string> OptionsHelper::file_preload_to_string = {
-    {kFilePreloadWithPinning, "kFilePreloadWithPinning"},
-    {kFilePreloadWithoutPinning, "kFilePreloadWithoutPinning"},
-    {kFilePreloadDisabled, "kFilePreloadDisabled"}};
-
 std::map<CompactionStopStyle, std::string>
     OptionsHelper::compaction_stop_style_to_string = {
         {kCompactionStopStyleSimilarSize, "kCompactionStopStyleSimilarSize"},
@@ -434,10 +429,6 @@ static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
       return ParseEnum<CompressionType>(
           compression_type_string_map, value,
           static_cast<CompressionType*>(opt_address));
-    case OptionType::kFilePreload:
-      return ParseEnum<FilePreload>(
-          file_preload_string_map, value,
-          reinterpret_cast<FilePreload*>(opt_address));
     case OptionType::kChecksumType:
       return ParseEnum<ChecksumType>(checksum_type_string_map, value,
                                      static_cast<ChecksumType*>(opt_address));
@@ -516,11 +507,6 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       return SerializeEnum<CompressionType>(
           compression_type_string_map,
           *(static_cast<const CompressionType*>(opt_address)), value);
-    case OptionType::kFilePreload:
-      return SerializeEnum<FilePreload>(
-          file_preload_string_map,
-          *(reinterpret_cast<const FilePreload*>(opt_address)), value);
-      break;
     case OptionType::kFilterPolicy: {
       const auto* ptr =
           static_cast<const std::shared_ptr<FilterPolicy>*>(opt_address);
@@ -1200,8 +1186,6 @@ static bool AreOptionsEqual(OptionType type, const void* this_offset,
       return IsOptionEqual<CompactionPri>(this_offset, that_offset);
     case OptionType::kCompressionType:
       return IsOptionEqual<CompressionType>(this_offset, that_offset);
-    case OptionType::kFilePreload:
-      return IsOptionEqual<FilePreload>(this_offset, that_offset);
     case OptionType::kChecksumType:
       return IsOptionEqual<ChecksumType>(this_offset, that_offset);
     case OptionType::kEncodingType:
