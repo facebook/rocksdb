@@ -30,6 +30,8 @@ class RandomAccessFileReader;
 class FilePrefetchBuffer {
  public:
   static const int kMinNumFileReadsToStartAutoReadahead = 2;
+  static const size_t kInitAutoReadaheadSize = 8 * 1024;
+
   // Constructor.
   //
   // All arguments are optional.
@@ -57,7 +59,6 @@ class FilePrefetchBuffer {
       : buffer_offset_(0),
         readahead_size_(readahead_size),
         max_readahead_size_(max_readahead_size),
-        initial_readahead_size_(readahead_size),
         min_offset_read_(port::kMaxSizet),
         enable_(enable),
         track_min_offset_(track_min_offset),
@@ -95,6 +96,7 @@ class FilePrefetchBuffer {
   // tracked if track_min_offset = true.
   size_t min_offset_read() const { return min_offset_read_; }
 
+  // Called in case of implicit auto prefetching.
   void UpdateReadPattern(const uint64_t& offset, const size_t& len,
                          bool is_adaptive_readahead = false) {
     if (is_adaptive_readahead) {
@@ -111,9 +113,10 @@ class FilePrefetchBuffer {
     return (prev_len_ == 0 || (prev_offset_ + prev_len_ == offset));
   }
 
+  // Called in case of implicit auto prefetching.
   void ResetValues() {
     num_file_reads_ = 1;
-    readahead_size_ = initial_readahead_size_;
+    readahead_size_ = kInitAutoReadaheadSize;
   }
 
   void GetReadaheadState(ReadaheadFileInfo::ReadaheadInfo* readahead_info) {
@@ -136,8 +139,9 @@ class FilePrefetchBuffer {
       if ((offset + size > buffer_offset_ + buffer_.CurrentSize()) &&
           IsBlockSequential(offset) &&
           (num_file_reads_ + 1 > kMinNumFileReadsToStartAutoReadahead)) {
+        size_t initial_auto_readahead_size = kInitAutoReadaheadSize;
         readahead_size_ =
-            std::max(initial_readahead_size_,
+            std::max(initial_auto_readahead_size,
                      (readahead_size_ >= value ? readahead_size_ - value : 0));
       }
     }
@@ -150,7 +154,6 @@ class FilePrefetchBuffer {
   // FilePrefetchBuffer object won't be created from Iterator flow if
   // max_readahead_size_ = 0.
   size_t max_readahead_size_;
-  size_t initial_readahead_size_;
   // The minimum `offset` ever passed to TryReadFromCache().
   size_t min_offset_read_;
   // if false, TryReadFromCache() always return false, and we only take stats

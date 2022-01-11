@@ -4595,10 +4595,11 @@ void rocksdb_slicetransform_destroy(rocksdb_slicetransform_t* st) {
   delete st;
 }
 
-struct Wrapper : public rocksdb_slicetransform_t {
+struct SliceTransformWrapper : public rocksdb_slicetransform_t {
   const SliceTransform* rep_;
-  ~Wrapper() override { delete rep_; }
+  ~SliceTransformWrapper() override { delete rep_; }
   const char* Name() const override { return rep_->Name(); }
+  std::string GetId() const override { return rep_->GetId(); }
   Slice Transform(const Slice& src) const override {
     return rep_->Transform(src);
   }
@@ -4610,18 +4611,18 @@ struct Wrapper : public rocksdb_slicetransform_t {
 };
 
 rocksdb_slicetransform_t* rocksdb_slicetransform_create_fixed_prefix(size_t prefixLen) {
-  Wrapper* wrapper = new Wrapper;
+  SliceTransformWrapper* wrapper = new SliceTransformWrapper;
   wrapper->rep_ = ROCKSDB_NAMESPACE::NewFixedPrefixTransform(prefixLen);
   wrapper->state_ = nullptr;
-  wrapper->destructor_ = &Wrapper::DoNothing;
+  wrapper->destructor_ = &SliceTransformWrapper::DoNothing;
   return wrapper;
 }
 
 rocksdb_slicetransform_t* rocksdb_slicetransform_create_noop() {
-  Wrapper* wrapper = new Wrapper;
+  SliceTransformWrapper* wrapper = new SliceTransformWrapper;
   wrapper->rep_ = ROCKSDB_NAMESPACE::NewNoopTransform();
   wrapper->state_ = nullptr;
-  wrapper->destructor_ = &Wrapper::DoNothing;
+  wrapper->destructor_ = &SliceTransformWrapper::DoNothing;
   return wrapper;
 }
 
@@ -4735,6 +4736,11 @@ void rocksdb_options_set_min_level_to_compress(rocksdb_options_t* opt, int level
 int rocksdb_livefiles_count(
   const rocksdb_livefiles_t* lf) {
   return static_cast<int>(lf->rep.size());
+}
+
+const char* rocksdb_livefiles_column_family_name(const rocksdb_livefiles_t* lf,
+                                                 int index) {
+  return lf->rep[index].column_family_name.c_str();
 }
 
 const char* rocksdb_livefiles_name(

@@ -513,7 +513,7 @@ struct DBOptions {
   // Default: Env::Default()
   Env* env = Env::Default();
 
-  // Use to control write rate of flush and compaction. Flush has higher
+  // Use to control write/read rate of flush and compaction. Flush has higher
   // priority than compaction. Rate limiting is disabled if nullptr.
   // If rate limiter is enabled, bytes_per_sync is set to 1MB by default.
   // Default: nullptr
@@ -1851,7 +1851,13 @@ enum TraceFilterType : uint64_t {
   // Do not trace the get operations
   kTraceFilterGet = 0x1 << 0,
   // Do not trace the write operations
-  kTraceFilterWrite = 0x1 << 1
+  kTraceFilterWrite = 0x1 << 1,
+  // Do not trace the `Iterator::Seek()` operations
+  kTraceFilterIteratorSeek = 0x1 << 2,
+  // Do not trace the `Iterator::SeekForPrev()` operations
+  kTraceFilterIteratorSeekForPrev = 0x1 << 3,
+  // Do not trace the `MultiGet()` operations
+  kTraceFilterMultiGet = 0x1 << 4,
 };
 
 // TraceOptions is used for StartTrace
@@ -1864,6 +1870,13 @@ struct TraceOptions {
   uint64_t sampling_frequency = 1;
   // Note: The filtering happens before sampling.
   uint64_t filter = kTraceFilterNone;
+  // When true, the order of write records in the trace will match the order of
+  // the corresponding write records in the WAL and applied to the DB. There may
+  // be a performance penalty associated with preserving this ordering.
+  //
+  // Default: false. This means write records in the trace may be in an order
+  // different from the WAL's order.
+  bool preserve_write_order = false;
 };
 
 // ImportColumnFamilyOptions is used by ImportColumnFamily()

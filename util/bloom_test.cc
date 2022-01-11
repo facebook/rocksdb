@@ -644,6 +644,18 @@ TEST(FullBloomFilterConstructionReserveMemTest,
     } else {
       EXPECT_EQ(filter.data()[filter.size() - 5], static_cast<char>(-2));
     }
+
+    if (reserve_builder_mem) {
+      const size_t dummy_entry_num = static_cast<std::size_t>(std::ceil(
+          filter.size() * 1.0 / CacheReservationManager::GetDummyEntrySize()));
+      EXPECT_GE(cache->GetPinnedUsage(),
+                dummy_entry_num * CacheReservationManager::GetDummyEntrySize());
+      EXPECT_LT(
+          cache->GetPinnedUsage(),
+          (dummy_entry_num + 1) * CacheReservationManager::GetDummyEntrySize());
+    } else {
+      EXPECT_EQ(cache->GetPinnedUsage(), 0);
+    }
   }
 }
 
@@ -1244,7 +1256,7 @@ INSTANTIATE_TEST_CASE_P(Full, FullBloomTest,
 
 static double GetEffectiveBitsPerKey(FilterBitsBuilder* builder) {
   union {
-    uint64_t key_value;
+    uint64_t key_value = 0;
     char key_bytes[8];
   };
 

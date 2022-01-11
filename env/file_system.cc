@@ -64,6 +64,13 @@ static int RegisterBuiltinFileSystems(ObjectLibrary& library,
         guard->reset(new CountedFileSystem(FileSystem::Default()));
         return guard->get();
       });
+  library.Register<FileSystem>(
+      MockFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new MockFileSystem(SystemClock::Default()));
+        return guard->get();
+      });
 #ifndef OS_WIN
   library.Register<FileSystem>(
       ChrootFileSystem::kClassName(),

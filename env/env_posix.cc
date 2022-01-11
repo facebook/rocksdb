@@ -209,7 +209,10 @@ class PosixClock : public SystemClock {
 
 class PosixEnv : public CompositeEnv {
  public:
-  PosixEnv(const PosixEnv* default_env, const std::shared_ptr<FileSystem>& fs);
+  static const char* kClassName() { return "PosixEnv"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kDefaultName(); }
+
   ~PosixEnv() override {
     if (this == Env::Default()) {
       for (const auto tid : threads_to_join_) {
@@ -419,16 +422,6 @@ PosixEnv::PosixEnv()
   thread_status_updater_ = CreateThreadStatusUpdater();
 }
 
-PosixEnv::PosixEnv(const PosixEnv* default_env,
-                   const std::shared_ptr<FileSystem>& fs)
-    : CompositeEnv(fs, default_env->GetSystemClock()),
-      thread_pools_(default_env->thread_pools_),
-      mu_(default_env->mu_),
-      threads_to_join_(default_env->threads_to_join_),
-      allow_non_owner_access_(default_env->allow_non_owner_access_) {
-  thread_status_updater_ = default_env->thread_status_updater_;
-}
-
 void PosixEnv::Schedule(void (*function)(void* arg1), void* arg, Priority pri,
                         void* tag, void (*unschedFunction)(void* arg)) {
   assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
@@ -497,11 +490,6 @@ Env* Env::Default() {
   // ~PosixEnv must be called on exit
   static PosixEnv default_env;
   return &default_env;
-}
-
-std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs) {
-  PosixEnv* default_env = static_cast<PosixEnv*>(Env::Default());
-  return std::unique_ptr<Env>(new PosixEnv(default_env, fs));
 }
 
 //

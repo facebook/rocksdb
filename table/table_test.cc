@@ -21,16 +21,15 @@
 #include <unordered_set>
 #include <vector>
 
-#include "block_fetcher.h"
 #include "cache/lru_cache.h"
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "memtable/stl_wrappers.h"
-#include "meta_blocks.h"
 #include "monitoring/statistics.h"
 #include "options/options_helper.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/db.h"
@@ -53,9 +52,11 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
 #include "table/block_based/flush_block_policy.h"
+#include "table/block_fetcher.h"
 #include "table/format.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
+#include "table/meta_blocks.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
@@ -68,6 +69,7 @@
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
 #include "util/string_util.h"
+#include "utilities/memory_allocators.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -194,7 +196,7 @@ class Constructor {
               const BlockBasedTableOptions& table_options,
               const InternalKeyComparator& internal_comparator,
               std::vector<std::string>* keys, stl_wrappers::KVMap* kvmap) {
-    last_internal_key_ = &internal_comparator;
+    last_internal_comparator_ = &internal_comparator;
     *kvmap = data_;
     keys->clear();
     for (const auto& kv : data_) {
@@ -226,7 +228,7 @@ class Constructor {
   virtual bool AnywayDeleteIterator() const { return false; }
 
  protected:
-  const InternalKeyComparator* last_internal_key_;
+  const InternalKeyComparator* last_internal_comparator_;
 
  private:
   stl_wrappers::KVMap data_;
@@ -402,19 +404,8 @@ class TableConstructor : public Constructor {
 
     // Open the table
     uniq_id_ = cur_uniq_id_++;
-    std::unique_ptr<FSRandomAccessFile> source(new test::StringSource(
-        TEST_GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads));
 
-    file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
-    const bool kSkipFilters = true;
-    const bool kImmortal = true;
-    return ioptions.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
-                           internal_comparator, !kSkipFilters, !kImmortal,
-                           false, level_, largest_seqno_, &block_cache_tracer_,
-                           moptions.write_buffer_size, "", uniq_id_),
-        std::move(file_reader_), TEST_GetSink()->contents().size(),
-        &table_reader_);
+    return Reopen(ioptions, moptions);
   }
 
   InternalIterator* NewIterator(
@@ -448,7 +439,10 @@ class TableConstructor : public Constructor {
     file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
-                           *last_internal_key_),
+                           *last_internal_comparator_, /*skip_filters*/ false,
+                           /*immortal*/ false, false, level_, largest_seqno_,
+                           &block_cache_tracer_, moptions.write_buffer_size, "",
+                           uniq_id_),
         std::move(file_reader_), TEST_GetSink()->contents().size(),
         &table_reader_);
   }
@@ -1356,10 +1350,8 @@ class FileChecksumTestHelper {
 
 uint64_t FileChecksumTestHelper::checksum_uniq_id_ = 1;
 
-INSTANTIATE_TEST_CASE_P(FormatDef, BlockBasedTableTest,
-                        testing::Values(test::kDefaultFormatVersion));
-INSTANTIATE_TEST_CASE_P(FormatLatest, BlockBasedTableTest,
-                        testing::Values(test::kLatestFormatVersion));
+INSTANTIATE_TEST_CASE_P(FormatVersions, BlockBasedTableTest,
+                        testing::ValuesIn(test::kFooterFormatVersionsToTest));
 
 // This test serves as the living tutorial for the prefix scan of user collected
 // properties.
@@ -2228,7 +2220,8 @@ TEST_P(BlockBasedTableTest, BadChecksumType) {
   const MutableCFOptions new_moptions(options);
   Status s = c.Reopen(new_ioptions, new_moptions);
   ASSERT_NOK(s);
-  ASSERT_MATCHES_REGEX(s.ToString(), "Corruption: unknown checksum type 123.*");
+  ASSERT_EQ(s.ToString(),
+            "Corruption: Corrupt or unsupported checksum type: 123");
 }
 
 namespace {
@@ -3643,30 +3636,10 @@ TEST_P(BlockBasedTableTest, BlockCacheLeak) {
   c.ResetTableReader();
 }
 
-namespace {
-class CustomMemoryAllocator : public MemoryAllocator {
- public:
-  const char* Name() const override { return "CustomMemoryAllocator"; }
-
-  void* Allocate(size_t size) override {
-    ++numAllocations;
-    auto ptr = new char[size + 16];
-    memcpy(ptr, "memory_allocator_", 16);  // mangle first 16 bytes
-    return reinterpret_cast<void*>(ptr + 16);
-  }
-  void Deallocate(void* p) override {
-    ++numDeallocations;
-    char* ptr = reinterpret_cast<char*>(p) - 16;
-    delete[] ptr;
-  }
-
-  std::atomic<int> numAllocations;
-  std::atomic<int> numDeallocations;
-};
-}  // namespace
-
 TEST_P(BlockBasedTableTest, MemoryAllocator) {
-  auto custom_memory_allocator = std::make_shared<CustomMemoryAllocator>();
+  auto default_memory_allocator = std::make_shared<DefaultMemoryAllocator>();
+  auto custom_memory_allocator =
+      std::make_shared<CountedMemoryAllocator>(default_memory_allocator);
   {
     Options opt;
     std::unique_ptr<InternalKeyComparator> ikc;
@@ -3709,10 +3682,10 @@ TEST_P(BlockBasedTableTest, MemoryAllocator) {
 
   // out of scope, block cache should have been deleted, all allocations
   // deallocated
-  EXPECT_EQ(custom_memory_allocator->numAllocations.load(),
-            custom_memory_allocator->numDeallocations.load());
+  EXPECT_EQ(custom_memory_allocator->GetNumAllocations(),
+            custom_memory_allocator->GetNumDeallocations());
   // make sure that allocations actually happened through the cache allocator
-  EXPECT_GT(custom_memory_allocator->numAllocations.load(), 0);
+  EXPECT_GT(custom_memory_allocator->GetNumAllocations(), 0);
 }
 
 // Test the file checksum of block based table
@@ -4166,106 +4139,93 @@ TEST_P(ParameterizedHarnessTest, SimpleSpecialKey) {
 }
 
 TEST(TableTest, FooterTests) {
+  Random* r = Random::GetTLSInstance();
+  uint64_t data_size = (uint64_t{1} << r->Uniform(40)) + r->Uniform(100);
+  uint64_t index_size = r->Uniform(1000000000);
+  uint64_t metaindex_size = r->Uniform(1000000);
+  // 5 == block trailer size
+  BlockHandle index(data_size + 5, index_size);
+  BlockHandle meta_index(data_size + index_size + 2 * 5, metaindex_size);
+  uint64_t footer_offset = data_size + metaindex_size + index_size + 3 * 5;
   {
-    // upconvert legacy block based
-    std::string encoded;
-    Footer footer(kLegacyBlockBasedTableMagicNumber, 0);
-    BlockHandle meta_index(10, 5), index(20, 15);
-    footer.set_metaindex_handle(meta_index);
-    footer.set_index_handle(index);
-    footer.EncodeTo(&encoded);
+    // legacy block based
+    FooterBuilder footer;
+    footer.Build(kBlockBasedTableMagicNumber, /* format_version */ 0,
+                 footer_offset, kCRC32c, meta_index, index);
     Footer decoded_footer;
-    Slice encoded_slice(encoded);
-    ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice));
+    ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
     ASSERT_EQ(decoded_footer.table_magic_number(), kBlockBasedTableMagicNumber);
-    ASSERT_EQ(decoded_footer.checksum(), kCRC32c);
+    ASSERT_EQ(decoded_footer.checksum_type(), kCRC32c);
     ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
     ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
     ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
     ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
-    ASSERT_EQ(decoded_footer.version(), 0U);
+    ASSERT_EQ(decoded_footer.format_version(), 0U);
+    ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 5U);
+    // Ensure serialized with legacy magic
+    ASSERT_EQ(
+        DecodeFixed64(footer.GetSlice().data() + footer.GetSlice().size() - 8),
+        kLegacyBlockBasedTableMagicNumber);
   }
+  // block based, various checksums, various versions
   for (auto t : GetSupportedChecksums()) {
-    // block based, various checksums
-    std::string encoded;
-    Footer footer(kBlockBasedTableMagicNumber, 1);
-    BlockHandle meta_index(10, 5), index(20, 15);
-    footer.set_metaindex_handle(meta_index);
-    footer.set_index_handle(index);
-    footer.set_checksum(t);
-    footer.EncodeTo(&encoded);
-    Footer decoded_footer;
-    Slice encoded_slice(encoded);
-    ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice));
-    ASSERT_EQ(decoded_footer.table_magic_number(), kBlockBasedTableMagicNumber);
-    ASSERT_EQ(decoded_footer.checksum(), t);
-    ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
-    ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
-    ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
-    ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
-    ASSERT_EQ(decoded_footer.version(), 1U);
+    for (uint32_t fv = 1; IsSupportedFormatVersion(fv); ++fv) {
+      FooterBuilder footer;
+      footer.Build(kBlockBasedTableMagicNumber, fv, footer_offset, t,
+                   meta_index, index);
+      Footer decoded_footer;
+      ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
+      ASSERT_EQ(decoded_footer.table_magic_number(),
+                kBlockBasedTableMagicNumber);
+      ASSERT_EQ(decoded_footer.checksum_type(), t);
+      ASSERT_EQ(decoded_footer.metaindex_handle().offset(),
+                meta_index.offset());
+      ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
+      ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
+      ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
+      ASSERT_EQ(decoded_footer.format_version(), fv);
+      ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 5U);
+    }
   }
 // Plain table is not supported in ROCKSDB_LITE
 #ifndef ROCKSDB_LITE
   {
-    // upconvert legacy plain table
-    std::string encoded;
-    Footer footer(kLegacyPlainTableMagicNumber, 0);
-    BlockHandle meta_index(10, 5), index(20, 15);
-    footer.set_metaindex_handle(meta_index);
-    footer.set_index_handle(index);
-    footer.EncodeTo(&encoded);
+    // legacy plain table
+    FooterBuilder footer;
+    footer.Build(kPlainTableMagicNumber, /* format_version */ 0, footer_offset,
+                 kNoChecksum, meta_index);
     Footer decoded_footer;
-    Slice encoded_slice(encoded);
-    ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice));
+    ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
     ASSERT_EQ(decoded_footer.table_magic_number(), kPlainTableMagicNumber);
-    ASSERT_EQ(decoded_footer.checksum(), kCRC32c);
+    ASSERT_EQ(decoded_footer.checksum_type(), kCRC32c);
     ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
     ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
-    ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
-    ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
-    ASSERT_EQ(decoded_footer.version(), 0U);
+    ASSERT_EQ(decoded_footer.index_handle().offset(), 0U);
+    ASSERT_EQ(decoded_footer.index_handle().size(), 0U);
+    ASSERT_EQ(decoded_footer.format_version(), 0U);
+    ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 0U);
+    // Ensure serialized with legacy magic
+    ASSERT_EQ(
+        DecodeFixed64(footer.GetSlice().data() + footer.GetSlice().size() - 8),
+        kLegacyPlainTableMagicNumber);
   }
   {
     // xxhash plain table (not currently used)
-    std::string encoded;
-    Footer footer(kPlainTableMagicNumber, 1);
-    BlockHandle meta_index(10, 5), index(20, 15);
-    footer.set_metaindex_handle(meta_index);
-    footer.set_index_handle(index);
-    footer.set_checksum(kxxHash);
-    footer.EncodeTo(&encoded);
+    FooterBuilder footer;
+    footer.Build(kPlainTableMagicNumber, /* format_version */ 1, footer_offset,
+                 kxxHash, meta_index);
     Footer decoded_footer;
-    Slice encoded_slice(encoded);
-    ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice));
+    ASSERT_OK(decoded_footer.DecodeFrom(footer.GetSlice(), footer_offset));
     ASSERT_EQ(decoded_footer.table_magic_number(), kPlainTableMagicNumber);
-    ASSERT_EQ(decoded_footer.checksum(), kxxHash);
+    ASSERT_EQ(decoded_footer.checksum_type(), kxxHash);
     ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
     ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
-    ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
-    ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
-    ASSERT_EQ(decoded_footer.version(), 1U);
+    ASSERT_EQ(decoded_footer.index_handle().offset(), 0U);
+    ASSERT_EQ(decoded_footer.index_handle().size(), 0U);
+    ASSERT_EQ(decoded_footer.format_version(), 1U);
+    ASSERT_EQ(decoded_footer.GetBlockTrailerSize(), 0U);
   }
 #endif  // !ROCKSDB_LITE
-  {
-    // version == 2
-    std::string encoded;
-    Footer footer(kBlockBasedTableMagicNumber, 2);
-    BlockHandle meta_index(10, 5), index(20, 15);
-    footer.set_metaindex_handle(meta_index);
-    footer.set_index_handle(index);
-    footer.EncodeTo(&encoded);
-    Footer decoded_footer;
-    Slice encoded_slice(encoded);
-    ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice));
-    ASSERT_EQ(decoded_footer.table_magic_number(), kBlockBasedTableMagicNumber);
-    ASSERT_EQ(decoded_footer.checksum(), kCRC32c);
-    ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
-    ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
-    ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
-    ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
-    ASSERT_EQ(decoded_footer.version(), 2U);
-  }
 }
 
 class IndexBlockRestartIntervalTest
@@ -4490,8 +4450,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
         user_props[ExternalSstFilePropertyNames::kVersion].c_str());
     global_seqno = DecodeFixed64(
         user_props[ExternalSstFilePropertyNames::kGlobalSeqno].c_str());
-    global_seqno_offset =
-        props->properties_offsets[ExternalSstFilePropertyNames::kGlobalSeqno];
+    global_seqno_offset = props->external_sst_file_global_seqno_offset;
   };
 
   // Helper function to update the value of the global seqno in the file
@@ -4787,7 +4746,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
 
     // -- Read properties block
     BlockHandle properties_handle;
-    ASSERT_OK(FindOptionalMetaBlock(meta_iter.get(), kPropertiesBlock,
+    ASSERT_OK(FindOptionalMetaBlock(meta_iter.get(), kPropertiesBlockName,
                                     &properties_handle));
     ASSERT_FALSE(properties_handle.IsNull());
     BlockContents properties_contents;
@@ -4860,8 +4819,7 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
 
   // verify properties block comes last
   std::unique_ptr<InternalIterator> metaindex_iter{
-      metaindex_block.NewDataIterator(options.comparator,
-                                      kDisableGlobalSequenceNumber)};
+      metaindex_block.NewMetaIterator()};
   uint64_t max_offset = 0;
   std::string key_at_max_offset;
   for (metaindex_iter->SeekToFirst(); metaindex_iter->Valid();
@@ -4874,10 +4832,94 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
       key_at_max_offset = metaindex_iter->key().ToString();
     }
   }
-  ASSERT_EQ(kPropertiesBlock, key_at_max_offset);
+  ASSERT_EQ(kPropertiesBlockName, key_at_max_offset);
   // index handle is stored in footer rather than metaindex block, so need
   // separate logic to verify it comes before properties block.
   ASSERT_GT(max_offset, footer.index_handle().offset());
+  c.ResetTableReader();
+}
+
+TEST_P(BlockBasedTableTest, SeekMetaBlocks) {
+  TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
+  c.Add("foo_a1", "val1");
+  c.Add("foo_b2", "val2");
+  c.Add("foo_c3", "val3");
+  c.Add("foo_d4", "val4");
+  c.Add("foo_e5", "val5");
+  c.Add("foo_f6", "val6");
+  c.Add("foo_g7", "val7");
+  c.Add("foo_h8", "val8");
+  c.Add("foo_j9", "val9");
+
+  // write an SST file
+  Options options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  table_options.index_type = BlockBasedTableOptions::kHashSearch;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(
+      8 /* bits_per_key */, false /* use_block_based_filter */));
+  options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  c.Finish(options, ioptions, moptions, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+
+  // get file reader
+  test::StringSink* table_sink = c.TEST_GetSink();
+  std::unique_ptr<FSRandomAccessFile> source(new test::StringSource(
+      table_sink->contents(), 0 /* unique_id */, false /* allow_mmap_reads */));
+
+  std::unique_ptr<RandomAccessFileReader> table_reader(
+      new RandomAccessFileReader(std::move(source), "test"));
+  size_t table_size = table_sink->contents().size();
+
+  // read footer
+  Footer footer;
+  IOOptions opts;
+  ASSERT_OK(ReadFooterFromFile(opts, table_reader.get(),
+                               nullptr /* prefetch_buffer */, table_size,
+                               &footer, kBlockBasedTableMagicNumber));
+
+  // read metaindex
+  auto metaindex_handle = footer.metaindex_handle();
+  BlockContents metaindex_contents;
+  PersistentCacheOptions pcache_opts;
+  BlockFetcher block_fetcher(
+      table_reader.get(), nullptr /* prefetch_buffer */, footer, ReadOptions(),
+      metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
+      false /*maybe_compressed*/, BlockType::kMetaIndex,
+      UncompressionDict::GetEmptyDict(), pcache_opts,
+      nullptr /*memory_allocator*/);
+  ASSERT_OK(block_fetcher.ReadBlockContents());
+  Block metaindex_block(std::move(metaindex_contents));
+
+  // verify properties block comes last
+  std::unique_ptr<MetaBlockIter> metaindex_iter(
+      metaindex_block.NewMetaIterator());
+  bool has_hash_prefixes = false;
+  bool has_hash_metadata = false;
+  for (metaindex_iter->SeekToFirst(); metaindex_iter->Valid();
+       metaindex_iter->Next()) {
+    if (metaindex_iter->key().ToString() == kHashIndexPrefixesBlock) {
+      has_hash_prefixes = true;
+    } else if (metaindex_iter->key().ToString() ==
+               kHashIndexPrefixesMetadataBlock) {
+      has_hash_metadata = true;
+    }
+  }
+  if (has_hash_metadata) {
+    metaindex_iter->Seek(kHashIndexPrefixesMetadataBlock);
+    ASSERT_TRUE(metaindex_iter->Valid());
+    ASSERT_EQ(kHashIndexPrefixesMetadataBlock,
+              metaindex_iter->key().ToString());
+  }
+  if (has_hash_prefixes) {
+    metaindex_iter->Seek(kHashIndexPrefixesBlock);
+    ASSERT_TRUE(metaindex_iter->Valid());
+    ASSERT_EQ(kHashIndexPrefixesBlock, metaindex_iter->key().ToString());
+  }
   c.ResetTableReader();
 }
 
@@ -5370,6 +5412,7 @@ TEST_P(
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

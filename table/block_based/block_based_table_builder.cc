@@ -22,6 +22,7 @@
 #include <utility>
 
 #include "cache/cache_entry_roles.h"
+#include "cache/cache_key.h"
 #include "cache/cache_reservation_manager.h"
 #include "db/dbformat.h"
 #include "index_builder.h"
@@ -321,10 +322,7 @@ struct BlockBasedTableBuilder::Rep {
       compression_dict_buffer_cache_res_mgr;
   const bool use_delta_encoding_for_index_values;
   std::unique_ptr<FilterBlockBuilder> filter_builder;
-  char cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
-  size_t cache_key_prefix_size;
-  char compressed_cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
-  size_t compressed_cache_key_prefix_size;
+  OffsetableCacheKey base_cache_key;
   const TableFileCreationReason reason;
 
   BlockHandle pending_handle;  // Handle to add to index block
@@ -436,8 +434,6 @@ struct BlockBasedTableBuilder::Rep {
                                                         : State::kUnbuffered),
         use_delta_encoding_for_index_values(table_opt.format_version >= 4 &&
                                             !table_opt.block_align),
-        cache_key_prefix_size(0),
-        compressed_cache_key_prefix_size(0),
         reason(tbo.reason),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
@@ -887,7 +883,16 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     rep_->filter_builder->StartBlock(0);
   }
 
-  SetupCacheKeyPrefix(tbo);
+  TEST_SYNC_POINT_CALLBACK(
+      "BlockBasedTableBuilder::BlockBasedTableBuilder:PreSetupBaseCacheKey",
+      const_cast<TableProperties*>(&rep_->props));
+
+  // Extremely large files use atypical cache key encoding, and we don't
+  // know ahead of time how big the file will be. But assuming it's less
+  // than 4TB, we will correctly predict the cache keys.
+  BlockBasedTable::SetupBaseCacheKey(
+      &rep_->props, tbo.db_session_id, tbo.cur_file_num,
+      BlockBasedTable::kMaxFileSizeStandardEncoding, &rep_->base_cache_key);
 
   if (rep_->IsParallelCompressionEnabled()) {
     StartParallelCompression();
@@ -1221,7 +1226,8 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                            CompressionType type,
                                            BlockHandle* handle,
                                            BlockType block_type,
-                                           const Slice* raw_block_contents) {
+                                           const Slice* raw_block_contents,
+                                           bool is_top_level_filter_block) {
   Rep* r = rep_;
   bool is_data_block = block_type == BlockType::kData;
   Status s = Status::OK();
@@ -1262,9 +1268,11 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
       }
       if (warm_cache) {
         if (type == kNoCompression) {
-          s = InsertBlockInCacheHelper(block_contents, handle, block_type);
+          s = InsertBlockInCacheHelper(block_contents, handle, block_type,
+                                       is_top_level_filter_block);
         } else if (raw_block_contents != nullptr) {
-          s = InsertBlockInCacheHelper(*raw_block_contents, handle, block_type);
+          s = InsertBlockInCacheHelper(*raw_block_contents, handle, block_type,
+                                       is_top_level_filter_block);
         }
         if (!s.ok()) {
           r->SetStatus(s);
@@ -1405,25 +1413,6 @@ void DeleteEntryCached(const Slice& /*key*/, void* value) {
 }
 }  // namespace
 
-// Helper function to setup the cache key's prefix for the Table.
-void BlockBasedTableBuilder::SetupCacheKeyPrefix(
-    const TableBuilderOptions& tbo) {
-  // FIXME: Unify with BlockBasedTable::SetupCacheKeyPrefix
-  if (rep_->table_options.block_cache.get() != nullptr) {
-    BlockBasedTable::GenerateCachePrefix<Cache, FSWritableFile>(
-        rep_->table_options.block_cache.get(), rep_->file->writable_file(),
-        &rep_->cache_key_prefix[0], &rep_->cache_key_prefix_size,
-        tbo.db_session_id, tbo.cur_file_num);
-  }
-  if (rep_->table_options.block_cache_compressed.get() != nullptr) {
-    BlockBasedTable::GenerateCachePrefix<Cache, FSWritableFile>(
-        rep_->table_options.block_cache_compressed.get(),
-        rep_->file->writable_file(), &rep_->compressed_cache_key_prefix[0],
-        &rep_->compressed_cache_key_prefix_size, tbo.db_session_id,
-        tbo.cur_file_num);
-  }
-}
-
 //
 // Make a copy of the block contents and insert into compressed block cache
 //
@@ -1447,15 +1436,10 @@ Status BlockBasedTableBuilder::InsertBlockInCompressedCache(
     block_contents_to_cache->is_raw_block = true;
 #endif  // NDEBUG
 
-    // make cache key by appending the file offset to the cache prefix id
-    char* end = EncodeVarint64(
-        r->compressed_cache_key_prefix + r->compressed_cache_key_prefix_size,
-        handle->offset());
-    Slice key(r->compressed_cache_key_prefix,
-              static_cast<size_t>(end - r->compressed_cache_key_prefix));
+    CacheKey key = BlockBasedTable::GetCacheKey(rep_->base_cache_key, *handle);
 
     s = block_cache_compressed->Insert(
-        key, block_contents_to_cache,
+        key.AsSlice(), block_contents_to_cache,
         block_contents_to_cache->ApproximateMemoryUsage(),
         &DeleteEntryCached<BlockContents>);
     if (s.ok()) {
@@ -1472,14 +1456,19 @@ Status BlockBasedTableBuilder::InsertBlockInCompressedCache(
 
 Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
     const Slice& block_contents, const BlockHandle* handle,
-    BlockType block_type) {
+    BlockType block_type, bool is_top_level_filter_block) {
   Status s;
   if (block_type == BlockType::kData || block_type == BlockType::kIndex) {
     s = InsertBlockInCache<Block>(block_contents, handle, block_type);
   } else if (block_type == BlockType::kFilter) {
     if (rep_->filter_builder->IsBlockBased()) {
+      // for block-based filter which is deprecated.
+      s = InsertBlockInCache<BlockContents>(block_contents, handle, block_type);
+    } else if (is_top_level_filter_block) {
+      // for top level filter block in partitioned filter.
       s = InsertBlockInCache<Block>(block_contents, handle, block_type);
     } else {
+      // for second level partitioned filters and full filters.
       s = InsertBlockInCache<ParsedFullFilterBlock>(block_contents, handle,
                                                     block_type);
     }
@@ -1503,11 +1492,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     memcpy(buf.get(), block_contents.data(), size);
     BlockContents results(std::move(buf), size);
 
-    char
-        cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-    Slice key = BlockBasedTable::GetCacheKey(rep_->cache_key_prefix,
-                                             rep_->cache_key_prefix_size,
-                                             *handle, cache_key);
+    CacheKey key = BlockBasedTable::GetCacheKey(rep_->base_cache_key, *handle);
 
     const size_t read_amp_bytes_per_bit =
         rep_->table_options.read_amp_bytes_per_bit;
@@ -1524,7 +1509,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     assert(block_holder->own_bytes());
     size_t charge = block_holder->ApproximateMemoryUsage();
     s = block_cache->Insert(
-        key, block_holder.get(),
+        key.AsSlice(), block_holder.get(),
         BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), charge,
         nullptr, Cache::Priority::LOW);
 
@@ -1564,8 +1549,18 @@ void BlockBasedTableBuilder::WriteFilterBlock(
           rep_->filter_builder->Finish(filter_block_handle, &s, &filter_data);
       assert(s.ok() || s.IsIncomplete());
       rep_->props.filter_size += filter_content.size();
+
+      // TODO: Refactor code so that BlockType can determine both the C++ type
+      // of a block cache entry (TBlocklike) and the CacheEntryRole while
+      // inserting blocks in cache.
+      bool top_level_filter_block = false;
+      if (s.ok() && rep_->table_options.partition_filters &&
+          !rep_->filter_builder->IsBlockBased()) {
+        top_level_filter_block = true;
+      }
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle,
-                    BlockType::kFilter);
+                    BlockType::kFilter, nullptr /*raw_contents*/,
+                    top_level_filter_block);
     }
     rep_->filter_builder->ResetFilterBitsBuilder();
   }
@@ -1618,13 +1613,21 @@ void BlockBasedTableBuilder::WriteIndexBlock(
   }
   // If there are more index partitions, finish them and write them out
   if (index_builder_status.IsIncomplete()) {
-    Status s = Status::Incomplete();
-    while (ok() && s.IsIncomplete()) {
-      s = rep_->index_builder->Finish(&index_blocks, *index_block_handle);
-      if (!s.ok() && !s.IsIncomplete()) {
+    bool index_building_finished = false;
+    while (ok() && !index_building_finished) {
+      Status s =
+          rep_->index_builder->Finish(&index_blocks, *index_block_handle);
+      if (s.ok()) {
+        index_building_finished = true;
+      } else if (s.IsIncomplete()) {
+        // More partitioned index after this one
+        assert(!index_building_finished);
+      } else {
+        // Error
         rep_->SetStatus(s);
         return;
       }
+
       if (rep_->table_options.enable_index_compression) {
         WriteBlock(index_blocks.index_block_contents, index_block_handle,
                    BlockType::kIndex);
@@ -1735,7 +1738,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     }
 #endif  // !NDEBUG
 
-    const std::string* properties_block_meta = &kPropertiesBlock;
+    const std::string* properties_block_meta = &kPropertiesBlockName;
     TEST_SYNC_POINT_CALLBACK(
         "BlockBasedTableBuilder::WritePropertiesBlock:Meta",
         &properties_block_meta);
@@ -1760,7 +1763,7 @@ void BlockBasedTableBuilder::WriteCompressionDictBlock(
 #endif  // NDEBUG
     }
     if (ok()) {
-      meta_index_builder->Add(kCompressionDictBlock,
+      meta_index_builder->Add(kCompressionDictBlockName,
                               compression_dict_block_handle);
     }
   }
@@ -1772,36 +1775,25 @@ void BlockBasedTableBuilder::WriteRangeDelBlock(
     BlockHandle range_del_block_handle;
     WriteRawBlock(rep_->range_del_block.Finish(), kNoCompression,
                   &range_del_block_handle, BlockType::kRangeDeletion);
-    meta_index_builder->Add(kRangeDelBlock, range_del_block_handle);
+    meta_index_builder->Add(kRangeDelBlockName, range_del_block_handle);
   }
 }
 
 void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
                                          BlockHandle& index_block_handle) {
   Rep* r = rep_;
-  // No need to write out new footer if we're using default checksum.
-  // We're writing legacy magic number because we want old versions of RocksDB
-  // be able to read files generated with new release (just in case if
-  // somebody wants to roll back after an upgrade)
-  // TODO(icanadi) at some point in the future, when we're absolutely sure
-  // nobody will roll back to RocksDB 2.x versions, retire the legacy magic
-  // number and always write new table files with new magic number
-  bool legacy = (r->table_options.format_version == 0);
   // this is guaranteed by BlockBasedTableBuilder's constructor
   assert(r->table_options.checksum == kCRC32c ||
          r->table_options.format_version != 0);
-  Footer footer(
-      legacy ? kLegacyBlockBasedTableMagicNumber : kBlockBasedTableMagicNumber,
-      r->table_options.format_version);
-  footer.set_metaindex_handle(metaindex_block_handle);
-  footer.set_index_handle(index_block_handle);
-  footer.set_checksum(r->table_options.checksum);
-  std::string footer_encoding;
-  footer.EncodeTo(&footer_encoding);
   assert(ok());
-  IOStatus ios = r->file->Append(footer_encoding);
+
+  FooterBuilder footer;
+  footer.Build(kBlockBasedTableMagicNumber, r->table_options.format_version,
+               r->get_offset(), r->table_options.checksum,
+               metaindex_block_handle, index_block_handle);
+  IOStatus ios = r->file->Append(footer.GetSlice());
   if (ios.ok()) {
-    r->set_offset(r->get_offset() + footer_encoding.size());
+    r->set_offset(r->get_offset() + footer.GetSlice().size());
   } else {
     r->SetIOStatus(ios);
     r->SetStatus(ios);

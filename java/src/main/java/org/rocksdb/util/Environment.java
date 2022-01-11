@@ -1,7 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 package org.rocksdb.util;
 
-import java.io.File;
 import java.io.IOException;
 
 public class Environment {

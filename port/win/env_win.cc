@@ -1413,10 +1413,6 @@ const std::shared_ptr<SystemClock>& SystemClock::Default() {
       std::make_shared<port::WinClock>();
   return clock;
 }
-
-std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs) {
-  return std::unique_ptr<Env>(new CompositeEnvWrapper(Env::Default(), fs));
-}
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif

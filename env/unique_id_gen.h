@@ -53,7 +53,9 @@ void TEST_GenerateRawUniqueId(uint64_t* a, uint64_t* b, bool exclude_port_uuid,
 class SemiStructuredUniqueIdGen {
  public:
   // Initializes with random starting state (from GenerateRawUniqueId)
-  SemiStructuredUniqueIdGen();
+  SemiStructuredUniqueIdGen() { Reset(); }
+  // Re-initializes, but not thread safe
+  void Reset();
 
   // Assuming no fork(), `lower` is guaranteed unique from one call
   // to the next (thread safe).

@@ -45,6 +45,7 @@
 #include "util/channel.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/math.h"
 #include "util/string_util.h"
 #include "utilities/backupable/backupable_db_impl.h"
 #include "utilities/checkpoint/checkpoint_impl.h"

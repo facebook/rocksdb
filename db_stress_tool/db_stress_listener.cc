@@ -31,6 +31,13 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name)
   FileSystem& fs = *FileSystem::Default();
   IOOptions opts;
 
+  Status st = fs.CreateDirIfMissing(db_name, opts, nullptr);
+  if (!st.ok()) {
+    fprintf(stderr, "Failed to create directory %s: %s\n", db_name.c_str(),
+            st.ToString().c_str());
+    exit(1);
+  }
+
   {
     std::unique_ptr<FSSequentialFile> reader;
     Status s =

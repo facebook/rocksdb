@@ -554,7 +554,7 @@ class ColumnFamilyTest
 INSTANTIATE_TEST_CASE_P(FormatDef, ColumnFamilyTest,
                         testing::Values(test::kDefaultFormatVersion));
 INSTANTIATE_TEST_CASE_P(FormatLatest, ColumnFamilyTest,
-                        testing::Values(test::kLatestFormatVersion));
+                        testing::Values(kLatestFormatVersion));
 
 TEST_P(ColumnFamilyTest, DontReuseColumnFamilyID) {
   for (int iter = 0; iter < 3; ++iter) {
@@ -746,8 +746,8 @@ INSTANTIATE_TEST_CASE_P(
                     std::make_tuple(test::kDefaultFormatVersion, false)));
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, FlushEmptyCFTestWithParam,
-    testing::Values(std::make_tuple(test::kLatestFormatVersion, true),
-                    std::make_tuple(test::kLatestFormatVersion, false)));
+    testing::Values(std::make_tuple(kLatestFormatVersion, true),
+                    std::make_tuple(kLatestFormatVersion, false)));
 
 TEST_P(ColumnFamilyTest, AddDrop) {
   Open();

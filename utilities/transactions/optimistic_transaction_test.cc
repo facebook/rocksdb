@@ -37,7 +37,7 @@ class OptimisticTransactionTest
   OptimisticTransactionTest() {
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
-    options.max_write_buffer_size_to_maintain = 1600;
+    options.max_write_buffer_size_to_maintain = 2 * Arena::kInlineSize;
     options.merge_operator.reset(new TestPutOperator());
     dbname = test::PerThreadDBPath("optimistic_transaction_testdb");
 
@@ -318,7 +318,6 @@ TEST_P(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
   const int kAttemptImmMemTable = 1;
   for (int attempt = kAttemptHistoryMemtable; attempt <= kAttemptImmMemTable;
        attempt++) {
-    options.max_write_buffer_number_to_maintain = 3;
     Reopen();
 
     WriteOptions write_options;

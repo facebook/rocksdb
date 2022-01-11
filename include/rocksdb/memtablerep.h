@@ -311,7 +311,7 @@ class MemTableRepFactory : public Customizable {
     return CreateMemTableRep(key_cmp, allocator, slice_transform, logger);
   }
 
-  virtual const char* Name() const = 0;
+  const char* Name() const override = 0;
 
   // Return true if the current MemTableRep supports concurrent inserts
   // Default: false

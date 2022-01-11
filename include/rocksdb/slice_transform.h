@@ -38,7 +38,7 @@ class SliceTransform : public Customizable {
   virtual ~SliceTransform(){};
 
   // Return the name of this transformation.
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
   static const char* Type() { return "SliceTransform"; }
 
   // Creates and configures a new SliceTransform from the input options and id.

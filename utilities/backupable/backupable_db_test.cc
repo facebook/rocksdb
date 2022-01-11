@@ -172,6 +172,7 @@ class DummyDB : public StackableDB {
 class TestEnv : public EnvWrapper {
  public:
   explicit TestEnv(Env* t) : EnvWrapper(t) {}
+  const char* Name() const override { return "TestEnv"; }
 
   class DummySequentialFile : public SequentialFile {
    public:
@@ -417,6 +418,7 @@ class TestEnv : public EnvWrapper {
 class FileManager : public EnvWrapper {
  public:
   explicit FileManager(Env* t) : EnvWrapper(t), rnd_(5) {}
+  const char* Name() const override { return "FileManager"; }
 
   Status GetRandomFileInDir(const std::string& dir, std::string* fname,
                             uint64_t* fsize) {
@@ -1014,12 +1016,12 @@ class BackupEngineTestWithParam : public BackupEngineTest,
 };
 
 TEST_F(BackupEngineTest, FileCollision) {
-  const int keys_iteration = 5000;
+  const int keys_iteration = 100;
   for (const auto& sopt : kAllShareOptions) {
     OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
     FillDB(db_.get(), 0, keys_iteration);
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
-    FillDB(db_.get(), 0, keys_iteration);
+    FillDB(db_.get(), keys_iteration, keys_iteration * 2);
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     CloseDBAndBackupEngine();
 
@@ -1027,10 +1029,12 @@ TEST_F(BackupEngineTest, FileCollision) {
     // collision.
     ASSERT_OK(DestroyDB(dbname_, options_));
 
-    // open with old backup
+    // open fresh DB, but old backups present
     OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
                           sopt);
-    FillDB(db_.get(), 0, keys_iteration * 2);
+    FillDB(db_.get(), 0, keys_iteration);
+    ASSERT_OK(db_->Flush(FlushOptions()));  // like backup would do
+    FillDB(db_.get(), keys_iteration, keys_iteration * 2);
     if (sopt != kShareNoChecksum) {
       ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     } else {
@@ -3156,6 +3160,10 @@ TEST_F(BackupEngineTest, ChangeManifestDuringBackupCreation) {
   FillDB(db_.get(), 0, 100, kAutoFlushOnly);
   ASSERT_OK(db_chroot_env_->FileExists(prev_manifest_path));
   ASSERT_OK(db_->Flush(FlushOptions()));
+  // Even though manual flush completed above, the background thread may not
+  // have finished its cleanup work. `TEST_WaitForBackgroundWork()` will wait
+  // until all the background thread's work has completed, including cleanup.
+  ASSERT_OK(db_impl->TEST_WaitForBackgroundWork());
   ASSERT_TRUE(db_chroot_env_->FileExists(prev_manifest_path).IsNotFound());
 
   CloseDBAndBackupEngine();

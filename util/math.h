@@ -185,4 +185,50 @@ inline int BitParity(T v) {
 #endif
 }
 
+// Swaps between big and little endian. Can be used in combination with the
+// little-endian encoding/decoding functions in coding_lean.h and coding.h to
+// encode/decode big endian.
+template <typename T>
+inline T EndianSwapValue(T v) {
+  static_assert(std::is_integral<T>::value, "non-integral type");
+
+#ifdef _MSC_VER
+  if (sizeof(T) == 2) {
+    return static_cast<T>(_byteswap_ushort(static_cast<uint16_t>(v)));
+  } else if (sizeof(T) == 4) {
+    return static_cast<T>(_byteswap_ulong(static_cast<uint32_t>(v)));
+  } else if (sizeof(T) == 8) {
+    return static_cast<T>(_byteswap_uint64(static_cast<uint64_t>(v)));
+  }
+#else
+  if (sizeof(T) == 2) {
+    return static_cast<T>(__builtin_bswap16(static_cast<uint16_t>(v)));
+  } else if (sizeof(T) == 4) {
+    return static_cast<T>(__builtin_bswap32(static_cast<uint32_t>(v)));
+  } else if (sizeof(T) == 8) {
+    return static_cast<T>(__builtin_bswap64(static_cast<uint64_t>(v)));
+  }
+#endif
+  // Recognized by clang as bswap, but not by gcc :(
+  T ret_val = 0;
+  for (std::size_t i = 0; i < sizeof(T); ++i) {
+    ret_val |= ((v >> (8 * i)) & 0xff) << (8 * (sizeof(T) - 1 - i));
+  }
+  return ret_val;
+}
+
+// Reverses the order of bits in an integral value
+template <typename T>
+inline T ReverseBits(T v) {
+  T r = EndianSwapValue(v);
+  const T kHighestByte = T{1} << ((sizeof(T) - 1) * 8);
+  const T kEveryByte = kHighestByte | (kHighestByte / 255);
+
+  r = ((r & (kEveryByte * 0x0f)) << 4) | ((r >> 4) & (kEveryByte * 0x0f));
+  r = ((r & (kEveryByte * 0x33)) << 2) | ((r >> 2) & (kEveryByte * 0x33));
+  r = ((r & (kEveryByte * 0x55)) << 1) | ((r >> 1) & (kEveryByte * 0x55));
+
+  return r;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

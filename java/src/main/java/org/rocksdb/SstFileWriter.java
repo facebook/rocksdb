@@ -244,6 +244,7 @@ public class SstFileWriter extends RocksObject {
   /**
    * Return the current file size.
    *
+   * @return the current file size.
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */

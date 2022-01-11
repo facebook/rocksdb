@@ -352,25 +352,17 @@ int main() {
   return 0;
 }
 " BUILTIN_ATOMIC)
-if (NOT BUILTIN_ATOMIC)
-  #TODO: Check if -latomic exists
-  list(APPEND THIRDPARTY_LIBS atomic)
-endif()
+  if (NOT BUILTIN_ATOMIC)
+    #TODO: Check if -latomic exists
+    list(APPEND THIRDPARTY_LIBS atomic)
+  endif()
 endif()
 
 if (WITH_LIBURING)
-  set(CMAKE_REQUIRED_FLAGS "-luring")
-  CHECK_CXX_SOURCE_COMPILES("
-#include <liburing.h>
-int main() {
-  struct io_uring ring;
-  io_uring_queue_init(1, &ring, 0);
-  return 0;
-}
-" HAS_LIBURING)
-  if (HAS_LIBURING)
+  find_package(uring)
+  if (uring_FOUND)
     add_definitions(-DROCKSDB_IOURING_PRESENT)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -luring")
+    list(APPEND THIRDPARTY_LIBS uring::uring)
   endif()
 endif()
 
@@ -636,6 +628,7 @@ find_package(Threads REQUIRED)
 set(SOURCES
         cache/cache.cc
         cache/cache_entry_roles.cc
+        cache/cache_key.cc
         cache/cache_reservation_manager.cc
         cache/clock_cache.cc
         cache/lru_cache.cc
@@ -745,6 +738,7 @@ set(SOURCES
         memory/concurrent_arena.cc
         memory/jemalloc_nodump_allocator.cc
         memory/memkind_kmem_allocator.cc
+        memory/memory_allocator.cc
         memtable/alloc_tracker.cc
         memtable/hash_linklist_rep.cc
         memtable/hash_skiplist_rep.cc
@@ -938,6 +932,31 @@ list(APPEND SOURCES
   utilities/transactions/lock/range/range_tree/lib/standalone_port.cc
   utilities/transactions/lock/range/range_tree/lib/util/dbt.cc
   utilities/transactions/lock/range/range_tree/lib/util/memarena.cc)
+
+message(STATUS "ROCKSDB_PLUGINS: ${ROCKSDB_PLUGINS}")
+if ( ROCKSDB_PLUGINS )
+  string(REPLACE " " ";" PLUGINS ${ROCKSDB_PLUGINS})
+  foreach (plugin ${PLUGINS})
+    add_subdirectory("plugin/${plugin}")
+    foreach (src ${${plugin}_SOURCES})
+      list(APPEND SOURCES plugin/${plugin}/${src})
+      set_source_files_properties(
+        plugin/${plugin}/${src}
+        PROPERTIES COMPILE_FLAGS "${${plugin}_COMPILE_FLAGS}")
+    endforeach()
+    foreach (path ${${plugin}_INCLUDE_PATHS})
+      include_directories(${path})
+    endforeach()
+    foreach (lib ${${plugin}_LIBS})
+      list(APPEND THIRDPARTY_LIBS ${lib})
+    endforeach()
+    foreach (link_path ${${plugin}_LINK_PATHS})
+      link_directories(AFTER ${link_path})
+    endforeach()
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${${plugin}_CMAKE_SHARED_LINKER_FLAGS}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${${plugin}_CMAKE_EXE_LINKER_FLAGS}")
+  endforeach()
+endif()
 
 if(HAVE_SSE42 AND NOT MSVC)
   set_source_files_properties(
@@ -1245,7 +1264,7 @@ if(WITH_TESTS)
         logging/env_logger_test.cc
         logging/event_logger_test.cc
         memory/arena_test.cc
-        memory/memkind_kmem_allocator_test.cc
+        memory/memory_allocator_test.cc
         memtable/inlineskiplist_test.cc
         memtable/skiplist_test.cc
         memtable/write_buffer_manager_test.cc
