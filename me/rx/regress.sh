@@ -32,11 +32,11 @@ while read v1 v2 ; do
       git checkout $v2
       make clean >& /dev/null
 
-      t=${v1}.${v2}; DISABLE_WARNING_AS_ERROR=1 DEBUG_LEVEL=0 make V=1 VERBOSE=1 -j4 static_lib db_bench > reg.b.${t} 2> reg.e.${t}
+      t=${v1}.${v2}; DISABLE_WARNING_AS_ERROR=1 DEBUG_LEVEL=0 make V=1 VERBOSE=1 -j4 static_lib db_bench > reg.b.$t 2> reg.e.$t
       makeres=$?
       mv db_bench db_bench.$t
 
-      git log | head -10 >> reg.b.${t}
+      git log | head -10 >> reg.b.$t
     else
       makeres=0
     fi
@@ -44,8 +44,7 @@ while read v1 v2 ; do
     if [ $makeres -ne 0 ]; then
       echo Make failed
     else
-      # run_perfcmp $t
-      bash x.sh $myhw $secs $secs_ro $nkeys $nthreads $odirect $comp $numa
+      bash x.sh $myhw $secs $secs_ro $nkeys $nthreads $odirect $comp $numa db_bench.$t
     fi
 
   else
