@@ -163,11 +163,7 @@ fi
 
 shift 2
 
-if [ -d $odir ]; then
-  echo "Exiting because the output directory ($odir) exists"
-  exit 1
-fi
-mkdir $odir
+mkdir -p $odir
 
 # The goal is to make the limits large enough so that:
 # 1) there aren't write stalls after every L0->L1 compaction
@@ -214,6 +210,12 @@ echo Test versions: $@ >> $odir/args
 
 for v in $@ ; do
   my_odir=$odir/$v
+
+  if [ -d $my_odir ]; then
+    echo "Exiting because the output directory ($my_odir) exists"
+    exit 1
+  fi
+
   args_common=("${base_args[@]}")
 
   args_common+=( OUTPUT_DIR=$my_odir DB_DIR=$dbdir WAL_DIR=$dbdir DB_BENCH_NO_SYNC=1 )
@@ -239,7 +241,7 @@ for v in $@ ; do
   rm -f db_bench
   ln -s db_bench.$v db_bench
 
-  rm -rf $my_odir
+  # rm -rf $my_odir
   rm -rf $dbdir/*
 
   # Load in key order
