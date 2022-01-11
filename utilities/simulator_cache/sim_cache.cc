@@ -6,6 +6,7 @@
 #include "rocksdb/utilities/sim_cache.h"
 
 #include <atomic>
+#include <iomanip>
 
 #include "file/writable_file_writer.h"
 #include "monitoring/statistics.h"
@@ -13,7 +14,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "util/mutexlock.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
