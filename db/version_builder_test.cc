@@ -1661,7 +1661,6 @@ class FilePreloadTest : public DBTestBase {
 
 TEST_F(FilePreloadTest, PreloadCaching) {
   // create a DB with 3 files
-  // the day.
   ASSERT_OK(Put("key", "val"));
   ASSERT_OK(Flush());
   ASSERT_OK(Put("key2", "val2"));
@@ -1702,7 +1701,6 @@ TEST_F(FilePreloadTest, PreloadCaching) {
 
 TEST_F(FilePreloadTest, PreloadCorruption) {
   // create a DB with 3 files
-  // the day.
   ASSERT_OK(Put("key", "val"));
   ASSERT_OK(Flush());
   ASSERT_OK(Put("key2", "val2"));
@@ -1718,7 +1716,7 @@ TEST_F(FilePreloadTest, PreloadCorruption) {
   ASSERT_EQ(table_cache->GetUsage(), 3);
 
   Options new_options = GetOptions(kDefault);
-  ASSERT_TRUE(TryReopen(new_options).ok());
+  ASSERT_OK(TryReopen(new_options));
   db_impl = dbfull();
   table_cache = db_impl->TEST_table_cache();
 
@@ -1734,13 +1732,13 @@ TEST_F(FilePreloadTest, PreloadCorruption) {
   std::string fail_file =
       meta.levels[0].files[0].db_path + meta.levels[0].files[0].name;
   std::string garbage(meta.levels[0].files[0].size, '@');
-  ASSERT_TRUE(WriteStringToFile(db_->GetEnv(), garbage, fail_file, true).ok());
+  ASSERT_OK(WriteStringToFile(db_->GetEnv(), garbage, fail_file, true));
 
-  ASSERT_FALSE(TryReopen(new_options).ok())
+  ASSERT_NOK(TryReopen(new_options))
       << "reopen should fail with corrupted .sst";
 
   new_options = GetOptions(kPreloadDisabled);
-  ASSERT_TRUE(TryReopen(new_options).ok())
+  ASSERT_OK(TryReopen(new_options))
       << "reopen should fail with preload disabled";
 }
 #endif

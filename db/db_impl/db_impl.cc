@@ -4242,7 +4242,7 @@ Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
   } else {
     // do not accumulate failed files
     //  (could be hundreds with bad options code)
-    (void)env_->DeleteFile(file_name).ok();
+    env_->DeleteFile(file_name).PermitUncheckedError();
   }
   // restore lock
   if (!need_mutex_lock) {

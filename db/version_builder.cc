@@ -1187,7 +1187,7 @@ class VersionBuilder::Rep {
     }
 
     Status ret;
-    if (0 < max_load) {
+    if (max_load > 0) {
       // <file metadata, level>
       std::vector<std::pair<FileMetaData*, int>> files_meta;
       std::vector<Status> statuses;
