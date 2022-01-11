@@ -1592,6 +1592,7 @@ struct ReportFileOpCounters {
 class ReportFileOpEnv : public EnvWrapper {
  public:
   explicit ReportFileOpEnv(Env* base) : EnvWrapper(base) { reset(); }
+  const char* Name() const override { return "ReportFileOpEnv"; }
 
   void reset() {
     counters_.open_counter_ = 0;

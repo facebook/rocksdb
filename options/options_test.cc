@@ -1270,6 +1270,13 @@ TEST_F(OptionsTest, MemTableRepFactoryCreateFromString) {
 }
 
 #ifndef ROCKSDB_LITE  // GetOptionsFromString is not supported in RocksDB Lite
+class CustomEnv : public EnvWrapper {
+ public:
+  explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
+  static const char* kClassName() { return "CustomEnv"; }
+  const char* Name() const override { return kClassName(); }
+};
+
 TEST_F(OptionsTest, GetOptionsFromStringTest) {
   Options base_options, new_options;
   ConfigOptions config_options;
@@ -1284,14 +1291,8 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
       NewBlockBasedTableFactory(block_based_table_options));
 
   // Register an Env with object registry.
-  const static char* kCustomEnvName = "CustomEnv";
-  class CustomEnv : public EnvWrapper {
-   public:
-    explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
-  };
-
   ObjectLibrary::Default()->Register<Env>(
-      kCustomEnvName,
+      CustomEnv::kClassName(),
       [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
          std::string* /* errmsg */) {
         static CustomEnv env(Env::Default());
@@ -1337,7 +1338,7 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.max_open_files, 1);
   ASSERT_TRUE(new_options.rate_limiter.get() != nullptr);
   Env* newEnv = new_options.env;
-  ASSERT_OK(Env::LoadEnv(kCustomEnvName, &newEnv));
+  ASSERT_OK(Env::LoadEnv(CustomEnv::kClassName(), &newEnv));
   ASSERT_EQ(newEnv, new_options.env);
 
   config_options.ignore_unknown_options = false;
@@ -2192,10 +2193,6 @@ TEST_F(OptionsTest, OptionsListenerTest) {
 #ifndef ROCKSDB_LITE
 const static std::string kCustomEnvName = "Custom";
 const static std::string kCustomEnvProp = "env=" + kCustomEnvName;
-class CustomEnv : public EnvWrapper {
- public:
-  explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
-};
 
 static int RegisterCustomEnv(ObjectLibrary& library, const std::string& arg) {
   library.Register<Env>(
