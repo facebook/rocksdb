@@ -299,7 +299,9 @@ class SimCacheImpl : public SimCache {
     oss << "SimCache MISSes:  " << get_miss_counter() << std::endl;
     oss << "SimCache HITs:    " << get_hit_counter() << std::endl;
     auto lookups = get_miss_counter() + get_hit_counter();
-    oss << "SimCache HITRATE: " << std::fixed << std::setprecision(2) << (lookups == 0 ? 0 : get_hit_counter() * 100.0f / lookups) << std::endl;
+    oss << "SimCache HITRATE: " << std::fixed << std::setprecision(2)
+        << (lookups == 0 ? 0 : get_hit_counter() * 100.0f / lookups)
+        << std::endl;
     return oss.str();
   }
 
