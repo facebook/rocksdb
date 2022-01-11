@@ -59,7 +59,7 @@ class ObjectLibrary {
   // This class is deprecated and will be removed in a future release
   class RegexEntry : public Entry {
    public:
-    RegexEntry(const std::string& name) : name_(name) {
+    explicit RegexEntry(const std::string& name) : name_(name) {
       Regex::Parse(name, &regex_).PermitUncheckedError();
     }
 
