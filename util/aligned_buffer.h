@@ -157,7 +157,7 @@ public:
     }
 
     size_t new_capacity = Roundup(requested_capacity, alignment_);
-    char* new_buf = new char[new_capacity];
+    char* new_buf = new char[new_capacity + alignment_];
     char* new_bufstart = reinterpret_cast<char*>(
         (reinterpret_cast<uintptr_t>(new_buf) + (alignment_ - 1)) &
         ~static_cast<uintptr_t>(alignment_ - 1));
