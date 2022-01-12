@@ -148,7 +148,7 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
 
 // Wait callback that locktree library will call to inform us about
 // the lock waits that are in progress.
-void wait_callback_for_locktree(void*, lock_wait_infos* infos) {
+void wait_callback_for_locktree(void*, toku::lock_wait_infos* infos) {
   for (auto wait_info : *infos) {
     auto txn = (PessimisticTransaction*)wait_info.waiter;
     auto cf_id = (ColumnFamilyId)wait_info.ltree->get_dict_id().dictid;
@@ -249,7 +249,8 @@ namespace {
 void UnrefLockTreeMapsCache(void* ptr) {
   // Called when a thread exits or a ThreadLocalPtr gets destroyed.
   auto lock_tree_map_cache = static_cast<
-      std::unordered_map<ColumnFamilyId, std::shared_ptr<locktree>>*>(ptr);
+      std::unordered_map<ColumnFamilyId, std::shared_ptr<toku::locktree>>*>(
+      ptr);
   delete lock_tree_map_cache;
 }
 }  // anonymous namespace
@@ -299,8 +300,9 @@ std::vector<DeadlockPath> RangeTreeLockManager::GetDeadlockInfoBuffer() {
 // @param buffer  Escalation result: list of locks that this transaction now
 //                owns in this lock tree.
 // @param void*   Callback context
-void RangeTreeLockManager::on_escalate(TXNID txnid, const locktree* lt,
-                                       const range_buffer& buffer, void*) {
+void RangeTreeLockManager::on_escalate(TXNID txnid, const toku::locktree* lt,
+                                       const toku::range_buffer& buffer,
+                                       void*) {
   auto txn = (PessimisticTransaction*)txnid;
   ((RangeTreeLockTracker*)&txn->GetTrackedLocks())->ReplaceLocks(lt, buffer);
 }
@@ -340,10 +342,11 @@ RangeLockManagerHandle::Counters RangeTreeLockManager::GetStatus() {
   return res;
 }
 
-std::shared_ptr<locktree> RangeTreeLockManager::MakeLockTreePtr(locktree* lt) {
-  locktree_manager* ltm = &ltm_;
-  return std::shared_ptr<locktree>(lt,
-                                   [ltm](locktree* p) { ltm->release_lt(p); });
+std::shared_ptr<toku::locktree> RangeTreeLockManager::MakeLockTreePtr(
+    toku::locktree* lt) {
+  toku::locktree_manager* ltm = &ltm_;
+  return std::shared_ptr<toku::locktree>(
+      lt, [ltm](toku::locktree* p) { ltm->release_lt(p); });
 }
 
 void RangeTreeLockManager::AddColumnFamily(const ColumnFamilyHandle* cfh) {
@@ -398,7 +401,7 @@ void RangeTreeLockManager::RemoveColumnFamily(const ColumnFamilyHandle* cfh) {
   }
 }
 
-std::shared_ptr<locktree> RangeTreeLockManager::GetLockTreeForCF(
+std::shared_ptr<toku::locktree> RangeTreeLockManager::GetLockTreeForCF(
     ColumnFamilyId column_family_id) {
   // First check thread-local cache
   if (ltree_lookup_cache_->Get() == nullptr) {
