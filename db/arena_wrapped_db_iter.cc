@@ -88,6 +88,7 @@ Status ArenaWrappedDBIter::Refresh() {
       std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter;
       range_del_iter.reset(sv->mem->NewRangeTombstoneIterator(read_options_, latest_seq));
       range_del_agg->AddTombstones(std::move(range_del_iter));
+      db_impl_->CleanupSuperVersion(sv);
     }
     // Refresh latest sequence number
     db_iter_->set_sequence(latest_seq);
