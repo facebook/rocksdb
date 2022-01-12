@@ -91,7 +91,6 @@ default_params = {
     "progress_reports": 0,
     "readpercent": 45,
     "recycle_log_file_num": lambda: random.randint(0, 1),
-    "reopen": 20,
     "snapshot_hold_ops": 100000,
     "sst_file_manager_bytes_per_sec": lambda: random.choice([0, 104857600]),
     "sst_file_manager_bytes_per_truncate": lambda: random.choice([0, 1048576]),
@@ -207,20 +206,28 @@ def is_direct_io_supported(dbname):
 
 
 blackbox_default_params = {
+    "disable_wal": lambda: random.choice([0, 0, 0, 1]),
     # total time for this script to test db_stress
     "duration": 6000,
     # time for one db_stress instance to run
     "interval": 120,
     # since we will be killing anyway, use large value for ops_per_thread
     "ops_per_thread": 100000000,
+    "reopen": 0,
     "set_options_one_in": 10000,
 }
 
 whitebox_default_params = {
+    # TODO: enable this once we figure out how to adjust kill odds for WAL-
+    # disabled runs, and either (1) separate full `db_stress` runs out of
+    # whitebox crash or (2) support verification at end of `db_stress` runs
+    # that ran with WAL disabled.
+    "disable_wal": 0,
     "duration": 10000,
     "log2_keys_per_lock": 10,
     "ops_per_thread": 200000,
     "random_kill_odd": 888887,
+    "reopen": 20,
 }
 
 simple_default_params = {
@@ -269,6 +276,8 @@ txn_params = {
     # Avoid lambda to set it once for the entire test
     "txn_write_policy": random.randint(0, 2),
     "unordered_write": random.randint(0, 1),
+    # TODO: there is such a thing as transactions with WAL disabled. We should
+    # cover that case.
     "disable_wal": 0,
     # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
     "checkpoint_one_in": 0,
@@ -352,6 +361,10 @@ def finalize_and_sanitize(src_params):
         dest_params["allow_concurrent_memtable_write"] = 1
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["atomic_flush"] = 1
+        # The `DbStressCompactionFilter` can apply memtable updates to SST
+        # files, which would be problematic without WAL since such updates are
+        # expected to be lost in crash recoveries.
+        dest_params["enable_compaction_filter"] = 0
         dest_params["sync"] = 0
         dest_params["write_fault_one_in"] = 0
     if dest_params.get("open_files", 1) != -1:

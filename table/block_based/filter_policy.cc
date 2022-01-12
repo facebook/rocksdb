@@ -97,6 +97,10 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
   // For delegating between XXPH3FilterBitsBuilders
   void SwapEntriesWith(XXPH3FilterBitsBuilder* other) {
     std::swap(hash_entries_, other->hash_entries_);
+    if (cache_res_mgr_) {
+      std::swap(hash_entry_cache_res_bucket_handles_,
+                other->hash_entry_cache_res_bucket_handles_);
+    }
   }
 
   virtual size_t RoundDownUsableSpace(size_t available_size) = 0;

@@ -866,11 +866,18 @@ TEST_F(LdbCmdTest, TestBadDbPath) {
   ASSERT_EQ(1,
             LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
 }
-
+namespace {
+class WrappedEnv : public EnvWrapper {
+ public:
+  explicit WrappedEnv(Env* t) : EnvWrapper(t) {}
+  static const char* kClassName() { return "WrappedEnv"; }
+  const char* Name() const override { return kClassName(); }
+};
+}  // namespace
 TEST_F(LdbCmdTest, LoadCFOptionsAndOverride) {
   // Env* base_env = TryLoadCustomOrDefaultEnv();
   // std::unique_ptr<Env> env(NewMemEnv(base_env));
-  std::unique_ptr<Env> env(new EnvWrapper(Env::Default()));
+  std::unique_ptr<Env> env(new WrappedEnv(Env::Default()));
   Options opts;
   opts.env = env.get();
   opts.create_if_missing = true;

@@ -4158,9 +4158,16 @@ Status VersionSet::ProcessManifestWrites(
   autovector<const MutableCFOptions*> mutable_cf_options_ptrs;
   std::vector<std::unique_ptr<BaseReferencedVersionBuilder>> builder_guards;
 
+  // Tracking `max_last_sequence` is needed to ensure we write
+  // `VersionEdit::last_sequence_`s in non-decreasing order according to the
+  // recovery code's requirement. It also allows us to defer updating
+  // `descriptor_last_sequence_` until the apply phase, after the log phase
+  // succeeds.
+  SequenceNumber max_last_sequence = descriptor_last_sequence_;
+
   if (first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
     // No group commits for column family add or drop
-    LogAndApplyCFHelper(first_writer.edit_list.front());
+    LogAndApplyCFHelper(first_writer.edit_list.front(), &max_last_sequence);
     batch_edits.push_back(first_writer.edit_list.front());
   } else {
     auto it = manifest_writers_.cbegin();
@@ -4248,7 +4255,8 @@ Status VersionSet::ProcessManifestWrites(
         } else if (group_start != std::numeric_limits<size_t>::max()) {
           group_start = std::numeric_limits<size_t>::max();
         }
-        Status s = LogAndApplyHelper(last_writer->cfd, builder, e, mu);
+        Status s = LogAndApplyHelper(last_writer->cfd, builder, e,
+                                     &max_last_sequence, mu);
         if (!s.ok()) {
           // free up the allocated memory
           for (auto v : versions) {
@@ -4520,9 +4528,11 @@ Status VersionSet::ProcessManifestWrites(
     if (first_writer.edit_list.front()->is_column_family_add_) {
       assert(batch_edits.size() == 1);
       assert(new_cf_options != nullptr);
+      assert(max_last_sequence == descriptor_last_sequence_);
       CreateColumnFamily(*new_cf_options, first_writer.edit_list.front());
     } else if (first_writer.edit_list.front()->is_column_family_drop_) {
       assert(batch_edits.size() == 1);
+      assert(max_last_sequence == descriptor_last_sequence_);
       first_writer.cfd->SetDropped();
       first_writer.cfd->UnrefAndTryDelete();
     } else {
@@ -4562,6 +4572,8 @@ Status VersionSet::ProcessManifestWrites(
         AppendVersion(cfd, versions[i]);
       }
     }
+    assert(max_last_sequence >= descriptor_last_sequence_);
+    descriptor_last_sequence_ = max_last_sequence;
     manifest_file_number_ = pending_manifest_file_number_;
     manifest_file_size_ = new_manifest_file_size;
     prev_log_number_ = first_writer.edit_list.front()->prev_log_number_;
@@ -4627,6 +4639,23 @@ Status VersionSet::ProcessManifestWrites(
   }
 
   pending_manifest_file_number_ = 0;
+
+#ifndef NDEBUG
+  // This is here kind of awkwardly because there's no other consistency
+  // checks on `VersionSet`'s updates for the new `Version`s. We might want
+  // to move it to a dedicated function, or remove it if we gain enough
+  // confidence in `descriptor_last_sequence_`.
+  if (s.ok()) {
+    for (const auto* v : versions) {
+      const auto* vstorage = v->storage_info();
+      for (int level = 0; level < vstorage->num_levels(); ++level) {
+        for (const auto& file : vstorage->LevelFiles(level)) {
+          assert(file->fd.largest_seqno <= descriptor_last_sequence_);
+        }
+      }
+    }
+  }
+#endif  // NDEBUG
 
   // wake up all the waiting writers
   while (true) {
@@ -4751,16 +4780,13 @@ Status VersionSet::LogAndApply(
                                new_cf_options);
 }
 
-void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
+void VersionSet::LogAndApplyCFHelper(VersionEdit* edit,
+                                     SequenceNumber* max_last_sequence) {
+  assert(max_last_sequence != nullptr);
   assert(edit->IsColumnFamilyManipulation());
   edit->SetNextFile(next_file_number_.load());
-  // The log might have data that is not visible to memtbale and hence have not
-  // updated the last_sequence_ yet. It is also possible that the log has is
-  // expecting some new data that is not written yet. Since LastSequence is an
-  // upper bound on the sequence, it is ok to record
-  // last_allocated_sequence_ as the last sequence.
-  edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
-                                                      : last_sequence_);
+  assert(!edit->HasLastSequence());
+  edit->SetLastSequence(*max_last_sequence);
   if (edit->is_column_family_drop_) {
     // if we drop column family, we have to make sure to save max column family,
     // so that we don't reuse existing ID
@@ -4770,12 +4796,14 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
 
 Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
                                      VersionBuilder* builder, VersionEdit* edit,
+                                     SequenceNumber* max_last_sequence,
                                      InstrumentedMutex* mu) {
 #ifdef NDEBUG
   (void)cfd;
 #endif
   mu->AssertHeld();
   assert(!edit->IsColumnFamilyManipulation());
+  assert(max_last_sequence != nullptr);
 
   if (edit->has_log_number_) {
     assert(edit->log_number_ >= cfd->GetLogNumber());
@@ -4786,13 +4814,11 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
     edit->SetPrevLogNumber(prev_log_number_);
   }
   edit->SetNextFile(next_file_number_.load());
-  // The log might have data that is not visible to memtbale and hence have not
-  // updated the last_sequence_ yet. It is also possible that the log has is
-  // expecting some new data that is not written yet. Since LastSequence is an
-  // upper bound on the sequence, it is ok to record
-  // last_allocated_sequence_ as the last sequence.
-  edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
-                                                      : last_sequence_);
+  if (edit->HasLastSequence() && edit->GetLastSequence() > *max_last_sequence) {
+    *max_last_sequence = edit->GetLastSequence();
+  } else {
+    edit->SetLastSequence(*max_last_sequence);
+  }
 
   // The builder can be nullptr only if edit is WAL manipulation,
   // because WAL edits do not need to be applied to versions,
@@ -5431,6 +5457,9 @@ Status VersionSet::WriteCurrentStateToManifest(
       if (!full_history_ts_low.empty()) {
         edit.SetFullHistoryTsLow(full_history_ts_low);
       }
+
+      edit.SetLastSequence(descriptor_last_sequence_);
+
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption(

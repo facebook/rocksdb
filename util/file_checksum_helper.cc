@@ -138,7 +138,7 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
 namespace {
 static int RegisterFileChecksumGenFactories(ObjectLibrary& library,
                                             const std::string& /*arg*/) {
-  library.Register<FileChecksumGenFactory>(
+  library.AddFactory<FileChecksumGenFactory>(
       FileChecksumGenCrc32cFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<FileChecksumGenFactory>* guard,

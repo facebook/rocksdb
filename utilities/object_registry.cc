@@ -5,6 +5,8 @@
 
 #include "rocksdb/utilities/object_registry.h"
 
+#include <ctype.h>
+
 #include "logging/logging.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
@@ -12,35 +14,105 @@
 
 namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
-// Looks through the "type" factories for one that matches "name".
-// If found, returns the pointer to the Entry matching this name.
-// Otherwise, nullptr is returned
-const ObjectLibrary::Entry *ObjectLibrary::FindEntry(
-    const std::string &type, const std::string &name) const {
-  std::unique_lock<std::mutex> lock(mu_);
-  auto entries = entries_.find(type);
-  if (entries != entries_.end()) {
-    for (const auto &entry : entries->second) {
-      if (entry->matches(name)) {
-        return entry.get();
+size_t ObjectLibrary::PatternEntry::MatchSeparatorAt(
+    size_t start, Quantifier mode, const std::string &target, size_t tlen,
+    const std::string &separator) const {
+  size_t slen = separator.size();
+  // See if there is enough space.  If so, find the separator
+  if (tlen < start + slen) {
+    return std::string::npos;  // not enough space left
+  } else if (mode == kMatchExact) {
+    // Exact mode means the next thing we are looking for is the separator
+    if (target.compare(start, slen, separator) != 0) {
+      return std::string::npos;
+    } else {
+      return start + slen;  // Found the separator, return where we found it
+    }
+  } else {
+    auto pos = start + 1;
+    if (!separator.empty()) {
+      pos = target.find(separator, pos);
+    }
+    if (pos == std::string::npos) {
+      return pos;
+    } else if (mode == kMatchNumeric) {
+      // If it is numeric, everything up to the match must be a number
+      while (start < pos) {
+        if (!isdigit(target[start++])) {
+          return std::string::npos;
+        }
+      }
+    }
+    return pos + slen;
+  }
+}
+
+bool ObjectLibrary::PatternEntry::MatchesTarget(const std::string &name,
+                                                size_t nlen,
+                                                const std::string &target,
+                                                size_t tlen) const {
+  if (separators_.empty()) {
+    assert(optional_);  // If there are no separators, it must be only a name
+    return nlen == tlen && name == target;
+  } else if (nlen == tlen) {  // The lengths are the same
+    return optional_ && name == target;
+  } else if (tlen < nlen + slength_) {
+    // The target is not long enough
+    return false;
+  } else if (target.compare(0, nlen, name) != 0) {
+    return false;  // Target does not start with name
+  } else {
+    // Loop through all of the separators one at a time matching them.
+    // Note that we first match the separator and then its quantifiers.
+    // Since we expect the separator first, we start with an exact match
+    // Subsequent matches will use the quantifier of the previous separator
+    size_t start = nlen;
+    auto mode = kMatchExact;
+    for (size_t idx = 0; idx < separators_.size(); ++idx) {
+      const auto &separator = separators_[idx];
+      start = MatchSeparatorAt(start, mode, target, tlen, separator.first);
+      if (start == std::string::npos) {
+        return false;
+      } else {
+        mode = separator.second;
+      }
+    }
+    // We have matched all of the separators.  Now check that what is left
+    // unmatched in the target is acceptable.
+    if (mode == kMatchExact) {
+      return (start == tlen);
+    } else if (start > tlen || (start == tlen && mode != kMatchZeroOrMore)) {
+      return false;
+    } else if (mode == kMatchNumeric) {
+      while (start < tlen) {
+        if (!isdigit(target[start++])) {
+          return false;
+        }
       }
     }
   }
-  return nullptr;
+  return true;
 }
 
-void ObjectLibrary::AddEntry(const std::string &type,
-                             std::unique_ptr<Entry> &entry) {
-  std::unique_lock<std::mutex> lock(mu_);
-  auto &entries = entries_[type];
-  entries.emplace_back(std::move(entry));
+bool ObjectLibrary::PatternEntry::Matches(const std::string &target) const {
+  auto tlen = target.size();
+  if (MatchesTarget(name_, nlength_, target, tlen)) {
+    return true;
+  } else if (!names_.empty()) {
+    for (const auto &alt : names_) {
+      if (MatchesTarget(alt, alt.size(), target, tlen)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 size_t ObjectLibrary::GetFactoryCount(size_t *types) const {
   std::unique_lock<std::mutex> lock(mu_);
-  *types = entries_.size();
+  *types = factories_.size();
   size_t factories = 0;
-  for (const auto &e : entries_) {
+  for (const auto &e : factories_) {
     factories += e.second.size();
   }
   return factories;
@@ -48,13 +120,12 @@ size_t ObjectLibrary::GetFactoryCount(size_t *types) const {
 
 void ObjectLibrary::Dump(Logger *logger) const {
   std::unique_lock<std::mutex> lock(mu_);
-  for (const auto &iter : entries_) {
+  for (const auto &iter : factories_) {
     ROCKS_LOG_HEADER(logger, "    Registered factories for type[%s] ",
                      iter.first.c_str());
     bool printed_one = false;
     for (const auto &e : iter.second) {
-      ROCKS_LOG_HEADER(logger, "%c %s", (printed_one) ? ',' : ':',
-                       e->Name().c_str());
+      ROCKS_LOG_HEADER(logger, "%c %s", (printed_one) ? ',' : ':', e->Name());
       printed_one = true;
     }
   }
@@ -84,26 +155,6 @@ std::shared_ptr<ObjectRegistry> ObjectRegistry::NewInstance(
   return std::make_shared<ObjectRegistry>(parent);
 }
 
-// Searches (from back to front) the libraries looking for the
-// an entry that matches this pattern.
-// Returns the entry if it is found, and nullptr otherwise
-const ObjectLibrary::Entry *ObjectRegistry::FindEntry(
-    const std::string &type, const std::string &name) const {
-  {
-    std::unique_lock<std::mutex> lock(library_mutex_);
-    for (auto iter = libraries_.crbegin(); iter != libraries_.crend(); ++iter) {
-      const auto *entry = iter->get()->FindEntry(type, name);
-      if (entry != nullptr) {
-        return entry;
-      }
-    }
-  }
-  if (parent_ != nullptr) {
-    return parent_->FindEntry(type, name);
-  } else {
-    return nullptr;
-  }
-}
 Status ObjectRegistry::SetManagedObject(
     const std::string &type, const std::string &id,
     const std::shared_ptr<Customizable> &object) {
