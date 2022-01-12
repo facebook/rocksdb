@@ -75,11 +75,6 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
       bool defer_purge =
           db_->immutable_db_options().avoid_unnecessary_blocking_io;
       db_->PurgeObsoleteFiles(job_context, defer_purge);
-      if (defer_purge) {
-        mutex_->Lock();
-        db_->SchedulePurge();
-        mutex_->Unlock();
-      }
     }
     job_context.Clean();
   }
@@ -211,7 +206,8 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   size_t clamp_max = std::conditional<
       sizeof(size_t) == 4, std::integral_constant<size_t, 0xffffffff>,
       std::integral_constant<uint64_t, 64ull << 30>>::type::value;
-  ClipToRange(&result.write_buffer_size, ((size_t)64) << 10, clamp_max);
+  ClipToRange(&result.write_buffer_size, (static_cast<size_t>(64)) << 10,
+              clamp_max);
   // if user sets arena_block_size, we trust user to use this value. Otherwise,
   // calculate a proper value from writer_buffer_size;
   if (result.arena_block_size <= 0) {

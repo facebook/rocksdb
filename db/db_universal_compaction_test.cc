@@ -1680,6 +1680,7 @@ TEST_P(DBTestUniversalCompaction, ConcurrentBottomPriLowPriCompactions) {
   Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
+  options.max_background_compactions = 2;
   options.num_levels = num_levels_;
   options.write_buffer_size = 100 << 10;     // 100KB
   options.target_file_size_base = 32 << 10;  // 32KB
@@ -1688,6 +1689,10 @@ TEST_P(DBTestUniversalCompaction, ConcurrentBottomPriLowPriCompactions) {
   options.compaction_options_universal.max_size_amplification_percent = 110;
   DestroyAndReopen(options);
 
+  // Need to get a token to enable compaction parallelism up to
+  // `max_background_compactions` jobs.
+  auto pressure_token =
+      dbfull()->TEST_write_controler().GetCompactionPressureToken();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {// wait for the full compaction to be picked before adding files intended
        // for the second one.

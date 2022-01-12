@@ -146,6 +146,13 @@ class MemTable {
     return approximate_memory_usage_.load(std::memory_order_relaxed);
   }
 
+  // used by MemTableListVersion::MemoryAllocatedBytesExcludingLast
+  size_t MemoryAllocatedBytes() const {
+    return table_->ApproximateMemoryUsage() +
+           range_del_table_->ApproximateMemoryUsage() +
+           arena_.MemoryAllocatedBytes();
+  }
+
   // Returns a vector of unique random memtable entries of size 'sample_size'.
   //
   // Note: the entries are stored in the unordered_set as length-prefixed keys,

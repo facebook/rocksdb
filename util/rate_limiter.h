@@ -26,19 +26,45 @@ namespace ROCKSDB_NAMESPACE {
 
 class GenericRateLimiter : public RateLimiter {
  public:
-  GenericRateLimiter(int64_t refill_bytes, int64_t refill_period_us,
-                     int32_t fairness, RateLimiter::Mode mode,
-                     const std::shared_ptr<SystemClock>& clock,
-                     bool auto_tuned);
+  struct GenericRateLimiterOptions {
+    static const char* kName() { return "GenericRateLimiterOptions"; }
+    GenericRateLimiterOptions(int64_t _rate_bytes_per_sec,
+                              int64_t _refill_period_us, int32_t _fairness,
+                              const std::shared_ptr<SystemClock>& _clock,
+                              bool _auto_tuned)
+        : max_bytes_per_sec(_rate_bytes_per_sec),
+          refill_period_us(_refill_period_us),
+          clock(_clock),
+          fairness(_fairness > 100 ? 100 : _fairness),
+          auto_tuned(_auto_tuned) {}
+    int64_t max_bytes_per_sec;
+    int64_t refill_period_us;
+    std::shared_ptr<SystemClock> clock;
+    int32_t fairness;
+    bool auto_tuned;
+  };
+
+ public:
+  explicit GenericRateLimiter(
+      int64_t refill_bytes, int64_t refill_period_us = 100 * 1000,
+      int32_t fairness = 10,
+      RateLimiter::Mode mode = RateLimiter::Mode::kWritesOnly,
+      const std::shared_ptr<SystemClock>& clock = nullptr,
+      bool auto_tuned = false);
 
   virtual ~GenericRateLimiter();
+
+  static const char* kClassName() { return "GenericRateLimiter"; }
+  const char* Name() const override { return kClassName(); }
+  Status PrepareOptions(const ConfigOptions& options) override;
 
   // This API allows user to dynamically change rate limiter's bytes per second.
   virtual void SetBytesPerSecond(int64_t bytes_per_second) override;
 
   // Request for token to write bytes. If this request can not be satisfied,
   // the call is blocked. Caller is responsible to make sure
-  // bytes <= GetSingleBurstBytes()
+  // bytes <= GetSingleBurstBytes() and bytes >= 0. Negative bytes
+  // passed in will be rounded up to 0.
   using RateLimiter::Request;
   virtual void Request(const int64_t bytes, const Env::IOPriority pri,
                        Statistics* stats) override;
@@ -95,24 +121,24 @@ class GenericRateLimiter : public RateLimiter {
   }
 
  private:
+  void Initialize();
   void RefillBytesAndGrantRequests();
   std::vector<Env::IOPriority> GeneratePriorityIterationOrder();
   int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec);
   Status Tune();
 
-  uint64_t NowMicrosMonotonic() { return clock_->NowNanos() / std::milli::den; }
+  uint64_t NowMicrosMonotonic() {
+    return options_.clock->NowNanos() / std::milli::den;
+  }
 
   // This mutex guard all internal states
   mutable port::Mutex request_mutex_;
 
-  const int64_t kMinRefillBytesPerPeriod = 100;
-
-  const int64_t refill_period_us_;
+  GenericRateLimiterOptions options_;
 
   int64_t rate_bytes_per_sec_;
   // This variable can be changed dynamically.
   std::atomic<int64_t> refill_bytes_per_period_;
-  std::shared_ptr<SystemClock> clock_;
 
   bool stop_;
   port::CondVar exit_cv_;
@@ -123,17 +149,14 @@ class GenericRateLimiter : public RateLimiter {
   int64_t available_bytes_;
   int64_t next_refill_us_;
 
-  int32_t fairness_;
   Random rnd_;
 
   struct Req;
   std::deque<Req*> queue_[Env::IO_TOTAL];
   bool wait_until_refill_pending_;
 
-  bool auto_tuned_;
   int64_t num_drains_;
   int64_t prev_num_drains_;
-  const int64_t max_bytes_per_sec_;
   std::chrono::microseconds tuned_time_;
 };
 

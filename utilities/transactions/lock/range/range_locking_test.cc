@@ -288,6 +288,32 @@ TEST_F(RangeLockingTest, BasicLockEscalation) {
 }
 #endif
 
+TEST_F(RangeLockingTest, LockWaitCount) {
+  TransactionOptions txn_options;
+  auto cf = db->DefaultColumnFamily();
+  txn_options.lock_timeout = 50;
+  Transaction* txn0 = db->BeginTransaction(WriteOptions(), txn_options);
+  Transaction* txn1 = db->BeginTransaction(WriteOptions(), txn_options);
+
+  // Get a range lock
+  ASSERT_OK(txn0->GetRangeLock(cf, Endpoint("a"), Endpoint("c")));
+
+  uint64_t lock_waits1 = range_lock_mgr->GetStatus().lock_wait_count;
+  // Attempt to get a conflicting lock
+  auto s = txn1->GetRangeLock(cf, Endpoint("b"), Endpoint("z"));
+  ASSERT_TRUE(s.IsTimedOut());
+
+  // Check that the counter was incremented
+  uint64_t lock_waits2 = range_lock_mgr->GetStatus().lock_wait_count;
+  ASSERT_EQ(lock_waits1 + 1, lock_waits2);
+
+  txn0->Rollback();
+  txn1->Rollback();
+
+  delete txn0;
+  delete txn1;
+}
+
 void PointLockManagerTestExternalSetup(PointLockManagerTest* self) {
   self->env_ = Env::Default();
   self->db_dir_ = test::PerThreadDBPath("point_lock_manager_test");

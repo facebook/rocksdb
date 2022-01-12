@@ -34,7 +34,7 @@ class SystemClock : public Customizable {
                                  const std::string& value,
                                  std::shared_ptr<SystemClock>* result);
   // The name of this system clock
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
 
   // The name/nickname for the Default SystemClock.  This name can be used
   // to determine if the clock is the default one.

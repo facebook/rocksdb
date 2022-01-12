@@ -10,6 +10,7 @@
 #pragma once
 #include <stdint.h>
 
+#include <array>
 #include <limits>
 #include <string>
 #include <utility>
@@ -20,6 +21,7 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/table.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
 #include "util/compression.h"
@@ -117,8 +119,8 @@ class BlockBasedTableBuilder : public TableBuilder {
                   BlockType block_type);
   // Directly write data to the file.
   void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle,
-
-                     BlockType block_type, const Slice* raw_data = nullptr);
+                     BlockType block_type, const Slice* raw_data = nullptr,
+                     bool is_top_level_filter_block = false);
 
   void SetupCacheKeyPrefix(const TableBuilderOptions& tbo);
 
@@ -128,7 +130,8 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   Status InsertBlockInCacheHelper(const Slice& block_contents,
                                   const BlockHandle* handle,
-                                  BlockType block_type);
+                                  BlockType block_type,
+                                  bool is_top_level_filter_block);
 
   Status InsertBlockInCompressedCache(const Slice& block_contents,
                                       const CompressionType type,

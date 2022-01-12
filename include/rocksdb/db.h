@@ -285,9 +285,9 @@ class DB {
   // If the return status is Aborted(), closing fails because there is
   // unreleased snapshot in the system. In this case, users can release
   // the unreleased snapshots and try again and expect it to succeed. For
-  // other status, recalling Close() will be no-op.
-  // If the return status is NotSupported(), then the DB implementation does
-  // cleanup in the destructor
+  // other status, re-calling Close() will be no-op and return the original
+  // close status. If the return status is NotSupported(), then the DB
+  // implementation does cleanup in the destructor
   virtual Status Close() { return Status::NotSupported(); }
 
   // ListColumnFamilies will open the DB specified by argument name
@@ -789,9 +789,11 @@ class DB {
     //      level, as well as the histogram of latency of single requests.
     static const std::string kCFFileHistogram;
 
-    //  "rocksdb.dbstats" - returns a multi-line string with general database
-    //      stats, both cumulative (over the db's lifetime) and interval (since
-    //      the last retrieval of kDBStats).
+    //  "rocksdb.dbstats" - As a string property, returns a multi-line string
+    //      with general database stats, both cumulative (over the db's
+    //      lifetime) and interval (since the last retrieval of kDBStats).
+    //      As a map property, returns cumulative stats only and does not
+    //      update the baseline for the interval stats.
     static const std::string kDBStats;
 
     //  "rocksdb.levelstats" - returns multi-line string containing the number
@@ -1354,6 +1356,15 @@ class DB {
   // times have the same effect as calling it once.
   virtual Status DisableFileDeletions() = 0;
 
+  // Increase the full_history_ts of column family. The new ts_low value should
+  // be newer than current full_history_ts value.
+  virtual Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                          std::string ts_low) = 0;
+
+  // Get current full_history_ts value.
+  virtual Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                     std::string* ts_low) = 0;
+
   // Allow compactions to delete obsolete files.
   // If force == true, the call to EnableFileDeletions() will guarantee that
   // file deletions are enabled after the call, even if DisableFileDeletions()
@@ -1450,6 +1461,15 @@ class DB {
   // synchronized with GetLiveFiles.
   virtual Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) = 0;
 
+  // EXPERIMENTAL: This function is not yet feature-complete.
+  // Get information about all live files that make up a DB, for making
+  // live copies (Checkpoint, backups, etc.) or other storage-related purposes.
+  // Use DisableFileDeletions() before and EnableFileDeletions() after to
+  // preserve the files for live copy.
+  virtual Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& opts,
+      std::vector<LiveFileStorageInfo>* files) = 0;
+
   // Obtains the meta data of the specified column family of the DB.
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,
                                        ColumnFamilyMetaData* /*metadata*/) {}
@@ -1516,7 +1536,7 @@ class DB {
   // this column family.
   // (1) External SST files can be created using SstFileWriter.
   // (2) External SST files can be exported from a particular column family in
-  //     an existing DB.
+  //     an existing DB using Checkpoint::ExportColumnFamily.
   // Option in import_options specifies whether the external files are copied or
   // moved (default is copy). When option specifies copy, managing files at
   // external_file_path is caller's responsibility. When option specifies a

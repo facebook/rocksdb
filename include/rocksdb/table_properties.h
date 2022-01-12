@@ -71,16 +71,19 @@ struct TablePropertiesNames {
   static const std::string kFastCompressionEstimatedDataSize;
 };
 
-extern const std::string kPropertiesBlock;
-extern const std::string kCompressionDictBlock;
-extern const std::string kRangeDelBlock;
-
 // `TablePropertiesCollector` provides the mechanism for users to collect
 // their own properties that they are interested in. This class is essentially
 // a collection of callback functions that will be invoked during table
 // building. It is constructed with TablePropertiesCollectorFactory. The methods
 // don't need to be thread-safe, as we will create exactly one
-// TablePropertiesCollector object per table and then call it sequentially
+// TablePropertiesCollector object per table and then call it sequentially.
+//
+// Statuses from these callbacks are currently logged when not OK, but
+// otherwise ignored by RocksDB.
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class TablePropertiesCollector {
  public:
   virtual ~TablePropertiesCollector() {}
@@ -133,6 +136,10 @@ class TablePropertiesCollector {
 
 // Constructs TablePropertiesCollector. Internals create a new
 // TablePropertiesCollector for each new table
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class TablePropertiesCollectorFactory : public Customizable {
  public:
   struct Context {
@@ -155,7 +162,7 @@ class TablePropertiesCollectorFactory : public Customizable {
       TablePropertiesCollectorFactory::Context context) = 0;
 
   // The name of the properties collector can be used for debugging purpose.
-  virtual const char* Name() const = 0;
+  const char* Name() const override = 0;
 
   // Can be overridden by sub-classes to return the Name, followed by
   // configuration info that will // be logged to the info log when the
@@ -225,6 +232,10 @@ struct TableProperties {
   // compression algorithm (see `ColumnFamilyOptions::sample_for_compression`).
   // 0 means unknown.
   uint64_t fast_compression_estimated_data_size = 0;
+  // Offset of the value of the property "external sst file global seqno" in the
+  // file if the property exists.
+  // 0 means not exists.
+  uint64_t external_sst_file_global_seqno_offset = 0;
 
   // DB identity
   // db_id is an identifier generated the first time the DB is created
@@ -276,9 +287,6 @@ struct TableProperties {
   // user collected properties
   UserCollectedProperties user_collected_properties;
   UserCollectedProperties readable_properties;
-
-  // The offset of the value of each property in the file.
-  std::map<std::string, uint64_t> properties_offsets;
 
   // convert this object to a human readable form
   //   @prop_delim: delimiter for each property.

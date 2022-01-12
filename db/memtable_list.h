@@ -168,7 +168,7 @@ class MemTableListVersion {
   // excluding the last MemTable in memlist_history_. The reason for excluding
   // the last MemTable is to see if dropping the last MemTable will keep total
   // memory usage above or equal to max_write_buffer_size_to_maintain_
-  size_t ApproximateMemoryUsageExcludingLast() const;
+  size_t MemoryAllocatedBytesExcludingLast() const;
 
   // Whether this version contains flushed memtables that are only kept around
   // for transaction conflict checking.
@@ -221,7 +221,7 @@ class MemTableList {
         commit_in_progress_(false),
         flush_requested_(false),
         current_memory_usage_(0),
-        current_memory_usage_excluding_last_(0),
+        current_memory_allocted_bytes_excluding_last_(0),
         current_has_history_(false) {
     current_->Ref();
   }
@@ -281,15 +281,15 @@ class MemTableList {
   // Returns an estimate of the number of bytes of data in use.
   size_t ApproximateMemoryUsage();
 
-  // Returns the cached current_memory_usage_excluding_last_ value.
-  size_t ApproximateMemoryUsageExcludingLast() const;
+  // Returns the cached current_memory_allocted_bytes_excluding_last_ value.
+  size_t MemoryAllocatedBytesExcludingLast() const;
 
   // Returns the cached current_has_history_ value.
   bool HasHistory() const;
 
-  // Updates current_memory_usage_excluding_last_ and current_has_history_
-  // from MemTableListVersion. Must be called whenever InstallNewVersion is
-  // called.
+  // Updates current_memory_allocted_bytes_excluding_last_ and
+  // current_has_history_ from MemTableListVersion. Must be called whenever
+  // InstallNewVersion is called.
   void UpdateCachedValuesFromMemTableListVersion();
 
   // `usage` is the current size of the mutable Memtable. When
@@ -430,8 +430,8 @@ class MemTableList {
   // The current memory usage.
   size_t current_memory_usage_;
 
-  // Cached value of current_->ApproximateMemoryUsageExcludingLast().
-  std::atomic<size_t> current_memory_usage_excluding_last_;
+  // Cached value of current_->MemoryAllocatedBytesExcludingLast().
+  std::atomic<size_t> current_memory_allocted_bytes_excluding_last_;
 
   // Cached value of current_->HasHistory().
   std::atomic<bool> current_has_history_;

@@ -100,7 +100,9 @@ class StatisticsImpl : public Statistics {
     void operator delete[](void *p) { port::cacheline_aligned_free(p); }
   };
 
+#ifndef TEST_CACHE_LINE_SIZE
   static_assert(sizeof(StatisticsData) % CACHE_LINE_SIZE == 0, "Expected " TOSTRING(CACHE_LINE_SIZE) "-byte aligned");
+#endif
 
   CoreLocalArray<StatisticsData> per_core_stats_;
 

@@ -21,6 +21,10 @@ class Slice;
 // used as keys in an sstable or a database.  A Comparator implementation
 // must be thread-safe since rocksdb may invoke its methods concurrently
 // from multiple threads.
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class Comparator : public Customizable {
  public:
   Comparator() : timestamp_size_(0) {}
@@ -71,7 +75,7 @@ class Comparator : public Customizable {
   //
   // Names starting with "rocksdb." are reserved and should not be used
   // by any clients of this package.
-  virtual const char* Name() const = 0;
+  const char* Name() const override = 0;
 
   // Advanced functions: these are used to reduce the space requirements
   // for internal data structures like index blocks.

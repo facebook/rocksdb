@@ -24,22 +24,22 @@ if [ ! -z $EMAIL ]; then
 
   REPORT_EMAIL="
   {
-      'type':'email',
-      'triggers': [ '$TRIGGER' ],
-      'emails':['$EMAIL']
-  },"
+      \"type\":\"email\",
+      \"triggers\": [ \"$TRIGGER\" ],
+      \"emails\":[\"$EMAIL\"]
+  }"
 fi
 
 CREATE_TASK=
 if [ ! -z $ONCALL ]; then
   CREATE_TASK="
   {
-      'type':'task',
-      'triggers':[ 'fail' ],
-      'priority':0,
-      'subscribers':[ '$SUBSCRIBER' ],
-      'tags':[ 'rocksdb', 'ci' ],
-  },"
+      \"type\":\"task\",
+      \"triggers\":[ \"fail\" ],
+      \"priority\":0,
+      \"subscribers\":[ \"$SUBSCRIBER\" ],
+      \"tags\":[ \"rocksdb\", \"ci\" ]
+  }"
 fi
 
 # For now, create the tasks using only the dedicated task creation tool.
@@ -47,8 +47,8 @@ CREATE_TASK=
 
 REPORT=
 if [[ ! -z $REPORT_EMAIL || ! -z $CREATE_TASK ]]; then
-  REPORT="'report': [
-    $REPORT_EMAIL
+  REPORT=",\"report\": [
+    $REPORT_EMAIL,
     $CREATE_TASK
   ]"
 fi
@@ -64,36 +64,37 @@ fi
 #
 CLEANUP_ENV="
 {
-    'name':'Cleanup environment',
-    'shell':'cd $WORKING_DIR; rm -rf /dev/shm/rocksdb && mkdir /dev/shm/rocksdb && (chmod +t /dev/shm || true) && make clean',
-    'user':'root'
+    \"name\":\"Cleanup environment\",
+    \"shell\":\"cd $WORKING_DIR; rm -rf /dev/shm/rocksdb && mkdir /dev/shm/rocksdb && (chmod +t /dev/shm || true) && make clean\",
+    \"user\":\"root\"
 }"
 
 UPLOAD_DB_DIR="
 {
-    'name':'Upload database directory',
-    'shell':'tar -cvzf rocksdb_db.tar.gz /dev/shm/rocksdb/',
-    'user':'root',
-    'cleanup':true,
-    'provide_artifacts': [
+    \"name\":\"Upload database directory\",
+    \"shell\":\"tar -cvzf rocksdb_db.tar.gz /dev/shm/rocksdb/\",
+    \"user\":\"root\",
+    \"cleanup\":true,
+    \"provide_artifacts\": [
     {
-      'name':'rocksdb_db_dir',
-      'paths': ['rocksdb_db.tar.gz'],
-      'bundle': false,
-    },
-    ],
+      \"name\":\"rocksdb_db_dir\",
+      \"paths\": [\"rocksdb_db.tar.gz\"],
+      \"bundle\": false
+    }
+    ]
 }"
 
-# We will eventually set the RATIO to 1, but we want do this
-# in steps. RATIO=$(nproc) will make it work as J=1
+# set default RATIO to 1, which sets J=$(nproc) and j=$(nproc)
 if [ -z $RATIO ]; then
-  RATIO=$(nproc)
+  RATIO=1
 fi
 
+# Should probably be called PARALLEL_TEST
 if [ -z $PARALLEL_J ]; then
   PARALLEL_J="J=$(expr $(nproc) / ${RATIO})"
 fi
 
+# Should probably be called PARALLEL_MAKE
 if [ -z $PARALLEL_j ]; then
   PARALLEL_j="-j$(expr $(nproc) / ${RATIO})"
 fi
@@ -108,12 +109,13 @@ ASAN="COMPILE_WITH_ASAN=1"
 CLANG="USE_CLANG=1"
 TSAN="COMPILE_WITH_TSAN=1"
 UBSAN="COMPILE_WITH_UBSAN=1"
-TSAN_CRASH='CRASH_TEST_EXT_ARGS="--compression_type=zstd --log2_keys_per_lock=22"'
+ASAN_CRASH="ASAN_OPTIONS=disable_coredump=0"
+TSAN_CRASH="CRASH_TEST_EXT_ARGS=\\\"--compression_type=zstd --log2_keys_per_lock=22\\\""
 NON_TSAN_CRASH="CRASH_TEST_EXT_ARGS=--compression_type=zstd"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
 HTTP_PROXY="https_proxy=http://fwdproxy.29.prn1:8080 http_proxy=http://fwdproxy.29.prn1:8080 ftp_proxy=http://fwdproxy.29.prn1:8080"
 SETUP_JAVA_ENV="export $HTTP_PROXY; export JAVA_HOME=/usr/local/jdk-8u60-64/; export PATH=\$JAVA_HOME/bin:\$PATH"
-PARSER="'parser':'/usr/bin/env python3 build_tools/error_filter.py $1'"
+PARSER="\"parser\":\"/usr/bin/env python3 build_tools/error_filter.py $1\""
 
 CONTRUN_NAME="ROCKSDB_CONTRUN_NAME"
 SKIP_FORMAT_CHECKS="SKIP_FORMAT_BUCK_CHECKS=1"
@@ -134,15 +136,15 @@ fi
 #
 DISABLE_COMMANDS="[
     {
-        'name':'Disable test',
-        'oncall':'$ONCALL',
-        'steps': [
+        \"name\":\"Disable test\",
+        \"oncall\":\"$ONCALL\",
+        \"steps\": [
             {
-              'name':'Job disabled. Please contact test owner',
-              'shell':'exit 1',
-              'user':'root'
-            },
-        ],
+              \"name\":\"Job disabled. Please contact test owner\",
+              \"shell\":\"exit 1\",
+              \"user\":\"root\"
+            }
+        ]
     }
 ]"
 
@@ -151,18 +153,18 @@ DISABLE_COMMANDS="[
 #
 UNIT_TEST_COMMANDS="[
     {
-        'name':'Rocksdb Unit Test',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb Unit Test\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and test RocksDB debug version',
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM check || $CONTRUN_NAME=check $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and test RocksDB debug version\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM check || $CONTRUN_NAME=check $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -172,20 +174,20 @@ UNIT_TEST_COMMANDS="[
 #
 UNIT_TEST_NON_SHM_COMMANDS="[
     {
-        'name':'Rocksdb Unit Test',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb Unit Test\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and test RocksDB debug version',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $NON_SHM $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM check || $CONTRUN_NAME=non_shm_check $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and test RocksDB debug version\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $NON_SHM $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM check || $CONTRUN_NAME=non_shm_check $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -195,18 +197,18 @@ UNIT_TEST_NON_SHM_COMMANDS="[
 #
 RELEASE_BUILD_COMMANDS="[
     {
-        'name':'Rocksdb Release Build',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb Release Build\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build RocksDB release',
-                'shell':'cd $WORKING_DIR; make $PARALLEL_j release || $CONTRUN_NAME=release $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build RocksDB release\",
+                \"shell\":\"cd $WORKING_DIR; make $PARALLEL_j release || $CONTRUN_NAME=release $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -216,18 +218,18 @@ RELEASE_BUILD_COMMANDS="[
 #
 UNIT_TEST_COMMANDS_481="[
     {
-        'name':'Rocksdb Unit Test on GCC 4.8.1',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb Unit Test on GCC 4.8.1\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and test RocksDB debug version',
-                'shell':'cd $WORKING_DIR; $SHM $GCC_481 $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM check || $CONTRUN_NAME=unit_gcc_481_check $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and test RocksDB debug version\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $GCC_481 $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM check || $CONTRUN_NAME=unit_gcc_481_check $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -237,18 +239,18 @@ UNIT_TEST_COMMANDS_481="[
 #
 RELEASE_BUILD_COMMANDS_481="[
     {
-        'name':'Rocksdb Release on GCC 4.8.1',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb Release on GCC 4.8.1\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build RocksDB release on GCC 4.8.1',
-                'shell':'cd $WORKING_DIR; $GCC_481 make $PARALLEL_j release || $CONTRUN_NAME=release_gcc481 $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build RocksDB release on GCC 4.8.1\",
+                \"shell\":\"cd $WORKING_DIR; $GCC_481 make $PARALLEL_j release || $CONTRUN_NAME=release_gcc481 $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -258,18 +260,18 @@ RELEASE_BUILD_COMMANDS_481="[
 #
 CLANG_UNIT_TEST_COMMANDS="[
     {
-        'name':'Rocksdb Unit Test',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb Unit Test\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and test RocksDB debug',
-                'shell':'cd $WORKING_DIR; $CLANG $SHM $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM check || $CONTRUN_NAME=clang_check $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and test RocksDB debug\",
+                \"shell\":\"cd $WORKING_DIR; $CLANG $SHM $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM check || $CONTRUN_NAME=clang_check $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -279,18 +281,18 @@ CLANG_UNIT_TEST_COMMANDS="[
 #
 CLANG_RELEASE_BUILD_COMMANDS="[
     {
-        'name':'Rocksdb CLANG Release Build',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb CLANG Release Build\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build RocksDB release',
-                'shell':'cd $WORKING_DIR; $CLANG make $PARALLEL_j release|| $CONTRUN_NAME=clang_release $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build RocksDB release\",
+                \"shell\":\"cd $WORKING_DIR; $CLANG make $PARALLEL_j release|| $CONTRUN_NAME=clang_release $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -300,18 +302,18 @@ CLANG_RELEASE_BUILD_COMMANDS="[
 #
 CLANG_ANALYZE_COMMANDS="[
     {
-        'name':'Rocksdb analyze',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb analyze\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'RocksDB build and analyze',
-                'shell':'cd $WORKING_DIR; $CLANG $SHM $DEBUG make $PARALLEL_j analyze || $CONTRUN_NAME=clang_analyze $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"RocksDB build and analyze\",
+                \"shell\":\"cd $WORKING_DIR; $CLANG $SHM $DEBUG make $PARALLEL_j analyze || $CONTRUN_NAME=clang_analyze $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -321,18 +323,18 @@ CLANG_ANALYZE_COMMANDS="[
 #
 CODE_COV_COMMANDS="[
     {
-        'name':'Rocksdb Unit Test Code Coverage',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb Unit Test Code Coverage\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build, test and collect code coverage info',
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM coverage || $CONTRUN_NAME=coverage $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build, test and collect code coverage info\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM coverage || $CONTRUN_NAME=coverage $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -342,18 +344,18 @@ CODE_COV_COMMANDS="[
 #
 UNITY_COMMANDS="[
     {
-        'name':'Rocksdb Unity',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb Unity\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build, test unity test',
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG V=1 make J=1 unity_test || $CONTRUN_NAME=unity_test $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build, test unity test\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG V=1 make $PARALLELISM unity_test || $CONTRUN_NAME=unity_test $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -363,18 +365,18 @@ UNITY_COMMANDS="[
 #
 LITE_BUILD_COMMANDS="[
     {
-        'name':'Rocksdb Lite build',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb Lite build\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build RocksDB debug version',
-                'shell':'cd $WORKING_DIR; $SKIP_FORMAT_CHECKS make J=1 LITE=1 all check || $CONTRUN_NAME=lite $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build RocksDB debug version\",
+                \"shell\":\"cd $WORKING_DIR; $SKIP_FORMAT_CHECKS make $PARALLELISM LITE=1 all check || $CONTRUN_NAME=lite $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -384,27 +386,27 @@ LITE_BUILD_COMMANDS="[
 #
 STRESS_CRASH_TEST_COMMANDS="[
     {
-        'name':'Rocksdb Stress and Crash Test',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb Stress and Crash Test\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB debug stress tests',
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make J=1 db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug stress tests\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make $PARALLELISM db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
             {
-                'name':'Build and run RocksDB debug crash tests',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make J=1 crash_test || $CONTRUN_NAME=crash_test $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug crash tests\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make $PARALLELISM crash_test || $CONTRUN_NAME=crash_test $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -414,27 +416,27 @@ STRESS_CRASH_TEST_COMMANDS="[
 #
 BLACKBOX_STRESS_CRASH_TEST_COMMANDS="[
     {
-        'name':'Rocksdb Blackbox Stress and Crash Test',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb Blackbox Stress and Crash Test\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB debug stress tests',
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make J=1 db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug stress tests\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make $PARALLELISM db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
             {
-                'name':'Build and run RocksDB debug blackbox crash tests',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make J=1 blackbox_crash_test || $CONTRUN_NAME=blackbox_crash_test $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug blackbox crash tests\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make $PARALLELISM blackbox_crash_test || $CONTRUN_NAME=blackbox_crash_test $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -444,27 +446,27 @@ BLACKBOX_STRESS_CRASH_TEST_COMMANDS="[
 #
 WHITEBOX_STRESS_CRASH_TEST_COMMANDS="[
     {
-        'name':'Rocksdb Whitebox Stress and Crash Test',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb Whitebox Stress and Crash Test\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB debug stress tests',
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make J=1 db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug stress tests\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make $PARALLELISM db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
             {
-                'name':'Build and run RocksDB debug whitebox crash tests',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make J=1 whitebox_crash_test || $CONTRUN_NAME=whitebox_crash_test $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug whitebox crash tests\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make $PARALLELISM whitebox_crash_test || $CONTRUN_NAME=whitebox_crash_test $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -474,27 +476,27 @@ WHITEBOX_STRESS_CRASH_TEST_COMMANDS="[
 #
 STRESS_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
     {
-        'name':'Rocksdb Stress and Crash Test with atomic flush',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb Stress and Crash Test with atomic flush\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB debug stress tests',
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make J=1 db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug stress tests\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make $PARALLELISM db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
             {
-                'name':'Build and run RocksDB debug crash tests with atomic flush',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make J=1 crash_test_with_atomic_flush || $CONTRUN_NAME=crash_test_with_atomic_flush $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug crash tests with atomic flush\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make $PARALLELISM crash_test_with_atomic_flush || $CONTRUN_NAME=crash_test_with_atomic_flush $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -504,27 +506,27 @@ STRESS_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
 #
 STRESS_CRASH_TEST_WITH_TXN_COMMANDS="[
     {
-        'name':'Rocksdb Stress and Crash Test with txn',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb Stress and Crash Test with txn\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB debug stress tests',
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make J=1 db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug stress tests\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make $PARALLELISM db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
             {
-                'name':'Build and run RocksDB debug crash tests with txn',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make J=1 crash_test_with_txn || $CONTRUN_NAME=crash_test_with_txn $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug crash tests with txn\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make $PARALLELISM crash_test_with_txn || $CONTRUN_NAME=crash_test_with_txn $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -534,27 +536,27 @@ STRESS_CRASH_TEST_WITH_TXN_COMMANDS="[
 #
 STRESS_CRASH_TEST_WITH_TS_COMMANDS="[
     {
-        'name':'Rocksdb Stress and Crash Test with ts',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb Stress and Crash Test with ts\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB debug stress tests',
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make J=1 db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug stress tests\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make $PARALLELISM db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
             {
-                'name':'Build and run RocksDB debug crash tests with ts',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make J=1 crash_test_with_ts || $CONTRUN_NAME=crash_test_with_ts $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug crash tests with ts\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make $PARALLELISM crash_test_with_ts || $CONTRUN_NAME=crash_test_with_ts $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -564,19 +566,19 @@ STRESS_CRASH_TEST_WITH_TS_COMMANDS="[
 # because we want to add some randomness to fsync commands
 WRITE_STRESS_COMMANDS="[
     {
-        'name':'Rocksdb Write Stress Test',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb Write Stress Test\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB write stress tests',
-                'shell':'cd $WORKING_DIR; make write_stress && /usr/bin/env python3 tools/write_stress_runner.py --runtime_sec=3600 --db=/tmp/rocksdb_write_stress || $CONTRUN_NAME=write_stress $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB write stress tests\",
+                \"shell\":\"cd $WORKING_DIR; make write_stress && /usr/bin/env python3 tools/write_stress_runner.py --runtime_sec=3600 --db=/tmp/rocksdb_write_stress || $CONTRUN_NAME=write_stress $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             }
         ],
-        'artifacts': [{'name': 'database', 'paths': ['/tmp/rocksdb_write_stress']}],
+        \"artifacts\": [{\"name\": \"database\", \"paths\": [\"/tmp/rocksdb_write_stress\"]}]
         $REPORT
     }
 ]"
@@ -587,18 +589,18 @@ WRITE_STRESS_COMMANDS="[
 #
 ASAN_TEST_COMMANDS="[
     {
-        'name':'Rocksdb Unit Test under ASAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb Unit Test under ASAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Test RocksDB debug under ASAN',
-'shell':'cd $WORKING_DIR; set -o pipefail && $SHM $ASAN $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM asan_check || $CONTRUN_NAME=asan_check $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Test RocksDB debug under ASAN\",
+\"shell\":\"cd $WORKING_DIR; set -o pipefail && $SHM $ASAN $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM asan_check || $CONTRUN_NAME=asan_check $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -608,21 +610,21 @@ ASAN_TEST_COMMANDS="[
 #
 ASAN_CRASH_TEST_COMMANDS="[
     {
-        'name':'Rocksdb crash test under ASAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb crash test under ASAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB debug asan_crash_test',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make J=1 asan_crash_test || $CONTRUN_NAME=asan_crash_test $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug asan_crash_test\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $ASAN_CRASH $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make $PARALLELISM asan_crash_test || $CONTRUN_NAME=asan_crash_test $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -632,21 +634,21 @@ ASAN_CRASH_TEST_COMMANDS="[
 #
 ASAN_BLACKBOX_CRASH_TEST_COMMANDS="[
     {
-        'name':'Rocksdb blackbox crash test under ASAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb blackbox crash test under ASAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB debug blackbox asan_crash_test',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make J=1 blackbox_asan_crash_test || $CONTRUN_NAME=blackbox_asan_crash_test $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug blackbox asan_crash_test\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $ASAN_CRASH $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make $PARALLELISM blackbox_asan_crash_test || $CONTRUN_NAME=blackbox_asan_crash_test $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -656,21 +658,21 @@ ASAN_BLACKBOX_CRASH_TEST_COMMANDS="[
 #
 ASAN_WHITEBOX_CRASH_TEST_COMMANDS="[
     {
-        'name':'Rocksdb whitebox crash test under ASAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb whitebox crash test under ASAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB debug whitebox asan_crash_test',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make J=1 whitebox_asan_crash_test || $CONTRUN_NAME=whitebox_asan_crash_test $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug whitebox asan_crash_test\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $ASAN_CRASH $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make $PARALLELISM whitebox_asan_crash_test || $CONTRUN_NAME=whitebox_asan_crash_test $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -680,21 +682,21 @@ ASAN_WHITEBOX_CRASH_TEST_COMMANDS="[
 #
 ASAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
     {
-        'name':'Rocksdb crash test with atomic flush under ASAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb crash test with atomic flush under ASAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB debug asan_crash_test_with_atomic_flush',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make J=1 asan_crash_test_with_atomic_flush || $CONTRUN_NAME=asan_crash_test_with_atomic_flush $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug asan_crash_test_with_atomic_flush\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $ASAN_CRASH $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make $PARALLELISM asan_crash_test_with_atomic_flush || $CONTRUN_NAME=asan_crash_test_with_atomic_flush $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -704,21 +706,21 @@ ASAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
 #
 ASAN_CRASH_TEST_WITH_TXN_COMMANDS="[
     {
-        'name':'Rocksdb crash test with txn under ASAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb crash test with txn under ASAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB debug asan_crash_test_with_txn',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make J=1 asan_crash_test_with_txn || $CONTRUN_NAME=asan_crash_test_with_txn $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug asan_crash_test_with_txn\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $ASAN_CRASH $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make $PARALLELISM asan_crash_test_with_txn || $CONTRUN_NAME=asan_crash_test_with_txn $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -728,18 +730,18 @@ ASAN_CRASH_TEST_WITH_TXN_COMMANDS="[
 #
 UBSAN_TEST_COMMANDS="[
     {
-        'name':'Rocksdb Unit Test under UBSAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb Unit Test under UBSAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Test RocksDB debug under UBSAN',
-                'shell':'cd $WORKING_DIR; set -o pipefail && $SHM $UBSAN $CLANG $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM ubsan_check || $CONTRUN_NAME=ubsan_check $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Test RocksDB debug under UBSAN\",
+                \"shell\":\"cd $WORKING_DIR; set -o pipefail && $SHM $UBSAN $CLANG $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM ubsan_check || $CONTRUN_NAME=ubsan_check $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             }
-        ],
+        ]
         $REPORT
     }
 ]"
@@ -749,21 +751,21 @@ UBSAN_TEST_COMMANDS="[
 #
 UBSAN_CRASH_TEST_COMMANDS="[
     {
-        'name':'Rocksdb crash test under UBSAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb crash test under UBSAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB debug ubsan_crash_test',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make J=1 ubsan_crash_test || $CONTRUN_NAME=ubsan_crash_test $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug ubsan_crash_test\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make $PARALLELISM ubsan_crash_test || $CONTRUN_NAME=ubsan_crash_test $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -773,21 +775,21 @@ UBSAN_CRASH_TEST_COMMANDS="[
 #
 UBSAN_BLACKBOX_CRASH_TEST_COMMANDS="[
     {
-        'name':'Rocksdb blackbox crash test under UBSAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb blackbox crash test under UBSAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB debug blackbox ubsan_crash_test',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make J=1 blackbox_ubsan_crash_test || $CONTRUN_NAME=blackbox_ubsan_crash_test $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug blackbox ubsan_crash_test\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make $PARALLELISM blackbox_ubsan_crash_test || $CONTRUN_NAME=blackbox_ubsan_crash_test $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -797,21 +799,21 @@ UBSAN_BLACKBOX_CRASH_TEST_COMMANDS="[
 #
 UBSAN_WHITEBOX_CRASH_TEST_COMMANDS="[
     {
-        'name':'Rocksdb whitebox crash test under UBSAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb whitebox crash test under UBSAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB debug whitebox ubsan_crash_test',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make J=1 whitebox_ubsan_crash_test || $CONTRUN_NAME=whitebox_ubsan_crash_test $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug whitebox ubsan_crash_test\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make $PARALLELISM whitebox_ubsan_crash_test || $CONTRUN_NAME=whitebox_ubsan_crash_test $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -821,21 +823,21 @@ UBSAN_WHITEBOX_CRASH_TEST_COMMANDS="[
 #
 UBSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
     {
-        'name':'Rocksdb crash test with atomic flush under UBSAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb crash test with atomic flush under UBSAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB debug ubsan_crash_test_with_atomic_flush',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make J=1 ubsan_crash_test_with_atomic_flush || $CONTRUN_NAME=ubsan_crash_test_with_atomic_flush $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug ubsan_crash_test_with_atomic_flush\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make $PARALLELISM ubsan_crash_test_with_atomic_flush || $CONTRUN_NAME=ubsan_crash_test_with_atomic_flush $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -845,21 +847,21 @@ UBSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
 #
 UBSAN_CRASH_TEST_WITH_TXN_COMMANDS="[
     {
-        'name':'Rocksdb crash test with txn under UBSAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb crash test with txn under UBSAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build and run RocksDB debug ubsan_crash_test_with_txn',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make J=1 ubsan_crash_test_with_txn || $CONTRUN_NAME=ubsan_crash_test_with_txn $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build and run RocksDB debug ubsan_crash_test_with_txn\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make $PARALLELISM ubsan_crash_test_with_txn || $CONTRUN_NAME=ubsan_crash_test_with_txn $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -869,20 +871,20 @@ UBSAN_CRASH_TEST_WITH_TXN_COMMANDS="[
 #
 VALGRIND_TEST_COMMANDS="[
     {
-        'name':'Rocksdb Unit Test under valgrind',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb Unit Test under valgrind\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Run RocksDB debug unit tests',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; $SHM $DEBUG make $PARALLELISM valgrind_test || $CONTRUN_NAME=valgrind_check $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Run RocksDB debug unit tests\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG make $PARALLELISM valgrind_test || $CONTRUN_NAME=valgrind_check $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -892,20 +894,20 @@ VALGRIND_TEST_COMMANDS="[
 #
 TSAN_UNIT_TEST_COMMANDS="[
     {
-        'name':'Rocksdb Unit Test under TSAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb Unit Test under TSAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Run RocksDB debug unit test',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; set -o pipefail && $SHM $DEBUG $TSAN $SKIP_FORMAT_CHECKS make $PARALLELISM check || $CONTRUN_NAME=tsan_check $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Run RocksDB debug unit test\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; set -o pipefail && $SHM $DEBUG $TSAN $SKIP_FORMAT_CHECKS make $PARALLELISM check || $CONTRUN_NAME=tsan_check $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -915,21 +917,21 @@ TSAN_UNIT_TEST_COMMANDS="[
 #
 TSAN_CRASH_TEST_COMMANDS="[
     {
-        'name':'Rocksdb Crash Test under TSAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb Crash Test under TSAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Compile and run',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; set -o pipefail && $SHM $DEBUG $TSAN $TSAN_CRASH CRASH_TEST_KILL_ODD=1887 make J=1 crash_test || $CONTRUN_NAME=tsan_crash_test $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Compile and run\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; set -o pipefail && $SHM $DEBUG $TSAN $TSAN_CRASH CRASH_TEST_KILL_ODD=1887 make $PARALLELISM crash_test || $CONTRUN_NAME=tsan_crash_test $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -939,21 +941,21 @@ TSAN_CRASH_TEST_COMMANDS="[
 #
 TSAN_BLACKBOX_CRASH_TEST_COMMANDS="[
     {
-        'name':'Rocksdb Blackbox Crash Test under TSAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb Blackbox Crash Test under TSAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Compile and run',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; set -o pipefail && $SHM $DEBUG $TSAN $TSAN_CRASH CRASH_TEST_KILL_ODD=1887 make J=1 blackbox_crash_test || $CONTRUN_NAME=tsan_blackbox_crash_test $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Compile and run\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; set -o pipefail && $SHM $DEBUG $TSAN $TSAN_CRASH CRASH_TEST_KILL_ODD=1887 make $PARALLELISM blackbox_crash_test || $CONTRUN_NAME=tsan_blackbox_crash_test $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -963,21 +965,21 @@ TSAN_BLACKBOX_CRASH_TEST_COMMANDS="[
 #
 TSAN_WHITEBOX_CRASH_TEST_COMMANDS="[
     {
-        'name':'Rocksdb Whitebox Crash Test under TSAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb Whitebox Crash Test under TSAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Compile and run',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; set -o pipefail && $SHM $DEBUG $TSAN $TSAN_CRASH CRASH_TEST_KILL_ODD=1887 make J=1 whitebox_crash_test || $CONTRUN_NAME=tsan_whitebox_crash_test $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Compile and run\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; set -o pipefail && $SHM $DEBUG $TSAN $TSAN_CRASH CRASH_TEST_KILL_ODD=1887 make $PARALLELISM whitebox_crash_test || $CONTRUN_NAME=tsan_whitebox_crash_test $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -987,21 +989,21 @@ TSAN_WHITEBOX_CRASH_TEST_COMMANDS="[
 #
 TSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
     {
-        'name':'Rocksdb Crash Test with atomic flush under TSAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb Crash Test with atomic flush under TSAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Compile and run',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; set -o pipefail && $SHM $DEBUG $TSAN $TSAN_CRASH CRASH_TEST_KILL_ODD=1887 make J=1 crash_test_with_atomic_flush || $CONTRUN_NAME=tsan_crash_test_with_atomic_flush $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Compile and run\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; set -o pipefail && $SHM $DEBUG $TSAN $TSAN_CRASH CRASH_TEST_KILL_ODD=1887 make $PARALLELISM crash_test_with_atomic_flush || $CONTRUN_NAME=tsan_crash_test_with_atomic_flush $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -1011,21 +1013,21 @@ TSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
 #
 TSAN_CRASH_TEST_WITH_TXN_COMMANDS="[
     {
-        'name':'Rocksdb Crash Test with txn under TSAN',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb Crash Test with txn under TSAN\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Compile and run',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; set -o pipefail && $SHM $DEBUG $TSAN $TSAN_CRASH CRASH_TEST_KILL_ODD=1887 make J=1 crash_test_with_txn || $CONTRUN_NAME=tsan_crash_test_with_txn $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Compile and run\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; set -o pipefail && $SHM $DEBUG $TSAN $TSAN_CRASH CRASH_TEST_KILL_ODD=1887 make $PARALLELISM crash_test_with_txn || $CONTRUN_NAME=tsan_crash_test_with_txn $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
-            $UPLOAD_DB_DIR,
-        ],
+            $UPLOAD_DB_DIR
+        ]
         $REPORT
     }
 ]"
@@ -1041,24 +1043,24 @@ run_format_compatible()
   mkdir /dev/shm/rocksdb
 
   export https_proxy="fwdproxy:8080"
-  
+
   tools/check_format_compatible.sh
 }
 
 FORMAT_COMPATIBLE_COMMANDS="[
     {
-        'name':'Rocksdb Format Compatible tests',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb Format Compatible tests\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Run RocksDB debug unit test',
-                'shell':'cd $WORKING_DIR; build_tools/rocksdb-lego-determinator run_format_compatible || $CONTRUN_NAME=run_format_compatible $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Run RocksDB debug unit test\",
+                \"shell\":\"cd $WORKING_DIR; build_tools/rocksdb-lego-determinator run_format_compatible || $CONTRUN_NAME=run_format_compatible $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -1077,23 +1079,23 @@ run_no_compression()
   cat Makefile | grep -v tools/ldb_test.py > .tmp.Makefile
   mv .tmp.Makefile Makefile
   export $SKIP_FORMAT_CHECKS
-  make $DEBUG J=1 check
+  make $DEBUG $PARALLELISM check
 }
 
 NO_COMPRESSION_COMMANDS="[
     {
-        'name':'Rocksdb No Compression tests',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb No Compression tests\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Run RocksDB debug unit test',
-                'shell':'cd $WORKING_DIR; build_tools/rocksdb-lego-determinator run_no_compression || $CONTRUN_NAME=run_no_compression $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Run RocksDB debug unit test\",
+                \"shell\":\"cd $WORKING_DIR; build_tools/rocksdb-lego-determinator run_no_compression || $CONTRUN_NAME=run_no_compression $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -1142,18 +1144,18 @@ run_regression()
 
 REGRESSION_COMMANDS="[
     {
-        'name':'Rocksdb regression commands',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb regression commands\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Make and run script',
-                'shell':'cd $WORKING_DIR; build_tools/rocksdb-lego-determinator run_regression || $CONTRUN_NAME=run_regression $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Make and run script\",
+                \"shell\":\"cd $WORKING_DIR; build_tools/rocksdb-lego-determinator run_regression || $CONTRUN_NAME=run_regression $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -1163,18 +1165,18 @@ REGRESSION_COMMANDS="[
 #
 JAVA_BUILD_TEST_COMMANDS="[
     {
-        'name':'Rocksdb Java Build',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'steps': [
+        \"name\":\"Rocksdb Java Build\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"steps\": [
             $CLEANUP_ENV,
             {
-                'name':'Build RocksDB for Java',
-                'shell':'cd $WORKING_DIR; $SETUP_JAVA_ENV; $SHM make rocksdbjava || $CONTRUN_NAME=rocksdbjava $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build RocksDB for Java\",
+                \"shell\":\"cd $WORKING_DIR; $SETUP_JAVA_ENV; $SHM make $PARALLELISM rocksdbjava || $CONTRUN_NAME=rocksdbjava $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"
@@ -1184,31 +1186,31 @@ JAVA_BUILD_TEST_COMMANDS="[
 #
 FBCODE_STRESS_CRASH_TEST_COMMANDS="[
     {
-        'name':'Rocksdb Fbcode Stress and Crash Test',
-        'oncall':'$ONCALL',
-        'executeLocal': 'true',
-        'timeout': 86400,
-        'steps': [
+        \"name\":\"Rocksdb Fbcode Stress and Crash Test\",
+        \"oncall\":\"$ONCALL\",
+        \"executeLocal\": \"true\",
+        \"timeout\": 86400,
+        \"steps\": [
             {
-                'name':'Copy RocksDB code to fbcode repo',
-                'shell':'cd internal_repo_rocksdb/repo && git init -b main && git add * && git commit -a -m \"Make internal_repo_rocksdb/repo a git repo\" && cd ../.. && echo Y | python3 rocks/release_script/release_to_fbcode.py -u internal_repo_rocksdb/repo main || $CONTRUN_NAME=db_stress_fbcode $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Copy RocksDB code to fbcode repo\",
+                \"shell\":\"cd internal_repo_rocksdb/repo && git init -b main && git add * && git commit -a -m \\\"Make internal_repo_rocksdb/repo a git repo\\\" && cd ../.. && echo Y | python3 rocks/release_script/release_to_fbcode.py -u internal_repo_rocksdb/repo main || $CONTRUN_NAME=db_stress_fbcode $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
             {
-                'name':'Build RocksDB fbcode stress tests',
-                'shell':'cd $WORKING_DIR; buck build @mode/dbg rocks/tools:rocks_db_stress || $CONTRUN_NAME=db_stress_fbcode $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Build RocksDB fbcode stress tests\",
+                \"shell\":\"cd $WORKING_DIR; buck build @mode/dbg rocks/tools:rocks_db_stress || $CONTRUN_NAME=db_stress_fbcode $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
             },
             {
-                'name':'Run RocksDB whitebox crash tests',
-                'timeout': 86400,
-                'shell':'cd $WORKING_DIR; mkdir /dev/shm/rocksdb_fbcode_crash_test && TEST_TMPDIR=\$(mktemp -d --tmpdir=/dev/shm/rocksdb_fbcode_crash_test) python3 rocksdb/src/tools/db_crashtest.py --stress_cmd=buck-out/dbg/gen/rocks/tools/rocks_db_stress -secondary_cache_uri=\"$SECONDARY_CACHE_URI\" --env_uri=$ENV_URI $EXTRA_DB_STRESS_ARGS -logtostderr=false $TEST_TYPE || $CONTRUN_NAME=db_stress_fbcode $TASK_CREATION_TOOL',
-                'user':'root',
+                \"name\":\"Run RocksDB whitebox crash tests\",
+                \"timeout\": 86400,
+                \"shell\":\"cd $WORKING_DIR; mkdir /dev/shm/rocksdb_fbcode_crash_test && TEST_TMPDIR=\$(mktemp -d --tmpdir=/dev/shm/rocksdb_fbcode_crash_test) python3 rocksdb/src/tools/db_crashtest.py --stress_cmd=buck-out/dbg/gen/rocks/tools/rocks_db_stress -secondary_cache_uri=\\\"$SECONDARY_CACHE_URI\\\" --env_uri=$ENV_URI $EXTRA_DB_STRESS_ARGS -logtostderr=false $TEST_TYPE || $CONTRUN_NAME=db_stress_fbcode $TASK_CREATION_TOOL\",
+                \"user\":\"root\",
                 $PARSER
-            },
-        ],
+            }
+        ]
         $REPORT
     }
 ]"

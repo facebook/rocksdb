@@ -183,9 +183,9 @@ IOStatus GenerateOneFileChecksum(
                               ? verify_checksums_readahead_size
                               : default_max_read_ahead_size;
 
-  FilePrefetchBuffer prefetch_buffer(
-      reader.get(), readahead_size /* readahead_size */,
-      readahead_size /* max_readahead_size */, !allow_mmap_reads /* enable */);
+  FilePrefetchBuffer prefetch_buffer(readahead_size /* readahead_size */,
+                                     readahead_size /* max_readahead_size */,
+                                     !allow_mmap_reads /* enable */);
 
   Slice slice;
   uint64_t offset = 0;
@@ -193,8 +193,9 @@ IOStatus GenerateOneFileChecksum(
   while (size > 0) {
     size_t bytes_to_read =
         static_cast<size_t>(std::min(uint64_t{readahead_size}, size));
-    if (!prefetch_buffer.TryReadFromCache(opts, offset, bytes_to_read, &slice,
-                                          nullptr, false)) {
+    if (!prefetch_buffer.TryReadFromCache(
+            opts, reader.get(), offset, bytes_to_read, &slice,
+            nullptr /* status */, false /* for_compaction */)) {
       return IOStatus::Corruption("file read failed");
     }
     if (slice.size() == 0) {

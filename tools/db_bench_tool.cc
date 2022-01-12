@@ -59,6 +59,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/stats_history.h"
+#include "rocksdb/table.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_type.h"
@@ -147,6 +148,8 @@ IF_ROCKSDB_LITE("",
     "fill100K,"
     "crc32c,"
     "xxhash,"
+    "xxhash64,"
+    "xxh3,"
     "compress,"
     "uncompress,"
     "acquireload,"
@@ -205,8 +208,10 @@ IF_ROCKSDB_LITE("",
     "overwrite\n"
     "\tseekrandomwhilemerging -- seekrandom and 1 thread doing "
     "merge\n"
-    "\tcrc32c        -- repeated crc32c of 4K of data\n"
-    "\txxhash        -- repeated xxHash of 4K of data\n"
+    "\tcrc32c        -- repeated crc32c of <block size> data\n"
+    "\txxhash        -- repeated xxHash of <block size> data\n"
+    "\txxhash64      -- repeated xxHash64 of <block size> data\n"
+    "\txxh3          -- repeated XXH3 of <block size> data\n"
     "\tacquireload   -- load N*1000 times\n"
     "\tfillseekseq   -- write N values in sequential key, then read "
     "them by seeking to each key\n"
@@ -231,9 +236,9 @@ IF_ROCKSDB_LITE("",
     "\tmemstats  -- Print memtable stats\n"
     "\tsstables    -- Print sstable info\n"
     "\theapprofile -- Dump a heap profile (if supported by this port)\n"
-#ifndef ROCKSDB_LITE
+IF_ROCKSDB_LITE("",
     "\treplay      -- replay the trace file specified with trace_file\n"
-#endif  // ROCKSDB_LITE
+)
     "\tgetmergeoperands -- Insert lots of merge records which are a list of "
     "sorted ints for a key and then compare performance of lookup for another "
     "key "
@@ -532,6 +537,9 @@ DEFINE_int32(universal_compression_size_percent, -1,
 DEFINE_bool(universal_allow_trivial_move, false,
             "Allow trivial move in universal compaction.");
 
+DEFINE_bool(universal_incremental, false,
+            "Enable incremental compactions in universal compaction.");
+
 DEFINE_int64(cache_size, 8 << 20,  // 8MB
              "Number of bytes to use as a cache of uncompressed data");
 
@@ -730,6 +738,10 @@ DEFINE_bool(verify_checksum, true,
             "Verify checksum for every block read"
             " from storage");
 
+DEFINE_int32(checksum_type,
+             ROCKSDB_NAMESPACE::BlockBasedTableOptions().checksum,
+             "ChecksumType as an int");
+
 DEFINE_bool(statistics, false, "Database statistics");
 DEFINE_int32(stats_level, ROCKSDB_NAMESPACE::StatsLevel::kExceptDetailedTimers,
              "stats level for statistics");
@@ -746,6 +758,9 @@ DEFINE_bool(sync, false, "Sync all writes to disk");
 DEFINE_bool(use_fsync, false, "If true, issue fsync instead of fdatasync");
 
 DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
+
+DEFINE_bool(manual_wal_flush, false,
+            "If true, buffer WAL until buffer is full or a manual FlushWAL().");
 
 DEFINE_string(wal_dir, "", "If not empty, use the given dir for WAL");
 
@@ -795,6 +810,8 @@ DEFINE_uint64(periodic_compaction_seconds,
               ROCKSDB_NAMESPACE::Options().periodic_compaction_seconds,
               "Files older than this will be picked up for compaction and"
               " rewritten to the same level");
+
+DEFINE_uint64(ttl_seconds, ROCKSDB_NAMESPACE::Options().ttl, "Set options.ttl");
 
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {
   if (value <= 0 || value>=100) {
@@ -985,6 +1002,11 @@ DEFINE_double(blob_garbage_collection_force_threshold,
               "[Integrated BlobDB] The threshold for the ratio of garbage in "
               "the oldest blob files for forcing garbage collection.");
 
+DEFINE_uint64(blob_compaction_readahead_size,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_compaction_readahead_size,
+              "[Integrated BlobDB] Compaction readahead for blob files.");
+
 #ifndef ROCKSDB_LITE
 
 // Secondary DB instance Options
@@ -1031,6 +1053,10 @@ DEFINE_bool(io_uring_enabled, true,
             "If true, enable the use of IO uring if the platform supports it");
 extern "C" bool RocksDbIOUringEnable() { return FLAGS_io_uring_enabled; }
 #endif  // ROCKSDB_LITE
+
+DEFINE_bool(adaptive_readahead, false,
+            "carry forward internal auto readahead size from one file to next "
+            "file at each level during iteration");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -1128,6 +1154,10 @@ DEFINE_string(simulate_hybrid_fs_file, "",
               "File for Store Metadata for Simulate hybrid FS. Empty means "
               "disable the feature. Now, if it is set, "
               "bottommost_temperature is set to kWarm.");
+DEFINE_int32(simulate_hybrid_hdd_multipliers, 1,
+             "In simulate_hybrid_fs_file or simulate_hdd mode, how many HDDs "
+             "are simulated.");
+DEFINE_bool(simulate_hdd, false, "Simulate read/write latency on HDD.");
 
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 
@@ -1562,6 +1592,7 @@ struct ReportFileOpCounters {
 class ReportFileOpEnv : public EnvWrapper {
  public:
   explicit ReportFileOpEnv(Env* base) : EnvWrapper(base) { reset(); }
+  const char* Name() const override { return "ReportFileOpEnv"; }
 
   void reset() {
     counters_.open_counter_ = 0;
@@ -3431,6 +3462,10 @@ class Benchmark {
         method = &Benchmark::Crc32c;
       } else if (name == "xxhash") {
         method = &Benchmark::xxHash;
+      } else if (name == "xxhash64") {
+        method = &Benchmark::xxHash64;
+      } else if (name == "xxh3") {
+        method = &Benchmark::xxh3;
       } else if (name == "acquireload") {
         method = &Benchmark::AcquireLoad;
       } else if (name == "compress") {
@@ -3775,44 +3810,42 @@ class Benchmark {
     return merge_stats;
   }
 
-  void Crc32c(ThreadState* thread) {
-    // Checksum about 500MB of data total
+  template <OperationType kOpType, typename FnType, typename... Args>
+  static inline void ChecksumBenchmark(FnType fn, ThreadState* thread,
+                                       Args... args) {
     const int size = FLAGS_block_size; // use --block_size option for db_bench
     std::string labels = "(" + ToString(FLAGS_block_size) + " per op)";
     const char* label = labels.c_str();
 
     std::string data(size, 'x');
-    int64_t bytes = 0;
-    uint32_t crc = 0;
-    while (bytes < 500 * 1048576) {
-      crc = crc32c::Value(data.data(), size);
-      thread->stats.FinishedOps(nullptr, nullptr, 1, kCrc);
+    uint64_t bytes = 0;
+    uint32_t val = 0;
+    while (bytes < 5000U * uint64_t{1048576}) {  // ~5GB
+      val += static_cast<uint32_t>(fn(data.data(), size, args...));
+      thread->stats.FinishedOps(nullptr, nullptr, 1, kOpType);
       bytes += size;
     }
     // Print so result is not dead
-    fprintf(stderr, "... crc=0x%x\r", static_cast<unsigned int>(crc));
+    fprintf(stderr, "... val=0x%x\r", static_cast<unsigned int>(val));
 
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(label);
   }
 
-  void xxHash(ThreadState* thread) {
-    // Checksum about 500MB of data total
-    const int size = 4096;
-    const char* label = "(4K per op)";
-    std::string data(size, 'x');
-    int64_t bytes = 0;
-    unsigned int xxh32 = 0;
-    while (bytes < 500 * 1048576) {
-      xxh32 = XXH32(data.data(), size, 0);
-      thread->stats.FinishedOps(nullptr, nullptr, 1, kHash);
-      bytes += size;
-    }
-    // Print so result is not dead
-    fprintf(stderr, "... xxh32=0x%x\r", static_cast<unsigned int>(xxh32));
+  void Crc32c(ThreadState* thread) {
+    ChecksumBenchmark<kCrc>(crc32c::Value, thread);
+  }
 
-    thread->stats.AddBytes(bytes);
-    thread->stats.AddMessage(label);
+  void xxHash(ThreadState* thread) {
+    ChecksumBenchmark<kHash>(XXH32, thread, /*seed*/ 0);
+  }
+
+  void xxHash64(ThreadState* thread) {
+    ChecksumBenchmark<kHash>(XXH64, thread, /*seed*/ 0);
+  }
+
+  void xxh3(ThreadState* thread) {
+    ChecksumBenchmark<kHash>(XXH3_64bits, thread);
   }
 
   void AcquireLoad(ThreadState* thread) {
@@ -3959,6 +3992,7 @@ class Benchmark {
     options.use_direct_reads = FLAGS_use_direct_reads;
     options.use_direct_io_for_flush_and_compaction =
         FLAGS_use_direct_io_for_flush_and_compaction;
+    options.manual_wal_flush = FLAGS_manual_wal_flush;
 #ifndef ROCKSDB_LITE
     options.ttl = FLAGS_fifo_compaction_ttl;
     options.compaction_options_fifo = CompactionOptionsFIFO(
@@ -4064,6 +4098,8 @@ class Benchmark {
 #endif  // ROCKSDB_LITE
     } else {
       BlockBasedTableOptions block_based_options;
+      block_based_options.checksum =
+          static_cast<ChecksumType>(FLAGS_checksum_type);
       if (FLAGS_use_hash_search) {
         if (FLAGS_prefix_size == 0) {
           fprintf(stderr,
@@ -4269,7 +4305,7 @@ class Benchmark {
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
     options.optimize_filters_for_hits = FLAGS_optimize_filters_for_hits;
     options.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
-
+    options.ttl = FLAGS_ttl_seconds;
     // fill storage options
     options.advise_random_on_open = FLAGS_advise_random_on_open;
     options.access_hint_on_compaction_start = FLAGS_compaction_fadvice_e;
@@ -4313,6 +4349,8 @@ class Benchmark {
     }
     options.compaction_options_universal.allow_trivial_move =
         FLAGS_universal_allow_trivial_move;
+    options.compaction_options_universal.incremental =
+        FLAGS_universal_incremental;
     if (FLAGS_thread_status_per_interval > 0) {
       options.enable_thread_tracking = true;
     }
@@ -4337,6 +4375,8 @@ class Benchmark {
         FLAGS_blob_garbage_collection_age_cutoff;
     options.blob_garbage_collection_force_threshold =
         FLAGS_blob_garbage_collection_force_threshold;
+    options.blob_compaction_readahead_size =
+        FLAGS_blob_compaction_readahead_size;
 
 #ifndef ROCKSDB_LITE
     if (FLAGS_readonly && FLAGS_transaction_db) {
@@ -5467,6 +5507,7 @@ class Benchmark {
       options.timestamp = &ts;
     }
 
+    options.adaptive_readahead = FLAGS_adaptive_readahead;
     Iterator* iter = db->NewIterator(options);
     int64_t i = 0;
     int64_t bytes = 0;
@@ -5561,7 +5602,9 @@ class Benchmark {
   }
 
   void ReadReverse(ThreadState* thread, DB* db) {
-    Iterator* iter = db->NewIterator(ReadOptions(FLAGS_verify_checksum, true));
+    ReadOptions options(FLAGS_verify_checksum, true);
+    options.adaptive_readahead = FLAGS_adaptive_readahead;
+    Iterator* iter = db->NewIterator(options);
     int64_t i = 0;
     int64_t bytes = 0;
     for (iter->SeekToLast(); i < reads_ && iter->Valid(); iter->Prev()) {
@@ -6351,6 +6394,7 @@ class Benchmark {
     options.prefix_same_as_start = FLAGS_prefix_same_as_start;
     options.tailing = FLAGS_use_tailing_iterator;
     options.readahead_size = FLAGS_readahead_size;
+    options.adaptive_readahead = FLAGS_adaptive_readahead;
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
     if (user_timestamp_size_ > 0) {
@@ -6647,6 +6691,7 @@ class Benchmark {
       ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
       read_options.timestamp = &ts;
     }
+    read_options.adaptive_readahead = FLAGS_adaptive_readahead;
     Iterator* iter = db_.db->NewIterator(read_options);
 
     fprintf(stderr, "num reads to do %" PRIu64 "\n", reads_);
@@ -7247,6 +7292,7 @@ class Benchmark {
 
     DB* db = SelectDB(thread);
     ReadOptions read_opts(FLAGS_verify_checksum, true);
+    read_opts.adaptive_readahead = FLAGS_adaptive_readahead;
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
     if (user_timestamp_size_ > 0) {
@@ -8094,12 +8140,15 @@ int db_bench_tool(int argc, char** argv) {
       fprintf(stderr, "Failed creating env: %s\n", s.ToString().c_str());
       exit(1);
     }
-  } else if (FLAGS_simulate_hybrid_fs_file != "") {
+  } else if (FLAGS_simulate_hdd || FLAGS_simulate_hybrid_fs_file != "") {
     //**TODO: Make the simulate fs something that can be loaded
     // from the ObjectRegistry...
     static std::shared_ptr<ROCKSDB_NAMESPACE::Env> composite_env =
         NewCompositeEnv(std::make_shared<SimulatedHybridFileSystem>(
-            FileSystem::Default(), FLAGS_simulate_hybrid_fs_file));
+            FileSystem::Default(), FLAGS_simulate_hybrid_fs_file,
+            /*throughput_multiplier=*/
+            int{FLAGS_simulate_hybrid_hdd_multipliers},
+            /*is_full_fs_warm=*/FLAGS_simulate_hdd));
     FLAGS_env = composite_env.get();
   }
 #endif  // ROCKSDB_LITE

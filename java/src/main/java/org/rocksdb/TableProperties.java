@@ -31,6 +31,7 @@ public class TableProperties {
   private final long oldestKeyTime;
   private final long slowCompressionEstimatedDataSize;
   private final long fastCompressionEstimatedDataSize;
+  private final long externalSstFileGlobalSeqnoOffset;
   private final byte[] columnFamilyName;
   private final String filterPolicyName;
   private final String comparatorName;
@@ -40,7 +41,6 @@ public class TableProperties {
   private final String compressionName;
   private final Map<String, String> userCollectedProperties;
   private final Map<String, String> readableProperties;
-  private final Map<String, Long> propertiesOffsets;
 
   /**
    * Access is package private as this will only be constructed from
@@ -54,11 +54,11 @@ public class TableProperties {
       final long formatVersion, final long fixedKeyLen, final long columnFamilyId,
       final long creationTime, final long oldestKeyTime,
       final long slowCompressionEstimatedDataSize, final long fastCompressionEstimatedDataSize,
-      final byte[] columnFamilyName, final String filterPolicyName, final String comparatorName,
-      final String mergeOperatorName, final String prefixExtractorName,
-      final String propertyCollectorsNames, final String compressionName,
-      final Map<String, String> userCollectedProperties,
-      final Map<String, String> readableProperties, final Map<String, Long> propertiesOffsets) {
+      final long externalSstFileGlobalSeqnoOffset, final byte[] columnFamilyName,
+      final String filterPolicyName, final String comparatorName, final String mergeOperatorName,
+      final String prefixExtractorName, final String propertyCollectorsNames,
+      final String compressionName, final Map<String, String> userCollectedProperties,
+      final Map<String, String> readableProperties) {
     this.dataSize = dataSize;
     this.indexSize = indexSize;
     this.indexPartitions = indexPartitions;
@@ -80,6 +80,7 @@ public class TableProperties {
     this.oldestKeyTime = oldestKeyTime;
     this.slowCompressionEstimatedDataSize = slowCompressionEstimatedDataSize;
     this.fastCompressionEstimatedDataSize = fastCompressionEstimatedDataSize;
+    this.externalSstFileGlobalSeqnoOffset = externalSstFileGlobalSeqnoOffset;
     this.columnFamilyName = columnFamilyName;
     this.filterPolicyName = filterPolicyName;
     this.comparatorName = comparatorName;
@@ -89,7 +90,6 @@ public class TableProperties {
     this.compressionName = compressionName;
     this.userCollectedProperties = userCollectedProperties;
     this.readableProperties = readableProperties;
-    this.propertiesOffsets = propertiesOffsets;
   }
 
   /**
@@ -379,15 +379,6 @@ public class TableProperties {
     return readableProperties;
   }
 
-  /**
-   * The offset of the value of each property in the file.
-   *
-   * @return the offset of each property.
-   */
-  public Map<String, Long> getPropertiesOffsets() {
-    return propertiesOffsets;
-  }
-
   @Override
   public boolean equals(Object o) {
     if (this == o)
@@ -408,6 +399,7 @@ public class TableProperties {
         && oldestKeyTime == that.oldestKeyTime
         && slowCompressionEstimatedDataSize == that.slowCompressionEstimatedDataSize
         && fastCompressionEstimatedDataSize == that.fastCompressionEstimatedDataSize
+        && externalSstFileGlobalSeqnoOffset == that.externalSstFileGlobalSeqnoOffset
         && Arrays.equals(columnFamilyName, that.columnFamilyName)
         && Objects.equals(filterPolicyName, that.filterPolicyName)
         && Objects.equals(comparatorName, that.comparatorName)
@@ -416,8 +408,7 @@ public class TableProperties {
         && Objects.equals(propertyCollectorsNames, that.propertyCollectorsNames)
         && Objects.equals(compressionName, that.compressionName)
         && Objects.equals(userCollectedProperties, that.userCollectedProperties)
-        && Objects.equals(readableProperties, that.readableProperties)
-        && Objects.equals(propertiesOffsets, that.propertiesOffsets);
+        && Objects.equals(readableProperties, that.readableProperties);
   }
 
   @Override
@@ -426,9 +417,9 @@ public class TableProperties {
         indexKeyIsUserKey, indexValueIsDeltaEncoded, filterSize, rawKeySize, rawValueSize,
         numDataBlocks, numEntries, numDeletions, numMergeOperands, numRangeDeletions, formatVersion,
         fixedKeyLen, columnFamilyId, creationTime, oldestKeyTime, slowCompressionEstimatedDataSize,
-        fastCompressionEstimatedDataSize, filterPolicyName, comparatorName, mergeOperatorName,
-        prefixExtractorName, propertyCollectorsNames, compressionName, userCollectedProperties,
-        readableProperties, propertiesOffsets);
+        fastCompressionEstimatedDataSize, externalSstFileGlobalSeqnoOffset, filterPolicyName,
+        comparatorName, mergeOperatorName, prefixExtractorName, propertyCollectorsNames,
+        compressionName, userCollectedProperties, readableProperties);
     result = 31 * result + Arrays.hashCode(columnFamilyName);
     return result;
   }

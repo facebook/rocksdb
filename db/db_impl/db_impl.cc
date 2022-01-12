@@ -53,7 +53,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
-#include "env/unique_id.h"
+#include "env/unique_id_gen.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -92,6 +92,7 @@
 #include "table/sst_file_dumper.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "trace_replay/trace_replay.h"
 #include "util/autovector.h"
@@ -718,9 +719,11 @@ Status DBImpl::CloseHelper() {
 Status DBImpl::CloseImpl() { return CloseHelper(); }
 
 DBImpl::~DBImpl() {
+  InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
   if (!closed_) {
     closed_ = true;
-    CloseHelper().PermitUncheckedError();
+    closing_status_ = CloseHelper();
+    closing_status_.PermitUncheckedError();
   }
 }
 
@@ -1386,7 +1389,9 @@ Status DBImpl::SyncWAL() {
     IOStatusCheck(io_s);
   }
   if (status.ok() && need_log_dir_sync) {
-    status = directories_.GetWalDir()->Fsync(IOOptions(), nullptr);
+    status = directories_.GetWalDir()->FsyncWithDirOptions(
+        IOOptions(), nullptr,
+        DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
   }
   TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
 
@@ -1491,6 +1496,30 @@ bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
   }
 }
 
+Status DBImpl::GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                   std::string* ts_low) {
+  if (ts_low == nullptr) {
+    return Status::InvalidArgument("ts_low is nullptr");
+  }
+  ColumnFamilyData* cfd = nullptr;
+  if (column_family == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  } else {
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+    assert(cfh != nullptr);
+    cfd = cfh->cfd();
+  }
+  assert(cfd != nullptr && cfd->user_comparator() != nullptr);
+  if (cfd->user_comparator()->timestamp_size() == 0) {
+    return Status::InvalidArgument(
+        "Timestamp is not enabled in this column family");
+  }
+  InstrumentedMutexLock l(&mutex_);
+  *ts_low = cfd->GetFullHistoryTsLow();
+  assert(cfd->user_comparator()->timestamp_size() == ts_low->size());
+  return Status::OK();
+}
+
 InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
                                               Arena* arena,
                                               RangeDelAggregator* range_del_agg,
@@ -1540,6 +1569,8 @@ void DBImpl::BackgroundCallPurge() {
     delete sv;
     mutex_.Lock();
   }
+
+  assert(bg_purge_scheduled_ > 0);
 
   // Can't use iterator to go over purge_files_ because inside the loop we're
   // unlocking the mutex that protects purge_files_.
@@ -1608,17 +1639,7 @@ static void CleanupIteratorState(void* arg1, void* /*arg2*/) {
       delete state->super_version;
     }
     if (job_context.HaveSomethingToDelete()) {
-      if (state->background_purge) {
-        // PurgeObsoleteFiles here does not delete files. Instead, it adds the
-        // files to be deleted to a job queue, and deletes it in a separate
-        // background thread.
-        state->db->PurgeObsoleteFiles(job_context, true /* schedule only */);
-        state->mu->Lock();
-        state->db->SchedulePurge();
-        state->mu->Unlock();
-      } else {
-        state->db->PurgeObsoleteFiles(job_context);
-      }
+      state->db->PurgeObsoleteFiles(job_context, state->background_purge);
     }
     job_context.Clean();
   }
@@ -2898,6 +2919,13 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   }
   // if iterator wants internal keys, we can only proceed if
   // we can guarantee the deletes haven't been processed yet
+  if (read_options.iter_start_seqnum > 0 &&
+      !iter_start_seqnum_deprecation_warned_.exchange(true)) {
+    ROCKS_LOG_WARN(
+        immutable_db_options_.info_log,
+        "iter_start_seqnum is deprecated, will be removed in a future release. "
+        "Please try using user-defined timestamp instead.");
+  }
   if (immutable_db_options_.preserve_deletes &&
       read_options.iter_start_seqnum > 0 &&
       read_options.iter_start_seqnum < preserve_deletes_seqnum_.load()) {
@@ -3944,24 +3972,28 @@ Status DBImpl::GetDbSessionId(std::string& session_id) const {
   return Status::OK();
 }
 
-std::string DBImpl::GenerateDbSessionId(Env*) {
-  // GenerateRawUniqueId() generates an identifier that has a negligible
-  // probability of being duplicated. It should have full 128 bits of entropy.
-  uint64_t a, b;
-  GenerateRawUniqueId(&a, &b);
+namespace {
+SemiStructuredUniqueIdGen* DbSessionIdGen() {
+  static SemiStructuredUniqueIdGen gen;
+  return &gen;
+}
+}  // namespace
 
-  // Hash and reformat that down to a more compact format, 20 characters
-  // in base-36 ([0-9A-Z]), which is ~103 bits of entropy, which is enough
-  // to expect no collisions across a billion servers each opening DBs
-  // a million times (~2^50). Benefits vs. raw unique id:
-  // * Save ~ dozen bytes per SST file
-  // * Shorter shared backup file names (some platforms have low limits)
-  // * Visually distinct from DB id format
-  std::string db_session_id(20U, '\0');
-  char* buf = &db_session_id[0];
-  PutBaseChars<36>(&buf, 10, a, /*uppercase*/ true);
-  PutBaseChars<36>(&buf, 10, b, /*uppercase*/ true);
-  return db_session_id;
+void DBImpl::TEST_ResetDbSessionIdGen() { DbSessionIdGen()->Reset(); }
+
+std::string DBImpl::GenerateDbSessionId(Env*) {
+  // See SemiStructuredUniqueIdGen for its desirable properties.
+  auto gen = DbSessionIdGen();
+
+  uint64_t lo, hi;
+  gen->GenerateNext(&hi, &lo);
+  if (lo == 0) {
+    // Avoid emitting session ID with lo==0, so that SST unique
+    // IDs can be more easily ensured non-zero
+    gen->GenerateNext(&hi, &lo);
+    assert(lo != 0);
+  }
+  return EncodeSessionId(hi, lo);
 }
 
 void DBImpl::SetDbSessionId() {
@@ -3999,6 +4031,10 @@ Status DB::DropColumnFamilies(
 }
 
 Status DB::DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family) {
+  if (DefaultColumnFamily() == column_family) {
+    return Status::InvalidArgument(
+        "Cannot destroy the handle returned by DefaultColumnFamily()");
+  }
   delete column_family;
   return Status::OK();
 }
@@ -4006,19 +4042,20 @@ Status DB::DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family) {
 DB::~DB() {}
 
 Status DBImpl::Close() {
-  if (!closed_) {
-    {
-      InstrumentedMutexLock l(&mutex_);
-      // If there is unreleased snapshot, fail the close call
-      if (!snapshots_.empty()) {
-        return Status::Aborted("Cannot close DB with unreleased snapshot.");
-      }
-    }
-
-    closed_ = true;
-    return CloseImpl();
+  InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
+  if (closed_) {
+    return closing_status_;
   }
-  return Status::OK();
+  {
+    InstrumentedMutexLock l(&mutex_);
+    // If there is unreleased snapshot, fail the close call
+    if (!snapshots_.empty()) {
+      return Status::Aborted("Cannot close DB with unreleased snapshot.");
+    }
+  }
+  closing_status_ = CloseImpl();
+  closed_ = true;
+  return closing_status_;
 }
 
 Status DB::ListColumnFamilies(const DBOptions& db_options,
@@ -4284,11 +4321,24 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
   uint64_t options_file_number = versions_->NewFileNumber();
   std::string options_file_name =
       OptionsFileName(GetName(), options_file_number);
-  // Retry if the file name happen to conflict with an existing one.
-  s = GetEnv()->RenameFile(file_name, options_file_name);
+  uint64_t options_file_size = 0;
+  s = GetEnv()->GetFileSize(file_name, &options_file_size);
+  if (s.ok()) {
+    // Retry if the file name happen to conflict with an existing one.
+    s = GetEnv()->RenameFile(file_name, options_file_name);
+    std::unique_ptr<FSDirectory> dir_obj;
+    if (s.ok()) {
+      s = fs_->NewDirectory(GetName(), IOOptions(), &dir_obj, nullptr);
+    }
+    if (s.ok()) {
+      s = dir_obj->FsyncWithDirOptions(IOOptions(), nullptr,
+                                       DirFsyncOptions(options_file_name));
+    }
+  }
   if (s.ok()) {
     InstrumentedMutexLock l(&mutex_);
     versions_->options_file_number_ = options_file_number;
+    versions_->options_file_size_ = options_file_size;
   }
 
   if (0 == disable_delete_obsolete_files_) {
@@ -4362,25 +4412,38 @@ SequenceNumber DBImpl::GetEarliestMemTableSequenceNumber(SuperVersion* sv,
   return earliest_seq;
 }
 
-Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
-                                       bool cache_only,
-                                       SequenceNumber lower_bound_seq,
-                                       SequenceNumber* seq,
-                                       bool* found_record_for_key,
-                                       bool* is_blob_index) {
+Status DBImpl::GetLatestSequenceForKey(
+    SuperVersion* sv, const Slice& key, bool cache_only,
+    SequenceNumber lower_bound_seq, SequenceNumber* seq, std::string* timestamp,
+    bool* found_record_for_key, bool* is_blob_index) {
   Status s;
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq = 0;
 
   ReadOptions read_options;
   SequenceNumber current_seq = versions_->LastSequence();
-  LookupKey lkey(key, current_seq);
+
+  ColumnFamilyData* cfd = sv->cfd;
+  assert(cfd);
+  const Comparator* const ucmp = cfd->user_comparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+  std::string ts_buf;
+  if (ts_sz > 0) {
+    assert(timestamp);
+    ts_buf.assign(ts_sz, '\xff');
+  } else {
+    assert(!timestamp);
+  }
+  Slice ts(ts_buf);
+
+  LookupKey lkey(key, current_seq, ts_sz == 0 ? nullptr : &ts);
 
   *seq = kMaxSequenceNumber;
   *found_record_for_key = false;
 
   // Check if there is a record for this key in the latest memtable
-  sv->mem->Get(lkey, nullptr, nullptr, &s, &merge_context,
+  sv->mem->Get(lkey, /*value=*/nullptr, timestamp, &s, &merge_context,
                &max_covering_tombstone_seq, seq, read_options,
                nullptr /*read_callback*/, is_blob_index);
 
@@ -4392,6 +4455,10 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
 
     return s;
   }
+  assert(!ts_sz ||
+         (*seq != kMaxSequenceNumber &&
+          *timestamp != std::string(ts_sz, '\xff')) ||
+         (*seq == kMaxSequenceNumber && timestamp->empty()));
 
   if (*seq != kMaxSequenceNumber) {
     // Found a sequence number, no need to check immutable memtables
@@ -4407,7 +4474,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->Get(lkey, nullptr, nullptr, &s, &merge_context,
+  sv->imm->Get(lkey, /*value=*/nullptr, timestamp, &s, &merge_context,
                &max_covering_tombstone_seq, seq, read_options,
                nullptr /*read_callback*/, is_blob_index);
 
@@ -4419,6 +4486,11 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
 
     return s;
   }
+
+  assert(!ts_sz ||
+         (*seq != kMaxSequenceNumber &&
+          *timestamp != std::string(ts_sz, '\xff')) ||
+         (*seq == kMaxSequenceNumber && timestamp->empty()));
 
   if (*seq != kMaxSequenceNumber) {
     // Found a sequence number, no need to check memtable history
@@ -4434,9 +4506,9 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->GetFromHistory(lkey, nullptr, nullptr, &s, &merge_context,
-                          &max_covering_tombstone_seq, seq, read_options,
-                          is_blob_index);
+  sv->imm->GetFromHistory(lkey, /*value=*/nullptr, timestamp, &s,
+                          &merge_context, &max_covering_tombstone_seq, seq,
+                          read_options, is_blob_index);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -4448,8 +4520,13 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
     return s;
   }
 
+  assert(!ts_sz ||
+         (*seq != kMaxSequenceNumber &&
+          *timestamp != std::string(ts_sz, '\xff')) ||
+         (*seq == kMaxSequenceNumber && timestamp->empty()));
   if (*seq != kMaxSequenceNumber) {
     // Found a sequence number, no need to check SST files
+    assert(0 == ts_sz || *timestamp != std::string(ts_sz, '\xff'));
     *found_record_for_key = true;
     return Status::OK();
   }
@@ -4462,10 +4539,10 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   // SST files if cache_only=true?
   if (!cache_only) {
     // Check tables
-    sv->current->Get(read_options, lkey, nullptr, nullptr, &s, &merge_context,
-                     &max_covering_tombstone_seq, nullptr /* value_found */,
-                     found_record_for_key, seq, nullptr /*read_callback*/,
-                     is_blob_index);
+    sv->current->Get(read_options, lkey, /*value=*/nullptr, timestamp, &s,
+                     &merge_context, &max_covering_tombstone_seq,
+                     nullptr /* value_found */, found_record_for_key, seq,
+                     nullptr /*read_callback*/, is_blob_index);
 
     if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
       // unexpected error reading SST files

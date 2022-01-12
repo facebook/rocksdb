@@ -12,6 +12,7 @@
 #include "rocksdb/status.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/math.h"
 
 namespace ROCKSDB_NAMESPACE {
 

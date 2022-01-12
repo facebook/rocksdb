@@ -45,7 +45,7 @@ default_params = {
         random.choice(
             ["none", "snappy", "zlib", "bzip2", "lz4", "lz4hc", "xpress",
              "zstd"]),
-    "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64"]),
+    "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64", "kXXH3"]),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
     # Disabled compression_parallel_threads as the feature is not stable
@@ -91,7 +91,6 @@ default_params = {
     "progress_reports": 0,
     "readpercent": 45,
     "recycle_log_file_num": lambda: random.randint(0, 1),
-    "reopen": 20,
     "snapshot_hold_ops": 100000,
     "sst_file_manager_bytes_per_sec": lambda: random.choice([0, 104857600]),
     "sst_file_manager_bytes_per_truncate": lambda: random.choice([0, 1048576]),
@@ -99,6 +98,7 @@ default_params = {
     "subcompactions": lambda: random.randint(1, 4),
     "target_file_size_base": 2097152,
     "target_file_size_multiplier": 2,
+    "test_batches_snapshots": lambda: random.randint(0, 1),
     "top_level_index_pinning": lambda: random.randint(0, 3),
     "unpartitioned_pinning": lambda: random.randint(0, 3),
     "use_direct_reads": lambda: random.randint(0, 1),
@@ -153,6 +153,8 @@ default_params = {
     "max_write_buffer_size_to_maintain": lambda: random.choice(
         [0, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024]),
     "user_timestamp_size": 0,
+    "secondary_cache_fault_one_in" : lambda: random.choice([0, 0, 32]),
+    "prepopulate_block_cache" : lambda: random.choice([0, 1]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -204,22 +206,28 @@ def is_direct_io_supported(dbname):
 
 
 blackbox_default_params = {
+    "disable_wal": lambda: random.choice([0, 0, 0, 1]),
     # total time for this script to test db_stress
     "duration": 6000,
     # time for one db_stress instance to run
     "interval": 120,
     # since we will be killing anyway, use large value for ops_per_thread
     "ops_per_thread": 100000000,
+    "reopen": 0,
     "set_options_one_in": 10000,
-    "test_batches_snapshots": 1,
 }
 
 whitebox_default_params = {
+    # TODO: enable this once we figure out how to adjust kill odds for WAL-
+    # disabled runs, and either (1) separate full `db_stress` runs out of
+    # whitebox crash or (2) support verification at end of `db_stress` runs
+    # that ran with WAL disabled.
+    "disable_wal": 0,
     "duration": 10000,
     "log2_keys_per_lock": 10,
     "ops_per_thread": 200000,
     "random_kill_odd": 888887,
-    "test_batches_snapshots": lambda: random.randint(0, 1),
+    "reopen": 20,
 }
 
 simple_default_params = {
@@ -268,6 +276,8 @@ txn_params = {
     # Avoid lambda to set it once for the entire test
     "txn_write_policy": random.randint(0, 2),
     "unordered_write": random.randint(0, 1),
+    # TODO: there is such a thing as transactions with WAL disabled. We should
+    # cover that case.
     "disable_wal": 0,
     # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
     "checkpoint_one_in": 0,
@@ -293,6 +303,7 @@ blob_params = {
     "enable_blob_garbage_collection": lambda: random.choice([0] + [1] * 3),
     "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
     "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
+    "blob_compaction_readahead_size": lambda: random.choice([0, 1048576, 4194304]),
 }
 
 ts_params = {
@@ -350,6 +361,10 @@ def finalize_and_sanitize(src_params):
         dest_params["allow_concurrent_memtable_write"] = 1
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["atomic_flush"] = 1
+        # The `DbStressCompactionFilter` can apply memtable updates to SST
+        # files, which would be problematic without WAL since such updates are
+        # expected to be lost in crash recoveries.
+        dest_params["enable_compaction_filter"] = 0
         dest_params["sync"] = 0
         dest_params["write_fault_one_in"] = 0
     if dest_params.get("open_files", 1) != -1:

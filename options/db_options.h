@@ -99,6 +99,7 @@ struct ImmutableDBOptions {
   bool allow_data_in_errors;
   std::string db_host_id;
   FileTypeSet checksum_handoff_file_types;
+  CacheTier lowest_used_cache_tier;
   // Convenience/Helper objects that are not part of the base DBOptions
   std::shared_ptr<FileSystem> fs;
   SystemClock* clock;
@@ -115,7 +116,6 @@ struct ImmutableDBOptions {
 struct MutableDBOptions {
   static const char* kName() { return "MutableDBOptions"; }
   MutableDBOptions();
-  explicit MutableDBOptions(const MutableDBOptions& options) = default;
   explicit MutableDBOptions(const DBOptions& options);
 
   void Dump(Logger* log) const;

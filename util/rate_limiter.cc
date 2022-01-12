@@ -9,14 +9,20 @@
 
 #include "util/rate_limiter.h"
 
+#include <algorithm>
+
 #include "monitoring/statistics.h"
 #include "port/port.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/system_clock.h"
+#include "rocksdb/utilities/customizable_util.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-
 size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,
                                  Env::IOPriority io_priority, Statistics* stats,
                                  RateLimiter::OpType op_type) {
@@ -44,34 +50,69 @@ struct GenericRateLimiter::Req {
   bool granted;
 };
 
+static std::unordered_map<std::string, OptionTypeInfo>
+    generic_rate_limiter_type_info = {
+#ifndef ROCKSDB_LITE
+        {"rate_bytes_per_sec",
+         {offsetof(struct GenericRateLimiter::GenericRateLimiterOptions,
+                   max_bytes_per_sec),
+          OptionType::kInt64T}},
+        {"refill_period_us",
+         {offsetof(struct GenericRateLimiter::GenericRateLimiterOptions,
+                   refill_period_us),
+          OptionType::kInt64T}},
+        {"fairness",
+         {offsetof(struct GenericRateLimiter::GenericRateLimiterOptions,
+                   fairness),
+          OptionType::kInt32T}},
+        {"auto_tuned",
+         {offsetof(struct GenericRateLimiter::GenericRateLimiterOptions,
+                   auto_tuned),
+          OptionType::kBoolean}},
+        {"clock",
+         OptionTypeInfo::AsCustomSharedPtr<SystemClock>(
+             offsetof(struct GenericRateLimiter::GenericRateLimiterOptions,
+                      clock),
+             OptionVerificationType::kByNameAllowFromNull,
+             OptionTypeFlags::kAllowNull)},
+#endif  // ROCKSDB_LITE
+};
+
 GenericRateLimiter::GenericRateLimiter(
     int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness,
     RateLimiter::Mode mode, const std::shared_ptr<SystemClock>& clock,
     bool auto_tuned)
     : RateLimiter(mode),
-      refill_period_us_(refill_period_us),
-      rate_bytes_per_sec_(auto_tuned ? rate_bytes_per_sec / 2
-                                     : rate_bytes_per_sec),
-      refill_bytes_per_period_(
-          CalculateRefillBytesPerPeriod(rate_bytes_per_sec_)),
-      clock_(clock),
+      options_(rate_bytes_per_sec, refill_period_us, fairness, clock,
+               auto_tuned),
       stop_(false),
       exit_cv_(&request_mutex_),
       requests_to_wait_(0),
       available_bytes_(0),
-      next_refill_us_(NowMicrosMonotonic()),
-      fairness_(fairness > 100 ? 100 : fairness),
       rnd_((uint32_t)time(nullptr)),
       wait_until_refill_pending_(false),
-      auto_tuned_(auto_tuned),
       num_drains_(0),
-      prev_num_drains_(0),
-      max_bytes_per_sec_(rate_bytes_per_sec),
-      tuned_time_(NowMicrosMonotonic()) {
+      prev_num_drains_(0) {
+  RegisterOptions(&options_, &generic_rate_limiter_type_info);
   for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
     total_requests_[i] = 0;
     total_bytes_through_[i] = 0;
   }
+  Initialize();
+}
+void GenericRateLimiter::Initialize() {
+  if (options_.clock == nullptr) {
+    options_.clock = SystemClock::Default();
+  }
+  options_.fairness = std::min(options_.fairness, 100);
+  next_refill_us_ = NowMicrosMonotonic();
+  tuned_time_ = std::chrono::microseconds(NowMicrosMonotonic());
+  if (options_.auto_tuned) {
+    rate_bytes_per_sec_ = options_.max_bytes_per_sec / 2;
+  } else {
+    rate_bytes_per_sec_ = options_.max_bytes_per_sec;
+  }
+  refill_bytes_per_period_ = CalculateRefillBytesPerPeriod(rate_bytes_per_sec_);
 }
 
 GenericRateLimiter::~GenericRateLimiter() {
@@ -95,6 +136,18 @@ GenericRateLimiter::~GenericRateLimiter() {
   }
 }
 
+Status GenericRateLimiter::PrepareOptions(const ConfigOptions& options) {
+  if (options_.fairness <= 0) {
+    return Status::InvalidArgument("Fairness must be > 0");
+  } else if (options_.max_bytes_per_sec <= 0) {
+    return Status::InvalidArgument("max_bytes_per_sec must be > 0");
+  } else if (options_.refill_period_us <= 0) {
+    return Status::InvalidArgument("Refill_period_us must be > 0");
+  }
+  Initialize();
+  return RateLimiter::PrepareOptions(options);
+}
+
 // This API allows user to dynamically change rate limiter's bytes per second.
 void GenericRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
   assert(bytes_per_second > 0);
@@ -107,16 +160,17 @@ void GenericRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
   assert(bytes <= refill_bytes_per_period_.load(std::memory_order_relaxed));
+  bytes = std::max(static_cast<int64_t>(0), bytes);
   TEST_SYNC_POINT("GenericRateLimiter::Request");
   TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:1",
                            &rate_bytes_per_sec_);
   MutexLock g(&request_mutex_);
 
-  if (auto_tuned_) {
+  if (options_.auto_tuned) {
     static const int kRefillsPerTune = 100;
     std::chrono::microseconds now(NowMicrosMonotonic());
-    if (now - tuned_time_ >=
-        kRefillsPerTune * std::chrono::microseconds(refill_period_us_)) {
+    if (now - tuned_time_ >= kRefillsPerTune * std::chrono::microseconds(
+                                                   options_.refill_period_us)) {
       Status s = Tune();
       s.PermitUncheckedError();  //**TODO: What to do on error?
     }
@@ -160,7 +214,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
       } else {
         // Whichever thread reaches here first performs duty (1) as described
         // above.
-        int64_t wait_until = clock_->NowMicros() + time_until_refill_us;
+        int64_t wait_until = options_.clock->NowMicros() + time_until_refill_us;
         RecordTick(stats, NUMBER_RATE_LIMITER_DRAINS);
         ++num_drains_;
         wait_until_refill_pending_ = true;
@@ -220,12 +274,12 @@ GenericRateLimiter::GeneratePriorityIterationOrder() {
   // first
   pri_iteration_order[0] = Env::IO_USER;
 
-  bool high_pri_iterated_after_mid_low_pri = rnd_.OneIn(fairness_);
+  bool high_pri_iterated_after_mid_low_pri = rnd_.OneIn(options_.fairness);
   TEST_SYNC_POINT_CALLBACK(
       "GenericRateLimiter::GeneratePriorityIterationOrder::"
       "PostRandomOneInFairnessForHighPri",
       &high_pri_iterated_after_mid_low_pri);
-  bool mid_pri_itereated_after_low_pri = rnd_.OneIn(fairness_);
+  bool mid_pri_itereated_after_low_pri = rnd_.OneIn(options_.fairness);
   TEST_SYNC_POINT_CALLBACK(
       "GenericRateLimiter::GeneratePriorityIterationOrder::"
       "PostRandomOneInFairnessForMidPri",
@@ -254,7 +308,7 @@ GenericRateLimiter::GeneratePriorityIterationOrder() {
 
 void GenericRateLimiter::RefillBytesAndGrantRequests() {
   TEST_SYNC_POINT("GenericRateLimiter::RefillBytesAndGrantRequests");
-  next_refill_us_ = NowMicrosMonotonic() + refill_period_us_;
+  next_refill_us_ = NowMicrosMonotonic() + options_.refill_period_us;
   // Carry over the left over quota from the last period
   auto refill_bytes_per_period =
       refill_bytes_per_period_.load(std::memory_order_relaxed);
@@ -294,13 +348,12 @@ void GenericRateLimiter::RefillBytesAndGrantRequests() {
 
 int64_t GenericRateLimiter::CalculateRefillBytesPerPeriod(
     int64_t rate_bytes_per_sec) {
-  if (port::kMaxInt64 / rate_bytes_per_sec < refill_period_us_) {
+  if (port::kMaxInt64 / rate_bytes_per_sec < options_.refill_period_us) {
     // Avoid unexpected result in the overflow case. The result now is still
     // inaccurate but is a number that is large enough.
     return port::kMaxInt64 / 1000000;
   } else {
-    return std::max(kMinRefillBytesPerPeriod,
-                    rate_bytes_per_sec * refill_period_us_ / 1000000);
+    return rate_bytes_per_sec * options_.refill_period_us / 1000000;
   }
 }
 
@@ -315,10 +368,11 @@ Status GenericRateLimiter::Tune() {
   std::chrono::microseconds prev_tuned_time = tuned_time_;
   tuned_time_ = std::chrono::microseconds(NowMicrosMonotonic());
 
-  int64_t elapsed_intervals = (tuned_time_ - prev_tuned_time +
-                               std::chrono::microseconds(refill_period_us_) -
-                               std::chrono::microseconds(1)) /
-                              std::chrono::microseconds(refill_period_us_);
+  int64_t elapsed_intervals =
+      (tuned_time_ - prev_tuned_time +
+       std::chrono::microseconds(options_.refill_period_us) -
+       std::chrono::microseconds(1)) /
+      std::chrono::microseconds(options_.refill_period_us);
   // We tune every kRefillsPerTune intervals, so the overflow and division-by-
   // zero conditions should never happen.
   assert(num_drains_ - prev_num_drains_ <= port::kMaxInt64 / 100);
@@ -329,20 +383,20 @@ Status GenericRateLimiter::Tune() {
   int64_t prev_bytes_per_sec = GetBytesPerSecond();
   int64_t new_bytes_per_sec;
   if (drained_pct == 0) {
-    new_bytes_per_sec = max_bytes_per_sec_ / kAllowedRangeFactor;
+    new_bytes_per_sec = options_.max_bytes_per_sec / kAllowedRangeFactor;
   } else if (drained_pct < kLowWatermarkPct) {
     // sanitize to prevent overflow
     int64_t sanitized_prev_bytes_per_sec =
         std::min(prev_bytes_per_sec, port::kMaxInt64 / 100);
     new_bytes_per_sec =
-        std::max(max_bytes_per_sec_ / kAllowedRangeFactor,
+        std::max(options_.max_bytes_per_sec / kAllowedRangeFactor,
                  sanitized_prev_bytes_per_sec * 100 / (100 + kAdjustFactorPct));
   } else if (drained_pct > kHighWatermarkPct) {
     // sanitize to prevent overflow
     int64_t sanitized_prev_bytes_per_sec = std::min(
         prev_bytes_per_sec, port::kMaxInt64 / (100 + kAdjustFactorPct));
     new_bytes_per_sec =
-        std::min(max_bytes_per_sec_,
+        std::min(options_.max_bytes_per_sec,
                  sanitized_prev_bytes_per_sec * (100 + kAdjustFactorPct) / 100);
   } else {
     new_bytes_per_sec = prev_bytes_per_sec;
@@ -362,8 +416,81 @@ RateLimiter* NewGenericRateLimiter(
   assert(rate_bytes_per_sec > 0);
   assert(refill_period_us > 0);
   assert(fairness > 0);
-  return new GenericRateLimiter(rate_bytes_per_sec, refill_period_us, fairness,
-                                mode, SystemClock::Default(), auto_tuned);
+  std::unique_ptr<RateLimiter> limiter(
+      new GenericRateLimiter(rate_bytes_per_sec, refill_period_us, fairness,
+                             mode, SystemClock::Default(), auto_tuned));
+  Status s = limiter->PrepareOptions(ConfigOptions());
+  if (s.ok()) {
+    return limiter.release();
+  } else {
+    assert(false);
+    return nullptr;
+  }
+}
+namespace {
+#ifndef ROCKSDB_LITE
+static int RegisterBuiltinRateLimiters(ObjectLibrary& library,
+                                       const std::string& /*arg*/) {
+  library.AddFactory<RateLimiter>(
+      GenericRateLimiter::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<RateLimiter>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new GenericRateLimiter(port::kMaxInt64));
+        return guard->get();
+      });
+  size_t num_types;
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+
+static std::unordered_map<std::string, RateLimiter::Mode>
+    rate_limiter_mode_map = {
+        {"kReadsOnly", RateLimiter::Mode::kReadsOnly},
+        {"kWritesOnly", RateLimiter::Mode::kWritesOnly},
+        {"kAllIo", RateLimiter::Mode::kAllIo},
+};
+#endif  // ROCKSDB_LITE
+static bool LoadRateLimiter(const std::string& name,
+                            std::shared_ptr<RateLimiter>* limiter) {
+  auto plen = strlen(GenericRateLimiter::kClassName());
+  if (name.size() > plen + 2 && name[plen] == ':' &&
+      StartsWith(name, GenericRateLimiter::kClassName())) {
+    auto rate = ParseInt64(name.substr(plen + 1));
+    limiter->reset(new GenericRateLimiter(rate));
+    return true;
+  } else {
+    return false;
+  }
+}
+
+static std::unordered_map<std::string, OptionTypeInfo> rate_limiter_type_info =
+    {
+#ifndef ROCKSDB_LITE
+        {"mode",
+         OptionTypeInfo::Enum<RateLimiter::Mode>(0, &rate_limiter_mode_map)},
+#endif  // ROCKSDB_LITE
+};
+}  // namespace
+
+RateLimiter::RateLimiter(Mode mode) : mode_(mode) {
+  RegisterOptions("", &mode_, &rate_limiter_type_info);
+}
+
+Status RateLimiter::CreateFromString(const ConfigOptions& config_options,
+                                     const std::string& value,
+                                     std::shared_ptr<RateLimiter>* result) {
+  if (value.empty()) {
+    result->reset();
+    return Status::OK();
+  } else {
+#ifndef ROCKSDB_LITE
+    static std::once_flag once;
+    std::call_once(once, [&]() {
+      RegisterBuiltinRateLimiters(*(ObjectLibrary::Default().get()), "");
+    });
+#endif  // ROCKSDB_LITE
+    return LoadSharedObject<RateLimiter>(config_options, value, LoadRateLimiter,
+                                         result);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

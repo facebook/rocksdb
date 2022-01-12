@@ -438,11 +438,20 @@ IOStatus EncryptedRandomRWFile::Close(const IOOptions& options,
 }
 
 namespace {
+static std::unordered_map<std::string, OptionTypeInfo> encrypted_fs_type_info =
+    {
+        {"provider",
+         OptionTypeInfo::AsCustomSharedPtr<EncryptionProvider>(
+             0 /* No offset, whole struct*/, OptionVerificationType::kByName,
+             OptionTypeFlags::kNone)},
+};
 // EncryptedFileSystemImpl implements an FileSystemWrapper that adds encryption
 // to files stored on disk.
 class EncryptedFileSystemImpl : public EncryptedFileSystem {
  public:
-  const char* Name() const override { return "EncryptedFS"; }
+  const char* Name() const override {
+    return EncryptedFileSystem::kClassName();
+  }
   // Returns the raw encryption provider that should be used to write the input
   // encrypted file.  If there is no such provider, NotFound is returned.
   IOStatus GetWritableProvider(const std::string& /*fname*/,
@@ -664,6 +673,7 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
                           const std::shared_ptr<EncryptionProvider>& provider)
       : EncryptedFileSystem(base) {
     provider_ = provider;
+    RegisterOptions("EncryptionProvider", &provider_, &encrypted_fs_type_info);
   }
 
   Status AddCipher(const std::string& descriptor, const char* cipher,
@@ -910,10 +920,28 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
 };
 }  // namespace
 
+Status NewEncryptedFileSystemImpl(
+    const std::shared_ptr<FileSystem>& base,
+    const std::shared_ptr<EncryptionProvider>& provider,
+    std::unique_ptr<FileSystem>* result) {
+  result->reset(new EncryptedFileSystemImpl(base, provider));
+  return Status::OK();
+}
+
 std::shared_ptr<FileSystem> NewEncryptedFS(
     const std::shared_ptr<FileSystem>& base,
     const std::shared_ptr<EncryptionProvider>& provider) {
-  return std::make_shared<EncryptedFileSystemImpl>(base, provider);
+  std::unique_ptr<FileSystem> efs;
+  Status s = NewEncryptedFileSystemImpl(base, provider, &efs);
+  if (s.ok()) {
+    s = efs->PrepareOptions(ConfigOptions());
+  }
+  if (s.ok()) {
+    std::shared_ptr<FileSystem> result(efs.release());
+    return result;
+  } else {
+    return nullptr;
+  }
 }
 // Returns an Env that encrypts data when stored on disk and decrypts data when
 // read from disk.
@@ -1246,10 +1274,10 @@ static void RegisterEncryptionBuiltins() {
   static std::once_flag once;
   std::call_once(once, [&]() {
     auto lib = ObjectRegistry::Default()->AddLibrary("encryption");
-    std::string ctr =
-        std::string(CTREncryptionProvider::kClassName()) + "?(://test)";
-    lib->Register<EncryptionProvider>(
-        std::string(CTREncryptionProvider::kClassName()) + "(://test)?",
+    // Match "CTR" or "CTR://test"
+    lib->AddFactory<EncryptionProvider>(
+        ObjectLibrary::PatternEntry(CTREncryptionProvider::kClassName(), true)
+            .AddSuffix("://test"),
         [](const std::string& uri, std::unique_ptr<EncryptionProvider>* guard,
            std::string* /*errmsg*/) {
           if (EndsWith(uri, "://test")) {
@@ -1262,7 +1290,7 @@ static void RegisterEncryptionBuiltins() {
           return guard->get();
         });
 
-    lib->Register<EncryptionProvider>(
+    lib->AddFactory<EncryptionProvider>(
         "1://test", [](const std::string& /*uri*/,
                        std::unique_ptr<EncryptionProvider>* guard,
                        std::string* /*errmsg*/) {
@@ -1272,8 +1300,10 @@ static void RegisterEncryptionBuiltins() {
           return guard->get();
         });
 
-    lib->Register<BlockCipher>(
-        std::string(ROT13BlockCipher::kClassName()) + "(:.*)?",
+    // Match "ROT13" or "ROT13:[0-9]+"
+    lib->AddFactory<BlockCipher>(
+        ObjectLibrary::PatternEntry(ROT13BlockCipher::kClassName(), true)
+            .AddNumber(":"),
         [](const std::string& uri, std::unique_ptr<BlockCipher>* guard,
            std::string* /* errmsg */) {
           size_t colon = uri.find(':');

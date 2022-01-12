@@ -158,7 +158,7 @@ function init_arguments {
 
   current_time=$(date +"%F-%H:%M:%S")
   RESULT_PATH=${RESULT_PATH:-"$1/results/$current_time"}
-  COMMIT_ID=`git log | head -n1 | cut -c 8-`
+  COMMIT_ID=`hg id -i 2>/dev/null || git rev-parse HEAD 2>/dev/null || echo 'unknown'`
   SUMMARY_FILE="$RESULT_PATH/SUMMARY.csv"
 
   DB_PATH=${3:-"$1/db"}

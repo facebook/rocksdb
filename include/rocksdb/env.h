@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/functor_wrapper.h"
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
@@ -145,8 +146,12 @@ struct EnvOptions {
   RateLimiter* rate_limiter = nullptr;
 };
 
-class Env {
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
+class Env : public Customizable {
  public:
+  static const char* kDefaultName() { return "DefaultEnv"; }
   struct FileAttributes {
     // File name
     std::string name;
@@ -168,6 +173,10 @@ class Env {
   virtual ~Env();
 
   static const char* Type() { return "Environment"; }
+
+  // Deprecated. Will be removed in a major release. Derived classes
+  // should implement this method.
+  const char* Name() const override { return ""; }
 
   // Loads the environment specified by the input value into the result
   // The CreateFromString alternative should be used; this method may be
@@ -1150,6 +1159,10 @@ enum InfoLogLevel : unsigned char {
 };
 
 // An interface for writing log messages.
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class Logger {
  public:
   size_t kDoNotSupportGetLogFileSize = (std::numeric_limits<size_t>::max)();
@@ -1332,253 +1345,297 @@ extern Status ReadFileToString(Env* env, const std::string& fname,
 // functionality of another Env.
 class EnvWrapper : public Env {
  public:
+  // The Target struct allows an Env to be stored as a raw (Env*) or
+  // std::shared_ptr<Env>.  By using this struct, the wrapping/calling
+  // class does not need to worry about the ownership/lifetime of the
+  // wrapped target env.  If the guard is set, then the Env will point
+  // to the guard.get().
+  struct Target {
+    Env* env;                    // The raw Env
+    std::shared_ptr<Env> guard;  // The guarded Env
+
+    // Creates a Target without assuming ownership of the target Env
+    explicit Target(Env* t) : env(t) {}
+
+    // Creates a Target from the guarded env, assuming ownership
+    explicit Target(std::unique_ptr<Env>&& t) : guard(t.release()) {
+      env = guard.get();
+    }
+
+    // Creates a Target from the guarded env, assuming ownership
+    explicit Target(const std::shared_ptr<Env>& t) : guard(t) {
+      env = guard.get();
+    }
+
+    // Makes sure the raw Env is not nullptr
+    void Prepare() {
+      if (guard.get() != nullptr) {
+        env = guard.get();
+      } else if (env == nullptr) {
+        env = Env::Default();
+      }
+    }
+  };
+
   // Initialize an EnvWrapper that delegates all calls to *t
-  explicit EnvWrapper(Env* t) : target_(t) {}
+  explicit EnvWrapper(Env* t);
+  explicit EnvWrapper(std::unique_ptr<Env>&& t);
+  explicit EnvWrapper(const std::shared_ptr<Env>& t);
   ~EnvWrapper() override;
 
   // Return the target to which this Env forwards all calls
-  Env* target() const { return target_; }
+  Env* target() const { return target_.env; }
+
+  // Deprecated. Will be removed in a major release. Derived classes
+  // should implement this method.
+  const char* Name() const override { return target_.env->Name(); }
 
   // The following text is boilerplate that forwards all methods to target()
   Status RegisterDbPaths(const std::vector<std::string>& paths) override {
-    return target_->RegisterDbPaths(paths);
+    return target_.env->RegisterDbPaths(paths);
   }
 
   Status UnregisterDbPaths(const std::vector<std::string>& paths) override {
-    return target_->UnregisterDbPaths(paths);
+    return target_.env->UnregisterDbPaths(paths);
   }
 
   Status NewSequentialFile(const std::string& f,
                            std::unique_ptr<SequentialFile>* r,
                            const EnvOptions& options) override {
-    return target_->NewSequentialFile(f, r, options);
+    return target_.env->NewSequentialFile(f, r, options);
   }
   Status NewRandomAccessFile(const std::string& f,
                              std::unique_ptr<RandomAccessFile>* r,
                              const EnvOptions& options) override {
-    return target_->NewRandomAccessFile(f, r, options);
+    return target_.env->NewRandomAccessFile(f, r, options);
   }
   Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& options) override {
-    return target_->NewWritableFile(f, r, options);
+    return target_.env->NewWritableFile(f, r, options);
   }
   Status ReopenWritableFile(const std::string& fname,
                             std::unique_ptr<WritableFile>* result,
                             const EnvOptions& options) override {
-    return target_->ReopenWritableFile(fname, result, options);
+    return target_.env->ReopenWritableFile(fname, result, options);
   }
   Status ReuseWritableFile(const std::string& fname,
                            const std::string& old_fname,
                            std::unique_ptr<WritableFile>* r,
                            const EnvOptions& options) override {
-    return target_->ReuseWritableFile(fname, old_fname, r, options);
+    return target_.env->ReuseWritableFile(fname, old_fname, r, options);
   }
   Status NewRandomRWFile(const std::string& fname,
                          std::unique_ptr<RandomRWFile>* result,
                          const EnvOptions& options) override {
-    return target_->NewRandomRWFile(fname, result, options);
+    return target_.env->NewRandomRWFile(fname, result, options);
   }
   Status NewMemoryMappedFileBuffer(
       const std::string& fname,
       std::unique_ptr<MemoryMappedFileBuffer>* result) override {
-    return target_->NewMemoryMappedFileBuffer(fname, result);
+    return target_.env->NewMemoryMappedFileBuffer(fname, result);
   }
   Status NewDirectory(const std::string& name,
                       std::unique_ptr<Directory>* result) override {
-    return target_->NewDirectory(name, result);
+    return target_.env->NewDirectory(name, result);
   }
   Status FileExists(const std::string& f) override {
-    return target_->FileExists(f);
+    return target_.env->FileExists(f);
   }
   Status GetChildren(const std::string& dir,
                      std::vector<std::string>* r) override {
-    return target_->GetChildren(dir, r);
+    return target_.env->GetChildren(dir, r);
   }
   Status GetChildrenFileAttributes(
       const std::string& dir, std::vector<FileAttributes>* result) override {
-    return target_->GetChildrenFileAttributes(dir, result);
+    return target_.env->GetChildrenFileAttributes(dir, result);
   }
   Status DeleteFile(const std::string& f) override {
-    return target_->DeleteFile(f);
+    return target_.env->DeleteFile(f);
   }
   Status Truncate(const std::string& fname, size_t size) override {
-    return target_->Truncate(fname, size);
+    return target_.env->Truncate(fname, size);
   }
   Status CreateDir(const std::string& d) override {
-    return target_->CreateDir(d);
+    return target_.env->CreateDir(d);
   }
   Status CreateDirIfMissing(const std::string& d) override {
-    return target_->CreateDirIfMissing(d);
+    return target_.env->CreateDirIfMissing(d);
   }
   Status DeleteDir(const std::string& d) override {
-    return target_->DeleteDir(d);
+    return target_.env->DeleteDir(d);
   }
   Status GetFileSize(const std::string& f, uint64_t* s) override {
-    return target_->GetFileSize(f, s);
+    return target_.env->GetFileSize(f, s);
   }
 
   Status GetFileModificationTime(const std::string& fname,
                                  uint64_t* file_mtime) override {
-    return target_->GetFileModificationTime(fname, file_mtime);
+    return target_.env->GetFileModificationTime(fname, file_mtime);
   }
 
   Status RenameFile(const std::string& s, const std::string& t) override {
-    return target_->RenameFile(s, t);
+    return target_.env->RenameFile(s, t);
   }
 
   Status LinkFile(const std::string& s, const std::string& t) override {
-    return target_->LinkFile(s, t);
+    return target_.env->LinkFile(s, t);
   }
 
   Status NumFileLinks(const std::string& fname, uint64_t* count) override {
-    return target_->NumFileLinks(fname, count);
+    return target_.env->NumFileLinks(fname, count);
   }
 
   Status AreFilesSame(const std::string& first, const std::string& second,
                       bool* res) override {
-    return target_->AreFilesSame(first, second, res);
+    return target_.env->AreFilesSame(first, second, res);
   }
 
   Status LockFile(const std::string& f, FileLock** l) override {
-    return target_->LockFile(f, l);
+    return target_.env->LockFile(f, l);
   }
 
-  Status UnlockFile(FileLock* l) override { return target_->UnlockFile(l); }
+  Status UnlockFile(FileLock* l) override { return target_.env->UnlockFile(l); }
 
   Status IsDirectory(const std::string& path, bool* is_dir) override {
-    return target_->IsDirectory(path, is_dir);
+    return target_.env->IsDirectory(path, is_dir);
   }
 
   Status LoadLibrary(const std::string& lib_name,
                      const std::string& search_path,
                      std::shared_ptr<DynamicLibrary>* result) override {
-    return target_->LoadLibrary(lib_name, search_path, result);
+    return target_.env->LoadLibrary(lib_name, search_path, result);
   }
 
   void Schedule(void (*f)(void* arg), void* a, Priority pri,
                 void* tag = nullptr, void (*u)(void* arg) = nullptr) override {
-    return target_->Schedule(f, a, pri, tag, u);
+    return target_.env->Schedule(f, a, pri, tag, u);
   }
 
   int UnSchedule(void* tag, Priority pri) override {
-    return target_->UnSchedule(tag, pri);
+    return target_.env->UnSchedule(tag, pri);
   }
 
   void StartThread(void (*f)(void*), void* a) override {
-    return target_->StartThread(f, a);
+    return target_.env->StartThread(f, a);
   }
-  void WaitForJoin() override { return target_->WaitForJoin(); }
+  void WaitForJoin() override { return target_.env->WaitForJoin(); }
   unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override {
-    return target_->GetThreadPoolQueueLen(pri);
+    return target_.env->GetThreadPoolQueueLen(pri);
   }
   Status GetTestDirectory(std::string* path) override {
-    return target_->GetTestDirectory(path);
+    return target_.env->GetTestDirectory(path);
   }
   Status NewLogger(const std::string& fname,
                    std::shared_ptr<Logger>* result) override {
-    return target_->NewLogger(fname, result);
+    return target_.env->NewLogger(fname, result);
   }
-  uint64_t NowMicros() override { return target_->NowMicros(); }
-  uint64_t NowNanos() override { return target_->NowNanos(); }
-  uint64_t NowCPUNanos() override { return target_->NowCPUNanos(); }
+  uint64_t NowMicros() override { return target_.env->NowMicros(); }
+  uint64_t NowNanos() override { return target_.env->NowNanos(); }
+  uint64_t NowCPUNanos() override { return target_.env->NowCPUNanos(); }
 
   void SleepForMicroseconds(int micros) override {
-    target_->SleepForMicroseconds(micros);
+    target_.env->SleepForMicroseconds(micros);
   }
   Status GetHostName(char* name, uint64_t len) override {
-    return target_->GetHostName(name, len);
+    return target_.env->GetHostName(name, len);
   }
   Status GetCurrentTime(int64_t* unix_time) override {
-    return target_->GetCurrentTime(unix_time);
+    return target_.env->GetCurrentTime(unix_time);
   }
   Status GetAbsolutePath(const std::string& db_path,
                          std::string* output_path) override {
-    return target_->GetAbsolutePath(db_path, output_path);
+    return target_.env->GetAbsolutePath(db_path, output_path);
   }
   void SetBackgroundThreads(int num, Priority pri) override {
-    return target_->SetBackgroundThreads(num, pri);
+    return target_.env->SetBackgroundThreads(num, pri);
   }
   int GetBackgroundThreads(Priority pri) override {
-    return target_->GetBackgroundThreads(pri);
+    return target_.env->GetBackgroundThreads(pri);
   }
 
   Status SetAllowNonOwnerAccess(bool allow_non_owner_access) override {
-    return target_->SetAllowNonOwnerAccess(allow_non_owner_access);
+    return target_.env->SetAllowNonOwnerAccess(allow_non_owner_access);
   }
 
   void IncBackgroundThreadsIfNeeded(int num, Priority pri) override {
-    return target_->IncBackgroundThreadsIfNeeded(num, pri);
+    return target_.env->IncBackgroundThreadsIfNeeded(num, pri);
   }
 
   void LowerThreadPoolIOPriority(Priority pool) override {
-    target_->LowerThreadPoolIOPriority(pool);
+    target_.env->LowerThreadPoolIOPriority(pool);
   }
 
   void LowerThreadPoolCPUPriority(Priority pool) override {
-    target_->LowerThreadPoolCPUPriority(pool);
+    target_.env->LowerThreadPoolCPUPriority(pool);
   }
 
   Status LowerThreadPoolCPUPriority(Priority pool, CpuPriority pri) override {
-    return target_->LowerThreadPoolCPUPriority(pool, pri);
+    return target_.env->LowerThreadPoolCPUPriority(pool, pri);
   }
 
   std::string TimeToString(uint64_t time) override {
-    return target_->TimeToString(time);
+    return target_.env->TimeToString(time);
   }
 
   Status GetThreadList(std::vector<ThreadStatus>* thread_list) override {
-    return target_->GetThreadList(thread_list);
+    return target_.env->GetThreadList(thread_list);
   }
 
   ThreadStatusUpdater* GetThreadStatusUpdater() const override {
-    return target_->GetThreadStatusUpdater();
+    return target_.env->GetThreadStatusUpdater();
   }
 
-  uint64_t GetThreadID() const override { return target_->GetThreadID(); }
+  uint64_t GetThreadID() const override { return target_.env->GetThreadID(); }
 
   std::string GenerateUniqueId() override {
-    return target_->GenerateUniqueId();
+    return target_.env->GenerateUniqueId();
   }
 
   EnvOptions OptimizeForLogRead(const EnvOptions& env_options) const override {
-    return target_->OptimizeForLogRead(env_options);
+    return target_.env->OptimizeForLogRead(env_options);
   }
   EnvOptions OptimizeForManifestRead(
       const EnvOptions& env_options) const override {
-    return target_->OptimizeForManifestRead(env_options);
+    return target_.env->OptimizeForManifestRead(env_options);
   }
   EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
                                  const DBOptions& db_options) const override {
-    return target_->OptimizeForLogWrite(env_options, db_options);
+    return target_.env->OptimizeForLogWrite(env_options, db_options);
   }
   EnvOptions OptimizeForManifestWrite(
       const EnvOptions& env_options) const override {
-    return target_->OptimizeForManifestWrite(env_options);
+    return target_.env->OptimizeForManifestWrite(env_options);
   }
   EnvOptions OptimizeForCompactionTableWrite(
       const EnvOptions& env_options,
       const ImmutableDBOptions& immutable_ops) const override {
-    return target_->OptimizeForCompactionTableWrite(env_options, immutable_ops);
+    return target_.env->OptimizeForCompactionTableWrite(env_options,
+                                                        immutable_ops);
   }
   EnvOptions OptimizeForCompactionTableRead(
       const EnvOptions& env_options,
       const ImmutableDBOptions& db_options) const override {
-    return target_->OptimizeForCompactionTableRead(env_options, db_options);
+    return target_.env->OptimizeForCompactionTableRead(env_options, db_options);
   }
   EnvOptions OptimizeForBlobFileRead(
       const EnvOptions& env_options,
       const ImmutableDBOptions& db_options) const override {
-    return target_->OptimizeForBlobFileRead(env_options, db_options);
+    return target_.env->OptimizeForBlobFileRead(env_options, db_options);
   }
   Status GetFreeSpace(const std::string& path, uint64_t* diskfree) override {
-    return target_->GetFreeSpace(path, diskfree);
+    return target_.env->GetFreeSpace(path, diskfree);
   }
   void SanitizeEnvOptions(EnvOptions* env_opts) const override {
-    target_->SanitizeEnvOptions(env_opts);
+    target_.env->SanitizeEnvOptions(env_opts);
   }
+  Status PrepareOptions(const ConfigOptions& options) override;
+#ifndef ROCKSDB_LITE
+  std::string SerializeOptions(const ConfigOptions& config_options,
+                               const std::string& header) const override;
+#endif  // ROCKSDB_LITE
 
  private:
-  Env* target_;
+  Target target_;
 };
 
 class SequentialFileWrapper : public SequentialFile {

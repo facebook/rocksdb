@@ -259,8 +259,8 @@ SequenceNumber MemTableListVersion::GetEarliestSequenceNumber(
 void MemTableListVersion::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable
   AddMemTable(m);
-
-  TrimHistory(to_delete, m->ApproximateMemoryUsage());
+  // m->MemoryAllocatedBytes() is added in MemoryAllocatedBytesExcludingLast
+  TrimHistory(to_delete, 0);
 }
 
 // Removes m from list of memtables not flushed.  Caller should NOT Unref m.
@@ -282,16 +282,16 @@ void MemTableListVersion::Remove(MemTable* m,
 }
 
 // return the total memory usage assuming the oldest flushed memtable is dropped
-size_t MemTableListVersion::ApproximateMemoryUsageExcludingLast() const {
+size_t MemTableListVersion::MemoryAllocatedBytesExcludingLast() const {
   size_t total_memtable_size = 0;
   for (auto& memtable : memlist_) {
-    total_memtable_size += memtable->ApproximateMemoryUsage();
+    total_memtable_size += memtable->MemoryAllocatedBytes();
   }
   for (auto& memtable : memlist_history_) {
-    total_memtable_size += memtable->ApproximateMemoryUsage();
+    total_memtable_size += memtable->MemoryAllocatedBytes();
   }
   if (!memlist_history_.empty()) {
-    total_memtable_size -= memlist_history_.back()->ApproximateMemoryUsage();
+    total_memtable_size -= memlist_history_.back()->MemoryAllocatedBytes();
   }
   return total_memtable_size;
 }
@@ -301,7 +301,7 @@ bool MemTableListVersion::MemtableLimitExceeded(size_t usage) {
     // calculate the total memory usage after dropping the oldest flushed
     // memtable, compare with max_write_buffer_size_to_maintain_ to decide
     // whether to trim history
-    return ApproximateMemoryUsageExcludingLast() + usage >=
+    return MemoryAllocatedBytesExcludingLast() + usage >=
            static_cast<size_t>(max_write_buffer_size_to_maintain_);
   } else if (max_write_buffer_number_to_maintain_ > 0) {
     return memlist_.size() + memlist_history_.size() >
@@ -596,9 +596,9 @@ size_t MemTableList::ApproximateUnflushedMemTablesMemoryUsage() {
 
 size_t MemTableList::ApproximateMemoryUsage() { return current_memory_usage_; }
 
-size_t MemTableList::ApproximateMemoryUsageExcludingLast() const {
-  const size_t usage =
-      current_memory_usage_excluding_last_.load(std::memory_order_relaxed);
+size_t MemTableList::MemoryAllocatedBytesExcludingLast() const {
+  const size_t usage = current_memory_allocted_bytes_excluding_last_.load(
+      std::memory_order_relaxed);
   return usage;
 }
 
@@ -609,9 +609,9 @@ bool MemTableList::HasHistory() const {
 
 void MemTableList::UpdateCachedValuesFromMemTableListVersion() {
   const size_t total_memtable_size =
-      current_->ApproximateMemoryUsageExcludingLast();
-  current_memory_usage_excluding_last_.store(total_memtable_size,
-                                             std::memory_order_relaxed);
+      current_->MemoryAllocatedBytesExcludingLast();
+  current_memory_allocted_bytes_excluding_last_.store(
+      total_memtable_size, std::memory_order_relaxed);
 
   const bool has_history = current_->HasHistory();
   current_has_history_.store(has_history, std::memory_order_relaxed);

@@ -175,6 +175,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "optimize_filters_for_memory=true;"
       "index_block_restart_interval=4;"
       "filter_policy=bloomfilter:4:true;whole_key_filtering=1;"
+      "reserve_table_builder_memory=false;"
       "format_version=1;"
       "hash_index_allow_collision=false;"
       "verify_compression=true;read_amp_bytes_per_bit=0;"
@@ -342,6 +343,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "max_bgerror_resume_count=2;"
                              "bgerror_resume_retry_interval=1000000"
                              "db_host_id=hostname;"
+                             "lowest_used_cache_tier=kNonVolatileBlockTier;"
                              "allow_data_in_errors=false",
                              new_options));
 
@@ -516,6 +518,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "enable_blob_garbage_collection=true;"
       "blob_garbage_collection_age_cutoff=0.5;"
       "blob_garbage_collection_force_threshold=0.75;"
+      "blob_compaction_readahead_size=262144;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;age_for_warm=1;};",
       new_options));

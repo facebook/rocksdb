@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #include "env/composite_env_wrapper.h"
+#include "rocksdb/utilities/options_type.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -272,7 +273,7 @@ class CompositeDirectoryWrapper : public Directory {
   Status Fsync() override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return target_->Fsync(io_opts, &dbg);
+    return target_->FsyncWithDirOptions(io_opts, &dbg, DirFsyncOptions());
   }
   size_t GetUniqueId(char* id, size_t max_size) const override {
     return target_->GetUniqueId(id, max_size);
@@ -380,4 +381,84 @@ Status CompositeEnv::NewDirectory(const std::string& name,
   return status;
 }
 
+namespace {
+static std::unordered_map<std::string, OptionTypeInfo>
+    composite_env_wrapper_type_info = {
+#ifndef ROCKSDB_LITE
+        {"target",
+         {0, OptionType::kCustomizable, OptionVerificationType::kByName,
+          OptionTypeFlags::kDontSerialize | OptionTypeFlags::kRawPointer,
+          [](const ConfigOptions& opts, const std::string& /*name*/,
+             const std::string& value, void* addr) {
+            auto target = static_cast<EnvWrapper::Target*>(addr);
+            return Env::CreateFromString(opts, value, &(target->env),
+                                         &(target->guard));
+          },
+          nullptr, nullptr}},
+#endif  // ROCKSDB_LITE
+};
+static std::unordered_map<std::string, OptionTypeInfo>
+    composite_fs_wrapper_type_info = {
+#ifndef ROCKSDB_LITE
+        {"file_system",
+         OptionTypeInfo::AsCustomSharedPtr<FileSystem>(
+             0, OptionVerificationType::kByName, OptionTypeFlags::kNone)},
+#endif  // ROCKSDB_LITE
+};
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    composite_clock_wrapper_type_info = {
+#ifndef ROCKSDB_LITE
+        {"clock",
+         OptionTypeInfo::AsCustomSharedPtr<SystemClock>(
+             0, OptionVerificationType::kByName, OptionTypeFlags::kNone)},
+#endif  // ROCKSDB_LITE
+};
+
+}  // namespace
+
+std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs) {
+  return std::unique_ptr<Env>(new CompositeEnvWrapper(Env::Default(), fs));
+}
+
+CompositeEnvWrapper::CompositeEnvWrapper(Env* env,
+                                         const std::shared_ptr<FileSystem>& fs,
+                                         const std::shared_ptr<SystemClock>& sc)
+    : CompositeEnv(fs, sc), target_(env) {
+  RegisterOptions("", &target_, &composite_env_wrapper_type_info);
+  RegisterOptions("", &file_system_, &composite_fs_wrapper_type_info);
+  RegisterOptions("", &system_clock_, &composite_clock_wrapper_type_info);
+}
+
+CompositeEnvWrapper::CompositeEnvWrapper(const std::shared_ptr<Env>& env,
+                                         const std::shared_ptr<FileSystem>& fs,
+                                         const std::shared_ptr<SystemClock>& sc)
+    : CompositeEnv(fs, sc), target_(env) {
+  RegisterOptions("", &target_, &composite_env_wrapper_type_info);
+  RegisterOptions("", &file_system_, &composite_fs_wrapper_type_info);
+  RegisterOptions("", &system_clock_, &composite_clock_wrapper_type_info);
+}
+
+Status CompositeEnvWrapper::PrepareOptions(const ConfigOptions& options) {
+  target_.Prepare();
+  if (file_system_ == nullptr) {
+    file_system_ = target_.env->GetFileSystem();
+  }
+  if (system_clock_ == nullptr) {
+    system_clock_ = target_.env->GetSystemClock();
+  }
+  return Env::PrepareOptions(options);
+}
+
+#ifndef ROCKSDB_LITE
+std::string CompositeEnvWrapper::SerializeOptions(
+    const ConfigOptions& config_options, const std::string& header) const {
+  auto options = CompositeEnv::SerializeOptions(config_options, header);
+  if (target_.env != nullptr && target_.env != Env::Default()) {
+    options.append("target=");
+    options.append(target_.env->ToString(config_options));
+  }
+  return options;
+}
+#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

@@ -213,6 +213,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(class CompactionOptionsUniversal, stop_style),
           OptionType::kCompactionStopStyle, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"incremental",
+         {offsetof(class CompactionOptionsUniversal, incremental),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"allow_trivial_move",
          {offsetof(class CompactionOptionsUniversal, allow_trivial_move),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -430,6 +434,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    blob_garbage_collection_force_threshold),
           OptionType::kDouble, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"blob_compaction_readahead_size",
+         {offsetof(struct MutableCFOptions, blob_compaction_readahead_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"sample_for_compression",
          {offsetof(struct MutableCFOptions, sample_for_compression),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -589,7 +597,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                 static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
             Status s =
                 MemTableRepFactory::CreateFromString(opts, value, &factory);
-            if (s.ok()) {
+            if (factory && s.ok()) {
               shared->reset(factory.release());
             }
             return s;
@@ -605,7 +613,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                 static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
             Status s =
                 MemTableRepFactory::CreateFromString(opts, value, &factory);
-            if (s.ok()) {
+            if (factory && s.ok()) {
               shared->reset(factory.release());
             }
             return s;
@@ -1027,6 +1035,8 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(
       log, "compaction_options_universal.allow_trivial_move : %d",
       static_cast<int>(compaction_options_universal.allow_trivial_move));
+  ROCKS_LOG_INFO(log, "compaction_options_universal.incremental        : %d",
+                 static_cast<int>(compaction_options_universal.incremental));
 
   // FIFO Compaction Options
   ROCKS_LOG_INFO(log, "compaction_options_fifo.max_table_files_size : %" PRIu64,
@@ -1049,6 +1059,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  blob_garbage_collection_age_cutoff);
   ROCKS_LOG_INFO(log, "  blob_garbage_collection_force_threshold: %f",
                  blob_garbage_collection_force_threshold);
+  ROCKS_LOG_INFO(log, "           blob_compaction_readahead_size: %" PRIu64,
+                 blob_compaction_readahead_size);
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)
