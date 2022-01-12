@@ -1186,30 +1186,10 @@ class VersionBuilder::Rep {
       }
     }
 
-    Status ret;
-    if (max_load > 0) {
-      // <file metadata, level>
-      std::vector<std::pair<FileMetaData*, int>> files_meta;
-      std::vector<Status> statuses;
-      for (int level = 0; level < num_levels_; level++) {
-        for (auto& file_meta_pair : levels_[level].added_files) {
-          auto* file_meta = file_meta_pair.second;
-          // If the file has been opened before, just skip it.
-          if (!file_meta->table_reader_handle) {
-            files_meta.emplace_back(file_meta, level);
-            statuses.emplace_back(Status::OK());
-          }
-          if (files_meta.size() >= max_load) {
-            break;
-          }
-        }
-        if (files_meta.size() >= max_load) {
-          break;
-        }
-      }
-
-      std::atomic<size_t> next_file_meta_idx(0);
-      std::function<void()> load_handlers_func([&]() {
+    // function called by multiple threads via loop
+    //  that follows when preloading active
+    std::atomic<size_t> next_file_meta_idx(0);
+    std::function<void()> load_handlers_func([&]() {
         while (true) {
           size_t file_idx = next_file_meta_idx.fetch_add(1);
           if (file_idx >= files_meta.size()) {
@@ -1245,6 +1225,29 @@ class VersionBuilder::Rep {
           }
         }
       });
+
+    Status ret;
+    // Threaded preloading
+    if (max_load > 0) {
+      // <file metadata, level>
+      std::vector<std::pair<FileMetaData*, int>> files_meta;
+      std::vector<Status> statuses;
+      for (int level = 0; level < num_levels_; level++) {
+        for (auto& file_meta_pair : levels_[level].added_files) {
+          auto* file_meta = file_meta_pair.second;
+          // If the file has been opened before, just skip it.
+          if (!file_meta->table_reader_handle) {
+            files_meta.emplace_back(file_meta, level);
+            statuses.emplace_back(Status::OK());
+          }
+          if (files_meta.size() >= max_load) {
+            break;
+          }
+        }
+        if (files_meta.size() >= max_load) {
+          break;
+        }
+      }
 
       std::vector<port::Thread> threads;
       for (int i = 1; i < max_threads; i++) {
