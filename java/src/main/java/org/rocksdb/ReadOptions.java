@@ -49,7 +49,7 @@ public class ReadOptions extends RocksObject {
    * @return true if checksum verification is on.
    */
   public boolean verifyChecksums() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return verifyChecksums(nativeHandle_);
   }
 
@@ -64,7 +64,7 @@ public class ReadOptions extends RocksObject {
    */
   public ReadOptions setVerifyChecksums(
       final boolean verifyChecksums) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setVerifyChecksums(nativeHandle_, verifyChecksums);
     return this;
   }
@@ -79,7 +79,7 @@ public class ReadOptions extends RocksObject {
    * @return true if the fill-cache behavior is on.
    */
   public boolean fillCache() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return fillCache(nativeHandle_);
   }
 
@@ -93,7 +93,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setFillCache(final boolean fillCache) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setFillCache(nativeHandle_, fillCache);
     return this;
   }
@@ -105,7 +105,7 @@ public class ReadOptions extends RocksObject {
    *     is assigned null.
    */
   public Snapshot snapshot() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     long snapshotHandle = snapshot(nativeHandle_);
     if (snapshotHandle != 0) {
       return new Snapshot(snapshotHandle);
@@ -124,7 +124,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setSnapshot(final Snapshot snapshot) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     if (snapshot != null) {
       setSnapshot(nativeHandle_, snapshot.nativeHandle_);
     } else {
@@ -139,7 +139,7 @@ public class ReadOptions extends RocksObject {
    * @return the read tier in use, by default {@link ReadTier#READ_ALL_TIER}
    */
   public ReadTier readTier() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return ReadTier.getReadTier(readTier(nativeHandle_));
   }
 
@@ -152,7 +152,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setReadTier(final ReadTier readTier) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setReadTier(nativeHandle_, readTier.getValue());
     return this;
   }
@@ -169,7 +169,7 @@ public class ReadOptions extends RocksObject {
    * @return true if tailing iterator is enabled.
    */
   public boolean tailing() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return tailing(nativeHandle_);
   }
 
@@ -185,7 +185,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setTailing(final boolean tailing) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setTailing(nativeHandle_, tailing);
     return this;
   }
@@ -200,7 +200,7 @@ public class ReadOptions extends RocksObject {
    */
   @Deprecated
   public boolean managed() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return managed(nativeHandle_);
   }
 
@@ -216,7 +216,7 @@ public class ReadOptions extends RocksObject {
    */
   @Deprecated
   public ReadOptions setManaged(final boolean managed) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setManaged(nativeHandle_, managed);
     return this;
   }
@@ -227,7 +227,7 @@ public class ReadOptions extends RocksObject {
    * @return the setting of whether a total seek order will be used
    */
   public boolean totalOrderSeek() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return totalOrderSeek(nativeHandle_);
   }
 
@@ -240,7 +240,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setTotalOrderSeek(final boolean totalOrderSeek) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setTotalOrderSeek(nativeHandle_, totalOrderSeek);
     return this;
   }
@@ -251,7 +251,7 @@ public class ReadOptions extends RocksObject {
    * @return the setting of whether an auto prefix mode will be used
    */
   public boolean autoPrefixMode() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return autoPrefixMode(nativeHandle_);
   }
 
@@ -268,7 +268,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setAutoPrefixMode(final boolean autoPrefixMode) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setAutoPrefixMode(nativeHandle_, autoPrefixMode);
     return this;
   }
@@ -280,7 +280,7 @@ public class ReadOptions extends RocksObject {
    *   prefix as the seek, default is false
    */
   public boolean prefixSameAsStart() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return prefixSameAsStart(nativeHandle_);
   }
 
@@ -296,7 +296,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setPrefixSameAsStart(final boolean prefixSameAsStart) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setPrefixSameAsStart(nativeHandle_, prefixSameAsStart);
     return this;
   }
@@ -308,7 +308,7 @@ public class ReadOptions extends RocksObject {
    *   pinned in memory
    */
   public boolean pinData() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return pinData(nativeHandle_);
   }
 
@@ -323,7 +323,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setPinData(final boolean pinData) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setPinData(nativeHandle_, pinData);
     return this;
   }
@@ -338,7 +338,7 @@ public class ReadOptions extends RocksObject {
    * @return true when PurgeObsoleteFile is called in CleanupIteratorState
    */
   public boolean backgroundPurgeOnIteratorCleanup() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return backgroundPurgeOnIteratorCleanup(nativeHandle_);
   }
 
@@ -355,7 +355,7 @@ public class ReadOptions extends RocksObject {
    */
   public ReadOptions setBackgroundPurgeOnIteratorCleanup(
       final boolean backgroundPurgeOnIteratorCleanup) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setBackgroundPurgeOnIteratorCleanup(nativeHandle_,
         backgroundPurgeOnIteratorCleanup);
     return this;
@@ -371,7 +371,7 @@ public class ReadOptions extends RocksObject {
    * @return The readahead size is bytes
    */
   public long readaheadSize() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return readaheadSize(nativeHandle_);
   }
 
@@ -386,7 +386,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setReadaheadSize(final long readaheadSize) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setReadaheadSize(nativeHandle_, readaheadSize);
     return this;
   }
@@ -399,7 +399,7 @@ public class ReadOptions extends RocksObject {
    *     before failing an iterator seek as incomplete.
    */
   public long maxSkippableInternalKeys() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return maxSkippableInternalKeys(nativeHandle_);
   }
 
@@ -417,7 +417,7 @@ public class ReadOptions extends RocksObject {
    */
   public ReadOptions setMaxSkippableInternalKeys(
       final long maxSkippableInternalKeys) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setMaxSkippableInternalKeys(nativeHandle_, maxSkippableInternalKeys);
     return this;
   }
@@ -432,7 +432,7 @@ public class ReadOptions extends RocksObject {
    * @return true if keys deleted using the DeleteRange() API will be visible
    */
   public boolean ignoreRangeDeletions() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return ignoreRangeDeletions(nativeHandle_);
   }
 
@@ -448,7 +448,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setIgnoreRangeDeletions(final boolean ignoreRangeDeletions) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setIgnoreRangeDeletions(nativeHandle_, ignoreRangeDeletions);
     return this;
   }
@@ -471,7 +471,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setIterateLowerBound(final AbstractSlice<?> iterateLowerBound) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setIterateLowerBound(
         nativeHandle_, iterateLowerBound == null ? 0 : iterateLowerBound.getNativeHandle());
     // Hold onto a reference so it doesn't get garbage collected out from under us.
@@ -488,7 +488,7 @@ public class ReadOptions extends RocksObject {
    * @return the smallest key, or null if there is no lower bound defined.
    */
   public Slice iterateLowerBound() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     final long lowerBoundSliceHandle = iterateLowerBound(nativeHandle_);
     if (lowerBoundSliceHandle != 0) {
       // Disown the new slice - it's owned by the C++ side of the JNI boundary
@@ -515,7 +515,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setIterateUpperBound(final AbstractSlice<?> iterateUpperBound) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setIterateUpperBound(
         nativeHandle_, iterateUpperBound == null ? 0 : iterateUpperBound.getNativeHandle());
     // Hold onto a reference so it doesn't get garbage collected out from under us.
@@ -532,7 +532,7 @@ public class ReadOptions extends RocksObject {
    * @return the largest key, or null if there is no upper bound defined.
    */
   public Slice iterateUpperBound() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     final long upperBoundSliceHandle = iterateUpperBound(nativeHandle_);
     if (upperBoundSliceHandle != 0) {
       // Disown the new slice - it's owned by the C++ side of the JNI boundary
@@ -556,7 +556,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setTableFilter(final AbstractTableFilter tableFilter) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setTableFilter(nativeHandle_, tableFilter.nativeHandle_);
     return this;
   }
@@ -574,7 +574,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setIterStartSeqnum(final long startSeqnum) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     setIterStartSeqnum(nativeHandle_, startSeqnum);
     return this;
   }
@@ -586,7 +586,7 @@ public class ReadOptions extends RocksObject {
    * @return the starting sequence number of any iterator.
    */
   public long iterStartSeqnum() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return iterStartSeqnum(nativeHandle_);
   }
 

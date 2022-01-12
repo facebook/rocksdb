@@ -8006,8 +8006,8 @@ void Java_org_rocksdb_ReadOptions_setTotalOrderSeek(
  * Method:    autoPrefixMode
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_ReadOptions_autoPrefixMode(
-    JNIEnv*, jobject, jlong jhandle) {
+jboolean Java_org_rocksdb_ReadOptions_autoPrefixMode(JNIEnv*, jobject,
+                                                     jlong jhandle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle)
       ->auto_prefix_mode;
 }
