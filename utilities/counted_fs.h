@@ -17,6 +17,8 @@ struct FileOpCounters {
   std::atomic<int> ops;
   std::atomic<uint64_t> bytes;
 
+  FileOpCounters() : ops(0), bytes(0) {}
+
   void Reset() {
     ops = 0;
     bytes = 0;
