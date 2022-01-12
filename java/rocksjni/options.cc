@@ -8003,6 +8003,28 @@ void Java_org_rocksdb_ReadOptions_setTotalOrderSeek(
 
 /*
  * Class:     org_rocksdb_ReadOptions
+ * Method:    autoPrefixMode
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ReadOptions_autoPrefixMode(
+    JNIEnv*, jobject, jlong jhandle) {
+  return reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle)
+      ->auto_prefix_mode;
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setAutoPrefixMode
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ReadOptions_setAutoPrefixMode(
+    JNIEnv*, jobject, jlong jhandle, jboolean jtotal_order_seek) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle)->total_order_seek =
+      static_cast<bool>(auto_prefix_mode);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
  * Method:    prefixSameAsStart
  * Signature: (J)Z
  */

@@ -116,6 +116,14 @@ public class ReadOptionsTest {
   }
 
   @Test
+  public void autoPrefixMode() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      opt.setAutoPrefixMode(true);
+      assertThat(opt.autoPrefixMode()).isTrue();
+    }
+  }
+
+  @Test
   public void prefixSameAsStart() {
     try (final ReadOptions opt = new ReadOptions()) {
       opt.setPrefixSameAsStart(true);
