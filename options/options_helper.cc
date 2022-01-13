@@ -45,15 +45,10 @@ ConfigOptions::ConfigOptions(const DBOptions& db_opts) : env(db_opts.env) {
 
 Status ValidateOptions(const DBOptions& db_opts,
                        const ColumnFamilyOptions& cf_opts) {
-  Status s;
-#ifndef ROCKSDB_LITE
-  auto db_cfg = DBOptionsAsConfigurable(db_opts);
-  auto cf_cfg = CFOptionsAsConfigurable(cf_opts);
-  s = db_cfg->ValidateOptions(db_opts, cf_opts);
-  if (s.ok()) s = cf_cfg->ValidateOptions(db_opts, cf_opts);
-#else
-  s = cf_opts.table_factory->ValidateOptions(db_opts, cf_opts);
-#endif
+  Status s = db_opts.Validate(cf_opts);
+  if (s.ok()) {
+    s = cf_opts.Validate(db_opts);
+  }
   return s;
 }
 

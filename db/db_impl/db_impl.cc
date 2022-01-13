@@ -1164,13 +1164,10 @@ Status DBImpl::SetDBOptions(
     DBOptions new_db_options =
         BuildDBOptions(immutable_db_options_, new_options);
     if (s.ok()) {
-      s = ValidateOptions(new_db_options);
-    }
-    if (s.ok()) {
       for (auto c : *versions_->GetColumnFamilySet()) {
         if (!c->IsDropped()) {
           auto cf_options = c->GetLatestCFOptions();
-          s = ColumnFamilyData::ValidateOptions(new_db_options, cf_options);
+          s = ValidateOptions(new_db_options, cf_options);
           if (!s.ok()) {
             break;
           }
@@ -2703,7 +2700,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
 
   DBOptions db_options =
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
-  s = ColumnFamilyData::ValidateOptions(db_options, cf_options);
+  s = ValidateOptions(db_options, cf_options);
   if (s.ok()) {
     for (auto& cf_path : cf_options.cf_paths) {
       s = env_->CreateDirIfMissing(cf_path.path);

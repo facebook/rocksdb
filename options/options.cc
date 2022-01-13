@@ -34,7 +34,88 @@
 #include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+const uint64_t kDefaultTtl = 0xfffffffffffffffe;
+const uint64_t kDefaultPeriodicCompSecs = 0xfffffffffffffffe;
 
+Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
+  if (!cf_options.compression_per_level.empty()) {
+    for (size_t level = 0; level < cf_options.compression_per_level.size();
+         ++level) {
+      if (!CompressionTypeSupported(cf_options.compression_per_level[level])) {
+        return Status::InvalidArgument(
+            "Compression type " +
+            CompressionTypeToString(cf_options.compression_per_level[level]) +
+            " is not linked with the binary.");
+      }
+    }
+  } else {
+    if (!CompressionTypeSupported(cf_options.compression)) {
+      return Status::InvalidArgument(
+          "Compression type " +
+          CompressionTypeToString(cf_options.compression) +
+          " is not linked with the binary.");
+    }
+  }
+  if (cf_options.compression_opts.zstd_max_train_bytes > 0) {
+    if (!ZSTD_TrainDictionarySupported()) {
+      return Status::InvalidArgument(
+          "zstd dictionary trainer cannot be used because ZSTD 1.1.3+ "
+          "is not linked with the binary.");
+    }
+    if (cf_options.compression_opts.max_dict_bytes == 0) {
+      return Status::InvalidArgument(
+          "The dictionary size limit (`CompressionOptions::max_dict_bytes`) "
+          "should be nonzero if we're using zstd's dictionary generator.");
+    }
+  }
+
+  if (!CompressionTypeSupported(cf_options.blob_compression_type)) {
+    std::ostringstream oss;
+    oss << "The specified blob compression type "
+        << CompressionTypeToString(cf_options.blob_compression_type)
+        << " is not available.";
+
+    return Status::InvalidArgument(oss.str());
+  }
+
+  return Status::OK();
+}
+
+Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options) {
+  if (cf_options.inplace_update_support) {
+    return Status::InvalidArgument(
+        "In-place memtable updates (inplace_update_support) is not compatible "
+        "with concurrent writes (allow_concurrent_memtable_write)");
+  }
+  if (!cf_options.memtable_factory->IsInsertConcurrentlySupported()) {
+    return Status::InvalidArgument(
+        "Memtable doesn't concurrent writes (allow_concurrent_memtable_write)");
+  }
+  return Status::OK();
+}
+
+Status CheckCFPathsSupported(const DBOptions& db_options,
+                             const ColumnFamilyOptions& cf_options) {
+  // More than one cf_paths are supported only in universal
+  // and level compaction styles. This function also checks the case
+  // in which cf_paths is not specified, which results in db_paths
+  // being used.
+  if ((cf_options.compaction_style != kCompactionStyleUniversal) &&
+      (cf_options.compaction_style != kCompactionStyleLevel)) {
+    if (cf_options.cf_paths.size() > 1) {
+      return Status::NotSupported(
+          "More than one CF paths are only supported in "
+          "universal and level compaction styles. ");
+    } else if (cf_options.cf_paths.empty() && db_options.db_paths.size() > 1) {
+      return Status::NotSupported(
+          "More than one DB paths are only supported in "
+          "universal and level compaction styles. ");
+    }
+  }
+  return Status::OK();
+}
+}  // anonymous namespace
 AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions() {
   assert(memtable_factory.get() != nullptr);
 }
@@ -116,6 +197,68 @@ ColumnFamilyOptions::ColumnFamilyOptions()
 ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
     : ColumnFamilyOptions(*static_cast<const ColumnFamilyOptions*>(&options)) {}
 
+Status ColumnFamilyOptions::Validate(const DBOptions& db_opts) const {
+  Status s;
+  s = CheckCompressionSupported(*this);
+  if (s.ok() && db_opts.allow_concurrent_memtable_write) {
+    s = CheckConcurrentWritesSupported(*this);
+  }
+  if (s.ok() && db_opts.unordered_write && max_successive_merges != 0) {
+    s = Status::InvalidArgument(
+        "max_successive_merges > 0 is incompatible with unordered_write");
+  }
+  if (s.ok()) {
+    s = CheckCFPathsSupported(db_opts, *this);
+  }
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (ttl > 0 && ttl != kDefaultTtl) {
+    if (!table_factory->IsInstanceOf(TableFactory::kBlockBasedTableName())) {
+      return Status::NotSupported(
+          "TTL is only supported in Block-Based Table format. ");
+    }
+  }
+
+  if (periodic_compaction_seconds > 0 &&
+      periodic_compaction_seconds != kDefaultPeriodicCompSecs) {
+    if (!table_factory->IsInstanceOf(TableFactory::kBlockBasedTableName())) {
+      return Status::NotSupported(
+          "Periodic Compaction is only supported in "
+          "Block-Based Table format. ");
+    }
+  }
+
+  if (enable_blob_garbage_collection) {
+    if (blob_garbage_collection_age_cutoff < 0.0 ||
+        blob_garbage_collection_age_cutoff > 1.0) {
+      return Status::InvalidArgument(
+          "The age cutoff for blob garbage collection should be in the range "
+          "[0.0, 1.0].");
+    }
+    if (blob_garbage_collection_force_threshold < 0.0 ||
+        blob_garbage_collection_force_threshold > 1.0) {
+      return Status::InvalidArgument(
+          "The garbage ratio threshold for forcing blob garbage collection "
+          "should be in the range [0.0, 1.0].");
+    }
+  }
+
+  if (compaction_style == kCompactionStyleFIFO &&
+      db_opts.max_open_files != -1 && ttl > 0) {
+    return Status::NotSupported(
+        "FIFO compaction only supported with max_open_files = -1.");
+  }
+#ifndef ROCKSDB_LITE
+  auto cf_cfg = CFOptionsAsConfigurable(*this);
+  s = cf_cfg->ValidateOptions(db_opts, *this);
+#else
+  s = cf_opts.table_factory->ValidateOptions(db_opts, *this);
+#endif
+  return s;
+}
+
 DBOptions::DBOptions() {}
 DBOptions::DBOptions(const Options& options)
     : DBOptions(*static_cast<const DBOptions*>(&options)) {}
@@ -124,6 +267,59 @@ void DBOptions::Dump(Logger* log) const {
     ImmutableDBOptions(*this).Dump(log);
     MutableDBOptions(*this).Dump(log);
 }  // DBOptions::Dump
+
+Status DBOptions::Validate(const ColumnFamilyOptions& cf_opts) const {
+  if (db_paths.size() > 4) {
+    return Status::NotSupported(
+        "More than four DB paths are not supported yet. ");
+  }
+
+  if (allow_mmap_reads && use_direct_reads) {
+    // Protect against assert in PosixMMapReadableFile constructor
+    return Status::NotSupported(
+        "If memory mapped reads (allow_mmap_reads) are enabled "
+        "then direct I/O reads (use_direct_reads) must be disabled. ");
+  }
+
+  if (allow_mmap_writes && use_direct_io_for_flush_and_compaction) {
+    return Status::NotSupported(
+        "If memory mapped writes (allow_mmap_writes) are enabled "
+        "then direct I/O writes (use_direct_io_for_flush_and_compaction) must "
+        "be disabled. ");
+  }
+
+  if (keep_log_file_num == 0) {
+    return Status::InvalidArgument("keep_log_file_num must be greater than 0");
+  }
+
+  if (unordered_write && !allow_concurrent_memtable_write) {
+    return Status::InvalidArgument(
+        "unordered_write is incompatible with "
+        "!allow_concurrent_memtable_write");
+  }
+
+  if (unordered_write && enable_pipelined_write) {
+    return Status::InvalidArgument(
+        "unordered_write is incompatible with enable_pipelined_write");
+  }
+
+  if (atomic_flush && enable_pipelined_write) {
+    return Status::InvalidArgument(
+        "atomic_flush is incompatible with enable_pipelined_write");
+  }
+
+  // TODO remove this restriction
+  if (atomic_flush && best_efforts_recovery) {
+    return Status::InvalidArgument(
+        "atomic_flush is currently incompatible with best-efforts recovery");
+  }
+#ifndef ROCKSDB_LITE
+  auto db_cfg = DBOptionsAsConfigurable(*this);
+  return db_cfg->ValidateOptions(*this, cf_opts);
+#else
+  return Status::OK();
+#endif
+}
 
 void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "              Options.comparator: %s",
@@ -419,6 +615,14 @@ void Options::Dump(Logger* log) const {
 void Options::DumpCFOptions(Logger* log) const {
   ColumnFamilyOptions::Dump(log);
 }  // Options::DumpCFOptions
+
+Status Options::Validate() const {
+  Status s = DBOptions::Validate(*this);
+  if (s.ok()) {
+    s = ColumnFamilyOptions::Validate(*this);
+  }
+  return s;
+}
 
 //
 // The goal of this method is to create a configuration that

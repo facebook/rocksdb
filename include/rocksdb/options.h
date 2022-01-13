@@ -57,6 +57,7 @@ class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
 
+struct DBOptions;
 struct Options;
 struct DbPath;
 
@@ -101,6 +102,8 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
       uint64_t memtable_memory_budget = 512 * 1024 * 1024);
   ColumnFamilyOptions* OptimizeUniversalStyleCompaction(
       uint64_t memtable_memory_budget = 512 * 1024 * 1024);
+
+  Status Validate(const DBOptions& db_opts) const;
 
   // -------------------
   // Parameters that affect behavior
@@ -468,7 +471,7 @@ struct DBOptions {
   // bottlenecked by RocksDB.
   DBOptions* IncreaseParallelism(int total_threads = 16);
 #endif  // ROCKSDB_LITE
-
+  Status Validate(const ColumnFamilyOptions& cf_opts) const;
   // If true, the database will be created if it is missing.
   // Default: false
   bool create_if_missing = false;
@@ -1369,6 +1372,7 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
   Options* OldDefaults(int rocksdb_major_version = 4,
                        int rocksdb_minor_version = 6);
 
+  Status Validate() const;
   void Dump(Logger* log) const;
 
   void DumpCFOptions(Logger* log) const;

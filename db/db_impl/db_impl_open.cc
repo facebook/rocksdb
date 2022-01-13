@@ -225,70 +225,6 @@ Status ValidateOptionsByTable(
 }
 }  // namespace
 
-Status DBImpl::ValidateOptions(
-    const DBOptions& db_options,
-    const std::vector<ColumnFamilyDescriptor>& column_families) {
-  Status s;
-  for (auto& cfd : column_families) {
-    s = ColumnFamilyData::ValidateOptions(db_options, cfd.options);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-  s = ValidateOptions(db_options);
-  return s;
-}
-
-Status DBImpl::ValidateOptions(const DBOptions& db_options) {
-  if (db_options.db_paths.size() > 4) {
-    return Status::NotSupported(
-        "More than four DB paths are not supported yet. ");
-  }
-
-  if (db_options.allow_mmap_reads && db_options.use_direct_reads) {
-    // Protect against assert in PosixMMapReadableFile constructor
-    return Status::NotSupported(
-        "If memory mapped reads (allow_mmap_reads) are enabled "
-        "then direct I/O reads (use_direct_reads) must be disabled. ");
-  }
-
-  if (db_options.allow_mmap_writes &&
-      db_options.use_direct_io_for_flush_and_compaction) {
-    return Status::NotSupported(
-        "If memory mapped writes (allow_mmap_writes) are enabled "
-        "then direct I/O writes (use_direct_io_for_flush_and_compaction) must "
-        "be disabled. ");
-  }
-
-  if (db_options.keep_log_file_num == 0) {
-    return Status::InvalidArgument("keep_log_file_num must be greater than 0");
-  }
-
-  if (db_options.unordered_write &&
-      !db_options.allow_concurrent_memtable_write) {
-    return Status::InvalidArgument(
-        "unordered_write is incompatible with !allow_concurrent_memtable_write");
-  }
-
-  if (db_options.unordered_write && db_options.enable_pipelined_write) {
-    return Status::InvalidArgument(
-        "unordered_write is incompatible with enable_pipelined_write");
-  }
-
-  if (db_options.atomic_flush && db_options.enable_pipelined_write) {
-    return Status::InvalidArgument(
-        "atomic_flush is incompatible with enable_pipelined_write");
-  }
-
-  // TODO remove this restriction
-  if (db_options.atomic_flush && db_options.best_efforts_recovery) {
-    return Status::InvalidArgument(
-        "atomic_flush is currently incompatible with best-efforts recovery");
-  }
-
-  return Status::OK();
-}
-
 Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
   VersionEdit new_db;
   Status s = SetIdentityFile(env_, dbname_);
@@ -1587,11 +1523,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
                     const bool seq_per_batch, const bool batch_per_txn) {
   Status s = ValidateOptionsByTable(db_options, column_families);
-  if (!s.ok()) {
-    return s;
-  }
-
-  s = ValidateOptions(db_options, column_families);
   if (!s.ok()) {
     return s;
   }
