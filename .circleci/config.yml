@@ -24,6 +24,13 @@ commands:
           command: |
             HOMEBREW_NO_AUTO_UPDATE=1 brew install cmake
 
+  install-jdk8-on-macos:
+    steps:
+      - run:
+          name: Install JDK 8 on macos
+          command: |
+            brew install --cask adoptopenjdk/openjdk/adoptopenjdk8
+
   increase-max-open-files-on-macos:
     steps:
       - run:
@@ -55,7 +62,7 @@ commands:
   pre-steps-macos:
       steps:
         - pre-steps:
-            python-version: "3.6.0"
+            python-version: "3.7.8"
 
   post-steps:
     steps:
@@ -569,7 +576,7 @@ jobs:
 
   build-macos-java-static:
     macos:
-      xcode: 11.3.0
+      xcode: 12.5.1
     resource_class: medium
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
@@ -578,6 +585,7 @@ jobs:
       - install-pyenv-on-macos
       - install-gflags-on-macos
       - install-cmake-on-macos
+      - install-jdk8-on-macos
       - pre-steps-macos
       - run:
           name: "Set Java Environment"
@@ -587,8 +595,33 @@ jobs:
             which java && java -version
             which javac && javac -version
       - run:
-          name: "Build RocksDBJava Static Library"
-          command: make V=1 J=8 -j8 rocksdbjavastatic 2>&1 | .circleci/cat_ignore_eagain
+          name: "Build RocksDBJava x86 and ARM Static Libraries"
+          command: make V=1 J=8 -j8 rocksdbjavastaticosx 2>&1 | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-macos-java-static-universal:
+    macos:
+      xcode: 12.5.1
+    resource_class: medium
+    environment:
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+    steps:
+      - increase-max-open-files-on-macos
+      - install-pyenv-on-macos
+      - install-gflags-on-macos
+      - install-cmake-on-macos
+      - install-jdk8-on-macos
+      - pre-steps-macos
+      - run:
+          name: "Set Java Environment"
+          command: |
+            echo "JAVA_HOME=${JAVA_HOME}"
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
+            which java && java -version
+            which javac && javac -version
+      - run:
+          name: "Build RocksDBJava Universal Binary Static Library"
+          command: make V=1 J=8 -j8 rocksdbjavastaticosx_ub 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-examples:
@@ -793,6 +826,7 @@ workflows:
       - build-linux-java-static
       - build-macos-java
       - build-macos-java-static
+      - build-macos-java-static-universal
   build-examples:
     jobs:
       - build-examples
