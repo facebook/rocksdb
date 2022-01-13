@@ -1085,6 +1085,57 @@ public class RocksDBTest {
   }
 
   @Test
+  public void continueBackgroundWorkAfterCancelAllBackgroundWork() throws RocksDBException {
+    final int KEY_SIZE = 20;
+    final int VALUE_SIZE = 300;
+    try (final DBOptions opt = new DBOptions().
+        setCreateIfMissing(true).
+        setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions()
+    ) {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+          Arrays.asList(
+              new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+              new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts)
+          );
+
+      final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+      // open the database
+      try (final RocksDB db = RocksDB.open(opt,
+          dbFolder.getRoot().getAbsolutePath(),
+          columnFamilyDescriptors,
+          columnFamilyHandles)) {
+        try {
+          db.cancelAllBackgroundWork(true);
+          try {
+            db.put(new byte[KEY_SIZE], new byte[VALUE_SIZE]);
+            db.flush(new FlushOptions().setWaitForFlush(true));
+            fail("Expected RocksDBException to be thrown if we attempt to trigger a flush after" +
+                " all background work is cancelled.");
+          } catch (RocksDBException ignored) { }
+        } finally {
+          for (final ColumnFamilyHandle handle : columnFamilyHandles) {
+            handle.close();
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  public void cancelAllBackgroundWorkTwice() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options,
+             dbFolder.getRoot().getAbsolutePath())
+    ) {
+      // Cancel all background work synchronously
+      db.cancelAllBackgroundWork(true);
+      // Cancel all background work asynchronously
+      db.cancelAllBackgroundWork(false);
+    }
+  }
+
+  @Test
   public void pauseContinueBackgroundWork() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options,
@@ -1170,7 +1221,6 @@ public class RocksDBTest {
     }
   }
 
-  @Ignore("This test crashes. Re-enable after fixing.")
   @Test
   public void getApproximateSizes() throws RocksDBException {
     final byte key1[] = "key1".getBytes(UTF_8);
@@ -1185,7 +1235,7 @@ public class RocksDBTest {
 
         final long[] sizes = db.getApproximateSizes(
             Arrays.asList(
-                new Range(new Slice(key1), new Slice(key2)),
+                new Range(new Slice(key1), new Slice(key1)),
                 new Range(new Slice(key2), new Slice(key3))
             ),
             SizeApproximationFlag.INCLUDE_FILES,
@@ -1216,6 +1266,26 @@ public class RocksDBTest {
 
         assertThat(stats).isNotNull();
         assertThat(stats.count).isGreaterThan(1);
+        assertThat(stats.size).isGreaterThan(1);
+      }
+    }
+  }
+
+  @Test
+  public void getApproximateMemTableStatsSingleKey() throws RocksDBException {
+    final byte key1[] = "key1".getBytes(UTF_8);
+    final byte key2[] = "key2".getBytes(UTF_8);
+    final byte key3[] = "key3".getBytes(UTF_8);
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        db.put(key1, key1);
+
+        final RocksDB.CountAndSize stats =
+            db.getApproximateMemTableStats(new Range(new Slice(key1), new Slice(key3)));
+
+        assertThat(stats).isNotNull();
+        assertThat(stats.count).isEqualTo(1);
         assertThat(stats.size).isGreaterThan(1);
       }
     }
@@ -1406,11 +1476,11 @@ public class RocksDBTest {
       try (final RocksDB db = RocksDB.open(options, dbPath)) {
         final RocksDB.LiveFiles livefiles = db.getLiveFiles(true);
         assertThat(livefiles).isNotNull();
-        assertThat(livefiles.manifestFileSize).isEqualTo(13);
+        assertThat(livefiles.manifestFileSize).isEqualTo(59);
         assertThat(livefiles.files.size()).isEqualTo(3);
         assertThat(livefiles.files.get(0)).isEqualTo("/CURRENT");
-        assertThat(livefiles.files.get(1)).isEqualTo("/MANIFEST-000001");
-        assertThat(livefiles.files.get(2)).isEqualTo("/OPTIONS-000005");
+        assertThat(livefiles.files.get(1)).isEqualTo("/MANIFEST-000004");
+        assertThat(livefiles.files.get(2)).isEqualTo("/OPTIONS-000007");
       }
     }
   }
@@ -1631,6 +1701,13 @@ public class RocksDBTest {
         }
       }
     }
+  }
+
+  @Test
+  public void rocksdbVersion() {
+    final RocksDB.Version version = RocksDB.rocksdbVersion();
+    assertThat(version).isNotNull();
+    assertThat(version.getMajor()).isGreaterThan(1);
   }
 
   private static class InMemoryTraceWriter extends AbstractTraceWriter {

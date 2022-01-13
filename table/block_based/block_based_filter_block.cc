@@ -68,7 +68,7 @@ BlockBasedFilterBlockBuilder::BlockBasedFilterBlockBuilder(
       whole_key_filtering_(table_opt.whole_key_filtering),
       prev_prefix_start_(0),
       prev_prefix_size_(0),
-      num_added_(0) {
+      total_added_in_built_(0) {
   assert(policy_);
 }
 
@@ -80,19 +80,22 @@ void BlockBasedFilterBlockBuilder::StartBlock(uint64_t block_offset) {
   }
 }
 
-void BlockBasedFilterBlockBuilder::Add(const Slice& key) {
-  if (prefix_extractor_ && prefix_extractor_->InDomain(key)) {
-    AddPrefix(key);
+size_t BlockBasedFilterBlockBuilder::EstimateEntriesAdded() {
+  return total_added_in_built_ + start_.size();
+}
+
+void BlockBasedFilterBlockBuilder::Add(const Slice& key_without_ts) {
+  if (prefix_extractor_ && prefix_extractor_->InDomain(key_without_ts)) {
+    AddPrefix(key_without_ts);
   }
 
   if (whole_key_filtering_) {
-    AddKey(key);
+    AddKey(key_without_ts);
   }
 }
 
 // Add key to filter if needed
 inline void BlockBasedFilterBlockBuilder::AddKey(const Slice& key) {
-  num_added_++;
   start_.push_back(entries_.size());
   entries_.append(key.data(), key.size());
 }
@@ -114,10 +117,12 @@ inline void BlockBasedFilterBlockBuilder::AddPrefix(const Slice& key) {
   }
 }
 
-Slice BlockBasedFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
-                                           Status* status) {
-  // In this impl we ignore BlockHandle
+Slice BlockBasedFilterBlockBuilder::Finish(
+    const BlockHandle& /*tmp*/, Status* status,
+    std::unique_ptr<const char[]>* /* filter_data */) {
+  // In this impl we ignore BlockHandle and filter_data
   *status = Status::OK();
+
   if (!start_.empty()) {
     GenerateFilter();
   }
@@ -140,6 +145,7 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
     filter_offsets_.push_back(static_cast<uint32_t>(result_.size()));
     return;
   }
+  total_added_in_built_ += num_entries;
 
   // Make list of keys from flattened key structure
   start_.push_back(entries_.size());  // Simplify length computation
@@ -171,19 +177,20 @@ BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
 }
 
 std::unique_ptr<FilterBlockReader> BlockBasedFilterBlockReader::Create(
-    const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
-    bool use_cache, bool prefetch, bool pin,
-    BlockCacheLookupContext* lookup_context) {
+    const BlockBasedTable* table, const ReadOptions& ro,
+    FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
+    bool pin, BlockCacheLookupContext* lookup_context) {
   assert(table);
   assert(table->get_rep());
   assert(!pin || prefetch);
 
   CachableEntry<BlockContents> filter_block;
   if (prefetch || !use_cache) {
-    const Status s = ReadFilterBlock(table, prefetch_buffer, ReadOptions(),
-                                     use_cache, nullptr /* get_context */,
-                                     lookup_context, &filter_block);
+    const Status s = ReadFilterBlock(table, prefetch_buffer, ro, use_cache,
+                                     nullptr /* get_context */, lookup_context,
+                                     &filter_block);
     if (!s.ok()) {
+      IGNORE_STATUS_IF_ERROR(s);
       return std::unique_ptr<FilterBlockReader>();
     }
 
@@ -251,6 +258,7 @@ bool BlockBasedFilterBlockReader::MayMatch(
   const Status s =
       GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
   if (!s.ok()) {
+    IGNORE_STATUS_IF_ERROR(s);
     return true;
   }
 
@@ -309,6 +317,7 @@ std::string BlockBasedFilterBlockReader::ToString() const {
       GetOrReadFilterBlock(false /* no_io */, nullptr /* get_context */,
                            nullptr /* lookup_context */, &filter_block);
   if (!s.ok()) {
+    IGNORE_STATUS_IF_ERROR(s);
     return std::string("Unable to retrieve filter block");
   }
 

@@ -15,18 +15,24 @@ namespace ROCKSDB_NAMESPACE {
 class DbStressEnvWrapper : public EnvWrapper {
  public:
   explicit DbStressEnvWrapper(Env* t) : EnvWrapper(t) {}
+  static const char* kClassName() { return "DbStressEnv"; }
+  const char* Name() const override { return kClassName(); }
 
   Status DeleteFile(const std::string& f) override {
     // We determine whether it is a manifest file by searching a strong,
     // so that there will be false positive if the directory path contains the
     // keyword but it is unlikely.
-    // Checkpoint directory needs to be exempted.
+    // Checkpoint, backup, and restore directories needs to be exempted.
     if (!if_preserve_all_manifests ||
         f.find("MANIFEST-") == std::string::npos ||
-        f.find("checkpoint") != std::string::npos) {
+        f.find("checkpoint") != std::string::npos ||
+        f.find(".backup") != std::string::npos ||
+        f.find(".restore") != std::string::npos) {
       return target()->DeleteFile(f);
     }
-    return Status::OK();
+    // Rename the file instead of deletion to keep the history, and
+    // at the same time it is not visible to RocksDB.
+    return target()->RenameFile(f, f + "_renamed_");
   }
 
   // If true, all manifest files will not be delted in DeleteFile().

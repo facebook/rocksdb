@@ -19,7 +19,7 @@ Status GetInfoLogList(DB* db, std::vector<std::string>* info_log_list) {
   }
   std::string parent_path;
   const Options& options = db->GetOptions();
-  return GetInfoLogFiles(options.env, options.db_log_dir, db->GetName(),
-                         &parent_path, info_log_list);
+  return GetInfoLogFiles(options.env->GetFileSystem(), options.db_log_dir,
+                         db->GetName(), &parent_path, info_log_list);
 }
 }  // namespace ROCKSDB_NAMESPACE

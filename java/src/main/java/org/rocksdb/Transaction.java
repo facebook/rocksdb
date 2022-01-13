@@ -45,7 +45,7 @@ public class Transaction extends RocksObject {
 
   /**
    * If a transaction has a snapshot set, the transaction will ensure that
-   * any keys successfully written(or fetched via {@link #getForUpdate}) have
+   * any keys successfully written (or fetched via {@link #getForUpdate}) have
    * not been modified outside of this transaction since the time the snapshot
    * was set.
    *
@@ -611,9 +611,9 @@ public class Transaction extends RocksObject {
   }
 
   /**
-   * Returns an iterator that will iterate on all keys in the default
-   * column family including both keys in the DB and uncommitted keys in this
-   * transaction.
+   * Returns an iterator that will iterate on all keys in the column family
+   * specified by {@code columnFamilyHandle} including both keys in the DB
+   * and uncommitted keys in this transaction.
    *
    * Setting {@link ReadOptions#setSnapshot(Snapshot)} will affect what is read
    * from the DB but will NOT change which keys are read from this transaction
@@ -1068,7 +1068,7 @@ public class Transaction extends RocksObject {
    * @param columnFamilyHandle The column family to delete the key/value from
    * @param key the specified key to be deleted.
    * @param assumeTracked true when it is expected that the key is already
-   *     tracked. More specifically, it means the the key was previous tracked
+   *     tracked. More specifically, it means the key was previously tracked
    *     in the same savepoint, with the same exclusive flag, and at a lower
    *     sequence number. If valid then it skips ValidateSnapshot,
    *     throws an error otherwise.
@@ -1152,7 +1152,7 @@ public class Transaction extends RocksObject {
    * @param columnFamilyHandle The column family to delete the key/value from
    * @param keyParts the specified key to be deleted.
    * @param assumeTracked true when it is expected that the key is already
-   *     tracked. More specifically, it means the the key was previous tracked
+   *     tracked. More specifically, it means the key was previously tracked
    *     in the same savepoint, with the same exclusive flag, and at a lower
    *     sequence number. If valid then it skips ValidateSnapshot,
    *     throws an error otherwise.
@@ -1788,10 +1788,16 @@ public class Transaction extends RocksObject {
     AWAITING_PREPARE((byte)1),
     PREPARED((byte)2),
     AWAITING_COMMIT((byte)3),
-    COMMITED((byte)4),
+    COMMITTED((byte)4),
     AWAITING_ROLLBACK((byte)5),
     ROLLEDBACK((byte)6),
     LOCKS_STOLEN((byte)7);
+
+    /*
+     * Keep old misspelled variable as alias
+     * Tip from https://stackoverflow.com/a/37092410/454544
+     */
+    public static final TransactionState COMMITED = COMMITTED;
 
     private final byte value;
 

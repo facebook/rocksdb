@@ -9,7 +9,7 @@
 int main() {
   fprintf(stderr,
           "Please install gflags to run block_cache_trace_analyzer_test\n");
-  return 1;
+  return 0;
 }
 #else
 
@@ -18,9 +18,11 @@ int main() {
 #include <map>
 #include <vector>
 
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "rocksdb/trace_reader_writer.h"
+#include "rocksdb/trace_record.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "tools/block_cache_analyzer/block_cache_trace_analyzer.h"
@@ -44,7 +46,7 @@ const size_t kArgBufferSize = 100000;
 class BlockCacheTracerTest : public testing::Test {
  public:
   BlockCacheTracerTest() {
-    test_path_ = test::PerThreadDBPath("block_cache_tracer_test");
+    test_path_ = test::PerThreadDBPath("block_cache_trace_analyzer_test");
     env_ = ROCKSDB_NAMESPACE::Env::Default();
     EXPECT_OK(env_->CreateDir(test_path_));
     trace_file_path_ = test_path_ + "/block_cache_trace";
@@ -225,7 +227,9 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
-    BlockCacheTraceWriter writer(env_, trace_opt, std::move(trace_writer));
+    const auto& clock = env_->GetSystemClock();
+    BlockCacheTraceWriter writer(clock.get(), trace_opt,
+                                 std::move(trace_writer));
     ASSERT_OK(writer.WriteHeader());
     WriteBlockAccess(&writer, 0, TraceType::kBlockTraceDataBlock, 50);
     ASSERT_OK(env_->FileExists(trace_file_path_));
@@ -327,7 +331,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
           }
           num_misses += ParseInt(substr);
         }
-        ASSERT_EQ(51, num_misses);
+        ASSERT_EQ(51u, num_misses);
         ASSERT_FALSE(getline(mt_file, line));
         mt_file.close();
         ASSERT_OK(env_->DeleteFile(miss_timeline_path));
@@ -594,7 +598,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
         sum_percent += ParseDouble(percent);
         nrows++;
       }
-      ASSERT_EQ(11, nrows);
+      ASSERT_EQ(11u, nrows);
       ASSERT_EQ(100.0, sum_percent);
       ASSERT_OK(env_->DeleteFile(filename));
     }
@@ -610,9 +614,11 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     // kSSTStoringEvenKeys.
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
+    const auto& clock = env_->GetSystemClock();
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
-    BlockCacheTraceWriter writer(env_, trace_opt, std::move(trace_writer));
+    BlockCacheTraceWriter writer(clock.get(), trace_opt,
+                                 std::move(trace_writer));
     ASSERT_OK(writer.WriteHeader());
     // Write blocks of different types.
     WriteBlockAccess(&writer, 0, TraceType::kBlockTraceUncompressionDictBlock,
@@ -632,8 +638,10 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     BlockCacheTraceReader reader(std::move(trace_reader));
     BlockCacheTraceHeader header;
     ASSERT_OK(reader.ReadHeader(&header));
-    ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
-    ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
+    ASSERT_EQ(static_cast<uint32_t>(kMajorVersion),
+              header.rocksdb_major_version);
+    ASSERT_EQ(static_cast<uint32_t>(kMinorVersion),
+              header.rocksdb_minor_version);
     // Read blocks.
     BlockCacheTraceAnalyzer analyzer(
         trace_file_path_,

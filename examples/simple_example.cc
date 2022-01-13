@@ -10,9 +10,19 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/options.h"
 
-using namespace ROCKSDB_NAMESPACE;
+using ROCKSDB_NAMESPACE::DB;
+using ROCKSDB_NAMESPACE::Options;
+using ROCKSDB_NAMESPACE::PinnableSlice;
+using ROCKSDB_NAMESPACE::ReadOptions;
+using ROCKSDB_NAMESPACE::Status;
+using ROCKSDB_NAMESPACE::WriteBatch;
+using ROCKSDB_NAMESPACE::WriteOptions;
 
+#if defined(OS_WIN)
+std::string kDBPath = "C:\\Windows\\TEMP\\rocksdb_simple_example";
+#else
 std::string kDBPath = "/tmp/rocksdb_simple_example";
+#endif
 
 int main() {
   DB* db;
@@ -68,7 +78,7 @@ int main() {
   }
 
   PinnableSlice pinnable_val;
-  db->Get(ReadOptions(), db->DefaultColumnFamily(), "key1", &pinnable_val);
+  s = db->Get(ReadOptions(), db->DefaultColumnFamily(), "key1", &pinnable_val);
   assert(s.IsNotFound());
   // Reset PinnableSlice after each use and before each reuse
   pinnable_val.Reset();

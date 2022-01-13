@@ -21,7 +21,8 @@ static std::string NEW_VALUE = "NewValue";
 
 class DBTestCompactionFilter : public DBTestBase {
  public:
-  DBTestCompactionFilter() : DBTestBase("/db_compaction_filter_test") {}
+  DBTestCompactionFilter()
+      : DBTestBase("db_compaction_filter_test", /*env_do_fsync=*/true) {}
 };
 
 // Param variant of DBTestBase::ChangeCompactOptions
@@ -41,11 +42,11 @@ class DBTestCompactionFilterWithCompactParam
         option_config_ == kUniversalSubcompactions) {
       assert(options.max_subcompactions > 1);
     }
-    TryReopen(options);
+    Reopen(options);
   }
 };
 
-#ifndef ROCKSDB_VALGRIND_RUN
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 INSTANTIATE_TEST_CASE_P(
     CompactionFilterWithOption, DBTestCompactionFilterWithCompactParam,
     ::testing::Values(DBTestBase::OptionConfig::kDefault,
@@ -54,11 +55,11 @@ INSTANTIATE_TEST_CASE_P(
                       DBTestBase::OptionConfig::kLevelSubcompactions,
                       DBTestBase::OptionConfig::kUniversalSubcompactions));
 #else
-// Run fewer cases in valgrind
+// Run fewer cases in non-full valgrind to save time.
 INSTANTIATE_TEST_CASE_P(CompactionFilterWithOption,
                         DBTestCompactionFilterWithCompactParam,
                         ::testing::Values(DBTestBase::OptionConfig::kDefault));
-#endif  // ROCKSDB_VALGRIND_RUN
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 class KeepFilter : public CompactionFilter {
  public:
@@ -78,6 +79,11 @@ class DeleteFilter : public CompactionFilter {
               std::string* /*new_value*/,
               bool* /*value_changed*/) const override {
     cfilter_count++;
+    return true;
+  }
+
+  bool FilterMergeOperand(int /*level*/, const Slice& /*key*/,
+                          const Slice& /*operand*/) const override {
     return true;
   }
 
@@ -124,22 +130,6 @@ class SkipEvenFilter : public CompactionFilter {
   bool IgnoreSnapshots() const override { return true; }
 
   const char* Name() const override { return "DeleteFilter"; }
-};
-
-class DelayFilter : public CompactionFilter {
- public:
-  explicit DelayFilter(DBTestBase* d) : db_test(d) {}
-  bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
-              std::string* /*new_value*/,
-              bool* /*value_changed*/) const override {
-    db_test->env_->addon_time_.fetch_add(1000);
-    return true;
-  }
-
-  const char* Name() const override { return "DelayFilter"; }
-
- private:
-  DBTestBase* db_test;
 };
 
 class ConditionalFilter : public CompactionFilter {
@@ -205,18 +195,36 @@ class KeepFilterFactory : public CompactionFilterFactory {
   bool compaction_filter_created_;
 };
 
+// This filter factory is configured with a `TableFileCreationReason`. Only
+// table files created for that reason will undergo filtering. This
+// configurability makes it useful to tests for filtering non-compaction table
+// files, such as "CompactionFilterFlush" and "CompactionFilterRecovery".
 class DeleteFilterFactory : public CompactionFilterFactory {
  public:
+  explicit DeleteFilterFactory(TableFileCreationReason reason)
+      : reason_(reason) {}
+
   std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override {
-    if (context.is_manual_compaction) {
-      return std::unique_ptr<CompactionFilter>(new DeleteFilter());
-    } else {
+    EXPECT_EQ(reason_, context.reason);
+    if (context.reason == TableFileCreationReason::kCompaction &&
+        !context.is_manual_compaction) {
+      // Table files created by automatic compaction do not undergo filtering.
+      // Presumably some tests rely on this.
       return std::unique_ptr<CompactionFilter>(nullptr);
     }
+    return std::unique_ptr<CompactionFilter>(new DeleteFilter());
+  }
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    return reason_ == reason;
   }
 
   const char* Name() const override { return "DeleteFilterFactory"; }
+
+ private:
+  const TableFileCreationReason reason_;
 };
 
 // Delete Filter Factory which ignores snapshots
@@ -246,20 +254,6 @@ class SkipEvenFilterFactory : public CompactionFilterFactory {
   }
 
   const char* Name() const override { return "SkipEvenFilterFactory"; }
-};
-
-class DelayFilterFactory : public CompactionFilterFactory {
- public:
-  explicit DelayFilterFactory(DBTestBase* d) : db_test(d) {}
-  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilter::Context& /*context*/) override {
-    return std::unique_ptr<CompactionFilter>(new DelayFilter(db_test));
-  }
-
-  const char* Name() const override { return "DelayFilterFactory"; }
-
- private:
-  DBTestBase* db_test;
 };
 
 class ConditionalFilterFactory : public CompactionFilterFactory {
@@ -305,7 +299,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   for (int i = 0; i < 100000; i++) {
     char key[100];
     snprintf(key, sizeof(key), "B%010d", i);
-    Put(1, key, value);
+    ASSERT_OK(Put(1, key, value));
   }
   ASSERT_OK(Flush(1));
 
@@ -313,10 +307,10 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   // the compaction is each level invokes the filter for
   // all the keys in that level.
   cfilter_count = 0;
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]));
   ASSERT_EQ(cfilter_count, 100000);
   cfilter_count = 0;
-  dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
+  ASSERT_OK(dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]));
   ASSERT_EQ(cfilter_count, 100000);
 
   ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
@@ -336,19 +330,21 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
     InternalKeyComparator icmp(options.comparator);
     ReadRangeDelAggregator range_del_agg(&icmp,
                                          kMaxSequenceNumber /* upper_bound */);
+    ReadOptions read_options;
     ScopedArenaIterator iter(dbfull()->NewInternalIterator(
-        &arena, &range_del_agg, kMaxSequenceNumber, handles_[1]));
+        read_options, &arena, &range_del_agg, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+      ASSERT_OK(ParseInternalKey(iter->key(), &ikey, true /* log_err_key */));
       total++;
       if (ikey.sequence != 0) {
         count++;
       }
       iter->Next();
     }
+    ASSERT_OK(iter->status());
   }
   ASSERT_EQ(total, 100000);
   ASSERT_EQ(count, 0);
@@ -365,10 +361,10 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   // means that all keys should pass at least once
   // via the compaction filter
   cfilter_count = 0;
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]));
   ASSERT_EQ(cfilter_count, 100000);
   cfilter_count = 0;
-  dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
+  ASSERT_OK(dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]));
   ASSERT_EQ(cfilter_count, 100000);
   ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1, 1), 0);
@@ -376,7 +372,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
 
   // create a new database with the compaction
   // filter in such a way that it deletes all keys
-  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
+  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>(
+      TableFileCreationReason::kCompaction);
   options.create_if_missing = true;
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -397,10 +394,10 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   // verify that at the end of the compaction process,
   // nothing is left.
   cfilter_count = 0;
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]));
   ASSERT_EQ(cfilter_count, 100000);
   cfilter_count = 0;
-  dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
+  ASSERT_OK(dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]));
   ASSERT_EQ(cfilter_count, 0);
   ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1, 1), 0);
@@ -415,6 +412,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
       count++;
       iter->Next();
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(count, 0);
   }
 
@@ -426,13 +424,14 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
     InternalKeyComparator icmp(options.comparator);
     ReadRangeDelAggregator range_del_agg(&icmp,
                                          kMaxSequenceNumber /* upper_bound */);
+    ReadOptions read_options;
     ScopedArenaIterator iter(dbfull()->NewInternalIterator(
-        &arena, &range_del_agg, kMaxSequenceNumber, handles_[1]));
+        read_options, &arena, &range_del_agg, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+      ASSERT_OK(ParseInternalKey(iter->key(), &ikey, true /* log_err_key */));
       ASSERT_NE(ikey.sequence, (unsigned)0);
       count++;
       iter->Next();
@@ -446,7 +445,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
 // entries in VersionEdit, but none of the 'AddFile's.
 TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
   Options options = CurrentOptions();
-  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
+  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>(
+      TableFileCreationReason::kCompaction);
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
   DestroyAndReopen(options);
@@ -454,9 +454,9 @@ TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
   // put some data
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      Put(ToString(table * 100 + i), "val");
+      ASSERT_OK(Put(ToString(table * 100 + i), "val"));
     }
-    Flush();
+    ASSERT_OK(Flush());
   }
 
   // this will produce empty file (delete compaction filter)
@@ -467,12 +467,71 @@ TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
 
   Iterator* itr = db_->NewIterator(ReadOptions());
   itr->SeekToFirst();
+  ASSERT_OK(itr->status());
   // empty db
   ASSERT_TRUE(!itr->Valid());
 
   delete itr;
 }
 #endif  // ROCKSDB_LITE
+
+TEST_F(DBTestCompactionFilter, CompactionFilterFlush) {
+  // Tests a `CompactionFilterFactory` that filters when table file is created
+  // by flush.
+  Options options = CurrentOptions();
+  options.compaction_filter_factory =
+      std::make_shared<DeleteFilterFactory>(TableFileCreationReason::kFlush);
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  Reopen(options);
+
+  // Puts and Merges are purged in flush.
+  ASSERT_OK(Put("a", "v"));
+  ASSERT_OK(Merge("b", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("NOT_FOUND", Get("a"));
+  ASSERT_EQ("NOT_FOUND", Get("b"));
+
+  // However, Puts and Merges are preserved by recovery.
+  ASSERT_OK(Put("a", "v"));
+  ASSERT_OK(Merge("b", "v"));
+  Reopen(options);
+  ASSERT_EQ("v", Get("a"));
+  ASSERT_EQ("v", Get("b"));
+
+  // Likewise, compaction does not apply filtering.
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("v", Get("a"));
+  ASSERT_EQ("v", Get("b"));
+}
+
+TEST_F(DBTestCompactionFilter, CompactionFilterRecovery) {
+  // Tests a `CompactionFilterFactory` that filters when table file is created
+  // by recovery.
+  Options options = CurrentOptions();
+  options.compaction_filter_factory =
+      std::make_shared<DeleteFilterFactory>(TableFileCreationReason::kRecovery);
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  Reopen(options);
+
+  // Puts and Merges are purged in recovery.
+  ASSERT_OK(Put("a", "v"));
+  ASSERT_OK(Merge("b", "v"));
+  Reopen(options);
+  ASSERT_EQ("NOT_FOUND", Get("a"));
+  ASSERT_EQ("NOT_FOUND", Get("b"));
+
+  // However, Puts and Merges are preserved by flush.
+  ASSERT_OK(Put("a", "v"));
+  ASSERT_OK(Merge("b", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("v", Get("a"));
+  ASSERT_EQ("v", Get("b"));
+
+  // Likewise, compaction does not apply filtering.
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("v", Get("a"));
+  ASSERT_EQ("v", Get("b"));
+}
 
 TEST_P(DBTestCompactionFilterWithCompactParam,
        CompactionFilterWithValueChange) {
@@ -490,25 +549,25 @@ TEST_P(DBTestCompactionFilterWithCompactParam,
   for (int i = 0; i < 100001; i++) {
     char key[100];
     snprintf(key, sizeof(key), "B%010d", i);
-    Put(1, key, value);
+    ASSERT_OK(Put(1, key, value));
   }
 
   // push all files to  lower levels
   ASSERT_OK(Flush(1));
   if (option_config_ != kUniversalCompactionMultiLevel &&
       option_config_ != kUniversalSubcompactions) {
-    dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
-    dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
+    ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]));
+    ASSERT_OK(dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]));
   } else {
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
+    ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[1],
+                                     nullptr, nullptr));
   }
 
   // re-write all data again
   for (int i = 0; i < 100001; i++) {
     char key[100];
     snprintf(key, sizeof(key), "B%010d", i);
-    Put(1, key, value);
+    ASSERT_OK(Put(1, key, value));
   }
 
   // push all files to  lower levels. This should
@@ -516,11 +575,11 @@ TEST_P(DBTestCompactionFilterWithCompactParam,
   ASSERT_OK(Flush(1));
   if (option_config_ != kUniversalCompactionMultiLevel &&
       option_config_ != kUniversalSubcompactions) {
-    dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
-    dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
+    ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]));
+    ASSERT_OK(dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]));
   } else {
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
+    ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[1],
+                                     nullptr, nullptr));
   }
 
   // verify that all keys now have the new value that
@@ -558,7 +617,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithMergeOperator) {
   ASSERT_OK(Flush());
   std::string newvalue = Get("foo");
   ASSERT_EQ(newvalue, three);
-  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   newvalue = Get("foo");
   ASSERT_EQ(newvalue, three);
 
@@ -566,12 +625,12 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithMergeOperator) {
   // merge keys.
   ASSERT_OK(db_->Put(WriteOptions(), "bar", two));
   ASSERT_OK(Flush());
-  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   newvalue = Get("bar");
   ASSERT_EQ("NOT_FOUND", newvalue);
   ASSERT_OK(db_->Merge(WriteOptions(), "bar", two));
   ASSERT_OK(Flush());
-  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   newvalue = Get("bar");
   ASSERT_EQ(two, two);
 
@@ -582,7 +641,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithMergeOperator) {
   ASSERT_OK(Flush());
   newvalue = Get("foobar");
   ASSERT_EQ(newvalue, three);
-  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   newvalue = Get("foobar");
   ASSERT_EQ(newvalue, three);
 
@@ -595,7 +654,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithMergeOperator) {
   ASSERT_OK(Flush());
   newvalue = Get("barfoo");
   ASSERT_EQ(newvalue, four);
-  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   newvalue = Get("barfoo");
   ASSERT_EQ(newvalue, four);
 }
@@ -617,21 +676,21 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     for (int i = 0; i < num_keys_per_file; i++) {
       char key[100];
       snprintf(key, sizeof(key), "B%08d%02d", i, j);
-      Put(key, value);
+      ASSERT_OK(Put(key, value));
     }
-    dbfull()->TEST_FlushMemTable();
+    ASSERT_OK(dbfull()->TEST_FlushMemTable());
     // Make sure next file is much smaller so automatic compaction will not
     // be triggered.
     num_keys_per_file /= 2;
   }
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Force a manual compaction
   cfilter_count = 0;
   filter->expect_manual_compaction_.store(true);
   filter->expect_full_compaction_.store(true);
   filter->expect_cf_id_.store(0);
-  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(cfilter_count, 700);
   ASSERT_EQ(NumSortedRuns(0), 1);
   ASSERT_TRUE(filter->compaction_filter_created());
@@ -644,13 +703,14 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     InternalKeyComparator icmp(options.comparator);
     ReadRangeDelAggregator range_del_agg(&icmp,
                                          kMaxSequenceNumber /* snapshots */);
+    ReadOptions read_options;
     ScopedArenaIterator iter(dbfull()->NewInternalIterator(
-        &arena, &range_del_agg, kMaxSequenceNumber));
+        read_options, &arena, &range_del_agg, kMaxSequenceNumber));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+      ASSERT_OK(ParseInternalKey(iter->key(), &ikey, true /* log_err_key */));
       total++;
       if (ikey.sequence != 0) {
         count++;
@@ -680,14 +740,14 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextCfId) {
     for (int i = 0; i < num_keys_per_file; i++) {
       char key[100];
       snprintf(key, sizeof(key), "B%08d%02d", i, j);
-      Put(1, key, value);
+      ASSERT_OK(Put(1, key, value));
     }
-    Flush(1);
+    ASSERT_OK(Flush(1));
     // Make sure next file is much smaller so automatic compaction will not
     // be triggered.
     num_keys_per_file /= 2;
   }
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ASSERT_TRUE(filter->compaction_filter_created());
 }
@@ -706,9 +766,9 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
   const Snapshot* snapshot = nullptr;
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10; ++i) {
-      Put(ToString(table * 100 + i), "val");
+      ASSERT_OK(Put(ToString(table * 100 + i), "val"));
     }
-    Flush();
+    ASSERT_OK(Flush());
 
     if (table == 0) {
       snapshot = db_->GetSnapshot();
@@ -728,6 +788,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
     read_options.snapshot = snapshot;
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
     iter->SeekToFirst();
+    ASSERT_OK(iter->status());
     int count = 0;
     while (iter->Valid()) {
       count++;
@@ -736,6 +797,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
     ASSERT_EQ(count, 6);
     read_options.snapshot = nullptr;
     std::unique_ptr<Iterator> iter1(db_->NewIterator(read_options));
+    ASSERT_OK(iter1->status());
     iter1->SeekToFirst();
     count = 0;
     while (iter1->Valid()) {
@@ -766,9 +828,9 @@ TEST_F(DBTestCompactionFilter, SkipUntil) {
     for (int i = table * 6; i < 39 + table * 11; ++i) {
       char key[100];
       snprintf(key, sizeof(key), "%010d", table * 100 + i);
-      Put(key, std::to_string(table * 1000 + i));
+      ASSERT_OK(Put(key, std::to_string(table * 1000 + i)));
     }
-    Flush();
+    ASSERT_OK(Flush());
   }
 
   cfilter_skips = 0;
@@ -807,10 +869,10 @@ TEST_F(DBTestCompactionFilter, SkipUntilWithBloomFilter) {
   options.create_if_missing = true;
   DestroyAndReopen(options);
 
-  Put("0000000010", "v10");
-  Put("0000000020", "v20");  // skipped
-  Put("0000000050", "v50");
-  Flush();
+  ASSERT_OK(Put("0000000010", "v10"));
+  ASSERT_OK(Put("0000000020", "v20"));  // skipped
+  ASSERT_OK(Put("0000000050", "v50"));
+  ASSERT_OK(Flush());
 
   cfilter_skips = 0;
   EXPECT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -848,19 +910,62 @@ TEST_F(DBTestCompactionFilter, IgnoreSnapshotsFalse) {
   options.compaction_filter = new TestNotSupportedFilter();
   DestroyAndReopen(options);
 
-  Put("a", "v10");
-  Put("z", "v20");
-  Flush();
+  ASSERT_OK(Put("a", "v10"));
+  ASSERT_OK(Put("z", "v20"));
+  ASSERT_OK(Flush());
 
-  Put("a", "v10");
-  Put("z", "v20");
-  Flush();
+  ASSERT_OK(Put("a", "v10"));
+  ASSERT_OK(Put("z", "v20"));
+  ASSERT_OK(Flush());
 
   // Comapction should fail because IgnoreSnapshots() = false
   EXPECT_TRUE(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
                   .IsNotSupported());
 
   delete options.compaction_filter;
+}
+
+class TestNotSupportedFilterFactory : public CompactionFilterFactory {
+ public:
+  explicit TestNotSupportedFilterFactory(TableFileCreationReason reason)
+      : reason_(reason) {}
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    return reason_ == reason;
+  }
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /* context */) override {
+    return std::unique_ptr<CompactionFilter>(new TestNotSupportedFilter());
+  }
+
+  const char* Name() const override { return "TestNotSupportedFilterFactory"; }
+
+ private:
+  const TableFileCreationReason reason_;
+};
+
+TEST_F(DBTestCompactionFilter, IgnoreSnapshotsFalseDuringFlush) {
+  Options options = CurrentOptions();
+  options.compaction_filter_factory =
+      std::make_shared<TestNotSupportedFilterFactory>(
+          TableFileCreationReason::kFlush);
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "v10"));
+  ASSERT_TRUE(Flush().IsNotSupported());
+}
+
+TEST_F(DBTestCompactionFilter, IgnoreSnapshotsFalseRecovery) {
+  Options options = CurrentOptions();
+  options.compaction_filter_factory =
+      std::make_shared<TestNotSupportedFilterFactory>(
+          TableFileCreationReason::kRecovery);
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "v10"));
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

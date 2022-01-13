@@ -141,6 +141,11 @@ class StackableDB : public DB {
                                              import_options, metadata, handle);
   }
 
+  using DB::VerifyFileChecksums;
+  Status VerifyFileChecksums(const ReadOptions& read_opts) override {
+    return db_->VerifyFileChecksums(read_opts);
+  }
+
   virtual Status VerifyChecksum() override { return db_->VerifyChecksum(); }
 
   virtual Status VerifyChecksum(const ReadOptions& options) override {
@@ -347,6 +352,17 @@ class StackableDB : public DB {
     db_->GetLiveFilesMetaData(metadata);
   }
 
+  virtual Status GetLiveFilesChecksumInfo(
+      FileChecksumList* checksum_list) override {
+    return db_->GetLiveFilesChecksumInfo(checksum_list);
+  }
+
+  virtual Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& opts,
+      std::vector<LiveFileStorageInfo>* files) override {
+    return db_->GetLiveFilesStorageInfo(opts, files);
+  }
+
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                        ColumnFamilyMetaData* cf_meta) override {
     db_->GetColumnFamilyMetaData(column_family, cf_meta);
@@ -361,6 +377,31 @@ class StackableDB : public DB {
 
   using DB::EndBlockCacheTrace;
   Status EndBlockCacheTrace() override { return db_->EndBlockCacheTrace(); }
+
+  using DB::StartIOTrace;
+  Status StartIOTrace(const TraceOptions& options,
+                      std::unique_ptr<TraceWriter>&& trace_writer) override {
+    return db_->StartIOTrace(options, std::move(trace_writer));
+  }
+
+  using DB::EndIOTrace;
+  Status EndIOTrace() override { return db_->EndIOTrace(); }
+
+  using DB::StartTrace;
+  Status StartTrace(const TraceOptions& options,
+                    std::unique_ptr<TraceWriter>&& trace_writer) override {
+    return db_->StartTrace(options, std::move(trace_writer));
+  }
+
+  using DB::EndTrace;
+  Status EndTrace() override { return db_->EndTrace(); }
+
+  using DB::NewDefaultReplayer;
+  Status NewDefaultReplayer(const std::vector<ColumnFamilyHandle*>& handles,
+                            std::unique_ptr<TraceReader>&& reader,
+                            std::unique_ptr<Replayer>* replayer) override {
+    return db_->NewDefaultReplayer(handles, std::move(reader), replayer);
+  }
 
 #endif  // ROCKSDB_LITE
 
@@ -378,6 +419,16 @@ class StackableDB : public DB {
     return db_->SetPreserveDeletesSequenceNumber(seqnum);
   }
 
+  Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                  std::string ts_low) override {
+    return db_->IncreaseFullHistoryTsLow(column_family, ts_low);
+  }
+
+  Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                             std::string* ts_low) override {
+    return db_->GetFullHistoryTsLow(column_family, ts_low);
+  }
+
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override {
     return db_->GetSortedWalFiles(files);
   }
@@ -392,12 +443,23 @@ class StackableDB : public DB {
     return db_->GetCreationTimeOfOldestFile(creation_time);
   }
 
+  // WARNING: This API is planned for removal in RocksDB 7.0 since it does not
+  // operate at the proper level of abstraction for a key-value store, and its
+  // contract/restrictions are poorly documented. For example, it returns non-OK
+  // `Status` for non-bottommost files and files undergoing compaction. Since we
+  // do not plan to maintain it, the contract will likely remain underspecified
+  // until its removal. Any user is encouraged to read the implementation
+  // carefully and migrate away from it when possible.
   virtual Status DeleteFile(std::string name) override {
     return db_->DeleteFile(name);
   }
 
   virtual Status GetDbIdentity(std::string& identity) const override {
     return db_->GetDbIdentity(identity);
+  }
+
+  virtual Status GetDbSessionId(std::string& session_id) const override {
+    return db_->GetDbSessionId(session_id);
   }
 
   using DB::SetOptions;

@@ -43,6 +43,10 @@ class TwoLevelIndexIterator : public InternalIteratorBase<IndexValue> {
     assert(Valid());
     return second_level_iter_.key();
   }
+  Slice user_key() const override {
+    assert(Valid());
+    return second_level_iter_.user_key();
+  }
   IndexValue value() const override {
     assert(Valid());
     return second_level_iter_.value();
@@ -197,6 +201,10 @@ void TwoLevelIndexIterator::InitDataBlock() {
           state_->NewSecondaryIterator(handle);
       data_block_handle_ = handle;
       SetSecondLevelIterator(iter);
+      if (iter == nullptr) {
+        status_ = Status::Corruption("Missing block for partition " +
+                                     handle.ToString());
+      }
     }
   }
 }

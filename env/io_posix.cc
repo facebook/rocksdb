@@ -27,11 +27,11 @@
 #include <sys/types.h>
 #ifdef OS_LINUX
 #include <sys/statfs.h>
-#include <sys/syscall.h>
 #include <sys/sysmacros.h>
 #endif
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/slice.h"
 #include "test_util/sync_point.h"
 #include "util/autovector.h"
@@ -44,6 +44,35 @@
 #endif
 
 namespace ROCKSDB_NAMESPACE {
+
+std::string IOErrorMsg(const std::string& context,
+                       const std::string& file_name) {
+  if (file_name.empty()) {
+    return context;
+  }
+  return context + ": " + file_name;
+}
+
+// file_name can be left empty if it is not unkown.
+IOStatus IOError(const std::string& context, const std::string& file_name,
+                 int err_number) {
+  switch (err_number) {
+    case ENOSPC: {
+      IOStatus s = IOStatus::NoSpace(IOErrorMsg(context, file_name),
+                                     errnoStr(err_number).c_str());
+      s.SetRetryable(true);
+      return s;
+    }
+    case ESTALE:
+      return IOStatus::IOError(IOStatus::kStaleFile);
+    case ENOENT:
+      return IOStatus::PathNotFound(IOErrorMsg(context, file_name),
+                                    errnoStr(err_number).c_str());
+    default:
+      return IOStatus::IOError(IOErrorMsg(context, file_name),
+                               errnoStr(err_number).c_str());
+  }
+}
 
 // A wrapper for fadvise, if the platform doesn't support fadvise,
 // it will simply return 0.
@@ -112,75 +141,6 @@ bool PosixPositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset) {
   return true;
 }
 
-size_t GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
-#ifdef OS_LINUX
-  struct stat buf;
-  int result = fstat(fd, &buf);
-  if (result == -1) {
-    return kDefaultPageSize;
-  }
-  if (major(buf.st_dev) == 0) {
-    // Unnamed devices (e.g. non-device mounts), reserved as null device number.
-    // These don't have an entry in /sys/dev/block/. Return a sensible default.
-    return kDefaultPageSize;
-  }
-
-  // Reading queue/logical_block_size does not require special permissions.
-  const int kBufferSize = 100;
-  char path[kBufferSize];
-  char real_path[PATH_MAX + 1];
-  snprintf(path, kBufferSize, "/sys/dev/block/%u:%u", major(buf.st_dev),
-           minor(buf.st_dev));
-  if (realpath(path, real_path) == nullptr) {
-    return kDefaultPageSize;
-  }
-  std::string device_dir(real_path);
-  if (!device_dir.empty() && device_dir.back() == '/') {
-    device_dir.pop_back();
-  }
-  // NOTE: sda3 and nvme0n1p1 do not have a `queue/` subdir, only the parent sda
-  // and nvme0n1 have it.
-  // $ ls -al '/sys/dev/block/8:3'
-  // lrwxrwxrwx. 1 root root 0 Jun 26 01:38 /sys/dev/block/8:3 ->
-  // ../../block/sda/sda3
-  // $ ls -al '/sys/dev/block/259:4'
-  // lrwxrwxrwx 1 root root 0 Jan 31 16:04 /sys/dev/block/259:4 ->
-  // ../../devices/pci0000:17/0000:17:00.0/0000:18:00.0/nvme/nvme0/nvme0n1/nvme0n1p1
-  size_t parent_end = device_dir.rfind('/', device_dir.length() - 1);
-  if (parent_end == std::string::npos) {
-    return kDefaultPageSize;
-  }
-  size_t parent_begin = device_dir.rfind('/', parent_end - 1);
-  if (parent_begin == std::string::npos) {
-    return kDefaultPageSize;
-  }
-  std::string parent =
-      device_dir.substr(parent_begin + 1, parent_end - parent_begin - 1);
-  std::string child = device_dir.substr(parent_end + 1, std::string::npos);
-  if (parent != "block" &&
-      (child.compare(0, 4, "nvme") || child.find('p') != std::string::npos)) {
-    device_dir = device_dir.substr(0, parent_end);
-  }
-  std::string fname = device_dir + "/queue/logical_block_size";
-  FILE* fp;
-  size_t size = 0;
-  fp = fopen(fname.c_str(), "r");
-  if (fp != nullptr) {
-    char* line = nullptr;
-    size_t len = 0;
-    if (getline(&line, &len, fp) != -1) {
-      sscanf(line, "%zu", &size);
-    }
-    free(line);
-    fclose(fp);
-  }
-  if (size != 0 && (size & (size - 1)) == 0) {
-    return size;
-  }
-#endif
-  return kDefaultPageSize;
-}
-
 #ifdef ROCKSDB_RANGESYNC_PRESENT
 
 #if !defined(ZFS_SUPER_MAGIC)
@@ -190,11 +150,11 @@ size_t GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
 #endif
 
 bool IsSyncFileRangeSupported(int fd) {
-  // The approach taken in this function is to build a blacklist of cases where
-  // we know `sync_file_range` definitely will not work properly despite passing
-  // the compile-time check (`ROCKSDB_RANGESYNC_PRESENT`). If we are unsure, or
-  // if any of the checks fail in unexpected ways, we allow `sync_file_range` to
-  // be used. This way should minimize risk of impacting existing use cases.
+  // This function tracks and checks for cases where we know `sync_file_range`
+  // definitely will not work properly despite passing the compile-time check
+  // (`ROCKSDB_RANGESYNC_PRESENT`). If we are unsure, or if any of the checks
+  // fail in unexpected ways, we allow `sync_file_range` to be used. This way
+  // should minimize risk of impacting existing use cases.
   struct statfs buf;
   int ret = fstatfs(fd, &buf);
   assert(ret == 0);
@@ -216,7 +176,7 @@ bool IsSyncFileRangeSupported(int fd) {
     // ("Function not implemented").
     return false;
   }
-  // None of the cases on the blacklist matched, so allow `sync_file_range` use.
+  // None of the known cases matched, so allow `sync_file_range` use.
   return true;
 }
 
@@ -229,30 +189,31 @@ bool IsSyncFileRangeSupported(int fd) {
 /*
  * DirectIOHelper
  */
-#ifndef NDEBUG
 namespace {
 
 bool IsSectorAligned(const size_t off, size_t sector_size) {
-  return off % sector_size == 0;
+  assert((sector_size & (sector_size - 1)) == 0);
+  return (off & (sector_size - 1)) == 0;
 }
 
+#ifndef NDEBUG
 bool IsSectorAligned(const void* ptr, size_t sector_size) {
   return uintptr_t(ptr) % sector_size == 0;
 }
-
-}  // namespace
 #endif
+}  // namespace
 
 /*
  * PosixSequentialFile
  */
 PosixSequentialFile::PosixSequentialFile(const std::string& fname, FILE* file,
-                                         int fd, const EnvOptions& options)
+                                         int fd, size_t logical_block_size,
+                                         const EnvOptions& options)
     : filename_(fname),
       file_(file),
       fd_(fd),
       use_direct_io_(options.use_direct_reads),
-      logical_sector_size_(GetLogicalBufferSize(fd_)) {
+      logical_sector_size_(logical_block_size) {
   assert(!options.use_direct_reads || !options.use_mmap_reads);
 }
 
@@ -273,6 +234,7 @@ IOStatus PosixSequentialFile::Read(size_t n, const IOOptions& /*opts*/,
   IOStatus s;
   size_t r = 0;
   do {
+    clearerr(file_);
     r = fread_unlocked(scratch, 1, n, file_);
   } while (r == 0 && ferror(file_) && errno == EINTR);
   *result = Slice(scratch, r);
@@ -314,7 +276,7 @@ IOStatus PosixSequentialFile::PositionedRead(uint64_t offset, size_t n,
     ptr += r;
     offset += r;
     left -= r;
-    if (r % static_cast<ssize_t>(GetRequiredBufferAlignment()) != 0) {
+    if (!IsSectorAligned(r, GetRequiredBufferAlignment())) {
       // Bytes reads don't fill sectors. Should only happen at the end
       // of the file.
       break;
@@ -409,13 +371,178 @@ size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
   return static_cast<size_t>(rid - id);
 }
 #endif
+
+#ifdef OS_LINUX
+std::string RemoveTrailingSlash(const std::string& path) {
+  std::string p = path;
+  if (p.size() > 1 && p.back() == '/') {
+    p.pop_back();
+  }
+  return p;
+}
+
+Status LogicalBlockSizeCache::RefAndCacheLogicalBlockSize(
+    const std::vector<std::string>& directories) {
+  std::vector<std::string> dirs;
+  dirs.reserve(directories.size());
+  for (auto& d : directories) {
+    dirs.emplace_back(RemoveTrailingSlash(d));
+  }
+
+  std::map<std::string, size_t> dir_sizes;
+  {
+    ReadLock lock(&cache_mutex_);
+    for (const auto& dir : dirs) {
+      if (cache_.find(dir) == cache_.end()) {
+        dir_sizes.emplace(dir, 0);
+      }
+    }
+  }
+
+  Status s;
+  for (auto& dir_size : dir_sizes) {
+    s = get_logical_block_size_of_directory_(dir_size.first, &dir_size.second);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  WriteLock lock(&cache_mutex_);
+  for (const auto& dir : dirs) {
+    auto& v = cache_[dir];
+    v.ref++;
+    auto dir_size = dir_sizes.find(dir);
+    if (dir_size != dir_sizes.end()) {
+      v.size = dir_size->second;
+    }
+  }
+  return s;
+}
+
+void LogicalBlockSizeCache::UnrefAndTryRemoveCachedLogicalBlockSize(
+    const std::vector<std::string>& directories) {
+  std::vector<std::string> dirs;
+  dirs.reserve(directories.size());
+  for (auto& dir : directories) {
+    dirs.emplace_back(RemoveTrailingSlash(dir));
+  }
+
+  WriteLock lock(&cache_mutex_);
+  for (const auto& dir : dirs) {
+    auto it = cache_.find(dir);
+    if (it != cache_.end() && !(--(it->second.ref))) {
+      cache_.erase(it);
+    }
+  }
+}
+
+size_t LogicalBlockSizeCache::GetLogicalBlockSize(const std::string& fname,
+                                                  int fd) {
+  std::string dir = fname.substr(0, fname.find_last_of("/"));
+  if (dir.empty()) {
+    dir = "/";
+  }
+  {
+    ReadLock lock(&cache_mutex_);
+    auto it = cache_.find(dir);
+    if (it != cache_.end()) {
+      return it->second.size;
+    }
+  }
+  return get_logical_block_size_of_fd_(fd);
+}
+#endif
+
+Status PosixHelper::GetLogicalBlockSizeOfDirectory(const std::string& directory,
+                                                   size_t* size) {
+  int fd = open(directory.c_str(), O_DIRECTORY | O_RDONLY);
+  if (fd == -1) {
+    close(fd);
+    return Status::IOError("Cannot open directory " + directory);
+  }
+  *size = PosixHelper::GetLogicalBlockSizeOfFd(fd);
+  close(fd);
+  return Status::OK();
+}
+
+size_t PosixHelper::GetLogicalBlockSizeOfFd(int fd) {
+#ifdef OS_LINUX
+  struct stat buf;
+  int result = fstat(fd, &buf);
+  if (result == -1) {
+    return kDefaultPageSize;
+  }
+  if (major(buf.st_dev) == 0) {
+    // Unnamed devices (e.g. non-device mounts), reserved as null device number.
+    // These don't have an entry in /sys/dev/block/. Return a sensible default.
+    return kDefaultPageSize;
+  }
+
+  // Reading queue/logical_block_size does not require special permissions.
+  const int kBufferSize = 100;
+  char path[kBufferSize];
+  char real_path[PATH_MAX + 1];
+  snprintf(path, kBufferSize, "/sys/dev/block/%u:%u", major(buf.st_dev),
+           minor(buf.st_dev));
+  if (realpath(path, real_path) == nullptr) {
+    return kDefaultPageSize;
+  }
+  std::string device_dir(real_path);
+  if (!device_dir.empty() && device_dir.back() == '/') {
+    device_dir.pop_back();
+  }
+  // NOTE: sda3 and nvme0n1p1 do not have a `queue/` subdir, only the parent sda
+  // and nvme0n1 have it.
+  // $ ls -al '/sys/dev/block/8:3'
+  // lrwxrwxrwx. 1 root root 0 Jun 26 01:38 /sys/dev/block/8:3 ->
+  // ../../block/sda/sda3
+  // $ ls -al '/sys/dev/block/259:4'
+  // lrwxrwxrwx 1 root root 0 Jan 31 16:04 /sys/dev/block/259:4 ->
+  // ../../devices/pci0000:17/0000:17:00.0/0000:18:00.0/nvme/nvme0/nvme0n1/nvme0n1p1
+  size_t parent_end = device_dir.rfind('/', device_dir.length() - 1);
+  if (parent_end == std::string::npos) {
+    return kDefaultPageSize;
+  }
+  size_t parent_begin = device_dir.rfind('/', parent_end - 1);
+  if (parent_begin == std::string::npos) {
+    return kDefaultPageSize;
+  }
+  std::string parent =
+      device_dir.substr(parent_begin + 1, parent_end - parent_begin - 1);
+  std::string child = device_dir.substr(parent_end + 1, std::string::npos);
+  if (parent != "block" &&
+      (child.compare(0, 4, "nvme") || child.find('p') != std::string::npos)) {
+    device_dir = device_dir.substr(0, parent_end);
+  }
+  std::string fname = device_dir + "/queue/logical_block_size";
+  FILE* fp;
+  size_t size = 0;
+  fp = fopen(fname.c_str(), "r");
+  if (fp != nullptr) {
+    char* line = nullptr;
+    size_t len = 0;
+    if (getline(&line, &len, fp) != -1) {
+      sscanf(line, "%zu", &size);
+    }
+    free(line);
+    fclose(fp);
+  }
+  if (size != 0 && (size & (size - 1)) == 0) {
+    return size;
+  }
+#endif
+  (void)fd;
+  return kDefaultPageSize;
+}
+
 /*
  * PosixRandomAccessFile
  *
  * pread() based random-access
  */
 PosixRandomAccessFile::PosixRandomAccessFile(
-    const std::string& fname, int fd, const EnvOptions& options
+    const std::string& fname, int fd, size_t logical_block_size,
+    const EnvOptions& options
 #if defined(ROCKSDB_IOURING_PRESENT)
     ,
     ThreadLocalPtr* thread_local_io_urings
@@ -424,7 +551,7 @@ PosixRandomAccessFile::PosixRandomAccessFile(
     : filename_(fname),
       fd_(fd),
       use_direct_io_(options.use_direct_reads),
-      logical_sector_size_(GetLogicalBufferSize(fd_))
+      logical_sector_size_(logical_block_size)
 #if defined(ROCKSDB_IOURING_PRESENT)
       ,
       thread_local_io_urings_(thread_local_io_urings)
@@ -481,6 +608,14 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
                                           size_t num_reqs,
                                           const IOOptions& options,
                                           IODebugContext* dbg) {
+  if (use_direct_io()) {
+    for (size_t i = 0; i < num_reqs; i++) {
+      assert(IsSectorAligned(reqs[i].offset, GetRequiredBufferAlignment()));
+      assert(IsSectorAligned(reqs[i].len, GetRequiredBufferAlignment()));
+      assert(IsSectorAligned(reqs[i].scratch, GetRequiredBufferAlignment()));
+    }
+  }
+
 #if defined(ROCKSDB_IOURING_PRESENT)
   struct io_uring* iu = nullptr;
   if (thread_local_io_urings_) {
@@ -499,6 +634,8 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
     return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
   }
 
+  IOStatus ios = IOStatus::OK();
+
   struct WrappedReadRequest {
     FSReadRequest* req;
     struct iovec iov;
@@ -508,6 +645,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
 
   autovector<WrappedReadRequest, 32> req_wraps;
   autovector<WrappedReadRequest*, 4> incomplete_rq_list;
+  std::unordered_set<WrappedReadRequest*> wrap_cache;
 
   for (size_t i = 0; i < num_reqs; i++) {
     req_wraps.emplace_back(&reqs[i]);
@@ -540,26 +678,71 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
           sqe, fd_, &rep_to_submit->iov, 1,
           rep_to_submit->req->offset + rep_to_submit->finished_len);
       io_uring_sqe_set_data(sqe, rep_to_submit);
+      wrap_cache.emplace(rep_to_submit);
     }
     incomplete_rq_list.clear();
 
     ssize_t ret =
         io_uring_submit_and_wait(iu, static_cast<unsigned int>(this_reqs));
+    TEST_SYNC_POINT_CALLBACK(
+        "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return1",
+        &ret);
+    TEST_SYNC_POINT_CALLBACK(
+        "PosixRandomAccessFile::MultiRead:io_uring_submit_and_wait:return2",
+        iu);
+
     if (static_cast<size_t>(ret) != this_reqs) {
       fprintf(stderr, "ret = %ld this_reqs: %ld\n", (long)ret, (long)this_reqs);
+      // If error happens and we submitted fewer than expected, it is an
+      // exception case and we don't retry here. We should still consume
+      // what is is submitted in the ring.
+      for (ssize_t i = 0; i < ret; i++) {
+        struct io_uring_cqe* cqe = nullptr;
+        io_uring_wait_cqe(iu, &cqe);
+        if (cqe != nullptr) {
+          io_uring_cqe_seen(iu, cqe);
+        }
+      }
+      return IOStatus::IOError("io_uring_submit_and_wait() requested " +
+                               ToString(this_reqs) + " but returned " +
+                               ToString(ret));
     }
-    assert(static_cast<size_t>(ret) == this_reqs);
 
     for (size_t i = 0; i < this_reqs; i++) {
-      struct io_uring_cqe* cqe;
+      struct io_uring_cqe* cqe = nullptr;
       WrappedReadRequest* req_wrap;
 
       // We could use the peek variant here, but this seems safer in terms
       // of our initial wait not reaping all completions
       ret = io_uring_wait_cqe(iu, &cqe);
-      assert(!ret);
+      TEST_SYNC_POINT_CALLBACK(
+          "PosixRandomAccessFile::MultiRead:io_uring_wait_cqe:return", &ret);
+      if (ret) {
+        ios = IOStatus::IOError("io_uring_wait_cqe() returns " + ToString(ret));
+
+        if (cqe != nullptr) {
+          io_uring_cqe_seen(iu, cqe);
+        }
+        continue;
+      }
 
       req_wrap = static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
+      // Reset cqe data to catch any stray reuse of it
+      static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
+      // Check that we got a valid unique cqe data
+      auto wrap_check = wrap_cache.find(req_wrap);
+      if (wrap_check == wrap_cache.end()) {
+        fprintf(stderr,
+                "PosixRandomAccessFile::MultiRead: "
+                "Bad cqe data from IO uring - %p\n",
+                req_wrap);
+        port::PrintStack();
+        ios = IOStatus::IOError("io_uring_cqe_get_data() returned " +
+                                ToString((uint64_t)req_wrap));
+        continue;
+      }
+      wrap_cache.erase(wrap_check);
+
       FSReadRequest* req = req_wrap->req;
       if (cqe->res < 0) {
         req->result = Slice(req->scratch, 0);
@@ -576,13 +759,22 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
           // comment
           // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
           // Fall back to pread in this case.
-          Slice tmp_slice;
-          req->status =
-              Read(req->offset + req_wrap->finished_len,
-                   req->len - req_wrap->finished_len, options, &tmp_slice,
-                   req->scratch + req_wrap->finished_len, dbg);
-          req->result =
-              Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
+          if (use_direct_io() &&
+              !IsSectorAligned(req_wrap->finished_len,
+                               GetRequiredBufferAlignment())) {
+            // Bytes reads don't fill sectors. Should only happen at the end
+            // of the file.
+            req->result = Slice(req->scratch, req_wrap->finished_len);
+            req->status = IOStatus::OK();
+          } else {
+            Slice tmp_slice;
+            req->status =
+                Read(req->offset + req_wrap->finished_len,
+                     req->len - req_wrap->finished_len, options, &tmp_slice,
+                     req->scratch + req_wrap->finished_len, dbg);
+            req->result =
+                Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
+          }
         } else if (bytes_read < req_wrap->iov.iov_len) {
           assert(bytes_read > 0);
           assert(bytes_read + req_wrap->finished_len < req->len);
@@ -596,8 +788,9 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       }
       io_uring_cqe_seen(iu, cqe);
     }
+    wrap_cache.clear();
   }
-  return IOStatus::OK();
+  return ios;
 #else
   return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
 #endif
@@ -750,7 +943,7 @@ IOStatus PosixMmapReadableFile::InvalidateCache(size_t offset, size_t length) {
  * knows enough to skip zero suffixes.
  */
 IOStatus PosixMmapFile::UnmapCurrentRegion() {
-  TEST_KILL_RANDOM("PosixMmapFile::UnmapCurrentRegion:0", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("PosixMmapFile::UnmapCurrentRegion:0");
   if (base_ != nullptr) {
     int munmap_status = munmap(base_, limit_ - base_);
     if (munmap_status != 0) {
@@ -773,7 +966,7 @@ IOStatus PosixMmapFile::UnmapCurrentRegion() {
 IOStatus PosixMmapFile::MapNewRegion() {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   assert(base_ == nullptr);
-  TEST_KILL_RANDOM("PosixMmapFile::UnmapCurrentRegion:0", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("PosixMmapFile::UnmapCurrentRegion:0");
   // we can't fallocate with FALLOC_FL_KEEP_SIZE here
   if (allow_fallocate_) {
     IOSTATS_TIMER_GUARD(allocate_nanos);
@@ -784,17 +977,17 @@ IOStatus PosixMmapFile::MapNewRegion() {
     }
     if (alloc_status != 0) {
       return IOStatus::IOError("Error allocating space to file : " + filename_ +
-                               "Error : " + strerror(alloc_status));
+                               "Error : " + errnoStr(alloc_status).c_str());
     }
   }
 
-  TEST_KILL_RANDOM("PosixMmapFile::Append:1", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("PosixMmapFile::Append:1");
   void* ptr = mmap(nullptr, map_size_, PROT_READ | PROT_WRITE, MAP_SHARED, fd_,
                    file_offset_);
   if (ptr == MAP_FAILED) {
     return IOStatus::IOError("MMap failed on " + filename_);
   }
-  TEST_KILL_RANDOM("PosixMmapFile::Append:2", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("PosixMmapFile::Append:2");
 
   base_ = reinterpret_cast<char*>(ptr);
   limit_ = base_ + map_size_;
@@ -815,7 +1008,7 @@ IOStatus PosixMmapFile::Msync() {
   size_t p1 = TruncateToPageBoundary(last_sync_ - base_);
   size_t p2 = TruncateToPageBoundary(dst_ - base_ - 1);
   last_sync_ = dst_;
-  TEST_KILL_RANDOM("PosixMmapFile::Msync:0", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("PosixMmapFile::Msync:0");
   if (msync(base_ + p1, p2 - p1 + page_size_, MS_SYNC) < 0) {
     return IOError("While msync", filename_, errno);
   }
@@ -846,7 +1039,8 @@ PosixMmapFile::PosixMmapFile(const std::string& fname, int fd, size_t page_size,
 
 PosixMmapFile::~PosixMmapFile() {
   if (fd_ >= 0) {
-    PosixMmapFile::Close(IOOptions(), nullptr);
+    IOStatus s = PosixMmapFile::Close(IOOptions(), nullptr);
+    s.PermitUncheckedError();
   }
 }
 
@@ -867,7 +1061,7 @@ IOStatus PosixMmapFile::Append(const Slice& data, const IOOptions& /*opts*/,
       if (!s.ok()) {
         return s;
       }
-      TEST_KILL_RANDOM("PosixMmapFile::Append:0", rocksdb_kill_odds);
+      TEST_KILL_RANDOM("PosixMmapFile::Append:0");
     }
 
     size_t n = (left <= avail) ? left : avail;
@@ -965,7 +1159,7 @@ IOStatus PosixMmapFile::Allocate(uint64_t offset, uint64_t len,
                                  IODebugContext* /*dbg*/) {
   assert(offset <= static_cast<uint64_t>(std::numeric_limits<off_t>::max()));
   assert(len <= static_cast<uint64_t>(std::numeric_limits<off_t>::max()));
-  TEST_KILL_RANDOM("PosixMmapFile::Allocate:0", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("PosixMmapFile::Allocate:0");
   int alloc_status = 0;
   if (allow_fallocate_) {
     alloc_status =
@@ -988,13 +1182,14 @@ IOStatus PosixMmapFile::Allocate(uint64_t offset, uint64_t len,
  * Use posix write to write data to a file.
  */
 PosixWritableFile::PosixWritableFile(const std::string& fname, int fd,
+                                     size_t logical_block_size,
                                      const EnvOptions& options)
     : FSWritableFile(options),
       filename_(fname),
       use_direct_io_(options.use_direct_writes),
       fd_(fd),
       filesize_(0),
-      logical_sector_size_(GetLogicalBufferSize(fd_)) {
+      logical_sector_size_(logical_block_size) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   allow_fallocate_ = options.allow_fallocate;
   fallocate_with_keep_size_ = options.fallocate_with_keep_size;
@@ -1007,7 +1202,8 @@ PosixWritableFile::PosixWritableFile(const std::string& fname, int fd,
 
 PosixWritableFile::~PosixWritableFile() {
   if (fd_ >= 0) {
-    PosixWritableFile::Close(IOOptions(), nullptr);
+    IOStatus s = PosixWritableFile::Close(IOOptions(), nullptr);
+    s.PermitUncheckedError();
   }
 }
 
@@ -1067,6 +1263,7 @@ IOStatus PosixWritableFile::Close(const IOOptions& /*opts*/,
   size_t block_size;
   size_t last_allocated_block;
   GetPreallocationStatus(&block_size, &last_allocated_block);
+  TEST_SYNC_POINT_CALLBACK("PosixWritableFile::Close", &last_allocated_block);
   if (last_allocated_block > 0) {
     // trim the extra space preallocated at the end of the file
     // NOTE(ljin): we probably don't want to surface failure as an IOError,
@@ -1186,7 +1383,7 @@ IOStatus PosixWritableFile::Allocate(uint64_t offset, uint64_t len,
                                      IODebugContext* /*dbg*/) {
   assert(offset <= static_cast<uint64_t>(std::numeric_limits<off_t>::max()));
   assert(len <= static_cast<uint64_t>(std::numeric_limits<off_t>::max()));
-  TEST_KILL_RANDOM("PosixWritableFile::Allocate:0", rocksdb_kill_odds);
+  TEST_KILL_RANDOM("PosixWritableFile::Allocate:0");
   IOSTATS_TIMER_GUARD(allocate_nanos);
   int alloc_status = 0;
   if (allow_fallocate_) {
@@ -1249,7 +1446,8 @@ PosixRandomRWFile::PosixRandomRWFile(const std::string& fname, int fd,
 
 PosixRandomRWFile::~PosixRandomRWFile() {
   if (fd_ >= 0) {
-    Close(IOOptions(), nullptr);
+    IOStatus s = Close(IOOptions(), nullptr);
+    s.PermitUncheckedError();
   }
 }
 
@@ -1336,17 +1534,62 @@ PosixMemoryMappedFileBuffer::~PosixMemoryMappedFileBuffer() {
 /*
  * PosixDirectory
  */
+#if !defined(BTRFS_SUPER_MAGIC)
+// The magic number for BTRFS is fixed, if it's not defined, define it here
+#define BTRFS_SUPER_MAGIC 0x9123683E
+#endif
+PosixDirectory::PosixDirectory(int fd) : fd_(fd) {
+  is_btrfs_ = false;
+#ifdef OS_LINUX
+  struct statfs buf;
+  int ret = fstatfs(fd, &buf);
+  is_btrfs_ = (ret == 0 && buf.f_type == static_cast<decltype(buf.f_type)>(
+                                             BTRFS_SUPER_MAGIC));
+#endif
+}
 
 PosixDirectory::~PosixDirectory() { close(fd_); }
 
-IOStatus PosixDirectory::Fsync(const IOOptions& /*opts*/,
-                               IODebugContext* /*dbg*/) {
+IOStatus PosixDirectory::Fsync(const IOOptions& opts, IODebugContext* dbg) {
+  return FsyncWithDirOptions(opts, dbg, DirFsyncOptions());
+}
+
+IOStatus PosixDirectory::FsyncWithDirOptions(
+    const IOOptions& /*opts*/, IODebugContext* /*dbg*/,
+    const DirFsyncOptions& dir_fsync_options) {
+  IOStatus s = IOStatus::OK();
 #ifndef OS_AIX
+  if (is_btrfs_) {
+    // skip dir fsync for new file creation, which is not needed for btrfs
+    if (dir_fsync_options.reason == DirFsyncOptions::kNewFileSynced) {
+      return s;
+    }
+    // skip dir fsync for renaming file, only need to sync new file
+    if (dir_fsync_options.reason == DirFsyncOptions::kFileRenamed) {
+      std::string new_name = dir_fsync_options.renamed_new_name;
+      assert(!new_name.empty());
+      int fd;
+      do {
+        IOSTATS_TIMER_GUARD(open_nanos);
+        fd = open(new_name.c_str(), O_RDONLY);
+      } while (fd < 0 && errno == EINTR);
+      if (fd < 0) {
+        s = IOError("While open renaming file", new_name, errno);
+      } else if (fsync(fd) < 0) {
+        s = IOError("While fsync renaming file", new_name, errno);
+      }
+      if (close(fd) < 0) {
+        s = IOError("While closing file after fsync", new_name, errno);
+      }
+      return s;
+    }
+    // fallback to dir-fsync for kDefault, kDirRenamed and kFileDeleted
+  }
   if (fsync(fd_) == -1) {
-    return IOError("While fsync", "a directory", errno);
+    s = IOError("While fsync", "a directory", errno);
   }
 #endif
-  return IOStatus::OK();
+  return s;
 }
 }  // namespace ROCKSDB_NAMESPACE
 #endif

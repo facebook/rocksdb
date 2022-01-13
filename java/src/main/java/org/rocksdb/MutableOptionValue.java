@@ -326,7 +326,7 @@ public abstract class MutableOptionValue<T> {
     String asString() {
       final StringBuilder builder = new StringBuilder();
       for(int i = 0; i < value.length; i++) {
-        builder.append(i);
+        builder.append(value[i]);
         if(i + 1 < value.length) {
           builder.append(INT_ARRAY_INT_SEPARATOR);
         }

@@ -71,6 +71,7 @@ public class DBOptions extends RocksObject
    * {@code allowMmapReads()} has a property key:
    * {@code allow_mmap_reads}.</p>
    *
+   * @param cfgOpts The ConfigOptions to control how the string is processed.
    * @param properties {@link java.util.Properties} instance.
    *
    * @return {@link org.rocksdb.DBOptions instance}
@@ -80,22 +81,40 @@ public class DBOptions extends RocksObject
    *     {@link java.util.Properties} instance is passed to the method call.
    */
   public static DBOptions getDBOptionsFromProps(
-      final Properties properties) {
-    if (properties == null || properties.size() == 0) {
-      throw new IllegalArgumentException(
-          "Properties value must contain at least one value.");
-    }
+      final ConfigOptions cfgOpts, final Properties properties) {
     DBOptions dbOptions = null;
-    StringBuilder stringBuilder = new StringBuilder();
-    for (final String name : properties.stringPropertyNames()){
-      stringBuilder.append(name);
-      stringBuilder.append("=");
-      stringBuilder.append(properties.getProperty(name));
-      stringBuilder.append(";");
+    final String optionsString = Options.getOptionStringFromProps(properties);
+    final long handle = getDBOptionsFromProps(cfgOpts.nativeHandle_, optionsString);
+    if (handle != 0) {
+      dbOptions = new DBOptions(handle);
     }
-    long handle = getDBOptionsFromProps(
-        stringBuilder.toString());
-    if (handle != 0){
+    return dbOptions;
+  }
+
+  /**
+   * <p>Method to get a options instance by using pre-configured
+   * property values. If one or many values are undefined in
+   * the context of RocksDB the method will return a null
+   * value.</p>
+   *
+   * <p><strong>Note</strong>: Property keys can be derived from
+   * getter methods within the options class. Example: the method
+   * {@code allowMmapReads()} has a property key:
+   * {@code allow_mmap_reads}.</p>
+   *
+   * @param properties {@link java.util.Properties} instance.
+   *
+   * @return {@link org.rocksdb.DBOptions instance}
+   *     or null.
+   *
+   * @throws java.lang.IllegalArgumentException if null or empty
+   *     {@link java.util.Properties} instance is passed to the method call.
+   */
+  public static DBOptions getDBOptionsFromProps(final Properties properties) {
+    DBOptions dbOptions = null;
+    final String optionsString = Options.getOptionStringFromProps(properties);
+    final long handle = getDBOptionsFromProps(optionsString);
+    if (handle != 0) {
       dbOptions = new DBOptions(handle);
     }
     return dbOptions;
@@ -554,6 +573,18 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  public DBOptions setMaxWriteBatchGroupSizeBytes(final long maxWriteBatchGroupSizeBytes) {
+    setMaxWriteBatchGroupSizeBytes(nativeHandle_, maxWriteBatchGroupSizeBytes);
+    return this;
+  }
+
+  @Override
+  public long maxWriteBatchGroupSizeBytes() {
+    assert (isOwningHandle());
+    return maxWriteBatchGroupSizeBytes(nativeHandle_);
+  }
+
+  @Override
   public DBOptions setManifestPreallocationSize(
       final long size) {
     assert(isOwningHandle());
@@ -853,32 +884,18 @@ public class DBOptions extends RocksObject
     return strictBytesPerSync(nativeHandle_);
   }
 
-  //TODO(AR) NOW
-//  @Override
-//  public DBOptions setListeners(final List<EventListener> listeners) {
-//    assert(isOwningHandle());
-//    final long[] eventListenerHandlers = new long[listeners.size()];
-//    for (int i = 0; i < eventListenerHandlers.length; i++) {
-//      eventListenerHandlers[i] = listeners.get(i).nativeHandle_;
-//    }
-//    setEventListeners(nativeHandle_, eventListenerHandlers);
-//    return this;
-//  }
-//
-//  @Override
-//  public Collection<EventListener> listeners() {
-//    assert(isOwningHandle());
-//    final long[] eventListenerHandlers = listeners(nativeHandle_);
-//    if (eventListenerHandlers == null || eventListenerHandlers.length == 0) {
-//      return Collections.emptyList();
-//    }
-//
-//    final List<EventListener> eventListeners = new ArrayList<>();
-//    for (final long eventListenerHandle : eventListenerHandlers) {
-//      eventListeners.add(new EventListener(eventListenerHandle)); //TODO(AR) check ownership is set to false!
-//    }
-//    return eventListeners;
-//  }
+  @Override
+  public DBOptions setListeners(final List<AbstractEventListener> listeners) {
+    assert (isOwningHandle());
+    setEventListeners(nativeHandle_, RocksCallbackObject.toNativeHandleList(listeners));
+    return this;
+  }
+
+  @Override
+  public List<AbstractEventListener> listeners() {
+    assert (isOwningHandle());
+    return Arrays.asList(eventListeners(nativeHandle_));
+  }
 
   @Override
   public DBOptions setEnableThreadTracking(final boolean enableThreadTracking) {
@@ -989,6 +1006,19 @@ public class DBOptions extends RocksObject
   public boolean skipStatsUpdateOnDbOpen() {
     assert(isOwningHandle());
     return skipStatsUpdateOnDbOpen(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setSkipCheckingSstFileSizesOnDbOpen(
+      final boolean skipCheckingSstFileSizesOnDbOpen) {
+    setSkipCheckingSstFileSizesOnDbOpen(nativeHandle_, skipCheckingSstFileSizesOnDbOpen);
+    return this;
+  }
+
+  @Override
+  public boolean skipCheckingSstFileSizesOnDbOpen() {
+    assert (isOwningHandle());
+    return skipCheckingSstFileSizesOnDbOpen(nativeHandle_);
   }
 
   @Override
@@ -1160,6 +1190,90 @@ public class DBOptions extends RocksObject
     return atomicFlush(nativeHandle_);
   }
 
+  @Override
+  public DBOptions setAvoidUnnecessaryBlockingIO(final boolean avoidUnnecessaryBlockingIO) {
+    setAvoidUnnecessaryBlockingIO(nativeHandle_, avoidUnnecessaryBlockingIO);
+    return this;
+  }
+
+  @Override
+  public boolean avoidUnnecessaryBlockingIO() {
+    assert (isOwningHandle());
+    return avoidUnnecessaryBlockingIO(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setPersistStatsToDisk(final boolean persistStatsToDisk) {
+    setPersistStatsToDisk(nativeHandle_, persistStatsToDisk);
+    return this;
+  }
+
+  @Override
+  public boolean persistStatsToDisk() {
+    assert (isOwningHandle());
+    return persistStatsToDisk(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setWriteDbidToManifest(final boolean writeDbidToManifest) {
+    setWriteDbidToManifest(nativeHandle_, writeDbidToManifest);
+    return this;
+  }
+
+  @Override
+  public boolean writeDbidToManifest() {
+    assert (isOwningHandle());
+    return writeDbidToManifest(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setLogReadaheadSize(final long logReadaheadSize) {
+    setLogReadaheadSize(nativeHandle_, logReadaheadSize);
+    return this;
+  }
+
+  @Override
+  public long logReadaheadSize() {
+    assert (isOwningHandle());
+    return logReadaheadSize(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setBestEffortsRecovery(final boolean bestEffortsRecovery) {
+    setBestEffortsRecovery(nativeHandle_, bestEffortsRecovery);
+    return this;
+  }
+
+  @Override
+  public boolean bestEffortsRecovery() {
+    assert (isOwningHandle());
+    return bestEffortsRecovery(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setMaxBgErrorResumeCount(final int maxBgerrorResumeCount) {
+    setMaxBgErrorResumeCount(nativeHandle_, maxBgerrorResumeCount);
+    return this;
+  }
+
+  @Override
+  public int maxBgerrorResumeCount() {
+    assert (isOwningHandle());
+    return maxBgerrorResumeCount(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setBgerrorResumeRetryInterval(final long bgerrorResumeRetryInterval) {
+    setBgerrorResumeRetryInterval(nativeHandle_, bgerrorResumeRetryInterval);
+    return this;
+  }
+
+  @Override
+  public long bgerrorResumeRetryInterval() {
+    assert (isOwningHandle());
+    return bgerrorResumeRetryInterval(nativeHandle_);
+  }
+
   static final int DEFAULT_NUM_SHARD_BITS = -1;
 
 
@@ -1175,8 +1289,8 @@ public class DBOptions extends RocksObject
     super(nativeHandle);
   }
 
-  private static native long getDBOptionsFromProps(
-      String optString);
+  private static native long getDBOptionsFromProps(long cfgHandle, String optString);
+  private static native long getDBOptionsFromProps(String optString);
 
   private static native long newDBOptions();
   private static native long copyDBOptions(final long handle);
@@ -1262,6 +1376,9 @@ public class DBOptions extends RocksObject
   private native long walTtlSeconds(long handle);
   private native void setWalSizeLimitMB(long handle, long sizeLimitMB);
   private native long walSizeLimitMB(long handle);
+  private static native void setMaxWriteBatchGroupSizeBytes(
+      final long handle, final long maxWriteBatchGroupSizeBytes);
+  private static native long maxWriteBatchGroupSizeBytes(final long handle);
   private native void setManifestPreallocationSize(
       long handle, long size) throws IllegalArgumentException;
   private native long manifestPreallocationSize(long handle);
@@ -1328,6 +1445,9 @@ public class DBOptions extends RocksObject
       final long handle, final boolean strictBytesPerSync);
   private native boolean strictBytesPerSync(
       final long handle);
+  private static native void setEventListeners(
+      final long handle, final long[] eventListenerHandles);
+  private static native AbstractEventListener[] eventListeners(final long handle);
   private native void setEnableThreadTracking(long handle,
       boolean enableThreadTracking);
   private native boolean enableThreadTracking(long handle);
@@ -1354,6 +1474,9 @@ public class DBOptions extends RocksObject
   private native void setSkipStatsUpdateOnDbOpen(final long handle,
       final boolean skipStatsUpdateOnDbOpen);
   private native boolean skipStatsUpdateOnDbOpen(final long handle);
+  private static native void setSkipCheckingSstFileSizesOnDbOpen(
+      final long handle, final boolean skipChecking);
+  private static native boolean skipCheckingSstFileSizesOnDbOpen(final long handle);
   private native void setWalRecoveryMode(final long handle,
       final byte walRecoveryMode);
   private native byte walRecoveryMode(final long handle);
@@ -1391,6 +1514,26 @@ public class DBOptions extends RocksObject
   private native void setAtomicFlush(final long handle,
       final boolean atomicFlush);
   private native boolean atomicFlush(final long handle);
+  private static native void setAvoidUnnecessaryBlockingIO(
+      final long handle, final boolean avoidBlockingIO);
+  private static native boolean avoidUnnecessaryBlockingIO(final long handle);
+  private static native void setPersistStatsToDisk(
+      final long handle, final boolean persistStatsToDisk);
+  private static native boolean persistStatsToDisk(final long handle);
+  private static native void setWriteDbidToManifest(
+      final long handle, final boolean writeDbidToManifest);
+  private static native boolean writeDbidToManifest(final long handle);
+  private static native void setLogReadaheadSize(final long handle, final long logReadaheadSize);
+  private static native long logReadaheadSize(final long handle);
+  private static native void setBestEffortsRecovery(
+      final long handle, final boolean bestEffortsRecovery);
+  private static native boolean bestEffortsRecovery(final long handle);
+  private static native void setMaxBgErrorResumeCount(
+      final long handle, final int maxBgerrorRecumeCount);
+  private static native int maxBgerrorResumeCount(final long handle);
+  private static native void setBgerrorResumeRetryInterval(
+      final long handle, final long bgerrorResumeRetryInterval);
+  private static native long bgerrorResumeRetryInterval(final long handle);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!

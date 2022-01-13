@@ -12,12 +12,44 @@ namespace ROCKSDB_NAMESPACE {
 
 // Define all public custom types here.
 
+using ColumnFamilyId = uint32_t;
+
 // Represents a sequence number in a WAL file.
-typedef uint64_t SequenceNumber;
+using SequenceNumber = uint64_t;
 
 const SequenceNumber kMinUnCommittedSeq = 1;  // 0 is always committed
 
+enum class TableFileCreationReason {
+  kFlush,
+  kCompaction,
+  kRecovery,
+  kMisc,
+};
+
+enum class BlobFileCreationReason {
+  kFlush,
+  kCompaction,
+  kRecovery,
+};
+
+// The types of files RocksDB uses in a DB directory. (Available for
+// advanced options.)
+enum FileType {
+  kWalFile,
+  kDBLockFile,
+  kTableFile,
+  kDescriptorFile,
+  kCurrentFile,
+  kTempFile,
+  kInfoLogFile,  // Either the current one, or an old one
+  kMetaDatabase,
+  kIdentityFile,
+  kOptionsFile,
+  kBlobFile
+};
+
 // User-oriented representation of internal key types.
+// Ordering of this enum entries should not change.
 enum EntryType {
   kEntryPut,
   kEntryDelete,
@@ -25,30 +57,8 @@ enum EntryType {
   kEntryMerge,
   kEntryRangeDeletion,
   kEntryBlobIndex,
+  kEntryDeleteWithTimestamp,
   kEntryOther,
 };
-
-// <user key, sequence number, and entry type> tuple.
-struct FullKey {
-  Slice user_key;
-  SequenceNumber sequence;
-  EntryType type;
-
-  FullKey() : sequence(0) {}  // Intentionally left uninitialized (for speed)
-  FullKey(const Slice& u, const SequenceNumber& seq, EntryType t)
-      : user_key(u), sequence(seq), type(t) {}
-  std::string DebugString(bool hex = false) const;
-
-  void clear() {
-    user_key.clear();
-    sequence = 0;
-    type = EntryType::kEntryPut;
-  }
-};
-
-// Parse slice representing internal key to FullKey
-// Parsed FullKey is valid for as long as the memory pointed to by
-// internal_key is alive.
-bool ParseFullKey(const Slice& internal_key, FullKey* result);
 
 }  // namespace ROCKSDB_NAMESPACE

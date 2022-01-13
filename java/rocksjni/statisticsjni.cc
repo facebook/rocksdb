@@ -28,5 +28,4 @@ bool StatisticsJni::HistEnabledForType(uint32_t type) const {
 
   return true;
 }
-// @lint-ignore TXT4 T25377293 Grandfathered in
-};  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE

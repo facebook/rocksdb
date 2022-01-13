@@ -13,6 +13,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "tools/ldb_cmd_impl.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -47,12 +48,12 @@ public:
     if (db_ == nullptr) {
       return Status::InvalidArgument("DB not opened.");
     }
-    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_);
+    DBImpl* db_impl = static_cast_with_check<DBImpl>(db_);
     return db_impl->TEST_FlushMemTable();
   }
 
   void MoveL0FileToLevel(int level) {
-    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_);
+    DBImpl* db_impl = static_cast_with_check<DBImpl>(db_);
     for (int i = 0; i < level; ++i) {
       ASSERT_OK(db_impl->TEST_CompactRange(i, nullptr, nullptr));
     }
@@ -69,8 +70,8 @@ public:
 
   int FilesOnLevel(int level) {
     std::string property;
-    EXPECT_TRUE(db_->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(level), &property));
+    EXPECT_TRUE(db_->GetProperty("rocksdb.num-files-at-level" + ToString(level),
+                                 &property));
     return atoi(property.c_str());
   }
 
@@ -106,7 +107,7 @@ bool ReduceLevelTest::ReduceLevels(int target_level) {
 TEST_F(ReduceLevelTest, Last_Level) {
   ASSERT_OK(OpenDB(true, 4));
   ASSERT_OK(Put("aaaa", "11111"));
-  Flush();
+  ASSERT_OK(Flush());
   MoveL0FileToLevel(3);
   ASSERT_EQ(FilesOnLevel(3), 1);
   CloseDB();
@@ -125,7 +126,7 @@ TEST_F(ReduceLevelTest, Last_Level) {
 TEST_F(ReduceLevelTest, Top_Level) {
   ASSERT_OK(OpenDB(true, 5));
   ASSERT_OK(Put("aaaa", "11111"));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_EQ(FilesOnLevel(0), 1);
   CloseDB();
 

@@ -307,12 +307,13 @@ class HashIndexBuilder : public IndexBuilder {
     if (pending_block_num_ != 0) {
       FlushPendingPrefix();
     }
-    primary_index_builder_.Finish(index_blocks, last_partition_block_handle);
+    Status s = primary_index_builder_.Finish(index_blocks,
+                                             last_partition_block_handle);
     index_blocks->meta_blocks.insert(
         {kHashIndexPrefixesBlock.c_str(), prefix_block_});
     index_blocks->meta_blocks.insert(
         {kHashIndexPrefixesMetadataBlock.c_str(), prefix_meta_block_});
-    return Status::OK();
+    return s;
   }
 
   virtual size_t IndexSize() const override {

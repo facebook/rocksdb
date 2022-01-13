@@ -3,10 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include <rocksdb/compaction_filter.h>
-#include <rocksdb/db.h>
-#include <rocksdb/merge_operator.h>
-#include <rocksdb/options.h>
+#include "rocksdb/compaction_filter.h"
+#include "rocksdb/db.h"
+#include "rocksdb/merge_operator.h"
+#include "rocksdb/options.h"
 
 class MyMerge : public ROCKSDB_NAMESPACE::MergeOperator {
  public:
@@ -54,22 +54,30 @@ class MyFilter : public ROCKSDB_NAMESPACE::CompactionFilter {
   mutable int merge_count_ = 0;
 };
 
+#if defined(OS_WIN)
+std::string kDBPath = "C:\\Windows\\TEMP\\rocksmergetest";
+std::string kRemoveDirCommand = "rmdir /Q /S ";
+#else
+std::string kDBPath = "/tmp/rocksmergetest";
+std::string kRemoveDirCommand = "rm -rf ";
+#endif
+
 int main() {
   ROCKSDB_NAMESPACE::DB* raw_db;
   ROCKSDB_NAMESPACE::Status status;
 
   MyFilter filter;
 
-  int ret = system("rm -rf /tmp/rocksmergetest");
+  std::string rm_cmd = kRemoveDirCommand + kDBPath;
+  int ret = system(rm_cmd.c_str());
   if (ret != 0) {
-    fprintf(stderr, "Error deleting /tmp/rocksmergetest, code: %d\n", ret);
-    return ret;
+    fprintf(stderr, "Error deleting %s, code: %d\n", kDBPath.c_str(), ret);
   }
   ROCKSDB_NAMESPACE::Options options;
   options.create_if_missing = true;
   options.merge_operator.reset(new MyMerge);
   options.compaction_filter = &filter;
-  status = ROCKSDB_NAMESPACE::DB::Open(options, "/tmp/rocksmergetest", &raw_db);
+  status = ROCKSDB_NAMESPACE::DB::Open(options, kDBPath, &raw_db);
   assert(status.ok());
   std::unique_ptr<ROCKSDB_NAMESPACE::DB> db(raw_db);
 

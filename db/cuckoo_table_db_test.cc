@@ -6,6 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include "db/db_impl/db_impl.h"
+#include "db/db_test_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "table/cuckoo/cuckoo_table_factory.h"
@@ -13,6 +14,7 @@
 #include "table/meta_blocks.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -46,9 +48,7 @@ class CuckooTableDBTest : public testing::Test {
     return options;
   }
 
-  DBImpl* dbfull() {
-    return reinterpret_cast<DBImpl*>(db_);
-  }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
 
   // The following util methods are copied from plain_table_db_test.
   void Reopen(Options* options = nullptr) {
@@ -62,6 +62,15 @@ class CuckooTableDBTest : public testing::Test {
       opts.create_if_missing = true;
     }
     ASSERT_OK(DB::Open(opts, dbname_, &db_));
+  }
+
+  void DestroyAndReopen(Options* options) {
+    assert(options);
+    ASSERT_OK(db_->Close());
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, *options));
+    Reopen(options);
   }
 
   Status Put(const Slice& k, const Slice& v) {
@@ -86,8 +95,8 @@ class CuckooTableDBTest : public testing::Test {
 
   int NumTableFilesAtLevel(int level) {
     std::string property;
-    EXPECT_TRUE(db_->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(level), &property));
+    EXPECT_TRUE(db_->GetProperty("rocksdb.num-files-at-level" + ToString(level),
+                                 &property));
     return atoi(property.c_str());
   }
 
@@ -121,10 +130,11 @@ TEST_F(CuckooTableDBTest, Flush) {
   ASSERT_OK(Put("key1", "v1"));
   ASSERT_OK(Put("key2", "v2"));
   ASSERT_OK(Put("key3", "v3"));
-  dbfull()->TEST_FlushMemTable();
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   TablePropertiesCollection ptc;
-  reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc);
+  ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  VerifySstUniqueIds(ptc);
   ASSERT_EQ(1U, ptc.size());
   ASSERT_EQ(3U, ptc.begin()->second->num_entries);
   ASSERT_EQ("1", FilesPerLevel());
@@ -138,9 +148,10 @@ TEST_F(CuckooTableDBTest, Flush) {
   ASSERT_OK(Put("key4", "v4"));
   ASSERT_OK(Put("key5", "v5"));
   ASSERT_OK(Put("key6", "v6"));
-  dbfull()->TEST_FlushMemTable();
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
-  reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc);
+  ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  VerifySstUniqueIds(ptc);
   ASSERT_EQ(2U, ptc.size());
   auto row = ptc.begin();
   ASSERT_EQ(3U, row->second->num_entries);
@@ -156,8 +167,9 @@ TEST_F(CuckooTableDBTest, Flush) {
   ASSERT_OK(Delete("key6"));
   ASSERT_OK(Delete("key5"));
   ASSERT_OK(Delete("key4"));
-  dbfull()->TEST_FlushMemTable();
-  reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc);
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
+  ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  VerifySstUniqueIds(ptc);
   ASSERT_EQ(3U, ptc.size());
   row = ptc.begin();
   ASSERT_EQ(3U, row->second->num_entries);
@@ -178,10 +190,11 @@ TEST_F(CuckooTableDBTest, FlushWithDuplicateKeys) {
   ASSERT_OK(Put("key1", "v1"));
   ASSERT_OK(Put("key2", "v2"));
   ASSERT_OK(Put("key1", "v3"));  // Duplicate
-  dbfull()->TEST_FlushMemTable();
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   TablePropertiesCollection ptc;
-  reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc);
+  ASSERT_OK(reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc));
+  VerifySstUniqueIds(ptc);
   ASSERT_EQ(1U, ptc.size());
   ASSERT_EQ(2U, ptc.begin()->second->num_entries);
   ASSERT_EQ("1", FilesPerLevel());
@@ -206,12 +219,12 @@ static std::string Uint64Key(uint64_t i) {
 TEST_F(CuckooTableDBTest, Uint64Comparator) {
   Options options = CurrentOptions();
   options.comparator = test::Uint64Comparator();
-  Reopen(&options);
+  DestroyAndReopen(&options);
 
   ASSERT_OK(Put(Uint64Key(1), "v1"));
   ASSERT_OK(Put(Uint64Key(2), "v2"));
   ASSERT_OK(Put(Uint64Key(3), "v3"));
-  dbfull()->TEST_FlushMemTable();
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   ASSERT_EQ("v1", Get(Uint64Key(1)));
   ASSERT_EQ("v2", Get(Uint64Key(2)));
@@ -220,10 +233,10 @@ TEST_F(CuckooTableDBTest, Uint64Comparator) {
 
   // Add more keys.
   ASSERT_OK(Delete(Uint64Key(2)));  // Delete.
-  dbfull()->TEST_FlushMemTable();
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
   ASSERT_OK(Put(Uint64Key(3), "v0"));  // Update.
   ASSERT_OK(Put(Uint64Key(4), "v4"));
-  dbfull()->TEST_FlushMemTable();
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
   ASSERT_EQ("v1", Get(Uint64Key(1)));
   ASSERT_EQ("NOT_FOUND", Get(Uint64Key(2)));
   ASSERT_EQ("v0", Get(Uint64Key(3)));
@@ -243,11 +256,11 @@ TEST_F(CuckooTableDBTest, CompactionIntoMultipleFiles) {
   for (int idx = 0; idx < 28; ++idx) {
     ASSERT_OK(Put(Key(idx), std::string(10000, 'a' + char(idx))));
   }
-  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   ASSERT_EQ("1", FilesPerLevel());
 
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
-                              true /* disallow trivial move */);
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
+                                        true /* disallow trivial move */));
   ASSERT_EQ("0,2", FilesPerLevel());
   for (int idx = 0; idx < 28; ++idx) {
     ASSERT_EQ(std::string(10000, 'a' + char(idx)), Get(Key(idx)));
@@ -266,15 +279,15 @@ TEST_F(CuckooTableDBTest, SameKeyInsertedInTwoDifferentFilesAndCompacted) {
   for (int idx = 0; idx < 11; ++idx) {
     ASSERT_OK(Put(Key(idx), std::string(10000, 'a')));
   }
-  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   ASSERT_EQ("1", FilesPerLevel());
 
   // Generate one more file in level-0, and should trigger level-0 compaction
   for (int idx = 0; idx < 11; ++idx) {
     ASSERT_OK(Put(Key(idx), std::string(10000, 'a' + char(idx))));
   }
-  dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
 
   ASSERT_EQ("0,1", FilesPerLevel());
   for (int idx = 0; idx < 11; ++idx) {
@@ -295,7 +308,7 @@ TEST_F(CuckooTableDBTest, AdaptiveTable) {
   ASSERT_OK(Put("key1", "v1"));
   ASSERT_OK(Put("key2", "v2"));
   ASSERT_OK(Put("key3", "v3"));
-  dbfull()->TEST_FlushMemTable();
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   // Write some keys using plain table.
   std::shared_ptr<TableFactory> block_based_factory(
@@ -311,7 +324,7 @@ TEST_F(CuckooTableDBTest, AdaptiveTable) {
   Reopen(&options);
   ASSERT_OK(Put("key4", "v4"));
   ASSERT_OK(Put("key1", "v5"));
-  dbfull()->TEST_FlushMemTable();
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   // Write some keys using block based table.
   options.table_factory.reset(NewAdaptiveTableFactory(
@@ -320,7 +333,7 @@ TEST_F(CuckooTableDBTest, AdaptiveTable) {
   Reopen(&options);
   ASSERT_OK(Put("key5", "v6"));
   ASSERT_OK(Put("key2", "v7"));
-  dbfull()->TEST_FlushMemTable();
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
 
   ASSERT_EQ("v5", Get("key1"));
   ASSERT_EQ("v7", Get("key2"));

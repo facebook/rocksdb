@@ -33,11 +33,11 @@ std::shared_ptr<Cache> NewClockCache(
 #ifndef ROCKSDB_USE_RTTI
 #define TBB_USE_EXCEPTIONS 0
 #endif
-#include "tbb/concurrent_hash_map.h"
-
 #include "cache/sharded_cache.h"
+#include "port/lang.h"
 #include "port/malloc.h"
 #include "port/port.h"
+#include "tbb/concurrent_hash_map.h"
 #include "util/autovector.h"
 #include "util/mutexlock.h"
 
@@ -176,13 +176,16 @@ namespace {
 // Cache entry meta data.
 struct CacheHandle {
   Slice key;
-  uint32_t hash;
   void* value;
   size_t charge;
-  void (*deleter)(const Slice&, void* value);
+  Cache::DeleterFn deleter;
+  uint32_t hash;
+
+  // Addition to "charge" to get "total charge" under metadata policy.
+  uint32_t meta_charge;
 
   // Flags and counters associated with the cache handle:
-  //   lowest bit: n-cache bit
+  //   lowest bit: in-cache bit
   //   second lowest bit: usage bit
   //   the rest bits: reference count
   // The handle is unused when flags equals to 0. The thread decreases the count
@@ -205,9 +208,8 @@ struct CacheHandle {
     return *this;
   }
 
-  inline static size_t CalcTotalCharge(
-      Slice key, size_t charge,
-      CacheMetadataChargePolicy metadata_charge_policy) {
+  inline static uint32_t CalcMetadataCharge(
+      Slice key, CacheMetadataChargePolicy metadata_charge_policy) {
     size_t meta_charge = 0;
     if (metadata_charge_policy == kFullChargeCacheMetadata) {
       meta_charge += sizeof(CacheHandle);
@@ -218,32 +220,30 @@ struct CacheHandle {
       meta_charge += key.size();
 #endif
     }
-    return charge + meta_charge;
+    assert(meta_charge <= UINT32_MAX);
+    return static_cast<uint32_t>(meta_charge);
   }
 
-  inline size_t CalcTotalCharge(
-      CacheMetadataChargePolicy metadata_charge_policy) {
-    return CalcTotalCharge(key, charge, metadata_charge_policy);
-  }
+  inline size_t GetTotalCharge() { return charge + meta_charge; }
 };
 
 // Key of hash map. We store hash value with the key for convenience.
-struct CacheKey {
+struct ClockCacheKey {
   Slice key;
   uint32_t hash_value;
 
-  CacheKey() = default;
+  ClockCacheKey() = default;
 
-  CacheKey(const Slice& k, uint32_t h) {
+  ClockCacheKey(const Slice& k, uint32_t h) {
     key = k;
     hash_value = h;
   }
 
-  static bool equal(const CacheKey& a, const CacheKey& b) {
+  static bool equal(const ClockCacheKey& a, const ClockCacheKey& b) {
     return a.hash_value == b.hash_value && a.key == b.key;
   }
 
-  static size_t hash(const CacheKey& a) {
+  static size_t hash(const ClockCacheKey& a) {
     return static_cast<size_t>(a.hash_value);
   }
 };
@@ -260,7 +260,8 @@ struct CleanupContext {
 class ClockCacheShard final : public CacheShard {
  public:
   // Hash map type.
-  typedef tbb::concurrent_hash_map<CacheKey, CacheHandle*, CacheKey> HashTable;
+  using HashTable =
+      tbb::concurrent_hash_map<ClockCacheKey, CacheHandle*, ClockCacheKey>;
 
   ClockCacheShard();
   ~ClockCacheShard() override;
@@ -271,7 +272,26 @@ class ClockCacheShard final : public CacheShard {
   Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
                 void (*deleter)(const Slice& key, void* value),
                 Cache::Handle** handle, Cache::Priority priority) override;
+  Status Insert(const Slice& key, uint32_t hash, void* value,
+                const Cache::CacheItemHelper* helper, size_t charge,
+                Cache::Handle** handle, Cache::Priority priority) override {
+    return Insert(key, hash, value, charge, helper->del_cb, handle, priority);
+  }
   Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
+  Cache::Handle* Lookup(const Slice& key, uint32_t hash,
+                        const Cache::CacheItemHelper* /*helper*/,
+                        const Cache::CreateCallback& /*create_cb*/,
+                        Cache::Priority /*priority*/, bool /*wait*/,
+                        Statistics* /*stats*/) override {
+    return Lookup(key, hash);
+  }
+  bool Release(Cache::Handle* handle, bool /*useful*/,
+               bool force_erase) override {
+    return Release(handle, force_erase);
+  }
+  bool IsReady(Cache::Handle* /*handle*/) override { return true; }
+  void Wait(Cache::Handle* /*handle*/) override {}
+
   // If the entry in in cache, increase reference count and return true.
   // Return false otherwise.
   //
@@ -284,8 +304,10 @@ class ClockCacheShard final : public CacheShard {
   size_t GetUsage() const override;
   size_t GetPinnedUsage() const override;
   void EraseUnRefEntries() override;
-  void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                              bool thread_safe) override;
+  void ApplyToSomeEntries(
+      const std::function<void(const Slice& key, void* value, size_t charge,
+                               DeleterFn deleter)>& callback,
+      uint32_t average_entries_per_lock, uint32_t* state) override;
 
  private:
   static const uint32_t kInCacheBit = 1;
@@ -341,7 +363,8 @@ class ClockCacheShard final : public CacheShard {
   CacheHandle* Insert(const Slice& key, uint32_t hash, void* value,
                       size_t change,
                       void (*deleter)(const Slice& key, void* value),
-                      bool hold_reference, CleanupContext* context);
+                      bool hold_reference, CleanupContext* context,
+                      bool* overwritten);
 
   // Guards list_, head_, and recycle_. In addition, updating table_ also has
   // to hold the mutex, to avoid the cache being in inconsistent state.
@@ -403,21 +426,45 @@ size_t ClockCacheShard::GetPinnedUsage() const {
   return pinned_usage_.load(std::memory_order_relaxed);
 }
 
-void ClockCacheShard::ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                                             bool thread_safe) {
-  if (thread_safe) {
-    mutex_.Lock();
+void ClockCacheShard::ApplyToSomeEntries(
+    const std::function<void(const Slice& key, void* value, size_t charge,
+                             DeleterFn deleter)>& callback,
+    uint32_t average_entries_per_lock, uint32_t* state) {
+  assert(average_entries_per_lock > 0);
+  MutexLock lock(&mutex_);
+
+  // Figure out the range to iterate, update `state`
+  size_t list_size = list_.size();
+  size_t start_idx = *state;
+  size_t end_idx = start_idx + average_entries_per_lock;
+  if (start_idx > list_size) {
+    // Shouldn't reach here, but recoverable
+    assert(false);
+    // Mark finished with all
+    *state = UINT32_MAX;
+    return;
   }
-  for (auto& handle : list_) {
-    // Use relaxed semantics instead of acquire semantics since we are either
-    // holding mutex, or don't have thread safe requirement.
+  if (end_idx >= list_size || end_idx >= UINT32_MAX) {
+    // This also includes the hypothetical case of >4 billion
+    // cache handles.
+    end_idx = list_size;
+    // Mark finished with all
+    *state = UINT32_MAX;
+  } else {
+    *state = static_cast<uint32_t>(end_idx);
+  }
+
+  // Do the iteration
+  auto cur = list_.begin() + start_idx;
+  auto end = list_.begin() + end_idx;
+  for (; cur != end; ++cur) {
+    const CacheHandle& handle = *cur;
+    // Use relaxed semantics instead of acquire semantics since we are
+    // holding mutex
     uint32_t flags = handle.flags.load(std::memory_order_relaxed);
     if (InCache(flags)) {
-      callback(handle.value, handle.charge);
+      callback(handle.key, handle.value, handle.charge, handle.deleter);
     }
-  }
-  if (thread_safe) {
-    mutex_.Unlock();
   }
 }
 
@@ -427,10 +474,8 @@ void ClockCacheShard::RecycleHandle(CacheHandle* handle,
   assert(!InCache(handle->flags) && CountRefs(handle->flags) == 0);
   context->to_delete_key.push_back(handle->key.data());
   context->to_delete_value.emplace_back(*handle);
-  size_t total_charge = handle->CalcTotalCharge(metadata_charge_policy_);
-  handle->key.clear();
-  handle->value = nullptr;
-  handle->deleter = nullptr;
+  size_t total_charge = handle->GetTotalCharge();
+  // clearing `handle` fields would go here but not strictly required
   recycle_.push_back(handle);
   usage_.fetch_sub(total_charge, std::memory_order_relaxed);
 }
@@ -458,7 +503,7 @@ bool ClockCacheShard::Ref(Cache::Handle* h) {
                                             std::memory_order_relaxed)) {
       if (CountRefs(flags) == 0) {
         // No reference count before the operation.
-        size_t total_charge = handle->CalcTotalCharge(metadata_charge_policy_);
+        size_t total_charge = handle->GetTotalCharge();
         pinned_usage_.fetch_add(total_charge, std::memory_order_relaxed);
       }
       return true;
@@ -472,6 +517,11 @@ bool ClockCacheShard::Unref(CacheHandle* handle, bool set_usage,
   if (set_usage) {
     handle->flags.fetch_or(kUsageBit, std::memory_order_relaxed);
   }
+  // If the handle reaches state refs=0 and InCache=true after this
+  // atomic operation then we cannot access `handle` afterward, because
+  // it could be evicted before we access the `handle`.
+  size_t total_charge = handle->GetTotalCharge();
+
   // Use acquire-release semantics as previous operations on the cache entry
   // has to be order before reference count is decreased, and potential cleanup
   // of the entry has to be order after.
@@ -479,7 +529,6 @@ bool ClockCacheShard::Unref(CacheHandle* handle, bool set_usage,
   assert(CountRefs(flags) > 0);
   if (CountRefs(flags) == 1) {
     // this is the last reference.
-    size_t total_charge = handle->CalcTotalCharge(metadata_charge_policy_);
     pinned_usage_.fetch_sub(total_charge, std::memory_order_relaxed);
     // Cleanup if it is the last reference.
     if (!InCache(flags)) {
@@ -511,7 +560,7 @@ bool ClockCacheShard::TryEvict(CacheHandle* handle, CleanupContext* context) {
   if (handle->flags.compare_exchange_strong(flags, 0, std::memory_order_acquire,
                                             std::memory_order_relaxed)) {
     bool erased __attribute__((__unused__)) =
-        table_.erase(CacheKey(handle->key, handle->hash));
+        table_.erase(ClockCacheKey(handle->key, handle->hash));
     assert(erased);
     RecycleHandle(handle, context);
     return true;
@@ -564,9 +613,11 @@ void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
 CacheHandle* ClockCacheShard::Insert(
     const Slice& key, uint32_t hash, void* value, size_t charge,
     void (*deleter)(const Slice& key, void* value), bool hold_reference,
-    CleanupContext* context) {
-  size_t total_charge =
-      CacheHandle::CalcTotalCharge(key, charge, metadata_charge_policy_);
+    CleanupContext* context, bool* overwritten) {
+  assert(overwritten != nullptr && *overwritten == false);
+  uint32_t meta_charge =
+      CacheHandle::CalcMetadataCharge(key, metadata_charge_policy_);
+  size_t total_charge = charge + meta_charge;
   MutexLock l(&mutex_);
   bool success = EvictFromCache(total_charge, context);
   bool strict = strict_capacity_limit_.load(std::memory_order_relaxed);
@@ -592,16 +643,27 @@ CacheHandle* ClockCacheShard::Insert(
   handle->hash = hash;
   handle->value = value;
   handle->charge = charge;
+  handle->meta_charge = meta_charge;
   handle->deleter = deleter;
   uint32_t flags = hold_reference ? kInCacheBit + kOneRef : kInCacheBit;
+
+  // TODO investigate+fix suspected race condition:
+  // [thread 1] Lookup starts, up to Ref()
+  // [thread 2] Erase/evict the entry just looked up
+  // [thread 1] Ref() the handle, even though it's in the recycle bin
+  // [thread 2] Insert with recycling that handle
+  // Here we obliterate the other thread's Ref
+  // Possible fix: never blindly overwrite the flags, but only make
+  // relative updates (fetch_add, etc).
   handle->flags.store(flags, std::memory_order_relaxed);
   HashTable::accessor accessor;
-  if (table_.find(accessor, CacheKey(key, hash))) {
+  if (table_.find(accessor, ClockCacheKey(key, hash))) {
+    *overwritten = true;
     CacheHandle* existing_handle = accessor->second;
     table_.erase(accessor);
     UnsetInCache(existing_handle, context);
   }
-  table_.insert(HashTable::value_type(CacheKey(key, hash), handle));
+  table_.insert(HashTable::value_type(ClockCacheKey(key, hash), handle));
   if (hold_reference) {
     pinned_usage_.fetch_add(total_charge, std::memory_order_relaxed);
   }
@@ -619,8 +681,9 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   char* key_data = new char[key.size()];
   memcpy(key_data, key.data(), key.size());
   Slice key_copy(key_data, key.size());
+  bool overwritten = false;
   CacheHandle* handle = Insert(key_copy, hash, value, charge, deleter,
-                               out_handle != nullptr, &context);
+                               out_handle != nullptr, &context, &overwritten);
   Status s;
   if (out_handle != nullptr) {
     if (handle == nullptr) {
@@ -629,13 +692,17 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       *out_handle = reinterpret_cast<Cache::Handle*>(handle);
     }
   }
+  if (overwritten) {
+    assert(s.ok());
+    s = Status::OkOverwritten();
+  }
   Cleanup(context);
   return s;
 }
 
 Cache::Handle* ClockCacheShard::Lookup(const Slice& key, uint32_t hash) {
   HashTable::const_accessor accessor;
-  if (!table_.find(accessor, CacheKey(key, hash))) {
+  if (!table_.find(accessor, ClockCacheKey(key, hash))) {
     return nullptr;
   }
   CacheHandle* handle = accessor->second;
@@ -680,7 +747,7 @@ bool ClockCacheShard::EraseAndConfirm(const Slice& key, uint32_t hash,
   MutexLock l(&mutex_);
   HashTable::accessor accessor;
   bool erased = false;
-  if (table_.find(accessor, CacheKey(key, hash))) {
+  if (table_.find(accessor, ClockCacheKey(key, hash))) {
     CacheHandle* handle = accessor->second;
     table_.erase(accessor);
     erased = UnsetInCache(handle, context);
@@ -718,11 +785,11 @@ class ClockCache final : public ShardedCache {
 
   const char* Name() const override { return "ClockCache"; }
 
-  CacheShard* GetShard(int shard) override {
+  CacheShard* GetShard(uint32_t shard) override {
     return reinterpret_cast<CacheShard*>(&shards_[shard]);
   }
 
-  const CacheShard* GetShard(int shard) const override {
+  const CacheShard* GetShard(uint32_t shard) const override {
     return reinterpret_cast<CacheShard*>(&shards_[shard]);
   }
 
@@ -738,7 +805,18 @@ class ClockCache final : public ShardedCache {
     return reinterpret_cast<const CacheHandle*>(handle)->hash;
   }
 
-  void DisownData() override { shards_ = nullptr; }
+  DeleterFn GetDeleter(Handle* handle) const override {
+    return reinterpret_cast<const CacheHandle*>(handle)->deleter;
+  }
+
+  void DisownData() override {
+    // Leak data only if that won't generate an ASAN/valgrind warning
+    if (!kMustFreeHeapAllocations) {
+      shards_ = nullptr;
+    }
+  }
+
+  void WaitAll(std::vector<Handle*>& /*handles*/) override {}
 
  private:
   ClockCacheShard* shards_;

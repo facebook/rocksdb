@@ -7,6 +7,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#if defined(OS_WIN)
+// Most Mingw builds support std::thread only when using posix threads.
+// In that case, some of these functions will be unavailable.
+// Note that we're using either WindowsThread or std::thread, depending on
+// which one is available.
+#ifndef _POSIX_THREADS
+
 #include "port/win/win_thread.h"
 
 #include <assert.h>
@@ -177,3 +184,6 @@ unsigned int __stdcall  WindowsThread::Data::ThreadProc(void* arg) {
 }
 } // namespace port
 }  // namespace ROCKSDB_NAMESPACE
+
+#endif  // !_POSIX_THREADS
+#endif  // OS_WIN

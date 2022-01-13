@@ -251,3 +251,20 @@ void Java_org_rocksdb_SstFileReaderIterator_seekForPrevDirect0(
   ROCKSDB_NAMESPACE::JniUtil::k_op_direct(seekPrev, env, jtarget, jtarget_off,
                                           jtarget_len);
 }
+
+/*
+ * Class:     org_rocksdb_SstFileReaderIterator
+ * Method:    refresh0
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_SstFileReaderIterator_refresh0(JNIEnv* env, jobject /*jobj*/,
+                                            jlong handle) {
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
+  ROCKSDB_NAMESPACE::Status s = it->Refresh();
+
+  if (s.ok()) {
+    return;
+  }
+
+  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+}

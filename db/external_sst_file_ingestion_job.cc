@@ -17,6 +17,7 @@
 #include "db/version_edit.h"
 #include "file/file_util.h"
 #include "file/random_access_file_reader.h"
+#include "logging/logging.h"
 #include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
@@ -28,26 +29,39 @@ namespace ROCKSDB_NAMESPACE {
 
 Status ExternalSstFileIngestionJob::Prepare(
     const std::vector<std::string>& external_files_paths,
-    uint64_t next_file_number, SuperVersion* sv) {
+    const std::vector<std::string>& files_checksums,
+    const std::vector<std::string>& files_checksum_func_names,
+    const Temperature& file_temperature, uint64_t next_file_number,
+    SuperVersion* sv) {
   Status status;
 
   // Read the information of files we are ingesting
   for (const std::string& file_path : external_files_paths) {
     IngestedFileInfo file_to_ingest;
-    status = GetIngestedFileInfo(file_path, &file_to_ingest, sv);
+    status =
+        GetIngestedFileInfo(file_path, next_file_number++, &file_to_ingest, sv);
     if (!status.ok()) {
       return status;
     }
-    files_to_ingest_.push_back(file_to_ingest);
-  }
 
-  for (const IngestedFileInfo& f : files_to_ingest_) {
-    if (f.cf_id !=
+    if (file_to_ingest.cf_id !=
             TablePropertiesCollectorFactory::Context::kUnknownColumnFamily &&
-        f.cf_id != cfd_->GetID()) {
+        file_to_ingest.cf_id != cfd_->GetID()) {
       return Status::InvalidArgument(
           "External file column family id don't match");
     }
+
+    if (file_to_ingest.num_entries == 0 &&
+        file_to_ingest.num_range_deletions == 0) {
+      return Status::InvalidArgument("File contain no entries");
+    }
+
+    if (!file_to_ingest.smallest_internal_key.Valid() ||
+        !file_to_ingest.largest_internal_key.Valid()) {
+      return Status::Corruption("Generated table have corrupted keys");
+    }
+
+    files_to_ingest_.emplace_back(std::move(file_to_ingest));
   }
 
   const Comparator* ucmp = cfd_->internal_comparator().user_comparator();
@@ -68,7 +82,7 @@ Status ExternalSstFileIngestionJob::Prepare(
                                    info2->smallest_internal_key) < 0;
         });
 
-    for (size_t i = 0; i < num_files - 1; i++) {
+    for (size_t i = 0; i + 1 < num_files; i++) {
       if (sstableKeyCompare(ucmp, sorted_files[i]->largest_internal_key,
                             sorted_files[i + 1]->smallest_internal_key) >= 0) {
         files_overlap_ = true;
@@ -77,24 +91,18 @@ Status ExternalSstFileIngestionJob::Prepare(
     }
   }
 
-  if (ingestion_options_.ingest_behind && files_overlap_) {
-    return Status::NotSupported("Files have overlapping ranges");
+  // Hanlde the file temperature
+  for (size_t i = 0; i < num_files; i++) {
+    files_to_ingest_[i].file_temperature = file_temperature;
   }
 
-  for (IngestedFileInfo& f : files_to_ingest_) {
-    if (f.num_entries == 0 && f.num_range_deletions == 0) {
-      return Status::InvalidArgument("File contain no entries");
-    }
-
-    if (!f.smallest_internal_key.Valid() || !f.largest_internal_key.Valid()) {
-      return Status::Corruption("Generated table have corrupted keys");
-    }
+  if (ingestion_options_.ingest_behind && files_overlap_) {
+    return Status::NotSupported("Files have overlapping ranges");
   }
 
   // Copy/Move external files into DB
   std::unordered_set<size_t> ingestion_path_ids;
   for (IngestedFileInfo& f : files_to_ingest_) {
-    f.fd = FileDescriptor(next_file_number++, 0, f.file_size);
     f.copy_file = false;
     const std::string path_outside_db = f.external_file_path;
     const std::string path_inside_db =
@@ -108,17 +116,26 @@ Status ExternalSstFileIngestionJob::Prepare(
         // directory before ingest the file. For integrity of RocksDB we need
         // to sync the file.
         std::unique_ptr<FSWritableFile> file_to_sync;
-        status = fs_->ReopenWritableFile(path_inside_db, env_options_,
-                                         &file_to_sync, nullptr);
-        if (status.ok()) {
-          TEST_SYNC_POINT(
-              "ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
-          status = SyncIngestedFile(file_to_sync.get());
-          TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncIngestedFile");
-          if (!status.ok()) {
-            ROCKS_LOG_WARN(db_options_.info_log,
-                           "Failed to sync ingested file %s: %s",
-                           path_inside_db.c_str(), status.ToString().c_str());
+        Status s = fs_->ReopenWritableFile(path_inside_db, env_options_,
+                                           &file_to_sync, nullptr);
+        TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:Reopen",
+                                 &s);
+        // Some file systems (especially remote/distributed) don't support
+        // reopening a file for writing and don't require reopening and
+        // syncing the file. Ignore the NotSupported error in that case.
+        if (!s.IsNotSupported()) {
+          status = s;
+          if (status.ok()) {
+            TEST_SYNC_POINT(
+                "ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
+            status = SyncIngestedFile(file_to_sync.get());
+            TEST_SYNC_POINT(
+                "ExternalSstFileIngestionJob::AfterSyncIngestedFile");
+            if (!status.ok()) {
+              ROCKS_LOG_WARN(db_options_.info_log,
+                             "Failed to sync ingested file %s: %s",
+                             path_inside_db.c_str(), status.ToString().c_str());
+            }
           }
         }
       } else if (status.IsNotSupported() &&
@@ -134,21 +151,26 @@ Status ExternalSstFileIngestionJob::Prepare(
       TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:CopyFile",
                                nullptr);
       // CopyFile also sync the new file.
-      status = CopyFile(fs_, path_outside_db, path_inside_db, 0,
-                        db_options_.use_fsync);
+      status = CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
+                        db_options_.use_fsync, io_tracer_);
     }
     TEST_SYNC_POINT("ExternalSstFileIngestionJob::Prepare:FileAdded");
     if (!status.ok()) {
       break;
     }
     f.internal_file_path = path_inside_db;
+    // Initialize the checksum information of ingested files.
+    f.file_checksum = kUnknownFileChecksum;
+    f.file_checksum_func_name = kUnknownFileChecksumFuncName;
     ingestion_path_ids.insert(f.fd.GetPathId());
   }
 
   TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncDir");
   if (status.ok()) {
     for (auto path_id : ingestion_path_ids) {
-      status = directories_->GetDataDir(path_id)->Fsync(IOOptions(), nullptr);
+      status = directories_->GetDataDir(path_id)->FsyncWithDirOptions(
+          IOOptions(), nullptr,
+          DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
       if (!status.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
                        "Failed to sync directory %" ROCKSDB_PRIszt
@@ -160,14 +182,141 @@ Status ExternalSstFileIngestionJob::Prepare(
   }
   TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncDir");
 
+  // Generate and check the sst file checksum. Note that, if
+  // IngestExternalFileOptions::write_global_seqno is true, we will not update
+  // the checksum information in the files_to_ingests_ here, since the file is
+  // upadted with the new global_seqno. After global_seqno is updated, DB will
+  // generate the new checksum and store it in the Manifest. In all other cases
+  // if ingestion_options_.write_global_seqno == true and
+  // verify_file_checksum is false, we only check the checksum function name.
+  if (status.ok() && db_options_.file_checksum_gen_factory != nullptr) {
+    if (ingestion_options_.verify_file_checksum == false &&
+        files_checksums.size() == files_to_ingest_.size() &&
+        files_checksum_func_names.size() == files_to_ingest_.size()) {
+      // Only when verify_file_checksum == false and the checksum for ingested
+      // files are provided, DB will use the provided checksum and does not
+      // generate the checksum for ingested files.
+      need_generate_file_checksum_ = false;
+    } else {
+      need_generate_file_checksum_ = true;
+    }
+    FileChecksumGenContext gen_context;
+    std::unique_ptr<FileChecksumGenerator> file_checksum_gen =
+        db_options_.file_checksum_gen_factory->CreateFileChecksumGenerator(
+            gen_context);
+    std::vector<std::string> generated_checksums;
+    std::vector<std::string> generated_checksum_func_names;
+    // Step 1: generate the checksum for ingested sst file.
+    if (need_generate_file_checksum_) {
+      for (size_t i = 0; i < files_to_ingest_.size(); i++) {
+        std::string generated_checksum;
+        std::string generated_checksum_func_name;
+        std::string requested_checksum_func_name;
+        IOStatus io_s = GenerateOneFileChecksum(
+            fs_.get(), files_to_ingest_[i].internal_file_path,
+            db_options_.file_checksum_gen_factory.get(),
+            requested_checksum_func_name, &generated_checksum,
+            &generated_checksum_func_name,
+            ingestion_options_.verify_checksums_readahead_size,
+            db_options_.allow_mmap_reads, io_tracer_,
+            db_options_.rate_limiter.get());
+        if (!io_s.ok()) {
+          status = io_s;
+          ROCKS_LOG_WARN(db_options_.info_log,
+                         "Sst file checksum generation of file: %s failed: %s",
+                         files_to_ingest_[i].internal_file_path.c_str(),
+                         status.ToString().c_str());
+          break;
+        }
+        if (ingestion_options_.write_global_seqno == false) {
+          files_to_ingest_[i].file_checksum = generated_checksum;
+          files_to_ingest_[i].file_checksum_func_name =
+              generated_checksum_func_name;
+        }
+        generated_checksums.push_back(generated_checksum);
+        generated_checksum_func_names.push_back(generated_checksum_func_name);
+      }
+    }
+
+    // Step 2: based on the verify_file_checksum and ingested checksum
+    // information, do the verification.
+    if (status.ok()) {
+      if (files_checksums.size() == files_to_ingest_.size() &&
+          files_checksum_func_names.size() == files_to_ingest_.size()) {
+        // Verify the checksum and checksum function name.
+        if (ingestion_options_.verify_file_checksum) {
+          for (size_t i = 0; i < files_to_ingest_.size(); i++) {
+            if (files_checksum_func_names[i] !=
+                generated_checksum_func_names[i]) {
+              status = Status::InvalidArgument(
+                  "Checksum function name does not match with the checksum "
+                  "function name of this DB");
+              ROCKS_LOG_WARN(
+                  db_options_.info_log,
+                  "Sst file checksum verification of file: %s failed: %s",
+                  external_files_paths[i].c_str(), status.ToString().c_str());
+              break;
+            }
+            if (files_checksums[i] != generated_checksums[i]) {
+              status = Status::Corruption(
+                  "Ingested checksum does not match with the generated "
+                  "checksum");
+              ROCKS_LOG_WARN(
+                  db_options_.info_log,
+                  "Sst file checksum verification of file: %s failed: %s",
+                  files_to_ingest_[i].internal_file_path.c_str(),
+                  status.ToString().c_str());
+              break;
+            }
+          }
+        } else {
+          // If verify_file_checksum is not enabled, we only verify the
+          // checksum function name. If it does not match, fail the ingestion.
+          // If matches, we trust the ingested checksum information and store
+          // in the Manifest.
+          for (size_t i = 0; i < files_to_ingest_.size(); i++) {
+            if (files_checksum_func_names[i] != file_checksum_gen->Name()) {
+              status = Status::InvalidArgument(
+                  "Checksum function name does not match with the checksum "
+                  "function name of this DB");
+              ROCKS_LOG_WARN(
+                  db_options_.info_log,
+                  "Sst file checksum verification of file: %s failed: %s",
+                  external_files_paths[i].c_str(), status.ToString().c_str());
+              break;
+            }
+            files_to_ingest_[i].file_checksum = files_checksums[i];
+            files_to_ingest_[i].file_checksum_func_name =
+                files_checksum_func_names[i];
+          }
+        }
+      } else if (files_checksums.size() != files_checksum_func_names.size() ||
+                 (files_checksums.size() == files_checksum_func_names.size() &&
+                  files_checksums.size() != 0)) {
+        // The checksum or checksum function name vector are not both empty
+        // and they are incomplete.
+        status = Status::InvalidArgument(
+            "The checksum information of ingested sst files are nonempty and "
+            "the size of checksums or the size of the checksum function "
+            "names "
+            "does not match with the number of ingested sst files");
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
+            "The ingested sst files checksum information is incomplete: %s",
+            status.ToString().c_str());
+      }
+    }
+  }
+
   // TODO: The following is duplicated with Cleanup().
   if (!status.ok()) {
+    IOOptions io_opts;
     // We failed, remove all files that we copied into the db
     for (IngestedFileInfo& f : files_to_ingest_) {
       if (f.internal_file_path.empty()) {
         continue;
       }
-      Status s = env_->DeleteFile(f.internal_file_path);
+      Status s = fs_->DeleteFile(f.internal_file_path, io_opts, nullptr);
       if (!s.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
                        "AddFile() clean up for file %s failed : %s",
@@ -186,8 +335,8 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
     ranges.emplace_back(file_to_ingest.smallest_internal_key.user_key(),
                         file_to_ingest.largest_internal_key.user_key());
   }
-  Status status =
-      cfd_->RangesOverlapWithMemtables(ranges, super_version, flush_needed);
+  Status status = cfd_->RangesOverlapWithMemtables(
+      ranges, super_version, db_options_.allow_data_in_errors, flush_needed);
   if (status.ok() && *flush_needed &&
       !ingestion_options_.allow_blocking_flush) {
     status = Status::InvalidArgument("External file requires flush");
@@ -205,6 +354,12 @@ Status ExternalSstFileIngestionJob::Run() {
   // with the files we are ingesting
   bool need_flush = false;
   status = NeedsFlush(&need_flush, super_version);
+  if (!status.ok()) {
+    return status;
+  }
+  if (need_flush) {
+    return Status::TryAgain();
+  }
   assert(status.ok() && need_flush == false);
 #endif
 
@@ -230,9 +385,32 @@ Status ExternalSstFileIngestionJob::Run() {
           super_version, force_global_seqno, cfd_->ioptions()->compaction_style,
           last_seqno, &f, &assigned_seqno);
     }
+
+    // Modify the smallest/largest internal key to include the sequence number
+    // that we just learned. Only overwrite sequence number zero. There could
+    // be a nonzero sequence number already to indicate a range tombstone's
+    // exclusive endpoint.
+    ParsedInternalKey smallest_parsed, largest_parsed;
+    if (status.ok()) {
+      status = ParseInternalKey(*f.smallest_internal_key.rep(),
+                                &smallest_parsed, false /* log_err_key */);
+    }
+    if (status.ok()) {
+      status = ParseInternalKey(*f.largest_internal_key.rep(), &largest_parsed,
+                                false /* log_err_key */);
+    }
     if (!status.ok()) {
       return status;
     }
+    if (smallest_parsed.sequence == 0) {
+      UpdateInternalKey(f.smallest_internal_key.rep(), assigned_seqno,
+                        smallest_parsed.type);
+    }
+    if (largest_parsed.sequence == 0) {
+      UpdateInternalKey(f.largest_internal_key.rep(), assigned_seqno,
+                        largest_parsed.type);
+    }
+
     status = AssignGlobalSeqnoForIngestedFile(&f, assigned_seqno);
     TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Run",
                              &assigned_seqno);
@@ -245,21 +423,29 @@ Status ExternalSstFileIngestionJob::Run() {
       return status;
     }
 
+    status = GenerateChecksumForIngestedFile(&f);
+    if (!status.ok()) {
+      return status;
+    }
+
     // We use the import time as the ancester time. This is the time the data
     // is written to the database.
     int64_t temp_current_time = 0;
     uint64_t current_time = kUnknownFileCreationTime;
     uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
-    if (env_->GetCurrentTime(&temp_current_time).ok()) {
+    if (clock_->GetCurrentTime(&temp_current_time).ok()) {
       current_time = oldest_ancester_time =
           static_cast<uint64_t>(temp_current_time);
     }
-
-    edit_.AddFile(
-        f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(), f.fd.GetFileSize(),
+    FileMetaData f_metadata(
+        f.fd.GetNumber(), f.fd.GetPathId(), f.fd.GetFileSize(),
         f.smallest_internal_key, f.largest_internal_key, f.assigned_seqno,
-        f.assigned_seqno, false, kInvalidBlobFileNumber, oldest_ancester_time,
-        current_time, kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+        f.assigned_seqno, false, f.file_temperature, kInvalidBlobFileNumber,
+        oldest_ancester_time, current_time, f.file_checksum,
+        f.file_checksum_func_name, kDisableUserTimestamp,
+        kDisableUserTimestamp);
+    f_metadata.temperature = f.file_temperature;
+    edit_.AddFile(f.picked_level, f_metadata);
   }
   return status;
 }
@@ -268,7 +454,7 @@ void ExternalSstFileIngestionJob::UpdateStats() {
   // Update internal stats for new ingested files
   uint64_t total_keys = 0;
   uint64_t total_l0_files = 0;
-  uint64_t total_time = env_->NowMicros() - job_start_time_;
+  uint64_t total_time = clock_->NowMicros() - job_start_time_;
 
   EventLoggerStream stream = event_logger_->Log();
   stream << "event"
@@ -324,6 +510,7 @@ void ExternalSstFileIngestionJob::UpdateStats() {
 }
 
 void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
+  IOOptions io_opts;
   if (!status.ok()) {
     // We failed to add the files to the database
     // remove all the files we copied
@@ -331,7 +518,7 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
       if (f.internal_file_path.empty()) {
         continue;
       }
-      Status s = env_->DeleteFile(f.internal_file_path);
+      Status s = fs_->DeleteFile(f.internal_file_path, io_opts, nullptr);
       if (!s.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
                        "AddFile() clean up for file %s failed : %s",
@@ -343,7 +530,7 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
   } else if (status.ok() && ingestion_options_.move_files) {
     // The files were moved and added successfully, remove original file links
     for (IngestedFileInfo& f : files_to_ingest_) {
-      Status s = env_->DeleteFile(f.external_file_path);
+      Status s = fs_->DeleteFile(f.external_file_path, io_opts, nullptr);
       if (!s.ok()) {
         ROCKS_LOG_WARN(
             db_options_.info_log,
@@ -356,8 +543,8 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
 }
 
 Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
-    const std::string& external_file, IngestedFileInfo* file_to_ingest,
-    SuperVersion* sv) {
+    const std::string& external_file, uint64_t new_file_number,
+    IngestedFileInfo* file_to_ingest, SuperVersion* sv) {
   file_to_ingest->external_file_path = external_file;
 
   // Get external file size
@@ -366,6 +553,10 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   if (!status.ok()) {
     return status;
   }
+
+  // Assign FD with number
+  file_to_ingest->fd =
+      FileDescriptor(new_file_number, 0, file_to_ingest->file_size);
 
   // Create TableReader for external file
   std::unique_ptr<TableReader> table_reader;
@@ -377,13 +568,18 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   if (!status.ok()) {
     return status;
   }
-  sst_file_reader.reset(new RandomAccessFileReader(std::move(sst_file),
-                                                   external_file));
+  sst_file_reader.reset(new RandomAccessFileReader(
+      std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
-      TableReaderOptions(*cfd_->ioptions(),
-                         sv->mutable_cf_options.prefix_extractor.get(),
-                         env_options_, cfd_->internal_comparator()),
+      TableReaderOptions(
+          *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor.get(),
+          env_options_, cfd_->internal_comparator(),
+          /*skip_filters*/ false, /*immortal*/ false,
+          /*force_direct_prefetch*/ false, /*level*/ -1,
+          /*block_cache_tracer*/ nullptr,
+          /*max_file_size_for_l0_meta_pin*/ 0, versions_->DbSessionId(),
+          /*cur_file_num*/ new_file_number),
       std::move(sst_file_reader), file_to_ingest->file_size, &table_reader);
   if (!status.ok()) {
     return status;
@@ -423,14 +619,12 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
 
     // Set the global sequence number
     file_to_ingest->original_seqno = DecodeFixed64(seqno_iter->second.c_str());
-    auto offsets_iter = props->properties_offsets.find(
-        ExternalSstFilePropertyNames::kGlobalSeqno);
-    if (offsets_iter == props->properties_offsets.end() ||
-        offsets_iter->second == 0) {
+    if (props->external_sst_file_global_seqno_offset == 0) {
       file_to_ingest->global_seqno_offset = 0;
       return Status::Corruption("Was not able to find file global seqno field");
     }
-    file_to_ingest->global_seqno_offset = static_cast<size_t>(offsets_iter->second);
+    file_to_ingest->global_seqno_offset =
+        static_cast<size_t>(props->external_sst_file_global_seqno_offset);
   } else if (file_to_ingest->version == 1) {
     // SST file V1 should not have global seqno field
     assert(seqno_iter == uprops.end());
@@ -467,22 +661,28 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   file_to_ingest->largest_internal_key =
       InternalKey("", 0, ValueType::kTypeValue);
   bool bounds_set = false;
+  bool allow_data_in_errors = db_options_.allow_data_in_errors;
   iter->SeekToFirst();
   if (iter->Valid()) {
-    if (!ParseInternalKey(iter->key(), &key)) {
-      return Status::Corruption("external file have corrupted keys");
+    Status pik_status =
+        ParseInternalKey(iter->key(), &key, allow_data_in_errors);
+    if (!pik_status.ok()) {
+      return Status::Corruption("Corrupted key in external file. ",
+                                pik_status.getState());
     }
     if (key.sequence != 0) {
-      return Status::Corruption("external file have non zero sequence number");
+      return Status::Corruption("External file has non zero sequence number");
     }
     file_to_ingest->smallest_internal_key.SetFrom(key);
 
     iter->SeekToLast();
-    if (!ParseInternalKey(iter->key(), &key)) {
-      return Status::Corruption("external file have corrupted keys");
+    pik_status = ParseInternalKey(iter->key(), &key, allow_data_in_errors);
+    if (!pik_status.ok()) {
+      return Status::Corruption("Corrupted key in external file. ",
+                                pik_status.getState());
     }
     if (key.sequence != 0) {
-      return Status::Corruption("external file have non zero sequence number");
+      return Status::Corruption("External file has non zero sequence number");
     }
     file_to_ingest->largest_internal_key.SetFrom(key);
 
@@ -495,8 +695,11 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   if (range_del_iter != nullptr) {
     for (range_del_iter->SeekToFirst(); range_del_iter->Valid();
          range_del_iter->Next()) {
-      if (!ParseInternalKey(range_del_iter->key(), &key)) {
-        return Status::Corruption("external file have corrupted keys");
+      Status pik_status =
+          ParseInternalKey(range_del_iter->key(), &key, allow_data_in_errors);
+      if (!pik_status.ok()) {
+        return Status::Corruption("Corrupted key in external file. ",
+                                  pik_status.getState());
       }
       RangeTombstone tombstone(key, range_del_iter->value());
 
@@ -658,14 +861,18 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     Status status =
         fs_->NewRandomRWFile(file_to_ingest->internal_file_path, env_options_,
                              &rwfile, nullptr);
+    TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::NewRandomRWFile",
+                             &status);
     if (status.ok()) {
+      FSRandomRWFilePtr fsptr(std::move(rwfile), io_tracer_,
+                              file_to_ingest->internal_file_path);
       std::string seqno_val;
       PutFixed64(&seqno_val, seqno);
-      status = rwfile->Write(file_to_ingest->global_seqno_offset, seqno_val,
-                             IOOptions(), nullptr);
+      status = fsptr->Write(file_to_ingest->global_seqno_offset, seqno_val,
+                            IOOptions(), nullptr);
       if (status.ok()) {
         TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncGlobalSeqno");
-        status = SyncIngestedFile(rwfile.get());
+        status = SyncIngestedFile(fsptr.get());
         TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncGlobalSeqno");
         if (!status.ok()) {
           ROCKS_LOG_WARN(db_options_.info_log,
@@ -685,6 +892,33 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
 
   file_to_ingest->assigned_seqno = seqno;
   return Status::OK();
+}
+
+IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
+    IngestedFileInfo* file_to_ingest) {
+  if (db_options_.file_checksum_gen_factory == nullptr ||
+      need_generate_file_checksum_ == false ||
+      ingestion_options_.write_global_seqno == false) {
+    // If file_checksum_gen_factory is not set, we are not able to generate
+    // the checksum. if write_global_seqno is false, it means we will use
+    // file checksum generated during Prepare(). This step will be skipped.
+    return IOStatus::OK();
+  }
+  std::string file_checksum;
+  std::string file_checksum_func_name;
+  std::string requested_checksum_func_name;
+  IOStatus io_s = GenerateOneFileChecksum(
+      fs_.get(), file_to_ingest->internal_file_path,
+      db_options_.file_checksum_gen_factory.get(), requested_checksum_func_name,
+      &file_checksum, &file_checksum_func_name,
+      ingestion_options_.verify_checksums_readahead_size,
+      db_options_.allow_mmap_reads, io_tracer_, db_options_.rate_limiter.get());
+  if (!io_s.ok()) {
+    return io_s;
+  }
+  file_to_ingest->file_checksum = file_checksum;
+  file_to_ingest->file_checksum_func_name = file_checksum_func_name;
+  return IOStatus::OK();
 }
 
 bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(

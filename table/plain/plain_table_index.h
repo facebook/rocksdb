@@ -10,7 +10,6 @@
 #include <string>
 #include <vector>
 
-#include "db/dbformat.h"
 #include "memory/arena.h"
 #include "monitoring/histogram.h"
 #include "options/cf_options.h"
@@ -20,7 +19,7 @@ namespace ROCKSDB_NAMESPACE {
 
 // The file contains two classes PlainTableIndex and PlainTableIndexBuilder
 // The two classes implement the index format of PlainTable.
-// For descripton of PlainTable format, see comments of class
+// For description of PlainTable format, see comments of class
 // PlainTableFactory
 //
 //
@@ -131,7 +130,7 @@ class PlainTableIndex {
 // The class is used by PlainTableBuilder class.
 class PlainTableIndexBuilder {
  public:
-  PlainTableIndexBuilder(Arena* arena, const ImmutableCFOptions& ioptions,
+  PlainTableIndexBuilder(Arena* arena, const ImmutableOptions& ioptions,
                          const SliceTransform* prefix_extractor,
                          size_t index_sparseness, double hash_table_ratio,
                          size_t huge_page_tlb_size)
@@ -222,7 +221,7 @@ class PlainTableIndexBuilder {
                     const std::vector<uint32_t>& entries_per_bucket);
 
   Arena* arena_;
-  const ImmutableCFOptions ioptions_;
+  const ImmutableOptions ioptions_;
   HistogramImpl keys_per_prefix_hist_;
   IndexRecordList record_list_;
   bool is_first_record_;
@@ -244,6 +243,6 @@ class PlainTableIndexBuilder {
   static const size_t kRecordsPerGroup = 256;
 };
 
-};  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

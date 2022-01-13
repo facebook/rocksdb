@@ -272,7 +272,6 @@ struct StatsThread {
       : db_(db), thread_(&StatsThread::run, this) {}
 
   void run() {
-    //    using namespace std::chrono;
     auto tstart = std::chrono::steady_clock::now(), tlast = tstart;
     uint64_t wlast = 0, rlast = 0;
     while (!done_.load()) {

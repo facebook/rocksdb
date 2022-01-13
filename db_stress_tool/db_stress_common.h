@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -58,6 +59,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
+#include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -66,12 +68,6 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/blob_db/blob_db.h"
-// SyncPoint is not supported in Released Windows Mode.
-#if !(defined NDEBUG) || !defined(OS_WIN)
-#include "test_util/sync_point.h"
-#endif  // !(defined NDEBUG) || !defined(OS_WIN)
-#include "test_util/testutil.h"
-
 #include "utilities/merge_operators.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
@@ -91,6 +87,7 @@ DECLARE_int64(active_width);
 DECLARE_bool(test_batches_snapshots);
 DECLARE_bool(atomic_flush);
 DECLARE_bool(test_cf_consistency);
+DECLARE_bool(test_multi_ops_txns);
 DECLARE_int32(threads);
 DECLARE_int32(ttl);
 DECLARE_int32(value_size_mult);
@@ -112,6 +109,7 @@ DECLARE_bool(memtable_whole_key_filtering);
 DECLARE_int32(open_files);
 DECLARE_int64(compressed_cache_size);
 DECLARE_int32(compaction_style);
+DECLARE_int32(num_levels);
 DECLARE_int32(level0_file_num_compaction_trigger);
 DECLARE_int32(level0_slowdown_writes_trigger);
 DECLARE_int32(level0_stop_writes_trigger);
@@ -128,36 +126,46 @@ DECLARE_int32(universal_min_merge_width);
 DECLARE_int32(universal_max_merge_width);
 DECLARE_int32(universal_max_size_amplification_percent);
 DECLARE_int32(clear_column_family_one_in);
-DECLARE_int32(get_live_files_and_wal_files_one_in);
+DECLARE_int32(get_live_files_one_in);
+DECLARE_int32(get_sorted_wal_files_one_in);
+DECLARE_int32(get_current_wal_file_one_in);
 DECLARE_int32(set_options_one_in);
 DECLARE_int32(set_in_place_one_in);
 DECLARE_int64(cache_size);
+DECLARE_int32(cache_numshardbits);
 DECLARE_bool(cache_index_and_filter_blocks);
+DECLARE_int32(top_level_index_pinning);
+DECLARE_int32(partition_pinning);
+DECLARE_int32(unpartitioned_pinning);
 DECLARE_bool(use_clock_cache);
 DECLARE_uint64(subcompactions);
 DECLARE_uint64(periodic_compaction_seconds);
 DECLARE_uint64(compaction_ttl);
 DECLARE_bool(allow_concurrent_memtable_write);
+DECLARE_double(experimental_mempurge_threshold);
 DECLARE_bool(enable_write_thread_adaptive_yield);
 DECLARE_int32(reopen);
 DECLARE_double(bloom_bits);
 DECLARE_bool(use_block_based_filter);
+DECLARE_int32(ribbon_starting_level);
 DECLARE_bool(partition_filters);
+DECLARE_bool(optimize_filters_for_memory);
 DECLARE_int32(index_type);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
 DECLARE_bool(test_secondary);
-DECLARE_string(expected_values_path);
+DECLARE_string(expected_values_dir);
 DECLARE_bool(verify_checksum);
 DECLARE_bool(mmap_read);
 DECLARE_bool(mmap_write);
 DECLARE_bool(use_direct_reads);
 DECLARE_bool(use_direct_io_for_flush_and_compaction);
+DECLARE_bool(mock_direct_io);
 DECLARE_bool(statistics);
 DECLARE_bool(sync);
 DECLARE_bool(use_fsync);
 DECLARE_int32(kill_random_test);
-DECLARE_string(kill_prefix_blacklist);
+DECLARE_string(kill_exclude_prefixes);
 DECLARE_bool(disable_wal);
 DECLARE_uint64(recycle_log_file_num);
 DECLARE_int64(target_file_size_base);
@@ -173,11 +181,13 @@ DECLARE_bool(use_txn);
 DECLARE_uint64(txn_write_policy);
 DECLARE_bool(unordered_write);
 DECLARE_int32(backup_one_in);
+DECLARE_uint64(backup_max_size);
 DECLARE_int32(checkpoint_one_in);
 DECLARE_int32(ingest_external_file_one_in);
 DECLARE_int32(ingest_external_file_width);
 DECLARE_int32(compact_files_one_in);
 DECLARE_int32(compact_range_one_in);
+DECLARE_int32(mark_for_compaction_one_file_in);
 DECLARE_int32(flush_one_in);
 DECLARE_int32(pause_background_one_in);
 DECLARE_int32(compact_range_width);
@@ -194,13 +204,17 @@ DECLARE_int32(delrangepercent);
 DECLARE_int32(nooverwritepercent);
 DECLARE_int32(iterpercent);
 DECLARE_uint64(num_iterations);
+DECLARE_int32(customopspercent);
 DECLARE_string(compression_type);
 DECLARE_string(bottommost_compression_type);
 DECLARE_int32(compression_max_dict_bytes);
 DECLARE_int32(compression_zstd_max_train_bytes);
+DECLARE_int32(compression_parallel_threads);
+DECLARE_uint64(compression_max_dict_buffer_bytes);
 DECLARE_string(checksum_type);
 DECLARE_string(hdfs);
 DECLARE_string(env_uri);
+DECLARE_string(fs_uri);
 DECLARE_uint64(ops_per_thread);
 DECLARE_uint64(log2_keys_per_lock);
 DECLARE_uint64(max_manifest_file_size);
@@ -213,13 +227,17 @@ DECLARE_bool(use_full_merge_v1);
 DECLARE_int32(sync_wal_one_in);
 DECLARE_bool(avoid_unnecessary_blocking_io);
 DECLARE_bool(write_dbid_to_manifest);
+DECLARE_bool(avoid_flush_during_recovery);
 DECLARE_uint64(max_write_batch_group_size_bytes);
 DECLARE_bool(level_compaction_dynamic_level_bytes);
 DECLARE_int32(verify_checksum_one_in);
 DECLARE_int32(verify_db_one_in);
 DECLARE_int32(continuous_verification_interval);
+DECLARE_int32(get_property_one_in);
+DECLARE_string(file_checksum_impl);
 
 #ifndef ROCKSDB_LITE
+// Options for StackableDB-based BlobDB
 DECLARE_bool(use_blob_db);
 DECLARE_uint64(blob_db_min_blob_size);
 DECLARE_uint64(blob_db_bytes_per_sync);
@@ -227,14 +245,46 @@ DECLARE_uint64(blob_db_file_size);
 DECLARE_bool(blob_db_enable_gc);
 DECLARE_double(blob_db_gc_cutoff);
 #endif  // !ROCKSDB_LITE
-DECLARE_int32(approximate_size_one_in);
 
-const long KB = 1024;
-const int kRandomValueMaxFactor = 3;
-const int kValueMaxLen = 100;
+// Options for integrated BlobDB
+DECLARE_bool(allow_setting_blob_options_dynamically);
+DECLARE_bool(enable_blob_files);
+DECLARE_uint64(min_blob_size);
+DECLARE_uint64(blob_file_size);
+DECLARE_string(blob_compression_type);
+DECLARE_bool(enable_blob_garbage_collection);
+DECLARE_double(blob_garbage_collection_age_cutoff);
+DECLARE_double(blob_garbage_collection_force_threshold);
+DECLARE_uint64(blob_compaction_readahead_size);
+
+DECLARE_int32(approximate_size_one_in);
+DECLARE_bool(sync_fault_injection);
+
+DECLARE_bool(best_efforts_recovery);
+DECLARE_bool(skip_verifydb);
+DECLARE_bool(enable_compaction_filter);
+DECLARE_bool(paranoid_file_checks);
+DECLARE_bool(fail_if_options_file_error);
+DECLARE_uint64(batch_protection_bytes_per_key);
+
+DECLARE_uint64(user_timestamp_size);
+DECLARE_string(secondary_cache_uri);
+DECLARE_int32(secondary_cache_fault_one_in);
+
+DECLARE_int32(prepopulate_block_cache);
+
+constexpr long KB = 1024;
+constexpr int kRandomValueMaxFactor = 3;
+constexpr int kValueMaxLen = 100;
 
 // wrapped posix or hdfs environment
-extern ROCKSDB_NAMESPACE::DbStressEnvWrapper* db_stress_env;
+extern ROCKSDB_NAMESPACE::Env* db_stress_env;
+#ifndef NDEBUG
+namespace ROCKSDB_NAMESPACE {
+class FaultInjectionTestFS;
+}  // namespace ROCKSDB_NAMESPACE
+extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
+#endif
 
 extern enum ROCKSDB_NAMESPACE::CompressionType compression_type_e;
 extern enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e;
@@ -426,19 +476,10 @@ extern inline bool GetIntVal(std::string big_endian_key, uint64_t* key_p) {
 
   assert(size_key <= key_gen_ctx.weights.size() * sizeof(uint64_t));
 
-  // Pad with zeros to make it a multiple of 8. This function may be called
-  // with a prefix, in which case we return the first index that falls
-  // inside or outside that prefix, dependeing on whether the prefix is
-  // the start of upper bound of a scan
-  unsigned int pad = sizeof(uint64_t) - (size_key % sizeof(uint64_t));
-  if (pad < sizeof(uint64_t)) {
-    big_endian_key.append(pad, '\0');
-    size_key += pad;
-  }
-
   std::string little_endian_key;
   little_endian_key.resize(size_key);
-  for (size_t start = 0; start < size_key; start += sizeof(uint64_t)) {
+  for (size_t start = 0; start + sizeof(uint64_t) <= size_key;
+       start += sizeof(uint64_t)) {
     size_t end = start + sizeof(uint64_t);
     for (size_t i = 0; i < sizeof(uint64_t); ++i) {
       little_endian_key[start + i] = big_endian_key[end - 1 - i];
@@ -457,9 +498,31 @@ extern inline bool GetIntVal(std::string big_endian_key, uint64_t* key_p) {
     uint64_t pfx = prefixes[i];
     key += (pfx / key_gen_ctx.weights[i]) * key_gen_ctx.window +
            pfx % key_gen_ctx.weights[i];
+    if (i < prefixes.size() - 1) {
+      // The encoding writes a `key_gen_ctx.weights[i] - 1` that counts for
+      // `key_gen_ctx.weights[i]` when there are more prefixes to come. So we
+      // need to add back the one here as we're at a non-last prefix.
+      ++key;
+    }
   }
   *key_p = key;
   return true;
+}
+
+// Given a string prefix, map it to the first corresponding index in the
+// expected values buffer.
+inline bool GetFirstIntValInPrefix(std::string big_endian_prefix,
+                                   uint64_t* key_p) {
+  size_t size_key = big_endian_prefix.size();
+  // Pad with zeros to make it a multiple of 8. This function may be called
+  // with a prefix, in which case we return the first index that falls
+  // inside or outside that prefix, dependeing on whether the prefix is
+  // the start of upper bound of a scan
+  unsigned int pad = sizeof(uint64_t) - (size_key % sizeof(uint64_t));
+  if (pad < sizeof(uint64_t)) {
+    big_endian_prefix.append(pad, '\0');
+  }
+  return GetIntVal(std::move(big_endian_prefix), key_p);
 }
 
 extern inline uint64_t GetPrefixKeyCount(const std::string& prefix,
@@ -467,7 +530,8 @@ extern inline uint64_t GetPrefixKeyCount(const std::string& prefix,
   uint64_t start = 0;
   uint64_t end = 0;
 
-  if (!GetIntVal(prefix, &start) || !GetIntVal(ub, &end)) {
+  if (!GetFirstIntValInPrefix(prefix, &start) ||
+      !GetFirstIntValInPrefix(ub, &end)) {
     return 0;
   }
 
@@ -503,11 +567,20 @@ extern std::vector<int64_t> GenerateNKeys(ThreadState* thread, int num_keys,
                                           uint64_t iteration);
 
 extern size_t GenerateValue(uint32_t rand, char* v, size_t max_sz);
+extern uint32_t GetValueBase(Slice s);
 
 extern StressTest* CreateCfConsistencyStressTest();
 extern StressTest* CreateBatchedOpsStressTest();
 extern StressTest* CreateNonBatchedOpsStressTest();
+extern StressTest* CreateMultiOpsTxnsStressTest();
+extern void CheckAndSetOptionsForMultiOpsTxnStressTest();
 extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
+
+extern std::string GenerateTimestampForRead();
+extern std::string NowNanosStr();
+
+std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
+    const std::string& name);
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

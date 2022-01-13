@@ -5,9 +5,11 @@
 
 #pragma once
 
-#include <stdint.h>
 #include <climits>
+#include <cstdint>
 #include <vector>
+
+#include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -36,12 +38,12 @@ class CompactionOptionsUniversal {
   // The size amplification is defined as the amount (in percentage) of
   // additional storage needed to store a single byte of data in the database.
   // For example, a size amplification of 2% means that a database that
-  // contains 100 bytes of user-data may occupy upto 102 bytes of
+  // contains 100 bytes of user-data may occupy up to 102 bytes of
   // physical storage. By this definition, a fully compacted database has
   // a size amplification of 0%. Rocksdb uses the following heuristic
   // to calculate size amplification: it assumes that all files excluding
   // the earliest file contribute to the size amplification.
-  // Default: 200, which means that a 100 byte database could require upto
+  // Default: 200, which means that a 100 byte database could require up to
   // 300 bytes of storage.
   unsigned int max_size_amplification_percent;
 
@@ -72,6 +74,13 @@ class CompactionOptionsUniversal {
   // Default: false
   bool allow_trivial_move;
 
+  // EXPERIMENTAL
+  // If true, try to limit compaction size under max_compaction_bytes.
+  // This might cause higher write amplification, but can prevent some
+  // problem caused by large compactions.
+  // Default: false
+  bool incremental;
+
   // Default set of parameters
   CompactionOptionsUniversal()
       : size_ratio(1),
@@ -80,7 +89,8 @@ class CompactionOptionsUniversal {
         max_size_amplification_percent(200),
         compression_size_percent(-1),
         stop_style(kCompactionStopStyleTotalSize),
-        allow_trivial_move(false) {}
+        allow_trivial_move(false),
+        incremental(false) {}
 };
 
 }  // namespace ROCKSDB_NAMESPACE

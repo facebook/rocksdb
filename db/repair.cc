@@ -62,6 +62,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <cinttypes>
+
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
@@ -71,9 +72,9 @@
 #include "db/table_cache.h"
 #include "db/version_edit.h"
 #include "db/write_batch_internal.h"
-#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/writable_file_writer.h"
+#include "logging/logging.h"
 #include "options/cf_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
@@ -94,15 +95,16 @@ class Repairer {
            const ColumnFamilyOptions& default_cf_opts,
            const ColumnFamilyOptions& unknown_cf_opts, bool create_unknown_cfs)
       : dbname_(dbname),
+        db_session_id_(DBImpl::GenerateDbSessionId(db_options.env)),
         env_(db_options.env),
-        env_options_(),
+        file_options_(),
         db_options_(SanitizeOptions(dbname_, db_options)),
         immutable_db_options_(ImmutableDBOptions(db_options_)),
         icmp_(default_cf_opts.comparator),
         default_cf_opts_(
             SanitizeOptions(immutable_db_options_, default_cf_opts)),
-        default_cf_iopts_(
-            ImmutableCFOptions(immutable_db_options_, default_cf_opts_)),
+        default_iopts_(
+            ImmutableOptions(immutable_db_options_, default_cf_opts_)),
         unknown_cf_opts_(
             SanitizeOptions(immutable_db_options_, unknown_cf_opts)),
         create_unknown_cfs_(create_unknown_cfs),
@@ -110,16 +112,19 @@ class Repairer {
             // TableCache can be small since we expect each table to be opened
             // once.
             NewLRUCache(10, db_options_.table_cache_numshardbits)),
-        table_cache_(new TableCache(default_cf_iopts_, env_options_,
+        table_cache_(new TableCache(default_iopts_, &file_options_,
                                     raw_table_cache_.get(),
-                                    /*block_cache_tracer=*/nullptr)),
+                                    /*block_cache_tracer=*/nullptr,
+                                    /*io_tracer=*/nullptr, db_session_id_)),
         wb_(db_options_.db_write_buffer_size),
         wc_(db_options_.delayed_write_rate),
-        vset_(dbname_, &immutable_db_options_, env_options_,
+        vset_(dbname_, &immutable_db_options_, file_options_,
               raw_table_cache_.get(), &wb_, &wc_,
-              /*block_cache_tracer=*/nullptr),
+              /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+              db_session_id_),
         next_file_number_(1),
-        db_lock_(nullptr) {
+        db_lock_(nullptr),
+        closed_(false) {
     for (const auto& cfd : column_families) {
       cf_name_to_opts_[cfd.name] = cfd.options;
     }
@@ -163,12 +168,19 @@ class Repairer {
     return status;
   }
 
-  ~Repairer() {
-    if (db_lock_ != nullptr) {
-      env_->UnlockFile(db_lock_);
+  Status Close() {
+    Status s = Status::OK();
+    if (!closed_) {
+      if (db_lock_ != nullptr) {
+        s = env_->UnlockFile(db_lock_);
+        db_lock_ = nullptr;
+      }
+      closed_ = true;
     }
-    delete table_cache_;
+    return s;
   }
+
+  ~Repairer() { Close().PermitUncheckedError(); }
 
   Status Run() {
     Status status = env_->LockFile(LockFileName(dbname_), &db_lock_);
@@ -176,16 +188,17 @@ class Repairer {
       return status;
     }
     status = FindFiles();
+    DBImpl* db_impl = nullptr;
     if (status.ok()) {
       // Discard older manifests and start a fresh one
       for (size_t i = 0; i < manifests_.size(); i++) {
         ArchiveFile(dbname_ + "/" + manifests_[i]);
       }
       // Just create a DBImpl temporarily so we can reuse NewDB()
-      DBImpl* db_impl = new DBImpl(db_options_, dbname_);
-      status = db_impl->NewDB();
-      delete db_impl;
+      db_impl = new DBImpl(db_options_, dbname_);
+      status = db_impl->NewDB(/*new_filenames=*/nullptr);
     }
+    delete db_impl;
 
     if (status.ok()) {
       // Recover using the fresh manifest created by NewDB()
@@ -229,17 +242,18 @@ class Repairer {
   };
 
   std::string const dbname_;
+  std::string db_session_id_;
   Env* const env_;
-  const EnvOptions env_options_;
+  const FileOptions file_options_;
   const DBOptions db_options_;
   const ImmutableDBOptions immutable_db_options_;
   const InternalKeyComparator icmp_;
   const ColumnFamilyOptions default_cf_opts_;
-  const ImmutableCFOptions default_cf_iopts_;  // table_cache_ holds reference
+  const ImmutableOptions default_iopts_;  // table_cache_ holds reference
   const ColumnFamilyOptions unknown_cf_opts_;
   const bool create_unknown_cfs_;
   std::shared_ptr<Cache> raw_table_cache_;
-  TableCache* table_cache_;
+  std::unique_ptr<TableCache> table_cache_;
   WriteBufferManager wb_;
   WriteController wc_;
   VersionSet vset_;
@@ -254,6 +268,7 @@ class Repairer {
   // Lock over the persistent DB state. Non-nullptr iff successfully
   // acquired.
   FileLock* db_lock_;
+  bool closed_;
 
   Status FindFiles() {
     std::vector<std::string> filenames;
@@ -265,21 +280,15 @@ class Repairer {
     }
 
     // search wal_dir if user uses a customize wal_dir
-    bool same = false;
-    Status status = env_->AreFilesSame(db_options_.wal_dir, dbname_, &same);
-    if (status.IsNotSupported()) {
-      same = db_options_.wal_dir == dbname_;
-      status = Status::OK();
-    } else if (!status.ok()) {
-      return status;
-    }
-
+    bool same = immutable_db_options_.IsWalDirSameAsDBPath(dbname_);
     if (!same) {
-      to_search_paths.push_back(db_options_.wal_dir);
+      to_search_paths.push_back(immutable_db_options_.wal_dir);
     }
 
     for (size_t path_id = 0; path_id < to_search_paths.size(); path_id++) {
-      status = env_->GetChildren(to_search_paths[path_id], &filenames);
+      ROCKS_LOG_INFO(db_options_.info_log, "Searching path %s\n",
+                     to_search_paths[path_id].c_str());
+      Status status = env_->GetChildren(to_search_paths[path_id], &filenames);
       if (!status.ok()) {
         return status;
       }
@@ -297,7 +306,7 @@ class Repairer {
             if (number + 1 > next_file_number_) {
               next_file_number_ = number + 1;
             }
-            if (type == kLogFile) {
+            if (type == kWalFile) {
               logs_.push_back(number);
             } else if (type == kTableFile) {
               table_fds_.emplace_back(number, static_cast<uint32_t>(path_id),
@@ -316,10 +325,11 @@ class Repairer {
   }
 
   void ConvertLogFilesToTables() {
+    const auto& wal_dir = immutable_db_options_.GetWalDir();
     for (size_t i = 0; i < logs_.size(); i++) {
       // we should use LogFileName(wal_dir, logs_[i]) here. user might uses wal_dir option.
-      std::string logname = LogFileName(db_options_.wal_dir, logs_[i]);
-      Status status = ConvertLogToTable(logs_[i]);
+      std::string logname = LogFileName(wal_dir, logs_[i]);
+      Status status = ConvertLogToTable(wal_dir, logs_[i]);
       if (!status.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
                        "Log #%" PRIu64 ": ignoring conversion error: %s",
@@ -329,7 +339,7 @@ class Repairer {
     }
   }
 
-  Status ConvertLogToTable(uint64_t log) {
+  Status ConvertLogToTable(const std::string& wal_dir, uint64_t log) {
     struct LogReporter : public log::Reader::Reporter {
       Env* env;
       std::shared_ptr<Logger> info_log;
@@ -342,15 +352,15 @@ class Repairer {
     };
 
     // Open the log file
-    std::string logname = LogFileName(db_options_.wal_dir, log);
-    std::unique_ptr<SequentialFile> lfile;
-    Status status = env_->NewSequentialFile(
-        logname, &lfile, env_->OptimizeForLogRead(env_options_));
+    std::string logname = LogFileName(wal_dir, log);
+    const auto& fs = env_->GetFileSystem();
+    std::unique_ptr<SequentialFileReader> lfile_reader;
+    Status status = SequentialFileReader::Create(
+        fs, logname, fs->OptimizeForLogRead(file_options_), &lfile_reader,
+        nullptr);
     if (!status.ok()) {
       return status;
     }
-    std::unique_ptr<SequentialFileReader> lfile_reader(new SequentialFileReader(
-        NewLegacySequentialFileWrapper(lfile), logname));
 
     // Create the log reader.
     LogReporter reporter;
@@ -382,15 +392,16 @@ class Repairer {
             record.size(), Status::Corruption("log record too small"));
         continue;
       }
-      WriteBatchInternal::SetContents(&batch, record);
-      status =
-          WriteBatchInternal::InsertInto(&batch, cf_mems, nullptr, nullptr);
-      if (status.ok()) {
+      Status record_status = WriteBatchInternal::SetContents(&batch, record);
+      if (record_status.ok()) {
+        record_status =
+            WriteBatchInternal::InsertInto(&batch, cf_mems, nullptr, nullptr);
+      }
+      if (record_status.ok()) {
         counter += WriteBatchInternal::Count(&batch);
       } else {
         ROCKS_LOG_WARN(db_options_.info_log, "Log #%" PRIu64 ": ignoring %s",
-                       log, status.ToString().c_str());
-        status = Status::OK();  // Keep going with rest of file
+                       log, record_status.ToString().c_str());
       }
     }
 
@@ -410,7 +421,8 @@ class Repairer {
       Arena arena;
       ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
       int64_t _current_time = 0;
-      status = env_->GetCurrentTime(&_current_time);  // ignore error
+      immutable_db_options_.clock->GetCurrentTime(&_current_time)
+          .PermitUncheckedError();  // ignore error
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
       SnapshotChecker* snapshot_checker = DisableGCSnapshotChecker::Instance();
 
@@ -423,18 +435,26 @@ class Repairer {
         range_del_iters.emplace_back(range_del_iter);
       }
 
-      LegacyFileSystemWrapper fs(env_);
-      status = BuildTable(
-          dbname_, env_, &fs, *cfd->ioptions(),
-          *cfd->GetLatestMutableCFOptions(), env_options_, table_cache_,
-          iter.get(), std::move(range_del_iters), &meta,
+      IOStatus io_s;
+      CompressionOptions default_compression;
+      TableBuilderOptions tboptions(
+          *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
           cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
-          cfd->GetID(), cfd->GetName(), {}, kMaxSequenceNumber,
-          snapshot_checker, kNoCompression, 0 /* sample_for_compression */,
-          CompressionOptions(), false, nullptr /* internal_stats */,
-          TableFileCreationReason::kRecovery, nullptr /* event_logger */,
-          0 /* job_id */, Env::IO_HIGH, nullptr /* table_properties */,
-          -1 /* level */, current_time, write_hint);
+          kNoCompression, default_compression, cfd->GetID(), cfd->GetName(),
+          -1 /* level */, false /* is_bottommost */,
+          TableFileCreationReason::kRecovery, current_time,
+          0 /* oldest_key_time */, 0 /* file_creation_time */,
+          "DB Repairer" /* db_id */, db_session_id_, 0 /*target_file_size*/,
+          meta.fd.GetNumber());
+      status = BuildTable(
+          dbname_, /* versions */ nullptr, immutable_db_options_, tboptions,
+          file_options_, table_cache_.get(), iter.get(),
+          std::move(range_del_iters), &meta, nullptr /* blob_file_additions */,
+          {}, kMaxSequenceNumber, snapshot_checker,
+          false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
+          nullptr /*IOTracer*/, BlobFileCreationReason::kRecovery,
+          nullptr /* event_logger */, 0 /* job_id */, Env::IO_HIGH,
+          nullptr /* table_properties */, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,
                      "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s",
                      log, counter, meta.fd.GetNumber(),
@@ -481,8 +501,8 @@ class Repairer {
                                 file_size);
     std::shared_ptr<const TableProperties> props;
     if (status.ok()) {
-      status = table_cache_->GetTableProperties(env_options_, icmp_, t->meta.fd,
-                                                &props);
+      status = table_cache_->GetTableProperties(file_options_, icmp_,
+                                                t->meta.fd, &props);
     }
     if (status.ok()) {
       t->column_family_id = static_cast<uint32_t>(props->column_family_id);
@@ -522,20 +542,24 @@ class Repairer {
       ReadOptions ropts;
       ropts.total_order_seek = true;
       InternalIterator* iter = table_cache_->NewIterator(
-          ropts, env_options_, cfd->internal_comparator(), t->meta,
+          ropts, file_options_, cfd->internal_comparator(), t->meta,
           nullptr /* range_del_agg */,
           cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
           /*table_reader_ptr=*/nullptr, /*file_read_hist=*/nullptr,
           TableReaderCaller::kRepair, /*arena=*/nullptr, /*skip_filters=*/false,
-          /*level=*/-1, /*smallest_compaction_key=*/nullptr,
-          /*largest_compaction_key=*/nullptr);
+          /*level=*/-1, /*max_file_size_for_l0_meta_pin=*/0,
+          /*smallest_compaction_key=*/nullptr,
+          /*largest_compaction_key=*/nullptr,
+          /*allow_unprepared_value=*/false);
       ParsedInternalKey parsed;
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         Slice key = iter->key();
-        if (!ParseInternalKey(key, &parsed)) {
+        Status pik_status =
+            ParseInternalKey(key, &parsed, db_options_.allow_data_in_errors);
+        if (!pik_status.ok()) {
           ROCKS_LOG_ERROR(db_options_.info_log,
-                          "Table #%" PRIu64 ": unparsable key %s",
-                          t->meta.fd.GetNumber(), EscapeString(key).c_str());
+                          "Table #%" PRIu64 ": unparsable key - %s",
+                          t->meta.fd.GetNumber(), pik_status.getState());
           continue;
         }
 
@@ -552,6 +576,30 @@ class Repairer {
       ROCKS_LOG_INFO(db_options_.info_log, "Table #%" PRIu64 ": %d entries %s",
                      t->meta.fd.GetNumber(), counter,
                      status.ToString().c_str());
+    }
+    if (status.ok()) {
+      // XXX/FIXME: This is just basic, naive handling of range tombstones,
+      // like call to UpdateBoundariesForRange in builder.cc where we assume
+      // an SST file is a full sorted run. This probably needs the extra logic
+      // from compaction_job.cc around call to UpdateBoundariesForRange (to
+      // handle range tombstones extendingg beyond range of other entries).
+      ReadOptions ropts;
+      std::unique_ptr<FragmentedRangeTombstoneIterator> r_iter;
+      status = table_cache_->GetRangeTombstoneIterator(
+          ropts, cfd->internal_comparator(), t->meta, &r_iter);
+
+      if (r_iter) {
+        r_iter->SeekToFirst();
+
+        while (r_iter->Valid()) {
+          auto tombstone = r_iter->Tombstone();
+          auto kv = tombstone.Serialize();
+          t->meta.UpdateBoundariesForRange(
+              kv.first, tombstone.SerializeEndKey(), tombstone.seq_,
+              cfd->internal_comparator());
+          r_iter->Next();
+        }
+      }
     }
     return status;
   }
@@ -585,9 +633,10 @@ class Repairer {
             table->meta.fd.GetFileSize(), table->meta.smallest,
             table->meta.largest, table->meta.fd.smallest_seqno,
             table->meta.fd.largest_seqno, table->meta.marked_for_compaction,
-            table->meta.oldest_blob_file_number,
+            table->meta.temperature, table->meta.oldest_blob_file_number,
             table->meta.oldest_ancester_time, table->meta.file_creation_time,
-            table->meta.file_checksum, table->meta.file_checksum_func_name);
+            table->meta.file_checksum, table->meta.file_checksum_func_name,
+            table->meta.min_timestamp, table->meta.max_timestamp);
       }
       assert(next_file_number_ > 0);
       vset_.MarkFileNumberUsed(next_file_number_ - 1);
@@ -614,7 +663,7 @@ class Repairer {
       new_dir.assign(fname.data(), slash - fname.data());
     }
     new_dir.append("/lost");
-    env_->CreateDir(new_dir);  // Ignore error
+    env_->CreateDir(new_dir).PermitUncheckedError();  // Ignore error
     std::string new_file = new_dir;
     new_file.append("/");
     new_file.append((slash == nullptr) ? fname.c_str() : slash + 1);
@@ -646,12 +695,16 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
                 ) {
   ColumnFamilyOptions default_cf_opts;
   Status status = GetDefaultCFOptions(column_families, &default_cf_opts);
+  if (!status.ok()) {
+    return status;
+  }
+
+  Repairer repairer(dbname, db_options, column_families, default_cf_opts,
+                    ColumnFamilyOptions() /* unknown_cf_opts */,
+                    false /* create_unknown_cfs */);
+  status = repairer.Run();
   if (status.ok()) {
-    Repairer repairer(dbname, db_options, column_families,
-                      default_cf_opts,
-                      ColumnFamilyOptions() /* unknown_cf_opts */,
-                      false /* create_unknown_cfs */);
-    status = repairer.Run();
+    status = repairer.Close();
   }
   return status;
 }
@@ -661,29 +714,33 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
                 const ColumnFamilyOptions& unknown_cf_opts) {
   ColumnFamilyOptions default_cf_opts;
   Status status = GetDefaultCFOptions(column_families, &default_cf_opts);
+  if (!status.ok()) {
+    return status;
+  }
+
+  Repairer repairer(dbname, db_options, column_families, default_cf_opts,
+                    unknown_cf_opts, true /* create_unknown_cfs */);
+  status = repairer.Run();
   if (status.ok()) {
-    Repairer repairer(dbname, db_options,
-                      column_families, default_cf_opts,
-                      unknown_cf_opts, true /* create_unknown_cfs */);
-    status = repairer.Run();
+    status = repairer.Close();
   }
   return status;
 }
 
 Status RepairDB(const std::string& dbname, const Options& options) {
   Options opts(options);
-  if (opts.file_system == nullptr) {
-    opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
-    ;
-  }
-
   DBOptions db_options(opts);
   ColumnFamilyOptions cf_options(opts);
+
   Repairer repairer(dbname, db_options,
                     {}, cf_options /* default_cf_opts */,
                     cf_options /* unknown_cf_opts */,
                     true /* create_unknown_cfs */);
-  return repairer.Run();
+  Status status = repairer.Run();
+  if (status.ok()) {
+    status = repairer.Close();
+  }
+  return status;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

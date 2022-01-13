@@ -12,6 +12,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/trace_record.h"
 #include "util/coding.h"
 #include "util/hash.h"
 #include "util/string_util.h"
@@ -19,8 +20,6 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
-const unsigned int kCharSize = 1;
-
 bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
   if (trace_options.sampling_frequency == 0 ||
       trace_options.sampling_frequency == 1) {
@@ -28,8 +27,7 @@ bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
   }
   // We use spatial downsampling so that we have a complete access history for a
   // block.
-  return 0 == fastrange64(GetSliceNPHash64(block_key),
-                          trace_options.sampling_frequency);
+  return 0 == GetSliceRangedNPHash(block_key, trace_options.sampling_frequency);
 }
 }  // namespace
 
@@ -102,9 +100,9 @@ uint64_t BlockCacheTraceHelper::GetBlockOffsetInFile(
 }
 
 BlockCacheTraceWriter::BlockCacheTraceWriter(
-    Env* env, const TraceOptions& trace_options,
+    SystemClock* clock, const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer)
-    : env_(env),
+    : clock_(clock),
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)) {}
 
@@ -145,7 +143,7 @@ Status BlockCacheTraceWriter::WriteBlockAccess(
 
 Status BlockCacheTraceWriter::WriteHeader() {
   Trace trace;
-  trace.ts = env_->NowMicros();
+  trace.ts = clock_->NowMicros();
   trace.type = TraceType::kTraceBegin;
   PutLengthPrefixedSlice(&trace.payload, kTraceMagic);
   PutFixed32(&trace.payload, kMajorVersion);
@@ -216,6 +214,8 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
   record->access_timestamp = trace.ts;
   record->block_type = trace.type;
   Slice enc_slice = Slice(trace.payload);
+
+  const unsigned int kCharSize = 1;
 
   Slice block_key;
   if (!GetLengthPrefixedSlice(&enc_slice, &block_key)) {
@@ -306,8 +306,8 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
 
 BlockCacheHumanReadableTraceWriter::~BlockCacheHumanReadableTraceWriter() {
   if (human_readable_trace_file_writer_) {
-    human_readable_trace_file_writer_->Flush();
-    human_readable_trace_file_writer_->Close();
+    human_readable_trace_file_writer_->Flush().PermitUncheckedError();
+    human_readable_trace_file_writer_->Close().PermitUncheckedError();
   }
 }
 
@@ -445,7 +445,7 @@ BlockCacheTracer::BlockCacheTracer() { writer_.store(nullptr); }
 BlockCacheTracer::~BlockCacheTracer() { EndTrace(); }
 
 Status BlockCacheTracer::StartTrace(
-    Env* env, const TraceOptions& trace_options,
+    SystemClock* clock, const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
   if (writer_.load()) {
@@ -454,7 +454,7 @@ Status BlockCacheTracer::StartTrace(
   get_id_counter_.store(1);
   trace_options_ = trace_options;
   writer_.store(
-      new BlockCacheTraceWriter(env, trace_options, std::move(trace_writer)));
+      new BlockCacheTraceWriter(clock, trace_options, std::move(trace_writer)));
   return writer_.load()->WriteHeader();
 }
 

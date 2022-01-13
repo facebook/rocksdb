@@ -9,7 +9,7 @@
 
 #include "db/version_edit.h"
 
-#include "db/blob_index.h"
+#include "db/blob/blob_index.h"
 #include "db/version_set.h"
 #include "logging/event_logger.h"
 #include "rocksdb/slice.h"
@@ -18,68 +18,8 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-// The unknown file checksum.
-const std::string kUnknownFileChecksum("");
-// The unknown sst file checksum function name.
-const std::string kUnknownFileChecksumFuncName("Unknown");
 
 namespace {
-
-// Tag numbers for serialized VersionEdit.  These numbers are written to
-// disk and should not be changed. The number should be forward compatible so
-// users can down-grade RocksDB safely. A future Tag is ignored by doing '&'
-// between Tag and kTagSafeIgnoreMask field.
-enum Tag : uint32_t {
-  kComparator = 1,
-  kLogNumber = 2,
-  kNextFileNumber = 3,
-  kLastSequence = 4,
-  kCompactPointer = 5,
-  kDeletedFile = 6,
-  kNewFile = 7,
-  // 8 was used for large value refs
-  kPrevLogNumber = 9,
-  kMinLogNumberToKeep = 10,
-
-  // these are new formats divergent from open source leveldb
-  kNewFile2 = 100,
-  kNewFile3 = 102,
-  kNewFile4 = 103,      // 4th (the latest) format version of adding files
-  kColumnFamily = 200,  // specify column family for version edit
-  kColumnFamilyAdd = 201,
-  kColumnFamilyDrop = 202,
-  kMaxColumnFamily = 203,
-
-  kInAtomicGroup = 300,
-
-  // Mask for an unidentified tag from the future which can be safely ignored.
-  kTagSafeIgnoreMask = 1 << 13,
-
-  // Forward compatible (aka ignorable) records
-  kDbId,
-  kBlobFileState,
-};
-
-enum NewFileCustomTag : uint32_t {
-  kTerminate = 1,  // The end of customized fields
-  kNeedCompaction = 2,
-  // Since Manifest is not entirely forward-compatible, we currently encode
-  // kMinLogNumberToKeep as part of NewFile as a hack. This should be removed
-  // when manifest becomes forward-comptabile.
-  kMinLogNumberToKeepHack = 3,
-  kOldestBlobFileNumber = 4,
-  kOldestAncesterTime = 5,
-  kFileCreationTime = 6,
-  kFileChecksum = 7,
-  kFileChecksumFuncName = 8,
-
-  // If this bit for the custom tag is set, opening DB should fail if
-  // we don't know this field.
-  kCustomTagNonSafeIgnoreMask = 1 << 6,
-
-  // Forward incompatible (aka unignorable) fields
-  kPathId,
-};
 
 }  // anonymous namespace
 
@@ -98,7 +38,6 @@ void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
   fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
   fd.largest_seqno = std::max(fd.largest_seqno, seqno);
 
-#ifndef ROCKSDB_LITE
   if (value_type == kTypeBlobIndex) {
     BlobIndex blob_index;
     const Status s = blob_index.DecodeFrom(value);
@@ -125,10 +64,6 @@ void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
       oldest_blob_file_number = blob_index.file_number();
     }
   }
-#else
-  (void)value;
-  (void)value_type;
-#endif
 }
 
 void VersionEdit::Clear() {
@@ -151,13 +86,17 @@ void VersionEdit::Clear() {
   has_last_sequence_ = false;
   deleted_files_.clear();
   new_files_.clear();
-  blob_file_states_.clear();
+  blob_file_additions_.clear();
+  blob_file_garbages_.clear();
+  wal_additions_.clear();
+  wal_deletion_.Reset();
   column_family_ = 0;
   is_column_family_add_ = false;
   is_column_family_drop_ = false;
   column_family_name_.clear();
   is_in_atomic_group_ = false;
   remaining_entries_ = 0;
+  full_history_ts_low_.clear();
 }
 
 bool VersionEdit::EncodeTo(std::string* dst) const {
@@ -247,9 +186,24 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, NewFileCustomTag::kFileChecksumFuncName);
     PutLengthPrefixedSlice(dst, Slice(f.file_checksum_func_name));
 
+    if (f.max_timestamp != kDisableUserTimestamp) {
+      if (f.min_timestamp.size() != f.max_timestamp.size()) {
+        assert(false);
+        return false;
+      }
+      PutVarint32(dst, NewFileCustomTag::kMinTimestamp);
+      PutLengthPrefixedSlice(dst, Slice(f.min_timestamp));
+      PutVarint32(dst, NewFileCustomTag::kMaxTimestamp);
+      PutLengthPrefixedSlice(dst, Slice(f.max_timestamp));
+    }
     if (f.fd.GetPathId() != 0) {
       PutVarint32(dst, NewFileCustomTag::kPathId);
       char p = static_cast<char>(f.fd.GetPathId());
+      PutLengthPrefixedSlice(dst, Slice(&p, 1));
+    }
+    if (f.temperature != Temperature::kUnknown) {
+      PutVarint32(dst, NewFileCustomTag::kTemperature);
+      char p = static_cast<char>(f.temperature);
       PutLengthPrefixedSlice(dst, Slice(&p, 1));
     }
     if (f.marked_for_compaction) {
@@ -276,9 +230,28 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, NewFileCustomTag::kTerminate);
   }
 
-  for (const auto& blob_file_state : blob_file_states_) {
-    PutVarint32(dst, kBlobFileState);
-    blob_file_state.EncodeTo(dst);
+  for (const auto& blob_file_addition : blob_file_additions_) {
+    PutVarint32(dst, kBlobFileAddition);
+    blob_file_addition.EncodeTo(dst);
+  }
+
+  for (const auto& blob_file_garbage : blob_file_garbages_) {
+    PutVarint32(dst, kBlobFileGarbage);
+    blob_file_garbage.EncodeTo(dst);
+  }
+
+  for (const auto& wal_addition : wal_additions_) {
+    PutVarint32(dst, kWalAddition2);
+    std::string encoded;
+    wal_addition.EncodeTo(&encoded);
+    PutLengthPrefixedSlice(dst, encoded);
+  }
+
+  if (!wal_deletion_.IsEmpty()) {
+    PutVarint32(dst, kWalDeletion2);
+    std::string encoded;
+    wal_deletion_.EncodeTo(&encoded);
+    PutLengthPrefixedSlice(dst, encoded);
   }
 
   // 0 is default and does not need to be explicitly written
@@ -298,6 +271,11 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   if (is_in_atomic_group_) {
     PutVarint32(dst, kInAtomicGroup);
     PutVarint32(dst, remaining_entries_);
+  }
+
+  if (HasFullHistoryTsLow()) {
+    PutVarint32(dst, kFullHistoryTsLow);
+    PutLengthPrefixedSlice(dst, full_history_ts_low_);
   }
   return true;
 }
@@ -347,6 +325,10 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
         return "new-file4 custom field";
       }
       if (custom_tag == kTerminate) {
+        if (f.min_timestamp.size() != f.max_timestamp.size()) {
+          assert(false);
+          return "new-file4 custom field timestamp size mismatch error";
+        }
         break;
       }
       if (!GetLengthPrefixedSlice(input, &field)) {
@@ -397,6 +379,22 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
             return "invalid oldest blob file number";
           }
           break;
+        case kTemperature:
+          if (field.size() != 1) {
+            return "temperature field wrong size";
+          } else {
+            Temperature casted_field = static_cast<Temperature>(field[0]);
+            if (casted_field <= Temperature::kCold) {
+              f.temperature = casted_field;
+            }
+          }
+          break;
+        case kMinTimestamp:
+          f.min_timestamp = field.ToString();
+          break;
+        case kMaxTimestamp:
+          f.max_timestamp = field.ToString();
+          break;
         default:
           if ((custom_tag & kCustomTagNonSafeIgnoreMask) != 0) {
             // Should not proceed if cannot understand it
@@ -416,6 +414,11 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
 
 Status VersionEdit::DecodeFrom(const Slice& src) {
   Clear();
+#ifndef NDEBUG
+  bool ignore_ignorable_tags = false;
+  TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:IgnoreIgnorableTags",
+                           &ignore_ignorable_tags);
+#endif
   Slice input = src;
   const char* msg = nullptr;
   uint32_t tag = 0;
@@ -426,6 +429,11 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
   Slice str;
   InternalKey key;
   while (msg == nullptr && GetVarint32(&input, &tag)) {
+#ifndef NDEBUG
+    if (ignore_ignorable_tags && tag > kTagSafeIgnoreMask) {
+      tag = kTagSafeIgnoreMask;
+    }
+#endif
     switch (tag) {
       case kDbId:
         if (GetLengthPrefixedSlice(&input, &str)) {
@@ -583,14 +591,83 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
-      case kBlobFileState: {
-        BlobFileState blob_file_state;
-        const Status s = blob_file_state.DecodeFrom(&input);
+      case kBlobFileAddition:
+      case kBlobFileAddition_DEPRECATED: {
+        BlobFileAddition blob_file_addition;
+        const Status s = blob_file_addition.DecodeFrom(&input);
         if (!s.ok()) {
           return s;
         }
 
-        blob_file_states_.emplace_back(blob_file_state);
+        AddBlobFile(std::move(blob_file_addition));
+        break;
+      }
+
+      case kBlobFileGarbage:
+      case kBlobFileGarbage_DEPRECATED: {
+        BlobFileGarbage blob_file_garbage;
+        const Status s = blob_file_garbage.DecodeFrom(&input);
+        if (!s.ok()) {
+          return s;
+        }
+
+        AddBlobFileGarbage(std::move(blob_file_garbage));
+        break;
+      }
+
+      case kWalAddition: {
+        WalAddition wal_addition;
+        const Status s = wal_addition.DecodeFrom(&input);
+        if (!s.ok()) {
+          return s;
+        }
+
+        wal_additions_.emplace_back(std::move(wal_addition));
+        break;
+      }
+
+      case kWalAddition2: {
+        Slice encoded;
+        if (!GetLengthPrefixedSlice(&input, &encoded)) {
+          msg = "WalAddition not prefixed by length";
+          break;
+        }
+
+        WalAddition wal_addition;
+        const Status s = wal_addition.DecodeFrom(&encoded);
+        if (!s.ok()) {
+          return s;
+        }
+
+        wal_additions_.emplace_back(std::move(wal_addition));
+        break;
+      }
+
+      case kWalDeletion: {
+        WalDeletion wal_deletion;
+        const Status s = wal_deletion.DecodeFrom(&input);
+        if (!s.ok()) {
+          return s;
+        }
+
+        wal_deletion_ = std::move(wal_deletion);
+        break;
+      }
+
+      case kWalDeletion2: {
+        Slice encoded;
+        if (!GetLengthPrefixedSlice(&input, &encoded)) {
+          msg = "WalDeletion not prefixed by length";
+          break;
+        }
+
+        WalDeletion wal_deletion;
+        const Status s = wal_deletion.DecodeFrom(&encoded);
+        if (!s.ok()) {
+          return s;
+        }
+
+        wal_deletion_ = std::move(wal_deletion);
         break;
       }
 
@@ -623,6 +700,16 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           if (!msg) {
             msg = "remaining entries";
           }
+        }
+        break;
+
+      case kFullHistoryTsLow:
+        if (!GetLengthPrefixedSlice(&input, &str)) {
+          msg = "full_history_ts_low";
+        } else if (str.empty()) {
+          msg = "full_history_ts_low: empty";
+        } else {
+          full_history_ts_low_.assign(str.data(), str.size());
         }
         break;
 
@@ -714,19 +801,47 @@ std::string VersionEdit::DebugString(bool hex_key) const {
       r.append(" blob_file:");
       AppendNumberTo(&r, f.oldest_blob_file_number);
     }
+    if (f.min_timestamp != kDisableUserTimestamp) {
+      assert(f.max_timestamp != kDisableUserTimestamp);
+      r.append(" min_timestamp:");
+      r.append(Slice(f.min_timestamp).ToString(true));
+      r.append(" max_timestamp:");
+      r.append(Slice(f.max_timestamp).ToString(true));
+    }
     r.append(" oldest_ancester_time:");
     AppendNumberTo(&r, f.oldest_ancester_time);
     r.append(" file_creation_time:");
     AppendNumberTo(&r, f.file_creation_time);
     r.append(" file_checksum:");
-    r.append(f.file_checksum);
+    r.append(Slice(f.file_checksum).ToString(true));
     r.append(" file_checksum_func_name: ");
     r.append(f.file_checksum_func_name);
+    if (f.temperature != Temperature::kUnknown) {
+      r.append(" temperature: ");
+      // Maybe change to human readable format whenthe feature becomes
+      // permanent
+      r.append(ToString(static_cast<int>(f.temperature)));
+    }
   }
 
-  for (const auto& blob_file_state : blob_file_states_) {
-    r.append("\n  BlobFileState: ");
-    r.append(blob_file_state.DebugString());
+  for (const auto& blob_file_addition : blob_file_additions_) {
+    r.append("\n  BlobFileAddition: ");
+    r.append(blob_file_addition.DebugString());
+  }
+
+  for (const auto& blob_file_garbage : blob_file_garbages_) {
+    r.append("\n  BlobFileGarbage: ");
+    r.append(blob_file_garbage.DebugString());
+  }
+
+  for (const auto& wal_addition : wal_additions_) {
+    r.append("\n  WalAddition: ");
+    r.append(wal_addition.DebugString());
+  }
+
+  if (!wal_deletion_.IsEmpty()) {
+    r.append("\n  WalDeletion: ");
+    r.append(wal_deletion_.DebugString());
   }
 
   r.append("\n  ColumnFamily: ");
@@ -742,6 +857,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  AtomicGroup: ");
     AppendNumberTo(&r, remaining_entries_);
     r.append(" entries remains");
+  }
+  if (HasFullHistoryTsLow()) {
+    r.append("\n FullHistoryTsLow: ");
+    r.append(Slice(full_history_ts_low_).ToString(hex_key));
   }
   r.append("\n}\n");
   return r;
@@ -802,8 +921,25 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       jw << "FileSize" << f.fd.GetFileSize();
       jw << "SmallestIKey" << f.smallest.DebugString(hex_key);
       jw << "LargestIKey" << f.largest.DebugString(hex_key);
+      if (f.min_timestamp != kDisableUserTimestamp) {
+        assert(f.max_timestamp != kDisableUserTimestamp);
+        jw << "MinTimestamp" << Slice(f.min_timestamp).ToString(true);
+        jw << "MaxTimestamp" << Slice(f.max_timestamp).ToString(true);
+      }
+      jw << "OldestAncesterTime" << f.oldest_ancester_time;
+      jw << "FileCreationTime" << f.file_creation_time;
+      jw << "FileChecksum" << Slice(f.file_checksum).ToString(true);
+      jw << "FileChecksumFuncName" << f.file_checksum_func_name;
+      if (f.temperature != Temperature::kUnknown) {
+        jw << "temperature" << ToString(static_cast<int>(f.temperature));
+      }
       if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
         jw << "OldestBlobFile" << f.oldest_blob_file_number;
+      }
+      if (f.temperature != Temperature::kUnknown) {
+        // Maybe change to human readable format whenthe feature becomes
+        // permanent
+        jw << "Temperature" << static_cast<int>(f.temperature);
       }
       jw.EndArrayedObject();
     }
@@ -811,18 +947,53 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
     jw.EndArray();
   }
 
-  if (!blob_file_states_.empty()) {
-    jw << "BlobFileStates";
+  if (!blob_file_additions_.empty()) {
+    jw << "BlobFileAdditions";
 
     jw.StartArray();
 
-    for (const auto& blob_file_state : blob_file_states_) {
+    for (const auto& blob_file_addition : blob_file_additions_) {
       jw.StartArrayedObject();
-      jw << blob_file_state;
+      jw << blob_file_addition;
       jw.EndArrayedObject();
     }
 
     jw.EndArray();
+  }
+
+  if (!blob_file_garbages_.empty()) {
+    jw << "BlobFileGarbages";
+
+    jw.StartArray();
+
+    for (const auto& blob_file_garbage : blob_file_garbages_) {
+      jw.StartArrayedObject();
+      jw << blob_file_garbage;
+      jw.EndArrayedObject();
+    }
+
+    jw.EndArray();
+  }
+
+  if (!wal_additions_.empty()) {
+    jw << "WalAdditions";
+
+    jw.StartArray();
+
+    for (const auto& wal_addition : wal_additions_) {
+      jw.StartArrayedObject();
+      jw << wal_addition;
+      jw.EndArrayedObject();
+    }
+
+    jw.EndArray();
+  }
+
+  if (!wal_deletion_.IsEmpty()) {
+    jw << "WalDeletion";
+    jw.StartObject();
+    jw << wal_deletion_;
+    jw.EndObject();
   }
 
   jw << "ColumnFamily" << column_family_;
@@ -835,6 +1006,10 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   }
   if (is_in_atomic_group_) {
     jw << "AtomicGroup" << remaining_entries_;
+  }
+
+  if (HasFullHistoryTsLow()) {
+    jw << "FullHistoryTsLow" << Slice(full_history_ts_low_).ToString(hex_key);
   }
 
   jw.EndObject();

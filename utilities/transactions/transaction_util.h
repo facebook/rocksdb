@@ -12,38 +12,13 @@
 
 #include "db/dbformat.h"
 #include "db/read_callback.h"
-
 #include "rocksdb/db.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
+#include "utilities/transactions/lock/lock_tracker.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-struct TransactionKeyMapInfo {
-  // Earliest sequence number that is relevant to this transaction for this key
-  SequenceNumber seq;
-
-  uint32_t num_writes;
-  uint32_t num_reads;
-
-  bool exclusive;
-
-  explicit TransactionKeyMapInfo(SequenceNumber seq_no)
-      : seq(seq_no), num_writes(0), num_reads(0), exclusive(false) {}
-
-  // Used in PopSavePoint to collapse two savepoints together.
-  void Merge(const TransactionKeyMapInfo& info) {
-    assert(seq <= info.seq);
-    num_reads += info.num_reads;
-    num_writes += info.num_writes;
-    exclusive |= info.exclusive;
-  }
-};
-
-using TransactionKeyMap =
-    std::unordered_map<uint32_t,
-                       std::unordered_map<std::string, TransactionKeyMapInfo>>;
 
 class DBImpl;
 struct SuperVersion;
@@ -52,34 +27,38 @@ class WriteBatchWithIndex;
 class TransactionUtil {
  public:
   // Verifies there have been no commits to this key in the db since this
-  // sequence number.
+  // sequence number. If user-defined timestamp is enabled, then also check
+  // no commits to this key in the db since the given ts.
   //
   // If cache_only is true, then this function will not attempt to read any
   // SST files.  This will make it more likely this function will
   // return an error if it is unable to determine if there are any conflicts.
   //
-  // See comment of CheckKey() for explanation of `snap_seq`, `snap_checker`
-  // and `min_uncommitted`.
+  // See comment of CheckKey() for explanation of `snap_seq`, `ts`,
+  // `snap_checker` and `min_uncommitted`.
   //
   // Returns OK on success, BUSY if there is a conflicting write, or other error
   // status for any unexpected errors.
   static Status CheckKeyForConflicts(
       DBImpl* db_impl, ColumnFamilyHandle* column_family,
-      const std::string& key, SequenceNumber snap_seq, bool cache_only,
+      const std::string& key, SequenceNumber snap_seq,
+      const std::string* const ts, bool cache_only,
       ReadCallback* snap_checker = nullptr,
       SequenceNumber min_uncommitted = kMaxSequenceNumber);
 
-  // For each key,SequenceNumber pair in the TransactionKeyMap, this function
+  // For each key,SequenceNumber pair tracked by the LockTracker, this function
   // will verify there have been no writes to the key in the db since that
   // sequence number.
   //
   // Returns OK on success, BUSY if there is a conflicting write, or other error
   // status for any unexpected errors.
   //
-  // REQUIRED: this function should only be called on the write thread or if the
+  // REQUIRED:
+  // This function should only be called on the write thread or if the
   // mutex is held.
+  // tracker must support point lock.
   static Status CheckKeysForConflicts(DBImpl* db_impl,
-                                      const TransactionKeyMap& keys,
+                                      const LockTracker& tracker,
                                       bool cache_only);
 
  private:
@@ -91,10 +70,13 @@ class TransactionUtil {
   //  seq < `min_uncommitted`: no conflict
   //  seq > `snap_seq`: applicable to conflict
   //  `min_uncommitted` <= seq <= `snap_seq`: call `snap_checker` to determine.
+  //
+  // If user-defined timestamp is enabled, a write conflict is detected if an
+  // operation for `key` with timestamp greater than `ts` exists.
   static Status CheckKey(DBImpl* db_impl, SuperVersion* sv,
                          SequenceNumber earliest_seq, SequenceNumber snap_seq,
-                         const std::string& key, bool cache_only,
-                         ReadCallback* snap_checker = nullptr,
+                         const std::string& key, const std::string* const ts,
+                         bool cache_only, ReadCallback* snap_checker = nullptr,
                          SequenceNumber min_uncommitted = kMaxSequenceNumber);
 };
 

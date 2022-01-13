@@ -11,6 +11,7 @@
 
 #include "db/dbformat.h"
 #include "rocksdb/env.h"
+#include "rocksdb/trace_record.h"
 #include "rocksdb/utilities/sim_cache.h"
 #include "trace_replay/block_cache_tracer.h"
 #include "utilities/simulator_cache/cache_simulator.h"
@@ -103,7 +104,9 @@ struct BlockAccessInfo {
         num_referenced_key_exist_in_block++;
         if (referenced_data_size > block_size && block_size != 0) {
           ParsedInternalKey internal_key;
-          ParseInternalKey(access.referenced_key, &internal_key);
+          Status s = ParseInternalKey(access.referenced_key, &internal_key,
+                                      false /* log_err_key */);  // TODO
+          assert(s.ok());  // TODO
         }
       } else {
         non_exist_key_num_access_map[access.referenced_key][access.caller]++;

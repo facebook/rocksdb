@@ -53,12 +53,9 @@ RowValue CreateRowTombstone(int64_t timestamp) {
 }
 
 void VerifyRowValueColumns(
-  std::vector<std::shared_ptr<ColumnBase>> &columns,
-  std::size_t index_of_vector,
-  int8_t expected_mask,
-  int8_t expected_index,
-  int64_t expected_timestamp
-) {
+    const std::vector<std::shared_ptr<ColumnBase>> &columns,
+    std::size_t index_of_vector, int8_t expected_mask, int8_t expected_index,
+    int64_t expected_timestamp) {
   EXPECT_EQ(expected_timestamp, columns[index_of_vector]->Timestamp());
   EXPECT_EQ(expected_mask, columns[index_of_vector]->Mask());
   EXPECT_EQ(expected_index, columns[index_of_vector]->Index());

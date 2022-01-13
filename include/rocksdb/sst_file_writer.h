@@ -34,6 +34,8 @@ struct ExternalSstFileInfo {
         largest_key(""),
         smallest_range_del_key(""),
         largest_range_del_key(""),
+        file_checksum(""),
+        file_checksum_func_name(""),
         sequence_number(0),
         file_size(0),
         num_entries(0),
@@ -50,6 +52,8 @@ struct ExternalSstFileInfo {
         largest_key(_largest_key),
         smallest_range_del_key(""),
         largest_range_del_key(""),
+        file_checksum(""),
+        file_checksum_func_name(""),
         sequence_number(_sequence_number),
         file_size(_file_size),
         num_entries(_num_entries),
@@ -62,6 +66,8 @@ struct ExternalSstFileInfo {
   std::string
       smallest_range_del_key;  // smallest range deletion user key in file
   std::string largest_range_del_key;  // largest range deletion user key in file
+  std::string file_checksum;          // sst file checksum;
+  std::string file_checksum_func_name;  // The name of file checksum function
   SequenceNumber sequence_number;     // sequence number of all keys in file
   uint64_t file_size;                 // file size in bytes
   uint64_t num_entries;               // number of entries in file
@@ -80,6 +86,9 @@ class SstFileWriter {
   // hint that this file pages is not needed every time we write 1MB to the
   // file. To use the rate limiter an io_priority smaller than IO_TOTAL can be
   // passed.
+  // The `skip_filters` option is DEPRECATED and could be removed in the
+  // future. Use `BlockBasedTableOptions::filter_policy` to control filter
+  // generation.
   SstFileWriter(const EnvOptions& env_options, const Options& options,
                 ColumnFamilyHandle* column_family = nullptr,
                 bool invalidate_page_cache = true,
@@ -103,21 +112,40 @@ class SstFileWriter {
 
   // Add a Put key with value to currently opened file (deprecated)
   // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: comparator is *not* timestamp-aware.
   ROCKSDB_DEPRECATED_FUNC Status Add(const Slice& user_key, const Slice& value);
 
   // Add a Put key with value to currently opened file
   // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: comparator is *not* timestamp-aware.
   Status Put(const Slice& user_key, const Slice& value);
+
+  // Add a Put (key with timestamp, value) to the currently opened file
+  // REQUIRES: key is after any previously added key according to the
+  // comparator.
+  // REQUIRES: the timestamp's size is equal to what is expected by
+  // the comparator.
+  Status Put(const Slice& user_key, const Slice& timestamp, const Slice& value);
 
   // Add a Merge key with value to currently opened file
   // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: comparator is *not* timestamp-aware.
   Status Merge(const Slice& user_key, const Slice& value);
 
   // Add a deletion key to currently opened file
   // REQUIRES: key is after any previously added key according to comparator.
+  // REQUIRES: comparator is *not* timestamp-aware.
   Status Delete(const Slice& user_key);
 
+  // Add a deletion key with timestamp to the currently opened file
+  // REQUIRES: key is after any previously added key according to the
+  // comparator.
+  // REQUIRES: the timestamp's size is equal to what is expected by
+  // the comparator.
+  Status Delete(const Slice& user_key, const Slice& timestamp);
+
   // Add a range deletion tombstone to currently opened file
+  // REQUIRES: comparator is *not* timestamp-aware.
   Status DeleteRange(const Slice& begin_key, const Slice& end_key);
 
   // Finalize writing to sst file and close file.

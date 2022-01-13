@@ -4,9 +4,12 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "monitoring/thread_status_updater.h"
+
 #include <memory>
+
 #include "port/likely.h"
 #include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -159,7 +162,7 @@ Status ThreadStatusUpdater::GetThreadList(
     std::vector<ThreadStatus>* thread_list) {
   thread_list->clear();
   std::vector<std::shared_ptr<ThreadStatusData>> valid_list;
-  uint64_t now_micros = Env::Default()->NowMicros();
+  uint64_t now_micros = SystemClock::Default()->NowMicros();
 
   std::lock_guard<std::mutex> lck(thread_list_mutex_);
   for (auto* thread_data : thread_data_set_) {

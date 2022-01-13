@@ -1,6 +1,6 @@
 This is the list of all known third-party language bindings for RocksDB. If something is missing, please open a pull request to add it.
 
-* Java - https://github.com/facebook/rocksdb/tree/master/java
+* Java - https://github.com/facebook/rocksdb/tree/main/java
 * Python
     * http://python-rocksdb.readthedocs.io/en/latest/
     * http://pyrocksdb.readthedocs.org/en/latest/ (unmaintained)
@@ -10,7 +10,9 @@ This is the list of all known third-party language bindings for RocksDB. If some
 * Ruby - http://rubygems.org/gems/rocksdb-ruby
 * Haskell - https://hackage.haskell.org/package/rocksdb-haskell
 * PHP - https://github.com/Photonios/rocksdb-php
-* C# - https://github.com/warrenfalk/rocksdb-sharp
+* C#
+    * https://github.com/warrenfalk/rocksdb-sharp
+    * https://github.com/curiosity-ai/rocksdb-sharp
 * Rust
     * https://github.com/pingcap/rust-rocksdb (used in production fork of https://github.com/spacejam/rust-rocksdb)
     * https://github.com/spacejam/rust-rocksdb

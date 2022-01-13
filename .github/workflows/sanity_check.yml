@@ -1,0 +1,44 @@
+name: Check buck targets and code format
+on: [push, pull_request]
+jobs:
+  check:
+    name: Check TARGETS file and code format
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout feature branch
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+
+    - name: Fetch from upstream
+      run: |
+        git remote add upstream https://github.com/facebook/rocksdb.git && git fetch upstream
+
+    - name: Where am I
+      run: |
+        echo git status && git status
+        echo "git remote -v" && git remote -v
+        echo git branch && git branch
+
+    - name: Setup Python
+      uses: actions/setup-python@v1
+
+    - name: Install Dependencies
+      run: python -m pip install --upgrade pip
+
+    - name: Install argparse
+      run: pip install argparse
+
+    - name: Download clang-format-diff.py
+      uses: wei/wget@v1
+      with:
+        args: https://raw.githubusercontent.com/llvm/llvm-project/main/clang/tools/clang-format/clang-format-diff.py
+
+    - name: Check format
+      run: VERBOSE_CHECK=1 make check-format
+
+    - name: Compare buckify output
+      run: make check-buck-targets
+
+    - name: Simple source code checks
+      run: make check-sources

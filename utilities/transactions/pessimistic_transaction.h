@@ -44,7 +44,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
   PessimisticTransaction(const PessimisticTransaction&) = delete;
   void operator=(const PessimisticTransaction&) = delete;
 
-  virtual ~PessimisticTransaction();
+  ~PessimisticTransaction() override;
 
   void Reinitialize(TransactionDB* txn_db, const WriteOptions& write_options,
                     const TransactionOptions& txn_options);
@@ -116,10 +116,17 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   int64_t GetDeadlockDetectDepth() const { return deadlock_detect_depth_; }
 
+  virtual Status GetRangeLock(ColumnFamilyHandle* column_family,
+                              const Endpoint& start_key,
+                              const Endpoint& end_key) override;
+
  protected:
   // Refer to
   // TransactionOptions::use_only_the_last_commit_time_batch_for_recovery
   bool use_only_the_last_commit_time_batch_for_recovery_ = false;
+  // Refer to
+  // TransactionOptions::skip_prepare
+  bool skip_prepare_ = false;
 
   virtual Status PrepareInternal() = 0;
 
@@ -136,7 +143,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   virtual void Initialize(const TransactionOptions& txn_options);
 
-  Status LockBatch(WriteBatch* batch, TransactionKeyMap* keys_to_unlock);
+  Status LockBatch(WriteBatch* batch, LockTracker* keys_to_unlock);
 
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
                  bool read_only, bool exclusive, const bool do_validate = true,
@@ -169,7 +176,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
   //
   // If waiting_key_ is not null, then the pointer should always point to
   // a valid string object. The reason is that it is only non-null when the
-  // transaction is blocked in the TransactionLockMgr::AcquireWithTimeout
+  // transaction is blocked in the PointLockManager::AcquireWithTimeout
   // function. At that point, the key string object is one of the function
   // parameters.
   uint32_t waiting_cf_id_;
@@ -206,7 +213,7 @@ class WriteCommittedTxn : public PessimisticTransaction {
   WriteCommittedTxn(const WriteCommittedTxn&) = delete;
   void operator=(const WriteCommittedTxn&) = delete;
 
-  virtual ~WriteCommittedTxn() {}
+  ~WriteCommittedTxn() override {}
 
  private:
   Status PrepareInternal() override;

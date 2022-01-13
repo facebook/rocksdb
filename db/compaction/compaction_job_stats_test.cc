@@ -24,8 +24,6 @@
 #include "db/write_batch_internal.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
-#include "logging/logging.h"
-#include "memtable/hash_linklist_rep.h"
 #include "monitoring/statistics.h"
 #include "monitoring/thread_status_util.h"
 #include "port/stack_trace.h"
@@ -52,6 +50,7 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
@@ -126,9 +125,7 @@ class CompactionJobStatsTest : public testing::Test,
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
 
-  DBImpl* dbfull() {
-    return reinterpret_cast<DBImpl*>(db_);
-  }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
 
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
                             const Options& options) {
@@ -271,10 +268,10 @@ class CompactionJobStatsTest : public testing::Test,
     if (cf == 0) {
       // default cfd
       EXPECT_TRUE(db_->GetProperty(
-          "rocksdb.num-files-at-level" + NumberToString(level), &property));
+          "rocksdb.num-files-at-level" + ToString(level), &property));
     } else {
       EXPECT_TRUE(db_->GetProperty(
-          handles_[cf], "rocksdb.num-files-at-level" + NumberToString(level),
+          handles_[cf], "rocksdb.num-files-at-level" + ToString(level),
           &property));
     }
     return atoi(property.c_str());
@@ -299,15 +296,14 @@ class CompactionJobStatsTest : public testing::Test,
     return result;
   }
 
-  uint64_t Size(const Slice& start, const Slice& limit, int cf = 0) {
+  Status Size(uint64_t* size, const Slice& start, const Slice& limit,
+              int cf = 0) {
     Range r(start, limit);
-    uint64_t size;
     if (cf == 0) {
-      db_->GetApproximateSizes(&r, 1, &size);
+      return db_->GetApproximateSizes(&r, 1, size);
     } else {
-      db_->GetApproximateSizes(handles_[1], &r, 1, &size);
+      return db_->GetApproximateSizes(handles_[1], &r, 1, size);
     }
-    return size;
   }
 
   void Compact(int cf, const Slice& start, const Slice& limit,
@@ -460,6 +456,7 @@ class CompactionJobStatsChecker : public EventListener {
     ASSERT_EQ(current_stats.num_output_files,
         stats.num_output_files);
 
+    ASSERT_EQ(current_stats.is_full_compaction, stats.is_full_compaction);
     ASSERT_EQ(current_stats.is_manual_compaction,
         stats.is_manual_compaction);
 
@@ -572,7 +569,7 @@ CompactionJobStats NewManualCompactionJobStats(
     uint64_t num_input_records, size_t key_size, size_t value_size,
     size_t num_output_files, uint64_t num_output_records,
     double compression_ratio, uint64_t num_records_replaced,
-    bool is_manual = true) {
+    bool is_full = false, bool is_manual = true) {
   CompactionJobStats stats;
   stats.Reset();
 
@@ -596,6 +593,7 @@ CompactionJobStats NewManualCompactionJobStats(
   stats.total_input_raw_value_bytes =
       num_input_records * value_size;
 
+  stats.is_full_compaction = is_full;
   stats.is_manual_compaction = is_manual;
 
   stats.num_records_replaced = num_records_replaced;
@@ -797,7 +795,7 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
     }
 
     ASSERT_OK(Flush(1));
-    reinterpret_cast<DBImpl*>(db_)->TEST_WaitForCompact();
+    ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_WaitForCompact());
 
     stats_checker->set_verify_next_comp_io_stats(true);
     std::atomic<bool> first_prepare_write(true);
@@ -895,7 +893,7 @@ TEST_P(CompactionJobStatsTest, DeletionStatsTest) {
   CompactRangeOptions cr_options;
   cr_options.change_level = true;
   cr_options.target_level = 2;
-  db_->CompactRange(cr_options, handles_[1], nullptr, nullptr);
+  ASSERT_OK(db_->CompactRange(cr_options, handles_[1], nullptr, nullptr));
   ASSERT_GT(NumTableFilesAtLevel(2, 1), 0);
 
   // Stage 2: Generate files including keys from the entire key range
@@ -982,26 +980,21 @@ TEST_P(CompactionJobStatsTest, UniversalCompactionTest) {
     if (num_input_units == 0) {
       continue;
     }
+    // A full compaction only happens when the number of flushes equals to
+    // the number of compaction input runs.
+    bool is_full = num_flushes == num_input_units;
     // The following statement determines the expected smallest key
-    // based on whether it is a full compaction.  A full compaction only
-    // happens when the number of flushes equals to the number of compaction
-    // input runs.
-    uint64_t smallest_key =
-        (num_flushes == num_input_units) ?
-            key_base : key_base * (num_flushes - 1);
+    // based on whether it is a full compaction.
+    uint64_t smallest_key = is_full ? key_base : key_base * (num_flushes - 1);
 
-    stats_checker->AddExpectedStats(
-        NewManualCompactionJobStats(
-            Key(smallest_key, 10),
-            Key(smallest_key + key_base * num_input_units - key_interval, 10),
-            num_input_units,
-            num_input_units > 2 ? num_input_units / 2 : 0,
-            num_keys_per_table * num_input_units,
-            kKeySize, kValueSize,
-            num_input_units,
-            num_keys_per_table * num_input_units,
-            1.0, 0, false));
-    dbfull()->TEST_WaitForCompact();
+    stats_checker->AddExpectedStats(NewManualCompactionJobStats(
+        Key(smallest_key, 10),
+        Key(smallest_key + key_base * num_input_units - key_interval, 10),
+        num_input_units, num_input_units > 2 ? num_input_units / 2 : 0,
+        num_keys_per_table * num_input_units, kKeySize, kValueSize,
+        num_input_units, num_keys_per_table * num_input_units, 1.0, 0, is_full,
+        false));
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
   ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 3U);
 
@@ -1012,7 +1005,7 @@ TEST_P(CompactionJobStatsTest, UniversalCompactionTest) {
         &rnd, start_key, start_key + key_base - 1,
         kKeySize, kValueSize, key_interval,
         compression_ratio, 1);
-    reinterpret_cast<DBImpl*>(db_)->TEST_WaitForCompact();
+    ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_WaitForCompact());
   }
   ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 0U);
 }

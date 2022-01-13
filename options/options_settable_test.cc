@@ -9,6 +9,8 @@
 
 #include <cstring>
 
+#include "options/cf_options.h"
+#include "options/db_options.h"
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "test_util/testharness.h"
@@ -39,23 +41,24 @@ class OptionsSettableTest : public testing::Test {
 };
 
 const char kSpecialChar = 'z';
-typedef std::vector<std::pair<size_t, size_t>> OffsetGap;
+using OffsetGap = std::vector<std::pair<size_t, size_t>>;
 
 void FillWithSpecialChar(char* start_ptr, size_t total_size,
-                         const OffsetGap& blacklist) {
+                         const OffsetGap& excluded,
+                         char special_char = kSpecialChar) {
   size_t offset = 0;
-  for (auto& pair : blacklist) {
-    std::memset(start_ptr + offset, kSpecialChar, pair.first - offset);
+  for (auto& pair : excluded) {
+    std::memset(start_ptr + offset, special_char, pair.first - offset);
     offset = pair.first + pair.second;
   }
-  std::memset(start_ptr + offset, kSpecialChar, total_size - offset);
+  std::memset(start_ptr + offset, special_char, total_size - offset);
 }
 
 int NumUnsetBytes(char* start_ptr, size_t total_size,
-                  const OffsetGap& blacklist) {
+                  const OffsetGap& excluded) {
   int total_unset_bytes_base = 0;
   size_t offset = 0;
-  for (auto& pair : blacklist) {
+  for (auto& pair : excluded) {
     for (char* ptr = start_ptr + offset; ptr < start_ptr + pair.first; ptr++) {
       if (*ptr == kSpecialChar) {
         total_unset_bytes_base++;
@@ -71,6 +74,26 @@ int NumUnsetBytes(char* start_ptr, size_t total_size,
   return total_unset_bytes_base;
 }
 
+// Return true iff two structs are the same except excluded fields.
+bool CompareBytes(char* start_ptr1, char* start_ptr2, size_t total_size,
+                  const OffsetGap& excluded) {
+  size_t offset = 0;
+  for (auto& pair : excluded) {
+    for (; offset < pair.first; offset++) {
+      if (*(start_ptr1 + offset) != *(start_ptr2 + offset)) {
+        return false;
+      }
+    }
+    offset = pair.first + pair.second;
+  }
+  for (; offset < total_size; offset++) {
+    if (*(start_ptr1 + offset) != *(start_ptr2 + offset)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // If the test fails, likely a new option is added to BlockBasedTableOptions
 // but it cannot be set through GetBlockBasedTableOptionsFromString(), or the
 // test is not updated accordingly.
@@ -78,11 +101,11 @@ int NumUnsetBytes(char* start_ptr, size_t total_size,
 // GetBlockBasedTableOptionsFromString() and add the option to the input string
 // passed to the GetBlockBasedTableOptionsFromString() in this test.
 // If it is a complicated type, you also need to add the field to
-// kBbtoBlacklist, and maybe add customized verification for it.
+// kBbtoExcluded, and maybe add customized verification for it.
 TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
   // Items in the form of <offset, size>. Need to be in ascending order
   // and not overlapping. Need to updated if new pointer-option is added.
-  const OffsetGap kBbtoBlacklist = {
+  const OffsetGap kBbtoExcluded = {
       {offsetof(struct BlockBasedTableOptions, flush_block_policy_factory),
        sizeof(std::shared_ptr<FlushBlockPolicyFactory>)},
       {offsetof(struct BlockBasedTableOptions, block_cache),
@@ -107,20 +130,20 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
   // copy a well constructed struct to this memory and see how many special
   // bytes left.
   BlockBasedTableOptions* bbto = new (bbto_ptr) BlockBasedTableOptions();
-  FillWithSpecialChar(bbto_ptr, sizeof(BlockBasedTableOptions), kBbtoBlacklist);
+  FillWithSpecialChar(bbto_ptr, sizeof(BlockBasedTableOptions), kBbtoExcluded);
   // It based on the behavior of compiler that padding bytes are not changed
   // when copying the struct. It's prone to failure when compiler behavior
   // changes. We verify there is unset bytes to detect the case.
   *bbto = BlockBasedTableOptions();
   int unset_bytes_base =
-      NumUnsetBytes(bbto_ptr, sizeof(BlockBasedTableOptions), kBbtoBlacklist);
+      NumUnsetBytes(bbto_ptr, sizeof(BlockBasedTableOptions), kBbtoExcluded);
   ASSERT_GT(unset_bytes_base, 0);
   bbto->~BlockBasedTableOptions();
 
   // Construct the base option passed into
   // GetBlockBasedTableOptionsFromString().
   bbto = new (bbto_ptr) BlockBasedTableOptions();
-  FillWithSpecialChar(bbto_ptr, sizeof(BlockBasedTableOptions), kBbtoBlacklist);
+  FillWithSpecialChar(bbto_ptr, sizeof(BlockBasedTableOptions), kBbtoExcluded);
   // This option is not setable:
   bbto->use_delta_encoding = true;
 
@@ -128,13 +151,16 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
   BlockBasedTableOptions* new_bbto =
       new (new_bbto_ptr) BlockBasedTableOptions();
   FillWithSpecialChar(new_bbto_ptr, sizeof(BlockBasedTableOptions),
-                      kBbtoBlacklist);
+                      kBbtoExcluded);
 
   // Need to update the option string if a new option is added.
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       *bbto,
       "cache_index_and_filter_blocks=1;"
       "cache_index_and_filter_blocks_with_high_priority=true;"
+      "metadata_cache_options={top_level_index_pinning=kFallback;"
+      "partition_pinning=kAll;"
+      "unpartitioned_pinning=kFlushedAndSimilar;};"
       "pin_l0_filter_and_index_blocks_in_cache=1;"
       "pin_top_level_index_and_filter=1;"
       "index_type=kHashSearch;"
@@ -146,18 +172,22 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "block_size_deviation=8;block_restart_interval=4; "
       "metadata_block_size=1024;"
       "partition_filters=false;"
+      "optimize_filters_for_memory=true;"
       "index_block_restart_interval=4;"
       "filter_policy=bloomfilter:4:true;whole_key_filtering=1;"
+      "reserve_table_builder_memory=false;"
       "format_version=1;"
       "hash_index_allow_collision=false;"
       "verify_compression=true;read_amp_bytes_per_bit=0;"
       "enable_index_compression=false;"
-      "block_align=true",
+      "block_align=true;"
+      "max_auto_readahead_size=0;"
+      "prepopulate_block_cache=kDisable",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
             NumUnsetBytes(new_bbto_ptr, sizeof(BlockBasedTableOptions),
-                          kBbtoBlacklist));
+                          kBbtoExcluded));
 
   ASSERT_TRUE(new_bbto->block_cache.get() != nullptr);
   ASSERT_TRUE(new_bbto->block_cache_compressed.get() != nullptr);
@@ -177,12 +207,10 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
 // GetDBOptionsFromString() and add the option to the input string passed to
 // DBOptionsFromString()in this test.
 // If it is a complicated type, you also need to add the field to
-// kDBOptionsBlacklist, and maybe add customized verification for it.
+// kDBOptionsExcluded, and maybe add customized verification for it.
 TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
-  const OffsetGap kDBOptionsBlacklist = {
+  const OffsetGap kDBOptionsExcluded = {
       {offsetof(struct DBOptions, env), sizeof(Env*)},
-      {offsetof(struct DBOptions, file_system),
-       sizeof(std::shared_ptr<FileSystem>)},
       {offsetof(struct DBOptions, rate_limiter),
        sizeof(std::shared_ptr<RateLimiter>)},
       {offsetof(struct DBOptions, sst_file_manager),
@@ -199,8 +227,13 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
        sizeof(std::vector<std::shared_ptr<EventListener>>)},
       {offsetof(struct DBOptions, row_cache), sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct DBOptions, wal_filter), sizeof(const WalFilter*)},
-      {offsetof(struct DBOptions, sst_file_checksum_func),
-       sizeof(std::shared_ptr<FileChecksumFunc>)},
+      {offsetof(struct DBOptions, file_checksum_gen_factory),
+       sizeof(std::shared_ptr<FileChecksumGenFactory>)},
+      {offsetof(struct DBOptions, db_host_id), sizeof(std::string)},
+      {offsetof(struct DBOptions, checksum_handoff_file_types),
+       sizeof(FileTypeSet)},
+      {offsetof(struct DBOptions, compaction_service),
+       sizeof(std::shared_ptr<CompactionService>)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];
@@ -209,22 +242,22 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
   // copy a well constructed struct to this memory and see how many special
   // bytes left.
   DBOptions* options = new (options_ptr) DBOptions();
-  FillWithSpecialChar(options_ptr, sizeof(DBOptions), kDBOptionsBlacklist);
+  FillWithSpecialChar(options_ptr, sizeof(DBOptions), kDBOptionsExcluded);
   // It based on the behavior of compiler that padding bytes are not changed
   // when copying the struct. It's prone to failure when compiler behavior
   // changes. We verify there is unset bytes to detect the case.
   *options = DBOptions();
   int unset_bytes_base =
-      NumUnsetBytes(options_ptr, sizeof(DBOptions), kDBOptionsBlacklist);
+      NumUnsetBytes(options_ptr, sizeof(DBOptions), kDBOptionsExcluded);
   ASSERT_GT(unset_bytes_base, 0);
   options->~DBOptions();
 
   options = new (options_ptr) DBOptions();
-  FillWithSpecialChar(options_ptr, sizeof(DBOptions), kDBOptionsBlacklist);
+  FillWithSpecialChar(options_ptr, sizeof(DBOptions), kDBOptionsExcluded);
 
   char* new_options_ptr = new char[sizeof(DBOptions)];
   DBOptions* new_options = new (new_options_ptr) DBOptions();
-  FillWithSpecialChar(new_options_ptr, sizeof(DBOptions), kDBOptionsBlacklist);
+  FillWithSpecialChar(new_options_ptr, sizeof(DBOptions), kDBOptionsExcluded);
 
   // Need to update the option string if a new option is added.
   ASSERT_OK(
@@ -256,6 +289,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "skip_log_error_on_recovery=true;"
                              "writable_file_max_buffer_size=1048576;"
                              "paranoid_checks=true;"
+                             "flush_verify_memtable_count=true;"
+                             "track_and_verify_wals_in_manifest=true;"
                              "is_fd_close_on_exec=false;"
                              "bytes_per_sync=4295013613;"
                              "strict_bytes_per_sync=true;"
@@ -303,11 +338,17 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "atomic_flush=false;"
                              "avoid_unnecessary_blocking_io=false;"
                              "log_readahead_size=0;"
-                             "write_dbid_to_manifest=false",
+                             "write_dbid_to_manifest=false;"
+                             "best_efforts_recovery=false;"
+                             "max_bgerror_resume_count=2;"
+                             "bgerror_resume_retry_interval=1000000"
+                             "db_host_id=hostname;"
+                             "lowest_used_cache_tier=kNonVolatileBlockTier;"
+                             "allow_data_in_errors=false",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
-                                            kDBOptionsBlacklist));
+                                            kDBOptionsExcluded));
 
   options->~DBOptions();
   new_options->~DBOptions();
@@ -329,12 +370,12 @@ inline int offset_of(T1 T2::*member) {
 // GetColumnFamilyOptionsFromString() and add the option to the input
 // string passed to GetColumnFamilyOptionsFromString()in this test.
 // If it is a complicated type, you also need to add the field to
-// kColumnFamilyOptionsBlacklist, and maybe add customized verification
+// kColumnFamilyOptionsExcluded, and maybe add customized verification
 // for it.
 TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
-  // options in the blacklist need to appear in the same order as in
+  // options in the excluded set need to appear in the same order as in
   // ColumnFamilyOptions.
-  const OffsetGap kColumnFamilyOptionsBlacklist = {
+  const OffsetGap kColumnFamilyOptionsExcluded = {
       {offset_of(&ColumnFamilyOptions::inplace_callback),
        sizeof(UpdateStatus(*)(char*, uint32_t*, Slice, std::string*))},
       {offset_of(
@@ -364,6 +405,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       {offset_of(&ColumnFamilyOptions::cf_paths), sizeof(std::vector<DbPath>)},
       {offset_of(&ColumnFamilyOptions::compaction_thread_limiter),
        sizeof(std::shared_ptr<ConcurrentTaskLimiter>)},
+      {offset_of(&ColumnFamilyOptions::sst_partitioner_factory),
+       sizeof(std::shared_ptr<SstPartitionerFactory>)},
   };
 
   char* options_ptr = new char[sizeof(ColumnFamilyOptions)];
@@ -371,44 +414,46 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // Count padding bytes by setting all bytes in the memory to a special char,
   // copy a well constructed struct to this memory and see how many special
   // bytes left.
-  ColumnFamilyOptions* options = new (options_ptr) ColumnFamilyOptions();
   FillWithSpecialChar(options_ptr, sizeof(ColumnFamilyOptions),
-                      kColumnFamilyOptionsBlacklist);
-  // It based on the behavior of compiler that padding bytes are not changed
-  // when copying the struct. It's prone to failure when compiler behavior
-  // changes. We verify there is unset bytes to detect the case.
-  *options = ColumnFamilyOptions();
+                      kColumnFamilyOptionsExcluded);
+
+  // Invoke a user-defined constructor in the hope that it does not overwrite
+  // padding bytes. Note that previously we relied on the implicitly-defined
+  // copy-assignment operator (i.e., `*options = ColumnFamilyOptions();`) here,
+  // which did in fact modify padding bytes.
+  ColumnFamilyOptions* options = new (options_ptr) ColumnFamilyOptions();
 
   // Deprecatd option which is not initialized. Need to set it to avoid
   // Valgrind error
   options->max_mem_compaction_level = 0;
 
   int unset_bytes_base = NumUnsetBytes(options_ptr, sizeof(ColumnFamilyOptions),
-                                       kColumnFamilyOptionsBlacklist);
+                                       kColumnFamilyOptionsExcluded);
   ASSERT_GT(unset_bytes_base, 0);
   options->~ColumnFamilyOptions();
 
   options = new (options_ptr) ColumnFamilyOptions();
   FillWithSpecialChar(options_ptr, sizeof(ColumnFamilyOptions),
-                      kColumnFamilyOptionsBlacklist);
+                      kColumnFamilyOptionsExcluded);
 
   // Following options are not settable through
   // GetColumnFamilyOptionsFromString():
   options->rate_limit_delay_max_milliseconds = 33;
   options->compaction_options_universal = CompactionOptionsUniversal();
-  options->compression_opts = CompressionOptions();
-  options->bottommost_compression_opts = CompressionOptions();
   options->hard_rate_limit = 0;
   options->soft_rate_limit = 0;
+  options->num_levels = 42;  // Initialize options for MutableCF
   options->purge_redundant_kvs_while_flush = false;
   options->max_mem_compaction_level = 0;
   options->compaction_filter = nullptr;
+  options->sst_partitioner_factory = nullptr;
+  options->bottommost_temperature = Temperature::kUnknown;
 
   char* new_options_ptr = new char[sizeof(ColumnFamilyOptions)];
   ColumnFamilyOptions* new_options =
       new (new_options_ptr) ColumnFamilyOptions();
   FillWithSpecialChar(new_options_ptr, sizeof(ColumnFamilyOptions),
-                      kColumnFamilyOptionsBlacklist);
+                      kColumnFamilyOptionsExcluded);
 
   // Need to update the option string if a new option is added.
   ASSERT_OK(GetColumnFamilyOptionsFromString(
@@ -435,6 +480,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "max_bytes_for_level_multiplier=60;"
       "memtable_factory=SkipListFactory;"
       "compression=kNoCompression;"
+      "compression_opts=5:6:7:8:9:10:true:11;"
+      "bottommost_compression_opts=4:5:6:7:8:9:true:10;"
       "bottommost_compression=kDisableCompressionOption;"
       "level0_stop_writes_trigger=33;"
       "num_levels=99;"
@@ -449,6 +496,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "memtable_prefix_bloom_size_ratio=0.4642;"
       "memtable_whole_key_filtering=true;"
       "memtable_insert_with_hint_prefix_extractor=rocksdb.CappedPrefix.13;"
+      "check_flush_compaction_key_order=false;"
       "paranoid_file_checks=true;"
       "force_consistency_checks=true;"
       "inplace_update_num_locks=7429;"
@@ -463,19 +511,74 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "ttl=60;"
       "periodic_compaction_seconds=3600;"
       "sample_for_compression=0;"
+      "enable_blob_files=true;"
+      "min_blob_size=256;"
+      "blob_file_size=1000000;"
+      "blob_compression_type=kBZip2Compression;"
+      "enable_blob_garbage_collection=true;"
+      "blob_garbage_collection_age_cutoff=0.5;"
+      "blob_garbage_collection_force_threshold=0.75;"
+      "blob_compaction_readahead_size=262144;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
-      "compaction=false;};",
+      "compaction=false;age_for_warm=1;};",
       new_options));
 
   ASSERT_EQ(unset_bytes_base,
             NumUnsetBytes(new_options_ptr, sizeof(ColumnFamilyOptions),
-                          kColumnFamilyOptionsBlacklist));
+                          kColumnFamilyOptionsExcluded));
+
+  ColumnFamilyOptions rnd_filled_options = *new_options;
 
   options->~ColumnFamilyOptions();
   new_options->~ColumnFamilyOptions();
 
   delete[] options_ptr;
   delete[] new_options_ptr;
+
+  // Test copying to mutabable and immutable options and copy back the mutable
+  // part.
+  const OffsetGap kMutableCFOptionsExcluded = {
+      {offset_of(&MutableCFOptions::prefix_extractor),
+       sizeof(std::shared_ptr<const SliceTransform>)},
+      {offset_of(&MutableCFOptions::max_bytes_for_level_multiplier_additional),
+       sizeof(std::vector<int>)},
+      {offset_of(&MutableCFOptions::max_file_size),
+       sizeof(std::vector<uint64_t>)},
+  };
+
+  // For all memory used for options, pre-fill every char. Otherwise, the
+  // padding bytes might be different so that byte-wise comparison doesn't
+  // general equal results even if objects are equal.
+  const char kMySpecialChar = 'x';
+  char* mcfo1_ptr = new char[sizeof(MutableCFOptions)];
+  FillWithSpecialChar(mcfo1_ptr, sizeof(MutableCFOptions),
+                      kMutableCFOptionsExcluded, kMySpecialChar);
+  char* mcfo2_ptr = new char[sizeof(MutableCFOptions)];
+  FillWithSpecialChar(mcfo2_ptr, sizeof(MutableCFOptions),
+                      kMutableCFOptionsExcluded, kMySpecialChar);
+
+  // A clean column family options is constructed after filling the same special
+  // char as the initial one. So that the padding bytes are the same.
+  char* cfo_clean_ptr = new char[sizeof(ColumnFamilyOptions)];
+  FillWithSpecialChar(cfo_clean_ptr, sizeof(ColumnFamilyOptions),
+                      kColumnFamilyOptionsExcluded);
+  rnd_filled_options.num_levels = 66;
+  ColumnFamilyOptions* cfo_clean = new (cfo_clean_ptr) ColumnFamilyOptions();
+
+  MutableCFOptions* mcfo1 =
+      new (mcfo1_ptr) MutableCFOptions(rnd_filled_options);
+  ColumnFamilyOptions cfo_back = BuildColumnFamilyOptions(*cfo_clean, *mcfo1);
+  MutableCFOptions* mcfo2 = new (mcfo2_ptr) MutableCFOptions(cfo_back);
+
+  ASSERT_TRUE(CompareBytes(mcfo1_ptr, mcfo2_ptr, sizeof(MutableCFOptions),
+                           kMutableCFOptionsExcluded));
+
+  cfo_clean->~ColumnFamilyOptions();
+  mcfo1->~MutableCFOptions();
+  mcfo2->~MutableCFOptions();
+  delete[] mcfo1_ptr;
+  delete[] mcfo2_ptr;
+  delete[] cfo_clean_ptr;
 }
 #endif  // !__clang__
 #endif  // OS_LINUX || OS_WIN

@@ -10,13 +10,14 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 void ThreadBody(void* v) {
   ThreadState* thread = reinterpret_cast<ThreadState*>(v);
   SharedState* shared = thread->shared;
 
-  if (shared->ShouldVerifyAtBeginning()) {
+  if (!FLAGS_skip_verifydb && shared->ShouldVerifyAtBeginning()) {
     thread->shared->GetStressTest()->VerifyDb(thread);
   }
   {
@@ -42,7 +43,9 @@ void ThreadBody(void* v) {
     }
   }
 
-  thread->shared->GetStressTest()->VerifyDb(thread);
+  if (!FLAGS_skip_verifydb) {
+    thread->shared->GetStressTest()->VerifyDb(thread);
+  }
 
   {
     MutexLock l(shared->GetMutex());
@@ -54,31 +57,42 @@ void ThreadBody(void* v) {
 }
 
 bool RunStressTest(StressTest* stress) {
+  SystemClock* clock = db_stress_env->GetSystemClock().get();
   stress->InitDb();
-
   SharedState shared(db_stress_env, stress);
-  if (FLAGS_read_only) {
-    stress->InitReadonlyDb(&shared);
+  stress->FinishInitDb(&shared);
+
+#ifndef NDEBUG
+  if (FLAGS_sync_fault_injection) {
+    fault_fs_guard->SetFilesystemDirectWritable(false);
   }
+#endif
 
-  uint32_t n = shared.GetNumThreads();
-
-  uint64_t now = db_stress_env->NowMicros();
+  uint32_t n = FLAGS_threads;
+  uint64_t now = clock->NowMicros();
   fprintf(stdout, "%s Initializing worker threads\n",
-          db_stress_env->TimeToString(now / 1000000).c_str());
-  std::vector<ThreadState*> threads(n);
-  for (uint32_t i = 0; i < n; i++) {
-    threads[i] = new ThreadState(i, &shared);
-    db_stress_env->StartThread(ThreadBody, threads[i]);
-  }
+          clock->TimeToString(now / 1000000).c_str());
+
   ThreadState bg_thread(0, &shared);
-  if (FLAGS_compaction_thread_pool_adjust_interval > 0) {
-    db_stress_env->StartThread(PoolSizeChangeThread, &bg_thread);
-  }
   ThreadState continuous_verification_thread(0, &shared);
-  if (FLAGS_continuous_verification_interval > 0) {
-    db_stress_env->StartThread(DbVerificationThread,
-                               &continuous_verification_thread);
+  std::vector<ThreadState*> threads(n);
+  {
+    MutexLock l(shared.GetMutex());
+
+    for (uint32_t i = 0; i < n; i++) {
+      shared.IncThreads();
+      threads[i] = new ThreadState(i, &shared);
+      db_stress_env->StartThread(ThreadBody, threads[i]);
+    }
+    if (FLAGS_compaction_thread_pool_adjust_interval > 0) {
+      shared.IncBgThreads();
+      db_stress_env->StartThread(PoolSizeChangeThread, &bg_thread);
+    }
+    if (FLAGS_continuous_verification_interval > 0) {
+      shared.IncBgThreads();
+      db_stress_env->StartThread(DbVerificationThread,
+                                 &continuous_verification_thread);
+    }
   }
 
   // Each thread goes through the following states:
@@ -98,9 +112,9 @@ bool RunStressTest(StressTest* stress) {
       }
     }
 
-    now = db_stress_env->NowMicros();
+    now = clock->NowMicros();
     fprintf(stdout, "%s Starting database operations\n",
-            db_stress_env->TimeToString(now / 1000000).c_str());
+            clock->TimeToString(now / 1000000).c_str());
 
     shared.SetStart();
     shared.GetCondVar()->SignalAll();
@@ -108,13 +122,16 @@ bool RunStressTest(StressTest* stress) {
       shared.GetCondVar()->Wait();
     }
 
-    now = db_stress_env->NowMicros();
+    now = clock->NowMicros();
     if (FLAGS_test_batches_snapshots) {
       fprintf(stdout, "%s Limited verification already done during gets\n",
-              db_stress_env->TimeToString((uint64_t)now / 1000000).c_str());
+              clock->TimeToString((uint64_t)now / 1000000).c_str());
+    } else if (FLAGS_skip_verifydb) {
+      fprintf(stdout, "%s Verification skipped\n",
+              clock->TimeToString((uint64_t)now / 1000000).c_str());
     } else {
       fprintf(stdout, "%s Starting verification\n",
-              db_stress_env->TimeToString((uint64_t)now / 1000000).c_str());
+              clock->TimeToString((uint64_t)now / 1000000).c_str());
     }
 
     shared.SetStartVerify();
@@ -133,10 +150,11 @@ bool RunStressTest(StressTest* stress) {
     delete threads[i];
     threads[i] = nullptr;
   }
-  now = db_stress_env->NowMicros();
-  if (!FLAGS_test_batches_snapshots && !shared.HasVerificationFailedYet()) {
+  now = clock->NowMicros();
+  if (!FLAGS_skip_verifydb && !FLAGS_test_batches_snapshots &&
+      !shared.HasVerificationFailedYet()) {
     fprintf(stdout, "%s Verification successful\n",
-            db_stress_env->TimeToString(now / 1000000).c_str());
+            clock->TimeToString(now / 1000000).c_str());
   }
   stress->PrintStatistics();
 

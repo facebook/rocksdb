@@ -9,8 +9,7 @@
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::SSTDumpTool tool;
-  tool.Run(argc, argv);
-  return 0;
+  return tool.Run(argc, argv);
 }
 #else
 #include <stdio.h>

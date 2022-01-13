@@ -51,7 +51,7 @@ class ThreadPoolImpl : public ThreadPool {
 
   // Make threads to run at a lower kernel CPU priority
   // Currently only has effect on Linux
-  void LowerCPUPriority();
+  void LowerCPUPriority(CpuPriority pri);
 
   // Ensure there is at aleast num threads in the pool
   // but do not kill threads if there are more

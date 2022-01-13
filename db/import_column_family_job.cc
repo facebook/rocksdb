@@ -10,6 +10,7 @@
 #include "db/version_edit.h"
 #include "file/file_util.h"
 #include "file/random_access_file_reader.h"
+#include "logging/logging.h"
 #include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
@@ -26,14 +27,14 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
   for (const auto& file_metadata : metadata_) {
     const auto file_path = file_metadata.db_path + "/" + file_metadata.name;
     IngestedFileInfo file_to_import;
-    status = GetIngestedFileInfo(file_path, &file_to_import, sv);
+    status =
+        GetIngestedFileInfo(file_path, next_file_number++, &file_to_import, sv);
     if (!status.ok()) {
       return status;
     }
     files_to_import_.push_back(file_to_import);
   }
 
-  const auto ucmp = cfd_->internal_comparator().user_comparator();
   auto num_files = files_to_import_.size();
   if (num_files == 0) {
     return Status::InvalidArgument("The list of files is empty");
@@ -55,17 +56,18 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
         }
       }
 
-      std::sort(sorted_files.begin(), sorted_files.end(),
-                [&ucmp](const IngestedFileInfo* info1,
-                        const IngestedFileInfo* info2) {
-                  return sstableKeyCompare(ucmp, info1->smallest_internal_key,
-                                           info2->smallest_internal_key) < 0;
-                });
+      std::sort(
+          sorted_files.begin(), sorted_files.end(),
+          [this](const IngestedFileInfo* info1, const IngestedFileInfo* info2) {
+            return cfd_->internal_comparator().Compare(
+                       info1->smallest_internal_key,
+                       info2->smallest_internal_key) < 0;
+          });
 
-      for (size_t i = 0; i < sorted_files.size() - 1; i++) {
-        if (sstableKeyCompare(ucmp, sorted_files[i]->largest_internal_key,
-                              sorted_files[i + 1]->smallest_internal_key) >=
-            0) {
+      for (size_t i = 0; i + 1 < sorted_files.size(); i++) {
+        if (cfd_->internal_comparator().Compare(
+                sorted_files[i]->largest_internal_key,
+                sorted_files[i + 1]->smallest_internal_key) >= 0) {
           return Status::InvalidArgument("Files have overlapping ranges");
         }
       }
@@ -85,8 +87,6 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
   // Copy/Move external files into DB
   auto hardlink_files = import_options_.move_files;
   for (auto& f : files_to_import_) {
-    f.fd = FileDescriptor(next_file_number++, 0, f.file_size);
-
     const auto path_outside_db = f.external_file_path;
     const auto path_inside_db = TableFileName(
         cfd_->ioptions()->cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
@@ -100,8 +100,8 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       }
     }
     if (!hardlink_files) {
-      status = CopyFile(fs_, path_outside_db, path_inside_db, 0,
-                        db_options_.use_fsync);
+      status = CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
+                        db_options_.use_fsync, io_tracer_);
     }
     if (!status.ok()) {
       break;
@@ -140,7 +140,7 @@ Status ImportColumnFamilyJob::Run() {
   int64_t temp_current_time = 0;
   uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
   uint64_t current_time = kUnknownOldestAncesterTime;
-  if (env_->GetCurrentTime(&temp_current_time).ok()) {
+  if (clock_->GetCurrentTime(&temp_current_time).ok()) {
     current_time = oldest_ancester_time =
         static_cast<uint64_t>(temp_current_time);
   }
@@ -152,9 +152,10 @@ Status ImportColumnFamilyJob::Run() {
     edit_.AddFile(file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
                   f.fd.GetFileSize(), f.smallest_internal_key,
                   f.largest_internal_key, file_metadata.smallest_seqno,
-                  file_metadata.largest_seqno, false, kInvalidBlobFileNumber,
-                  oldest_ancester_time, current_time, kUnknownFileChecksum,
-                  kUnknownFileChecksumFuncName);
+                  file_metadata.largest_seqno, false, file_metadata.temperature,
+                  kInvalidBlobFileNumber, oldest_ancester_time, current_time,
+                  kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                  kDisableUserTimestamp, kDisableUserTimestamp);
 
     // If incoming sequence number is higher, update local sequence number.
     if (file_metadata.largest_seqno > versions_->LastSequence()) {
@@ -196,8 +197,8 @@ void ImportColumnFamilyJob::Cleanup(const Status& status) {
 }
 
 Status ImportColumnFamilyJob::GetIngestedFileInfo(
-    const std::string& external_file, IngestedFileInfo* file_to_import,
-    SuperVersion* sv) {
+    const std::string& external_file, uint64_t new_file_number,
+    IngestedFileInfo* file_to_import, SuperVersion* sv) {
   file_to_import->external_file_path = external_file;
 
   // Get external file size
@@ -206,6 +207,10 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   if (!status.ok()) {
     return status;
   }
+
+  // Assign FD with number
+  file_to_import->fd =
+      FileDescriptor(new_file_number, 0, file_to_import->file_size);
 
   // Create TableReader for external file
   std::unique_ptr<TableReader> table_reader;
@@ -217,13 +222,18 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   if (!status.ok()) {
     return status;
   }
-  sst_file_reader.reset(
-      new RandomAccessFileReader(std::move(sst_file), external_file));
+  sst_file_reader.reset(new RandomAccessFileReader(
+      std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
-      TableReaderOptions(*cfd_->ioptions(),
-                         sv->mutable_cf_options.prefix_extractor.get(),
-                         env_options_, cfd_->internal_comparator()),
+      TableReaderOptions(
+          *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor.get(),
+          env_options_, cfd_->internal_comparator(),
+          /*skip_filters*/ false, /*immortal*/ false,
+          /*force_direct_prefetch*/ false, /*level*/ -1,
+          /*block_cache_tracer*/ nullptr,
+          /*max_file_size_for_l0_meta_pin*/ 0, versions_->DbSessionId(),
+          /*cur_file_num*/ new_file_number),
       std::move(sst_file_reader), file_to_import->file_size, &table_reader);
   if (!status.ok()) {
     return status;
@@ -252,15 +262,21 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
 
   // Get first (smallest) key from file
   iter->SeekToFirst();
-  if (!ParseInternalKey(iter->key(), &key)) {
-    return Status::Corruption("external file have corrupted keys");
+  Status pik_status =
+      ParseInternalKey(iter->key(), &key, db_options_.allow_data_in_errors);
+  if (!pik_status.ok()) {
+    return Status::Corruption("Corrupted Key in external file. ",
+                              pik_status.getState());
   }
   file_to_import->smallest_internal_key.SetFrom(key);
 
   // Get last (largest) key from file
   iter->SeekToLast();
-  if (!ParseInternalKey(iter->key(), &key)) {
-    return Status::Corruption("external file have corrupted keys");
+  pik_status =
+      ParseInternalKey(iter->key(), &key, db_options_.allow_data_in_errors);
+  if (!pik_status.ok()) {
+    return Status::Corruption("Corrupted Key in external file. ",
+                              pik_status.getState());
   }
   file_to_import->largest_internal_key.SetFrom(key);
 

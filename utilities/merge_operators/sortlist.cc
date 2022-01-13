@@ -7,9 +7,6 @@
 #include "rocksdb/slice.h"
 #include "utilities/merge_operators.h"
 
-using ROCKSDB_NAMESPACE::Logger;
-using ROCKSDB_NAMESPACE::MergeOperator;
-using ROCKSDB_NAMESPACE::Slice;
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -51,8 +48,6 @@ bool SortList::PartialMergeMulti(const Slice& /*key*/,
   (void)new_value;
   return true;
 }
-
-const char* SortList::Name() const { return "MergeSortOperator"; }
 
 void SortList::MakeVector(std::vector<int>& operand, Slice slice) const {
   do {

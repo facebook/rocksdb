@@ -10,6 +10,7 @@
 #include "db/log_reader.h"
 #include "db/version_set.h"
 #include "file/filename.h"
+#include "logging/logging.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -63,7 +64,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
       const TransactionLogIterator::ReadOptions& read_options,
       const EnvOptions& soptions, const SequenceNumber seqNum,
       std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions,
-      const bool seq_per_batch);
+      const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer);
 
   virtual bool Valid() override;
 
@@ -122,6 +123,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   // Update current batch if a continuous batch is found, else return false
   void UpdateCurrentWriteBatch(const Slice& record);
   Status OpenLogReader(const LogFile* file);
+  std::shared_ptr<IOTracer> io_tracer_;
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

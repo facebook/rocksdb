@@ -49,7 +49,7 @@ void BytesXOROperator::XOR(const Slice* existing_value,
       new_value->push_back(existing_value_data[i]);
     }
   } else {
-	  assert(value.size() == max_size);
+    assert(value.size() == max_size);
     for (size_t i = min_size; i < max_size; i++) {
       new_value->push_back(value_data[i]);
     }

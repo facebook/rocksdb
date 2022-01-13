@@ -1,3 +1,54 @@
 @PACKAGE_INIT@
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/modules")
+
+include(CMakeFindDependencyMacro)
+
+set(GFLAGS_USE_TARGET_NAMESPACE @GFLAGS_USE_TARGET_NAMESPACE@)
+
+if(@WITH_JEMALLOC@)
+  find_dependency(JeMalloc)
+endif()
+
+if(@WITH_GFLAGS@)
+  find_dependency(gflags CONFIG)
+  if(NOT gflags_FOUND)
+    find_dependency(gflags)
+  endif()
+endif()
+
+if(@WITH_SNAPPY@)
+  find_dependency(Snappy CONFIG)
+  if(NOT Snappy_FOUND)
+    find_dependency(Snappy)
+  endif()
+endif()
+
+if(@WITH_ZLIB@)
+  find_dependency(ZLIB)
+endif()
+
+if(@WITH_BZ2@)
+  find_dependency(BZip2)
+endif()
+
+if(@WITH_LZ4@)
+  find_dependency(lz4)
+endif()
+
+if(@WITH_ZSTD@)
+  find_dependency(zstd)
+endif()
+
+if(@WITH_NUMA@)
+  find_dependency(NUMA)
+endif()
+
+if(@WITH_TBB@)
+  find_dependency(TBB)
+endif()
+
+find_dependency(Threads)
+
 include("${CMAKE_CURRENT_LIST_DIR}/RocksDBTargets.cmake")
 check_required_components(RocksDB)

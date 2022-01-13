@@ -13,7 +13,8 @@
 #include <gtest/gtest.h>
 #endif
 
-#if !defined(ROCKSDB_LITE) && !defined(__ARM_ARCH)
+#if !defined(ROCKSDB_LITE) && !defined(__ARM_ARCH) && \
+    !defined(ROCKSDB_VALGRIND_RUN)
 
 #include <chrono>
 #include <cmath>
@@ -1136,7 +1137,9 @@ int main(int argc, char** argv) {
 
 #else
 int main(int /*argc*/, char** /*argv*/) {
-  printf("DistributedMutex is not supported in ROCKSDB_LITE or on ARM\n");
+  printf(
+      "DistributedMutex is not supported in ROCKSDB_LITE, on ARM, or in "
+      "valgrind_test runs\n");
   return 0;
 }
-#endif  // !ROCKSDB_LITE && !__ARM_ARCH
+#endif  // !ROCKSDB_LITE && !__ARM_ARCH && !ROCKSDB_VALGRIND_RUN

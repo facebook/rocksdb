@@ -30,7 +30,8 @@ Status FilterBlockReaderCommon<TBlocklike>::ReadFilterBlock(
       table->RetrieveBlock(prefetch_buffer, read_options, rep->filter_handle,
                            UncompressionDict::GetEmptyDict(), filter_block,
                            BlockType::kFilter, get_context, lookup_context,
-                           /* for_compaction */ false, use_cache);
+                           /* for_compaction */ false, use_cache,
+                           /* wait_for_cache */ true);
 
   return s;
 }

@@ -11,9 +11,9 @@
 
 #include "monitoring/histogram.h"
 #include "port/port.h"
-#include "rocksdb/env.h"
 #include "rocksdb/snapshot.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/system_clock.h"
 #include "util/gflags_compat.h"
 #include "util/random.h"
 
@@ -21,9 +21,10 @@ DECLARE_bool(histogram);
 DECLARE_bool(progress_reports);
 
 namespace ROCKSDB_NAMESPACE {
+
 // Database statistics
-static std::shared_ptr<ROCKSDB_NAMESPACE::Statistics> dbstats;
-static std::shared_ptr<ROCKSDB_NAMESPACE::Statistics> dbstats_secondaries;
+extern std::shared_ptr<ROCKSDB_NAMESPACE::Statistics> dbstats;
+extern std::shared_ptr<ROCKSDB_NAMESPACE::Statistics> dbstats_secondaries;
 
 class Stats {
  private:
@@ -42,6 +43,7 @@ class Stats {
   long range_deletions_;
   long covered_by_range_deletions_;
   long errors_;
+  long verified_errors_;
   long num_compact_files_succeed_;
   long num_compact_files_failed_;
   int next_report_;
@@ -67,11 +69,12 @@ class Stats {
     range_deletions_ = 0;
     covered_by_range_deletions_ = 0;
     errors_ = 0;
+    verified_errors_ = 0;
     bytes_ = 0;
     seconds_ = 0;
     num_compact_files_succeed_ = 0;
     num_compact_files_failed_ = 0;
-    start_ = Env::Default()->NowMicros();
+    start_ = SystemClock::Default()->NowMicros();
     last_op_finish_ = start_;
     finish_ = start_;
   }
@@ -90,6 +93,7 @@ class Stats {
     range_deletions_ += other.range_deletions_;
     covered_by_range_deletions_ = other.covered_by_range_deletions_;
     errors_ += other.errors_;
+    verified_errors_ += other.verified_errors_;
     bytes_ += other.bytes_;
     seconds_ += other.seconds_;
     num_compact_files_succeed_ += other.num_compact_files_succeed_;
@@ -99,13 +103,13 @@ class Stats {
   }
 
   void Stop() {
-    finish_ = Env::Default()->NowMicros();
+    finish_ = SystemClock::Default()->NowMicros();
     seconds_ = (finish_ - start_) * 1e-6;
   }
 
   void FinishedSingleOp() {
     if (FLAGS_histogram) {
-      auto now = Env::Default()->NowMicros();
+      auto now = SystemClock::Default()->NowMicros();
       auto micros = now - last_op_finish_;
       hist_.Add(micros);
       if (micros > 20000) {
@@ -162,6 +166,8 @@ class Stats {
   void AddCoveredByRangeDeletions(long n) { covered_by_range_deletions_ += n; }
 
   void AddErrors(long n) { errors_ += n; }
+
+  void AddVerifiedErrors(long n) { verified_errors_ += n; }
 
   void AddNumCompactFilesSucceed(long n) { num_compact_files_succeed_ += n; }
 

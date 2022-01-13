@@ -15,18 +15,20 @@
 namespace ROCKSDB_NAMESPACE {
 class FIFOCompactionPicker : public CompactionPicker {
  public:
-  FIFOCompactionPicker(const ImmutableCFOptions& ioptions,
+  FIFOCompactionPicker(const ImmutableOptions& ioptions,
                        const InternalKeyComparator* icmp)
       : CompactionPicker(ioptions, icmp) {}
 
   virtual Compaction* PickCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      VersionStorageInfo* version, LogBuffer* log_buffer,
+      const MutableDBOptions& mutable_db_options, VersionStorageInfo* version,
+      LogBuffer* log_buffer,
       SequenceNumber earliest_memtable_seqno = kMaxSequenceNumber) override;
 
   virtual Compaction* CompactRange(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      VersionStorageInfo* vstorage, int input_level, int output_level,
+      const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+      int input_level, int output_level,
       const CompactRangeOptions& compact_range_options,
       const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end, bool* manual_conflict,
@@ -41,13 +43,21 @@ class FIFOCompactionPicker : public CompactionPicker {
  private:
   Compaction* PickTTLCompaction(const std::string& cf_name,
                                 const MutableCFOptions& mutable_cf_options,
+                                const MutableDBOptions& mutable_db_options,
                                 VersionStorageInfo* version,
                                 LogBuffer* log_buffer);
 
   Compaction* PickSizeCompaction(const std::string& cf_name,
                                  const MutableCFOptions& mutable_cf_options,
+                                 const MutableDBOptions& mutable_db_options,
                                  VersionStorageInfo* version,
                                  LogBuffer* log_buffer);
+
+  Compaction* PickCompactionToWarm(const std::string& cf_name,
+                                   const MutableCFOptions& mutable_cf_options,
+                                   const MutableDBOptions& mutable_db_options,
+                                   VersionStorageInfo* version,
+                                   LogBuffer* log_buffer);
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

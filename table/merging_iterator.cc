@@ -28,8 +28,8 @@
 namespace ROCKSDB_NAMESPACE {
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
 namespace {
-typedef BinaryHeap<IteratorWrapper*, MaxIteratorComparator> MergerMaxIterHeap;
-typedef BinaryHeap<IteratorWrapper*, MinIteratorComparator> MergerMinIterHeap;
+using MergerMaxIterHeap = BinaryHeap<IteratorWrapper*, MaxIteratorComparator>;
+using MergerMinIterHeap = BinaryHeap<IteratorWrapper*, MinIteratorComparator>;
 }  // namespace
 
 const size_t kNumIterReserve = 4;
@@ -40,20 +40,16 @@ class MergingIterator : public InternalIterator {
                   InternalIterator** children, int n, bool is_arena_mode,
                   bool prefix_seek_mode)
       : is_arena_mode_(is_arena_mode),
+        prefix_seek_mode_(prefix_seek_mode),
+        direction_(kForward),
         comparator_(comparator),
         current_(nullptr),
-        direction_(kForward),
         minHeap_(comparator_),
-        prefix_seek_mode_(prefix_seek_mode),
         pinned_iters_mgr_(nullptr) {
     children_.resize(n);
     for (int i = 0; i < n; i++) {
       children_[i].Set(children[i]);
     }
-    for (auto& child : children_) {
-      AddToMinHeapOrCheckStatus(&child);
-    }
-    current_ = CurrentForward();
   }
 
   void considerStatus(Status s) {
@@ -63,22 +59,20 @@ class MergingIterator : public InternalIterator {
   }
 
   virtual void AddIterator(InternalIterator* iter) {
-    assert(direction_ == kForward);
     children_.emplace_back(iter);
     if (pinned_iters_mgr_) {
       iter->SetPinnedItersMgr(pinned_iters_mgr_);
     }
-    auto new_wrapper = children_.back();
-    AddToMinHeapOrCheckStatus(&new_wrapper);
-    if (new_wrapper.Valid()) {
-      current_ = CurrentForward();
-    }
+    // Invalidate to ensure `Seek*()` is called to construct the heaps before
+    // use.
+    current_ = nullptr;
   }
 
   ~MergingIterator() override {
     for (auto& child : children_) {
       child.DeleteIter(is_arena_mode_);
     }
+    status_.PermitUncheckedError();
   }
 
   bool Valid() const override { return current_ != nullptr && status_.ok(); }
@@ -194,7 +188,8 @@ class MergingIterator : public InternalIterator {
     bool is_valid = Valid();
     if (is_valid) {
       result->key = key();
-      result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
+      result->bound_check_result = UpperBoundCheckResult();
+      result->value_prepared = current_->IsValuePrepared();
     }
     return is_valid;
   }
@@ -240,6 +235,17 @@ class MergingIterator : public InternalIterator {
     return current_->value();
   }
 
+  bool PrepareValue() override {
+    assert(Valid());
+    if (current_->PrepareValue()) {
+      return true;
+    }
+
+    considerStatus(current_->status());
+    assert(!status_.ok());
+    return false;
+  }
+
   // Here we simply relay MayBeOutOfLowerBound/MayBeOutOfUpperBound result
   // from current child iterator. Potentially as long as one of child iterator
   // report out of bound is not possible, we know current key is within bound.
@@ -249,9 +255,9 @@ class MergingIterator : public InternalIterator {
     return current_->MayBeOutOfLowerBound();
   }
 
-  bool MayBeOutOfUpperBound() override {
+  IterBoundCheck UpperBoundCheckResult() override {
     assert(Valid());
-    return current_->MayBeOutOfUpperBound();
+    return current_->UpperBoundCheckResult();
   }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
@@ -281,6 +287,10 @@ class MergingIterator : public InternalIterator {
   void InitMaxHeap();
 
   bool is_arena_mode_;
+  bool prefix_seek_mode_;
+  // Which direction is the iterator moving?
+  enum Direction : uint8_t { kForward, kReverse };
+  Direction direction_;
   const InternalKeyComparator* comparator_;
   autovector<IteratorWrapper, kNumIterReserve> children_;
 
@@ -290,14 +300,7 @@ class MergingIterator : public InternalIterator {
   IteratorWrapper* current_;
   // If any of the children have non-ok status, this is one of them.
   Status status_;
-  // Which direction is the iterator moving?
-  enum Direction {
-    kForward,
-    kReverse
-  };
-  Direction direction_;
   MergerMinIterHeap minHeap_;
-  bool prefix_seek_mode_;
 
   // Max heap is used for reverse iteration, which is way less common than
   // forward.  Lazily initialize it to save memory.

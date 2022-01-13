@@ -9,26 +9,22 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
+#if defined(NPERF_CONTEXT)
+// Should not be used because the counters are not thread-safe.
+// Put here just to make get_perf_context() simple without ifdef.
 PerfContext perf_context;
-#else
+#elif defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
 #if defined(OS_SOLARIS)
-__thread PerfContext perf_context_;
-#else
+__thread PerfContext perf_context;
+#else   // OS_SOLARIS
 thread_local PerfContext perf_context;
-#endif
+#endif  // OS_SOLARIS
+#else
+#error "No thread-local support. Disable perf context with -DNPERF_CONTEXT."
 #endif
 
 PerfContext* get_perf_context() {
-#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
   return &perf_context;
-#else
-#if defined(OS_SOLARIS)
-  return &perf_context_;
-#else
-  return &perf_context;
-#endif
-#endif
 }
 
 PerfContext::~PerfContext() {
@@ -38,7 +34,9 @@ PerfContext::~PerfContext() {
 }
 
 PerfContext::PerfContext(const PerfContext& other) {
-#ifndef NPERF_CONTEXT
+#ifdef NPERF_CONTEXT
+  (void)other;
+#else
   user_key_comparison_count = other.user_key_comparison_count;
   block_cache_hit_count = other.block_cache_hit_count;
   block_read_count = other.block_read_count;
@@ -49,6 +47,7 @@ PerfContext::PerfContext(const PerfContext& other) {
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
+  secondary_cache_hit_count = other.secondary_cache_hit_count;
   block_checksum_time = other.block_checksum_time;
   block_decompress_time = other.block_decompress_time;
   get_read_bytes = other.get_read_bytes;
@@ -133,7 +132,9 @@ PerfContext::PerfContext(const PerfContext& other) {
 }
 
 PerfContext::PerfContext(PerfContext&& other) noexcept {
-#ifndef NPERF_CONTEXT
+#ifdef NPERF_CONTEXT
+  (void)other;
+#else
   user_key_comparison_count = other.user_key_comparison_count;
   block_cache_hit_count = other.block_cache_hit_count;
   block_read_count = other.block_read_count;
@@ -144,6 +145,7 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
+  secondary_cache_hit_count = other.secondary_cache_hit_count;
   block_checksum_time = other.block_checksum_time;
   block_decompress_time = other.block_decompress_time;
   get_read_bytes = other.get_read_bytes;
@@ -230,7 +232,9 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
 // TODO(Zhongyi): reduce code duplication between copy constructor and
 // assignment operator
 PerfContext& PerfContext::operator=(const PerfContext& other) {
-#ifndef NPERF_CONTEXT
+#ifdef NPERF_CONTEXT
+  (void)other;
+#else
   user_key_comparison_count = other.user_key_comparison_count;
   block_cache_hit_count = other.block_cache_hit_count;
   block_read_count = other.block_read_count;
@@ -241,6 +245,7 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
+  secondary_cache_hit_count = other.secondary_cache_hit_count;
   block_checksum_time = other.block_checksum_time;
   block_decompress_time = other.block_decompress_time;
   get_read_bytes = other.get_read_bytes;
@@ -337,6 +342,7 @@ void PerfContext::Reset() {
   block_cache_filter_hit_count = 0;
   filter_block_read_count = 0;
   compression_dict_block_read_count = 0;
+  secondary_cache_hit_count = 0;
   block_checksum_time = 0;
   block_decompress_time = 0;
   get_read_bytes = 0;
@@ -443,6 +449,7 @@ void PerfContextByLevel::Reset() {
 
 std::string PerfContext::ToString(bool exclude_zero_counters) const {
 #ifdef NPERF_CONTEXT
+  (void)exclude_zero_counters;
   return "";
 #else
   std::ostringstream ss;
@@ -456,6 +463,7 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(block_cache_filter_hit_count);
   PERF_CONTEXT_OUTPUT(filter_block_read_count);
   PERF_CONTEXT_OUTPUT(compression_dict_block_read_count);
+  PERF_CONTEXT_OUTPUT(secondary_cache_hit_count);
   PERF_CONTEXT_OUTPUT(block_checksum_time);
   PERF_CONTEXT_OUTPUT(block_decompress_time);
   PERF_CONTEXT_OUTPUT(get_read_bytes);

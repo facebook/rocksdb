@@ -42,12 +42,13 @@ extern const uint64_t kLegacyBlockBasedTableMagicNumber;
 extern const uint64_t kCuckooTableMagicNumber;
 
 Status AdaptiveTableFactory::NewTableReader(
-    const TableReaderOptions& table_reader_options,
+    const ReadOptions& ro, const TableReaderOptions& table_reader_options,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table,
-    bool /*prefetch_index_and_filter_in_cache*/) const {
+    bool prefetch_index_and_filter_in_cache) const {
   Footer footer;
-  auto s = ReadFooterFromFile(file.get(), nullptr /* prefetch_buffer */,
+  IOOptions opts;
+  auto s = ReadFooterFromFile(opts, file.get(), nullptr /* prefetch_buffer */,
                               file_size, &footer);
   if (!s.ok()) {
     return s;
@@ -57,9 +58,10 @@ Status AdaptiveTableFactory::NewTableReader(
     return plain_table_factory_->NewTableReader(
         table_reader_options, std::move(file), file_size, table);
   } else if (footer.table_magic_number() == kBlockBasedTableMagicNumber ||
-      footer.table_magic_number() == kLegacyBlockBasedTableMagicNumber) {
+             footer.table_magic_number() == kLegacyBlockBasedTableMagicNumber) {
     return block_based_table_factory_->NewTableReader(
-        table_reader_options, std::move(file), file_size, table);
+        ro, table_reader_options, std::move(file), file_size, table,
+        prefetch_index_and_filter_in_cache);
   } else if (footer.table_magic_number() == kCuckooTableMagicNumber) {
     return cuckoo_table_factory_->NewTableReader(
         table_reader_options, std::move(file), file_size, table);
@@ -69,13 +71,12 @@ Status AdaptiveTableFactory::NewTableReader(
 }
 
 TableBuilder* AdaptiveTableFactory::NewTableBuilder(
-    const TableBuilderOptions& table_builder_options, uint32_t column_family_id,
+    const TableBuilderOptions& table_builder_options,
     WritableFileWriter* file) const {
-  return table_factory_to_write_->NewTableBuilder(table_builder_options,
-                                                  column_family_id, file);
+  return table_factory_to_write_->NewTableBuilder(table_builder_options, file);
 }
 
-std::string AdaptiveTableFactory::GetPrintableTableOptions() const {
+std::string AdaptiveTableFactory::GetPrintableOptions() const {
   std::string ret;
   ret.reserve(20000);
   const int kBufferSize = 200;
@@ -85,13 +86,13 @@ std::string AdaptiveTableFactory::GetPrintableTableOptions() const {
     snprintf(buffer, kBufferSize, "  write factory (%s) options:\n%s\n",
              (table_factory_to_write_->Name() ? table_factory_to_write_->Name()
                                               : ""),
-             table_factory_to_write_->GetPrintableTableOptions().c_str());
+             table_factory_to_write_->GetPrintableOptions().c_str());
     ret.append(buffer);
   }
   if (plain_table_factory_) {
     snprintf(buffer, kBufferSize, "  %s options:\n%s\n",
              plain_table_factory_->Name() ? plain_table_factory_->Name() : "",
-             plain_table_factory_->GetPrintableTableOptions().c_str());
+             plain_table_factory_->GetPrintableOptions().c_str());
     ret.append(buffer);
   }
   if (block_based_table_factory_) {
@@ -99,13 +100,13 @@ std::string AdaptiveTableFactory::GetPrintableTableOptions() const {
         buffer, kBufferSize, "  %s options:\n%s\n",
         (block_based_table_factory_->Name() ? block_based_table_factory_->Name()
                                             : ""),
-        block_based_table_factory_->GetPrintableTableOptions().c_str());
+        block_based_table_factory_->GetPrintableOptions().c_str());
     ret.append(buffer);
   }
   if (cuckoo_table_factory_) {
     snprintf(buffer, kBufferSize, "  %s options:\n%s\n",
              cuckoo_table_factory_->Name() ? cuckoo_table_factory_->Name() : "",
-             cuckoo_table_factory_->GetPrintableTableOptions().c_str());
+             cuckoo_table_factory_->GetPrintableOptions().c_str());
     ret.append(buffer);
   }
   return ret;

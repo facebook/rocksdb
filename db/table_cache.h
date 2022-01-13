@@ -10,9 +10,9 @@
 // Thread-safe (provides internal synchronization)
 
 #pragma once
+#include <cstdint>
 #include <string>
 #include <vector>
-#include <stdint.h>
 
 #include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
@@ -48,9 +48,11 @@ class HistogramImpl;
 // ioptions.row_cache
 class TableCache {
  public:
-  TableCache(const ImmutableCFOptions& ioptions,
-             const FileOptions& storage_options, Cache* cache,
-             BlockCacheTracer* const block_cache_tracer);
+  TableCache(const ImmutableOptions& ioptions,
+             const FileOptions* storage_options, Cache* cache,
+             BlockCacheTracer* const block_cache_tracer,
+             const std::shared_ptr<IOTracer>& io_tracer,
+             const std::string& db_session_id);
   ~TableCache();
 
   // Return an iterator for the specified file number (the corresponding
@@ -60,6 +62,7 @@ class TableCache {
   // the returned iterator.  The returned "*table_reader_ptr" object is owned
   // by the cache and should not be deleted, and is valid for as long as the
   // returned iterator is live.
+  // @param options Must outlive the returned iterator.
   // @param range_del_agg If non-nullptr, adds range deletions to the
   //    aggregator. If an error occurs, returns it in a NewErrorInternalIterator
   // @param for_compaction If true, a new TableReader may be allocated (but
@@ -72,8 +75,9 @@ class TableCache {
       const FileMetaData& file_meta, RangeDelAggregator* range_del_agg,
       const SliceTransform* prefix_extractor, TableReader** table_reader_ptr,
       HistogramImpl* file_read_hist, TableReaderCaller caller, Arena* arena,
-      bool skip_filters, int level, const InternalKey* smallest_compaction_key,
-      const InternalKey* largest_compaction_key);
+      bool skip_filters, int level, size_t max_file_size_for_l0_meta_pin,
+      const InternalKey* smallest_compaction_key,
+      const InternalKey* largest_compaction_key, bool allow_unprepared_value);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call get_context->SaveValue() repeatedly until
@@ -91,7 +95,7 @@ class TableCache {
              GetContext* get_context,
              const SliceTransform* prefix_extractor = nullptr,
              HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
-             int level = -1);
+             int level = -1, size_t max_file_size_for_l0_meta_pin = 0);
 
   // Return the range delete tombstone iterator of the file specified by
   // `file_meta`.
@@ -121,6 +125,9 @@ class TableCache {
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
 
+  // Query whether specified file number is currently in cache
+  static bool HasEntry(Cache* cache, uint64_t file_number);
+
   // Clean table handle and erase it from the table cache
   // Used in DB close, or the file is not live anymore.
   void EraseHandle(const FileDescriptor& fd, Cache::Handle* handle);
@@ -128,14 +135,16 @@ class TableCache {
   // Find table reader
   // @param skip_filters Disables loading/accessing the filter block
   // @param level == -1 means not specified
-  Status FindTable(const FileOptions& toptions,
+  Status FindTable(const ReadOptions& ro, const FileOptions& toptions,
                    const InternalKeyComparator& internal_comparator,
                    const FileDescriptor& file_fd, Cache::Handle**,
                    const SliceTransform* prefix_extractor = nullptr,
                    const bool no_io = false, bool record_read_stats = true,
                    HistogramImpl* file_read_hist = nullptr,
                    bool skip_filters = false, int level = -1,
-                   bool prefetch_index_and_filter_in_cache = true);
+                   bool prefetch_index_and_filter_in_cache = true,
+                   size_t max_file_size_for_l0_meta_pin = 0,
+                   Temperature file_temperature = Temperature::kUnknown);
 
   // Get TableReader from a cache handle.
   TableReader* GetTableReaderFromHandle(Cache::Handle* handle);
@@ -179,7 +188,7 @@ class TableCache {
 
   Cache* get_cache() const { return cache_; }
 
-  // Capacity of the backing Cache that indicates inifinite TableCache capacity.
+  // Capacity of the backing Cache that indicates infinite TableCache capacity.
   // For example when max_open_files is -1 we set the backing Cache to this.
   static const int kInfiniteCapacity = 0x400000;
 
@@ -193,14 +202,16 @@ class TableCache {
 
  private:
   // Build a table reader
-  Status GetTableReader(const FileOptions& file_options,
+  Status GetTableReader(const ReadOptions& ro, const FileOptions& file_options,
                         const InternalKeyComparator& internal_comparator,
                         const FileDescriptor& fd, bool sequential_mode,
                         bool record_read_stats, HistogramImpl* file_read_hist,
                         std::unique_ptr<TableReader>* table_reader,
                         const SliceTransform* prefix_extractor = nullptr,
                         bool skip_filters = false, int level = -1,
-                        bool prefetch_index_and_filter_in_cache = true);
+                        bool prefetch_index_and_filter_in_cache = true,
+                        size_t max_file_size_for_l0_meta_pin = 0,
+                        Temperature file_temperature = Temperature::kUnknown);
 
   // Create a key prefix for looking up the row cache. The prefix is of the
   // format row_cache_id + fd_number + seq_no. Later, the user key can be
@@ -215,12 +226,15 @@ class TableCache {
   bool GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
                        size_t prefix_size, GetContext* get_context);
 
-  const ImmutableCFOptions& ioptions_;
+  const ImmutableOptions& ioptions_;
   const FileOptions& file_options_;
   Cache* const cache_;
   std::string row_cache_id_;
   bool immortal_tables_;
   BlockCacheTracer* const block_cache_tracer_;
+  Striped<port::Mutex, Slice> loader_mutex_;
+  std::shared_ptr<IOTracer> io_tracer_;
+  std::string db_session_id_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -33,8 +33,9 @@ Status UserKeyTablePropertiesCollector::InternalAdd(const Slice& key,
                                                     const Slice& value,
                                                     uint64_t file_size) {
   ParsedInternalKey ikey;
-  if (!ParseInternalKey(key, &ikey)) {
-    return Status::InvalidArgument("Invalid internal key");
+  Status s = ParseInternalKey(key, &ikey, false /* log_err_key */);  // TODO
+  if (!s.ok()) {
+    return s;
   }
 
   return collector_->AddUserKey(ikey.user_key, value, GetEntryType(ikey.type),
@@ -42,10 +43,10 @@ Status UserKeyTablePropertiesCollector::InternalAdd(const Slice& key,
 }
 
 void UserKeyTablePropertiesCollector::BlockAdd(
-    uint64_t bLockRawBytes, uint64_t blockCompressedBytesFast,
-    uint64_t blockCompressedBytesSlow) {
-  return collector_->BlockAdd(bLockRawBytes, blockCompressedBytesFast,
-                              blockCompressedBytesSlow);
+    uint64_t block_raw_bytes, uint64_t block_compressed_bytes_fast,
+    uint64_t block_compressed_bytes_slow) {
+  return collector_->BlockAdd(block_raw_bytes, block_compressed_bytes_fast,
+                              block_compressed_bytes_slow);
 }
 
 Status UserKeyTablePropertiesCollector::Finish(

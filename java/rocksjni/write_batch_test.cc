@@ -47,7 +47,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
   ROCKSDB_NAMESPACE::WriteBufferManager wb(options.db_write_buffer_size);
   options.memtable_factory = factory;
   ROCKSDB_NAMESPACE::MemTable* mem = new ROCKSDB_NAMESPACE::MemTable(
-      cmp, ROCKSDB_NAMESPACE::ImmutableCFOptions(options),
+      cmp, ROCKSDB_NAMESPACE::ImmutableOptions(options),
       ROCKSDB_NAMESPACE::MutableCFOptions(options), &wb,
       ROCKSDB_NAMESPACE::kMaxSequenceNumber, 0 /* column_family_id */);
   mem->Ref();
@@ -63,10 +63,10 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ROCKSDB_NAMESPACE::ParsedInternalKey ikey;
     ikey.clear();
-    bool parsed = ROCKSDB_NAMESPACE::ParseInternalKey(iter->key(), &ikey);
-    if (!parsed) {
-      assert(parsed);
-    }
+    ROCKSDB_NAMESPACE::Status pik_status = ROCKSDB_NAMESPACE::ParseInternalKey(
+        iter->key(), &ikey, true /* log_err_key */);
+    pik_status.PermitUncheckedError();
+    assert(pik_status.ok());
     switch (ikey.type) {
       case ROCKSDB_NAMESPACE::kTypeValue:
         state.append("Put(");
@@ -119,7 +119,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
         break;
     }
     state.append("@");
-    state.append(ROCKSDB_NAMESPACE::NumberToString(ikey.sequence));
+    state.append(ROCKSDB_NAMESPACE::ToString(ikey.sequence));
   }
   if (!s.ok()) {
     state.append(s.ToString());

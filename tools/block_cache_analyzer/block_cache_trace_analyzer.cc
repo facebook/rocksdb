@@ -19,6 +19,8 @@
 #include <sstream>
 
 #include "monitoring/histogram.h"
+#include "rocksdb/system_clock.h"
+#include "rocksdb/trace_record.h"
 #include "util/gflags_compat.h"
 #include "util/string_util.h"
 
@@ -578,8 +580,8 @@ void BlockCacheTraceAnalyzer::WriteSkewness(
   }
   // Sort in descending order.
   sort(pairs.begin(), pairs.end(),
-       [=](const std::pair<std::string, uint64_t>& a,
-           const std::pair<std::string, uint64_t>& b) {
+       [](const std::pair<std::string, uint64_t>& a,
+          const std::pair<std::string, uint64_t>& b) {
          return b.second < a.second;
        });
 
@@ -652,7 +654,6 @@ void BlockCacheTraceAnalyzer::WriteCorrelationFeaturesToFile(
     const std::map<std::string, Features>& label_features,
     const std::map<std::string, Predictions>& label_predictions,
     uint32_t max_number_of_values) const {
-  std::default_random_engine rand_engine(static_cast<std::default_random_engine::result_type>(env_->NowMicros()));
   for (auto const& label_feature_vectors : label_features) {
     const Features& past = label_feature_vectors.second;
     auto it = label_predictions.find(label_feature_vectors.first);
@@ -674,7 +675,7 @@ void BlockCacheTraceAnalyzer::WriteCorrelationFeaturesToFile(
     for (uint32_t i = 0; i < past.num_accesses_since_last_access.size(); i++) {
       indexes.push_back(i);
     }
-    std::shuffle(indexes.begin(), indexes.end(), rand_engine);
+    RandomShuffle(indexes.begin(), indexes.end());
     for (uint32_t i = 0; i < max_number_of_values && i < indexes.size(); i++) {
       uint32_t rand_index = indexes[i];
       out << std::to_string(past.num_accesses_since_last_access[rand_index])
@@ -1520,6 +1521,7 @@ Status BlockCacheTraceAnalyzer::RecordAccess(
 }
 
 Status BlockCacheTraceAnalyzer::Analyze() {
+  SystemClock* clock = env_->GetSystemClock().get();
   std::unique_ptr<BlockCacheTraceReader> reader;
   Status s = Status::OK();
   if (is_human_readable_trace_file_) {
@@ -1543,7 +1545,7 @@ Status BlockCacheTraceAnalyzer::Analyze() {
       return s;
     }
   }
-  uint64_t start = env_->NowMicros();
+  uint64_t start = clock->NowMicros();
   uint64_t time_interval = 0;
   while (s.ok()) {
     BlockCacheTraceRecord access;
@@ -1569,7 +1571,7 @@ Status BlockCacheTraceAnalyzer::Analyze() {
       cache_simulator_->Access(access);
     }
     access_sequence_number_++;
-    uint64_t now = env_->NowMicros();
+    uint64_t now = clock->NowMicros();
     uint64_t duration = (now - start) / kMicrosInSecond;
     if (duration > 10 * time_interval) {
       uint64_t trace_duration =
@@ -1583,7 +1585,7 @@ Status BlockCacheTraceAnalyzer::Analyze() {
       time_interval++;
     }
   }
-  uint64_t now = env_->NowMicros();
+  uint64_t now = clock->NowMicros();
   uint64_t duration = (now - start) / kMicrosInSecond;
   uint64_t trace_duration =
       trace_end_timestamp_in_seconds_ - trace_start_timestamp_in_seconds_;

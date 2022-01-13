@@ -22,8 +22,20 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
-Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
-  Status s;
+IOStatus SequentialFileReader::Create(
+    const std::shared_ptr<FileSystem>& fs, const std::string& fname,
+    const FileOptions& file_opts, std::unique_ptr<SequentialFileReader>* reader,
+    IODebugContext* dbg) {
+  std::unique_ptr<FSSequentialFile> file;
+  IOStatus io_s = fs->NewSequentialFile(fname, file_opts, &file, dbg);
+  if (io_s.ok()) {
+    reader->reset(new SequentialFileReader(std::move(file), fname));
+  }
+  return io_s;
+}
+
+IOStatus SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
+  IOStatus io_s;
   if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
     size_t offset = offset_.fetch_add(n);
@@ -35,28 +47,64 @@ Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
     AlignedBuffer buf;
     buf.Alignment(alignment);
     buf.AllocateNewBuffer(size);
+
     Slice tmp;
-    s = file_->PositionedRead(aligned_offset, size, IOOptions(), &tmp,
-                              buf.BufferStart(), nullptr);
-    if (s.ok() && offset_advance < tmp.size()) {
+    uint64_t orig_offset = 0;
+    FileOperationInfo::StartTimePoint start_ts;
+    if (ShouldNotifyListeners()) {
+      orig_offset = aligned_offset + buf.CurrentSize();
+      start_ts = FileOperationInfo::StartNow();
+    }
+    io_s = file_->PositionedRead(aligned_offset, size, IOOptions(), &tmp,
+                                 buf.BufferStart(), nullptr);
+    if (io_s.ok() && offset_advance < tmp.size()) {
       buf.Size(tmp.size());
       r = buf.Read(scratch, offset_advance,
                    std::min(tmp.size() - offset_advance, n));
     }
     *result = Slice(scratch, r);
+    if (ShouldNotifyListeners()) {
+      auto finish_ts = FileOperationInfo::FinishNow();
+      NotifyOnFileReadFinish(orig_offset, tmp.size(), start_ts, finish_ts,
+                             io_s);
+    }
 #endif  // !ROCKSDB_LITE
   } else {
-    s = file_->Read(n, IOOptions(), result, scratch, nullptr);
+    // To be paranoid, modify scratch a little bit, so in case underlying
+    // FileSystem doesn't fill the buffer but return succee and `scratch`
+    // returns contains a previous block, returned value will not pass
+    // checksum.
+    // It's hard to find useful byte for direct I/O case, so we skip it.
+    if (n > 0 && scratch != nullptr) {
+      scratch[0]++;
+    }
+
+#ifndef ROCKSDB_LITE
+    FileOperationInfo::StartTimePoint start_ts;
+    if (ShouldNotifyListeners()) {
+      start_ts = FileOperationInfo::StartNow();
+    }
+#endif
+
+    io_s = file_->Read(n, IOOptions(), result, scratch, nullptr);
+
+#ifndef ROCKSDB_LITE
+    if (ShouldNotifyListeners()) {
+      auto finish_ts = FileOperationInfo::FinishNow();
+      size_t offset = offset_.fetch_add(result->size());
+      NotifyOnFileReadFinish(offset, result->size(), start_ts, finish_ts, io_s);
+    }
+#endif
   }
   IOSTATS_ADD(bytes_read, result->size());
-  return s;
+  return io_s;
 }
 
-Status SequentialFileReader::Skip(uint64_t n) {
+IOStatus SequentialFileReader::Skip(uint64_t n) {
 #ifndef ROCKSDB_LITE
   if (use_direct_io()) {
     offset_ += static_cast<size_t>(n);
-    return Status::OK();
+    return IOStatus::OK();
   }
 #endif  // !ROCKSDB_LITE
   return file_->Skip(n);

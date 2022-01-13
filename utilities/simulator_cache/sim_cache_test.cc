@@ -4,7 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "rocksdb/utilities/sim_cache.h"
+
 #include <cstdlib>
+
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 
@@ -21,7 +23,7 @@ class SimCacheTest : public DBTestBase {
   const size_t kNumBlocks = 5;
   const size_t kValueSize = 1000;
 
-  SimCacheTest() : DBTestBase("/sim_cache_test") {}
+  SimCacheTest() : DBTestBase("sim_cache_test", /*env_do_fsync=*/true) {}
 
   BlockBasedTableOptions GetTableOptions() {
     BlockBasedTableOptions table_options;
@@ -35,7 +37,7 @@ class SimCacheTest : public DBTestBase {
     options.create_if_missing = true;
     // options.compression = kNoCompression;
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     return options;
   }
 
@@ -84,9 +86,11 @@ TEST_F(SimCacheTest, SimCache) {
   co.metadata_charge_policy = kDontChargeCacheMetadata;
   std::shared_ptr<SimCache> simCache = NewSimCache(NewLRUCache(co), 20000, 0);
   table_options.block_cache = simCache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   RecordCacheCounters(options);
+  // due to cache entry stats collector
+  uint64_t base_misses = simCache->get_miss_counter();
 
   std::vector<std::unique_ptr<Iterator>> iterators(kNumBlocks);
   Iterator* iter = nullptr;
@@ -99,8 +103,8 @@ TEST_F(SimCacheTest, SimCache) {
     CheckCacheCounters(options, 1, 0, 1, 0);
     iterators[i].reset(iter);
   }
-  ASSERT_EQ(kNumBlocks,
-            simCache->get_hit_counter() + simCache->get_miss_counter());
+  ASSERT_EQ(kNumBlocks, simCache->get_hit_counter() +
+                            simCache->get_miss_counter() - base_misses);
   ASSERT_EQ(0, simCache->get_hit_counter());
   size_t usage = simCache->GetUsage();
   ASSERT_LT(0, usage);
@@ -137,8 +141,8 @@ TEST_F(SimCacheTest, SimCache) {
     CheckCacheCounters(options, 1, 0, 1, 0);
   }
   ASSERT_EQ(0, simCache->GetPinnedUsage());
-  ASSERT_EQ(3 * kNumBlocks + 1,
-            simCache->get_hit_counter() + simCache->get_miss_counter());
+  ASSERT_EQ(3 * kNumBlocks + 1, simCache->get_hit_counter() +
+                                    simCache->get_miss_counter() - base_misses);
   ASSERT_EQ(6, simCache->get_hit_counter());
 }
 
@@ -151,13 +155,13 @@ TEST_F(SimCacheTest, SimCacheLogging) {
   co.metadata_charge_policy = kDontChargeCacheMetadata;
   std::shared_ptr<SimCache> sim_cache = NewSimCache(NewLRUCache(co), 20000, 0);
   table_options.block_cache = sim_cache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
 
   int num_block_entries = 20;
   for (int i = 0; i < num_block_entries; i++) {
-    Put(Key(i), "val");
-    Flush();
+    ASSERT_OK(Put(Key(i), "val"));
+    ASSERT_OK(Flush());
   }
 
   std::string log_file = test::PerThreadDBPath(env_, "cache_log.txt");
@@ -172,24 +176,22 @@ TEST_F(SimCacheTest, SimCacheLogging) {
   ASSERT_OK(sim_cache->GetActivityLoggingStatus());
 
   std::string file_contents = "";
-  ReadFileToString(env_, log_file, &file_contents);
+  ASSERT_OK(ReadFileToString(env_, log_file, &file_contents));
+  std::istringstream contents(file_contents);
 
   int lookup_num = 0;
   int add_num = 0;
-  std::string::size_type pos;
 
-  // count number of lookups
-  pos = 0;
-  while ((pos = file_contents.find("LOOKUP -", pos)) != std::string::npos) {
-    ++lookup_num;
-    pos += 1;
-  }
-
-  // count number of additions
-  pos = 0;
-  while ((pos = file_contents.find("ADD -", pos)) != std::string::npos) {
-    ++add_num;
-    pos += 1;
+  std::string line;
+  // count number of lookups and additions
+  while (std::getline(contents, line)) {
+    // check if the line starts with LOOKUP or ADD
+    if (line.rfind("LOOKUP -", 0) == 0) {
+      ++lookup_num;
+    }
+    if (line.rfind("ADD -", 0) == 0) {
+      ++add_num;
+    }
   }
 
   // We asked for every block twice
@@ -199,8 +201,7 @@ TEST_F(SimCacheTest, SimCacheLogging) {
   ASSERT_EQ(add_num, num_block_entries);
 
   // Log things again but stop logging automatically after reaching 512 bytes
- // @lint-ignore TXT2 T25377293 Grandfathered in
-	int max_size = 512;
+  int max_size = 512;
   ASSERT_OK(sim_cache->StartActivityLogging(log_file, env_, max_size));
   for (int it = 0; it < 10; it++) {
     for (int i = 0; i < num_block_entries; i++) {
@@ -211,9 +212,9 @@ TEST_F(SimCacheTest, SimCacheLogging) {
 
   uint64_t fsize = 0;
   ASSERT_OK(env_->GetFileSize(log_file, &fsize));
-	// error margin of 100 bytes
+  // error margin of 100 bytes
   ASSERT_LT(fsize, max_size + 100);
-	ASSERT_GT(fsize, max_size - 100);
+  ASSERT_GT(fsize, max_size - 100);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

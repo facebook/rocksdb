@@ -18,6 +18,7 @@
 #include "db/pre_release_callback.h"
 #include "db/read_callback.h"
 #include "db/snapshot_checker.h"
+#include "logging/logging.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -26,7 +27,6 @@
 #include "util/string_util.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
-#include "utilities/transactions/transaction_lock_mgr.h"
 #include "utilities/transactions/write_prepared_txn.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -1078,10 +1078,11 @@ SnapshotBackup WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
                                                     SequenceNumber* min,
                                                     SequenceNumber* max) {
   if (snapshot != nullptr) {
-    *min = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-               ->min_uncommitted_;
-    *max = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-               ->number_;
+    *min =
+        static_cast_with_check<const SnapshotImpl>(snapshot)->min_uncommitted_;
+    *max = static_cast_with_check<const SnapshotImpl>(snapshot)->number_;
+    // A duplicate of the check in EnhanceSnapshot().
+    assert(*min <= *max + 1);
     return kBackedByDBSnapshot;
   } else {
     *min = SmallestUnCommittedSeq();

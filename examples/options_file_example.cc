@@ -18,9 +18,24 @@
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/options_util.h"
 
-using namespace ROCKSDB_NAMESPACE;
+using ROCKSDB_NAMESPACE::BlockBasedTableOptions;
+using ROCKSDB_NAMESPACE::ColumnFamilyDescriptor;
+using ROCKSDB_NAMESPACE::ColumnFamilyHandle;
+using ROCKSDB_NAMESPACE::ColumnFamilyOptions;
+using ROCKSDB_NAMESPACE::CompactionFilter;
+using ROCKSDB_NAMESPACE::ConfigOptions;
+using ROCKSDB_NAMESPACE::DB;
+using ROCKSDB_NAMESPACE::DBOptions;
+using ROCKSDB_NAMESPACE::NewLRUCache;
+using ROCKSDB_NAMESPACE::Options;
+using ROCKSDB_NAMESPACE::Slice;
+using ROCKSDB_NAMESPACE::Status;
 
+#if defined(OS_WIN)
+std::string kDBPath = "C:\\Windows\\TEMP\\rocksdb_options_file_example";
+#else
 std::string kDBPath = "/tmp/rocksdb_options_file_example";
+#endif
 
 namespace {
 // A dummy compaction filter
@@ -41,7 +56,8 @@ int main() {
   db_opt.create_if_missing = true;
 
   std::vector<ColumnFamilyDescriptor> cf_descs;
-  cf_descs.push_back({kDefaultColumnFamilyName, ColumnFamilyOptions()});
+  cf_descs.push_back(
+      {ROCKSDB_NAMESPACE::kDefaultColumnFamilyName, ColumnFamilyOptions()});
   cf_descs.push_back({"new_cf", ColumnFamilyOptions()});
 
   // initialize BlockBasedTableOptions
@@ -59,7 +75,8 @@ int main() {
 
   // destroy and open DB
   DB* db;
-  Status s = DestroyDB(kDBPath, Options(db_opt, cf_descs[0].options));
+  Status s = ROCKSDB_NAMESPACE::DestroyDB(kDBPath,
+                                          Options(db_opt, cf_descs[0].options));
   assert(s.ok());
   s = DB::Open(Options(db_opt, cf_descs[0].options), kDBPath, &db);
   assert(s.ok());
@@ -79,15 +96,17 @@ int main() {
   // Load the options file.
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
-  s = LoadLatestOptions(kDBPath, Env::Default(), &loaded_db_opt,
+  ConfigOptions config_options;
+  s = LoadLatestOptions(config_options, kDBPath, &loaded_db_opt,
                         &loaded_cf_descs);
   assert(s.ok());
   assert(loaded_db_opt.create_if_missing == db_opt.create_if_missing);
 
   // Initialize pointer options for each column family
   for (size_t i = 0; i < loaded_cf_descs.size(); ++i) {
-    auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(
-        loaded_cf_descs[0].options.table_factory->GetOptions());
+    auto* loaded_bbt_opt =
+        loaded_cf_descs[0]
+            .options.table_factory->GetOptions<BlockBasedTableOptions>();
     // Expect the same as BlockBasedTableOptions will be loaded form file.
     assert(loaded_bbt_opt->block_size == bbt_opts.block_size);
     // However, block_cache needs to be manually initialized as documented
