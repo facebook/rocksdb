@@ -246,34 +246,6 @@ public class ReadOptions extends RocksObject {
   }
 
   /**
-   * Returns whether an auto prefix mode will be used
-   *
-   * @return the setting of whether an auto prefix mode will be used
-   */
-  public boolean autoPrefixMode() {
-    assert (isOwningHandle());
-    return autoPrefixMode(nativeHandle_);
-  }
-
-  /**
-   * When true, by default use total_order_seek = true, and RocksDB can
-   * selectively enable prefix seek mode if won't generate a different result
-   * from total_order_seek, based on seek key, and iterator upper bound.
-   * Not supported in ROCKSDB_LITE mode, in the way that even with value true
-   * prefix mode is not used.
-   *
-   * Default: false
-   *
-   * @param autoPrefixMode if true, then total order seek will be enabled.
-   * @return the reference to the current ReadOptions.
-   */
-  public ReadOptions setAutoPrefixMode(final boolean autoPrefixMode) {
-    assert (isOwningHandle());
-    setAutoPrefixMode(nativeHandle_, autoPrefixMode);
-    return this;
-  }
-
-  /**
    * Returns whether the iterator only iterates over the same prefix as the seek
    *
    * @return the setting of whether the iterator only iterates over the same
@@ -591,15 +563,9 @@ public class ReadOptions extends RocksObject {
   }
 
   /**
-   * When true, by default use total_order_seek = true, and RocksDB can
-   * selectively enable prefix seek mode if won't generate a different result
-   * from total_order_seek, based on seek key, and iterator upper bound.
-   * Not supported in ROCKSDB_LITE mode, in the way that even with value true
-   * prefix mode is not used.
-   * Default: false
+   * Returns whether an auto prefix mode will be used
    *
-   * @return true if auto prefix mode is set.
-   *
+   * @return the setting of whether an auto prefix mode will be used.
    */
   public boolean autoPrefixMode() {
     assert (isOwningHandle());
@@ -612,13 +578,15 @@ public class ReadOptions extends RocksObject {
    * from total_order_seek, based on seek key, and iterator upper bound.
    * Not supported in ROCKSDB_LITE mode, in the way that even with value true
    * prefix mode is not used.
+   *
    * Default: false
-   * @param mode auto prefix mode
+   *
+   * @param autoPrefixMode if true, then auto prefix mode will be enabled.
    * @return the reference to the current ReadOptions.
    */
-  public ReadOptions setAutoPrefixMode(final boolean mode) {
+  public ReadOptions setAutoPrefixMode(final boolean autoPrefixMode) {
     assert (isOwningHandle());
-    setAutoPrefixMode(nativeHandle_, mode);
+    setAutoPrefixMode(nativeHandle_, autoPrefixMode);
     return this;
   }
 
@@ -851,8 +819,6 @@ public class ReadOptions extends RocksObject {
   private native boolean totalOrderSeek(long handle);
   private native void setTotalOrderSeek(long handle, boolean totalOrderSeek);
   private native boolean prefixSameAsStart(long handle);
-  private native void setAutoPrefixMode(long handle, boolean autoPrefixMode);
-  private native boolean autoPrefixMode(long handle);
   private native void setPrefixSameAsStart(long handle, boolean prefixSameAsStart);
   private native boolean pinData(long handle);
   private native void setPinData(long handle, boolean pinData);
