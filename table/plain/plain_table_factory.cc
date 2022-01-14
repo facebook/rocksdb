@@ -167,7 +167,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
     pattern.AddNumber(":");
     return pattern;
   };
-  library.Register<MemTableRepFactory>(
+  library.AddFactory<MemTableRepFactory>(
       AsPattern(VectorRepFactory::kClassName(), VectorRepFactory::kNickName()),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
@@ -180,7 +180,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
         }
         return guard->get();
       });
-  library.Register<MemTableRepFactory>(
+  library.AddFactory<MemTableRepFactory>(
       AsPattern(SkipListFactory::kClassName(), SkipListFactory::kNickName()),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
@@ -193,7 +193,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
         }
         return guard->get();
       });
-  library.Register<MemTableRepFactory>(
+  library.AddFactory<MemTableRepFactory>(
       AsPattern("HashLinkListRepFactory", "hash_linkedlist"),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
@@ -207,7 +207,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
         }
         return guard->get();
       });
-  library.Register<MemTableRepFactory>(
+  library.AddFactory<MemTableRepFactory>(
       AsPattern("HashSkipListRepFactory", "prefix_hash"),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
@@ -221,7 +221,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
         }
         return guard->get();
       });
-  library.Register<MemTableRepFactory>(
+  library.AddFactory<MemTableRepFactory>(
       "cuckoo",
       [](const std::string& /*uri*/,
          std::unique_ptr<MemTableRepFactory>* /*guard*/, std::string* errmsg) {
