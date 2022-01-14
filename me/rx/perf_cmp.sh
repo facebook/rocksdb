@@ -9,7 +9,6 @@ nthreads=${NTHREADS:-16}
 key_bytes=${KEY_BYTES:-20}
 value_bytes=${VALUE_BYTES:-400}
 mb_wps=${MB_WPS:-2}
-write_amp_estimate=${WRITE_AMP_ESTIMATE:-20}
 
 # RocksDB configuration
 subcomp=${SUBCOMP:-1}
@@ -22,7 +21,8 @@ stats_seconds=${STATS_SECONDS:-20}
 cache_meta=${CACHE_META:-1}
 # DIRECT_IO doesn't need a default
 cache_mb=${CACHE_MB:-128}
-pending_ratio=${PENDING_RATIO:-"0.5"}
+pending_ratio=${PENDING_RATIO:-2}
+pending_gb=${PENDING_GB:-20}
 ml2_comp=${ML2_COMP:-"-1"}
 pct_comp=${PCT_COMP:-"-1"}
 
@@ -30,6 +30,7 @@ pct_comp=${PCT_COMP:-"-1"}
 level_comp_start=${LEVEL_COMP_START:-4}
 level_comp_slow=${LEVEL_COMP_SLOW:-20}
 level_comp_stop=${LEVEL_COMP_STOP:-30}
+per_level_fanout=${FANOUT:-8}
 
 # Universal compaction configuration
 univ_comp_start=${UNIV_COMP_START:-8}
@@ -115,13 +116,13 @@ function usage {
   echo -e "\tCACHE_META - cache_index_and_filter_blocks"
   echo -e "\tDIRECT_IO\t\tUse O_DIRECT for user reads and compaction"
   echo -e "\tPENDING_RATIO - used to estimate write-stall limits"
-  echo -e "\tWRITE_AMP_ESTIMATE\t\tEstimate for the write-amp that will occur. Used to compute write-stall limits"
   echo -e "\tSTATS_SECONDS\t\tValue for stats_interval_seconds"
   echo -e "\tSUBCOMP\t\tValue for subcompactions"
   echo -e "\tOptions specific to leveled compaction:"
   echo -e "\t\tLEVEL_COMP_START\tValue for level0_file_num_compaction_trigger"
   echo -e "\t\tLEVEL_COMP_SLOW\tValue for level0_slowdown_writes_trigger"
   echo -e "\t\tLEVEL_COMP_STOP\tValue for level0_stop_writes_trigger"
+  echo -e "\t\tPER_LEVEL_FANOUT\tValue for max_bytes_for_level_multiplier"
   echo -e "\tOptions specific to universal compaction:"
   echo -e "\t\tUNIV_COMP_START\tValue for level0_file_num_compaction_trigger"
   echo -e "\t\tUNIV_COMP_SLOW\tValue for level0_slowdown_writes_trigger"
@@ -143,8 +144,9 @@ function dump_env {
   echo -e "nsecs\t$nsecs" >> $odir/args
   echo -e "nsecs_ro\t$nsecs_ro" >> $odir/args
   echo -e "pending_ratio\t$pending_ratio" >> $odir/args
-  echo -e "write_amp_estimate\t$write_amp_estimate" >> $odir/args
+  echo -e "pending_gb\t$pending_gb" >> $odir/args
   echo -e "univ\t$UNIV" >> $odir/args
+  echo -e "per_level_fanout\t$per_level_fanout" >> $odir/args
 
   echo -e "\nargs_load:" >> $odir/args
   echo "${args_load[@]}" | tr ' ' '\n' >> $odir/args
@@ -172,38 +174,30 @@ mkdir -p $odir
 # 2) space-amp doesn't get out of control
 # 3) the LSM tree shape doesn't get out of control
 #
-# For 1) the limit should be sufficiently larger than sizeof(L0) * write-amp
-#     where write-amp is an estimate. Call this limit-1.
-# For 2) and 3) the limit can be a function of the database size, f * sizeof(database)
-#     where f is a value > 0, usually < 1, and the size is an estimate. Call
-#     this limit-2,3. The value for f is passed by PENDING_BYTES_RATIO.
+# For 1) and L0->L1 compactions the limit should be larger than the max of:
+#       a) L1a = sizeof(L0) + sizeof(L1)
+#       b) L1b = sizeof(L0) * per-level-fanout
 #
-# Then use max(limit-1, limit-2,3) for soft_pending_compaction_bytes_limit
-# and set the hard limit to be twice the soft limit.
+# For 1) and Ln->Ln+1 compactions the limit should be larger than the debt
+# created by concurrent compactions ...
+#       L1c = max-background-jobs * target-file-size-base * per-level-fanout
+#       
+# For 2) and 3) the assumption is that a reasonable value for 1) is the solution.
 #
-# soft_pending_compaction_bytes_limit = estimated-db-size * pending_bytes_ratio
-#     where estimated-db-size ignores compression
-# hard_pending_compaction_bytes_limit = 2 * soft_pending_compaction_bytes_limit
+# Then use (pending_ratio * [ max(L1a, L1b) + L1c ]) + $pending_gb for soft_pending_compaction_bytes_limit,
+# where pending_ratio is a fudge factor, and set the hard limit to be twice the soft limit.
 
-pending_ratio=${PENDING_RATIO:-"0.5"}
-write_amp_estimate=${WRITE_AMP_ESTIMATE:-20}
+l0_mb=$(( $level_comp_start * write_buf_mb ))
+val_L1a=$(( $l0_mb + $l1_mb ))
+val_L2a=$(( $l0_mb * $per_level_fanout ))
+val_max=$( echo $val_L1a $val_L2a | awk '{ if ($1 > $2) { print $1 } else { print $2 } }' )
 
-# This computes limit-2,3 in GB
-soft_bytes23=$( echo $pending_ratio $nkeys $key_bytes $value_bytes | \
-  awk '{ soft = (($3 + $4) * $2 * $1) / (1024*1024*1024); printf "%.1f", soft }' )
+val_L1c=$(( $max_bg_jobs * $sst_mb * per_level_fanout ))
+val_sum=$(( (( $val_max + $val_L1c ) * $pending_ratio ) + ( $pending_gb * 1024 ) ))
 
-# This computes limit-1 in GB
-# Multiplying by 2 below is a fudge factor
-soft_bytes1=$( echo $compaction_trigger $write_buf_mb $write_amp_estimate | \
-  awk '{ soft = ($1 * $2 * $3 * 2) / 1024; printf "%.1f", soft }' )
-# Choose the max from soft_bytes1 and soft_bytes23
-soft_bytes=$( echo $soft_bytes1 $soft_bytes23 | \
-  awk '{ mx=$1; if ($2 > $1) { mx = $2 }; printf "%s", mx }' )
-# To be safe make sure the soft limit is >= 10G
-soft_bytes=$( echo $soft_bytes | \
-  awk '{ mx=$1; if (10 > $1) { mx = 10 }; printf "%.0f", mx }' )
-# Set the hard limit to be 2x the soft limit
-hard_bytes=$( echo $soft_bytes | awk '{ printf "%.0f", $1 * 2 }' )
+# The units are GB
+soft_gb=$( echo $val_sum | awk '{ printf "%.0f", $val_sum / 1024 }' )
+hard_gb=$(( $soft_gb * 2 ))
 
 echo Test versions: $@
 echo Test versions: $@ >> $odir/args
@@ -219,7 +213,7 @@ for v in $@ ; do
   args_common=("${base_args[@]}")
 
   args_common+=( OUTPUT_DIR=$my_odir DB_DIR=$dbdir WAL_DIR=$dbdir DB_BENCH_NO_SYNC=1 )
-  args_common+=( SOFT_PENDING_COMPACTION_BYTES_LIMIT_IN_GB=$soft_bytes HARD_PENDING_COMPACTION_BYTES_LIMIT_IN_GB=$hard_bytes )
+  args_common+=( SOFT_PENDING_COMPACTION_BYTES_LIMIT_IN_GB=$soft_gb HARD_PENDING_COMPACTION_BYTES_LIMIT_IN_GB=$hard_gb )
   args_common+=( "${comp_args[@]}" )
   if [ ! -z $UNIV ]; then
     args_common+=( UNIVERSAL=1 COMPRESSION_SIZE_PERCENT=$pct_comp )

@@ -25,6 +25,7 @@ v6.5.3 \
 v6.6.4 \
 v6.7.3 \
 v6.8.1 \
+v6.9.4 \
 v6.10.2 \
 v6.11.6 \
 v6.12.7 \
@@ -33,8 +34,10 @@ v6.14.6 \
 v6.15.5 \
 v6.16.4 \
 v6.17.3 \
+v6.18.1 \
 v6.19.3 \
 v6.20.3 \
+v6.21.3 \
 v6.22.1 \
 v6.23.3 \
 v6.24.2 \
@@ -56,9 +59,9 @@ v6.26.1 \
 
 latest_versions=( v6.26.1 )
 
-use_versions="${some_versions[@]}"
-#use_versions="${all_versions[@]}"
+#use_versions="${some_versions[@]}"
 #use_versions="${latest_versions[@]}"
+use_versions="${all_versions[@]}"
 
 shift 8
 if [ "$#" -eq 0 ] ; then

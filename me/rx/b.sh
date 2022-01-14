@@ -72,6 +72,7 @@ function display_usage() {
   echo -e "\tLEVEL0_FILE_NUM_COMPACTION_TRIGGER\tValue for level0_file_num_compaction_trigger"
   echo -e "\tLEVEL0_SLOWDOWN_WRITES_TRIGGER\tValue for level0_slowdown_writes_trigger"
   echo -e "\tLEVEL0_STOP_WRITES_TRIGGER\tValue for level0_stop_writes_trigger"
+  echo -e "\tPER_LEVEL_FANOUT\tValue for max_bytes_for_level_multiplier"
   echo -e "\tUNIVERSAL\t\tUse universal compaction when set to anything, otherwise use leveled"
   echo -e "\tUNIVERSAL_MIN_MERGE_WIDTH\tValue of min_merge_width option for universal"
   echo -e "\tUNIVERSAL_MAX_MERGE_WIDTH\tValue of min_merge_width option for universal"
@@ -152,6 +153,7 @@ l1_mb=${MAX_BYTES_FOR_LEVEL_BASE_MB:-1024}
 max_background_jobs=${MAX_BACKGROUND_JOBS:-16}
 stats_interval_seconds=${STATS_INTERVAL_SECONDS:-60}
 subcompactions=${SUBCOMPACTIONS:-1}
+per_level_fanout=${PER_LEVEL_FANOUT:-8}
 
 cache_index_and_filter=${CACHE_INDEX_AND_FILTER_BLOCKS:-0}
 if [[ $cache_index_and_filter -eq 0 ]]; then
@@ -222,7 +224,7 @@ const_params_base="
   \
   --verify_checksum=1 \
   --delete_obsolete_files_period_micros=$((60 * M)) \
-  --max_bytes_for_level_multiplier=8 \
+  --max_bytes_for_level_multiplier=$per_level_fanout \
   \
   --statistics=0 \
   --stats_per_interval=1 \
