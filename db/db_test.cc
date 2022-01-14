@@ -2576,9 +2576,7 @@ static const int kNumKeys = 1000;
 
 struct MTState {
   DBTest* test;
-  std::atomic<bool> stop;
   std::atomic<int> counter[kNumThreads];
-  std::atomic<bool> thread_done[kNumThreads];
 };
 
 struct MTThread {
@@ -2592,10 +2590,13 @@ static void MTThreadBody(void* arg) {
   int id = t->id;
   DB* db = t->state->test->db_;
   int counter = 0;
+  std::shared_ptr<SystemClock> clock = SystemClock::Default();
+  auto end_micros = clock->NowMicros() + kTestSeconds * 1000000U;
+
   fprintf(stderr, "... starting thread %d\n", id);
   Random rnd(1000 + id);
   char valbuf[1500];
-  while (t->state->stop.load(std::memory_order_acquire) == false) {
+  while (clock->NowMicros() < end_micros) {
     t->state->counter[id].store(counter, std::memory_order_release);
 
     int key = rnd.Uniform(kNumKeys);
@@ -2692,7 +2693,6 @@ static void MTThreadBody(void* arg) {
     }
     counter++;
   }
-  t->state->thread_done[id].store(true, std::memory_order_release);
   fprintf(stderr, "... stopping thread %d after %d ops\n", id, int(counter));
 }
 
@@ -2731,10 +2731,8 @@ TEST_P(MultiThreadedDBTest, MultiThreaded) {
   // Initialize state
   MTState mt;
   mt.test = this;
-  mt.stop.store(false, std::memory_order_release);
   for (int id = 0; id < kNumThreads; id++) {
     mt.counter[id].store(0, std::memory_order_release);
-    mt.thread_done[id].store(false, std::memory_order_release);
   }
 
   // Start threads
@@ -2746,16 +2744,7 @@ TEST_P(MultiThreadedDBTest, MultiThreaded) {
     env_->StartThread(MTThreadBody, &thread[id]);
   }
 
-  // Let them run for a while
-  env_->SleepForMicroseconds(kTestSeconds * 1000000);
-
-  // Stop the threads and wait for them to finish
-  mt.stop.store(true, std::memory_order_release);
-  for (int id = 0; id < kNumThreads; id++) {
-    while (mt.thread_done[id].load(std::memory_order_acquire) == false) {
-      env_->SleepForMicroseconds(100000);
-    }
-  }
+  env_->WaitForJoin();
 }
 
 INSTANTIATE_TEST_CASE_P(
@@ -4942,6 +4931,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
+
   ASSERT_LT(SizeAtLevel(0) + SizeAtLevel(3) + SizeAtLevel(4),
             120U * 4000U + 50U * 24);
   // Make sure data in files in L3 is not compacted by removing all files
@@ -7010,8 +7000,9 @@ TEST_F(DBTest, MemoryUsageWithMaxWriteBufferSizeToMaintain) {
     if ((size_all_mem_table > cur_active_mem) &&
         (cur_active_mem >=
          static_cast<uint64_t>(options.max_write_buffer_size_to_maintain)) &&
-        (size_all_mem_table > options.max_write_buffer_size_to_maintain +
-                                  options.write_buffer_size)) {
+        (size_all_mem_table >
+         static_cast<uint64_t>(options.max_write_buffer_size_to_maintain) +
+             options.write_buffer_size)) {
       ASSERT_FALSE(memory_limit_exceeded);
       memory_limit_exceeded = true;
     } else {
