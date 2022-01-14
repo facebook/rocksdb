@@ -21,16 +21,28 @@ namespace ROCKSDB_NAMESPACE {
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
                    const Slice& key, const Slice& val) {
+  const Status s = FailIfCfHasTs(column_family);
+  if (!s.ok()) {
+    return s;
+  }
   return DB::Put(o, column_family, key, val);
 }
 
 Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
                    const Slice& key, const Slice& ts, const Slice& val) {
+  const Status s = FailIfTsSizesMismatch(column_family, ts);
+  if (!s.ok()) {
+    return s;
+  }
   return DB::Put(o, column_family, key, ts, val);
 }
 
 Status DBImpl::Merge(const WriteOptions& o, ColumnFamilyHandle* column_family,
                      const Slice& key, const Slice& val) {
+  const Status s = FailIfCfHasTs(column_family);
+  if (!s.ok()) {
+    return s;
+  }
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   if (!cfh->cfd()->ioptions()->merge_operator) {
     return Status::NotSupported("Provide a merge_operator when opening DB");
@@ -41,25 +53,51 @@ Status DBImpl::Merge(const WriteOptions& o, ColumnFamilyHandle* column_family,
 
 Status DBImpl::Delete(const WriteOptions& write_options,
                       ColumnFamilyHandle* column_family, const Slice& key) {
+  const Status s = FailIfCfHasTs(column_family);
+  if (!s.ok()) {
+    return s;
+  }
   return DB::Delete(write_options, column_family, key);
 }
 
 Status DBImpl::Delete(const WriteOptions& write_options,
                       ColumnFamilyHandle* column_family, const Slice& key,
                       const Slice& ts) {
+  const Status s = FailIfTsSizesMismatch(column_family, ts);
+  if (!s.ok()) {
+    return s;
+  }
   return DB::Delete(write_options, column_family, key, ts);
 }
 
 Status DBImpl::SingleDelete(const WriteOptions& write_options,
                             ColumnFamilyHandle* column_family,
                             const Slice& key) {
+  const Status s = FailIfCfHasTs(column_family);
+  if (!s.ok()) {
+    return s;
+  }
   return DB::SingleDelete(write_options, column_family, key);
 }
 
 Status DBImpl::SingleDelete(const WriteOptions& write_options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             const Slice& ts) {
+  const Status s = FailIfTsSizesMismatch(column_family, ts);
+  if (!s.ok()) {
+    return s;
+  }
   return DB::SingleDelete(write_options, column_family, key, ts);
+}
+
+Status DBImpl::DeleteRange(const WriteOptions& write_options,
+                           ColumnFamilyHandle* column_family,
+                           const Slice& begin_key, const Slice& end_key) {
+  const Status s = FailIfCfHasTs(column_family);
+  if (!s.ok()) {
+    return s;
+  }
+  return DB::DeleteRange(write_options, column_family, begin_key, end_key);
 }
 
 void DBImpl::SetRecoverableStatePreReleaseCallback(
@@ -2043,14 +2081,6 @@ size_t DBImpl::GetWalPreallocateBlockSize(uint64_t write_buffer_size) const {
 // can call if they wish
 Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                const Slice& key, const Slice& value) {
-  column_family = column_family ? column_family : DefaultColumnFamily();
-  assert(column_family);
-  const Comparator* const ucmp = column_family->GetComparator();
-  assert(ucmp);
-  if (ucmp->timestamp_size() > 0) {
-    return Status::InvalidArgument(
-        "Cannot call this method on column family enabling timestamp");
-  }
   // Pre-allocate size of write batch conservatively.
   // 8 bytes are taken by header, 4 bytes for count, 1 byte for type,
   // and we allocate 11 extra bytes for key length, as well as value length.
@@ -2064,20 +2094,6 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                const Slice& key, const Slice& ts, const Slice& value) {
-  if (!column_family) {
-    return Status::InvalidArgument("column family handle cannot be null");
-  }
-  assert(column_family);
-  const Comparator* const ucmp = column_family->GetComparator();
-  assert(ucmp);
-  if (0 == ucmp->timestamp_size()) {
-    return Status::InvalidArgument(
-        "Cannot call this method on column family disabling timestamp");
-  }
-  size_t ts_sz = ts.size();
-  if (ts_sz != ucmp->timestamp_size()) {
-    return Status::InvalidArgument("Timestamp size mismatch");
-  }
   ColumnFamilyHandle* default_cf = DefaultColumnFamily();
   assert(default_cf);
   const Comparator* const default_cf_ucmp = default_cf->GetComparator();
@@ -2092,15 +2108,6 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                   const Slice& key) {
-  column_family = column_family ? column_family : DefaultColumnFamily();
-  assert(column_family);
-  const Comparator* const ucmp = column_family->GetComparator();
-  assert(ucmp);
-  if (ucmp->timestamp_size() > 0) {
-    return Status::InvalidArgument(
-        "Cannot call this method on column family enabling timestamp");
-  }
-
   WriteBatch batch;
   Status s = batch.Delete(column_family, key);
   if (!s.ok()) {
@@ -2111,20 +2118,6 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                   const Slice& key, const Slice& ts) {
-  if (!column_family) {
-    return Status::InvalidArgument("column family handle cannot be null");
-  }
-  assert(column_family);
-  const Comparator* const ucmp = column_family->GetComparator();
-  assert(ucmp);
-  if (0 == ucmp->timestamp_size()) {
-    return Status::InvalidArgument(
-        "Cannot call this method on column family disabling timestamp");
-  }
-  size_t ts_sz = ts.size();
-  if (ts_sz != ucmp->timestamp_size()) {
-    return Status::InvalidArgument("Timestamp size mismatch");
-  }
   ColumnFamilyHandle* default_cf = DefaultColumnFamily();
   assert(default_cf);
   const Comparator* const default_cf_ucmp = default_cf->GetComparator();
@@ -2139,15 +2132,6 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 Status DB::SingleDelete(const WriteOptions& opt,
                         ColumnFamilyHandle* column_family, const Slice& key) {
-  column_family = column_family ? column_family : DefaultColumnFamily();
-  assert(column_family);
-  const Comparator* const ucmp = column_family->GetComparator();
-  assert(ucmp);
-  if (ucmp->timestamp_size() > 0) {
-    return Status::InvalidArgument(
-        "Cannot call this method on column family enabling timestamp");
-  }
-
   WriteBatch batch;
   Status s = batch.SingleDelete(column_family, key);
   if (!s.ok()) {
@@ -2159,20 +2143,6 @@ Status DB::SingleDelete(const WriteOptions& opt,
 Status DB::SingleDelete(const WriteOptions& opt,
                         ColumnFamilyHandle* column_family, const Slice& key,
                         const Slice& ts) {
-  if (!column_family) {
-    return Status::InvalidArgument("column family handle cannot be null");
-  }
-  assert(column_family);
-  const Comparator* const ucmp = column_family->GetComparator();
-  assert(ucmp);
-  if (0 == ucmp->timestamp_size()) {
-    return Status::InvalidArgument(
-        "Cannot call this method on column family disabling timestamp");
-  }
-  size_t ts_sz = ts.size();
-  if (ts_sz != ucmp->timestamp_size()) {
-    return Status::InvalidArgument("Timestamp size mismatch");
-  }
   ColumnFamilyHandle* default_cf = DefaultColumnFamily();
   assert(default_cf);
   const Comparator* const default_cf_ucmp = default_cf->GetComparator();
@@ -2188,14 +2158,6 @@ Status DB::SingleDelete(const WriteOptions& opt,
 Status DB::DeleteRange(const WriteOptions& opt,
                        ColumnFamilyHandle* column_family,
                        const Slice& begin_key, const Slice& end_key) {
-  column_family = column_family ? column_family : DefaultColumnFamily();
-  assert(column_family);
-  const Comparator* const ucmp = column_family->GetComparator();
-  assert(ucmp);
-  if (ucmp->timestamp_size() > 0) {
-    return Status::InvalidArgument(
-        "Cannot call this method on column family enabling timestamp");
-  }
   WriteBatch batch;
   Status s = batch.DeleteRange(column_family, begin_key, end_key);
   if (!s.ok()) {
@@ -2206,14 +2168,6 @@ Status DB::DeleteRange(const WriteOptions& opt,
 
 Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                  const Slice& key, const Slice& value) {
-  column_family = column_family ? column_family : DefaultColumnFamily();
-  assert(column_family);
-  const Comparator* const ucmp = column_family->GetComparator();
-  assert(ucmp);
-  if (ucmp->timestamp_size() > 0) {
-    return Status::InvalidArgument(
-        "Cannot call this method on column family enabling timestamp");
-  }
   WriteBatch batch;
   Status s = batch.Merge(column_family, key, value);
   if (!s.ok()) {

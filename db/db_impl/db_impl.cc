@@ -1733,18 +1733,18 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
          get_impl_options.merge_operands != nullptr);
 
   assert(get_impl_options.column_family);
-  const Comparator* ucmp = get_impl_options.column_family->GetComparator();
-  assert(ucmp);
-  size_t ts_sz = ucmp->timestamp_size();
 
-  if (ts_sz > 0) {
-    if (!read_options.timestamp) {
-      return Status::InvalidArgument("Must specify timestamp");
-    } else if (read_options.timestamp->size() != ts_sz) {
-      return Status::InvalidArgument("Timestamp size mismatch");
+  if (read_options.timestamp) {
+    const Status s = FailIfTsSizesMismatch(get_impl_options.column_family,
+                                           *(read_options.timestamp));
+    if (!s.ok()) {
+      return s;
     }
-  } else if (read_options.timestamp) {
-    return Status::InvalidArgument("Column family disables timestamp");
+  } else {
+    const Status s = FailIfCfHasTs(get_impl_options.column_family);
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   GetWithTimestampReadCallback read_cb(0);  // Will call Refresh
@@ -1816,7 +1816,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   // only if t <= read_opts.timestamp and s <= snapshot.
   // HACK: temporarily overwrite input struct field but restore
   SaveAndRestore<ReadCallback*> restore_callback(&get_impl_options.callback);
-  if (ts_sz > 0) {
+  const Comparator* ucmp = get_impl_options.column_family->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() > 0) {
     assert(!get_impl_options
                 .callback);  // timestamp with callback is not supported
     read_cb.Refresh(snapshot);
@@ -1839,7 +1841,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   bool skip_memtable = (read_options.read_tier == kPersistedTier &&
                         has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
-  std::string* timestamp = ts_sz > 0 ? get_impl_options.timestamp : nullptr;
+  std::string* timestamp =
+      ucmp->timestamp_size() > 0 ? get_impl_options.timestamp : nullptr;
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
@@ -1953,20 +1956,17 @@ std::vector<Status> DBImpl::MultiGet(
   bool should_fail = false;
   for (size_t i = 0; i < num_keys; ++i) {
     assert(column_family[i]);
-    const Comparator* const ucmp = column_family[i]->GetComparator();
-    assert(ucmp);
-    if (ucmp->timestamp_size() > 0) {
-      if (!read_options.timestamp) {
-        stat_list[i] = Status::InvalidArgument("Must specify timestamp");
-        should_fail = true;
-      } else if (read_options.timestamp->size() != ucmp->timestamp_size()) {
-        stat_list[i] = Status::InvalidArgument("Timestamp size mismatch");
+    if (read_options.timestamp) {
+      stat_list[i] =
+          FailIfTsSizesMismatch(column_family[i], *(read_options.timestamp));
+      if (!stat_list[i].ok()) {
         should_fail = true;
       }
-    } else if (read_options.timestamp) {
-      stat_list[i] =
-          Status::InvalidArgument("Column family disables timestamp");
-      should_fail = true;
+    } else {
+      stat_list[i] = FailIfCfHasTs(column_family[i]);
+      if (!stat_list[i].ok()) {
+        should_fail = true;
+      }
     }
   }
 
@@ -2289,19 +2289,16 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   for (size_t i = 0; i < num_keys; ++i) {
     ColumnFamilyHandle* cfh = column_families[i];
     assert(cfh);
-    const Comparator* const ucmp = cfh->GetComparator();
-    assert(ucmp);
-    if (ucmp->timestamp_size() > 0) {
-      if (!read_options.timestamp) {
-        statuses[i] = Status::InvalidArgument("Must specify timestamp");
-        should_fail = true;
-      } else if (read_options.timestamp->size() != ucmp->timestamp_size()) {
-        statuses[i] = Status::InvalidArgument("Timestamp size mismatch");
+    if (read_options.timestamp) {
+      statuses[i] = FailIfTsSizesMismatch(cfh, *(read_options.timestamp));
+      if (!statuses[i].ok()) {
         should_fail = true;
       }
-    } else if (read_options.timestamp) {
-      statuses[i] = Status::InvalidArgument("Column family disables timestamp");
-      should_fail = true;
+    } else {
+      statuses[i] = FailIfCfHasTs(cfh);
+      if (!statuses[i].ok()) {
+        should_fail = true;
+      }
     }
   }
   if (should_fail) {
@@ -2941,20 +2938,18 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   }
 
   assert(column_family);
-  const Comparator* ucmp = column_family->GetComparator();
-  assert(ucmp);
-  size_t ts_sz = ucmp->timestamp_size();
-  if (ts_sz > 0) {
-    if (!read_options.timestamp) {
-      return NewErrorIterator(
-          Status::InvalidArgument("Must specify timestamp"));
-    } else if (read_options.timestamp->size() != ts_sz) {
-      return NewErrorIterator(
-          Status::InvalidArgument("Timestamp size mismatch"));
+
+  if (read_options.timestamp) {
+    const Status s =
+        FailIfTsSizesMismatch(column_family, *(read_options.timestamp));
+    if (!s.ok()) {
+      return NewErrorIterator(s);
     }
-  } else if (read_options.timestamp) {
-    return NewErrorIterator(
-        Status::InvalidArgument("Column family disables timestamp"));
+  } else {
+    const Status s = FailIfCfHasTs(column_family);
+    if (!s.ok()) {
+      return NewErrorIterator(s);
+    }
   }
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
@@ -3087,22 +3082,17 @@ Status DBImpl::NewIterators(
   if (read_options.timestamp) {
     for (auto* cf : column_families) {
       assert(cf);
-      const Comparator* ucmp = cf->GetComparator();
-      assert(ucmp);
-      size_t ts_sz = ucmp->timestamp_size();
-      if (!ts_sz) {
-        return Status::InvalidArgument("Column family disables timestamp");
-      } else if (ts_sz != read_options.timestamp->size()) {
-        return Status::InvalidArgument("Timestamp size mismatch");
+      const Status s = FailIfTsSizesMismatch(cf, *(read_options.timestamp));
+      if (!s.ok()) {
+        return s;
       }
     }
   } else {
     for (auto* cf : column_families) {
       assert(cf);
-      const Comparator* ucmp = cf->GetComparator();
-      assert(ucmp);
-      if (ucmp->timestamp_size()) {
-        return Status::InvalidArgument("Must specify timestamp");
+      const Status s = FailIfCfHasTs(cf);
+      if (!s.ok()) {
+        return s;
       }
     }
   }
