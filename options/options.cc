@@ -481,7 +481,7 @@ Options* Options::DisableExtraChecks() {
   // * check_flush_compaction_key_order
   // * paranoid_checks
   // * flush_verify_memtable_count
-  // At least for now, not including
+  // By current API contract, not including
   // * verify_checksums
   // because checking storage data integrity is a more standard practice.
   return this;

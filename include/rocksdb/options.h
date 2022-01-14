@@ -1365,7 +1365,12 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
           const ColumnFamilyOptions& column_family_options)
       : DBOptions(db_options), ColumnFamilyOptions(column_family_options) {}
 
-  // The function recovers options to the option as in version 4.6.
+  // Change to some default settings from an older version.
+  // NOT MAINTAINED: This function has not been and is not maintained.
+  // DEPRECATED: This function might be removed in a future release.
+  // In general, defaults are changed to suit broad interests. Opting
+  // out of a change on upgrade should be deliberate and considered
+  // rather than automatic and thoughtless.
   Options* OldDefaults(int rocksdb_major_version = 4,
                        int rocksdb_minor_version = 6);
 
