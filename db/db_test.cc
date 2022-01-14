@@ -4901,9 +4901,6 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
 
-  // The default compaction method snappy does not work on Alpine 32 platform
-  // That means there is no compression
-  // The following test case has been disabled on 32 bit platform
   ASSERT_LT(SizeAtLevel(0) + SizeAtLevel(3) + SizeAtLevel(4),
             120U * 4000U + 50U * 24);
   // Make sure data in files in L3 is not compacted by removing all files
