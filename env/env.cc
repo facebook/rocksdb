@@ -688,20 +688,7 @@ Status Env::CreateFromString(const ConfigOptions& config_options,
     RegisterSystemEnvs();
 #ifndef ROCKSDB_LITE
     // First, try to load the Env as a unique object.
-    status = config_options.registry->NewUniqueObject<Env>(id, &uniq);
-    if (status.ok()) {
-      // It worked!  Get the env from the unique_ptr
-      env = uniq.get();
-    } else if (status.IsInvalidArgument()) {
-      // It failed.  This could be because either the factory returned
-      // a static object or there was a problem with the factory.
-      // Try to load as a static object to be sure.
-      Status st = config_options.registry->NewStaticObject<Env>(id, &env);
-      if (st.ok()) {
-        // It worked as a static so all good.  Reset the status
-        status = st;
-      }
-    }
+    status = config_options.registry->NewObject<Env>(id, &env, &uniq);
 #else
     status =
         Status::NotSupported("Cannot load environment in LITE mode", value);

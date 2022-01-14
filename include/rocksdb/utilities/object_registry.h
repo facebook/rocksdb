@@ -310,33 +310,6 @@ class ObjectLibrary {
 // name/pattern at run-time where the specific implementation of the object may
 // not be known in advance.
 class ObjectRegistry {
- private:
-  // Finds the factory for target and instantiates a new T.
-  // Returns NotSupported if no factory is found
-  // Returns InvalidArgument if a factory is found but the factory failed.
-  template <typename T>
-  Status NewObject(const std::string& target, T** object,
-                   std::unique_ptr<T>* guard) {
-    assert(guard != nullptr);
-    guard->reset();
-    auto factory = FindFactory<T>(target);
-    if (factory != nullptr) {
-      std::string errmsg;
-      *object = factory(target, guard, &errmsg);
-      if (*object != nullptr) {
-        return Status::OK();
-      } else if (errmsg.empty()) {
-        return Status::InvalidArgument(
-            std::string("Could not load ") + T::Type(), target);
-      } else {
-        return Status::InvalidArgument(errmsg, target);
-      }
-    } else {
-      return Status::NotSupported(std::string("Could not load ") + T::Type(),
-                                  target);
-    }
-  }
-
  public:
   static std::shared_ptr<ObjectRegistry> NewInstance();
   static std::shared_ptr<ObjectRegistry> NewInstance(
@@ -362,6 +335,31 @@ class ObjectRegistry {
     library->Register(registrar, arg);
   }
 
+  // Finds the factory for target and instantiates a new T.
+  // Returns NotSupported if no factory is found
+  // Returns InvalidArgument if a factory is found but the factory failed.
+  template <typename T>
+  Status NewObject(const std::string& target, T** object,
+                   std::unique_ptr<T>* guard) {
+    assert(guard != nullptr);
+    guard->reset();
+    auto factory = FindFactory<T>(target);
+    if (factory != nullptr) {
+      std::string errmsg;
+      *object = factory(target, guard, &errmsg);
+      if (*object != nullptr) {
+        return Status::OK();
+      } else if (errmsg.empty()) {
+        return Status::InvalidArgument(
+            std::string("Could not load ") + T::Type(), target);
+      } else {
+        return Status::InvalidArgument(errmsg, target);
+      }
+    } else {
+      return Status::NotSupported(std::string("Could not load ") + T::Type(),
+                                  target);
+    }
+  }
   // Creates a new unique T using the input factory functions.
   // Returns OK if a new unique T was successfully created
   // Returns NotSupported if the type/target could not be created
