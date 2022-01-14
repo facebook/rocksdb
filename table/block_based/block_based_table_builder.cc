@@ -406,7 +406,8 @@ struct BlockBasedTableBuilder::Rep {
         file(f),
         offset(0),
         alignment(table_options.block_align
-                      ? std::min(table_options.block_size, kDefaultPageSize)
+                      ? std::min(static_cast<size_t>(table_options.block_size),
+                                 kDefaultPageSize)
                       : 0),
         data_block(table_options.block_restart_interval,
                    table_options.use_delta_encoding,
@@ -1613,13 +1614,21 @@ void BlockBasedTableBuilder::WriteIndexBlock(
   }
   // If there are more index partitions, finish them and write them out
   if (index_builder_status.IsIncomplete()) {
-    Status s = Status::Incomplete();
-    while (ok() && s.IsIncomplete()) {
-      s = rep_->index_builder->Finish(&index_blocks, *index_block_handle);
-      if (!s.ok() && !s.IsIncomplete()) {
+    bool index_building_finished = false;
+    while (ok() && !index_building_finished) {
+      Status s =
+          rep_->index_builder->Finish(&index_blocks, *index_block_handle);
+      if (s.ok()) {
+        index_building_finished = true;
+      } else if (s.IsIncomplete()) {
+        // More partitioned index after this one
+        assert(!index_building_finished);
+      } else {
+        // Error
         rep_->SetStatus(s);
         return;
       }
+
       if (rep_->table_options.enable_index_compression) {
         WriteBlock(index_blocks.index_block_contents, index_block_handle,
                    BlockType::kIndex);

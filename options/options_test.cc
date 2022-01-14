@@ -388,7 +388,7 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
 
   // Comparator from object registry
   std::string kCompName = "reverse_comp";
-  ObjectLibrary::Default()->Register<const Comparator>(
+  ObjectLibrary::Default()->AddFactory<const Comparator>(
       kCompName,
       [](const std::string& /*name*/,
          std::unique_ptr<const Comparator>* /*guard*/,
@@ -1291,7 +1291,7 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
       NewBlockBasedTableFactory(block_based_table_options));
 
   // Register an Env with object registry.
-  ObjectLibrary::Default()->Register<Env>(
+  ObjectLibrary::Default()->AddFactory<Env>(
       CustomEnv::kClassName(),
       [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
          std::string* /* errmsg */) {
@@ -2079,7 +2079,7 @@ TEST_F(OptionsTest, OptionTablePropertiesTest) {
   // Repeat the experiment.  The copy should have the same
   // properties as the original
   cfg_opts.registry->AddLibrary("collector")
-      ->Register<TablePropertiesCollectorFactory>(
+      ->AddFactory<TablePropertiesCollectorFactory>(
           ObjectLibrary::PatternEntry(
               TestTablePropertiesCollectorFactory::kClassName(), false)
               .AddSeparator(":"),
@@ -2153,14 +2153,14 @@ class TestConfigEventListener : public TestEventListener {
 
 static int RegisterTestEventListener(ObjectLibrary& library,
                                      const std::string& arg) {
-  library.Register<EventListener>(
+  library.AddFactory<EventListener>(
       "Test" + arg,
       [](const std::string& name, std::unique_ptr<EventListener>* guard,
          std::string* /* errmsg */) {
         guard->reset(new TestEventListener(name.substr(4)));
         return guard->get();
       });
-  library.Register<EventListener>(
+  library.AddFactory<EventListener>(
       "TestConfig" + arg,
       [](const std::string& name, std::unique_ptr<EventListener>* guard,
          std::string* /* errmsg */) {
@@ -2195,7 +2195,7 @@ const static std::string kCustomEnvName = "Custom";
 const static std::string kCustomEnvProp = "env=" + kCustomEnvName;
 
 static int RegisterCustomEnv(ObjectLibrary& library, const std::string& arg) {
-  library.Register<Env>(
+  library.AddFactory<Env>(
       arg, [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
               std::string* /* errmsg */) {
         static CustomEnv env(Env::Default());
@@ -2524,7 +2524,7 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
 
   // Comparator from object registry
   std::string kCompName = "reverse_comp";
-  ObjectLibrary::Default()->Register<const Comparator>(
+  ObjectLibrary::Default()->AddFactory<const Comparator>(
       kCompName,
       [](const std::string& /*name*/,
          std::unique_ptr<const Comparator>* /*guard*/,
@@ -2968,7 +2968,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
       NewBlockBasedTableFactory(block_based_table_options));
 
   // Register an Env with object registry.
-  ObjectLibrary::Default()->Register<Env>(
+  ObjectLibrary::Default()->AddFactory<Env>(
       "CustomEnvDefault",
       [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
          std::string* /* errmsg */) {

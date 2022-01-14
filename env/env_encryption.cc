@@ -1275,7 +1275,7 @@ static void RegisterEncryptionBuiltins() {
   std::call_once(once, [&]() {
     auto lib = ObjectRegistry::Default()->AddLibrary("encryption");
     // Match "CTR" or "CTR://test"
-    lib->Register<EncryptionProvider>(
+    lib->AddFactory<EncryptionProvider>(
         ObjectLibrary::PatternEntry(CTREncryptionProvider::kClassName(), true)
             .AddSuffix("://test"),
         [](const std::string& uri, std::unique_ptr<EncryptionProvider>* guard,
@@ -1290,7 +1290,7 @@ static void RegisterEncryptionBuiltins() {
           return guard->get();
         });
 
-    lib->Register<EncryptionProvider>(
+    lib->AddFactory<EncryptionProvider>(
         "1://test", [](const std::string& /*uri*/,
                        std::unique_ptr<EncryptionProvider>* guard,
                        std::string* /*errmsg*/) {
@@ -1301,7 +1301,7 @@ static void RegisterEncryptionBuiltins() {
         });
 
     // Match "ROT13" or "ROT13:[0-9]+"
-    lib->Register<BlockCipher>(
+    lib->AddFactory<BlockCipher>(
         ObjectLibrary::PatternEntry(ROT13BlockCipher::kClassName(), true)
             .AddNumber(":"),
         [](const std::string& uri, std::unique_ptr<BlockCipher>* guard,

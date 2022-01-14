@@ -2834,7 +2834,7 @@ int rocksdb_options_get_bottommost_compression(rocksdb_options_t* opt) {
 }
 
 void rocksdb_options_set_compression_per_level(rocksdb_options_t* opt,
-                                               int* level_values,
+                                               const int* level_values,
                                                size_t num_levels) {
   opt->rep.compression_per_level.resize(num_levels);
   for (size_t i = 0; i < num_levels; ++i) {
