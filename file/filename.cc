@@ -491,10 +491,14 @@ Status GetInfoLogFiles(const std::shared_ptr<FileSystem>& fs,
 
 std::string NormalizePath(const std::string& path) {
   std::string dst;
+  bool isUnc = path.substr(0, 2) == "//" || path.substr(0, 2) == "\\\\";
+
   for (auto c : path) {
     if (!dst.empty() && (c == kFilePathSeparator || c == '/') &&
         (dst.back() == kFilePathSeparator || dst.back() == '/')) {
-      continue;
+      if (!(isUnc && dst.length() < 2)) {
+        continue;
+      }
     }
     dst.push_back(c);
   }
