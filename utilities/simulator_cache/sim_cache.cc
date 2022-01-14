@@ -6,6 +6,7 @@
 #include "rocksdb/utilities/sim_cache.h"
 
 #include <atomic>
+#include <iomanip>
 
 #include "file/writable_file_writer.h"
 #include "monitoring/statistics.h"
@@ -13,7 +14,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "util/mutexlock.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -68,11 +68,12 @@ class CacheActivityLogger {
       return;
     }
 
-    std::string log_line = "LOOKUP - " + key.ToString(true) + "\n";
-
+    std::ostringstream oss;
     // line format: "LOOKUP - <KEY>"
+    oss << "LOOKUP - " << key.ToString(true) << std::endl;
+
     MutexLock l(&mutex_);
-    Status s = file_writer_->Append(log_line);
+    Status s = file_writer_->Append(oss.str());
     if (!s.ok() && bg_status_.ok()) {
       bg_status_ = s;
     }
@@ -88,15 +89,11 @@ class CacheActivityLogger {
       return;
     }
 
-    std::string log_line = "ADD - ";
-    log_line += key.ToString(true);
-    log_line += " - ";
-    AppendNumberTo(&log_line, size);
-    log_line += "\n";
-
+    std::ostringstream oss;
     // line format: "ADD - <KEY> - <KEY-SIZE>"
+    oss << "ADD - " << key.ToString(true) << " - " << size << std::endl;
     MutexLock l(&mutex_);
-    Status s = file_writer_->Append(log_line);
+    Status s = file_writer_->Append(oss.str());
     if (!s.ok() && bg_status_.ok()) {
       bg_status_ = s;
     }
@@ -298,25 +295,23 @@ class SimCacheImpl : public SimCache {
   }
 
   std::string ToString() const override {
-    std::string res;
-    res.append("SimCache MISSes: " + std::to_string(get_miss_counter()) + "\n");
-    res.append("SimCache HITs:    " + std::to_string(get_hit_counter()) + "\n");
-    char buff[350];
+    std::ostringstream oss;
+    oss << "SimCache MISSes:  " << get_miss_counter() << std::endl;
+    oss << "SimCache HITs:    " << get_hit_counter() << std::endl;
     auto lookups = get_miss_counter() + get_hit_counter();
-    snprintf(buff, sizeof(buff), "SimCache HITRATE: %.2f%%\n",
-             (lookups == 0 ? 0 : get_hit_counter() * 100.0f / lookups));
-    res.append(buff);
-    return res;
+    oss << "SimCache HITRATE: " << std::fixed << std::setprecision(2)
+        << (lookups == 0 ? 0 : get_hit_counter() * 100.0f / lookups)
+        << std::endl;
+    return oss.str();
   }
 
   std::string GetPrintableOptions() const override {
-    std::string ret;
-    ret.reserve(20000);
-    ret.append("    cache_options:\n");
-    ret.append(cache_->GetPrintableOptions());
-    ret.append("    sim_cache_options:\n");
-    ret.append(key_only_cache_->GetPrintableOptions());
-    return ret;
+    std::ostringstream oss;
+    oss << "    cache_options:" << std::endl;
+    oss << cache_->GetPrintableOptions();
+    oss << "    sim_cache_options:" << std::endl;
+    oss << key_only_cache_->GetPrintableOptions();
+    return oss.str();
   }
 
   Status StartActivityLogging(const std::string& activity_log_file, Env* env,

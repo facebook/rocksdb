@@ -150,6 +150,10 @@ class Tracer {
   // False otherwise.
   bool IsTraceFileOverMax();
 
+  // Returns true if the order of write trace records must match the order of
+  // the corresponding records logged to WAL and applied to the DB.
+  bool IsWriteOrderPreserved() { return trace_options_.preserve_write_order; }
+
   // Writes a trace footer at the end of the tracing
   Status Close();
 

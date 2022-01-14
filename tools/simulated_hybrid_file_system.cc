@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "util/stop_watch.h"
 #ifndef ROCKSDB_LITE
 
 #include "tools/simulated_hybrid_file_system.h"
@@ -15,7 +16,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-const int kLatencyAddedPerRequestUs = 15000;
 const int64_t kUsPerSec = 1000000;
 const int64_t kDummyBytesPerUs = 1024;
 
@@ -43,14 +43,17 @@ void RateLimiterRequest(RateLimiter* rater_limiter, int64_t amount) {
 // warm
 SimulatedHybridFileSystem::SimulatedHybridFileSystem(
     const std::shared_ptr<FileSystem>& base,
-    const std::string& metadata_file_name)
+    const std::string& metadata_file_name, int throughput_multiplier,
+    bool is_full_fs_warm)
     : FileSystemWrapper(base),
       // Limit to 100 requests per second.
       rate_limiter_(NewGenericRateLimiter(
-          kDummyBytesPerUs * kUsPerSec /* rate_bytes_per_sec */,
+          int64_t{throughput_multiplier} * kDummyBytesPerUs *
+              kUsPerSec /* rate_bytes_per_sec */,
           1000 /* refill_period_us */)),
       metadata_file_name_(metadata_file_name),
-      name_("SimulatedHybridFileSystem: " + std::string(target()->Name())) {
+      name_("SimulatedHybridFileSystem: " + std::string(target()->Name())),
+      is_full_fs_warm_(is_full_fs_warm) {
   IOStatus s = base->FileExists(metadata_file_name, IOOptions(), nullptr);
   if (s.IsNotFound()) {
     return;
@@ -77,6 +80,9 @@ SimulatedHybridFileSystem::SimulatedHybridFileSystem(
 // SimulatedHybridFileSystem::SimulatedHybridFileSystem() for format of the
 // file.
 SimulatedHybridFileSystem::~SimulatedHybridFileSystem() {
+  if (metadata_file_name_.empty()) {
+    return;
+  }
   std::string metadata;
   for (const auto& f : warm_file_set_) {
     metadata += f;
@@ -93,13 +99,15 @@ IOStatus SimulatedHybridFileSystem::NewRandomAccessFile(
     const std::string& fname, const FileOptions& file_opts,
     std::unique_ptr<FSRandomAccessFile>* result, IODebugContext* dbg) {
   Temperature temperature = Temperature::kUnknown;
-  {
+  if (is_full_fs_warm_) {
+    temperature = Temperature::kWarm;
+  } else {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (warm_file_set_.find(fname) != warm_file_set_.end()) {
       temperature = Temperature::kWarm;
     }
+    assert(temperature == file_opts.temperature);
   }
-  assert(temperature == file_opts.temperature);
   IOStatus s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
   result->reset(
       new SimulatedHybridRaf(std::move(*result), rate_limiter_, temperature));
@@ -115,7 +123,7 @@ IOStatus SimulatedHybridFileSystem::NewWritableFile(
   }
 
   IOStatus s = target()->NewWritableFile(fname, file_opts, result, dbg);
-  if (file_opts.temperature == Temperature::kWarm) {
+  if (file_opts.temperature == Temperature::kWarm || is_full_fs_warm_) {
     result->reset(new SimulatedWritableFile(std::move(*result), rate_limiter_));
   }
   return s;
@@ -135,8 +143,7 @@ IOStatus SimulatedHybridRaf::Read(uint64_t offset, size_t n,
                                   const IOOptions& options, Slice* result,
                                   char* scratch, IODebugContext* dbg) const {
   if (temperature_ == Temperature::kWarm) {
-    Env::Default()->SleepForMicroseconds(kLatencyAddedPerRequestUs);
-    RequestRateLimit(n);
+    SimulateIOWait(n);
   }
   return target()->Read(offset, n, options, result, scratch, dbg);
 }
@@ -146,10 +153,8 @@ IOStatus SimulatedHybridRaf::MultiRead(FSReadRequest* reqs, size_t num_reqs,
                                        IODebugContext* dbg) {
   if (temperature_ == Temperature::kWarm) {
     for (size_t i = 0; i < num_reqs; i++) {
-      RequestRateLimit(reqs[i].len);
+      SimulateIOWait(reqs[i].len);
     }
-    Env::Default()->SleepForMicroseconds(kLatencyAddedPerRequestUs *
-                                         static_cast<int>(num_reqs));
   }
   return target()->MultiRead(reqs, num_reqs, options, dbg);
 }
@@ -158,24 +163,34 @@ IOStatus SimulatedHybridRaf::Prefetch(uint64_t offset, size_t n,
                                       const IOOptions& options,
                                       IODebugContext* dbg) {
   if (temperature_ == Temperature::kWarm) {
-    RequestRateLimit(n);
-    Env::Default()->SleepForMicroseconds(kLatencyAddedPerRequestUs);
+    SimulateIOWait(n);
   }
   return target()->Prefetch(offset, n, options, dbg);
 }
 
-void SimulatedHybridRaf::RequestRateLimit(int64_t bytes) const {
-  RateLimiterRequest(rate_limiter_.get(), CalculateServeTimeUs(bytes));
+void SimulatedHybridRaf::SimulateIOWait(int64_t bytes) const {
+  int serve_time = CalculateServeTimeUs(bytes);
+  {
+    StopWatchNano stop_watch(Env::Default()->GetSystemClock().get(),
+                             /*auto_start=*/true);
+    RateLimiterRequest(rate_limiter_.get(), serve_time);
+    int time_passed_us = static_cast<int>(stop_watch.ElapsedNanos() / 1000);
+    if (time_passed_us < serve_time) {
+      Env::Default()->SleepForMicroseconds(serve_time - time_passed_us);
+    }
+  }
 }
 
-void SimulatedWritableFile::RequestRateLimit(int64_t bytes) const {
-  RateLimiterRequest(rate_limiter_.get(), CalculateServeTimeUs(bytes));
+void SimulatedWritableFile::SimulateIOWait(int64_t bytes) const {
+  int serve_time = CalculateServeTimeUs(bytes);
+  Env::Default()->SleepForMicroseconds(serve_time);
+  RateLimiterRequest(rate_limiter_.get(), serve_time);
 }
 
 IOStatus SimulatedWritableFile::Append(const Slice& data, const IOOptions& ioo,
                                        IODebugContext* idc) {
   if (use_direct_io()) {
-    RequestRateLimit(data.size());
+    SimulateIOWait(data.size());
   } else {
     unsynced_bytes += data.size();
   }
@@ -186,7 +201,7 @@ IOStatus SimulatedWritableFile::Append(
     const Slice& data, const IOOptions& options,
     const DataVerificationInfo& verification_info, IODebugContext* dbg) {
   if (use_direct_io()) {
-    RequestRateLimit(data.size());
+    SimulateIOWait(data.size());
   } else {
     unsynced_bytes += data.size();
   }
@@ -198,7 +213,7 @@ IOStatus SimulatedWritableFile::PositionedAppend(const Slice& data,
                                                  const IOOptions& options,
                                                  IODebugContext* dbg) {
   if (use_direct_io()) {
-    RequestRateLimit(data.size());
+    SimulateIOWait(data.size());
   } else {
     // This might be overcalculated, but it's probably OK.
     unsynced_bytes += data.size();
@@ -209,7 +224,7 @@ IOStatus SimulatedWritableFile::PositionedAppend(
     const Slice& data, uint64_t offset, const IOOptions& options,
     const DataVerificationInfo& verification_info, IODebugContext* dbg) {
   if (use_direct_io()) {
-    RequestRateLimit(data.size());
+    SimulateIOWait(data.size());
   } else {
     // This might be overcalculated, but it's probably OK.
     unsynced_bytes += data.size();
@@ -221,7 +236,7 @@ IOStatus SimulatedWritableFile::PositionedAppend(
 IOStatus SimulatedWritableFile::Sync(const IOOptions& options,
                                      IODebugContext* dbg) {
   if (unsynced_bytes > 0) {
-    RequestRateLimit(unsynced_bytes);
+    SimulateIOWait(unsynced_bytes);
     unsynced_bytes = 0;
   }
   return target()->Sync(options, dbg);

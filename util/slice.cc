@@ -143,7 +143,10 @@ const SliceTransform* NewNoopTransform() { return new NoopTransform; }
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
                                          const std::string& /*arg*/) {
-  library.Register<const SliceTransform>(
+  // For the builtin transforms, the format is typically
+  // [Name] or [Name].[0-9]+
+  // [NickName]:[0-9]+
+  library.AddFactory<const SliceTransform>(
       NoopTransform::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<const SliceTransform>* guard,
@@ -151,8 +154,9 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         guard->reset(NewNoopTransform());
         return guard->get();
       });
-  library.Register<const SliceTransform>(
-      std::string(FixedPrefixTransform::kNickName()) + ":[0-9]+",
+  library.AddFactory<const SliceTransform>(
+      ObjectLibrary::PatternEntry(FixedPrefixTransform::kNickName(), false)
+          .AddNumber(":"),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
          std::string* /*errmsg*/) {
         auto colon = uri.find(":");
@@ -160,25 +164,23 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         guard->reset(NewFixedPrefixTransform(len));
         return guard->get();
       });
-  library.Register<const SliceTransform>(
-      FixedPrefixTransform::kClassName(),
-      [](const std::string& /*uri*/,
-         std::unique_ptr<const SliceTransform>* guard,
-         std::string* /*errmsg*/) {
-        guard->reset(NewFixedPrefixTransform(0));
-        return guard->get();
-      });
-  library.Register<const SliceTransform>(
-      std::string(FixedPrefixTransform::kClassName()) + "\\.[0-9]+",
+  library.AddFactory<const SliceTransform>(
+      ObjectLibrary::PatternEntry(FixedPrefixTransform::kClassName(), true)
+          .AddNumber("."),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
          std::string* /*errmsg*/) {
-        auto len = ParseSizeT(
-            uri.substr(strlen(FixedPrefixTransform::kClassName()) + 1));
-        guard->reset(NewFixedPrefixTransform(len));
+        if (uri == FixedPrefixTransform::kClassName()) {
+          guard->reset(NewFixedPrefixTransform(0));
+        } else {
+          auto len = ParseSizeT(
+              uri.substr(strlen(FixedPrefixTransform::kClassName()) + 1));
+          guard->reset(NewFixedPrefixTransform(len));
+        }
         return guard->get();
       });
-  library.Register<const SliceTransform>(
-      std::string(CappedPrefixTransform::kNickName()) + ":[0-9]+",
+  library.AddFactory<const SliceTransform>(
+      ObjectLibrary::PatternEntry(CappedPrefixTransform::kNickName(), false)
+          .AddNumber(":"),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
          std::string* /*errmsg*/) {
         auto colon = uri.find(":");
@@ -186,20 +188,22 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         guard->reset(NewCappedPrefixTransform(len));
         return guard->get();
       });
-  library.Register<const SliceTransform>(
-      std::string(CappedPrefixTransform::kClassName()) + "(\\.[0-9]+)?",
+  library.AddFactory<const SliceTransform>(
+      ObjectLibrary::PatternEntry(CappedPrefixTransform::kClassName(), true)
+          .AddNumber("."),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
          std::string* /*errmsg*/) {
         if (uri == CappedPrefixTransform::kClassName()) {
           guard->reset(NewCappedPrefixTransform(0));
-        } else {  // Length + "."
+        } else {
           auto len = ParseSizeT(
               uri.substr(strlen(CappedPrefixTransform::kClassName()) + 1));
           guard->reset(NewCappedPrefixTransform(len));
         }
         return guard->get();
       });
-  return 5;
+  size_t num_types;
+  return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 #endif  // ROCKSDB_LITE
 

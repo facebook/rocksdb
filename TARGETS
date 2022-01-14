@@ -464,9 +464,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = [],
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    exported_deps = [],
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
 cpp_library(
@@ -795,9 +794,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = [],
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    exported_deps = [],
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
 cpp_library(
@@ -820,9 +818,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = [":rocksdb_lib"],
-    external_deps = ROCKSDB_EXTERNAL_DEPS + [
+    exported_deps = [":rocksdb_lib"],
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS + [
         ("googletest", None, "gtest"),
     ],
 )
@@ -844,9 +841,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = [":rocksdb_lib"],
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    exported_deps = [":rocksdb_lib"],
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
 cpp_library(
@@ -860,9 +856,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = [":rocksdb_lib"],
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    exported_deps = [":rocksdb_lib"],
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
 cpp_library(
@@ -892,9 +887,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = ROCKSDB_LIB_DEPS,
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    exported_deps = ROCKSDB_LIB_DEPS,
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
 cpp_binary(
@@ -928,9 +922,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = [":rocksdb_test_lib"],
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    exported_deps = [":rocksdb_test_lib"],
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
 # [test_name, test_src, test_type, extra_deps, extra_compiler_flags]

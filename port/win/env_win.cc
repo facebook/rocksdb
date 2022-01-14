@@ -144,8 +144,8 @@ uint64_t WinClock::NowMicros() {
     li.QuadPart /= c_FtToMicroSec;
     return li.QuadPart;
   }
-  using namespace std::chrono;
-  return duration_cast<microseconds>(system_clock::now().time_since_epoch())
+  return std::chrono::duration_cast<std::chrono::microseconds>(
+             std::chrono::system_clock::now().time_since_epoch())
       .count();
 }
 
@@ -165,9 +165,8 @@ uint64_t WinClock::NowNanos() {
     li.QuadPart *= nano_seconds_per_period_;
     return li.QuadPart;
   }
-  using namespace std::chrono;
-  return duration_cast<nanoseconds>(
-             high_resolution_clock::now().time_since_epoch())
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(
+             std::chrono::high_resolution_clock::now().time_since_epoch())
       .count();
 }
 
@@ -1412,10 +1411,6 @@ const std::shared_ptr<SystemClock>& SystemClock::Default() {
   static std::shared_ptr<SystemClock> clock =
       std::make_shared<port::WinClock>();
   return clock;
-}
-
-std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs) {
-  return std::unique_ptr<Env>(new CompositeEnvWrapper(Env::Default(), fs));
 }
 }  // namespace ROCKSDB_NAMESPACE
 

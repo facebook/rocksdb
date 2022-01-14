@@ -260,6 +260,9 @@ class WinEnv : public CompositeEnv {
   WinEnv();
 
   ~WinEnv();
+  static const char* kClassName() { return "WinEnv"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kDefaultName(); }
 
   Status GetHostName(char* name, uint64_t len) override;
 

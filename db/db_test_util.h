@@ -115,6 +115,9 @@ class SpecialEnv : public EnvWrapper {
  public:
   explicit SpecialEnv(Env* base, bool time_elapse_only_sleep = false);
 
+  static const char* kClassName() { return "SpecialEnv"; }
+  const char* Name() const override { return kClassName(); }
+
   Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& soptions) override {
     class SSTableFile : public WritableFile {

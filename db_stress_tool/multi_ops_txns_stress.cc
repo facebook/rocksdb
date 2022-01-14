@@ -20,7 +20,9 @@ namespace ROCKSDB_NAMESPACE {
 
 // TODO: move these to gflags.
 static constexpr uint32_t kInitNumC = 1000;
+#ifndef ROCKSDB_LITE
 static constexpr uint32_t kInitialCARatio = 3;
+#endif  // ROCKSDB_LITE
 static constexpr bool kDoPreload = true;
 
 std::string MultiOpsTxnsStressTest::Record::EncodePrimaryKey(uint32_t a) {
