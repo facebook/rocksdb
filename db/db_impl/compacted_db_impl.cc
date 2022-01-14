@@ -64,14 +64,11 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>&,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
   assert(user_comparator_);
-  std::vector<Status> statuses(keys.size(), Status::NotFound());
   if (user_comparator_->timestamp_size() || options.timestamp) {
     // TODO: support timestamp
-    for (auto& s : statuses) {
-      s = Status::NotSupported();
-    }
-    return statuses;
+    return std::vector<Status>(keys.size(), Status::NotSupported());
   }
+  std::vector<Status> statuses(keys.size(), Status::NotFound());
   autovector<TableReader*, 16> reader_list;
   for (const auto& key : keys) {
     const FdWithKeyRange& f = files_.files[FindFile(key)];

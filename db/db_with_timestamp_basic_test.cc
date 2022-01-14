@@ -280,7 +280,7 @@ TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
   ASSERT_OK(wb.Put(handle, "a", "value"));
   {
     std::string ts = Timestamp(1, 0);
-    const auto checker = [kTimestampSize, handle](uint32_t cf_id) {
+    const auto ts_sz_func = [kTimestampSize, handle](uint32_t cf_id) {
       assert(handle);
       if (cf_id == 0) {
         return static_cast<size_t>(0);
@@ -291,12 +291,13 @@ TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
         return std::numeric_limits<size_t>::max();
       }
     };
-    ASSERT_OK(wb.UpdateTimestamps(ts, checker));
+    ASSERT_OK(wb.UpdateTimestamps(ts, ts_sz_func));
     ASSERT_OK(db_->Write(WriteOptions(), &wb));
   }
 
-  const auto verify_db = [this](ColumnFamilyHandle* h, std::string key,
-                                std::string ts, std::string expected_value) {
+  const auto verify_db = [this](ColumnFamilyHandle* h, const std::string& key,
+                                const std::string& ts,
+                                const std::string& expected_value) {
     ASSERT_EQ(expected_value, Get(key));
     Slice read_ts_slice(ts);
     ReadOptions read_opts;
@@ -307,27 +308,6 @@ TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
   };
 
   verify_db(handle, "a", Timestamp(1, 0), "value");
-
-  WriteBatch wb1;
-  ASSERT_OK(wb1.Put("b", "value1"));
-  ASSERT_OK(wb1.Put(handle, "b", "value1"));
-  {
-    std::string ts = Timestamp(2, 0);
-    const auto checker = [kTimestampSize, handle](uint32_t cf_id) {
-      assert(handle);
-      if (cf_id == 0) {
-        return static_cast<size_t>(0);
-      } else if (cf_id == handle->GetID()) {
-        return kTimestampSize;
-      } else {
-        assert(false);
-        return std::numeric_limits<size_t>::max();
-      }
-    };
-    ASSERT_OK(wb1.UpdateTimestamps(ts, checker));
-    ASSERT_OK(db_->Write(WriteOptions(), &wb1));
-  }
-  verify_db(handle, "b", Timestamp(2, 0), "value1");
 
   delete handle;
   Close();
@@ -648,9 +628,8 @@ TEST_F(DBBasicTestWithTimestamp, SimpleIterate) {
                                                     Timestamp(4, 0)};
   for (size_t i = 0; i < write_timestamps.size(); ++i) {
     WriteOptions write_opts;
-    Slice write_ts = write_timestamps[i];
     for (uint64_t key = start_keys[i]; key <= kMaxKey; ++key) {
-      Status s = db_->Put(write_opts, Key1(key), write_ts,
+      Status s = db_->Put(write_opts, Key1(key), write_timestamps[i],
                           "value" + std::to_string(i));
       ASSERT_OK(s);
     }
@@ -861,7 +840,6 @@ TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithPrefixLessThanKey) {
   ASSERT_OK(Flush());
 
   ReadOptions read_opts;
-  ts = Timestamp(1, 0);
   Slice read_ts = ts;
   read_opts.timestamp = &read_ts;
   {
@@ -1136,9 +1114,8 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
   {
     std::string write_timestamp = Timestamp(5, 0);
     WriteOptions write_opts;
-    Slice write_ts = write_timestamp;
     for (uint64_t key = 0; key < kMaxKey + 1; ++key) {
-      Status s = db_->Delete(write_opts, Key1(key), write_ts);
+      Status s = db_->Delete(write_opts, Key1(key), write_timestamp);
       ASSERT_OK(s);
     }
 
@@ -1154,7 +1131,7 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
     uint64_t key = 0;
     for (it->Seek(Key1(0)), key = 0; it->Valid(); it->Next(), ++count, ++key) {
       CheckIterEntry(it.get(), Key1(key), kTypeDeletionWithTimestamp, Slice(),
-                     write_ts);
+                     write_timestamp);
       // Skip key@ts=3 and land on tombstone key@ts=5
       it->Next();
     }
@@ -1786,11 +1763,10 @@ class DataVisibilityTest : public DBBasicTestWithTimestampBase {
   void PutTestData(int index, ColumnFamilyHandle* cfh = nullptr) {
     ASSERT_LE(index, kTestDataSize);
     WriteOptions write_opts;
-    Slice ts_slice = test_data_[index].timestamp;
 
     if (cfh == nullptr) {
-      ASSERT_OK(db_->Put(write_opts, test_data_[index].key, ts_slice,
-                         test_data_[index].value));
+      ASSERT_OK(db_->Put(write_opts, test_data_[index].key,
+                         test_data_[index].timestamp, test_data_[index].value));
       const Snapshot* snap = db_->GetSnapshot();
       test_data_[index].seq_num = snap->GetSequenceNumber();
       if (index > 0) {
@@ -1798,8 +1774,8 @@ class DataVisibilityTest : public DBBasicTestWithTimestampBase {
       }
       db_->ReleaseSnapshot(snap);
     } else {
-      ASSERT_OK(db_->Put(write_opts, cfh, test_data_[index].key, ts_slice,
-                         test_data_[index].value));
+      ASSERT_OK(db_->Put(write_opts, cfh, test_data_[index].key,
+                         test_data_[index].timestamp, test_data_[index].value));
     }
   }
 
@@ -2862,9 +2838,8 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, IterateWithPrefix) {
   WriteOptions write_opts;
   {
     for (size_t i = 0; i != write_ts_list.size(); ++i) {
-      Slice write_ts = write_ts_list[i];
       for (uint64_t key = kMaxKey; key >= kMinKey; --key) {
-        Status s = db_->Put(write_opts, Key1(key), write_ts,
+        Status s = db_->Put(write_opts, Key1(key), write_ts_list[i],
                             "value" + std::to_string(i));
         ASSERT_OK(s);
       }
@@ -3018,8 +2993,8 @@ TEST_P(DBBasicTestWithTsIterTombstones, IterWithDelete) {
   WriteOptions write_opts;
   Slice ts = write_ts_strs[0];
   do {
-    Status s =
-        db_->Put(write_opts, Key1(key), ts, "value" + std::to_string(key));
+    Status s = db_->Put(write_opts, Key1(key), write_ts_strs[0],
+                        "value" + std::to_string(key));
     ASSERT_OK(s);
     if (kMaxKey == key) {
       break;
@@ -3027,13 +3002,13 @@ TEST_P(DBBasicTestWithTsIterTombstones, IterWithDelete) {
     ++key;
   } while (true);
 
-  ts = write_ts_strs[1];
   for (key = kMaxKey; key >= kMinKey; --key) {
     Status s;
     if (0 != (key % 2)) {
-      s = db_->Put(write_opts, Key1(key), ts, "value1" + std::to_string(key));
+      s = db_->Put(write_opts, Key1(key), write_ts_strs[1],
+                   "value1" + std::to_string(key));
     } else {
-      s = db_->Delete(write_opts, Key1(key), ts);
+      s = db_->Delete(write_opts, Key1(key), write_ts_strs[1]);
     }
     ASSERT_OK(s);
   }

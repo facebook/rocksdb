@@ -1475,10 +1475,10 @@ Status WriteBatch::PopSavePoint() {
   return Status::OK();
 }
 
-Status WriteBatch::UpdateTimestamps(const Slice& ts,
-                                    std::function<size_t(uint32_t)> checker) {
-  TimestampUpdater<decltype(checker)> ts_updater(prot_info_.get(),
-                                                 std::move(checker), ts);
+Status WriteBatch::UpdateTimestamps(
+    const Slice& ts, std::function<size_t(uint32_t)> ts_sz_func) {
+  TimestampUpdater<decltype(ts_sz_func)> ts_updater(prot_info_.get(),
+                                                    std::move(ts_sz_func), ts);
   const Status s = Iterate(&ts_updater);
   if (s.ok()) {
     needs_in_place_update_ts_ = false;
@@ -2438,19 +2438,20 @@ class MemTableInserter : public WriteBatch::Handler {
           const auto& batch_info = trx->batches_.begin()->second;
           // all inserts must reference this trx log number
           log_number_ref_ = batch_info.log_number_;
-          const auto checker = [this](uint32_t cf) {
-            assert(db_);
-            VersionSet* const vset = db_->GetVersionSet();
-            assert(vset);
-            ColumnFamilySet* const cf_set = vset->GetColumnFamilySet();
-            assert(cf_set);
-            ColumnFamilyData* cfd = cf_set->GetColumnFamily(cf);
-            assert(cfd);
-            const auto* const ucmp = cfd->user_comparator();
-            assert(ucmp);
-            return ucmp->timestamp_size();
-          };
-          s = batch_info.batch_->UpdateTimestamps(commit_ts, checker);
+
+          s = batch_info.batch_->UpdateTimestamps(
+              commit_ts, [this](uint32_t cf) {
+                assert(db_);
+                VersionSet* const vset = db_->GetVersionSet();
+                assert(vset);
+                ColumnFamilySet* const cf_set = vset->GetColumnFamilySet();
+                assert(cf_set);
+                ColumnFamilyData* cfd = cf_set->GetColumnFamily(cf);
+                assert(cfd);
+                const auto* const ucmp = cfd->user_comparator();
+                assert(ucmp);
+                return ucmp->timestamp_size();
+              });
           if (s.ok()) {
             s = batch_info.batch_->Iterate(this);
             log_number_ref_ = 0;

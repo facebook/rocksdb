@@ -7553,7 +7553,7 @@ class Benchmark {
                          &key);
       if (user_timestamp_size_ > 0) {
         Slice ts = mock_app_clock_->Allocate(ts_guard.get());
-        s = FLAGS_use_single_deletes ? db->SingleDelete(write_options_, key)
+        s = FLAGS_use_single_deletes ? db->SingleDelete(write_options_, key, ts)
                                      : db->Delete(write_options_, key, ts);
       } else {
         s = FLAGS_use_single_deletes ? db->SingleDelete(write_options_, key)

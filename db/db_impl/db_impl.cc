@@ -1947,6 +1947,7 @@ std::vector<Status> DBImpl::MultiGet(
   PERF_TIMER_GUARD(get_snapshot_time);
 
   size_t num_keys = keys.size();
+  assert(column_family.size() == num_keys);
   std::vector<Status> stat_list(num_keys);
 
   bool should_fail = false;
