@@ -317,13 +317,12 @@ class ObjectRegistry {
   template <typename T>
   Status NewObject(const std::string& target, T** object,
                    std::unique_ptr<T>* guard) {
-    std::string errmsg;
-
-    const auto* basic = FindEntry(T::Type(), target);
-    if (basic != nullptr) {
-      const auto* factory =
-          static_cast<const ObjectLibrary::FactoryEntry<T>*>(basic);
-      *object = factory->NewFactoryObject(target, guard, &errmsg);
+    assert(guard != nullptr);
+    guard->reset();
+    auto factory = FindFactory<T>(target);
+    if (factory != nullptr) {
+      std::string errmsg;
+      *object = factory(target, guard, &errmsg);
       if (*object != nullptr) {
         return Status::OK();
       } else if (errmsg.empty()) {
@@ -361,29 +360,6 @@ class ObjectRegistry {
                   const std::string& arg) {
     auto library = AddLibrary(id);
     library->Register(registrar, arg);
-  }
-
-  // Creates a new T using the factory function that was registered for this
-  // target.  Searches through the libraries to find the first library where
-  // there is an entry that matches target (see PatternEntry for the matching
-  // rules).
-  //
-  // If no registered functions match, returns nullptr. If multiple functions
-  // match, the factory function used is unspecified.
-  //
-  // Populates guard with result pointer if caller is granted ownership.
-  // Deprecated.  Use NewShared/Static/UniqueObject instead.
-  template <typename T>
-  T* NewObject(const std::string& target, std::unique_ptr<T>* guard,
-               std::string* errmsg) {
-    guard->reset();
-    auto factory = FindFactory<T>(target);
-    if (factory != nullptr) {
-      return factory(target, guard, errmsg);
-    } else {
-      *errmsg = std::string("Could not load ") + T::Type();
-      return nullptr;
-    }
   }
 
   // Creates a new unique T using the input factory functions.

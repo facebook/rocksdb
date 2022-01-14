@@ -687,11 +687,20 @@ Status Env::CreateFromString(const ConfigOptions& config_options,
   } else {
     RegisterSystemEnvs();
 #ifndef ROCKSDB_LITE
-    std::string errmsg;
-    env = config_options.registry->NewObject<Env>(id, &uniq, &errmsg);
-    if (!env) {
-      status = Status::NotSupported(
-          std::string("Cannot load environment[") + id + "]: ", errmsg);
+    // First, try to load the Env as a unique object.
+    status = config_options.registry->NewUniqueObject<Env>(id, &uniq);
+    if (status.ok()) {
+      // It worked!  Get the env from the unique_ptr
+      env = uniq.get();
+    } else if (status.IsInvalidArgument()) {
+      // It failed.  This could be because either the factory returned
+      // a static object or there was a problem with the factory.
+      // Try to load as a static object to be sure.
+      Status st = config_options.registry->NewStaticObject<Env>(id, &env);
+      if (st.ok()) {
+        // It worked as a static so all good.  Reset the status
+        status = st;
+      }
     }
 #else
     status =
