@@ -174,7 +174,7 @@ class DBImpl : public DB {
   using DB::DeleteRange;
   Status DeleteRange(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& begin_key,
-                     const Slice& end_key);
+                     const Slice& end_key) override;
 
   using DB::Write;
   virtual Status Write(const WriteOptions& options,
