@@ -2386,11 +2386,4 @@ extern uint64_t FindMinPrepLogReferencedByMemTable(
     VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
     const autovector<const autovector<MemTable*>*>& memtables_to_flush);
 
-// Fix user-supplied options to be reasonable
-template <class T, class V>
-static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
-  if (static_cast<V>(*ptr) > maxvalue) *ptr = maxvalue;
-  if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
-}
-
 }  // namespace ROCKSDB_NAMESPACE

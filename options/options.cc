@@ -12,6 +12,7 @@
 #include <cinttypes>
 #include <limits>
 
+#include "file/filename.h"
 #include "logging/logging.h"
 #include "monitoring/statistics.h"
 #include "options/db_options.h"
@@ -23,14 +24,17 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/sst_partitioner.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/utilities/options_type.h"
 #include "rocksdb/wal_filter.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "test_util/sync_point.h"
 #include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -319,6 +323,125 @@ Status DBOptions::Validate(const ColumnFamilyOptions& cf_opts) const {
 #else
   return Status::OK();
 #endif
+}
+
+Status DBOptions::Sanitize(const std::string& dbname, bool read_only) {
+  if (env == nullptr) {
+    env = Env::Default();
+  }
+
+  // max_open_files means an "infinite" open files.
+  if (max_open_files != -1) {
+    int max_max_open_files = port::GetMaxOpenFiles();
+    if (max_max_open_files == -1) {
+      max_max_open_files = 0x400000;
+    }
+    OptionTypeInfo::ClipToRange(&max_open_files, 20, max_max_open_files);
+    TEST_SYNC_POINT_CALLBACK("SanitizeOptions::AfterChangeMaxOpenFiles",
+                             &max_open_files);
+  }
+
+  if (info_log == nullptr && !read_only) {
+    Status s = CreateLoggerFromOptions(dbname, *this, &info_log);
+    if (!s.ok()) {
+      // No place suitable for logging
+      info_log = nullptr;
+    }
+  }
+
+  if (!write_buffer_manager) {
+    write_buffer_manager.reset(new WriteBufferManager(db_write_buffer_size));
+  }
+  if (rate_limiter.get() != nullptr) {
+    if (bytes_per_sync == 0) {
+      bytes_per_sync = 1024 * 1024;
+    }
+  }
+
+  if (delayed_write_rate == 0) {
+    if (rate_limiter.get() != nullptr) {
+      delayed_write_rate = rate_limiter->GetBytesPerSecond();
+    }
+    if (delayed_write_rate == 0) {
+      delayed_write_rate = 16 * 1024 * 1024;
+    }
+  }
+
+  if (WAL_ttl_seconds > 0 || WAL_size_limit_MB > 0) {
+    recycle_log_file_num = false;
+  }
+
+  if (recycle_log_file_num &&
+      (wal_recovery_mode == WALRecoveryMode::kTolerateCorruptedTailRecords ||
+       wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery ||
+       wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency)) {
+    // - kTolerateCorruptedTailRecords is inconsistent with recycle log file
+    //   feature. WAL recycling expects recovery success upon encountering a
+    //   corrupt record at the point where new data ends and recycled data
+    //   remains at the tail. However, `kTolerateCorruptedTailRecords` must fail
+    //   upon encountering any such corrupt record, as it cannot differentiate
+    //   between this and a real corruption, which would cause committed updates
+    //   to be truncated -- a violation of the recovery guarantee.
+    // - kPointInTimeRecovery and kAbsoluteConsistency are incompatible with
+    //   recycle log file feature temporarily due to a bug found introducing a
+    //   hole in the recovered data
+    //   (https://github.com/facebook/rocksdb/pull/7252#issuecomment-673766236).
+    //   Besides this bug, we believe the features are fundamentally compatible.
+    recycle_log_file_num = 0;
+  }
+
+  if (db_paths.size() == 0) {
+    db_paths.emplace_back(dbname, std::numeric_limits<uint64_t>::max());
+  } else if (wal_dir.empty()) {
+    // Use dbname as default
+    wal_dir = dbname;
+  }
+  if (!wal_dir.empty()) {
+    // If there is a wal_dir already set, check to see if the wal_dir is the
+    // same as the dbname AND the same as the db_path[0] (which must exist from
+    // a few lines ago). If the wal_dir matches both of these values, then clear
+    // the wal_dir value, which will make wal_dir == dbname.  Most likely this
+    // condition was the result of reading an old options file where we forced
+    // wal_dir to be set (to dbname).
+    auto npath = NormalizePath(dbname + "/");
+    if (npath == NormalizePath(wal_dir + "/") &&
+        npath == NormalizePath(db_paths[0].path + "/")) {
+      wal_dir.clear();
+    }
+  }
+
+  if (!wal_dir.empty() && wal_dir.back() == '/') {
+    wal_dir = wal_dir.substr(0, wal_dir.size() - 1);
+  }
+
+  if (use_direct_reads && compaction_readahead_size == 0) {
+    TEST_SYNC_POINT_CALLBACK("SanitizeOptions:direct_io", nullptr);
+    compaction_readahead_size = 1024 * 1024 * 2;
+  }
+
+  if (compaction_readahead_size > 0 || use_direct_reads) {
+    new_table_reader_for_compaction_inputs = true;
+  }
+
+  // Force flush on DB open if 2PC is enabled, since with 2PC we have no
+  // guarantee that consecutive log files have consecutive sequence id, which
+  // make recovery complicated.
+  if (allow_2pc) {
+    avoid_flush_during_recovery = false;
+  }
+
+  if (!paranoid_checks) {
+    skip_checking_sst_file_sizes_on_db_open = true;
+    ROCKS_LOG_INFO(info_log, "file size check will be skipped during open.");
+  }
+
+  if (preserve_deletes) {
+    ROCKS_LOG_WARN(
+        info_log,
+        "preserve_deletes is deprecated, will be removed in a future release. "
+        "Please try using user-defined timestamp instead.");
+  }
+  return Status::OK();
 }
 
 void ColumnFamilyOptions::Dump(Logger* log) const {

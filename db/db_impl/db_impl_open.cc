@@ -38,34 +38,8 @@ Options SanitizeOptions(const std::string& dbname, const Options& src,
 DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
                           bool read_only) {
   DBOptions result(src);
-
-  if (result.env == nullptr) {
-    result.env = Env::Default();
-  }
-
-  // result.max_open_files means an "infinite" open files.
-  if (result.max_open_files != -1) {
-    int max_max_open_files = port::GetMaxOpenFiles();
-    if (max_max_open_files == -1) {
-      max_max_open_files = 0x400000;
-    }
-    ClipToRange(&result.max_open_files, 20, max_max_open_files);
-    TEST_SYNC_POINT_CALLBACK("SanitizeOptions::AfterChangeMaxOpenFiles",
-                             &result.max_open_files);
-  }
-
-  if (result.info_log == nullptr && !read_only) {
-    Status s = CreateLoggerFromOptions(dbname, result, &result.info_log);
-    if (!s.ok()) {
-      // No place suitable for logging
-      result.info_log = nullptr;
-    }
-  }
-
-  if (!result.write_buffer_manager) {
-    result.write_buffer_manager.reset(
-        new WriteBufferManager(result.db_write_buffer_size));
-  }
+  Status s = result.Sanitize(dbname, read_only);
+  s.PermitUncheckedError();  //**TODO: What to do on error?
   auto bg_job_limits = DBImpl::GetBGJobLimits(
       result.max_background_flushes, result.max_background_compactions,
       result.max_background_jobs, true /* parallelize_compactions */);
@@ -74,84 +48,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
   result.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_flushes,
                                            Env::Priority::HIGH);
 
-  if (result.rate_limiter.get() != nullptr) {
-    if (result.bytes_per_sync == 0) {
-      result.bytes_per_sync = 1024 * 1024;
-    }
-  }
-
-  if (result.delayed_write_rate == 0) {
-    if (result.rate_limiter.get() != nullptr) {
-      result.delayed_write_rate = result.rate_limiter->GetBytesPerSecond();
-    }
-    if (result.delayed_write_rate == 0) {
-      result.delayed_write_rate = 16 * 1024 * 1024;
-    }
-  }
-
-  if (result.WAL_ttl_seconds > 0 || result.WAL_size_limit_MB > 0) {
-    result.recycle_log_file_num = false;
-  }
-
-  if (result.recycle_log_file_num &&
-      (result.wal_recovery_mode ==
-           WALRecoveryMode::kTolerateCorruptedTailRecords ||
-       result.wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery ||
-       result.wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency)) {
-    // - kTolerateCorruptedTailRecords is inconsistent with recycle log file
-    //   feature. WAL recycling expects recovery success upon encountering a
-    //   corrupt record at the point where new data ends and recycled data
-    //   remains at the tail. However, `kTolerateCorruptedTailRecords` must fail
-    //   upon encountering any such corrupt record, as it cannot differentiate
-    //   between this and a real corruption, which would cause committed updates
-    //   to be truncated -- a violation of the recovery guarantee.
-    // - kPointInTimeRecovery and kAbsoluteConsistency are incompatible with
-    //   recycle log file feature temporarily due to a bug found introducing a
-    //   hole in the recovered data
-    //   (https://github.com/facebook/rocksdb/pull/7252#issuecomment-673766236).
-    //   Besides this bug, we believe the features are fundamentally compatible.
-    result.recycle_log_file_num = 0;
-  }
-
-  if (result.db_paths.size() == 0) {
-    result.db_paths.emplace_back(dbname, std::numeric_limits<uint64_t>::max());
-  } else if (result.wal_dir.empty()) {
-    // Use dbname as default
-    result.wal_dir = dbname;
-  }
-  if (!result.wal_dir.empty()) {
-    // If there is a wal_dir already set, check to see if the wal_dir is the
-    // same as the dbname AND the same as the db_path[0] (which must exist from
-    // a few lines ago). If the wal_dir matches both of these values, then clear
-    // the wal_dir value, which will make wal_dir == dbname.  Most likely this
-    // condition was the result of reading an old options file where we forced
-    // wal_dir to be set (to dbname).
-    auto npath = NormalizePath(dbname + "/");
-    if (npath == NormalizePath(result.wal_dir + "/") &&
-        npath == NormalizePath(result.db_paths[0].path + "/")) {
-      result.wal_dir.clear();
-    }
-  }
-
-  if (!result.wal_dir.empty() && result.wal_dir.back() == '/') {
-    result.wal_dir = result.wal_dir.substr(0, result.wal_dir.size() - 1);
-  }
-
-  if (result.use_direct_reads && result.compaction_readahead_size == 0) {
-    TEST_SYNC_POINT_CALLBACK("SanitizeOptions:direct_io", nullptr);
-    result.compaction_readahead_size = 1024 * 1024 * 2;
-  }
-
-  if (result.compaction_readahead_size > 0 || result.use_direct_reads) {
-    result.new_table_reader_for_compaction_inputs = true;
-  }
-
-  // Force flush on DB open if 2PC is enabled, since with 2PC we have no
-  // guarantee that consecutive log files have consecutive sequence id, which
-  // make recovery complicated.
-  if (result.allow_2pc) {
-    result.avoid_flush_during_recovery = false;
-  }
 
 #ifndef ROCKSDB_LITE
   ImmutableDBOptions immutable_db_options(result);
@@ -164,7 +60,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     // safe
     std::vector<std::string> filenames;
     auto wal_dir = immutable_db_options.GetWalDir();
-    Status s = result.env->GetChildren(wal_dir, &filenames);
+    s = result.env->GetChildren(wal_dir, &filenames);
     s.PermitUncheckedError();  //**TODO: What to do on error?
     for (std::string& filename : filenames) {
       if (filename.find(".log.trash", filename.length() -
@@ -193,19 +89,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     result.sst_file_manager = sst_file_manager;
   }
 #endif  // !ROCKSDB_LITE
-
-  if (!result.paranoid_checks) {
-    result.skip_checking_sst_file_sizes_on_db_open = true;
-    ROCKS_LOG_INFO(result.info_log,
-                   "file size check will be skipped during open.");
-  }
-
-  if (result.preserve_deletes) {
-    ROCKS_LOG_WARN(
-        result.info_log,
-        "preserve_deletes is deprecated, will be removed in a future release. "
-        "Please try using user-defined timestamp instead.");
-  }
 
   return result;
 }

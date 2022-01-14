@@ -472,6 +472,7 @@ struct DBOptions {
   DBOptions* IncreaseParallelism(int total_threads = 16);
 #endif  // ROCKSDB_LITE
   Status Validate(const ColumnFamilyOptions& cf_opts) const;
+  Status Sanitize(const std::string& dbname, bool read_only);
   // If true, the database will be created if it is missing.
   // Default: false
   bool create_if_missing = false;
