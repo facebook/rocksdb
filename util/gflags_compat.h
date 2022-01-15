@@ -15,6 +15,5 @@
 #ifndef DEFINE_uint32
 // DEFINE_uint32 does not appear in older versions of gflags. This should be
 // a sane definition for those versions.
-#define DEFINE_uint32(name, val, txt) \
-  DEFINE_VARIABLE(GFLAGS_NAMESPACE::uint32, U, name, val, txt)
+#define DEFINE_uint32 DEFINE_uint64
 #endif
