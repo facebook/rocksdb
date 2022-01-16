@@ -36,7 +36,6 @@ public class WriteOptions extends RocksObject {
    */
   public WriteOptions(WriteOptions other) {
     super(copyWriteOptions(other.nativeHandle_));
-    this.timestampSlice_ = other.timestampSlice_;
   }
 
 
@@ -235,52 +234,6 @@ public class WriteOptions extends RocksObject {
     return this;
   }
 
-  /**
-   * Timestamp of write operation, e.g. Put. All timestamps of the same
-   * database must share the same length and format. The user is also
-   * responsible for providing a customized compare function via Comparator to
-   * order {@code <key, timestamp>} tuples. If the user wants to enable timestamp, then
-   * all write operations must be associated with timestamp because RocksDB, as
-   * a single-node storage engine currently has no knowledge of global time,
-   * thus has to rely on the application.
-   * The user-specified timestamp feature is still under active development,
-   * and the API is subject to change.
-   *
-   * @return instance to timestamp slice or null if there is no timestamp slice defined.
-   */
-  public Slice timestamp() {
-    final long timestampSliceHandle = timestamp(nativeHandle_);
-    if (timestampSliceHandle != 0) {
-      return new Slice(timestampSliceHandle, false);
-    } else {
-      return null;
-    }
-  }
-
-  /**
-   * Timestamp of write operation, e.g. Put. All timestamps of the same
-   * database must share the same length and format. The user is also
-   * responsible for providing a customized compare function via Comparator to
-   * order {@code <key, timestamp>} tuples. If the user wants to enable timestamp, then
-   * all write operations must be associated with timestamp because RocksDB, as
-   * a single-node storage engine currently has no knowledge of global time,
-   * thus has to rely on the application.
-   * The user-specified timestamp feature is still under active development,
-   * and the API is subject to change.
-   *
-   * @param timestamp Slice representing the timestamp.
-   * @return the instance of the current WriteOptions.
-   */
-  public WriteOptions setTimestamp(final AbstractSlice<?> timestamp) {
-    setTimestamp(nativeHandle_, timestamp == null ? 0 : timestamp.getNativeHandle());
-    timestampSlice_ = timestamp;
-    return this;
-  }
-
-  // instance variables
-  // NOTE: If you add new member variables, please update the copy constructor above!
-  private AbstractSlice<?> timestampSlice_;
-
   private native static long newWriteOptions();
   private native static long copyWriteOptions(long handle);
   @Override protected final native void disposeInternal(final long handle);
@@ -300,6 +253,4 @@ public class WriteOptions extends RocksObject {
   private native boolean memtableInsertHintPerBatch(final long handle);
   private native void setMemtableInsertHintPerBatch(
       final long handle, final boolean memtableInsertHintPerBatch);
-  private native long timestamp(final long handle);
-  private native void setTimestamp(final long handle, final long timestampSliceHandle);
 }

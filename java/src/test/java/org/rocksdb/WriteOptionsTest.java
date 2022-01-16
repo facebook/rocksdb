@@ -56,11 +56,6 @@ public class WriteOptionsTest {
       writeOptions.setMemtableInsertHintPerBatch(false);
       assertThat(writeOptions.memtableInsertHintPerBatch()).isFalse();
 
-      Slice timestampSlice = buildRandomSlice();
-      writeOptions.setTimestamp(timestampSlice);
-      assertThat(Arrays.equals(writeOptions.timestamp().data(), timestampSlice.data())).isTrue();
-      writeOptions.setTimestamp(null);
-      assertThat(writeOptions.timestamp()).isNull();
     }
   }
 
@@ -71,7 +66,6 @@ public class WriteOptionsTest {
     origOpts.setIgnoreMissingColumnFamilies(rand.nextBoolean());
     origOpts.setSync(rand.nextBoolean());
     origOpts.setMemtableInsertHintPerBatch(true);
-    origOpts.setTimestamp(buildRandomSlice());
     WriteOptions copyOpts = new WriteOptions(origOpts);
     assertThat(origOpts.disableWAL()).isEqualTo(copyOpts.disableWAL());
     assertThat(origOpts.ignoreMissingColumnFamilies()).isEqualTo(
@@ -79,13 +73,6 @@ public class WriteOptionsTest {
     assertThat(origOpts.sync()).isEqualTo(copyOpts.sync());
     assertThat(origOpts.memtableInsertHintPerBatch())
         .isEqualTo(copyOpts.memtableInsertHintPerBatch());
-    assertThat(Arrays.equals(origOpts.timestamp().data(), copyOpts.timestamp().data())).isTrue();
   }
-
-  private Slice buildRandomSlice() {
-    final Random rand = new Random();
-    byte[] sliceBytes = new byte[rand.nextInt(100) + 1];
-    rand.nextBytes(sliceBytes);
-    return new Slice(sliceBytes);
-  }
+  
 }
