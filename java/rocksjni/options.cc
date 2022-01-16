@@ -7866,7 +7866,6 @@ void Java_org_rocksdb_WriteOptions_setMemtableInsertHintPerBatch(
       static_cast<bool>(jmemtable_insert_hint_per_batch);
 }
 
-
 /////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::ReadOptions
 

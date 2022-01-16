@@ -7,7 +7,6 @@ package org.rocksdb;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.util.Arrays;
 import java.util.Random;
 import org.junit.ClassRule;
 import org.junit.Test;
@@ -55,7 +54,6 @@ public class WriteOptionsTest {
       assertThat(writeOptions.memtableInsertHintPerBatch()).isTrue();
       writeOptions.setMemtableInsertHintPerBatch(false);
       assertThat(writeOptions.memtableInsertHintPerBatch()).isFalse();
-
     }
   }
 
@@ -74,5 +72,4 @@ public class WriteOptionsTest {
     assertThat(origOpts.memtableInsertHintPerBatch())
         .isEqualTo(copyOpts.memtableInsertHintPerBatch());
   }
-  
 }
