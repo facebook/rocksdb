@@ -1626,6 +1626,9 @@ ttl_test: $(OBJ_DIR)/utilities/ttl/ttl_test.o $(TEST_LIBRARY) $(LIBRARY)
 write_batch_with_index_test: $(OBJ_DIR)/utilities/write_batch_with_index/write_batch_with_index_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+write_batch_with_index_delete_range_test: $(OBJ_DIR)/utilities/write_batch_with_index/write_batch_with_index_delete_range_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 flush_job_test: $(OBJ_DIR)/db/flush_job_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

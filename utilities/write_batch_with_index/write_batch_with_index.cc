@@ -29,6 +29,7 @@ struct WriteBatchWithIndex::Rep {
       : write_batch(reserved_bytes, max_bytes),
         comparator(index_comparator, &write_batch),
         skip_list(comparator, &arena),
+        deleted_range_map(comparator, &arena, &write_batch),
         overwrite_key(_overwrite_key),
         last_entry_offset(0),
         last_sub_batch_offset(0),
@@ -37,6 +38,7 @@ struct WriteBatchWithIndex::Rep {
   WriteBatchEntryComparator comparator;
   Arena arena;
   WriteBatchEntrySkipList skip_list;
+  DeletedRangeMap deleted_range_map;
   bool overwrite_key;
   size_t last_entry_offset;
   // The starting offset of the last sub-batch. A sub-batch starts right before
@@ -68,8 +70,24 @@ struct WriteBatchWithIndex::Rep {
   // put it to skip list.
   void AddNewEntry(uint32_t column_family_id);
 
+  // Create and insert in the deleted range map,
+  // a deleted range map entry defined by the last entry in the write batch
+  // which must be a DeleteRange entry
+  void AddDeletedRangeToMap(ColumnFamilyHandle* column_family);
+  void AddDeletedRangeToMap(uint32_t column_family_id);
+
+  // Remove index entries which are "overwritten" by a DeleteRange
+  void RemoveRangeDeletedIndexEntries(uint32_t cf_id, const Slice& from_key,
+                                      const Slice& to_key);
+
+  // Extract references to the keys in the last entry in the write batch
+  // Assume the entry is a delete range, so contains 2 keys
+  void ReadRangeKeysFromWriteBatchEntry(uint32_t column_family_id,
+                                        Slice& from_key, Slice& to_key);
+
   // Clear all updates buffered in this batch.
   void Clear();
+
   void ClearIndex();
 
   // Rebuild index by reading all records from the batch.
@@ -145,15 +163,56 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
   // Extract key
   Slice key;
   bool success __attribute__((__unused__));
-  success =
-      ReadKeyFromWriteBatchEntry(&entry_ptr, &key, column_family_id != 0);
+  success = ReadKeyFromWriteBatchEntry(&entry_ptr, &key, column_family_id != 0);
   assert(success);
 
   auto* mem = arena.Allocate(sizeof(WriteBatchIndexEntry));
   auto* index_entry =
       new (mem) WriteBatchIndexEntry(last_entry_offset, column_family_id,
-                                      key.data() - wb_data.data(), key.size());
+                                     key.data() - wb_data.data(), key.size());
   skip_list.Insert(index_entry);
+}
+
+void WriteBatchWithIndex::Rep::ReadRangeKeysFromWriteBatchEntry(
+    uint32_t column_family_id, Slice& from_key, Slice& to_key) {
+  const std::string& wb_data = write_batch.Data();
+  Slice entry_ptr = Slice(wb_data.data() + last_entry_offset,
+                          wb_data.size() - last_entry_offset);
+  // Extract keys
+  bool success __attribute__((__unused__));
+  success =
+      ReadKeyFromWriteBatchEntry(&entry_ptr, &from_key, column_family_id != 0);
+  assert(success);
+  success = GetLengthPrefixedSlice(&entry_ptr, &to_key);
+  assert(success);
+}
+
+void WriteBatchWithIndex::Rep::RemoveRangeDeletedIndexEntries(
+    uint32_t cf_id, const Slice& from_key, const Slice& to_key) {
+  WBWIIteratorImpl iter(cf_id, &skip_list, &write_batch, &comparator);
+
+  iter.Seek(from_key);
+
+  while (iter.Valid()) {
+    auto entry = iter.Entry();
+    if (comparator.CompareKey(cf_id, entry.key, to_key) >= 0) break;
+    iter.Remove();  // implicit Next()
+  }
+}
+
+void WriteBatchWithIndex::Rep::AddDeletedRangeToMap(
+    ColumnFamilyHandle* column_family) {
+  uint32_t cf_id = GetColumnFamilyID(column_family);
+  AddDeletedRangeToMap(cf_id);
+}
+
+void WriteBatchWithIndex::Rep::AddDeletedRangeToMap(uint32_t cf_id) {
+  // Add a record that this range has been deleted
+  // and remove records affecting individual values within the range
+  Slice batch_from_key, batch_to_key;
+  ReadRangeKeysFromWriteBatchEntry(cf_id, batch_from_key, batch_to_key);
+  RemoveRangeDeletedIndexEntries(cf_id, batch_from_key, batch_to_key);
+  deleted_range_map.AddInterval(cf_id, batch_from_key, batch_to_key);
 }
 
 void WriteBatchWithIndex::Rep::Clear() {
@@ -163,9 +222,11 @@ void WriteBatchWithIndex::Rep::Clear() {
 
 void WriteBatchWithIndex::Rep::ClearIndex() {
   skip_list.~WriteBatchEntrySkipList();
+  deleted_range_map.~DeletedRangeMap();
   arena.~Arena();
   new (&arena) Arena();
   new (&skip_list) WriteBatchEntrySkipList(comparator, &arena);
+  new (&deleted_range_map) DeletedRangeMap(comparator, &arena, &write_batch);
   last_entry_offset = 0;
   last_sub_batch_offset = 0;
   sub_batch_cnt = 1;
@@ -196,8 +257,8 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
     // set offset of current entry for call to AddNewEntry()
     last_entry_offset = input.data() - write_batch.Data().data();
 
-    s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key,
-                                  &value, &blob, &xid);
+    s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key, &value,
+                                 &blob, &xid);
     if (!s.ok()) {
       break;
     }
@@ -232,6 +293,11 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
         if (!UpdateExistingEntryWithCfId(column_family_id, key, kMergeRecord)) {
           AddNewEntry(column_family_id);
         }
+        break;
+      case kTypeRangeDeletion:
+      case kTypeColumnFamilyRangeDeletion:
+        found++;
+        AddDeletedRangeToMap(column_family_id);
         break;
       case kTypeLogData:
       case kTypeBeginPrepareXID:
@@ -341,6 +407,46 @@ Status WriteBatchWithIndex::Delete(const Slice& key) {
   return s;
 }
 
+Status WriteBatchWithIndex::DeleteRange(ColumnFamilyHandle* column_family,
+                                        const Slice& begin_key,
+                                        const Slice& end_key) {
+  if (rep->overwrite_key == false) {
+    return Status::NotSupported(
+        "DeleteRange unsupported in WriteBatchWithIndex with overwrite_key "
+        "== "
+        "false");
+  }
+  uint32_t cf_id = GetColumnFamilyID(column_family);
+  if (rep->comparator.CompareKey(cf_id, begin_key, end_key) >= 0) {
+    return Status::InvalidArgument("start key must come before end key");
+  }
+  rep->SetLastEntryOffset();
+  auto s = rep->write_batch.DeleteRange(column_family, begin_key, end_key);
+  if (s.ok()) {
+    rep->AddDeletedRangeToMap(column_family);
+  }
+  return s;
+}
+
+Status WriteBatchWithIndex::DeleteRange(const Slice& begin_key,
+                                        const Slice& end_key) {
+  if (rep->overwrite_key == false) {
+    return Status::NotSupported(
+        "DeleteRange unsupported in WriteBatchWithIndex with overwrite_key "
+        "== "
+        "false");
+  }
+  if (rep->comparator.CompareKey(0, begin_key, end_key) >= 0) {
+    return Status::InvalidArgument("start key must come before end key");
+  }
+  rep->SetLastEntryOffset();
+  auto s = rep->write_batch.DeleteRange(begin_key, end_key);
+  if (s.ok()) {
+    rep->AddDeletedRangeToMap(nullptr);
+  }
+  return s;
+}
+
 Status WriteBatchWithIndex::SingleDelete(ColumnFamilyHandle* column_family,
                                          const Slice& key) {
   rep->SetLastEntryOffset();
@@ -390,7 +496,8 @@ Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
                                          const Slice& key, std::string* value) {
   Status s;
   WriteBatchWithIndexInternal wbwii(&options, column_family);
-  auto result = wbwii.GetFromBatch(this, key, value, &s);
+  auto result =
+      wbwii.GetFromBatch(this, key, rep->deleted_range_map, value, &s);
 
   switch (result) {
     case WBWIIteratorImpl::kFound:
@@ -465,11 +572,12 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   Status s;
   WriteBatchWithIndexInternal wbwii(db, column_family);
 
-  // Since the lifetime of the WriteBatch is the same as that of the transaction
-  // we cannot pin it as otherwise the returned value will not be available
-  // after the transaction finishes.
+  // Since the lifetime of the WriteBatch is the same as that of the
+  // transaction we cannot pin it as otherwise the returned value will not be
+  // available after the transaction finishes.
   std::string& batch_value = *pinnable_val->GetSelf();
-  auto result = wbwii.GetFromBatch(this, key, &batch_value, &s);
+  auto result =
+      wbwii.GetFromBatch(this, key, rep->deleted_range_map, &batch_value, &s);
 
   if (result == WBWIIteratorImpl::kFound) {
     pinnable_val->PinSelf();
@@ -534,17 +642,17 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
   autovector<std::pair<WBWIIteratorImpl::Result, MergeContext>,
              MultiGetContext::MAX_BATCH_SIZE>
       merges;
-  // Since the lifetime of the WriteBatch is the same as that of the transaction
-  // we cannot pin it as otherwise the returned value will not be available
-  // after the transaction finishes.
+  // Since the lifetime of the WriteBatch is the same as that of the
+  // transaction we cannot pin it as otherwise the returned value will not be
+  // available after the transaction finishes.
   for (size_t i = 0; i < num_keys; ++i) {
     MergeContext merge_context;
     std::string batch_value;
     Status* s = &statuses[i];
     PinnableSlice* pinnable_val = &values[i];
     pinnable_val->Reset();
-    auto result =
-        wbwii.GetFromBatch(this, keys[i], &merge_context, &batch_value, s);
+    auto result = wbwii.GetFromBatch(this, keys[i], rep->deleted_range_map,
+                                     &merge_context, &batch_value, s);
 
     if (result == WBWIIteratorImpl::kFound) {
       *pinnable_val->GetSelf() = std::move(batch_value);

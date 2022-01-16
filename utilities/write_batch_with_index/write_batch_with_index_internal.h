@@ -19,6 +19,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "utilities/write_batch_with_index/write_batch_with_index_deleted_range_map.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -26,6 +27,7 @@ class MergeContext;
 class WBWIIteratorImpl;
 class WriteBatchWithIndexInternal;
 struct Options;
+class DeletedRangeMap;
 
 // when direction == forward
 // * current_at_base_ <=> base_iterator > delta_iterator
@@ -233,6 +235,8 @@ class WBWIIteratorImpl : public WBWIIterator {
     skip_list_iter_.SeekForPrev(&search_entry);
   }
 
+  void Remove() override { skip_list_iter_.Remove(); }
+
   void Next() override { skip_list_iter_.Next(); }
 
   void Prev() override { skip_list_iter_.Prev(); }
@@ -297,13 +301,17 @@ class WriteBatchWithIndexInternal {
   //   and return kMergeInProgress
   // If batch does not contain this key, return kNotFound
   // Else, return kError on error with error Status stored in *s.
-  WBWIIteratorImpl::Result GetFromBatch(WriteBatchWithIndex* batch,
-                                        const Slice& key, std::string* value,
-                                        Status* s) {
-    return GetFromBatch(batch, key, &merge_context_, value, s);
-  }
+
   WBWIIteratorImpl::Result GetFromBatch(WriteBatchWithIndex* batch,
                                         const Slice& key,
+                                        DeletedRangeMap& deleted_ranges,
+                                        std::string* value, Status* s) {
+    return GetFromBatch(batch, key, deleted_ranges, &merge_context_, value, s);
+  }
+
+  WBWIIteratorImpl::Result GetFromBatch(WriteBatchWithIndex* batch,
+                                        const Slice& key,
+                                        DeletedRangeMap& deleted_ranges,
                                         MergeContext* merge_context,
                                         std::string* value, Status* s);
   Status MergeKey(const Slice& key, const Slice* value,

@@ -295,6 +295,7 @@ LIB_SOURCES =                                                   \
   utilities/wal_filter.cc                                       \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
+  utilities/write_batch_with_index/write_batch_with_index_deleted_range_map.cc    \
 
 ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
 LIB_SOURCES_ASM =\
@@ -584,6 +585,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/ttl/ttl_test.cc                                             \
   utilities/util_merge_operators_test.cc                                \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
+  utilities/write_batch_with_index/write_batch_with_index_delete_range_test.cc       \
 
 TEST_MAIN_SOURCES_C = \
   db/c_test.c                                                           \

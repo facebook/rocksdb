@@ -8,7 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "memtable/skiplist.h"
+
+#include <cstdlib>
 #include <set>
+#include <unordered_set>
+
 #include "memory/arena.h"
 #include "rocksdb/env.h"
 #include "test_util/testharness.h"
@@ -136,6 +140,183 @@ TEST_F(SkipTest, InsertAndLookup) {
   }
 }
 
+TEST_F(SkipTest, RemoveTest) {
+  Arena arena;
+  TestComparator cmp;
+  SkipList<Key, TestComparator> list(cmp, &arena);
+  list.Insert(42);
+  list.Insert(43);
+  list.Insert(44);
+  list.Insert(45);
+  list.Insert(46);
+  list.Insert(47);
+  list.Insert(51);
+  list.Insert(52);
+
+  ASSERT_TRUE(list.Contains(44));
+  ASSERT_FALSE(list.Contains(48));
+
+  SkipList<Key, TestComparator>::Iterator iter(&list);
+  iter.Seek(48);
+  ASSERT_TRUE(iter.Valid());
+  ASSERT_EQ(51, iter.key());
+  iter.Remove();
+  ASSERT_TRUE(iter.Valid());
+  ASSERT_EQ(52, iter.key());
+  iter.Remove();
+  ASSERT_FALSE(iter.Valid());
+  iter.Seek(48);
+  ASSERT_FALSE(iter.Valid());
+
+  ASSERT_TRUE(list.Remove(46));
+  ASSERT_TRUE(list.Remove(44));
+  ASSERT_FALSE(list.Remove(41));
+
+  iter.SeekToFirst();
+  ASSERT_TRUE(iter.Valid());
+  ASSERT_EQ(42, iter.key());
+  iter.Next();
+  ASSERT_TRUE(iter.Valid());
+  ASSERT_EQ(43, iter.key());
+  iter.Next();
+  ASSERT_TRUE(iter.Valid());
+  ASSERT_EQ(45, iter.key());
+  iter.Next();
+  ASSERT_TRUE(iter.Valid());
+  ASSERT_EQ(47, iter.key());
+  iter.Next();
+  ASSERT_FALSE(iter.Valid());
+}
+
+TEST_F(SkipTest, InsertOptimizationBreaksRemove) {
+  Arena arena;
+  TestComparator cmp;
+  SkipList<Key, TestComparator> list(cmp, &arena);
+
+  list.Insert(101);
+  {
+    SkipList<Key, TestComparator>::Iterator iter(&list);
+    iter.SeekToFirst();
+    ASSERT_TRUE(iter.Valid());
+    iter.Remove();
+  }
+  list.Insert(201);
+  {
+    SkipList<Key, TestComparator>::Iterator iter(&list);
+    iter.SeekToFirst();
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(201, iter.key());
+  }
+
+  auto counts = list.GetInsertCounts();
+  ASSERT_EQ(1, counts.fast);
+  ASSERT_EQ(1, counts.slow);
+}
+
+TEST_F(SkipTest, InsertOptimizationAndRemove) {
+  Arena arena;
+  TestComparator cmp;
+  SkipList<Key, TestComparator> list(cmp, &arena);
+
+  for (int i = 0; i < 100000; i += 10) {
+    list.Insert(i);
+  }
+  auto counts = list.GetInsertCounts();
+  ASSERT_EQ(10000, counts.fast);
+  ASSERT_EQ(0, counts.slow);
+
+  SkipList<Key, TestComparator>::Iterator iter(&list);
+  iter.SeekToFirst();
+  for (int i = 0; i < 5000; i++) {
+    ASSERT_TRUE(iter.Valid());
+    iter.Remove();
+  }
+
+  for (int i = 0; i < 50000; i += 10) {
+    list.Insert(i);
+  }
+  counts = list.GetInsertCounts();
+  ASSERT_EQ(14999, counts.fast);
+  ASSERT_EQ(1, counts.slow);
+
+  for (int i = 50000; i < 100000; i += 10) {
+    for (int j = 1; j < 10; j++) {
+      list.Insert(i + j);
+    }
+  }
+  counts = list.GetInsertCounts();
+  ASSERT_EQ(54999, counts.fast);
+  ASSERT_EQ(5001, counts.slow);
+}
+
+TEST_F(SkipTest, BulkRemoveTest) {
+  const int32_t LIMIT = 1000000;
+
+  const int iterations[] = {100, 200, 300, 400, 500, 600, 700, 800, 900};
+  for (int iteration : iterations) {
+    Arena arena;
+    TestComparator cmp;
+    SkipList<Key, TestComparator> list(cmp, &arena);
+
+    std::unordered_set<Key> known;
+    std::unordered_set<Key> removed;
+
+    srand(iteration);
+
+    for (int i = 0; i < LIMIT; i++) {
+      int k = rand() % LIMIT;
+      bool exists = (known.find(k) != known.end());
+      if (!exists) {
+        list.Insert(k);
+        known.insert(k);
+      }
+    }
+
+    for (int i = 0; i < LIMIT / 2; i++) {
+      int k = rand() % LIMIT;
+      bool exists = (known.find(k) != known.end());
+      if (exists) {
+        list.Remove(k);
+        known.erase(k);
+        removed.insert(k);
+      }
+    }
+
+    for (auto it = known.cbegin(); it != known.cend(); ++it) {
+      ASSERT_TRUE(list.Contains(*it));
+    }
+    for (auto it = removed.cbegin(); it != removed.cend(); ++it) {
+      ASSERT_FALSE(list.Contains(*it));
+    }
+
+    std::unique_ptr<SkipList<Key, TestComparator>::Iterator> iter(nullptr);
+    iter.reset(new SkipList<Key, TestComparator>::Iterator(&list));
+
+    size_t expected = known.size();
+    iter->SeekToFirst();
+    for (size_t i = 0; i < expected; i++) {
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(known.find(iter->key()) != known.end());
+      ASSERT_TRUE(removed.find(iter->key()) == removed.end());
+      known.erase(iter->key());
+      iter->Remove();
+    }
+    // Check we have reached the end
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_EQ(0, known.size());
+
+    // Check there's nothing when we try again
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid());
+
+    // Probabilistic based on the random number generator,
+    // but highly unlikely to be outside range
+    auto counts = list.GetInsertCounts();
+    ASSERT_TRUE(counts.fast > 5 && counts.fast < 50);
+    ASSERT_TRUE(counts.slow > 500000 && counts.slow < 1000000);
+  }
+}
+
 // We want to make sure that with a single writer and multiple
 // concurrent readers (with no synchronization other than when a
 // reader's iterator is created), the reader always observes all the
@@ -169,7 +350,7 @@ class ConcurrentTest {
   static uint64_t hash(Key key) { return key & 0xff; }
 
   static uint64_t HashNumbers(uint64_t k, uint64_t g) {
-    uint64_t data[2] = { k, g };
+    uint64_t data[2] = {k, g};
     return Hash(reinterpret_cast<char*>(data), sizeof(data), 0);
   }
 
@@ -311,11 +492,7 @@ class TestState {
   int seed_;
   std::atomic<bool> quit_flag_;
 
-  enum ReaderState {
-    STARTING,
-    RUNNING,
-    DONE
-  };
+  enum ReaderState { STARTING, RUNNING, DONE };
 
   explicit TestState(int s)
       : seed_(s), quit_flag_(false), state_(STARTING), state_cv_(&mu_) {}

@@ -658,9 +658,11 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
 }
 
 WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
-    WriteBatchWithIndex* batch, const Slice& key, MergeContext* context,
-    std::string* value, Status* s) {
+    WriteBatchWithIndex* batch, const Slice& key,
+    DeletedRangeMap& deleted_ranges, MergeContext* context, std::string* value,
+    Status* s) {
   *s = Status::OK();
+  uint32_t cf_id = GetColumnFamilyID(column_family_);
 
   std::unique_ptr<WBWIIteratorImpl> iter(
       static_cast_with_check<WBWIIteratorImpl>(
@@ -674,7 +676,11 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
                               ToString(iter->Entry().type));
     return result;
   } else if (result == WBWIIteratorImpl::kNotFound) {
-    return result;
+    // If we simply did not find the key in the index,
+    // we need to check if it is part of an explicitly deleted range.
+    if (deleted_ranges.IsInInterval(cf_id, key)) {
+      result = WBWIIteratorImpl::Result::kDeleted;
+    }
   } else if (result == WBWIIteratorImpl::Result::kFound) {  // PUT
     Slice entry_value = iter->Entry().value;
     if (context->GetNumOperands() > 0) {

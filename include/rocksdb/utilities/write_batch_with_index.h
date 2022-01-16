@@ -66,6 +66,8 @@ class WBWIIterator {
 
   virtual void SeekForPrev(const Slice& key) = 0;
 
+  virtual void Remove() = 0;
+
   virtual void Next() = 0;
 
   virtual void Prev() = 0;
@@ -128,15 +130,9 @@ class WriteBatchWithIndex : public WriteBatchBase {
   using WriteBatchBase::DeleteRange;
   Status DeleteRange(ColumnFamilyHandle* /* column_family */,
                      const Slice& /* begin_key */,
-                     const Slice& /* end_key */) override {
-    return Status::NotSupported(
-        "DeleteRange unsupported in WriteBatchWithIndex");
-  }
+                     const Slice& /* end_key */) override;
   Status DeleteRange(const Slice& /* begin_key */,
-                     const Slice& /* end_key */) override {
-    return Status::NotSupported(
-        "DeleteRange unsupported in WriteBatchWithIndex");
-  }
+                     const Slice& /* end_key */) override;
 
   using WriteBatchBase::PutLogData;
   Status PutLogData(const Slice& blob) override;
