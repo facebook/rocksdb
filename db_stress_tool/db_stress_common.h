@@ -269,6 +269,8 @@ DECLARE_uint64(user_timestamp_size);
 DECLARE_string(secondary_cache_uri);
 DECLARE_int32(secondary_cache_fault_one_in);
 
+DECLARE_int32(prepopulate_block_cache);
+
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;
