@@ -343,7 +343,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
                 static_cast<const std::shared_ptr<const FilterPolicy>*>(addr1)
                     ->get();
             const auto* policy2 =
-                static_cast<const std::shared_ptr<FilterPolicy>*>(addr2)->get();
+                static_cast<const std::shared_ptr<const FilterPolicy>*>(addr2)
+                    ->get();
             if (policy1 == policy2) {
               return true;
             } else if (policy1 != nullptr && policy2 != nullptr) {

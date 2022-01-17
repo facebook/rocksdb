@@ -889,7 +889,7 @@ Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
     return Status::OK();
   }
   try {
-    void* opt_addr = static_cast<char*>(opt_ptr) + offset_;
+    void* opt_addr = GetOffset(opt_ptr);
     const std::string& opt_value = config_options.input_strings_escaped
                                        ? UnescapeOptionString(value)
                                        : value;
@@ -1012,7 +1012,7 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
                                  std::string* opt_value) const {
   // If the option is no longer used in rocksdb and marked as deprecated,
   // we skip it in the serialization.
-  const void* opt_addr = static_cast<const char*>(opt_ptr) + offset_;
+  const void* opt_addr = GetOffset(opt_ptr);
   if (opt_addr == nullptr || IsDeprecated()) {
     return Status::OK();
   } else if (IsEnabled(OptionTypeFlags::kDontSerialize)) {
@@ -1212,39 +1212,43 @@ bool OptionTypeInfo::AreEqual(const ConfigOptions& config_options,
   if (!config_options.IsCheckEnabled(level)) {
     return true;  // If the sanity level is not being checked, skip it
   }
-  const void* this_addr = static_cast<const char*>(this_ptr) + offset_;
-  const void* that_addr = static_cast<const char*>(that_ptr) + offset_;
-  if (this_addr == nullptr || that_addr == nullptr) {
-    if (this_addr == that_addr) {
+  if (this_ptr == nullptr || that_ptr == nullptr) {
+    if (this_ptr == that_ptr) {
       return true;
     }
   } else if (equals_func_ != nullptr) {
+    const void* this_addr = GetOffset(this_ptr);
+    const void* that_addr = GetOffset(that_ptr);
     if (equals_func_(config_options, opt_name, this_addr, that_addr,
                      mismatch)) {
       return true;
     }
-  } else if (AreOptionsEqual(type_, this_addr, that_addr)) {
-    return true;
-  } else if (IsConfigurable()) {
-    const auto* this_config = AsRawPointer<Configurable>(this_ptr);
-    const auto* that_config = AsRawPointer<Configurable>(that_ptr);
-    if (this_config == that_config) {
+  } else {
+    const void* this_addr = GetOffset(this_ptr);
+    const void* that_addr = GetOffset(that_ptr);
+    if (AreOptionsEqual(type_, this_addr, that_addr)) {
       return true;
-    } else if (this_config != nullptr && that_config != nullptr) {
-      std::string bad_name;
-      bool matches;
-      if (level < config_options.sanity_level) {
-        ConfigOptions copy = config_options;
-        copy.sanity_level = level;
-        matches = this_config->AreEquivalent(copy, that_config, &bad_name);
-      } else {
-        matches =
-            this_config->AreEquivalent(config_options, that_config, &bad_name);
+    } else if (IsConfigurable()) {
+      const auto* this_config = AsRawPointer<Configurable>(this_ptr);
+      const auto* that_config = AsRawPointer<Configurable>(that_ptr);
+      if (this_config == that_config) {
+        return true;
+      } else if (this_config != nullptr && that_config != nullptr) {
+        std::string bad_name;
+        bool matches;
+        if (level < config_options.sanity_level) {
+          ConfigOptions copy = config_options;
+          copy.sanity_level = level;
+          matches = this_config->AreEquivalent(copy, that_config, &bad_name);
+        } else {
+          matches = this_config->AreEquivalent(config_options, that_config,
+                                               &bad_name);
+        }
+        if (!matches) {
+          *mismatch = opt_name + "." + bad_name;
+        }
+        return matches;
       }
-      if (!matches) {
-        *mismatch = opt_name + "." + bad_name;
-      }
-      return matches;
     }
   }
   if (mismatch->empty()) {
@@ -1366,6 +1370,44 @@ bool OptionTypeInfo::AreEqualByName(const ConfigOptions& config_options,
     }
   }
   return (this_value == that_value);
+}
+
+Status OptionTypeInfo::Prepare(const ConfigOptions& config_options,
+                               const std::string& name, void* opt_ptr) const {
+  if (ShouldPrepare()) {
+    if (prepare_func_ != nullptr) {
+      void* opt_addr = GetOffset(opt_ptr);
+      return prepare_func_(config_options, name, opt_addr);
+    } else if (IsConfigurable()) {
+      Configurable* config = AsRawPointer<Configurable>(opt_ptr);
+      if (config != nullptr) {
+        return config->PrepareOptions(config_options);
+      } else if (!CanBeNull()) {
+        return Status::NotFound("Missing configurable object", name);
+      }
+    }
+  }
+  return Status::OK();
+}
+
+Status OptionTypeInfo::Validate(const DBOptions& db_opts,
+                                const ColumnFamilyOptions& cf_opts,
+                                const std::string& name,
+                                const void* opt_ptr) const {
+  if (ShouldValidate()) {
+    if (validate_func_ != nullptr) {
+      const void* opt_addr = GetOffset(opt_ptr);
+      return validate_func_(db_opts, cf_opts, name, opt_addr);
+    } else if (IsConfigurable()) {
+      const Configurable* config = AsRawPointer<Configurable>(opt_ptr);
+      if (config != nullptr) {
+        return config->ValidateOptions(db_opts, cf_opts);
+      } else if (!CanBeNull()) {
+        return Status::NotFound("Missing configurable object", name);
+      }
+    }
+  }
+  return Status::OK();
 }
 
 const OptionTypeInfo* OptionTypeInfo::Find(
