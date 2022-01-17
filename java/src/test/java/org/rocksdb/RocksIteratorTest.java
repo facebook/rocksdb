@@ -127,7 +127,20 @@ public class RocksIteratorTest {
         {
           // Check offsets of slice byte buffers
           final ByteBuffer key0 = ByteBuffer.allocate(24);
-          key0.put("123456789012".getBytes());
+          key0.put("key2key2".getBytes());
+          final ByteBuffer key = key0.slice();
+          key.put("key1".getBytes()).flip();
+          iterator.seek(key);
+          assertThat(iterator.isValid()).isTrue();
+          assertThat(iterator.value()).isEqualTo("value1".getBytes());
+          assertThat(key.position()).isEqualTo(4);
+          assertThat(key.limit()).isEqualTo(4);
+        }
+
+        {
+          // Check offsets of slice byte buffers
+          final ByteBuffer key0 = ByteBuffer.allocateDirect(24);
+          key0.put("key2key2".getBytes());
           final ByteBuffer key = key0.slice();
           key.put("key1".getBytes()).flip();
           iterator.seek(key);

@@ -108,24 +108,17 @@ void Java_org_rocksdb_RocksIterator_refresh0(JNIEnv* env, jobject /*jobj*/,
 void Java_org_rocksdb_RocksIterator_seek0(JNIEnv* env, jobject /*jobj*/,
                                           jlong handle, jbyteArray jtarget,
                                           jint jtarget_len) {
-  jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
-  if (target == nullptr) {
-    // exception thrown: OutOfMemoryError
-    return;
-  }
-
-  ROCKSDB_NAMESPACE::Slice target_slice(reinterpret_cast<char*>(target),
-                                        jtarget_len);
-
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
-  it->Seek(target_slice);
-
-  env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+  auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
+    it->Seek(target_slice);
+  };
+  ROCKSDB_NAMESPACE::JniUtil::k_op_region(seek, env, jtarget, 0, jtarget_len);
 }
 
 /*
  * This method supports fetching into indirect byte buffers;
  * the Java wrapper extracts the byte[] and passes it here.
+ * In this case, the buffer offset of the key may be non-zero.
  *
  * Class:     org_rocksdb_RocksIterator
  * Method:    seek0
@@ -134,20 +127,12 @@ void Java_org_rocksdb_RocksIterator_seek0(JNIEnv* env, jobject /*jobj*/,
 void Java_org_rocksdb_RocksIterator_seekByteArray0(
     JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jtarget,
     jint jtarget_off, jint jtarget_len) {
-  const std::unique_ptr<char[]> target(new char[jtarget_len]);
-  if (target == nullptr) {
-    jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
-    env->ThrowNew(oom_class,
-                  "Memory allocation failed in RocksDB JNI function");
-    return;
-  }
-  env->GetByteArrayRegion(jtarget, jtarget_off, jtarget_len,
-                          reinterpret_cast<jbyte*>(target.get()));
-
-  ROCKSDB_NAMESPACE::Slice target_slice(target.get(), jtarget_len);
-
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
-  it->Seek(target_slice);
+  auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
+    it->Seek(target_slice);
+  };
+  ROCKSDB_NAMESPACE::JniUtil::k_op_region(seek, env, jtarget, jtarget_off,
+                                          jtarget_len);
 }
 
 /*
@@ -192,24 +177,17 @@ void Java_org_rocksdb_RocksIterator_seekForPrev0(JNIEnv* env, jobject /*jobj*/,
                                                  jlong handle,
                                                  jbyteArray jtarget,
                                                  jint jtarget_len) {
-  jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
-  if (target == nullptr) {
-    // exception thrown: OutOfMemoryError
-    return;
-  }
-
-  ROCKSDB_NAMESPACE::Slice target_slice(reinterpret_cast<char*>(target),
-                                        jtarget_len);
-
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
-  it->SeekForPrev(target_slice);
-
-  env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+  auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
+    it->SeekForPrev(target_slice);
+  };
+  ROCKSDB_NAMESPACE::JniUtil::k_op_region(seek, env, jtarget, 0, jtarget_len);
 }
 
 /*
  * This method supports fetching into indirect byte buffers;
  * the Java wrapper extracts the byte[] and passes it here.
+ * In this case, the buffer offset of the key may be non-zero.
  *
  * Class:     org_rocksdb_RocksIterator
  * Method:    seek0
@@ -218,20 +196,12 @@ void Java_org_rocksdb_RocksIterator_seekForPrev0(JNIEnv* env, jobject /*jobj*/,
 void Java_org_rocksdb_RocksIterator_seekForPrevByteArray0(
     JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jtarget,
     jint jtarget_off, jint jtarget_len) {
-  const std::unique_ptr<char[]> target(new char[jtarget_len]);
-  if (target == nullptr) {
-    jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
-    env->ThrowNew(oom_class,
-                  "Memory allocation failed in RocksDB JNI function");
-    return;
-  }
-  env->GetByteArrayRegion(jtarget, jtarget_off, jtarget_len,
-                          reinterpret_cast<jbyte*>(target.get()));
-
-  ROCKSDB_NAMESPACE::Slice target_slice(target.get(), jtarget_len);
-
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
-  it->SeekForPrev(target_slice);
+  auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
+    it->SeekForPrev(target_slice);
+  };
+  ROCKSDB_NAMESPACE::JniUtil::k_op_region(seek, env, jtarget, jtarget_off,
+                                          jtarget_len);
 }
 
 /*
