@@ -231,9 +231,8 @@ public class MutableColumnFamilyOptions
 
     @Override
     public MutableColumnFamilyOptionsBuilder setMemtableWholeKeyFiltering(
-        final boolean memtableWholeKeyFiltering)(
-      return setBoolean(MemtableOption.memtable_whole_key_filtering,
-          memtableWholeKeyFiltering);
+        final boolean memtableWholeKeyFiltering) {
+      return setBoolean(MemtableOption.memtable_whole_key_filtering, memtableWholeKeyFiltering);
     }
 
     @Override

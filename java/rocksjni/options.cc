@@ -3173,8 +3173,8 @@ void Java_org_rocksdb_Options_setMemtablePrefixBloomSizeRatio(
  * Method:    memtableWholeKeyFiltering
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_Options_memtableWholeKeyFiltering(
-    JNIEnv*, jobject, jlong jhandle) {
+jboolean Java_org_rocksdb_Options_memtableWholeKeyFiltering(JNIEnv*, jobject,
+                                                            jlong jhandle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
       ->memtable_whole_key_filtering;
 }
@@ -3185,8 +3185,7 @@ jboolean Java_org_rocksdb_Options_memtableWholeKeyFiltering(
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_Options_setMemtableWholeKeyFiltering(
-    JNIEnv*, jobject, jlong jhandle,
-    jboolean jmemtable_whole_key_filtering) {
+    JNIEnv*, jobject, jlong jhandle, jboolean jmemtable_whole_key_filtering) {
   reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
       ->memtable_whole_key_filtering =
       static_cast<bool>(jmemtable_whole_key_filtering);
@@ -4994,8 +4993,7 @@ jboolean Java_org_rocksdb_ColumnFamilyOptions_memtableWholeKeyFiltering(
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_ColumnFamilyOptions_setMemtableWholeKeyFiltering(
-    JNIEnv*, jobject, jlong jhandle,
-    jboolean jmemtable_whole_key_filtering) {
+    JNIEnv*, jobject, jlong jhandle, jboolean jmemtable_whole_key_filtering) {
   reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
       ->memtable_whole_key_filtering =
       static_cast<bool>(jmemtable_whole_key_filtering);
