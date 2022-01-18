@@ -60,9 +60,10 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    * write_buffer_size * memtable_prefix_bloom_size_ratio.
    * If it is larger than 0.25, it is santinized to 0.25.
    *
-   * Default: 0 (disable)
+   * Default: 0 (disabled)
    *
-   * @param memtablePrefixBloomSizeRatio The ratio
+   * @param memtablePrefixBloomSizeRatio the ratio of memtable used by the
+   *     bloom filter, 0 means no bloom filter
    * @return the reference to the current options.
    */
   T setMemtablePrefixBloomSizeRatio(
@@ -74,9 +75,9 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    * write_buffer_size * memtable_prefix_bloom_size_ratio.
    * If it is larger than 0.25, it is santinized to 0.25.
    *
-   * Default: 0 (disable)
+   * Default: 0 (disabled)
    *
-   * @return the ratio
+   * @return the ratio of memtable used by the bloom filter
    */
   double memtablePrefixBloomSizeRatio();
 
@@ -85,17 +86,18 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    * if memtable_prefix_bloom_size_ratio is not 0. Enabling whole key filtering
    * can potentially reduce CPU usage for point-look-ups.
    *
-   * Default: false (disable)
+   * Default: false (disabled)
    *
-   * @param memtableWholeKeyFiltering the memtable whole key filtering mode
+   * @param memtableWholeKeyFiltering true if whole key bloom filter is enabled
+   *     in memtable
    * @return the reference to the current options.
    */
   T setMemtableWholeKeyFiltering(boolean memtableWholeKeyFiltering);
 
   /**
-   * Returns whether a memtable whole key filtering mode will be used
+   * Returns whether whole key bloom filter is enabled in memtable
    *
-   * @return the memtable whole key filtering mode
+   * @return true if whole key bloom filter is enabled in memtable
    */
   boolean memtableWholeKeyFiltering();
 
@@ -565,7 +567,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    * Dynamically changeable through
    * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
-   * @return true iff blob files are enabled
+   * @return true if blob files are enabled
    */
   boolean enableBlobFiles();
 
@@ -675,7 +677,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    *
    * Default: false
    *
-   * @return true iff blob garbage collection is currently enabled.
+   * @return true if blob garbage collection is currently enabled.
    */
   boolean enableBlobGarbageCollection();
 

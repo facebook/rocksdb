@@ -371,7 +371,7 @@ struct AdvancedColumnFamilyOptions {
   // write_buffer_size * memtable_prefix_bloom_size_ratio.
   // If it is larger than 0.25, it is sanitized to 0.25.
   //
-  // Default: 0 (disable)
+  // Default: 0 (disabled)
   //
   // Dynamically changeable through SetOptions() API
   double memtable_prefix_bloom_size_ratio = 0.0;
@@ -380,7 +380,7 @@ struct AdvancedColumnFamilyOptions {
   // if memtable_prefix_bloom_size_ratio is not 0. Enabling whole key filtering
   // can potentially reduce CPU usage for point-look-ups.
   //
-  // Default: false (disable)
+  // Default: false (disabled)
   //
   // Dynamically changeable through SetOptions() API
   bool memtable_whole_key_filtering = false;
@@ -415,7 +415,7 @@ struct AdvancedColumnFamilyOptions {
   // example would be updating the same key over and over again, in which case
   // the prefix can be the key itself.
   //
-  // Default: nullptr (disable)
+  // Default: nullptr (disabled)
   std::shared_ptr<const SliceTransform>
       memtable_insert_with_hint_prefix_extractor = nullptr;
 
