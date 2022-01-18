@@ -1369,8 +1369,7 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
   // NOT MAINTAINED: This function has not been and is not maintained.
   // DEPRECATED: This function might be removed in a future release.
   // In general, defaults are changed to suit broad interests. Opting
-  // out of a change on upgrade should be deliberate and considered
-  // rather than automatic and thoughtless.
+  // out of a change on upgrade should be deliberate and considered.
   Options* OldDefaults(int rocksdb_major_version = 4,
                        int rocksdb_minor_version = 6);
 
