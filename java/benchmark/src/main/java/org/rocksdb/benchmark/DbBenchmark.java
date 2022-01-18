@@ -1193,7 +1193,8 @@ public class DbBenchmark {
       }
     },
     memtable_whole_key_filtering(false, "Enable whole key bloom filter in memtable.") {
-      @Override public Object parseValue(String value) {
+      @Override
+      public Object parseValue(String value) {
         return parseBoolean(value);
       }
     },
