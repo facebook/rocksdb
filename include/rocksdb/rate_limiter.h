@@ -59,6 +59,7 @@ class RateLimiter : public Customizable {
   // Request for token for bytes. If this request can not be satisfied, the call
   // is blocked. Caller is responsible to make sure
   // bytes <= GetSingleBurstBytes()
+  // and bytes >= 0.
   virtual void Request(const int64_t /*bytes*/, const Env::IOPriority /*pri*/) {
     assert(false);
   }
