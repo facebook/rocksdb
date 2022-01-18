@@ -81,6 +81,25 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
   double memtablePrefixBloomSizeRatio();
 
   /**
+   * Enable whole key bloom filter in memtable. Note this will only take effect
+   * if memtable_prefix_bloom_size_ratio is not 0. Enabling whole key filtering
+   * can potentially reduce CPU usage for point-look-ups.
+   *
+   * Default: false (disable)
+   *
+   * @param memtableWholeKeyFiltering the memtable whole key filtering mode
+   * @return the reference to the current options.
+   */
+  T setMemtableWholeKeyFiltering(boolean memtableWholeKeyFiltering);
+
+  /**
+   * Returns whether a memtable whole key filtering mode will be used
+   *
+   * @return the memtable whole key filtering mode
+   */
+  boolean memtableWholeKeyFiltering();
+
+  /**
    * Page size for huge page TLB for bloom in memtable. If &le; 0, not allocate
    * from huge page TLB but from malloc.
    * Need to reserve huge pages for it to be allocated. For example:

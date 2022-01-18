@@ -275,6 +275,15 @@ public class OptionsTest {
   }
 
   @Test
+  public void memtableWholeKeyFiltering() {
+    try (final Options opt = new Options()) {
+      final boolean booleanValue = rand.nextBoolean();
+      opt.setMemtableWholeKeyFiltering(booleanValue);
+      assertThat(opt.memtableWholeKeyFiltering()).isEqualTo(booleanValue);
+    }
+  }
+
+  @Test
   public void memtableHugePageSize() {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();
