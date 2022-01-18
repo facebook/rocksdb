@@ -406,7 +406,8 @@ struct BlockBasedTableBuilder::Rep {
         file(f),
         offset(0),
         alignment(table_options.block_align
-                      ? std::min(table_options.block_size, kDefaultPageSize)
+                      ? std::min(static_cast<size_t>(table_options.block_size),
+                                 kDefaultPageSize)
                       : 0),
         data_block(table_options.block_restart_interval,
                    table_options.use_delta_encoding,
