@@ -62,7 +62,7 @@ std::shared_ptr<SstPartitionerFactory> NewSstPartitionerFixedPrefixFactory(
 namespace {
 static int RegisterSstPartitionerFactories(ObjectLibrary& library,
                                            const std::string& /*arg*/) {
-  library.Register<SstPartitionerFactory>(
+  library.AddFactory<SstPartitionerFactory>(
       SstPartitionerFixedPrefixFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<SstPartitionerFactory>* guard,

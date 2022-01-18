@@ -85,6 +85,9 @@ typedef void (*lt_destroy_cb)(locktree *lt);
 typedef void (*lt_escalate_cb)(TXNID txnid, const locktree *lt,
                                const range_buffer &buffer, void *extra);
 
+typedef bool (*lt_escalation_barrier_check_func)(const DBT *a, const DBT *b,
+                                                 void *extra);
+
 struct lt_counters {
   uint64_t wait_count, wait_time;
   uint64_t long_wait_count, long_wait_time;
@@ -343,6 +346,20 @@ class locktree {
 
   void set_comparator(const comparator &cmp);
 
+  // Set the user-provided Lock Escalation Barrier check function and its
+  // argument
+  //
+  // Lock Escalation Barrier limits the scope of Lock Escalation.
+  // For two keys A and B (such that A < B),
+  // escalation_barrier_check_func(A, B)==true means that there's a lock
+  // escalation barrier between A and B, and lock escalation is not allowed to
+  // bridge the gap between A and B.
+  //
+  // This method sets the user-provided barrier check function and its
+  // parameter.
+  void set_escalation_barrier_func(lt_escalation_barrier_check_func func,
+                                   void *extra);
+
   int compare(const locktree *lt) const;
 
   DICTIONARY_ID get_dict_id() const;
@@ -372,6 +389,9 @@ class locktree {
   // for as long as the handle is open. The ft_handle is stored opaquely in the
   // userdata pointer below. see locktree_manager::get_lt w/ on_create_extra
   comparator m_cmp;
+
+  lt_escalation_barrier_check_func m_escalation_barrier;
+  void *m_escalation_barrier_arg;
 
   concurrent_tree *m_rangetree;
 

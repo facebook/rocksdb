@@ -2492,7 +2492,7 @@ TEST_F(CreateEnvTest, CreateDefaultSystemClock) {
 TEST_F(CreateEnvTest, CreateMockSystemClock) {
   std::shared_ptr<SystemClock> mock, copy;
 
-  config_options_.registry->AddLibrary("test")->Register<SystemClock>(
+  config_options_.registry->AddLibrary("test")->AddFactory<SystemClock>(
       MockSystemClock::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<SystemClock>* guard,
          std::string* /* errmsg */) {
@@ -2939,12 +2939,13 @@ class WrappedEnv : public EnvWrapper {
   static const char* kClassName() { return "WrappedEnv"; }
   const char* Name() const override { return kClassName(); }
   static void Register(ObjectLibrary& lib, const std::string& /*arg*/) {
-    lib.Register<Env>(WrappedEnv::kClassName(), [](const std::string& /*uri*/,
-                                                   std::unique_ptr<Env>* guard,
-                                                   std::string* /* errmsg */) {
-      guard->reset(new WrappedEnv(nullptr));
-      return guard->get();
-    });
+    lib.AddFactory<Env>(
+        WrappedEnv::kClassName(),
+        [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
+           std::string* /* errmsg */) {
+          guard->reset(new WrappedEnv(nullptr));
+          return guard->get();
+        });
   }
 };
 }  // namespace
