@@ -474,6 +474,19 @@ Options* Options::OptimizeForSmallDb() {
   return this;
 }
 
+Options* Options::DisableExtraChecks() {
+  // See https://github.com/facebook/rocksdb/issues/9354
+  force_consistency_checks = false;
+  // Considered but no clear performance impact seen:
+  // * check_flush_compaction_key_order
+  // * paranoid_checks
+  // * flush_verify_memtable_count
+  // By current API contract, not including
+  // * verify_checksums
+  // because checking storage data integrity is a more standard practice.
+  return this;
+}
+
 Options* Options::OldDefaults(int rocksdb_major_version,
                               int rocksdb_minor_version) {
   ColumnFamilyOptions::OldDefaults(rocksdb_major_version,
