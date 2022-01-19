@@ -6,6 +6,7 @@
 * Made the Env class extend the Customizable class.  Implementations need to be registered with the ObjectRegistry and to implement a Name() method in order to be created via this method.
 * `Options::OldDefaults` is marked deprecated, as it is no longer maintained.
 * Add ObjectLibrary::AddFactory and ObjectLibrary::PatternEntry classes.  This method and associated class are the preferred mechanism for registering factories with the ObjectLibrary going forward.  The ObjectLibrary::Register method, which uses regular expressions and may be problematic, is deprecated and will be in a future release.
+* Added API warning against using `Iterator::Refresh()` together with `DB::DeleteRange()`, which are incompatible and have always risked causing the refreshed iterator to return incorrect results.
 
 ### Behavior Changes
 * `DB::DestroyColumnFamilyHandle()` will return Status::InvalidArgument() if called with `DB::DefaultColumnFamily()`.
