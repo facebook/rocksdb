@@ -517,7 +517,7 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
   ASSERT_GE(listener->slowdown_count, kSlowdownTrigger * 9);
   // We don't want the listener executing during DBTestBase::Close() due to
   // race on handles_.
-  dbfull()->TEST_WaitForBackgroundWork();
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
 }
 
 class TestCompactionReasonListener : public EventListener {
