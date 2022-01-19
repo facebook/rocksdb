@@ -842,7 +842,19 @@ EOF
   fi
 fi
 
-rm -f test.o
+# check for F_FULLFSYNC
+$CXX $PLATFORM_CXXFALGS -x c++ - -o test.o 2>/dev/null  <<EOF
+  #include <fcntl.h>
+  int main() {
+    fcntl(0, F_FULLFSYNC);
+    return 0;
+  }
+EOF
+if [ "$?" = 0 ]; then
+  COMMON_FLAGS="$COMMON_FLAGS -DHAVE_FULLFSYNC"
+fi
+
+rm -f test.o test_dl.o
 
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS $COMMON_FLAGS"
