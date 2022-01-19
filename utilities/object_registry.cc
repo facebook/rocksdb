@@ -81,7 +81,7 @@ bool ObjectLibrary::PatternEntry::MatchesTarget(const std::string &name,
     // unmatched in the target is acceptable.
     if (mode == kMatchExact) {
       return (start == tlen);
-    } else if (start >= tlen) {
+    } else if (start > tlen || (start == tlen && mode != kMatchZeroOrMore)) {
       return false;
     } else if (mode == kMatchNumeric) {
       while (start < tlen) {

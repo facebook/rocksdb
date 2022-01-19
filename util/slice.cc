@@ -163,7 +163,7 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
                                          const std::string& /*arg*/) {
   // For the builtin transforms, the format is typically
   // [Name].[0-9]+ or [NickName]:[0-9]+
-  library.Register<const SliceTransform>(
+  library.AddFactoryr<const SliceTransform>(
       NoopTransform::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<const SliceTransform>* guard,
@@ -171,7 +171,7 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         guard->reset(NewNoopTransform());
         return guard->get();
       });
-  library.Register<const SliceTransform>(
+  library.AddFactory<const SliceTransform>(
       ObjectLibrary::PatternEntry(FixedPrefixTransform::kNickName(), false)
           .AddNumber(":"),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
@@ -181,7 +181,7 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         guard->reset(NewFixedPrefixTransform(len));
         return guard->get();
       });
-  library.Register<const SliceTransform>(
+  library.AddFactory<const SliceTransform>(
       ObjectLibrary::PatternEntry(FixedPrefixTransform::kClassName(), false)
           .AddNumber("."),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
@@ -191,7 +191,7 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         guard->reset(NewFixedPrefixTransform(len));
         return guard->get();
       });
-  library.Register<const SliceTransform>(
+  library.AddFactory<const SliceTransform>(
       ObjectLibrary::PatternEntry(CappedPrefixTransform::kNickName(), false)
           .AddNumber(":"),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,
@@ -201,7 +201,7 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
         guard->reset(NewCappedPrefixTransform(len));
         return guard->get();
       });
-  library.Register<const SliceTransform>(
+  library.AddFactory<const SliceTransform>(
       ObjectLibrary::PatternEntry(CappedPrefixTransform::kClassName(), false)
           .AddNumber("."),
       [](const std::string& uri, std::unique_ptr<const SliceTransform>* guard,

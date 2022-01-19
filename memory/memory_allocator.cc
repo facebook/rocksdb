@@ -24,14 +24,14 @@ static std::unordered_map<std::string, OptionTypeInfo> ma_wrapper_type_info = {
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinAllocators(ObjectLibrary& library,
                                      const std::string& /*arg*/) {
-  library.Register<MemoryAllocator>(
+  library.AddFactory<MemoryAllocator>(
       DefaultMemoryAllocator::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<MemoryAllocator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new DefaultMemoryAllocator());
         return guard->get();
       });
-  library.Register<MemoryAllocator>(
+  library.AddFactory<MemoryAllocator>(
       CountedMemoryAllocator::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<MemoryAllocator>* guard,
          std::string* /*errmsg*/) {
@@ -39,7 +39,7 @@ static int RegisterBuiltinAllocators(ObjectLibrary& library,
             std::make_shared<DefaultMemoryAllocator>()));
         return guard->get();
       });
-  library.Register<MemoryAllocator>(
+  library.AddFactory<MemoryAllocator>(
       JemallocNodumpAllocator::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<MemoryAllocator>* guard,
          std::string* errmsg) {
@@ -49,7 +49,7 @@ static int RegisterBuiltinAllocators(ObjectLibrary& library,
         }
         return guard->get();
       });
-  library.Register<MemoryAllocator>(
+  library.AddFactory<MemoryAllocator>(
       MemkindKmemAllocator::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<MemoryAllocator>* guard,
          std::string* errmsg) {

@@ -288,7 +288,7 @@ std::shared_ptr<Statistics> CreateDBStatistics() {
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinStatistics(ObjectLibrary& library,
                                      const std::string& /*arg*/) {
-  library.Register<Statistics>(
+  library.AddFactory<Statistics>(
       StatisticsImpl::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<Statistics>* guard,
          std::string* /* errmsg */) {

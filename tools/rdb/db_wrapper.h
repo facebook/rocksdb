@@ -9,8 +9,6 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/options.h"
 
-using namespace v8;
-
 // Used to encapsulate a particular instance of an opened database.
 //
 // This object should not be used directly in C++; it exists solely to provide
