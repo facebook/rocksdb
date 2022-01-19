@@ -15,6 +15,7 @@
 
 ### Bug Fixes
 * Fix a bug that FlushMemTable may return ok even flush not succeed.
+* Fixed a bug of Sync() and Fsync() not using `fcntl(F_FULLFSYNC)` on OS X and iOS.
 
 ## 6.28.0 (2021-12-17)
 ### New Features
