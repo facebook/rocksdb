@@ -2963,22 +2963,18 @@ TEST_F(CreateEnvTest, CreateMockEnv) {
   ASSERT_NE(env, nullptr);
   ASSERT_NE(env, Env::Default());
   opt_str = env->ToString(options);
-  printf("MJR: MockEnv[%s]\n", opt_str.c_str());
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
   ASSERT_NE(copy, guard);
   std::string mismatch;
   ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
   guard.reset(MockEnv::Create(Env::Default(), SystemClock::Default()));
   opt_str = guard->ToString(options);
-  printf("MJR: MockEnv[%s]\n", opt_str.c_str());
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
   std::unique_ptr<Env> wrapped_env(new WrappedEnv(Env::Default()));
   guard.reset(MockEnv::Create(wrapped_env.get(), SystemClock::Default()));
   opt_str = guard->ToString(options);
-  printf("MJR: MockEnv[%s]\n", opt_str.c_str());
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
   opt_str = copy->ToString(options);
-  printf("MJR: MockEnv[%s]\n", opt_str.c_str());
 }
 
 TEST_F(CreateEnvTest, CreateWrappedEnv) {
@@ -2998,7 +2994,6 @@ TEST_F(CreateEnvTest, CreateWrappedEnv) {
   ASSERT_FALSE(guard->AreEquivalent(options, Env::Default(), &mismatch));
 
   opt_str = env->ToString(options);
-  printf("MJR: WrappedEnv[%s]\n", opt_str.c_str());
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
   ASSERT_NE(copy, guard);
   ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
@@ -3006,7 +3001,6 @@ TEST_F(CreateEnvTest, CreateWrappedEnv) {
   guard.reset(new WrappedEnv(std::make_shared<WrappedEnv>(Env::Default())));
   ASSERT_NE(guard.get(), env);
   opt_str = guard->ToString(options);
-  printf("MJR: WrappedEnv[%s]\n", opt_str.c_str());
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
   ASSERT_NE(copy, guard);
   ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
@@ -3015,7 +3009,6 @@ TEST_F(CreateEnvTest, CreateWrappedEnv) {
       std::make_shared<WrappedEnv>(Env::Default()))));
   ASSERT_NE(guard.get(), env);
   opt_str = guard->ToString(options);
-  printf("MJR: WrappedEnv[%s]\n", opt_str.c_str());
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
   ASSERT_NE(copy, guard);
   ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
@@ -3037,7 +3030,6 @@ TEST_F(CreateEnvTest, CreateCompositeEnv) {
       std::make_shared<EmulatedSystemClock>(SystemClock::Default());
 
   opt_str = base->ToString(options);
-  printf("MJR: CompositeEnv[%s]\n", opt_str.c_str());
   ASSERT_NOK(Env::CreateFromString(options, opt_str, &env));
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &guard));
   ASSERT_NE(env, nullptr);
@@ -3047,7 +3039,6 @@ TEST_F(CreateEnvTest, CreateCompositeEnv) {
 
   base = NewCompositeEnv(timed_fs);
   opt_str = base->ToString(options);
-  printf("MJR: CompositeEnv[%s]\n", opt_str.c_str());
   ASSERT_NOK(Env::CreateFromString(options, opt_str, &env));
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &guard));
   ASSERT_NE(env, nullptr);
@@ -3058,7 +3049,6 @@ TEST_F(CreateEnvTest, CreateCompositeEnv) {
   env = nullptr;
   guard.reset(new CompositeEnvWrapper(wrapped.get(), timed_fs));
   opt_str = guard->ToString(options);
-  printf("MJR: CompositeEnv[%s]\n", opt_str.c_str());
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
   ASSERT_NE(env, nullptr);
   ASSERT_NE(env, Env::Default());
@@ -3067,7 +3057,6 @@ TEST_F(CreateEnvTest, CreateCompositeEnv) {
   env = nullptr;
   guard.reset(new CompositeEnvWrapper(wrapped.get(), clock));
   opt_str = guard->ToString(options);
-  printf("MJR: CompositeEnv[%s]\n", opt_str.c_str());
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
   ASSERT_NE(env, nullptr);
   ASSERT_NE(env, Env::Default());
@@ -3076,7 +3065,6 @@ TEST_F(CreateEnvTest, CreateCompositeEnv) {
   env = nullptr;
   guard.reset(new CompositeEnvWrapper(wrapped.get(), timed_fs, clock));
   opt_str = guard->ToString(options);
-  printf("MJR: CompositeEnv[%s]\n", opt_str.c_str());
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
   ASSERT_NE(env, nullptr);
   ASSERT_NE(env, Env::Default());
