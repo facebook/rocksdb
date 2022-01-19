@@ -26,6 +26,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/meta_blocks.h"
@@ -910,6 +911,258 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
   SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsCorruption());
   ASSERT_EQ(1, count);
+}
+
+class CorruptionTestWithParams1
+    : public CorruptionTest,
+      public testing::WithParamInterface<std::tuple<bool, bool>> {
+ public:
+  explicit CorruptionTestWithParams1()
+      : CorruptionTest(),
+        avoid_flush_during_recovery_(std::get<0>(GetParam())),
+        track_and_verify_wals_in_manifest_(std::get<1>(GetParam())) {}
+
+ protected:
+  const bool avoid_flush_during_recovery_;
+  const bool track_and_verify_wals_in_manifest_;
+};
+
+INSTANTIATE_TEST_CASE_P(CorruptionTest, CorruptionTestWithParams1,
+                        ::testing::Values(std::make_tuple(true, false),
+                                          std::make_tuple(false, false),
+                                          std::make_tuple(true, true),
+                                          std::make_tuple(false, true)));
+
+TEST_P(CorruptionTestWithParams1, CrashDuringRecovery) {
+  CloseDb();
+  Options options;
+  options.track_and_verify_wals_in_manifest =
+      track_and_verify_wals_in_manifest_;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  options.avoid_flush_during_recovery = false;
+  options.env = env_;
+  ASSERT_OK(DestroyDB(dbname_, options));
+  options.create_if_missing = true;
+
+  Reopen(&options);
+  Status s;
+  const std::string test_cf_name = "test_cf";
+  ColumnFamilyHandle* cfh = nullptr;
+  s = db_->CreateColumnFamily(options, test_cf_name, &cfh);
+  ASSERT_OK(s);
+  if (track_and_verify_wals_in_manifest_) {
+    ASSERT_OK(db_->SyncWAL());
+  }
+  delete cfh;
+  CloseDb();
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+  cf_descs.emplace_back(test_cf_name, options);
+  std::vector<ColumnFamilyHandle*> handles;
+
+  ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles, &db_));
+
+  // Write one key to test_cf.
+  ASSERT_OK(db_->Put(WriteOptions(), handles[1], "old_key", "dontcare"));
+
+  // Write to default_cf and flush this cf several times to advance wal
+  // number.
+  for (int i = 0; i < 2; ++i) {
+    ASSERT_OK(db_->Put(WriteOptions(), "key" + std::to_string(i), "value"));
+    ASSERT_OK(db_->Flush(FlushOptions()));
+  }
+
+  auto* dbimpl = static_cast_with_check<DBImpl>(db_);
+  assert(dbimpl);
+
+  ASSERT_OK(db_->Put(WriteOptions(), handles[1], "dontcare", "dontcare"));
+  if (track_and_verify_wals_in_manifest_) {
+    ASSERT_OK(db_->SyncWAL());
+  }
+
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  uint64_t max_wal_num = 0;
+  for (const auto& f : files) {
+    uint64_t file_num = 0;
+    FileType type{kWalFile};
+    if (ParseFileName(f, &file_num, &type) && type == kWalFile) {
+      if (file_num > max_wal_num) {
+        max_wal_num = file_num;
+      }
+    }
+  }
+
+  for (auto* h : handles) {
+    delete h;
+  }
+  handles.clear();
+  CloseDb();
+
+  std::string wal_path = LogFileName(dbname_, max_wal_num);
+  uint64_t old_size = 0;
+  ASSERT_OK(env_->GetFileSize(wal_path, &old_size));
+  assert(old_size > 8);
+  uint64_t new_size = old_size - 8;
+  ASSERT_OK(test::TruncateFile(env_, wal_path, new_size));
+
+  // Reopen db after first corruption. Default family has higher log number than
+  // corrupted wal number.
+  options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
+  s = DB::Open(options, dbname_, cf_descs, &handles, &db_);
+  ASSERT_OK(s);
+  if (track_and_verify_wals_in_manifest_) {
+    ASSERT_OK(db_->SyncWAL());
+  }
+  for (auto* h : handles) {
+    delete h;
+  }
+  handles.clear();
+  CloseDb();
+
+  max_wal_num = 0;
+  files.clear();
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  for (const auto& f : files) {
+    uint64_t file_num = 0;
+    FileType type{kWalFile};
+    if (ParseFileName(f, &file_num, &type) && type == kWalFile) {
+      if (file_num > max_wal_num) {
+        max_wal_num = file_num;
+      }
+    }
+  }
+  wal_path = LogFileName(dbname_, max_wal_num);
+  ASSERT_OK(test::TruncateFile(env_, wal_path, new_size = 0));
+
+  // Reopen db after second corruption. Default family has higher log number
+  // than corrupted wal number.
+  options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
+  ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles, &db_));
+  for (auto* h : handles) {
+    delete h;
+  }
+}
+
+TEST_P(CorruptionTestWithParams1, TxnDbCrashDuringRecovery) {
+  CloseDb();
+  Options options;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  options.track_and_verify_wals_in_manifest =
+      track_and_verify_wals_in_manifest_;
+  options.avoid_flush_during_recovery = false;
+  options.env = env_;
+  ASSERT_OK(DestroyDB(dbname_, options));
+  options.create_if_missing = true;
+  Reopen(&options);
+
+  // Create cf test_cf_name.
+  ColumnFamilyHandle* cfh = nullptr;
+  const std::string test_cf_name = "test_cf";
+  Status s = db_->CreateColumnFamily(options, test_cf_name, &cfh);
+  ASSERT_OK(s);
+  delete cfh;
+  CloseDb();
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+  cf_descs.emplace_back(test_cf_name, options);
+  std::vector<ColumnFamilyHandle*> handles;
+
+  TransactionDB* txn_db = nullptr;
+  TransactionDBOptions txn_db_opts;
+  // 1. Open DB
+  options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
+  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, cf_descs,
+                                &handles, &txn_db));
+
+  auto* txn = txn_db->BeginTransaction(WriteOptions(), TransactionOptions());
+  // 2. Put cf1
+  ASSERT_OK(txn->Put(handles[1], "foo", "value"));
+  ASSERT_OK(txn->SetName("txn0"));
+  ASSERT_OK(txn->Prepare());
+  delete txn;
+  txn = nullptr;
+
+  // 3. Put and flush cf0
+  for (int i = 0; i < 2; ++i) {
+    ASSERT_OK(txn_db->Put(WriteOptions(), "dontcare", "value"));
+    ASSERT_OK(txn_db->Flush(FlushOptions()));
+  }
+
+  // 4. Put cf1
+  txn = txn_db->BeginTransaction(WriteOptions(), TransactionOptions());
+  ASSERT_OK(txn->Put(handles[1], "foo1", "value"));
+  ASSERT_OK(txn->Commit());
+
+  delete txn;
+  txn = nullptr;
+
+  for (auto* h : handles) {
+    delete h;
+  }
+  handles.clear();
+  delete txn_db;
+
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  uint64_t max_wal_num = 0;
+  for (const auto& f : files) {
+    uint64_t file_num = 0;
+    FileType type{kWalFile};
+    if (ParseFileName(f, &file_num, &type) && type == kWalFile) {
+      if (file_num > max_wal_num) {
+        max_wal_num = file_num;
+      }
+    }
+  }
+
+  // 1. Corrupt the max WAL file.
+  std::string wal_path = LogFileName(dbname_, max_wal_num);
+  uint64_t old_size = 0;
+  ASSERT_OK(env_->GetFileSize(wal_path, &old_size));
+  assert(old_size > 8);
+  uint64_t new_size = old_size - 8;
+  ASSERT_OK(test::TruncateFile(env_, wal_path, new_size));
+
+  options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
+  // 2. After corruption, open the DB.
+  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, cf_descs,
+                                &handles, &txn_db));
+
+  for (auto* h : handles) {
+    delete h;
+  }
+  handles.clear();
+  delete txn_db;
+
+  max_wal_num = 0;
+  files.clear();
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  for (const auto& f : files) {
+    uint64_t file_num = 0;
+    FileType type{kWalFile};
+    if (ParseFileName(f, &file_num, &type) && type == kWalFile) {
+      if (file_num > max_wal_num) {
+        max_wal_num = file_num;
+      }
+    }
+  }
+
+  // 1. Again corrupt the WAL file.
+  wal_path = LogFileName(dbname_, max_wal_num);
+  ASSERT_OK(test::TruncateFile(env_, wal_path, /*new_size=*/0));
+
+  // 2. open DB.
+  options.avoid_flush_during_recovery = false;
+
+  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, cf_descs,
+                                &handles, &txn_db));
+  for (auto* h : handles) {
+    delete h;
+  }
+  delete txn_db;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

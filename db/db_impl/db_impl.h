@@ -1643,7 +1643,7 @@ class DBImpl : public DB {
 
   // REQUIRES: log_numbers are sorted in ascending order
   // corrupted_log_found is set to true if we recover from a corrupted log file.
-  Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
+  Status RecoverLogFiles(std::vector<uint64_t>& log_numbers,
                          SequenceNumber* next_sequence, bool read_only,
                          bool* corrupted_log_found);
 
@@ -1655,6 +1655,12 @@ class DBImpl : public DB {
   Status WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                                      MemTable* mem, VersionEdit* edit);
 
+  // Delete all the WAL files starting from corrupted WAL found to
+  // max_wal_number to avoid column family inconsistency error on recovery. It
+  // also removes the deleted file from the vector wal_numbers.
+  void DeleteCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
+                               uint64_t corrupted_wal_number);
+
   // Get the size of a log file and, if truncate is true, truncate the
   // log file to its actual size, thereby freeing preallocated space.
   // Return success even if truncate fails
@@ -1665,7 +1671,8 @@ class DBImpl : public DB {
   // It needs to run only when there's no flush during recovery
   // (e.g. avoid_flush_during_recovery=true). May also trigger flush
   // in case total_log_size > max_total_wal_size.
-  Status RestoreAliveLogFiles(const std::vector<uint64_t>& log_numbers);
+  Status RestoreAliveLogFiles(const std::vector<uint64_t>& log_numbers,
+                              bool truncate_last_log);
 
   // num_bytes: for slowdown case, delay time is calculated based on
   //            `num_bytes` going through.

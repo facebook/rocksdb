@@ -806,7 +806,7 @@ Status DBImpl::InitPersistStatsColumnFamily() {
 }
 
 // REQUIRES: wal_numbers are sorted in ascending order
-Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
+Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
                                SequenceNumber* next_sequence, bool read_only,
                                bool* corrupted_wal_found) {
   struct LogReporter : public log::Reader::Reporter {
@@ -1202,6 +1202,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
 
   // True if there's any data in the WALs; if not, we can skip re-processing
   // them later
+  bool truncate_last_log = true;
   bool data_seen = false;
   if (!read_only) {
     // no need to refcount since client still doesn't have access
@@ -1256,12 +1257,21 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         edit->SetLogNumber(max_wal_number + 1);
       }
     }
+
     if (status.ok()) {
       // we must mark the next log number as used, even though it's
       // not actually used. that is because VersionSet assumes
       // VersionSet::next_file_number_ always to be strictly greater than any
       // log number
       versions_->MarkFileNumberUsed(max_wal_number + 1);
+
+      if (corrupted_wal_found != nullptr && *corrupted_wal_found == true &&
+          immutable_db_options_.wal_recovery_mode ==
+              WALRecoveryMode::kPointInTimeRecovery) {
+        DeleteCorruptedWalFiles(wal_numbers, corrupted_wal_number);
+        // Since last log has been deleted, no need to truncate the log.
+        truncate_last_log = false;
+      }
 
       autovector<ColumnFamilyData*> cfds;
       autovector<const MutableCFOptions*> cf_opts;
@@ -1297,12 +1307,12 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
 
   if (status.ok()) {
     if (data_seen && !flushed) {
-      status = RestoreAliveLogFiles(wal_numbers);
-    } else {
+      status = RestoreAliveLogFiles(wal_numbers, truncate_last_log);
+    } else if (!wal_numbers.empty()) {
       // If there's no data in the WAL, or we flushed all the data, still
       // truncate the log file. If the process goes into a crash loop before
       // the file is deleted, the preallocated space will never get freed.
-      const bool truncate = !read_only;
+      const bool truncate = !read_only && truncate_last_log;
       GetLogSizeAndMaybeTruncate(wal_numbers.back(), truncate, nullptr)
           .PermitUncheckedError();
     }
@@ -1312,6 +1322,41 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
                       << "recovery_finished";
 
   return status;
+}
+
+void DBImpl::DeleteCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
+                                     uint64_t corrupted_wal_number) {
+  size_t corrupt_index_start = wal_numbers.size() - 1;
+  size_t i = 0;
+
+  // Find the index of first corrupted wal.
+  while (i < wal_numbers.size() - 1) {
+    if (wal_numbers[i] == corrupted_wal_number) {
+      corrupt_index_start = i;
+      break;
+    }
+    i++;
+  }
+
+  // Delete all the WAL files from corrupted_wal_number to last WAL
+  // (max_wal_number) to avoid column family inconsistency error.
+  while (i <= wal_numbers.size() - 1) {
+    LogFileNumberSize log(wal_numbers[i]);
+    std::string fname =
+        LogFileName(immutable_db_options_.GetWalDir(), wal_numbers[i]);
+    std::string path_to_sync =
+        ArchivalDirectory(immutable_db_options_.GetWalDir());
+    Status s = DeleteDBFile(&immutable_db_options_, fname, path_to_sync, false,
+                            /*force_fg=*/!wal_in_db_path_);
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Unable to delete file: %s: %s", fname.c_str(),
+                     s.ToString().c_str());
+    }
+    i++;
+  }
+  wal_numbers.erase(wal_numbers.begin() + corrupt_index_start,
+                    wal_numbers.begin() + wal_numbers.size());
 }
 
 Status DBImpl::GetLogSizeAndMaybeTruncate(uint64_t wal_number, bool truncate,
@@ -1349,7 +1394,8 @@ Status DBImpl::GetLogSizeAndMaybeTruncate(uint64_t wal_number, bool truncate,
   return s;
 }
 
-Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
+Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers,
+                                    bool truncate_last_log) {
   if (wal_numbers.empty()) {
     return Status::OK();
   }
@@ -1376,7 +1422,9 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
     // log has such preallocated space, so we only truncate for the last log.
     LogFileNumberSize log;
     s = GetLogSizeAndMaybeTruncate(
-        wal_number, /*truncate=*/(wal_number == wal_numbers.back()), &log);
+        wal_number,
+        /*truncate=*/(wal_number == wal_numbers.back() && truncate_last_log),
+        &log);
     if (!s.ok()) {
       break;
     }
@@ -1802,14 +1850,15 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
     if (s.ok()) {
       // In WritePrepared there could be gap in sequence numbers. This breaks
-      // the trick we use in kPointInTimeRecovery which assumes the first seq in
-      // the log right after the corrupted log is one larger than the last seq
-      // we read from the wals. To let this trick keep working, we add a dummy
-      // entry with the expected sequence to the first log right after recovery.
-      // In non-WritePrepared case also the new log after recovery could be
-      // empty, and thus missing the consecutive seq hint to distinguish
-      // middle-log corruption to corrupted-log-remained-after-recovery. This
-      // case also will be addressed by a dummy write.
+      // the trick we use in kPointInTimeRecovery which assumes the first seq
+      // in the log right after the corrupted log is one larger than the last
+      // seq we read from the wals. To let this trick keep working, we add a
+      // dummy entry with the expected sequence to the first log right after
+      // recovery. In non-WritePrepared case also the new log after recovery
+      // could be empty, and thus missing the consecutive seq hint to
+      // distinguish middle-log corruption to
+      // corrupted-log-remained-after-recovery. This case also will be
+      // addressed by a dummy write.
       if (recovered_seq != kMaxSequenceNumber) {
         WriteBatch empty_batch;
         WriteBatchInternal::SetSequence(&empty_batch, recovered_seq);
@@ -1853,7 +1902,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       if (cfd->ioptions()->merge_operator != nullptr &&
           !cfd->mem()->IsMergeOperatorSupported()) {
         s = Status::InvalidArgument(
-            "The memtable of column family %s does not support merge operator "
+            "The memtable of column family %s does not support merge "
+            "operator "
             "its options.merge_operator is non-null",
             cfd->GetName().c_str());
       }
