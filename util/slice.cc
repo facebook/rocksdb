@@ -163,7 +163,7 @@ static int RegisterBuiltinSliceTransform(ObjectLibrary& library,
                                          const std::string& /*arg*/) {
   // For the builtin transforms, the format is typically
   // [Name].[0-9]+ or [NickName]:[0-9]+
-  library.AddFactoryr<const SliceTransform>(
+  library.AddFactory<const SliceTransform>(
       NoopTransform::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<const SliceTransform>* guard,
