@@ -255,7 +255,58 @@ TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
   ASSERT_OK(s);
 
   verify_db(handles_[1]);
+  Close();
+}
 
+TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  std::string ts_str = Timestamp(2, 0);
+  WriteOptions wopts;
+  Slice ts = ts_str;
+  wopts.timestamp = &ts;
+  ASSERT_OK(db_->Put(wopts, "k1", "v1"));
+  ts_str = Timestamp(4, 0);
+  ts = ts_str;
+  wopts.timestamp = &ts;
+  ASSERT_OK(db_->Put(wopts, "k1", "v2"));
+  ts_str = Timestamp(5, 0);
+  ts = ts_str;
+  wopts.timestamp = &ts;
+  ASSERT_OK(db_->Delete(wopts, "k1"));
+  ts_str = Timestamp(6, 0);
+  ts = ts_str;
+  wopts.timestamp = &ts;
+  ASSERT_OK(db_->Put(wopts, "k1", "v3"));
+
+  ts_str = Timestamp(3, 0);
+  ts = ts_str;
+  CompactRangeOptions cro;
+  cro.trim_ts = &ts;
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  ReadOptions ropts;
+  ts_str = Timestamp(2, 0);
+  ts = ts_str;
+  ropts.timestamp = &ts;
+  std::string value;
+  Status s = db_->Get(ropts, "k1", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("v1", value);
+
+  ts_str = Timestamp(7, 0);
+  ts = ts_str;
+  ropts.timestamp = &ts;
+  s = db_->Get(ropts, "k1", &value);
+  ASSERT_OK(s);  // here asserts, read with ts=7 won't see (k1, v1)
+  ASSERT_EQ("v1", value);
   Close();
 }
 

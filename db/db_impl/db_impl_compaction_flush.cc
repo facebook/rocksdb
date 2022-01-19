@@ -1117,6 +1117,10 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
             disallow_trivial_move = true;
           }
         }
+        // trim_ts need real compaction to remove latest record
+        if (options.trim_ts != nullptr) {
+          disallow_trivial_move = true;
+        }
         s = RunManualCompaction(cfd, level, output_level, options, begin, end,
                                 exclusive, disallow_trivial_move,
                                 max_file_num_to_ignore);
@@ -1358,7 +1362,8 @@ Status DBImpl::CompactFilesImpl(
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       &compaction_job_stats, Env::Priority::USER, io_tracer_,
       &manual_compaction_paused_, nullptr, db_id_, db_session_id_,
-      c->column_family_data()->GetFullHistoryTsLow(), &blob_callback_);
+      c->column_family_data()->GetFullHistoryTsLow(), c->trim_ts(),
+      &blob_callback_);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -3321,7 +3326,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         is_manual ? &manual_compaction_paused_ : nullptr,
         is_manual ? manual_compaction->canceled : nullptr, db_id_,
         db_session_id_, c->column_family_data()->GetFullHistoryTsLow(),
-        &blob_callback_);
+        c->trim_ts(), &blob_callback_);
     compaction_job.Prepare();
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,

@@ -66,6 +66,7 @@
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/hash.h"
+#include "util/history_trimming_iterator.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/stop_watch.h"
@@ -425,7 +426,8 @@ CompactionJob::CompactionJob(
     const std::atomic<int>* manual_compaction_paused,
     const std::atomic<bool>* manual_compaction_canceled,
     const std::string& db_id, const std::string& db_session_id,
-    std::string full_history_ts_low, BlobFileCompletionCallback* blob_callback)
+    std::string full_history_ts_low, std::string trim_ts,
+    BlobFileCompletionCallback* blob_callback)
     : compact_(new CompactionState(compaction)),
       compaction_stats_(compaction->compaction_reason(), 1),
       db_options_(db_options),
@@ -464,6 +466,7 @@ CompactionJob::CompactionJob(
       measure_io_stats_(measure_io_stats),
       thread_pri_(thread_pri),
       full_history_ts_low_(std::move(full_history_ts_low)),
+      trim_ts_(std::move(trim_ts)),
       blob_callback_(blob_callback) {
   assert(compaction_job_stats_ != nullptr);
   assert(log_buffer_ != nullptr);
@@ -1275,6 +1278,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<InternalIterator> raw_input(
       versions_->MakeInputIterator(read_options, sub_compact->compaction,
                                    &range_del_agg, file_options_for_read_));
+  if (cfd->user_comparator()->timestamp_size() > 0 && !trim_ts_.empty()) {
+    Slice trim_ts = trim_ts_;
+    auto iter = raw_input.release();
+    raw_input.reset(
+        new HistoryTrimmingIterator(iter, cfd->user_comparator(), trim_ts));
+  }
   InternalIterator* input = raw_input.get();
 
   IterKey start_ikey;
@@ -1309,7 +1318,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   input->SeekToFirst();
-
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
 
