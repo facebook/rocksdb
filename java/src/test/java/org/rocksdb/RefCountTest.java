@@ -49,6 +49,7 @@ public class RefCountTest {
 
       //TODO (AP) - add nativeClose() to RocksIterator, (std::unique trick)
       //TODO (AP) - add isLastReference() method to RocksNative , checking everything is 1 (or 2, see &)
+      //TODO (AP) - put(), get(), seek, ensure iterators work...
     }
   }
 
@@ -62,6 +63,8 @@ public class RefCountTest {
       cfHandle.close();
 
       // And we SEGV deep in C++, because the CFHandle is a reference to a deleted CF object.
+      // TODO (AP) this is what happened in the "old" API
+      // We can delete this test once the tests above deal with the same case with new results (Exception or success)
       db.newIterator(cfHandle);
       Assert.fail("Iterator with a closed handle, we expect it to fail");
     } catch (RocksDBException rocksDBException) {
