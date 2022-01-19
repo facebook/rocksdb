@@ -274,6 +274,11 @@ DECLARE_int32(secondary_cache_fault_one_in);
 
 DECLARE_int32(prepopulate_block_cache);
 
+#ifndef ROCKSDB_LITE
+DECLARE_uint64(wp_snapshot_cache_bits);
+DECLARE_uint64(wp_commit_cache_bits);
+#endif  // !ROCKSDB_LITE
+
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;
