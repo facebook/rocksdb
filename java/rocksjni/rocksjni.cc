@@ -293,11 +293,11 @@ Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_String_
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_RocksDB_disposeInternal(
-    JNIEnv*, jobject, jlong jhandle) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jhandle);
-  assert(db != nullptr);
-  delete db;
+void Java_org_rocksdb_RocksDB_nativeClose(JNIEnv*, jobject, jlong jhandle) {
+  std::unique_ptr<APIRocksDB> dbAPI(reinterpret_cast<APIRocksDB*>(jhandle));
+  dbAPI->check();
+  // Now the unique_ptr destructor will delete() referenced shared_ptr contents
+  // in the API object.
 }
 
 /*

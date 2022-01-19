@@ -20,4 +20,10 @@ class APIRocksDB : APIBase {
       columnFamilyHandles;
 
   APIRocksDB(std::shared_ptr<ROCKSDB_NAMESPACE::DB> db) : db(db){};
+
+  /**
+   * @brief dump some status info to std::cout
+   *
+   */
+  void check();
 };

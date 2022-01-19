@@ -20,7 +20,7 @@ public class RefCountTest {
   @Rule public TemporaryFolder dbFolder2 = new TemporaryFolder();
 
   @Test
-  public void testDBRef() {
+  public void testIteratorFromClosedCFHandle() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       final ColumnFamilyHandle cfHandle = db.createColumnFamily(
           new ColumnFamilyDescriptor("new_cf".getBytes(StandardCharsets.UTF_8)));
@@ -28,12 +28,23 @@ public class RefCountTest {
       // Closing here means that the following iterator is not valid
       cfHandle.close();
 
-      // And we SEGV deep in C++, because the CFHandle is a reference to a deleted CF object.
-      db.newIterator(cfHandle);
-      Assert.fail("Iterator with a closed handle, we expect it to fail");
-    } catch (RocksDBException rocksDBException) {
-      // Expected failure path here.
-      rocksDBException.printStackTrace();
+      try {
+        db.newIterator(cfHandle);
+        Assert.fail("Iterator with a closed handle, we expect it to fail");
+      } catch (RocksDBRuntimeException rocksDBRuntimeException) {
+        rocksDBRuntimeException.printStackTrace();
+        assertThat(rocksDBRuntimeException.getMessage()).contains("RocksDB native reference was previously closed");
+      }
+    }
+  }
+
+  @Test
+  public void testIteratorFromCFHandle() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      final ColumnFamilyHandle cfHandle = db.createColumnFamily(
+          new ColumnFamilyDescriptor("new_cf".getBytes(StandardCharsets.UTF_8)));
+
+      final RocksIterator iterator = db.newIterator(cfHandle);
     }
   }
 
