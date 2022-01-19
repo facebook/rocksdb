@@ -13,11 +13,11 @@
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
-struct FileOpCounters {
+struct OpCounter {
   std::atomic<int> ops;
   std::atomic<uint64_t> bytes;
 
-  FileOpCounters() : ops(0), bytes(0) {}
+  OpCounter() : ops(0), bytes(0) {}
 
   void Reset() {
     ops = 0;
@@ -33,24 +33,32 @@ struct FileOpCounters {
   }
 };
 
-struct FileCounters {
-  static const char* kName() { return "FileCounters"; }
+struct FileOpCounters {
+  static const char* kName() { return "FileOpCounters"; }
 
   std::atomic<int> opens;
+  std::atomic<int> closes;
   std::atomic<int> deletes;
   std::atomic<int> renames;
   std::atomic<int> flushes;
   std::atomic<int> syncs;
   std::atomic<int> fsyncs;
-  std::atomic<int> closes;
-  FileOpCounters reads;
-  FileOpCounters writes;
+  OpCounter reads;
+  OpCounter writes;
 
-  FileCounters() { Reset(); }
+  FileOpCounters()
+      : opens(0),
+        closes(0),
+        deletes(0),
+        renames(0),
+        flushes(0),
+        syncs(0),
+        fsyncs(0) {}
+
   void Reset() {
     opens = 0;
-    deletes = 0;
     closes = 0;
+    deletes = 0;
     renames = 0;
     flushes = 0;
     syncs = 0;
@@ -63,7 +71,7 @@ struct FileCounters {
 // A FileSystem class that counts operations (reads, writes, opens, closes, etc)
 class CountedFileSystem : public FileSystemWrapper {
  private:
-  FileCounters counters_;
+  FileOpCounters counters_;
   bool skip_fsync_;
 
  public:
@@ -116,12 +124,12 @@ class CountedFileSystem : public FileSystemWrapper {
     return st;
   }
 
-  const FileCounters* counters() const { return &counters_; }
+  const FileOpCounters* counters() const { return &counters_; }
 
-  FileCounters* counters() { return &counters_; }
+  FileOpCounters* counters() { return &counters_; }
 
   const void* GetOptionsPtr(const std::string& name) const override {
-    if (name == FileCounters::kName()) {
+    if (name == FileOpCounters::kName()) {
       return counters();
     } else {
       return FileSystemWrapper::GetOptionsPtr(name);

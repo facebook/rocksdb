@@ -2233,7 +2233,7 @@ class Stats {
       auto* counted_fs =
           FLAGS_env->GetFileSystem()->CheckedCast<CountedFileSystem>();
       assert(counted_fs);
-      const auto counters = counted_fs->GetOptions<FileCounters>();
+      const auto counters = counted_fs->GetOptions<FileOpCounters>();
       assert(counters);
       fprintf(stdout, "Num files opened: %d\n",
               counters->opens.load(std::memory_order_relaxed));
