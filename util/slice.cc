@@ -281,8 +281,8 @@ std::string SliceTransform::AsString() const {
 }
 
 uint64_t SliceTransform::NextInstanceId() {
-  static std::atomic<uint64_t> last_id{1};
-  return last_id.fetch_add(1, std::memory_order_relaxed);
+  static std::atomic<uint64_t> next_id{1};
+  return next_id.fetch_add(1, std::memory_order_relaxed);
 }
 
 // 2 small internal utility functions, for efficient hex conversions
