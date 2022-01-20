@@ -151,8 +151,10 @@ executors:
 jobs:
   build-macos:
     macos:
-      xcode: 11.3.0
+      xcode: 12.5.1
     resource_class: large
+    environment:
+      DISABLE_JEMALLOC: 1 # jemalloc cause env_test hang, disable it for now
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
@@ -163,7 +165,7 @@ jobs:
 
   build-macos-cmake:
     macos:
-      xcode: 11.3.0
+      xcode: 12.5.1
     resource_class: large
     steps:
       - increase-max-open-files-on-macos
@@ -529,14 +531,16 @@ jobs:
 
   build-macos-java:
     macos:
-      xcode: 11.3.0
+      xcode: 12.5.1
     resource_class: medium
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+      DISABLE_JEMALLOC: 1 # jemalloc causes java 8 crash, maybe a known issue
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
       - install-gflags-on-macos
+      - install-jdk8-on-macos
       - pre-steps-macos
       - run:
           name: "Set Java Environment"
@@ -555,7 +559,7 @@ jobs:
 
   build-macos-java-static:
     macos:
-      xcode: 11.3.0
+      xcode: 12.5.1
     resource_class: medium
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
