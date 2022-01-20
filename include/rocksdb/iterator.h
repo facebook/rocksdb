@@ -92,6 +92,10 @@ class Iterator : public Cleanable {
   // If supported, renew the iterator to represent the latest state. The
   // iterator will be invalidated after the call. Not supported if
   // ReadOptions.snapshot is given when creating the iterator.
+  //
+  // WARNING: Do not use `Iterator::Refresh()` API on DBs where `DeleteRange()`
+  // has been used or will be used. This feature combination is neither
+  // supported nor programmatically prevented.
   virtual Status Refresh() {
     return Status::NotSupported("Refresh() is not supported");
   }

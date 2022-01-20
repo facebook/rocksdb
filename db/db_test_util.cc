@@ -478,6 +478,8 @@ Options DBTestBase::GetOptions(
       break;
     case kXXH3Checksum: {
       table_options.checksum = kXXH3;
+      // Thrown in here for basic coverage:
+      options.DisableExtraChecks();
       break;
     }
     case kFIFOCompaction: {
