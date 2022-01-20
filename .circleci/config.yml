@@ -554,6 +554,7 @@ jobs:
     resource_class: medium
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+      DISABLE_JEMALLOC: 1
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
