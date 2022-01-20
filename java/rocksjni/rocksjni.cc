@@ -516,12 +516,18 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__J_3J_3_3B(
 void Java_org_rocksdb_RocksDB_dropColumnFamily(
     JNIEnv* env, jobject, jlong jdb_handle,
     jlong jcf_handle) {
-  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  ROCKSDB_NAMESPACE::Status s = db_handle->DropColumnFamily(cf_handle);
-  if (!s.ok()) {
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+  auto& apiDB = *reinterpret_cast<APIRocksDB*>(jdb_handle);
+  auto& apiCFH = *reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle);
+  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cf_handle =
+      apiCFH.cfh.lock();
+  if (cf_handle) {
+    ROCKSDB_NAMESPACE::Status s = apiDB->DropColumnFamily(cf_handle.get());
+    if (!s.ok()) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+    }
+  } else {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env, "Invalid ColumnFamilyHandle.");
   }
 }
 
