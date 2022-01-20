@@ -2156,6 +2156,8 @@ void StressTest::PrintEnv() const {
 
   if (FLAGS_use_txn) {
 #ifndef ROCKSDB_LITE
+    fprintf(stdout, "Two write queues:         : %s\n",
+            FLAGS_two_write_queues ? "true" : "false");
     fprintf(stdout, "Write policy              : %d\n",
             static_cast<int>(FLAGS_txn_write_policy));
     if (static_cast<uint64_t>(TxnDBWritePolicy::WRITE_PREPARED) ==
@@ -2721,6 +2723,8 @@ void StressTest::Open() {
         options_.unordered_write = true;
         options_.two_write_queues = true;
         txn_db_options.skip_concurrency_control = true;
+      } else {
+        options_.two_write_queues = FLAGS_two_write_queues;
       }
       txn_db_options.wp_snapshot_cache_bits =
           static_cast<size_t>(FLAGS_wp_snapshot_cache_bits);

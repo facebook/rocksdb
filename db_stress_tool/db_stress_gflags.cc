@@ -889,6 +889,9 @@ DEFINE_int32(prepopulate_block_cache,
                                       PrepopulateBlockCache::kDisable),
              "Options related to cache warming (see `enum "
              "PrepopulateBlockCache` in table.h)");
+
+DEFINE_bool(two_write_queues, false,
+            "Set to true to enable two write queues. Default: false");
 #ifndef ROCKSDB_LITE
 
 DEFINE_uint64(
