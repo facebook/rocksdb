@@ -276,6 +276,10 @@ class MultiOpsTxnsStressTest : public StressTest {
 
   void VerifyDb(ThreadState* thread) const override;
 
+  void ContinuouslyVerifyDb(ThreadState* thread) const override {
+    VerifyDb(thread);
+  }
+
  protected:
   uint32_t ChooseA(ThreadState* thread);
 

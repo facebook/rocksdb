@@ -876,6 +876,13 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
   assert(snapshot);
   ManagedSnapshot snapshot_guard(db_, snapshot);
 
+  if (FLAGS_delay_snapshot_read_one_in > 0 &&
+      thread->rand.OneIn(FLAGS_delay_snapshot_read_one_in)) {
+    uint64_t delay_ms = thread->rand.Uniform(100) + 1;
+    db_->GetDBOptions().env->SleepForMicroseconds(
+        static_cast<int>(delay_ms * 1000));
+  }
+
   // TODO (yanqin) with a probability, we can use either forward or backward
   // iterator in subsequent checks. We can also use more advanced features in
   // range scan. For now, let's just use simple forward iteration with
@@ -1048,8 +1055,7 @@ void CheckAndSetOptionsForMultiOpsTxnStressTest() {
   if (!FLAGS_use_txn) {
     fprintf(stderr, "-use_txn must be true if -test_multi_ops_txns\n");
     exit(1);
-  } else if (FLAGS_test_secondary > 0 ||
-             FLAGS_continuous_verification_interval > 0) {
+  } else if (FLAGS_test_secondary > 0) {
     fprintf(
         stderr,
         "secondary instance does not support replaying logs (MANIFEST + WAL) "

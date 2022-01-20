@@ -2787,7 +2787,11 @@ void StressTest::Open() {
       exit(1);
 #endif
     }
-    if (s.ok() && FLAGS_continuous_verification_interval > 0 && !cmp_db_) {
+    // Secondary instance does not support write-prepared/write-unprepared
+    // transactions, thus just disable secondary instance if we use
+    // transaction.
+    if (s.ok() && FLAGS_continuous_verification_interval > 0 &&
+        !FLAGS_use_txn && !cmp_db_) {
       Options tmp_opts;
       // TODO(yanqin) support max_open_files != -1 for secondary instance.
       tmp_opts.max_open_files = -1;
