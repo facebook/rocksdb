@@ -386,8 +386,7 @@ namespace {
 static std::unordered_map<std::string, OptionTypeInfo> env_wrapper_type_info = {
 #ifndef ROCKSDB_LITE
     {"target",
-     OptionTypeInfo(0, OptionType::kUnknown,
-                    OptionVerificationType::kByName,
+     OptionTypeInfo(0, OptionType::kUnknown, OptionVerificationType::kByName,
                     OptionTypeFlags::kDontSerialize)
          .SetParseFunc([](const ConfigOptions& opts,
                           const std::string& /*name*/, const std::string& value,
@@ -396,9 +395,9 @@ static std::unordered_map<std::string, OptionTypeInfo> env_wrapper_type_info = {
            return Env::CreateFromString(opts, value, &(target->env),
                                         &(target->guard));
          })
-     .SetEqualsFunc([](const ConfigOptions& opts,
-                       const std::string& /*name*/, const void* addr1,
-                       const void* addr2, std::string* mismatch) {
+         .SetEqualsFunc([](const ConfigOptions& opts,
+                           const std::string& /*name*/, const void* addr1,
+                           const void* addr2, std::string* mismatch) {
            const auto target1 = static_cast<const EnvWrapper::Target*>(addr1);
            const auto target2 = static_cast<const EnvWrapper::Target*>(addr2);
            if (target1->env != nullptr) {

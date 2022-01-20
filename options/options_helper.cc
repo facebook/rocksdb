@@ -889,18 +889,18 @@ Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
     return Status::OK();
   }
   try {
-    void* opt_addr = GetOffset(opt_ptr);
     const std::string& opt_value = config_options.input_strings_escaped
                                        ? UnescapeOptionString(value)
                                        : value;
 
-    if (opt_addr == nullptr) {
+    if (opt_ptr == nullptr) {
       return Status::NotFound("Could not find option", opt_name);
     } else if (parse_func_ != nullptr) {
       ConfigOptions copy = config_options;
       copy.invoke_prepare_options = false;
+      void* opt_addr = GetOffset(opt_ptr);
       return parse_func_(copy, opt_name, opt_value, opt_addr);
-    } else if (ParseOptionHelper(opt_addr, type_, opt_value)) {
+    } else if (ParseOptionHelper(GetOffset(opt_ptr), type_, opt_value)) {
       return Status::OK();
     } else if (IsConfigurable()) {
       // The option is <config>.<name>
@@ -1012,12 +1012,12 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
                                  std::string* opt_value) const {
   // If the option is no longer used in rocksdb and marked as deprecated,
   // we skip it in the serialization.
-  const void* opt_addr = GetOffset(opt_ptr);
-  if (opt_addr == nullptr || IsDeprecated()) {
+  if (opt_ptr == nullptr || IsDeprecated()) {
     return Status::OK();
   } else if (IsEnabled(OptionTypeFlags::kDontSerialize)) {
     return Status::NotSupported("Cannot serialize option: ", opt_name);
   } else if (serialize_func_ != nullptr) {
+    const void* opt_addr = GetOffset(opt_ptr);
     return serialize_func_(config_options, opt_name, opt_addr, opt_value);
   } else if (IsCustomizable()) {
     const Customizable* custom = AsRawPointer<Customizable>(opt_ptr);
@@ -1065,7 +1065,8 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
     return Status::OK();
   } else if (config_options.mutable_options_only && !IsMutable()) {
     return Status::OK();
-  } else if (SerializeSingleOptionHelper(opt_addr, type_, opt_value)) {
+  } else if (SerializeSingleOptionHelper(GetOffset(opt_ptr), type_,
+                                         opt_value)) {
     return Status::OK();
   } else {
     return Status::InvalidArgument("Cannot serialize option: ", opt_name);
