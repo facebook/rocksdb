@@ -558,6 +558,7 @@ jobs:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
       - install-gflags-on-macos
+      - install-jdk8-on-macos
       - pre-steps-macos
       - run:
           name: "Set Java Environment"
