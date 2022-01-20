@@ -27,9 +27,6 @@
 #define ENV_OPTIONS_GET(_jhandle, _opt) \
   reinterpret_cast<ROCKSDB_NAMESPACE::EnvOptions *>(_jhandle)->_opt
 
-#define ENV_OPTIONS_GET_SIZE_T(_jhandle, _opt) \
-  reinterpret_cast<size_t>(ENV_OPTIONS_GET(_jhandle, _opt))
-
 /*
  * Class:     org_rocksdb_EnvOptions
  * Method:    newEnvOptions
@@ -243,7 +240,7 @@ void Java_org_rocksdb_EnvOptions_setCompactionReadaheadSize(
  */
 jlong Java_org_rocksdb_EnvOptions_compactionReadaheadSize(
     JNIEnv*, jobject, jlong jhandle) {
-  return ENV_OPTIONS_GET_SIZE_T(jhandle, compaction_readahead_size);
+  return ENV_OPTIONS_GET(jhandle, compaction_readahead_size);
 }
 
 /*
@@ -263,7 +260,7 @@ void Java_org_rocksdb_EnvOptions_setRandomAccessMaxBufferSize(
  */
 jlong Java_org_rocksdb_EnvOptions_randomAccessMaxBufferSize(
     JNIEnv*, jobject, jlong jhandle) {
-  return ENV_OPTIONS_GET_SIZE_T(jhandle, random_access_max_buffer_size);
+  return ENV_OPTIONS_GET(jhandle, random_access_max_buffer_size);
 }
 
 /*
@@ -283,7 +280,7 @@ void Java_org_rocksdb_EnvOptions_setWritableFileMaxBufferSize(
  */
 jlong Java_org_rocksdb_EnvOptions_writableFileMaxBufferSize(
     JNIEnv*, jobject, jlong jhandle) {
-  return ENV_OPTIONS_GET_SIZE_T(jhandle, writable_file_max_buffer_size);
+  return ENV_OPTIONS_GET(jhandle, writable_file_max_buffer_size);
 }
 
 /*
