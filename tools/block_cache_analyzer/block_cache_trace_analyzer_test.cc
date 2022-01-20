@@ -114,14 +114,14 @@ class BlockCacheTracerTest : public testing::Test {
       } else {
         record.sst_fd_number = kSSTStoringOddKeys;
       }
-      record.is_cache_hit = Boolean::kFalse;
-      record.no_insert = Boolean::kFalse;
+      record.is_cache_hit = false;
+      record.no_insert = false;
       // Provide these fields for all block types.
       // The writer should only write these fields for data blocks and the
       // caller is either GET or MGET.
       record.referenced_key =
           kRefKeyPrefix + std::to_string(key_id) + std::string(8, 0);
-      record.referenced_key_exist_in_block = Boolean::kTrue;
+      record.referenced_key_exist_in_block = true;
       record.num_keys_in_block = kNumKeysInBlock;
       ASSERT_OK(writer->WriteBlockAccess(
           record, record.block_key, record.cf_name, record.referenced_key));
@@ -224,7 +224,6 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
   {
     // Generate a trace file.
     BlockCacheTraceWriterOptions trace_writer_opt;
-    BlockCacheTraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
@@ -617,7 +616,6 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     // kSSTStoringOddKeys and 25 blocks of even numbered blocks_key in
     // kSSTStoringEvenKeys.
     BlockCacheTraceWriterOptions trace_writer_opt;
-    BlockCacheTraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     const auto& clock = env_->GetSystemClock();
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,

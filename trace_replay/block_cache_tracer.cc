@@ -37,6 +37,7 @@ const uint64_t kSecondInMinute = 60;
 const uint64_t kSecondInHour = 3600;
 const std::string BlockCacheTraceHelper::kUnknownColumnFamilyName =
     "UnknownColumnFamily";
+const uint64_t BlockCacheTraceRecord::kReservedGetId = 0;
 const uint64_t BlockCacheTraceHelper::kReservedGetId = 0;
 
 bool BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(
@@ -80,9 +81,9 @@ uint64_t BlockCacheTraceHelper::GetSequenceNumber(
   if (!IsGetOrMultiGet(access.caller)) {
     return 0;
   }
-  return access.get_from_user_specified_snapshot == Boolean::kFalse
-             ? 0
-             : 1 + GetInternalKeySeqno(access.referenced_key);
+  return access.get_from_user_specified_snapshot
+             ? 1 + GetInternalKeySeqno(access.referenced_key)
+             : 0;
 }
 
 uint64_t BlockCacheTraceHelper::GetBlockOffsetInFile(
@@ -256,13 +257,13 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
     return Status::Incomplete(
         "Incomplete access record: Failed to read is_cache_hit.");
   }
-  record->is_cache_hit = static_cast<Boolean>(enc_slice[0]);
+  record->is_cache_hit = static_cast<char>(enc_slice[0]);
   enc_slice.remove_prefix(kCharSize);
   if (enc_slice.empty()) {
     return Status::Incomplete(
         "Incomplete access record: Failed to read no_insert.");
   }
-  record->no_insert = static_cast<Boolean>(enc_slice[0]);
+  record->no_insert = static_cast<char>(enc_slice[0]);
   enc_slice.remove_prefix(kCharSize);
   if (BlockCacheTraceHelper::IsGetOrMultiGet(record->caller)) {
     if (!GetFixed64(&enc_slice, &record->get_id)) {
@@ -274,8 +275,7 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
           "Incomplete access record: Failed to read "
           "get_from_user_specified_snapshot.");
     }
-    record->get_from_user_specified_snapshot =
-        static_cast<Boolean>(enc_slice[0]);
+    record->get_from_user_specified_snapshot = static_cast<char>(enc_slice[0]);
     enc_slice.remove_prefix(kCharSize);
     Slice referenced_key;
     if (!GetLengthPrefixedSlice(&enc_slice, &referenced_key)) {
@@ -300,7 +300,7 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
           "Incomplete access record: Failed to read "
           "referenced_key_exist_in_block.");
     }
-    record->referenced_key_exist_in_block = static_cast<Boolean>(enc_slice[0]);
+    record->referenced_key_exist_in_block = static_cast<char>(enc_slice[0]);
   }
   return Status::OK();
 }
@@ -392,14 +392,14 @@ Status BlockCacheHumanReadableTraceReader::ReadAccess(
   record->level = static_cast<uint32_t>(ParseUint64(record_strs[6]));
   record->sst_fd_number = ParseUint64(record_strs[7]);
   record->caller = static_cast<TableReaderCaller>(ParseUint64(record_strs[8]));
-  record->no_insert = static_cast<Boolean>(ParseUint64(record_strs[9]));
+  record->no_insert = static_cast<char>(ParseUint64(record_strs[9]));
   record->get_id = ParseUint64(record_strs[10]);
   uint64_t get_key_id = ParseUint64(record_strs[11]);
 
   record->referenced_data_size = ParseUint64(record_strs[12]);
-  record->is_cache_hit = static_cast<Boolean>(ParseUint64(record_strs[13]));
+  record->is_cache_hit = static_cast<char>(ParseUint64(record_strs[13]));
   record->referenced_key_exist_in_block =
-      static_cast<Boolean>(ParseUint64(record_strs[14]));
+      static_cast<char>(ParseUint64(record_strs[14]));
   record->num_keys_in_block = ParseUint64(record_strs[15]);
   uint64_t table_id = ParseUint64(record_strs[16]);
   if (table_id > 0) {
@@ -409,7 +409,7 @@ Status BlockCacheHumanReadableTraceReader::ReadAccess(
   }
   uint64_t get_sequence_number = ParseUint64(record_strs[17]);
   if (get_sequence_number > 0) {
-    record->get_from_user_specified_snapshot = Boolean::kTrue;
+    record->get_from_user_specified_snapshot = true;
     // Decrement since valid seq number in the trace file equals traced seq
     // number + 1.
     get_sequence_number -= 1;

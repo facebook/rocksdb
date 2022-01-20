@@ -74,17 +74,17 @@ class BlockCacheTracerTest : public testing::Test {
       record.caller = GetCaller(key_id);
       record.level = kLevel;
       record.sst_fd_number = kSSTFDNumber + key_id;
-      record.is_cache_hit = Boolean::kFalse;
-      record.no_insert = Boolean::kFalse;
+      record.is_cache_hit = false;
+      record.no_insert = false;
       // Provide get_id for all callers. The writer should only write get_id
       // when the caller is either GET or MGET.
       record.get_id = key_id + 1;
-      record.get_from_user_specified_snapshot = Boolean::kTrue;
+      record.get_from_user_specified_snapshot = true;
       // Provide these fields for all block types.
       // The writer should only write these fields for data blocks and the
       // caller is either GET or MGET.
       record.referenced_key = (kRefKeyPrefix + std::to_string(key_id));
-      record.referenced_key_exist_in_block = Boolean::kTrue;
+      record.referenced_key_exist_in_block = true;
       record.num_keys_in_block = kNumKeysInBlock;
       record.referenced_data_size = kReferencedDataSize + key_id;
       ASSERT_OK(writer->WriteBlockAccess(
@@ -104,10 +104,10 @@ class BlockCacheTracerTest : public testing::Test {
     record.caller = GetCaller(key_id);
     record.level = kLevel;
     record.sst_fd_number = kSSTFDNumber + key_id;
-    record.is_cache_hit = Boolean::kFalse;
-    record.no_insert = Boolean::kFalse;
+    record.is_cache_hit = false;
+    record.no_insert = false;
     record.referenced_key = kRefKeyPrefix + std::to_string(key_id);
-    record.referenced_key_exist_in_block = Boolean::kTrue;
+    record.referenced_key_exist_in_block = true;
     record.num_keys_in_block = kNumKeysInBlock;
     return record;
   }
@@ -127,28 +127,28 @@ class BlockCacheTracerTest : public testing::Test {
       ASSERT_EQ(GetCaller(key_id), record.caller);
       ASSERT_EQ(kLevel, record.level);
       ASSERT_EQ(kSSTFDNumber + key_id, record.sst_fd_number);
-      ASSERT_EQ(Boolean::kFalse, record.is_cache_hit);
-      ASSERT_EQ(Boolean::kFalse, record.no_insert);
+      ASSERT_FALSE(record.is_cache_hit);
+      ASSERT_FALSE(record.no_insert);
       if (record.caller == TableReaderCaller::kUserGet ||
           record.caller == TableReaderCaller::kUserMultiGet) {
         ASSERT_EQ(key_id + 1, record.get_id);
-        ASSERT_EQ(Boolean::kTrue, record.get_from_user_specified_snapshot);
+        ASSERT_TRUE(record.get_from_user_specified_snapshot);
         ASSERT_EQ(kRefKeyPrefix + std::to_string(key_id),
                   record.referenced_key);
       } else {
         ASSERT_EQ(BlockCacheTraceHelper::kReservedGetId, record.get_id);
-        ASSERT_EQ(Boolean::kFalse, record.get_from_user_specified_snapshot);
+        ASSERT_FALSE(record.get_from_user_specified_snapshot);
         ASSERT_EQ("", record.referenced_key);
       }
       if (block_type == TraceType::kBlockTraceDataBlock &&
           (record.caller == TableReaderCaller::kUserGet ||
            record.caller == TableReaderCaller::kUserMultiGet)) {
-        ASSERT_EQ(Boolean::kTrue, record.referenced_key_exist_in_block);
+        ASSERT_TRUE(record.referenced_key_exist_in_block);
         ASSERT_EQ(kNumKeysInBlock, record.num_keys_in_block);
         ASSERT_EQ(kReferencedDataSize + key_id, record.referenced_data_size);
         continue;
       }
-      ASSERT_EQ(Boolean::kFalse, record.referenced_key_exist_in_block);
+      ASSERT_FALSE(record.referenced_key_exist_in_block);
       ASSERT_EQ(0, record.num_keys_in_block);
       ASSERT_EQ(0, record.referenced_data_size);
     }
@@ -319,7 +319,6 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
   {
     // Generate a trace file containing a mix of blocks.
     BlockCacheTraceWriterOptions trace_writer_opt;
-    BlockCacheTraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
@@ -369,7 +368,7 @@ TEST_F(BlockCacheTracerTest, HumanReadableTrace) {
   record.get_id = 1;
   record.referenced_key = "";
   record.caller = TableReaderCaller::kUserGet;
-  record.get_from_user_specified_snapshot = Boolean::kTrue;
+  record.get_from_user_specified_snapshot = true;
   record.referenced_data_size = kReferencedDataSize;
   PutFixed32(&record.referenced_key, 111);
   PutLengthPrefixedSlice(&record.referenced_key, "get_key");
@@ -396,11 +395,11 @@ TEST_F(BlockCacheTracerTest, HumanReadableTrace) {
     ASSERT_EQ(TableReaderCaller::kUserGet, read_record.caller);
     ASSERT_EQ(kLevel, read_record.level);
     ASSERT_EQ(kSSTFDNumber, read_record.sst_fd_number);
-    ASSERT_EQ(Boolean::kFalse, read_record.is_cache_hit);
-    ASSERT_EQ(Boolean::kFalse, read_record.no_insert);
+    ASSERT_FALSE(read_record.is_cache_hit);
+    ASSERT_FALSE(read_record.no_insert);
     ASSERT_EQ(1, read_record.get_id);
-    ASSERT_EQ(Boolean::kTrue, read_record.get_from_user_specified_snapshot);
-    ASSERT_EQ(Boolean::kTrue, read_record.referenced_key_exist_in_block);
+    ASSERT_TRUE(read_record.get_from_user_specified_snapshot);
+    ASSERT_TRUE(read_record.referenced_key_exist_in_block);
     ASSERT_EQ(kNumKeysInBlock, read_record.num_keys_in_block);
     ASSERT_EQ(kReferencedDataSize, read_record.referenced_data_size);
     ASSERT_EQ(record.block_key.size(), read_record.block_key.size());

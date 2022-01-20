@@ -41,7 +41,7 @@ void CacheSimulator::Access(const BlockCacheTraceRecord& access) {
   const bool is_user_access =
       BlockCacheTraceHelper::IsUserAccess(access.caller);
   bool is_cache_miss = true;
-  if (ghost_cache_ && access.no_insert == Boolean::kFalse) {
+  if (ghost_cache_ && !access.no_insert) {
     admit = ghost_cache_->Admit(access.block_key);
   }
   auto handle = sim_cache_->Lookup(access.block_key);
@@ -49,7 +49,7 @@ void CacheSimulator::Access(const BlockCacheTraceRecord& access) {
     sim_cache_->Release(handle);
     is_cache_miss = false;
   } else {
-    if (access.no_insert == Boolean::kFalse && admit && access.block_size > 0) {
+    if (!access.no_insert && admit && access.block_size > 0) {
       // Ignore errors on insert
       auto s = sim_cache_->Insert(access.block_key, /*value=*/nullptr,
                                   access.block_size,

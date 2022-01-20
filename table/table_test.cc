@@ -1212,10 +1212,10 @@ class BlockBasedTableTest
         } else {
           EXPECT_EQ(access.referenced_key, "");
           EXPECT_EQ(access.get_id, 0);
-          EXPECT_TRUE(access.get_from_user_specified_snapshot == Boolean::kFalse);
+          EXPECT_FALSE(access.get_from_user_specified_snapshot);
           EXPECT_EQ(access.referenced_data_size, 0);
           EXPECT_EQ(access.num_keys_in_block, 0);
-          EXPECT_TRUE(access.referenced_key_exist_in_block == Boolean::kFalse);
+          EXPECT_FALSE(access.referenced_key_exist_in_block);
         }
         index++;
       }
@@ -3017,8 +3017,8 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   BlockCacheTraceRecord record;
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kPrefetch;
-  record.is_cache_hit = Boolean::kFalse;
-  record.no_insert = Boolean::kFalse;
+  record.is_cache_hit = false;
+  record.no_insert = false;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceFilterBlock;
   expected_records.push_back(record);
@@ -3027,22 +3027,22 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   record.get_id = 1;
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kUserGet;
-  record.get_from_user_specified_snapshot = Boolean::kFalse;
+  record.get_from_user_specified_snapshot = false;
   record.referenced_key = encoded_key;
-  record.referenced_key_exist_in_block = Boolean::kTrue;
-  record.is_cache_hit = Boolean::kTrue;
+  record.referenced_key_exist_in_block = true;
+  record.is_cache_hit = true;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceFilterBlock;
   expected_records.push_back(record);
-  record.is_cache_hit = Boolean::kFalse;
+  record.is_cache_hit = false;
   record.block_type = TraceType::kBlockTraceDataBlock;
   expected_records.push_back(record);
   // The second get should all observe cache hits.
-  record.is_cache_hit = Boolean::kTrue;
+  record.is_cache_hit = true;
   record.get_id = 2;
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kUserGet;
-  record.get_from_user_specified_snapshot = Boolean::kFalse;
+  record.get_from_user_specified_snapshot = false;
   record.referenced_key = encoded_key;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceFilterBlock;
@@ -3082,15 +3082,15 @@ TEST_P(BlockBasedTableTest, TracingApproximateOffsetOfTest) {
   BlockCacheTraceRecord record;
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kPrefetch;
-  record.is_cache_hit = Boolean::kFalse;
-  record.no_insert = Boolean::kFalse;
+  record.is_cache_hit = false;
+  record.no_insert = false;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceFilterBlock;
   expected_records.push_back(record);
   // Then we should have two records for only index blocks.
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kUserApproximateSize;
-  record.is_cache_hit = Boolean::kTrue;
+  record.is_cache_hit = true;
   expected_records.push_back(record);
   expected_records.push_back(record);
   VerifyBlockAccessTrace(&c, expected_records);
@@ -3135,24 +3135,24 @@ TEST_P(BlockBasedTableTest, TracingIterator) {
   BlockCacheTraceRecord record;
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kPrefetch;
-  record.is_cache_hit = Boolean::kFalse;
-  record.no_insert = Boolean::kFalse;
+  record.is_cache_hit = false;
+  record.no_insert = false;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceFilterBlock;
   expected_records.push_back(record);
   // Then we should have three records for index and two data block access.
   record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kUserIterator;
-  record.is_cache_hit = Boolean::kTrue;
+  record.is_cache_hit = true;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceDataBlock;
-  record.is_cache_hit = Boolean::kFalse;
+  record.is_cache_hit = false;
   expected_records.push_back(record);
   expected_records.push_back(record);
   // When we iterate this file for the second time, we should observe all cache
   // hits.
   record.block_type = TraceType::kBlockTraceIndexBlock;
-  record.is_cache_hit = Boolean::kTrue;
+  record.is_cache_hit = true;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceDataBlock;
   expected_records.push_back(record);
