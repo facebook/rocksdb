@@ -14,6 +14,7 @@
 #include "cache/cache_key.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "file/filename.h"
+#include "rocksdb/slice_transform.h"
 #include "rocksdb/table_properties.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -506,6 +507,10 @@ class BlockBasedTable : public TableReader {
   void DumpKeyValue(const Slice& key, const Slice& value,
                     std::ostream& out_stream);
 
+  // Returns true if prefix_extractor is compatible with that used in building
+  // the table file.
+  bool PrefixExtractorChanged(const SliceTransform* prefix_extractor) const;
+
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer
   static constexpr size_t kMultiGetReadStackBufSize = 8192;
@@ -592,6 +597,11 @@ struct BlockBasedTable::Rep {
   // null if no prefix_extractor is passed in when opening the table reader.
   std::unique_ptr<SliceTransform> internal_prefix_transform;
   std::shared_ptr<const SliceTransform> table_prefix_extractor;
+
+  // If the prefix extractor configured at the time of table open matches the
+  // prefix extractor used to build the table file, its instance id will be
+  // recorded here for fast path checking that it hasn't changed.
+  uint64_t known_good_prefix_extractor_instance_id = 0;
 
   std::shared_ptr<const FragmentedRangeTombstoneList> fragmented_range_dels;
 

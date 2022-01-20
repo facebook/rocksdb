@@ -12,6 +12,7 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <atomic>
 
 #include "rocksdb/convenience.h"
 #include "rocksdb/slice_transform.h"
@@ -267,7 +268,7 @@ Status SliceTransform::CreateFromString(
     }
   }
   return status;
-}  // namespace ROCKSDB_NAMESPACE
+}
 
 std::string SliceTransform::AsString() const {
 #ifndef ROCKSDB_LITE
@@ -277,6 +278,11 @@ std::string SliceTransform::AsString() const {
 #else
   return GetId();
 #endif  // ROCKSDB_LITE
+}
+
+uint64_t SliceTransform::NextInstanceId() {
+  static std::atomic<uint64_t> last_id{1};
+  return last_id.fetch_add(1, std::memory_order_relaxed);
 }
 
 // 2 small internal utility functions, for efficient hex conversions
