@@ -162,7 +162,7 @@ executors:
 jobs:
   build-macos:
     macos:
-      xcode: 11.3.0
+      xcode: 12.5.1
     resource_class: large
     steps:
       - increase-max-open-files-on-macos
@@ -174,7 +174,7 @@ jobs:
 
   build-macos-cmake:
     macos:
-      xcode: 11.3.0
+      xcode: 12.5.1
     resource_class: large
     steps:
       - increase-max-open-files-on-macos
@@ -550,7 +550,7 @@ jobs:
 
   build-macos-java:
     macos:
-      xcode: 11.3.0
+      xcode: 12.5.1
     resource_class: medium
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
