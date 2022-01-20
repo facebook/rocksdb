@@ -23,7 +23,6 @@ static constexpr uint32_t kInitNumC = 1000;
 #ifndef ROCKSDB_LITE
 static constexpr uint32_t kInitialCARatio = 3;
 #endif  // ROCKSDB_LITE
-static constexpr bool kDoPreload = true;
 
 std::string MultiOpsTxnsStressTest::Record::EncodePrimaryKey(uint32_t a) {
   char buf[8];
@@ -223,7 +222,7 @@ void MultiOpsTxnsStressTest::FinishInitDb(SharedState* shared) {
   if (FLAGS_enable_compaction_filter) {
     // TODO (yanqin) enable compaction filter
   }
-  if (kDoPreload) {
+  if (FLAGS_destroy_db_initially) {
     ReopenAndPreloadDb(shared);
   }
 }
@@ -1016,6 +1015,13 @@ void CheckAndSetOptionsForMultiOpsTxnStressTest() {
   }
   if (!FLAGS_use_txn) {
     fprintf(stderr, "-use_txn must be true if -test_multi_ops_txns\n");
+    exit(1);
+  } else if (FLAGS_test_secondary > 0 ||
+             FLAGS_continuous_verification_interval > 0) {
+    fprintf(
+        stderr,
+        "secondary instance does not support replaying logs (MANIFEST + WAL) "
+        "of TransactionDB with write-prepared/write-unprepared policy\n");
     exit(1);
   }
   if (FLAGS_clear_column_family_one_in > 0) {
