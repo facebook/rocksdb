@@ -15,7 +15,7 @@ commands:
       - run:
           name: Install pyenv on macos
           command: |
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install pyenv
+            echo "JJJ test"
 
   install-cmake-on-macos:
     steps:
@@ -41,14 +41,8 @@ commands:
             sudo launchctl limit maxfiles 1048576
 
   pre-steps:
-    parameters:
-      python-version:
-        default: "3.5.9"
-        type: string
     steps:
       - checkout
-#      - run: pyenv install --skip-existing <<parameters.python-version>>
-#      - run: pyenv global <<parameters.python-version>>
       - run:
           name: Setup Environment Variables
           command: |
@@ -58,11 +52,15 @@ commands:
             echo "export GTEST_COLOR=1" >> $BASH_ENV
             echo "export CTEST_OUTPUT_ON_FAILURE=1" >> $BASH_ENV
             echo "export CTEST_TEST_TIMEOUT=300" >> $BASH_ENV
+            echo "export ZLIB_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs" >> $BASH_ENV
+            echo "export BZIP2_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs" >> $BASH_ENV
+            echo "export SNAPPY_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs" >> $BASH_ENV
+            echo "export LZ4_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs" >> $BASH_ENV
+            echo "export ZSTD_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs" >> $BASH_ENV
 
   pre-steps-macos:
       steps:
-        - pre-steps:
-            python-version: "3.7.8"
+        - pre-steps
 
   post-steps:
     steps:
