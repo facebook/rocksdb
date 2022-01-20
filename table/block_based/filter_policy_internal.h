@@ -38,6 +38,11 @@ class BuiltinFilterBitsBuilder : public FilterBitsBuilder {
   virtual double EstimatedFpRate(size_t num_entries, size_t bytes) = 0;
 };
 
+class BuiltinFilterBitsReader : public FilterBitsReader {
+ public:
+  virtual const char* Name() const { return "BuiltinFilterBitsReader"; }
+};
+
 // Abstract base class for RocksDB built-in filter policies.
 // This class is considered internal API and subject to change.
 class BuiltinFilterPolicy : public FilterPolicy {

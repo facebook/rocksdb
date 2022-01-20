@@ -227,6 +227,12 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
       final_filter_cache_res_handles_;
 };
 
+class XXPH3FilterBitsReader : public BuiltinFilterBitsReader {
+ public:
+  static const char* kClassName() { return "XXPH3FilterBitsReader"; }
+  virtual const char* Name() const { return kClassName(); }
+};
+
 // #################### FastLocalBloom implementation ################## //
 // ############## also known as format_version=5 Bloom filter ########## //
 
@@ -416,7 +422,7 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
 };
 
 // See description in FastLocalBloomImpl
-class FastLocalBloomBitsReader : public FilterBitsReader {
+class FastLocalBloomBitsReader : public XXPH3FilterBitsReader {
  public:
   FastLocalBloomBitsReader(const char* data, int num_probes, uint32_t len_bytes)
       : data_(data), num_probes_(num_probes), len_bytes_(len_bytes) {}
@@ -808,7 +814,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
 // for the linker, at least with DEBUG_LEVEL=2
 constexpr uint32_t Standard128RibbonBitsBuilder::kMaxRibbonEntries;
 
-class Standard128RibbonBitsReader : public FilterBitsReader {
+class Standard128RibbonBitsReader : public XXPH3FilterBitsReader {
  public:
   Standard128RibbonBitsReader(const char* data, size_t len_bytes,
                               uint32_t num_blocks, uint32_t seed)
@@ -1055,7 +1061,7 @@ inline void LegacyBloomBitsBuilder::AddHash(uint32_t h, char* data,
                            folly::constexpr_log2(CACHE_LINE_SIZE));
 }
 
-class LegacyBloomBitsReader : public FilterBitsReader {
+class LegacyBloomBitsReader : public BuiltinFilterBitsReader {
  public:
   LegacyBloomBitsReader(const char* data, int num_probes, uint32_t num_lines,
                         uint32_t log2_cache_line_size)
