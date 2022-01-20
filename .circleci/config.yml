@@ -47,8 +47,8 @@ commands:
         type: string
     steps:
       - checkout
-      - run: pyenv install --skip-existing <<parameters.python-version>>
-      - run: pyenv global <<parameters.python-version>>
+#      - run: pyenv install --skip-existing <<parameters.python-version>>
+#      - run: pyenv global <<parameters.python-version>>
       - run:
           name: Setup Environment Variables
           command: |
