@@ -1252,6 +1252,15 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
       r->table_options.checksum, block_contents.data(), block_contents.size(),
       /*last_byte*/ type);
+
+  if (block_type == BlockType::kFilter) {
+    Status s = r->filter_builder->MaybePostVerifyFilter(block_contents);
+    if (!s.ok()) {
+      r->SetStatus(s);
+      return;
+    }
+  }
+
   EncodeFixed32(trailer.data() + 1, checksum);
   TEST_SYNC_POINT_CALLBACK(
       "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",
@@ -1552,7 +1561,13 @@ void BlockBasedTableBuilder::WriteFilterBlock(
       std::unique_ptr<const char[]> filter_data;
       Slice filter_content =
           rep_->filter_builder->Finish(filter_block_handle, &s, &filter_data);
-      assert(s.ok() || s.IsIncomplete());
+
+      assert(s.ok() || s.IsIncomplete() || s.IsCorruption());
+      if (s.IsCorruption()) {
+        rep_->SetStatus(s);
+        break;
+      }
+
       rep_->props.filter_size += filter_content.size();
 
       // TODO: Refactor code so that BlockType can determine both the C++ type

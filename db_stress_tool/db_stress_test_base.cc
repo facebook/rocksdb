@@ -2272,6 +2272,8 @@ void StressTest::Open() {
     block_based_options.partition_filters = FLAGS_partition_filters;
     block_based_options.optimize_filters_for_memory =
         FLAGS_optimize_filters_for_memory;
+    block_based_options.detect_filter_construct_corruption =
+        FLAGS_detect_filter_construct_corruption;
     block_based_options.index_type =
         static_cast<BlockBasedTableOptions::IndexType>(FLAGS_index_type);
     block_based_options.prepopulate_block_cache =

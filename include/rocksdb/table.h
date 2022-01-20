@@ -365,6 +365,14 @@ struct BlockBasedTableOptions {
   // This must generally be true for gets to be efficient.
   bool whole_key_filtering = true;
 
+  // If true, detect corruption during (new) Bloom Filter and
+  // Ribbon Filter construction.
+  //
+  // Turning on this feature increases
+  // filter construction time by 30%.
+  // TODO: optimize this performance
+  bool detect_filter_construct_corruption = false;
+
   // Verify that decompressing the compressed block gives back the input. This
   // is a verification mode that we use to detect bugs in compression
   // algorithms.

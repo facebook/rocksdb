@@ -41,6 +41,23 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
       const BlockHandle& last_partition_block_handle, Status* status,
       std::unique_ptr<const char[]>* filter_data = nullptr) override;
 
+  virtual void ResetFilterBitsBuilder() override {
+    // Previously constructed partitioned filters by
+    // this to-be-reset FiterBitsBuilder can also be
+    // cleared
+    filters.clear();
+    FullFilterBlockBuilder::ResetFilterBitsBuilder();
+  }
+
+  // For PartitionFilter, optional post-verifing the filter is done
+  // as part of PartitionFilterBlockBuilder::Finish
+  // to avoid implementation complexity of doing it elsewhere.
+  // Therefore we are skipping it in here.
+  virtual Status MaybePostVerifyFilter(
+      const Slice& /* filter_content */) override {
+    return Status::OK();
+  }
+
  private:
   // Filter data
   BlockBuilder index_on_filter_block_builder_;  // top-level index builder
@@ -48,8 +65,41 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
       index_on_filter_block_builder_without_seq_;  // same for user keys
   struct FilterEntry {
     std::string key;
-    Slice filter;
     std::unique_ptr<const char[]> filter_data;
+    Slice filter;
+    Status filter_construction_status;
+
+    explicit FilterEntry(std::string key_,
+                         std::unique_ptr<const char[]> filter_data_,
+                         Slice filter_, Status filter_construction_status_) {
+      key = key_;
+      filter_data = std::move(filter_data_);
+      filter = filter_;
+      filter_construction_status = filter_construction_status_;
+    }
+
+    FilterEntry(FilterEntry& other) = delete;
+    FilterEntry& operator=(FilterEntry& other) = delete;
+
+    FilterEntry(FilterEntry&& other) {
+      key = std::move(other.key);
+      filter_data = std::move(other.filter_data);
+      filter = std::move(other.filter);
+      filter_construction_status = std::move(other.filter_construction_status);
+    }
+
+    FilterEntry& operator=(FilterEntry&& other) {
+      if (this != &other) {
+        key = std::move(other.key);
+        filter_data = std::move(other.filter_data);
+        filter = std::move(other.filter);
+        filter_construction_status =
+            std::move(other.filter_construction_status);
+      }
+      return *this;
+    }
+
+    ~FilterEntry() { filter_construction_status.PermitUncheckedError(); }
   };
   std::deque<FilterEntry> filters;  // list of partitioned filters and keys used
                                     // in building the index

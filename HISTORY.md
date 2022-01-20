@@ -24,6 +24,9 @@
 ### Behavior Changes
 * Disallow the combination of DBOptions.use_direct_io_for_flush_and_compaction == true and DBOptions.writable_file_max_buffer_size == 0. This combination can cause WritableFileWriter::Append() to loop forever, and it does not make much sense in direct IO.
 
+## New Features
+* Introduced an option `BlockBasedTableBuilder::detect_filter_construct_corruption` for detecting corruption during (new) Bloom Filter and Ribbon Filter construction.
+
 ## 6.29.0 (01/21/2022)
 Note: The next release will be major release 7.0. See https://github.com/facebook/rocksdb/issues/9390 for more info.
 ### Public API change
