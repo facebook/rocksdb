@@ -279,13 +279,7 @@ Status SliceTransform::CreateFromString(
 }  // namespace ROCKSDB_NAMESPACE
 
 std::string SliceTransform::AsString() const {
-#ifndef ROCKSDB_LITE
-  if (HasRegisteredOptions()) {
-    ConfigOptions config_options;
-    config_options.delimiter = ";";
-    return ToString(config_options);
-  }
-#endif  // ROCKSDB_LITE
+  assert(!HasRegisteredOptions());
   return GetId();
 }
 
