@@ -6731,6 +6731,7 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
 
   // Update bottommost temperature dynamically with SetOptions
   auto s = db_->SetOptions({{"bottommost_temperature", "kCold"}});
+  ASSERT_OK(s);
   ASSERT_EQ(db_->GetOptions().bottommost_temperature, Temperature::kCold);
   db_->GetColumnFamilyMetaData(&metadata);
   // Should not impact the existing files
