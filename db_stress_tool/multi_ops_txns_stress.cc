@@ -24,6 +24,10 @@ static constexpr uint32_t kInitNumC = 1000;
 static constexpr uint32_t kInitialCARatio = 3;
 #endif  // ROCKSDB_LITE
 
+DEFINE_int32(delay_snapshot_read_one_in, 0,
+             "With a chance of 1/N, inject a random delay between taking "
+             "snapshot and read.");
+
 std::string MultiOpsTxnsStressTest::Record::EncodePrimaryKey(uint32_t a) {
   char buf[8];
   EncodeFixed32(buf, kPrimaryIndexId);
@@ -787,6 +791,16 @@ Status MultiOpsTxnsStressTest::PointLookupTxn(ThreadState* thread,
     RollbackTxn(txn).PermitUncheckedError();
   });
 
+  txn->SetSnapshot();
+  ropts.snapshot = txn->GetSnapshot();
+
+  if (FLAGS_delay_snapshot_read_one_in > 0 &&
+      thread->rand.OneIn(FLAGS_delay_snapshot_read_one_in)) {
+    uint64_t delay_ms = thread->rand.Uniform(100) + 1;
+    db_->GetDBOptions().env->SleepForMicroseconds(
+        static_cast<int>(delay_ms * 1000));
+  }
+
   s = txn->Get(ropts, db_->DefaultColumnFamily(), pk_str, &value);
   if (s.ok()) {
     s = txn->Commit();
@@ -824,14 +838,32 @@ Status MultiOpsTxnsStressTest::RangeScanTxn(ThreadState* thread,
     thread->stats.AddErrors(1);
     RollbackTxn(txn).PermitUncheckedError();
   });
+
+  txn->SetSnapshot();
+  ropts.snapshot = txn->GetSnapshot();
+
+  if (FLAGS_delay_snapshot_read_one_in > 0 &&
+      thread->rand.OneIn(FLAGS_delay_snapshot_read_one_in)) {
+    uint64_t delay_ms = thread->rand.Uniform(100) + 1;
+    db_->GetDBOptions().env->SleepForMicroseconds(
+        static_cast<int>(delay_ms * 1000));
+  }
+
   std::unique_ptr<Iterator> iter(txn->GetIterator(ropts));
-  iter->Seek(sk);
+
+  constexpr size_t total_nexts = 10;
+  size_t nexts = 0;
+  for (iter->Seek(sk);
+       iter->Valid() && nexts < total_nexts && iter->status().ok();
+       iter->Next(), ++nexts) {
+  }
+
   if (iter->status().ok()) {
     s = txn->Commit();
   } else {
     s = iter->status();
   }
-  // TODO (yanqin) more Seek/SeekForPrev/Next/Prev/SeekToFirst/SeekToLast
+
   return s;
 #endif  // !ROCKSDB_LITE
 }
