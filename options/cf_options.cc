@@ -1066,8 +1066,8 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(log, "           blob_compaction_readahead_size: %" PRIu64,
                  blob_compaction_readahead_size);
 
-  ROCKS_LOG_INFO(log, "                   bottommost_temperature: %hhu",
-                 bottommost_temperature);
+  ROCKS_LOG_INFO(log, "                   bottommost_temperature: %d",
+                 static_cast<int>(bottommost_temperature));
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)
