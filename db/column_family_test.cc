@@ -554,7 +554,7 @@ class ColumnFamilyTest
 INSTANTIATE_TEST_SUITE_P(FormatDef, ColumnFamilyTest,
                          testing::Values(test::kDefaultFormatVersion));
 INSTANTIATE_TEST_SUITE_P(FormatLatest, ColumnFamilyTest,
-                         testing::Values(test::kLatestFormatVersion));
+                         testing::Values(kLatestFormatVersion));
 
 TEST_P(ColumnFamilyTest, DontReuseColumnFamilyID) {
   for (int iter = 0; iter < 3; ++iter) {
