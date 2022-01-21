@@ -10,13 +10,6 @@ aliases:
     only_for_branches: main
 
 commands:
-  install-pyenv-on-macos:
-    steps:
-      - run:
-          name: Install pyenv on macos
-          command: |
-            echo "JJJ test"
-
   install-cmake-on-macos:
     steps:
       - run:
@@ -166,7 +159,6 @@ jobs:
       ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc cause env_test hang, disable it for now
     steps:
       - increase-max-open-files-on-macos
-      - install-pyenv-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
       - run: ulimit -S -n 1048576 && OPT=-DCIRCLECI make V=1 J=32 -j32 check 2>&1 | .circleci/cat_ignore_eagain
@@ -178,7 +170,6 @@ jobs:
     resource_class: large
     steps:
       - increase-max-open-files-on-macos
-      - install-pyenv-on-macos
       - install-cmake-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
@@ -557,7 +548,6 @@ jobs:
       ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc causes java 8 crash
     steps:
       - increase-max-open-files-on-macos
-      - install-pyenv-on-macos
       - install-gflags-on-macos
       - install-jdk8-on-macos
       - pre-steps-macos
@@ -584,7 +574,6 @@ jobs:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
     steps:
       - increase-max-open-files-on-macos
-      - install-pyenv-on-macos
       - install-gflags-on-macos
       - install-cmake-on-macos
       - install-jdk8-on-macos
@@ -609,7 +598,6 @@ jobs:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
     steps:
       - increase-max-open-files-on-macos
-      - install-pyenv-on-macos
       - install-gflags-on-macos
       - install-cmake-on-macos
       - install-jdk8-on-macos
