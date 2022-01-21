@@ -1191,7 +1191,7 @@ void ManifestDumpCommand::DoCommand() {
       exec_state_ = LDBCommandExecuteResult::Failed(err_msg);
       return;
     }
-    if (db_path_[db_path_.length() - 1] != '/') {
+    if (db_path_.back() != '/') {
       db_path_.append("/");
     }
     manifestfile = db_path_ + matched_file;
