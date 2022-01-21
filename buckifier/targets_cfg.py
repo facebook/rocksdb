@@ -222,10 +222,8 @@ ROCKS_TESTS = [
         include_paths = ROCKSDB_INCLUDE_PATHS,
         os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
         preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-        deps = [":rocksdb_test_lib"] + extra_deps,
-        external_deps = ROCKSDB_EXTERNAL_DEPS + [
-            ("googletest", None, "gtest"),
-        ],
+        deps = [":rocksdb_test_lib"] + extra_deps + ["fbsource//third-party/googletest:gtest"],
+        external_deps = ROCKSDB_EXTERNAL_DEPS
     )
     for test_name, test_cc, parallelism, extra_deps, extra_compiler_flags in ROCKS_TESTS
     if not is_opt_mode

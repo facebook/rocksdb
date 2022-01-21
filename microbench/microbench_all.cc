@@ -6,8 +6,8 @@
 // this is a simple micro-benchmark for compare ribbon filter vs. other filter
 // for more comprehensive, please check the dedicate util/filter_bench.
 #include <benchmark/benchmark.h>
-#include "ribbon_bench.cc"
-#include "db_basic_bench.cc"
+#include "microbench/ribbon_bench.cc"
+#include "microbench/db_basic_bench.cc"
 
 #ifndef BENCHMARK_MAIN_EXPANDED
 BENCHMARK_MAIN();
