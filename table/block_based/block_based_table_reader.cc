@@ -551,7 +551,7 @@ Status BlockBasedTable::Open(
     const InternalKeyComparator& internal_comparator,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table_reader,
-    const SliceTransform* prefix_extractor,
+    const std::shared_ptr<const SliceTransform>& prefix_extractor,
     const bool prefetch_index_and_filter_in_cache, const bool skip_filters,
     const int level, const bool immortal_table,
     const SequenceNumber largest_seqno, const bool force_direct_prefetch,
@@ -631,7 +631,7 @@ Status BlockBasedTable::Open(
   // handle prefix correctly.
   if (prefix_extractor != nullptr) {
     rep->internal_prefix_transform.reset(
-        new InternalKeySliceTransform(prefix_extractor));
+        new InternalKeySliceTransform(prefix_extractor.get()));
   }
 
   // For fully portable/stable cache keys, we need to read the properties
@@ -663,13 +663,28 @@ Status BlockBasedTable::Open(
     return s;
   }
   if (!PrefixExtractorChangedHelper(rep->table_properties.get(),
-                                    prefix_extractor)) {
+                                    prefix_extractor.get())) {
     // Establish fast path for unchanged prefix_extractor
-    rep->known_good_prefix_extractor_instance_id =
-        prefix_extractor->GetInstanceId();
+    rep->table_prefix_extractor = prefix_extractor;
   } else {
-    // No fast match for any prefix_extractor
-    assert(rep->known_good_prefix_extractor_instance_id == 0);
+    // Current prefix_extractor doesn't match table
+#ifndef ROCKSDB_LITE
+    if (rep->table_properties) {
+      //**TODO: If/When the DBOptions has a registry in it, the ConfigOptions
+      // will need to use it
+      ConfigOptions config_options;
+      Status st = SliceTransform::CreateFromString(
+          config_options, rep->table_properties->prefix_extractor_name,
+          &(rep->table_prefix_extractor));
+      if (!st.ok()) {
+        //**TODO: Should this be error be returned or swallowed?
+        ROCKS_LOG_ERROR(rep->ioptions.logger,
+                        "Failed to create prefix extractor[%s]: %s",
+                        rep->table_properties->prefix_extractor_name.c_str(),
+                        st.ToString().c_str());
+      }
+    }
+#endif  // ROCKSDB_LITE
   }
 
   // With properties loaded, we can set up portable/stable cache keys
@@ -802,23 +817,6 @@ Status BlockBasedTable::ReadPropertiesBlock(
     ROCKS_LOG_ERROR(rep_->ioptions.logger,
                     "Cannot find Properties block from file.");
   }
-#ifndef ROCKSDB_LITE
-  if (rep_->table_properties) {
-    //**TODO: If/When the DBOptions has a registry in it, the ConfigOptions
-    // will need to use it
-    ConfigOptions config_options;
-    Status st = SliceTransform::CreateFromString(
-        config_options, rep_->table_properties->prefix_extractor_name,
-        &(rep_->table_prefix_extractor));
-    if (!st.ok()) {
-      //**TODO: Should this be error be returned or swallowed?
-      ROCKS_LOG_ERROR(rep_->ioptions.logger,
-                      "Failed to create prefix extractor[%s]: %s",
-                      rep_->table_properties->prefix_extractor_name.c_str(),
-                      st.ToString().c_str());
-    }
-  }
-#endif  // ROCKSDB_LITE
 
   // Read the table properties, if provided.
   if (rep_->table_properties) {
@@ -2162,8 +2160,7 @@ bool BlockBasedTable::PrefixExtractorChanged(
     const SliceTransform* prefix_extractor) const {
   if (prefix_extractor == nullptr) {
     return true;
-  } else if (prefix_extractor->GetInstanceId() ==
-             rep_->known_good_prefix_extractor_instance_id) {
+  } else if (prefix_extractor == rep_->table_prefix_extractor.get()) {
     return false;
   } else {
     return PrefixExtractorChangedHelper(rep_->table_properties.get(),

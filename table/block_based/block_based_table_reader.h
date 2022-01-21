@@ -91,24 +91,22 @@ class BlockBasedTable : public TableReader {
   //    are set.
   // @param force_direct_prefetch if true, always prefetching to RocksDB
   //    buffer, rather than calling RandomAccessFile::Prefetch().
-  static Status Open(const ReadOptions& ro, const ImmutableOptions& ioptions,
-                     const EnvOptions& env_options,
-                     const BlockBasedTableOptions& table_options,
-                     const InternalKeyComparator& internal_key_comparator,
-                     std::unique_ptr<RandomAccessFileReader>&& file,
-                     uint64_t file_size,
-                     std::unique_ptr<TableReader>* table_reader,
-                     const SliceTransform* prefix_extractor = nullptr,
-                     bool prefetch_index_and_filter_in_cache = true,
-                     bool skip_filters = false, int level = -1,
-                     const bool immortal_table = false,
-                     const SequenceNumber largest_seqno = 0,
-                     bool force_direct_prefetch = false,
-                     TailPrefetchStats* tail_prefetch_stats = nullptr,
-                     BlockCacheTracer* const block_cache_tracer = nullptr,
-                     size_t max_file_size_for_l0_meta_pin = 0,
-                     const std::string& cur_db_session_id = "",
-                     uint64_t cur_file_num = 0);
+  static Status Open(
+      const ReadOptions& ro, const ImmutableOptions& ioptions,
+      const EnvOptions& env_options,
+      const BlockBasedTableOptions& table_options,
+      const InternalKeyComparator& internal_key_comparator,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table_reader,
+      const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
+      bool prefetch_index_and_filter_in_cache = true, bool skip_filters = false,
+      int level = -1, const bool immortal_table = false,
+      const SequenceNumber largest_seqno = 0,
+      bool force_direct_prefetch = false,
+      TailPrefetchStats* tail_prefetch_stats = nullptr,
+      BlockCacheTracer* const block_cache_tracer = nullptr,
+      size_t max_file_size_for_l0_meta_pin = 0,
+      const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0);
 
   bool PrefixMayMatch(const Slice& internal_key,
                       const ReadOptions& read_options,
@@ -597,11 +595,6 @@ struct BlockBasedTable::Rep {
   // null if no prefix_extractor is passed in when opening the table reader.
   std::unique_ptr<SliceTransform> internal_prefix_transform;
   std::shared_ptr<const SliceTransform> table_prefix_extractor;
-
-  // If the prefix extractor configured at the time of table open matches the
-  // prefix extractor used to build the table file, its instance id will be
-  // recorded here for fast path checking that it hasn't changed.
-  uint64_t known_good_prefix_extractor_instance_id = 0;
 
   std::shared_ptr<const FragmentedRangeTombstoneList> fragmented_range_dels;
 

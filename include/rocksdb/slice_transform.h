@@ -35,10 +35,6 @@ struct ConfigOptions;
 // including data loss, unreported corruption, deadlocks, and more.
 class SliceTransform : public Customizable {
  public:
-  SliceTransform() : instance_id_(NextInstanceId()) {
-    assert(instance_id_ > 0);
-  }
-
   virtual ~SliceTransform(){};
 
   // Return the name of this transformation.
@@ -111,19 +107,6 @@ class SliceTransform : public Customizable {
   virtual bool SameResultWhenAppended(const Slice& /*prefix*/) const {
     return false;
   }
-
-  // Provides a fast way to determine whether this is the same SliceTransform
-  // as one previously seen. Guaranteed not 0 and guaranteed unique between
-  // two SliceTranforms ever created in the same process lifetime. Note that
-  // different SliceTransforms might be equivalent (compatible), which can be
-  // checked by comparing AsString().
-  inline uint64_t GetInstanceId() const { return instance_id_; }
-
- private:
-  const uint64_t instance_id_;
-
-  // Thread-safe instance id generator
-  static uint64_t NextInstanceId();
 };
 
 // The prefix is the first `prefix_len` bytes of the key, and keys shorter
