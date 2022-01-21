@@ -750,7 +750,7 @@ class EventListener : public Customizable {
   // happens. ShouldBeNotifiedOnFileIO should be set to true to get a callback.
   virtual void OnIOError(const IOErrorInfo& /*info*/) {}
 
-  virtual ~EventListener() {}
+  ~EventListener() override {}
 };
 
 #else
