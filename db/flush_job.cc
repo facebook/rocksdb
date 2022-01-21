@@ -279,6 +279,10 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
     TEST_SYNC_POINT("FlushJob::InstallResults");
     // Replace immutable memtable with the generated Table
     IOStatus tmp_io_s;
+    ROCKS_LOG_INFO(db_options_.info_log,
+                "Flush memtables start : tid %" PRIu64 " mempurge: %s",
+                std::hash<std::thread::id>{}(std::this_thread::get_id()),
+                mempurge_s.ok() ? "on" : "off");
     s = cfd_->imm()->TryInstallMemtableFlushResults(
         cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
         meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
@@ -286,6 +290,10 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
         !(mempurge_s.ok()) /* write_edit : true if no mempurge happened (or if aborted),
                               but 'false' if mempurge successful: no new min log number
                               or new level 0 file path to write to manifest. */);
+    ROCKS_LOG_INFO(db_options_.info_log,
+                "Flush memtables over! : tid %" PRIu64 " mempurge: %s",
+                std::hash<std::thread::id>{}(std::this_thread::get_id()),
+                mempurge_s.ok() ? "on" : "off");
     if (!tmp_io_s.ok()) {
       io_status_ = tmp_io_s;
     }
