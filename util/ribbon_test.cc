@@ -365,7 +365,7 @@ using TestTypesAndSettings = ::testing::Types<
     TypesAndSettings_Hash32_SmallKeyGen, TypesAndSettings_Coeff32,
     TypesAndSettings_Coeff32Smash, TypesAndSettings_Coeff16,
     TypesAndSettings_Coeff16Smash>;
-TYPED_TEST_CASE(RibbonTypeParamTest, TestTypesAndSettings);
+TYPED_TEST_SUITE(RibbonTypeParamTest, TestTypesAndSettings);
 
 namespace {
 
