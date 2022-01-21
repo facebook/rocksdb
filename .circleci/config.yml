@@ -163,7 +163,7 @@ jobs:
       xcode: 12.5.1
     resource_class: large
     environment:
-      DISABLE_JEMALLOC: 1 # jemalloc cause env_test hang, disable it for now
+      ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc cause env_test hang, disable it for now
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
@@ -554,7 +554,7 @@ jobs:
     resource_class: medium
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
-      DISABLE_JEMALLOC: 1 # jemalloc causes java 8 crash, maybe a known issue
+      ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc causes java 8 crash
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
