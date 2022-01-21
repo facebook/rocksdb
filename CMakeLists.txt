@@ -623,7 +623,7 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
-include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.10.0/fused-src)
+
 if(WITH_FOLLY_DISTRIBUTED_MUTEX)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
 endif()
@@ -1075,7 +1075,7 @@ option(WITH_CORE_TOOLS "build with ldb and sst_dump" ON)
 option(WITH_TOOLS "build with tools" ON)
 
 if(WITH_TESTS OR WITH_BENCHMARK_TOOLS OR WITH_TOOLS OR WITH_JNI OR JNI)
-  include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.8.1/fused-src)
+  include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.10.0/fused-src)
 endif()
 if(WITH_JNI OR JNI)
   message(STATUS "JNI library is enabled")
@@ -1153,6 +1153,7 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
 endif()
 
 option(WITH_ALL_TESTS "Build all test, rather than a small subset" ON)
+
 if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
   add_subdirectory(third-party/gtest-1.10.0/fused-src/gtest)
   add_library(testharness STATIC
