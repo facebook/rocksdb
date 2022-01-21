@@ -256,6 +256,20 @@ TEST_F(DBBasicTestWithTimestamp, SanityChecks) {
     ASSERT_TRUE(db_->Write(WriteOptions(), &wb).IsInvalidArgument());
   }
 
+  // Perform timestamp operations with timestamps of incorrect size.
+  const std::string wrong_ts(sizeof(uint32_t), '\0');
+  ASSERT_TRUE(db_->Put(WriteOptions(), handle, "key", wrong_ts, "value")
+                  .IsInvalidArgument());
+  ASSERT_TRUE(db_->Merge(WriteOptions(), handle, "key", wrong_ts, "value")
+                  .IsNotSupported());
+  ASSERT_TRUE(
+      db_->Delete(WriteOptions(), handle, "key", wrong_ts).IsInvalidArgument());
+  ASSERT_TRUE(db_->SingleDelete(WriteOptions(), handle, "key", wrong_ts)
+                  .IsInvalidArgument());
+  ASSERT_TRUE(
+      db_->DeleteRange(WriteOptions(), handle, "begin_key", "end_key", wrong_ts)
+          .IsNotSupported());
+
   delete handle;
 }
 
@@ -755,8 +769,8 @@ TEST_P(DBBasicTestWithTimestampTableOptions, GetAndMultiGet) {
   constexpr uint64_t kNumKeys = 1024;
   for (uint64_t k = 0; k < kNumKeys; ++k) {
     WriteOptions write_opts;
-    std::string ts = Timestamp(1, 0);
-    ASSERT_OK(db_->Put(write_opts, Key1(k), ts, "value" + std::to_string(k)));
+    ASSERT_OK(db_->Put(write_opts, Key1(k), Timestamp(1, 0),
+                       "value" + std::to_string(k)));
   }
   ASSERT_OK(Flush());
   {
@@ -1205,7 +1219,6 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
   {
     std::string ts_str = Timestamp(static_cast<uint64_t>(kNumKeys + 1), 0);
     WriteBatch batch(0, 0, 0, kTimestampSize);
-    const std::string dummy_ts(kTimestampSize, '\0');
     { ASSERT_OK(batch.Put("a", "new_value")); }
     { ASSERT_OK(batch.Put("b", "new_value")); }
     s = batch.UpdateTimestamps(

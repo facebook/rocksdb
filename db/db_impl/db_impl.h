@@ -2419,7 +2419,7 @@ inline Status DBImpl::FailIfCfHasTs(
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
   if (ucmp->timestamp_size() > 0) {
-    std::stringstream oss;
+    std::ostringstream oss;
     oss << "cannot call this method on column family "
         << column_family->GetName() << " that enables timestamp";
     return Status::InvalidArgument(oss.str());

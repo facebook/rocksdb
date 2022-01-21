@@ -68,7 +68,6 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
     // TODO: support timestamp
     return std::vector<Status>(keys.size(), Status::NotSupported());
   }
-  std::vector<Status> statuses(keys.size(), Status::NotFound());
   autovector<TableReader*, 16> reader_list;
   for (const auto& key : keys) {
     const FdWithKeyRange& f = files_.files[FindFile(key)];
@@ -80,6 +79,8 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
       reader_list.push_back(f.fd.table_reader);
     }
   }
+
+  std::vector<Status> statuses(keys.size(), Status::NotFound());
   values->resize(keys.size());
   int idx = 0;
   for (auto* r : reader_list) {
