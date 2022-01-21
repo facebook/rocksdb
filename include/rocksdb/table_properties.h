@@ -151,7 +151,7 @@ class TablePropertiesCollectorFactory : public Customizable {
     static const int kUnknownLevelAtCreation = -1;
   };
 
-  virtual ~TablePropertiesCollectorFactory() {}
+  ~TablePropertiesCollectorFactory() override {}
   static const char* Type() { return "TablePropertiesCollectorFactory"; }
   static Status CreateFromString(
       const ConfigOptions& options, const std::string& value,
