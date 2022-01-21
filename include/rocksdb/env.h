@@ -84,7 +84,8 @@ struct EnvOptions {
   // Construct from Options
   explicit EnvOptions(const DBOptions& options);
 
-  // If true, then use mmap to read data
+  // If true, then use mmap to read data.
+  // Not recommended for 32-bit OS.
   bool use_mmap_reads = false;
 
   // If true, then use mmap to write data
