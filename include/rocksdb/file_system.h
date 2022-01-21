@@ -475,7 +475,7 @@ class FileSystem : public Customizable {
                               IODebugContext* dbg) = 0;
 
   // Truncate the named file to the specified size.
-  virtual IOStatus Truncate(const std::string& /*fname*/, size_t /*size*/,
+  virtual IOStatus Truncate(const std::string& /*fname*/, file_size_t /*size*/,
                             const IOOptions& /*options*/,
                             IODebugContext* /*dbg*/) {
     return IOStatus::NotSupported("Truncate is not supported for this FileSystem");
@@ -688,7 +688,8 @@ class FSSequentialFile {
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
-  virtual IOStatus InvalidateCache(size_t /*offset*/, size_t /*length*/) {
+  virtual IOStatus InvalidateCache(file_size_t /*offset*/,
+                                   file_size_t /*length*/) {
     return IOStatus::NotSupported("InvalidateCache not supported.");
   }
 
@@ -814,7 +815,8 @@ class FSRandomAccessFile {
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
-  virtual IOStatus InvalidateCache(size_t /*offset*/, size_t /*length*/) {
+  virtual IOStatus InvalidateCache(file_size_t /*offset*/,
+                                   file_size_t /*length*/) {
     return IOStatus::NotSupported("InvalidateCache not supported.");
   }
 
@@ -990,7 +992,8 @@ class FSWritableFile {
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
   // This call has no effect on dirty pages in the cache.
-  virtual IOStatus InvalidateCache(size_t /*offset*/, size_t /*length*/) {
+  virtual IOStatus InvalidateCache(file_size_t /*offset*/,
+                                   file_size_t /*length*/) {
     return IOStatus::NotSupported("InvalidateCache not supported.");
   }
 
@@ -1013,8 +1016,8 @@ class FSWritableFile {
   // of space on devices where it can result in less file
   // fragmentation and/or less waste from over-zealous filesystem
   // pre-allocation.
-  virtual void PrepareWrite(size_t offset, size_t len, const IOOptions& options,
-                            IODebugContext* dbg) {
+  virtual void PrepareWrite(file_size_t offset, size_t len,
+                            const IOOptions& options, IODebugContext* dbg) {
     if (preallocation_block_size_ == 0) {
       return;
     }
@@ -1267,7 +1270,7 @@ class FileSystemWrapper : public FileSystem {
                       IODebugContext* dbg) override {
     return target_->DeleteFile(f, options, dbg);
   }
-  IOStatus Truncate(const std::string& fname, size_t size,
+  IOStatus Truncate(const std::string& fname, file_size_t size,
                     const IOOptions& options, IODebugContext* dbg) override {
     return target_->Truncate(fname, size, options, dbg);
   }
@@ -1414,7 +1417,7 @@ class FSSequentialFileWrapper : public FSSequentialFile {
   size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
   }
-  IOStatus InvalidateCache(size_t offset, size_t length) override {
+  IOStatus InvalidateCache(file_size_t offset, file_size_t length) override {
     return target_->InvalidateCache(offset, length);
   }
   IOStatus PositionedRead(uint64_t offset, size_t n, const IOOptions& options,
@@ -1467,7 +1470,7 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
   size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
   }
-  IOStatus InvalidateCache(size_t offset, size_t length) override {
+  IOStatus InvalidateCache(file_size_t offset, file_size_t length) override {
     return target_->InvalidateCache(offset, length);
   }
 
@@ -1566,7 +1569,7 @@ class FSWritableFileWrapper : public FSWritableFile {
     return target_->GetUniqueId(id, max_size);
   }
 
-  IOStatus InvalidateCache(size_t offset, size_t length) override {
+  IOStatus InvalidateCache(file_size_t offset, file_size_t length) override {
     return target_->InvalidateCache(offset, length);
   }
 
@@ -1575,7 +1578,7 @@ class FSWritableFileWrapper : public FSWritableFile {
     return target_->RangeSync(offset, nbytes, options, dbg);
   }
 
-  void PrepareWrite(size_t offset, size_t len, const IOOptions& options,
+  void PrepareWrite(file_size_t offset, size_t len, const IOOptions& options,
                     IODebugContext* dbg) override {
     target_->PrepareWrite(offset, len, options, dbg);
   }

@@ -69,6 +69,12 @@ struct ConfigOptions;
 
 const size_t kDefaultPageSize = 4 * 1024;
 
+// This type definition is for transitioning to 7.0 release and will
+// be removed soon after. It will be changed to = uint64_t in 7.0 so
+// that APIs consistently use uint64_t for representing file offsets
+// and sizes that can be beyond memory size.
+using file_size_t = size_t;
+
 enum class CpuPriority {
   kIdle = 0,
   kLow = 1,
@@ -362,7 +368,7 @@ class Env : public Customizable {
   virtual Status DeleteFile(const std::string& fname) = 0;
 
   // Truncate the named file to the specified size.
-  virtual Status Truncate(const std::string& /*fname*/, size_t /*size*/) {
+  virtual Status Truncate(const std::string& /*fname*/, file_size_t /*size*/) {
     return Status::NotSupported("Truncate is not supported for this Env");
   }
 
@@ -724,7 +730,8 @@ class SequentialFile {
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
-  virtual Status InvalidateCache(size_t /*offset*/, size_t /*length*/) {
+  virtual Status InvalidateCache(file_size_t /*offset*/,
+                                 file_size_t /*length*/) {
     return Status::NotSupported(
         "SequentialFile::InvalidateCache not supported.");
   }
@@ -841,7 +848,8 @@ class RandomAccessFile {
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
-  virtual Status InvalidateCache(size_t /*offset*/, size_t /*length*/) {
+  virtual Status InvalidateCache(file_size_t /*offset*/,
+                                 file_size_t /*length*/) {
     return Status::NotSupported(
         "RandomAccessFile::InvalidateCache not supported.");
   }
@@ -1001,7 +1009,8 @@ class WritableFile {
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
   // This call has no effect on dirty pages in the cache.
-  virtual Status InvalidateCache(size_t /*offset*/, size_t /*length*/) {
+  virtual Status InvalidateCache(file_size_t /*offset*/,
+                                 file_size_t /*length*/) {
     return Status::NotSupported("WritableFile::InvalidateCache not supported.");
   }
 
@@ -1023,7 +1032,7 @@ class WritableFile {
   // of space on devices where it can result in less file
   // fragmentation and/or less waste from over-zealous filesystem
   // pre-allocation.
-  virtual void PrepareWrite(size_t offset, size_t len) {
+  virtual void PrepareWrite(file_size_t offset, size_t len) {
     if (preallocation_block_size_ == 0) {
       return;
     }
@@ -1165,7 +1174,8 @@ enum InfoLogLevel : unsigned char {
 // including data loss, unreported corruption, deadlocks, and more.
 class Logger {
  public:
-  size_t kDoNotSupportGetLogFileSize = (std::numeric_limits<size_t>::max)();
+  file_size_t kDoNotSupportGetLogFileSize =
+      (std::numeric_limits<file_size_t>::max)();
 
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : closed_(false), log_level_(log_level) {}
@@ -1205,7 +1215,9 @@ class Logger {
   virtual void Logv(const InfoLogLevel log_level, const char* format,
                     va_list ap);
 
-  virtual size_t GetLogFileSize() const { return kDoNotSupportGetLogFileSize; }
+  virtual file_size_t GetLogFileSize() const {
+    return kDoNotSupportGetLogFileSize;
+  }
   // Flush to the OS buffers
   virtual void Flush() {}
   virtual InfoLogLevel GetInfoLogLevel() const { return log_level_; }
@@ -1452,7 +1464,7 @@ class EnvWrapper : public Env {
   Status DeleteFile(const std::string& f) override {
     return target_.env->DeleteFile(f);
   }
-  Status Truncate(const std::string& fname, size_t size) override {
+  Status Truncate(const std::string& fname, file_size_t size) override {
     return target_.env->Truncate(fname, size);
   }
   Status CreateDir(const std::string& d) override {
@@ -1650,7 +1662,7 @@ class SequentialFileWrapper : public SequentialFile {
   size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
   }
-  Status InvalidateCache(size_t offset, size_t length) override {
+  Status InvalidateCache(file_size_t offset, file_size_t length) override {
     return target_->InvalidateCache(offset, length);
   }
   Status PositionedRead(uint64_t offset, size_t n, Slice* result,
@@ -1685,7 +1697,7 @@ class RandomAccessFileWrapper : public RandomAccessFile {
   size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
   }
-  Status InvalidateCache(size_t offset, size_t length) override {
+  Status InvalidateCache(file_size_t offset, file_size_t length) override {
     return target_->InvalidateCache(offset, length);
   }
 
@@ -1752,7 +1764,7 @@ class WritableFileWrapper : public WritableFile {
     return target_->GetUniqueId(id, max_size);
   }
 
-  Status InvalidateCache(size_t offset, size_t length) override {
+  Status InvalidateCache(file_size_t offset, file_size_t length) override {
     return target_->InvalidateCache(offset, length);
   }
 
@@ -1760,7 +1772,7 @@ class WritableFileWrapper : public WritableFile {
     return target_->RangeSync(offset, nbytes);
   }
 
-  void PrepareWrite(size_t offset, size_t len) override {
+  void PrepareWrite(file_size_t offset, size_t len) override {
     target_->PrepareWrite(offset, len);
   }
 
@@ -1824,7 +1836,9 @@ class LoggerWrapper : public Logger {
             va_list ap) override {
     return target_->Logv(log_level, format, ap);
   }
-  size_t GetLogFileSize() const override { return target_->GetLogFileSize(); }
+  file_size_t GetLogFileSize() const override {
+    return target_->GetLogFileSize();
+  }
   void Flush() override { return target_->Flush(); }
   InfoLogLevel GetInfoLogLevel() const override {
     return target_->GetInfoLogLevel();
