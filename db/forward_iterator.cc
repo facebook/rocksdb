@@ -701,7 +701,7 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
         /*smallest_compaction_key=*/nullptr,
         /*largest_compaction_key=*/nullptr, allow_unprepared_value_));
   }
-  BuildLevelIterators(vstorage);
+  BuildLevelIterators(vstorage, sv_);
   current_ = nullptr;
   is_prev_set_ = false;
 
@@ -792,7 +792,7 @@ void ForwardIterator::RenewIterators() {
     DeleteIterator(l);
   }
   level_iters_.clear();
-  BuildLevelIterators(vstorage_new);
+  BuildLevelIterators(vstorage_new, svnew);
   current_ = nullptr;
   is_prev_set_ = false;
   SVCleanup();
@@ -806,7 +806,8 @@ void ForwardIterator::RenewIterators() {
   }
 }
 
-void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage) {
+void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage,
+                                          SuperVersion* sv) {
   level_iters_.reserve(vstorage->num_levels() - 1);
   for (int32_t level = 1; level < vstorage->num_levels(); ++level) {
     const auto& level_files = vstorage->LevelFiles(level);
@@ -822,7 +823,7 @@ void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage) {
     } else {
       level_iters_.push_back(new ForwardLevelIterator(
           cfd_, read_options_, level_files,
-          sv_->mutable_cf_options.prefix_extractor, allow_unprepared_value_));
+          sv->mutable_cf_options.prefix_extractor, allow_unprepared_value_));
     }
   }
 }
