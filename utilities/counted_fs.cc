@@ -5,7 +5,10 @@
 
 #include "utilities/counted_fs.h"
 
+#include <sstream>
+
 #include "rocksdb/file_system.h"
+#include "rocksdb/utilities/options_type.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -69,14 +72,12 @@ class CountedRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
 class CountedWritableFile : public FSWritableFileOwnerWrapper {
  private:
   CountedFileSystem* fs_;
-  bool skip_fsync_;
 
  public:
   CountedWritableFile(std::unique_ptr<FSWritableFile>&& f,
-                      CountedFileSystem* fs, bool skip_fsync)
+                      CountedFileSystem* fs)
       : FSWritableFileOwnerWrapper(std::move(f)),
-        fs_(fs),
-        skip_fsync_(skip_fsync) {}
+        fs_(fs) {}
 
   IOStatus Append(const Slice& data, const IOOptions& options,
                   IODebugContext* dbg) override {
@@ -127,10 +128,7 @@ class CountedWritableFile : public FSWritableFileOwnerWrapper {
   }
 
   IOStatus Sync(const IOOptions& options, IODebugContext* dbg) override {
-    IOStatus rv;
-    if (!skip_fsync_) {
-      rv = target()->Sync(options, dbg);
-    }
+    IOStatus rv = target()->Sync(options, dbg);
     if (rv.ok()) {
       fs_->counters()->syncs++;
     }
@@ -138,10 +136,7 @@ class CountedWritableFile : public FSWritableFileOwnerWrapper {
   }
 
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
-    IOStatus rv;
-    if (!skip_fsync_) {
-      rv = target()->Fsync(options, dbg);
-    }
+    IOStatus rv = target()->Fsync(options, dbg);
     if (rv.ok()) {
       fs_->counters()->fsyncs++;
     }
@@ -161,14 +156,12 @@ class CountedWritableFile : public FSWritableFileOwnerWrapper {
 class CountedRandomRWFile : public FSRandomRWFileOwnerWrapper {
  private:
   mutable CountedFileSystem* fs_;
-  bool skip_fsync_;
 
  public:
   CountedRandomRWFile(std::unique_ptr<FSRandomRWFile>&& f,
-                      CountedFileSystem* fs, bool skip_fsync)
+                      CountedFileSystem* fs)
       : FSRandomRWFileOwnerWrapper(std::move(f)),
-        fs_(fs),
-        skip_fsync_(skip_fsync) {}
+        fs_(fs) {}
   IOStatus Write(uint64_t offset, const Slice& data, const IOOptions& options,
                  IODebugContext* dbg) override {
     IOStatus rv = target()->Write(offset, data, options, dbg);
@@ -193,10 +186,7 @@ class CountedRandomRWFile : public FSRandomRWFileOwnerWrapper {
   }
 
   IOStatus Sync(const IOOptions& options, IODebugContext* dbg) override {
-    IOStatus rv;
-    if (!skip_fsync_) {
-      rv = target()->Sync(options, dbg);
-    }
+    IOStatus rv = target()->Sync(options, dbg);
     if (rv.ok()) {
       fs_->counters()->syncs++;
     }
@@ -204,10 +194,7 @@ class CountedRandomRWFile : public FSRandomRWFileOwnerWrapper {
   }
 
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
-    IOStatus rv;
-    if (!skip_fsync_) {
-      rv = target()->Fsync(options, dbg);
-    }
+    IOStatus rv = target()->Fsync(options, dbg);
     if (rv.ok()) {
       fs_->counters()->fsyncs++;
     }
@@ -222,11 +209,60 @@ class CountedRandomRWFile : public FSRandomRWFileOwnerWrapper {
     return rv;
   }
 };
-}  // namespace
 
-CountedFileSystem::CountedFileSystem(const std::shared_ptr<FileSystem>& base,
-                                     bool skip_fsync)
-    : FileSystemWrapper(base), skip_fsync_(skip_fsync) {}
+class CountedDirectory : public FSDirectoryWrapper {
+ private:
+  mutable CountedFileSystem* fs_;
+
+ public:
+  CountedDirectory(std::unique_ptr<FSDirectory>&& f, CountedFileSystem* fs)
+      : FSDirectoryWrapper(std::move(f)), fs_(fs) {}
+
+  IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
+    IOStatus rv = FSDirectoryWrapper::Fsync(options, dbg);
+    if (rv.ok()) {
+      fs_->counters()->fsyncs++;
+    }
+    return rv;
+  }
+
+  IOStatus FsyncWithDirOptions(const IOOptions& options, IODebugContext* dbg,
+                               const DirFsyncOptions& dir_options) override {
+    IOStatus rv = FSDirectoryWrapper::FsyncWithDirOptions(options, dbg, dir_options);
+    if (rv.ok()) {
+      fs_->counters()->fsyncs++;
+    }
+    return rv;
+  }
+};
+} // anonymous namespace
+  
+std::string FileOpCounters::PrintCounters() const {
+  std::stringstream ss;
+  ss << "Num files opened: " << opens.load(std::memory_order_relaxed)
+     << std::endl;
+  ss << "Num files deleted: " << deletes.load(std::memory_order_relaxed)
+     << std::endl;
+  ss << "Num files renamed: " << renames.load(std::memory_order_relaxed)
+     << std::endl;
+  ss << "Num Flush(): " << flushes.load(std::memory_order_relaxed) << std::endl;
+  ss << "Num Sync(): " << syncs.load(std::memory_order_relaxed) << std::endl;
+  ss << "Num Fsync(): " << fsyncs.load(std::memory_order_relaxed) << std::endl;
+  ss << "Num Close(): " << closes.load(std::memory_order_relaxed) << std::endl;
+  ss << "Num Read(): " << reads.ops.load(std::memory_order_relaxed)
+     << std::endl;
+  ss << "Num Append(): " << writes.ops.load(std::memory_order_relaxed)
+     << std::endl;
+  ss << "Num bytes read: " << reads.bytes.load(std::memory_order_relaxed)
+     << std::endl;
+  ss << "Num bytes written: " << writes.bytes.load(std::memory_order_relaxed)
+     << std::endl;
+  return ss.str();
+}
+
+CountedFileSystem::CountedFileSystem(const std::shared_ptr<FileSystem>& base)
+    : FileSystemWrapper(base) {
+}
 
 IOStatus CountedFileSystem::NewSequentialFile(
     const std::string& f, const FileOptions& options,
@@ -260,7 +296,7 @@ IOStatus CountedFileSystem::NewWritableFile(const std::string& f,
   IOStatus s = target()->NewWritableFile(f, options, &base, dbg);
   if (s.ok()) {
     counters_.opens++;
-    r->reset(new CountedWritableFile(std::move(base), this, skip_fsync_));
+    r->reset(new CountedWritableFile(std::move(base), this));
   }
   return s;
 }
@@ -272,7 +308,7 @@ IOStatus CountedFileSystem::ReopenWritableFile(
   IOStatus s = target()->ReopenWritableFile(fname, options, &base, dbg);
   if (s.ok()) {
     counters_.opens++;
-    result->reset(new CountedWritableFile(std::move(base), this, skip_fsync_));
+    result->reset(new CountedWritableFile(std::move(base), this));
   }
   return s;
 }
@@ -286,7 +322,7 @@ IOStatus CountedFileSystem::ReuseWritableFile(
       target()->ReuseWritableFile(fname, old_fname, options, &base, dbg);
   if (s.ok()) {
     counters_.opens++;
-    result->reset(new CountedWritableFile(std::move(base), this, skip_fsync_));
+    result->reset(new CountedWritableFile(std::move(base), this));
   }
   return s;
 }
@@ -298,8 +334,22 @@ IOStatus CountedFileSystem::NewRandomRWFile(
   IOStatus s = target()->NewRandomRWFile(name, options, &base, dbg);
   if (s.ok()) {
     counters_.opens++;
-    result->reset(new CountedRandomRWFile(std::move(base), this, skip_fsync_));
+    result->reset(new CountedRandomRWFile(std::move(base), this));
   }
   return s;
 }
+
+IOStatus CountedFileSystem::NewDirectory(const std::string& name,
+                                         const IOOptions& options,
+                                         std::unique_ptr<FSDirectory>* result,
+                                         IODebugContext* dbg) {
+  std::unique_ptr<FSDirectory> base;
+  IOStatus s = target()->NewDirectory(name, options, &base, dbg);
+  if (s.ok()) {
+    counters_.opens++;
+    result->reset(new CountedDirectory(std::move(base), this));
+  }
+  return s;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

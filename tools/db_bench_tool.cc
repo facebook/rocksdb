@@ -2247,31 +2247,8 @@ class Stats {
       auto* counted_fs =
           FLAGS_env->GetFileSystem()->CheckedCast<CountedFileSystem>();
       assert(counted_fs);
-      const auto counters = counted_fs->GetOptions<FileOpCounters>();
-      assert(counters);
-      fprintf(stdout, "Num files opened: %d\n",
-              counters->opens.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num files deleted: %d\n",
-              counters->deletes.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num files renamed: %d\n",
-              counters->renames.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Flush(): %d\n",
-              counters->flushes.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Sync(): %d\n",
-              counters->syncs.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Fsync(): %d\n",
-              counters->fsyncs.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Close(): %d\n",
-              counters->closes.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Read(): %d\n",
-              counters->reads.ops.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Append(): %d\n",
-              counters->writes.ops.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num bytes read: %" PRIu64 "\n",
-              counters->reads.bytes.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num bytes written: %" PRIu64 "\n",
-              counters->writes.bytes.load(std::memory_order_relaxed));
-      counters->Reset();
+      fprintf(stdout, "%s", counted_fs->PrintCounters().c_str());
+      counted_fs->ResetCounters();
     }
     fflush(stdout);
   }

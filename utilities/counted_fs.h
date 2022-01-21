@@ -13,6 +13,8 @@
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
+class Logger;
+
 struct OpCounter {
   std::atomic<int> ops;
   std::atomic<uint64_t> bytes;
@@ -66,17 +68,17 @@ struct FileOpCounters {
     reads.Reset();
     writes.Reset();
   }
+  std::string PrintCounters() const;
 };
 
 // A FileSystem class that counts operations (reads, writes, opens, closes, etc)
 class CountedFileSystem : public FileSystemWrapper {
+ public:
  private:
   FileOpCounters counters_;
-  bool skip_fsync_;
 
  public:
-  explicit CountedFileSystem(const std::shared_ptr<FileSystem>& base,
-                             bool skip_fsync = false);
+  explicit CountedFileSystem(const std::shared_ptr<FileSystem>& base);
   static const char* kClassName() { return "CountedFileSystem"; }
   const char* Name() const override { return kClassName(); }
 
@@ -105,6 +107,10 @@ class CountedFileSystem : public FileSystemWrapper {
   IOStatus NewRandomRWFile(const std::string& name, const FileOptions& options,
                            std::unique_ptr<FSRandomRWFile>* result,
                            IODebugContext* dbg) override;
+
+  IOStatus NewDirectory(const std::string& name, const IOOptions& io_opts,
+                        std::unique_ptr<FSDirectory>* result,
+                        IODebugContext* dbg) override;
 
   IOStatus DeleteFile(const std::string& fname, const IOOptions& options,
                       IODebugContext* dbg) override {
@@ -135,5 +141,9 @@ class CountedFileSystem : public FileSystemWrapper {
       return FileSystemWrapper::GetOptionsPtr(name);
     }
   }
+
+  // Prints the counters to a string
+  std::string PrintCounters() const { return counters_.PrintCounters(); }
+  void ResetCounters() { counters_.Reset(); }
 };
 }  // namespace ROCKSDB_NAMESPACE
