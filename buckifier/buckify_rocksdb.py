@@ -195,7 +195,6 @@ def generate_targets(repo_path, deps_map):
 
     # Dictionary test executable name -> relative source file path
     test_source_map = {}
-    print(src_mk)
 
     # c_test.c is added through TARGETS.add_c_test(). If there
     # are more than one .c test file, we need to extend
