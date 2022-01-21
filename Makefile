@@ -789,7 +789,8 @@ endif  # PLATFORM_SHARED_EXT
 	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
 	blackbox_crash_test_with_txn whitebox_crash_test_with_txn \
 	blackbox_crash_test_with_best_efforts_recovery \
-	blackbox_crash_test_with_ts whitebox_crash_test_with_ts
+	blackbox_crash_test_with_ts whitebox_crash_test_with_ts \
+	blackbox_crash_test_with_multiops_txn
 
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
