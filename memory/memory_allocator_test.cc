@@ -216,18 +216,18 @@ TEST_F(CreateMemoryAllocatorTest, NewJemallocNodumpAllocator) {
   ASSERT_EQ(opts->limit_tcache_size, jopts.limit_tcache_size);
 }
 
-INSTANTIATE_TEST_CASE_P(DefaultMemoryAllocator, MemoryAllocatorTest,
+INSTANTIATE_TEST_SUITE_P(DefaultMemoryAllocator, MemoryAllocatorTest,
                         ::testing::Values(std::make_tuple(
                             DefaultMemoryAllocator::kClassName(), true)));
 #ifdef MEMKIND
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     MemkindkMemAllocator, MemoryAllocatorTest,
     ::testing::Values(std::make_tuple(MemkindKmemAllocator::kClassName(),
                                       MemkindKmemAllocator::IsSupported())));
 #endif  // MEMKIND
 
 #ifdef ROCKSDB_JEMALLOC
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     JemallocNodumpAllocator, MemoryAllocatorTest,
     ::testing::Values(std::make_tuple(JemallocNodumpAllocator::kClassName(),
                                       JemallocNodumpAllocator::IsSupported())));

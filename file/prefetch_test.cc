@@ -74,7 +74,7 @@ class PrefetchTest
   PrefetchTest() : DBTestBase("prefetch_test", true) {}
 };
 
-INSTANTIATE_TEST_CASE_P(PrefetchTest, PrefetchTest,
+INSTANTIATE_TEST_SUITE_P(PrefetchTest, PrefetchTest,
                         ::testing::Combine(::testing::Bool(),
                                            ::testing::Bool()));
 
@@ -677,7 +677,7 @@ class PrefetchTest1
   PrefetchTest1() : DBTestBase("prefetch_test1", true) {}
 };
 
-INSTANTIATE_TEST_CASE_P(PrefetchTest1, PrefetchTest1,
+INSTANTIATE_TEST_SUITE_P(PrefetchTest1, PrefetchTest1,
                         ::testing::Combine(::testing::Bool(),
                                            ::testing::Bool()));
 
@@ -789,7 +789,7 @@ class PrefetchTest2 : public DBTestBase,
   PrefetchTest2() : DBTestBase("prefetch_test2", true) {}
 };
 
-INSTANTIATE_TEST_CASE_P(PrefetchTest2, PrefetchTest2, ::testing::Bool());
+INSTANTIATE_TEST_SUITE_P(PrefetchTest2, PrefetchTest2, ::testing::Bool());
 
 #ifndef ROCKSDB_LITE
 TEST_P(PrefetchTest2, NonSequentialReads) {

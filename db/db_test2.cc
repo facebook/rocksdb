@@ -159,7 +159,7 @@ TEST_P(TestReadOnlyWithCompressedCache, ReadOnlyWithCompressedCache) {
   delete db_ptr;
 }
 
-INSTANTIATE_TEST_CASE_P(TestReadOnlyWithCompressedCache,
+INSTANTIATE_TEST_SUITE_P(TestReadOnlyWithCompressedCache,
                         TestReadOnlyWithCompressedCache,
                         ::testing::Combine(::testing::Values(-1, 100),
                                            ::testing::Bool()));
@@ -1459,7 +1459,7 @@ class PresetCompressionDictTest
   const bool bottommost_;
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     DBTest2, PresetCompressionDictTest,
     ::testing::Combine(::testing::ValuesIn(GetSupportedDictCompressions()),
                        ::testing::Bool()));
@@ -1732,7 +1732,7 @@ class CompressionFailuresTest
   uint32_t compression_parallel_threads_ = 0;
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     DBTest2, CompressionFailuresTest,
     ::testing::Combine(::testing::Values(kTestCompressionFail,
                                          kTestDecompressionFail,
@@ -6431,7 +6431,7 @@ class RenameCurrentTest : public DBTestBase,
   const std::string sync_point_;
 };
 
-INSTANTIATE_TEST_CASE_P(DistributedFS, RenameCurrentTest,
+INSTANTIATE_TEST_SUITE_P(DistributedFS, RenameCurrentTest,
                         ::testing::Values("SetCurrentFile:BeforeRename",
                                           "SetCurrentFile:AfterRename"));
 

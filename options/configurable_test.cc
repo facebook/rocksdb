@@ -834,7 +834,7 @@ TEST_P(ConfigurableParamTest, ConfigureFromPropsTest) {
   ASSERT_TRUE(object_->AreEquivalent(config_options_, copy.get(), &mismatch));
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     ParamTest, ConfigurableParamTest,
     testing::Values(
         std::pair<std::string, std::string>("Simple",

@@ -2583,7 +2583,7 @@ class BackupEngineRateLimitingTestWithParam
 
 uint64_t const MB = 1024 * 1024;
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     RateLimiting, BackupEngineRateLimitingTestWithParam,
     ::testing::Values(std::make_tuple(false, 0, std::make_pair(1 * MB, 5 * MB)),
                       std::make_tuple(false, 0, std::make_pair(2 * MB, 3 * MB)),
@@ -2822,7 +2822,7 @@ class BackupEngineRateLimitingTestWithParam2
   BackupEngineRateLimitingTestWithParam2() {}
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     LowRefillBytesPerPeriod, BackupEngineRateLimitingTestWithParam2,
     ::testing::Values(std::make_tuple(std::make_pair(1, 1))));
 // To verify we don't request over-sized bytes relative to

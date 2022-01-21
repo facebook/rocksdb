@@ -835,12 +835,12 @@ class DBBlobBasicIOErrorMultiGetTest : public DBBlobBasicIOErrorTest {
   DBBlobBasicIOErrorMultiGetTest() : DBBlobBasicIOErrorTest() {}
 };
 
-INSTANTIATE_TEST_CASE_P(DBBlobBasicTest, DBBlobBasicIOErrorTest,
+INSTANTIATE_TEST_SUITE_P(DBBlobBasicTest, DBBlobBasicIOErrorTest,
                         ::testing::ValuesIn(std::vector<std::string>{
                             "BlobFileReader::OpenFile:NewRandomAccessFile",
                             "BlobFileReader::GetBlob:ReadFromFile"}));
 
-INSTANTIATE_TEST_CASE_P(DBBlobBasicTest, DBBlobBasicIOErrorMultiGetTest,
+INSTANTIATE_TEST_SUITE_P(DBBlobBasicTest, DBBlobBasicIOErrorMultiGetTest,
                         ::testing::ValuesIn(std::vector<std::string>{
                             "BlobFileReader::OpenFile:NewRandomAccessFile",
                             "BlobFileReader::MultiGetBlob:ReadFromFile"}));

@@ -5745,7 +5745,7 @@ TEST_P(DBCompactionTestWithBottommostParam, SequenceKeysManualCompaction) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     DBCompactionTestWithBottommostParam, DBCompactionTestWithBottommostParam,
     ::testing::Values(BottommostLevelCompaction::kSkip,
                       BottommostLevelCompaction::kIfHaveCompactionFilter,
@@ -5918,7 +5918,7 @@ TEST_P(ChangeLevelConflictsWithAuto, TestConflict) {
   // fail and make the DB readable.
 }
 
-INSTANTIATE_TEST_CASE_P(ChangeLevelConflictsWithAuto,
+INSTANTIATE_TEST_SUITE_P(ChangeLevelConflictsWithAuto,
                         ChangeLevelConflictsWithAuto, testing::Bool());
 
 TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
@@ -6179,7 +6179,7 @@ class DBCompactionTestBlobError
   std::string sync_point_;
 };
 
-INSTANTIATE_TEST_CASE_P(DBCompactionTestBlobError, DBCompactionTestBlobError,
+INSTANTIATE_TEST_SUITE_P(DBCompactionTestBlobError, DBCompactionTestBlobError,
                         ::testing::ValuesIn(std::vector<std::string>{
                             "BlobFileBuilder::WriteBlobToFile:AddRecord",
                             "BlobFileBuilder::WriteBlobToFile:AppendFooter"}));
@@ -6281,7 +6281,7 @@ class DBCompactionTestBlobGC
   bool updated_enable_blob_files_;
 };
 
-INSTANTIATE_TEST_CASE_P(DBCompactionTestBlobGC, DBCompactionTestBlobGC,
+INSTANTIATE_TEST_SUITE_P(DBCompactionTestBlobGC, DBCompactionTestBlobGC,
                         ::testing::Combine(::testing::Values(0.0, 0.5, 1.0),
                                            ::testing::Bool()));
 

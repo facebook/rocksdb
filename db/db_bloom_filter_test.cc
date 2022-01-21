@@ -848,7 +848,7 @@ class DBFilterConstructionReserveMemoryTestWithParam
   std::shared_ptr<FilterConstructResPeakTrackingCache> cache_;
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     BlockBasedTableOptions, DBFilterConstructionReserveMemoryTestWithParam,
     ::testing::Values(
         std::make_tuple(false, BloomFilterPolicy::Mode::kFastLocalBloom, false),

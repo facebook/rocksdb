@@ -1083,7 +1083,7 @@ class ParameterizedHarnessTest : public HarnessTest,
   ParameterizedHarnessTest() : HarnessTest(GetParam()) {}
 };
 
-INSTANTIATE_TEST_CASE_P(TableTest, ParameterizedHarnessTest,
+INSTANTIATE_TEST_SUITE_P(TableTest, ParameterizedHarnessTest,
                         ::testing::ValuesIn(GenerateArgList()));
 
 class DBHarnessTest : public HarnessTest {

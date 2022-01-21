@@ -684,7 +684,7 @@ class DBBasicTestWithTimestampTableOptions
             "db_basic_test_with_timestamp_table_options") {}
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Timestamp, DBBasicTestWithTimestampTableOptions,
     testing::Values(
         BlockBasedTableOptions::IndexType::kBinarySearch,
@@ -1116,7 +1116,7 @@ class DBBasicDeletionTestWithTimestamp
       : DBBasicTestWithTimestampBase("db_basic_deletion_test_with_timestamp") {}
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Timestamp, DBBasicDeletionTestWithTimestamp,
     ::testing::Values(ValueType::kTypeSingleDeletion,
                       ValueType::kTypeDeletionWithTimestamp));
@@ -1830,7 +1830,7 @@ TEST_P(DBBasicTestWithTimestampFilterPrefixSettings, GetAndMultiGet) {
   Close();
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Timestamp, DBBasicTestWithTimestampFilterPrefixSettings,
     ::testing::Combine(
         ::testing::Values(

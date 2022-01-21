@@ -808,7 +808,7 @@ class BlobFileReaderIOErrorTest
   std::string sync_point_;
 };
 
-INSTANTIATE_TEST_CASE_P(BlobFileReaderTest, BlobFileReaderIOErrorTest,
+INSTANTIATE_TEST_SUITE_P(BlobFileReaderTest, BlobFileReaderIOErrorTest,
                         ::testing::ValuesIn(std::vector<std::string>{
                             "BlobFileReader::OpenFile:GetFileSize",
                             "BlobFileReader::OpenFile:NewRandomAccessFile",
@@ -893,7 +893,7 @@ class BlobFileReaderDecodingErrorTest
   std::string sync_point_;
 };
 
-INSTANTIATE_TEST_CASE_P(BlobFileReaderTest, BlobFileReaderDecodingErrorTest,
+INSTANTIATE_TEST_SUITE_P(BlobFileReaderTest, BlobFileReaderDecodingErrorTest,
                         ::testing::ValuesIn(std::vector<std::string>{
                             "BlobFileReader::ReadHeader:TamperWithResult",
                             "BlobFileReader::ReadFooter:TamperWithResult",

@@ -748,7 +748,7 @@ TEST_P(DBBasicMultiConfigs, CompactBetweenSnapshots) {
   ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth ]");
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     DBBasicMultiConfigs, DBBasicMultiConfigs,
     ::testing::ValuesIn(DBBasicMultiConfigs::GenerateOptionConfigs()));
 
@@ -976,7 +976,7 @@ TEST_F(DBBasicTest, MultiGetEmpty) {
 class DBBlockChecksumTest : public DBBasicTest,
                             public testing::WithParamInterface<uint32_t> {};
 
-INSTANTIATE_TEST_CASE_P(FormatVersions, DBBlockChecksumTest,
+INSTANTIATE_TEST_SUITE_P(FormatVersions, DBBlockChecksumTest,
                         testing::ValuesIn(test::kFooterFormatVersionsToTest));
 
 TEST_P(DBBlockChecksumTest, BlockChecksumTest) {
@@ -2680,7 +2680,7 @@ TEST_P(DBBasicTestTrackWal, DoNotTrackObsoleteWal) {
   Destroy(options);
 }
 
-INSTANTIATE_TEST_CASE_P(DBBasicTestTrackWal, DBBasicTestTrackWal,
+INSTANTIATE_TEST_SUITE_P(DBBasicTestTrackWal, DBBasicTestTrackWal,
                         testing::Bool());
 #endif  // ROCKSDB_LITE
 
@@ -3892,7 +3892,7 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
 
 // Param 0: If true, set read_options.deadline
 // Param 1: If true, set read_options.io_timeout
-INSTANTIATE_TEST_CASE_P(DBBasicTestDeadline, DBBasicTestDeadline,
+INSTANTIATE_TEST_SUITE_P(DBBasicTestDeadline, DBBasicTestDeadline,
                         ::testing::Values(std::make_tuple(true, false),
                                           std::make_tuple(false, true),
                                           std::make_tuple(true, true)));

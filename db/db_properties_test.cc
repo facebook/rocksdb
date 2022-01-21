@@ -1551,7 +1551,7 @@ class CompressionSamplingDBPropertiesTest
   const bool fast_;
 };
 
-INSTANTIATE_TEST_CASE_P(CompressionSamplingDBPropertiesTest,
+INSTANTIATE_TEST_SUITE_P(CompressionSamplingDBPropertiesTest,
                         CompressionSamplingDBPropertiesTest, ::testing::Bool());
 
 // Excluded from RocksDB lite tests due to `GetPropertiesOfAllTables()` usage.

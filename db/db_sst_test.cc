@@ -717,7 +717,7 @@ TEST_P(DBSSTTestRateLimit, RateLimitedDelete) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-INSTANTIATE_TEST_CASE_P(RateLimitedDelete, DBSSTTestRateLimit,
+INSTANTIATE_TEST_SUITE_P(RateLimitedDelete, DBSSTTestRateLimit,
                         ::testing::Bool());
 
 TEST_F(DBSSTTest, RateLimitedWALDelete) {

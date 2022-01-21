@@ -158,7 +158,7 @@ TEST_F(PointLockManagerTest, DeadlockDepthExceeded) {
   delete txn1;
 }
 
-INSTANTIATE_TEST_CASE_P(PointLockManager, AnyLockManagerTest,
+INSTANTIATE_TEST_SUITE_P(PointLockManager, AnyLockManagerTest,
                         ::testing::Values(nullptr));
 
 }  // namespace ROCKSDB_NAMESPACE

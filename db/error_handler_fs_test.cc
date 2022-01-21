@@ -2641,7 +2641,7 @@ TEST_P(DBErrorHandlingFencingTest, WALWriteFenced) {
   Close();
 }
 
-INSTANTIATE_TEST_CASE_P(DBErrorHandlingFSTest, DBErrorHandlingFencingTest,
+INSTANTIATE_TEST_SUITE_P(DBErrorHandlingFSTest, DBErrorHandlingFencingTest,
                         ::testing::Bool());
 
 }  // namespace ROCKSDB_NAMESPACE

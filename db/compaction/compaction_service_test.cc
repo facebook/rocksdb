@@ -798,7 +798,7 @@ TEST_P(CompactionServiceTest, FallbackLocalManual) {
   VerifyTestData();
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     CompactionServiceTest, CompactionServiceTest,
     ::testing::Values(
         TestCompactionServiceType::MyTestCompactionServiceType,

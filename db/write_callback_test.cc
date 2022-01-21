@@ -372,7 +372,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(WriteCallbackPTest, WriteCallbackPTest,
+INSTANTIATE_TEST_SUITE_P(WriteCallbackPTest, WriteCallbackPTest,
                         ::testing::Combine(::testing::Bool(), ::testing::Bool(),
                                            ::testing::Bool(), ::testing::Bool(),
                                            ::testing::Bool(), ::testing::Bool(),

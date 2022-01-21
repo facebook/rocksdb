@@ -1072,7 +1072,7 @@ TEST_P(CompactionIteratorWithAllowIngestBehindTest,
           true /*bottomost_level*/);
 }
 
-INSTANTIATE_TEST_CASE_P(CompactionIteratorWithAllowIngestBehindTestInstance,
+INSTANTIATE_TEST_SUITE_P(CompactionIteratorWithAllowIngestBehindTestInstance,
                         CompactionIteratorWithAllowIngestBehindTest,
                         testing::Values(true, false));
 
@@ -1350,7 +1350,7 @@ TEST_P(CompactionIteratorTsGcTest, SingleDeleteAllKeysOlderThanThreshold) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(CompactionIteratorTsGcTestInstance,
+INSTANTIATE_TEST_SUITE_P(CompactionIteratorTsGcTestInstance,
                         CompactionIteratorTsGcTest,
                         testing::Values(true, false));
 

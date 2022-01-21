@@ -620,7 +620,7 @@ class DBRecoveryTestBlobError
   std::string sync_point_;
 };
 
-INSTANTIATE_TEST_CASE_P(DBRecoveryTestBlobError, DBRecoveryTestBlobError,
+INSTANTIATE_TEST_SUITE_P(DBRecoveryTestBlobError, DBRecoveryTestBlobError,
                         ::testing::ValuesIn(std::vector<std::string>{
                             "BlobFileBuilder::WriteBlobToFile:AddRecord",
                             "BlobFileBuilder::WriteBlobToFile:AppendFooter"}));
@@ -1358,7 +1358,7 @@ class DBWALTestWithParams
   DBWALTestWithParams() : DBWALTestBase("/db_wal_test_with_params") {}
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Wal, DBWALTestWithParams,
     ::testing::Combine(::testing::Bool(), ::testing::Range(0, 4, 1),
                        ::testing::Range(RecoveryTestHelper::kWALFileOffset,
@@ -1375,7 +1375,7 @@ class DBWALTestWithParamsVaryingRecoveryMode
       : DBWALTestBase("/db_wal_test_with_params_mode") {}
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Wal, DBWALTestWithParamsVaryingRecoveryMode,
     ::testing::Combine(
         ::testing::Bool(), ::testing::Range(0, 4, 1),

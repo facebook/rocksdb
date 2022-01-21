@@ -4693,7 +4693,7 @@ TEST_F(ConfigOptionsTest, MergeOperatorFromString) {
   ASSERT_EQ(*delimiter, "&&");
 }
 
-INSTANTIATE_TEST_CASE_P(OptionsSanityCheckTest, OptionsSanityCheckTest,
+INSTANTIATE_TEST_SUITE_P(OptionsSanityCheckTest, OptionsSanityCheckTest,
                         ::testing::Bool());
 #endif  // !ROCKSDB_LITE
 

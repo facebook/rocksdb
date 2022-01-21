@@ -122,7 +122,7 @@ std::string GetTestNameSuffix(
   return oss.str();
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     DbKvChecksumTest, DbKvChecksumTest,
     ::testing::Combine(::testing::Range(static_cast<WriteBatchOpType>(0),
                                         WriteBatchOpType::kNum),

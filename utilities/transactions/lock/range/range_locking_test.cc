@@ -389,7 +389,7 @@ void PointLockManagerTestExternalSetup(PointLockManagerTest* self) {
   self->wait_sync_point_name_ = "RangeTreeLockManager::TryRangeLock:WaitingTxn";
 }
 
-INSTANTIATE_TEST_CASE_P(RangeLockManager, AnyLockManagerTest,
+INSTANTIATE_TEST_SUITE_P(RangeLockManager, AnyLockManagerTest,
                         ::testing::Values(PointLockManagerTestExternalSetup));
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -2390,7 +2390,7 @@ class ExternalSSTBlockChecksumTest
     : public ExternalSSTFileTestBase,
       public testing::WithParamInterface<uint32_t> {};
 
-INSTANTIATE_TEST_CASE_P(FormatVersions, ExternalSSTBlockChecksumTest,
+INSTANTIATE_TEST_SUITE_P(FormatVersions, ExternalSSTBlockChecksumTest,
                         testing::ValuesIn(test::kFooterFormatVersionsToTest));
 
 // Very slow, not worth the cost to run regularly

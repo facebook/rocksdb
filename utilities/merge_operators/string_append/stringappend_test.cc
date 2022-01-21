@@ -639,7 +639,7 @@ TEST_P(StringAppendOperatorTest, SimpleTestNullDelimiter) {
   ASSERT_EQ(res, checker);
 }
 
-INSTANTIATE_TEST_CASE_P(StringAppendOperatorTest, StringAppendOperatorTest,
+INSTANTIATE_TEST_SUITE_P(StringAppendOperatorTest, StringAppendOperatorTest,
                         testing::Bool());
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -591,7 +591,7 @@ class BlobFileBuilderIOErrorTest
   std::string sync_point_;
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     BlobFileBuilderTest, BlobFileBuilderIOErrorTest,
     ::testing::ValuesIn(std::vector<std::string>{
         "BlobFileBuilder::OpenBlobFileIfNeeded:NewWritableFile",

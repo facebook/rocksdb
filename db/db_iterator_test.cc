@@ -1555,7 +1555,7 @@ TEST_P(DBIteratorTestForPinnedData, PinnedDataIteratorRandomizedFlush) {
   PinnedDataIteratorRandomized(TestConfig::FLUSH_EVERY_1000);
 }
 
-INSTANTIATE_TEST_CASE_P(DBIteratorTestForPinnedDataInstance,
+INSTANTIATE_TEST_SUITE_P(DBIteratorTestForPinnedDataInstance,
                         DBIteratorTestForPinnedData,
                         testing::Values(true, false));
 

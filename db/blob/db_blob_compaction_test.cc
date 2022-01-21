@@ -194,7 +194,7 @@ class DBBlobBadCompactionFilterTest
   std::unique_ptr<CompactionFilter> compaction_filter_guard_;
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     BadCompactionFilter, DBBlobBadCompactionFilterTest,
     testing::Combine(
         testing::Values("a"),

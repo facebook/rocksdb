@@ -243,7 +243,7 @@ TEST_P(ClippingIteratorTest, Clip) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     ClippingIteratorTest, ClippingIteratorTest,
     ::testing::Combine(
         ::testing::Bool(),

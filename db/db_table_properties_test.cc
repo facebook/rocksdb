@@ -443,7 +443,7 @@ TEST_P(DBTableHostnamePropertyTest, DbHostLocationProperty) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     DBTableHostnamePropertyTest, DBTableHostnamePropertyTest,
     ::testing::Values(
         // OptionConfig, override db_host_location

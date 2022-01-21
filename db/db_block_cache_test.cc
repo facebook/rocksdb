@@ -659,7 +659,7 @@ class DBBlockCacheTest1 : public DBTestBase,
   DBBlockCacheTest1() : DBTestBase("db_block_cache_test1", true) {}
 };
 
-INSTANTIATE_TEST_CASE_P(DBBlockCacheTest1, DBBlockCacheTest1,
+INSTANTIATE_TEST_SUITE_P(DBBlockCacheTest1, DBBlockCacheTest1,
                         ::testing::Values(1, 2, 3));
 
 TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
@@ -1714,7 +1714,7 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-INSTANTIATE_TEST_CASE_P(DBBlockCacheKeyTest, DBBlockCacheKeyTest,
+INSTANTIATE_TEST_SUITE_P(DBBlockCacheKeyTest, DBBlockCacheKeyTest,
                         ::testing::Combine(::testing::Bool(),
                                            ::testing::Bool()));
 
@@ -1867,7 +1867,7 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
             TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     DBBlockCachePinningTest, DBBlockCachePinningTest,
     ::testing::Combine(
         ::testing::Bool(),
