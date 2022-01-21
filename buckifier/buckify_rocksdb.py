@@ -184,7 +184,13 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("ANALYZER_LIB_SOURCES", [])
         + src_mk.get('STRESS_LIB_SOURCES', [])
         + ["test_util/testutil.cc"])
-
+    # rocksdb_microbench_bin
+    TARGETS.add_binary(
+        "rocksdb_microbench_bin",
+        src_mk.get("MICROBENCH_SOURCES", []),
+        [":rocksdb_lib", "fbsource//third-party/googletest:gtest", "fbsource//third-party/benchmark:benchmark"],
+        ["-DIS_BENCH_BUILD"]
+        )
     print("Extra dependencies:\n{0}".format(json.dumps(deps_map)))
 
     # Dictionary test executable name -> relative source file path

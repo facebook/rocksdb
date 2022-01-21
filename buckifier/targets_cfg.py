@@ -13,6 +13,7 @@ rocksdb_target_header_template = \
 #
 load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
 load("@fbcode_macros//build_defs:cpp_library.bzl", "cpp_library")
+load("@fbcode_macros//build_defs:cpp_binary.bzl", "cpp_binary")
 load(":defs.bzl", "test_binary")
 
 REPO_PATH = package_name() + "/"
@@ -186,7 +187,9 @@ cpp_binary(
     srcs = [{srcs}],
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    os_deps = ROCKSDB_OS_DEPS,
+    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS+[{extra_preprocessor_flags}],
     include_paths = ROCKSDB_INCLUDE_PATHS,
     deps = [{deps}],
     external_deps = ROCKSDB_EXTERNAL_DEPS,

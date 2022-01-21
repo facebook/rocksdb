@@ -71,11 +71,12 @@ class TARGETSBuilder(object):
             headers=headers).encode("utf-8"))
         self.total_lib = self.total_lib + 1
 
-    def add_binary(self, name, srcs, deps=None):
+    def add_binary(self, name, srcs, deps=None, extra_preprocessor_flags=None):
         self.targets_file.write(targets_cfg.binary_template.format(
             name=name,
             srcs=pretty_list(srcs),
-            deps=pretty_list(deps)).encode("utf-8"))
+            deps=pretty_list(deps),
+            extra_preprocessor_flags=pretty_list(extra_preprocessor_flags)).encode("utf-8"))
         self.total_bin = self.total_bin + 1
 
     def add_c_test(self):

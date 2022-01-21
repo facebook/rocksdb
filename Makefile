@@ -662,7 +662,7 @@ TEST_LIBS = \
 # TODO: add back forward_iterator_bench, after making it build in all environemnts.
 BENCHMARKS = $(patsubst %.cc, %, $(notdir $(BENCH_MAIN_SOURCES)))
 
-MICROBENCHS = $(patsubst %.cc, %, $(notdir $(MICROBENCH_SOURCES)))
+MICROBENCHS = $(filter-out microbench_all, $(patsubst %.cc, %, $(notdir $(MICROBENCH_SOURCES))))
 
 # if user didn't config LIBNAME, set the default
 ifeq ($(LIBNAME),)
@@ -1978,6 +1978,9 @@ ribbon_bench: $(OBJ_DIR)/microbench/ribbon_bench.o $(LIBRARY)
 	$(AM_LINK)
 
 db_basic_bench: $(OBJ_DIR)/microbench/db_basic_bench.o $(LIBRARY)
+	$(AM_LINK)
+
+microbench_all: $(OBJ_DIR)/microbench/microbench_all.o $(LIBRARY)
 	$(AM_LINK)
 
 cache_reservation_manager_test: $(OBJ_DIR)/cache/cache_reservation_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
