@@ -42,7 +42,7 @@ CFLAGS += $(PROTOBUF_CFLAGS) $(PROTOBUF_MUTATOR_CFLAGS) -I$(PROTO_OUT) -I$(ROCKS
 LDFLAGS += $(PLATFORM_LDFLAGS) $(LIB_FUZZING_ENGINE) $(PROTOBUF_MUTATOR_LDFLAGS) $(PROTOBUF_LDFLAGS) -L$(ROCKSDB_LIB_DIR) -lrocksdb
 endif
 
-.PHONY: gen_proto
+.PHONY: gen_proto clean
 
 PROTOC = /home/yanqin/libprotobuf-mutator/build/external.protobuf/bin/protoc
 
@@ -52,6 +52,9 @@ gen_proto:
 		--proto_path=$(PROTO_IN) \
 		--cpp_out=$(PROTO_OUT) \
 		$(PROTO_IN)/*.proto
+
+clean:
+	rm -rf db_fuzzer db_map_fuzzer sst_file_writer_fuzzer $(PROTO_OUT)
 
 db_fuzzer: db_fuzzer.cc
 	$(CC) $(CCFLAGS) -o db_fuzzer db_fuzzer.cc $(CFLAGS) $(LDFLAGS)
