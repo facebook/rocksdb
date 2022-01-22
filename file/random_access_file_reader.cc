@@ -349,10 +349,10 @@ async_result RandomAccessFileReader::AsyncRead(const IOOptions& opts,
           // one iteration of this loop, so we don't need to check and adjust
           // the opts.timeout before calling file_->Read
           assert(!opts.timeout.count() || allowed == n);
-          std::cout << "RandomAccessFileReader this pointer:" << (void*)this
+          /*std::cout << "RandomAccessFileReader this pointer:" << (void*)this
                     << "\n";
           std::cout << "RandomAccessFileReader file address:" << (void*)(&file_)
-                    << "\n";
+                    << "\n";*/
           auto a_result = file_->AsyncRead(offset + pos, allowed, opts,
                                            &tmp_result, scratch + pos, nullptr);
           co_await a_result;

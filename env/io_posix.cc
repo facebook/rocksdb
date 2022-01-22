@@ -693,8 +693,9 @@ async_result PosixRandomAccessFile::AsyncRead(uint64_t offset, size_t n,
   }
 
   if (opts.io_uring_option->ioring != nullptr) {
-    std::cout << "PosixRandomAccessFile::AsyncRead enter internal mode\n";
+    //std::cout << "PosixRandomAccessFile::AsyncRead enter internal mode\n";
     async_result a_result(true, data.get());
+    //std::cout<<"io_uring:"<<(void*)opts.io_uring_option->ioring<<"\n";
     auto sqe = io_uring_get_sqe(opts.io_uring_option->ioring);
     if (sqe == nullptr) {
       // submission queue is full
