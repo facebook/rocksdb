@@ -67,42 +67,15 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
     std::string key;
     std::unique_ptr<const char[]> filter_data;
     Slice filter;
-    Status filter_construction_status;
-
-    explicit FilterEntry(std::string key_,
-                         std::unique_ptr<const char[]> filter_data_,
-                         Slice filter_, Status filter_construction_status_) {
-      key = key_;
-      filter_data = std::move(filter_data_);
-      filter = filter_;
-      filter_construction_status = filter_construction_status_;
-    }
-
-    FilterEntry(FilterEntry& other) = delete;
-    FilterEntry& operator=(FilterEntry& other) = delete;
-
-    FilterEntry(FilterEntry&& other) {
-      key = std::move(other.key);
-      filter_data = std::move(other.filter_data);
-      filter = std::move(other.filter);
-      filter_construction_status = std::move(other.filter_construction_status);
-    }
-
-    FilterEntry& operator=(FilterEntry&& other) {
-      if (this != &other) {
-        key = std::move(other.key);
-        filter_data = std::move(other.filter_data);
-        filter = std::move(other.filter);
-        filter_construction_status =
-            std::move(other.filter_construction_status);
-      }
-      return *this;
-    }
-
-    ~FilterEntry() { filter_construction_status.PermitUncheckedError(); }
   };
   std::deque<FilterEntry> filters;  // list of partitioned filters and keys used
                                     // in building the index
+
+  // Set to the first non-okay status if any of the filter
+  // partitions experiences construction error.
+  // If partitioned_filters_construction_status_ is non-okay,
+  // then the whole partitioned filters should not be used.
+  Status partitioned_filters_construction_status_;
   std::string last_filter_entry_key;
   std::unique_ptr<const char[]> last_filter_data;
   std::unique_ptr<IndexBuilder> value;

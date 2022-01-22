@@ -60,7 +60,9 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
   }
 }
 
-PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {}
+PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {
+  partitioned_filters_construction_status_.PermitUncheckedError();
+}
 
 void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
     const Slice* next_key) {
@@ -95,9 +97,11 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
     filter_construction_status = filter_bits_builder_->MaybePostVerify(filter);
   }
   std::string& index_key = p_index_builder_->GetPartitionKey();
-  FilterEntry filter_entry(index_key, std::move(filter_data), filter,
-                           filter_construction_status);
-  filters.push_back(std::move(filter_entry));
+  filters.push_back({index_key, std::move(filter_data), filter});
+  if (!filter_construction_status.ok() &&
+      partitioned_filters_construction_status_.ok()) {
+    partitioned_filters_construction_status_ = filter_construction_status;
+  }
   keys_added_to_partition_ = 0;
   Reset();
 }
@@ -139,6 +143,12 @@ Slice PartitionedFilterBlockBuilder::Finish(
   } else {
     MaybeCutAFilterBlock(nullptr);
   }
+
+  if (!partitioned_filters_construction_status_.ok()) {
+    *status = partitioned_filters_construction_status_;
+    return Slice();
+  }
+
   // If there is no filter partition left, then return the index on filter
   // partitions
   if (UNLIKELY(filters.empty())) {
@@ -167,9 +177,6 @@ Slice PartitionedFilterBlockBuilder::Finish(
     last_filter_data = std::move(filters.front().filter_data);
     if (filter_data != nullptr) {
       *filter_data = std::move(last_filter_data);
-    }
-    if (!filters.front().filter_construction_status.ok()) {
-      *status = filters.front().filter_construction_status;
     }
     filters.pop_front();
     return filter;
