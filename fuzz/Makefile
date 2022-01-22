@@ -23,7 +23,7 @@ ifneq ($(FUZZ_ENV), ossfuzz)
 CC = clang++
 CCFLAGS += -Wall -fsanitize=address,fuzzer
 CFLAGS += $(PLATFORM_CXXFLAGS) $(PROTOBUF_CFLAGS) $(PROTOBUF_MUTATOR_CFLAGS) -I$(PROTO_OUT) -I$(ROCKSDB_INCLUDE_DIR) -I$(ROCKSDB_LIB_DIR)
-LDFLAGS += $(PLATFORM_LDFLAGS) $(PROTOBUF_LDFLAGS) $(PROTOBUF_MUTATOR_LDFLAGS) -L$(ROCKSDB_LIB_DIR) -lrocksdb
+LDFLAGS += $(PLATFORM_LDFLAGS) $(PROTOBUF_MUTATOR_LDFLAGS) $(PROTOBUF_LDFLAGS) -L$(ROCKSDB_LIB_DIR) -lrocksdb
 else
 # OSS-Fuzz sets various environment flags that are used for compilation.
 # These environment flags depend on which type of sanitizer build is being
@@ -44,9 +44,11 @@ endif
 
 .PHONY: gen_proto
 
+PROTOC = /home/yanqin/libprotobuf-mutator/build/external.protobuf/bin/protoc
+
 gen_proto:
 	mkdir -p $(PROTO_OUT)
-	protoc \
+	$(PROTOC) \
 		--proto_path=$(PROTO_IN) \
 		--cpp_out=$(PROTO_OUT) \
 		$(PROTO_IN)/*.proto

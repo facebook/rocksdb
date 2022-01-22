@@ -16,7 +16,6 @@
 #include "table/table_reader.h"
 #include "util.h"
 
-using ROCKSDB_NAMESPACE::kMaxSequenceNumber;
 using ROCKSDB_NAMESPACE::BytewiseComparator;
 using ROCKSDB_NAMESPACE::Comparator;
 using ROCKSDB_NAMESPACE::EnvOptions;
@@ -27,6 +26,7 @@ using ROCKSDB_NAMESPACE::ImmutableCFOptions;
 using ROCKSDB_NAMESPACE::ImmutableOptions;
 using ROCKSDB_NAMESPACE::InternalIterator;
 using ROCKSDB_NAMESPACE::IOOptions;
+using ROCKSDB_NAMESPACE::kMaxSequenceNumber;
 using ROCKSDB_NAMESPACE::Options;
 using ROCKSDB_NAMESPACE::ParsedInternalKey;
 using ROCKSDB_NAMESPACE::ParseInternalKey;
@@ -91,8 +91,8 @@ TableReader* NewTableReader(const std::string& sst_file_path,
   }
   if (s.ok()) {
     ImmutableOptions iopts(options, cf_ioptions);
-    TableReaderOptions t_opt(iopts, /*prefix_extractor=*/nullptr,
-                             env_options, cf_ioptions.internal_comparator);
+    TableReaderOptions t_opt(iopts, /*prefix_extractor=*/nullptr, env_options,
+                             cf_ioptions.internal_comparator);
     t_opt.largest_seqno = kMaxSequenceNumber;
     s = options.table_factory->NewTableReader(t_opt, std::move(file_reader),
                                               file_size, &table_reader,
