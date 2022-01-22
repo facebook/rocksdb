@@ -1,5 +1,6 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.29.0 (01/21/2022)
+Note: The next release will be major release 7.0. See https://github.com/facebook/rocksdb/issues/9390 for more info.
 ### Public API change
 * Added values to `TraceFilterType`: `kTraceFilterIteratorSeek`, `kTraceFilterIteratorSeekForPrev`, and `kTraceFilterMultiGet`. They can be set in `TraceOptions` to filter out the operation types after which they are named.
 * Added `TraceOptions::preserve_write_order`. When enabled it  guarantees write records are traced in the same order they are logged to WAL and applied to the DB. By default it is disabled (false) to match the legacy behavior and prevent regression.
