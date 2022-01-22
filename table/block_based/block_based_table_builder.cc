@@ -386,6 +386,7 @@ struct BlockBasedTableBuilder::Rep {
   }
 
   // Never erase an existing I/O status that is not OK.
+  // Calling this will also SetStatus(ios)
   void SetIOStatus(IOStatus ios) {
     if (!ios.ok() && io_status_ok.load(std::memory_order_relaxed)) {
       // Locking is an overkill for non compression_opts.parallel_threads
@@ -395,6 +396,7 @@ struct BlockBasedTableBuilder::Rep {
       io_status = ios;
       io_status_ok.store(false, std::memory_order_relaxed);
     }
+    SetStatus(ios);
   }
 
   Rep(const BlockBasedTableOptions& table_opt, const TableBuilderOptions& tbo,
@@ -1241,7 +1243,6 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     IOStatus io_s = r->file->Append(block_contents);
     if (!io_s.ok()) {
       r->SetIOStatus(io_s);
-      r->SetStatus(io_s);
       return;
     }
   }
@@ -1259,7 +1260,6 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     IOStatus io_s = r->file->Append(Slice(trailer.data(), trailer.size()));
     if (!io_s.ok()) {
       r->SetIOStatus(io_s);
-      r->SetStatus(io_s);
       return;
     }
   }
@@ -1289,10 +1289,9 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
       }
       if (!s.ok()) {
         r->SetStatus(s);
+        return;
       }
     }
-    // TODO:: Should InsertBlockInCompressedCache take into account error from
-    // InsertBlockInCache or ignore and overwrite it.
     s = InsertBlockInCompressedCache(block_contents, type, handle);
     if (!s.ok()) {
       r->SetStatus(s);
@@ -1311,7 +1310,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
       r->set_offset(r->get_offset() + pad_bytes);
     } else {
       r->SetIOStatus(io_s);
-      r->SetStatus(io_s);
+      return;
     }
   }
 
@@ -1802,7 +1801,6 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
     r->set_offset(r->get_offset() + footer.GetSlice().size());
   } else {
     r->SetIOStatus(ios);
-    r->SetStatus(ios);
   }
 }
 
