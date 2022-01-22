@@ -150,7 +150,7 @@ Status SstFileDumper::NewTableReader(
     const InternalKeyComparator& /*internal_comparator*/, uint64_t file_size,
     std::unique_ptr<TableReader>* /*table_reader*/) {
   auto t_opt =
-      TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(), soptions_,
+      TableReaderOptions(ioptions_, moptions_.prefix_extractor, soptions_,
                          internal_comparator_, false /* skip_filters */,
                          false /* imortal */, true /* force_direct_prefetch */);
   // Allow open file with global sequence number for backward compatibility.

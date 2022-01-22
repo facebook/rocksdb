@@ -858,9 +858,10 @@ class LevelIterator final : public InternalIterator {
                 const FileOptions& file_options,
                 const InternalKeyComparator& icomparator,
                 const LevelFilesBrief* flevel,
-                const SliceTransform* prefix_extractor, bool should_sample,
-                HistogramImpl* file_read_hist, TableReaderCaller caller,
-                bool skip_filters, int level, RangeDelAggregator* range_del_agg,
+                const std::shared_ptr<const SliceTransform>& prefix_extractor,
+                bool should_sample, HistogramImpl* file_read_hist,
+                TableReaderCaller caller, bool skip_filters, int level,
+                RangeDelAggregator* range_del_agg,
                 const std::vector<AtomicCompactionUnitBoundary>*
                     compaction_boundaries = nullptr,
                 bool allow_unprepared_value = false)
@@ -1011,7 +1012,7 @@ class LevelIterator final : public InternalIterator {
   // `prefix_extractor_` may be non-null even for total order seek. Checking
   // this variable is not the right way to identify whether prefix iterator
   // is used.
-  const SliceTransform* prefix_extractor_;
+  const std::shared_ptr<const SliceTransform>& prefix_extractor_;
 
   HistogramImpl* file_read_hist_;
   bool should_sample_;
@@ -1243,7 +1244,7 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   auto ioptions = cfd_->ioptions();
   Status s = table_cache->GetTableProperties(
       file_options_, cfd_->internal_comparator(), file_meta->fd, tp,
-      mutable_cf_options_.prefix_extractor.get(), true /* no io */);
+      mutable_cf_options_.prefix_extractor, true /* no io */);
   if (s.ok()) {
     return s;
   }
@@ -1436,7 +1437,7 @@ size_t Version::GetMemoryUsageByTableReaders() {
     for (size_t i = 0; i < file_level.num_files; i++) {
       total_usage += cfd_->table_cache()->GetMemoryUsageByTableReader(
           file_options_, cfd_->internal_comparator(), file_level.files[i].fd,
-          mutable_cf_options_.prefix_extractor.get());
+          mutable_cf_options_.prefix_extractor);
     }
   }
   return total_usage;
@@ -1616,7 +1617,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
       merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
           read_options, soptions, cfd_->internal_comparator(),
           *file.file_metadata, range_del_agg,
-          mutable_cf_options_.prefix_extractor.get(), nullptr,
+          mutable_cf_options_.prefix_extractor, nullptr,
           cfd_->internal_stats()->GetFileReadHist(0),
           TableReaderCaller::kUserIterator, arena,
           /*skip_filters=*/false, /*level=*/0, max_file_size_for_l0_meta_pin_,
@@ -1640,7 +1641,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
     merge_iter_builder->AddIterator(new (mem) LevelIterator(
         cfd_->table_cache(), read_options, soptions,
         cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
-        mutable_cf_options_.prefix_extractor.get(), should_sample_file_read(),
+        mutable_cf_options_.prefix_extractor, should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
         range_del_agg,
@@ -1675,7 +1676,7 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
       ScopedArenaIterator iter(cfd_->table_cache()->NewIterator(
           read_options, file_options, cfd_->internal_comparator(),
           *file->file_metadata, &range_del_agg,
-          mutable_cf_options_.prefix_extractor.get(), nullptr,
+          mutable_cf_options_.prefix_extractor, nullptr,
           cfd_->internal_stats()->GetFileReadHist(0),
           TableReaderCaller::kUserIterator, &arena,
           /*skip_filters=*/false, /*level=*/0, max_file_size_for_l0_meta_pin_,
@@ -1693,7 +1694,7 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
     ScopedArenaIterator iter(new (mem) LevelIterator(
         cfd_->table_cache(), read_options, file_options,
         cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
-        mutable_cf_options_.prefix_extractor.get(), should_sample_file_read(),
+        mutable_cf_options_.prefix_extractor, should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
         &range_del_agg));
@@ -2026,7 +2027,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     StopWatchNano timer(clock_, timer_enabled /* auto_start */);
     *status = table_cache_->Get(
         read_options, *internal_comparator(), *f->file_metadata, ikey,
-        &get_context, mutable_cf_options_.prefix_extractor.get(),
+        &get_context, mutable_cf_options_.prefix_extractor,
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
         IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                         fp.IsHitFileLastInLevel()),
@@ -2196,7 +2197,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     StopWatchNano timer(clock_, timer_enabled /* auto_start */);
     s = table_cache_->MultiGet(
         read_options, *internal_comparator(), *f->file_metadata, &file_range,
-        mutable_cf_options_.prefix_extractor.get(),
+        mutable_cf_options_.prefix_extractor,
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
         IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                         fp.IsHitFileLastInLevel()),
@@ -4374,7 +4375,7 @@ Status VersionSet::ProcessManifestWrites(
             cfd->internal_stats(), 1 /* max_threads */,
             true /* prefetch_index_and_filter_in_cache */,
             false /* is_initial_load */,
-            mutable_cf_options_ptrs[i]->prefix_extractor.get(),
+            mutable_cf_options_ptrs[i]->prefix_extractor,
             MaxFileSizeForL0MetaPin(*mutable_cf_options_ptrs[i]));
         if (!s.ok()) {
           if (db_options_->paranoid_checks) {
@@ -5630,7 +5631,7 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const FdWithKeyRange& f,
     if (table_cache != nullptr) {
       result = table_cache->ApproximateOffsetOf(
           key, f.file_metadata->fd, caller, icmp,
-          v->GetMutableCFOptions().prefix_extractor.get());
+          v->GetMutableCFOptions().prefix_extractor);
     }
   }
   return result;
@@ -5670,7 +5671,7 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
   }
   return table_cache->ApproximateSize(
       start, end, f.file_metadata->fd, caller, icmp,
-      v->GetMutableCFOptions().prefix_extractor.get());
+      v->GetMutableCFOptions().prefix_extractor);
 }
 
 void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_table_files,
@@ -5762,7 +5763,7 @@ InternalIterator* VersionSet::MakeInputIterator(
           list[num++] = cfd->table_cache()->NewIterator(
               read_options, file_options_compactions,
               cfd->internal_comparator(), *flevel->files[i].file_metadata,
-              range_del_agg, c->mutable_cf_options()->prefix_extractor.get(),
+              range_del_agg, c->mutable_cf_options()->prefix_extractor,
               /*table_reader_ptr=*/nullptr,
               /*file_read_hist=*/nullptr, TableReaderCaller::kCompaction,
               /*arena=*/nullptr,
@@ -5778,7 +5779,7 @@ InternalIterator* VersionSet::MakeInputIterator(
         list[num++] = new LevelIterator(
             cfd->table_cache(), read_options, file_options_compactions,
             cfd->internal_comparator(), c->input_levels(which),
-            c->mutable_cf_options()->prefix_extractor.get(),
+            c->mutable_cf_options()->prefix_extractor,
             /*should_sample=*/false,
             /*no per level latency histogram=*/nullptr,
             TableReaderCaller::kCompaction, /*skip_filters=*/false,

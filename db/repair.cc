@@ -544,7 +544,7 @@ class Repairer {
       InternalIterator* iter = table_cache_->NewIterator(
           ropts, file_options_, cfd->internal_comparator(), t->meta,
           nullptr /* range_del_agg */,
-          cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
+          cfd->GetLatestMutableCFOptions()->prefix_extractor,
           /*table_reader_ptr=*/nullptr, /*file_read_hist=*/nullptr,
           TableReaderCaller::kRepair, /*arena=*/nullptr, /*skip_filters=*/false,
           /*level=*/-1, /*max_file_size_for_l0_meta_pin=*/0,

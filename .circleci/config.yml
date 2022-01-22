@@ -10,13 +10,6 @@ aliases:
     only_for_branches: main
 
 commands:
-  install-pyenv-on-macos:
-    steps:
-      - run:
-          name: Install pyenv on macos
-          command: |
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install pyenv
-
   install-cmake-on-macos:
     steps:
       - run:
@@ -41,14 +34,8 @@ commands:
             sudo launchctl limit maxfiles 1048576
 
   pre-steps:
-    parameters:
-      python-version:
-        default: "3.5.9"
-        type: string
     steps:
       - checkout
-      - run: pyenv install --skip-existing <<parameters.python-version>>
-      - run: pyenv global <<parameters.python-version>>
       - run:
           name: Setup Environment Variables
           command: |
@@ -58,11 +45,15 @@ commands:
             echo "export GTEST_COLOR=1" >> $BASH_ENV
             echo "export CTEST_OUTPUT_ON_FAILURE=1" >> $BASH_ENV
             echo "export CTEST_TEST_TIMEOUT=300" >> $BASH_ENV
+            echo "export ZLIB_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/zlib" >> $BASH_ENV
+            echo "export BZIP2_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/bzip2" >> $BASH_ENV
+            echo "export SNAPPY_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/snappy" >> $BASH_ENV
+            echo "export LZ4_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/lz4" >> $BASH_ENV
+            echo "export ZSTD_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/zstd" >> $BASH_ENV
 
   pre-steps-macos:
       steps:
-        - pre-steps:
-            python-version: "3.7.8"
+        - pre-steps
 
   post-steps:
     steps:
@@ -165,10 +156,9 @@ jobs:
       xcode: 12.5.1
     resource_class: large
     environment:
-      DISABLE_JEMALLOC: 1 # jemalloc cause env_test hang, disable it for now
+      ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc cause env_test hang, disable it for now
     steps:
       - increase-max-open-files-on-macos
-      - install-pyenv-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
       - run: ulimit -S -n 1048576 && OPT=-DCIRCLECI make V=1 J=32 -j32 check 2>&1 | .circleci/cat_ignore_eagain
@@ -180,7 +170,6 @@ jobs:
     resource_class: large
     steps:
       - increase-max-open-files-on-macos
-      - install-pyenv-on-macos
       - install-cmake-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
@@ -556,10 +545,9 @@ jobs:
     resource_class: medium
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
-      DISABLE_JEMALLOC: 1 # jemalloc causes java 8 crash, maybe a known issue
+      ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc causes java 8 crash
     steps:
       - increase-max-open-files-on-macos
-      - install-pyenv-on-macos
       - install-gflags-on-macos
       - install-jdk8-on-macos
       - pre-steps-macos
@@ -586,7 +574,6 @@ jobs:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
     steps:
       - increase-max-open-files-on-macos
-      - install-pyenv-on-macos
       - install-gflags-on-macos
       - install-cmake-on-macos
       - install-jdk8-on-macos
@@ -611,7 +598,6 @@ jobs:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
     steps:
       - increase-max-open-files-on-macos
-      - install-pyenv-on-macos
       - install-gflags-on-macos
       - install-cmake-on-macos
       - install-jdk8-on-macos
