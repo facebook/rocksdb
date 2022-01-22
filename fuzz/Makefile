@@ -44,11 +44,12 @@ endif
 
 .PHONY: gen_proto clean
 
-PROTOC = /home/yanqin/libprotobuf-mutator/build/external.protobuf/bin/protoc
+# Set PROTOC_BIN when invoking `make` if a custom protoc is required.
+PROTOC_BIN ?= protoc
 
 gen_proto:
 	mkdir -p $(PROTO_OUT)
-	$(PROTOC) \
+	$(PROTOC_BIN) \
 		--proto_path=$(PROTO_IN) \
 		--cpp_out=$(PROTO_OUT) \
 		$(PROTO_IN)/*.proto

@@ -19,7 +19,7 @@ On some systems, there are both protobuf2 and protobuf3 in the package managemen
 make sure protobuf3 is installed.
 
 If you do not want to install protobuf library yourself, you can rely on libprotobuf-mutator to download protobuf
-for you.
+for you. For details about installation, please refer to [libprotobuf-mutator README](https://github.com/google/libprotobuf-mutator#readme)
 
 ## Example
 
