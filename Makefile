@@ -1980,6 +1980,9 @@ ribbon_bench: $(OBJ_DIR)/microbench/ribbon_bench.o $(LIBRARY)
 db_basic_bench: $(OBJ_DIR)/microbench/db_basic_bench.o $(LIBRARY)
 	$(AM_LINK)
 
+microbench_all: $(OBJ_DIR)/microbench/microbench_all.o $(LIBRARY)
+	$(AM_LINK)
+
 cache_reservation_manager_test: $(OBJ_DIR)/cache/cache_reservation_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 #-------------------------------------------------
@@ -2247,7 +2250,7 @@ rocksdbjavastaticosx_ub: rocksdbjavastaticosx_archs
 	lipo -create -output ./java/target/$(ROCKSDBJNILIB) java/target/librocksdbjni-osx-x86_64.jnilib java/target/librocksdbjni-osx-arm64.jnilib
 	$(MAKE) rocksdbjavastatic_jar
 
-rocksdbjavastaticosx_archs: 
+rocksdbjavastaticosx_archs:
 	$(MAKE) rocksdbjavastaticosx_arch_x86_64
 	$(MAKE) rocksdbjavastaticosx_arch_arm64
 
