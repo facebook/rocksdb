@@ -225,12 +225,14 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloomCustomPrefixExtractor) {
         (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
 
     // No bloom on extractor changed
+#ifndef ROCKSDB_LITE
     ASSERT_OK(db_->SetOptions({{"prefix_extractor", "capped:10"}}));
     ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 3);
     ASSERT_EQ(
         3,
         (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+#endif  // ROCKSDB_LITE
 
     get_perf_context()->Reset();
   }
@@ -286,12 +288,14 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {
         (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
 
     // No bloom on extractor changed
+#ifndef ROCKSDB_LITE
     ASSERT_OK(db_->SetOptions({{"prefix_extractor", "capped:10"}}));
     ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 3);
     ASSERT_EQ(
         3,
         (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+#endif  // ROCKSDB_LITE
 
     get_perf_context()->Reset();
   }
