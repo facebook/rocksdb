@@ -11,8 +11,8 @@
 #include <iostream>
 #include <memory>
 
-void APIRocksDB::check() {
-  std::cout << " APIRocksDB::check() " << std::endl;
+void APIRocksDB::check(std::string message) {
+  std::cout << " APIRocksDB::check(); " << message << " ";
   std::cout << " db.use_count() " << db.use_count() << "; ";
   for (auto& cfh : columnFamilyHandles) {
     std::cout << " cfh.use_count() " << cfh.use_count() << "; ";

@@ -11,8 +11,8 @@
 #include <iostream>
 #include <memory>
 
-void APIIterator::check() {
-  std::cout << " APIIterator::check() " << std::endl;
+void APIIterator::check(std::string message) {
+  std::cout << " APIIterator::check(); " << message << " ";
   std::cout << " iterator.use_count() " << iterator.use_count() << "; ";
   std::cout << " db.use_count() " << db.use_count() << "; ";
   std::cout << " cfh.use_count() " << cfh.use_count();

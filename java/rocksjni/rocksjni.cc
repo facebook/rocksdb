@@ -296,7 +296,7 @@ Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_String_
  */
 void Java_org_rocksdb_RocksDB_nativeClose(JNIEnv*, jobject, jlong jhandle) {
   std::unique_ptr<APIRocksDB> dbAPI(reinterpret_cast<APIRocksDB*>(jhandle));
-  dbAPI->check();
+  dbAPI->check("nativeClose()");
   // Now the unique_ptr destructor will delete() referenced shared_ptr contents
   // in the API object.
 }
@@ -309,7 +309,7 @@ void Java_org_rocksdb_RocksDB_nativeClose(JNIEnv*, jobject, jlong jhandle) {
 jboolean Java_org_rocksdb_RocksDB_isLastReference(JNIEnv*, jobject,
                                                   jlong jhandle) {
   std::unique_ptr<APIRocksDB> dbAPI(reinterpret_cast<APIRocksDB*>(jhandle));
-  dbAPI->check();
+  dbAPI->check("isLastReference()");
   const bool result = (dbAPI->db.use_count() == 1);
   dbAPI.release();
   return result;

@@ -28,7 +28,7 @@ void Java_org_rocksdb_RocksIterator_nativeClose(JNIEnv* /*env*/,
                                                 jlong handle) {
   std::unique_ptr<APIIterator> iteratorAPI(
       reinterpret_cast<APIIterator*>(handle));
-  iteratorAPI->check();
+  iteratorAPI->check("nativeClose()");
 }
 
 /*
@@ -40,7 +40,7 @@ jboolean Java_org_rocksdb_RocksIterator_isLastReference(JNIEnv*, jobject,
                                                         jlong jhandle) {
   std::unique_ptr<APIIterator> iteratorAPI(
       reinterpret_cast<APIIterator*>(jhandle));
-  iteratorAPI->check();
+  iteratorAPI->check("isLastReference()");
   const bool result = (iteratorAPI->iterator.use_count() == 1);
   iteratorAPI.release();
   return result;

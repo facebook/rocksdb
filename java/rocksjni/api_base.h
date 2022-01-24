@@ -8,7 +8,8 @@
 
 #pragma once
 
+#include <iostream>
 class APIBase {
  public:
-  void check();
+  void check(std::string message);
 };

@@ -71,7 +71,7 @@ void Java_org_rocksdb_ColumnFamilyHandle_nativeClose(JNIEnv* /*env*/,
       reinterpret_cast<APIColumnFamilyHandle*>(jhandle));
   // All pointers in APIColumnFamilyHandle are weak, so there is nothing to do
   // here This may turn out to be the standard pattern.
-  cfhAPI->check();
+  cfhAPI->check("nativeClose()");
 }
 
 /*
@@ -83,7 +83,7 @@ jboolean Java_org_rocksdb_ColumnFamilyHandle_isLastReference(JNIEnv*, jobject,
                                                              jlong jhandle) {
   std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
       reinterpret_cast<APIColumnFamilyHandle*>(jhandle));
-  cfhAPI->check();
+  cfhAPI->check("isLastReference()");
   const bool result = !cfhAPI->cfh.lock();
   cfhAPI.release();
   return result;

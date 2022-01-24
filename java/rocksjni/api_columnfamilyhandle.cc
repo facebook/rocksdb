@@ -11,8 +11,8 @@
 #include <iostream>
 #include <memory>
 
-void APIColumnFamilyHandle::check() {
-  std::cout << " APIColumnFamilyHandle::check() " << std::endl;
+void APIColumnFamilyHandle::check(std::string message) {
+  std::cout << " APIColumnFamilyHandle::check(); " << message << " ";
   std::shared_ptr<ROCKSDB_NAMESPACE::DB> dbLocked = db.lock();
   std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfhLocked = cfh.lock();
   if (dbLocked) {

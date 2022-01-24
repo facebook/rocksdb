@@ -236,6 +236,23 @@ public class RocksIteratorTest {
     }
   }
 
+  /**
+   * The default column family is "different".
+   * 
+   * @throws RocksDBException
+   */
+  @Test
+  public void rocksDefaultCF() throws RocksDBException {
+    try (final Options options = new Options()
+        .setCreateIfMissing(true)
+        .setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(options,
+             this.dbFolder.getRoot().getAbsolutePath())) {
+      db.put("key".getBytes(), "value".getBytes());
+      db.getDefaultColumnFamily().close();
+    }
+  }
+
   @Test
   public void rocksIteratorReleaseAfterCfClose() throws RocksDBException {
     try (final Options options = new Options()
@@ -276,7 +293,7 @@ public class RocksIteratorTest {
       db.put(cfHandle2, "key2".getBytes(), "value2".getBytes());
 
       try (final RocksIterator iterator = db.newIterator(cfHandle2)) {
-        db.dropColumnFamily(cfHandle2);
+        //db.dropColumnFamily(cfHandle2);
         cfHandle2.close();
 
         iterator.seekToFirst();

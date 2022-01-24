@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <iostream>
+
 #include "api_base.h"
 #include "rocksdb/db.h"
 
@@ -24,5 +26,5 @@ class APIIterator : APIBase {
 
   ROCKSDB_NAMESPACE::Iterator* operator->() const { return iterator.get(); }
 
-  void check();
+  void check(std::string message);
 };

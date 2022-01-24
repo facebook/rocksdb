@@ -27,5 +27,5 @@ class APIRocksDB : APIBase {
    * @brief dump some status info to std::cout
    *
    */
-  void check();
+  void check(std::string message);
 };

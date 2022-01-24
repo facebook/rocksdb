@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <iostream>
+
 #include "api_base.h"
 #include "rocksdb/db.h"
 
@@ -21,5 +23,5 @@ class APIColumnFamilyHandle : APIBase {
       std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh)
       : db(db), cfh(cfh){};
 
-  void check();
+  void check(std::string message);
 };
