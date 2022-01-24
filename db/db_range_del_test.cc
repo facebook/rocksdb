@@ -1732,6 +1732,7 @@ TEST_F(DBRangeDelTest, IteratorRefresh) {
     ASSERT_OK(db_->Put(WriteOptions(), "key2", "value2"));
 
     auto* iter = db_->NewIterator(ReadOptions());
+    ASSERT_OK(iter->status());
 
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                                "key2", "key3"));
@@ -1740,7 +1741,8 @@ TEST_F(DBRangeDelTest, IteratorRefresh) {
       ASSERT_OK(db_->Flush(FlushOptions()));
     }
 
-    iter->Refresh();
+    ASSERT_OK(iter->Refresh());
+    ASSERT_OK(iter->status());
     iter->SeekToFirst();
     ASSERT_EQ("key1", iter->key());
     iter->Next();
