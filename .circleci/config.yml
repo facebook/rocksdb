@@ -97,7 +97,7 @@ commands:
       - run:
           name: Install gflags
           command: |
-            sudo apt-get update -y && sudo apt-get install -y libgflags-dev
+            sudo apt-get update -y && sudo apt-get install -y libgflags-dev || sudo dnf install gflags-devel
 
   install-benchmark:
     steps:
@@ -184,6 +184,16 @@ jobs:
       - pre-steps
       - install-gflags
       - run: make V=1 J=32 -j32 check 2>&1 | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-linux-32bit:
+    machine:
+      image: evolvedbinary/rocksjava:centos6_x86-be
+    resource_class: large
+    steps:
+      - pre-steps
+      - install-gflags
+      - run: make V=1 J=8 -j8 check 2>&1
       - post-steps
 
   build-linux-mem-env-librados:
