@@ -90,7 +90,7 @@ public class OptimisticTransactionDB extends RocksDB
     otdb.storeOptionsInstance(dbOptions);
 
     for (int i = 1; i < handles.length; i++) {
-      columnFamilyHandles.add(new ColumnFamilyHandle(handles[i]));
+      columnFamilyHandles.add(new ColumnFamilyHandleNonDefault(handles[i]));
     }
 
     return otdb;

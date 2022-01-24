@@ -17,7 +17,8 @@
 #include <tuple>
 #include <vector>
 
-#include "api_columnfamilyhandle.h"
+#include "api_columnfamilyhandle_default.h"
+#include "api_columnfamilyhandle_nondefault.h"
 #include "api_iterator.h"
 #include "api_rocksdb.h"
 #include "include/org_rocksdb_RocksDB.h"
@@ -3621,9 +3622,8 @@ jlong Java_org_rocksdb_RocksDB_getDefaultColumnFamily(
   auto* cf_handle = db_handle->DefaultColumnFamily();
   return GET_CPLUSPLUS_POINTER(cf_handle);
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
-  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh(
-      dbAPI->DefaultColumnFamily());
-  return reinterpret_cast<jlong>(new APIColumnFamilyHandle(dbAPI.db, cfh));
+  return reinterpret_cast<jlong>(
+      new APIColumnFamilyHandleDefault(dbAPI.db, dbAPI->DefaultColumnFamily()));
 }
 
 /*

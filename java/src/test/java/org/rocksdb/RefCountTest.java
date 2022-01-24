@@ -122,6 +122,27 @@ public class RefCountTest {
   }
 
   /**
+   * Using a DB after we closed it causes a SEGV.
+   *
+   * @throws RocksDBException
+   */
+  @Test
+  public void rocksDBClosedDBAccess() throws RocksDBException {
+
+    RocksDB closedDB;
+    try (final Options options = new Options()
+        .setCreateIfMissing(true)
+        .setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(options,
+             this.dbFolder.getRoot().getAbsolutePath())) {
+      db.put("key".getBytes(), "value".getBytes());
+      closedDB = db;
+    }
+    //And we crap out accessing the closed DB
+    assertThat(closedDB.get("key".getBytes())).isEqualTo("value".getBytes());
+  }
+
+  /**
    * What about when we close the CF after making the iterator ?
    * That's fine, and this one works (we autoclose the iterator after using it).
    */

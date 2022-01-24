@@ -6,24 +6,18 @@
 // This file defines the "bridge" methods between Java and C++ for
 // ROCKSDB_NAMESPACE::ColumnFamilyHandle.
 
-#include "api_columnfamilyhandle.h"
+#include "api_columnfamilyhandle_default.h"
 
 #include <iostream>
 #include <memory>
 
-void APIColumnFamilyHandle::check(std::string message) {
-  std::cout << " APIColumnFamilyHandle::check(); " << message << " ";
+void APIColumnFamilyHandleDefault::check(std::string message) {
+  std::cout << " APIColumnFamilyHandleDefault::check(); " << message << " ";
   std::shared_ptr<ROCKSDB_NAMESPACE::DB> dbLocked = db.lock();
-  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfhLocked = cfh.lock();
   if (dbLocked) {
     std::cout << " db.use_count() " << dbLocked.use_count() << "; ";
   } else {
     std::cout << " db 0 uses; ";
-  }
-  if (cfhLocked) {
-    std::cout << " cfh.use_count() " << cfhLocked.use_count() << "; ";
-  } else {
-    std::cout << " cfh 0 uses;";
   }
   std::cout << std::endl;
 }

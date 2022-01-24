@@ -8,20 +8,26 @@
 
 #pragma once
 
+#include <jni.h>
+
 #include <iostream>
 
 #include "api_base.h"
+#include "portal.h"
 #include "rocksdb/db.h"
 
-class APIColumnFamilyHandle : APIBase {
+class APIWeakDB : APIBase {
  public:
   std::weak_ptr<ROCKSDB_NAMESPACE::DB> db;
-  std::weak_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh;
 
-  APIColumnFamilyHandle(
-      std::shared_ptr<ROCKSDB_NAMESPACE::DB> db,
-      std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh)
-      : db(db), cfh(cfh){};
+  APIWeakDB(std::shared_ptr<ROCKSDB_NAMESPACE::DB> db) : db(db){};
 
-  void check(std::string message);
+  /**
+   * @brief lock the referenced pointer if the weak pointer is valid
+   *
+   * @param handle
+   * @return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
+   */
+  static std::shared_ptr<ROCKSDB_NAMESPACE::DB> lockDB(JNIEnv* env,
+                                                       jlong handle);
 };
