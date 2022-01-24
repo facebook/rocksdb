@@ -117,6 +117,10 @@ DBTestBase::~DBTestBase() {
   } else {
     EXPECT_OK(DestroyDB(dbname_, options));
   }
+
+  // SST File manager might refernece Env, so it needs to be destoryed before
+  // Env.
+  last_options_.sst_file_manager.reset();
   delete env_;
 }
 
