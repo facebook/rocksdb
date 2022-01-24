@@ -2917,22 +2917,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     return NewErrorIterator(Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators."));
   }
-  // if iterator wants internal keys, we can only proceed if
-  // we can guarantee the deletes haven't been processed yet
-  if (read_options.iter_start_seqnum > 0 &&
-      !iter_start_seqnum_deprecation_warned_.exchange(true)) {
-    ROCKS_LOG_WARN(
-        immutable_db_options_.info_log,
-        "iter_start_seqnum is deprecated, will be removed in a future release. "
-        "Please try using user-defined timestamp instead.");
-  }
-  if (immutable_db_options_.preserve_deletes &&
-      read_options.iter_start_seqnum > 0 &&
-      read_options.iter_start_seqnum < preserve_deletes_seqnum_.load()) {
-    return NewErrorIterator(Status::InvalidArgument(
-        "Iterator requested internal keys which are too old and are not"
-        " guaranteed to be preserved, try larger iter_start_seqnum opt."));
-  }
+
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
   assert(cfd != nullptr);

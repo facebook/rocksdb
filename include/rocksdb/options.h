@@ -1555,11 +1555,6 @@ struct ReadOptions {
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
 
-  // Deprecated, will be removed in a future release.
-  // Please try using user-defined timestamp instead.
-  // Default: 0 (don't filter by seqnum, return user keys)
-  SequenceNumber iter_start_seqnum;
-
   // Timestamp of operation. Read should return the latest data visible to the
   // specified timestamp. All timestamps of the same database must be of the
   // same length and format. The user is responsible for providing a customized

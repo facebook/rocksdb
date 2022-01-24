@@ -425,30 +425,9 @@ TEST_P(DBCompactionTestWithParam, CompactionsPreserveDeletes) {
     ASSERT_EQ(i, 0);
     delete db_iter;
 
-    // check that iterator that sees internal keys sees tombstones
-    ReadOptions ro;
-    ro.iter_start_seqnum=1;
-    db_iter = dbfull()->NewIterator(ro);
-    ASSERT_OK(db_iter->status());
-    i = 0;
-    for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
-      i++;
-    }
-    ASSERT_EQ(i, 4);
-    delete db_iter;
-
     // now all deletes should be gone
     SetPreserveDeletesSequenceNumber(100000000);
     ASSERT_NOK(dbfull()->CompactRange(cro, nullptr, nullptr));
-
-    db_iter = dbfull()->NewIterator(ro);
-    ASSERT_TRUE(db_iter->status().IsInvalidArgument());
-    i = 0;
-    for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
-      i++;
-    }
-    ASSERT_EQ(i, 0);
-    delete db_iter;
   }
 }
 

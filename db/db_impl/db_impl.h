@@ -2337,10 +2337,6 @@ class DBImpl : public DB {
 
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;
-
-  // Indicate if deprecation warning message is logged before. Will be removed
-  // soon with the deprecated feature.
-  std::atomic_bool iter_start_seqnum_deprecation_warned_{false};
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,

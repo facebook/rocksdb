@@ -8202,28 +8202,6 @@ void Java_org_rocksdb_ReadOptions_setTableFilter(
 
 /*
  * Class:     org_rocksdb_ReadOptions
- * Method:    setIterStartSeqnum
- * Signature: (JJ)V
- */
-void Java_org_rocksdb_ReadOptions_setIterStartSeqnum(
-    JNIEnv*, jobject, jlong jhandle, jlong jiter_start_seqnum) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
-  opt->iter_start_seqnum = static_cast<uint64_t>(jiter_start_seqnum);
-}
-
-/*
- * Class:     org_rocksdb_ReadOptions
- * Method:    iterStartSeqnum
- * Signature: (J)J
- */
-jlong Java_org_rocksdb_ReadOptions_iterStartSeqnum(
-    JNIEnv*, jobject, jlong jhandle) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
-  return static_cast<jlong>(opt->iter_start_seqnum);
-}
-
-/*
- * Class:     org_rocksdb_ReadOptions
  * Method:    autoPrefixMode
  * Signature: (J)Z
  */
