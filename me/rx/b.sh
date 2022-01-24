@@ -68,6 +68,7 @@ function display_usage() {
   echo -e "\tSOFT_PENDING_COMPACTION_BYTES_LIMIT_IN_GB\tThe value for soft_pending_compaction_bytes_limit in GB"
   echo -e "\tHARD_PENDING_COMPACTION_BYTES_LIMIT_IN_GB\tThe value for hard_pending_compaction_bytes_limit in GB"
   echo -e "\tSTATS_INTERVAL_SECONDS\tValue for stats_interval_seconds"
+  echo -e "\tREPORT_INTERVAL_SECONDS\tValue for report_interval_seconds"
   echo -e "\tSUBCOMPACTIONS\t\tValue for subcompactions"
   echo -e "\tLEVEL0_FILE_NUM_COMPACTION_TRIGGER\tValue for level0_file_num_compaction_trigger"
   echo -e "\tLEVEL0_SLOWDOWN_WRITES_TRIGGER\tValue for level0_slowdown_writes_trigger"
@@ -152,6 +153,7 @@ target_file_mb=${TARGET_FILE_SIZE_BASE_MB:-128}
 l1_mb=${MAX_BYTES_FOR_LEVEL_BASE_MB:-1024}
 max_background_jobs=${MAX_BACKGROUND_JOBS:-16}
 stats_interval_seconds=${STATS_INTERVAL_SECONDS:-60}
+report_interval_seconds=${REPORT_INTERVAL_SECONDS:-5}
 subcompactions=${SUBCOMPACTIONS:-1}
 per_level_fanout=${PER_LEVEL_FANOUT:-8}
 
@@ -189,7 +191,7 @@ if [ ! -z $USE_O_DIRECT ]; then
 fi
 
 univ_min_merge_width=${UNIVERSAL_MIN_MERGE_WIDTH:-2}
-univ_max_merge_width=${UNIVERSAL_MAX_MERGE_WIDTH:-8}
+univ_max_merge_width=${UNIVERSAL_MAX_MERGE_WIDTH:-20}
 univ_size_ratio=${UNIVERSAL_SIZE_RATIO:-1}
 univ_max_size_amp=${UNIVERSAL_MAX_SIZE_AMP:-200}
 
@@ -229,6 +231,7 @@ const_params_base="
   --statistics=0 \
   --stats_per_interval=1 \
   --stats_interval_seconds=$stats_interval_seconds \
+  --report_interval_seconds=$report_interval_seconds \
   --histogram=1 \
   \
   --memtablerep=skip_list \
@@ -471,6 +474,7 @@ function run_bulkload {
        --allow_concurrent_memtable_write=false \
        --disable_wal=1 \
        --seed=$( date +%s ) \
+       --report_file=${log_file_name}.r.csv \
        2>&1 | tee -a $log_file_name"
   if [[ "$job_id" != "" ]]; then
     echo "Job ID: ${job_id}" > $log_file_name
@@ -649,6 +653,7 @@ function run_fillseq {
        --allow_concurrent_memtable_write=false \
        --disable_wal=$1 \
        --seed=$( date +%s ) \
+       --report_file=${log_file_name}.r.csv \
        2>&1 | tee -a $log_file_name"
   if [[ "$job_id" != "" ]]; then
     echo "Job ID: ${job_id}" > $log_file_name
@@ -716,6 +721,7 @@ function run_change {
        --threads=$num_threads \
        --merge_operator=\"put\" \
        --seed=$( date +%s ) \
+       --report_file=${log_file_name}.r.csv \
        2>&1 | tee -a $log_file_name"
   if [[ "$job_id" != "" ]]; then
     echo "Job ID: ${job_id}" > $log_file_name
@@ -739,6 +745,7 @@ function run_filluniquerandom {
        $params_w \
        --threads=1 \
        --seed=$( date +%s ) \
+       --report_file=${log_file_name}.r.csv \
        2>&1 | tee -a $log_file_name"
   if [[ "$job_id" != "" ]]; then
     echo "Job ID: ${job_id}" > $log_file_name
@@ -761,6 +768,7 @@ function run_readrandom {
        $params_w \
        --threads=$num_threads \
        --seed=$( date +%s ) \
+       --report_file=${log_file_name}.r.csv \
        2>&1 | tee -a $log_file_name"
   if [[ "$job_id" != "" ]]; then
     echo "Job ID: ${job_id}" > $log_file_name
@@ -784,6 +792,7 @@ function run_multireadrandom {
        --batch_size=10 \
        $params_w \
        --seed=$( date +%s ) \
+       --report_file=${log_file_name}.r.csv \
        2>&1 | tee -a $log_file_name"
   if [[ "$job_id" != "" ]]; then
     echo "Job ID: ${job_id}" > $log_file_name
@@ -809,6 +818,7 @@ function run_readwhile {
        --threads=$num_threads \
        --merge_operator=\"put\" \
        --seed=$( date +%s ) \
+       --report_file=${log_file_name}.r.csv \
        2>&1 | tee -a $log_file_name"
   if [[ "$job_id" != "" ]]; then
     echo "Job ID: ${job_id}" > $log_file_name
@@ -838,6 +848,7 @@ function run_rangewhile {
        --seek_nexts=$num_nexts_per_seek \
        --reverse_iterator=$reverse_arg \
        --seed=$( date +%s ) \
+       --report_file=${log_file_name}.r.csv \
        2>&1 | tee -a $log_file_name"
   echo $cmd | tee $log_file_name
   start_stats $log_file_name.stats
@@ -859,6 +870,7 @@ function run_range {
        --seek_nexts=$num_nexts_per_seek \
        --reverse_iterator=$reverse_arg \
        --seed=$( date +%s ) \
+       --report_file=${log_file_name}.r.csv \
        2>&1 | tee -a $log_file_name"
   if [[ "$job_id" != "" ]]; then
     echo "Job ID: ${job_id}" > $log_file_name
@@ -881,6 +893,7 @@ function run_randomtransaction {
        --transaction_db \
        --threads=5 \
        --transaction_sets=5 \
+       --report_file=${log_file_name}.r.csv \
        2>&1 | tee $log_file_name"
   if [[ "$job_id" != "" ]]; then
     echo "Job ID: ${job_id}" > $log_file_name

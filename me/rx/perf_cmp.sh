@@ -21,8 +21,9 @@ stats_seconds=${STATS_SECONDS:-20}
 cache_meta=${CACHE_META:-1}
 # DIRECT_IO doesn't need a default
 cache_mb=${CACHE_MB:-128}
-pending_ratio=${PENDING_RATIO:-2}
-pending_gb=${PENDING_GB:-20}
+# Use defaults for hard/soft pending limits when PENDING_RATIO <= 0
+pending_ratio=${PENDING_RATIO:-4}
+pending_gb=${PENDING_GB:-40}
 ml2_comp=${ML2_COMP:-"-1"}
 pct_comp=${PCT_COMP:-"-1"}
 
@@ -187,17 +188,19 @@ mkdir -p $odir
 # Then use (pending_ratio * [ max(L1a, L1b) + L1c ]) + $pending_gb for soft_pending_compaction_bytes_limit,
 # where pending_ratio is a fudge factor, and set the hard limit to be twice the soft limit.
 
-l0_mb=$(( $level_comp_start * write_buf_mb ))
-val_L1a=$(( $l0_mb + $l1_mb ))
-val_L2a=$(( $l0_mb * $per_level_fanout ))
-val_max=$( echo $val_L1a $val_L2a | awk '{ if ($1 > $2) { print $1 } else { print $2 } }' )
+if [ $pending_ratio -gt 0 ]; then
+  l0_mb=$(( $level_comp_start * write_buf_mb ))
+  val_L1a=$(( $l0_mb + $l1_mb ))
+  val_L2a=$(( $l0_mb * $per_level_fanout ))
+  val_max=$( echo $val_L1a $val_L2a | awk '{ if ($1 > $2) { print $1 } else { print $2 } }' )
 
-val_L1c=$(( $max_bg_jobs * $sst_mb * per_level_fanout ))
-val_sum=$(( (( $val_max + $val_L1c ) * $pending_ratio ) + ( $pending_gb * 1024 ) ))
+  val_L1c=$(( $max_bg_jobs * $sst_mb * per_level_fanout ))
+  val_sum=$(( (( $val_max + $val_L1c ) * $pending_ratio ) + ( $pending_gb * 1024 ) ))
 
-# The units are GB
-soft_gb=$( echo $val_sum | awk '{ printf "%.0f", $val_sum / 1024 }' )
-hard_gb=$(( $soft_gb * 2 ))
+  # The units are GB
+  soft_gb=$( echo $val_sum | awk '{ printf "%.0f", $val_sum / 1024 }' )
+  hard_gb=$(( $soft_gb * 2 ))
+fi
 
 echo Test versions: $@
 echo Test versions: $@ >> $odir/args
@@ -213,7 +216,9 @@ for v in $@ ; do
   args_common=("${base_args[@]}")
 
   args_common+=( OUTPUT_DIR=$my_odir DB_DIR=$dbdir WAL_DIR=$dbdir DB_BENCH_NO_SYNC=1 )
-  args_common+=( SOFT_PENDING_COMPACTION_BYTES_LIMIT_IN_GB=$soft_gb HARD_PENDING_COMPACTION_BYTES_LIMIT_IN_GB=$hard_gb )
+  if [ $pending_ratio -gt 0 ]; then
+    args_common+=( SOFT_PENDING_COMPACTION_BYTES_LIMIT_IN_GB=$soft_gb HARD_PENDING_COMPACTION_BYTES_LIMIT_IN_GB=$hard_gb )
+  fi
   args_common+=( "${comp_args[@]}" )
   if [ ! -z $UNIV ]; then
     args_common+=( UNIVERSAL=1 COMPRESSION_SIZE_PERCENT=$pct_comp )
@@ -253,7 +258,7 @@ for v in $@ ; do
   # env "${args_lim[@]}" DURATION=$nsecs_ro bash b.sh multireadrandom --multiread_batched
 
   # Write 10% of the keys. The goal is to randomize keys prior to Lmax
-  p10=$( echo $nkeys | awk '{ printf "%.0f", $1 / 10.0 }' )
+  p10=$( echo $nkeys $nthreads | awk '{ printf "%.0f", $1 / $2 / 10.0 }' )
   env "${args_nolim[@]}" WRITES=$p10        bash b.sh overwritesome
 
   if [ -z $UNIV ]; then
