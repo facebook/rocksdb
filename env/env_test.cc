@@ -461,7 +461,6 @@ TEST_P(EnvPosixTestWithParam, RunMany) {
 
   WaitThreadPoolsEmpty();
   ASSERT_EQ(4, last_id.load(std::memory_order_acquire));
-  WaitThreadPoolsEmpty();
 }
 #endif
 
