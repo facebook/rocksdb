@@ -236,23 +236,6 @@ public class RocksIteratorTest {
     }
   }
 
-  /**
-   * The default column family is "different".
-   * 
-   * @throws RocksDBException
-   */
-  @Test
-  public void rocksDefaultCF() throws RocksDBException {
-    try (final Options options = new Options()
-        .setCreateIfMissing(true)
-        .setCreateMissingColumnFamilies(true);
-         final RocksDB db = RocksDB.open(options,
-             this.dbFolder.getRoot().getAbsolutePath())) {
-      db.put("key".getBytes(), "value".getBytes());
-      db.getDefaultColumnFamily().close();
-    }
-  }
-
   @Test
   public void rocksIteratorReleaseAfterCfClose() throws RocksDBException {
     try (final Options options = new Options()

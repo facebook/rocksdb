@@ -105,6 +105,23 @@ public class RefCountTest {
   }
 
   /**
+   * The default column family is "different".
+   *
+   * @throws RocksDBException
+   */
+  @Test
+  public void rocksDefaultCF() throws RocksDBException {
+    try (final Options options = new Options()
+        .setCreateIfMissing(true)
+        .setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(options,
+             this.dbFolder.getRoot().getAbsolutePath())) {
+      db.put("key".getBytes(), "value".getBytes());
+      db.getDefaultColumnFamily().close();
+    }
+  }
+
+  /**
    * What about when we close the CF after making the iterator ?
    * That's fine, and this one works (we autoclose the iterator after using it).
    */
