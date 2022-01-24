@@ -765,6 +765,9 @@ workflows:
   build-linux:
     jobs:
       - build-linux
+  build-linux-32bit:
+    jobs:
+      - build-linux-32bit
   build-linux-cmake:
     jobs:
       - build-linux-cmake
