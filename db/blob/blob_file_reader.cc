@@ -241,17 +241,19 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
 
   Status s;
 
+  // TODO: rate limit reads from blob files.
   if (file_reader->use_direct_io()) {
     constexpr char* scratch = nullptr;
 
     s = file_reader->Read(IOOptions(), read_offset, read_size, slice, scratch,
-                          aligned_buf);
+                          aligned_buf, Env::IO_TOTAL /* priority */);
   } else {
     buf->reset(new char[read_size]);
     constexpr AlignedBuf* aligned_scratch = nullptr;
 
     s = file_reader->Read(IOOptions(), read_offset, read_size, slice,
-                          buf->get(), aligned_scratch);
+                          buf->get(), aligned_scratch,
+                          Env::IO_TOTAL /* priority */);
   }
 
   if (!s.ok()) {
@@ -323,7 +325,8 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
 
     prefetched = prefetch_buffer->TryReadFromCache(
         IOOptions(), file_reader_.get(), record_offset,
-        static_cast<size_t>(record_size), &record_slice, &s, for_compaction);
+        static_cast<size_t>(record_size), &record_slice, &s,
+        read_options.priority, for_compaction);
     if (!s.ok()) {
       return s;
     }
@@ -423,8 +426,10 @@ void BlobFileReader::MultiGetBlob(
     }
   }
   TEST_SYNC_POINT("BlobFileReader::MultiGetBlob:ReadFromFile");
+  // TODO: rate limit blob file `MultiRead()`s.
   s = file_reader_->MultiRead(IOOptions(), read_reqs.data(), read_reqs.size(),
-                              direct_io ? &aligned_buf : nullptr);
+                              direct_io ? &aligned_buf : nullptr,
+                              Env::IO_TOTAL /* priority */);
   if (!s.ok()) {
     for (auto& req : read_reqs) {
       req.status.PermitUncheckedError();

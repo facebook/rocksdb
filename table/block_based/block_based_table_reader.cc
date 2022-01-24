@@ -771,7 +771,8 @@ Status BlockBasedTable::PrefetchTail(
   IOOptions opts;
   Status s = file->PrepareIOOptions(ro, opts);
   if (s.ok()) {
-    s = (*prefetch_buffer)->Prefetch(opts, file, prefetch_off, prefetch_len);
+    s = (*prefetch_buffer)
+            ->Prefetch(opts, file, prefetch_off, prefetch_len, ro.priority);
   }
   return s;
 }
@@ -1730,8 +1731,8 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     IOOptions opts;
     IOStatus s = file->PrepareIOOptions(options, opts);
     if (s.ok()) {
-      s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(),
-                          &direct_io_buf);
+      s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(), &direct_io_buf,
+                          options.priority);
     }
     if (!s.ok()) {
       // Discard all the results in this batch if there is any time out

@@ -1560,6 +1560,17 @@ struct ReadOptions {
   // Default: false
   bool adaptive_readahead;
 
+  // For reads associated with this operation, charge the internal rate limiter
+  // (see `DBOptions::rate_limiter`) at the specified priority. The special
+  // value `Env::IO_TOTAL` disables charging the rate limiter.
+  //
+  // APIs that rely on `RandomAccessFile::MultiRead()`, such as
+  // `DB::MultiGet()`, return `Status::NotSupported` when
+  // `priority != Env::IO_TOTAL`.
+  //
+  // Default: `Env::IO_TOTAL`.
+  Env::IOPriority priority = Env::IO_TOTAL;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };

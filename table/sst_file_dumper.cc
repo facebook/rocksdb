@@ -106,8 +106,10 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
                                  : file_size;
     uint64_t prefetch_off = file_size - prefetch_size;
     IOOptions opts;
+    // TODO: rate limit SST file reads for dumping contents.
     s = prefetch_buffer.Prefetch(opts, file_.get(), prefetch_off,
-                                 static_cast<size_t>(prefetch_size));
+                                 static_cast<size_t>(prefetch_size),
+                                 Env::IO_TOTAL /* priority */);
 
     s = ReadFooterFromFile(opts, file_.get(), &prefetch_buffer, file_size,
                            &footer);

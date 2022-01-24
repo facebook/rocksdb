@@ -1319,7 +1319,7 @@ class FileChecksumTestHelper {
     uint64_t offset = 0;
     Status s;
     s = file_reader_->Read(IOOptions(), offset, 2048, &result, scratch.get(),
-                           nullptr, false);
+                           nullptr, Env::IO_TOTAL /* priority */);
     if (!s.ok()) {
       return s;
     }
@@ -1327,7 +1327,7 @@ class FileChecksumTestHelper {
       file_checksum_generator->Update(scratch.get(), result.size());
       offset += static_cast<uint64_t>(result.size());
       s = file_reader_->Read(IOOptions(), offset, 2048, &result, scratch.get(),
-                             nullptr, false);
+                             nullptr, Env::IO_TOTAL /* priority */);
       if (!s.ok()) {
         return s;
       }
@@ -5001,13 +5001,13 @@ TEST_F(BBTTailPrefetchTest, FilePrefetchBufferMinOffset) {
   IOOptions opts;
   buffer.TryReadFromCache(opts, nullptr /* reader */, 500 /* offset */,
                           10 /* n */, nullptr /* result */,
-                          nullptr /* status */);
+                          nullptr /* status */, Env::IO_TOTAL /* priority */);
   buffer.TryReadFromCache(opts, nullptr /* reader */, 480 /* offset */,
                           10 /* n */, nullptr /* result */,
-                          nullptr /* status */);
+                          nullptr /* status */, Env::IO_TOTAL /* priority */);
   buffer.TryReadFromCache(opts, nullptr /* reader */, 490 /* offset */,
                           10 /* n */, nullptr /* result */,
-                          nullptr /* status */);
+                          nullptr /* status */, Env::IO_TOTAL /* priority */);
   ASSERT_EQ(480, buffer.min_offset_read());
 }
 
