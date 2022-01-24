@@ -77,6 +77,7 @@
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
+#include "util/file_checksum_helper.h"
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
@@ -1080,6 +1081,10 @@ DEFINE_bool(adaptive_readahead, false,
 DEFINE_bool(rate_limit_user_ops, false,
             "When true use Env::IO_USER priority level to charge internal rate "
             "limiter for reads associated with user operations.");
+
+DEFINE_bool(file_checksum, false,
+            "When true use FileChecksumGenCrc32cFactory for "
+            "file_checksum_gen_factory.");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -4276,6 +4281,10 @@ class Benchmark {
     }
 
     options.listeners.emplace_back(listener_);
+
+    if (FLAGS_file_checksum) {
+      options.file_checksum_gen_factory.reset(new FileChecksumGenCrc32cFactory());
+    }
 
     if (FLAGS_num_multi_db <= 1) {
       OpenDb(options, FLAGS_db, &db_);
