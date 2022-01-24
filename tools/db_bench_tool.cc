@@ -3324,10 +3324,12 @@ class Benchmark {
 #endif  // ROCKSDB_LITE
       } else if (name == "getmergeoperands") {
         method = &Benchmark::GetMergeOperands;
+#ifndef ROCKSDB_LITE
       } else if (name == "verifychecksum") {
         method = &Benchmark::VerifyChecksum;
       } else if (name == "verifyfilechecksums") {
         method = &Benchmark::VerifyFileChecksums;
+#endif                             // ROCKSDB_LITE
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
         ErrorExit();
@@ -7226,6 +7228,7 @@ class Benchmark {
     }
   }
 
+#ifndef ROCKSDB_LITE
   void VerifyChecksum(ThreadState* thread) {
     DB* db = SelectDB(thread);
     ReadOptions ro;
@@ -7253,7 +7256,6 @@ class Benchmark {
     }
   }
 
-#ifndef ROCKSDB_LITE
   // This benchmark stress tests Transactions.  For a given --duration (or
   // total number of --writes, a Transaction will perform a read-modify-write
   // to increment the value of a key in each of N(--transaction-sets) sets of
