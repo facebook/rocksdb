@@ -3319,6 +3319,10 @@ class Benchmark {
 #endif  // ROCKSDB_LITE
       } else if (name == "getmergeoperands") {
         method = &Benchmark::GetMergeOperands;
+      } else if (name == "verifychecksum") {
+        method = &Benchmark::VerifyChecksum;
+      } else if (name == "verifyfilechecksums") {
+        method = &Benchmark::VerifyFileChecksums;
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
         ErrorExit();
@@ -7209,6 +7213,29 @@ class Benchmark {
     for (PinnableSlice& psl : a_slice) {
       std::cout << "List: " << to_print << " : " << *psl.GetSelf() << "\n";
       if (to_print++ > 2) break;
+    }
+  }
+
+  void VerifyChecksum(ThreadState* thread) {
+    DB* db = SelectDB(thread);
+    ReadOptions ro;
+    ro.priority = FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+    Status s = db->VerifyChecksum(ro);
+    if (!s.ok()) {
+      fprintf(stderr, "VerifyChecksum() failed: %s\n", s.ToString().c_str());
+      exit(1);
+    }
+  }
+
+  void VerifyFileChecksums(ThreadState* thread) {
+    DB* db = SelectDB(thread);
+    ReadOptions ro;
+    ro.priority = FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+    Status s = db->VerifyFileChecksums(ro);
+    if (!s.ok()) {
+      fprintf(stderr, "VerifyFileChecksums() failed: %s\n",
+              s.ToString().c_str());
+      exit(1);
     }
   }
 
