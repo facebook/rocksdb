@@ -1583,6 +1583,9 @@ void BlockBasedTableBuilder::WriteFilterBlock(
 
 void BlockBasedTableBuilder::WriteIndexBlock(
     MetaIndexBuilder* meta_index_builder, BlockHandle* index_block_handle) {
+  if (!ok()) {
+    return;
+  }
   IndexBuilder::IndexBlocks index_blocks;
   auto index_builder_status = rep_->index_builder->Finish(&index_blocks);
   if (index_builder_status.IsIncomplete()) {
