@@ -7219,7 +7219,9 @@ class Benchmark {
   void VerifyChecksum(ThreadState* thread) {
     DB* db = SelectDB(thread);
     ReadOptions ro;
+    ro.adaptive_readahead = FLAGS_adaptive_readahead;
     ro.priority = FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+    ro.readahead_size = FLAGS_readahead_size;
     Status s = db->VerifyChecksum(ro);
     if (!s.ok()) {
       fprintf(stderr, "VerifyChecksum() failed: %s\n", s.ToString().c_str());
@@ -7230,7 +7232,9 @@ class Benchmark {
   void VerifyFileChecksums(ThreadState* thread) {
     DB* db = SelectDB(thread);
     ReadOptions ro;
+    ro.adaptive_readahead = FLAGS_adaptive_readahead;
     ro.priority = FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+    ro.readahead_size = FLAGS_readahead_size;
     Status s = db->VerifyFileChecksums(ro);
     if (!s.ok()) {
       fprintf(stderr, "VerifyFileChecksums() failed: %s\n",
