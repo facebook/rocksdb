@@ -2956,6 +2956,51 @@ int main(int argc, char** argv) {
     CheckNoError(err);
   }
 
+  StartPhase("filter_with_prefix_seek");
+  {
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_options_set_prefix_extractor(
+        options, rocksdb_slicetransform_create_fixed_prefix(1));
+    rocksdb_filterpolicy_t* filter_policy =
+        rocksdb_filterpolicy_create_bloom_full(8.0);
+    rocksdb_block_based_options_set_filter_policy(table_options, filter_policy);
+    rocksdb_options_set_block_based_table_factory(options, table_options);
+
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+
+    int i;
+    for (i = 0; i < 10; ++i) {
+      char key = '0' + (char)i;
+      rocksdb_put(db, woptions, &key, 1, "", 1, &err);
+      CheckNoError(err);
+    }
+
+    // Flush to generate an L0 so that filter will be used later.
+    rocksdb_flushoptions_t* flush_options = rocksdb_flushoptions_create();
+    rocksdb_flushoptions_set_wait(flush_options, 1);
+    rocksdb_flush(db, flush_options, &err);
+    rocksdb_flushoptions_destroy(flush_options);
+    CheckNoError(err);
+
+    rocksdb_readoptions_t* ropts = rocksdb_readoptions_create();
+    rocksdb_iterator_t* iter = rocksdb_create_iterator(db, ropts);
+
+    rocksdb_iter_seek(iter, "0", 1);
+    int cnt = 0;
+    while (rocksdb_iter_valid(iter)) {
+      ++cnt;
+      rocksdb_iter_next(iter);
+    }
+    CheckCondition(10 == cnt);
+
+    rocksdb_iter_destroy(iter);
+    rocksdb_readoptions_destroy(ropts);
+  }
+
   StartPhase("cancel_all_background_work");
   rocksdb_cancel_all_background_work(db, 1);
 

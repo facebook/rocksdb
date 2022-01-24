@@ -27,9 +27,6 @@ namespace {
   }
 }
 
-using namespace v8;
-
-
 Persistent<Function> DBWrapper::constructor;
 
 DBWrapper::DBWrapper() {

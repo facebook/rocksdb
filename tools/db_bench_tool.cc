@@ -837,10 +837,24 @@ DEFINE_int32(deletepercent, 2, "Percentage of deletes out of reads/writes/"
              "deletepercent), so deletepercent must be smaller than (100 - "
              "FLAGS_readwritepercent)");
 
-DEFINE_bool(optimize_filters_for_hits, false,
+DEFINE_bool(optimize_filters_for_hits,
+            ROCKSDB_NAMESPACE::Options().optimize_filters_for_hits,
             "Optimizes bloom filters for workloads for most lookups return "
             "a value. For now this doesn't create bloom filters for the max "
             "level of the LSM to reduce metadata that should fit in RAM. ");
+
+DEFINE_bool(paranoid_checks, ROCKSDB_NAMESPACE::Options().paranoid_checks,
+            "RocksDB will aggressively check consistency of the data.");
+
+DEFINE_bool(force_consistency_checks,
+            ROCKSDB_NAMESPACE::Options().force_consistency_checks,
+            "Runs consistency checks on the LSM every time a change is "
+            "applied.");
+
+DEFINE_bool(check_flush_compaction_key_order,
+            ROCKSDB_NAMESPACE::Options().check_flush_compaction_key_order,
+            "During flush or compaction, check whether keys inserted to "
+            "output files are in order.");
 
 DEFINE_uint64(delete_obsolete_files_period_micros, 0,
               "Ignored. Left here for backward compatibility");
@@ -1154,6 +1168,10 @@ DEFINE_string(simulate_hybrid_fs_file, "",
               "File for Store Metadata for Simulate hybrid FS. Empty means "
               "disable the feature. Now, if it is set, "
               "bottommost_temperature is set to kWarm.");
+DEFINE_int32(simulate_hybrid_hdd_multipliers, 1,
+             "In simulate_hybrid_fs_file or simulate_hdd mode, how many HDDs "
+             "are simulated.");
+DEFINE_bool(simulate_hdd, false, "Simulate read/write latency on HDD.");
 
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 
@@ -1588,6 +1606,7 @@ struct ReportFileOpCounters {
 class ReportFileOpEnv : public EnvWrapper {
  public:
   explicit ReportFileOpEnv(Env* base) : EnvWrapper(base) { reset(); }
+  const char* Name() const override { return "ReportFileOpEnv"; }
 
   void reset() {
     counters_.open_counter_ = 0;
@@ -4299,6 +4318,10 @@ class Benchmark {
     options.max_compaction_bytes = FLAGS_max_compaction_bytes;
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
     options.optimize_filters_for_hits = FLAGS_optimize_filters_for_hits;
+    options.paranoid_checks = FLAGS_paranoid_checks;
+    options.force_consistency_checks = FLAGS_force_consistency_checks;
+    options.check_flush_compaction_key_order =
+        FLAGS_check_flush_compaction_key_order;
     options.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
     options.ttl = FLAGS_ttl_seconds;
     // fill storage options
@@ -8135,12 +8158,15 @@ int db_bench_tool(int argc, char** argv) {
       fprintf(stderr, "Failed creating env: %s\n", s.ToString().c_str());
       exit(1);
     }
-  } else if (FLAGS_simulate_hybrid_fs_file != "") {
+  } else if (FLAGS_simulate_hdd || FLAGS_simulate_hybrid_fs_file != "") {
     //**TODO: Make the simulate fs something that can be loaded
     // from the ObjectRegistry...
     static std::shared_ptr<ROCKSDB_NAMESPACE::Env> composite_env =
         NewCompositeEnv(std::make_shared<SimulatedHybridFileSystem>(
-            FileSystem::Default(), FLAGS_simulate_hybrid_fs_file));
+            FileSystem::Default(), FLAGS_simulate_hybrid_fs_file,
+            /*throughput_multiplier=*/
+            int{FLAGS_simulate_hybrid_hdd_multipliers},
+            /*is_full_fs_warm=*/FLAGS_simulate_hdd));
     FLAGS_env = composite_env.get();
   }
 #endif  // ROCKSDB_LITE

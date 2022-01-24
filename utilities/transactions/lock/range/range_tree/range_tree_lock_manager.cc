@@ -48,14 +48,15 @@ void serialize_endpoint(const Endpoint& endp, std::string* buf) {
 }
 
 // Decode the endpoint from the format it is stored in the locktree (DBT) to
-// one used outside (EndpointWithString)
-void deserialize_endpoint(const DBT* dbt, EndpointWithString* endp) {
+// the one used outside: either Endpoint or EndpointWithString
+template <typename EndpointStruct>
+void deserialize_endpoint(const DBT* dbt, EndpointStruct* endp) {
   assert(dbt->size >= 1);
   const char* dbt_data = (const char*)dbt->data;
   char suffix = dbt_data[0];
   assert(suffix == SUFFIX_INFIMUM || suffix == SUFFIX_SUPREMUM);
   endp->inf_suffix = (suffix == SUFFIX_SUPREMUM);
-  endp->slice.assign(dbt_data + 1, dbt->size - 1);
+  endp->slice = decltype(EndpointStruct::slice)(dbt_data + 1, dbt->size - 1);
 }
 
 // Get a range lock on [start_key; end_key] range
@@ -148,7 +149,7 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
 
 // Wait callback that locktree library will call to inform us about
 // the lock waits that are in progress.
-void wait_callback_for_locktree(void*, lock_wait_infos* infos) {
+void wait_callback_for_locktree(void*, toku::lock_wait_infos* infos) {
   for (auto wait_info : *infos) {
     auto txn = (PessimisticTransaction*)wait_info.waiter;
     auto cf_id = (ColumnFamilyId)wait_info.ltree->get_dict_id().dictid;
@@ -249,7 +250,8 @@ namespace {
 void UnrefLockTreeMapsCache(void* ptr) {
   // Called when a thread exits or a ThreadLocalPtr gets destroyed.
   auto lock_tree_map_cache = static_cast<
-      std::unordered_map<ColumnFamilyId, std::shared_ptr<locktree>>*>(ptr);
+      std::unordered_map<ColumnFamilyId, std::shared_ptr<toku::locktree>>*>(
+      ptr);
   delete lock_tree_map_cache;
 }
 }  // anonymous namespace
@@ -260,6 +262,21 @@ RangeTreeLockManager::RangeTreeLockManager(
       ltree_lookup_cache_(new ThreadLocalPtr(&UnrefLockTreeMapsCache)),
       dlock_buffer_(10) {
   ltm_.create(on_create, on_destroy, on_escalate, nullptr, mutex_factory_);
+}
+
+int RangeTreeLockManager::on_create(toku::locktree* lt, void* arg) {
+  // arg is a pointer to RangeTreeLockManager
+  lt->set_escalation_barrier_func(&OnEscalationBarrierCheck, arg);
+  return 0;
+}
+
+bool RangeTreeLockManager::OnEscalationBarrierCheck(const DBT* a, const DBT* b,
+                                                    void* extra) {
+  Endpoint a_endp, b_endp;
+  deserialize_endpoint(a, &a_endp);
+  deserialize_endpoint(b, &b_endp);
+  auto self = static_cast<RangeTreeLockManager*>(extra);
+  return self->barrier_func_(a_endp, b_endp);
 }
 
 void RangeTreeLockManager::SetRangeDeadlockInfoBufferSize(
@@ -299,8 +316,9 @@ std::vector<DeadlockPath> RangeTreeLockManager::GetDeadlockInfoBuffer() {
 // @param buffer  Escalation result: list of locks that this transaction now
 //                owns in this lock tree.
 // @param void*   Callback context
-void RangeTreeLockManager::on_escalate(TXNID txnid, const locktree* lt,
-                                       const range_buffer& buffer, void*) {
+void RangeTreeLockManager::on_escalate(TXNID txnid, const toku::locktree* lt,
+                                       const toku::range_buffer& buffer,
+                                       void*) {
   auto txn = (PessimisticTransaction*)txnid;
   ((RangeTreeLockTracker*)&txn->GetTrackedLocks())->ReplaceLocks(lt, buffer);
 }
@@ -329,6 +347,10 @@ RangeLockManagerHandle::Counters RangeTreeLockManager::GetStatus() {
       res.escalation_count = status->value.num;
       continue;
     }
+    if (strcmp(status->keyname, "LTM_WAIT_COUNT") == 0) {
+      res.lock_wait_count = status->value.num;
+      continue;
+    }
     if (strcmp(status->keyname, "LTM_SIZE_CURRENT") == 0) {
       res.current_lock_memory = status->value.num;
     }
@@ -336,10 +358,11 @@ RangeLockManagerHandle::Counters RangeTreeLockManager::GetStatus() {
   return res;
 }
 
-std::shared_ptr<locktree> RangeTreeLockManager::MakeLockTreePtr(locktree* lt) {
-  locktree_manager* ltm = &ltm_;
-  return std::shared_ptr<locktree>(lt,
-                                   [ltm](locktree* p) { ltm->release_lt(p); });
+std::shared_ptr<toku::locktree> RangeTreeLockManager::MakeLockTreePtr(
+    toku::locktree* lt) {
+  toku::locktree_manager* ltm = &ltm_;
+  return std::shared_ptr<toku::locktree>(
+      lt, [ltm](toku::locktree* p) { ltm->release_lt(p); });
 }
 
 void RangeTreeLockManager::AddColumnFamily(const ColumnFamilyHandle* cfh) {
@@ -350,8 +373,9 @@ void RangeTreeLockManager::AddColumnFamily(const ColumnFamilyHandle* cfh) {
     DICTIONARY_ID dict_id = {.dictid = column_family_id};
     toku::comparator cmp;
     cmp.create(CompareDbtEndpoints, (void*)cfh->GetComparator());
-    toku::locktree* ltree = ltm_.get_lt(dict_id, cmp,
-                                        /* on_create_extra*/ nullptr);
+    toku::locktree* ltree =
+        ltm_.get_lt(dict_id, cmp,
+                    /* on_create_extra*/ static_cast<void*>(this));
     // This is ok to because get_lt has copied the comparator:
     cmp.destroy();
 
@@ -394,7 +418,7 @@ void RangeTreeLockManager::RemoveColumnFamily(const ColumnFamilyHandle* cfh) {
   }
 }
 
-std::shared_ptr<locktree> RangeTreeLockManager::GetLockTreeForCF(
+std::shared_ptr<toku::locktree> RangeTreeLockManager::GetLockTreeForCF(
     ColumnFamilyId column_family_id) {
   // First check thread-local cache
   if (ltree_lookup_cache_->Get() == nullptr) {

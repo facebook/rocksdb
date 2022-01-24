@@ -292,16 +292,12 @@ Status PlainTableBuilder::Finish() {
 
   // Write Footer
   // no need to write out new footer if we're using default checksum
-  Footer footer;
-  footer.set_table_magic_number(kLegacyPlainTableMagicNumber)
-      .set_format_version(0)
-      .set_metaindex_handle(metaindex_block_handle)
-      .set_index_handle(BlockHandle::NullBlockHandle());
-  std::string footer_encoding;
-  footer.EncodeTo(&footer_encoding, offset_);
-  io_status_ = file_->Append(footer_encoding);
+  FooterBuilder footer;
+  footer.Build(kPlainTableMagicNumber, /* format_version */ 0, offset_,
+               kNoChecksum, metaindex_block_handle);
+  io_status_ = file_->Append(footer.GetSlice());
   if (io_status_.ok()) {
-    offset_ += footer_encoding.size();
+    offset_ += footer.GetSlice().size();
   }
   status_ = io_status_;
   return status_;

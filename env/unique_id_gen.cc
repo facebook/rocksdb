@@ -141,9 +141,10 @@ void TEST_GenerateRawUniqueId(uint64_t* a, uint64_t* b, bool exclude_port_uuid,
 }
 #endif
 
-SemiStructuredUniqueIdGen::SemiStructuredUniqueIdGen() : counter_{} {
+void SemiStructuredUniqueIdGen::Reset() {
   saved_process_id_ = port::GetProcessID();
   GenerateRawUniqueId(&base_upper_, &base_lower_);
+  counter_ = 0;
 }
 
 void SemiStructuredUniqueIdGen::GenerateNext(uint64_t* upper, uint64_t* lower) {

@@ -352,25 +352,17 @@ int main() {
   return 0;
 }
 " BUILTIN_ATOMIC)
-if (NOT BUILTIN_ATOMIC)
-  #TODO: Check if -latomic exists
-  list(APPEND THIRDPARTY_LIBS atomic)
-endif()
+  if (NOT BUILTIN_ATOMIC)
+    #TODO: Check if -latomic exists
+    list(APPEND THIRDPARTY_LIBS atomic)
+  endif()
 endif()
 
 if (WITH_LIBURING)
-  set(CMAKE_REQUIRED_FLAGS "-luring")
-  CHECK_CXX_SOURCE_COMPILES("
-#include <liburing.h>
-int main() {
-  struct io_uring ring;
-  io_uring_queue_init(1, &ring, 0);
-  return 0;
-}
-" HAS_LIBURING)
-  if (HAS_LIBURING)
+  find_package(uring)
+  if (uring_FOUND)
     add_definitions(-DROCKSDB_IOURING_PRESENT)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -luring")
+    list(APPEND THIRDPARTY_LIBS uring::uring)
   endif()
 endif()
 
@@ -624,6 +616,11 @@ if(HAVE_AUXV_GETAUXVAL)
   add_definitions(-DROCKSDB_AUXV_GETAUXVAL_PRESENT)
 endif()
 
+check_cxx_symbol_exists(F_FULLFSYNC "fcntl.h" HAVE_FULLFSYNC)
+if(HAVE_FULLFSYNC)
+  add_definitions(-DHAVE_FULLFSYNC)
+endif()
+
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
 if(WITH_FOLLY_DISTRIBUTED_MUTEX)
@@ -636,6 +633,7 @@ find_package(Threads REQUIRED)
 set(SOURCES
         cache/cache.cc
         cache/cache_entry_roles.cc
+        cache/cache_key.cc
         cache/cache_reservation_manager.cc
         cache/clock_cache.cc
         cache/lru_cache.cc
@@ -745,6 +743,7 @@ set(SOURCES
         memory/concurrent_arena.cc
         memory/jemalloc_nodump_allocator.cc
         memory/memkind_kmem_allocator.cc
+        memory/memory_allocator.cc
         memtable/alloc_tracker.cc
         memtable/hash_linklist_rep.cc
         memtable/hash_skiplist_rep.cc
@@ -1269,7 +1268,7 @@ if(WITH_TESTS)
         logging/env_logger_test.cc
         logging/event_logger_test.cc
         memory/arena_test.cc
-        memory/memkind_kmem_allocator_test.cc
+        memory/memory_allocator_test.cc
         memtable/inlineskiplist_test.cc
         memtable/skiplist_test.cc
         memtable/write_buffer_manager_test.cc

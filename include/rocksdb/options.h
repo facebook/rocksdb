@@ -513,7 +513,7 @@ struct DBOptions {
   // Default: Env::Default()
   Env* env = Env::Default();
 
-  // Use to control write rate of flush and compaction. Flush has higher
+  // Use to control write/read rate of flush and compaction. Flush has higher
   // priority than compaction. Rate limiting is disabled if nullptr.
   // If rate limiter is enabled, bytes_per_sync is set to 1MB by default.
   // Default: nullptr
@@ -772,7 +772,9 @@ struct DBOptions {
   // large amounts of data (such as xfs's allocsize option).
   size_t manifest_preallocation_size = 4 * 1024 * 1024;
 
-  // Allow the OS to mmap file for reading sst tables. Default: false
+  // Allow the OS to mmap file for reading sst tables.
+  // Not recommended for 32-bit OS.
+  // Default: false
   bool allow_mmap_reads = false;
 
   // Allow the OS to mmap file for writing.
@@ -1365,7 +1367,11 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
           const ColumnFamilyOptions& column_family_options)
       : DBOptions(db_options), ColumnFamilyOptions(column_family_options) {}
 
-  // The function recovers options to the option as in version 4.6.
+  // Change to some default settings from an older version.
+  // NOT MAINTAINED: This function has not been and is not maintained.
+  // DEPRECATED: This function might be removed in a future release.
+  // In general, defaults are changed to suit broad interests. Opting
+  // out of a change on upgrade should be deliberate and considered.
   Options* OldDefaults(int rocksdb_major_version = 4,
                        int rocksdb_minor_version = 6);
 
@@ -1388,6 +1394,12 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
   // Use this if your DB is very small (like under 1GB) and you don't want to
   // spend lots of memory for memtables.
   Options* OptimizeForSmallDb();
+
+  // Disable some checks that should not be necessary in the absence of
+  // software logic errors or CPU+memory hardware errors. This can improve
+  // write speeds but is only recommended for temporary use. Does not
+  // change protection against corrupt storage (e.g. verify_checksums).
+  Options* DisableExtraChecks();
 };
 
 //
@@ -1851,7 +1863,13 @@ enum TraceFilterType : uint64_t {
   // Do not trace the get operations
   kTraceFilterGet = 0x1 << 0,
   // Do not trace the write operations
-  kTraceFilterWrite = 0x1 << 1
+  kTraceFilterWrite = 0x1 << 1,
+  // Do not trace the `Iterator::Seek()` operations
+  kTraceFilterIteratorSeek = 0x1 << 2,
+  // Do not trace the `Iterator::SeekForPrev()` operations
+  kTraceFilterIteratorSeekForPrev = 0x1 << 3,
+  // Do not trace the `MultiGet()` operations
+  kTraceFilterMultiGet = 0x1 << 4,
 };
 
 // TraceOptions is used for StartTrace
@@ -1864,6 +1882,13 @@ struct TraceOptions {
   uint64_t sampling_frequency = 1;
   // Note: The filtering happens before sampling.
   uint64_t filter = kTraceFilterNone;
+  // When true, the order of write records in the trace will match the order of
+  // the corresponding write records in the WAL and applied to the DB. There may
+  // be a performance penalty associated with preserving this ordering.
+  //
+  // Default: false. This means write records in the trace may be in an order
+  // different from the WAL's order.
+  bool preserve_write_order = false;
 };
 
 // ImportColumnFamilyOptions is used by ImportColumnFamily()

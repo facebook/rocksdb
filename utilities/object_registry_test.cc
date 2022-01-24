@@ -8,36 +8,47 @@
 #include "rocksdb/utilities/object_registry.h"
 
 #include "rocksdb/customizable.h"
+#include "rocksdb/utilities/regex.h"
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-class EnvRegistryTest : public testing::Test {
+class ObjRegistryTest : public testing::Test {
  public:
   static int num_a, num_b;
 };
 
-int EnvRegistryTest::num_a = 0;
-int EnvRegistryTest::num_b = 0;
-static FactoryFunc<Env> test_reg_a = ObjectLibrary::Default()->Register<Env>(
-    "a://.*",
+int ObjRegistryTest::num_a = 0;
+int ObjRegistryTest::num_b = 0;
+static FactoryFunc<Env> test_reg_a = ObjectLibrary::Default()->AddFactory<Env>(
+    ObjectLibrary::PatternEntry("a", false).AddSeparator("://"),
     [](const std::string& /*uri*/, std::unique_ptr<Env>* /*env_guard*/,
        std::string* /* errmsg */) {
-      ++EnvRegistryTest::num_a;
+      ++ObjRegistryTest::num_a;
       return Env::Default();
     });
 
-static FactoryFunc<Env> test_reg_b = ObjectLibrary::Default()->Register<Env>(
-    "b://.*", [](const std::string& /*uri*/, std::unique_ptr<Env>* env_guard,
-                 std::string* /* errmsg */) {
-      ++EnvRegistryTest::num_b;
+class WrappedEnv : public EnvWrapper {
+ private:
+  std::string id_;
+
+ public:
+  WrappedEnv(Env* t, const std::string& id) : EnvWrapper(t), id_(id) {}
+  const char* Name() const override { return id_.c_str(); }
+  std::string GetId() const override { return id_; }
+};
+static FactoryFunc<Env> test_reg_b = ObjectLibrary::Default()->AddFactory<Env>(
+    ObjectLibrary::PatternEntry("b", false).AddSeparator("://"),
+    [](const std::string& uri, std::unique_ptr<Env>* env_guard,
+       std::string* /* errmsg */) {
+      ++ObjRegistryTest::num_b;
       // Env::Default() is a singleton so we can't grant ownership directly to
       // the caller - we must wrap it first.
-      env_guard->reset(new EnvWrapper(Env::Default()));
+      env_guard->reset(new WrappedEnv(Env::Default(), uri));
       return env_guard->get();
     });
 
-TEST_F(EnvRegistryTest, Basics) {
+TEST_F(ObjRegistryTest, Basics) {
   std::string msg;
   std::unique_ptr<Env> env_guard;
   auto registry = ObjectRegistry::NewInstance();
@@ -60,19 +71,19 @@ TEST_F(EnvRegistryTest, Basics) {
   ASSERT_EQ(1, num_b);
 }
 
-TEST_F(EnvRegistryTest, LocalRegistry) {
+TEST_F(ObjRegistryTest, LocalRegistry) {
   std::string msg;
   std::unique_ptr<Env> guard;
   auto registry = ObjectRegistry::NewInstance();
   std::shared_ptr<ObjectLibrary> library =
       std::make_shared<ObjectLibrary>("local");
   registry->AddLibrary(library);
-  library->Register<Env>(
+  library->AddFactory<Env>(
       "test-local",
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
          std::string* /* errmsg */) { return Env::Default(); });
 
-  ObjectLibrary::Default()->Register<Env>(
+  ObjectLibrary::Default()->AddFactory<Env>(
       "test-global",
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
          std::string* /* errmsg */) { return Env::Default(); });
@@ -87,21 +98,21 @@ TEST_F(EnvRegistryTest, LocalRegistry) {
   ASSERT_NE(registry->NewObject<Env>("test-global", &guard, &msg), nullptr);
 }
 
-TEST_F(EnvRegistryTest, CheckShared) {
+TEST_F(ObjRegistryTest, CheckShared) {
   std::shared_ptr<Env> shared;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
   std::shared_ptr<ObjectLibrary> library =
       std::make_shared<ObjectLibrary>("shared");
   registry->AddLibrary(library);
-  library->Register<Env>(
+  library->AddFactory<Env>(
       "unguarded",
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
          std::string* /* errmsg */) { return Env::Default(); });
 
-  library->Register<Env>(
-      "guarded", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
+  library->AddFactory<Env>(
+      "guarded", [](const std::string& uri, std::unique_ptr<Env>* guard,
                     std::string* /* errmsg */) {
-        guard->reset(new EnvWrapper(Env::Default()));
+        guard->reset(new WrappedEnv(Env::Default(), uri));
         return guard->get();
       });
 
@@ -112,21 +123,21 @@ TEST_F(EnvRegistryTest, CheckShared) {
   ASSERT_EQ(shared, nullptr);
 }
 
-TEST_F(EnvRegistryTest, CheckStatic) {
+TEST_F(ObjRegistryTest, CheckStatic) {
   Env* env = nullptr;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
   std::shared_ptr<ObjectLibrary> library =
       std::make_shared<ObjectLibrary>("static");
   registry->AddLibrary(library);
-  library->Register<Env>(
+  library->AddFactory<Env>(
       "unguarded",
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
          std::string* /* errmsg */) { return Env::Default(); });
 
-  library->Register<Env>(
-      "guarded", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
+  library->AddFactory<Env>(
+      "guarded", [](const std::string& uri, std::unique_ptr<Env>* guard,
                     std::string* /* errmsg */) {
-        guard->reset(new EnvWrapper(Env::Default()));
+        guard->reset(new WrappedEnv(Env::Default(), uri));
         return guard->get();
       });
 
@@ -137,21 +148,21 @@ TEST_F(EnvRegistryTest, CheckStatic) {
   ASSERT_NE(env, nullptr);
 }
 
-TEST_F(EnvRegistryTest, CheckUnique) {
+TEST_F(ObjRegistryTest, CheckUnique) {
   std::unique_ptr<Env> unique;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
   std::shared_ptr<ObjectLibrary> library =
       std::make_shared<ObjectLibrary>("unique");
   registry->AddLibrary(library);
-  library->Register<Env>(
+  library->AddFactory<Env>(
       "unguarded",
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
          std::string* /* errmsg */) { return Env::Default(); });
 
-  library->Register<Env>(
-      "guarded", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
+  library->AddFactory<Env>(
+      "guarded", [](const std::string& uri, std::unique_ptr<Env>* guard,
                     std::string* /* errmsg */) {
-        guard->reset(new EnvWrapper(Env::Default()));
+        guard->reset(new WrappedEnv(Env::Default(), uri));
         return guard->get();
       });
 
@@ -162,7 +173,7 @@ TEST_F(EnvRegistryTest, CheckUnique) {
   ASSERT_EQ(unique, nullptr);
 }
 
-TEST_F(EnvRegistryTest, TestRegistryParents) {
+TEST_F(ObjRegistryTest, TestRegistryParents) {
   auto grand = ObjectRegistry::Default();
   auto parent = ObjectRegistry::NewInstance();  // parent with a grandparent
   auto uncle = ObjectRegistry::NewInstance(grand);
@@ -170,17 +181,17 @@ TEST_F(EnvRegistryTest, TestRegistryParents) {
   auto cousin = ObjectRegistry::NewInstance(uncle);
 
   auto library = parent->AddLibrary("parent");
-  library->Register<Env>(
-      "parent", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
+  library->AddFactory<Env>(
+      "parent", [](const std::string& uri, std::unique_ptr<Env>* guard,
                    std::string* /* errmsg */) {
-        guard->reset(new EnvWrapper(Env::Default()));
+        guard->reset(new WrappedEnv(Env::Default(), uri));
         return guard->get();
       });
   library = cousin->AddLibrary("cousin");
-  library->Register<Env>(
-      "cousin", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
+  library->AddFactory<Env>(
+      "cousin", [](const std::string& uri, std::unique_ptr<Env>* guard,
                    std::string* /* errmsg */) {
-        guard->reset(new EnvWrapper(Env::Default()));
+        guard->reset(new WrappedEnv(Env::Default(), uri));
         return guard->get();
       });
 
@@ -221,7 +232,7 @@ class MyCustomizable : public Customizable {
   std::string name_;
 };
 
-TEST_F(EnvRegistryTest, TestManagedObjects) {
+TEST_F(ObjRegistryTest, TestManagedObjects) {
   auto registry = ObjectRegistry::NewInstance();
   auto m_a1 = std::make_shared<MyCustomizable>("", "A");
   auto m_a2 = std::make_shared<MyCustomizable>("", "A");
@@ -238,7 +249,7 @@ TEST_F(EnvRegistryTest, TestManagedObjects) {
   ASSERT_EQ(registry->GetManagedObject<MyCustomizable>("A"), m_a2);
 }
 
-TEST_F(EnvRegistryTest, TestTwoManagedObjects) {
+TEST_F(ObjRegistryTest, TestTwoManagedObjects) {
   auto registry = ObjectRegistry::NewInstance();
   auto m_a = std::make_shared<MyCustomizable>("", "A");
   auto m_b = std::make_shared<MyCustomizable>("", "B");
@@ -284,7 +295,7 @@ TEST_F(EnvRegistryTest, TestTwoManagedObjects) {
   ASSERT_EQ(registry->GetManagedObject<MyCustomizable>("B"), nullptr);
 }
 
-TEST_F(EnvRegistryTest, TestAlternateNames) {
+TEST_F(ObjRegistryTest, TestAlternateNames) {
   auto registry = ObjectRegistry::NewInstance();
   auto m_a = std::make_shared<MyCustomizable>("", "A");
   auto m_b = std::make_shared<MyCustomizable>("", "B");
@@ -337,7 +348,7 @@ TEST_F(EnvRegistryTest, TestAlternateNames) {
   ASSERT_EQ(objects.size(), 0U);
 }
 
-TEST_F(EnvRegistryTest, TestTwoManagedClasses) {
+TEST_F(ObjRegistryTest, TestTwoManagedClasses) {
   class MyCustomizable2 : public MyCustomizable {
    public:
     static const char* Type() { return "MyCustomizable2"; }
@@ -377,7 +388,7 @@ TEST_F(EnvRegistryTest, TestTwoManagedClasses) {
   ASSERT_EQ(registry->GetManagedObject<MyCustomizable2>("A"), nullptr);
 }
 
-TEST_F(EnvRegistryTest, TestManagedObjectsWithParent) {
+TEST_F(ObjRegistryTest, TestManagedObjectsWithParent) {
   auto base = ObjectRegistry::NewInstance();
   auto registry = ObjectRegistry::NewInstance(base);
 
@@ -397,10 +408,10 @@ TEST_F(EnvRegistryTest, TestManagedObjectsWithParent) {
   ASSERT_EQ(registry->GetManagedObject<MyCustomizable>("A"), m_b);
 }
 
-TEST_F(EnvRegistryTest, TestGetOrCreateManagedObject) {
+TEST_F(ObjRegistryTest, TestGetOrCreateManagedObject) {
   auto registry = ObjectRegistry::NewInstance();
-  registry->AddLibrary("test")->Register<MyCustomizable>(
-      "MC(@.*)?",
+  registry->AddLibrary("test")->AddFactory<MyCustomizable>(
+      ObjectLibrary::PatternEntry::AsIndividualId("MC"),
       [](const std::string& uri, std::unique_ptr<MyCustomizable>* guard,
          std::string* /* errmsg */) {
         guard->reset(new MyCustomizable("MC", uri));
@@ -411,14 +422,14 @@ TEST_F(EnvRegistryTest, TestGetOrCreateManagedObject) {
 
   std::unordered_map<std::string, std::string> opt_map;
 
-  ASSERT_EQ(registry->GetManagedObject<MyCustomizable>("MC@A"), nullptr);
-  ASSERT_EQ(registry->GetManagedObject<MyCustomizable>("MC@B"), nullptr);
-  ASSERT_OK(registry->GetOrCreateManagedObject("MC@A", &m_a));
-  ASSERT_OK(registry->GetOrCreateManagedObject("MC@B", &m_b));
-  ASSERT_EQ(registry->GetManagedObject<MyCustomizable>("MC@A"), m_a);
-  ASSERT_OK(registry->GetOrCreateManagedObject("MC@A", &obj));
+  ASSERT_EQ(registry->GetManagedObject<MyCustomizable>("MC@A#1"), nullptr);
+  ASSERT_EQ(registry->GetManagedObject<MyCustomizable>("MC@B#1"), nullptr);
+  ASSERT_OK(registry->GetOrCreateManagedObject("MC@A#1", &m_a));
+  ASSERT_OK(registry->GetOrCreateManagedObject("MC@B#1", &m_b));
+  ASSERT_EQ(registry->GetManagedObject<MyCustomizable>("MC@A#1"), m_a);
+  ASSERT_OK(registry->GetOrCreateManagedObject("MC@A#1", &obj));
   ASSERT_EQ(obj, m_a);
-  ASSERT_OK(registry->GetOrCreateManagedObject("MC@B", &obj));
+  ASSERT_OK(registry->GetOrCreateManagedObject("MC@B#1", &obj));
   ASSERT_EQ(obj, m_b);
   ASSERT_OK(registry->ListManagedObjects(&objs));
   ASSERT_EQ(objs.size(), 2U);
@@ -426,11 +437,274 @@ TEST_F(EnvRegistryTest, TestGetOrCreateManagedObject) {
   objs.clear();
   m_a.reset();
   obj.reset();
-  ASSERT_OK(registry->GetOrCreateManagedObject("MC@A", &m_a));
+  ASSERT_OK(registry->GetOrCreateManagedObject("MC@A#1", &m_a));
   ASSERT_EQ(1, m_a.use_count());
-  ASSERT_OK(registry->GetOrCreateManagedObject("MC@B", &obj));
+  ASSERT_OK(registry->GetOrCreateManagedObject("MC@B#1", &obj));
   ASSERT_EQ(2, obj.use_count());
 }
+
+TEST_F(ObjRegistryTest, TestDeprecatedRegex) {
+  Regex regex;
+  Env* env = nullptr;
+  auto registry = ObjectRegistry::NewInstance();
+  if (Regex::Parse("XYZ", &regex).ok()) {
+    registry->AddLibrary("XYZ")->Register<Env>(
+        "XYZ",
+        [](const std::string& /*uri*/, std::unique_ptr<Env>* /*env_guard*/,
+           std::string* /* errmsg */) { return Env::Default(); });
+    ASSERT_NOK(registry->NewStaticObject<Env>("X", &env));
+    ASSERT_OK(registry->NewStaticObject<Env>("XYZ", &env));
+    ASSERT_EQ(env, Env::Default());
+  }
+  if (Regex::Parse("ABC://.*", &regex).ok()) {
+    registry->AddLibrary("ABC")->Register<Env>(
+        "ABC://.*",
+        [](const std::string& /*uri*/, std::unique_ptr<Env>* /*env_guard*/,
+           std::string* /* errmsg */) { return Env::Default(); });
+    ASSERT_NOK(registry->NewStaticObject<Env>("ABC", &env));
+    ASSERT_OK(registry->NewStaticObject<Env>("ABC://123", &env));
+    ASSERT_EQ(env, Env::Default());
+    ASSERT_OK(registry->NewStaticObject<Env>("ABC://", &env));
+    ASSERT_EQ(env, Env::Default());
+  }
+}
+
+class PatternEntryTest : public testing::Test {};
+
+TEST_F(PatternEntryTest, TestSimpleEntry) {
+  ObjectLibrary::PatternEntry entry("ABC", true);
+
+  ASSERT_TRUE(entry.Matches("ABC"));
+  ASSERT_FALSE(entry.Matches("AABC"));
+  ASSERT_FALSE(entry.Matches("ABCA"));
+  ASSERT_FALSE(entry.Matches("AABCA"));
+  ASSERT_FALSE(entry.Matches("AB"));
+  ASSERT_FALSE(entry.Matches("BC"));
+  ASSERT_FALSE(entry.Matches("ABD"));
+  ASSERT_FALSE(entry.Matches("BCA"));
+}
+
+TEST_F(PatternEntryTest, TestPatternEntry) {
+  // Matches A:+
+  ObjectLibrary::PatternEntry entry("A", false);
+  entry.AddSeparator(":");
+  ASSERT_FALSE(entry.Matches("A"));
+  ASSERT_FALSE(entry.Matches("AA"));
+  ASSERT_FALSE(entry.Matches("AB"));
+  ASSERT_FALSE(entry.Matches("B"));
+  ASSERT_FALSE(entry.Matches("A:"));
+  ASSERT_FALSE(entry.Matches("AA:"));
+  ASSERT_FALSE(entry.Matches("AA:B"));
+  ASSERT_FALSE(entry.Matches("AA:BB"));
+  ASSERT_TRUE(entry.Matches("A:B"));
+  ASSERT_TRUE(entry.Matches("A:BB"));
+
+  entry.SetOptional(true);  // Now matches "A" or "A:+"
+  ASSERT_TRUE(entry.Matches("A"));
+  ASSERT_FALSE(entry.Matches("AA"));
+  ASSERT_FALSE(entry.Matches("AB"));
+  ASSERT_FALSE(entry.Matches("B"));
+  ASSERT_FALSE(entry.Matches("A:"));
+  ASSERT_FALSE(entry.Matches("AA:"));
+  ASSERT_FALSE(entry.Matches("AA:B"));
+  ASSERT_FALSE(entry.Matches("AA:BB"));
+  ASSERT_TRUE(entry.Matches("A:B"));
+  ASSERT_TRUE(entry.Matches("A:BB"));
+}
+
+TEST_F(PatternEntryTest, MatchZeroOrMore) {
+  // Matches A:*
+  ObjectLibrary::PatternEntry entry("A", false);
+  entry.AddSeparator(":", false);
+  ASSERT_FALSE(entry.Matches("A"));
+  ASSERT_FALSE(entry.Matches("AA"));
+  ASSERT_FALSE(entry.Matches("AB"));
+  ASSERT_FALSE(entry.Matches("B"));
+  ASSERT_TRUE(entry.Matches("A:"));
+  ASSERT_FALSE(entry.Matches("B:"));
+  ASSERT_FALSE(entry.Matches("B:A"));
+  ASSERT_FALSE(entry.Matches("AA:"));
+  ASSERT_FALSE(entry.Matches("AA:B"));
+  ASSERT_FALSE(entry.Matches("AA:BB"));
+  ASSERT_TRUE(entry.Matches("A:B"));
+  ASSERT_TRUE(entry.Matches("A:BB"));
+
+  entry.SetOptional(true);  // Now matches "A" or "A:*"
+  ASSERT_TRUE(entry.Matches("A"));
+  ASSERT_FALSE(entry.Matches("AA"));
+  ASSERT_FALSE(entry.Matches("AB"));
+  ASSERT_FALSE(entry.Matches("B"));
+  ASSERT_TRUE(entry.Matches("A:"));
+  ASSERT_FALSE(entry.Matches("B:"));
+  ASSERT_FALSE(entry.Matches("B:A"));
+  ASSERT_FALSE(entry.Matches("AA:"));
+  ASSERT_FALSE(entry.Matches("AA:B"));
+  ASSERT_FALSE(entry.Matches("AA:BB"));
+  ASSERT_TRUE(entry.Matches("A:B"));
+  ASSERT_TRUE(entry.Matches("A:BB"));
+}
+
+TEST_F(PatternEntryTest, TestSuffixEntry) {
+  ObjectLibrary::PatternEntry entry("AA", true);
+  entry.AddSuffix("BB");
+
+  ASSERT_TRUE(entry.Matches("AA"));
+  ASSERT_TRUE(entry.Matches("AABB"));
+
+  ASSERT_FALSE(entry.Matches("A"));
+  ASSERT_FALSE(entry.Matches("AB"));
+  ASSERT_FALSE(entry.Matches("B"));
+  ASSERT_FALSE(entry.Matches("BB"));
+  ASSERT_FALSE(entry.Matches("ABA"));
+  ASSERT_FALSE(entry.Matches("BBAA"));
+  ASSERT_FALSE(entry.Matches("AABBA"));
+  ASSERT_FALSE(entry.Matches("AABBB"));
+}
+
+TEST_F(PatternEntryTest, TestNumericEntry) {
+  ObjectLibrary::PatternEntry entry("A", false);
+  entry.AddNumber(":");
+  ASSERT_FALSE(entry.Matches("A"));
+  ASSERT_FALSE(entry.Matches("AA"));
+  ASSERT_FALSE(entry.Matches("A:"));
+  ASSERT_FALSE(entry.Matches("AA:"));
+  ASSERT_TRUE(entry.Matches("A:1"));
+  ASSERT_TRUE(entry.Matches("A:11"));
+  ASSERT_FALSE(entry.Matches("AA:1"));
+  ASSERT_FALSE(entry.Matches("AA:11"));
+  ASSERT_FALSE(entry.Matches("A:B"));
+  ASSERT_FALSE(entry.Matches("A:1B"));
+  ASSERT_FALSE(entry.Matches("A:B1"));
+}
+
+TEST_F(PatternEntryTest, TestIndividualIdEntry) {
+  auto entry = ObjectLibrary::PatternEntry::AsIndividualId("AA");
+  ASSERT_TRUE(entry.Matches("AA"));
+  ASSERT_TRUE(entry.Matches("AA@123#456"));
+  ASSERT_TRUE(entry.Matches("AA@deadbeef#id"));
+
+  ASSERT_FALSE(entry.Matches("A"));
+  ASSERT_FALSE(entry.Matches("AAA"));
+  ASSERT_FALSE(entry.Matches("AA@123"));
+  ASSERT_FALSE(entry.Matches("AA@123#"));
+  ASSERT_FALSE(entry.Matches("AA@#123"));
+}
+
+TEST_F(PatternEntryTest, TestTwoNameEntry) {
+  ObjectLibrary::PatternEntry entry("A");
+  entry.AnotherName("B");
+  ASSERT_TRUE(entry.Matches("A"));
+  ASSERT_TRUE(entry.Matches("B"));
+  ASSERT_FALSE(entry.Matches("AA"));
+  ASSERT_FALSE(entry.Matches("BB"));
+  ASSERT_FALSE(entry.Matches("AA"));
+  ASSERT_FALSE(entry.Matches("BA"));
+  ASSERT_FALSE(entry.Matches("AB"));
+}
+
+TEST_F(PatternEntryTest, TestTwoPatternEntry) {
+  ObjectLibrary::PatternEntry entry("AA", false);
+  entry.AddSeparator(":");
+  entry.AddSeparator(":");
+  ASSERT_FALSE(entry.Matches("AA"));
+  ASSERT_FALSE(entry.Matches("AA:"));
+  ASSERT_FALSE(entry.Matches("AA::"));
+  ASSERT_FALSE(entry.Matches("AA::12"));
+  ASSERT_TRUE(entry.Matches("AA:1:2"));
+  ASSERT_TRUE(entry.Matches("AA:1:2:"));
+
+  ObjectLibrary::PatternEntry entry2("AA", false);
+  entry2.AddSeparator("::");
+  entry2.AddSeparator("##");
+  ASSERT_FALSE(entry2.Matches("AA"));
+  ASSERT_FALSE(entry2.Matches("AA:"));
+  ASSERT_FALSE(entry2.Matches("AA::"));
+  ASSERT_FALSE(entry2.Matches("AA::#"));
+  ASSERT_FALSE(entry2.Matches("AA::##"));
+  ASSERT_FALSE(entry2.Matches("AA##1::2"));
+  ASSERT_FALSE(entry2.Matches("AA::123##"));
+  ASSERT_TRUE(entry2.Matches("AA::1##2"));
+  ASSERT_TRUE(entry2.Matches("AA::12##34:"));
+  ASSERT_TRUE(entry2.Matches("AA::12::34##56"));
+  ASSERT_TRUE(entry2.Matches("AA::12##34::56"));
+}
+
+TEST_F(PatternEntryTest, TestTwoNumbersEntry) {
+  ObjectLibrary::PatternEntry entry("AA", false);
+  entry.AddNumber(":");
+  entry.AddNumber(":");
+  ASSERT_FALSE(entry.Matches("AA"));
+  ASSERT_FALSE(entry.Matches("AA:"));
+  ASSERT_FALSE(entry.Matches("AA::"));
+  ASSERT_FALSE(entry.Matches("AA::12"));
+  ASSERT_FALSE(entry.Matches("AA:1:2:"));
+  ASSERT_TRUE(entry.Matches("AA:1:2"));
+  ASSERT_TRUE(entry.Matches("AA:12:23456"));
+
+  ObjectLibrary::PatternEntry entry2("AA", false);
+  entry2.AddNumber(":");
+  entry2.AddNumber("#");
+  ASSERT_FALSE(entry2.Matches("AA"));
+  ASSERT_FALSE(entry2.Matches("AA:"));
+  ASSERT_FALSE(entry2.Matches("AA:#"));
+  ASSERT_FALSE(entry2.Matches("AA#:"));
+  ASSERT_FALSE(entry2.Matches("AA:123#"));
+  ASSERT_FALSE(entry2.Matches("AA:123#B"));
+  ASSERT_FALSE(entry2.Matches("AA:B#123"));
+  ASSERT_TRUE(entry2.Matches("AA:1#2"));
+  ASSERT_FALSE(entry2.Matches("AA:123#23:"));
+  ASSERT_FALSE(entry2.Matches("AA::12#234"));
+}
+
+TEST_F(PatternEntryTest, TestPatternAndSuffix) {
+  ObjectLibrary::PatternEntry entry("AA", false);
+  entry.AddSeparator("::");
+  entry.AddSuffix("##");
+  ASSERT_FALSE(entry.Matches("AA"));
+  ASSERT_FALSE(entry.Matches("AA::"));
+  ASSERT_FALSE(entry.Matches("AA::##"));
+  ASSERT_FALSE(entry.Matches("AB::1##"));
+  ASSERT_FALSE(entry.Matches("AB::1##2"));
+  ASSERT_FALSE(entry.Matches("AA##1::"));
+  ASSERT_TRUE(entry.Matches("AA::1##"));
+  ASSERT_FALSE(entry.Matches("AA::1###"));
+
+  ObjectLibrary::PatternEntry entry2("AA", false);
+  entry2.AddSuffix("::");
+  entry2.AddSeparator("##");
+  ASSERT_FALSE(entry2.Matches("AA"));
+  ASSERT_FALSE(entry2.Matches("AA::"));
+  ASSERT_FALSE(entry2.Matches("AA::##"));
+  ASSERT_FALSE(entry2.Matches("AB::1##"));
+  ASSERT_FALSE(entry2.Matches("AB::1##2"));
+  ASSERT_TRUE(entry2.Matches("AA::##12"));
+}
+
+TEST_F(PatternEntryTest, TestTwoNamesAndPattern) {
+  ObjectLibrary::PatternEntry entry("AA", true);
+  entry.AddSeparator("::");
+  entry.AnotherName("BBB");
+  ASSERT_TRUE(entry.Matches("AA"));
+  ASSERT_TRUE(entry.Matches("AA::1"));
+  ASSERT_TRUE(entry.Matches("BBB"));
+  ASSERT_TRUE(entry.Matches("BBB::2"));
+
+  ASSERT_FALSE(entry.Matches("AA::"));
+  ASSERT_FALSE(entry.Matches("AAA::"));
+  ASSERT_FALSE(entry.Matches("BBB::"));
+
+  entry.SetOptional(false);
+  ASSERT_FALSE(entry.Matches("AA"));
+  ASSERT_FALSE(entry.Matches("BBB"));
+
+  ASSERT_FALSE(entry.Matches("AA::"));
+  ASSERT_FALSE(entry.Matches("AAA::"));
+  ASSERT_FALSE(entry.Matches("BBB::"));
+
+  ASSERT_TRUE(entry.Matches("AA::1"));
+  ASSERT_TRUE(entry.Matches("BBB::2"));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
@@ -442,7 +716,7 @@ int main(int argc, char** argv) {
 #include <stdio.h>
 
 int main(int /*argc*/, char** /*argv*/) {
-  fprintf(stderr, "SKIPPED as EnvRegistry is not supported in ROCKSDB_LITE\n");
+  fprintf(stderr, "SKIPPED as ObjRegistry is not supported in ROCKSDB_LITE\n");
   return 0;
 }
 

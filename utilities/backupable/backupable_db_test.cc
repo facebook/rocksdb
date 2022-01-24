@@ -172,6 +172,7 @@ class DummyDB : public StackableDB {
 class TestEnv : public EnvWrapper {
  public:
   explicit TestEnv(Env* t) : EnvWrapper(t) {}
+  const char* Name() const override { return "TestEnv"; }
 
   class DummySequentialFile : public SequentialFile {
    public:
@@ -417,6 +418,7 @@ class TestEnv : public EnvWrapper {
 class FileManager : public EnvWrapper {
  public:
   explicit FileManager(Env* t) : EnvWrapper(t), rnd_(5) {}
+  const char* Name() const override { return "FileManager"; }
 
   Status GetRandomFileInDir(const std::string& dir, std::string* fname,
                             uint64_t* fsize) {
@@ -3158,6 +3160,10 @@ TEST_F(BackupEngineTest, ChangeManifestDuringBackupCreation) {
   FillDB(db_.get(), 0, 100, kAutoFlushOnly);
   ASSERT_OK(db_chroot_env_->FileExists(prev_manifest_path));
   ASSERT_OK(db_->Flush(FlushOptions()));
+  // Even though manual flush completed above, the background thread may not
+  // have finished its cleanup work. `TEST_WaitForBackgroundWork()` will wait
+  // until all the background thread's work has completed, including cleanup.
+  ASSERT_OK(db_impl->TEST_WaitForBackgroundWork());
   ASSERT_TRUE(db_chroot_env_->FileExists(prev_manifest_path).IsNotFound());
 
   CloseDBAndBackupEngine();

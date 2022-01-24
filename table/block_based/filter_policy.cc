@@ -97,6 +97,10 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
   // For delegating between XXPH3FilterBitsBuilders
   void SwapEntriesWith(XXPH3FilterBitsBuilder* other) {
     std::swap(hash_entries_, other->hash_entries_);
+    if (cache_res_mgr_) {
+      std::swap(hash_entry_cache_res_bucket_handles_,
+                other->hash_entry_cache_res_bucket_handles_);
+    }
   }
 
   virtual size_t RoundDownUsableSpace(size_t available_size) = 0;
@@ -1253,6 +1257,13 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
         }
         break;
       case kDeprecatedBlock:
+        if (context.info_log && !warned_.load(std::memory_order_relaxed)) {
+          warned_ = true;
+          ROCKS_LOG_WARN(context.info_log,
+                         "Using deprecated block-based Bloom filter is "
+                         "inefficient (%d bits per key).",
+                         whole_bits_per_key_);
+        }
         return nullptr;
       case kFastLocalBloom:
         return new FastLocalBloomBitsBuilder(
