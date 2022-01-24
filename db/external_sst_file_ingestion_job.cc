@@ -212,7 +212,8 @@ Status ExternalSstFileIngestionJob::Prepare(
         std::string generated_checksum;
         std::string generated_checksum_func_name;
         std::string requested_checksum_func_name;
-        // TODO: rate limit file reads for checksum calculation.
+        // TODO: rate limit file reads for checksum calculation during file
+        // ingestion.
         IOStatus io_s = GenerateOneFileChecksum(
             fs_.get(), files_to_ingest_[i].internal_file_path,
             db_options_.file_checksum_gen_factory.get(),
@@ -908,7 +909,7 @@ IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
   std::string file_checksum;
   std::string file_checksum_func_name;
   std::string requested_checksum_func_name;
-  // TODO: rate limit file reads for checksum calculation.
+  // TODO: rate limit file reads for checksum calculation during file ingestion.
   IOStatus io_s = GenerateOneFileChecksum(
       fs_.get(), file_to_ingest->internal_file_path,
       db_options_.file_checksum_gen_factory.get(), requested_checksum_func_name,
