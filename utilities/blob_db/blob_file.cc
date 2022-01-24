@@ -112,7 +112,7 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
   std::string buf;
   AlignedBuf aligned_buf;
   Status s;
-  // TODO: rate limit footer reads from blob files.
+  // TODO: rate limit reading footers from blob files.
   if (ra_file_reader_->use_direct_io()) {
     s = ra_file_reader_->Read(IOOptions(), footer_offset, BlobLogFooter::kSize,
                               &result, nullptr, &aligned_buf,
@@ -238,7 +238,7 @@ Status BlobFile::ReadMetadata(const std::shared_ptr<FileSystem>& fs,
   std::string header_buf;
   AlignedBuf aligned_buf;
   Slice header_slice;
-  // TODO: rate limit reads of blob file headers.
+  // TODO: rate limit reading headers from blob files.
   if (file_reader->use_direct_io()) {
     s = file_reader->Read(IOOptions(), 0, BlobLogHeader::kSize, &header_slice,
                           nullptr, &aligned_buf, Env::IO_TOTAL /* priority */);
@@ -280,7 +280,7 @@ Status BlobFile::ReadMetadata(const std::shared_ptr<FileSystem>& fs,
   }
   std::string footer_buf;
   Slice footer_slice;
-  // TODO: rate limit footer reads from blob files.
+  // TODO: rate limit reading footers from blob files.
   if (file_reader->use_direct_io()) {
     s = file_reader->Read(IOOptions(), file_size - BlobLogFooter::kSize,
                           BlobLogFooter::kSize, &footer_slice, nullptr,
