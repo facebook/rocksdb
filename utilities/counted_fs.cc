@@ -221,7 +221,7 @@ class CountedDirectory : public FSDirectoryWrapper {
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
     IOStatus rv = FSDirectoryWrapper::Fsync(options, dbg);
     if (rv.ok()) {
-      fs_->counters()->fsyncs++;
+      fs_->counters()->dsyncs++;
     }
     return rv;
   }
@@ -230,7 +230,7 @@ class CountedDirectory : public FSDirectoryWrapper {
                                const DirFsyncOptions& dir_options) override {
     IOStatus rv = FSDirectoryWrapper::FsyncWithDirOptions(options, dbg, dir_options);
     if (rv.ok()) {
-      fs_->counters()->fsyncs++;
+      fs_->counters()->dsyncs++;
     }
     return rv;
   }
@@ -248,6 +248,8 @@ std::string FileOpCounters::PrintCounters() const {
   ss << "Num Flush(): " << flushes.load(std::memory_order_relaxed) << std::endl;
   ss << "Num Sync(): " << syncs.load(std::memory_order_relaxed) << std::endl;
   ss << "Num Fsync(): " << fsyncs.load(std::memory_order_relaxed) << std::endl;
+  ss << "Num Dir Fsync(): " << dsyncs.load(std::memory_order_relaxed)
+     << std::endl;
   ss << "Num Close(): " << closes.load(std::memory_order_relaxed) << std::endl;
   ss << "Num Read(): " << reads.ops.load(std::memory_order_relaxed)
      << std::endl;
