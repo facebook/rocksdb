@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 7.0.0 (Unreleased)
+### Behavior Changes
+* `ReadOptions::total_order_seek` no longer affects `DB::Get()`. The original motivation for this interaction has been obsolete since RocksDB has been able to detect whether the current prefix extractor is compatible with that used to generate table files, probably RocksDB 5.14.0.
+
 ## 6.29.0 (01/21/2022)
 Note: The next release will be major release 7.0. See https://github.com/facebook/rocksdb/issues/9390 for more info.
 ### Public API change
