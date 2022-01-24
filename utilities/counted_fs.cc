@@ -76,8 +76,7 @@ class CountedWritableFile : public FSWritableFileOwnerWrapper {
  public:
   CountedWritableFile(std::unique_ptr<FSWritableFile>&& f,
                       CountedFileSystem* fs)
-      : FSWritableFileOwnerWrapper(std::move(f)),
-        fs_(fs) {}
+      : FSWritableFileOwnerWrapper(std::move(f)), fs_(fs) {}
 
   IOStatus Append(const Slice& data, const IOOptions& options,
                   IODebugContext* dbg) override {
@@ -160,8 +159,7 @@ class CountedRandomRWFile : public FSRandomRWFileOwnerWrapper {
  public:
   CountedRandomRWFile(std::unique_ptr<FSRandomRWFile>&& f,
                       CountedFileSystem* fs)
-      : FSRandomRWFileOwnerWrapper(std::move(f)),
-        fs_(fs) {}
+      : FSRandomRWFileOwnerWrapper(std::move(f)), fs_(fs) {}
   IOStatus Write(uint64_t offset, const Slice& data, const IOOptions& options,
                  IODebugContext* dbg) override {
     IOStatus rv = target()->Write(offset, data, options, dbg);
@@ -228,15 +226,16 @@ class CountedDirectory : public FSDirectoryWrapper {
 
   IOStatus FsyncWithDirOptions(const IOOptions& options, IODebugContext* dbg,
                                const DirFsyncOptions& dir_options) override {
-    IOStatus rv = FSDirectoryWrapper::FsyncWithDirOptions(options, dbg, dir_options);
+    IOStatus rv =
+        FSDirectoryWrapper::FsyncWithDirOptions(options, dbg, dir_options);
     if (rv.ok()) {
       fs_->counters()->dsyncs++;
     }
     return rv;
   }
 };
-} // anonymous namespace
-  
+}  // anonymous namespace
+
 std::string FileOpCounters::PrintCounters() const {
   std::stringstream ss;
   ss << "Num files opened: " << opens.load(std::memory_order_relaxed)
@@ -263,8 +262,7 @@ std::string FileOpCounters::PrintCounters() const {
 }
 
 CountedFileSystem::CountedFileSystem(const std::shared_ptr<FileSystem>& base)
-    : FileSystemWrapper(base) {
-}
+    : FileSystemWrapper(base) {}
 
 IOStatus CountedFileSystem::NewSequentialFile(
     const std::string& f, const FileOptions& options,
