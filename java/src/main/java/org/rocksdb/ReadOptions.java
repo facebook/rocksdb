@@ -815,8 +815,7 @@ public class ReadOptions extends RocksObject {
   private native void setIterateLowerBound(final long handle,
       final long lowerBoundSliceHandle);
   private native long iterateLowerBound(final long handle);
-  private native void setTableFilter(final long handle,
-      final long tableFilterHandle);
+  private native void setTableFilter(final long handle, final long tableFilterHandle);
   private native boolean autoPrefixMode(final long handle);
   private native void setAutoPrefixMode(final long handle, final boolean autoPrefixMode);
   private native long timestamp(final long handle);
