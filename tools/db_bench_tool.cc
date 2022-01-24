@@ -4283,7 +4283,8 @@ class Benchmark {
     options.listeners.emplace_back(listener_);
 
     if (FLAGS_file_checksum) {
-      options.file_checksum_gen_factory.reset(new FileChecksumGenCrc32cFactory());
+      options.file_checksum_gen_factory.reset(
+          new FileChecksumGenCrc32cFactory());
     }
 
     if (FLAGS_num_multi_db <= 1) {
