@@ -140,7 +140,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"use_direct_reads", "false"},
       {"use_direct_io_for_flush_and_compaction", "false"},
       {"is_fd_close_on_exec", "true"},
-      {"skip_log_error_on_recovery", "false"},
       {"stats_dump_period_sec", "46"},
       {"stats_persist_period_sec", "57"},
       {"persist_stats_to_disk", "false"},
@@ -301,7 +300,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.use_direct_reads, false);
   ASSERT_EQ(new_db_opt.use_direct_io_for_flush_and_compaction, false);
   ASSERT_EQ(new_db_opt.is_fd_close_on_exec, true);
-  ASSERT_EQ(new_db_opt.skip_log_error_on_recovery, false);
   ASSERT_EQ(new_db_opt.stats_dump_period_sec, 46U);
   ASSERT_EQ(new_db_opt.stats_persist_period_sec, 57U);
   ASSERT_EQ(new_db_opt.persist_stats_to_disk, false);
@@ -2303,7 +2301,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"use_direct_reads", "false"},
       {"use_direct_io_for_flush_and_compaction", "false"},
       {"is_fd_close_on_exec", "true"},
-      {"skip_log_error_on_recovery", "false"},
       {"stats_dump_period_sec", "46"},
       {"stats_persist_period_sec", "57"},
       {"persist_stats_to_disk", "false"},
@@ -2458,7 +2455,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.use_direct_reads, false);
   ASSERT_EQ(new_db_opt.use_direct_io_for_flush_and_compaction, false);
   ASSERT_EQ(new_db_opt.is_fd_close_on_exec, true);
-  ASSERT_EQ(new_db_opt.skip_log_error_on_recovery, false);
   ASSERT_EQ(new_db_opt.stats_dump_period_sec, 46U);
   ASSERT_EQ(new_db_opt.stats_persist_period_sec, 57U);
   ASSERT_EQ(new_db_opt.persist_stats_to_disk, false);

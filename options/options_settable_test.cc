@@ -285,7 +285,6 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "skip_checking_sst_file_sizes_on_db_open=false;"
                              "max_manifest_file_size=4295009941;"
                              "db_log_dir=path/to/db_log_dir;"
-                             "skip_log_error_on_recovery=true;"
                              "writable_file_max_buffer_size=1048576;"
                              "paranoid_checks=true;"
                              "flush_verify_memtable_count=true;"

@@ -199,7 +199,6 @@ const std::string options_file_content = R"OPTIONS_FILE(
   skip_stats_update_on_db_open=false
   max_manifest_file_size=18446744073709551615
   db_log_dir=
-  skip_log_error_on_recovery=false
   writable_file_max_buffer_size=1048576
   paranoid_checks=true
   is_fd_close_on_exec=true
