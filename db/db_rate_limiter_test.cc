@@ -86,10 +86,19 @@ std::string GetTestNameSuffix(
   return oss.str();
 }
 
+#ifndef ROCKSDB_LITE
 INSTANTIATE_TEST_CASE_P(DBRateLimiterTest, DBRateLimiterTest,
                         ::testing::Combine(::testing::Bool(), ::testing::Bool(),
                                            ::testing::Bool()),
                         GetTestNameSuffix);
+#else   // ROCKSDB_LITE
+// Cannot use direct I/O in lite mode.
+INSTANTIATE_TEST_CASE_P(DBRateLimiterTest, DBRateLimiterTest,
+                        ::testing::Combine(::testing::Values(false),
+                                           ::testing::Bool(),
+                                           ::testing::Bool()),
+                        GetTestNameSuffix);
+#endif  // ROCKSDB_LITE
 
 TEST_P(DBRateLimiterTest, Get) {
   ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
