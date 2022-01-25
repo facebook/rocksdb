@@ -153,8 +153,8 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     result.avoid_flush_during_recovery = false;
   }
 
-#ifndef ROCKSDB_LITE
   ImmutableDBOptions immutable_db_options(result);
+#ifndef ROCKSDB_LITE
   if (!immutable_db_options.IsWalDirSameAsDBPath()) {
     // Either the WAL dir and db_paths[0]/db_name are not the same, or we
     // cannot tell for sure. In either case, assume they're different and
@@ -193,6 +193,16 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     result.sst_file_manager = sst_file_manager;
   }
 #endif  // !ROCKSDB_LITE
+
+  // Supported wal compression types
+  if (immutable_db_options.wal_compression == kDisableCompressionOption ||
+      immutable_db_options.wal_compression == kZSTD) {
+    result.wal_compression = immutable_db_options.wal_compression;
+  } else {
+    result.wal_compression = kDisableCompressionOption;
+    ROCKS_LOG_WARN(result.info_log,
+                   "wal_compression is disabled since only zstd is supported");
+  }
 
   if (!result.paranoid_checks) {
     result.skip_checking_sst_file_sizes_on_db_open = true;
