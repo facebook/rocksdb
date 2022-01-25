@@ -214,12 +214,6 @@ am__v_AR_ = $(am__v_AR_$(AM_DEFAULT_VERBOSITY))
 am__v_AR_0 = @echo "  AR      " $@;
 am__v_AR_1 =
 
-ifdef ROCKSDB_USE_LIBRADOS
-LIB_SOURCES += utilities/env_librados.cc
-TEST_MAIN_SOURCES += utilities/env_librados_test.cc
-LDFLAGS += -lrados
-endif
-
 AM_LINK = $(AM_V_CCLD)$(CXX) -L. $(patsubst lib%.a, -l%, $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^)) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 AM_SHARE = $(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$@ -L. $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^) $(LDFLAGS) -o $@
 
@@ -561,7 +555,7 @@ ifneq ($(filter check-headers, $(MAKECMDGOALS)),)
 # TODO: add/support JNI headers
 	DEV_HEADER_DIRS := $(sort include/ $(dir $(ALL_SOURCES)))
 # Some headers like in port/ are platform-specific
-	DEV_HEADERS := $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | egrep -v 'port/|plugin/|lua/|range_tree/|include/rocksdb/utilities/env_librados.h')
+	DEV_HEADERS := $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | egrep -v 'port/|plugin/|lua/|range_tree/')
 else
 	DEV_HEADERS :=
 endif
@@ -1611,11 +1605,6 @@ env_mirror_test: $(OBJ_DIR)/utilities/env_mirror_test.o $(TEST_LIBRARY) $(LIBRAR
 
 env_timed_test: $(OBJ_DIR)/utilities/env_timed_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
-
-ifdef ROCKSDB_USE_LIBRADOS
-env_librados_test: $(OBJ_DIR)/utilities/env_librados_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
-endif
 
 object_registry_test: $(OBJ_DIR)/utilities/object_registry_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
