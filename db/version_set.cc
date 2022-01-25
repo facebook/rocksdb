@@ -2402,11 +2402,10 @@ void VersionStorageInfo::GenerateLevelFilesBrief() {
   }
 }
 
-void Version::PrepareApply(
-    const MutableCFOptions& mutable_cf_options,
-    bool update_stats) {
+void Version::PrepareAppend(const MutableCFOptions& mutable_cf_options,
+                            bool update_stats) {
   TEST_SYNC_POINT_CALLBACK(
-      "Version::PrepareApply:forced_check",
+      "Version::PrepareAppend:forced_check",
       reinterpret_cast<void*>(&storage_info_.force_consistency_checks_));
   UpdateAccumulatedStats(update_stats);
   storage_info_.UpdateNumNonEmptyLevels();
@@ -3057,7 +3056,7 @@ void VersionStorageInfo::AddBlobFile(
   blob_files_.emplace_hint(it, blob_file_number, std::move(blob_file_meta));
 }
 
-// Version::PrepareApply() need to be called before calling the function, or
+// Version::PrepareAppend() need to be called before calling the function, or
 // following functions called:
 // 1. UpdateNumNonEmptyLevels();
 // 2. CalculateBaseBytes();
@@ -4414,7 +4413,7 @@ Status VersionSet::ProcessManifestWrites(
     if (s.ok()) {
       if (!first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
         for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
-          versions[i]->PrepareApply(*mutable_cf_options_ptrs[i], true);
+          versions[i]->PrepareAppend(*mutable_cf_options_ptrs[i], true);
         }
       }
 
