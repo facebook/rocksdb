@@ -338,6 +338,7 @@ class VersionStorageInfo {
 
         const uint64_t file_number = meta->fd.GetNumber();
 
+        assert(file_locations_.find(file_number) == file_locations_.end());
         file_locations_.emplace(file_number, FileLocation(level, pos));
       }
     }
