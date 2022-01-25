@@ -14,6 +14,7 @@ Note: The next release will be major release 7.0. See https://github.com/faceboo
 * Add ObjectLibrary::AddFactory and ObjectLibrary::PatternEntry classes.  This method and associated class are the preferred mechanism for registering factories with the ObjectLibrary going forward.  The ObjectLibrary::Register method, which uses regular expressions and may be problematic, is deprecated and will be in a future release.
 * Changed `BlockBasedTableOptions::block_size` from `size_t` to `uint64_t`.
 * Added API warning against using `Iterator::Refresh()` together with `DB::DeleteRange()`, which are incompatible and have always risked causing the refreshed iterator to return incorrect results.
+* Made `AdvancedColumnFamilyOptions.bottommost_temperature` dynamically changeable with `SetOptions()`.
 
 ### Behavior Changes
 * `DB::DestroyColumnFamilyHandle()` will return Status::InvalidArgument() if called with `DB::DefaultColumnFamily()`.

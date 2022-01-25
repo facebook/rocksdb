@@ -447,7 +447,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   options->max_mem_compaction_level = 0;
   options->compaction_filter = nullptr;
   options->sst_partitioner_factory = nullptr;
-  options->bottommost_temperature = Temperature::kUnknown;
 
   char* new_options_ptr = new char[sizeof(ColumnFamilyOptions)];
   ColumnFamilyOptions* new_options =
@@ -519,6 +518,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "blob_garbage_collection_age_cutoff=0.5;"
       "blob_garbage_collection_force_threshold=0.75;"
       "blob_compaction_readahead_size=262144;"
+      "bottommost_temperature=kWarm;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;age_for_warm=1;};",
       new_options));
