@@ -1108,19 +1108,6 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
   Close();
 }
 
-class DBBasicDeletionTestWithTimestamp
-    : public DBBasicTestWithTimestampBase,
-      public testing::WithParamInterface<enum ValueType> {
- public:
-  DBBasicDeletionTestWithTimestamp()
-      : DBBasicTestWithTimestampBase("db_basic_deletion_test_with_timestamp") {}
-};
-
-INSTANTIATE_TEST_CASE_P(
-    Timestamp, DBBasicDeletionTestWithTimestamp,
-    ::testing::Values(ValueType::kTypeSingleDeletion,
-                      ValueType::kTypeDeletionWithTimestamp));
-
 TEST_F(DBBasicTestWithTimestamp, ReseekToTargetTimestamp) {
   Options options = CurrentOptions();
   options.env = env_;
