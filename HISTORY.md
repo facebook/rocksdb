@@ -2,6 +2,7 @@
 ## Unreleased
 ### Public API changes
 * Remove HDFS support from main repo.
+* Remove librados support from main repo.
 
 ## 6.29.0 (01/21/2022)
 Note: The next release will be major release 7.0. See https://github.com/facebook/rocksdb/issues/9390 for more info.
