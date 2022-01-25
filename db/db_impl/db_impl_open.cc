@@ -195,10 +195,8 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
 #endif  // !ROCKSDB_LITE
 
   // Supported wal compression types
-  if (immutable_db_options.wal_compression == kNoCompression ||
-      immutable_db_options.wal_compression == kZSTD) {
-    result.wal_compression = immutable_db_options.wal_compression;
-  } else {
+  if (result.wal_compression != kNoCompression &&
+      result.wal_compression != kZSTD) {
     result.wal_compression = kNoCompression;
     ROCKS_LOG_WARN(result.info_log,
                    "wal_compression is disabled since only zstd is supported");
