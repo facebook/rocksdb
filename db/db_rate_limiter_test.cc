@@ -18,7 +18,7 @@ class DBRateLimiterTest
         use_block_cache_(std::get<1>(GetParam())),
         use_readahead_(std::get<2>(GetParam())) {}
 
-  void SetUp() override {
+  void Init() {
     options_ = GetOptions();
     Reopen(options_);
     for (int i = 0; i < kNumFiles; ++i) {
@@ -101,6 +101,11 @@ INSTANTIATE_TEST_CASE_P(DBRateLimiterTest, DBRateLimiterTest,
 #endif  // ROCKSDB_LITE
 
 TEST_P(DBRateLimiterTest, Get) {
+  if (use_direct_io_ && !IsDirectIOSupported()) {
+    return;
+  }
+  Init();
+
   ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 
   int expected = 0;
@@ -124,6 +129,11 @@ TEST_P(DBRateLimiterTest, Get) {
 }
 
 TEST_P(DBRateLimiterTest, Iterator) {
+  if (use_direct_io_ && !IsDirectIOSupported()) {
+    return;
+  }
+  Init();
+
   std::unique_ptr<Iterator> iter(db_->NewIterator(GetReadOptions()));
   ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 
