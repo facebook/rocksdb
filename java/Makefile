@@ -9,7 +9,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.AbstractTransactionNotifier\
 	org.rocksdb.AbstractWalFilter\
 	org.rocksdb.BackupEngine\
-	org.rocksdb.BackupableDBOptions\
+	org.rocksdb.BackupEngineOptions\
 	org.rocksdb.BlockBasedTableConfig\
 	org.rocksdb.BloomFilter\
 	org.rocksdb.Checkpoint\
@@ -105,7 +105,7 @@ ARCH := $(shell getconf LONG_BIT)
 SHA256_CMD ?= sha256sum
 
 JAVA_TESTS = \
-	org.rocksdb.BackupableDBOptionsTest\
+	org.rocksdb.BackupEngineOptionsTest\
 	org.rocksdb.BackupEngineTest\
 	org.rocksdb.BlobOptionsTest\
 	org.rocksdb.BlockBasedTableConfigTest\

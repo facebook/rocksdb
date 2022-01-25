@@ -14,8 +14,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-public class BackupableDBOptionsTest {
-
+public class BackupEngineOptionsTest {
   private final static String ARBITRARY_PATH =
       System.getProperty("java.io.tmpdir");
 
@@ -31,8 +30,7 @@ public class BackupableDBOptionsTest {
 
   @Test
   public void backupDir() {
-    try (final BackupableDBOptions backupableDBOptions =
-             new BackupableDBOptions(ARBITRARY_PATH)) {
+    try (final BackupEngineOptions backupableDBOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
       assertThat(backupableDBOptions.backupDir()).
           isEqualTo(ARBITRARY_PATH);
     }
@@ -40,8 +38,7 @@ public class BackupableDBOptionsTest {
 
   @Test
   public void env() {
-    try (final BackupableDBOptions backupableDBOptions =
-             new BackupableDBOptions(ARBITRARY_PATH)) {
+    try (final BackupEngineOptions backupableDBOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
       assertThat(backupableDBOptions.backupEnv()).
           isNull();
 
@@ -55,8 +52,7 @@ public class BackupableDBOptionsTest {
 
   @Test
   public void shareTableFiles() {
-    try (final BackupableDBOptions backupableDBOptions =
-             new BackupableDBOptions(ARBITRARY_PATH)) {
+    try (final BackupEngineOptions backupableDBOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
       final boolean value = rand.nextBoolean();
       backupableDBOptions.setShareTableFiles(value);
       assertThat(backupableDBOptions.shareTableFiles()).
@@ -66,8 +62,7 @@ public class BackupableDBOptionsTest {
 
   @Test
   public void infoLog() {
-    try (final BackupableDBOptions backupableDBOptions =
-             new BackupableDBOptions(ARBITRARY_PATH)) {
+    try (final BackupEngineOptions backupableDBOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
       assertThat(backupableDBOptions.infoLog()).
           isNull();
 
@@ -87,8 +82,7 @@ public class BackupableDBOptionsTest {
 
   @Test
   public void sync() {
-    try (final BackupableDBOptions backupableDBOptions =
-             new BackupableDBOptions(ARBITRARY_PATH)) {
+    try (final BackupEngineOptions backupableDBOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
       final boolean value = rand.nextBoolean();
       backupableDBOptions.setSync(value);
       assertThat(backupableDBOptions.sync()).isEqualTo(value);
@@ -97,8 +91,7 @@ public class BackupableDBOptionsTest {
 
   @Test
   public void destroyOldData() {
-    try (final BackupableDBOptions backupableDBOptions =
-             new BackupableDBOptions(ARBITRARY_PATH);) {
+    try (final BackupEngineOptions backupableDBOptions = new BackupEngineOptions(ARBITRARY_PATH);) {
       final boolean value = rand.nextBoolean();
       backupableDBOptions.setDestroyOldData(value);
       assertThat(backupableDBOptions.destroyOldData()).
@@ -108,8 +101,7 @@ public class BackupableDBOptionsTest {
 
   @Test
   public void backupLogFiles() {
-    try (final BackupableDBOptions backupableDBOptions =
-             new BackupableDBOptions(ARBITRARY_PATH)) {
+    try (final BackupEngineOptions backupableDBOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
       final boolean value = rand.nextBoolean();
       backupableDBOptions.setBackupLogFiles(value);
       assertThat(backupableDBOptions.backupLogFiles()).
@@ -119,8 +111,7 @@ public class BackupableDBOptionsTest {
 
   @Test
   public void backupRateLimit() {
-    try (final BackupableDBOptions backupableDBOptions =
-             new BackupableDBOptions(ARBITRARY_PATH)) {
+    try (final BackupEngineOptions backupableDBOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
       final long value = Math.abs(rand.nextLong());
       backupableDBOptions.setBackupRateLimit(value);
       assertThat(backupableDBOptions.backupRateLimit()).
@@ -134,8 +125,7 @@ public class BackupableDBOptionsTest {
 
   @Test
   public void backupRateLimiter() {
-    try (final BackupableDBOptions backupableDBOptions =
-             new BackupableDBOptions(ARBITRARY_PATH)) {
+    try (final BackupEngineOptions backupableDBOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
       assertThat(backupableDBOptions.backupEnv()).
           isNull();
 
@@ -150,8 +140,7 @@ public class BackupableDBOptionsTest {
 
   @Test
   public void restoreRateLimit() {
-    try (final BackupableDBOptions backupableDBOptions =
-             new BackupableDBOptions(ARBITRARY_PATH)) {
+    try (final BackupEngineOptions backupableDBOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
       final long value = Math.abs(rand.nextLong());
       backupableDBOptions.setRestoreRateLimit(value);
       assertThat(backupableDBOptions.restoreRateLimit()).
@@ -165,8 +154,7 @@ public class BackupableDBOptionsTest {
 
   @Test
   public void restoreRateLimiter() {
-    try (final BackupableDBOptions backupableDBOptions =
-             new BackupableDBOptions(ARBITRARY_PATH)) {
+    try (final BackupEngineOptions backupableDBOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
       assertThat(backupableDBOptions.backupEnv()).
           isNull();
 
@@ -181,8 +169,7 @@ public class BackupableDBOptionsTest {
 
   @Test
   public void shareFilesWithChecksum() {
-    try (final BackupableDBOptions backupableDBOptions =
-             new BackupableDBOptions(ARBITRARY_PATH)) {
+    try (final BackupEngineOptions backupableDBOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
       boolean value = rand.nextBoolean();
       backupableDBOptions.setShareFilesWithChecksum(value);
       assertThat(backupableDBOptions.shareFilesWithChecksum()).
@@ -192,8 +179,7 @@ public class BackupableDBOptionsTest {
 
   @Test
   public void maxBackgroundOperations() {
-    try (final BackupableDBOptions backupableDBOptions =
-             new BackupableDBOptions(ARBITRARY_PATH)) {
+    try (final BackupEngineOptions backupableDBOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
       final int value = rand.nextInt();
       backupableDBOptions.setMaxBackgroundOperations(value);
       assertThat(backupableDBOptions.maxBackgroundOperations()).
@@ -203,8 +189,7 @@ public class BackupableDBOptionsTest {
 
   @Test
   public void callbackTriggerIntervalSize() {
-    try (final BackupableDBOptions backupableDBOptions =
-             new BackupableDBOptions(ARBITRARY_PATH)) {
+    try (final BackupEngineOptions backupableDBOptions = new BackupEngineOptions(ARBITRARY_PATH)) {
       final long value = rand.nextLong();
       backupableDBOptions.setCallbackTriggerIntervalSize(value);
       assertThat(backupableDBOptions.callbackTriggerIntervalSize()).
@@ -215,135 +200,118 @@ public class BackupableDBOptionsTest {
   @Test
   public void failBackupDirIsNull() {
     exception.expect(IllegalArgumentException.class);
-    try (final BackupableDBOptions opts = new BackupableDBOptions(null)) {
+    try (final BackupEngineOptions opts = new BackupEngineOptions(null)) {
       //no-op
     }
   }
 
   @Test
   public void failBackupDirIfDisposed() {
-    try (final BackupableDBOptions options =
-             setupUninitializedBackupableDBOptions(exception)) {
+    try (final BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
       options.backupDir();
     }
   }
 
   @Test
   public void failSetShareTableFilesIfDisposed() {
-    try (final BackupableDBOptions options =
-             setupUninitializedBackupableDBOptions(exception)) {
+    try (final BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
       options.setShareTableFiles(true);
     }
   }
 
   @Test
   public void failShareTableFilesIfDisposed() {
-    try (BackupableDBOptions options =
-             setupUninitializedBackupableDBOptions(exception)) {
+    try (BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
       options.shareTableFiles();
     }
   }
 
   @Test
   public void failSetSyncIfDisposed() {
-    try (final BackupableDBOptions options =
-             setupUninitializedBackupableDBOptions(exception)) {
+    try (final BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
       options.setSync(true);
     }
   }
 
   @Test
   public void failSyncIfDisposed() {
-    try (final BackupableDBOptions options =
-             setupUninitializedBackupableDBOptions(exception)) {
+    try (final BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
       options.sync();
     }
   }
 
   @Test
   public void failSetDestroyOldDataIfDisposed() {
-    try (final BackupableDBOptions options =
-             setupUninitializedBackupableDBOptions(exception)) {
+    try (final BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
       options.setDestroyOldData(true);
     }
   }
 
   @Test
   public void failDestroyOldDataIfDisposed() {
-    try (final BackupableDBOptions options =
-             setupUninitializedBackupableDBOptions(exception)) {
+    try (final BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
       options.destroyOldData();
     }
   }
 
   @Test
   public void failSetBackupLogFilesIfDisposed() {
-    try (final BackupableDBOptions options =
-             setupUninitializedBackupableDBOptions(exception)) {
+    try (final BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
       options.setBackupLogFiles(true);
     }
   }
 
   @Test
   public void failBackupLogFilesIfDisposed() {
-    try (final BackupableDBOptions options =
-             setupUninitializedBackupableDBOptions(exception)) {
+    try (final BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
       options.backupLogFiles();
     }
   }
 
   @Test
   public void failSetBackupRateLimitIfDisposed() {
-    try (final BackupableDBOptions options =
-             setupUninitializedBackupableDBOptions(exception)) {
+    try (final BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
       options.setBackupRateLimit(1);
     }
   }
 
   @Test
   public void failBackupRateLimitIfDisposed() {
-    try (final BackupableDBOptions options =
-             setupUninitializedBackupableDBOptions(exception)) {
+    try (final BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
       options.backupRateLimit();
     }
   }
 
   @Test
   public void failSetRestoreRateLimitIfDisposed() {
-    try (final BackupableDBOptions options =
-             setupUninitializedBackupableDBOptions(exception)) {
+    try (final BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
       options.setRestoreRateLimit(1);
     }
   }
 
   @Test
   public void failRestoreRateLimitIfDisposed() {
-    try (final BackupableDBOptions options =
-             setupUninitializedBackupableDBOptions(exception)) {
+    try (final BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
       options.restoreRateLimit();
     }
   }
 
   @Test
   public void failSetShareFilesWithChecksumIfDisposed() {
-    try (final BackupableDBOptions options =
-             setupUninitializedBackupableDBOptions(exception)) {
+    try (final BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
       options.setShareFilesWithChecksum(true);
     }
   }
 
   @Test
   public void failShareFilesWithChecksumIfDisposed() {
-    try (final BackupableDBOptions options =
-             setupUninitializedBackupableDBOptions(exception)) {
+    try (final BackupEngineOptions options = setupUninitializedBackupEngineOptions(exception)) {
       options.shareFilesWithChecksum();
     }
   }
 
-  private BackupableDBOptions setupUninitializedBackupableDBOptions(
-      ExpectedException exception) {
-    final BackupableDBOptions backupableDBOptions =
-        new BackupableDBOptions(ARBITRARY_PATH);
+  private BackupEngineOptions setupUninitializedBackupEngineOptions(ExpectedException exception) {
+    final BackupEngineOptions backupableDBOptions = new BackupEngineOptions(ARBITRARY_PATH);
     backupableDBOptions.close();
     exception.expect(AssertionError.class);
     return backupableDBOptions;

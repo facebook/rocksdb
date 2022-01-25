@@ -50,7 +50,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
-#include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/debug.h"
