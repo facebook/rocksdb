@@ -1,4 +1,4 @@
-# RocksDB default options change log
+# RocksDB default options change log (NO LONGER MAINTAINED)
 ## Unreleased
 * delayed_write_rate takes the rate given by rate_limiter if not specified.
 

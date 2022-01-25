@@ -418,11 +418,17 @@ class VersionEdit {
                      temperature, oldest_blob_file_number, oldest_ancester_time,
                      file_creation_time, file_checksum, file_checksum_func_name,
                      min_timestamp, max_timestamp));
+    if (!HasLastSequence() || largest_seqno > GetLastSequence()) {
+      SetLastSequence(largest_seqno);
+    }
   }
 
   void AddFile(int level, const FileMetaData& f) {
     assert(f.fd.smallest_seqno <= f.fd.largest_seqno);
     new_files_.emplace_back(level, f);
+    if (!HasLastSequence() || f.fd.largest_seqno > GetLastSequence()) {
+      SetLastSequence(f.fd.largest_seqno);
+    }
   }
 
   // Retrieve the table files added as well as their associated levels.

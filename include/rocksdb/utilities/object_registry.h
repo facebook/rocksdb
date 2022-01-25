@@ -42,59 +42,196 @@ template <typename T>
 using ConfigureFunc = std::function<Status(T*)>;
 
 class ObjectLibrary {
- public:
+ private:
   // Base class for an Entry in the Registry.
   class Entry {
    public:
     virtual ~Entry() {}
-    Entry(const std::string& name) : name_(std::move(name)) {}
+    virtual bool Matches(const std::string& target) const = 0;
+    virtual const char* Name() const = 0;
+  };
 
-    // Checks to see if the target matches this entry
-    virtual bool matches(const std::string& target) const {
-      return name_ == target;
+  // A class that implements an Entry based on Regex.
+  //
+  // WARNING: some regexes are problematic for std::regex; see
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582 for example
+  //
+  // This class is deprecated and will be removed in a future release
+  class RegexEntry : public Entry {
+   public:
+    explicit RegexEntry(const std::string& name) : name_(name) {
+      Regex::Parse(name, &regex_).PermitUncheckedError();
     }
-    const std::string& Name() const { return name_; }
+
+    bool Matches(const std::string& target) const override {
+      return regex_.Matches(target);
+    }
+    const char* Name() const override { return name_.c_str(); }
 
    private:
-    const std::string name_;  // The name of the Entry
-  };                          // End class Entry
+    std::string name_;
+    Regex regex_;  // The pattern for this entry
+  };
 
-  // An Entry containing a FactoryFunc for creating new Objects
+ public:
+  // Class for matching target strings to a pattern.
+  // Entries consist of a name that starts the pattern and attributes
+  // The following attributes can be added to the entry:
+  //   -Suffix: Comparable to name(suffix)
+  //   -Separator: Comparable to name(separator).+ or name(separator).*
+  //   -Number: Comparable to name(separator).[0-9]+
+  //   -AltName: Comparable to (name|alt)
+  //   -Optional: Comparable to name(separator)?
+  // Multiple separators can be combined and cause multiple matches.
+  // For example, Pattern("A").AnotherName("B").AddSeparator("@").AddNumber("#")
+  // is roughly equivalent to "(A|B)@.+#.+"
   //
-  // !!!!!! WARNING !!!!!!: The implementation currently uses std::regex, which
-  // has terrible performance in some cases, including possible crash due to
-  // stack overflow. See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582
-  // for example. Avoid complicated regexes as much as possible.
+  // Note that though this class does provide some regex-style matching,
+  // it is not a full regex parser and has some key differences:
+  //   - Separators are matched left-most.  For example, an entry
+  //     Name("Hello").AddSeparator(" ").AddSuffix("!") would match
+  //     "Hello world!", but not "Hello world!!"
+  //   - No backtracking is necessary, enabling reliably efficient matching
+  class PatternEntry : public Entry {
+   private:
+    enum Quantifier {
+      kMatchZeroOrMore,  // [suffix].*
+      kMatchAtLeastOne,  // [suffix].+
+      kMatchExact,       // [suffix]
+      kMatchNumeric,     // [suffix][0-9]+
+    };
+
+   public:
+    // Short-cut for creating an entry that matches to a
+    // Customizable::IndividualId
+    static PatternEntry AsIndividualId(const std::string& name) {
+      PatternEntry entry(name, true);
+      entry.AddSeparator("@");
+      entry.AddSeparator("#");
+      return entry;
+    }
+
+    // Creates a new PatternEntry for "name".  If optional is true,
+    // Matches will also return true if name==target
+    explicit PatternEntry(const std::string& name, bool optional = true)
+        : name_(name), optional_(optional), slength_(0) {
+      nlength_ = name_.size();
+    }
+
+    // Adds a suffix (exact match of separator with no trailing characters) to
+    // the separator
+    PatternEntry& AddSuffix(const std::string& suffix) {
+      separators_.emplace_back(suffix, kMatchExact);
+      slength_ += suffix.size();
+      return *this;
+    }
+
+    // Adds a separator (exact match of separator with trailing characters) to
+    // the entry
+    // If at_least_one is true, the separator must be followed by at least
+    // one character (e.g. separator.+).
+    // If at_least_one is false, the separator may be followed by zero or
+    // more characters (e.g. separator.*).
+    PatternEntry& AddSeparator(const std::string& separator,
+                               bool at_least_one = true) {
+      slength_ += separator.size();
+      if (at_least_one) {
+        separators_.emplace_back(separator, kMatchAtLeastOne);
+        ++slength_;
+      } else {
+        separators_.emplace_back(separator, kMatchZeroOrMore);
+      }
+      return *this;
+    }
+
+    // Adds a separator (exact match of separator with trailing numbers) to the
+    // entry
+    PatternEntry& AddNumber(const std::string& separator) {
+      separators_.emplace_back(separator, kMatchNumeric);
+      slength_ += separator.size() + 1;
+      return *this;
+    }
+
+    // Sets another name that this entry will match, similar to (name|alt)
+    PatternEntry& AnotherName(const std::string& alt) {
+      names_.emplace_back(alt);
+      return *this;
+    }
+
+    // Sets whether the separators are required -- similar to name(separator)?
+    // If optional is true, then name(separator)? would match
+    // If optional is false, then the separators must also match
+    PatternEntry& SetOptional(bool optional) {
+      optional_ = optional;
+      return *this;
+    }
+
+    // Checks to see if the target matches this entry
+    bool Matches(const std::string& target) const override;
+    const char* Name() const override { return name_.c_str(); }
+
+   private:
+    size_t MatchSeparatorAt(size_t start, Quantifier mode,
+                            const std::string& target, size_t tlen,
+                            const std::string& pattern) const;
+
+    bool MatchesTarget(const std::string& name, size_t nlen,
+                       const std::string& target, size_t ylen) const;
+    std::string name_;                // The base name for this entry
+    size_t nlength_;                  // The length of name_
+    std::vector<std::string> names_;  // Alternative names for this entry
+    bool optional_;   // Whether matching of separators is required
+    size_t slength_;  // The minimum required length to match the separators
+    std::vector<std::pair<std::string, Quantifier>>
+        separators_;  // What to match
+  };                  // End class Entry
+
+ private:
+  // An Entry containing a FactoryFunc for creating new Objects
   template <typename T>
   class FactoryEntry : public Entry {
    public:
-    FactoryEntry(const std::string& name, FactoryFunc<T> f)
-        : Entry(name), factory_(std::move(f)) {
-      // FIXME: the API needs to expose this failure mode. For now, bad regexes
-      // will match nothing.
-      Regex::Parse(name, &regex_).PermitUncheckedError();
+    FactoryEntry(Entry* e, FactoryFunc<T> f)
+        : entry_(e), factory_(std::move(f)) {}
+    bool Matches(const std::string& target) const override {
+      return entry_->Matches(target);
     }
-    ~FactoryEntry() override {}
-    bool matches(const std::string& target) const override {
-      return regex_.Matches(target);
-    }
+    const char* Name() const override { return entry_->Name(); }
+
     // Creates a new T object.
     T* NewFactoryObject(const std::string& target, std::unique_ptr<T>* guard,
                         std::string* msg) const {
       return factory_(target, guard, msg);
     }
+    const FactoryFunc<T>& GetFactory() const { return factory_; }
 
    private:
-    Regex regex_;  // The pattern for this entry
+    std::unique_ptr<Entry> entry_;  // What to match for this entry
     FactoryFunc<T> factory_;
   };  // End class FactoryEntry
  public:
   explicit ObjectLibrary(const std::string& id) { id_ = id; }
 
   const std::string& GetID() const { return id_; }
-  // Finds the entry matching the input name and type
-  const Entry* FindEntry(const std::string& type,
-                         const std::string& name) const;
+
+  // Finds the factory function for the input target.
+  // @see PatternEntry for the matching rules to target
+  // @return If matched, the FactoryFunc for this target, else nullptr
+  template <typename T>
+  FactoryFunc<T> FindFactory(const std::string& target) const {
+    std::unique_lock<std::mutex> lock(mu_);
+    auto factories = factories_.find(T::Type());
+    if (factories != factories_.end()) {
+      for (const auto& e : factories->second) {
+        if (e->Matches(target)) {
+          const auto* fe =
+              static_cast<const ObjectLibrary::FactoryEntry<T>*>(e.get());
+          return fe->GetFactory();
+        }
+      }
+    }
+    return nullptr;
+  }
 
   // Returns the total number of factories registered for this library.
   // This method returns the sum of all factories registered for all types.
@@ -103,14 +240,45 @@ class ObjectLibrary {
 
   void Dump(Logger* logger) const;
 
-  // Registers the factory with the library for the pattern.
+  // Registers the factory with the library for the regular expression pattern.
   // If the pattern matches, the factory may be used to create a new object.
+  //
+  // WARNING: some regexes are problematic for std::regex; see
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582 for example
+  //
+  // Deprecated. Will be removed in a major release. Code should use AddFactory
+  // instead.
   template <typename T>
   const FactoryFunc<T>& Register(const std::string& pattern,
                                  const FactoryFunc<T>& factory) {
-    std::unique_ptr<Entry> entry(new FactoryEntry<T>(pattern, factory));
-    AddEntry(T::Type(), entry);
+    std::unique_ptr<Entry> entry(
+        new FactoryEntry<T>(new RegexEntry(pattern), factory));
+    AddFactoryEntry(T::Type(), std::move(entry));
     return factory;
+  }
+
+  // Registers the factory with the library for the name.
+  // If name==target, the factory may be used to create a new object.
+  template <typename T>
+  const FactoryFunc<T>& AddFactory(const std::string& name,
+                                   const FactoryFunc<T>& func) {
+    std::unique_ptr<Entry> entry(
+        new FactoryEntry<T>(new PatternEntry(name), func));
+    AddFactoryEntry(T::Type(), std::move(entry));
+    return func;
+  }
+
+  // Registers the factory with the library for the entry.
+  // If the entry matches the target, the factory may be used to create a new
+  // object.
+  // @see PatternEntry for the matching rules.
+  template <typename T>
+  const FactoryFunc<T>& AddFactory(const PatternEntry& entry,
+                                   const FactoryFunc<T>& func) {
+    std::unique_ptr<Entry> factory(
+        new FactoryEntry<T>(new PatternEntry(entry), func));
+    AddFactoryEntry(T::Type(), std::move(factory));
+    return func;
   }
 
   // Invokes the registrar function with the supplied arg for this library.
@@ -122,13 +290,17 @@ class ObjectLibrary {
   static std::shared_ptr<ObjectLibrary>& Default();
 
  private:
-  // Adds the input entry to the list for the given type
-  void AddEntry(const std::string& type, std::unique_ptr<Entry>& entry);
+  void AddFactoryEntry(const char* type, std::unique_ptr<Entry>&& entry) {
+    std::unique_lock<std::mutex> lock(mu_);
+    auto& factories = factories_[type];
+    factories.emplace_back(std::move(entry));
+  }
 
   // Protects the entry map
   mutable std::mutex mu_;
   // ** FactoryFunctions for this loader, organized by type
-  std::unordered_map<std::string, std::vector<std::unique_ptr<Entry>>> entries_;
+  std::unordered_map<std::string, std::vector<std::unique_ptr<Entry>>>
+      factories_;
 
   // The name for this library
   std::string id_;
@@ -163,26 +335,23 @@ class ObjectRegistry {
     library->Register(registrar, arg);
   }
 
-  // Creates a new T using the factory function that was registered with a
-  // pattern that matches the provided "target" string according to
-  // std::regex_match.
-  //
-  // WARNING: some regexes are problematic for std::regex; see
-  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582 for example
+  // Creates a new T using the factory function that was registered for this
+  // target.  Searches through the libraries to find the first library where
+  // there is an entry that matches target (see PatternEntry for the matching
+  // rules).
   //
   // If no registered functions match, returns nullptr. If multiple functions
   // match, the factory function used is unspecified.
   //
-  // Populates res_guard with result pointer if caller is granted ownership.
+  // Populates guard with result pointer if caller is granted ownership.
+  // Deprecated.  Use NewShared/Static/UniqueObject instead.
   template <typename T>
   T* NewObject(const std::string& target, std::unique_ptr<T>* guard,
                std::string* errmsg) {
     guard->reset();
-    const auto* basic = FindEntry(T::Type(), target);
-    if (basic != nullptr) {
-      const auto* factory =
-          static_cast<const ObjectLibrary::FactoryEntry<T>*>(basic);
-      return factory->NewFactoryObject(target, guard, errmsg);
+    auto factory = FindFactory<T>(target);
+    if (factory != nullptr) {
+      return factory(target, guard, errmsg);
     } else {
       *errmsg = std::string("Could not load ") + T::Type();
       return nullptr;
@@ -386,8 +555,27 @@ class ObjectRegistry {
   Status SetManagedObject(const std::string& type, const std::string& id,
                           const std::shared_ptr<Customizable>& c);
 
-  const ObjectLibrary::Entry* FindEntry(const std::string& type,
-                                        const std::string& name) const;
+  // Searches (from back to front) the libraries looking for the
+  // factory that matches this name.
+  // Returns the factory if it is found, and nullptr otherwise
+  template <typename T>
+  const FactoryFunc<T> FindFactory(const std::string& name) const {
+    {
+      std::unique_lock<std::mutex> lock(library_mutex_);
+      for (auto iter = libraries_.crbegin(); iter != libraries_.crend();
+           ++iter) {
+        const auto factory = iter->get()->FindFactory<T>(name);
+        if (factory != nullptr) {
+          return factory;
+        }
+      }
+    }
+    if (parent_ != nullptr) {
+      return parent_->FindFactory<T>(name);
+    } else {
+      return nullptr;
+    }
+  }
 
   // The set of libraries to search for factories for this registry.
   // The libraries are searched in reverse order (back to front) when

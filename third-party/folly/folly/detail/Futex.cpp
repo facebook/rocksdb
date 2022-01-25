@@ -20,8 +20,6 @@
 #include <unistd.h>
 #endif
 
-using namespace std::chrono;
-
 namespace folly {
 namespace detail {
 
@@ -69,7 +67,7 @@ int nativeFutexWake(const void* addr, int count, uint32_t wakeMask) {
 }
 
 template <class Clock>
-struct timespec timeSpecFromTimePoint(time_point<Clock> absTime) {
+struct timespec timeSpecFromTimePoint(std::chrono::time_point<Clock> absTime) {
   auto epoch = absTime.time_since_epoch();
   if (epoch.count() < 0) {
     // kernel timespec_valid requires non-negative seconds and nanos in [0,1G)
@@ -79,20 +77,21 @@ struct timespec timeSpecFromTimePoint(time_point<Clock> absTime) {
   // timespec-safe seconds and nanoseconds;
   // chrono::{nano,}seconds are `long long int`
   // whereas timespec uses smaller types
-  using time_t_seconds = duration<std::time_t, seconds::period>;
-  using long_nanos = duration<long int, nanoseconds::period>;
+  using time_t_seconds =
+      std::chrono::duration<std::time_t, std::chrono::seconds::period>;
+  using long_nanos =
+      std::chrono::duration<long int, std::chrono::nanoseconds::period>;
 
-  auto secs = duration_cast<time_t_seconds>(epoch);
-  auto nanos = duration_cast<long_nanos>(epoch - secs);
+  auto secs = std::chrono::duration_cast<time_t_seconds>(epoch);
+  auto nanos = std::chrono::duration_cast<long_nanos>(epoch - secs);
   struct timespec result = {secs.count(), nanos.count()};
   return result;
 }
 
 FutexResult nativeFutexWaitImpl(
-    const void* addr,
-    uint32_t expected,
-    system_clock::time_point const* absSystemTime,
-    steady_clock::time_point const* absSteadyTime,
+    const void* addr, uint32_t expected,
+    std::chrono::system_clock::time_point const* absSystemTime,
+    std::chrono::steady_clock::time_point const* absSteadyTime,
     uint32_t waitMask) {
   assert(absSystemTime == nullptr || absSteadyTime == nullptr);
 
@@ -171,10 +170,9 @@ int emulatedFutexWake(const void* addr, int count, uint32_t waitMask) {
 
 template <typename F>
 FutexResult emulatedFutexWaitImpl(
-    F* futex,
-    uint32_t expected,
-    system_clock::time_point const* absSystemTime,
-    steady_clock::time_point const* absSteadyTime,
+    F* futex, uint32_t expected,
+    std::chrono::system_clock::time_point const* absSystemTime,
+    std::chrono::steady_clock::time_point const* absSteadyTime,
     uint32_t waitMask) {
   static_assert(
       std::is_same<F, const Futex<std::atomic>>::value ||
@@ -235,10 +233,9 @@ int futexWakeImpl(
 }
 
 FutexResult futexWaitImpl(
-    const Futex<std::atomic>* futex,
-    uint32_t expected,
-    system_clock::time_point const* absSystemTime,
-    steady_clock::time_point const* absSteadyTime,
+    const Futex<std::atomic>* futex, uint32_t expected,
+    std::chrono::system_clock::time_point const* absSystemTime,
+    std::chrono::steady_clock::time_point const* absSteadyTime,
     uint32_t waitMask) {
 #ifdef __linux__
   return nativeFutexWaitImpl(
@@ -250,10 +247,9 @@ FutexResult futexWaitImpl(
 }
 
 FutexResult futexWaitImpl(
-    const Futex<EmulatedFutexAtomic>* futex,
-    uint32_t expected,
-    system_clock::time_point const* absSystemTime,
-    steady_clock::time_point const* absSteadyTime,
+    const Futex<EmulatedFutexAtomic>* futex, uint32_t expected,
+    std::chrono::system_clock::time_point const* absSystemTime,
+    std::chrono::steady_clock::time_point const* absSteadyTime,
     uint32_t waitMask) {
   return emulatedFutexWaitImpl(
       futex, expected, absSystemTime, absSteadyTime, waitMask);

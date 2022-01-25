@@ -403,6 +403,10 @@ class DB {
   // If "end_key" comes before "start_key" according to the user's comparator,
   // a `Status::InvalidArgument` is returned.
   //
+  // WARNING: Do not use `Iterator::Refresh()` API on DBs where `DeleteRange()`
+  // has been used or will be used. This feature combination is neither
+  // supported nor programmatically prevented.
+  //
   // This feature is now usable in production, with the following caveats:
   // 1) Accumulating many range tombstones in the memtable will degrade read
   // performance; this can be avoided by manually flushing occasionally.
@@ -1355,6 +1359,15 @@ class DB {
   // but no obsolete files will be deleted. Calling this multiple
   // times have the same effect as calling it once.
   virtual Status DisableFileDeletions() = 0;
+
+  // Increase the full_history_ts of column family. The new ts_low value should
+  // be newer than current full_history_ts value.
+  virtual Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                          std::string ts_low) = 0;
+
+  // Get current full_history_ts value.
+  virtual Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                     std::string* ts_low) = 0;
 
   // Allow compactions to delete obsolete files.
   // If force == true, the call to EnableFileDeletions() will guarantee that

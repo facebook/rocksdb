@@ -8,9 +8,11 @@
 #include "rocksdb/merge_operator.h"
 #include "utilities/merge_operators.h"
 
-using namespace ROCKSDB_NAMESPACE;
-
 namespace { // anonymous namespace
+
+using ROCKSDB_NAMESPACE::Logger;
+using ROCKSDB_NAMESPACE::MergeOperator;
+using ROCKSDB_NAMESPACE::Slice;
 
 // A merge operator that mimics Put semantics
 // Since this merge-operator will not be used in production,
