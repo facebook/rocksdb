@@ -741,9 +741,9 @@ class Version {
                     std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs);
 
   // Loads some stats information from files. Call without mutex held. It needs
-  // to be called before applying the version to the version set.
-  void PrepareApply(const MutableCFOptions& mutable_cf_options,
-                    bool update_stats);
+  // to be called before appending the version to the version set.
+  void PrepareAppend(const MutableCFOptions& mutable_cf_options,
+                     bool update_stats);
 
   // Reference count management (so Versions do not disappear out from
   // under live iterators)
@@ -1296,7 +1296,7 @@ class VersionSet {
         new Version(cfd, this, file_options_, mutable_cf_options, io_tracer_);
 
     constexpr bool update_stats = false;
-    version->PrepareApply(mutable_cf_options, update_stats);
+    version->PrepareAppend(mutable_cf_options, update_stats);
     AppendVersion(cfd, version);
   }
 
