@@ -159,7 +159,7 @@ Status DBImpl::TEST_AtomicFlushMemTables(
 Status DBImpl::TEST_WaitForBackgroundWork() {
   InstrumentedMutexLock l(&mutex_);
   WaitForBackgroundWork();
-  return Status::OK();
+  return error_handler_.GetBGError();
 }
 
 Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {

@@ -48,14 +48,15 @@ void serialize_endpoint(const Endpoint& endp, std::string* buf) {
 }
 
 // Decode the endpoint from the format it is stored in the locktree (DBT) to
-// one used outside (EndpointWithString)
-void deserialize_endpoint(const DBT* dbt, EndpointWithString* endp) {
+// the one used outside: either Endpoint or EndpointWithString
+template <typename EndpointStruct>
+void deserialize_endpoint(const DBT* dbt, EndpointStruct* endp) {
   assert(dbt->size >= 1);
   const char* dbt_data = (const char*)dbt->data;
   char suffix = dbt_data[0];
   assert(suffix == SUFFIX_INFIMUM || suffix == SUFFIX_SUPREMUM);
   endp->inf_suffix = (suffix == SUFFIX_SUPREMUM);
-  endp->slice.assign(dbt_data + 1, dbt->size - 1);
+  endp->slice = decltype(EndpointStruct::slice)(dbt_data + 1, dbt->size - 1);
 }
 
 // Get a range lock on [start_key; end_key] range
@@ -263,6 +264,21 @@ RangeTreeLockManager::RangeTreeLockManager(
   ltm_.create(on_create, on_destroy, on_escalate, nullptr, mutex_factory_);
 }
 
+int RangeTreeLockManager::on_create(toku::locktree* lt, void* arg) {
+  // arg is a pointer to RangeTreeLockManager
+  lt->set_escalation_barrier_func(&OnEscalationBarrierCheck, arg);
+  return 0;
+}
+
+bool RangeTreeLockManager::OnEscalationBarrierCheck(const DBT* a, const DBT* b,
+                                                    void* extra) {
+  Endpoint a_endp, b_endp;
+  deserialize_endpoint(a, &a_endp);
+  deserialize_endpoint(b, &b_endp);
+  auto self = static_cast<RangeTreeLockManager*>(extra);
+  return self->barrier_func_(a_endp, b_endp);
+}
+
 void RangeTreeLockManager::SetRangeDeadlockInfoBufferSize(
     uint32_t target_size) {
   dlock_buffer_.Resize(target_size);
@@ -357,8 +373,9 @@ void RangeTreeLockManager::AddColumnFamily(const ColumnFamilyHandle* cfh) {
     DICTIONARY_ID dict_id = {.dictid = column_family_id};
     toku::comparator cmp;
     cmp.create(CompareDbtEndpoints, (void*)cfh->GetComparator());
-    toku::locktree* ltree = ltm_.get_lt(dict_id, cmp,
-                                        /* on_create_extra*/ nullptr);
+    toku::locktree* ltree =
+        ltm_.get_lt(dict_id, cmp,
+                    /* on_create_extra*/ static_cast<void*>(this));
     // This is ok to because get_lt has copied the comparator:
     cmp.destroy();
 
