@@ -1229,7 +1229,7 @@ struct DBOptions {
   bool manual_wal_flush = false;
 
   // If enabled WAL records will be compressed before they are written.
-  CompressionType wal_compression = kDisableCompressionOption;
+  CompressionType wal_compression = kNoCompression;
 
   // If true, RocksDB supports flushing multiple column families and committing
   // their results atomically to MANIFEST. Note that it is not

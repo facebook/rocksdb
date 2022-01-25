@@ -765,7 +765,7 @@ DEFINE_bool(manual_wal_flush, false,
 DEFINE_string(wal_compression, "string",
               "Algorithm to use for WAL compression. none to disable.");
 static enum ROCKSDB_NAMESPACE::CompressionType FLAGS_wal_compression_e =
-    ROCKSDB_NAMESPACE::kDisableCompressionOption;
+    ROCKSDB_NAMESPACE::kNoCompression;
 
 DEFINE_string(wal_dir, "", "If not empty, use the given dir for WAL");
 
