@@ -86,12 +86,12 @@ public abstract class AbstractRocksIterator<P extends RocksNative>
   }
 
   @Override
-  public void next() {
+  public void next() throws RocksDBException {
     next0(getNative());
   }
 
   @Override
-  public void prev() {
+  public void prev() throws RocksDBException {
     prev0(getNative());
   }
 

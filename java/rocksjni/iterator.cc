@@ -18,6 +18,16 @@
 #include "include/org_rocksdb_RocksIterator.h"
 #include "rocksjni/portal.h"
 
+void if_valid_helper(JNIEnv* env, jlong handle,
+                     std::function<void(APIIterator&)> lambda) {
+  auto& iteratorAPI = *reinterpret_cast<APIIterator*>(handle);
+  if (iteratorAPI->Valid()) {
+    lambda(iteratorAPI);
+  } else {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, "Invalid iterator");
+  }
+}
+
 /*
  * Class:     org_rocksdb_RocksIterator
  * Method:    nativeClose
@@ -84,9 +94,9 @@ void Java_org_rocksdb_RocksIterator_seekToLast0(JNIEnv* /*env*/,
  * Method:    next0
  * Signature: (J)V
  */
-void Java_org_rocksdb_RocksIterator_next0(JNIEnv* /*env*/, jobject /*jobj*/,
+void Java_org_rocksdb_RocksIterator_next0(JNIEnv* env, jobject /*jobj*/,
                                           jlong handle) {
-  (*reinterpret_cast<APIIterator*>(handle))->Next();
+  if_valid_helper(env, handle, [](APIIterator& it) { it->Next(); });
 }
 
 /*
@@ -94,9 +104,9 @@ void Java_org_rocksdb_RocksIterator_next0(JNIEnv* /*env*/, jobject /*jobj*/,
  * Method:    prev0
  * Signature: (J)V
  */
-void Java_org_rocksdb_RocksIterator_prev0(JNIEnv* /*env*/, jobject /*jobj*/,
+void Java_org_rocksdb_RocksIterator_prev0(JNIEnv* env, jobject /*jobj*/,
                                           jlong handle) {
-  (*reinterpret_cast<APIIterator*>(handle))->Prev();
+  if_valid_helper(env, handle, [](APIIterator& it) { it->Prev(); });
 }
 
 /*

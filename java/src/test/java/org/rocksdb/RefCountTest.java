@@ -1,6 +1,7 @@
 package org.rocksdb;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -139,7 +140,12 @@ public class RefCountTest {
       closedDB = db;
     }
     //And we crap out accessing the closed DB
-    assertThat(closedDB.get("key".getBytes())).isEqualTo("value".getBytes());
+    try {
+      assertThat(closedDB.get("key".getBytes())).isEqualTo("value".getBytes());
+      fail("Expect an exception because the DB we accessed was closed");
+    } catch (RocksDBRuntimeException rocksDBRuntimeException) {
+      assertThat(rocksDBRuntimeException.getMessage()).contains("RocksDB native reference was previously closed");
+    }
   }
 
   /**
@@ -147,7 +153,7 @@ public class RefCountTest {
    * That's fine, and this one works (we autoclose the iterator after using it).
    */
   @Test
-  public void testIterateClosedCF() {
+  public void testIterateClosedCF() throws RocksDBException {
     try (final Options options = new Options()
         .setCreateIfMissing(true)
         .setCreateMissingColumnFamilies(true);
@@ -172,10 +178,6 @@ public class RefCountTest {
         assertThat(iterator.key()).isEqualTo("key2".getBytes());
         assertThat(iterator.value()).isEqualTo("value2".getBytes());
       }
-
-    } catch (RocksDBException rocksDBException) {
-      rocksDBException.printStackTrace();
-      Assert.fail();
     }
   }
 
@@ -187,7 +189,7 @@ public class RefCountTest {
    * Systematic version, using std::shared_ptr of the handles (column family, iterator)
    */
   @Test
-  public void testUseCFAfterClose() {
+  public void testUseCFAfterClose() throws RocksDBException {
     try (final Options options = new Options()
         .setCreateIfMissing(true)
         .setCreateMissingColumnFamilies(true);
@@ -208,12 +210,14 @@ public class RefCountTest {
         cfHandle.close();
 
         // Create this after we close the CF, using the closed CF, and SEGV
-        final RocksIterator iterator2 = db.newIterator(cfHandle);
+        try {
+          final RocksIterator iterator2 = db.newIterator(cfHandle);
+          fail("New iterator should throw exception as DB is closed");
+        } catch (RocksDBRuntimeException rocksDBRuntimeException) {
+          assertThat(rocksDBRuntimeException.getMessage()).contains("RocksDB native reference was previously closed");
+        }
       }
 
-    } catch (RocksDBException rocksDBException) {
-      rocksDBException.printStackTrace();
-      Assert.fail();
     }
   }
 
@@ -328,12 +332,32 @@ public class RefCountTest {
 
       try (final RocksIterator iterator = db.newIterator(cfHandle)) {
         //Iterator hasn't seek()-ed, so we get a valid assertion in C++
-        //iterator.seekToFirst();
         //Assertion failed: (valid_), function Next, file db_iter.cc, line 129.
         iterator.next();
+        fail("Iterator next() without seek() should not be valid");
+      } catch (RocksDBException e) {
+        assertThat(e.getMessage()).contains("Invalid iterator");
+      }
+
+      try (final RocksIterator iterator = db.newIterator(cfHandle)) {
+        //Iterator hasn't seek()-ed, so we get a valid assertion in C++
+        //Assertion failed: (valid_), function Next, file db_iter.cc, line 129.
+        iterator.prev();
+        fail("Iterator prev() without seek() should not be valid");
+      } catch (RocksDBException e) {
+        assertThat(e.getMessage()).contains("Invalid iterator");
+      }
+
+      try (final RocksIterator iterator = db.newIterator(cfHandle)) {
+        iterator.seekToFirst();
         assertThat(iterator.isValid()).isTrue();
         assertThat(iterator.key()).isEqualTo("key1".getBytes());
         assertThat(iterator.value()).isEqualTo("value1".getBytes());
+
+        iterator.next();
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("key2".getBytes());
+        assertThat(iterator.value()).isEqualTo("value2".getBytes());
       }
 
     } catch (RocksDBException rocksDBException) {
