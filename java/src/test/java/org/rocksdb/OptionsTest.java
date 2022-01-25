@@ -962,15 +962,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void preserveDeletes() {
-    try (final Options opt = new Options()) {
-      assertThat(opt.preserveDeletes()).isFalse();
-      opt.setPreserveDeletes(true);
-      assertThat(opt.preserveDeletes()).isTrue();
-    }
-  }
-
-  @Test
   public void twoWriteQueues() {
     try (final Options opt = new Options()) {
       assertThat(opt.twoWriteQueues()).isFalse();

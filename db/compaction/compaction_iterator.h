@@ -140,7 +140,7 @@ class CompactionIterator {
     }
 
     bool preserve_deletes() const override {
-      return compaction_->immutable_options()->preserve_deletes;
+      return false;
     }
 
     bool allow_mmap_reads() const override {

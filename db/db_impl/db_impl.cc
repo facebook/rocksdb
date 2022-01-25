@@ -234,7 +234,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       use_custom_gc_(seq_per_batch),
       shutdown_initiated_(false),
       own_sfm_(options.sst_file_manager == nullptr),
-      preserve_deletes_(options.preserve_deletes),
       closed_(false),
       atomic_flush_install_cv_(&mutex_),
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
@@ -271,11 +270,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   immutable_db_options_.Dump(immutable_db_options_.info_log.get());
   mutable_db_options_.Dump(immutable_db_options_.info_log.get());
   DumpSupportInfo(immutable_db_options_.info_log.get());
-
-  // always open the DB with 0 here, which means if preserve_deletes_==true
-  // we won't drop any deletion markers until SetPreserveDeletesSequenceNumber()
-  // is called by client and this seqnum is advanced.
-  preserve_deletes_seqnum_.store(0);
 
   if (write_buffer_manager_) {
     wbm_stall_.reset(new WBMStallInterface());
@@ -1485,15 +1479,6 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() const {
 
 void DBImpl::SetLastPublishedSequence(SequenceNumber seq) {
   versions_->SetLastPublishedSequence(seq);
-}
-
-bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
-  if (seqnum > preserve_deletes_seqnum_.load()) {
-    preserve_deletes_seqnum_.store(seqnum);
-    return true;
-  } else {
-    return false;
-  }
 }
 
 Status DBImpl::GetFullHistoryTsLow(ColumnFamilyHandle* column_family,

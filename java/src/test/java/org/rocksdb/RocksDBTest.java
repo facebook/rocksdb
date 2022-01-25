@@ -1459,17 +1459,6 @@ public class RocksDBTest {
   }
 
   @Test
-  public void setPreserveDeletesSequenceNumber() throws RocksDBException {
-    try (final Options options = new Options().setCreateIfMissing(true)) {
-      final String dbPath = dbFolder.getRoot().getAbsolutePath();
-      try (final RocksDB db = RocksDB.open(options, dbPath)) {
-        assertThat(db.setPreserveDeletesSequenceNumber(db.getLatestSequenceNumber()))
-            .isFalse();
-      }
-    }
-  }
-
-  @Test
   public void getLiveFiles() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true)) {
       final String dbPath = dbFolder.getRoot().getAbsolutePath();
