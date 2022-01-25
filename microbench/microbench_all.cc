@@ -7,8 +7,9 @@
 // for more comprehensive, please check the dedicate util/filter_bench.
 
 #include <benchmark/benchmark.h>
-#include "microbench/ribbon_bench.cc"
+
 #include "microbench/db_basic_bench.cc"
+#include "microbench/ribbon_bench.cc"
 
 #ifndef BENCHMARK_MAIN_ONCE
 BENCHMARK_MAIN();
