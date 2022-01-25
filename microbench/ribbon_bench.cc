@@ -5,8 +5,7 @@
 
 // this is a simple micro-benchmark for compare ribbon filter vs. other filter
 // for more comprehensive, please check the dedicate util/filter_bench.
-#include <benchmark/benchmark.h>
-
+#include "benchmark/benchmark.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/mock_block_based_table.h"
 
