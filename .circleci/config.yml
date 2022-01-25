@@ -188,7 +188,7 @@ jobs:
 
   build-linux-32bit:
     docker:
-      image: evolvedbinary/rocksjava:centos6_x86-be
+      - image: evolvedbinary/rocksjava:centos6_x86-be
     resource_class: large
     steps:
       - pre-steps
