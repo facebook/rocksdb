@@ -322,6 +322,27 @@ class VersionStorageInfo {
     size_t position_ = 0;
   };
 
+  void GenerateFileLocationIndex() {
+    size_t num_files = 0;
+
+    for (int level = 0; level < num_levels_; ++level) {
+      num_files += files_[level].size();
+    }
+
+    file_locations_.reserve(num_files);
+
+    for (int level = 0; level < num_levels_; ++level) {
+      for (size_t pos = 0; pos < files_[level].size(); ++pos) {
+        const FileMetaData* const meta = files_[level][pos];
+        assert(meta);
+
+        const uint64_t file_number = meta->fd.GetNumber();
+
+        file_locations_.emplace(file_number, FileLocation(level, pos));
+      }
+    }
+  }
+
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   FileLocation GetFileLocation(uint64_t file_number) const {
     const auto it = file_locations_.find(file_number);

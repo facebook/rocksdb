@@ -186,6 +186,7 @@ class VersionStorageInfoTestBase : public testing::Test {
     vstorage_.GenerateLevelFilesBrief();
     vstorage_.GenerateLevel0NonOverlapping();
     vstorage_.GenerateBottommostFiles();
+    vstorage_.GenerateFileLocationIndex();
 
     vstorage_.SetFinalized();
   }
@@ -458,6 +459,8 @@ TEST_F(VersionStorageInfoTest, FileLocationAndMetaDataByNumber) {
   Add(0, 12U, "1", "2", 5000U);
 
   Add(2, 7U, "1", "2", 8000U);
+
+  vstorage_.GenerateFileLocationIndex();
 
   ASSERT_EQ(vstorage_.GetFileLocation(11U),
             VersionStorageInfo::FileLocation(0, 0));

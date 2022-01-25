@@ -159,6 +159,7 @@ class VersionBuilderTest : public testing::Test {
     vstorage_.GenerateLevelFilesBrief();
     vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
     vstorage_.GenerateLevel0NonOverlapping();
+    vstorage_.GenerateFileLocationIndex();
     vstorage_.SetFinalized();
   }
 };
@@ -433,8 +434,11 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionIncorrectLevel) {
   constexpr uint64_t file_number = 2345;
   constexpr char smallest[] = "bar";
   constexpr char largest[] = "foo";
+  constexpr uint64_t file_size = 100;
 
-  Add(level, file_number, smallest, largest);
+  Add(level, file_number, smallest, largest, file_size);
+
+  UpdateVersionStorageInfo();
 
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
@@ -497,6 +501,8 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionAndAddition) {
       largest_seq, num_entries, num_deletions, sampled, smallest_seqno,
       largest_seqno);
 
+  UpdateVersionStorageInfo();
+
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
   constexpr VersionSet* version_set = nullptr;
@@ -531,6 +537,9 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionAndAddition) {
                                   force_consistency_checks);
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
+
+  new_vstorage.GenerateFileLocationIndex();
+
   ASSERT_EQ(new_vstorage.GetFileLocation(file_number).GetLevel(), level);
 
   UnrefFilesInVersion(&new_vstorage);
@@ -541,8 +550,11 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyInBase) {
   constexpr uint64_t file_number = 2345;
   constexpr char smallest[] = "bar";
   constexpr char largest[] = "foo";
+  constexpr uint64_t file_size = 10000;
 
-  Add(level, file_number, smallest, largest);
+  Add(level, file_number, smallest, largest, file_size);
+
+  UpdateVersionStorageInfo();
 
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
@@ -555,7 +567,6 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyInBase) {
 
   constexpr int new_level = 2;
   constexpr uint32_t path_id = 0;
-  constexpr uint64_t file_size = 10000;
   constexpr SequenceNumber smallest_seqno = 100;
   constexpr SequenceNumber largest_seqno = 1000;
   constexpr bool marked_for_compaction = false;
@@ -666,6 +677,9 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAndDeletion) {
                                   force_consistency_checks);
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
+
+  new_vstorage.GenerateFileLocationIndex();
+
   ASSERT_FALSE(new_vstorage.GetFileLocation(file_number).IsValid());
 
   UnrefFilesInVersion(&new_vstorage);
@@ -812,6 +826,8 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
 
   // Add dummy table file to ensure the blob file is referenced.
   AddDummyFile(table_file_number, blob_file_number);
+
+  UpdateVersionStorageInfo();
 
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
@@ -1032,6 +1048,8 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
     AddDummyFile(table_file_number, blob_file_number);
   }
 
+  UpdateVersionStorageInfo();
+
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
   constexpr VersionSet* version_set = nullptr;
@@ -1068,6 +1086,8 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
                                   force_consistency_checks);
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
+
+  new_vstorage.GenerateFileLocationIndex();
 
   const auto& new_blob_files = new_vstorage.GetBlobFiles();
   ASSERT_EQ(new_blob_files.size(), 3);
@@ -1148,6 +1168,8 @@ TEST_F(VersionBuilderTest, SaveBlobFilesToConcurrentJobs) {
           checksum_method, checksum_value,
           BlobFileMetaData::LinkedSsts{base_table_file_number},
           garbage_blob_count, garbage_blob_bytes);
+
+  UpdateVersionStorageInfo();
 
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
@@ -1621,6 +1643,8 @@ TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
                                   true /* force_consistency_checks */);
   ASSERT_OK(version_builder.Apply(&version_edit));
   ASSERT_OK(version_builder.SaveTo(&new_vstorage));
+
+  new_vstorage.GenerateFileLocationIndex();
 
   VersionBuilder version_builder2(env_options, &ioptions_, table_cache,
                                  &new_vstorage, version_set);
