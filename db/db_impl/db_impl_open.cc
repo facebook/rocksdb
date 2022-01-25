@@ -153,8 +153,8 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     result.avoid_flush_during_recovery = false;
   }
 
-  ImmutableDBOptions immutable_db_options(result);
 #ifndef ROCKSDB_LITE
+  ImmutableDBOptions immutable_db_options(result);
   if (!immutable_db_options.IsWalDirSameAsDBPath()) {
     // Either the WAL dir and db_paths[0]/db_name are not the same, or we
     // cannot tell for sure. In either case, assume they're different and
