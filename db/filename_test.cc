@@ -171,6 +171,24 @@ TEST_F(FileNameTest, Construction) {
   ASSERT_EQ(kMetaDatabase, type);
 }
 
+TEST_F(FileNameTest, NormalizePath) {
+
+  std::string separator(1, kFilePathSeparator);
+  std::stringstream given, toNormalize;
+
+  given << separator << separator << "SERVER" << separator << "fileName";
+  toNormalize << separator << "pathel" << separator << "pathel_1";
+
+  std::string expected = given.str();
+
+  ASSERT_EQ(expected, NormalizePath(given.str()));
+
+  expected = toNormalize.str();
+
+  ASSERT_EQ(expected, NormalizePath(toNormalize.str()));
+
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
