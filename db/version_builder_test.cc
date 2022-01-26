@@ -153,13 +153,7 @@ class VersionBuilderTest : public testing::Test {
   }
 
   void UpdateVersionStorageInfo() {
-    vstorage_.UpdateFilesByCompactionPri(ioptions_, mutable_cf_options_);
-    vstorage_.UpdateNumNonEmptyLevels();
-    vstorage_.GenerateFileIndexer();
-    vstorage_.GenerateLevelFilesBrief();
-    vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
-    vstorage_.GenerateLevel0NonOverlapping();
-    vstorage_.GenerateFileLocationIndex();
+    vstorage_.PrepareAppend(ioptions_, mutable_cf_options_);
     vstorage_.SetFinalized();
   }
 };

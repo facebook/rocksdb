@@ -178,16 +178,8 @@ class VersionStorageInfoTestBase : public testing::Test {
     vstorage_.AddBlobFile(std::move(meta));
   }
 
-  void Finalize() {
-    vstorage_.UpdateNumNonEmptyLevels();
-    vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
-    vstorage_.UpdateFilesByCompactionPri(ioptions_, mutable_cf_options_);
-    vstorage_.GenerateFileIndexer();
-    vstorage_.GenerateLevelFilesBrief();
-    vstorage_.GenerateLevel0NonOverlapping();
-    vstorage_.GenerateBottommostFiles();
-    vstorage_.GenerateFileLocationIndex();
-
+  void UpdateVersionStorageInfo() {
+    vstorage_.PrepareAppend(ioptions_, mutable_cf_options_);
     vstorage_.SetFinalized();
   }
 
@@ -480,7 +472,7 @@ TEST_F(VersionStorageInfoTest, FileLocationAndMetaDataByNumber) {
 
 TEST_F(VersionStorageInfoTest, ForcedBlobGCEmpty) {
   // No SST or blob files in VersionStorageInfo
-  Finalize();
+  UpdateVersionStorageInfo();
 
   constexpr double age_cutoff = 0.5;
   constexpr double force_threshold = 0.75;
@@ -576,7 +568,7 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGC) {
             garbage_blob_bytes);
   }
 
-  Finalize();
+  UpdateVersionStorageInfo();
 
   assert(vstorage_.num_levels() > 0);
   const auto& level_files = vstorage_.LevelFiles(level);

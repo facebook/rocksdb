@@ -148,16 +148,11 @@ class CompactionPickerTest : public testing::Test {
       ASSERT_OK(builder.SaveTo(temp_vstorage_.get()));
       vstorage_ = std::move(temp_vstorage_);
     }
-    vstorage_->CalculateBaseBytes(ioptions_, mutable_cf_options_);
-    vstorage_->UpdateFilesByCompactionPri(ioptions_, mutable_cf_options_);
-    vstorage_->UpdateNumNonEmptyLevels();
-    vstorage_->GenerateFileIndexer();
-    vstorage_->GenerateLevelFilesBrief();
+    vstorage_->PrepareAppend(ioptions_, mutable_cf_options_);
     vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_);
-    vstorage_->GenerateLevel0NonOverlapping();
-    vstorage_->ComputeFilesMarkedForCompaction();
     vstorage_->SetFinalized();
   }
+
   void AddFileToVersionStorage(int level, uint32_t file_number,
                                const char* smallest, const char* largest,
                                uint64_t file_size = 1, uint32_t path_id = 0,
