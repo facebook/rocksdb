@@ -76,7 +76,7 @@ class CompactionPickerTest : public testing::Test {
     options_.num_levels = num_levels;
     vstorage_.reset(new VersionStorageInfo(&icmp_, ucmp_, options_.num_levels,
                                            style, nullptr, false));
-    vstorage_->CalculateBaseBytes(ioptions_, mutable_cf_options_);
+    vstorage_->PrepareAppend(ioptions_, mutable_cf_options_);
   }
 
   // Create a new VersionStorageInfo object so we can add mode files and then

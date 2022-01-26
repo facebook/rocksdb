@@ -152,9 +152,15 @@ class VersionBuilderTest : public testing::Test {
     return meta;
   }
 
+  void UpdateVersionStorageInfo(VersionStorageInfo* storage_info) {
+    assert(storage_info);
+
+    storage_info->PrepareAppend(ioptions_, mutable_cf_options_);
+    storage_info->SetFinalized();
+  }
+
   void UpdateVersionStorageInfo() {
-    vstorage_.PrepareAppend(ioptions_, mutable_cf_options_);
-    vstorage_.SetFinalized();
+    UpdateVersionStorageInfo(&vstorage_);
   }
 };
 
@@ -532,7 +538,7 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionAndAddition) {
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
 
-  new_vstorage.GenerateFileLocationIndex();
+  UpdateVersionStorageInfo(&new_vstorage);
 
   ASSERT_EQ(new_vstorage.GetFileLocation(file_number).GetLevel(), level);
 
@@ -672,7 +678,7 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAndDeletion) {
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
 
-  new_vstorage.GenerateFileLocationIndex();
+  UpdateVersionStorageInfo(&new_vstorage);
 
   ASSERT_FALSE(new_vstorage.GetFileLocation(file_number).IsValid());
 
@@ -1081,7 +1087,7 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
 
-  new_vstorage.GenerateFileLocationIndex();
+  UpdateVersionStorageInfo(&new_vstorage);
 
   const auto& new_blob_files = new_vstorage.GetBlobFiles();
   ASSERT_EQ(new_blob_files.size(), 3);
@@ -1638,7 +1644,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
   ASSERT_OK(version_builder.Apply(&version_edit));
   ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
-  new_vstorage.GenerateFileLocationIndex();
+  UpdateVersionStorageInfo(&new_vstorage);
 
   VersionBuilder version_builder2(env_options, &ioptions_, table_cache,
                                  &new_vstorage, version_set);

@@ -132,22 +132,14 @@ class VersionStorageInfo {
   void PrepareAppend(const ImmutableOptions& immutable_options,
                      const MutableCFOptions& mutable_cf_options);
 
+  // REQUIRES: PrepareAppend has been called
   void SetFinalized();
-
-  // Update num_non_empty_levels_.
-  void UpdateNumNonEmptyLevels();
-
-  void GenerateFileIndexer() {
-    file_indexer_.UpdateIndex(&arena_, num_non_empty_levels_, files_);
-  }
 
   // Update the accumulated stats from a file-meta.
   void UpdateAccumulatedStats(FileMetaData* file_meta);
 
   // Decrease the current stat from a to-be-deleted file-meta
   void RemoveCurrentStats(FileMetaData* file_meta);
-
-  void ComputeCompensatedSizes();
 
   // Updates internal structures that keep track of compaction scores
   // We use compaction scores to figure out which compaction to do next
@@ -195,23 +187,9 @@ class VersionStorageInfo {
       double blob_garbage_collection_age_cutoff,
       double blob_garbage_collection_force_threshold);
 
-  // Generate level_files_brief_ from files_
-  void GenerateLevelFilesBrief();
-  // Sort all files for this version based on their file size and
-  // record results in files_by_compaction_pri_. The largest files are listed
-  // first.
-  void UpdateFilesByCompactionPri(const ImmutableOptions& immutable_options,
-                                  const MutableCFOptions& mutable_cf_options);
-
-  void GenerateLevel0NonOverlapping();
   bool level0_non_overlapping() const {
     return level0_non_overlapping_;
   }
-
-  // Check whether each file in this version is bottommost (i.e., nothing in its
-  // key-range could possibly exist in an older file/level).
-  // REQUIRES: This version has not been saved
-  void GenerateBottommostFiles();
 
   // Updates the oldest snapshot and related internal state, like the bottommost
   // files marked for compaction.
@@ -279,8 +257,7 @@ class VersionStorageInfo {
     return num_non_empty_levels_;
   }
 
-  // REQUIRES: This version has been finalized.
-  // (CalculateBaseBytes() is called)
+  // REQUIRES: PrepareAppend has been called
   // This may or may not return number of level files. It is to keep backward
   // compatible behavior in universal compaction.
   int l0_delay_trigger_count() const { return l0_delay_trigger_count_; }
@@ -324,28 +301,6 @@ class VersionStorageInfo {
     int level_ = -1;
     size_t position_ = 0;
   };
-
-  void GenerateFileLocationIndex() {
-    size_t num_files = 0;
-
-    for (int level = 0; level < num_levels_; ++level) {
-      num_files += files_[level].size();
-    }
-
-    file_locations_.reserve(num_files);
-
-    for (int level = 0; level < num_levels_; ++level) {
-      for (size_t pos = 0; pos < files_[level].size(); ++pos) {
-        const FileMetaData* const meta = files_[level][pos];
-        assert(meta);
-
-        const uint64_t file_number = meta->fd.GetNumber();
-
-        assert(file_locations_.find(file_number) == file_locations_.end());
-        file_locations_.emplace(file_number, FileLocation(level, pos));
-      }
-    }
-  }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   FileLocation GetFileLocation(uint64_t file_number) const {
@@ -523,10 +478,6 @@ class VersionStorageInfo {
   // Returns maximum total bytes of data on a given level.
   uint64_t MaxBytesForLevel(int level) const;
 
-  // Must be called after any change to MutableCFOptions.
-  void CalculateBaseBytes(const ImmutableOptions& ioptions,
-                          const MutableCFOptions& options);
-
   // Returns an estimate of the amount of live data in bytes.
   uint64_t EstimateLiveDataSize() const;
 
@@ -555,6 +506,43 @@ class VersionStorageInfo {
                                      int last_level, int last_l0_idx);
 
  private:
+  void ComputeCompensatedSizes();
+  void UpdateNumNonEmptyLevels();
+  void CalculateBaseBytes(const ImmutableOptions& ioptions,
+                          const MutableCFOptions& options);
+  void UpdateFilesByCompactionPri(const ImmutableOptions& immutable_options,
+                                  const MutableCFOptions& mutable_cf_options);
+
+  void GenerateFileIndexer() {
+    file_indexer_.UpdateIndex(&arena_, num_non_empty_levels_, files_);
+  }
+
+  void GenerateLevelFilesBrief();
+  void GenerateLevel0NonOverlapping();
+  void GenerateBottommostFiles();
+
+  void GenerateFileLocationIndex() {
+    size_t num_files = 0;
+
+    for (int level = 0; level < num_levels_; ++level) {
+      num_files += files_[level].size();
+    }
+
+    file_locations_.reserve(num_files);
+
+    for (int level = 0; level < num_levels_; ++level) {
+      for (size_t pos = 0; pos < files_[level].size(); ++pos) {
+        const FileMetaData* const meta = files_[level][pos];
+        assert(meta);
+
+        const uint64_t file_number = meta->fd.GetNumber();
+
+        assert(file_locations_.find(file_number) == file_locations_.end());
+        file_locations_.emplace(file_number, FileLocation(level, pos));
+      }
+    }
+  }
+
   const InternalKeyComparator* internal_comparator_;
   const Comparator* user_comparator_;
   int num_levels_;            // Number of levels
