@@ -917,10 +917,6 @@ struct AdvancedColumnFamilyOptions {
   explicit AdvancedColumnFamilyOptions(const Options& options);
 
   // ---------------- OPTIONS NOT SUPPORTED ANYMORE ----------------
-
-  // NOT SUPPORTED ANYMORE
-  // This does not do anything anymore.
-  int max_mem_compaction_level;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -422,10 +422,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // which did in fact modify padding bytes.
   ColumnFamilyOptions* options = new (options_ptr) ColumnFamilyOptions();
 
-  // Deprecatd option which is not initialized. Need to set it to avoid
-  // Valgrind error
-  options->max_mem_compaction_level = 0;
-
   int unset_bytes_base = NumUnsetBytes(options_ptr, sizeof(ColumnFamilyOptions),
                                        kColumnFamilyOptionsExcluded);
   ASSERT_GT(unset_bytes_base, 0);
@@ -439,7 +435,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // GetColumnFamilyOptionsFromString():
   options->compaction_options_universal = CompactionOptionsUniversal();
   options->num_levels = 42;  // Initialize options for MutableCF
-  options->max_mem_compaction_level = 0;
   options->compaction_filter = nullptr;
   options->sst_partitioner_factory = nullptr;
 
