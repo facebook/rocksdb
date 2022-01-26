@@ -48,10 +48,7 @@ class SliceTransform : public Customizable {
 
   // Returns a string representation of this SliceTransform, representing the ID
   // and any additional properties.
-  // The default implementation is optimized for instances which have no
-  // additional properties/options.  Instances which have properties/options
-  // should override this method and call ToString();
-  virtual std::string AsString() const;
+  std::string AsString() const;
 
   // Extract a prefix from a specified key. This method is called when
   // a key is inserted into the db, and the returned slice is used to

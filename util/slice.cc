@@ -279,8 +279,13 @@ Status SliceTransform::CreateFromString(
 }  // namespace ROCKSDB_NAMESPACE
 
 std::string SliceTransform::AsString() const {
-  assert(!HasRegisteredOptions());
-  return GetId();
+  if (HasRegisteredOptions()) {
+    ConfigOptions opts;
+    opts.delimiter = ";";
+    return ToString(opts);
+  } else {
+    return GetId();
+  }
 }
 
 // 2 small internal utility functions, for efficient hex conversions
