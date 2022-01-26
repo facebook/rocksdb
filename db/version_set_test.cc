@@ -210,8 +210,8 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelStatic) {
   ioptions_.level_compaction_dynamic_level_bytes = false;
   mutable_cf_options_.max_bytes_for_level_base = 10;
   mutable_cf_options_.max_bytes_for_level_multiplier = 5;
-  Add(4, 100U, "1", "2");
-  Add(5, 101U, "1", "2");
+  Add(4, 100U, "1", "2", 100U);
+  Add(5, 101U, "1", "2", 100U);
 
   vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
   ASSERT_EQ(vstorage_.MaxBytesForLevel(1), 10U);
