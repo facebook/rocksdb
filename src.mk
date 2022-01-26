@@ -627,7 +627,6 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/api_columnfamilyhandle_nondefault.cc          \
   java/rocksjni/api_iterator.cc                               \
   java/rocksjni/api_rocksdb.cc                                \
-  java/rocksjni/api_weakdb.cc                                 \
   java/rocksjni/backupenginejni.cc                            \
   java/rocksjni/backup_engine_options.cc                      \
   java/rocksjni/checkpoint.cc                                 \
@@ -702,6 +701,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/testable_event_listener.cc                    \
   java/rocksjni/wal_filter.cc                                 \
   java/rocksjni/wal_filter_jnicallback.cc                     \
+  java/rocksjni/weakdb.cc                                     \
   java/rocksjni/write_batch.cc                                \
   java/rocksjni/writebatchhandlerjnicallback.cc               \
   java/rocksjni/write_batch_test.cc                           \

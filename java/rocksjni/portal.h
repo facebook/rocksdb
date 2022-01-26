@@ -984,6 +984,11 @@ class RocksDBExceptionJni :
 
     return ROCKSDB_NAMESPACE::StatusJni::toCppStatus(env, jstatus);
   }
+
+  static ROCKSDB_NAMESPACE::Status InvalidColumnFamily() {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "Invalid ColumnFamilyHandle.");
+  }
 };
 
 // The portal class for java.util.List

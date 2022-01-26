@@ -281,6 +281,8 @@ public class RefCountTest {
       db.put(cfHandle, "key1".getBytes(), "value1".getBytes());
       db.put(cfHandle, "key2".getBytes(), "value2".getBytes());
 
+      final WeakDB weakDB;
+
       try (final RocksIterator iterator = db.newIterator(cfHandle)) {
         iterator.seekToFirst();
         assertThat(iterator.isValid()).isTrue();
@@ -291,7 +293,11 @@ public class RefCountTest {
         // The model is that open iterator(s) prolong the lifetime of the underlying C++ database,
         // it is still "open" after db.close(), until the iterator itself is closed.
         assertThat(db.isLastReference()).isFalse();
+        weakDB = db.createWeakDB();
+        assertThat(weakDB.isLastReference()).isTrue();
+        assertThat(weakDB.isDatabaseOpen()).isTrue();
         db.close();
+        assertThat(weakDB.isDatabaseOpen()).isFalse();
         assertThat(iterator.isValid()).isTrue();
         iterator.next();
         assertThat(iterator.key()).isEqualTo("key2".getBytes());

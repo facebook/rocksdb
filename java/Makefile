@@ -83,6 +83,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.Snapshot\
 	org.rocksdb.StringAppendOperator\
 	org.rocksdb.UInt64AddOperator\
+	org.rocksdb.WeakDB\
 	org.rocksdb.WriteBatch\
 	org.rocksdb.WriteBatch.Handler\
 	org.rocksdb.WriteOptions\
@@ -162,6 +163,7 @@ JAVA_TESTS = \
 	org.rocksdb.OptionsTest\
 	org.rocksdb.PlainTableConfigTest\
 	org.rocksdb.RateLimiterTest\
+	org.rocksdb.RefCountTest\
 	org.rocksdb.ReadOnlyTest\
 	org.rocksdb.ReadOptionsTest\
 	org.rocksdb.util.ReverseBytewiseComparatorIntTest\

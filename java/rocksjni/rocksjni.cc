@@ -536,7 +536,7 @@ void Java_org_rocksdb_RocksDB_dropColumnFamily(
     }
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, "Invalid ColumnFamilyHandle.");
+        env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
   }
 }
 
@@ -665,8 +665,7 @@ void Java_org_rocksdb_RocksDB_put__J_3BII_3BIIJ(
                        jkey_off, jkey_len, jval, jval_off, jval_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
+        env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
   }
 }
 
@@ -707,8 +706,7 @@ void Java_org_rocksdb_RocksDB_put__JJ_3BII_3BIIJ(
                        jkey_len, jval, jval_off, jval_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
+        env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
   }
 }
 
@@ -816,8 +814,7 @@ void Java_org_rocksdb_RocksDB_delete__J_3BIIJ(
         jkey_off, jkey_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
+        env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
   }
 }
 
@@ -856,8 +853,7 @@ void Java_org_rocksdb_RocksDB_delete__JJ_3BIIJ(
         jkey_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
+        env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
   }
 }
 
@@ -934,8 +930,7 @@ void Java_org_rocksdb_RocksDB_singleDelete__J_3BIJ(
         jkey, jkey_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
+        env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
   }
 }
 
@@ -974,8 +969,7 @@ void Java_org_rocksdb_RocksDB_singleDelete__JJ_3BIJ(
         jkey_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
+        env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
   }
 }
 
@@ -1153,8 +1147,7 @@ void Java_org_rocksdb_RocksDB_deleteRange__J_3BII_3BIIJ(
         jend_key, jend_key_off, jend_key_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
+        env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
   }
 }
 
@@ -1196,8 +1189,7 @@ void Java_org_rocksdb_RocksDB_deleteRange__JJ_3BII_3BIIJ(
         jend_key, jend_key_off, jend_key_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
+        env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
   }
 }
 
@@ -1310,8 +1302,7 @@ void Java_org_rocksdb_RocksDB_merge__J_3BII_3BIIJ(
         jkey_off, jkey_len, jval, jval_off, jval_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
+        env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
   }
 }
 
@@ -1350,8 +1341,7 @@ void Java_org_rocksdb_RocksDB_merge__JJ_3BII_3BIIJ(
         jkey_len, jval, jval_off, jval_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
+        env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
   }
 }
 
@@ -1532,8 +1522,7 @@ jbyteArray Java_org_rocksdb_RocksDB_get__J_3BIIJ(
                               cfAPI, jkey, jkey_off, jkey_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
+        env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
     return nullptr;
   }
 }
@@ -1570,8 +1559,7 @@ jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BIIJ(
                               jkey_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
+        env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
     return nullptr;
   }
 }
@@ -1682,8 +1670,7 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BIIJ(
                               jval_len, &has_exception);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
+        env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
     // will never be evaluated
     return 0;
   }
@@ -1726,8 +1713,7 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BIIJ(
                               &has_exception);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
-                 "Invalid ColumnFamilyHandle."));
+        env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
     // will never be evaluated
     return 0;
   }
@@ -3967,6 +3953,20 @@ void Java_org_rocksdb_RocksDB_deleteFilesInRanges(JNIEnv* env, jobject /*jdb*/,
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    createWeakDB
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_RocksDB_createWeakDB(JNIEnv* env, jobject,
+                                            jlong handle) {
+  auto* dbAPI = reinterpret_cast<APIRocksDB*>(handle);
+  std::unique_ptr<APIWeakDB> weakDBAPI(new APIWeakDB(dbAPI->db));
+  return reinterpret_cast<jlong>(weakDBAPI.release());
+  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+      env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
 }
 
 /*
