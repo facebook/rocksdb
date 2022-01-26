@@ -60,8 +60,8 @@ v6.26.1 \
 latest_versions=( v6.26.1 )
 
 #use_versions="${some_versions[@]}"
-#use_versions="${latest_versions[@]}"
-use_versions="${all_versions[@]}"
+use_versions="${latest_versions[@]}"
+#use_versions="${all_versions[@]}"
 
 shift 8
 if [ "$#" -eq 0 ] ; then
@@ -108,7 +108,7 @@ c16bc1g)
   exit -1
 esac
 
-args+=( NKEYS=$nkeys CACHE_MB=$cache_mb NSECS=$secs NSECS_RO=$secs_ro MB_WPS=2 NTHREADS=$nthreads COMP_TYPE=$comp CACHE_META=$cm $dflags )
+args+=( NKEYS=$nkeys CACHE_MB=$cache_mb NSECS=$secs NSECS_RO=$secs_ro MB_WPS=2 NTHREADS=$nthreads COMP_TYPE=$comp IBLOB_COMPRESSION_TYPE=$comp CACHE_META=$cm $dflags )
 
 if [ $numa -eq 1 ]; then
   args+=( NUMA=1 )
@@ -118,7 +118,7 @@ fi
 odir=bm.lc.nt${nthreads}.cm${cm}.d${odirect}
 echo leveled using $odir at $( date )
 myargs=( "${args[@]}" )
-myargs+=( ML2_COMP=3 )
+myargs+=( ML2_COMP=3 COMP_STYLE=leveled )
 env "${myargs[@]}" bash perf_cmp.sh /data/m/rx $odir ${versions[@]}
 
 # for universal
@@ -126,7 +126,15 @@ env "${myargs[@]}" bash perf_cmp.sh /data/m/rx $odir ${versions[@]}
 odir=bm.uc.nt${nthreads}.cm${cm}.d${odirect}.sc${nsub}.tm
 echo universal+subcomp+trivial_move using $odir at $( date )
 myargs=( "${args[@]}" )
-myargs+=( PCT_COMP=80 UNIV=1 SUBCOMP=$nsub UNIV_ALLOW_TRIVIAL_MOVE=1 )
+myargs+=( PCT_COMP=80 COMP_STYLE=universal SUBCOMP=$nsub UNIV_ALLOW_TRIVIAL_MOVE=1 )
+env "${myargs[@]}" bash perf_cmp.sh /data/m/rx $odir ${versions[@]}
+
+# for blobDB
+
+odir=bm.bc.nt${nthreads}.cm${cm}.d${odirect}
+echo integrated blobDB using $odir at $( date )
+myargs=( "${args[@]}" )
+myargs+=( ML2_COMP=3 COMP_STYLE=blob )
 env "${myargs[@]}" bash perf_cmp.sh /data/m/rx $odir ${versions[@]}
 
 exit
@@ -134,19 +142,19 @@ exit
 odir=bm.uc.nt${nthreads}.cm${cm}.d${odirect}.tm
 echo universal+trivial_move using $odir at $( date )
 myargs=( "${args[@]}" )
-myargs+=( PCT_COMP=80 UNIV=1 UNIV_ALLOW_TRIVIAL_MOVE=1 )
+myargs+=( PCT_COMP=80 COMP_STYLE=universal UNIV_ALLOW_TRIVIAL_MOVE=1 )
 env "${myargs[@]}" bash perf_cmp.sh /data/m/rx $odir ${versions[@]}
 
 odir=bm.uc.nt${nthreads}.cm${cm}.d${odirect}.sc${nsub}
 echo universal+subcomp using $odir at $( date ) 
 myargs=( "${args[@]}" )
-myargs+=( PCT_COMP=80 UNIV=1 SUBCOMP=$nsub )
+myargs+=( PCT_COMP=80 COMP_STYLE=universal SUBCOMP=$nsub )
 echo env "${myargs[@]}" bash perf_cmp.sh /data/m/rx $odir ${versions[@]}
 env "${myargs[@]}" bash perf_cmp.sh /data/m/rx $odir ${versions[@]}
 
 odir=bm.uc.nt${nthreads}.cm${cm}.d${odirect}
 echo universal using $odir at $( date )
 myargs=( "${args[@]}" )
-myargs+=( PCT_COMP=80 UNIV=1 )
+myargs+=( PCT_COMP=80 COMP_STYLE=universal )
 env "${myargs[@]}" bash perf_cmp.sh /data/m/rx $odir ${versions[@]}
 

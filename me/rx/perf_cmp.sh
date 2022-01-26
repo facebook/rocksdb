@@ -1,5 +1,15 @@
+#!/usr/bin/env bash
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+# REQUIRE: db_bench binary exists in the current directory
+
 dbdir=$1
 odir=$2
+
+# Size Constants
+K=1024
+M=$((1024 * K))
+G=$((1024 * M))
+T=$((1024 * G))
 
 # Benchmark configuration
 nsecs=${NSECS:-65}
@@ -27,6 +37,18 @@ pending_gb=${PENDING_GB:-40}
 ml2_comp=${ML2_COMP:-"-1"}
 pct_comp=${PCT_COMP:-"-1"}
 
+comp_style=${COMP_STYLE:-leveled}
+if [ $comp_style = "leveled" ]; then
+  echo Use leveled compaction
+elif [ $comp_style = "universal" ]; then
+  echo Use universal compaction
+elif [ $comp_style = "blob" ]; then
+  echo Use blob compaction
+else
+  echo COMP_STYLE is :: $COMP_STYLE :: and must be one of leveled, universal, blob
+  exit 1
+fi
+
 # Leveled compaction configuration
 level_comp_start=${LEVEL_COMP_START:-4}
 level_comp_slow=${LEVEL_COMP_SLOW:-20}
@@ -42,6 +64,14 @@ univ_max_merge_width=${UNIV_MAX_MERGE_WIDTH:-20}
 univ_size_ratio=${UNIV_SIZE_RATIO:-1}
 univ_max_size_amp=${UNIV_MAX_SIZE_AMP:-200}
 
+# Integrated BlobDB configuration
+
+iblob_min_size=${IBLOB_MIN_SIZE:-0}
+iblob_file_size=${IBLOB_FILE_SIZE:-$(( 256 * $M ))}
+iblob_compression_type=${IBLOB_COMPRESSION_TYPE:-lz4}
+iblob_gc_age_cutoff=${IBLOB_GC_AGE_CUTOFF:-"0.25"}
+iblob_gc_force_threshold=${IBLOB_GC_FORCE_THRESHOLD:-1}
+
 # Arguments used for all tests
 base_args=( NUM_KEYS=$nkeys )
 base_args+=( NUM_THREADS=$nthreads )
@@ -56,6 +86,7 @@ base_args+=( MAX_BYTES_FOR_LEVEL_BASE_MB=$l1_mb )
 base_args+=( MAX_BACKGROUND_JOBS=$max_bg_jobs )
 base_args+=( STATS_INTERVAL_SECONDS=$stats_seconds )
 base_args+=( CACHE_INDEX_AND_FILTER_BLOCKS=$cache_meta )
+base_args+=( COMPACTION_STYLE=$comp_style )
 
 if [ ! -z $DIRECT_IO ]; then
   base_args+=( USE_O_DIRECT=1 )
@@ -70,11 +101,11 @@ if [ ! -z $CACHE_MB ]; then
   base_args+=( CACHE_SIZE=$cacheb )
 fi
 
-if [ -z $UNIV ]; then
+if [ $comp_style == "leveled" ]; then
   base_args+=( LEVEL0_FILE_NUM_COMPACTION_TRIGGER=$level_comp_start )
   base_args+=( LEVEL0_SLOWDOWN_WRITES_TRIGGER=$level_comp_slow )
   base_args+=( LEVEL0_STOP_WRITES_TRIGGER=$level_comp_stop )
-else
+elif [ $comp_style == "universal" ]; then
   base_args+=( LEVEL0_FILE_NUM_COMPACTION_TRIGGER=$univ_comp_start )
   base_args+=( LEVEL0_SLOWDOWN_WRITES_TRIGGER=$univ_comp_slow )
   base_args+=( LEVEL0_STOP_WRITES_TRIGGER=$univ_comp_stop )
@@ -85,10 +116,18 @@ else
   if [ ! -z $UNIV_ALLOW_TRIVIAL_MOVE ]; then
     base_args+=( UNIVERSAL_ALLOW_TRIVIAL_MOVE=1 )
   fi
+else
+  # Inherit settings for leveled because index uses leveled LSM
+  base_args+=( LEVEL0_FILE_NUM_COMPACTION_TRIGGER=$level_comp_start )
+  base_args+=( LEVEL0_SLOWDOWN_WRITES_TRIGGER=$level_comp_slow )
+  base_args+=( LEVEL0_STOP_WRITES_TRIGGER=$level_comp_stop )
+  # Then add BlobDB specific settings
+  base_args+=( MIN_BLOB_SIZE=$iblob_min_size )
+  base_args+=( BLOB_FILE_SIZE=$iblob_file_size )
+  base_args+=( BLOB_COMPRESSION_TYPE=$iblob_compression_type )
+  base_args+=( BLOB_GC_AGE_CUTOFF=$iblob_gc_age_cutoff )
+  base_args+=( BLOB_GC_FORCE_THRESHOLD=$iblob_gc_force_threshold )
 fi
-
-# Values for published results: 
-# NUM_KEYS=900,000,000 CACHE_SIZE=6,442,450,944 DURATION=5400 MB_WRITE_PER_SEC=2 
 
 function usage {
   echo "usage: perf_cmp.sh db_dir output_dir version+"
@@ -119,21 +158,27 @@ function usage {
   echo -e "\tPENDING_RATIO - used to estimate write-stall limits"
   echo -e "\tSTATS_SECONDS\t\tValue for stats_interval_seconds"
   echo -e "\tSUBCOMP\t\tValue for subcompactions"
+  echo -e "\tCOMP_STYLE\tCompaction style to use, one of: leveled, universal, blob"
   echo -e "\tOptions specific to leveled compaction:"
   echo -e "\t\tLEVEL_COMP_START\tValue for level0_file_num_compaction_trigger"
   echo -e "\t\tLEVEL_COMP_SLOW\tValue for level0_slowdown_writes_trigger"
   echo -e "\t\tLEVEL_COMP_STOP\tValue for level0_stop_writes_trigger"
-  echo -e "\t\tPER_LEVEL_FANOUT\tValue for max_bytes_for_level_multiplier"
+  echo -e "\t\tFANOUT\tValue for max_bytes_for_level_multiplier"
   echo -e "\tOptions specific to universal compaction:"
   echo -e "\t\tUNIV_COMP_START\tValue for level0_file_num_compaction_trigger"
   echo -e "\t\tUNIV_COMP_SLOW\tValue for level0_slowdown_writes_trigger"
   echo -e "\t\tUNIV_COMP_STOP\tValue for level0_stop_writes_trigger"
-  echo -e "\t\tUNIV\t\tUse universal compaction when set to anything, otherwise use leveled"
   echo -e "\t\tUNIV_MIN_MERGE_WIDTH\tValue of min_merge_width option for universal"
   echo -e "\t\tUNIV_MAX_MERGE_WIDTH\tValue of min_merge_width option for universal"
   echo -e "\t\tUNIV_SIZE_RATIO\tValue of size_ratio option for universal"
   echo -e "\t\tUNIV_MAX_SIZE_AMP\tmax_size_amplification_percent for universal"
   echo -e "\t\tUNIV_ALLOW_TRIVIAL_MOVE\tSet allow_trivial_move to true for universal, default is false"
+  echo -e "\tOptions for integrated BlobDB:"
+  echo -e "\t\tIBLOB_MIN_SIZE\tValue for min_blob_size"
+  echo -e "\t\tIBLOB_FILE_SIZE\tValue for blob_file_size"
+  echo -e "\t\tIBLOB_COMPRESSION_TYPE\tValue for blob_compression_type"
+  echo -e "\t\tIBLOB_GC_AGE_CUTOFF\tValue for blog_garbage_collection_age_cutoff"
+  echo -e "\t\tIBLOB_GC_FORCE_THRESHOLD\tValue for blog_garbage_collection_force_threshold"
 }
 
 function dump_env {
@@ -146,7 +191,6 @@ function dump_env {
   echo -e "nsecs_ro\t$nsecs_ro" >> $odir/args
   echo -e "pending_ratio\t$pending_ratio" >> $odir/args
   echo -e "pending_gb\t$pending_gb" >> $odir/args
-  echo -e "univ\t$UNIV" >> $odir/args
   echo -e "per_level_fanout\t$per_level_fanout" >> $odir/args
 
   echo -e "\nargs_load:" >> $odir/args
@@ -219,8 +263,10 @@ for v in $@ ; do
   if [ $pending_ratio -gt 0 ]; then
     args_common+=( SOFT_PENDING_COMPACTION_BYTES_LIMIT_IN_GB=$soft_gb HARD_PENDING_COMPACTION_BYTES_LIMIT_IN_GB=$hard_gb )
   fi
-  args_common+=( "${comp_args[@]}" )
-  if [ ! -z $UNIV ]; then
+
+  if [ $comp_style == "leveled" ]; then
+    args_common+=( MIN_LEVEL_TO_COMPRESS=$ml2_comp )
+  elif [ $comp_style == "universal" ]; then
     args_common+=( UNIVERSAL=1 COMPRESSION_SIZE_PERCENT=$pct_comp )
   else
     args_common+=( MIN_LEVEL_TO_COMPRESS=$ml2_comp )
@@ -261,16 +307,20 @@ for v in $@ ; do
   p10=$( echo $nkeys $nthreads | awk '{ printf "%.0f", $1 / $2 / 10.0 }' )
   env "${args_nolim[@]}" WRITES=$p10        bash b.sh overwritesome
 
-  if [ -z $UNIV ]; then
+  if [ $comp_style == "leveled" ]; then
     # These are not supported by older versions
     # Flush memtable & L0 to get LSM tree into deterministic state
     env "${args_nolim[@]}"                  bash b.sh flush_mt_l0
-  else
+  elif [ $comp_style == "universal" ]; then
     # For universal don't compact L0 as can have too many sorted runs
     # waitforcompaction can hang, see https://github.com/facebook/rocksdb/issues/9275
     # While this is disabled the test that follows will have more variance from compaction debt.
     # env "${args_nolim[@]}"                    bash b.sh waitforcompaction
     echo TODO enable when waitforcompaction hang is fixed
+  else
+    # These are not supported by older versions
+    # Flush memtable & L0 to get LSM tree into deterministic state
+    env "${args_nolim[@]}"                  bash b.sh flush_mt_l0
   fi
 
   # Read-mostly tests with a rate-limited writer

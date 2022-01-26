@@ -1,4 +1,5 @@
-#!/usr/bin/env bash # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+#!/usr/bin/env bash
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # REQUIRE: db_bench binary exists in the current directory
 
 # Exit Codes
@@ -74,12 +75,20 @@ function display_usage() {
   echo -e "\tLEVEL0_SLOWDOWN_WRITES_TRIGGER\tValue for level0_slowdown_writes_trigger"
   echo -e "\tLEVEL0_STOP_WRITES_TRIGGER\tValue for level0_stop_writes_trigger"
   echo -e "\tPER_LEVEL_FANOUT\tValue for max_bytes_for_level_multiplier"
+  echo -e "\tOptions for universal compaction:"
   echo -e "\tUNIVERSAL\t\tUse universal compaction when set to anything, otherwise use leveled"
   echo -e "\tUNIVERSAL_MIN_MERGE_WIDTH\tValue of min_merge_width option for universal"
   echo -e "\tUNIVERSAL_MAX_MERGE_WIDTH\tValue of min_merge_width option for universal"
   echo -e "\tUNIVERSAL_SIZE_RATIO\tValue of size_ratio option for universal"
   echo -e "\tUNIVERSAL_MAX_SIZE_AMP\tmax_size_amplification_percent for universal"
   echo -e "\tUNIVERSAL_ALLOW_TRIVIAL_MOVE\tSet allow_trivial_move to true for universal, default is false"
+  echo -e "\tOptions for integrated BlobDB"
+  echo -e "\tMIN_BLOB_SIZE\tValue for min_blob_size"
+  echo -e "\tBLOB_FILE_SIZE\tValue for blob_file_size"
+  echo -e "\tBLOB_COMPRESSION_TYPE\tValue for blob_compression_type"
+  echo -e "\tBLOB_GC_AGE_CUTOFF\tValue for blob_garbage_collection_age_cutoff"
+  echo -e "\tBLOB_GC_FORCE_THRESHOLD\tValue for blob_garbage_collection_force_threshold"
+  echo -e "\tCOMPACTION_STYLE\tOne of leveled, universal, blob. Default is leveled."
 }
 
 if [ $# -lt 1 ]; then
@@ -129,6 +138,18 @@ syncval="1"
 if [ ! -z $DB_BENCH_NO_SYNC ]; then
   echo "Turning sync off for all multithreaded tests"
   syncval="0";
+fi
+
+compaction_style=${COMPACTION_STYLE:-leveled}
+if [ $compaction_style = "leveled" ]; then
+  echo Use leveled compaction
+elif [ $compaction_style = "universal" ]; then
+  echo Use universal compaction
+elif [ $compaction_style = "blob" ]; then
+  echo Use blob compaction
+else
+  echo COMPACTION_STYLE is :: $COMPACTION_STYLE :: and must be one of leveled, universal, blob
+  exit $EXIT_INVALID_ARGS
 fi
 
 num_threads=${NUM_THREADS:-64}
@@ -201,6 +222,12 @@ else
   univ_allow_trivial_move=0
 fi
 
+min_blob_size=${MIN_BLOB_SIZE:-0}
+blob_file_size=${BLOB_FILE_SIZE:-$(( 256 * $M ))}
+blob_compression_type=${BLOB_COMPRESSION_TYPE:-lz4}
+blob_gc_age_cutoff=${BLOB_GC_AGE_CUTOFF:-"0.25"}
+blob_gc_force_threshold=${BLOB_GC_FORCE_THRESHOLD:-1}
+
 const_params_base="
   --db=$DB_DIR \
   --wal_dir=$WAL_DIR \
@@ -251,6 +278,18 @@ level_const_params="
   $hard_pending_arg \
 "
 
+# TODO: these inherit level_const_params because the non-blob LSM tree uses leveled compaction
+blob_const_params="
+  $level_const_params \
+  --enable_blob_files=true \
+  --min_blob_size=$min_blob_size \
+  --blob_file_size=$blob_file_size \
+  --blob_compression_type=$blob_compression_type \
+  --enable_blob_garbage_collection=true \
+  --blob_garbage_collection_age_cutoff=$blob_gc_age_cutoff \
+  --blob_garbage_collection_force_threshold=$blob_gc_force_threshold \
+"
+
 # TODO:
 #   pin_l0_filter_and..., is this OK?
 univ_const_params="
@@ -265,16 +304,21 @@ univ_const_params="
   --universal_allow_trivial_move=$univ_allow_trivial_move \
 "
 
-if [ -z $UNIVERSAL ]; then
-const_params="$level_const_params"
-l0_file_num_compaction_trigger=${LEVEL0_FILE_NUM_COMPACTION_TRIGGER:-4}
-l0_slowdown_writes_trigger=${LEVEL0_SLOWDOWN_WRITES_TRIGGER:-20}
-l0_stop_writes_trigger=${LEVEL0_STOP_WRITES_TRIGGER:-30}
+if [ $compaction_style == "leveled" ]; then
+  const_params="$level_const_params"
+  l0_file_num_compaction_trigger=${LEVEL0_FILE_NUM_COMPACTION_TRIGGER:-4}
+  l0_slowdown_writes_trigger=${LEVEL0_SLOWDOWN_WRITES_TRIGGER:-20}
+  l0_stop_writes_trigger=${LEVEL0_STOP_WRITES_TRIGGER:-30}
+elif [ $compaction_style == "universal" ]; then
+  const_params="$univ_const_params"
+  l0_file_num_compaction_trigger=${LEVEL0_FILE_NUM_COMPACTION_TRIGGER:-8}
+  l0_slowdown_writes_trigger=${LEVEL0_SLOWDOWN_WRITES_TRIGGER:-20}
+  l0_stop_writes_trigger=${LEVEL0_STOP_WRITES_TRIGGER:-30}
 else
-const_params="$univ_const_params"
-l0_file_num_compaction_trigger=${LEVEL0_FILE_NUM_COMPACTION_TRIGGER:-8}
-l0_slowdown_writes_trigger=${LEVEL0_SLOWDOWN_WRITES_TRIGGER:-20}
-l0_stop_writes_trigger=${LEVEL0_STOP_WRITES_TRIGGER:-30}
+  const_params="$blob_const_params"
+  l0_file_num_compaction_trigger=${LEVEL0_FILE_NUM_COMPACTION_TRIGGER:-4}
+  l0_slowdown_writes_trigger=${LEVEL0_SLOWDOWN_WRITES_TRIGGER:-20}
+  l0_stop_writes_trigger=${LEVEL0_STOP_WRITES_TRIGGER:-30}
 fi
 
 l0_config="
@@ -411,7 +455,12 @@ function summarize_result {
   fi
   c_secs=$( grep "^Cumulative compaction" $test_out | tail -1 | awk '{ print $15 }' )
 
-  sum_size=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.0f%s", $3, $4 }' )
+  lsm_size=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.0f%s", $3, $4 }' )
+  blob_size=$( grep "^Blob file count:" $test_out | tail -1 | awk '{ printf "%s%s", $7, $8 }' )
+
+  b_rgb=$( grep "^ Sum" $test_out | tail -1 | awk '{ print $21 }' )
+  b_wgb=$( grep "^ Sum" $test_out | tail -1 | awk '{ print $22 }' )
+
   usecs_op=$( grep ^${bench_name} $test_out | awk '{ printf "%.1f", $3 }' )
   p50=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.1f", $3 }' )
   p99=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.0f", $7 }' )
@@ -432,11 +481,14 @@ function summarize_result {
   if [ ! -f "$report" ]; then
     echo -e "# ops_sec - operations per second" >> $report
     echo -e "# mb_sec - ops_sec * size-of-operation-in-MB" >> $report
-    echo -e "# db_size - database size" >> $report
+    echo -e "# lsm_sz - size of LSM tree" >> $report
+    echo -e "# blob_sz - size of BlobDB logs" >> $report
     echo -e "# c_wgb - GB written by compaction" >> $report
     echo -e "# w_amp - Write-amplification as (bytes written by compaction / bytes written by memtable flush)" >> $report
     echo -e "# c_mbps - Average write rate for compaction" >> $report
     echo -e "# c_secs - Wall clock seconds doing compaction" >> $report
+    echo -e "# b_rgb - Blob compaction read GB" >> $report
+    echo -e "# b_wgb - Blob compaction write GB" >> $report
     echo -e "# usec_op - Microseconds per operation" >> $report
     echo -e "# p50, p99, p99.9, p99.99 - 50th, 99th, 99.9th, 99.99th percentile response time in usecs" >> $report
     echo -e "# pmax - max response time in usecs" >> $report
@@ -450,11 +502,11 @@ function summarize_result {
     echo -e "# date - Date/time of test" >> $report
     echo -e "# version - RocksDB version" >> $report
     echo -e "# job_id - User-provided job ID" >> $report
-    echo -e "ops_sec\tmb_sec\tdb_size\tc_wgb\tw_amp\tc_mbps\tc_secs\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id" \
+    echo -e "ops_sec\tmb_sec\tlsm_sz\tblob_sz\tc_wgb\tw_amp\tc_mbps\tc_secs\tb_rgb\tb_wgb\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id" \
       >> $report
   fi
 
-  echo -e "$ops_sec\t$mb_sec\t$sum_size\t$sum_wgb\t$wamp\t$cmb_ps\t$c_secs\t$usecs_op\t$p50\t$p99\t$p999\t$p9999\t$pmax\t$uptime\t$stall_pct\t$nstall\t$u_cpu\t$s_cpu\t$rss\t$test_name\t$my_date\t$version\t$job_id" \
+  echo -e "$ops_sec\t$mb_sec\t$lsm_size\t$blob_size\t$sum_wgb\t$wamp\t$cmb_ps\t$c_secs\t$b_rgb\t$b_wgb\t$usecs_op\t$p50\t$p99\t$p999\t$p9999\t$pmax\t$uptime\t$stall_pct\t$nstall\t$u_cpu\t$s_cpu\t$rss\t$test_name\t$my_date\t$version\t$job_id" \
     >> $report
 }
 
@@ -629,16 +681,21 @@ function run_fillseq {
 
   # For Leveled compaction hardwire this to 0 so that data that is trivial-moved
   # to larger levels (3, 4, etc) will be compressed.
-  if [ -z $UNIVERSAL ]; then
+  if [ $compaction_style == "leveled" ]; then
     comp_arg="--min_level_to_compress=0"
-  elif [ ! -z $UNIVERSAL_ALLOW_TRIVIAL_MOVE ]; then
-    # See GetCompressionFlush where compression_size_percent < 1 means use the default
-    # compression which is needed because trivial moves are enabled
-    comp_arg="--universal_compression_size_percent=-1"
+  elif [ $compaction_style == "universal" ]; then
+    if [ ! -z $UNIVERSAL_ALLOW_TRIVIAL_MOVE ]; then
+      # See GetCompressionFlush where compression_size_percent < 1 means use the default
+      # compression which is needed because trivial moves are enabled
+      comp_arg="--universal_compression_size_percent=-1"
+    else
+      # See GetCompressionFlush where compression_size_percent > 0 means no compression.
+      # Don't set anything here because compression_size_percent is set in univ_const_params
+      comp_arg=""
+    fi
   else
-    # See GetCompressionFlush where compression_size_percent > 0 means no compression.
-    # Don't set anything here because compression_size_percent is set in univ_const_params
-    comp_arg=""
+    # TODO: try to match what is done for leveled, although compression might not be needed
+    comp_arg="--min_level_to_compress=0"
   fi
 
   echo "Loading $num_keys keys sequentially"
@@ -983,7 +1040,7 @@ for job in ${jobs[@]}; do
     echo "Completed $job (ID: $job_id) in $((end-start)) seconds" | tee -a $schedule
   fi
 
-  echo -e "ops_sec\tmb_sec\tdb_size\tc_wgb\tw_amp\tc_mbps\tc_secs\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id"
+  echo -e "ops_sec\tmb_sec\tlsm_sz\tblob_sz\tc_wgb\tw_amp\tc_mbps\tc_secs\tb_rgb\tb_wgb\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id"
   tail -1 $report
 
 done
