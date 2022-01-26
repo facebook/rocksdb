@@ -762,9 +762,9 @@ class Version {
   void MultiGetBlob(const ReadOptions& read_options, MultiGetRange& range,
                     std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs);
 
-  // Loads some stats information from files and populates derived data
-  // structures. Call without mutex held. It needs to be called before appending
-  // the version to the version set.
+  // Loads some stats information from files (if update_stats is set) and
+  // populates derived data structures. Call without mutex held. It needs to be
+  // called before appending the version to the version set.
   void PrepareAppend(const MutableCFOptions& mutable_cf_options,
                      bool update_stats);
 
