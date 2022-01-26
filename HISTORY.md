@@ -31,6 +31,7 @@ Note: The next release will be major release 7.0. See https://github.com/faceboo
 * Fix a bug that FlushMemTable may return ok even flush not succeed.
 * Fixed a bug of Sync() and Fsync() not using `fcntl(F_FULLFSYNC)` on OS X and iOS.
 * Fixed a significant performance regression in version 6.26 when a prefix extractor is used on the read path (Seek, Get, MultiGet). (Excessive time was spent in SliceTransform::AsString().)
+* Fixed a race condition in SstFileManagerImpl error recovery code that can cause a crash during process shutdown.
 
 ### New Features
 * Added RocksJava support for MacOS universal binary (ARM+x86)
