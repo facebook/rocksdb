@@ -872,7 +872,7 @@ class Version {
 
   // Update the accumulated stats associated with the current version.
   // This accumulated stats will be used in compaction.
-  void UpdateAccumulatedStats(bool update_stats);
+  void UpdateAccumulatedStats();
 
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   Logger* info_log_;
