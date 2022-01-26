@@ -247,7 +247,7 @@ class WritableFileWriter {
 
   uint64_t GetFileSize() const { return filesize_; }
 
-  IOStatus InvalidateCache(size_t offset, size_t length) {
+  IOStatus InvalidateCache(uint64_t offset, uint64_t length) {
     return writable_file_->InvalidateCache(offset, length);
   }
 

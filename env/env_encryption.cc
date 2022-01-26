@@ -92,8 +92,8 @@ size_t EncryptedSequentialFile::GetRequiredBufferAlignment() const {
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
-IOStatus EncryptedSequentialFile::InvalidateCache(size_t offset,
-                                                  size_t length) {
+IOStatus EncryptedSequentialFile::InvalidateCache(uint64_t offset,
+                                                  uint64_t length) {
   return file_->InvalidateCache(offset + prefixLength_, length);
 }
 
@@ -192,8 +192,8 @@ size_t EncryptedRandomAccessFile::GetRequiredBufferAlignment() const {
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
-IOStatus EncryptedRandomAccessFile::InvalidateCache(size_t offset,
-                                                    size_t length) {
+IOStatus EncryptedRandomAccessFile::InvalidateCache(uint64_t offset,
+                                                    uint64_t length) {
   return file_->InvalidateCache(offset + prefixLength_, length);
 }
 
@@ -295,7 +295,8 @@ IOStatus EncryptedWritableFile::Truncate(uint64_t size,
 // of this file. If the length is 0, then it refers to the end of file.
 // If the system is not caching the file contents, then this is a noop.
 // This call has no effect on dirty pages in the cache.
-IOStatus EncryptedWritableFile::InvalidateCache(size_t offset, size_t length) {
+IOStatus EncryptedWritableFile::InvalidateCache(uint64_t offset,
+                                                uint64_t length) {
   return file_->InvalidateCache(offset + prefixLength_, length);
 }
 
@@ -316,7 +317,7 @@ IOStatus EncryptedWritableFile::RangeSync(uint64_t offset, uint64_t nbytes,
 // of space on devices where it can result in less file
 // fragmentation and/or less waste from over-zealous filesystem
 // pre-allocation.
-void EncryptedWritableFile::PrepareWrite(size_t offset, size_t len,
+void EncryptedWritableFile::PrepareWrite(uint64_t offset, size_t len,
                                          const IOOptions& options,
                                          IODebugContext* dbg) {
   file_->PrepareWrite(offset + prefixLength_, len, options, dbg);

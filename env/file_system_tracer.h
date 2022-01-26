@@ -84,7 +84,7 @@ class FileSystemTracingWrapper : public FileSystemWrapper {
   IOStatus GetFileSize(const std::string& fname, const IOOptions& options,
                        uint64_t* file_size, IODebugContext* dbg) override;
 
-  IOStatus Truncate(const std::string& fname, size_t size,
+  IOStatus Truncate(const std::string& fname, uint64_t size,
                     const IOOptions& options, IODebugContext* dbg) override;
 
  private:
@@ -149,7 +149,7 @@ class FSSequentialFileTracingWrapper : public FSSequentialFileOwnerWrapper {
   IOStatus Read(size_t n, const IOOptions& options, Slice* result,
                 char* scratch, IODebugContext* dbg) override;
 
-  IOStatus InvalidateCache(size_t offset, size_t length) override;
+  IOStatus InvalidateCache(uint64_t offset, uint64_t length) override;
 
   IOStatus PositionedRead(uint64_t offset, size_t n, const IOOptions& options,
                           Slice* result, char* scratch,
@@ -226,7 +226,7 @@ class FSRandomAccessFileTracingWrapper : public FSRandomAccessFileOwnerWrapper {
   IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& options,
                     IODebugContext* dbg) override;
 
-  IOStatus InvalidateCache(size_t offset, size_t length) override;
+  IOStatus InvalidateCache(uint64_t offset, uint64_t length) override;
 
  private:
   std::shared_ptr<IOTracer> io_tracer_;
@@ -314,7 +314,7 @@ class FSWritableFileTracingWrapper : public FSWritableFileOwnerWrapper {
 
   uint64_t GetFileSize(const IOOptions& options, IODebugContext* dbg) override;
 
-  IOStatus InvalidateCache(size_t offset, size_t length) override;
+  IOStatus InvalidateCache(uint64_t offset, uint64_t length) override;
 
  private:
   std::shared_ptr<IOTracer> io_tracer_;

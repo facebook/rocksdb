@@ -185,8 +185,7 @@ void WinLogger::Logv(const char* format, va_list ap) {
   }
 }
 
-size_t WinLogger::GetLogFileSize() const { return log_size_; }
-
+uint64_t WinLogger::GetLogFileSize() const { return log_size_; }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -130,8 +130,8 @@ void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
   // measure the size of each message, which is supposed
   // to be equal or greater than log_message.size()
   LogMessage(logger, log_message.c_str());
-  size_t message_size = logger->GetLogFileSize();
-  size_t current_log_size = message_size;
+  uint64_t message_size = logger->GetLogFileSize();
+  uint64_t current_log_size = message_size;
 
   // Test the cases when the log file will not be rolled.
   while (current_log_size + message_size < log_max_size) {

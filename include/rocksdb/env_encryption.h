@@ -227,7 +227,7 @@ class EncryptedSequentialFile : public FSSequentialFile {
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
-  IOStatus InvalidateCache(size_t offset, size_t length) override;
+  IOStatus InvalidateCache(uint64_t offset, uint64_t length) override;
 
   // Positioned Read for direct I/O
   // If Direct I/O enabled, offset, n, and scratch should be properly aligned
@@ -299,7 +299,7 @@ class EncryptedRandomAccessFile : public FSRandomAccessFile {
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
-  IOStatus InvalidateCache(size_t offset, size_t length) override;
+  IOStatus InvalidateCache(uint64_t offset, uint64_t length) override;
 };
 
 // A file abstraction for sequential writing.  The implementation
@@ -357,7 +357,7 @@ class EncryptedWritableFile : public FSWritableFile {
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
   // This call has no effect on dirty pages in the cache.
-  IOStatus InvalidateCache(size_t offset, size_t length) override;
+  IOStatus InvalidateCache(uint64_t offset, uint64_t length) override;
 
   // Sync a file range with disk.
   // offset is the starting byte of the file range to be synchronized.
@@ -373,7 +373,7 @@ class EncryptedWritableFile : public FSWritableFile {
   // of space on devices where it can result in less file
   // fragmentation and/or less waste from over-zealous filesystem
   // pre-allocation.
-  void PrepareWrite(size_t offset, size_t len, const IOOptions& options,
+  void PrepareWrite(uint64_t offset, size_t len, const IOOptions& options,
                     IODebugContext* dbg) override;
 
   void SetPreallocationBlockSize(size_t size) override;

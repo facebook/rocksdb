@@ -173,7 +173,7 @@ class PosixLogger : public Logger {
       break;
     }
   }
-  size_t GetLogFileSize() const override { return log_size_; }
+  uint64_t GetLogFileSize() const override { return log_size_; }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

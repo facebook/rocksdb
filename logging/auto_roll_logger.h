@@ -44,7 +44,7 @@ class AutoRollLogger : public Logger {
     return status_;
   }
 
-  size_t GetLogFileSize() const override {
+  uint64_t GetLogFileSize() const override {
     if (!logger_) {
       return 0;
     }

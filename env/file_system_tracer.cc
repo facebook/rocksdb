@@ -199,7 +199,7 @@ IOStatus FileSystemTracingWrapper::GetFileSize(const std::string& fname,
 }
 
 IOStatus FileSystemTracingWrapper::Truncate(const std::string& fname,
-                                            size_t size,
+                                            uint64_t size,
                                             const IOOptions& options,
                                             IODebugContext* dbg) {
   StopWatchNano timer(clock_);
@@ -232,8 +232,8 @@ IOStatus FSSequentialFileTracingWrapper::Read(size_t n,
   return s;
 }
 
-IOStatus FSSequentialFileTracingWrapper::InvalidateCache(size_t offset,
-                                                         size_t length) {
+IOStatus FSSequentialFileTracingWrapper::InvalidateCache(uint64_t offset,
+                                                         uint64_t length) {
   StopWatchNano timer(clock_);
   timer.Start();
   IOStatus s = target()->InvalidateCache(offset, length);
@@ -322,8 +322,8 @@ IOStatus FSRandomAccessFileTracingWrapper::Prefetch(uint64_t offset, size_t n,
   return s;
 }
 
-IOStatus FSRandomAccessFileTracingWrapper::InvalidateCache(size_t offset,
-                                                           size_t length) {
+IOStatus FSRandomAccessFileTracingWrapper::InvalidateCache(uint64_t offset,
+                                                           uint64_t length) {
   StopWatchNano timer(clock_);
   timer.Start();
   IOStatus s = target()->InvalidateCache(offset, length);
@@ -414,8 +414,8 @@ uint64_t FSWritableFileTracingWrapper::GetFileSize(const IOOptions& options,
   return file_size;
 }
 
-IOStatus FSWritableFileTracingWrapper::InvalidateCache(size_t offset,
-                                                       size_t length) {
+IOStatus FSWritableFileTracingWrapper::InvalidateCache(uint64_t offset,
+                                                       uint64_t length) {
   StopWatchNano timer(clock_);
   timer.Start();
   IOStatus s = target()->InvalidateCache(offset, length);

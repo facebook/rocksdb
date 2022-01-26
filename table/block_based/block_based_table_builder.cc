@@ -1449,8 +1449,7 @@ Status BlockBasedTableBuilder::InsertBlockInCompressedCache(
       RecordTick(rep_->ioptions.stats, BLOCK_CACHE_COMPRESSED_ADD_FAILURES);
     }
     // Invalidate OS cache.
-    r->file->InvalidateCache(static_cast<size_t>(r->get_offset()), size)
-        .PermitUncheckedError();
+    r->file->InvalidateCache(r->get_offset(), size).PermitUncheckedError();
   }
   return s;
 }

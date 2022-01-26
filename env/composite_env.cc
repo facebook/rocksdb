@@ -34,7 +34,7 @@ class CompositeSequentialFileWrapper : public SequentialFile {
   size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
   }
-  Status InvalidateCache(size_t offset, size_t length) override {
+  Status InvalidateCache(uint64_t offset, uint64_t length) override {
     return target_->InvalidateCache(offset, length);
   }
   Status PositionedRead(uint64_t offset, size_t n, Slice* result,
@@ -95,7 +95,7 @@ class CompositeRandomAccessFileWrapper : public RandomAccessFile {
   size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
   }
-  Status InvalidateCache(size_t offset, size_t length) override {
+  Status InvalidateCache(uint64_t offset, uint64_t length) override {
     return target_->InvalidateCache(offset, length);
   }
 
@@ -192,7 +192,7 @@ class CompositeWritableFileWrapper : public WritableFile {
     return target_->GetUniqueId(id, max_size);
   }
 
-  Status InvalidateCache(size_t offset, size_t length) override {
+  Status InvalidateCache(uint64_t offset, uint64_t length) override {
     return target_->InvalidateCache(offset, length);
   }
 
@@ -202,7 +202,7 @@ class CompositeWritableFileWrapper : public WritableFile {
     return target_->RangeSync(offset, nbytes, io_opts, &dbg);
   }
 
-  void PrepareWrite(size_t offset, size_t len) override {
+  void PrepareWrite(uint64_t offset, size_t len) override {
     IOOptions io_opts;
     IODebugContext dbg;
     target_->PrepareWrite(offset, len, io_opts, &dbg);

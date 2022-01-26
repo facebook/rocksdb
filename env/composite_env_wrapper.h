@@ -89,7 +89,7 @@ class CompositeEnv : public Env {
     IODebugContext dbg;
     return file_system_->DeleteFile(f, io_opts, &dbg);
   }
-  Status Truncate(const std::string& fname, size_t size) override {
+  Status Truncate(const std::string& fname, uint64_t size) override {
     IOOptions io_opts;
     IODebugContext dbg;
     return file_system_->Truncate(fname, size, io_opts, &dbg);

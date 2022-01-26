@@ -1900,7 +1900,7 @@ TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
       return 0;
     }
 
-    Status InvalidateCache(size_t /*offset*/, size_t /*length*/) override {
+    Status InvalidateCache(uint64_t /*offset*/, uint64_t /*length*/) override {
       inc(19);
       return Status::OK();
     }
@@ -1910,7 +1910,7 @@ TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
       return Status::OK();
     }
 
-    void PrepareWrite(size_t /*offset*/, size_t /*len*/) override { inc(21); }
+    void PrepareWrite(uint64_t /*offset*/, size_t /*len*/) override { inc(21); }
 
     Status Allocate(uint64_t /*offset*/, uint64_t /*len*/) override {
       inc(22);

@@ -214,7 +214,7 @@ IOStatus WinFileSystem::DeleteFile(const std::string& fname,
   return result;
 }
 
-IOStatus WinFileSystem::Truncate(const std::string& fname, size_t size,
+IOStatus WinFileSystem::Truncate(const std::string& fname, uint64_t size,
                                  const IOOptions& /*options*/,
                                  IODebugContext* /*dbg*/) {
   IOStatus s;

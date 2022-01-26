@@ -100,7 +100,7 @@ class ReadaheadRandomAccessFile : public FSRandomAccessFile {
 
   void Hint(AccessPattern pattern) override { file_->Hint(pattern); }
 
-  IOStatus InvalidateCache(size_t offset, size_t length) override {
+  IOStatus InvalidateCache(uint64_t offset, uint64_t length) override {
     std::unique_lock<std::mutex> lk(lock_);
     buffer_.Clear();
     return file_->InvalidateCache(offset, length);

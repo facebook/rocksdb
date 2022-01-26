@@ -122,7 +122,7 @@ class WinFileSystem : public FileSystem {
                       IODebugContext* dbg) override;
 
   // Truncate the named file to the specified size.
-  IOStatus Truncate(const std::string& /*fname*/, size_t /*size*/,
+  IOStatus Truncate(const std::string& /*fname*/, uint64_t /*size*/,
                     const IOOptions& /*options*/,
                     IODebugContext* /*dbg*/) override;
   IOStatus NewSequentialFile(const std::string& fname,

@@ -300,7 +300,8 @@ IOStatus PosixSequentialFile::Skip(uint64_t n) {
   return IOStatus::OK();
 }
 
-IOStatus PosixSequentialFile::InvalidateCache(size_t offset, size_t length) {
+IOStatus PosixSequentialFile::InvalidateCache(uint64_t offset,
+                                              uint64_t length) {
 #ifndef OS_LINUX
   (void)offset;
   (void)length;
@@ -852,7 +853,8 @@ void PosixRandomAccessFile::Hint(AccessPattern pattern) {
   }
 }
 
-IOStatus PosixRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
+IOStatus PosixRandomAccessFile::InvalidateCache(uint64_t offset,
+                                                uint64_t length) {
   if (use_direct_io()) {
     return IOStatus::OK();
   }
@@ -917,7 +919,8 @@ IOStatus PosixMmapReadableFile::Read(uint64_t offset, size_t n,
   return s;
 }
 
-IOStatus PosixMmapReadableFile::InvalidateCache(size_t offset, size_t length) {
+IOStatus PosixMmapReadableFile::InvalidateCache(uint64_t offset,
+                                                uint64_t length) {
 #ifndef OS_LINUX
   (void)offset;
   (void)length;
@@ -1150,7 +1153,7 @@ uint64_t PosixMmapFile::GetFileSize(const IOOptions& /*opts*/,
   return file_offset_ + used;
 }
 
-IOStatus PosixMmapFile::InvalidateCache(size_t offset, size_t length) {
+IOStatus PosixMmapFile::InvalidateCache(uint64_t offset, uint64_t length) {
 #ifndef OS_LINUX
   (void)offset;
   (void)length;
@@ -1383,7 +1386,7 @@ void PosixWritableFile::SetWriteLifeTimeHint(Env::WriteLifeTimeHint hint) {
 #endif  // OS_LINUX
 }
 
-IOStatus PosixWritableFile::InvalidateCache(size_t offset, size_t length) {
+IOStatus PosixWritableFile::InvalidateCache(uint64_t offset, uint64_t length) {
   if (use_direct_io()) {
     return IOStatus::OK();
   }

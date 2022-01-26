@@ -51,8 +51,7 @@ IOStatus WritableFileWriter::Append(const Slice& data,
   {
     IOSTATS_TIMER_GUARD(prepare_write_nanos);
     TEST_SYNC_POINT("WritableFileWriter::Append:BeforePrepareWrite");
-    writable_file_->PrepareWrite(static_cast<size_t>(GetFileSize()), left,
-                                 IOOptions(), nullptr);
+    writable_file_->PrepareWrite(GetFileSize(), left, IOOptions(), nullptr);
   }
 
   // See whether we need to enlarge the buffer to avoid the flush
