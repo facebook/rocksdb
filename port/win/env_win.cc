@@ -297,9 +297,9 @@ IOStatus WinFileSystem::NewRandomAccessFile(
 
   UniqueCloseHandlePtr fileGuard(hFile, CloseHandleFunc);
 
-  // CAUTION! This will map the entire file into the process address space
-  if (options.use_mmap_reads && sizeof(void*) >= 8) {
-    // Use mmap when virtual address-space is plentiful.
+  // CAUTION! This will map the entire file into the process address space.
+  // Not recommended for 32-bit platforms.
+  if (options.use_mmap_reads) {
     uint64_t fileSize;
 
     s = GetFileSize(fname, IOOptions(), &fileSize, dbg);

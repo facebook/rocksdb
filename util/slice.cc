@@ -276,7 +276,7 @@ Status SliceTransform::CreateFromString(
     }
   }
   return status;
-}  // namespace ROCKSDB_NAMESPACE
+}
 
 std::string SliceTransform::AsString() const {
   if (HasRegisteredOptions()) {

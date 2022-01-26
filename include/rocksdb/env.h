@@ -84,7 +84,8 @@ struct EnvOptions {
   // Construct from Options
   explicit EnvOptions(const DBOptions& options);
 
-  // If true, then use mmap to read data
+  // If true, then use mmap to read data.
+  // Not recommended for 32-bit OS.
   bool use_mmap_reads = false;
 
   // If true, then use mmap to write data
@@ -1842,10 +1843,6 @@ class LoggerWrapper : public Logger {
 // when it is no longer needed.
 // *base_env must remain live while the result is in use.
 Env* NewMemEnv(Env* base_env);
-
-// Returns a new environment that is used for HDFS environment.
-// This is a factory method for HdfsEnv declared in hdfs/env_hdfs.h
-Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname);
 
 // Returns a new environment that measures function call times for filesystem
 // operations, reporting results to variables in PerfContext.
