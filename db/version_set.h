@@ -129,6 +129,9 @@ class VersionStorageInfo {
 
   void AddBlobFile(std::shared_ptr<BlobFileMetaData> blob_file_meta);
 
+  void PrepareAppend(const ImmutableOptions& immutable_options,
+                     const MutableCFOptions& mutable_cf_options);
+
   void SetFinalized();
 
   // Update num_non_empty_levels_.

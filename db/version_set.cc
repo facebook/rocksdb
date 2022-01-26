@@ -2402,6 +2402,20 @@ void VersionStorageInfo::GenerateLevelFilesBrief() {
   }
 }
 
+void VersionStorageInfo::PrepareAppend(
+    const ImmutableOptions& immutable_options,
+    const MutableCFOptions& mutable_cf_options) {
+  ComputeCompensatedSizes();
+  UpdateNumNonEmptyLevels();
+  CalculateBaseBytes(immutable_options, mutable_cf_options);
+  UpdateFilesByCompactionPri(immutable_options, mutable_cf_options);
+  GenerateFileIndexer();
+  GenerateLevelFilesBrief();
+  GenerateLevel0NonOverlapping();
+  GenerateBottommostFiles();
+  GenerateFileLocationIndex();
+}
+
 void Version::PrepareAppend(const MutableCFOptions& mutable_cf_options,
                             bool update_stats) {
   TEST_SYNC_POINT_CALLBACK(
@@ -2412,16 +2426,7 @@ void Version::PrepareAppend(const MutableCFOptions& mutable_cf_options,
     UpdateAccumulatedStats();
   }
 
-  storage_info_.ComputeCompensatedSizes();
-  storage_info_.UpdateNumNonEmptyLevels();
-  storage_info_.CalculateBaseBytes(*cfd_->ioptions(), mutable_cf_options);
-  storage_info_.UpdateFilesByCompactionPri(*cfd_->ioptions(),
-                                           mutable_cf_options);
-  storage_info_.GenerateFileIndexer();
-  storage_info_.GenerateLevelFilesBrief();
-  storage_info_.GenerateLevel0NonOverlapping();
-  storage_info_.GenerateBottommostFiles();
-  storage_info_.GenerateFileLocationIndex();
+  storage_info_.PrepareAppend(*cfd_->ioptions(), mutable_cf_options);
 }
 
 bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
