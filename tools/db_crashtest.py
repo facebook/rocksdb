@@ -155,6 +155,8 @@ default_params = {
     "user_timestamp_size": 0,
     "secondary_cache_fault_one_in" : lambda: random.choice([0, 0, 32]),
     "prepopulate_block_cache" : lambda: random.choice([0, 1]),
+    "memtable_prefix_bloom_size_ratio": lambda: random.choice([0.001, 0.01, 0.1, 0.5]),
+    "memtable_whole_key_filtering": lambda: random.randint(0, 1),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -401,6 +403,9 @@ def finalize_and_sanitize(src_params):
         dest_params["test_batches_snapshots"] = 0
     if dest_params.get("test_batches_snapshots") == 0:
         dest_params["batch_protection_bytes_per_key"] = 0
+    if (dest_params.get("prefix_size") < 0 and
+        dest_params.get("memtable_whole_key_filtering") == 0):
+        dest_params["memtable_prefix_bloom_size_ratio"] = 0
     return dest_params
 
 def gen_cmd_params(args):

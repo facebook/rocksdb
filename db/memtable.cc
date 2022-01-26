@@ -33,6 +33,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/types.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
@@ -962,51 +963,64 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
   MultiGetRange temp_range(*range, range->begin(), range->end());
   if (bloom_filter_) {
-    std::array<Slice*, MultiGetContext::MAX_BATCH_SIZE> keys;
-    std::array<bool, MultiGetContext::MAX_BATCH_SIZE> may_match = {{true}};
-    autovector<Slice, MultiGetContext::MAX_BATCH_SIZE> prefixes;
+    bool whole_key =
+        !prefix_extractor_ || moptions_.memtable_whole_key_filtering;
+    std::array<Slice, MultiGetContext::MAX_BATCH_SIZE> bloom_keys;
+    std::array<bool, MultiGetContext::MAX_BATCH_SIZE> may_match;
+    std::array<size_t, MultiGetContext::MAX_BATCH_SIZE> range_indexes;
     int num_keys = 0;
     for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
-      if (!prefix_extractor_) {
-        keys[num_keys++] = &iter->ukey_without_ts;
+      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+          NewRangeTombstoneIterator(
+              read_options, GetInternalKeySeqno(iter->lkey->internal_key())));
+      if (range_del_iter != nullptr) {
+        iter->max_covering_tombstone_seq = std::max(
+            iter->max_covering_tombstone_seq,
+            range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key()));
+        // TODO: consider not counting these as Bloom hits to more closely
+        // match bloom_sst_hit_count
+        PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
+      } else if (whole_key) {
+        bloom_keys[num_keys] = iter->ukey_without_ts;
+        range_indexes[num_keys++] = iter.index();
       } else if (prefix_extractor_->InDomain(iter->ukey_without_ts)) {
-        prefixes.emplace_back(
-            prefix_extractor_->Transform(iter->ukey_without_ts));
-        keys[num_keys++] = &prefixes.back();
+        bloom_keys[num_keys] =
+            prefix_extractor_->Transform(iter->ukey_without_ts);
+        range_indexes[num_keys++] = iter.index();
+      } else {
+        // TODO: consider not counting these as Bloom hits to more closely
+        // match bloom_sst_hit_count
+        PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
       }
     }
-    bloom_filter_->MayContain(num_keys, &keys[0], &may_match[0]);
-    int idx = 0;
-    for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
-      if (prefix_extractor_ &&
-          !prefix_extractor_->InDomain(iter->ukey_without_ts)) {
-        PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
-        continue;
-      }
-      if (!may_match[idx]) {
-        temp_range.SkipKey(iter);
+    bloom_filter_->MayContain(num_keys, &bloom_keys[0], &may_match[0]);
+    for (int i = 0; i < num_keys; ++i) {
+      if (!may_match[i]) {
+        temp_range.SkipIndex(range_indexes[i]);
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
       } else {
         PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
       }
-      idx++;
     }
   }
   for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
-    SequenceNumber seq = kMaxSequenceNumber;
     bool found_final_value{false};
     bool merge_in_progress = iter->s->IsMergeInProgress();
-    std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-        NewRangeTombstoneIterator(
-            read_options, GetInternalKeySeqno(iter->lkey->internal_key())));
-    if (range_del_iter != nullptr) {
-      iter->max_covering_tombstone_seq = std::max(
-          iter->max_covering_tombstone_seq,
-          range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key()));
+    if (!bloom_filter_) {
+      // Duplicated code for non-Bloom case (probably best performance)
+      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+          NewRangeTombstoneIterator(
+              read_options, GetInternalKeySeqno(iter->lkey->internal_key())));
+      if (range_del_iter != nullptr) {
+        iter->max_covering_tombstone_seq = std::max(
+            iter->max_covering_tombstone_seq,
+            range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key()));
+      }
     }
+    SequenceNumber dummy_seq;
     GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,
                  callback, &iter->is_blob_index, iter->value->GetSelf(),
-                 iter->timestamp, iter->s, &(iter->merge_context), &seq,
+                 iter->timestamp, iter->s, &(iter->merge_context), &dummy_seq,
                  &found_final_value, &merge_in_progress);
 
     if (!found_final_value && merge_in_progress) {
