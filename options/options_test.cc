@@ -110,6 +110,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"blob_garbage_collection_age_cutoff", "0.5"},
       {"blob_garbage_collection_force_threshold", "0.75"},
       {"blob_compaction_readahead_size", "256K"},
+      {"bottommost_temperature", "kWarm"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -243,6 +244,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_age_cutoff, 0.5);
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
   ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
+  ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(exact, base_cf_opt, cf_options_map,
@@ -388,7 +390,7 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
 
   // Comparator from object registry
   std::string kCompName = "reverse_comp";
-  ObjectLibrary::Default()->Register<const Comparator>(
+  ObjectLibrary::Default()->AddFactory<const Comparator>(
       kCompName,
       [](const std::string& /*name*/,
          std::unique_ptr<const Comparator>* /*guard*/,
@@ -1291,7 +1293,7 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
       NewBlockBasedTableFactory(block_based_table_options));
 
   // Register an Env with object registry.
-  ObjectLibrary::Default()->Register<Env>(
+  ObjectLibrary::Default()->AddFactory<Env>(
       CustomEnv::kClassName(),
       [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
          std::string* /* errmsg */) {
@@ -2079,7 +2081,7 @@ TEST_F(OptionsTest, OptionTablePropertiesTest) {
   // Repeat the experiment.  The copy should have the same
   // properties as the original
   cfg_opts.registry->AddLibrary("collector")
-      ->Register<TablePropertiesCollectorFactory>(
+      ->AddFactory<TablePropertiesCollectorFactory>(
           ObjectLibrary::PatternEntry(
               TestTablePropertiesCollectorFactory::kClassName(), false)
               .AddSeparator(":"),
@@ -2153,14 +2155,14 @@ class TestConfigEventListener : public TestEventListener {
 
 static int RegisterTestEventListener(ObjectLibrary& library,
                                      const std::string& arg) {
-  library.Register<EventListener>(
+  library.AddFactory<EventListener>(
       "Test" + arg,
       [](const std::string& name, std::unique_ptr<EventListener>* guard,
          std::string* /* errmsg */) {
         guard->reset(new TestEventListener(name.substr(4)));
         return guard->get();
       });
-  library.Register<EventListener>(
+  library.AddFactory<EventListener>(
       "TestConfig" + arg,
       [](const std::string& name, std::unique_ptr<EventListener>* guard,
          std::string* /* errmsg */) {
@@ -2195,7 +2197,7 @@ const static std::string kCustomEnvName = "Custom";
 const static std::string kCustomEnvProp = "env=" + kCustomEnvName;
 
 static int RegisterCustomEnv(ObjectLibrary& library, const std::string& arg) {
-  library.Register<Env>(
+  library.AddFactory<Env>(
       arg, [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
               std::string* /* errmsg */) {
         static CustomEnv env(Env::Default());
@@ -2270,6 +2272,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"blob_garbage_collection_age_cutoff", "0.5"},
       {"blob_garbage_collection_force_threshold", "0.75"},
       {"blob_compaction_readahead_size", "256K"},
+      {"bottommost_temperature", "kWarm"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -2395,6 +2398,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_age_cutoff, 0.5);
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
   ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
+  ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(
@@ -2524,7 +2528,7 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
 
   // Comparator from object registry
   std::string kCompName = "reverse_comp";
-  ObjectLibrary::Default()->Register<const Comparator>(
+  ObjectLibrary::Default()->AddFactory<const Comparator>(
       kCompName,
       [](const std::string& /*name*/,
          std::unique_ptr<const Comparator>* /*guard*/,
@@ -2968,7 +2972,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
       NewBlockBasedTableFactory(block_based_table_options));
 
   // Register an Env with object registry.
-  ObjectLibrary::Default()->Register<Env>(
+  ObjectLibrary::Default()->AddFactory<Env>(
       "CustomEnvDefault",
       [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
          std::string* /* errmsg */) {

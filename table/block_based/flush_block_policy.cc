@@ -94,7 +94,7 @@ FlushBlockPolicy* FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
 #ifndef ROCKSDB_LITE
 static int RegisterFlushBlockPolicyFactories(ObjectLibrary& library,
                                              const std::string& /*arg*/) {
-  library.Register<FlushBlockPolicyFactory>(
+  library.AddFactory<FlushBlockPolicyFactory>(
       FlushBlockBySizePolicyFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<FlushBlockPolicyFactory>* guard,
@@ -102,7 +102,7 @@ static int RegisterFlushBlockPolicyFactories(ObjectLibrary& library,
         guard->reset(new FlushBlockBySizePolicyFactory());
         return guard->get();
       });
-  library.Register<FlushBlockPolicyFactory>(
+  library.AddFactory<FlushBlockPolicyFactory>(
       FlushBlockEveryKeyPolicyFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<FlushBlockPolicyFactory>* guard,

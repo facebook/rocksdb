@@ -405,6 +405,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, periodic_compaction_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"bottommost_temperature",
+         {offsetof(struct MutableCFOptions, bottommost_temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"enable_blob_files",
          {offsetof(struct MutableCFOptions, enable_blob_files),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -1061,6 +1065,9 @@ void MutableCFOptions::Dump(Logger* log) const {
                  blob_garbage_collection_force_threshold);
   ROCKS_LOG_INFO(log, "           blob_compaction_readahead_size: %" PRIu64,
                  blob_compaction_readahead_size);
+
+  ROCKS_LOG_INFO(log, "                   bottommost_temperature: %d",
+                 static_cast<int>(bottommost_temperature));
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)

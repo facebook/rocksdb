@@ -1257,6 +1257,13 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
         }
         break;
       case kDeprecatedBlock:
+        if (context.info_log && !warned_.load(std::memory_order_relaxed)) {
+          warned_ = true;
+          ROCKS_LOG_WARN(context.info_log,
+                         "Using deprecated block-based Bloom filter is "
+                         "inefficient (%d bits per key).",
+                         whole_bits_per_key_);
+        }
         return nullptr;
       case kFastLocalBloom:
         return new FastLocalBloomBitsBuilder(

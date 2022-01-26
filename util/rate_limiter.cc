@@ -431,7 +431,7 @@ namespace {
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinRateLimiters(ObjectLibrary& library,
                                        const std::string& /*arg*/) {
-  library.Register<RateLimiter>(
+  library.AddFactory<RateLimiter>(
       GenericRateLimiter::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<RateLimiter>* guard,
          std::string* /*errmsg*/) {

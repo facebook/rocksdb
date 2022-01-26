@@ -177,6 +177,9 @@ class FilterPolicy {
   // passed to methods of this type.
   virtual const char* Name() const = 0;
 
+  // DEPRECATED: This function is part of the deprecated block-based
+  // filter, which will be removed in a future release.
+  //
   // keys[0,n-1] contains a list of keys (potentially with duplicates)
   // that are ordered according to the user supplied comparator.
   // Append a filter that summarizes keys[0,n-1] to *dst.
@@ -186,6 +189,9 @@ class FilterPolicy {
   virtual void CreateFilter(const Slice* keys, int n,
                             std::string* dst) const = 0;
 
+  // DEPRECATED: This function is part of the deprecated block-based
+  // filter, which will be removed in a future release.
+  //
   // "filter" contains the data appended by a preceding call to
   // CreateFilter() on this class.  This method must return true if
   // the key was in the list of keys passed to CreateFilter().
@@ -198,6 +204,7 @@ class FilterPolicy {
   // NOTE: This function is only called by GetBuilderWithContext() below for
   // custom FilterPolicy implementations. Thus, it is not necessary to
   // override this function if overriding GetBuilderWithContext().
+  // DEPRECATED: This function will be removed in a future release.
   virtual FilterBitsBuilder* GetFilterBitsBuilder() const { return nullptr; }
 
   // A newer variant of GetFilterBitsBuilder that allows a FilterPolicy
@@ -282,7 +289,7 @@ extern const FilterPolicy* NewBloomFilterPolicy(
 extern const FilterPolicy* NewRibbonFilterPolicy(
     double bloom_equivalent_bits_per_key, int bloom_before_level = 0);
 
-// Old name and old default behavior
+// Old name and old default behavior (DEPRECATED)
 inline const FilterPolicy* NewExperimentalRibbonFilterPolicy(
     double bloom_equivalent_bits_per_key) {
   return NewRibbonFilterPolicy(bloom_equivalent_bits_per_key, -1);

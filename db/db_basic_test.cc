@@ -1892,7 +1892,6 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
 
   ASSERT_EQ(values.size(), keys.size());
 
-  uint64_t curr_value_size = 0;
   for (unsigned int j = 0; j < 26; ++j) {
     int key = j + 10;
     std::string value;
@@ -1909,11 +1908,9 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
       value.append(",");
       value.append("val_mem_" + std::to_string(key));
     }
-    curr_value_size += value.size();
     ASSERT_EQ(values[j], value);
     ASSERT_OK(statuses[j]);
   }
-  // ASSERT_TRUE(curr_value_size <= read_options.value_size_hard_limit);
 
   // All remaning keys status is set Status::Abort
   for (unsigned int j = 26; j < 40; j++) {

@@ -406,7 +406,8 @@ struct BlockBasedTableBuilder::Rep {
         file(f),
         offset(0),
         alignment(table_options.block_align
-                      ? std::min(table_options.block_size, kDefaultPageSize)
+                      ? std::min(static_cast<size_t>(table_options.block_size),
+                                 kDefaultPageSize)
                       : 0),
         data_block(table_options.block_restart_interval,
                    table_options.use_delta_encoding,
@@ -1582,6 +1583,9 @@ void BlockBasedTableBuilder::WriteFilterBlock(
 
 void BlockBasedTableBuilder::WriteIndexBlock(
     MetaIndexBuilder* meta_index_builder, BlockHandle* index_block_handle) {
+  if (!ok()) {
+    return;
+  }
   IndexBuilder::IndexBlocks index_blocks;
   auto index_builder_status = rep_->index_builder->Finish(&index_blocks);
   if (index_builder_status.IsIncomplete()) {
