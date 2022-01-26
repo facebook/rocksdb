@@ -31,7 +31,7 @@ class APIWeakDB : APIBase {
     auto lock = db.lock();
     if (!lock) {
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-          env, "Column family (DB) already closed");
+          env, "Internal DB is already closed");
     }
     return lock;
   }

@@ -272,8 +272,6 @@ public class RefCountTest {
   @Test
   public void testCloseDBWithDanglingIterator() {
 
-    RocksIterator iterator = null;
-
     try (final Options options = new Options()
         .setCreateIfMissing(true)
         .setCreateMissingColumnFamilies(true);
@@ -283,36 +281,28 @@ public class RefCountTest {
       db.put(cfHandle, "key1".getBytes(), "value1".getBytes());
       db.put(cfHandle, "key2".getBytes(), "value2".getBytes());
 
-      iterator = db.newIterator(cfHandle);
-      iterator.seekToFirst();
-      assertThat(iterator.isValid()).isTrue();
-      assertThat(iterator.key()).isEqualTo("key1".getBytes());
-      assertThat(iterator.value()).isEqualTo("value1".getBytes());
+      try (final RocksIterator iterator = db.newIterator(cfHandle)) {
+        iterator.seekToFirst();
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("key1".getBytes());
+        assertThat(iterator.value()).isEqualTo("value1".getBytes());
 
-      // Doing this beforehand makes no difference: cfHandle.close();
-      // It's the underlying CF object that does the check, not the handle...
-      // Closing the DB closes contained CFs, which complains the iterator is still open
-      // Assertion failed: (last_ref), function ~ColumnFamilySet, file column_family.cc, line 1494.
-      //
-      // What could we do instead ?
-      // 1. The close() should "succeed" (of course)
-      // 2a. The subsequent use of iterator should throw a (Java) exception
-      // 2a(1). Because the close has happened fully by the time we return
-      // 2b. The subsequent use of iterator should succeed
-      // 2b(1). The database close() should finally be enacted only after the iterator is close()d.
-      // Because the iterator holds a reference.
-      // 2b(2). We need to be aware that the iterator can hold the database open.
-      // 2a(2). Holding references to all iterators (as we now do for column family handles)
-      // would fix the dangling reference to the database.
-      db.close();
+        // Close the db, but the open iterator should hold a reference, so we can continue to use it.
+        // The model is that open iterator(s) prolong the lifetime of the underlying C++ database,
+        // it is still "open" after db.close(), until the iterator itself is closed.
+        assertThat(db.isLastReference()).isFalse();
+        db.close();
+        assertThat(iterator.isValid()).isTrue();
+        iterator.next();
+        assertThat(iterator.key()).isEqualTo("key2".getBytes());
+        assertThat(iterator.value()).isEqualTo("value2".getBytes());
+      }
 
-      assertThat(iterator.isValid()).isTrue();
-      assertThat(iterator.key()).isEqualTo("key2".getBytes());
-      assertThat(iterator.value()).isEqualTo("value2".getBytes());
+      //TODO (AP) RCA - use a WeakDB here to confirm that the true DB is closed.
 
     } catch (RocksDBException rocksDBException) {
       rocksDBException.printStackTrace();
-      Assert.fail();
+      Assert.fail(rocksDBException.getMessage());
     }
   }
 
