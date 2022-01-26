@@ -3533,6 +3533,14 @@ unsigned char rocksdb_options_get_manual_wal_flush(rocksdb_options_t* opt) {
   return opt->rep.manual_wal_flush;
 }
 
+void rocksdb_options_set_wal_compression(rocksdb_options_t* opt, int val) {
+  opt->rep.wal_compression = static_cast<CompressionType>(val);
+}
+
+int rocksdb_options_get_wal_compression(rocksdb_options_t* opt) {
+  return opt->rep.wal_compression;
+}
+
 rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
     int64_t rate_bytes_per_sec,
     int64_t refill_period_us,

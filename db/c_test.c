@@ -1777,6 +1777,9 @@ int main(int argc, char** argv) {
     rocksdb_options_set_manual_wal_flush(o, 1);
     CheckCondition(1 == rocksdb_options_get_manual_wal_flush(o));
 
+    rocksdb_options_set_wal_compression(o, 1);
+    CheckCondition(1 == rocksdb_options_get_wal_compression(o));
+
     /* Blob Options */
     rocksdb_options_set_enable_blob_files(o, 1);
     CheckCondition(1 == rocksdb_options_get_enable_blob_files(o));

@@ -1445,6 +1445,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_manual_wal_flush(
     rocksdb_options_t* opt, unsigned char);
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_manual_wal_flush(
     rocksdb_options_t* opt);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_wal_compression(
+    rocksdb_options_t* opt, int);
+extern ROCKSDB_LIBRARY_API int rocksdb_options_get_wal_compression(
+    rocksdb_options_t* opt);
 
 /* RateLimiter */
 extern ROCKSDB_LIBRARY_API rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
