@@ -1292,10 +1292,11 @@ TEST_P(DBFilterConstructionCorruptionTestWithParam, DetectCorruption) {
   SyncPoint::GetInstance()->SetCallBack(
       "XXPH3FilterBitsBuilder::MaybeVerifyHashEntriesChecksum::PreVerification",
       [&](void* arg) {
-        std::deque<uint64_t>* hash_entries = (std::deque<uint64_t>*)arg;
-        uint64_t first_h = (*hash_entries)[0];
-        uint64_t corrupted_first_h = first_h ^ static_cast<uint64_t>(1);
-        (*hash_entries)[0] = corrupted_first_h;
+        std::deque<uint64_t>* hash_entries_to_corrupt =
+            (std::deque<uint64_t>*)arg;
+        assert(!hash_entries_to_corrupt->empty());
+        *(hash_entries_to_corrupt->begin()) =
+            *(hash_entries_to_corrupt->begin()) ^ static_cast<uint64_t>(1);
       });
   SyncPoint::GetInstance()->EnableProcessing();
 

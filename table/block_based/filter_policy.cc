@@ -48,6 +48,10 @@ Slice FinishAlwaysFalse(std::unique_ptr<const char[]>* /*buf*/) {
   return Slice(nullptr, 0);
 }
 
+Slice FinishAlwaysTrue(std::unique_ptr<const char[]>* /*buf*/) {
+  return Slice("\0\0\0\0\0", 5);
+}
+
 // Base class for filter builders using the XXH3 preview hash,
 // also known as Hash64 or GetSliceHash64.
 class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
@@ -61,7 +65,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
         cache_res_mgr_(cache_res_mgr),
         detect_filter_construct_corruption_(detect_filter_construct_corruption),
         filter_policy_(filter_policy) {
-    hash_entries_info_.checksum = 0;
+    hash_entries_info_.xor_checksum = 0;
   }
 
   ~XXPH3FilterBitsBuilder() override {}
@@ -75,7 +79,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     if (hash_entries_info_.entries.empty() ||
         hash != hash_entries_info_.entries.back()) {
       if (detect_filter_construct_corruption_) {
-        hash_entries_info_.checksum ^= hash;
+        hash_entries_info_.xor_checksum ^= hash;
       }
       hash_entries_info_.entries.push_back(hash);
       if (cache_res_mgr_ &&
@@ -216,6 +220,13 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     return rv;
   }
 
+  // TODO: Ideally we want to verify the hash entry
+  // as it is added to the filter and eliminate this function
+  // for speeding up and leaving fewer spaces for undetected memory/CPU
+  // corruption. For Ribbon Filter, it's bit harder.
+  // Possible solution:
+  // pass a custom iterator that tracks the xor checksum as
+  // it iterates to ResetAndFindSeedToSolve
   Status MaybeVerifyHashEntriesChecksum() {
     if (!detect_filter_construct_corruption_) {
       return Status::OK();
@@ -226,12 +237,12 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
         "PreVerification",
         &hash_entries_info_.entries);
 
-    uint64_t actual_hash_entries_checksum = 0;
+    uint64_t actual_hash_entries_xor_checksum = 0;
     for (uint64_t h : hash_entries_info_.entries) {
-      actual_hash_entries_checksum ^= h;
+      actual_hash_entries_xor_checksum ^= h;
     }
 
-    if (actual_hash_entries_checksum == hash_entries_info_.checksum) {
+    if (actual_hash_entries_xor_checksum == hash_entries_info_.xor_checksum) {
       return Status::OK();
     } else {
       // Since these hash entries are corrupted and they will not be used
@@ -272,21 +283,21 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
         cache_res_bucket_handles;
 
     // If detect_filter_construct_corruption_ == true,
-    // it records the checksum of hash entries.
+    // it records the xor checksum of hash entries.
     // Otherwise, it is 0.
-    uint64_t checksum;
+    uint64_t xor_checksum;
 
     void Swap(HashEntriesInfo* other) {
       assert(other != nullptr);
       std::swap(entries, other->entries);
       std::swap(cache_res_bucket_handles, other->cache_res_bucket_handles);
-      std::swap(checksum, other->checksum);
+      std::swap(xor_checksum, other->xor_checksum);
     }
 
     void Reset() {
       entries.clear();
       cache_res_bucket_handles.clear();
-      checksum = 0;
+      xor_checksum = 0;
     }
   };
 
@@ -363,7 +374,7 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
         if (status) {
           *status = verify_hash_entries_checksum_status;
         }
-        return FinishAlwaysFalse(buf);
+        return FinishAlwaysTrue(buf);
       }
     }
 
@@ -469,16 +480,14 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
 
     // Prime the buffer
     size_t i = 0;
-    bool keep_entries_for_postverify = detect_filter_construct_corruption_;
+    std::deque<uint64_t>::iterator hash_entries_it =
+        hash_entries_info_.entries.begin();
     for (; i <= kBufferMask && i < num_entries; ++i) {
-      uint64_t h = hash_entries_info_.entries.front();
-      hash_entries_info_.entries.pop_front();
-      if (keep_entries_for_postverify) {
-        hash_entries_info_.entries.push_back(h);
-      }
+      uint64_t h = *hash_entries_it;
       FastLocalBloomImpl::PrepareHash(Lower32of64(h), len, data,
                                       /*out*/ &byte_offsets[i]);
       hashes[i] = Upper32of64(h);
+      ++hash_entries_it;
     }
 
     // Process and buffer
@@ -489,14 +498,11 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
       FastLocalBloomImpl::AddHashPrepared(hash_ref, num_probes,
                                           data + byte_offset_ref);
       // And buffer
-      uint64_t h = hash_entries_info_.entries.front();
-      hash_entries_info_.entries.pop_front();
-      if (keep_entries_for_postverify) {
-        hash_entries_info_.entries.push_back(h);
-      }
+      uint64_t h = *hash_entries_it;
       FastLocalBloomImpl::PrepareHash(Lower32of64(h), len, data,
                                       /*out*/ &byte_offset_ref);
       hash_ref = Upper32of64(h);
+      ++hash_entries_it;
     }
 
     // Finish processing
@@ -697,7 +703,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
       if (status) {
         *status = verify_hash_entries_checksum_status;
       }
-      return FinishAlwaysFalse(buf);
+      return FinishAlwaysTrue(buf);
     }
 
     bool keep_entries_for_postverify = detect_filter_construct_corruption_;
