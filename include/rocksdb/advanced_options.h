@@ -814,6 +814,8 @@ struct AdvancedColumnFamilyOptions {
   // If this option is set, when creating bottommost files, pass this
   // temperature to FileSystem used. Should be no-op for default FileSystem
   // and users need to plug in their own FileSystem to take advantage of it.
+  //
+  // Dynamically changeable through the SetOptions() API
   Temperature bottommost_temperature = Temperature::kUnknown;
 
   // When set, large values (blobs) are written to separate blob files, and

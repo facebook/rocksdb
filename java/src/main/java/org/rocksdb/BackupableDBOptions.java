@@ -59,8 +59,6 @@ public class BackupableDBOptions extends RocksObject {
    * null, backups will be written out using DBs Env. Otherwise
    * backup's I/O will be performed using this object.
    *
-   * If you want to have backups on HDFS, use HDFS Env here!
-   *
    * Default: null
    *
    * @param env The environment to use
@@ -77,8 +75,6 @@ public class BackupableDBOptions extends RocksObject {
    * Backup Env object. It will be used for backup file I/O. If it's
    * null, backups will be written out using DBs Env. Otherwise
    * backup's I/O will be performed using this object.
-   *
-   * If you want to have backups on HDFS, use HDFS Env here!
    *
    * Default: null
    *
