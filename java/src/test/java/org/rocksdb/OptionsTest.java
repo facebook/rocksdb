@@ -704,15 +704,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void newTableReaderForCompactionInputs() {
-    try (final Options opt = new Options()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setNewTableReaderForCompactionInputs(boolValue);
-      assertThat(opt.newTableReaderForCompactionInputs()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void compactionReadaheadSize() {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();

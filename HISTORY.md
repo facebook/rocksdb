@@ -58,6 +58,7 @@
 * Rename `SizeApproximationOptions.include_memtabtles` to `SizeApproximationOptions.include_memtables`.
 * Remove deprecated option DBOptions::max_mem_compaction_level.
 * Remove deprecated overloads of API DB::GetApproximateSizes.
+* Remove deprecated option DBOptions::new_table_reader_for_compaction_inputs.
 
 ### Behavior Changes
 * Disallow the combination of DBOptions.use_direct_io_for_flush_and_compaction == true and DBOptions.writable_file_max_buffer_size == 0. This combination can cause WritableFileWriter::Append() to loop forever, and it does not make much sense in direct IO.

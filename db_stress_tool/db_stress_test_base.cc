@@ -2406,9 +2406,6 @@ void StressTest::Open() {
         10 /* fairness */,
         FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
                                   : RateLimiter::Mode::kWritesOnly));
-    if (FLAGS_rate_limit_bg_reads) {
-      options_.new_table_reader_for_compaction_inputs = true;
-    }
   }
   if (FLAGS_sst_file_manager_bytes_per_sec > 0 ||
       FLAGS_sst_file_manager_bytes_per_truncate > 0) {

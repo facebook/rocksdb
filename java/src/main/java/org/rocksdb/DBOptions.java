@@ -764,21 +764,6 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public DBOptions setNewTableReaderForCompactionInputs(
-      final boolean newTableReaderForCompactionInputs) {
-    assert(isOwningHandle());
-    setNewTableReaderForCompactionInputs(nativeHandle_,
-        newTableReaderForCompactionInputs);
-    return this;
-  }
-
-  @Override
-  public boolean newTableReaderForCompactionInputs() {
-    assert(isOwningHandle());
-    return newTableReaderForCompactionInputs(nativeHandle_);
-  }
-
-  @Override
   public DBOptions setCompactionReadaheadSize(final long compactionReadaheadSize) {
     assert(isOwningHandle());
     setCompactionReadaheadSize(nativeHandle_, compactionReadaheadSize);
@@ -1391,9 +1376,6 @@ public class DBOptions extends RocksObject
   private native void setAccessHintOnCompactionStart(final long handle,
       final byte accessHintOnCompactionStart);
   private native byte accessHintOnCompactionStart(final long handle);
-  private native void setNewTableReaderForCompactionInputs(final long handle,
-      final boolean newTableReaderForCompactionInputs);
-  private native boolean newTableReaderForCompactionInputs(final long handle);
   private native void setCompactionReadaheadSize(final long handle,
       final long compactionReadaheadSize);
   private native long compactionReadaheadSize(final long handle);

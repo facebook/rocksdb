@@ -417,8 +417,6 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    * running RocksDB on spinning disks, you should set this to at least 2MB.
    *
    * That way RocksDB's compaction is doing sequential instead of random reads.
-   * When non-zero, we also force
-   * {@link DBOptionsInterface#newTableReaderForCompactionInputs()} to true.
    *
    * Default: 0
    *
@@ -433,8 +431,6 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    * running RocksDB on spinning disks, you should set this to at least 2MB.
    *
    * That way RocksDB's compaction is doing sequential instead of random reads.
-   * When non-zero, we also force
-   * {@link DBOptionsInterface#newTableReaderForCompactionInputs()} to true.
    *
    * Default: 0
    *

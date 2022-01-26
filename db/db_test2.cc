@@ -3946,7 +3946,6 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
     options.level0_file_num_compaction_trigger = kNumL0Files;
     options.memtable_factory.reset(
         test::NewSpecialSkipListFactory(kNumKeysPerFile));
-    options.new_table_reader_for_compaction_inputs = true;
     // takes roughly one second, split into 100 x 10ms intervals. Each interval
     // permits 5.12KB, which is smaller than the block size, so this test
     // exercises the code for chunking reads.
