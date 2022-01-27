@@ -3276,14 +3276,6 @@ size_t rocksdb_options_get_recycle_log_file_num(rocksdb_options_t* opt) {
   return opt->rep.recycle_log_file_num;
 }
 
-void rocksdb_options_set_soft_rate_limit(rocksdb_options_t* opt, double v) {
-  opt->rep.soft_rate_limit = v;
-}
-
-double rocksdb_options_get_soft_rate_limit(rocksdb_options_t* opt) {
-  return opt->rep.soft_rate_limit;
-}
-
 void rocksdb_options_set_hard_rate_limit(rocksdb_options_t* opt, double v) {
   opt->rep.hard_rate_limit = v;
 }

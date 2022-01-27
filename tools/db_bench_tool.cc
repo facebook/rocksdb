@@ -1212,7 +1212,6 @@ static bool ValidateRateLimit(const char* flagname, double value) {
   }
   return true;
 }
-DEFINE_double(soft_rate_limit, 0.0, "DEPRECATED");
 
 DEFINE_double(hard_rate_limit, 0.0, "DEPRECATED");
 
@@ -1533,9 +1532,6 @@ DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
 #endif  // ROCKSDB_LITE
-
-static const bool FLAGS_soft_rate_limit_dummy __attribute__((__unused__)) =
-    RegisterFlagValidator(&FLAGS_soft_rate_limit, &ValidateRateLimit);
 
 static const bool FLAGS_hard_rate_limit_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_hard_rate_limit, &ValidateRateLimit);
@@ -4290,7 +4286,6 @@ class Benchmark {
         options.compression_per_level[i] = FLAGS_compression_type_e;
       }
     }
-    options.soft_rate_limit = FLAGS_soft_rate_limit;
     options.hard_rate_limit = FLAGS_hard_rate_limit;
     options.soft_pending_compaction_bytes_limit =
         FLAGS_soft_pending_compaction_bytes_limit;

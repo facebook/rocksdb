@@ -202,7 +202,6 @@ bool StressTest::BuildOptionsTable() {
       {"inplace_update_num_locks", {"100", "200", "300"}},
       // TODO(ljin): enable test for this option
       // {"disable_auto_compactions", {"100", "200", "300"}},
-      {"soft_rate_limit", {"0", "0.5", "0.9"}},
       {"hard_rate_limit", {"0", "1.1", "2.0"}},
       {"level0_file_num_compaction_trigger",
        {
@@ -572,8 +571,7 @@ Status StressTest::SetOptions(ThreadState* thread) {
   std::string name =
       options_index_[thread->rand.Next() % options_index_.size()];
   int value_idx = thread->rand.Next() % options_table_[name].size();
-  if (name == "soft_rate_limit" || name == "hard_rate_limit") {
-    opts["soft_rate_limit"] = options_table_["soft_rate_limit"][value_idx];
+  if (name == "hard_rate_limit") {
     opts["hard_rate_limit"] = options_table_["hard_rate_limit"][value_idx];
   } else if (name == "level0_file_num_compaction_trigger" ||
              name == "level0_slowdown_writes_trigger" ||

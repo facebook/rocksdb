@@ -87,7 +87,6 @@ public class MutableColumnFamilyOptions
 
   public enum CompactionOption implements MutableColumnFamilyOptionKey {
     disable_auto_compactions(ValueType.BOOLEAN),
-    @Deprecated soft_rate_limit(ValueType.DOUBLE),
     soft_pending_compaction_bytes_limit(ValueType.LONG),
     @Deprecated hard_rate_limit(ValueType.DOUBLE),
     hard_pending_compaction_bytes_limit(ValueType.LONG),
