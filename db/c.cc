@@ -3338,11 +3338,6 @@ int rocksdb_options_get_table_cache_numshardbits(rocksdb_options_t* opt) {
   return opt->rep.table_cache_numshardbits;
 }
 
-void rocksdb_options_set_table_cache_remove_scan_count_limit(
-    rocksdb_options_t* /*opt*/, int /*v*/) {
-  // this option is deprecated
-}
-
 void rocksdb_options_set_arena_block_size(
     rocksdb_options_t* opt, size_t v) {
   opt->rep.arena_block_size = v;

@@ -1223,9 +1223,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_table_cache_numshardbits(
     rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API int rocksdb_options_get_table_cache_numshardbits(
     rocksdb_options_t*);
-extern ROCKSDB_LIBRARY_API void
-rocksdb_options_set_table_cache_remove_scan_count_limit(rocksdb_options_t*,
-                                                        int);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_arena_block_size(
     rocksdb_options_t*, size_t);
 extern ROCKSDB_LIBRARY_API size_t

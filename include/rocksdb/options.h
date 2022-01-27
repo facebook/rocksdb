@@ -748,9 +748,6 @@ struct DBOptions {
   // Number of shards used for table cache.
   int table_cache_numshardbits = 6;
 
-  // NOT SUPPORTED ANYMORE
-  // int table_cache_remove_scan_count_limit;
-
   // The following two fields affect how archived logs will be deleted.
   // 1. If both set to 0, logs will be deleted asap and will not get into
   //    the archive.
