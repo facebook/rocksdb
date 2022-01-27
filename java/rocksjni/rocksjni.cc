@@ -1586,7 +1586,7 @@ jint rocksdb_get_helper(JNIEnv* env, APIRocksDB& dbAPI,
   std::string cvalue;
   ROCKSDB_NAMESPACE::Status s;
   if (cfhAPI) {
-    auto cfh = cfhAPI->cfhLock(env);
+    auto cfh = cfhAPI->cfhLockDBCheck(env, dbAPI);
     if (!cfh) {
       delete[] key;
       *has_exception = true;
