@@ -6530,6 +6530,10 @@ TEST_F(DBTest, SoftLimit) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Now there is one L1 file but doesn't trigger soft_rate_limit
+  //
+  // TODO: soft_rate_limit is depreciated. If this test
+  // relies on soft_rate_limit, then we need to change the test.
+  //
   // The L1 file size is around 30KB.
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
   ASSERT_TRUE(!dbfull()->TEST_write_controler().NeedsDelay());

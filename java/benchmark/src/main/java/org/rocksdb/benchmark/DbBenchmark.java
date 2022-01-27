@@ -1350,18 +1350,6 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    soft_rate_limit(0.0d,"") {
-      @Override public Object parseValue(String value) {
-        return Double.parseDouble(value);
-      }
-    },
-    hard_rate_limit(0.0d,"When not equal to 0 this make threads\n" +
-        "\tsleep at each stats reporting interval until the compaction\n" +
-        "\tscore for all levels is less than or equal to this value.") {
-      @Override public Object parseValue(String value) {
-        return Double.parseDouble(value);
-      }
-    },
     rate_limit_delay_max_milliseconds(1000,
         "When hard_rate_limit is set then this is the max time a put will\n" +
         "\tbe stalled.") {
