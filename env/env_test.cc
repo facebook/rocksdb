@@ -459,10 +459,8 @@ TEST_P(EnvPosixTestWithParam, RunMany) {
   env_->Schedule(&CB::Run, &cb3);
   env_->Schedule(&CB::Run, &cb4);
 
-  Env::Default()->SleepForMicroseconds(kDelayMicros);
-  int cur = last_id.load(std::memory_order_acquire);
-  ASSERT_EQ(4, cur);
   WaitThreadPoolsEmpty();
+  ASSERT_EQ(4, last_id.load(std::memory_order_acquire));
 }
 #endif
 
