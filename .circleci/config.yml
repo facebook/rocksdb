@@ -799,6 +799,7 @@ workflows:
   build-examples:
     jobs:
       - build-examples
+      - build-format-compatible
   build-linux-non-shm:
     jobs:
       - build-linux-non-shm:
