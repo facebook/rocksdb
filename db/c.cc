@@ -3276,22 +3276,6 @@ size_t rocksdb_options_get_recycle_log_file_num(rocksdb_options_t* opt) {
   return opt->rep.recycle_log_file_num;
 }
 
-void rocksdb_options_set_soft_rate_limit(rocksdb_options_t* opt, double v) {
-  opt->rep.soft_rate_limit = v;
-}
-
-double rocksdb_options_get_soft_rate_limit(rocksdb_options_t* opt) {
-  return opt->rep.soft_rate_limit;
-}
-
-void rocksdb_options_set_hard_rate_limit(rocksdb_options_t* opt, double v) {
-  opt->rep.hard_rate_limit = v;
-}
-
-double rocksdb_options_get_hard_rate_limit(rocksdb_options_t* opt) {
-  return opt->rep.hard_rate_limit;
-}
-
 void rocksdb_options_set_soft_pending_compaction_bytes_limit(rocksdb_options_t* opt, size_t v) {
   opt->rep.soft_pending_compaction_bytes_limit = v;
 }
@@ -3336,11 +3320,6 @@ void rocksdb_options_set_table_cache_numshardbits(
 
 int rocksdb_options_get_table_cache_numshardbits(rocksdb_options_t* opt) {
   return opt->rep.table_cache_numshardbits;
-}
-
-void rocksdb_options_set_table_cache_remove_scan_count_limit(
-    rocksdb_options_t* /*opt*/, int /*v*/) {
-  // this option is deprecated
 }
 
 void rocksdb_options_set_arena_block_size(
