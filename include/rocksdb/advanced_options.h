@@ -366,10 +366,16 @@ struct AdvancedColumnFamilyOptions {
                                    Slice delta_value,
                                    std::string* merged_value) = nullptr;
 
-  // if prefix_extractor is set and memtable_prefix_bloom_size_ratio is not 0,
-  // create prefix bloom for memtable with the size of
+  // Should really be called `memtable_bloom_size_ratio`. Enables a dynamic
+  // Bloom filter in memtable to optimize many queries that must go beyond
+  // the memtable. The size in bytes of the filter is
   // write_buffer_size * memtable_prefix_bloom_size_ratio.
-  // If it is larger than 0.25, it is sanitized to 0.25.
+  // * If prefix_extractor is set, the filter includes prefixes.
+  // * If memtable_whole_key_filtering, the filter includes whole keys.
+  // * If both, the filter includes both.
+  // * If neither, the feature is disabled.
+  //
+  // If this value is larger than 0.25, it is sanitized to 0.25.
   //
   // Default: 0 (disable)
   //
