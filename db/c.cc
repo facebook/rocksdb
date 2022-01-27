@@ -3274,16 +3274,6 @@ size_t rocksdb_options_get_hard_pending_compaction_bytes_limit(
   return opt->rep.hard_pending_compaction_bytes_limit;
 }
 
-void rocksdb_options_set_rate_limit_delay_max_milliseconds(
-    rocksdb_options_t* opt, unsigned int v) {
-  opt->rep.rate_limit_delay_max_milliseconds = v;
-}
-
-unsigned int rocksdb_options_get_rate_limit_delay_max_milliseconds(
-    rocksdb_options_t* opt) {
-  return opt->rep.rate_limit_delay_max_milliseconds;
-}
-
 void rocksdb_options_set_max_manifest_file_size(
     rocksdb_options_t* opt, size_t v) {
   opt->rep.max_manifest_file_size = v;

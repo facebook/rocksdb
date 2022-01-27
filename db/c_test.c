@@ -1635,10 +1635,6 @@ int main(int argc, char** argv) {
     CheckCondition(11 ==
                    rocksdb_options_get_hard_pending_compaction_bytes_limit(o));
 
-    rocksdb_options_set_rate_limit_delay_max_milliseconds(o, 1);
-    CheckCondition(1 ==
-                   rocksdb_options_get_rate_limit_delay_max_milliseconds(o));
-
     rocksdb_options_set_max_manifest_file_size(o, 12);
     CheckCondition(12 == rocksdb_options_get_max_manifest_file_size(o));
 
@@ -1847,8 +1843,6 @@ int main(int argc, char** argv) {
         10 == rocksdb_options_get_soft_pending_compaction_bytes_limit(copy));
     CheckCondition(
         11 == rocksdb_options_get_hard_pending_compaction_bytes_limit(copy));
-    CheckCondition(1 ==
-                   rocksdb_options_get_rate_limit_delay_max_milliseconds(copy));
     CheckCondition(12 == rocksdb_options_get_max_manifest_file_size(copy));
     CheckCondition(13 == rocksdb_options_get_table_cache_numshardbits(copy));
     CheckCondition(14 == rocksdb_options_get_arena_block_size(copy));
@@ -2073,12 +2067,6 @@ int main(int argc, char** argv) {
         111 == rocksdb_options_get_hard_pending_compaction_bytes_limit(copy));
     CheckCondition(11 ==
                    rocksdb_options_get_hard_pending_compaction_bytes_limit(o));
-
-    rocksdb_options_set_rate_limit_delay_max_milliseconds(copy, 0);
-    CheckCondition(0 ==
-                   rocksdb_options_get_rate_limit_delay_max_milliseconds(copy));
-    CheckCondition(1 ==
-                   rocksdb_options_get_rate_limit_delay_max_milliseconds(o));
 
     rocksdb_options_set_max_manifest_file_size(copy, 112);
     CheckCondition(112 == rocksdb_options_get_max_manifest_file_size(copy));

@@ -1350,13 +1350,6 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    rate_limit_delay_max_milliseconds(1000,
-        "When hard_rate_limit is set then this is the max time a put will\n" +
-        "\tbe stalled.") {
-      @Override public Object parseValue(String value) {
-        return Integer.parseInt(value);
-      }
-    },
     max_compaction_bytes(0L, "Limit number of bytes in one compaction to be lower than this\n" +
             "\threshold. But it's not guaranteed.") {
       @Override public Object parseValue(String value) {

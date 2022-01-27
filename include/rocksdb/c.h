@@ -1198,11 +1198,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_hard_pending_compaction_byte
     rocksdb_options_t* opt, size_t v);
 extern ROCKSDB_LIBRARY_API size_t
 rocksdb_options_get_hard_pending_compaction_bytes_limit(rocksdb_options_t* opt);
-extern ROCKSDB_LIBRARY_API void
-rocksdb_options_set_rate_limit_delay_max_milliseconds(rocksdb_options_t*,
-                                                      unsigned int);
-extern ROCKSDB_LIBRARY_API unsigned int
-rocksdb_options_get_rate_limit_delay_max_milliseconds(rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_manifest_file_size(
     rocksdb_options_t*, size_t);
 extern ROCKSDB_LIBRARY_API size_t

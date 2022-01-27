@@ -449,9 +449,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->blob_file_size = uint_max + rnd->Uniform(10000);
   cf_opt->blob_compaction_readahead_size = uint_max + rnd->Uniform(10000);
 
-  // unsigned int options
-  cf_opt->rate_limit_delay_max_milliseconds = rnd->Uniform(10000);
-
   // pointer typed options
   cf_opt->prefix_extractor.reset(RandomSliceTransform(rnd));
   cf_opt->table_factory.reset(RandomTableFactory(rnd));
