@@ -1525,7 +1525,8 @@ TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilterMultiGet) {
   ASSERT_OK(Put(key4, value4, WriteOptions()));
 
   // Delete key2 and key3
-  db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "BA", "CZ");
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "BA", "CZ"));
 
   // Read without snapshot
   auto results = MultiGet({key_not, key1, key2, key3, key4});
