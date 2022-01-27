@@ -257,7 +257,7 @@ TEST_F(ObjRegistryTest, TestFactoryCount) {
   // Add an Env to the local registry.
   // This will add one factory.
   auto library = local->AddLibrary("local");
-  library->Register<Env>(
+  library->AddFactory<Env>(
       "A", [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
               std::string* /* errmsg */) { return nullptr; });
   ASSERT_EQ(local_count + 1, local->GetFactoryCount(Env::Type()));
@@ -278,7 +278,7 @@ TEST_F(ObjRegistryTest, TestFactoryCount) {
   }
 
   // Add a MyCustomizable to the registry.  This should be a new type
-  library->Register<MyCustomizable>(
+  library->AddFactory<MyCustomizable>(
       "MY", [](const std::string& /*uri*/,
                std::unique_ptr<MyCustomizable>* /*guard */,
                std::string* /* errmsg */) { return nullptr; });
@@ -295,7 +295,7 @@ TEST_F(ObjRegistryTest, TestFactoryCount) {
   ASSERT_EQ(grand_count == 0 ? 2 : grand_types.size() + 1, local_types.size());
 
   // Add the same name again.  We should now have 2 factories.
-  library->Register<MyCustomizable>(
+  library->AddFactory<MyCustomizable>(
       "MY", [](const std::string& /*uri*/,
                std::unique_ptr<MyCustomizable>* /*guard */,
                std::string* /* errmsg */) { return nullptr; });
