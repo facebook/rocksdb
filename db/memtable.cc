@@ -963,6 +963,9 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   }
   PERF_TIMER_GUARD(get_from_memtable_time);
 
+  // For now, memtable Bloom filter is effectively disabled if there are any
+  // range tombstones. This is the simplest way to ensure range tombstones are
+  // handled. TODO: allow Bloom checks where max_covering_tombstone_seq==0
   bool no_range_del = read_options.ignore_range_deletions ||
                       is_range_del_table_empty_.load(std::memory_order_relaxed);
   MultiGetRange temp_range(*range, range->begin(), range->end());
