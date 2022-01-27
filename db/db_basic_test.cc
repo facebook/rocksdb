@@ -9,6 +9,7 @@
 
 #include <cstring>
 
+#include "db/db_impl/db_impl_readonly.h"
 #include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
@@ -1183,7 +1184,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
   }
 
   int get_sv_count = 0;
-  ROCKSDB_NAMESPACE::DBImpl* db = static_cast_with_check<DBImpl>(db_);
+  ROCKSDB_NAMESPACE::DBImpl* db = dbfull();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
         if (++get_sv_count == 2) {
@@ -1252,10 +1253,9 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
   ASSERT_EQ(values[2], std::get<2>(cf_kv_vec[1]) + "_2");
 
   for (int cf = 0; cf < 8; ++cf) {
-    auto* cfd =
-        static_cast_with_check<ColumnFamilyHandleImpl>(
-            static_cast_with_check<DBImpl>(db_)->GetColumnFamilyHandle(cf))
-            ->cfd();
+    auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
+                    dbfull()->GetColumnFamilyHandle(cf))
+                    ->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
   }
@@ -1315,10 +1315,9 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
               "cf" + std::to_string(j) + "_val" + std::to_string(retries));
   }
   for (int i = 0; i < 8; ++i) {
-    auto* cfd =
-        static_cast_with_check<ColumnFamilyHandleImpl>(
-            static_cast_with_check<DBImpl>(db_)->GetColumnFamilyHandle(i))
-            ->cfd();
+    auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
+                    dbfull()->GetColumnFamilyHandle(i))
+                    ->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
   }
 }
@@ -1335,7 +1334,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
   }
 
   int get_sv_count = 0;
-  ROCKSDB_NAMESPACE::DBImpl* db = static_cast_with_check<DBImpl>(db_);
+  ROCKSDB_NAMESPACE::DBImpl* db = dbfull();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
         if (++get_sv_count == 2) {
@@ -1375,10 +1374,9 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
     ASSERT_EQ(values[j], "cf" + std::to_string(j) + "_val");
   }
   for (int i = 0; i < 8; ++i) {
-    auto* cfd =
-        static_cast_with_check<ColumnFamilyHandleImpl>(
-            static_cast_with_check<DBImpl>(db_)->GetColumnFamilyHandle(i))
-            ->cfd();
+    auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
+                    dbfull()->GetColumnFamilyHandle(i))
+                    ->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
   }
 }
@@ -3627,6 +3625,34 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
+}
+
+TEST_F(DBBasicTest, CheckedCast) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env_;
+  ASSERT_OK(TryReopen(options));
+  ASSERT_TRUE(db_->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_EQ(db_, db_->CheckedCast<DBImpl>());
+  std::unique_ptr<DB> wrapped(new WrappedDB(db_));
+  ASSERT_FALSE(wrapped->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_EQ(db_, wrapped->CheckedCast<DBImpl>());
+  db_ = nullptr;
+  wrapped.reset();
+
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_TRUE(db_->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_TRUE(db_->IsInstanceOf(DBImplReadOnly::kClassName()));
+  ASSERT_EQ(db_, db_->CheckedCast<DBImpl>());
+  ASSERT_EQ(db_, db_->CheckedCast<DBImplReadOnly>());
+  wrapped.reset(new WrappedDB(db_));
+  ASSERT_FALSE(wrapped->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_FALSE(wrapped->IsInstanceOf(DBImplReadOnly::kClassName()));
+  ASSERT_EQ(db_, wrapped->CheckedCast<DBImpl>());
+  ASSERT_EQ(db_, wrapped->CheckedCast<DBImplReadOnly>());
+  db_ = nullptr;
+#endif  // ROCKSDB_LITE
 }
 
 TEST_F(DBBasicTest, DestroyDefaultCfHandle) {

@@ -53,7 +53,7 @@ PessimisticTransaction::PessimisticTransaction(
       deadlock_detect_depth_(0),
       skip_concurrency_control_(false) {
   txn_db_impl_ = static_cast_with_check<PessimisticTransactionDB>(txn_db);
-  db_impl_ = static_cast_with_check<DBImpl>(db_);
+  db_impl_ = DBImpl::AsDBImpl(db_);
   if (init) {
     Initialize(txn_options);
   }

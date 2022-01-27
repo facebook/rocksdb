@@ -41,7 +41,7 @@ class WriteCallbackTestWriteCallback1 : public WriteCallback {
     was_called = true;
 
     // Make sure db is a DBImpl
-    DBImpl* db_impl = dynamic_cast<DBImpl*> (db);
+    auto db_impl = db->CheckedCast<DBImpl>();
     if (db_impl == nullptr) {
       return Status::InvalidArgument("");
     }
@@ -185,8 +185,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     assert(handles.size() == 1);
     delete handles[0];
 
-    db_impl = dynamic_cast<DBImpl*>(db);
-    ASSERT_TRUE(db_impl);
+    db_impl = DBImpl::AsDBImpl(db);
 
     // Writers that have called JoinBatchGroup.
     std::atomic<uint64_t> threads_joining(0);
@@ -393,8 +392,8 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   Status s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
 
-  db_impl = dynamic_cast<DBImpl*> (db);
-  ASSERT_TRUE(db_impl);
+  db_impl = DBImpl::AsDBImpl(db);
+  ASSERT_NE(db_impl, nullptr);
 
   WriteBatch wb;
 

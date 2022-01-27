@@ -31,7 +31,7 @@ namespace ROCKSDB_NAMESPACE {
 Status WritePreparedTxnDB::Initialize(
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles) {
-  auto dbimpl = static_cast_with_check<DBImpl>(GetRootDB());
+  auto dbimpl = DBImpl::AsDBImpl(GetRootDB());
   assert(dbimpl != nullptr);
   auto rtxns = dbimpl->recovered_transactions();
   std::map<SequenceNumber, SequenceNumber> ordered_seq_cnt;

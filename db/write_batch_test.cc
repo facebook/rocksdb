@@ -13,6 +13,7 @@
 #include "db/db_test_util.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
+#include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -1079,6 +1080,7 @@ TEST_F(WriteBatchTest, CommitWithTimestamp) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

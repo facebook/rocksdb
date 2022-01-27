@@ -19,6 +19,8 @@ class CompactedDBImpl : public DBImpl {
   void operator=(const CompactedDBImpl&) = delete;
 
   ~CompactedDBImpl() override;
+  static const char* kClassName() { return "CompactedDBImpl"; }
+  const char* Name() const override { return kClassName(); }
 
   static Status Open(const Options& options, const std::string& dbname,
                      DB** dbptr);

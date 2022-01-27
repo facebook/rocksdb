@@ -111,7 +111,7 @@ class ColumnFamilyTestBase : public testing::Test {
 
     for (int i = 0; i < n; i++) {
       if (flush_every != 0 && i != 0 && i % flush_every == 0) {
-        DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+        DBImpl* dbi = dbfull();
         dbi->TEST_FlushMemTable();
       }
 
@@ -216,7 +216,7 @@ class ColumnFamilyTestBase : public testing::Test {
     Open({"default"});
   }
 
-  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
+  DBImpl* dbfull() { return DBImpl::AsDBImpl(db_); }
 
   int GetProperty(int cf, std::string property) {
     std::string value;
@@ -3364,7 +3364,7 @@ TEST_P(ColumnFamilyTest, MultipleCFPathsTest) {
 
   // Re-open and verify the keys.
   Reopen({ColumnFamilyOptions(), cf_opt1, cf_opt2});
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  DBImpl* dbi = dbfull();
   for (int cf = 1; cf != 3; ++cf) {
     ReadOptions read_options;
     read_options.readahead_size = 0;

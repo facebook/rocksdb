@@ -35,7 +35,7 @@ Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
   }
   key_versions->clear();
 
-  DBImpl* idb = static_cast<DBImpl*>(db->GetRootDB());
+  DBImpl* idb = DBImpl::AsDBImpl(db->GetRootDB());
   auto icmp = InternalKeyComparator(idb->GetOptions(cfh).comparator);
   ReadOptions read_options;
   ReadRangeDelAggregator range_del_agg(&icmp,

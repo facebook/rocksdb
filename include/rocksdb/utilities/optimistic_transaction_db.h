@@ -72,6 +72,14 @@ class OptimisticTransactionDB : public StackableDB {
                      OptimisticTransactionDB** dbptr);
 
   virtual ~OptimisticTransactionDB() {}
+  static const char* kClassName() { return "OptimisticTransactionDB"; }
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == kClassName()) {
+      return true;
+    } else {
+      return StackableDB::IsInstanceOf(name);
+    }
+  }
 
   // Starts a new Transaction.
   //

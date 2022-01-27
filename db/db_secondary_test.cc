@@ -62,7 +62,9 @@ class DBSecondaryTest : public DBTestBase {
   }
 
   DBImplSecondary* db_secondary_full() {
-    return static_cast<DBImplSecondary*>(db_secondary_);
+    auto impl = db_secondary_->CheckedCast<DBImplSecondary>();
+    EXPECT_NE(impl, nullptr);
+    return impl;
   }
 
   void CheckFileTypeCounts(const std::string& dir, int expected_log,
@@ -142,7 +144,7 @@ TEST_F(DBSecondaryTest, ReopenAsSecondary) {
   ASSERT_EQ("bar_value", Get("bar"));
   ReadOptions ropts;
   ropts.verify_checksums = true;
-  auto db1 = static_cast<DBImplSecondary*>(db_);
+  auto db1 = db_->CheckedCast<DBImplSecondary>();
   ASSERT_NE(nullptr, db1);
   Iterator* iter = db1->NewIterator(ropts);
   ASSERT_NE(nullptr, iter);
@@ -1249,6 +1251,25 @@ TEST_F(DBSecondaryTest, OpenWithTransactionDB) {
   ASSERT_OK(TryOpenSecondary(options));
 }
 
+TEST_F(DBSecondaryTest, CheckedCast) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.max_open_files = -1;
+
+  ASSERT_OK(TryOpenSecondary(options));
+  ASSERT_TRUE(db_secondary_->IsInstanceOf(DBImplSecondary::kClassName()));
+  ASSERT_TRUE(db_secondary_->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_EQ(db_secondary_, db_secondary_->CheckedCast<DBImpl>());
+  ASSERT_EQ(db_secondary_, db_secondary_->GetRootDB());
+  std::unique_ptr<WrappedDB> wrapped(new WrappedDB(db_secondary_));
+
+  ASSERT_FALSE(wrapped->IsInstanceOf(DBImplSecondary::kClassName()));
+  ASSERT_FALSE(wrapped->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_EQ(db_secondary_, wrapped->CheckedCast<DBImpl>());
+  ASSERT_EQ(db_secondary_, wrapped->CheckedCast<DBImplSecondary>());
+  ASSERT_EQ(db_secondary_, wrapped->GetRootDB());
+  db_secondary_ = nullptr;  // Deleted via wrapped
+}
 #endif  //! ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

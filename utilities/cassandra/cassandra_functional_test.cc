@@ -94,7 +94,7 @@ class CassandraStore {
   WriteOptions write_option_;
   ReadOptions get_option_;
 
-  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_.get()); }
+  DBImpl* dbfull() { return DBImpl::AsDBImpl(db_.get()); }
 };
 
 class TestCompactionFilterFactory : public CompactionFilterFactory {

@@ -1514,7 +1514,7 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
     }
 
     void CheckFlushResultCommitted(DB* db, SequenceNumber seq) {
-      DBImpl* db_impl = static_cast_with_check<DBImpl>(db);
+      DBImpl* db_impl = DBImpl::AsDBImpl(db);
       InstrumentedMutex* mutex = db_impl->mutex();
       mutex->Lock();
       auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
@@ -2082,7 +2082,7 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
   // it means atomic flush didn't write the min_log_number_to_keep to MANIFEST.
   cfs.push_back(kDefaultColumnFamilyName);
   ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
-  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_);
+  DBImpl* db_impl = dbfull();
   ASSERT_TRUE(db_impl->allow_2pc());
   ASSERT_NE(db_impl->MinLogNumberToKeep(), 0);
 }

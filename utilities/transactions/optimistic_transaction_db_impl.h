@@ -41,6 +41,8 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
       db_ = nullptr;
     }
   }
+  static const char* kClassName() { return "OptimisticTransactionDBImpl"; }
+  const char* Name() const override { return kClassName(); }
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const OptimisticTransactionOptions& txn_options,

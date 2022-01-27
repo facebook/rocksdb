@@ -79,7 +79,7 @@ Status OptimisticTransaction::CommitWithSerialValidate() {
   // check whether this transaction is safe to be committed.
   OptimisticTransactionCallback callback(this);
 
-  DBImpl* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
+  DBImpl* db_impl = DBImpl::AsDBImpl(db_->GetRootDB());
 
   Status s = db_impl->WriteWithCallback(
       write_options_, GetWriteBatch()->GetWriteBatch(), &callback);
@@ -95,7 +95,7 @@ Status OptimisticTransaction::CommitWithParallelValidate() {
   auto txn_db_impl = static_cast_with_check<OptimisticTransactionDBImpl,
                                             OptimisticTransactionDB>(txn_db_);
   assert(txn_db_impl);
-  DBImpl* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
+  DBImpl* db_impl = DBImpl::AsDBImpl(db_->GetRootDB());
   assert(db_impl);
   const size_t space = txn_db_impl->GetLockBucketsSize();
   std::set<size_t> lk_idxes;
@@ -177,7 +177,7 @@ Status OptimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
 // Should only be called on writer thread in order to avoid any race conditions
 // in detecting write conflicts.
 Status OptimisticTransaction::CheckTransactionForConflicts(DB* db) {
-  auto db_impl = static_cast_with_check<DBImpl>(db);
+  auto db_impl = DBImpl::AsDBImpl(db);
 
   // Since we are on the write thread and do not want to block other writers,
   // we will do a cache-only conflict check.  This can result in TryAgain

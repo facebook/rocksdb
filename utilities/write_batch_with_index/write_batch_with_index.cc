@@ -490,7 +490,7 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
     get_impl_options.column_family = column_family;
     get_impl_options.value = pinnable_val;
     get_impl_options.callback = callback;
-    s = static_cast_with_check<DBImpl>(db->GetRootDB())
+    s = DBImpl::AsDBImpl(db->GetRootDB())
             ->GetImpl(read_options, key, get_impl_options);
   }
 
@@ -570,10 +570,9 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
   }
 
   // Did not find key in batch OR could not resolve Merges.  Try DB.
-  static_cast_with_check<DBImpl>(db->GetRootDB())
-      ->PrepareMultiGetKeys(key_context.size(), sorted_input, &sorted_keys);
-  static_cast_with_check<DBImpl>(db->GetRootDB())
-      ->MultiGetWithCallback(read_options, column_family, callback,
+  auto impl = DBImpl::AsDBImpl(db->GetRootDB());
+  impl->PrepareMultiGetKeys(key_context.size(), sorted_input, &sorted_keys);
+  impl->MultiGetWithCallback(read_options, column_family, callback,
                              &sorted_keys);
 
   for (auto iter = key_context.begin(); iter != key_context.end(); ++iter) {

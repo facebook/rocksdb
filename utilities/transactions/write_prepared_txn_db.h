@@ -60,6 +60,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   }
 
   virtual ~WritePreparedTxnDB();
+  static const char* kClassName() { return "WritePreparedTxnDB"; }
+  const char* Name() const override { return kClassName(); }
 
   virtual Status Initialize(
       const std::vector<size_t>& compaction_enabled_cf_indices,
@@ -595,7 +597,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     }
   };
 
+#ifndef NDEBUG
   void TEST_Crash() override { prepared_txns_.TEST_CRASH_ = true; }
+#endif  // NDEBUG
 
   // Get the commit entry with index indexed_seq from the commit table. It
   // returns true if such entry exists.

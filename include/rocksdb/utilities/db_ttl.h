@@ -64,6 +64,15 @@ class DBWithTTL : public StackableDB {
 
   virtual void SetTtl(ColumnFamilyHandle* h, int32_t ttl) = 0;
 
+  static const char* kClassName() { return "DBWithTTL"; }
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == kClassName()) {
+      return true;
+    } else {
+      return StackableDB::IsInstanceOf(name);
+    }
+  }
+
  protected:
   explicit DBWithTTL(DB* db) : StackableDB(db) {}
 };

@@ -131,7 +131,7 @@ TEST_F(DBTest, MockEnvTest) {
 
 // TEST_FlushMemTable() is not supported in ROCKSDB_LITE
 #ifndef ROCKSDB_LITE
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db);
+  DBImpl* dbi = DBImpl::AsDBImpl(db);
   ASSERT_OK(dbi->TEST_FlushMemTable());
 
   for (size_t i = 0; i < 3; ++i) {
@@ -179,7 +179,7 @@ TEST_F(DBTest, MemEnvTest) {
   ASSERT_TRUE(!iterator->Valid());
   delete iterator;
 
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db);
+  DBImpl* dbi = DBImpl::AsDBImpl(db);
   ASSERT_OK(dbi->TEST_FlushMemTable());
 
   for (size_t i = 0; i < 3; ++i) {
@@ -2852,6 +2852,8 @@ class ModelDB : public DB {
   };
 
   explicit ModelDB(const Options& options) : options_(options) {}
+  static const char* kClassName() { return "ModelDB"; }
+  const char* Name() const override { return kClassName(); }
   using DB::Put;
   Status Put(const WriteOptions& o, ColumnFamilyHandle* cf, const Slice& k,
              const Slice& v) override {

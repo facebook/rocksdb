@@ -339,7 +339,8 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
           // Reset database.
           prepared_trans.clear();
           ASSERT_OK(ReOpen());
-          wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
+          wup_db = db->CheckedCast<WriteUnpreparedTxnDB>();
+          ASSERT_NE(wup_db, nullptr);
           if (!empty) {
             for (int i = 0; i < num_batches; i++) {
               ASSERT_OK(db->Put(WriteOptions(), "k" + ToString(i),
@@ -501,7 +502,8 @@ TEST_P(WriteUnpreparedTransactionTest, MarkLogWithPrepSection) {
   for (bool prepare : {false, true}) {
     for (bool commit : {false, true}) {
       ASSERT_OK(ReOpen());
-      auto wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
+      auto wup_db = db->CheckedCast<WriteUnpreparedTxnDB>();
+      ASSERT_NE(wup_db, nullptr);
       auto db_impl = wup_db->db_impl_;
 
       Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
@@ -765,6 +767,77 @@ TEST_P(WriteUnpreparedTransactionTest, UntrackedKeys) {
   ASSERT_TRUE(s.IsNotFound());
 
   delete txn;
+}
+
+TEST_P(WriteUnpreparedTransactionTest, CheckedCast) {
+  ASSERT_FALSE(db->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_TRUE(db->IsInstanceOf(TransactionDB::kClassName()));
+  ASSERT_TRUE(db->IsInstanceOf(PessimisticTransactionDB::kClassName()));
+  ASSERT_TRUE(db->IsInstanceOf(WriteUnpreparedTxnDB::kClassName()));
+  ASSERT_EQ(db, db->CheckedCast<TransactionDB>());
+  ASSERT_EQ(db, db->CheckedCast<PessimisticTransactionDB>());
+  ASSERT_EQ(db, db->CheckedCast<WriteUnpreparedTxnDB>());
+
+  DB* root_db = db->GetRootDB();
+  ASSERT_NE(root_db, nullptr);
+  ASSERT_TRUE(root_db->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_FALSE(root_db->IsInstanceOf(TransactionDB::kClassName()));
+  ASSERT_FALSE(root_db->IsInstanceOf(PessimisticTransactionDB::kClassName()));
+  ASSERT_FALSE(root_db->IsInstanceOf(WriteUnpreparedTxnDB::kClassName()));
+  ASSERT_EQ(root_db, root_db->CheckedCast<DBImpl>());
+  ASSERT_EQ(root_db, db->CheckedCast<DBImpl>());
+  ASSERT_EQ(nullptr, root_db->CheckedCast<TransactionDB>());
+  ASSERT_EQ(nullptr, root_db->CheckedCast<PessimisticTransactionDB>());
+  ASSERT_EQ(nullptr, root_db->CheckedCast<WriteUnpreparedTxnDB>());
+
+  DB* base_db = db->GetBaseDB();
+  ASSERT_NE(base_db, nullptr);
+  ASSERT_TRUE(base_db->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_FALSE(base_db->IsInstanceOf(TransactionDB::kClassName()));
+  ASSERT_FALSE(base_db->IsInstanceOf(PessimisticTransactionDB::kClassName()));
+  ASSERT_FALSE(base_db->IsInstanceOf(WriteUnpreparedTxnDB::kClassName()));
+  ASSERT_EQ(root_db, base_db->CheckedCast<DBImpl>());
+  ASSERT_EQ(nullptr, base_db->CheckedCast<TransactionDB>());
+  ASSERT_EQ(nullptr, base_db->CheckedCast<PessimisticTransactionDB>());
+  ASSERT_EQ(nullptr, base_db->CheckedCast<WriteUnpreparedTxnDB>());
+
+  // Wrap the TransactionDB with another Stackable one.  The wrapped is
+  // not a TransactionDB (InstanceOf is false) but we can cast it to the
+  // same one.
+  std::unique_ptr<DB> wrapped(new WrappedDB(db));
+  ASSERT_FALSE(wrapped->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_FALSE(wrapped->IsInstanceOf(TransactionDB::kClassName()));
+  ASSERT_FALSE(wrapped->IsInstanceOf(PessimisticTransactionDB::kClassName()));
+  ASSERT_FALSE(wrapped->IsInstanceOf(WriteUnpreparedTxnDB::kClassName()));
+
+  ASSERT_EQ(db, wrapped->CheckedCast<TransactionDB>());
+  ASSERT_EQ(db, wrapped->CheckedCast<PessimisticTransactionDB>());
+  ASSERT_EQ(db, wrapped->CheckedCast<WriteUnpreparedTxnDB>());
+  ASSERT_EQ(root_db, wrapped->CheckedCast<DBImpl>());
+  db = nullptr;  // Owned by wrapped
+  wrapped.reset();
+
+  if (!use_stackable_db_) {
+    // If not using a Stackable DB, open up a TransactionDB with an
+    // intermediary stackable.  This gives us TransactionDB->Stack->Impl
+    ASSERT_OK(OpenWithStackableDB());
+    ASSERT_FALSE(db->IsInstanceOf(DBImpl::kClassName()));
+    ASSERT_TRUE(db->IsInstanceOf(TransactionDB::kClassName()));
+    ASSERT_TRUE(db->IsInstanceOf(PessimisticTransactionDB::kClassName()));
+    ASSERT_TRUE(db->IsInstanceOf(WriteUnpreparedTxnDB::kClassName()));
+    ASSERT_EQ(db, db->CheckedCast<TransactionDB>());
+    ASSERT_EQ(db, db->CheckedCast<PessimisticTransactionDB>());
+    ASSERT_EQ(db, db->CheckedCast<WriteUnpreparedTxnDB>());
+    base_db = db->GetBaseDB();
+    root_db = db->GetRootDB();
+    ASSERT_NE(base_db, nullptr);
+    ASSERT_NE(root_db, nullptr);
+    ASSERT_FALSE(base_db->IsInstanceOf(DBImpl::kClassName()));
+    ASSERT_TRUE(root_db->IsInstanceOf(DBImpl::kClassName()));
+    ASSERT_EQ(root_db, root_db->CheckedCast<DBImpl>());
+    ASSERT_EQ(root_db, base_db->CheckedCast<DBImpl>());
+    ASSERT_EQ(root_db, db->CheckedCast<DBImpl>());
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

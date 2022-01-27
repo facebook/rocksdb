@@ -751,6 +751,65 @@ class DB {
   // use "snapshot" after this call.
   virtual void ReleaseSnapshot(const Snapshot* snapshot) = 0;
 
+  // Returns the name of this class of DB.  DB instances should
+  // override this method.
+  virtual const char* Name() const { return ""; }
+
+  // This method is used to determine if the input name matches the
+  // name of this object.
+  // This method is typically used in conjunction with CheckedCast to find the
+  // derived class instance from its base.  For example, given a DB instance,
+  // one can determine if it can be cast to a TransactionDB or DBWithTTL.
+  //
+  // Intermediary classes (like TransactionDB) may wish to override this method
+  // to check for the intermediary name.
+  //
+  // Note that IsInstanceOf only uses the "is-a" relationship and not "has-a".
+  // Wrapped classes (GetBaseDB) with an Inner "has-a" should not be returned.
+  //
+  // @param name The name of the instance to find.
+  // Returns true if the class is an instance of the input name.
+  virtual bool IsInstanceOf(const std::string& name) const {
+    if (name.empty()) {
+      return false;
+    } else if (name == Name()) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  // Returns the named instance of the DB as a T*, or nullptr if not
+  // found. This method uses IsInstanceOf/GetBaseDB to find the appropriate
+  // DB instance and then casts it to the expected return type.
+  template <typename T>
+  const T* CheckedCast() const {
+    if (IsInstanceOf(T::kClassName())) {
+      return static_cast<const T*>(this);
+    } else {
+      auto base = GetBaseDB();
+      if (base != nullptr) {
+        return base->CheckedCast<T>();
+      } else {
+        return nullptr;
+      }
+    }
+  }
+
+  template <typename T>
+  T* CheckedCast() {
+    if (IsInstanceOf(T::kClassName())) {
+      return static_cast<T*>(this);
+    } else {
+      auto base = GetBaseDB();
+      if (base != nullptr) {
+        return base->CheckedCast<T>();
+      } else {
+        return nullptr;
+      }
+    }
+  }
+
 #ifndef ROCKSDB_LITE
   // Contains all valid property arguments for GetProperty() or
   // GetMapProperty(). Each is a "string" property for retrieval with
@@ -1651,6 +1710,7 @@ class DB {
 
   // Needed for StackableDB
   virtual DB* GetRootDB() { return this; }
+  virtual DB* GetBaseDB() const { return nullptr; }
 
   // Given a window [start_time, end_time), setup a StatsHistoryIterator
   // to access stats history. Note the start_time and end_time are epoch

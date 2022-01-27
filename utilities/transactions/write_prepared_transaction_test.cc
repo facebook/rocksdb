@@ -376,7 +376,7 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
                                            uint64_t snapshot,
                                            uint64_t next_snapshot,
                                            bool expect_update) {
-    WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+    WritePreparedTxnDB* wp_db = db->CheckedCast<WritePreparedTxnDB>();
     // reset old_commit_map_empty_ so that its value indicate whether
     // old_commit_map_ was updated
     wp_db->old_commit_map_empty_ = true;
@@ -698,7 +698,7 @@ INSTANTIATE_TEST_CASE_P(
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_P(WritePreparedTransactionTest, CommitMap) {
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  WritePreparedTxnDB* wp_db = db->CheckedCast<WritePreparedTxnDB>();
   ASSERT_NE(wp_db, nullptr);
   ASSERT_NE(wp_db->db_impl_, nullptr);
   size_t size = wp_db->COMMIT_CACHE_SIZE;
@@ -838,7 +838,8 @@ TEST_P(WritePreparedTransactionTest, CheckKeySkipOldMemtable) {
       ASSERT_OK(db->Flush(flush_ops));
     } else {
       ASSERT_EQ(attempt, kAttemptImmMemTable);
-      DBImpl* db_impl = static_cast<DBImpl*>(db->GetRootDB());
+      auto db_impl = db->CheckedCast<DBImpl>();
+      ASSERT_NE(db_impl, nullptr);
       ASSERT_OK(db_impl->TEST_SwitchMemtable());
     }
     uint64_t num_imm_mems;
@@ -936,7 +937,8 @@ TEST_P(WritePreparedTransactionTest, DoubleSnapshot) {
   // Insert initial value
   ASSERT_OK(db->Put(WriteOptions(), "key", "value1"));
 
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  WritePreparedTxnDB* wp_db = db->CheckedCast<WritePreparedTxnDB>();
+  ASSERT_NE(wp_db, nullptr);
   Transaction* txn =
       wp_db->BeginTransaction(WriteOptions(), txn_options, nullptr);
   ASSERT_OK(txn->SetName("txn"));
@@ -1314,7 +1316,8 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasic) {
 TEST_P(WritePreparedTransactionTest, NewSnapshotLargerThanMax) {
   WriteOptions woptions;
   TransactionOptions txn_options;
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  WritePreparedTxnDB* wp_db = db->CheckedCast<WritePreparedTxnDB>();
+  ASSERT_NE(wp_db, nullptr);
   Transaction* txn0 = db->BeginTransaction(woptions, txn_options);
   ASSERT_OK(txn0->Put(Slice("key"), Slice("value")));
   ASSERT_OK(txn0->Commit());
@@ -1363,7 +1366,8 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
   ASSERT_OK(ReOpen());
   WriteOptions woptions;
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  WritePreparedTxnDB* wp_db = db->CheckedCast<WritePreparedTxnDB>();
+  ASSERT_NE(wp_db, nullptr);
 
   const int writes = 50;
   const int batch_cnt = 4;
@@ -1413,7 +1417,8 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithUnbackedSnapshot) {
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
   ASSERT_OK(ReOpen());
   WriteOptions woptions;
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  WritePreparedTxnDB* wp_db = db->CheckedCast<WritePreparedTxnDB>();
+  ASSERT_NE(wp_db, nullptr);
 
   const int writes = 50;
   ROCKSDB_NAMESPACE::port::Thread t1([&]() {
@@ -1472,7 +1477,9 @@ TEST_P(WritePreparedTransactionTest, CleanupSnapshotEqualToMax) {
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
   ASSERT_OK(ReOpen());
   WriteOptions woptions;
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  WritePreparedTxnDB* wp_db = db->CheckedCast<WritePreparedTxnDB>();
+  ASSERT_NE(wp_db, nullptr);
+
   // Insert something to increase seq
   ASSERT_OK(db->Put(woptions, "key", "value"));
   auto snap = db->GetSnapshot();
@@ -1501,7 +1508,9 @@ TEST_P(WritePreparedTransactionTest, AdvanceSeqByOne) {
   auto seq1 = snap->GetSequenceNumber();
   db->ReleaseSnapshot(snap);
 
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  WritePreparedTxnDB* wp_db = db->CheckedCast<WritePreparedTxnDB>();
+  ASSERT_NE(wp_db, nullptr);
+
   wp_db->AdvanceSeqByOne();
 
   snap = db->GetSnapshot();
@@ -1564,7 +1573,9 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqWithDuplicates) {
   ASSERT_TRUE(s.IsNotFound());
   delete txn0;
 
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  WritePreparedTxnDB* wp_db = db->CheckedCast<WritePreparedTxnDB>();
+  ASSERT_NE(wp_db, nullptr);
+
   ASSERT_OK(wp_db->db_impl_->FlushWAL(true));
   wp_db->TEST_Crash();
   ASSERT_OK(ReOpenNoDelete());
@@ -1586,7 +1597,9 @@ TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
   const size_t commit_cache_bits = 1;    // disable commit cache
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
   ASSERT_OK(ReOpen());
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  WritePreparedTxnDB* wp_db = db->CheckedCast<WritePreparedTxnDB>();
+  ASSERT_NE(wp_db, nullptr);
+
   ReadOptions ropt;
   PinnableSlice pinnable_val;
   WriteOptions write_options;
@@ -1676,7 +1689,8 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
     if (n % 1000 == 0) {
       printf("Tested %" ROCKSDB_PRIszt " cases so far\n", n);
     }
-    DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+    DBImpl* db_impl = db->CheckedCast<DBImpl>();
+    ASSERT_NE(db_impl, nullptr);
     auto seq = db_impl->TEST_GetLastVisibleSequence();
     with_empty_commits = 0;
     exp_seq = seq;
@@ -1768,7 +1782,8 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
     ASSERT_OK(db_impl->FlushWAL(true));
     ASSERT_OK(ReOpenNoDelete());
     ASSERT_NE(db, nullptr);
-    db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+    db_impl = db->CheckedCast<DBImpl>();
+    ASSERT_NE(db_impl, nullptr);
     seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_LE(exp_seq, seq + with_empty_commits);
 
@@ -1781,7 +1796,9 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
     ASSERT_OK(db_impl->FlushWAL(true));
     ASSERT_OK(ReOpenNoDelete());
     ASSERT_NE(db, nullptr);
-    db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+    db_impl = db->CheckedCast<DBImpl>();
+    ASSERT_NE(db_impl, nullptr);
+
     seq = db_impl->GetLatestSequenceNumber();
     ASSERT_LE(exp_seq, seq + with_empty_commits);
   }
@@ -1793,7 +1810,8 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
 TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  WritePreparedTxnDB* wp_db = db->CheckedCast<WritePreparedTxnDB>();
+  ASSERT_NE(wp_db, nullptr);
 
   txn_t0(0);
 
@@ -1838,7 +1856,9 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   wp_db->TEST_Crash();
   ASSERT_OK(ReOpenNoDelete());
   ASSERT_NE(db, nullptr);
-  wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  wp_db = db->CheckedCast<WritePreparedTxnDB>();
+  ASSERT_NE(wp_db, nullptr);
+
   // After recovery, all the uncommitted txns (0 and 1) should be inserted into
   // delayed_prepared_
   ASSERT_TRUE(wp_db->prepared_txns_.empty());
@@ -1884,7 +1904,8 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   wp_db->TEST_Crash();
   ASSERT_OK(ReOpenNoDelete());
   ASSERT_NE(db, nullptr);
-  wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  wp_db = db->CheckedCast<WritePreparedTxnDB>();
+  ASSERT_NE(wp_db, nullptr);
   ASSERT_TRUE(wp_db->prepared_txns_.empty());
   ASSERT_FALSE(wp_db->delayed_prepared_empty_);
 
@@ -1918,8 +1939,10 @@ TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   delete txn2;
   ASSERT_OK(wp_db->db_impl_->FlushWAL(true));
   ASSERT_OK(ReOpenNoDelete());
-  ASSERT_NE(db, nullptr);
-  wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  assert(db);  // For Clang
+  wp_db = db->CheckedCast<WritePreparedTxnDB>();
+  ASSERT_NE(wp_db, nullptr);
+
   ASSERT_TRUE(wp_db->prepared_txns_.empty());
   ASSERT_TRUE(wp_db->delayed_prepared_empty_);
 
@@ -1949,11 +1972,16 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotEmptyMap) {
       prepare_seq = txn->GetId();
       delete txn;
     }
-    dynamic_cast<WritePreparedTxnDB*>(db)->TEST_Crash();
-    auto db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+    WritePreparedTxnDB* wp_db = db->CheckedCast<WritePreparedTxnDB>();
+    ASSERT_NE(wp_db, nullptr);
+    wp_db->TEST_Crash();
+
+    auto db_impl = wp_db->CheckedCast<DBImpl>();
+    ASSERT_NE(db_impl, nullptr);
     ASSERT_OK(db_impl->FlushWAL(true));
     ASSERT_OK(ReOpenNoDelete());
-    WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+    assert(db);  // For Clang
+    wp_db = db->CheckedCast<WritePreparedTxnDB>();
     ASSERT_NE(wp_db, nullptr);
     ASSERT_GT(wp_db->max_evicted_seq_, 0);  // max after recovery
     // Take a snapshot right after recovery
@@ -1993,7 +2021,9 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotEmptyMap) {
 
 // Shows the contract of IsInSnapshot when called on invalid/released snapshots
 TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  WritePreparedTxnDB* wp_db = db->CheckedCast<WritePreparedTxnDB>();
+  ASSERT_NE(wp_db, nullptr);
+
   WriteOptions woptions;
   ASSERT_OK(db->Put(woptions, "key", "value"));
   // snap seq = 1
@@ -2228,7 +2258,8 @@ TEST_P(WritePreparedTransactionTest, Rollback) {
     for (size_t ivalue = 0; ivalue < num_values; ivalue++) {
       for (bool crash : {false, true}) {
         ASSERT_OK(ReOpen());
-        WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+        WritePreparedTxnDB* wp_db = db->CheckedCast<WritePreparedTxnDB>();
+        ASSERT_NE(wp_db, nullptr);
         std::string key_str = "key" + ToString(ikey);
         switch (ivalue) {
           case 0:
@@ -2288,12 +2319,16 @@ TEST_P(WritePreparedTransactionTest, Rollback) {
 
         if (crash) {
           delete txn;
-          auto db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+          auto db_impl = db->CheckedCast<DBImpl>();
+          ASSERT_NE(db_impl, nullptr);
           ASSERT_OK(db_impl->FlushWAL(true));
-          dynamic_cast<WritePreparedTxnDB*>(db)->TEST_Crash();
+          wp_db = db->CheckedCast<WritePreparedTxnDB>();
+          ASSERT_NE(wp_db, nullptr);
+          wp_db->TEST_Crash();
           ASSERT_OK(ReOpenNoDelete());
           ASSERT_NE(db, nullptr);
-          wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+          wp_db = db->CheckedCast<WritePreparedTxnDB>();
+          ASSERT_NE(wp_db, nullptr);
           txn = db->GetTransactionByName("xid0");
           ASSERT_FALSE(wp_db->delayed_prepared_empty_);
           ReadLock rl(&wp_db->prepared_mutex_);
@@ -2347,7 +2382,10 @@ TEST_P(WritePreparedTransactionTest, DisableGCDuringRecovery) {
   }
   std::reverse(std::begin(versions), std::end(versions));
   VerifyInternalKeys(versions);
-  DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+
+  DBImpl* db_impl = db->CheckedCast<DBImpl>();
+  ASSERT_NE(db_impl, nullptr);
+
   ASSERT_OK(db_impl->FlushWAL(true));
   // Use small buffer to ensure memtable flush during recovery
   options.write_buffer_size = 1024;
@@ -2379,7 +2417,9 @@ TEST_P(WritePreparedTransactionTest, SequenceNumberZero) {
 TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
   options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());
-  DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+
+  DBImpl* db_impl = db->CheckedCast<DBImpl>();
+  ASSERT_NE(db_impl, nullptr);
   // Snapshots to avoid keys get evicted.
   std::vector<const Snapshot*> snapshots;
   // Keep track of expected sequence number.
@@ -2478,7 +2518,8 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   ASSERT_OK(txn1->Prepare());
   ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
   ASSERT_OK(txn1->Commit());
-  DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+  DBImpl* db_impl = db->CheckedCast<DBImpl>();
+  ASSERT_NE(db_impl, nullptr);
   ASSERT_EQ(++expected_seq, db_impl->TEST_GetLastVisibleSequence());
   delete txn1;
   // Take a snapshots to avoid keys get evicted before compaction.
@@ -3259,9 +3300,9 @@ TEST_P(WritePreparedTransactionTest, SingleDeleteAfterRollback) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->EnableProcessing();
 
-  DBImpl* dbimpl = static_cast_with_check<DBImpl>(db->GetRootDB());
-  assert(dbimpl);
-  ASSERT_OK(dbimpl->TEST_CompactRange(
+  DBImpl* db_impl = db->CheckedCast<DBImpl>();
+  ASSERT_NE(db_impl, nullptr);
+  ASSERT_OK(db_impl->TEST_CompactRange(
       /*level=*/0, /*begin=*/nullptr, /*end=*/nullptr,
       /*column_family=*/nullptr, /*disallow_trivial_mode=*/true));
 
@@ -3373,7 +3414,8 @@ TEST_P(WritePreparedTransactionTest,
   ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
   SequenceNumber seq1 = expected_seq;
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
-  DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+  DBImpl* db_impl = db->CheckedCast<DBImpl>();
+  ASSERT_NE(db_impl, nullptr);
   expected_seq++;  // one for data
   if (options.two_write_queues) {
     expected_seq++;  // one for commit
@@ -3511,8 +3553,10 @@ TEST_P(WritePreparedTransactionTest, NonAtomicCommitOfDelayedPrepared) {
     for (auto split_before_mutex : split_options) {
       UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
       ASSERT_OK(ReOpen());
-      WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-      DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+      auto wp_db = db->CheckedCast<WritePreparedTxnDB>();
+      ASSERT_NE(wp_db, nullptr);
+      DBImpl* db_impl = db->CheckedCast<DBImpl>();
+      ASSERT_NE(db_impl, nullptr);
       // Fill up the commit cache
       std::string init_value("value1");
       for (int i = 0; i < 10; i++) {
@@ -3609,7 +3653,8 @@ TEST_P(WritePreparedTransactionTest, NonAtomicUpdateOfDelayedPrepared) {
   const size_t commit_cache_bits = 3;    // 8 entries
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
   ASSERT_OK(ReOpen());
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  auto wp_db = db->CheckedCast<WritePreparedTxnDB>();
+  ASSERT_NE(wp_db, nullptr);
   // Fill up the commit cache
   std::string init_value("value1");
   for (int i = 0; i < 10; i++) {
@@ -3679,7 +3724,9 @@ TEST_P(WritePreparedTransactionTest, NonAtomicUpdateOfMaxEvictedSeq) {
   const size_t commit_cache_bits = 3;    // 8 entries
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
   ASSERT_OK(ReOpen());
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  auto wp_db = db->CheckedCast<WritePreparedTxnDB>();
+  ASSERT_NE(wp_db, nullptr);
+
   // Fill up the commit cache
   std::string init_value("value1");
   std::string last_value("value_final");
@@ -3760,7 +3807,8 @@ TEST_P(WritePreparedTransactionTest, AddPreparedBeforeMax) {
   const size_t commit_cache_bits = 0;
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
   ASSERT_OK(ReOpen());
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  auto wp_db = db->CheckedCast<WritePreparedTxnDB>();
+  ASSERT_NE(wp_db, nullptr);
   std::string some_value("value_some");
   std::string uncommitted_value("value_uncommitted");
   // Prepare two uncommitted transactions
@@ -3998,6 +4046,88 @@ TEST_P(WritePreparedTransactionTest, WC_WP_WALForwardIncompatibility) {
   CrossCompatibilityTest(WRITE_PREPARED, WRITE_COMMITTED, !empty_wal);
 }
 
+TEST_P(WritePreparedTransactionTest, CheckedPreparedCast) {
+  ASSERT_FALSE(db->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_TRUE(db->IsInstanceOf(TransactionDB::kClassName()));
+  ASSERT_TRUE(db->IsInstanceOf(PessimisticTransactionDB::kClassName()));
+  ASSERT_TRUE(db->IsInstanceOf(WritePreparedTxnDB::kClassName()));
+  ASSERT_FALSE(db->IsInstanceOf(WriteCommittedTxnDB::kClassName()));
+  ASSERT_EQ(db, db->CheckedCast<TransactionDB>());
+  ASSERT_EQ(db, db->CheckedCast<PessimisticTransactionDB>());
+  ASSERT_EQ(db, db->CheckedCast<WritePreparedTxnDB>());
+  ASSERT_EQ(nullptr, db->CheckedCast<WriteCommittedTxnDB>());
+
+  DB* root_db = db->GetRootDB();
+  ASSERT_NE(root_db, nullptr);
+  ASSERT_TRUE(root_db->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_FALSE(root_db->IsInstanceOf(TransactionDB::kClassName()));
+  ASSERT_FALSE(root_db->IsInstanceOf(PessimisticTransactionDB::kClassName()));
+  ASSERT_FALSE(root_db->IsInstanceOf(WritePreparedTxnDB::kClassName()));
+  ASSERT_FALSE(root_db->IsInstanceOf(WriteCommittedTxnDB::kClassName()));
+  ASSERT_EQ(root_db, root_db->CheckedCast<DBImpl>());
+  ASSERT_EQ(nullptr, root_db->CheckedCast<TransactionDB>());
+  ASSERT_EQ(nullptr, root_db->CheckedCast<PessimisticTransactionDB>());
+  ASSERT_EQ(nullptr, root_db->CheckedCast<WritePreparedTxnDB>());
+  ASSERT_EQ(nullptr, root_db->CheckedCast<WriteCommittedTxnDB>());
+  ASSERT_EQ(root_db, db->CheckedCast<DBImpl>());
+
+  DB* base_db = db->GetBaseDB();
+  ASSERT_NE(base_db, nullptr);
+  ASSERT_TRUE(base_db->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_FALSE(base_db->IsInstanceOf(TransactionDB::kClassName()));
+  ASSERT_FALSE(base_db->IsInstanceOf(PessimisticTransactionDB::kClassName()));
+  ASSERT_FALSE(base_db->IsInstanceOf(WritePreparedTxnDB::kClassName()));
+  ASSERT_FALSE(base_db->IsInstanceOf(WriteCommittedTxnDB::kClassName()));
+  ASSERT_EQ(base_db, base_db->CheckedCast<DBImpl>());
+  ASSERT_EQ(nullptr, base_db->CheckedCast<TransactionDB>());
+  ASSERT_EQ(nullptr, base_db->CheckedCast<PessimisticTransactionDB>());
+  ASSERT_EQ(nullptr, base_db->CheckedCast<WritePreparedTxnDB>());
+  ASSERT_EQ(nullptr, base_db->CheckedCast<WriteCommittedTxnDB>());
+  ASSERT_EQ(base_db, db->CheckedCast<DBImpl>());
+}
+
+TEST_P(WritePreparedTransactionTest, CheckedCommittedCast) {
+  txn_db_options.write_policy = WRITE_COMMITTED;
+  options.unordered_write = false;
+  ASSERT_OK(ReOpen());
+  ASSERT_FALSE(db->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_TRUE(db->IsInstanceOf(TransactionDB::kClassName()));
+  ASSERT_TRUE(db->IsInstanceOf(PessimisticTransactionDB::kClassName()));
+  ASSERT_FALSE(db->IsInstanceOf(WritePreparedTxnDB::kClassName()));
+  ASSERT_TRUE(db->IsInstanceOf(WriteCommittedTxnDB::kClassName()));
+  ASSERT_EQ(db, db->CheckedCast<TransactionDB>());
+  ASSERT_EQ(db, db->CheckedCast<PessimisticTransactionDB>());
+  ASSERT_EQ(db, db->CheckedCast<WriteCommittedTxnDB>());
+  ASSERT_EQ(nullptr, db->CheckedCast<WritePreparedTxnDB>());
+
+  DB* root_db = db->GetRootDB();
+  ASSERT_NE(root_db, nullptr);
+  ASSERT_TRUE(root_db->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_FALSE(root_db->IsInstanceOf(TransactionDB::kClassName()));
+  ASSERT_FALSE(root_db->IsInstanceOf(PessimisticTransactionDB::kClassName()));
+  ASSERT_FALSE(root_db->IsInstanceOf(WritePreparedTxnDB::kClassName()));
+  ASSERT_FALSE(root_db->IsInstanceOf(WriteCommittedTxnDB::kClassName()));
+  ASSERT_EQ(root_db, root_db->CheckedCast<DBImpl>());
+  ASSERT_EQ(nullptr, root_db->CheckedCast<TransactionDB>());
+  ASSERT_EQ(nullptr, root_db->CheckedCast<PessimisticTransactionDB>());
+  ASSERT_EQ(nullptr, root_db->CheckedCast<WritePreparedTxnDB>());
+  ASSERT_EQ(nullptr, root_db->CheckedCast<WriteCommittedTxnDB>());
+  ASSERT_EQ(root_db, db->CheckedCast<DBImpl>());
+
+  DB* base_db = db->GetBaseDB();
+  ASSERT_NE(base_db, nullptr);
+  ASSERT_TRUE(base_db->IsInstanceOf(DBImpl::kClassName()));
+  ASSERT_FALSE(base_db->IsInstanceOf(TransactionDB::kClassName()));
+  ASSERT_FALSE(base_db->IsInstanceOf(PessimisticTransactionDB::kClassName()));
+  ASSERT_FALSE(base_db->IsInstanceOf(WritePreparedTxnDB::kClassName()));
+  ASSERT_FALSE(base_db->IsInstanceOf(WriteCommittedTxnDB::kClassName()));
+  ASSERT_EQ(base_db, base_db->CheckedCast<DBImpl>());
+  ASSERT_EQ(nullptr, base_db->CheckedCast<TransactionDB>());
+  ASSERT_EQ(nullptr, base_db->CheckedCast<PessimisticTransactionDB>());
+  ASSERT_EQ(nullptr, base_db->CheckedCast<WritePreparedTxnDB>());
+  ASSERT_EQ(nullptr, base_db->CheckedCast<WriteCommittedTxnDB>());
+  ASSERT_EQ(base_db, db->CheckedCast<DBImpl>());
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

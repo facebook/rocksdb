@@ -37,6 +37,8 @@ class DBWithTTLImpl : public DBWithTTL {
   explicit DBWithTTLImpl(DB* db);
 
   virtual ~DBWithTTLImpl();
+  static const char* kClassName() { return "DBWithTTLImpl"; }
+  const char* Name() const override { return kClassName(); }
 
   virtual Status Close() override;
 
@@ -83,7 +85,7 @@ class DBWithTTLImpl : public DBWithTTL {
   virtual Iterator* NewIterator(const ReadOptions& opts,
                                 ColumnFamilyHandle* column_family) override;
 
-  virtual DB* GetBaseDB() override { return db_; }
+  virtual DB* GetBaseDB() const override { return db_; }
 
   static bool IsStale(const Slice& value, int32_t ttl, SystemClock* clock);
 
