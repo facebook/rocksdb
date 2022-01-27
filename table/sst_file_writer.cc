@@ -96,7 +96,7 @@ struct SstFileWriter::Rep {
     ikey.Set(user_key, sequence_number, value_type);
 
     builder->Add(ikey.Encode(), value);
-    Status s = validator->Add(user_key, value);
+    Status s = validator->Add(ikey.Encode(), value);
 
     if(!s.ok())
     {
