@@ -12,6 +12,7 @@
 
 #include <iostream>
 
+#include "api_rocksdb.h"
 #include "api_weakdb.h"
 #include "portal.h"
 #include "rocksdb/db.h"
@@ -31,7 +32,27 @@ class APIColumnFamilyHandle : public APIWeakDB {
     auto lock = cfh.lock();
     if (!lock) {
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-          env, "Invalid ColumnFamilyHandle. Maybe DB is already closed.");
+          env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::OrphanedColumnFamily());
+    }
+    return lock;
+  }
+
+  /**
+   * @brief lock the CF (std::shared_ptr) and check we have the correct DB
+   * @return locked CF if the weak ptr is still valid and the DB matches, empty
+   * ptr otherwise
+   */
+  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfhLockDBCheck(
+      JNIEnv* env, APIRocksDB& dbAPI) {
+    auto lock = cfh.lock();
+    if (!lock) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+          env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::OrphanedColumnFamily());
+    } else if (dbLock(env) != *dbAPI) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+          env,
+          ROCKSDB_NAMESPACE::RocksDBExceptionJni::MismatchedColumnFamily());
+      lock.reset();
     }
     return lock;
   }

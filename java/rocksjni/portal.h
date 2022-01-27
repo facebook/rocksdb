@@ -989,6 +989,16 @@ class RocksDBExceptionJni :
     return ROCKSDB_NAMESPACE::Status::InvalidArgument(
         "Invalid ColumnFamilyHandle.");
   }
+
+  static ROCKSDB_NAMESPACE::Status MismatchedColumnFamily() {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "Invalid ColumnFamilyHandle. Not from the expected DB.");
+  }
+
+  static ROCKSDB_NAMESPACE::Status OrphanedColumnFamily() {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "Invalid ColumnFamilyHandle. The CF is not open in the current DB.");
+  }
 };
 
 // The portal class for java.util.List

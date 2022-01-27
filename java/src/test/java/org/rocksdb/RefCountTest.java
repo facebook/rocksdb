@@ -227,10 +227,15 @@ public class RefCountTest {
    */
   @Test
   public void testCloseCFWithDanglingIterator() {
+
+    WeakDB weakDB = null;
+
     try (final Options options = new Options()
         .setCreateIfMissing(true)
         .setCreateMissingColumnFamilies(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      weakDB = db.createWeakDB();
+
       final ColumnFamilyHandle cfHandle = db.createColumnFamily(
           new ColumnFamilyDescriptor("new_cf".getBytes(StandardCharsets.UTF_8)));
       db.put(cfHandle, "key1".getBytes(), "value1".getBytes());
@@ -243,7 +248,12 @@ public class RefCountTest {
         assertThat(iterator.value()).isEqualTo("value1".getBytes());
 
         // Create this before we close the CF, and it is happily created
-        final RocksIterator iterator2 = db.newIterator(cfHandle);
+        try (final RocksIterator iterator2 = db.newIterator(cfHandle)) {
+          iterator2.seekToLast();
+          assertThat(iterator2.isValid()).isTrue();
+          assertThat(iterator2.key()).isEqualTo("key2".getBytes());
+          assertThat(iterator2.value()).isEqualTo("value2".getBytes());
+        }
 
         // Now close the CF - but it turns out that's fine for the (FIRST) iterator,
         // because the reference to the CF held by the iterator is deeper than the CFH
@@ -254,15 +264,14 @@ public class RefCountTest {
         assertThat(iterator.isValid()).isTrue();
         assertThat(iterator.key()).isEqualTo("key2".getBytes());
         assertThat(iterator.value()).isEqualTo("value2".getBytes());
-
-        // Here (autoclosing a CF) is where C++ asserts
-        // Assertion failed: (last_ref), function ~ColumnFamilySet, file column_family.cc, line 1494.
       }
 
     } catch (RocksDBException rocksDBException) {
       rocksDBException.printStackTrace();
       Assert.fail();
     }
+
+    assertThat(weakDB.isDatabaseOpen()).isFalse();
   }
 
   /**
@@ -294,17 +303,20 @@ public class RefCountTest {
         // it is still "open" after db.close(), until the iterator itself is closed.
         assertThat(db.isLastReference()).isFalse();
         weakDB = db.createWeakDB();
-        assertThat(weakDB.isLastReference()).isTrue();
         assertThat(weakDB.isDatabaseOpen()).isTrue();
         db.close();
-        assertThat(weakDB.isDatabaseOpen()).isFalse();
+
+        // Because the iterator is holding it open
+        assertThat(weakDB.isDatabaseOpen()).isTrue();
+
         assertThat(iterator.isValid()).isTrue();
         iterator.next();
         assertThat(iterator.key()).isEqualTo("key2".getBytes());
         assertThat(iterator.value()).isEqualTo("value2".getBytes());
       }
 
-      //TODO (AP) RCA - use a WeakDB here to confirm that the true DB is closed.
+      // Iterator release has allowed DB to close
+      assertThat(weakDB.isDatabaseOpen()).isFalse();
 
     } catch (RocksDBException rocksDBException) {
       rocksDBException.printStackTrace();
@@ -406,10 +418,12 @@ public class RefCountTest {
       // Could be a timing issue ?
       cfHandle.close();
 
-      // Oh, now this is crashing (SEGV)
-      final byte[] valueBytes = db.get(cfHandle, "key1".getBytes());
-      assertThat(valueBytes).isEqualTo("value1".getBytes());
-      Assert.fail("Why are we able to get() from a closed CF handle ?");
+      try {
+        final byte[] valueBytes = db.get(cfHandle, "key1".getBytes());
+        Assert.fail("Get to close CF should fail");
+      } catch (RocksDBRuntimeException rocksDBRuntimeException) {
+        assertThat(rocksDBRuntimeException.getMessage()).contains("RocksDB native reference was previously closed");
+      }
     }
   }
 
@@ -420,15 +434,18 @@ public class RefCountTest {
           new ColumnFamilyDescriptor("new_cf".getBytes(StandardCharsets.UTF_8)));
       db.put(cfHandle, "key1".getBytes(), "value1".getBytes());
 
+      assertThat(db.get(cfHandle, "key1".getBytes())).isEqualTo("value1".getBytes());
+
       byte[] bytesFromOtherDB = "not the correct answer".getBytes();
       try (final RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
 
         // We are fetching from a valid open handle on another database.
-        // We get null, i.e. the handle doesn't get found.
+        // We introduced some checking code in the get() to ensure the DB matches.
         bytesFromOtherDB = db2.get(cfHandle, "key1".getBytes());
         Assert.fail("Why does a CFHandle from DB 1 not error on DB 2 ?");
       } catch (RocksDBException exception) {
-        assertThat(bytesFromOtherDB).isEqualTo(null);
+        assertThat(exception.getMessage()).contains("Invalid ColumnFamilyHandle.");
+        assertThat(bytesFromOtherDB).isEqualTo("not the correct answer".getBytes());
       }
     }
   }

@@ -1462,9 +1462,8 @@ jbyteArray rocksdb_get_helper(JNIEnv* env, APIRocksDB& dbAPI,
   std::string value;
   ROCKSDB_NAMESPACE::Status s;
   if (cfhAPI != nullptr) {
-    auto cfh = cfhAPI->cfhLock(env);
+    auto cfh = cfhAPI->cfhLockDBCheck(env, dbAPI);
     if (!cfh) {
-      // exception raised by cfhLock
       delete[] key;
       return nullptr;
     }

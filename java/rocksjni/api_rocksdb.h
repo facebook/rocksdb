@@ -23,6 +23,8 @@ class APIRocksDB : APIBase {
 
   ROCKSDB_NAMESPACE::DB* operator->() const { return db.get(); }
 
+  std::shared_ptr<ROCKSDB_NAMESPACE::DB>& operator*() { return db; }
+
   /**
    * @brief dump some status info to std::cout
    *
