@@ -140,7 +140,6 @@ const_params="
   --pin_l0_filter_and_index_blocks_in_cache=1 \
   --benchmark_write_rate_limit=$(( 1024 * 1024 * $mb_written_per_sec )) \
   \
-  --hard_rate_limit=3 \
   --rate_limit_delay_max_milliseconds=1000000 \
   --write_buffer_size=$((128 * M)) \
   --target_file_size_base=$((128 * M)) \

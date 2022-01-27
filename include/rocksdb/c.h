@@ -1194,14 +1194,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_recycle_log_file_num(
     rocksdb_options_t*, size_t);
 extern ROCKSDB_LIBRARY_API size_t
 rocksdb_options_get_recycle_log_file_num(rocksdb_options_t*);
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_soft_rate_limit(
-    rocksdb_options_t*, double);
-extern ROCKSDB_LIBRARY_API double rocksdb_options_get_soft_rate_limit(
-    rocksdb_options_t*);
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_hard_rate_limit(
-    rocksdb_options_t*, double);
-extern ROCKSDB_LIBRARY_API double rocksdb_options_get_hard_rate_limit(
-    rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_soft_pending_compaction_bytes_limit(
     rocksdb_options_t* opt, size_t v);
 extern ROCKSDB_LIBRARY_API size_t
