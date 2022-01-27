@@ -5,6 +5,7 @@
 * Remove librados support from main repo.
 * Remove deprecated API DB::AddFile from main repo.
 * Remove deprecated API ObjectLibrary::Register() and the (now obsolete) Regex public API. Use ObjectLibrary::AddFactory() with PatternEntry instead.
+* Remove deprecated option DBOption::table_cache_remove_scan_count_limit.
 
 ## 6.29.0 (01/21/2022)
 Note: The next release will be major release 7.0. See https://github.com/facebook/rocksdb/issues/9390 for more info.
