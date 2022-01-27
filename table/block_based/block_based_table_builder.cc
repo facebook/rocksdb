@@ -386,6 +386,7 @@ struct BlockBasedTableBuilder::Rep {
   }
 
   // Never erase an existing I/O status that is not OK.
+  // Calling this will also SetStatus(ios)
   void SetIOStatus(IOStatus ios) {
     if (!ios.ok() && io_status_ok.load(std::memory_order_relaxed)) {
       // Locking is an overkill for non compression_opts.parallel_threads
@@ -395,6 +396,7 @@ struct BlockBasedTableBuilder::Rep {
       io_status = ios;
       io_status_ok.store(false, std::memory_order_relaxed);
     }
+    SetStatus(ios);
   }
 
   Rep(const BlockBasedTableOptions& table_opt, const TableBuilderOptions& tbo,
@@ -1231,92 +1233,94 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                            bool is_top_level_filter_block) {
   Rep* r = rep_;
   bool is_data_block = block_type == BlockType::kData;
-  Status s = Status::OK();
-  IOStatus io_s = IOStatus::OK();
   StopWatch sw(r->ioptions.clock, r->ioptions.stats, WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->get_offset());
   handle->set_size(block_contents.size());
   assert(status().ok());
   assert(io_status().ok());
-  io_s = r->file->Append(block_contents);
-  if (io_s.ok()) {
-    std::array<char, kBlockTrailerSize> trailer;
-    trailer[0] = type;
-    uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
-        r->table_options.checksum, block_contents.data(), block_contents.size(),
-        /*last_byte*/ type);
-    EncodeFixed32(trailer.data() + 1, checksum);
 
-    assert(io_s.ok());
-    TEST_SYNC_POINT_CALLBACK(
-        "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",
-        trailer.data());
-    io_s = r->file->Append(Slice(trailer.data(), trailer.size()));
-    if (io_s.ok()) {
-      assert(s.ok());
-      bool warm_cache;
-      switch (r->table_options.prepopulate_block_cache) {
-        case BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly:
-          warm_cache = (r->reason == TableFileCreationReason::kFlush);
-          break;
-        case BlockBasedTableOptions::PrepopulateBlockCache::kDisable:
-          warm_cache = false;
-          break;
-        default:
-          // missing case
-          assert(false);
-          warm_cache = false;
+  {
+    IOStatus io_s = r->file->Append(block_contents);
+    if (!io_s.ok()) {
+      r->SetIOStatus(io_s);
+      return;
+    }
+  }
+
+  std::array<char, kBlockTrailerSize> trailer;
+  trailer[0] = type;
+  uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
+      r->table_options.checksum, block_contents.data(), block_contents.size(),
+      /*last_byte*/ type);
+  EncodeFixed32(trailer.data() + 1, checksum);
+  TEST_SYNC_POINT_CALLBACK(
+      "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",
+      trailer.data());
+  {
+    IOStatus io_s = r->file->Append(Slice(trailer.data(), trailer.size()));
+    if (!io_s.ok()) {
+      r->SetIOStatus(io_s);
+      return;
+    }
+  }
+
+  {
+    Status s = Status::OK();
+    bool warm_cache;
+    switch (r->table_options.prepopulate_block_cache) {
+      case BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly:
+        warm_cache = (r->reason == TableFileCreationReason::kFlush);
+        break;
+      case BlockBasedTableOptions::PrepopulateBlockCache::kDisable:
+        warm_cache = false;
+        break;
+      default:
+        // missing case
+        assert(false);
+        warm_cache = false;
+    }
+    if (warm_cache) {
+      if (type == kNoCompression) {
+        s = InsertBlockInCacheHelper(block_contents, handle, block_type,
+                                     is_top_level_filter_block);
+      } else if (raw_block_contents != nullptr) {
+        s = InsertBlockInCacheHelper(*raw_block_contents, handle, block_type,
+                                     is_top_level_filter_block);
       }
-      if (warm_cache) {
-        if (type == kNoCompression) {
-          s = InsertBlockInCacheHelper(block_contents, handle, block_type,
-                                       is_top_level_filter_block);
-        } else if (raw_block_contents != nullptr) {
-          s = InsertBlockInCacheHelper(*raw_block_contents, handle, block_type,
-                                       is_top_level_filter_block);
-        }
-        if (!s.ok()) {
-          r->SetStatus(s);
-        }
-      }
-      // TODO:: Should InsertBlockInCompressedCache take into account error from
-      // InsertBlockInCache or ignore and overwrite it.
-      s = InsertBlockInCompressedCache(block_contents, type, handle);
       if (!s.ok()) {
         r->SetStatus(s);
+        return;
       }
+    }
+    s = InsertBlockInCompressedCache(block_contents, type, handle);
+    if (!s.ok()) {
+      r->SetStatus(s);
+      return;
+    }
+  }
+
+  r->set_offset(r->get_offset() + block_contents.size() + kBlockTrailerSize);
+  if (r->table_options.block_align && is_data_block) {
+    size_t pad_bytes =
+        (r->alignment -
+         ((block_contents.size() + kBlockTrailerSize) & (r->alignment - 1))) &
+        (r->alignment - 1);
+    IOStatus io_s = r->file->Pad(pad_bytes);
+    if (io_s.ok()) {
+      r->set_offset(r->get_offset() + pad_bytes);
     } else {
       r->SetIOStatus(io_s);
+      return;
     }
-    if (s.ok() && io_s.ok()) {
-      r->set_offset(r->get_offset() + block_contents.size() +
-                    kBlockTrailerSize);
-      if (r->table_options.block_align && is_data_block) {
-        size_t pad_bytes =
-            (r->alignment - ((block_contents.size() + kBlockTrailerSize) &
-                             (r->alignment - 1))) &
-            (r->alignment - 1);
-        io_s = r->file->Pad(pad_bytes);
-        if (io_s.ok()) {
-          r->set_offset(r->get_offset() + pad_bytes);
-        } else {
-          r->SetIOStatus(io_s);
-        }
-      }
-      if (r->IsParallelCompressionEnabled()) {
-        if (is_data_block) {
-          r->pc_rep->file_size_estimator.ReapBlock(block_contents.size(),
-                                                   r->get_offset());
-        } else {
-          r->pc_rep->file_size_estimator.SetEstimatedFileSize(r->get_offset());
-        }
-      }
-    }
-  } else {
-    r->SetIOStatus(io_s);
   }
-  if (!io_s.ok() && s.ok()) {
-    r->SetStatus(io_s);
+
+  if (r->IsParallelCompressionEnabled()) {
+    if (is_data_block) {
+      r->pc_rep->file_size_estimator.ReapBlock(block_contents.size(),
+                                               r->get_offset());
+    } else {
+      r->pc_rep->file_size_estimator.SetEstimatedFileSize(r->get_offset());
+    }
   }
 }
 
@@ -1800,7 +1804,6 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
     r->set_offset(r->get_offset() + footer.GetSlice().size());
   } else {
     r->SetIOStatus(ios);
-    r->SetStatus(ios);
   }
 }
 
