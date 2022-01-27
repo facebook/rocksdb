@@ -9,6 +9,7 @@
 #include <jni.h>
 
 #include "api_weakdb.h"
+#include "include/org_rocksdb_WeakDB.h"
 
 /*
  * @brief true iff there are other strong references to the RocksDB object

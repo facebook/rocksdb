@@ -45,7 +45,7 @@ public abstract class RocksNative implements AutoCloseable {
   /**
    * Test support method ensures that internal reference counts are as expected.
    */
-   public final boolean isLastReference() {
+  public final boolean isLastReference() {
     return isLastReference(getNative());
   }
 
