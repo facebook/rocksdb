@@ -405,6 +405,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, periodic_compaction_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"bottommost_temperature",
+         {offsetof(struct MutableCFOptions, bottommost_temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"enable_blob_files",
          {offsetof(struct MutableCFOptions, enable_blob_files),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -505,6 +509,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"compaction_measure_io_stats",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
+        {"purge_redundant_kvs_while_flush",
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kNone}},
         {"inplace_update_support",
          {offset_of(&ImmutableCFOptions::inplace_update_support),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -520,10 +527,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"force_consistency_checks",
          {offset_of(&ImmutableCFOptions::force_consistency_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
-        {"purge_redundant_kvs_while_flush",
-         {offset_of(&ImmutableCFOptions::purge_redundant_kvs_while_flush),
-          OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"max_mem_compaction_level",
          {0, OptionType::kInt, OptionVerificationType::kDeprecated,
@@ -849,8 +852,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       table_properties_collector_factories(
           cf_options.table_properties_collector_factories),
       bloom_locality(cf_options.bloom_locality),
-      purge_redundant_kvs_while_flush(
-          cf_options.purge_redundant_kvs_while_flush),
       compression_per_level(cf_options.compression_per_level),
       level_compaction_dynamic_level_bytes(
           cf_options.level_compaction_dynamic_level_bytes),
@@ -1061,6 +1062,9 @@ void MutableCFOptions::Dump(Logger* log) const {
                  blob_garbage_collection_force_threshold);
   ROCKS_LOG_INFO(log, "           blob_compaction_readahead_size: %" PRIu64,
                  blob_compaction_readahead_size);
+
+  ROCKS_LOG_INFO(log, "                   bottommost_temperature: %d",
+                 static_cast<int>(bottommost_temperature));
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)
