@@ -16,7 +16,6 @@
 #include <vector>
 
 #include "rocksdb/status.h"
-#include "rocksdb/utilities/regex.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Customizable;
@@ -49,28 +48,6 @@ class ObjectLibrary {
     virtual ~Entry() {}
     virtual bool Matches(const std::string& target) const = 0;
     virtual const char* Name() const = 0;
-  };
-
-  // A class that implements an Entry based on Regex.
-  //
-  // WARNING: some regexes are problematic for std::regex; see
-  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582 for example
-  //
-  // This class is deprecated and will be removed in a future release
-  class RegexEntry : public Entry {
-   public:
-    explicit RegexEntry(const std::string& name) : name_(name) {
-      Regex::Parse(name, &regex_).PermitUncheckedError();
-    }
-
-    bool Matches(const std::string& target) const override {
-      return regex_.Matches(target);
-    }
-    const char* Name() const override { return name_.c_str(); }
-
-   private:
-    std::string name_;
-    Regex regex_;  // The pattern for this entry
   };
 
  public:
@@ -240,23 +217,6 @@ class ObjectLibrary {
 
   void Dump(Logger* logger) const;
 
-  // Registers the factory with the library for the regular expression pattern.
-  // If the pattern matches, the factory may be used to create a new object.
-  //
-  // WARNING: some regexes are problematic for std::regex; see
-  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61582 for example
-  //
-  // Deprecated. Will be removed in a major release. Code should use AddFactory
-  // instead.
-  template <typename T>
-  const FactoryFunc<T>& Register(const std::string& pattern,
-                                 const FactoryFunc<T>& factory) {
-    std::unique_ptr<Entry> entry(
-        new FactoryEntry<T>(new RegexEntry(pattern), factory));
-    AddFactoryEntry(T::Type(), std::move(entry));
-    return factory;
-  }
-
   // Registers the factory with the library for the name.
   // If name==target, the factory may be used to create a new object.
   template <typename T>
@@ -272,6 +232,7 @@ class ObjectLibrary {
   // If the entry matches the target, the factory may be used to create a new
   // object.
   // @see PatternEntry for the matching rules.
+  // NOTE: This function replaces the old ObjectLibrary::Register()
   template <typename T>
   const FactoryFunc<T>& AddFactory(const PatternEntry& entry,
                                    const FactoryFunc<T>& func) {

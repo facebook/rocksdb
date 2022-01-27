@@ -11,7 +11,7 @@ import java.util.List;
  * and restore the database
  *
  * Be aware, that `new BackupEngine` takes time proportional to the amount
- * of backups. So if you have a slow filesystem to backup (like HDFS)
+ * of backups. So if you have a slow filesystem to backup
  * and you have a lot of backups then restoring can take some time.
  * That's why we recommend to limit the number of backups.
  * Also we recommend to keep BackupEngine alive and not to recreate it every

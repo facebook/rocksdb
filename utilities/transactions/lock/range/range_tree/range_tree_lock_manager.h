@@ -91,8 +91,15 @@ class RangeTreeLockManager : public RangeLockManagerBase,
   // Get the locktree which stores locks for the Column Family with given cf_id
   std::shared_ptr<toku::locktree> GetLockTreeForCF(ColumnFamilyId cf_id);
 
+  void SetEscalationBarrierFunc(EscalationBarrierFunc func) override {
+    barrier_func_ = func;
+  }
+
  private:
   toku::locktree_manager ltm_;
+
+  EscalationBarrierFunc barrier_func_ =
+      [](const Endpoint&, const Endpoint&) -> bool { return false; };
 
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
 
@@ -114,10 +121,12 @@ class RangeTreeLockManager : public RangeLockManagerBase,
   static int CompareDbtEndpoints(void* arg, const DBT* a_key, const DBT* b_key);
 
   // Callbacks
-  static int on_create(toku::locktree*, void*) { return 0; /* no error */ }
+  static int on_create(toku::locktree*, void*);
   static void on_destroy(toku::locktree*) {}
   static void on_escalate(TXNID txnid, const toku::locktree* lt,
                           const toku::range_buffer& buffer, void* extra);
+
+  static bool OnEscalationBarrierCheck(const DBT* a, const DBT* b, void* extra);
 };
 
 void serialize_endpoint(const Endpoint& endp, std::string* buf);

@@ -37,7 +37,6 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.IngestExternalFileOptions\
 	org.rocksdb.HashLinkedListMemTableConfig\
 	org.rocksdb.HashSkipListMemTableConfig\
-	org.rocksdb.HdfsEnv\
 	org.rocksdb.ConcurrentTaskLimiter\
 	org.rocksdb.ConcurrentTaskLimiterImpl\
 	org.rocksdb.KeyMayExist\
@@ -134,7 +133,6 @@ JAVA_TESTS = \
 	org.rocksdb.util.EnvironmentTest\
 	org.rocksdb.EnvOptionsTest\
 	org.rocksdb.EventListenerTest\
-	org.rocksdb.HdfsEnvTest\
 	org.rocksdb.IngestExternalFileOptionsTest\
 	org.rocksdb.util.IntComparatorTest\
 	org.rocksdb.util.JNIComparatorTest\

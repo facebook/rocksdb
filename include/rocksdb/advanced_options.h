@@ -736,7 +736,9 @@ struct AdvancedColumnFamilyOptions {
   // LSM changes (Flush, Compaction, AddFile). When this option is true, these
   // checks are also enabled in release mode. These checks were historically
   // disabled in release mode, but are now enabled by default for proactive
-  // corruption detection, at almost no cost in extra CPU.
+  // corruption detection. The CPU overhead is negligible for normal mixed
+  // operations but can slow down saturated writing. See
+  // Options::DisableExtraChecks().
   // Default: true
   bool force_consistency_checks = true;
 
@@ -812,6 +814,8 @@ struct AdvancedColumnFamilyOptions {
   // If this option is set, when creating bottommost files, pass this
   // temperature to FileSystem used. Should be no-op for default FileSystem
   // and users need to plug in their own FileSystem to take advantage of it.
+  //
+  // Dynamically changeable through the SetOptions() API
   Temperature bottommost_temperature = Temperature::kUnknown;
 
   // When set, large values (blobs) are written to separate blob files, and
@@ -926,10 +930,6 @@ struct AdvancedColumnFamilyOptions {
 
   // NOT SUPPORTED ANYMORE -- this options is no longer used
   unsigned int rate_limit_delay_max_milliseconds = 100;
-
-  // NOT SUPPORTED ANYMORE
-  // Does not have any effect.
-  bool purge_redundant_kvs_while_flush = true;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

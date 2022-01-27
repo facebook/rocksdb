@@ -1,16 +1,41 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API changes
+* Remove HDFS support from main repo.
+* Remove librados support from main repo.
+* Remove deprecated API DB::AddFile from main repo.
+* Remove deprecated API ObjectLibrary::Register() and the (now obsolete) Regex public API. Use ObjectLibrary::AddFactory() with PatternEntry instead.
+
+## 6.29.0 (01/21/2022)
+Note: The next release will be major release 7.0. See https://github.com/facebook/rocksdb/issues/9390 for more info.
 ### Public API change
 * Added values to `TraceFilterType`: `kTraceFilterIteratorSeek`, `kTraceFilterIteratorSeekForPrev`, and `kTraceFilterMultiGet`. They can be set in `TraceOptions` to filter out the operation types after which they are named.
 * Added `TraceOptions::preserve_write_order`. When enabled it  guarantees write records are traced in the same order they are logged to WAL and applied to the DB. By default it is disabled (false) to match the legacy behavior and prevent regression.
 * Made the Env class extend the Customizable class.  Implementations need to be registered with the ObjectRegistry and to implement a Name() method in order to be created via this method.
+* `Options::OldDefaults` is marked deprecated, as it is no longer maintained.
 * Add ObjectLibrary::AddFactory and ObjectLibrary::PatternEntry classes.  This method and associated class are the preferred mechanism for registering factories with the ObjectLibrary going forward.  The ObjectLibrary::Register method, which uses regular expressions and may be problematic, is deprecated and will be in a future release.
+* Changed `BlockBasedTableOptions::block_size` from `size_t` to `uint64_t`.
+* Added API warning against using `Iterator::Refresh()` together with `DB::DeleteRange()`, which are incompatible and have always risked causing the refreshed iterator to return incorrect results.
+* Made `AdvancedColumnFamilyOptions.bottommost_temperature` dynamically changeable with `SetOptions()`.
 
 ### Behavior Changes
 * `DB::DestroyColumnFamilyHandle()` will return Status::InvalidArgument() if called with `DB::DefaultColumnFamily()`.
+* On 32-bit platforms, mmap reads are no longer quietly disabled, just discouraged.
+
+### New Features
+* Added `Options::DisableExtraChecks()` that can be used to improve peak write performance by disabling checks that should not be necessary in the absence of software logic errors or CPU+memory hardware errors. (Default options are slowly moving toward some performance overheads for extra correctness checking.)
+
+### Performance Improvements
+* Improved read performance when a prefix extractor is used (Seek, Get, MultiGet), even compared to version 6.25 baseline (see bug fix below), by optimizing the common case of prefix extractor compatible with table file and unchanging.
 
 ### Bug Fixes
 * Fix a bug that FlushMemTable may return ok even flush not succeed.
+* Fixed a bug of Sync() and Fsync() not using `fcntl(F_FULLFSYNC)` on OS X and iOS.
+* Fixed a significant performance regression in version 6.26 when a prefix extractor is used on the read path (Seek, Get, MultiGet). (Excessive time was spent in SliceTransform::AsString().)
+* Fixed a race condition in SstFileManagerImpl error recovery code that can cause a crash during process shutdown.
+
+### New Features
+* Added RocksJava support for MacOS universal binary (ARM+x86)
 
 ## 6.28.0 (2021-12-17)
 ### New Features

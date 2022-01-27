@@ -40,7 +40,7 @@ class Comparator : public Customizable {
     return *this;
   }
 
-  virtual ~Comparator() {}
+  ~Comparator() override {}
 
   static Status CreateFromString(const ConfigOptions& opts,
                                  const std::string& id,
