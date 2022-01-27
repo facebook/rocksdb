@@ -1536,6 +1536,12 @@ TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilterMultiGet) {
   ASSERT_EQ(results[3], "NOT_FOUND");
   ASSERT_EQ(results[4], value4);
 
+  // Also check Get
+  ASSERT_EQ(Get(key1), value1);
+  ASSERT_EQ(Get(key2), "NOT_FOUND");
+  ASSERT_EQ(Get(key3), "NOT_FOUND");
+  ASSERT_EQ(Get(key4), value4);
+
   // Read with snapshot
   results = MultiGet({key_not, key1, key2, key3, key4}, snapshot);
   ASSERT_EQ(results[0], "NOT_FOUND");
@@ -1543,6 +1549,12 @@ TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilterMultiGet) {
   ASSERT_EQ(results[2], value2);
   ASSERT_EQ(results[3], value3);
   ASSERT_EQ(results[4], "NOT_FOUND");
+
+  // Also check Get
+  ASSERT_EQ(Get(key1, snapshot), value1);
+  ASSERT_EQ(Get(key2, snapshot), value2);
+  ASSERT_EQ(Get(key3, snapshot), value3);
+  ASSERT_EQ(Get(key4, snapshot), "NOT_FOUND");
 
   db_->ReleaseSnapshot(snapshot);
 }
