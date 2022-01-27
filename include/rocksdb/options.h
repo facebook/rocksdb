@@ -772,7 +772,9 @@ struct DBOptions {
   // large amounts of data (such as xfs's allocsize option).
   size_t manifest_preallocation_size = 4 * 1024 * 1024;
 
-  // Allow the OS to mmap file for reading sst tables. Default: false
+  // Allow the OS to mmap file for reading sst tables.
+  // Not recommended for 32-bit OS.
+  // Default: false
   bool allow_mmap_reads = false;
 
   // Allow the OS to mmap file for writing.
@@ -1225,6 +1227,11 @@ struct DBOptions {
   // relies on manual invocation of FlushWAL to write the WAL buffer to its
   // file.
   bool manual_wal_flush = false;
+
+  // This feature is WORK IN PROGRESS
+  // If enabled WAL records will be compressed before they are written.
+  // Only zstd is supported.
+  CompressionType wal_compression = kNoCompression;
 
   // If true, RocksDB supports flushing multiple column families and committing
   // their results atomically to MANIFEST. Note that it is not

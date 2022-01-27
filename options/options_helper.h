@@ -88,6 +88,7 @@ struct OptionsHelper {
       compaction_style_string_map;
   static std::unordered_map<std::string, CompactionPri>
       compaction_pri_string_map;
+  static std::unordered_map<std::string, Temperature> temperature_string_map;
 #endif  // !ROCKSDB_LITE
 };
 
@@ -108,6 +109,7 @@ static auto& compaction_style_string_map =
     OptionsHelper::compaction_style_string_map;
 static auto& compaction_pri_string_map =
     OptionsHelper::compaction_pri_string_map;
+static auto& temperature_string_map = OptionsHelper::temperature_string_map;
 #endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

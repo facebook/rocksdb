@@ -2959,10 +2959,6 @@ size_t rocksdb_options_get_manifest_preallocation_size(rocksdb_options_t* opt) {
   return opt->rep.manifest_preallocation_size;
 }
 
-// noop
-void rocksdb_options_set_purge_redundant_kvs_while_flush(
-    rocksdb_options_t* /*opt*/, unsigned char /*v*/) {}
-
 void rocksdb_options_set_use_direct_reads(rocksdb_options_t* opt,
                                           unsigned char v) {
   opt->rep.use_direct_reads = v;
@@ -3535,6 +3531,14 @@ void rocksdb_options_set_manual_wal_flush(rocksdb_options_t* opt,
 
 unsigned char rocksdb_options_get_manual_wal_flush(rocksdb_options_t* opt) {
   return opt->rep.manual_wal_flush;
+}
+
+void rocksdb_options_set_wal_compression(rocksdb_options_t* opt, int val) {
+  opt->rep.wal_compression = static_cast<CompressionType>(val);
+}
+
+int rocksdb_options_get_wal_compression(rocksdb_options_t* opt) {
+  return opt->rep.wal_compression;
 }
 
 rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
