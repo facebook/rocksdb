@@ -621,8 +621,6 @@ Status BlockBasedTable::Open(
                                       file_size, level, immortal_table);
   rep->file = std::move(file);
   rep->footer = footer;
-  rep->hash_index_allow_collision = table_options.hash_index_allow_collision;
-
   // We've successfully read the footer. We are ready to serve requests.
   // Better not mutate rep_ after the creation. eg. internal_prefix_transform
   // raw pointer will be used to create HashIndexReader, whose reset may
