@@ -27,7 +27,7 @@
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/table_properties.h"
-#include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/debug.h"
 #include "rocksdb/utilities/options_util.h"
@@ -3225,8 +3225,8 @@ void BackupCommand::DoCommand() {
   }
   assert(custom_env != nullptr);
 
-  BackupableDBOptions backup_options =
-      BackupableDBOptions(backup_dir_, custom_env);
+  BackupEngineOptions backup_options =
+      BackupEngineOptions(backup_dir_, custom_env);
   backup_options.info_log = logger_.get();
   backup_options.max_background_operations = num_threads_;
   status = BackupEngine::Open(options_.env, backup_options, &backup_engine);
@@ -3273,7 +3273,7 @@ void RestoreCommand::DoCommand() {
   std::unique_ptr<BackupEngineReadOnly> restore_engine;
   Status status;
   {
-    BackupableDBOptions opts(backup_dir_, custom_env);
+    BackupEngineOptions opts(backup_dir_, custom_env);
     opts.info_log = logger_.get();
     opts.max_background_operations = num_threads_;
     BackupEngineReadOnly* raw_restore_engine_ptr;

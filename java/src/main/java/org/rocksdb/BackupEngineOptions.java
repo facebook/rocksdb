@@ -8,7 +8,7 @@ package org.rocksdb;
 import java.io.File;
 
 /**
- * <p>BackupableDBOptions to control the behavior of a backupable database.
+ * <p>BackupEngineOptions to control the behavior of a backupable database.
  * It will be used during the creation of a {@link org.rocksdb.BackupEngine}.
  * </p>
  * <p>Note that dispose() must be called before an Options instance
@@ -16,22 +16,21 @@ import java.io.File;
  *
  * @see org.rocksdb.BackupEngine
  */
-public class BackupableDBOptions extends RocksObject {
-
+public class BackupEngineOptions extends RocksObject {
   private Env backupEnv = null;
   private Logger infoLog = null;
   private RateLimiter backupRateLimiter = null;
   private RateLimiter restoreRateLimiter = null;
 
   /**
-   * <p>BackupableDBOptions constructor.</p>
+   * <p>BackupEngineOptions constructor.</p>
    *
    * @param path Where to keep the backup files. Has to be different than db
    *   name. Best to set this to {@code db name_ + "/backups"}
    * @throws java.lang.IllegalArgumentException if illegal path is used.
    */
-  public BackupableDBOptions(final String path) {
-    super(newBackupableDBOptions(ensureWritableFile(path)));
+  public BackupEngineOptions(final String path) {
+    super(newBackupEngineOptions(ensureWritableFile(path)));
   }
 
   private static String ensureWritableFile(final String path) {
@@ -45,9 +44,9 @@ public class BackupableDBOptions extends RocksObject {
   }
 
   /**
-   * <p>Returns the path to the BackupableDB directory.</p>
+   * <p>Returns the path to the BackupEngine directory.</p>
    *
-   * @return the path to the BackupableDB directory.
+   * @return the path to the BackupEngine directory.
    */
   public String backupDir() {
     assert(isOwningHandle());
@@ -62,9 +61,9 @@ public class BackupableDBOptions extends RocksObject {
    * Default: null
    *
    * @param env The environment to use
-   * @return instance of current BackupableDBOptions.
+   * @return instance of current BackupEngineOptions.
    */
-  public BackupableDBOptions setBackupEnv(final Env env) {
+  public BackupEngineOptions setBackupEnv(final Env env) {
     assert(isOwningHandle());
     setBackupEnv(nativeHandle_, env.nativeHandle_);
     this.backupEnv = env;
@@ -95,9 +94,9 @@ public class BackupableDBOptions extends RocksObject {
    *
    * <p>Default: true</p>
    *
-   * @return instance of current BackupableDBOptions.
+   * @return instance of current BackupEngineOptions.
    */
-  public BackupableDBOptions setShareTableFiles(final boolean shareTableFiles) {
+  public BackupEngineOptions setShareTableFiles(final boolean shareTableFiles) {
     assert(isOwningHandle());
     setShareTableFiles(nativeHandle_, shareTableFiles);
     return this;
@@ -118,9 +117,9 @@ public class BackupableDBOptions extends RocksObject {
    * Set the logger to use for Backup info and error messages
    *
    * @param logger The logger to use for the backup
-   * @return instance of current BackupableDBOptions.
+   * @return instance of current BackupEngineOptions.
    */
-  public BackupableDBOptions setInfoLog(final Logger logger) {
+  public BackupEngineOptions setInfoLog(final Logger logger) {
     assert(isOwningHandle());
     setInfoLog(nativeHandle_, logger.nativeHandle_);
     this.infoLog = logger;
@@ -148,9 +147,9 @@ public class BackupableDBOptions extends RocksObject {
    *
    * <p>Default: true</p>
    *
-   * @return instance of current BackupableDBOptions.
+   * @return instance of current BackupEngineOptions.
    */
-  public BackupableDBOptions setSync(final boolean sync) {
+  public BackupEngineOptions setSync(final boolean sync) {
     assert(isOwningHandle());
     setSync(nativeHandle_, sync);
     return this;
@@ -174,9 +173,9 @@ public class BackupableDBOptions extends RocksObject {
    *
    * <p>Default: false</p>
    *
-   * @return instance of current BackupableDBOptions.
+   * @return instance of current BackupEngineOptions.
    */
-  public BackupableDBOptions setDestroyOldData(final boolean destroyOldData) {
+  public BackupEngineOptions setDestroyOldData(final boolean destroyOldData) {
     assert(isOwningHandle());
     setDestroyOldData(nativeHandle_, destroyOldData);
     return this;
@@ -201,9 +200,9 @@ public class BackupableDBOptions extends RocksObject {
    *
    * <p>Default: true</p>
    *
-   * @return instance of current BackupableDBOptions.
+   * @return instance of current BackupEngineOptions.
    */
-  public BackupableDBOptions setBackupLogFiles(final boolean backupLogFiles) {
+  public BackupEngineOptions setBackupLogFiles(final boolean backupLogFiles) {
     assert(isOwningHandle());
     setBackupLogFiles(nativeHandle_, backupLogFiles);
     return this;
@@ -227,9 +226,9 @@ public class BackupableDBOptions extends RocksObject {
    *
    * <p>Default: 0</p>
    *
-   * @return instance of current BackupableDBOptions.
+   * @return instance of current BackupEngineOptions.
    */
-  public BackupableDBOptions setBackupRateLimit(long backupRateLimit) {
+  public BackupEngineOptions setBackupRateLimit(long backupRateLimit) {
     assert(isOwningHandle());
     backupRateLimit = (backupRateLimit <= 0) ? 0 : backupRateLimit;
     setBackupRateLimit(nativeHandle_, backupRateLimit);
@@ -255,9 +254,9 @@ public class BackupableDBOptions extends RocksObject {
    * Default: null
    *
    * @param backupRateLimiter The rate limiter to use for the backup
-   * @return instance of current BackupableDBOptions.
+   * @return instance of current BackupEngineOptions.
    */
-  public BackupableDBOptions setBackupRateLimiter(final RateLimiter backupRateLimiter) {
+  public BackupEngineOptions setBackupRateLimiter(final RateLimiter backupRateLimiter) {
     assert(isOwningHandle());
     setBackupRateLimiter(nativeHandle_, backupRateLimiter.nativeHandle_);
     this.backupRateLimiter = backupRateLimiter;
@@ -285,9 +284,9 @@ public class BackupableDBOptions extends RocksObject {
    *
    * <p>Default: 0</p>
    *
-   * @return instance of current BackupableDBOptions.
+   * @return instance of current BackupEngineOptions.
    */
-  public BackupableDBOptions setRestoreRateLimit(long restoreRateLimit) {
+  public BackupEngineOptions setRestoreRateLimit(long restoreRateLimit) {
     assert(isOwningHandle());
     restoreRateLimit = (restoreRateLimit <= 0) ? 0 : restoreRateLimit;
     setRestoreRateLimit(nativeHandle_, restoreRateLimit);
@@ -313,9 +312,9 @@ public class BackupableDBOptions extends RocksObject {
    * Default: null
    *
    * @param restoreRateLimiter The rate limiter to use during restore
-   * @return instance of current BackupableDBOptions.
+   * @return instance of current BackupEngineOptions.
    */
-  public BackupableDBOptions setRestoreRateLimiter(final RateLimiter restoreRateLimiter) {
+  public BackupEngineOptions setRestoreRateLimiter(final RateLimiter restoreRateLimiter) {
     assert(isOwningHandle());
     setRestoreRateLimiter(nativeHandle_, restoreRateLimiter.nativeHandle_);
     this.restoreRateLimiter = restoreRateLimiter;
@@ -349,10 +348,9 @@ public class BackupableDBOptions extends RocksObject {
    *
    * <p>Default: false</p>
    *
-   * @return instance of current BackupableDBOptions.
+   * @return instance of current BackupEngineOptions.
    */
-  public BackupableDBOptions setShareFilesWithChecksum(
-      final boolean shareFilesWithChecksum) {
+  public BackupEngineOptions setShareFilesWithChecksum(final boolean shareFilesWithChecksum) {
     assert(isOwningHandle());
     setShareFilesWithChecksum(nativeHandle_, shareFilesWithChecksum);
     return this;
@@ -377,10 +375,9 @@ public class BackupableDBOptions extends RocksObject {
    * Default: 1
    *
    * @param maxBackgroundOperations The maximum number of background threads
-   * @return instance of current BackupableDBOptions.
+   * @return instance of current BackupEngineOptions.
    */
-  public BackupableDBOptions setMaxBackgroundOperations(
-      final int maxBackgroundOperations) {
+  public BackupEngineOptions setMaxBackgroundOperations(final int maxBackgroundOperations) {
     assert(isOwningHandle());
     setMaxBackgroundOperations(nativeHandle_, maxBackgroundOperations);
     return this;
@@ -408,9 +405,9 @@ public class BackupableDBOptions extends RocksObject {
    *
    * @param callbackTriggerIntervalSize The interval size for the
    *     callback trigger
-   * @return instance of current BackupableDBOptions.
+   * @return instance of current BackupEngineOptions.
    */
-  public BackupableDBOptions setCallbackTriggerIntervalSize(
+  public BackupEngineOptions setCallbackTriggerIntervalSize(
       final long callbackTriggerIntervalSize) {
     assert(isOwningHandle());
     setCallbackTriggerIntervalSize(nativeHandle_, callbackTriggerIntervalSize);
@@ -430,7 +427,7 @@ public class BackupableDBOptions extends RocksObject {
     return callbackTriggerIntervalSize(nativeHandle_);
   }
 
-  private native static long newBackupableDBOptions(final String path);
+  private native static long newBackupEngineOptions(final String path);
   private native String backupDir(long handle);
   private native void setBackupEnv(final long handle, final long envHandle);
   private native void setShareTableFiles(long handle, boolean flag);

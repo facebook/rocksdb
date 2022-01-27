@@ -6,6 +6,8 @@
 ### Public API changes
 * Remove HDFS support from main repo.
 * Remove librados support from main repo.
+* Remove obsolete backupable_db.h and type alias `BackupableDBOptions`. Use backup_engine.h and `BackupEngineOptions`. Similar renamings are in the C and Java APIs.
+* Removed obsolete utility_db.h and `UtilityDB::OpenTtlDB`. Use db_ttl.h and `DBWithTTL::Open`.
 * Remove deprecated API DB::AddFile from main repo.
 * Remove deprecated API ObjectLibrary::Register() and the (now obsolete) Regex public API. Use ObjectLibrary::AddFactory() with PatternEntry instead.
 * Remove deprecated option DBOption::table_cache_remove_scan_count_limit.

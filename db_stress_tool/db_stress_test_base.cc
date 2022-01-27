@@ -1404,7 +1404,7 @@ Status StressTest::TestBackupRestore(
     const std::vector<int64_t>& rand_keys) {
   std::string backup_dir = FLAGS_db + "/.backup" + ToString(thread->tid);
   std::string restore_dir = FLAGS_db + "/.restore" + ToString(thread->tid);
-  BackupableDBOptions backup_opts(backup_dir);
+  BackupEngineOptions backup_opts(backup_dir);
   // For debugging, get info_log from live options
   backup_opts.info_log = db_->GetDBOptions().info_log.get();
   if (thread->rand.OneIn(10)) {
@@ -1418,16 +1418,16 @@ Status StressTest::TestBackupRestore(
       if (thread->rand.OneIn(2)) {
         // old
         backup_opts.share_files_with_checksum_naming =
-            BackupableDBOptions::kLegacyCrc32cAndFileSize;
+            BackupEngineOptions::kLegacyCrc32cAndFileSize;
       } else {
         // new
         backup_opts.share_files_with_checksum_naming =
-            BackupableDBOptions::kUseDbSessionId;
+            BackupEngineOptions::kUseDbSessionId;
       }
       if (thread->rand.OneIn(2)) {
         backup_opts.share_files_with_checksum_naming =
             backup_opts.share_files_with_checksum_naming |
-            BackupableDBOptions::kFlagIncludeFileSize;
+            BackupEngineOptions::kFlagIncludeFileSize;
       }
     }
   }

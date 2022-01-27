@@ -32,8 +32,8 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    * @return A new BackupEngine instance
    * @throws RocksDBException thrown if the backup engine could not be opened
    */
-  public static BackupEngine open(final Env env,
-      final BackupableDBOptions options) throws RocksDBException {
+  public static BackupEngine open(final Env env, final BackupEngineOptions options)
+      throws RocksDBException {
     return new BackupEngine(open(env.nativeHandle_, options.nativeHandle_));
   }
 
