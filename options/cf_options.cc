@@ -332,6 +332,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, memtable_whole_key_filtering),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"memtable_self_tuning_bloom",
+         {offsetof(struct MutableCFOptions, memtable_self_tuning_bloom),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"min_partial_merge_operands",
          {0, OptionType::kUInt32T, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
@@ -954,6 +958,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  memtable_prefix_bloom_size_ratio);
   ROCKS_LOG_INFO(log, "              memtable_whole_key_filtering: %d",
                  memtable_whole_key_filtering);
+  ROCKS_LOG_INFO(log, "              memtable_self_tuning_bloom: %d",
+                 memtable_self_tuning_bloom);
   ROCKS_LOG_INFO(log,
                  "                  memtable_huge_page_size: %" ROCKSDB_PRIszt,
                  memtable_huge_page_size);

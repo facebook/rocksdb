@@ -67,4 +67,45 @@ DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
   data_ = reinterpret_cast<std::atomic<uint64_t>*>(raw);
 }
 
+uint64_t DynamicBloom::UniqueEntryEstimate() const {
+  int one_bits = 0;
+  uint64_t data_bit_len = kLen * sizeof(uint64_t);
+
+  assert(kLen > 0);
+  // Sample size is given by:
+  // sample_size = n0/(1+(n0/N))
+  // where n0 = (1.96**2)*0.5*(1-0.5)/(0.05**2) ~= 385
+  //             for 95% confidence, 5% error margin
+  //       N = population size (in our situation, total
+  //           number of bits in the Bloom filter).
+  uint32_t sample_bit_size =
+      static_cast<uint32_t>(ceil(385.0 / (1.0 + (385.0 / (data_bit_len)))));
+  uint32_t sample_byte_size =
+      (sample_bit_size + sizeof(uint64_t) - 1) / sizeof(uint64_t);
+  // Update sample bit size for later.
+  sample_bit_size = sample_byte_size * sizeof(uint64_t);
+  assert(sample_byte_size <= kLen);
+
+  for (uint32_t i = 0; i < sample_byte_size; i++) {
+    one_bits += BitsSetToOne<uint64_t>(data_[i]);
+  }
+
+  // Handle specific case where all bits sampled are set to 1.
+  if (static_cast<uint32_t>(one_bits) == sample_bit_size) {
+    return port::kMaxUint64;
+  }
+
+  // Else, from Samidass & Baldi (2007): # of items in a Bloom Filter
+  // can be approximated with:
+  // n_approx = -(m/k)ln [ 1- (X/m)], where:
+  // m: length (size) of the filter (bits)
+  // k: number of has functions (probes)
+  // X: number of bits set to one
+  // In our case:
+  // (X/m) = one_bits_in_sample/sample_bit_size
+  return static_cast<uint64_t>(
+      std::ceil(-((1.0 * data_bit_len) / (2 * kNumDoubleProbes)) *
+                std::log(1.0 - (one_bits * 1.0 / sample_bit_size))));
+}
+
 }  // namespace ROCKSDB_NAMESPACE

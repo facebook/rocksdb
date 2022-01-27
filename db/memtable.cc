@@ -122,6 +122,11 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
         new DynamicBloom(&arena_, moptions_.memtable_prefix_bloom_bits,
                          6 /* hard coded 6 probes */,
                          moptions_.memtable_huge_page_size, ioptions.logger));
+    uint32_t memtable_bloom_bits = moptions_.memtable_prefix_bloom_bits;
+    // Used to avoid "unused memtable_bloom_bits variable" errors
+    // on platforms where TEST_SYNC_POINT_CALLBACKs are not defined.
+    (void)memtable_bloom_bits;
+    TEST_SYNC_POINT_CALLBACK("Memtable::BloomFilterBits", &memtable_bloom_bits);
   }
 }
 

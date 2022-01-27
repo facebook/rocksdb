@@ -1819,14 +1819,14 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   uint64_t new_log_number =
       creating_new_log ? versions_->NewFileNumber() : logfile_number_;
   const MutableCFOptions mutable_cf_options = *cfd->GetLatestMutableCFOptions();
-
+  const uint64_t memtable_num_entries = cfd->mem()->num_entries();
   // Set memtable_info for memtable sealed callback
 #ifndef ROCKSDB_LITE
   MemTableInfo memtable_info;
   memtable_info.cf_name = cfd->GetName();
   memtable_info.first_seqno = cfd->mem()->GetFirstSequenceNumber();
   memtable_info.earliest_seqno = cfd->mem()->GetEarliestSequenceNumber();
-  memtable_info.num_entries = cfd->mem()->num_entries();
+  memtable_info.num_entries = memtable_num_entries;
   memtable_info.num_deletes = cfd->mem()->num_deletes();
 #endif  // ROCKSDB_LITE
   // Log this later after lock release. It may be outdated, e.g., if background
@@ -1846,7 +1846,62 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
   if (s.ok()) {
     SequenceNumber seq = versions_->LastSequence();
-    new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
+
+    if (mutable_cf_options.memtable_self_tuning_bloom) {
+      const uint64_t bf_entries_estimate = cfd->mem()->BFUniqueEntryEstimate();
+
+      // If estimate greater than num entries, update with # of entries.
+      // This can be useful if, let's say, all the bits are set to 1
+      // in the Bloom filter of the current mutable memtable.
+      // Could potentially be replaced by "num_entries - num_deletes"
+      // since deletes not included in memtable Bloom filter.
+      uint64_t pastentries = bf_entries_estimate < memtable_num_entries
+                                 ? bf_entries_estimate
+                                 : memtable_num_entries;
+
+      // This situation can happen if there was no BF in the current
+      // mutable memtable. In this situation, we use memtable_num_entries
+      // as an approximation for the number of unique keys inserted in the
+      // old mutable memtable.
+      if ((pastentries == 0) && (memtable_num_entries != 0)) {
+        pastentries = memtable_num_entries;
+      }
+      // For a 1% FP rate target, 10 bits per key and 6 probes
+      // is usually a good combination, see:
+      // https://github.com/facebook/rocksdb/wiki/RocksDB-Bloom-Filter#the-math
+      // Note mutable_cf_options.write_buffer_size is in bytes.
+      double new_bloom_size_ratio =
+          (10.0 * pastentries /* total # of bits */) /
+          (8.0 * mutable_cf_options.write_buffer_size);
+      // The approximation of unique entries in the memtable being
+      // made immutable can lead to errors. In the most extreme
+      // situation, there are 13 bytes per entry in the memtable (1 byte len,
+      // 8 bytes seqno + insert type, 2 bytes for the key,
+      // 1 byte for value, 1 byte value len), with bpk of 10 we need 1.25
+      // bytes => ratio ~ 10% memtable size.
+      if (new_bloom_size_ratio > 0.1) {
+        new_bloom_size_ratio = 0.1;
+      }
+
+      // Updating the CFD options requires the mutex.
+      mutex_.Lock();
+      bool bloom_ratio_updated =
+          cfd->UpdateBloomRatioInMutableCFOptions(new_bloom_size_ratio);
+      mutex_.Unlock();
+      if (bloom_ratio_updated) {
+        uint32_t newsize =
+            static_cast<uint32_t>(
+                static_cast<double>(mutable_cf_options.write_buffer_size) *
+                new_bloom_size_ratio) *
+            8u;
+        // Used for situations where TEST_SYNC_POINT_CALLBACK undefined,
+        // so that there is no error about newsize being unused.
+        (void)newsize;
+        TEST_SYNC_POINT_CALLBACK("DBImpl::SelfTuningBloom:NewBFBits", &newsize);
+      }
+    }
+
+    new_mem = cfd->ConstructNewMemtable(seq);
     context->superversion_context.NewSuperVersion();
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log,

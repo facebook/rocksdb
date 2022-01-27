@@ -6,14 +6,15 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <cmath>
+#include <memory>
 #include <string>
+
 #include "port/port.h"
 #include "rocksdb/slice.h"
 #include "table/multiget_context.h"
 #include "util/hash.h"
-
-#include <atomic>
-#include <memory>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -71,6 +72,8 @@ class DynamicBloom {
   bool MayContainHash(uint32_t hash) const;
 
   void Prefetch(uint32_t h);
+
+  uint64_t UniqueEntryEstimate() const;
 
  private:
   // Length of the structure, in 64-bit words. For this structure, "word"

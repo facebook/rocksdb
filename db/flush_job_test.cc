@@ -181,8 +181,7 @@ TEST_F(FlushJobTest, Empty) {
 TEST_F(FlushJobTest, NonEmpty) {
   JobContext job_context(0);
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
-  auto new_mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions(),
-                                           kMaxSequenceNumber);
+  auto new_mem = cfd->ConstructNewMemtable(kMaxSequenceNumber);
   new_mem->Ref();
   auto inserted_keys = mock::MakeMockFile();
   // Test data:
@@ -282,8 +281,7 @@ TEST_F(FlushJobTest, FlushMemTablesSingleColumnFamily) {
   std::vector<uint64_t> memtable_ids;
   std::vector<MemTable*> new_mems;
   for (size_t i = 0; i != num_mems; ++i) {
-    MemTable* mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions(),
-                                              kMaxSequenceNumber);
+    MemTable* mem = cfd->ConstructNewMemtable(kMaxSequenceNumber);
     mem->SetID(i);
     mem->Ref();
     new_mems.emplace_back(mem);
@@ -357,8 +355,7 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
   for (auto cfd : all_cfds) {
     smallest_seqs.push_back(curr_seqno);
     for (size_t i = 0; i != num_memtables[k]; ++i) {
-      MemTable* mem = cfd->ConstructNewMemtable(
-          *cfd->GetLatestMutableCFOptions(), kMaxSequenceNumber);
+      MemTable* mem = cfd->ConstructNewMemtable(kMaxSequenceNumber);
       mem->SetID(i);
       mem->Ref();
 
@@ -460,8 +457,7 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
 TEST_F(FlushJobTest, Snapshots) {
   JobContext job_context(0);
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
-  auto new_mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions(),
-                                           kMaxSequenceNumber);
+  auto new_mem = cfd->ConstructNewMemtable(kMaxSequenceNumber);
 
   std::set<SequenceNumber> snapshots_set;
   int keys = 10000;
@@ -553,8 +549,7 @@ TEST_F(FlushJobTimestampTest, AllKeysExpired) {
   autovector<MemTable*> to_delete;
 
   {
-    MemTable* new_mem = cfd->ConstructNewMemtable(
-        *cfd->GetLatestMutableCFOptions(), kMaxSequenceNumber);
+    MemTable* new_mem = cfd->ConstructNewMemtable(kMaxSequenceNumber);
     new_mem->Ref();
     for (int i = 0; i < 100; ++i) {
       uint64_t ts = curr_ts_.fetch_add(1);
@@ -608,8 +603,7 @@ TEST_F(FlushJobTimestampTest, NoKeyExpired) {
   autovector<MemTable*> to_delete;
 
   {
-    MemTable* new_mem = cfd->ConstructNewMemtable(
-        *cfd->GetLatestMutableCFOptions(), kMaxSequenceNumber);
+    MemTable* new_mem = cfd->ConstructNewMemtable(kMaxSequenceNumber);
     new_mem->Ref();
     for (int i = 0; i < 100; ++i) {
       uint64_t ts = curr_ts_.fetch_add(1);

@@ -107,6 +107,34 @@ TEST_F(DynamicBloomTest, SmallConcurrentAdd) {
   ASSERT_TRUE(!bloom2.MayContain("foo"));
 }
 
+TEST_F(DynamicBloomTest, EstimateCount) {
+  Arena arena;
+  // 1024 bits = 128 bytes = 16 * sizeof(uint64_t)
+  // 6 probes.
+  DynamicBloom bloom1(&arena, 1024, 6);
+  Random rnd(17584);
+  const size_t RAND_KEY_LENGTH = 8;
+  for (size_t i = 0; i < 100; i++) {
+    std::string k = rnd.RandomString(RAND_KEY_LENGTH);
+    bloom1.Add(k);
+  }
+  // uint64_t exp_entries = bloom1.UniqueEntryEstimate();
+  // ASSERT_GT(exp_entries, 0);
+  // ASSERT_EQ(exp_entries, 17);
+  // for (size_t i = 0; i < 20; i++) {
+  //   std::string k = rnd.RandomString(RAND_KEY_LENGTH);
+  //   bloom1.Add(k);
+  // }
+  // exp_entries = bloom1.UniqueEntryEstimate();
+  // ASSERT_EQ(exp_entries, 30);
+  // for (size_t i = 0; i < 100; i++) {
+  //   std::string k = rnd.RandomString(RAND_KEY_LENGTH);
+  //   bloom1.Add(k);
+  // }
+  // exp_entries = bloom1.UniqueEntryEstimate();
+  // ASSERT_EQ(exp_entries, 1110);
+}
+
 static uint32_t NextNum(uint32_t num) {
   if (num < 10) {
     num += 1;

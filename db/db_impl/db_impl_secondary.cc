@@ -256,10 +256,7 @@ Status DBImplSecondary::RecoverLogFiles(
           // immutable memtable list and create a new active memtable.
           if (!cfd->mem()->IsEmpty() && (curr_log_num == port::kMaxUint64 ||
                                          curr_log_num != log_number)) {
-            const MutableCFOptions mutable_cf_options =
-                *cfd->GetLatestMutableCFOptions();
-            MemTable* new_mem =
-                cfd->ConstructNewMemtable(mutable_cf_options, seq_of_batch);
+            MemTable* new_mem = cfd->ConstructNewMemtable(seq_of_batch);
             cfd->mem()->SetNextLogNumber(log_number);
             cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
             new_mem->Ref();
