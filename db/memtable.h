@@ -600,6 +600,10 @@ class MemTable {
                     std::string* value, std::string* timestamp, Status* s,
                     MergeContext* merge_context, SequenceNumber* seq,
                     bool* found_final_value, bool* merge_in_progress);
+
+  // Always returns non-null and assumes certain pre-checks are done
+  FragmentedRangeTombstoneIterator* NewRangeTombstoneIteratorInternal(
+      const ReadOptions& read_options, SequenceNumber read_seq);
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);

@@ -1502,6 +1502,63 @@ TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilter) {
   ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
 }
 
+TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilterMultiGet) {
+  Options options = CurrentOptions();
+  options.memtable_prefix_bloom_size_ratio = 0.015;
+  options.memtable_whole_key_filtering = true;
+  Reopen(options);
+  std::string key1("AA");
+  std::string key2("BB");
+  std::string key3("CC");
+  std::string key4("DD");
+  std::string key_not("EE");
+  std::string value1("Value1");
+  std::string value2("Value2");
+  std::string value3("Value3");
+  std::string value4("Value4");
+
+  ASSERT_OK(Put(key1, value1, WriteOptions()));
+  ASSERT_OK(Put(key2, value2, WriteOptions()));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(key3, value3, WriteOptions()));
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(Put(key4, value4, WriteOptions()));
+
+  // Delete key2 and key3
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "BA", "CZ"));
+
+  // Read without snapshot
+  auto results = MultiGet({key_not, key1, key2, key3, key4});
+  ASSERT_EQ(results[0], "NOT_FOUND");
+  ASSERT_EQ(results[1], value1);
+  ASSERT_EQ(results[2], "NOT_FOUND");
+  ASSERT_EQ(results[3], "NOT_FOUND");
+  ASSERT_EQ(results[4], value4);
+
+  // Also check Get
+  ASSERT_EQ(Get(key1), value1);
+  ASSERT_EQ(Get(key2), "NOT_FOUND");
+  ASSERT_EQ(Get(key3), "NOT_FOUND");
+  ASSERT_EQ(Get(key4), value4);
+
+  // Read with snapshot
+  results = MultiGet({key_not, key1, key2, key3, key4}, snapshot);
+  ASSERT_EQ(results[0], "NOT_FOUND");
+  ASSERT_EQ(results[1], value1);
+  ASSERT_EQ(results[2], value2);
+  ASSERT_EQ(results[3], value3);
+  ASSERT_EQ(results[4], "NOT_FOUND");
+
+  // Also check Get
+  ASSERT_EQ(Get(key1, snapshot), value1);
+  ASSERT_EQ(Get(key2, snapshot), value2);
+  ASSERT_EQ(Get(key3, snapshot), value3);
+  ASSERT_EQ(Get(key4, snapshot), "NOT_FOUND");
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
 TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
   constexpr size_t kPrefixSize = 8;
   const std::string kKey = "key";
