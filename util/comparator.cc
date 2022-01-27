@@ -231,12 +231,12 @@ const Comparator* ReverseBytewiseComparator() {
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinComparators(ObjectLibrary& library,
                                       const std::string& /*arg*/) {
-  library.Register<const Comparator>(
+  library.AddFactory<const Comparator>(
       BytewiseComparatorImpl::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<const Comparator>* /*guard */,
          std::string* /* errmsg */) { return BytewiseComparator(); });
-  library.Register<const Comparator>(
+  library.AddFactory<const Comparator>(
       ReverseBytewiseComparatorImpl::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<const Comparator>* /*guard */,

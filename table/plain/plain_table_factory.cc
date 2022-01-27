@@ -67,7 +67,7 @@ Status PlainTableFactory::NewTableReader(
       table, table_options_.bloom_bits_per_key, table_options_.hash_table_ratio,
       table_options_.index_sparseness, table_options_.huge_page_tlb_size,
       table_options_.full_scan_mode, table_reader_options.immortal,
-      table_reader_options.prefix_extractor);
+      table_reader_options.prefix_extractor.get());
 }
 
 TableBuilder* PlainTableFactory::NewTableBuilder(
@@ -167,7 +167,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
     pattern.AddNumber(":");
     return pattern;
   };
-  library.Register<MemTableRepFactory>(
+  library.AddFactory<MemTableRepFactory>(
       AsPattern(VectorRepFactory::kClassName(), VectorRepFactory::kNickName()),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
@@ -180,7 +180,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
         }
         return guard->get();
       });
-  library.Register<MemTableRepFactory>(
+  library.AddFactory<MemTableRepFactory>(
       AsPattern(SkipListFactory::kClassName(), SkipListFactory::kNickName()),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
@@ -193,7 +193,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
         }
         return guard->get();
       });
-  library.Register<MemTableRepFactory>(
+  library.AddFactory<MemTableRepFactory>(
       AsPattern("HashLinkListRepFactory", "hash_linkedlist"),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
@@ -207,7 +207,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
         }
         return guard->get();
       });
-  library.Register<MemTableRepFactory>(
+  library.AddFactory<MemTableRepFactory>(
       AsPattern("HashSkipListRepFactory", "prefix_hash"),
       [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /*errmsg*/) {
@@ -221,7 +221,7 @@ static int RegisterBuiltinMemTableRepFactory(ObjectLibrary& library,
         }
         return guard->get();
       });
-  library.Register<MemTableRepFactory>(
+  library.AddFactory<MemTableRepFactory>(
       "cuckoo",
       [](const std::string& /*uri*/,
          std::unique_ptr<MemTableRepFactory>* /*guard*/, std::string* errmsg) {

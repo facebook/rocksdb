@@ -1049,6 +1049,8 @@ TEST_F(DBBasicTest, MmapAndBufferOptions) {
 class TestEnv : public EnvWrapper {
  public:
   explicit TestEnv(Env* base_env) : EnvWrapper(base_env), close_count(0) {}
+  static const char* kClassName() { return "TestEnv"; }
+  const char* Name() const override { return kClassName(); }
 
   class TestLogger : public Logger {
    public:
@@ -1888,7 +1890,6 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
 
   ASSERT_EQ(values.size(), keys.size());
 
-  uint64_t curr_value_size = 0;
   for (unsigned int j = 0; j < 26; ++j) {
     int key = j + 10;
     std::string value;
@@ -1905,11 +1906,9 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
       value.append(",");
       value.append("val_mem_" + std::to_string(key));
     }
-    curr_value_size += value.size();
     ASSERT_EQ(values[j], value);
     ASSERT_OK(statuses[j]);
   }
-  // ASSERT_TRUE(curr_value_size <= read_options.value_size_hard_limit);
 
   // All remaning keys status is set Status::Abort
   for (unsigned int j = 26; j < 40; j++) {
@@ -3062,6 +3061,8 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
 
    public:
     FakeDirectIOEnv(Env* env) : EnvWrapper(env) {}
+    static const char* kClassName() { return "FakeDirectIOEnv"; }
+    const char* Name() const override { return kClassName(); }
 
     Status NewRandomAccessFile(const std::string& fname,
                                std::unique_ptr<RandomAccessFile>* result,
@@ -3652,6 +3653,35 @@ TEST_F(DBBasicTest, CheckedCast) {
   ASSERT_EQ(db_, wrapped->CheckedCast<DBImplReadOnly>());
   db_ = nullptr;
 #endif  // ROCKSDB_LITE
+}
+
+TEST_F(DBBasicTest, DestroyDefaultCfHandle) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  for (const auto* h : handles_) {
+    ASSERT_NE(db_->DefaultColumnFamily(), h);
+  }
+
+  // We have two handles to the default column family. The two handles point to
+  // different ColumnFamilyHandle objects.
+  assert(db_->DefaultColumnFamily());
+  ASSERT_EQ(0U, db_->DefaultColumnFamily()->GetID());
+  assert(handles_[0]);
+  ASSERT_EQ(0U, handles_[0]->GetID());
+
+  // You can destroy handles_[...].
+  for (auto* h : handles_) {
+    ASSERT_OK(db_->DestroyColumnFamilyHandle(h));
+  }
+  handles_.clear();
+
+  // But you should not destroy db_->DefaultColumnFamily(), since it's going to
+  // be deleted in `DBImpl::CloseHelper()`. Before that, it may be used
+  // elsewhere internally too.
+  ColumnFamilyHandle* default_cf = db_->DefaultColumnFamily();
+  ASSERT_TRUE(db_->DestroyColumnFamilyHandle(default_cf).IsInvalidArgument());
 }
 
 #ifndef ROCKSDB_LITE

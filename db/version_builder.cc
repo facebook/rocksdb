@@ -1143,11 +1143,11 @@ class VersionBuilder::Rep {
     return s;
   }
 
-  Status LoadTableHandlers(InternalStats* internal_stats, int max_threads,
-                           bool prefetch_index_and_filter_in_cache,
-                           bool is_initial_load,
-                           const SliceTransform* prefix_extractor,
-                           size_t max_file_size_for_l0_meta_pin) {
+  Status LoadTableHandlers(
+      InternalStats* internal_stats, int max_threads,
+      bool prefetch_index_and_filter_in_cache, bool is_initial_load,
+      const std::shared_ptr<const SliceTransform>& prefix_extractor,
+      size_t max_file_size_for_l0_meta_pin) {
     assert(table_cache_ != nullptr);
 
     size_t table_cache_capacity = table_cache_->get_cache()->GetCapacity();
@@ -1272,7 +1272,7 @@ Status VersionBuilder::SaveTo(VersionStorageInfo* vstorage) const {
 Status VersionBuilder::LoadTableHandlers(
     InternalStats* internal_stats, int max_threads,
     bool prefetch_index_and_filter_in_cache, bool is_initial_load,
-    const SliceTransform* prefix_extractor,
+    const std::shared_ptr<const SliceTransform>& prefix_extractor,
     size_t max_file_size_for_l0_meta_pin) {
   return rep_->LoadTableHandlers(
       internal_stats, max_threads, prefetch_index_and_filter_in_cache,

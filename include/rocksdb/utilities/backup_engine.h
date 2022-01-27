@@ -38,7 +38,6 @@ struct BackupEngineOptions {
   // Backup Env object. It will be used for backup file I/O. If it's
   // nullptr, backups will be written out using DBs Env. If it's
   // non-nullptr, backup's I/O will be performed using this object.
-  // If you want to have backups on HDFS, use HDFS Env here!
   // Default: nullptr
   Env* backup_env;
 

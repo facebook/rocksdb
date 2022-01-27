@@ -72,6 +72,8 @@ class CountMergeOperator : public AssociativeMergeOperator {
 class EnvMergeTest : public EnvWrapper {
  public:
   EnvMergeTest() : EnvWrapper(Env::Default()) {}
+  static const char* kClassName() { return "MergeEnv"; }
+  const char* Name() const override { return kClassName(); }
   //  ~EnvMergeTest() override {}
 
   uint64_t NowNanos() override {

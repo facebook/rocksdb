@@ -312,7 +312,7 @@ void StressTest::FinishInitDb(SharedState* shared) {
     }
   }
 
-  if (FLAGS_sync_fault_injection && IsStateTracked()) {
+  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
     Status s = shared->SaveAtAndAfter(db_);
     if (!s.ok()) {
       fprintf(stderr, "Error enabling history tracing: %s\n",
@@ -1449,7 +1449,20 @@ Status StressTest::TestBackupRestore(
       test_opts.file_sizes = thread->rand.OneIn(2) == 0;
       TEST_EnableWriteFutureSchemaVersion2(backup_engine, test_opts);
     }
-    s = backup_engine->CreateNewBackup(db_);
+    CreateBackupOptions create_opts;
+    if (FLAGS_disable_wal) {
+      // The verification can only work when latest value of `key` is backed up,
+      // which requires flushing in case of WAL disabled.
+      //
+      // Note this triggers a flush with a key lock held. Meanwhile, operations
+      // like flush/compaction may attempt to grab key locks like in
+      // `DbStressCompactionFilter`. The philosophy around preventing deadlock
+      // is the background operation key lock acquisition only tries but does
+      // not wait for the lock. So here in the foreground it is OK to hold the
+      // lock and wait on a background operation (flush).
+      create_opts.flush_before_backup = true;
+    }
+    s = backup_engine->CreateNewBackup(create_opts, db_);
     if (!s.ok()) {
       from = "BackupEngine::CreateNewBackup";
     }
@@ -1902,6 +1915,9 @@ void StressTest::TestCompactFiles(ThreadState* thread,
 
 Status StressTest::TestFlush(const std::vector<int>& rand_column_families) {
   FlushOptions flush_opts;
+  if (FLAGS_atomic_flush) {
+    return db_->Flush(flush_opts, column_families_);
+  }
   std::vector<ColumnFamilyHandle*> cfhs;
   std::for_each(rand_column_families.begin(), rand_column_families.end(),
                 [this, &cfhs](int k) { cfhs.push_back(column_families_[k]); });
@@ -2535,8 +2551,8 @@ void StressTest::Open() {
     }
     options_.listeners.clear();
 #ifndef ROCKSDB_LITE
-    options_.listeners.emplace_back(
-        new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors));
+    options_.listeners.emplace_back(new DbStressListener(
+        FLAGS_db, options_.db_paths, cf_descriptors, db_stress_listener_env));
 #endif  // !ROCKSDB_LITE
     options_.create_missing_column_families = true;
     if (!FLAGS_use_txn) {
@@ -2827,7 +2843,7 @@ void StressTest::Reopen(ThreadState* thread) {
           clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
   Open();
 
-  if (FLAGS_sync_fault_injection && IsStateTracked()) {
+  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
     Status s = thread->shared->SaveAtAndAfter(db_);
     if (!s.ok()) {
       fprintf(stderr, "Error enabling history tracing: %s\n",

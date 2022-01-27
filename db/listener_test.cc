@@ -514,6 +514,9 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
     db_->GetColumnFamilyMetaData(handles_[1], &cf_meta);
   }
   ASSERT_GE(listener->slowdown_count, kSlowdownTrigger * 9);
+  // We don't want the listener executing during DBTestBase::Close() due to
+  // race on handles_.
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
 }
 
 class TestCompactionReasonListener : public EventListener {
@@ -689,6 +692,8 @@ class TableFileCreationListener : public EventListener {
   class TestEnv : public EnvWrapper {
    public:
     explicit TestEnv(Env* t) : EnvWrapper(t) {}
+    static const char* kClassName() { return "TestEnv"; }
+    const char* Name() const override { return kClassName(); }
 
     void SetStatus(Status s) { status_ = s; }
 

@@ -950,7 +950,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_merge_operator(
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_uint64add_merge_operator(
     rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compression_per_level(
-    rocksdb_options_t* opt, int* level_values, size_t num_levels);
+    rocksdb_options_t* opt, const int* level_values, size_t num_levels);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_create_if_missing(
     rocksdb_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_create_if_missing(
@@ -1250,9 +1250,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_manifest_preallocation_size(
     rocksdb_options_t*, size_t);
 extern ROCKSDB_LIBRARY_API size_t
 rocksdb_options_get_manifest_preallocation_size(rocksdb_options_t*);
-extern ROCKSDB_LIBRARY_API void
-rocksdb_options_set_purge_redundant_kvs_while_flush(rocksdb_options_t*,
-                                                    unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_allow_mmap_reads(
     rocksdb_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_allow_mmap_reads(
@@ -1447,6 +1444,10 @@ rocksdb_options_add_compact_on_deletion_collector_factory(
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_manual_wal_flush(
     rocksdb_options_t* opt, unsigned char);
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_manual_wal_flush(
+    rocksdb_options_t* opt);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_wal_compression(
+    rocksdb_options_t* opt, int);
+extern ROCKSDB_LIBRARY_API int rocksdb_options_get_wal_compression(
     rocksdb_options_t* opt);
 
 /* RateLimiter */
