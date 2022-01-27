@@ -83,7 +83,7 @@ class SstPartitioner {
 // including data loss, unreported corruption, deadlocks, and more.
 class SstPartitionerFactory : public Customizable {
  public:
-  virtual ~SstPartitionerFactory() {}
+  ~SstPartitionerFactory() override {}
   static const char* Type() { return "SstPartitionerFactory"; }
   static Status CreateFromString(
       const ConfigOptions& options, const std::string& value,
@@ -124,7 +124,7 @@ class SstPartitionerFixedPrefixFactory : public SstPartitionerFactory {
  public:
   explicit SstPartitionerFixedPrefixFactory(size_t len);
 
-  virtual ~SstPartitionerFixedPrefixFactory() {}
+  ~SstPartitionerFixedPrefixFactory() override {}
 
   static const char* kClassName() { return "SstPartitionerFixedPrefixFactory"; }
   const char* Name() const override { return kClassName(); }

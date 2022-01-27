@@ -438,7 +438,7 @@ class TableConstructor : public Constructor {
 
     file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
     return ioptions.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
+        TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
                            *last_internal_comparator_, /*skip_filters*/ false,
                            /*immortal*/ false, false, level_, largest_seqno_,
                            &block_cache_tracer_, moptions.write_buffer_size, "",
@@ -4472,8 +4472,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
         new RandomAccessFileReader(std::move(source), ""));
 
     options.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions.prefix_extractor.get(),
-                           EnvOptions(), ikc),
+        TableReaderOptions(ioptions, moptions.prefix_extractor, EnvOptions(),
+                           ikc),
         std::move(file_reader), ss_rw.contents().size(), &table_reader);
 
     return table_reader->NewIterator(
@@ -4640,8 +4640,7 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   const MutableCFOptions moptions2(options2);
 
   ASSERT_OK(ioptions.table_factory->NewTableReader(
-      TableReaderOptions(ioptions2, moptions2.prefix_extractor.get(),
-                         EnvOptions(),
+      TableReaderOptions(ioptions2, moptions2.prefix_extractor, EnvOptions(),
                          GetPlainInternalComparator(options2.comparator)),
       std::move(file_reader), sink->contents().size(), &table_reader));
 

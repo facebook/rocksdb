@@ -600,7 +600,6 @@ public class DbBenchmark {
     options.setCompressionType((String)flags_.get(Flag.compression_type));
     options.setCompressionLevel((Integer)flags_.get(Flag.compression_level));
     options.setMinLevelToCompress((Integer)flags_.get(Flag.min_level_to_compress));
-    options.setHdfs((String)flags_.get(Flag.hdfs)); // env
     options.setStatistics((Boolean)flags_.get(Flag.statistics));
     options.setUniversalSizeRatio(
         (Integer)flags_.get(Flag.universal_size_ratio));

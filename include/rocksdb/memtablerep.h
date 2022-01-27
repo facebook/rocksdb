@@ -294,7 +294,7 @@ class MemTableRep {
 // new MemTableRep objects
 class MemTableRepFactory : public Customizable {
  public:
-  virtual ~MemTableRepFactory() {}
+  ~MemTableRepFactory() override {}
 
   static const char* Type() { return "MemTableRepFactory"; }
   static Status CreateFromString(const ConfigOptions& config_options,

@@ -814,6 +814,8 @@ struct AdvancedColumnFamilyOptions {
   // If this option is set, when creating bottommost files, pass this
   // temperature to FileSystem used. Should be no-op for default FileSystem
   // and users need to plug in their own FileSystem to take advantage of it.
+  //
+  // Dynamically changeable through the SetOptions() API
   Temperature bottommost_temperature = Temperature::kUnknown;
 
   // When set, large values (blobs) are written to separate blob files, and
@@ -928,10 +930,6 @@ struct AdvancedColumnFamilyOptions {
 
   // NOT SUPPORTED ANYMORE -- this options is no longer used
   unsigned int rate_limit_delay_max_milliseconds = 100;
-
-  // NOT SUPPORTED ANYMORE
-  // Does not have any effect.
-  bool purge_redundant_kvs_while_flush = true;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -266,7 +266,6 @@ const std::string options_file_content = R"OPTIONS_FILE(
   inplace_update_support=false
   compaction_style=kCompactionStyleUniversal
   memtable_prefix_bloom_probes=6
-  purge_redundant_kvs_while_flush=true
   filter_deletes=false
   hard_pending_compaction_bytes_limit=0
   disable_auto_compactions=false

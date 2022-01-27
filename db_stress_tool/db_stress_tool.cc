@@ -32,6 +32,8 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::DbStressEnvWrapper> env_wrapper_guard;
+static std::shared_ptr<ROCKSDB_NAMESPACE::DbStressEnvWrapper>
+    dbsl_env_wrapper_guard;
 static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
 }  // namespace
 
@@ -64,25 +66,21 @@ int db_stress_tool(int argc, char** argv) {
 
   Env* raw_env;
 
-  int env_opts =
-      !FLAGS_hdfs.empty() + !FLAGS_env_uri.empty() + !FLAGS_fs_uri.empty();
+  int env_opts = !FLAGS_env_uri.empty() + !FLAGS_fs_uri.empty();
   if (env_opts > 1) {
-    fprintf(stderr,
-            "Error: --hdfs, --env_uri and --fs_uri are mutually exclusive\n");
+    fprintf(stderr, "Error: --env_uri and --fs_uri are mutually exclusive\n");
     exit(1);
   }
 
-  if (!FLAGS_hdfs.empty()) {
-    raw_env = new ROCKSDB_NAMESPACE::HdfsEnv(FLAGS_hdfs);
-  } else {
-    Status s = Env::CreateFromUri(ConfigOptions(), FLAGS_env_uri, FLAGS_fs_uri,
-                                  &raw_env, &env_guard);
-    if (!s.ok()) {
-      fprintf(stderr, "Error Creating Env URI: %s: %s\n", FLAGS_env_uri.c_str(),
-              s.ToString().c_str());
-      exit(1);
-    }
+  Status s = Env::CreateFromUri(ConfigOptions(), FLAGS_env_uri, FLAGS_fs_uri,
+                                &raw_env, &env_guard);
+  if (!s.ok()) {
+    fprintf(stderr, "Error Creating Env URI: %s: %s\n", FLAGS_env_uri.c_str(),
+            s.ToString().c_str());
+    exit(1);
   }
+  dbsl_env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
+  db_stress_listener_env = dbsl_env_wrapper_guard.get();
 
 #ifndef NDEBUG
   if (FLAGS_read_fault_one_in || FLAGS_sync_fault_injection ||
@@ -238,8 +236,7 @@ int db_stress_tool(int argc, char** argv) {
     std::string default_secondaries_path;
     db_stress_env->GetTestDirectory(&default_secondaries_path);
     default_secondaries_path += "/dbstress_secondaries";
-    ROCKSDB_NAMESPACE::Status s =
-        db_stress_env->CreateDirIfMissing(default_secondaries_path);
+    s = db_stress_env->CreateDirIfMissing(default_secondaries_path);
     if (!s.ok()) {
       fprintf(stderr, "Failed to create directory %s: %s\n",
               default_secondaries_path.c_str(), s.ToString().c_str());

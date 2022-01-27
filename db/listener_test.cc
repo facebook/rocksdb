@@ -515,6 +515,9 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
     db_->GetColumnFamilyMetaData(handles_[1], &cf_meta);
   }
   ASSERT_GE(listener->slowdown_count, kSlowdownTrigger * 9);
+  // We don't want the listener executing during DBTestBase::Close() due to
+  // race on handles_.
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
 }
 
 class TestCompactionReasonListener : public EventListener {
