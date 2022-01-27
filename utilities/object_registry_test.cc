@@ -197,7 +197,7 @@ TEST_F(ObjRegistryTest, FailingFactory) {
   std::shared_ptr<ObjectLibrary> library =
       std::make_shared<ObjectLibrary>("failing");
   registry->AddLibrary(library);
-  library->Register<Env>(
+  library->AddFactory<Env>(
       "failing", [](const std::string& /*uri*/,
                     std::unique_ptr<Env>* /*guard */, std::string* errmsg) {
         *errmsg = "Bad Factory";

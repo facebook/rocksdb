@@ -503,7 +503,7 @@ TEST_F(CustomizableTest, FailingFactoryTest) {
   ConfigOptions ignore = config_options_;
 
   Status s;
-  ignore.registry->AddLibrary("failing")->Register<TestCustomizable>(
+  ignore.registry->AddLibrary("failing")->AddFactory<TestCustomizable>(
       "failing",
       [](const std::string& /*uri*/,
          std::unique_ptr<TestCustomizable>* /*guard */, std::string* errmsg) {
