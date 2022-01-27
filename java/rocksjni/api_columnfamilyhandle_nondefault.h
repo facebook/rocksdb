@@ -38,21 +38,24 @@ class APIColumnFamilyHandle : public APIWeakDB {
   }
 
   /**
-   * @brief lock the CF (std::shared_ptr) and check we have the correct DB
+   * @brief lock the CF (std::shared_ptr) if the weak pointer is valid, and
+   * check we have the correct DB
    * @return locked CF if the weak ptr is still valid and the DB matches, empty
    * ptr otherwise
    */
   std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfhLockDBCheck(
       JNIEnv* env, APIRocksDB& dbAPI) {
+    if (dbLock(env) != *dbAPI) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+          env,
+          ROCKSDB_NAMESPACE::RocksDBExceptionJni::MismatchedColumnFamily());
+      std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> lock;
+      return lock;
+    }
     auto lock = cfh.lock();
     if (!lock) {
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
           env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::OrphanedColumnFamily());
-    } else if (dbLock(env) != *dbAPI) {
-      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-          env,
-          ROCKSDB_NAMESPACE::RocksDBExceptionJni::MismatchedColumnFamily());
-      lock.reset();
     }
     return lock;
   }

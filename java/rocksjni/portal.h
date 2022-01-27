@@ -990,6 +990,11 @@ class RocksDBExceptionJni :
         "Invalid ColumnFamilyHandle.");
   }
 
+  static ROCKSDB_NAMESPACE::Status DBIsClosed() {
+    return ROCKSDB_NAMESPACE::Status::InvalidArgument(
+        "The DB associated with an object is already closed.");
+  }
+
   static ROCKSDB_NAMESPACE::Status MismatchedColumnFamily() {
     return ROCKSDB_NAMESPACE::Status::InvalidArgument(
         "Invalid ColumnFamilyHandle. Not from the expected DB.");
