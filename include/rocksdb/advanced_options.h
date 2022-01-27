@@ -930,10 +930,6 @@ struct AdvancedColumnFamilyOptions {
 
   // NOT SUPPORTED ANYMORE -- this options is no longer used
   unsigned int rate_limit_delay_max_milliseconds = 100;
-
-  // NOT SUPPORTED ANYMORE
-  // Does not have any effect.
-  bool purge_redundant_kvs_while_flush = true;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

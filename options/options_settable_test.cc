@@ -334,6 +334,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "concurrent_prepare=false;"
                              "two_write_queues=false;"
                              "manual_wal_flush=false;"
+                             "wal_compression=kZSTD;"
                              "seq_per_batch=false;"
                              "atomic_flush=false;"
                              "avoid_unnecessary_blocking_io=false;"
@@ -443,7 +444,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   options->hard_rate_limit = 0;
   options->soft_rate_limit = 0;
   options->num_levels = 42;  // Initialize options for MutableCF
-  options->purge_redundant_kvs_while_flush = false;
   options->max_mem_compaction_level = 0;
   options->compaction_filter = nullptr;
   options->sst_partitioner_factory = nullptr;

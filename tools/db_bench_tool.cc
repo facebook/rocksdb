@@ -762,6 +762,11 @@ DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
 DEFINE_bool(manual_wal_flush, false,
             "If true, buffer WAL until buffer is full or a manual FlushWAL().");
 
+DEFINE_string(wal_compression, "string",
+              "Algorithm to use for WAL compression. none to disable.");
+static enum ROCKSDB_NAMESPACE::CompressionType FLAGS_wal_compression_e =
+    ROCKSDB_NAMESPACE::kNoCompression;
+
 DEFINE_string(wal_dir, "", "If not empty, use the given dir for WAL");
 
 DEFINE_string(truth_db, "/dev/shm/truth_db/dbbench",
@@ -3998,6 +4003,7 @@ class Benchmark {
     options.use_direct_io_for_flush_and_compaction =
         FLAGS_use_direct_io_for_flush_and_compaction;
     options.manual_wal_flush = FLAGS_manual_wal_flush;
+    options.wal_compression = FLAGS_wal_compression_e;
 #ifndef ROCKSDB_LITE
     options.ttl = FLAGS_fifo_compaction_ttl;
     options.compaction_options_fifo = CompactionOptionsFIFO(
@@ -8128,6 +8134,9 @@ int db_bench_tool(int argc, char** argv) {
 
   FLAGS_compression_type_e =
     StringToCompressionType(FLAGS_compression_type.c_str());
+
+  FLAGS_wal_compression_e =
+      StringToCompressionType(FLAGS_wal_compression.c_str());
 
 #ifndef ROCKSDB_LITE
   // Stacked BlobDB

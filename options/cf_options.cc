@@ -509,6 +509,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"compaction_measure_io_stats",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
+        {"purge_redundant_kvs_while_flush",
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kNone}},
         {"inplace_update_support",
          {offset_of(&ImmutableCFOptions::inplace_update_support),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -524,10 +527,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"force_consistency_checks",
          {offset_of(&ImmutableCFOptions::force_consistency_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
-        {"purge_redundant_kvs_while_flush",
-         {offset_of(&ImmutableCFOptions::purge_redundant_kvs_while_flush),
-          OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"max_mem_compaction_level",
          {0, OptionType::kInt, OptionVerificationType::kDeprecated,
@@ -853,8 +852,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       table_properties_collector_factories(
           cf_options.table_properties_collector_factories),
       bloom_locality(cf_options.bloom_locality),
-      purge_redundant_kvs_while_flush(
-          cf_options.purge_redundant_kvs_while_flush),
       compression_per_level(cf_options.compression_per_level),
       level_compaction_dynamic_level_bytes(
           cf_options.level_compaction_dynamic_level_bytes),
