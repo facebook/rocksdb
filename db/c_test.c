@@ -1631,12 +1631,6 @@ int main(int argc, char** argv) {
     rocksdb_options_set_recycle_log_file_num(o, 9);
     CheckCondition(9 == rocksdb_options_get_recycle_log_file_num(o));
 
-    rocksdb_options_set_soft_rate_limit(o, 2.0);
-    CheckCondition(2.0 == rocksdb_options_get_soft_rate_limit(o));
-
-    rocksdb_options_set_hard_rate_limit(o, 4.0);
-    CheckCondition(4.0 == rocksdb_options_get_hard_rate_limit(o));
-
     rocksdb_options_set_soft_pending_compaction_bytes_limit(o, 10);
     CheckCondition(10 ==
                    rocksdb_options_get_soft_pending_compaction_bytes_limit(o));
@@ -1857,8 +1851,6 @@ int main(int argc, char** argv) {
     CheckCondition(7 == rocksdb_options_get_log_file_time_to_roll(copy));
     CheckCondition(8 == rocksdb_options_get_keep_log_file_num(copy));
     CheckCondition(9 == rocksdb_options_get_recycle_log_file_num(copy));
-    CheckCondition(2.0 == rocksdb_options_get_soft_rate_limit(copy));
-    CheckCondition(4.0 == rocksdb_options_get_hard_rate_limit(copy));
     CheckCondition(
         10 == rocksdb_options_get_soft_pending_compaction_bytes_limit(copy));
     CheckCondition(
@@ -2082,14 +2074,6 @@ int main(int argc, char** argv) {
     rocksdb_options_set_recycle_log_file_num(copy, 19);
     CheckCondition(19 == rocksdb_options_get_recycle_log_file_num(copy));
     CheckCondition(9 == rocksdb_options_get_recycle_log_file_num(o));
-
-    rocksdb_options_set_soft_rate_limit(copy, 4.0);
-    CheckCondition(4.0 == rocksdb_options_get_soft_rate_limit(copy));
-    CheckCondition(2.0 == rocksdb_options_get_soft_rate_limit(o));
-
-    rocksdb_options_set_hard_rate_limit(copy, 2.0);
-    CheckCondition(2.0 == rocksdb_options_get_hard_rate_limit(copy));
-    CheckCondition(4.0 == rocksdb_options_get_hard_rate_limit(o));
 
     rocksdb_options_set_soft_pending_compaction_bytes_limit(copy, 110);
     CheckCondition(
@@ -2511,51 +2495,51 @@ int main(int argc, char** argv) {
 
   StartPhase("backupable_db_option");
   {
-    rocksdb_backupable_db_options_t* bdo;
-    bdo = rocksdb_backupable_db_options_create("path");
+    rocksdb_backup_engine_options_t* bdo;
+    bdo = rocksdb_backup_engine_options_create("path");
 
-    rocksdb_backupable_db_options_set_share_table_files(bdo, 1);
+    rocksdb_backup_engine_options_set_share_table_files(bdo, 1);
     CheckCondition(1 ==
-                   rocksdb_backupable_db_options_get_share_table_files(bdo));
+                   rocksdb_backup_engine_options_get_share_table_files(bdo));
 
-    rocksdb_backupable_db_options_set_sync(bdo, 1);
-    CheckCondition(1 == rocksdb_backupable_db_options_get_sync(bdo));
+    rocksdb_backup_engine_options_set_sync(bdo, 1);
+    CheckCondition(1 == rocksdb_backup_engine_options_get_sync(bdo));
 
-    rocksdb_backupable_db_options_set_destroy_old_data(bdo, 1);
+    rocksdb_backup_engine_options_set_destroy_old_data(bdo, 1);
     CheckCondition(1 ==
-                   rocksdb_backupable_db_options_get_destroy_old_data(bdo));
+                   rocksdb_backup_engine_options_get_destroy_old_data(bdo));
 
-    rocksdb_backupable_db_options_set_backup_log_files(bdo, 1);
+    rocksdb_backup_engine_options_set_backup_log_files(bdo, 1);
     CheckCondition(1 ==
-                   rocksdb_backupable_db_options_get_backup_log_files(bdo));
+                   rocksdb_backup_engine_options_get_backup_log_files(bdo));
 
-    rocksdb_backupable_db_options_set_backup_rate_limit(bdo, 123);
+    rocksdb_backup_engine_options_set_backup_rate_limit(bdo, 123);
     CheckCondition(123 ==
-                   rocksdb_backupable_db_options_get_backup_rate_limit(bdo));
+                   rocksdb_backup_engine_options_get_backup_rate_limit(bdo));
 
-    rocksdb_backupable_db_options_set_restore_rate_limit(bdo, 37);
+    rocksdb_backup_engine_options_set_restore_rate_limit(bdo, 37);
     CheckCondition(37 ==
-                   rocksdb_backupable_db_options_get_restore_rate_limit(bdo));
+                   rocksdb_backup_engine_options_get_restore_rate_limit(bdo));
 
-    rocksdb_backupable_db_options_set_max_background_operations(bdo, 20);
+    rocksdb_backup_engine_options_set_max_background_operations(bdo, 20);
     CheckCondition(
-        20 == rocksdb_backupable_db_options_get_max_background_operations(bdo));
+        20 == rocksdb_backup_engine_options_get_max_background_operations(bdo));
 
-    rocksdb_backupable_db_options_set_callback_trigger_interval_size(bdo, 9000);
+    rocksdb_backup_engine_options_set_callback_trigger_interval_size(bdo, 9000);
     CheckCondition(
         9000 ==
-        rocksdb_backupable_db_options_get_callback_trigger_interval_size(bdo));
+        rocksdb_backup_engine_options_get_callback_trigger_interval_size(bdo));
 
-    rocksdb_backupable_db_options_set_max_valid_backups_to_open(bdo, 40);
+    rocksdb_backup_engine_options_set_max_valid_backups_to_open(bdo, 40);
     CheckCondition(
-        40 == rocksdb_backupable_db_options_get_max_valid_backups_to_open(bdo));
+        40 == rocksdb_backup_engine_options_get_max_valid_backups_to_open(bdo));
 
-    rocksdb_backupable_db_options_set_share_files_with_checksum_naming(bdo, 2);
+    rocksdb_backup_engine_options_set_share_files_with_checksum_naming(bdo, 2);
     CheckCondition(
-        2 == rocksdb_backupable_db_options_get_share_files_with_checksum_naming(
+        2 == rocksdb_backup_engine_options_get_share_files_with_checksum_naming(
                  bdo));
 
-    rocksdb_backupable_db_options_destroy(bdo);
+    rocksdb_backup_engine_options_destroy(bdo);
   }
 
   StartPhase("compression_options");

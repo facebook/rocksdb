@@ -1,10 +1,18 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Fixed a major bug in which batched MultiGet could return old values for keys deleted by DeleteRange when memtable Bloom filter is enabled (memtable_prefix_bloom_size_ratio > 0). (The fix includes a substantial MultiGet performance improvement in the unusual case of both memtable_whole_key_filtering and prefix_extractor.)
+
 ### Public API changes
 * Remove HDFS support from main repo.
 * Remove librados support from main repo.
+* Remove obsolete backupable_db.h and type alias `BackupableDBOptions`. Use backup_engine.h and `BackupEngineOptions`. Similar renamings are in the C and Java APIs.
+* Removed obsolete utility_db.h and `UtilityDB::OpenTtlDB`. Use db_ttl.h and `DBWithTTL::Open`.
 * Remove deprecated API DB::AddFile from main repo.
 * Remove deprecated API ObjectLibrary::Register() and the (now obsolete) Regex public API. Use ObjectLibrary::AddFactory() with PatternEntry instead.
+* Remove deprecated option DBOption::table_cache_remove_scan_count_limit.
+* Remove deprecated API AdvancedColumnFamilyOptions::soft_rate_limit.
+* Remove deprecated API AdvancedColumnFamilyOptions::hard_rate_limit.
 
 ## 6.29.0 (01/21/2022)
 Note: The next release will be major release 7.0. See https://github.com/facebook/rocksdb/issues/9390 for more info.
