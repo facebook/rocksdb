@@ -155,6 +155,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"bytes_per_sync", "47"},
       {"wal_bytes_per_sync", "48"},
       {"strict_bytes_per_sync", "true"},
+      {"preserve_deletes", "false"},
   };
 
   ColumnFamilyOptions base_cf_opt;
@@ -2315,6 +2316,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"bytes_per_sync", "47"},
       {"wal_bytes_per_sync", "48"},
       {"strict_bytes_per_sync", "true"},
+      {"preserve_deletes", "false"},
   };
 
   ColumnFamilyOptions base_cf_opt;

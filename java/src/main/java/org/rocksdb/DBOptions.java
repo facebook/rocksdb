@@ -1141,19 +1141,6 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public DBOptions setPreserveDeletes(final boolean preserveDeletes) {
-    assert(isOwningHandle());
-    setPreserveDeletes(nativeHandle_, preserveDeletes);
-    return this;
-  }
-
-  @Override
-  public boolean preserveDeletes() {
-    assert(isOwningHandle());
-    return preserveDeletes(nativeHandle_);
-  }
-
-  @Override
   public DBOptions setTwoWriteQueues(final boolean twoWriteQueues) {
     assert(isOwningHandle());
     setTwoWriteQueues(nativeHandle_, twoWriteQueues);
@@ -1502,9 +1489,6 @@ public class DBOptions extends RocksObject
   private native void setAllowIngestBehind(final long handle,
       final boolean allowIngestBehind);
   private native boolean allowIngestBehind(final long handle);
-  private native void setPreserveDeletes(final long handle,
-      final boolean preserveDeletes);
-  private native boolean preserveDeletes(final long handle);
   private native void setTwoWriteQueues(final long handle,
       final boolean twoWriteQueues);
   private native boolean twoWriteQueues(final long handle);
