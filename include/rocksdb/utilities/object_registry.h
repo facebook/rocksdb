@@ -570,10 +570,10 @@ class ObjectRegistry {
         }
       }
     }
-    if (parent_ != nullptr) {
-      return parent_->FindFactory<T>(name);
-    } else {
+    if (parent_ == nullptr) {
       return nullptr;
+    } else {
+      return parent_->FindFactory<T>(name);
     }
   }
 
