@@ -23,34 +23,6 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
 
   /**
    * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
-   * value of max_background_jobs. This option is ignored.
-   *
-   * Suggested number of concurrent background compaction jobs, submitted to
-   * the default LOW priority thread pool.
-   * Default: -1
-   *
-   * @param baseBackgroundCompactions Suggested number of background compaction
-   *     jobs
-   *
-   * @deprecated Use {@link #setMaxBackgroundJobs(int)}
-   */
-  @Deprecated
-  void setBaseBackgroundCompactions(int baseBackgroundCompactions);
-
-  /**
-   * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
-   * value of max_background_jobs. This option is ignored.
-   *
-   * Suggested number of concurrent background compaction jobs, submitted to
-   * the default LOW priority thread pool.
-   * Default: -1
-   *
-   * @return Suggested number of background compaction jobs
-   */
-  int baseBackgroundCompactions();
-
-  /**
-   * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
    * value of max_background_jobs. For backwards compatibility we will set
    * `max_background_jobs = max_background_compactions + max_background_flushes`
    * in the case where user sets at least one of `max_background_compactions` or

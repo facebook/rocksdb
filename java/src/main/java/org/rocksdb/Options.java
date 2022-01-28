@@ -487,20 +487,6 @@ public class Options extends RocksObject
 
   @Override
   @Deprecated
-  public void setBaseBackgroundCompactions(
-      final int baseBackgroundCompactions) {
-    assert(isOwningHandle());
-    setBaseBackgroundCompactions(nativeHandle_, baseBackgroundCompactions);
-  }
-
-  @Override
-  public int baseBackgroundCompactions() {
-    assert(isOwningHandle());
-    return baseBackgroundCompactions(nativeHandle_);
-  }
-
-  @Override
-  @Deprecated
   public Options setMaxBackgroundCompactions(
       final int maxBackgroundCompactions) {
     assert(isOwningHandle());
@@ -2158,9 +2144,6 @@ public class Options extends RocksObject
   private native void setDeleteObsoleteFilesPeriodMicros(
       long handle, long micros);
   private native long deleteObsoleteFilesPeriodMicros(long handle);
-  private native void setBaseBackgroundCompactions(long handle,
-      int baseBackgroundCompactions);
-  private native int baseBackgroundCompactions(long handle);
   private native void setMaxBackgroundCompactions(
       long handle, int maxBackgroundCompactions);
   private native int maxBackgroundCompactions(long handle);

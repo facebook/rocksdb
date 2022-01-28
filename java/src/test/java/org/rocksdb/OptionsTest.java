@@ -432,17 +432,6 @@ public class OptionsTest {
 
   @SuppressWarnings("deprecated")
   @Test
-  public void baseBackgroundCompactions() {
-    try (final Options opt = new Options()) {
-      final int intValue = rand.nextInt();
-      opt.setBaseBackgroundCompactions(intValue);
-      assertThat(opt.baseBackgroundCompactions()).
-          isEqualTo(intValue);
-    }
-  }
-
-  @SuppressWarnings("deprecated")
-  @Test
   public void maxBackgroundCompactions() {
     try (final Options opt = new Options()) {
       final int intValue = rand.nextInt();
