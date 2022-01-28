@@ -3225,15 +3225,6 @@ int rocksdb_options_get_max_background_compactions(rocksdb_options_t* opt) {
   return opt->rep.max_background_compactions;
 }
 
-void rocksdb_options_set_base_background_compactions(rocksdb_options_t* opt,
-                                                     int n) {
-  opt->rep.base_background_compactions = n;
-}
-
-int rocksdb_options_get_base_background_compactions(rocksdb_options_t* opt) {
-  return opt->rep.base_background_compactions;
-}
-
 void rocksdb_options_set_max_background_flushes(rocksdb_options_t* opt, int n) {
   opt->rep.max_background_flushes = n;
 }

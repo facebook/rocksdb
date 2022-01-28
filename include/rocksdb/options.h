@@ -657,12 +657,6 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   int max_background_jobs = 2;
 
-  // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
-  // value of max_background_jobs. This option is ignored.
-  //
-  // Dynamically changeable through SetDBOptions() API.
-  int base_background_compactions = -1;
-
   // DEPRECATED: RocksDB automatically decides this based on the
   // value of max_background_jobs. For backwards compatibility we will set
   // `max_background_jobs = max_background_compactions + max_background_flushes`

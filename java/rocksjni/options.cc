@@ -667,28 +667,6 @@ void Java_org_rocksdb_Options_setDeleteObsoleteFilesPeriodMicros(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setBaseBackgroundCompactions
- * Signature: (JI)V
- */
-void Java_org_rocksdb_Options_setBaseBackgroundCompactions(
-    JNIEnv*, jobject, jlong jhandle, jint max) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
-      ->base_background_compactions = static_cast<int>(max);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    baseBackgroundCompactions
- * Signature: (J)I
- */
-jint Java_org_rocksdb_Options_baseBackgroundCompactions(
-    JNIEnv*, jobject, jlong jhandle) {
-  return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
-      ->base_background_compactions;
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    maxBackgroundCompactions
  * Signature: (J)I
  */
@@ -6186,28 +6164,6 @@ jlong Java_org_rocksdb_DBOptions_deleteObsoleteFilesPeriodMicros(
     JNIEnv*, jobject, jlong jhandle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
       ->delete_obsolete_files_period_micros;
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    setBaseBackgroundCompactions
- * Signature: (JI)V
- */
-void Java_org_rocksdb_DBOptions_setBaseBackgroundCompactions(
-    JNIEnv*, jobject, jlong jhandle, jint max) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
-      ->base_background_compactions = static_cast<int>(max);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    baseBackgroundCompactions
- * Signature: (J)I
- */
-jint Java_org_rocksdb_DBOptions_baseBackgroundCompactions(
-    JNIEnv*, jobject, jlong jhandle) {
-  return reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
-      ->base_background_compactions;
 }
 
 /*

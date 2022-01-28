@@ -34,8 +34,6 @@ public class DBOptionsTest {
     DBOptions copyOpts = new DBOptions(origOpts);
     assertThat(origOpts.createIfMissing()).isEqualTo(copyOpts.createIfMissing());
     assertThat(origOpts.allow2pc()).isEqualTo(copyOpts.allow2pc());
-    assertThat(origOpts.baseBackgroundCompactions()).isEqualTo(
-            copyOpts.baseBackgroundCompactions());
   }
 
   @Test
@@ -215,17 +213,6 @@ public class DBOptionsTest {
       final long longValue = rand.nextLong();
       opt.setDeleteObsoleteFilesPeriodMicros(longValue);
       assertThat(opt.deleteObsoleteFilesPeriodMicros()).isEqualTo(longValue);
-    }
-  }
-
-  @SuppressWarnings("deprecated")
-  @Test
-  public void baseBackgroundCompactions() {
-    try (final DBOptions opt = new DBOptions()) {
-      final int intValue = rand.nextInt();
-      opt.setBaseBackgroundCompactions(intValue);
-      assertThat(opt.baseBackgroundCompactions()).
-          isEqualTo(intValue);
     }
   }
 

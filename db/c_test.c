@@ -490,7 +490,6 @@ int main(int argc, char** argv) {
   rocksdb_options_set_write_buffer_size(options, 100000);
   rocksdb_options_set_paranoid_checks(options, 1);
   rocksdb_options_set_max_open_files(options, 10);
-  rocksdb_options_set_base_background_compactions(options, 1);
 
   table_options = rocksdb_block_based_options_create();
   rocksdb_block_based_options_set_block_cache(table_options, cache);
@@ -1613,9 +1612,6 @@ int main(int argc, char** argv) {
     rocksdb_options_set_max_background_compactions(o, 3);
     CheckCondition(3 == rocksdb_options_get_max_background_compactions(o));
 
-    rocksdb_options_set_base_background_compactions(o, 4);
-    CheckCondition(4 == rocksdb_options_get_base_background_compactions(o));
-
     rocksdb_options_set_max_background_flushes(o, 5);
     CheckCondition(5 == rocksdb_options_get_max_background_flushes(o));
 
@@ -1845,7 +1841,6 @@ int main(int argc, char** argv) {
     CheckCondition(123456 == rocksdb_options_get_max_subcompactions(copy));
     CheckCondition(2 == rocksdb_options_get_max_background_jobs(copy));
     CheckCondition(3 == rocksdb_options_get_max_background_compactions(copy));
-    CheckCondition(4 == rocksdb_options_get_base_background_compactions(copy));
     CheckCondition(5 == rocksdb_options_get_max_background_flushes(copy));
     CheckCondition(6 == rocksdb_options_get_max_log_file_size(copy));
     CheckCondition(7 == rocksdb_options_get_log_file_time_to_roll(copy));
@@ -2050,10 +2045,6 @@ int main(int argc, char** argv) {
     rocksdb_options_set_max_background_compactions(copy, 13);
     CheckCondition(13 == rocksdb_options_get_max_background_compactions(copy));
     CheckCondition(3 == rocksdb_options_get_max_background_compactions(o));
-
-    rocksdb_options_set_base_background_compactions(copy, 14);
-    CheckCondition(14 == rocksdb_options_get_base_background_compactions(copy));
-    CheckCondition(4 == rocksdb_options_get_base_background_compactions(o));
 
     rocksdb_options_set_max_background_flushes(copy, 15);
     CheckCondition(15 == rocksdb_options_get_max_background_flushes(copy));

@@ -13,6 +13,8 @@
 * Remove deprecated option DBOption::table_cache_remove_scan_count_limit.
 * Remove deprecated API AdvancedColumnFamilyOptions::soft_rate_limit.
 * Remove deprecated API AdvancedColumnFamilyOptions::hard_rate_limit.
+* Remove deprecated API DBOption::base_background_compactions.
+* Remove deprecated API DBOptions::purge_redundant_kvs_while_flush.
 
 ### Behavior Changes
 * Disallow the combination of DBOptions.use_direct_io_for_flush_and_compaction == true and DBOptions.writable_file_max_buffer_size == 0. This combination can cause WritableFileWriter::Append() to loop forever, and it does not make much sense in direct IO.
