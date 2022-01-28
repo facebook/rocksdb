@@ -399,14 +399,15 @@ def finalize_and_sanitize(src_params):
         dest_params["readpercent"] += dest_params.get("iterpercent", 10)
         dest_params["iterpercent"] = 0
         dest_params["test_batches_snapshots"] = 0
+    if dest_params.get("prefix_size") == -1:
+        dest_params["readpercent"] += dest_params.get("prefixpercent", 20)
+        dest_params["prefixpercent"] = 0
+        dest_params["test_batches_snapshots"] = 0
     if dest_params.get("test_batches_snapshots") == 0:
         dest_params["batch_protection_bytes_per_key"] = 0
     if (dest_params.get("prefix_size") == -1 and
         dest_params.get("memtable_whole_key_filtering") == 0):
         dest_params["memtable_prefix_bloom_size_ratio"] = 0
-    if dest_params.get("prefix_size") == -1:
-        dest_params["readpercent"] += dest_params.get("prefixpercent", 20)
-        dest_params["prefixpercent"] = 0
     return dest_params
 
 def gen_cmd_params(args):
