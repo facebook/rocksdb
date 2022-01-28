@@ -269,7 +269,6 @@ CFLAGS += -march=armv8-a+crc+crypto
 ARMCRC_SOURCE=1
 endif
 endif
->>>>>>> main
 
 export JAVAC_ARGS
 CLEAN_FILES += make_config.mk rocksdb.pc

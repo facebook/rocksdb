@@ -120,15 +120,15 @@ size_t ObjectLibrary::GetFactoryCount(size_t *types) const {
 
 void ObjectLibrary::Dump(Logger *logger) const {
   std::unique_lock<std::mutex> lock(mu_);
-  if (logger != nullptr && !entries_.empty()) {
+  if (logger != nullptr && !factories_.empty()) {
     ROCKS_LOG_HEADER(logger, "    Registered Library: %s\n", id_.c_str());
-    for (const auto &iter : entries_) {
+    for (const auto &iter : factories_) {
       ROCKS_LOG_HEADER(logger, "    Registered factories for type[%s] ",
                        iter.first.c_str());
       bool printed_one = false;
       for (const auto &e : iter.second) {
         ROCKS_LOG_HEADER(logger, "%c %s", (printed_one) ? ',' : ':',
-                         e->Name().c_str());
+                         e->Name());
         printed_one = true;
       }
     }

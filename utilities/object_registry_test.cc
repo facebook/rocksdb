@@ -113,7 +113,7 @@ static int RegisterTestUnguarded(ObjectLibrary& library,
   return 2;
 }
 
-TEST_F(EnvRegistryTest, CheckShared) {
+TEST_F(ObjRegistryTest, CheckShared) {
   std::shared_ptr<Env> shared;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
   registry->AddLibrary("shared", RegisterTestUnguarded, "");
@@ -420,7 +420,7 @@ TEST_F(ObjRegistryTest, TestGetOrCreateManagedObject) {
   ASSERT_EQ(2, obj.use_count());
 }
 
-TEST_F(EnvRegistryTest, RegisterPlugin) {
+TEST_F(ObjRegistryTest, RegisterPlugin) {
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
   std::unique_ptr<Env> guard;
   std::string msg;
