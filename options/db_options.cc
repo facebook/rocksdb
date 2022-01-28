@@ -961,7 +961,6 @@ const std::string& ImmutableDBOptions::GetWalDir(
 
 MutableDBOptions::MutableDBOptions()
     : max_background_jobs(2),
-      base_background_compactions(-1),
       max_background_compactions(-1),
       max_subcompactions(0),
       avoid_flush_during_shutdown(false),
@@ -981,7 +980,6 @@ MutableDBOptions::MutableDBOptions()
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : max_background_jobs(options.max_background_jobs),
-      base_background_compactions(options.base_background_compactions),
       max_background_compactions(options.max_background_compactions),
       max_subcompactions(options.max_subcompactions),
       avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
