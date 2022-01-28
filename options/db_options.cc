@@ -58,16 +58,15 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"allow_os_buffer",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
+        {"base_background_compactions",
+         {0, OptionType::kInt, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable}},
         {"max_background_jobs",
          {offsetof(struct MutableDBOptions, max_background_jobs),
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"max_background_compactions",
          {offsetof(struct MutableDBOptions, max_background_compactions),
-          OptionType::kInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
-        {"base_background_compactions",
-         {offsetof(struct MutableDBOptions, base_background_compactions),
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"max_subcompactions",
@@ -962,7 +961,6 @@ const std::string& ImmutableDBOptions::GetWalDir(
 
 MutableDBOptions::MutableDBOptions()
     : max_background_jobs(2),
-      base_background_compactions(-1),
       max_background_compactions(-1),
       max_subcompactions(0),
       avoid_flush_during_shutdown(false),
@@ -982,7 +980,6 @@ MutableDBOptions::MutableDBOptions()
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : max_background_jobs(options.max_background_jobs),
-      base_background_compactions(options.base_background_compactions),
       max_background_compactions(options.max_background_compactions),
       max_subcompactions(options.max_subcompactions),
       avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),

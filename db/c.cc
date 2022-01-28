@@ -3004,16 +3004,6 @@ unsigned char rocksdb_options_get_is_fd_close_on_exec(rocksdb_options_t* opt) {
   return opt->rep.is_fd_close_on_exec;
 }
 
-void rocksdb_options_set_skip_log_error_on_recovery(
-    rocksdb_options_t* opt, unsigned char v) {
-  opt->rep.skip_log_error_on_recovery = v;
-}
-
-unsigned char rocksdb_options_get_skip_log_error_on_recovery(
-    rocksdb_options_t* opt) {
-  return opt->rep.skip_log_error_on_recovery;
-}
-
 void rocksdb_options_set_stats_dump_period_sec(
     rocksdb_options_t* opt, unsigned int v) {
   opt->rep.stats_dump_period_sec = v;
@@ -3223,15 +3213,6 @@ void rocksdb_options_set_max_background_compactions(rocksdb_options_t* opt, int 
 
 int rocksdb_options_get_max_background_compactions(rocksdb_options_t* opt) {
   return opt->rep.max_background_compactions;
-}
-
-void rocksdb_options_set_base_background_compactions(rocksdb_options_t* opt,
-                                                     int n) {
-  opt->rep.base_background_compactions = n;
-}
-
-int rocksdb_options_get_base_background_compactions(rocksdb_options_t* opt) {
-  return opt->rep.base_background_compactions;
 }
 
 void rocksdb_options_set_max_background_flushes(rocksdb_options_t* opt, int n) {

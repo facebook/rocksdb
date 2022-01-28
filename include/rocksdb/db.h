@@ -1175,27 +1175,6 @@ class DB {
     return CompactRange(options, DefaultColumnFamily(), begin, end);
   }
 
-  ROCKSDB_DEPRECATED_FUNC virtual Status CompactRange(
-      ColumnFamilyHandle* column_family, const Slice* begin, const Slice* end,
-      bool change_level = false, int target_level = -1,
-      uint32_t target_path_id = 0) {
-    CompactRangeOptions options;
-    options.change_level = change_level;
-    options.target_level = target_level;
-    options.target_path_id = target_path_id;
-    return CompactRange(options, column_family, begin, end);
-  }
-
-  ROCKSDB_DEPRECATED_FUNC virtual Status CompactRange(
-      const Slice* begin, const Slice* end, bool change_level = false,
-      int target_level = -1, uint32_t target_path_id = 0) {
-    CompactRangeOptions options;
-    options.change_level = change_level;
-    options.target_level = target_level;
-    options.target_path_id = target_path_id;
-    return CompactRange(options, DefaultColumnFamily(), begin, end);
-  }
-
   virtual Status SetOptions(
       ColumnFamilyHandle* /*column_family*/,
       const std::unordered_map<std::string, std::string>& /*new_options*/) {
