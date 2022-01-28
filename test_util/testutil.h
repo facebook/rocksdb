@@ -44,7 +44,7 @@ class SequentialFileReader;
 namespace test {
 
 extern const uint32_t kDefaultFormatVersion;
-extern const uint32_t kLatestFormatVersion;
+extern const std::set<uint32_t> kFooterFormatVersionsToTest;
 
 // Return a random key with the specified length that may contain interesting
 // characters (e.g. \x00, \xff, etc.).
@@ -57,29 +57,6 @@ extern std::string RandomKey(Random* rnd, int len,
 // the generated data.
 extern Slice CompressibleString(Random* rnd, double compressed_fraction,
                                 int len, std::string* dst);
-
-// A wrapper that allows injection of errors.
-class ErrorEnv : public EnvWrapper {
- public:
-  bool writable_file_error_;
-  int num_writable_file_errors_;
-
-  ErrorEnv(Env* _target)
-      : EnvWrapper(_target),
-        writable_file_error_(false),
-        num_writable_file_errors_(0) {}
-
-  virtual Status NewWritableFile(const std::string& fname,
-                                 std::unique_ptr<WritableFile>* result,
-                                 const EnvOptions& soptions) override {
-    result->reset();
-    if (writable_file_error_) {
-      ++num_writable_file_errors_;
-      return Status::IOError(fname, "fake error");
-    }
-    return target()->NewWritableFile(fname, result, soptions);
-  }
-};
 
 #ifndef NDEBUG
 // An internal comparator that just forward comparing results from the

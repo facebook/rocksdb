@@ -274,6 +274,9 @@ class TestFlushListener : public EventListener {
     ASSERT_TRUE(test_);
     if (db == test_->db_) {
       std::vector<std::vector<FileMetaData>> files_by_level;
+      ASSERT_LT(info.cf_id, test_->handles_.size());
+      ASSERT_GE(info.cf_id, 0u);
+      ASSERT_NE(test_->handles_[info.cf_id], nullptr);
       test_->dbfull()->TEST_GetFilesMetaData(test_->handles_[info.cf_id],
                                              &files_by_level);
 
@@ -512,6 +515,9 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
     db_->GetColumnFamilyMetaData(handles_[1], &cf_meta);
   }
   ASSERT_GE(listener->slowdown_count, kSlowdownTrigger * 9);
+  // We don't want the listener executing during DBTestBase::Close() due to
+  // race on handles_.
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
 }
 
 class TestCompactionReasonListener : public EventListener {
@@ -687,6 +693,8 @@ class TableFileCreationListener : public EventListener {
   class TestEnv : public EnvWrapper {
    public:
     explicit TestEnv(Env* t) : EnvWrapper(t) {}
+    static const char* kClassName() { return "TestEnv"; }
+    const char* Name() const override { return kClassName(); }
 
     void SetStatus(Status s) { status_ = s; }
 
@@ -1246,7 +1254,7 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
   }
 
   const VersionStorageInfo::BlobFiles& GetBlobFiles() {
-    VersionSet* const versions = test_->dbfull()->TEST_GetVersionSet();
+    VersionSet* const versions = test_->dbfull()->GetVersionSet();
     assert(versions);
 
     ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
@@ -1548,6 +1556,7 @@ TEST_F(EventListenerTest, BlobDBFileTest) {
   // On compaction, because of blob_garbage_collection_age_cutoff, it will
   // delete the oldest blob file and create new blob file during compaction.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   blob_event_listener->CheckCounters();
 }

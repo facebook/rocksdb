@@ -41,7 +41,6 @@
 #include "db_stress_tool/db_stress_listener.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "db_stress_tool/db_stress_test_base.h"
-#include "hdfs/env_hdfs.h"
 #include "logging/logging.h"
 #include "monitoring/histogram.h"
 #include "options/options_helper.h"
@@ -51,7 +50,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
-#include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/debug.h"
@@ -87,6 +86,7 @@ DECLARE_int64(active_width);
 DECLARE_bool(test_batches_snapshots);
 DECLARE_bool(atomic_flush);
 DECLARE_bool(test_cf_consistency);
+DECLARE_bool(test_multi_ops_txns);
 DECLARE_int32(threads);
 DECLARE_int32(ttl);
 DECLARE_int32(value_size_mult);
@@ -203,6 +203,7 @@ DECLARE_int32(delrangepercent);
 DECLARE_int32(nooverwritepercent);
 DECLARE_int32(iterpercent);
 DECLARE_uint64(num_iterations);
+DECLARE_int32(customopspercent);
 DECLARE_string(compression_type);
 DECLARE_string(bottommost_compression_type);
 DECLARE_int32(compression_max_dict_bytes);
@@ -210,7 +211,6 @@ DECLARE_int32(compression_zstd_max_train_bytes);
 DECLARE_int32(compression_parallel_threads);
 DECLARE_uint64(compression_max_dict_buffer_bytes);
 DECLARE_string(checksum_type);
-DECLARE_string(hdfs);
 DECLARE_string(env_uri);
 DECLARE_string(fs_uri);
 DECLARE_uint64(ops_per_thread);
@@ -253,6 +253,7 @@ DECLARE_string(blob_compression_type);
 DECLARE_bool(enable_blob_garbage_collection);
 DECLARE_double(blob_garbage_collection_age_cutoff);
 DECLARE_double(blob_garbage_collection_force_threshold);
+DECLARE_uint64(blob_compaction_readahead_size);
 
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(sync_fault_injection);
@@ -268,12 +269,15 @@ DECLARE_uint64(user_timestamp_size);
 DECLARE_string(secondary_cache_uri);
 DECLARE_int32(secondary_cache_fault_one_in);
 
+DECLARE_int32(prepopulate_block_cache);
+
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;
 
-// wrapped posix or hdfs environment
+// wrapped posix environment
 extern ROCKSDB_NAMESPACE::Env* db_stress_env;
+extern ROCKSDB_NAMESPACE::Env* db_stress_listener_env;
 #ifndef NDEBUG
 namespace ROCKSDB_NAMESPACE {
 class FaultInjectionTestFS;
@@ -562,10 +566,13 @@ extern std::vector<int64_t> GenerateNKeys(ThreadState* thread, int num_keys,
                                           uint64_t iteration);
 
 extern size_t GenerateValue(uint32_t rand, char* v, size_t max_sz);
+extern uint32_t GetValueBase(Slice s);
 
 extern StressTest* CreateCfConsistencyStressTest();
 extern StressTest* CreateBatchedOpsStressTest();
 extern StressTest* CreateNonBatchedOpsStressTest();
+extern StressTest* CreateMultiOpsTxnsStressTest();
+extern void CheckAndSetOptionsForMultiOpsTxnStressTest();
 extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 

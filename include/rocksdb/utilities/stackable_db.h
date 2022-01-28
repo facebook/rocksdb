@@ -419,6 +419,16 @@ class StackableDB : public DB {
     return db_->SetPreserveDeletesSequenceNumber(seqnum);
   }
 
+  Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                  std::string ts_low) override {
+    return db_->IncreaseFullHistoryTsLow(column_family, ts_low);
+  }
+
+  Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                             std::string* ts_low) override {
+    return db_->GetFullHistoryTsLow(column_family, ts_low);
+  }
+
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override {
     return db_->GetSortedWalFiles(files);
   }

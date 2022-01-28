@@ -16,6 +16,8 @@ class BatchedOpsStressTest : public StressTest {
   BatchedOpsStressTest() {}
   virtual ~BatchedOpsStressTest() {}
 
+  bool IsStateTracked() const override { return false; }
+
   // Given a key K and value V, this puts ("0"+K, "0"+V), ("1"+K, "1"+V), ...
   // ("9"+K, "9"+V) in DB atomically i.e in a single batch.
   // Also refer BatchedOpsStressTest::TestGet
@@ -230,7 +232,8 @@ class BatchedOpsStressTest : public StressTest {
       for (size_t i = 1; i < num_prefixes; i++) {
         if (values[i] != values[0]) {
           fprintf(stderr, "error : inconsistent values for key %s: %s, %s\n",
-                  key_str[i].c_str(), StringToHex(values[0].ToString()).c_str(),
+                  StringToHex(key_str[i]).c_str(),
+                  StringToHex(values[0].ToString()).c_str(),
                   StringToHex(values[i].ToString()).c_str());
           // we continue after error rather than exiting so that we can
           // find more errors if any

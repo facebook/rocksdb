@@ -232,23 +232,30 @@ void EventHelpers::LogAndNotifyTableFileDeletion(
 #endif  // !ROCKSDB_LITE
 }
 
-void EventHelpers::NotifyOnErrorRecoveryCompleted(
+void EventHelpers::NotifyOnErrorRecoveryEnd(
     const std::vector<std::shared_ptr<EventListener>>& listeners,
-    Status old_bg_error, InstrumentedMutex* db_mutex) {
+    const Status& old_bg_error, const Status& new_bg_error,
+    InstrumentedMutex* db_mutex) {
 #ifndef ROCKSDB_LITE
   if (!listeners.empty()) {
     db_mutex->AssertHeld();
     // release lock while notifying events
     db_mutex->Unlock();
     for (auto& listener : listeners) {
+      BackgroundErrorRecoveryInfo info;
+      info.old_bg_error = old_bg_error;
+      info.new_bg_error = new_bg_error;
       listener->OnErrorRecoveryCompleted(old_bg_error);
+      listener->OnErrorRecoveryEnd(info);
+      info.old_bg_error.PermitUncheckedError();
+      info.new_bg_error.PermitUncheckedError();
     }
     db_mutex->Lock();
   }
-  old_bg_error.PermitUncheckedError();
 #else
   (void)listeners;
   (void)old_bg_error;
+  (void)new_bg_error;
   (void)db_mutex;
 #endif  // ROCKSDB_LITE
 }

@@ -18,7 +18,7 @@ class DBBlobCompactionTest : public DBTestBase {
 
 #ifndef ROCKSDB_LITE
   const std::vector<InternalStats::CompactionStats>& GetCompactionStats() {
-    VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+    VersionSet* const versions = dbfull()->GetVersionSet();
     assert(versions);
     assert(versions->GetColumnFamilySet());
 
@@ -495,7 +495,7 @@ TEST_F(DBBlobCompactionTest, TrackGarbage) {
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
   assert(versions->GetColumnFamilySet());
 
@@ -587,6 +587,124 @@ TEST_F(DBBlobCompactionTest, MergeBlobWithBase) {
                               /*end=*/nullptr));
   ASSERT_EQ(Get("Key1"), "v1_1,v1_2,v1_3");
   ASSERT_EQ(Get("Key2"), "v2_1,v2_2");
+  Close();
+}
+
+TEST_F(DBBlobCompactionTest, CompactionReadaheadGarbageCollection) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+  options.blob_compaction_readahead_size = 1 << 10;
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+
+  ASSERT_OK(Put("key", "lime"));
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("key", "pie"));
+  ASSERT_OK(Put("foo", "baz"));
+  ASSERT_OK(Flush());
+
+  size_t num_non_prefetch_reads = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileReader::GetBlob:ReadFromFile",
+      [&num_non_prefetch_reads](void* /* arg */) { ++num_non_prefetch_reads; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(Get("key"), "pie");
+  ASSERT_EQ(Get("foo"), "baz");
+  ASSERT_EQ(num_non_prefetch_reads, 0);
+
+  Close();
+}
+
+TEST_F(DBBlobCompactionTest, CompactionReadaheadFilter) {
+  Options options = GetDefaultOptions();
+
+  std::unique_ptr<CompactionFilter> compaction_filter_guard(
+      new ValueMutationFilter("pie"));
+
+  options.compaction_filter = compaction_filter_guard.get();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_compaction_readahead_size = 1 << 10;
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+
+  ASSERT_OK(Put("key", "lime"));
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  size_t num_non_prefetch_reads = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileReader::GetBlob:ReadFromFile",
+      [&num_non_prefetch_reads](void* /* arg */) { ++num_non_prefetch_reads; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(Get("key"), "limepie");
+  ASSERT_EQ(Get("foo"), "barpie");
+  ASSERT_EQ(num_non_prefetch_reads, 0);
+
+  Close();
+}
+
+TEST_F(DBBlobCompactionTest, CompactionReadaheadMerge) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.blob_compaction_readahead_size = 1 << 10;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+
+  ASSERT_OK(Put("key", "lime"));
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Merge("key", "pie"));
+  ASSERT_OK(Merge("foo", "baz"));
+  ASSERT_OK(Flush());
+
+  size_t num_non_prefetch_reads = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileReader::GetBlob:ReadFromFile",
+      [&num_non_prefetch_reads](void* /* arg */) { ++num_non_prefetch_reads; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(Get("key"), "lime,pie");
+  ASSERT_EQ(Get("foo"), "bar,baz");
+  ASSERT_EQ(num_non_prefetch_reads, 0);
+
   Close();
 }
 

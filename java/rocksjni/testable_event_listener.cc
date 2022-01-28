@@ -11,7 +11,25 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
 
-using namespace ROCKSDB_NAMESPACE;
+using ROCKSDB_NAMESPACE::BackgroundErrorReason;
+using ROCKSDB_NAMESPACE::CompactionJobInfo;
+using ROCKSDB_NAMESPACE::CompactionJobStats;
+using ROCKSDB_NAMESPACE::CompactionReason;
+using ROCKSDB_NAMESPACE::CompressionType;
+using ROCKSDB_NAMESPACE::ExternalFileIngestionInfo;
+using ROCKSDB_NAMESPACE::FileOperationInfo;
+using ROCKSDB_NAMESPACE::FileOperationType;
+using ROCKSDB_NAMESPACE::FlushJobInfo;
+using ROCKSDB_NAMESPACE::FlushReason;
+using ROCKSDB_NAMESPACE::MemTableInfo;
+using ROCKSDB_NAMESPACE::Status;
+using ROCKSDB_NAMESPACE::TableFileCreationBriefInfo;
+using ROCKSDB_NAMESPACE::TableFileCreationInfo;
+using ROCKSDB_NAMESPACE::TableFileCreationReason;
+using ROCKSDB_NAMESPACE::TableFileDeletionInfo;
+using ROCKSDB_NAMESPACE::TableProperties;
+using ROCKSDB_NAMESPACE::WriteStallCondition;
+using ROCKSDB_NAMESPACE::WriteStallInfo;
 
 static TableProperties newTablePropertiesForTest() {
   TableProperties table_properties;
@@ -37,6 +55,7 @@ static TableProperties newTablePropertiesForTest() {
   table_properties.file_creation_time = UINT64_MAX;
   table_properties.slow_compression_estimated_data_size = UINT64_MAX;
   table_properties.fast_compression_estimated_data_size = UINT64_MAX;
+  table_properties.external_sst_file_global_seqno_offset = UINT64_MAX;
   table_properties.db_id = "dbId";
   table_properties.db_session_id = "sessionId";
   table_properties.column_family_name = "columnFamilyName";
@@ -49,7 +68,6 @@ static TableProperties newTablePropertiesForTest() {
   table_properties.compression_options = "compressionOptions";
   table_properties.user_collected_properties = {{"key", "value"}};
   table_properties.readable_properties = {{"key", "value"}};
-  table_properties.properties_offsets = {{"key", UINT64_MAX}};
   return table_properties;
 }
 

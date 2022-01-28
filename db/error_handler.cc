@@ -540,6 +540,8 @@ Status ErrorHandler::ClearBGError() {
   // Signal that recovery succeeded
   if (recovery_error_.ok()) {
     Status old_bg_error = bg_error_;
+    // old_bg_error is only for notifying listeners, so may not be checked
+    old_bg_error.PermitUncheckedError();
     // Clear and check the recovery IO and BG error
     bg_error_ = Status::OK();
     recovery_io_error_ = IOStatus::OK();
@@ -547,8 +549,8 @@ Status ErrorHandler::ClearBGError() {
     recovery_io_error_.PermitUncheckedError();
     recovery_in_prog_ = false;
     soft_error_no_bg_work_ = false;
-    EventHelpers::NotifyOnErrorRecoveryCompleted(db_options_.listeners,
-                                                 old_bg_error, db_mutex_);
+    EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, old_bg_error,
+                                           bg_error_, db_mutex_);
   }
   return recovery_error_;
 #else
@@ -665,6 +667,9 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart");
   InstrumentedMutexLock l(db_mutex_);
   if (end_recovery_) {
+    EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, bg_error_,
+                                           Status::ShutdownInProgress(),
+                                           db_mutex_);
     return;
   }
   DBRecoverContext context = recover_context_;
@@ -674,6 +679,9 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
   // Recover from the retryable error. Create a separate thread to do it.
   while (resume_count > 0) {
     if (end_recovery_) {
+      EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, bg_error_,
+                                             Status::ShutdownInProgress(),
+                                             db_mutex_);
       return;
     }
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeResume0");
@@ -695,6 +703,8 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         RecordInHistogram(bg_error_stats_.get(),
                           ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
       }
+      EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, bg_error_,
+                                             bg_error_, db_mutex_);
       return;
     }
     if (!recovery_io_error_.ok() &&
@@ -718,8 +728,8 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         Status old_bg_error = bg_error_;
         bg_error_ = Status::OK();
         bg_error_.PermitUncheckedError();
-        EventHelpers::NotifyOnErrorRecoveryCompleted(db_options_.listeners,
-                                                     old_bg_error, db_mutex_);
+        EventHelpers::NotifyOnErrorRecoveryEnd(
+            db_options_.listeners, old_bg_error, bg_error_, db_mutex_);
         if (bg_error_stats_ != nullptr) {
           RecordTick(bg_error_stats_.get(),
                      ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT);
@@ -739,12 +749,21 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
           RecordInHistogram(bg_error_stats_.get(),
                             ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
         }
+        EventHelpers::NotifyOnErrorRecoveryEnd(
+            db_options_.listeners, bg_error_,
+            !recovery_io_error_.ok()
+                ? recovery_io_error_
+                : (!recovery_error_.ok() ? recovery_error_ : s),
+            db_mutex_);
         return;
       }
     }
     resume_count--;
   }
   recovery_in_prog_ = false;
+  EventHelpers::NotifyOnErrorRecoveryEnd(
+      db_options_.listeners, bg_error_,
+      Status::Aborted("Exceeded resume retry count"), db_mutex_);
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:LoopOut");
   if (bg_error_stats_ != nullptr) {
     RecordInHistogram(bg_error_stats_.get(),

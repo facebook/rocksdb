@@ -252,7 +252,6 @@ const std::string options_file_content = R"OPTIONS_FILE(
   level0_slowdown_writes_trigger=50
   level0_file_num_compaction_trigger=10
   expanded_compaction_factor=25
-  soft_rate_limit=0.000000
   max_write_buffer_number_to_maintain=0
   max_write_buffer_size_to_maintain=0
   verify_checksums_in_compaction=true
@@ -266,7 +265,6 @@ const std::string options_file_content = R"OPTIONS_FILE(
   inplace_update_support=false
   compaction_style=kCompactionStyleUniversal
   memtable_prefix_bloom_probes=6
-  purge_redundant_kvs_while_flush=true
   filter_deletes=false
   hard_pending_compaction_bytes_limit=0
   disable_auto_compactions=false
@@ -278,6 +276,7 @@ const std::string options_file_content = R"OPTIONS_FILE(
   enable_blob_garbage_collection=true
   blob_garbage_collection_age_cutoff=0.5
   blob_garbage_collection_force_threshold=0.75
+  blob_compaction_readahead_size=262144
 
 [TableOptions/BlockBasedTable "default"]
   format_version=0

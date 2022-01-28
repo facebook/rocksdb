@@ -6,6 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/write_unprepared_txn.h"
+
 #include "db/db_impl/db_impl.h"
 #include "util/cast_util.h"
 #include "utilities/transactions/write_unprepared_txn_db.h"
@@ -1025,9 +1026,10 @@ Status WriteUnpreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
 
   WriteUnpreparedTxnReadCallback snap_checker(
       wupt_db_, snap_seq, min_uncommitted, unprep_seqs_, kBackedByDBSnapshot);
-  return TransactionUtil::CheckKeyForConflicts(db_impl_, cfh, key.ToString(),
-                                               snap_seq, false /* cache_only */,
-                                               &snap_checker, min_uncommitted);
+  // TODO(yanqin): Support user-defined timestamp.
+  return TransactionUtil::CheckKeyForConflicts(
+      db_impl_, cfh, key.ToString(), snap_seq, /*ts=*/nullptr,
+      false /* cache_only */, &snap_checker, min_uncommitted);
 }
 
 const std::map<SequenceNumber, size_t>&

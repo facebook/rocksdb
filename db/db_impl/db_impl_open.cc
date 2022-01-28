@@ -194,10 +194,25 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
   }
 #endif  // !ROCKSDB_LITE
 
+  // Supported wal compression types
+  if (result.wal_compression != kNoCompression &&
+      result.wal_compression != kZSTD) {
+    result.wal_compression = kNoCompression;
+    ROCKS_LOG_WARN(result.info_log,
+                   "wal_compression is disabled since only zstd is supported");
+  }
+
   if (!result.paranoid_checks) {
     result.skip_checking_sst_file_sizes_on_db_open = true;
     ROCKS_LOG_INFO(result.info_log,
                    "file size check will be skipped during open.");
+  }
+
+  if (result.preserve_deletes) {
+    ROCKS_LOG_WARN(
+        result.info_log,
+        "preserve_deletes is deprecated, will be removed in a future release. "
+        "Please try using user-defined timestamp instead.");
   }
 
   return result;
@@ -1458,13 +1473,13 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   constexpr int level = 0;
 
   if (s.ok() && has_output) {
-    edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
-                  meta.fd.GetFileSize(), meta.smallest, meta.largest,
-                  meta.fd.smallest_seqno, meta.fd.largest_seqno,
-                  meta.marked_for_compaction, meta.oldest_blob_file_number,
-                  meta.oldest_ancester_time, meta.file_creation_time,
-                  meta.file_checksum, meta.file_checksum_func_name,
-                  meta.min_timestamp, meta.max_timestamp);
+    edit->AddFile(
+        level, meta.fd.GetNumber(), meta.fd.GetPathId(), meta.fd.GetFileSize(),
+        meta.smallest, meta.largest, meta.fd.smallest_seqno,
+        meta.fd.largest_seqno, meta.marked_for_compaction, meta.temperature,
+        meta.oldest_blob_file_number, meta.oldest_ancester_time,
+        meta.file_creation_time, meta.file_checksum,
+        meta.file_checksum_func_name, meta.min_timestamp, meta.max_timestamp);
 
     for (const auto& blob : blob_file_additions) {
       edit->AddBlobFile(blob);

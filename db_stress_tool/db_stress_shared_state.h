@@ -68,7 +68,7 @@ class SharedState {
         seed_(static_cast<uint32_t>(FLAGS_seed)),
         max_key_(FLAGS_max_key),
         log2_keys_per_lock_(static_cast<uint32_t>(FLAGS_log2_keys_per_lock)),
-        num_threads_(FLAGS_threads),
+        num_threads_(0),
         num_initialized_(0),
         num_populated_(0),
         vote_reopen_(0),
@@ -163,14 +163,6 @@ class SharedState {
         ptr.reset(new port::Mutex);
       }
     }
-    if (FLAGS_compaction_thread_pool_adjust_interval > 0) {
-      ++num_bg_threads_;
-      fprintf(stdout, "Starting compaction_thread_pool_adjust_thread\n");
-    }
-    if (FLAGS_continuous_verification_interval > 0) {
-      ++num_bg_threads_;
-      fprintf(stdout, "Starting continuous_verification_thread\n");
-    }
 #ifndef NDEBUG
     if (FLAGS_read_fault_one_in) {
       SyncPoint::GetInstance()->SetCallBack("FaultInjectionIgnoreError",
@@ -198,6 +190,8 @@ class SharedState {
   int64_t GetMaxKey() const { return max_key_; }
 
   uint32_t GetNumThreads() const { return num_threads_; }
+
+  void IncThreads() { num_threads_++; }
 
   void IncInitialized() { num_initialized_++; }
 
@@ -249,6 +243,14 @@ class SharedState {
       mutex->Unlock();
     }
   }
+
+  Status SaveAtAndAfter(DB* db) {
+    return expected_state_manager_->SaveAtAndAfter(db);
+  }
+
+  bool HasHistory() { return expected_state_manager_->HasHistory(); }
+
+  Status Restore(DB* db) { return expected_state_manager_->Restore(db); }
 
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) {
@@ -309,6 +311,8 @@ class SharedState {
 
   bool ShouldStopBgThread() { return should_stop_bg_thread_; }
 
+  void IncBgThreads() { ++num_bg_threads_; }
+
   void IncBgThreadsFinished() { ++bg_thread_finished_; }
 
   bool BgThreadsFinished() const {
@@ -339,7 +343,7 @@ class SharedState {
   const uint32_t seed_;
   const int64_t max_key_;
   const uint32_t log2_keys_per_lock_;
-  const int num_threads_;
+  int num_threads_;
   long num_initialized_;
   long num_populated_;
   long vote_reopen_;

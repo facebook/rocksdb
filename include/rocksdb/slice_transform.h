@@ -38,7 +38,7 @@ class SliceTransform : public Customizable {
   virtual ~SliceTransform(){};
 
   // Return the name of this transformation.
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
   static const char* Type() { return "SliceTransform"; }
 
   // Creates and configures a new SliceTransform from the input options and id.
@@ -47,7 +47,7 @@ class SliceTransform : public Customizable {
                                  std::shared_ptr<const SliceTransform>* result);
 
   // Returns a string representation of this SliceTransform, representing the ID
-  // and any additional properties
+  // and any additional properties.
   std::string AsString() const;
 
   // Extract a prefix from a specified key. This method is called when

@@ -44,6 +44,9 @@ class WritableFileWriter;
 struct ConfigOptions;
 struct EnvOptions;
 
+// Types of checksums to use for checking integrity of logical blocks within
+// files. All checksums currently use 32 bits of checking power (1 in 4B
+// chance of failing to detect random corruption).
 enum ChecksumType : char {
   kNoChecksum = 0x0,
   kCRC32c = 0x1,
@@ -256,7 +259,7 @@ struct BlockBasedTableOptions {
   // block size specified here corresponds to uncompressed data.  The
   // actual size of the unit read from disk may be smaller if
   // compression is enabled.  This parameter can be changed dynamically.
-  size_t block_size = 4 * 1024;
+  uint64_t block_size = 4 * 1024;
 
   // This is used to close a block before it reaches the configured
   // 'block_size'. If the percentage of free space in the current block is less
@@ -284,6 +287,25 @@ struct BlockBasedTableOptions {
   // TODO(myabandeh): remove the note above when filter partitions are cut
   // separately
   uint64_t metadata_block_size = 4096;
+
+  // If true, a dynamically updating charge to block cache, loosely based
+  // on the actual memory usage of table building, will occur to account
+  // the memory, if block cache available.
+  //
+  // Charged memory usage includes:
+  // 1. (new) Bloom Filter and Ribbon Filter construction
+  // 2. More to come...
+  //
+  // Note:
+  // 1. (new) Bloom Filter and Ribbon Filter construction
+  //
+  // If additional temporary memory of Ribbon Filter uses up too much memory
+  // relative to the avaible space left in the block cache
+  // at some point (i.e, causing a cache full when strict_capacity_limit =
+  // true), construction will fall back to (new) Bloom Filter.
+  //
+  // Default: false
+  bool reserve_table_builder_memory = false;
 
   // Note: currently this option requires kTwoLevelIndexSearch to be set as
   // well.
@@ -371,10 +393,9 @@ struct BlockBasedTableOptions {
   // Default: 0 (disabled)
   uint32_t read_amp_bytes_per_bit = 0;
 
-  // We currently have five versions:
-  // 0 -- This version is currently written out by all RocksDB's versions by
-  // default.  Can be read by really old RocksDB's. Doesn't support changing
-  // checksum (default is CRC32).
+  // We currently have these versions:
+  // 0 -- This version can be read by really old RocksDB's. Doesn't support
+  // changing checksum type (default is CRC32).
   // 1 -- Can be read by RocksDB's versions since 3.0. Supports non-default
   // checksum, like xxHash. It is written by RocksDB when
   // BlockBasedTableOptions::checksum is something other than kCRC32c. (version

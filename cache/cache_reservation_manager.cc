@@ -28,8 +28,6 @@ CacheReservationManager::CacheReservationManager(std::shared_ptr<Cache> cache,
       memory_used_(0) {
   assert(cache != nullptr);
   cache_ = cache;
-  std::memset(cache_key_, 0, kCacheKeyPrefixSize + kMaxVarint64Length);
-  EncodeVarint64(cache_key_, cache_->NewId());
 }
 
 CacheReservationManager::~CacheReservationManager() {
@@ -95,6 +93,11 @@ template Status
 CacheReservationManager::MakeCacheReservation<CacheEntryRole::kMisc>(
     std::size_t incremental_memory_used,
     std::unique_ptr<CacheReservationHandle<CacheEntryRole::kMisc>>* handle);
+template Status CacheReservationManager::MakeCacheReservation<
+    CacheEntryRole::kFilterConstruction>(
+    std::size_t incremental_memory_used,
+    std::unique_ptr<
+        CacheReservationHandle<CacheEntryRole::kFilterConstruction>>* handle);
 
 template <CacheEntryRole R>
 Status CacheReservationManager::IncreaseCacheReservation(
@@ -147,11 +150,17 @@ Slice CacheReservationManager::GetNextCacheKey() {
   // underlying cache_key_ that is shared among other keys generated from this
   // fucntion. Therefore please make sure the previous keys are saved/copied
   // before calling this function.
-  std::memset(cache_key_ + kCacheKeyPrefixSize, 0, kMaxVarint64Length);
-  char* end =
-      EncodeVarint64(cache_key_ + kCacheKeyPrefixSize, next_cache_key_id_++);
-  return Slice(cache_key_, static_cast<std::size_t>(end - cache_key_));
+  cache_key_ = CacheKey::CreateUniqueForCacheLifetime(cache_.get());
+  return cache_key_.AsSlice();
 }
+
+template <CacheEntryRole R>
+Cache::DeleterFn CacheReservationManager::TEST_GetNoopDeleterForRole() {
+  return GetNoopDeleterForRole<R>();
+}
+
+template Cache::DeleterFn CacheReservationManager::TEST_GetNoopDeleterForRole<
+    CacheEntryRole::kFilterConstruction>();
 
 template <CacheEntryRole R>
 CacheReservationHandle<R>::CacheReservationHandle(
@@ -175,4 +184,5 @@ CacheReservationHandle<R>::~CacheReservationHandle() {
 // Explicitly instantiate templates for "CacheEntryRole" values we use.
 // This makes it possible to keep the template definitions in the .cc file.
 template class CacheReservationHandle<CacheEntryRole::kMisc>;
+template class CacheReservationHandle<CacheEntryRole::kFilterConstruction>;
 }  // namespace ROCKSDB_NAMESPACE

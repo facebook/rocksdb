@@ -106,12 +106,13 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/AdvancedColumnFamilyOptionsInterface.java
   src/main/java/org/rocksdb/AdvancedMutableColumnFamilyOptionsInterface.java
   src/main/java/org/rocksdb/BackgroundErrorReason.java
-  src/main/java/org/rocksdb/BackupableDBOptions.java
+  src/main/java/org/rocksdb/BackupEngineOptions.java
   src/main/java/org/rocksdb/BackupEngine.java
   src/main/java/org/rocksdb/BackupInfo.java
   src/main/java/org/rocksdb/BlockBasedTableConfig.java
   src/main/java/org/rocksdb/BloomFilter.java
   src/main/java/org/rocksdb/BuiltinComparator.java
+  src/main/java/org/rocksdb/ByteBufferGetStatus.java
   src/main/java/org/rocksdb/Cache.java
   src/main/java/org/rocksdb/CassandraCompactionFilter.java
   src/main/java/org/rocksdb/CassandraValueMergeOperator.java
@@ -156,7 +157,6 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/FlushOptions.java
   src/main/java/org/rocksdb/HashLinkedListMemTableConfig.java
   src/main/java/org/rocksdb/HashSkipListMemTableConfig.java
-  src/main/java/org/rocksdb/HdfsEnv.java
   src/main/java/org/rocksdb/HistogramData.java
   src/main/java/org/rocksdb/HistogramType.java
   src/main/java/org/rocksdb/Holder.java
@@ -421,7 +421,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.AbstractTraceWriter
           org.rocksdb.AbstractTransactionNotifier
           org.rocksdb.AbstractWalFilter
-          org.rocksdb.BackupableDBOptions
+          org.rocksdb.BackupEngineOptions
           org.rocksdb.BackupEngine
           org.rocksdb.BlockBasedTableConfig
           org.rocksdb.BloomFilter
@@ -450,7 +450,6 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.FlushOptions
           org.rocksdb.HashLinkedListMemTableConfig
           org.rocksdb.HashSkipListMemTableConfig
-          org.rocksdb.HdfsEnv
           org.rocksdb.IngestExternalFileOptions
           org.rocksdb.Logger
           org.rocksdb.LRUCache

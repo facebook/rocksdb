@@ -193,7 +193,7 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 #define ALIGN_AS(n) /*empty*/
 #else
 #if defined(__s390__)
-#if defined(__GNUC__) && __GNUC__ < 6
+#if defined(__GNUC__) && __GNUC__ < 7
 #define CACHE_LINE_SIZE 64U
 #else
 #define CACHE_LINE_SIZE 256U

@@ -403,6 +403,10 @@ class DB {
   // If "end_key" comes before "start_key" according to the user's comparator,
   // a `Status::InvalidArgument` is returned.
   //
+  // WARNING: Do not use `Iterator::Refresh()` API on DBs where `DeleteRange()`
+  // has been used or will be used. This feature combination is neither
+  // supported nor programmatically prevented.
+  //
   // This feature is now usable in production, with the following caveats:
   // 1) Accumulating many range tombstones in the memtable will degrade read
   // performance; this can be avoided by manually flushing occasionally.
@@ -1356,6 +1360,15 @@ class DB {
   // times have the same effect as calling it once.
   virtual Status DisableFileDeletions() = 0;
 
+  // Increase the full_history_ts of column family. The new ts_low value should
+  // be newer than current full_history_ts value.
+  virtual Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                          std::string ts_low) = 0;
+
+  // Get current full_history_ts value.
+  virtual Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                     std::string* ts_low) = 0;
+
   // Allow compactions to delete obsolete files.
   // If force == true, the call to EnableFileDeletions() will guarantee that
   // file deletions are enabled after the call, even if DisableFileDeletions()
@@ -1555,108 +1568,6 @@ class DB {
   virtual Status VerifyChecksum(const ReadOptions& read_options) = 0;
 
   virtual Status VerifyChecksum() { return VerifyChecksum(ReadOptions()); }
-
-  // AddFile() is deprecated, please use IngestExternalFile()
-  ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
-      ColumnFamilyHandle* column_family,
-      const std::vector<std::string>& file_path_list, bool move_file = false,
-      bool skip_snapshot_check = false) {
-    IngestExternalFileOptions ifo;
-    ifo.move_files = move_file;
-    ifo.snapshot_consistency = !skip_snapshot_check;
-    ifo.allow_global_seqno = false;
-    ifo.allow_blocking_flush = false;
-    return IngestExternalFile(column_family, file_path_list, ifo);
-  }
-
-  ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
-      const std::vector<std::string>& file_path_list, bool move_file = false,
-      bool skip_snapshot_check = false) {
-    IngestExternalFileOptions ifo;
-    ifo.move_files = move_file;
-    ifo.snapshot_consistency = !skip_snapshot_check;
-    ifo.allow_global_seqno = false;
-    ifo.allow_blocking_flush = false;
-    return IngestExternalFile(DefaultColumnFamily(), file_path_list, ifo);
-  }
-
-  // AddFile() is deprecated, please use IngestExternalFile()
-  ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
-      ColumnFamilyHandle* column_family, const std::string& file_path,
-      bool move_file = false, bool skip_snapshot_check = false) {
-    IngestExternalFileOptions ifo;
-    ifo.move_files = move_file;
-    ifo.snapshot_consistency = !skip_snapshot_check;
-    ifo.allow_global_seqno = false;
-    ifo.allow_blocking_flush = false;
-    return IngestExternalFile(column_family, {file_path}, ifo);
-  }
-
-  ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
-      const std::string& file_path, bool move_file = false,
-      bool skip_snapshot_check = false) {
-    IngestExternalFileOptions ifo;
-    ifo.move_files = move_file;
-    ifo.snapshot_consistency = !skip_snapshot_check;
-    ifo.allow_global_seqno = false;
-    ifo.allow_blocking_flush = false;
-    return IngestExternalFile(DefaultColumnFamily(), {file_path}, ifo);
-  }
-
-  // Load table file with information "file_info" into "column_family"
-  ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
-      ColumnFamilyHandle* column_family,
-      const std::vector<ExternalSstFileInfo>& file_info_list,
-      bool move_file = false, bool skip_snapshot_check = false) {
-    std::vector<std::string> external_files;
-    for (const ExternalSstFileInfo& file_info : file_info_list) {
-      external_files.push_back(file_info.file_path);
-    }
-    IngestExternalFileOptions ifo;
-    ifo.move_files = move_file;
-    ifo.snapshot_consistency = !skip_snapshot_check;
-    ifo.allow_global_seqno = false;
-    ifo.allow_blocking_flush = false;
-    return IngestExternalFile(column_family, external_files, ifo);
-  }
-
-  ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
-      const std::vector<ExternalSstFileInfo>& file_info_list,
-      bool move_file = false, bool skip_snapshot_check = false) {
-    std::vector<std::string> external_files;
-    for (const ExternalSstFileInfo& file_info : file_info_list) {
-      external_files.push_back(file_info.file_path);
-    }
-    IngestExternalFileOptions ifo;
-    ifo.move_files = move_file;
-    ifo.snapshot_consistency = !skip_snapshot_check;
-    ifo.allow_global_seqno = false;
-    ifo.allow_blocking_flush = false;
-    return IngestExternalFile(DefaultColumnFamily(), external_files, ifo);
-  }
-
-  ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
-      ColumnFamilyHandle* column_family, const ExternalSstFileInfo* file_info,
-      bool move_file = false, bool skip_snapshot_check = false) {
-    IngestExternalFileOptions ifo;
-    ifo.move_files = move_file;
-    ifo.snapshot_consistency = !skip_snapshot_check;
-    ifo.allow_global_seqno = false;
-    ifo.allow_blocking_flush = false;
-    return IngestExternalFile(column_family, {file_info->file_path}, ifo);
-  }
-
-  ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
-      const ExternalSstFileInfo* file_info, bool move_file = false,
-      bool skip_snapshot_check = false) {
-    IngestExternalFileOptions ifo;
-    ifo.move_files = move_file;
-    ifo.snapshot_consistency = !skip_snapshot_check;
-    ifo.allow_global_seqno = false;
-    ifo.allow_blocking_flush = false;
-    return IngestExternalFile(DefaultColumnFamily(), {file_info->file_path},
-                              ifo);
-  }
 
 #endif  // ROCKSDB_LITE
 

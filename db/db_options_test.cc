@@ -266,6 +266,50 @@ TEST_F(DBOptionsTest, SetMutableTableOptions) {
   ASSERT_EQ(c_bbto->block_restart_interval, 13);
 }
 
+TEST_F(DBOptionsTest, SetWithCustomMemTableFactory) {
+  class DummySkipListFactory : public SkipListFactory {
+   public:
+    static const char* kClassName() { return "DummySkipListFactory"; }
+    const char* Name() const override { return kClassName(); }
+    explicit DummySkipListFactory() : SkipListFactory(2) {}
+  };
+  {
+    // Verify the DummySkipList cannot be created
+    ConfigOptions config_options;
+    config_options.ignore_unsupported_options = false;
+    std::unique_ptr<MemTableRepFactory> factory;
+    ASSERT_NOK(MemTableRepFactory::CreateFromString(
+        config_options, DummySkipListFactory::kClassName(), &factory));
+  }
+  Options options;
+  options.create_if_missing = true;
+  // Try with fail_if_options_file_error=false/true to update the options
+  for (bool on_error : {false, true}) {
+    options.fail_if_options_file_error = on_error;
+    options.env = env_;
+    options.disable_auto_compactions = false;
+
+    options.memtable_factory.reset(new DummySkipListFactory());
+    Reopen(options);
+
+    ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+    ASSERT_OK(
+        dbfull()->SetOptions(cfh, {{"disable_auto_compactions", "true"}}));
+    ColumnFamilyDescriptor cfd;
+    ASSERT_OK(cfh->GetDescriptor(&cfd));
+    ASSERT_STREQ(cfd.options.memtable_factory->Name(),
+                 DummySkipListFactory::kClassName());
+    ColumnFamilyHandle* test = nullptr;
+    ASSERT_OK(dbfull()->CreateColumnFamily(options, "test", &test));
+    ASSERT_OK(test->GetDescriptor(&cfd));
+    ASSERT_STREQ(cfd.options.memtable_factory->Name(),
+                 DummySkipListFactory::kClassName());
+
+    ASSERT_OK(dbfull()->DropColumnFamily(test));
+    delete test;
+  }
+}
+
 TEST_F(DBOptionsTest, SetBytesPerSync) {
   const size_t kValueSize = 1024 * 1024;  // 1MB
   Options options;

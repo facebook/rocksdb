@@ -68,24 +68,31 @@ bool RunStressTest(StressTest* stress) {
   }
 #endif
 
-  uint32_t n = shared.GetNumThreads();
-
+  uint32_t n = FLAGS_threads;
   uint64_t now = clock->NowMicros();
   fprintf(stdout, "%s Initializing worker threads\n",
           clock->TimeToString(now / 1000000).c_str());
-  std::vector<ThreadState*> threads(n);
-  for (uint32_t i = 0; i < n; i++) {
-    threads[i] = new ThreadState(i, &shared);
-    db_stress_env->StartThread(ThreadBody, threads[i]);
-  }
+
   ThreadState bg_thread(0, &shared);
-  if (FLAGS_compaction_thread_pool_adjust_interval > 0) {
-    db_stress_env->StartThread(PoolSizeChangeThread, &bg_thread);
-  }
   ThreadState continuous_verification_thread(0, &shared);
-  if (FLAGS_continuous_verification_interval > 0) {
-    db_stress_env->StartThread(DbVerificationThread,
-                               &continuous_verification_thread);
+  std::vector<ThreadState*> threads(n);
+  {
+    MutexLock l(shared.GetMutex());
+
+    for (uint32_t i = 0; i < n; i++) {
+      shared.IncThreads();
+      threads[i] = new ThreadState(i, &shared);
+      db_stress_env->StartThread(ThreadBody, threads[i]);
+    }
+    if (FLAGS_compaction_thread_pool_adjust_interval > 0) {
+      shared.IncBgThreads();
+      db_stress_env->StartThread(PoolSizeChangeThread, &bg_thread);
+    }
+    if (FLAGS_continuous_verification_interval > 0) {
+      shared.IncBgThreads();
+      db_stress_env->StartThread(DbVerificationThread,
+                                 &continuous_verification_thread);
+    }
   }
 
   // Each thread goes through the following states:

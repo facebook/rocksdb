@@ -1193,6 +1193,10 @@ class FileSystemWrapper : public FileSystem {
   explicit FileSystemWrapper(const std::shared_ptr<FileSystem>& t);
   ~FileSystemWrapper() override {}
 
+  // Deprecated. Will be removed in a major release. Derived classes
+  // should implement this method.
+  const char* Name() const override { return target_->Name(); }
+
   // Return the target to which this Env forwards all calls
   FileSystem* target() const { return target_.get(); }
 

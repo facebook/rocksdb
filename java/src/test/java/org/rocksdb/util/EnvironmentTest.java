@@ -43,7 +43,7 @@ public class EnvironmentTest {
 
   @Test
   public void mac64() {
-    setEnvironmentClassFields("mac", "64");
+    setEnvironmentClassFields("mac", "x86-64");
     assertThat(Environment.isWindows()).isFalse();
     assertThat(Environment.getJniLibraryExtension()).
         isEqualTo(".jnilib");
@@ -51,6 +51,16 @@ public class EnvironmentTest {
         isEqualTo("librocksdbjni-osx.jnilib");
     assertThat(Environment.getSharedLibraryFileName("rocksdb")).
         isEqualTo("librocksdbjni.dylib");
+  }
+
+  @Test
+  public void macAarch64() {
+    setEnvironmentClassFields("mac", "aarch64");
+    assertThat(Environment.isWindows()).isFalse();
+    assertThat(Environment.getJniLibraryExtension()).isEqualTo(".jnilib");
+    assertThat(Environment.getJniLibraryFileName("rocksdb"))
+        .isEqualTo("librocksdbjni-osx-aarch64.jnilib");
+    assertThat(Environment.getSharedLibraryFileName("rocksdb")).isEqualTo("librocksdbjni.dylib");
   }
 
   @Test
@@ -184,7 +194,7 @@ public class EnvironmentTest {
   }
 
   @Test
-  public void aarch64() {
+  public void linuxArch64() {
     setEnvironmentClassField(MUSL_LIBC_FIELD_NAME, false);
     setEnvironmentClassFields("Linux", "aarch64");
     assertThat(Environment.isUnix()).isTrue();

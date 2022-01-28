@@ -99,7 +99,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       blob_garbage_collection_age_cutoff(
           options.blob_garbage_collection_age_cutoff),
       blob_garbage_collection_force_threshold(
-          options.blob_garbage_collection_force_threshold) {
+          options.blob_garbage_collection_force_threshold),
+      blob_compaction_readahead_size(options.blob_compaction_readahead_size) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -405,6 +406,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      blob_garbage_collection_age_cutoff);
     ROCKS_LOG_HEADER(log, "Options.blob_garbage_collection_force_threshold: %f",
                      blob_garbage_collection_force_threshold);
+    ROCKS_LOG_HEADER(
+        log, "         Options.blob_compaction_readahead_size: %" PRIu64,
+        blob_compaction_readahead_size);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {
@@ -467,6 +471,19 @@ Options* Options::OptimizeForSmallDb() {
 
   ColumnFamilyOptions::OptimizeForSmallDb(&cache);
   DBOptions::OptimizeForSmallDb(&cache);
+  return this;
+}
+
+Options* Options::DisableExtraChecks() {
+  // See https://github.com/facebook/rocksdb/issues/9354
+  force_consistency_checks = false;
+  // Considered but no clear performance impact seen:
+  // * check_flush_compaction_key_order
+  // * paranoid_checks
+  // * flush_verify_memtable_count
+  // By current API contract, not including
+  // * verify_checksums
+  // because checking storage data integrity is a more standard practice.
   return this;
 }
 

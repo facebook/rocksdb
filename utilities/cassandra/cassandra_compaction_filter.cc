@@ -80,21 +80,21 @@ CassandraCompactionFilterFactory::CreateCompactionFilter(
 #ifndef ROCKSDB_LITE
 int RegisterCassandraObjects(ObjectLibrary& library,
                              const std::string& /*arg*/) {
-  library.Register<MergeOperator>(
+  library.AddFactory<MergeOperator>(
       CassandraValueMergeOperator::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /* errmsg */) {
         guard->reset(new CassandraValueMergeOperator(0));
         return guard->get();
       });
-  library.Register<CompactionFilter>(
+  library.AddFactory<CompactionFilter>(
       CassandraCompactionFilter::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<CompactionFilter>* /*guard */,
          std::string* /* errmsg */) {
         return new CassandraCompactionFilter(false, 0);
       });
-  library.Register<CompactionFilterFactory>(
+  library.AddFactory<CompactionFilterFactory>(
       CassandraCompactionFilterFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<CompactionFilterFactory>* guard,

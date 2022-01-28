@@ -38,7 +38,12 @@ namespace ROCKSDB_NAMESPACE {
 namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
-const uint32_t kLatestFormatVersion = 5u;
+const std::set<uint32_t> kFooterFormatVersionsToTest{
+    5U,
+    // In case any interesting future changes
+    kDefaultFormatVersion,
+    kLatestFormatVersion,
+};
 
 std::string RandomKey(Random* rnd, int len, RandomKeyType type) {
   // Make sure to generate a wide variety of characters so we
@@ -386,7 +391,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->level_compaction_dynamic_level_bytes = rnd->Uniform(2);
   cf_opt->optimize_filters_for_hits = rnd->Uniform(2);
   cf_opt->paranoid_file_checks = rnd->Uniform(2);
-  cf_opt->purge_redundant_kvs_while_flush = rnd->Uniform(2);
   cf_opt->force_consistency_checks = rnd->Uniform(2);
   cf_opt->compaction_options_fifo.allow_compaction = rnd->Uniform(2);
   cf_opt->memtable_whole_key_filtering = rnd->Uniform(2);
@@ -394,8 +398,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->enable_blob_garbage_collection = rnd->Uniform(2);
 
   // double options
-  cf_opt->hard_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
-  cf_opt->soft_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
   cf_opt->memtable_prefix_bloom_size_ratio =
       static_cast<double>(rnd->Uniform(10000)) / 20000.0;
   cf_opt->blob_garbage_collection_age_cutoff = rnd->Uniform(10000) / 10000.0;
@@ -446,6 +448,7 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
       uint_max + rnd->Uniform(10000);
   cf_opt->min_blob_size = uint_max + rnd->Uniform(10000);
   cf_opt->blob_file_size = uint_max + rnd->Uniform(10000);
+  cf_opt->blob_compaction_readahead_size = uint_max + rnd->Uniform(10000);
 
   // unsigned int options
   cf_opt->rate_limit_delay_max_milliseconds = rnd->Uniform(10000);
@@ -670,6 +673,25 @@ class SpecialMemTableRep : public MemTableRep {
 };
 class SpecialSkipListFactory : public MemTableRepFactory {
  public:
+#ifndef ROCKSDB_LITE
+  static bool Register(ObjectLibrary& library, const std::string& /*arg*/) {
+    library.AddFactory<MemTableRepFactory>(
+        ObjectLibrary::PatternEntry(SpecialSkipListFactory::kClassName(), true)
+            .AddNumber(":"),
+        [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
+           std::string* /* errmsg */) {
+          auto colon = uri.find(":");
+          if (colon != std::string::npos) {
+            auto count = ParseInt(uri.substr(colon + 1));
+            guard->reset(new SpecialSkipListFactory(count));
+          } else {
+            guard->reset(new SpecialSkipListFactory(2));
+          }
+          return guard->get();
+        });
+    return true;
+  }
+#endif  // ROCKSDB_LITE
   // After number of inserts exceeds `num_entries_flush` in a mem table, trigger
   // flush.
   explicit SpecialSkipListFactory(int num_entries_flush)
@@ -711,9 +733,9 @@ MemTableRepFactory* NewSpecialSkipListFactory(int num_entries_per_flush) {
 
 #ifndef ROCKSDB_LITE
 // This method loads existing test classes into the ObjectRegistry
-int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/) {
+int RegisterTestObjects(ObjectLibrary& library, const std::string& arg) {
   size_t num_types;
-  library.Register<const Comparator>(
+  library.AddFactory<const Comparator>(
       test::SimpleSuffixReverseComparator::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<const Comparator>* /*guard*/,
@@ -721,40 +743,28 @@ int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/) {
         static test::SimpleSuffixReverseComparator ssrc;
         return &ssrc;
       });
-  library.Register<MemTableRepFactory>(
-      std::string(SpecialSkipListFactory::kClassName()) + "(:[0-9]*)?",
-      [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
-         std::string* /* errmsg */) {
-        auto colon = uri.find(":");
-        if (colon != std::string::npos) {
-          auto count = ParseInt(uri.substr(colon + 1));
-          guard->reset(new SpecialSkipListFactory(count));
-        } else {
-          guard->reset(new SpecialSkipListFactory(2));
-        }
-        return guard->get();
-      });
-  library.Register<MergeOperator>(
+  SpecialSkipListFactory::Register(library, arg);
+  library.AddFactory<MergeOperator>(
       "Changling",
       [](const std::string& uri, std::unique_ptr<MergeOperator>* guard,
          std::string* /* errmsg */) {
         guard->reset(new test::ChanglingMergeOperator(uri));
         return guard->get();
       });
-  library.Register<CompactionFilter>(
+  library.AddFactory<CompactionFilter>(
       "Changling",
       [](const std::string& uri, std::unique_ptr<CompactionFilter>* /*guard*/,
          std::string* /* errmsg */) {
         return new test::ChanglingCompactionFilter(uri);
       });
-  library.Register<CompactionFilterFactory>(
+  library.AddFactory<CompactionFilterFactory>(
       "Changling", [](const std::string& uri,
                       std::unique_ptr<CompactionFilterFactory>* guard,
                       std::string* /* errmsg */) {
         guard->reset(new test::ChanglingCompactionFilterFactory(uri));
         return guard->get();
       });
-  library.Register<SystemClock>(
+  library.AddFactory<SystemClock>(
       MockSystemClock::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<SystemClock>* guard,
          std::string* /* errmsg */) {

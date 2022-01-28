@@ -291,11 +291,9 @@ void TestCustomizedTablePropertiesCollector(
   std::unique_ptr<RandomAccessFileReader> fake_file_reader(
       new RandomAccessFileReader(std::move(source), "test"));
 
-  TableProperties* props;
+  std::unique_ptr<TableProperties> props;
   Status s = ReadTableProperties(fake_file_reader.get(), fwf->contents().size(),
-                                 magic_number, ioptions, &props,
-                                 true /* compression_type_missing */);
-  std::unique_ptr<TableProperties> props_guard(props);
+                                 magic_number, ioptions, &props);
   ASSERT_OK(s);
 
   auto user_collected = props->user_collected_properties;
@@ -432,13 +430,11 @@ void TestInternalKeyPropertiesCollector(
     std::unique_ptr<RandomAccessFileReader> reader(
         new RandomAccessFileReader(std::move(source), "test"));
 
-    TableProperties* props;
-    Status s =
-        ReadTableProperties(reader.get(), fwf->contents().size(), magic_number,
-                            ioptions, &props, true /* compression_type_missing */);
+    std::unique_ptr<TableProperties> props;
+    Status s = ReadTableProperties(reader.get(), fwf->contents().size(),
+                                   magic_number, ioptions, &props);
     ASSERT_OK(s);
 
-    std::unique_ptr<TableProperties> props_guard(props);
     auto user_collected = props->user_collected_properties;
     uint64_t deleted = GetDeletedKeys(user_collected);
     ASSERT_EQ(5u, deleted);  // deletes + single-deletes

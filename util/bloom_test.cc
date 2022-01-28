@@ -19,6 +19,8 @@ int main() {
 #include <cmath>
 #include <vector>
 
+#include "cache/cache_entry_roles.h"
+#include "cache/cache_reservation_manager.h"
 #include "memory/arena.h"
 #include "port/jemalloc_helper.h"
 #include "rocksdb/filter_policy.h"
@@ -597,6 +599,62 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
       // No storage penalty, just usual overhead
       EXPECT_LE(static_cast<int64_t>(total_size),
                 ex_min_total_size + blocked_bloom_overhead);
+    }
+  }
+}
+
+TEST(FullBloomFilterConstructionReserveMemTest,
+     RibbonFilterFallBackOnLargeBanding) {
+  constexpr std::size_t kCacheCapacity =
+      8 * CacheReservationManager::GetDummyEntrySize();
+  constexpr std::size_t num_entries_for_cache_full = kCacheCapacity / 8;
+
+  for (bool reserve_builder_mem : {true, false}) {
+    bool will_fall_back = reserve_builder_mem;
+
+    BlockBasedTableOptions table_options;
+    table_options.reserve_table_builder_memory = reserve_builder_mem;
+    LRUCacheOptions lo;
+    lo.capacity = kCacheCapacity;
+    lo.num_shard_bits = 0;  // 2^0 shard
+    lo.strict_capacity_limit = true;
+    std::shared_ptr<Cache> cache(NewLRUCache(lo));
+    table_options.block_cache = cache;
+    table_options.filter_policy.reset(new BloomFilterPolicy(
+        FLAGS_bits_per_key, BloomFilterPolicy::Mode::kStandard128Ribbon));
+    FilterBuildingContext ctx(table_options);
+    std::unique_ptr<FilterBitsBuilder> filter_bits_builder(
+        table_options.filter_policy->GetBuilderWithContext(ctx));
+
+    char key_buffer[sizeof(int)];
+    for (std::size_t i = 0; i < num_entries_for_cache_full; ++i) {
+      filter_bits_builder->AddKey(Key(static_cast<int>(i), key_buffer));
+    }
+
+    std::unique_ptr<const char[]> buf;
+    Slice filter = filter_bits_builder->Finish(&buf);
+
+    // To verify Ribbon Filter fallbacks to Bloom Filter properly
+    // based on cache reservation result
+    // See BloomFilterPolicy::GetBloomBitsReader re: metadata
+    // -1 = Marker for newer Bloom implementations
+    // -2 = Marker for Standard128 Ribbon
+    if (will_fall_back) {
+      EXPECT_EQ(filter.data()[filter.size() - 5], static_cast<char>(-1));
+    } else {
+      EXPECT_EQ(filter.data()[filter.size() - 5], static_cast<char>(-2));
+    }
+
+    if (reserve_builder_mem) {
+      const size_t dummy_entry_num = static_cast<std::size_t>(std::ceil(
+          filter.size() * 1.0 / CacheReservationManager::GetDummyEntrySize()));
+      EXPECT_GE(cache->GetPinnedUsage(),
+                dummy_entry_num * CacheReservationManager::GetDummyEntrySize());
+      EXPECT_LT(
+          cache->GetPinnedUsage(),
+          (dummy_entry_num + 1) * CacheReservationManager::GetDummyEntrySize());
+    } else {
+      EXPECT_EQ(cache->GetPinnedUsage(), 0);
     }
   }
 }
@@ -1198,7 +1256,7 @@ INSTANTIATE_TEST_CASE_P(Full, FullBloomTest,
 
 static double GetEffectiveBitsPerKey(FilterBitsBuilder* builder) {
   union {
-    uint64_t key_value;
+    uint64_t key_value = 0;
     char key_bytes[8];
   };
 

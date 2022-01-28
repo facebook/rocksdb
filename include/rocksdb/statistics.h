@@ -417,6 +417,14 @@ enum Tickers : uint32_t {
   REMOTE_COMPACT_READ_BYTES,
   REMOTE_COMPACT_WRITE_BYTES,
 
+  // Tiered storage related statistics
+  HOT_FILE_READ_BYTES,
+  WARM_FILE_READ_BYTES,
+  COLD_FILE_READ_BYTES,
+  HOT_FILE_READ_COUNT,
+  WARM_FILE_READ_COUNT,
+  COLD_FILE_READ_COUNT,
+
   TICKER_ENUM_MAX
 };
 
@@ -579,7 +587,7 @@ enum StatsLevel : uint8_t {
 // including data loss, unreported corruption, deadlocks, and more.
 class Statistics : public Customizable {
  public:
-  virtual ~Statistics() {}
+  ~Statistics() override {}
   static const char* Type() { return "Statistics"; }
   static Status CreateFromString(const ConfigOptions& opts,
                                  const std::string& value,

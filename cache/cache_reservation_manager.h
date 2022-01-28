@@ -150,12 +150,14 @@ class CacheReservationManager
 
   static constexpr std::size_t GetDummyEntrySize() { return kSizeDummyEntry; }
 
+  // For testing only - it is to help ensure the NoopDeleterForRole<R>
+  // accessed from CacheReservationManager and the one accessed from the test
+  // are from the same translation units
+  template <CacheEntryRole R>
+  static Cache::DeleterFn TEST_GetNoopDeleterForRole();
+
  private:
   static constexpr std::size_t kSizeDummyEntry = 256 * 1024;
-  // The key will be longer than keys for blocks in SST files so they won't
-  // conflict.
-  static const std::size_t kCacheKeyPrefixSize =
-      BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length;
 
   Slice GetNextCacheKey();
   template <CacheEntryRole R>
@@ -167,9 +169,7 @@ class CacheReservationManager
   std::atomic<std::size_t> cache_allocated_size_;
   std::size_t memory_used_;
   std::vector<Cache::Handle *> dummy_handles_;
-  std::uint64_t next_cache_key_id_ = 0;
-  // The non-prefix part will be updated according to the ID to use.
-  char cache_key_[kCacheKeyPrefixSize + kMaxVarint64Length];
+  CacheKey cache_key_;
 };
 
 // CacheReservationHandle is for managing the lifetime of a cache reservation
