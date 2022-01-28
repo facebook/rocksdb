@@ -13,6 +13,8 @@
 * Remove deprecated option DBOption::table_cache_remove_scan_count_limit.
 * Remove deprecated API AdvancedColumnFamilyOptions::soft_rate_limit.
 * Remove deprecated API AdvancedColumnFamilyOptions::hard_rate_limit.
+* Remove deprecated API DBOption::base_background_compactions.
+* Remove deprecated API DBOptions::purge_redundant_kvs_while_flush.
 
 ## 6.29.0 (01/21/2022)
 Note: The next release will be major release 7.0. See https://github.com/facebook/rocksdb/issues/9390 for more info.
