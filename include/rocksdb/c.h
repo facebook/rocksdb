@@ -1256,10 +1256,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_is_fd_close_on_exec(
     rocksdb_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_options_get_is_fd_close_on_exec(rocksdb_options_t*);
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_skip_log_error_on_recovery(
-    rocksdb_options_t*, unsigned char);
-extern ROCKSDB_LIBRARY_API unsigned char
-rocksdb_options_get_skip_log_error_on_recovery(rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_stats_dump_period_sec(
     rocksdb_options_t*, unsigned int);
 extern ROCKSDB_LIBRARY_API unsigned int

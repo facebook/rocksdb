@@ -806,9 +806,6 @@ struct DBOptions {
   // Disable child process inherit open files. Default: true
   bool is_fd_close_on_exec = true;
 
-  // NOT SUPPORTED ANYMORE -- this options is no longer used
-  bool skip_log_error_on_recovery = false;
-
   // if not zero, dump rocksdb.stats to LOG every stats_dump_period_sec
   //
   // Default: 600 (10 min)
