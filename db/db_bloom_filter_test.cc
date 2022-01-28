@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <cstring>
 #include <iomanip>
 #include <sstream>
 
@@ -1249,6 +1250,8 @@ class DBFilterConstructionCorruptionTestWithParam
     return table_options;
   }
 
+  // Return an appropriate amount of keys for testing
+  // to generate a long filter (i.e, size >= 8 + kMetadataLen)
   std::size_t GetNumKey() { return 5000; }
 };
 
@@ -1266,9 +1269,6 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(DBFilterConstructionCorruptionTestWithParam, DetectCorruption) {
   Options options = CurrentOptions();
-  // We set write_buffer_size big enough so that flush won't be triggered before
-  // we manually trigger it for clean testing
-  options.write_buffer_size = 640 << 20;
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.create_if_missing = true;
@@ -1289,14 +1289,14 @@ TEST_P(DBFilterConstructionCorruptionTestWithParam, DetectCorruption) {
   for (int i = 0; i < num_key; i++) {
     ASSERT_OK(Put(Key(i), Key(i)));
   }
+
   SyncPoint::GetInstance()->SetCallBack(
-      "XXPH3FilterBitsBuilder::MaybeVerifyHashEntriesChecksum::PreVerification",
-      [&](void* arg) {
+      "XXPH3FilterBitsBuilder::Finish::TamperHashEntries", [&](void* arg) {
         std::deque<uint64_t>* hash_entries_to_corrupt =
             (std::deque<uint64_t>*)arg;
         assert(!hash_entries_to_corrupt->empty());
         *(hash_entries_to_corrupt->begin()) =
-            *(hash_entries_to_corrupt->begin()) ^ static_cast<uint64_t>(1);
+            *(hash_entries_to_corrupt->begin()) ^ uint64_t { 1 };
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1313,8 +1313,8 @@ TEST_P(DBFilterConstructionCorruptionTestWithParam, DetectCorruption) {
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearCallBack(
-      "XXPH3FilterBitsBuilder::MaybeVerifyHashEntriesChecksum::"
-      "PreVerification");
+      "XXPH3FilterBitsBuilder::Finish::"
+      "TamperHashEntries");
 
   // Case 3: Corruption of filter content in filter construction
   DestroyAndReopen(options);
@@ -1322,22 +1322,17 @@ TEST_P(DBFilterConstructionCorruptionTestWithParam, DetectCorruption) {
   for (int i = 0; i < num_key; i++) {
     ASSERT_OK(Put(Key(i), Key(i)));
   }
-  std::string corrupted_filter_content;
-  Slice corrupted_filter;
+
   SyncPoint::GetInstance()->SetCallBack(
-      "XXPH3FilterBitsBuilder::MaybePostVerify::PreVerification",
-      [&](void* arg) {
-        auto arg_pair =
-            (std::pair<std::unique_ptr<FilterBitsReader>*, std::string>*)arg;
-        std::unique_ptr<FilterBitsReader>* bits_reader_p = arg_pair->first;
-        std::string filter_content = arg_pair->second;
-
-        corrupted_filter_content = "@#$" + filter_content;
-        corrupted_filter = Slice(corrupted_filter_content);
-
-        (*bits_reader_p)
-            .reset(table_options.filter_policy->GetFilterBitsReader(
-                corrupted_filter));
+      "XXPH3FilterBitsBuilder::Finish::TamperFilter", [&](void* arg) {
+        std::pair<std::unique_ptr<char[]>*, std::size_t>* TEST_arg_pair =
+            (std::pair<std::unique_ptr<char[]>*, std::size_t>*)arg;
+        std::size_t filter_size = TEST_arg_pair->second;
+        // 5 is the kMetadataLen and
+        assert(filter_size >= 8 + 5);
+        std::unique_ptr<char[]>* filter_content_to_corrupt =
+            TEST_arg_pair->first;
+        std::memset(filter_content_to_corrupt->get(), '\0', 8);
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1350,10 +1345,11 @@ TEST_P(DBFilterConstructionCorruptionTestWithParam, DetectCorruption) {
   } else {
     EXPECT_TRUE(s.ok());
   }
+
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearCallBack(
-      "XXPH3FilterBitsBuilder::MaybeVerifyHashEntriesChecksum::"
-      "PreVerification");
+      "XXPH3FilterBitsBuilder::Finish::"
+      "TamperFilter");
 }
 
 namespace {

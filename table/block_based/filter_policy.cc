@@ -64,9 +64,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
       : aggregate_rounding_balance_(aggregate_rounding_balance),
         cache_res_mgr_(cache_res_mgr),
         detect_filter_construct_corruption_(detect_filter_construct_corruption),
-        filter_policy_(filter_policy) {
-    hash_entries_info_.xor_checksum = 0;
-  }
+        filter_policy_(filter_policy) {}
 
   ~XXPH3FilterBitsBuilder() override {}
 
@@ -232,11 +230,6 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
       return Status::OK();
     }
 
-    TEST_SYNC_POINT_CALLBACK(
-        "XXPH3FilterBitsBuilder::MaybeVerifyHashEntriesChecksum::"
-        "PreVerification",
-        &hash_entries_info_.entries);
-
     uint64_t actual_hash_entries_xor_checksum = 0;
     for (uint64_t h : hash_entries_info_.entries) {
       actual_hash_entries_xor_checksum ^= h;
@@ -285,7 +278,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     // If detect_filter_construct_corruption_ == true,
     // it records the xor checksum of hash entries.
     // Otherwise, it is 0.
-    uint64_t xor_checksum;
+    uint64_t xor_checksum = 0;
 
     void Swap(HashEntriesInfo* other) {
       assert(other != nullptr);
@@ -367,6 +360,10 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
 
     uint32_t len = static_cast<uint32_t>(len_with_metadata - kMetadataLen);
     if (len > 0) {
+      TEST_SYNC_POINT_CALLBACK(
+          "XXPH3FilterBitsBuilder::Finish::"
+          "TamperHashEntries",
+          &hash_entries_info_.entries);
       AddAllEntries(mutable_buf.get(), len, num_probes);
       Status verify_hash_entries_checksum_status =
           MaybeVerifyHashEntriesChecksum();
@@ -391,6 +388,11 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
     // num_probes (and 0 in upper bits for 64-byte block size)
     mutable_buf[len + 2] = static_cast<char>(num_probes);
     // rest of metadata stays zero
+
+    auto TEST_arg_pair __attribute__((__unused__)) =
+        std::make_pair(&mutable_buf, len_with_metadata);
+    TEST_SYNC_POINT_CALLBACK("XXPH3FilterBitsBuilder::Finish::TamperFilter",
+                             &TEST_arg_pair);
 
     Slice rv(mutable_buf.get(), len_with_metadata);
     *buf = std::move(mutable_buf);
@@ -517,7 +519,7 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
 };
 
 // See description in FastLocalBloomImpl
-class FastLocalBloomBitsReader : public FilterBitsReader {
+class FastLocalBloomBitsReader : public BuiltinFilterBitsReader {
  public:
   FastLocalBloomBitsReader(const char* data, int num_probes, uint32_t len_bytes)
       : data_(data), num_probes_(num_probes), len_bytes_(len_bytes) {}
@@ -681,6 +683,11 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
       return bloom_fallback_.Finish(buf, status);
     }
 
+    TEST_SYNC_POINT_CALLBACK(
+        "XXPH3FilterBitsBuilder::Finish::"
+        "TamperHashEntries",
+        &hash_entries_info_.entries);
+
     bool success = banding.ResetAndFindSeedToSolve(
         num_slots, hash_entries_info_.entries.begin(),
         hash_entries_info_.entries.end(),
@@ -752,6 +759,11 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
         static_cast<char>((num_blocks >> 8) & 255);
     mutable_buf[len_with_metadata - 1] =
         static_cast<char>((num_blocks >> 16) & 255);
+
+    auto TEST_arg_pair __attribute__((__unused__)) =
+        std::make_pair(&mutable_buf, len_with_metadata);
+    TEST_SYNC_POINT_CALLBACK("XXPH3FilterBitsBuilder::Finish::TamperFilter",
+                             &TEST_arg_pair);
 
     Slice rv(mutable_buf.get(), len_with_metadata);
     *buf = std::move(mutable_buf);
@@ -953,7 +965,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
 // for the linker, at least with DEBUG_LEVEL=2
 constexpr uint32_t Standard128RibbonBitsBuilder::kMaxRibbonEntries;
 
-class Standard128RibbonBitsReader : public FilterBitsReader {
+class Standard128RibbonBitsReader : public BuiltinFilterBitsReader {
  public:
   Standard128RibbonBitsReader(const char* data, size_t len_bytes,
                               uint32_t num_blocks, uint32_t seed)
@@ -1206,7 +1218,7 @@ inline void LegacyBloomBitsBuilder::AddHash(uint32_t h, char* data,
                            folly::constexpr_log2(CACHE_LINE_SIZE));
 }
 
-class LegacyBloomBitsReader : public FilterBitsReader {
+class LegacyBloomBitsReader : public BuiltinFilterBitsReader {
  public:
   LegacyBloomBitsReader(const char* data, int num_probes, uint32_t num_lines,
                         uint32_t log2_cache_line_size)
@@ -1260,20 +1272,20 @@ class LegacyBloomBitsReader : public FilterBitsReader {
   const uint32_t log2_cache_line_size_;
 };
 
-class AlwaysTrueFilter : public FilterBitsReader {
+class AlwaysTrueFilter : public BuiltinFilterBitsReader {
  public:
   bool MayMatch(const Slice&) override { return true; }
   using FilterBitsReader::MayMatch;  // inherit overload
   bool HashMayMatch(const uint64_t) override { return true; }
-  using FilterBitsReader::HashMayMatch;  // inherit overload
+  using BuiltinFilterBitsReader::HashMayMatch;  // inherit overload
 };
 
-class AlwaysFalseFilter : public FilterBitsReader {
+class AlwaysFalseFilter : public BuiltinFilterBitsReader {
  public:
   bool MayMatch(const Slice&) override { return false; }
   using FilterBitsReader::MayMatch;  // inherit overload
   bool HashMayMatch(const uint64_t) override { return false; }
-  using FilterBitsReader::HashMayMatch;  // inherit overload
+  using BuiltinFilterBitsReader::HashMayMatch;  // inherit overload
 };
 
 Status XXPH3FilterBitsBuilder::MaybePostVerify(const Slice& filter_content) {
@@ -1283,14 +1295,9 @@ Status XXPH3FilterBitsBuilder::MaybePostVerify(const Slice& filter_content) {
     return s;
   }
 
-  std::unique_ptr<FilterBitsReader> bits_reader(
-      filter_policy_->GetFilterBitsReader(filter_content));
-
-  auto TEST_sync_point_callback_arg =
-      std::make_pair(&bits_reader, filter_content.ToString());
-  TEST_SYNC_POINT_CALLBACK(
-      "XXPH3FilterBitsBuilder::MaybePostVerify::PreVerification",
-      &TEST_sync_point_callback_arg);
+  std::unique_ptr<BuiltinFilterBitsReader> bits_reader(
+      static_cast<BuiltinFilterBitsReader*>(
+          filter_policy_->GetFilterBitsReader(filter_content)));
 
   for (uint64_t h : hash_entries_info_.entries) {
     // The current approach will not detect corruption from XXPH3Filter to

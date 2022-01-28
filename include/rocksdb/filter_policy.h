@@ -77,7 +77,7 @@ class FilterBitsBuilder {
   // Verify the filter returned from calling FilterBitsBuilder::Finish.
   // The function returns Status::Corruption() if there is any corruption in the
   // constructed filter or Status::OK() otherwise.
-
+  //
   // Implementations should normally consult
   // FilterBuildingContext::table_options.detect_filter_construct_corruption
   // to determine whether to perform verification or to skip by returning
@@ -130,9 +130,6 @@ class FilterBitsReader {
       may_match[i] = MayMatch(*keys[i]);
     }
   }
-
-  // Check if the hash of the entry match the bits in filter
-  virtual bool HashMayMatch(const uint64_t /* h */) { return true; }
 };
 
 // Contextual information passed to BloomFilterPolicy at filter building time.
