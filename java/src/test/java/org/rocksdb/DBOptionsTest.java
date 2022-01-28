@@ -731,15 +731,6 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void preserveDeletes() {
-    try (final DBOptions opt = new DBOptions()) {
-      assertThat(opt.preserveDeletes()).isFalse();
-      opt.setPreserveDeletes(true);
-      assertThat(opt.preserveDeletes()).isTrue();
-    }
-  }
-
-  @Test
   public void twoWriteQueues() {
     try (final DBOptions opt = new DBOptions()) {
       assertThat(opt.twoWriteQueues()).isFalse();

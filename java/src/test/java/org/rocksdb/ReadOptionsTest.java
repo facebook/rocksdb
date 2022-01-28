@@ -202,16 +202,6 @@ public class ReadOptionsTest {
   }
 
   @Test
-  public void iterStartSeqnum() {
-    try (final ReadOptions opt = new ReadOptions()) {
-      assertThat(opt.iterStartSeqnum()).isEqualTo(0);
-
-      opt.setIterStartSeqnum(10);
-      assertThat(opt.iterStartSeqnum()).isEqualTo(10);
-    }
-  }
-
-  @Test
   public void autoPrefixMode() {
     try (final ReadOptions opt = new ReadOptions()) {
       opt.setAutoPrefixMode(true);

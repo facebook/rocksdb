@@ -1199,11 +1199,6 @@ struct DBOptions {
   // Immutable.
   bool allow_ingest_behind = false;
 
-  // Deprecated, will be removed in a future release.
-  // Please try using user-defined timestamp instead.
-  // DEFAULT: false
-  bool preserve_deletes = false;
-
   // If enabled it uses two queues for writes, one for the ones with
   // disable_memtable and one for the ones that also write to memtable. This
   // allows the memtable writes not to lag behind other writes. It can be used
@@ -1554,11 +1549,6 @@ struct ReadOptions {
   // no impact on point lookups.
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
-
-  // Deprecated, will be removed in a future release.
-  // Please try using user-defined timestamp instead.
-  // Default: 0 (don't filter by seqnum, return user keys)
-  SequenceNumber iter_start_seqnum;
 
   // Timestamp of operation. Read should return the latest data visible to the
   // specified timestamp. All timestamps of the same database must be of the

@@ -17,6 +17,8 @@
 * Remove deprecated API DBOptions::purge_redundant_kvs_while_flush.
 * Remove deprecated overloads of API DB::CompactRange.
 * Remove deprecated option DBOptions::skip_log_error_on_recovery.
+* Remove ReadOptions::iter_start_seqnum which has been deprecated.
+* Remove DBOptions::preserved_deletes and DB::SetPreserveDeletesSequenceNumber().
 
 ### Behavior Changes
 * Disallow the combination of DBOptions.use_direct_io_for_flush_and_compaction == true and DBOptions.writable_file_max_buffer_size == 0. This combination can cause WritableFileWriter::Append() to loop forever, and it does not make much sense in direct IO.
