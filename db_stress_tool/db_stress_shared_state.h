@@ -191,7 +191,7 @@ class SharedState {
 
   uint32_t GetNumThreads() const { return num_threads_; }
 
-  void IncThreads() { num_threads_++; }
+  void SetThreads(int num_threads) { num_threads_ = num_threads; }
 
   void IncInitialized() { num_initialized_++; }
 
