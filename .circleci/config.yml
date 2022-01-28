@@ -753,10 +753,11 @@ jobs:
       - install-libprotobuf-mutator
       - run:
           name: "Build fuzzers"
+          environment:
+            PKG_CONFIG_PATH: /usr/local/OFF/:~/libprotobuf-mutator/build/external.protobuf/lib/pkgconfig/
+            PROTOC_BIN: ~/libprotobuf-mutator/build/external.protobuf/bin/protoc
           command: |
             CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j4 static_lib && cd fuzz
-            echo "export PKG_CONFIG_PATH=/usr/local/OFF/:~/libprotobuf-mutator/build/external.protobuf/lib/pkgconfig/" >> $BASH_ENV
-            echo "export PROTOC_BIN=~/libprotobuf-mutator/build/external.protobuf/bin/protoc" >> $BASH_ENV
             make sst_file_writer_fuzzer db_fuzzer db_map_fuzzer
       - post-steps
 
