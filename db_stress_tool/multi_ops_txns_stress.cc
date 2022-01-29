@@ -19,10 +19,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 // TODO: move these to gflags.
-static constexpr uint32_t kInitNumC = 1000;
-#ifndef ROCKSDB_LITE
-static constexpr uint32_t kInitialCARatio = 3;
-#endif  // ROCKSDB_LITE
+DEFINE_int32(ub_c, 1000, "(Exclusive) upper bound of C");
+DEFINE_int32(ub_a, 1000, "(Exclusive) upper bound of A");
 
 DEFINE_int32(delay_snapshot_read_one_in, 0,
              "With a chance of 1/N, inject a random delay between taking "
@@ -228,6 +226,9 @@ void MultiOpsTxnsStressTest::FinishInitDb(SharedState* shared) {
   }
   if (FLAGS_destroy_db_initially) {
     ReopenAndPreloadDb(shared);
+  } else {
+    ScanExistingDb(FLAGS_threads, /*lb_a=*/0, FLAGS_ub_a, /*lb_c=*/0,
+                   FLAGS_ub_c);
   }
 }
 
@@ -258,7 +259,8 @@ void MultiOpsTxnsStressTest::ReopenAndPreloadDb(SharedState* shared) {
     exit(1);
   }
 
-  PreloadDb(shared, kInitNumC);
+  PreloadDb(shared, FLAGS_threads, /*lb_a=*/0, FLAGS_ub_a, /*lb_c=*/0,
+            FLAGS_ub_c);
 
   // Reopen
   CancelAllBackgroundWork(db_, /*wait=*/true);
@@ -284,7 +286,9 @@ Status MultiOpsTxnsStressTest::TestGet(
     ThreadState* thread, const ReadOptions& read_opts,
     const std::vector<int>& /*rand_column_families*/,
     const std::vector<int64_t>& /*rand_keys*/) {
-  uint32_t a = ChooseA(thread);
+  uint32_t a = 0;
+  uint32_t pos = 0;
+  std::tie(a, pos) = ChooseExistingA(thread);
   return PointLookupTxn(thread, read_opts, a);
 }
 
@@ -313,7 +317,9 @@ Status MultiOpsTxnsStressTest::TestIterate(
     ThreadState* thread, const ReadOptions& read_opts,
     const std::vector<int>& /*rand_column_families*/,
     const std::vector<int64_t>& /*rand_keys*/) {
-  uint32_t c = thread->rand.Next() % kInitNumC;
+  uint32_t c = 0;
+  uint32_t pos = 0;
+  std::tie(c, pos) = ChooseExistingC(thread);
   return RangeScanTxn(thread, read_opts, c);
 }
 
@@ -406,27 +412,33 @@ Status MultiOpsTxnsStressTest::TestCustomOperations(
   Status s;
   if (0 == rand) {
     // Update primary key.
-    uint32_t old_a = ChooseA(thread);
-    uint32_t new_a = GenerateNextA();
-    s = PrimaryKeyUpdateTxn(thread, old_a, new_a);
+    uint32_t old_a = 0;
+    uint32_t pos = 0;
+    std::tie(old_a, pos) = ChooseExistingA(thread);
+    uint32_t new_a = GenerateNextA(thread);
+    s = PrimaryKeyUpdateTxn(thread, old_a, pos, new_a);
   } else if (1 == rand) {
     // Update secondary key.
-    uint32_t old_c = thread->rand.Next() % kInitNumC;
+    uint32_t old_c = 0;
+    uint32_t pos = 0;
+    std::tie(old_c, pos) = ChooseExistingC(thread);
     int count = 0;
-    uint32_t new_c = 0;
-    do {
+    uint32_t new_c = ChooseRandomC(thread);
+    while (new_c == old_c && count < 10) {
       ++count;
-      new_c = thread->rand.Next() % kInitNumC;
-    } while (count < 100 && new_c == old_c);
-    if (count >= 100) {
+      new_c = ChooseRandomC(thread);
+    }
+    if (count >= 10) {
       // If we reach here, it means our random number generator has a serious
-      // problem, or kInitNumC is chosen poorly.
+      // problem.
       std::terminate();
     }
-    s = SecondaryKeyUpdateTxn(thread, old_c, new_c);
+    s = SecondaryKeyUpdateTxn(thread, old_c, pos, new_c);
   } else if (2 == rand) {
     // Update primary index value.
-    uint32_t a = ChooseA(thread);
+    uint32_t a = 0;
+    uint32_t pos = 0;
+    std::tie(a, pos) = ChooseExistingA(thread);
     s = UpdatePrimaryIndexValueTxn(thread, a, /*b_delta=*/1);
   } else {
     // Should never reach here.
@@ -437,6 +449,7 @@ Status MultiOpsTxnsStressTest::TestCustomOperations(
 
 Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
                                                    uint32_t old_a,
+                                                   uint32_t old_a_pos,
                                                    uint32_t new_a) {
 #ifdef ROCKSDB_LITE
   (void)thread;
@@ -532,12 +545,43 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
   }
 
   s = CommitTxn(txn);
+
+  if (s.ok()) {
+    const uint32_t num_a = FLAGS_ub_a - 0;
+    const uint32_t num_a_per_thread = (num_a % FLAGS_threads)
+                                          ? (num_a / FLAGS_threads + 1)
+                                          : (num_a / FLAGS_threads);
+    uint32_t idx = old_a / num_a_per_thread;
+    assert(new_a / num_a_per_thread == idx);
+    assert(idx == thread->tid);
+    {
+      auto& existing_a_set = existing_a_sets_[idx];
+      auto it = existing_a_set.find(old_a);
+      assert(it != existing_a_set.end());
+      existing_a_set.erase(it);
+
+      it = existing_a_set.find(new_a);
+      assert(existing_a_set.end() == it);
+      existing_a_set.insert(new_a);
+    }
+    {
+      auto& existing_a_vec = existing_a_vecs_[idx];
+      existing_a_vec[old_a_pos] = new_a;
+    }
+    {
+      auto& next_a_set = next_a_sets_[idx];
+      auto it = next_a_set.find(old_a);
+      assert(next_a_set.end() == it);
+      next_a_set.insert(old_a);
+    }
+  }
   return s;
 #endif  // !ROCKSDB_LITE
 }
 
 Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
                                                      uint32_t old_c,
+                                                     uint32_t old_c_pos,
                                                      uint32_t new_c) {
 #ifdef ROCKSDB_LITE
   (void)thread;
@@ -685,6 +729,31 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   }
 
   s = CommitTxn(txn);
+
+  if (s.ok()) {
+    const uint32_t num_c = FLAGS_ub_c - 0;
+    const uint32_t num_c_per_thread = (num_c % FLAGS_threads)
+                                          ? (num_c / FLAGS_threads + 1)
+                                          : (num_c / FLAGS_threads);
+    uint32_t idx = old_c / num_c_per_thread;
+    assert(new_c / num_c_per_thread == idx);
+    assert(idx == thread->tid);
+    {
+      auto& existing_c_set = existing_c_sets_[idx];
+      auto iter = existing_c_set.find(old_c);
+      assert(iter != existing_c_set.end());
+      existing_c_set.erase(iter);
+
+      iter = existing_c_set.find(new_c);
+      if (iter == existing_c_set.end()) {
+        existing_c_set.insert(new_c);
+      }
+    }
+    {
+      auto& existing_c_vec = existing_c_vecs_[idx];
+      existing_c_vec[old_c_pos] = new_c;
+    }
+  }
 
   return s;
 #endif  // !ROCKSDB_LITE
@@ -975,69 +1044,213 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
   }
 }
 
-uint32_t MultiOpsTxnsStressTest::ChooseA(ThreadState* thread) {
-  uint32_t rnd = thread->rand.Uniform(5);
-  uint32_t next_a_low = next_a_.load(std::memory_order_relaxed);
-  assert(next_a_low != 0);
-  if (rnd == 0) {
-    return next_a_low - 1;
-  }
-
-  uint32_t result = 0;
-  result = thread->rand.Next() % next_a_low;
-  if (thread->rand.OneIn(3)) {
-    return result;
-  }
-  uint32_t next_a_high = next_a_.load(std::memory_order_relaxed);
-  // A higher chance that this a still exists.
-  return next_a_low + (next_a_high - next_a_low) / 2;
+std::pair<uint32_t, uint32_t> MultiOpsTxnsStressTest::ChooseExistingA(
+    ThreadState* thread) {
+  uint32_t tid = thread->tid;
+  std::unordered_set<uint32_t>& existing_a_set = existing_a_sets_[tid];
+  std::vector<uint32_t>& existing_a_vec = existing_a_vecs_[tid];
+  const size_t N = existing_a_vec.size();
+  assert(N > 0);
+  assert(N == existing_a_set.size());
+  uint32_t rnd = thread->rand.Uniform(N);
+  assert(rnd < N);
+  return std::make_pair(existing_a_vec[rnd], rnd);
 }
 
-uint32_t MultiOpsTxnsStressTest::GenerateNextA() {
-  return next_a_.fetch_add(1, std::memory_order_relaxed);
+uint32_t MultiOpsTxnsStressTest::GenerateNextA(ThreadState* thread) {
+  uint32_t tid = thread->tid;
+  std::unordered_set<uint32_t>& next_a_set = next_a_sets_[tid];
+  auto it = next_a_set.begin();
+  assert(it != next_a_set.end());
+  uint32_t ret = *it;
+  // Remove this element.
+  // Will need to add it back if the calling transaction does not commit.
+  next_a_set.erase(it);
+  return ret;
 }
 
-void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, size_t num_c) {
+std::pair<uint32_t, uint32_t> MultiOpsTxnsStressTest::ChooseExistingC(
+    ThreadState* thread) {
+  uint32_t tid = thread->tid;
+  std::unordered_set<uint32_t>& existing_c_set = existing_c_sets_[tid];
+  std::vector<uint32_t>& existing_c_vec = existing_c_vecs_[tid];
+  const size_t N = existing_c_vec.size();
+  assert(N > 0);
+  assert(N == existing_c_set.size());
+  uint32_t rnd = thread->rand.Uniform(N);
+  assert(rnd < N);
+  return std::make_pair(existing_c_vec[rnd], rnd);
+}
+
+uint32_t MultiOpsTxnsStressTest::ChooseRandomC(ThreadState* thread) {
+  uint32_t tid = thread->tid;
+  const uint32_t num_c = FLAGS_ub_c - 0;
+  const uint32_t num_c_per_thread = (num_c % FLAGS_threads)
+                                        ? (num_c / FLAGS_threads + 1)
+                                        : (num_c / FLAGS_threads);
+  const uint32_t c_lower_bound = tid * num_c_per_thread;
+  const uint32_t rnd = thread->rand.Uniform(num_c_per_thread);
+  return rnd + c_lower_bound;
+}
+
+void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
+                                       uint32_t lb_a, uint32_t ub_a,
+                                       uint32_t lb_c, uint32_t ub_c) {
 #ifdef ROCKSDB_LITE
   (void)shared;
-  (void)num_c;
+  (void)threads;
+  (void)lb_a;
+  (void)ub_a;
+  (void)lb_c;
+  (void)ub_c;
 #else
-  // TODO (yanqin) maybe parallelize. Currently execute in single thread.
+  existing_a_sets_.resize(threads);
+  existing_a_vecs_.resize(threads);
+  next_a_sets_.resize(threads);
+
+  existing_c_sets_.resize(threads);
+  existing_c_vecs_.resize(threads);
+
+  assert(ub_a > lb_a && ub_a > lb_a + threads);
+  assert(ub_c > lb_c && ub_c > lb_c + threads);
+
+  const uint32_t num_c = ub_c - lb_c;
+  const uint32_t num_c_per_thread =
+      (num_c % threads) ? (num_c / threads + 1) : (num_c / threads);
+  const uint32_t num_a = ub_a - lb_a;
+  const uint32_t num_a_per_thread =
+      (num_a % threads) ? (num_a / threads + 1) : (num_a / threads);
+
   WriteOptions wopts;
   wopts.disableWAL = true;
   wopts.sync = false;
   Random rnd(shared->GetSeed());
   assert(txn_db_);
-  for (uint32_t c = 0; c < static_cast<uint32_t>(num_c); ++c) {
-    for (uint32_t a = c * kInitialCARatio; a < ((c + 1) * kInitialCARatio);
-         ++a) {
-      Record record(a, /*_b=*/rnd.Next(), c);
-      WriteBatch wb;
-      const auto primary_index_entry = record.EncodePrimaryIndexEntry();
-      Status s = wb.Put(primary_index_entry.first, primary_index_entry.second);
-      assert(s.ok());
-      const auto secondary_index_entry = record.EncodeSecondaryIndexEntry();
-      s = wb.Put(secondary_index_entry.first, secondary_index_entry.second);
-      assert(s.ok());
-      s = txn_db_->Write(wopts, &wb);
-      assert(s.ok());
 
-      // TODO (yanqin): make the following check optional, especially when data
-      // size is large.
-      Record tmp_rec;
-      tmp_rec.SetB(record.b_value());
-      s = tmp_rec.DecodeSecondaryIndexEntry(secondary_index_entry.first,
-                                            secondary_index_entry.second);
-      assert(s.ok());
-      assert(tmp_rec == record);
+  for (uint32_t a = lb_a; a < ub_a; ++a) {
+    uint32_t tid = (a - lb_a) / num_a_per_thread;
+    uint32_t a_base = lb_a + tid * num_a_per_thread;
+    uint32_t a_delta = a - a_base;
+    if (a - a_base + 1 >= num_a_per_thread) {
+      auto& next_a_set = next_a_sets_[tid];
+      next_a_set.insert(a);
+      continue;
+    }
+
+    uint32_t c_base = lb_c + (tid * num_c_per_thread);
+    uint32_t c_delta = a_delta % num_c_per_thread;
+    uint32_t c = c_base + c_delta;
+
+    uint32_t b = rnd.Next();
+    Record record(a, b, c);
+    WriteBatch wb;
+    const auto primary_index_entry = record.EncodePrimaryIndexEntry();
+    Status s = wb.Put(primary_index_entry.first, primary_index_entry.second);
+    assert(s.ok());
+
+    const auto secondary_index_entry = record.EncodeSecondaryIndexEntry();
+    s = wb.Put(secondary_index_entry.first, secondary_index_entry.second);
+    assert(s.ok());
+
+    s = txn_db_->Write(wopts, &wb);
+    assert(s.ok());
+
+    // TODO (yanqin): make the following check optional, especially when data
+    // size is large.
+    Record tmp_rec;
+    tmp_rec.SetB(record.b_value());
+    s = tmp_rec.DecodeSecondaryIndexEntry(secondary_index_entry.first,
+                                          secondary_index_entry.second);
+    assert(s.ok());
+    assert(tmp_rec == record);
+
+    auto& existing_a_set = existing_a_sets_[tid];
+    auto& existing_a_vec = existing_a_vecs_[tid];
+    existing_a_set.insert(a);
+    existing_a_vec.push_back(a);
+
+    auto& existing_c_set = existing_c_sets_[tid];
+    if (existing_c_set.count(c) == 0) {
+      existing_c_set.insert(c);
     }
   }
+
   Status s = db_->Flush(FlushOptions());
   assert(s.ok());
-  next_a_.store(static_cast<uint32_t>((num_c + 1) * kInitialCARatio));
-  fprintf(stdout, "DB preloaded with %d entries\n",
-          static_cast<int>(num_c * kInitialCARatio));
+  fprintf(stdout, "DB preloaded with %d entries\n", static_cast<int>(num_a));
 #endif  // !ROCKSDB_LITE
+}
+
+void MultiOpsTxnsStressTest::ScanExistingDb(int threads, uint32_t lb_a,
+                                            uint32_t ub_a, uint32_t lb_c,
+                                            uint32_t ub_c) {
+  existing_a_sets_.resize(threads);
+  existing_a_vecs_.resize(threads);
+  next_a_sets_.resize(threads);
+
+  existing_c_sets_.resize(threads);
+  existing_c_vecs_.resize(threads);
+
+  assert(ub_a > lb_a && ub_a > lb_a + threads);
+  assert(ub_c > lb_c && ub_c > lb_c + threads);
+
+  const uint32_t num_c = ub_c - lb_c;
+  const uint32_t num_c_per_thread =
+      (num_c % threads) ? (num_c / threads + 1) : (num_c / threads);
+  const uint32_t num_a = ub_a - lb_a;
+  const uint32_t num_a_per_thread =
+      (num_a % threads) ? (num_a / threads + 1) : (num_a / threads);
+
+  assert(txn_db_);
+  const Snapshot* snapshot = txn_db_->GetSnapshot();
+  ReadOptions ropts;
+  ropts.snapshot = snapshot;
+  uint32_t count = 0;
+  {
+    std::string pk_lb_str = Record::EncodePrimaryKey(0);
+    std::string pk_ub_str =
+        Record::EncodePrimaryKey(std::numeric_limits<uint32_t>::max());
+    Slice pk_lb = pk_lb_str;
+    Slice pk_ub = pk_ub_str;
+    ropts.iterate_lower_bound = &pk_lb;
+    ropts.iterate_upper_bound = &pk_ub;
+    std::unique_ptr<Iterator> it(txn_db_->NewIterator(ropts));
+
+    for (it->SeekToFirst(); it->Valid(); it->Next(), ++count) {
+      Record record;
+      Status s = record.DecodePrimaryIndexEntry(it->key(), it->value());
+      assert(s.ok());
+      uint32_t a = record.a_value();
+      uint32_t idx = a / num_a_per_thread;
+      auto& existing_a_set = existing_a_sets_[idx];
+      auto& existing_a_vec = existing_a_vecs_[idx];
+      if (existing_a_set.count(a) == 0) {
+        existing_a_set.insert(a);
+        existing_a_vec.push_back(a);
+      }
+
+      uint32_t c = record.c_value();
+      idx = c / num_c_per_thread;
+      auto& existing_c_set = existing_c_sets_[idx];
+      auto& existing_c_vec = existing_c_vecs_[idx];
+      if (existing_c_set.count(c) == 0) {
+        existing_c_set.insert(c);
+        existing_c_vec.push_back(c);
+      }
+    }
+  }
+  txn_db_->ReleaseSnapshot(snapshot);
+
+  for (uint32_t a = lb_a; a < ub_a; ++a) {
+    uint32_t idx = a / num_a_per_thread;
+    const auto& existing_a_set = existing_a_sets_[idx];
+    auto& next_a_set = next_a_sets_[idx];
+    auto it = existing_a_set.find(a);
+    if (it == existing_a_set.end()) {
+      next_a_set.insert(a);
+    }
+  }
+  fprintf(stdout, "Processed %d records\n", static_cast<int>(num_a));
 }
 
 StressTest* CreateMultiOpsTxnsStressTest() {

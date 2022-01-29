@@ -336,7 +336,8 @@ multiops_txn_params = {
     # Test write-prepared
     "txn_write_policy": 1,
     "disable_wal": 0,
-    "wp_commit_cache_bits": random.choice([0, 1]),
+    "wp_snapshot_cache_bits": 1,
+    "wp_commit_cache_bits": random.choice([0, 10]),
     "clear_column_family_one_in": 0,
     "column_families": 1,
     # pipeline write is not currnetly compatible with WritePrepared txns
@@ -356,6 +357,7 @@ multiops_txn_params = {
     "verify_db_one_in": 100,
     "continuous_verification_interval": 1,
     "delay_snapshot_read_one_in": 3,
+    "write_buffer_size": 1024,
 }
 
 def finalize_and_sanitize(src_params):

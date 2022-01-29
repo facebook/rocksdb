@@ -262,10 +262,10 @@ class MultiOpsTxnsStressTest : public StressTest {
       const std::vector<int>& rand_column_families) override;
 
   Status PrimaryKeyUpdateTxn(ThreadState* thread, uint32_t old_a,
-                             uint32_t new_a);
+                             uint32_t old_a_pos, uint32_t new_a);
 
   Status SecondaryKeyUpdateTxn(ThreadState* thread, uint32_t old_c,
-                               uint32_t new_c);
+                               uint32_t old_c_pos, uint32_t new_c);
 
   Status UpdatePrimaryIndexValueTxn(ThreadState* thread, uint32_t a,
                                     uint32_t b_delta);
@@ -281,15 +281,31 @@ class MultiOpsTxnsStressTest : public StressTest {
   }
 
  protected:
-  uint32_t ChooseA(ThreadState* thread);
+  // Return <a, pos>
+  std::pair<uint32_t, uint32_t> ChooseExistingA(ThreadState* thread);
 
-  uint32_t GenerateNextA();
+  uint32_t GenerateNextA(ThreadState* thread);
+
+  // Return <c, pos>
+  std::pair<uint32_t, uint32_t> ChooseExistingC(ThreadState* thread);
+
+  uint32_t ChooseRandomC(ThreadState* thread);
 
  private:
-  void PreloadDb(SharedState* shared, size_t num_c);
+  void PreloadDb(SharedState* shared, int threads, uint32_t lb_a, uint32_t ub_a,
+                 uint32_t lb_c, uint32_t ub_c);
 
-  // TODO (yanqin) encapsulate the selection of keys a separate class.
-  std::atomic<uint32_t> next_a_{0};
+  void ScanExistingDb(int threads, uint32_t lb_a, uint32_t ub_a, uint32_t lb_c,
+                      uint32_t ub_c);
+
+  // TODO (yanqin) encapsulate the selection of keys a separate class, e.g.
+  // GeneratorForA, GeneratorForC, etc.
+  std::vector<std::unordered_set<uint32_t>> existing_a_sets_;
+  std::vector<std::vector<uint32_t>> existing_a_vecs_;
+  std::vector<std::unordered_set<uint32_t>> next_a_sets_;
+
+  std::vector<std::unordered_set<uint32_t>> existing_c_sets_;
+  std::vector<std::vector<uint32_t>> existing_c_vecs_;
 };
 
 class InvariantChecker {
