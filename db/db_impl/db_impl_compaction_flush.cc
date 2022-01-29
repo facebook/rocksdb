@@ -1403,8 +1403,7 @@ Status DBImpl::CompactFilesImpl(
 
   if (compaction_job_info != nullptr) {
     BuildCompactionJobInfo(cfd, c.get(), s, compaction_job_stats,
-                           job_context->job_id, -1, version, env_,
-                           compaction_job_info);
+                           job_context->job_id, version, compaction_job_info);
   }
 
   if (status.ok()) {
@@ -1510,8 +1509,7 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
   TEST_SYNC_POINT("DBImpl::NotifyOnCompactionBegin::UnlockMutex");
   {
     CompactionJobInfo info{};
-    BuildCompactionJobInfo(cfd, c, st, job_stats, job_id, -1, current, env_,
-                           &info);
+    BuildCompactionJobInfo(cfd, c, st, job_stats, job_id, current, &info);
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnCompactionBegin(this, info);
     }
@@ -1551,8 +1549,8 @@ void DBImpl::NotifyOnCompactionCompleted(
   TEST_SYNC_POINT("DBImpl::NotifyOnCompactionCompleted::UnlockMutex");
   {
     CompactionJobInfo info{};
-    BuildCompactionJobInfo(cfd, c, st, compaction_job_stats, job_id, -1,
-                           current, env_, &info);
+    BuildCompactionJobInfo(cfd, c, st, compaction_job_stats, job_id, current,
+                           &info);
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnCompactionCompleted(this, info);
     }
@@ -3548,19 +3546,16 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
 }
 
 #ifndef ROCKSDB_LITE
-void BuildCompactionJobInfo(const ColumnFamilyData* cfd, Compaction* c,
-                            const Status& st,
-                            const CompactionJobStats& compaction_job_stats,
-                            const int job_id, const int subcompaction_job_id,
-                            const Version* current, Env* env,
-                            CompactionJobInfo* compaction_job_info) {
+void DBImpl::BuildCompactionJobInfo(
+    const ColumnFamilyData* cfd, Compaction* c, const Status& st,
+    const CompactionJobStats& compaction_job_stats, const int job_id,
+    const Version* current, CompactionJobInfo* compaction_job_info) const {
   assert(compaction_job_info != nullptr);
   compaction_job_info->cf_id = cfd->GetID();
   compaction_job_info->cf_name = cfd->GetName();
   compaction_job_info->status = st;
-  compaction_job_info->thread_id = env->GetThreadID();
+  compaction_job_info->thread_id = env_->GetThreadID();
   compaction_job_info->job_id = job_id;
-  compaction_job_info->subcompaction_job_id = subcompaction_job_id;
   compaction_job_info->base_input_level = c->start_level();
   compaction_job_info->output_level = c->output_level();
   compaction_job_info->stats = compaction_job_stats;
@@ -3576,7 +3571,7 @@ void BuildCompactionJobInfo(const ColumnFamilyData* cfd, Compaction* c,
       compaction_job_info->input_files.push_back(fn);
       compaction_job_info->input_file_infos.push_back(CompactionFileInfo{
           static_cast<int>(i), file_number, fmd->oldest_blob_file_number});
-      if (current && compaction_job_info->table_properties.count(fn) == 0) {
+      if (compaction_job_info->table_properties.count(fn) == 0) {
         std::shared_ptr<const TableProperties> tp;
         auto s = current->GetTableProperties(&tp, fmd, &fn);
         if (s.ok()) {

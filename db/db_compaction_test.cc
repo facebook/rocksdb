@@ -4679,7 +4679,6 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
       InstrumentedMutexLock l(&mutex_);
       ASSERT_EQ(running_compactions_.find(ci.job_id),
                 running_compactions_.end());
-      ASSERT_EQ(ci.subcompaction_job_id, -1);
       running_compactions_.emplace(ci.job_id, 0);
     }
 
@@ -4688,23 +4687,25 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
       InstrumentedMutexLock l(&mutex_);
       auto it = running_compactions_.find(ci.job_id);
       ASSERT_NE(it, running_compactions_.end());
-      ASSERT_EQ(it->second, 0);
+      ASSERT_EQ(it->second.size(), 0);
       running_compactions_.erase(it);
     }
 
-    void OnSubcompactionBegin(const CompactionJobInfo& ci) override {
+    void OnSubcompactionBegin(const SubcompactionJobInfo& si) override {
       InstrumentedMutexLock l(&mutex_);
-      auto it = running_compactions_.find(ci.job_id);
+      auto it = running_compactions_.find(si.job_id);
       ASSERT_NE(it, running_compactions_.end());
-      it->second++;
+      auto r = it->second.insert(si.subcompaction_job_id);
+      ASSERT_TRUE(r.second);  // each subcompaction_job_id should be different
       total_subcompaction_cnt_++;
     }
 
-    void OnSubcompactionCompleted(const CompactionJobInfo& ci) override {
+    void OnSubcompactionCompleted(const SubcompactionJobInfo& si) override {
       InstrumentedMutexLock l(&mutex_);
-      auto it = running_compactions_.find(ci.job_id);
+      auto it = running_compactions_.find(si.job_id);
       ASSERT_NE(it, running_compactions_.end());
-      it->second--;
+      auto r = it->second.erase(si.subcompaction_job_id);
+      ASSERT_EQ(r, 1);
     }
 
     size_t GetRunningCompactionCount() {
@@ -4719,7 +4720,7 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
 
    private:
     InstrumentedMutex mutex_;
-    std::unordered_map<int, int> running_compactions_;
+    std::unordered_map<int, std::unordered_set<int>> running_compactions_;
     size_t total_subcompaction_cnt_ = 0;
   };
 

@@ -20,6 +20,7 @@
 * Remove ReadOptions::iter_start_seqnum which has been deprecated.
 * Remove DBOptions::preserved_deletes and DB::SetPreserveDeletesSequenceNumber().
 * Remove deprecated API AdvancedColumnFamilyOptions::rate_limit_delay_max_milliseconds.
+* Add subcompaction callback APIs: `OnSubcompactionBegin()` and `OnSubcompactionCompleted()`.
 
 ### Behavior Changes
 * Disallow the combination of DBOptions.use_direct_io_for_flush_and_compaction == true and DBOptions.writable_file_max_buffer_size == 0. This combination can cause WritableFileWriter::Append() to loop forever, and it does not make much sense in direct IO.

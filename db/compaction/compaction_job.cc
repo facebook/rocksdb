@@ -1215,6 +1215,23 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
 }
 #endif  // !ROCKSDB_LITE
 
+void CompactionJob::BuildSubcompactionJobInfo(
+    SubcompactionState* sub_compact,
+    SubcompactionJobInfo* subcompaction_job_info) const {
+  Compaction* c = compact_->compaction;
+  ColumnFamilyData* cfd = c->column_family_data();
+
+  subcompaction_job_info->cf_id = cfd->GetID();
+  subcompaction_job_info->cf_name = cfd->GetName();
+  subcompaction_job_info->status = sub_compact->status;
+  subcompaction_job_info->thread_id = env_->GetThreadID();
+  subcompaction_job_info->job_id = job_id_;
+  subcompaction_job_info->subcompaction_job_id = sub_compact->sub_job_id;
+  subcompaction_job_info->base_input_level = c->start_level();
+  subcompaction_job_info->output_level = c->output_level();
+  subcompaction_job_info->stats = sub_compact->compaction_job_stats;
+}
+
 void CompactionJob::NotifyOnSubcompactionBegin(
     SubcompactionState* sub_compact) {
 #ifndef ROCKSDB_LITE
@@ -1234,10 +1251,8 @@ void CompactionJob::NotifyOnSubcompactionBegin(
 
   sub_compact->notify_on_subcompaction_completion = true;
 
-  CompactionJobInfo info{};
-  BuildCompactionJobInfo(cfd, c, sub_compact->status,
-                         sub_compact->compaction_job_stats, job_id_,
-                         info.subcompaction_job_id, nullptr, env_, &info);
+  SubcompactionJobInfo info{};
+  BuildSubcompactionJobInfo(sub_compact, &info);
 
   for (auto listener : db_options_.listeners) {
     listener->OnSubcompactionBegin(info);
@@ -1266,10 +1281,8 @@ void CompactionJob::NotifyOnSubcompactionCompleted(
     return;
   }
 
-  CompactionJobInfo info{};
-  BuildCompactionJobInfo(cfd, c, sub_compact->status,
-                         sub_compact->compaction_job_stats, job_id_,
-                         info.subcompaction_job_id, nullptr, env_, &info);
+  SubcompactionJobInfo info{};
+  BuildSubcompactionJobInfo(sub_compact, &info);
 
   for (auto listener : db_options_.listeners) {
     listener->OnSubcompactionCompleted(info);
