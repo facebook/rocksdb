@@ -1305,6 +1305,7 @@ void rocksdb_create_iterators(
 const rocksdb_snapshot_t* rocksdb_create_snapshot(
     rocksdb_t* db) {
   rocksdb_snapshot_t* result = new rocksdb_snapshot_t;
+  // if enable inplace_update_support, result->rep will be nullptr
   result->rep = db->rep->GetSnapshot();
   return result;
 }
@@ -1312,7 +1313,11 @@ const rocksdb_snapshot_t* rocksdb_create_snapshot(
 void rocksdb_release_snapshot(
     rocksdb_t* db,
     const rocksdb_snapshot_t* snapshot) {
-  db->rep->ReleaseSnapshot(snapshot->rep);
+  if (snapshot->rep != nullptr) {
+    // if enable inplace_update_support, snapshot->rep is nullptr,
+    // then ReleaseSnapshot(nullptr) will coredump
+    db->rep->ReleaseSnapshot(snapshot->rep);
+  }
   delete snapshot;
 }
 
