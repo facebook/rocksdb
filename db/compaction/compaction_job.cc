@@ -1213,7 +1213,6 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
              compaction_result.bytes_written);
   return CompactionServiceJobStatus::kSuccess;
 }
-#endif  // !ROCKSDB_LITE
 
 void CompactionJob::BuildSubcompactionJobInfo(
     SubcompactionState* sub_compact,
@@ -1231,6 +1230,7 @@ void CompactionJob::BuildSubcompactionJobInfo(
   subcompaction_job_info->output_level = c->output_level();
   subcompaction_job_info->stats = sub_compact->compaction_job_stats;
 }
+#endif  // !ROCKSDB_LITE
 
 void CompactionJob::NotifyOnSubcompactionBegin(
     SubcompactionState* sub_compact) {

@@ -167,9 +167,11 @@ class CompactionJob {
   void UpdateCompactionInputStatsHelper(
       int* num_files, uint64_t* bytes_read, int input_level);
 
+#ifndef ROCKSDB_LITE
   void BuildSubcompactionJobInfo(
       SubcompactionState* sub_compact,
       SubcompactionJobInfo* subcompaction_job_info) const;
+#endif  // ROCKSDB_LITE
 
   void NotifyOnSubcompactionBegin(SubcompactionState* sub_compact);
 
