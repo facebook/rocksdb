@@ -546,8 +546,8 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
   WriteContext write_context;
 
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
-                        disable_memtable, /*batch_cnt=*/0,
-                        /*pre_release_callback=*/nullptr);
+                        disable_memtable, /*_batch_cnt=*/0,
+                        /*_pre_release_callback=*/nullptr);
   write_thread_.JoinBatchGroup(&w);
   TEST_SYNC_POINT("DBImplWrite::PipelinedWriteImpl:AfterJoinBatchGroup");
   if (w.state == WriteThread::STATE_GROUP_LEADER) {
