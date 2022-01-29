@@ -4679,7 +4679,7 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
       InstrumentedMutexLock l(&mutex_);
       ASSERT_EQ(running_compactions_.find(ci.job_id),
                 running_compactions_.end());
-      running_compactions_.emplace(ci.job_id, 0);
+      running_compactions_.emplace(ci.job_id, std::unordered_set<int>());
     }
 
     void OnCompactionCompleted(DB* /*db*/,
