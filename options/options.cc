@@ -277,8 +277,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "  Options.hard_pending_compaction_bytes_limit: %" PRIu64,
                      hard_pending_compaction_bytes_limit);
-    ROCKS_LOG_HEADER(log, "      Options.rate_limit_delay_max_milliseconds: %u",
-                     rate_limit_delay_max_milliseconds);
     ROCKS_LOG_HEADER(log, "               Options.disable_auto_compactions: %d",
                      disable_auto_compactions);
 
