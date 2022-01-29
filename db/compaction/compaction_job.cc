@@ -1236,7 +1236,6 @@ void CompactionJob::NotifyOnSubcompactionBegin(
     SubcompactionState* sub_compact) {
 #ifndef ROCKSDB_LITE
   Compaction* c = compact_->compaction;
-  ColumnFamilyData* cfd = c->column_family_data();
 
   if (db_options_.listeners.empty()) {
     return;
@@ -1267,8 +1266,6 @@ void CompactionJob::NotifyOnSubcompactionBegin(
 void CompactionJob::NotifyOnSubcompactionCompleted(
     SubcompactionState* sub_compact) {
 #ifndef ROCKSDB_LITE
-  Compaction* c = compact_->compaction;
-  ColumnFamilyData* cfd = c->column_family_data();
 
   if (db_options_.listeners.empty()) {
     return;
