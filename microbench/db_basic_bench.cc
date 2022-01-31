@@ -3,7 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#ifndef OS_WIN
 #include <unistd.h>
+#endif  // ! OS_WIN
 
 #include "benchmark/benchmark.h"
 #include "db/db_impl/db_impl.h"
@@ -26,7 +28,7 @@ class KeyGenerator {
     assert(max_key_ < std::numeric_limits<uint32_t>::max() /
                           MULTIPLIER);  // TODO: add large key support
 
-    int32_t k;
+    uint32_t k;
     if (is_sequential_) {
       assert(next_sequential_key_ < max_key_);
       k = (next_sequential_key_ % max_key_) * MULTIPLIER + offset;
@@ -40,11 +42,11 @@ class KeyGenerator {
       uint32_t prefix = (k % prefix_num_) * MULTIPLIER + offset;
       Encode(buff, prefix);
       if (prefix_only) {
-        return Slice(buff, prefix_size_);
+        return {buff, prefix_size_};
       }
     }
     Encode(buff + prefix_size_, k);
-    return Slice(buff, key_size_);
+    return {buff, key_size_};
   }
 
   // use internal buffer for generated key, make sure there's only one caller in
@@ -60,25 +62,21 @@ class KeyGenerator {
   // helper function to get non exist key
   Slice NextNonExist() { return Next(buff_, 1); }
 
-  Slice MaxKey(char* buff) {
+  Slice MaxKey(char* buff) const {
     memset(buff, 0xff, key_size_);
-    return Slice(buff, key_size_);
+    return {buff, key_size_};
   }
 
-  Slice MaxKey() { return MaxKey(buff_); }
-
-  Slice MinKey(char* buff) {
+  Slice MinKey(char* buff) const {
     memset(buff, 0, key_size_);
-    return Slice(buff, key_size_);
+    return {buff, key_size_};
   }
-
-  Slice MinKey() { return MinKey(buff_); }
 
   // max_key: the max key that it could generate
   // prefix_num: the max prefix number
   // key_size: in bytes
-  KeyGenerator(Random* rnd, uint64_t max_key = 100 * 1024 * 1024,
-               size_t prefix_num = 0, size_t key_size = 10) {
+  explicit KeyGenerator(Random* rnd, uint64_t max_key = 100 * 1024 * 1024,
+                        size_t prefix_num = 0, size_t key_size = 10) {
     prefix_num_ = prefix_num;
     key_size_ = key_size;
     max_key_ = max_key;
@@ -89,7 +87,8 @@ class KeyGenerator {
   }
 
   // generate sequential keys
-  KeyGenerator(uint64_t max_key = 100 * 1024 * 1024, size_t key_size = 10) {
+  explicit KeyGenerator(uint64_t max_key = 100 * 1024 * 1024,
+                        size_t key_size = 10) {
     key_size_ = key_size;
     max_key_ = max_key;
     rnd_ = nullptr;
@@ -104,15 +103,15 @@ class KeyGenerator {
   uint64_t max_key_;
   bool is_sequential_ = false;
   uint32_t next_sequential_key_ = 0;
-  char buff_[256];
+  char buff_[256] = {0};
   const int MULTIPLIER = 3;
 
-  void Encode(char* buf, uint32_t value) {
+  void static Encode(char* buf, uint32_t value) {
     if (port::kLittleEndian) {
-      buf[0] = (value >> 24) & 0xff;
-      buf[1] = (value >> 16) & 0xff;
-      buf[2] = (value >> 8) & 0xff;
-      buf[3] = value & 0xff;
+      buf[0] = static_cast<char>((value >> 24) & 0xff);
+      buf[1] = static_cast<char>((value >> 16) & 0xff);
+      buf[2] = static_cast<char>((value >> 8) & 0xff);
+      buf[3] = static_cast<char>(value & 0xff);
     } else {
       memcpy(buf, &value, sizeof(value));
     }
@@ -120,11 +119,11 @@ class KeyGenerator {
 };
 
 static void SetupDB(benchmark::State& state, Options& options, DB** dpptr,
-                    std::string test_name = "") {
+                    const std::string& test_name = "") {
   options.create_if_missing = true;
   auto env = Env::Default();
   std::string db_path;
-  auto s = env->GetTestDirectory(&db_path);
+  Status s = env->GetTestDirectory(&db_path);
   if (!s.ok()) {
     state.SkipWithError(s.ToString().c_str());
     return;
@@ -144,13 +143,13 @@ static void TeardownDB(benchmark::State& state, DB* db, const Options& options,
   char min_buff[256], max_buff[256];
   const Range r(kg.MinKey(min_buff), kg.MaxKey(max_buff));
   uint64_t size;
-  auto s = db->GetApproximateSizes(&r, 1, &size);
+  Status s = db->GetApproximateSizes(&r, 1, &size);
   if (!s.ok()) {
     state.SkipWithError(s.ToString().c_str());
   }
-  state.counters["db_size"] = size;
+  state.counters["db_size"] = static_cast<double>(size);
 
-  auto db_name = db->GetName();
+  std::string db_name = db->GetName();
   s = db->Close();
   if (!s.ok()) {
     state.SkipWithError(s.ToString().c_str());
@@ -160,11 +159,11 @@ static void TeardownDB(benchmark::State& state, DB* db, const Options& options,
 
 static void DBOpen(benchmark::State& state) {
   // create DB
-  DB* db;
+  DB* db = nullptr;
   Options options;
   SetupDB(state, options, &db, "DBOpen");
 
-  auto db_name = db->GetName();
+  std::string db_name = db->GetName();
   db->Close();
 
   options.create_if_missing = false;
@@ -172,7 +171,7 @@ static void DBOpen(benchmark::State& state) {
   auto rnd = Random(123);
 
   for (auto _ : state) {
-    auto s = DB::Open(options, db_name, &db);
+    Status s = DB::Open(options, db_name, &db);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
     }
@@ -208,7 +207,7 @@ static void DBClose(benchmark::State& state) {
   Options options;
   SetupDB(state, options, &db, "DBClose");
 
-  auto db_name = db->GetName();
+  std::string db_name = db->GetName();
   db->Close();
 
   options.create_if_missing = false;
@@ -217,7 +216,7 @@ static void DBClose(benchmark::State& state) {
 
   for (auto _ : state) {
     state.PauseTiming();
-    auto s = DB::Open(options, db_name, &db);
+    Status s = DB::Open(options, db_name, &db);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
     }
@@ -255,7 +254,7 @@ static void DBPut(benchmark::State& state) {
   uint64_t key_num = max_data / per_key_size;
 
   // setup DB
-  static DB* db;
+  static DB* db = nullptr;
   Options options;
   if (enable_statistics) {
     options.statistics = CreateDBStatistics();
@@ -274,10 +273,10 @@ static void DBPut(benchmark::State& state) {
 
   for (auto _ : state) {
     state.PauseTiming();
-    auto key = kg.Next();
-    auto val = rnd.RandomString(per_key_size);
+    Slice key = kg.Next();
+    std::string val = rnd.RandomString(static_cast<int>(per_key_size));
     state.ResumeTiming();
-    auto s = db->Put(wo, key, val);
+    Status s = db->Put(wo, key, val);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
     }
@@ -285,7 +284,7 @@ static void DBPut(benchmark::State& state) {
 
   if (state.thread_index == 0) {
     auto db_full = static_cast_with_check<DBImpl>(db);
-    auto s = db_full->WaitForCompact(true);
+    Status s = db_full->WaitForCompact(true);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -357,7 +356,8 @@ static void ManualCompaction(benchmark::State& state) {
   wo.disableWAL = true;
   uint64_t flush_mod = key_num / 4;  // at least generate 4 files for compaction
   for (uint64_t i = 0; i < key_num; i++) {
-    auto s = db->Put(wo, kg.Next(), rnd.RandomString(per_key_size));
+    Status s = db->Put(wo, kg.Next(),
+                       rnd.RandomString(static_cast<int>(per_key_size)));
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
     }
@@ -366,14 +366,14 @@ static void ManualCompaction(benchmark::State& state) {
     }
   }
   FlushOptions fo;
-  auto s = db->Flush(fo);
+  Status s = db->Flush(fo);
   if (!s.ok()) {
     state.SkipWithError(s.ToString().c_str());
   }
-  std::vector<std::string> files_before_compact;
   std::vector<LiveFileMetaData> files_meta;
   db->GetLiveFilesMetaData(&files_meta);
-  for (auto file : files_meta) {
+  std::vector<std::string> files_before_compact(files_meta.size());
+  for (const LiveFileMetaData& file : files_meta) {
     files_before_compact.push_back(file.name);
   }
 
@@ -405,22 +405,25 @@ static void ManualCompaction(benchmark::State& state) {
                                         &histogram_data);
       state.counters["comp_outfile_sync"] = histogram_data.average;
 
-      state.counters["comp_read"] =
-          options.statistics->getTickerCount(COMPACT_READ_BYTES);
-      state.counters["comp_write"] =
-          options.statistics->getTickerCount(COMPACT_WRITE_BYTES);
+      state.counters["comp_read"] = static_cast<double>(
+          options.statistics->getTickerCount(COMPACT_READ_BYTES));
+      state.counters["comp_write"] = static_cast<double>(
+          options.statistics->getTickerCount(COMPACT_WRITE_BYTES));
 
       state.counters["user_key_comparison_count"] =
-          get_perf_context()->user_key_comparison_count;
-      state.counters["block_read_count"] = get_perf_context()->block_read_count;
-      state.counters["block_read_time"] = get_perf_context()->block_read_time;
+          static_cast<double>(get_perf_context()->user_key_comparison_count);
+      state.counters["block_read_count"] =
+          static_cast<double>(get_perf_context()->block_read_count);
+      state.counters["block_read_time"] =
+          static_cast<double>(get_perf_context()->block_read_time);
       state.counters["block_checksum_time"] =
-          get_perf_context()->block_checksum_time;
+          static_cast<double>(get_perf_context()->block_checksum_time);
       state.counters["new_table_block_iter_nanos"] =
-          get_perf_context()->new_table_block_iter_nanos;
+          static_cast<double>(get_perf_context()->new_table_block_iter_nanos);
       state.counters["new_table_iterator_nanos"] =
-          get_perf_context()->new_table_iterator_nanos;
-      state.counters["find_table_nanos"] = get_perf_context()->find_table_nanos;
+          static_cast<double>(get_perf_context()->new_table_iterator_nanos);
+      state.counters["find_table_nanos"] =
+          static_cast<double>(get_perf_context()->find_table_nanos);
     }
 
     TeardownDB(state, db, options, kg);
@@ -472,11 +475,12 @@ static void ManualFlush(benchmark::State& state) {
   for (auto _ : state) {
     state.PauseTiming();
     for (uint64_t i = 0; i < key_num; i++) {
-      auto s = db->Put(wo, kg.Next(), rnd.RandomString(per_key_size));
+      Status s = db->Put(wo, kg.Next(),
+                         rnd.RandomString(static_cast<int>(per_key_size)));
     }
     FlushOptions fo;
     state.ResumeTiming();
-    auto s = db->Flush(fo);
+    Status s = db->Flush(fo);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
     }
@@ -484,7 +488,7 @@ static void ManualFlush(benchmark::State& state) {
 
   if (state.thread_index == 0) {
     auto db_full = static_cast_with_check<DBImpl>(db);
-    auto s = db_full->WaitForCompact(true);
+    Status s = db_full->WaitForCompact(true);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -493,8 +497,8 @@ static void ManualFlush(benchmark::State& state) {
       HistogramData histogram_data;
       options.statistics->histogramData(FLUSH_TIME, &histogram_data);
       state.counters["flush_time"] = histogram_data.average;
-      state.counters["flush_write_bytes"] =
-          options.statistics->getTickerCount(FLUSH_WRITE_BYTES);
+      state.counters["flush_write_bytes"] = static_cast<double>(
+          options.statistics->getTickerCount(FLUSH_WRITE_BYTES));
     }
 
     TeardownDB(state, db, options, kg);
@@ -545,14 +549,15 @@ static void DBGet(benchmark::State& state) {
     auto wo = WriteOptions();
     wo.disableWAL = true;
     for (uint64_t i = 0; i < key_num; i++) {
-      auto s = db->Put(wo, kg.Next(), rnd.RandomString(per_key_size));
+      Status s = db->Put(wo, kg.Next(),
+                         rnd.RandomString(static_cast<int>(per_key_size)));
       if (!s.ok()) {
         state.SkipWithError(s.ToString().c_str());
       }
     }
 
     FlushOptions fo;
-    auto s = db->Flush(fo);
+    Status s = db->Flush(fo);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
     }
@@ -570,7 +575,7 @@ static void DBGet(benchmark::State& state) {
   if (negative_query) {
     for (auto _ : state) {
       std::string val;
-      auto s = db->Get(ro, kg.NextNonExist(), &val);
+      Status s = db->Get(ro, kg.NextNonExist(), &val);
       if (s.IsNotFound()) {
         not_found++;
       }
@@ -578,15 +583,15 @@ static void DBGet(benchmark::State& state) {
   } else {
     for (auto _ : state) {
       std::string val;
-      auto s = db->Get(ro, kg.Next(), &val);
+      Status s = db->Get(ro, kg.Next(), &val);
       if (s.IsNotFound()) {
         not_found++;
       }
     }
   }
 
-  state.counters["neg_qu_pct"] =
-      benchmark::Counter(not_found * 100, benchmark::Counter::kAvgIterations);
+  state.counters["neg_qu_pct"] = benchmark::Counter(
+      static_cast<double>(not_found * 100), benchmark::Counter::kAvgIterations);
 
   if (state.thread_index == 0) {
     if (enable_statistics) {
@@ -639,7 +644,7 @@ static void SimpleGetWithPerfContext(benchmark::State& state) {
   if (state.thread_index == 0) {
     auto env = Env::Default();
     std::string db_path;
-    auto s = env->GetTestDirectory(&db_path);
+    Status s = env->GetTestDirectory(&db_path);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -691,7 +696,7 @@ static void SimpleGetWithPerfContext(benchmark::State& state) {
   for (auto _ : state) {
     std::string val;
     get_perf_context()->Reset();
-    auto s = db->Get(ro, kg.NextNonExist(), &val);
+    Status s = db->Get(ro, kg.NextNonExist(), &val);
     if (s.IsNotFound()) {
       not_found++;
     }
@@ -710,44 +715,39 @@ static void SimpleGetWithPerfContext(benchmark::State& state) {
         (*(get_perf_context()->level_to_perf_context))[0].get_from_table_nanos;
   }
 
-  state.counters["neg_qu_pct"] =
-      benchmark::Counter(not_found * 100, benchmark::Counter::kAvgIterations);
-  state.counters["user_key_comparison_count"] = benchmark::Counter(
-      user_key_comparison_count, benchmark::Counter::kAvgIterations);
-  state.counters["block_read_time"] =
-      benchmark::Counter(block_read_time, benchmark::Counter::kAvgIterations);
-  state.counters["block_checksum_time"] = benchmark::Counter(
-      block_checksum_time, benchmark::Counter::kAvgIterations);
+  state.counters["neg_qu_pct"] = benchmark::Counter(
+      static_cast<double>(not_found * 100), benchmark::Counter::kAvgIterations);
+  state.counters["user_key_comparison_count"] =
+      benchmark::Counter(static_cast<double>(user_key_comparison_count),
+                         benchmark::Counter::kAvgIterations);
+  state.counters["block_read_time"] = benchmark::Counter(
+      static_cast<double>(block_read_time), benchmark::Counter::kAvgIterations);
+  state.counters["block_checksum_time"] =
+      benchmark::Counter(static_cast<double>(block_checksum_time),
+                         benchmark::Counter::kAvgIterations);
   state.counters["get_snapshot_time"] =
-      benchmark::Counter(get_snapshot_time, benchmark::Counter::kAvgIterations);
-  state.counters["get_post_process_time"] = benchmark::Counter(
-      get_post_process_time, benchmark::Counter::kAvgIterations);
-  state.counters["get_from_output_files_time"] = benchmark::Counter(
-      get_from_output_files_time, benchmark::Counter::kAvgIterations);
-  state.counters["new_table_block_iter_nanos"] = benchmark::Counter(
-      new_table_block_iter_nanos, benchmark::Counter::kAvgIterations);
+      benchmark::Counter(static_cast<double>(get_snapshot_time),
+                         benchmark::Counter::kAvgIterations);
+  state.counters["get_post_process_time"] =
+      benchmark::Counter(static_cast<double>(get_post_process_time),
+                         benchmark::Counter::kAvgIterations);
+  state.counters["get_from_output_files_time"] =
+      benchmark::Counter(static_cast<double>(get_from_output_files_time),
+                         benchmark::Counter::kAvgIterations);
+  state.counters["new_table_block_iter_nanos"] =
+      benchmark::Counter(static_cast<double>(new_table_block_iter_nanos),
+                         benchmark::Counter::kAvgIterations);
   state.counters["block_seek_nanos"] =
-      benchmark::Counter(block_seek_nanos, benchmark::Counter::kAvgIterations);
-  state.counters["get_cpu_nanos"] =
-      benchmark::Counter(get_cpu_nanos, benchmark::Counter::kAvgIterations);
-  state.counters["get_from_table_nanos"] = benchmark::Counter(
-      get_from_table_nanos, benchmark::Counter::kAvgIterations);
+      benchmark::Counter(static_cast<double>(block_seek_nanos),
+                         benchmark::Counter::kAvgIterations);
+  state.counters["get_cpu_nanos"] = benchmark::Counter(
+      static_cast<double>(get_cpu_nanos), benchmark::Counter::kAvgIterations);
+  state.counters["get_from_table_nanos"] =
+      benchmark::Counter(static_cast<double>(get_from_table_nanos),
+                         benchmark::Counter::kAvgIterations);
 
   if (state.thread_index == 0) {
-    char min_buff[256], max_buff[256];
-    const Range r(kg.MinKey(min_buff), kg.MaxKey(max_buff));
-    uint64_t size;
-    auto s = db->GetApproximateSizes(&r, 1, &size);
-    if (!s.ok()) {
-      state.SkipWithError(s.ToString().c_str());
-    }
-    state.counters["db_size"] = size;
-
-    s = db->Close();
-    if (!s.ok()) {
-      state.SkipWithError(s.ToString().c_str());
-    }
-    DestroyDB(db_name, options);
+    TeardownDB(state, db, options, kg);
   }
 }
 
@@ -775,7 +775,7 @@ void GenerateRandomKVs(std::vector<std::string>* keys,
 
   // generate different prefix
   for (int i = from; i < from + len; i += step) {
-    // generating keys that shares the prefix
+    // generating keys that share the prefix
     for (int j = 0; j < keys_share_prefix; ++j) {
       keys->emplace_back(GenerateKey(i, j, padding_size, &rnd));
       // 100 bytes values
@@ -813,9 +813,9 @@ static void DataBlockSeek(benchmark::State& state) {
   SetPerfLevel(kEnableTime);
   uint64_t total = 0;
   for (auto _ : state) {
-    auto iter = reader.NewDataIterator(icmp.user_comparator(),
-                                       kDisableGlobalSequenceNumber);
-    int index = rnd.Uniform(num_records);
+    DataBlockIter* iter = reader.NewDataIterator(icmp.user_comparator(),
+                                                 kDisableGlobalSequenceNumber);
+    uint32_t index = rnd.Uniform(static_cast<int>(num_records));
     std::string ukey(keys[index] + "1");
     InternalKey ikey(ukey, 0, kTypeValue);
     get_perf_context()->Reset();
@@ -826,8 +826,8 @@ static void DataBlockSeek(benchmark::State& state) {
     total += get_perf_context()->block_seek_nanos;
     delete iter;
   }
-  state.counters["seek_ns"] =
-      benchmark::Counter(total, benchmark::Counter::kAvgIterations);
+  state.counters["seek_ns"] = benchmark::Counter(
+      static_cast<double>(total), benchmark::Counter::kAvgIterations);
 }
 
 BENCHMARK(DataBlockSeek)->Iterations(1000000);
@@ -865,14 +865,15 @@ static void IteratorSeek(benchmark::State& state) {
     auto wo = WriteOptions();
     wo.disableWAL = true;
     for (uint64_t i = 0; i < key_num; i++) {
-      auto s = db->Put(wo, kg.Next(), rnd.RandomString(per_key_size));
+      Status s = db->Put(wo, kg.Next(),
+                         rnd.RandomString(static_cast<int>(per_key_size)));
       if (!s.ok()) {
         state.SkipWithError(s.ToString().c_str());
       }
     }
 
     FlushOptions fo;
-    auto s = db->Flush(fo);
+    Status s = db->Flush(fo);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
     }
@@ -953,14 +954,15 @@ static void IteratorNext(benchmark::State& state) {
     auto wo = WriteOptions();
     wo.disableWAL = true;
     for (uint64_t i = 0; i < key_num; i++) {
-      auto s = db->Put(wo, kg.Next(), rnd.RandomString(per_key_size));
+      Status s = db->Put(wo, kg.Next(),
+                         rnd.RandomString(static_cast<int>(per_key_size)));
       if (!s.ok()) {
         state.SkipWithError(s.ToString().c_str());
       }
     }
 
     FlushOptions fo;
-    auto s = db->Flush(fo);
+    Status s = db->Flush(fo);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
     }
@@ -1022,13 +1024,13 @@ static void IteratorNextWithPerfContext(benchmark::State& state) {
     auto wo = WriteOptions();
     wo.disableWAL = true;
     for (uint64_t i = 0; i < 1024; i++) {
-      auto s = db->Put(wo, kg.Next(), rnd.RandomString(1024));
+      Status s = db->Put(wo, kg.Next(), rnd.RandomString(1024));
       if (!s.ok()) {
         state.SkipWithError(s.ToString().c_str());
       }
     }
     auto db_full = static_cast_with_check<DBImpl>(db);
-    auto s = db_full->WaitForCompact(true);
+    Status s = db_full->WaitForCompact(true);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
       return;
@@ -1070,14 +1072,18 @@ static void IteratorNextWithPerfContext(benchmark::State& state) {
     }
   }
 
-  state.counters["user_key_comparison_count"] = benchmark::Counter(
-      user_key_comparison_count, benchmark::Counter::kAvgIterations);
-  state.counters["internal_key_skipped_count"] = benchmark::Counter(
-      internal_key_skipped_count, benchmark::Counter::kAvgIterations);
-  state.counters["find_next_user_entry_time"] = benchmark::Counter(
-      find_next_user_entry_time, benchmark::Counter::kAvgIterations);
-  state.counters["iter_next_cpu_nanos"] = benchmark::Counter(
-      iter_next_cpu_nanos, benchmark::Counter::kAvgIterations);
+  state.counters["user_key_comparison_count"] =
+      benchmark::Counter(static_cast<double>(user_key_comparison_count),
+                         benchmark::Counter::kAvgIterations);
+  state.counters["internal_key_skipped_count"] =
+      benchmark::Counter(static_cast<double>(internal_key_skipped_count),
+                         benchmark::Counter::kAvgIterations);
+  state.counters["find_next_user_entry_time"] =
+      benchmark::Counter(static_cast<double>(find_next_user_entry_time),
+                         benchmark::Counter::kAvgIterations);
+  state.counters["iter_next_cpu_nanos"] =
+      benchmark::Counter(static_cast<double>(iter_next_cpu_nanos),
+                         benchmark::Counter::kAvgIterations);
 
   if (state.thread_index == 0) {
     TeardownDB(state, db, options, kg);
@@ -1107,14 +1113,15 @@ static void IteratorPrev(benchmark::State& state) {
     auto wo = WriteOptions();
     wo.disableWAL = true;
     for (uint64_t i = 0; i < key_num; i++) {
-      auto s = db->Put(wo, kg.Next(), rnd.RandomString(per_key_size));
+      Status s = db->Put(wo, kg.Next(),
+                         rnd.RandomString(static_cast<int>(per_key_size)));
       if (!s.ok()) {
         state.SkipWithError(s.ToString().c_str());
       }
     }
 
     FlushOptions fo;
-    auto s = db->Flush(fo);
+    Status s = db->Flush(fo);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
     }
@@ -1196,14 +1203,15 @@ static void PrefixSeek(benchmark::State& state) {
     auto wo = WriteOptions();
     wo.disableWAL = true;
     for (uint64_t i = 0; i < key_num; i++) {
-      auto s = db->Put(wo, kg.Next(), rnd.RandomString(per_key_size));
+      Status s = db->Put(wo, kg.Next(),
+                         rnd.RandomString(static_cast<int>(per_key_size)));
       if (!s.ok()) {
         state.SkipWithError(s.ToString().c_str());
       }
     }
 
     FlushOptions fo;
-    auto s = db->Flush(fo);
+    Status s = db->Flush(fo);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
     }
