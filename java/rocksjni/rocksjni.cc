@@ -1736,7 +1736,7 @@ inline void multi_get_helper_release_keys(std::vector<jbyte*>& keys_to_free) {
  * @return false if a JNI exception is generated
  */
 inline bool cf_handles_from_jcf_handles(
-    JNIEnv* env,
+    JNIEnv* env, APIRocksDB& dbAPI,
     std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>& cf_handles,
     jlongArray jcolumn_family_handles) {
   if (jcolumn_family_handles != nullptr) {
@@ -1752,9 +1752,13 @@ inline bool cf_handles_from_jcf_handles(
     }
 
     for (jsize i = 0; i < len_cols; i++) {
-      auto* cf_handle =
-          reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcfh[i]);
-      cf_handles.push_back(cf_handle);
+      auto* cfhAPI = reinterpret_cast<APIColumnFamilyHandle*>(jcfh[i]);
+      auto cfh = cfhAPI->cfhLockDBCheck(env, dbAPI);
+      if (!cfh) {
+        cf_handles.clear();
+        return false;
+      }
+      cf_handles.push_back(cfh.get());
     }
     env->ReleaseLongArrayElements(jcolumn_family_handles, jcfh, JNI_ABORT);
   }
@@ -1882,13 +1886,14 @@ inline bool keys_from_bytebuffers(JNIEnv* env,
  * @return byte[][] of values or nullptr if an
  * exception occurs
  */
-jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
+jobjectArray multi_get_helper(JNIEnv* env, jobject, APIRocksDB& dbAPI,
                               const ROCKSDB_NAMESPACE::ReadOptions& rOpt,
                               jobjectArray jkeys, jintArray jkey_offs,
                               jintArray jkey_lens,
                               jlongArray jcolumn_family_handles) {
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
-  if (!cf_handles_from_jcf_handles(env, cf_handles, jcolumn_family_handles)) {
+  if (!cf_handles_from_jcf_handles(env, dbAPI, cf_handles,
+                                   jcolumn_family_handles)) {
     return nullptr;
   }
 
@@ -1901,9 +1906,9 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
   std::vector<std::string> values;
   std::vector<ROCKSDB_NAMESPACE::Status> s;
   if (cf_handles.size() == 0) {
-    s = db->MultiGet(rOpt, keys, &values);
+    s = dbAPI->MultiGet(rOpt, keys, &values);
   } else {
-    s = db->MultiGet(rOpt, cf_handles, keys, &values);
+    s = dbAPI->MultiGet(rOpt, cf_handles, keys, &values);
   }
 
   // free up allocated byte arrays
@@ -1977,7 +1982,7 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
  * @param jvalue_sizes returned actual sizes of data values for keys
  * @param jstatuses returned java RocksDB status values for per key
  */
-void multi_get_helper_direct(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
+void multi_get_helper_direct(JNIEnv* env, jobject, APIRocksDB& dbAPI,
                              const ROCKSDB_NAMESPACE::ReadOptions& rOpt,
                              jlongArray jcolumn_family_handles,
                              jobjectArray jkeys, jintArray jkey_offsets,
@@ -1993,25 +1998,26 @@ void multi_get_helper_direct(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
   std::vector<ROCKSDB_NAMESPACE::PinnableSlice> values(num_keys);
 
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
-  if (!cf_handles_from_jcf_handles(env, cf_handles, jcolumn_family_handles)) {
+  if (!cf_handles_from_jcf_handles(env, dbAPI, cf_handles,
+                                   jcolumn_family_handles)) {
     return;
   }
 
   std::vector<ROCKSDB_NAMESPACE::Status> s(num_keys);
   if (cf_handles.size() == 0) {
     // we can use the more efficient call here
-    auto cf_handle = db->DefaultColumnFamily();
-    db->MultiGet(rOpt, cf_handle, num_keys, keys.data(), values.data(),
-                 s.data());
+    auto cf_handle = dbAPI->DefaultColumnFamily();
+    dbAPI->MultiGet(rOpt, cf_handle, num_keys, keys.data(), values.data(),
+                    s.data());
   } else if (cf_handles.size() == 1) {
     // we can use the more efficient call here
     auto cf_handle = cf_handles[0];
-    db->MultiGet(rOpt, cf_handle, num_keys, keys.data(), values.data(),
-                 s.data());
+    dbAPI->MultiGet(rOpt, cf_handle, num_keys, keys.data(), values.data(),
+                    s.data());
   } else {
     // multiple CFs version
-    db->MultiGet(rOpt, num_keys, cf_handles.data(), keys.data(), values.data(),
-                 s.data());
+    dbAPI->MultiGet(rOpt, num_keys, cf_handles.data(), keys.data(),
+                    values.data(), s.data());
   }
 
   // prepare the results
@@ -2079,9 +2085,9 @@ void multi_get_helper_direct(JNIEnv* env, jobject, ROCKSDB_NAMESPACE::DB* db,
 jobjectArray Java_org_rocksdb_RocksDB_multiGet__J_3_3B_3I_3I(
     JNIEnv* env, jobject jdb, jlong jdb_handle, jobjectArray jkeys,
     jintArray jkey_offs, jintArray jkey_lens) {
-  return multi_get_helper(
-      env, jdb, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
-      ROCKSDB_NAMESPACE::ReadOptions(), jkeys, jkey_offs, jkey_lens, nullptr);
+  return multi_get_helper(env, jdb, *reinterpret_cast<APIRocksDB*>(jdb_handle),
+                          ROCKSDB_NAMESPACE::ReadOptions(), jkeys, jkey_offs,
+                          jkey_lens, nullptr);
 }
 
 /*
@@ -2093,8 +2099,7 @@ jobjectArray Java_org_rocksdb_RocksDB_multiGet__J_3_3B_3I_3I_3J(
     JNIEnv* env, jobject jdb, jlong jdb_handle, jobjectArray jkeys,
     jintArray jkey_offs, jintArray jkey_lens,
     jlongArray jcolumn_family_handles) {
-  return multi_get_helper(env, jdb,
-                          reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
+  return multi_get_helper(env, jdb, *reinterpret_cast<APIRocksDB*>(jdb_handle),
                           ROCKSDB_NAMESPACE::ReadOptions(), jkeys, jkey_offs,
                           jkey_lens, jcolumn_family_handles);
 }
@@ -2108,7 +2113,7 @@ jobjectArray Java_org_rocksdb_RocksDB_multiGet__JJ_3_3B_3I_3I(
     JNIEnv* env, jobject jdb, jlong jdb_handle, jlong jropt_handle,
     jobjectArray jkeys, jintArray jkey_offs, jintArray jkey_lens) {
   return multi_get_helper(
-      env, jdb, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
+      env, jdb, *reinterpret_cast<APIRocksDB*>(jdb_handle),
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle), jkeys,
       jkey_offs, jkey_lens, nullptr);
 }
@@ -2123,7 +2128,7 @@ jobjectArray Java_org_rocksdb_RocksDB_multiGet__JJ_3_3B_3I_3I_3J(
     jobjectArray jkeys, jintArray jkey_offs, jintArray jkey_lens,
     jlongArray jcolumn_family_handles) {
   return multi_get_helper(
-      env, jdb, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
+      env, jdb, *reinterpret_cast<APIRocksDB*>(jdb_handle),
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle), jkeys,
       jkey_offs, jkey_lens, jcolumn_family_handles);
 }
@@ -2140,7 +2145,7 @@ void Java_org_rocksdb_RocksDB_multiGet__JJ_3J_3Ljava_nio_ByteBuffer_2_3I_3I_3Lja
     jintArray jkey_offsets, jintArray jkey_lengths, jobjectArray jvalues,
     jintArray jvalues_sizes, jobjectArray jstatus_objects) {
   return multi_get_helper_direct(
-      env, jdb, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
+      env, jdb, *reinterpret_cast<APIRocksDB*>(jdb_handle),
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle),
       jcolumn_family_handles, jkeys, jkey_offsets, jkey_lengths, jvalues,
       jvalues_sizes, jstatus_objects);
