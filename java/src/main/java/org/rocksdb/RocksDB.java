@@ -4284,25 +4284,6 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Instructs DB to preserve deletes with sequence numbers &gt;= sequenceNumber.
-   *
-   * Has no effect if DBOptions#preserveDeletes() is set to false.
-   *
-   * This function assumes that user calls this function with monotonically
-   * increasing seqnums (otherwise we can't guarantee that a particular delete
-   * hasn't been already processed).
-   *
-   * @param sequenceNumber the minimum sequence number to preserve
-   *
-   * @return true if the value was successfully updated,
-   *     false if user attempted to call if with
-   *     sequenceNumber &lt;= current value.
-   */
-  public boolean setPreserveDeletesSequenceNumber(final long sequenceNumber) {
-    return setPreserveDeletesSequenceNumber(nativeHandle_, sequenceNumber);
-  }
-
-  /**
    * <p>Prevent file deletions. Compactions will continue to occur,
    * but no obsolete files will be deleted. Calling this multiple
    * times have the same effect as calling it once.</p>
@@ -5085,8 +5066,6 @@ public class RocksDB extends RocksObject {
       throws RocksDBException;
   private native void syncWal(final long handle) throws RocksDBException;
   private native long getLatestSequenceNumber(final long handle);
-  private native boolean setPreserveDeletesSequenceNumber(final long handle,
-      final long sequenceNumber);
   private native void disableFileDeletions(long handle) throws RocksDBException;
   private native void enableFileDeletions(long handle, boolean force)
       throws RocksDBException;

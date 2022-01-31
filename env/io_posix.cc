@@ -558,7 +558,7 @@ PosixRandomAccessFile::PosixRandomAccessFile(
 #endif
 {
   assert(!options.use_direct_reads || !options.use_mmap_reads);
-  assert(!options.use_mmap_reads || sizeof(void*) < 8);
+  assert(!options.use_mmap_reads);
 }
 
 PosixRandomAccessFile::~PosixRandomAccessFile() { close(fd_); }

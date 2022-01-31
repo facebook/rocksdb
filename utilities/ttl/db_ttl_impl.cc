@@ -327,18 +327,6 @@ Status DBWithTTLImpl::Close() {
   return ret;
 }
 
-Status UtilityDB::OpenTtlDB(const Options& options, const std::string& dbname,
-                            StackableDB** dbptr, int32_t ttl, bool read_only) {
-  DBWithTTL* db;
-  Status s = DBWithTTL::Open(options, dbname, &db, ttl, read_only);
-  if (s.ok()) {
-    *dbptr = db;
-  } else {
-    *dbptr = nullptr;
-  }
-  return s;
-}
-
 void DBWithTTLImpl::RegisterTtlClasses() {
   static std::once_flag once;
   std::call_once(once, [&]() {

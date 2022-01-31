@@ -10,10 +10,11 @@
 #include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <string>
 
 #include "include/org_rocksdb_RestoreOptions.h"
-#include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/backup_engine.h"
 #include "rocksjni/portal.h"
 /*
  * Class:     org_rocksdb_RestoreOptions
