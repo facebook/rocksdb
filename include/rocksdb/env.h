@@ -171,7 +171,7 @@ class Env : public Customizable {
   Env(const Env&) = delete;
   void operator=(const Env&) = delete;
 
-  virtual ~Env();
+  ~Env() override;
 
   static const char* Type() { return "Environment"; }
 
