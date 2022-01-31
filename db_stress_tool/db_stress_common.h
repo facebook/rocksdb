@@ -441,8 +441,8 @@ extern inline std::string Key(int64_t val) {
   uint64_t window = key_gen_ctx.window;
   size_t levels = key_gen_ctx.weights.size();
   std::string key;
-  // Over-reserve and for now do not bother `shrink_to_fit()` since the keys are
-  // transient.
+  // Over-reserve and for now do not bother `shrink_to_fit()` since the key
+  // strings are transient.
   key.reserve(FLAGS_max_key_len * 8);
 
   uint64_t window_idx = static_cast<uint64_t>(val) / window;
