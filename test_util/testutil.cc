@@ -335,7 +335,6 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->is_fd_close_on_exec = rnd->Uniform(2);
   db_opt->paranoid_checks = rnd->Uniform(2);
   db_opt->track_and_verify_wals_in_manifest = rnd->Uniform(2);
-  db_opt->skip_log_error_on_recovery = rnd->Uniform(2);
   db_opt->skip_stats_update_on_db_open = rnd->Uniform(2);
   db_opt->skip_checking_sst_file_sizes_on_db_open = rnd->Uniform(2);
   db_opt->use_adaptive_mutex = rnd->Uniform(2);
@@ -398,8 +397,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->enable_blob_garbage_collection = rnd->Uniform(2);
 
   // double options
-  cf_opt->hard_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
-  cf_opt->soft_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
   cf_opt->memtable_prefix_bloom_size_ratio =
       static_cast<double>(rnd->Uniform(10000)) / 20000.0;
   cf_opt->blob_garbage_collection_age_cutoff = rnd->Uniform(10000) / 10000.0;
@@ -451,9 +448,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->min_blob_size = uint_max + rnd->Uniform(10000);
   cf_opt->blob_file_size = uint_max + rnd->Uniform(10000);
   cf_opt->blob_compaction_readahead_size = uint_max + rnd->Uniform(10000);
-
-  // unsigned int options
-  cf_opt->rate_limit_delay_max_milliseconds = rnd->Uniform(10000);
 
   // pointer typed options
   cf_opt->prefix_extractor.reset(RandomSliceTransform(rnd));

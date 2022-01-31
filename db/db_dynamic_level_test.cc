@@ -69,7 +69,6 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
       options.level_compaction_dynamic_level_bytes = true;
       options.max_bytes_for_level_base = 10240;
       options.max_bytes_for_level_multiplier = 4;
-      options.soft_rate_limit = 1.1;
       options.max_background_compactions = max_background_compactions;
       options.num_levels = 5;
 
@@ -370,7 +369,6 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBaseInc) {
   options.level_compaction_dynamic_level_bytes = true;
   options.max_bytes_for_level_base = 10240;
   options.max_bytes_for_level_multiplier = 4;
-  options.soft_rate_limit = 1.1;
   options.max_background_compactions = 2;
   options.num_levels = 5;
   options.max_compaction_bytes = 100000000;
@@ -422,7 +420,6 @@ TEST_F(DBTestDynamicLevel, DISABLED_MigrateToDynamicLevelMaxBytesBase) {
   options.level_compaction_dynamic_level_bytes = false;
   options.max_bytes_for_level_base = 10240;
   options.max_bytes_for_level_multiplier = 4;
-  options.soft_rate_limit = 1.1;
   options.num_levels = 8;
 
   DestroyAndReopen(options);

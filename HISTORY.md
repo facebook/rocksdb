@@ -1,10 +1,28 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Fixed a major bug in which batched MultiGet could return old values for keys deleted by DeleteRange when memtable Bloom filter is enabled (memtable_prefix_bloom_size_ratio > 0). (The fix includes a substantial MultiGet performance improvement in the unusual case of both memtable_whole_key_filtering and prefix_extractor.)
+
 ### Public API changes
 * Remove HDFS support from main repo.
 * Remove librados support from main repo.
+* Remove obsolete backupable_db.h and type alias `BackupableDBOptions`. Use backup_engine.h and `BackupEngineOptions`. Similar renamings are in the C and Java APIs.
+* Removed obsolete utility_db.h and `UtilityDB::OpenTtlDB`. Use db_ttl.h and `DBWithTTL::Open`.
 * Remove deprecated API DB::AddFile from main repo.
 * Remove deprecated API ObjectLibrary::Register() and the (now obsolete) Regex public API. Use ObjectLibrary::AddFactory() with PatternEntry instead.
+* Remove deprecated option DBOption::table_cache_remove_scan_count_limit.
+* Remove deprecated API AdvancedColumnFamilyOptions::soft_rate_limit.
+* Remove deprecated API AdvancedColumnFamilyOptions::hard_rate_limit.
+* Remove deprecated API DBOption::base_background_compactions.
+* Remove deprecated API DBOptions::purge_redundant_kvs_while_flush.
+* Remove deprecated overloads of API DB::CompactRange.
+* Remove deprecated option DBOptions::skip_log_error_on_recovery.
+* Remove ReadOptions::iter_start_seqnum which has been deprecated.
+* Remove DBOptions::preserved_deletes and DB::SetPreserveDeletesSequenceNumber().
+* Remove deprecated API AdvancedColumnFamilyOptions::rate_limit_delay_max_milliseconds.
+
+### Behavior Changes
+* Disallow the combination of DBOptions.use_direct_io_for_flush_and_compaction == true and DBOptions.writable_file_max_buffer_size == 0. This combination can cause WritableFileWriter::Append() to loop forever, and it does not make much sense in direct IO.
 
 ## 6.29.0 (01/21/2022)
 Note: The next release will be major release 7.0. See https://github.com/facebook/rocksdb/issues/9390 for more info.

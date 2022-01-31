@@ -187,7 +187,7 @@ class FileChecksumTestHelper {
   Status VerifyChecksumInManifest(
       const std::vector<LiveFileMetaData>& live_files) {
     // Step 1: verify if the dbname_ is correct
-    if (dbname_[dbname_.length() - 1] != '/') {
+    if (dbname_.back() != '/') {
       dbname_.append("/");
     }
 

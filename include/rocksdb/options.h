@@ -657,12 +657,6 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   int max_background_jobs = 2;
 
-  // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
-  // value of max_background_jobs. This option is ignored.
-  //
-  // Dynamically changeable through SetDBOptions() API.
-  int base_background_compactions = -1;
-
   // DEPRECATED: RocksDB automatically decides this based on the
   // value of max_background_jobs. For backwards compatibility we will set
   // `max_background_jobs = max_background_compactions + max_background_flushes`
@@ -748,9 +742,6 @@ struct DBOptions {
   // Number of shards used for table cache.
   int table_cache_numshardbits = 6;
 
-  // NOT SUPPORTED ANYMORE
-  // int table_cache_remove_scan_count_limit;
-
   // The following two fields affect how archived logs will be deleted.
   // 1. If both set to 0, logs will be deleted asap and will not get into
   //    the archive.
@@ -814,9 +805,6 @@ struct DBOptions {
 
   // Disable child process inherit open files. Default: true
   bool is_fd_close_on_exec = true;
-
-  // NOT SUPPORTED ANYMORE -- this options is no longer used
-  bool skip_log_error_on_recovery = false;
 
   // if not zero, dump rocksdb.stats to LOG every stats_dump_period_sec
   //
@@ -1211,11 +1199,6 @@ struct DBOptions {
   // Immutable.
   bool allow_ingest_behind = false;
 
-  // Deprecated, will be removed in a future release.
-  // Please try using user-defined timestamp instead.
-  // DEFAULT: false
-  bool preserve_deletes = false;
-
   // If enabled it uses two queues for writes, one for the ones with
   // disable_memtable and one for the ones that also write to memtable. This
   // allows the memtable writes not to lag behind other writes. It can be used
@@ -1566,11 +1549,6 @@ struct ReadOptions {
   // no impact on point lookups.
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
-
-  // Deprecated, will be removed in a future release.
-  // Please try using user-defined timestamp instead.
-  // Default: 0 (don't filter by seqnum, return user keys)
-  SequenceNumber iter_start_seqnum;
 
   // Timestamp of operation. Read should return the latest data visible to the
   // specified timestamp. All timestamps of the same database must be of the

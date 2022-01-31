@@ -47,7 +47,7 @@ class SliceTransform : public Customizable {
                                  std::shared_ptr<const SliceTransform>* result);
 
   // Returns a string representation of this SliceTransform, representing the ID
-  // and any additional properties
+  // and any additional properties.
   std::string AsString() const;
 
   // Extract a prefix from a specified key. This method is called when

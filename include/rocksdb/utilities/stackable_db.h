@@ -414,11 +414,6 @@ class StackableDB : public DB {
     return db_->GetLatestSequenceNumber();
   }
 
-  virtual bool SetPreserveDeletesSequenceNumber(
-      SequenceNumber seqnum) override {
-    return db_->SetPreserveDeletesSequenceNumber(seqnum);
-  }
-
   Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
                                   std::string ts_low) override {
     return db_->IncreaseFullHistoryTsLow(column_family, ts_low);

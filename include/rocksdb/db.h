@@ -1175,27 +1175,6 @@ class DB {
     return CompactRange(options, DefaultColumnFamily(), begin, end);
   }
 
-  ROCKSDB_DEPRECATED_FUNC virtual Status CompactRange(
-      ColumnFamilyHandle* column_family, const Slice* begin, const Slice* end,
-      bool change_level = false, int target_level = -1,
-      uint32_t target_path_id = 0) {
-    CompactRangeOptions options;
-    options.change_level = change_level;
-    options.target_level = target_level;
-    options.target_path_id = target_path_id;
-    return CompactRange(options, column_family, begin, end);
-  }
-
-  ROCKSDB_DEPRECATED_FUNC virtual Status CompactRange(
-      const Slice* begin, const Slice* end, bool change_level = false,
-      int target_level = -1, uint32_t target_path_id = 0) {
-    CompactRangeOptions options;
-    options.change_level = change_level;
-    options.target_level = target_level;
-    options.target_path_id = target_path_id;
-    return CompactRange(options, DefaultColumnFamily(), begin, end);
-  }
-
   virtual Status SetOptions(
       ColumnFamilyHandle* /*column_family*/,
       const std::unordered_map<std::string, std::string>& /*new_options*/) {
@@ -1346,14 +1325,6 @@ class DB {
 
   // The sequence number of the most recent transaction.
   virtual SequenceNumber GetLatestSequenceNumber() const = 0;
-
-  // Instructs DB to preserve deletes with sequence numbers >= passed seqnum.
-  // Has no effect if DBOptions.preserve_deletes is set to false.
-  // This function assumes that user calls this function with monotonically
-  // increasing seqnums (otherwise we can't guarantee that a particular delete
-  // hasn't been already processed); returns true if the value was successfully
-  // updated, false if user attempted to call if with seqnum <= current value.
-  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) = 0;
 
   // Prevent file deletions. Compactions will continue to occur,
   // but no obsolete files will be deleted. Calling this multiple
