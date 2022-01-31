@@ -61,7 +61,6 @@ bool RunStressTest(StressTest* stress) {
   stress->InitDb();
   SharedState shared(db_stress_env, stress);
   stress->FinishInitDb(&shared);
-  stress->SyncExpectedStateWithDb(&shared);
 
 #ifndef NDEBUG
   if (FLAGS_sync_fault_injection) {
