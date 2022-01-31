@@ -39,12 +39,11 @@ default_params = {
     "cache_size": 1048576,
     "checkpoint_one_in": 1000000,
     "compression_type": lambda: random.choice(
-        ["none", "snappy", "zlib", "bzip2", "lz4", "lz4hc", "xpress", "zstd"]),
+        ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),
     "bottommost_compression_type": lambda:
         "disable" if random.randint(0, 1) == 0 else
         random.choice(
-            ["none", "snappy", "zlib", "bzip2", "lz4", "lz4hc", "xpress",
-             "zstd"]),
+            ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),
     "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64", "kXXH3"]),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
@@ -75,7 +74,7 @@ default_params = {
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
-    "max_key": 100000000,
+    "max_key": 25000000,
     "max_write_buffer_number": 3,
     "mmap_read": lambda: random.randint(0, 1),
     # Setting `nooverwritepercent > 0` is only possible because we do not vary
@@ -111,6 +110,7 @@ default_params = {
     # 999 -> use Bloom API
     "ribbon_starting_level": lambda: random.choice([random.randint(-1, 10), 999]),
     "use_block_based_filter": lambda: random.randint(0, 1),
+    "value_size_mult": 32,
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
