@@ -158,10 +158,7 @@ class SharedState {
     key_locks_.resize(FLAGS_column_families);
 
     for (int i = 0; i < FLAGS_column_families; ++i) {
-      key_locks_[i].resize(num_locks);
-      for (auto& ptr : key_locks_[i]) {
-        ptr.reset(new port::Mutex);
-      }
+      key_locks_[i].reset(new port::Mutex[num_locks]);
     }
 #ifndef NDEBUG
     if (FLAGS_read_fault_one_in) {
@@ -227,20 +224,20 @@ class SharedState {
 
   // Returns a lock covering `key` in `cf`.
   port::Mutex* GetMutexForKey(int cf, int64_t key) {
-    return key_locks_[cf][key >> log2_keys_per_lock_].get();
+    return &key_locks_[cf][key >> log2_keys_per_lock_];
   }
 
   // Acquires locks for all keys in `cf`.
   void LockColumnFamily(int cf) {
-    for (auto& mutex : key_locks_[cf]) {
-      mutex->Lock();
+    for (int i = 0; i < max_key_ >> log2_keys_per_lock_; ++i) {
+      key_locks_[cf][i].Lock();
     }
   }
 
   // Releases locks for all keys in `cf`.
   void UnlockColumnFamily(int cf) {
-    for (auto& mutex : key_locks_[cf]) {
-      mutex->Unlock();
+    for (int i = 0; i < max_key_ >> log2_keys_per_lock_; ++i) {
+      key_locks_[cf][i].Unlock();
     }
   }
 
@@ -361,9 +358,9 @@ class SharedState {
   std::unordered_set<size_t> no_overwrite_ids_;
 
   std::unique_ptr<ExpectedStateManager> expected_state_manager_;
-  // Has to make it owned by a smart ptr as port::Mutex is not copyable
+  // Cannot store `port::Mutex` directly in vector since it is not copyable
   // and storing it in the container may require copying depending on the impl.
-  std::vector<std::vector<std::unique_ptr<port::Mutex>>> key_locks_;
+  std::vector<std::unique_ptr<port::Mutex[]>> key_locks_;
   std::atomic<bool> printing_verification_results_;
 };
 
