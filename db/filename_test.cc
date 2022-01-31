@@ -175,6 +175,8 @@ TEST_F(FileNameTest, NormalizePath) {
 
   std::string separator(1, kFilePathSeparator);
   std::stringstream given, toNormalize;
+  std::string noeLeadingSlash, twoChars1, twoChars2,slashOnly, uncOnly;
+
 
   given << separator << separator << "SERVER" << separator << "fileName";
   toNormalize << separator << "pathel" << separator << "pathel_1";
@@ -185,6 +187,48 @@ TEST_F(FileNameTest, NormalizePath) {
 
   expected = toNormalize.str();
 
+  ASSERT_EQ(expected, NormalizePath(toNormalize.str()));
+
+  // No leading slash
+  toNormalize << "folder" << separator << "fileName.ext";
+  given << "folder" << separator << "filename.ext";
+
+  expected = given.str();
+
+  ASSERT_EQ(expected, NormalizePath(toNormalize.str()));
+
+  // Two chars /a
+  toNormalize  << separator << "fileName.ext";
+  given << separator << "filename.ext";
+
+  expected = given.str();
+
+  ASSERT_EQ(expected, NormalizePath(toNormalize.str()));
+
+  // Two chars a/
+  toNormalize <<  "fileName.ext" << separator;
+  given <<  "filename.ext" << separator;
+  expected = given.str();
+  ASSERT_EQ(expected, NormalizePath(toNormalize.str()));
+
+
+  // slash only   /
+  toNormalize << separator;
+  given << separator;
+  expected = given.str();
+
+  ASSERT_EQ(expected, NormalizePath(toNormalize.str()));
+
+  // UNC only   //
+  toNormalize << separator << separator;
+  given << separator << separator;
+  expected = given.str();
+  ASSERT_EQ(expected, NormalizePath(toNormalize.str()));
+
+  // 2 separators in the middle 
+  toNormalize << "dir" << separator << separator  << "dir";
+  given << "dir" << separator << "dir";
+  expected = given.str();
   ASSERT_EQ(expected, NormalizePath(toNormalize.str()));
 
 }
