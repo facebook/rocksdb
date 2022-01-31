@@ -353,8 +353,6 @@ class DBImpl : public DB {
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
 
-  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
-
   // IncreaseFullHistoryTsLow(ColumnFamilyHandle*, std::string) will acquire
   // and release db_mutex
   Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
@@ -2306,12 +2304,10 @@ class DBImpl : public DB {
   // DB::Open() or passed to us
   bool own_sfm_;
 
-  // Clients must periodically call SetPreserveDeletesSequenceNumber()
-  // to advance this seqnum. Default value is 0 which means ALL deletes are
-  // preserved. Note that this has no effect if DBOptions.preserve_deletes
-  // is set to false.
-  std::atomic<SequenceNumber> preserve_deletes_seqnum_;
-  const bool preserve_deletes_;
+  // Default value is 0 which means ALL deletes are
+  // preserved. Note that this has no effect if preserve_deletes is false.
+  const std::atomic<SequenceNumber> preserve_deletes_seqnum_{0};
+  const bool preserve_deletes_ = false;
 
   // Flag to check whether Close() has been called on this DB
   bool closed_;
@@ -2337,10 +2333,6 @@ class DBImpl : public DB {
 
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;
-
-  // Indicate if deprecation warning message is logged before. Will be removed
-  // soon with the deprecated feature.
-  std::atomic_bool iter_start_seqnum_deprecation_warned_{false};
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,

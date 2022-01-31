@@ -369,8 +369,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"preserve_deletes",
-         {offsetof(struct ImmutableDBOptions, preserve_deletes),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"concurrent_prepare",  // Deprecated by two_write_queues
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
@@ -725,7 +724,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       dump_malloc_stats(options.dump_malloc_stats),
       avoid_flush_during_recovery(options.avoid_flush_during_recovery),
       allow_ingest_behind(options.allow_ingest_behind),
-      preserve_deletes(options.preserve_deletes),
       two_write_queues(options.two_write_queues),
       manual_wal_flush(options.manual_wal_flush),
       wal_compression(options.wal_compression),
@@ -889,8 +887,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    avoid_flush_during_recovery);
   ROCKS_LOG_HEADER(log, "            Options.allow_ingest_behind: %d",
                    allow_ingest_behind);
-  ROCKS_LOG_HEADER(log, "            Options.preserve_deletes: %d",
-                   preserve_deletes);
   ROCKS_LOG_HEADER(log, "            Options.two_write_queues: %d",
                    two_write_queues);
   ROCKS_LOG_HEADER(log, "            Options.manual_wal_flush: %d",

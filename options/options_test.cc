@@ -155,6 +155,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"bytes_per_sync", "47"},
       {"wal_bytes_per_sync", "48"},
       {"strict_bytes_per_sync", "true"},
+      {"preserve_deletes", "false"},
   };
 
   ColumnFamilyOptions base_cf_opt;
@@ -2242,6 +2243,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"max_compaction_bytes", "21"},
       {"soft_rate_limit", "1.1"},
       {"hard_rate_limit", "2.1"},
+      {"rate_limit_delay_max_milliseconds", "100"},
       {"hard_pending_compaction_bytes_limit", "211"},
       {"arena_block_size", "22"},
       {"disable_auto_compactions", "true"},
@@ -2317,6 +2319,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"bytes_per_sync", "47"},
       {"wal_bytes_per_sync", "48"},
       {"strict_bytes_per_sync", "true"},
+      {"preserve_deletes", "false"},
   };
 
   ColumnFamilyOptions base_cf_opt;

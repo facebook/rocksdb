@@ -2389,28 +2389,6 @@ jboolean Java_org_rocksdb_Options_allowIngestBehind(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setPreserveDeletes
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setPreserveDeletes(
-    JNIEnv*, jobject, jlong jhandle, jboolean jpreserve_deletes) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  opt->preserve_deletes = jpreserve_deletes == JNI_TRUE;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    preserveDeletes
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_preserveDeletes(
-    JNIEnv*, jobject, jlong jhandle) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  return static_cast<jboolean>(opt->preserve_deletes);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    setTwoWriteQueues
  * Signature: (JZ)V
  */
@@ -7386,28 +7364,6 @@ jboolean Java_org_rocksdb_DBOptions_allowIngestBehind(
 
 /*
  * Class:     org_rocksdb_DBOptions
- * Method:    setPreserveDeletes
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_DBOptions_setPreserveDeletes(
-    JNIEnv*, jobject, jlong jhandle, jboolean jpreserve_deletes) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
-  opt->preserve_deletes = jpreserve_deletes == JNI_TRUE;
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    preserveDeletes
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_DBOptions_preserveDeletes(
-    JNIEnv*, jobject, jlong jhandle) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
-  return static_cast<jboolean>(opt->preserve_deletes);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
  * Method:    setTwoWriteQueues
  * Signature: (JZ)V
  */
@@ -8198,28 +8154,6 @@ void Java_org_rocksdb_ReadOptions_setTableFilter(
       reinterpret_cast<ROCKSDB_NAMESPACE::TableFilterJniCallback*>(
           jjni_table_filter_handle);
   opt->table_filter = jni_table_filter->GetTableFilterFunction();
-}
-
-/*
- * Class:     org_rocksdb_ReadOptions
- * Method:    setIterStartSeqnum
- * Signature: (JJ)V
- */
-void Java_org_rocksdb_ReadOptions_setIterStartSeqnum(
-    JNIEnv*, jobject, jlong jhandle, jlong jiter_start_seqnum) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
-  opt->iter_start_seqnum = static_cast<uint64_t>(jiter_start_seqnum);
-}
-
-/*
- * Class:     org_rocksdb_ReadOptions
- * Method:    iterStartSeqnum
- * Signature: (J)J
- */
-jlong Java_org_rocksdb_ReadOptions_iterStartSeqnum(
-    JNIEnv*, jobject, jlong jhandle) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle);
-  return static_cast<jlong>(opt->iter_start_seqnum);
 }
 
 /*

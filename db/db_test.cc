@@ -3199,10 +3199,6 @@ class ModelDB : public DB {
 
   SequenceNumber GetLatestSequenceNumber() const override { return 0; }
 
-  bool SetPreserveDeletesSequenceNumber(SequenceNumber /*seqnum*/) override {
-    return true;
-  }
-
   Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* /*cf*/,
                                   std::string /*ts_low*/) override {
     return Status::OK();

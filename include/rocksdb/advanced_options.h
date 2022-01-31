@@ -921,9 +921,6 @@ struct AdvancedColumnFamilyOptions {
   // NOT SUPPORTED ANYMORE
   // This does not do anything anymore.
   int max_mem_compaction_level;
-
-  // NOT SUPPORTED ANYMORE -- this options is no longer used
-  unsigned int rate_limit_delay_max_milliseconds = 100;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
