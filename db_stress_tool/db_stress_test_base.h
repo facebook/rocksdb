@@ -34,6 +34,10 @@ class StressTest {
   // dependency with `SharedState`.
   virtual void FinishInitDb(SharedState*);
 
+  void SyncExpectedStateWithDb(SharedState* shared);
+
+  void TrackExpectedState(SharedState* shared);
+
   // Return false if verification fails.
   bool VerifySecondaries();
 
