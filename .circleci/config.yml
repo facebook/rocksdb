@@ -24,6 +24,13 @@ commands:
           command: |
             HOMEBREW_NO_AUTO_UPDATE=1 brew install cmake
 
+  install-jdk8-on-macos:
+    steps:
+      - run:
+          name: Install JDK 8 on macos
+          command: |
+            brew install --cask adoptopenjdk/openjdk/adoptopenjdk8
+
   increase-max-open-files-on-macos:
     steps:
       - run:
@@ -55,7 +62,7 @@ commands:
   pre-steps-macos:
       steps:
         - pre-steps:
-            python-version: "3.6.0"
+            python-version: "3.7.8"
 
   post-steps:
     steps:
@@ -556,6 +563,7 @@ jobs:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
       - install-gflags-on-macos
+      - install-jdk8-on-macos
       - install-cmake-on-macos
       - pre-steps-macos
       - run:
