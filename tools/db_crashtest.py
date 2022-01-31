@@ -39,12 +39,11 @@ default_params = {
     "cache_size": 1048576,
     "checkpoint_one_in": 1000000,
     "compression_type": lambda: random.choice(
-        ["none", "snappy", "zlib", "bzip2", "lz4", "lz4hc", "xpress", "zstd"]),
+        ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),
     "bottommost_compression_type": lambda:
         "disable" if random.randint(0, 1) == 0 else
         random.choice(
-            ["none", "snappy", "zlib", "bzip2", "lz4", "lz4hc", "xpress",
-             "zstd"]),
+            ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),
     "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64", "kXXH3"]),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
@@ -75,7 +74,7 @@ default_params = {
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
-    "max_key": 100000000,
+    "max_key": 25000000,
     "max_write_buffer_number": 3,
     "mmap_read": lambda: random.randint(0, 1),
     # Setting `nooverwritepercent > 0` is only possible because we do not vary
@@ -87,6 +86,7 @@ default_params = {
     "partition_filters": lambda: random.randint(0, 1),
     "partition_pinning": lambda: random.randint(0, 3),
     "pause_background_one_in": 1000000,
+    "prefix_size" : lambda: random.choice([-1, 1, 5, 7, 8]),
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,
@@ -110,6 +110,7 @@ default_params = {
     # 999 -> use Bloom API
     "ribbon_starting_level": lambda: random.choice([random.randint(-1, 10), 999]),
     "use_block_based_filter": lambda: random.randint(0, 1),
+    "value_size_mult": 32,
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
@@ -155,6 +156,8 @@ default_params = {
     "user_timestamp_size": 0,
     "secondary_cache_fault_one_in" : lambda: random.choice([0, 0, 32]),
     "prepopulate_block_cache" : lambda: random.choice([0, 1]),
+    "memtable_prefix_bloom_size_ratio": lambda: random.choice([0.001, 0.01, 0.1, 0.5]),
+    "memtable_whole_key_filtering": lambda: random.randint(0, 1),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -240,9 +243,6 @@ simple_default_params = {
     "max_background_compactions": 1,
     "max_bytes_for_level_base": 67108864,
     "memtablerep": "skip_list",
-    "prefixpercent": 0,
-    "readpercent": 50,
-    "prefix_size" : -1,
     "target_file_size_base": 16777216,
     "target_file_size_multiplier": 1,
     "test_batches_snapshots": 0,
@@ -399,8 +399,15 @@ def finalize_and_sanitize(src_params):
         dest_params["readpercent"] += dest_params.get("iterpercent", 10)
         dest_params["iterpercent"] = 0
         dest_params["test_batches_snapshots"] = 0
+    if dest_params.get("prefix_size") == -1:
+        dest_params["readpercent"] += dest_params.get("prefixpercent", 20)
+        dest_params["prefixpercent"] = 0
+        dest_params["test_batches_snapshots"] = 0
     if dest_params.get("test_batches_snapshots") == 0:
         dest_params["batch_protection_bytes_per_key"] = 0
+    if (dest_params.get("prefix_size") == -1 and
+        dest_params.get("memtable_whole_key_filtering") == 0):
+        dest_params["memtable_prefix_bloom_size_ratio"] = 0
     return dest_params
 
 def gen_cmd_params(args):

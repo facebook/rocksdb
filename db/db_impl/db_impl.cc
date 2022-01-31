@@ -234,7 +234,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       use_custom_gc_(seq_per_batch),
       shutdown_initiated_(false),
       own_sfm_(options.sst_file_manager == nullptr),
-      preserve_deletes_(options.preserve_deletes),
       closed_(false),
       atomic_flush_install_cv_(&mutex_),
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
@@ -271,11 +270,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   immutable_db_options_.Dump(immutable_db_options_.info_log.get());
   mutable_db_options_.Dump(immutable_db_options_.info_log.get());
   DumpSupportInfo(immutable_db_options_.info_log.get());
-
-  // always open the DB with 0 here, which means if preserve_deletes_==true
-  // we won't drop any deletion markers until SetPreserveDeletesSequenceNumber()
-  // is called by client and this seqnum is advanced.
-  preserve_deletes_seqnum_.store(0);
 
   if (write_buffer_manager_) {
     wbm_stall_.reset(new WBMStallInterface());
@@ -1485,15 +1479,6 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() const {
 
 void DBImpl::SetLastPublishedSequence(SequenceNumber seq) {
   versions_->SetLastPublishedSequence(seq);
-}
-
-bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
-  if (seqnum > preserve_deletes_seqnum_.load()) {
-    preserve_deletes_seqnum_.store(seqnum);
-    return true;
-  } else {
-    return false;
-  }
 }
 
 Status DBImpl::GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
@@ -2917,22 +2902,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     return NewErrorIterator(Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators."));
   }
-  // if iterator wants internal keys, we can only proceed if
-  // we can guarantee the deletes haven't been processed yet
-  if (read_options.iter_start_seqnum > 0 &&
-      !iter_start_seqnum_deprecation_warned_.exchange(true)) {
-    ROCKS_LOG_WARN(
-        immutable_db_options_.info_log,
-        "iter_start_seqnum is deprecated, will be removed in a future release. "
-        "Please try using user-defined timestamp instead.");
-  }
-  if (immutable_db_options_.preserve_deletes &&
-      read_options.iter_start_seqnum > 0 &&
-      read_options.iter_start_seqnum < preserve_deletes_seqnum_.load()) {
-    return NewErrorIterator(Status::InvalidArgument(
-        "Iterator requested internal keys which are too old and are not"
-        " guaranteed to be preserved, try larger iter_start_seqnum opt."));
-  }
+
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
   assert(cfd != nullptr);

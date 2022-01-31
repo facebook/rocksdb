@@ -274,7 +274,6 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "max_open_files=72;"
                              "max_file_opening_threads=35;"
                              "max_background_jobs=8;"
-                             "base_background_compactions=3;"
                              "max_background_compactions=33;"
                              "use_fsync=true;"
                              "use_adaptive_mutex=false;"
@@ -286,7 +285,6 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "skip_checking_sst_file_sizes_on_db_open=false;"
                              "max_manifest_file_size=4295009941;"
                              "db_log_dir=path/to/db_log_dir;"
-                             "skip_log_error_on_recovery=true;"
                              "writable_file_max_buffer_size=1048576;"
                              "paranoid_checks=true;"
                              "flush_verify_memtable_count=true;"
@@ -330,10 +328,10 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "avoid_flush_during_recovery=false;"
                              "avoid_flush_during_shutdown=false;"
                              "allow_ingest_behind=false;"
-                             "preserve_deletes=false;"
                              "concurrent_prepare=false;"
                              "two_write_queues=false;"
                              "manual_wal_flush=false;"
+                             "wal_compression=kZSTD;"
                              "seq_per_batch=false;"
                              "atomic_flush=false;"
                              "avoid_unnecessary_blocking_io=false;"
@@ -438,16 +436,11 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
 
   // Following options are not settable through
   // GetColumnFamilyOptionsFromString():
-  options->rate_limit_delay_max_milliseconds = 33;
   options->compaction_options_universal = CompactionOptionsUniversal();
-  options->hard_rate_limit = 0;
-  options->soft_rate_limit = 0;
   options->num_levels = 42;  // Initialize options for MutableCF
-  options->purge_redundant_kvs_while_flush = false;
   options->max_mem_compaction_level = 0;
   options->compaction_filter = nullptr;
   options->sst_partitioner_factory = nullptr;
-  options->bottommost_temperature = Temperature::kUnknown;
 
   char* new_options_ptr = new char[sizeof(ColumnFamilyOptions)];
   ColumnFamilyOptions* new_options =
@@ -488,7 +481,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "level0_slowdown_writes_trigger=22;"
       "level0_file_num_compaction_trigger=14;"
       "compaction_filter=urxcqstuwnCompactionFilter;"
-      "soft_rate_limit=530.615385;"
       "soft_pending_compaction_bytes_limit=0;"
       "max_write_buffer_number_to_maintain=84;"
       "max_write_buffer_size_to_maintain=2147483648;"
@@ -519,6 +511,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "blob_garbage_collection_age_cutoff=0.5;"
       "blob_garbage_collection_force_threshold=0.75;"
       "blob_compaction_readahead_size=262144;"
+      "bottommost_temperature=kWarm;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;age_for_warm=1;};",
       new_options));

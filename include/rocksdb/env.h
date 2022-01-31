@@ -171,7 +171,7 @@ class Env : public Customizable {
   Env(const Env&) = delete;
   void operator=(const Env&) = delete;
 
-  virtual ~Env();
+  ~Env() override;
 
   static const char* Type() { return "Environment"; }
 
@@ -1843,10 +1843,6 @@ class LoggerWrapper : public Logger {
 // when it is no longer needed.
 // *base_env must remain live while the result is in use.
 Env* NewMemEnv(Env* base_env);
-
-// Returns a new environment that is used for HDFS environment.
-// This is a factory method for HdfsEnv declared in hdfs/env_hdfs.h
-Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname);
 
 // Returns a new environment that measures function call times for filesystem
 // operations, reporting results to variables in PerfContext.
