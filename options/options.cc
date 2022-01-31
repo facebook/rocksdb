@@ -317,6 +317,12 @@ Status DBOptions::Validate(const ColumnFamilyOptions& cf_opts) const {
     return Status::InvalidArgument(
         "atomic_flush is currently incompatible with best-efforts recovery");
   }
+  if (use_direct_io_for_flush_and_compaction &&
+      0 == writable_file_max_buffer_size) {
+    return Status::InvalidArgument(
+        "writes in direct IO require writable_file_max_buffer_size > 0");
+  }
+  
 #ifndef ROCKSDB_LITE
   auto db_cfg = DBOptionsAsConfigurable(*this);
   return db_cfg->ValidateOptions(*this, cf_opts);
@@ -441,6 +447,20 @@ Status DBOptions::Sanitize(const std::string& dbname, bool read_only) {
         "preserve_deletes is deprecated, will be removed in a future release. "
         "Please try using user-defined timestamp instead.");
   }
+  // Supported wal compression types
+  if (wal_compression != kNoCompression &&
+      wal_compression != kZSTD) {
+    wal_compression = kNoCompression;
+    ROCKS_LOG_WARN(info_log,
+                   "wal_compression is disabled since only zstd is supported");
+  }
+
+  if (!paranoid_checks) {
+    skip_checking_sst_file_sizes_on_db_open = true;
+    ROCKS_LOG_INFO(info_log,
+                   "file size check will be skipped during open.");
+  }
+
   return Status::OK();
 }
 
