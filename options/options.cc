@@ -482,6 +482,11 @@ Options* Options::DisableExtraChecks() {
   // By current API contract, not including
   // * verify_checksums
   // because checking storage data integrity is a more standard practice.
+
+  BlockBasedTableOptions* table_options =
+      table_factory->GetOptions<BlockBasedTableOptions>();
+  table_options->detect_filter_construct_corruption = false;
+  table_factory.reset(new BlockBasedTableFactory(*table_options));
   return this;
 }
 
