@@ -887,15 +887,19 @@ static void IteratorSeek(benchmark::State& state) {
   }
 
   {
-    std::unique_ptr<Iterator> iter(db->NewIterator(ReadOptions()));
-    if (negative_query) {
-      for (auto _ : state) {
-        iter->Seek(kg.NextNonExist());
+    std::unique_ptr<Iterator> iter{nullptr};
+    for (auto _ : state) {
+      state.PauseTiming();
+      if (!iter) {
+        iter.reset(db->NewIterator(ReadOptions()));
       }
-    } else {
-      for (auto _ : state) {
-        iter->Seek(kg.Next());
+      Slice key = negative_query ? kg.NextNonExist() : kg.Next();
+      if (!iter->status().ok()) {
+        state.SkipWithError(iter->status().ToString().c_str());
+        return;
       }
+      state.ResumeTiming();
+      iter->Seek(key);
     }
   }
 
@@ -976,16 +980,20 @@ static void IteratorNext(benchmark::State& state) {
   }
 
   {
-    std::unique_ptr<Iterator> iter(db->NewIterator(ReadOptions()));
-    iter->Seek(kg.Next());
+    std::unique_ptr<Iterator> iter{nullptr};
     for (auto _ : state) {
-      if (iter->Valid()) {
-        iter->Next();
-      } else {
-        state.PauseTiming();
-        iter->Seek(kg.Next());
-        state.ResumeTiming();
+      state.PauseTiming();
+      if (!iter) {
+        iter.reset(db->NewIterator(ReadOptions()));
       }
+      while (!iter->Valid()) {
+        iter->Seek(kg.Next());
+        if (!iter->status().ok()) {
+          state.SkipWithError(iter->status().ToString().c_str());
+        }
+      }
+      state.ResumeTiming();
+      iter->Next();
     }
   }
 
@@ -1051,24 +1059,29 @@ static void IteratorNextWithPerfContext(benchmark::State& state) {
   get_perf_context()->EnablePerLevelPerfContext();
 
   {
-    std::unique_ptr<Iterator> iter(db->NewIterator(ReadOptions()));
-    iter->Seek(kg.Next());
+    std::unique_ptr<Iterator> iter{nullptr};
     for (auto _ : state) {
-      if (iter->Valid()) {
-        get_perf_context()->Reset();
-        iter->Next();
-        user_key_comparison_count +=
-            get_perf_context()->user_key_comparison_count;
-        internal_key_skipped_count +=
-            get_perf_context()->internal_key_skipped_count;
-        find_next_user_entry_time +=
-            get_perf_context()->find_next_user_entry_time;
-        iter_next_cpu_nanos += get_perf_context()->iter_next_cpu_nanos;
-      } else {
-        state.PauseTiming();
-        iter->Seek(kg.Next());
-        state.ResumeTiming();
+      state.PauseTiming();
+      if (!iter) {
+        iter.reset(db->NewIterator(ReadOptions()));
       }
+      while (!iter->Valid()) {
+        iter->Seek(kg.Next());
+        if (!iter->status().ok()) {
+          state.SkipWithError(iter->status().ToString().c_str());
+        }
+      }
+      get_perf_context()->Reset();
+      state.ResumeTiming();
+
+      iter->Next();
+      user_key_comparison_count +=
+          get_perf_context()->user_key_comparison_count;
+      internal_key_skipped_count +=
+          get_perf_context()->internal_key_skipped_count;
+      find_next_user_entry_time +=
+          get_perf_context()->find_next_user_entry_time;
+      iter_next_cpu_nanos += get_perf_context()->iter_next_cpu_nanos;
     }
   }
 
@@ -1135,16 +1148,20 @@ static void IteratorPrev(benchmark::State& state) {
   }
 
   {
-    std::unique_ptr<Iterator> iter(db->NewIterator(ReadOptions()));
-    iter->Seek(kg.Next());
+    std::unique_ptr<Iterator> iter{nullptr};
     for (auto _ : state) {
-      if (iter->Valid()) {
-        iter->Prev();
-      } else {
-        state.PauseTiming();
-        iter->Seek(kg.Next());
-        state.ResumeTiming();
+      state.PauseTiming();
+      if (!iter) {
+        iter.reset(db->NewIterator(ReadOptions()));
       }
+      while (!iter->Valid()) {
+        iter->Seek(kg.Next());
+        if (!iter->status().ok()) {
+          state.SkipWithError(iter->status().ToString().c_str());
+        }
+      }
+      state.ResumeTiming();
+      iter->Prev();
     }
   }
 
@@ -1225,9 +1242,13 @@ static void PrefixSeek(benchmark::State& state) {
   }
 
   {
-    auto ro = ReadOptions();
-    std::unique_ptr<Iterator> iter(db->NewIterator(ro));
+    std::unique_ptr<Iterator> iter{nullptr};
     for (auto _ : state) {
+      state.PauseTiming();
+      if (!iter) {
+        iter.reset(db->NewIterator(ReadOptions()));
+      }
+      state.ResumeTiming();
       iter->Seek(kg.NextPrefix());
       if (!iter->status().ok()) {
         state.SkipWithError(iter->status().ToString().c_str());
@@ -1261,10 +1282,10 @@ static void PrefixSeekArguments(benchmark::internal::Benchmark* b) {
 
 static constexpr uint64_t kPrefixSeekNum = 10l << 10;
 BENCHMARK(PrefixSeek)->Iterations(kPrefixSeekNum)->Apply(PrefixSeekArguments);
-BENCHMARK(DBGet)
+BENCHMARK(PrefixSeek)
     ->Threads(8)
     ->Iterations(kPrefixSeekNum / 8)
-    ->Apply(DBGetArguments);
+    ->Apply(PrefixSeekArguments);
 
 }  // namespace ROCKSDB_NAMESPACE
 
