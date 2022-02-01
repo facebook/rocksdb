@@ -817,7 +817,7 @@ workflows:
     jobs:
       - build-linux-clang-no_test_run
       - build-linux-clang-13-no_test_run
-      - build-linux-gcc-4_8-no_test_run
+      - build-linux-gcc-7-no_test_run
       - build-linux-gcc-8-no_test_run
       - build-linux-gcc-9-no_test_run
       - build-linux-gcc-10-cxx20-no_test_run

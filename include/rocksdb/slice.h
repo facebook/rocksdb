@@ -18,10 +18,10 @@
 
 #pragma once
 
-#include <assert.h>
-#include <stddef.h>
-#include <string.h>
+#include <cassert>
+#include <cstddef>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <string_view>
 
