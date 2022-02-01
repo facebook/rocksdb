@@ -335,7 +335,7 @@ for v in $@ ; do
   # This creates much compaction debt which will be a problem for tests added after it.
   # Also, the compaction stats measured at test end can underestimate write-amp depending
   # on how much compaction debt is allowed.
-  env "${args_nolim[@]}" DURATION=$$(( nsecs * 1 )) bash b.v4.sh overwrite
+  env "${args_nolim[@]}" DURATION=$(( nsecs * 1 )) bash b.v4.sh overwrite
 
   cp $dbdir/LOG* $my_odir
   gzip -9 $my_odir/LOG*
