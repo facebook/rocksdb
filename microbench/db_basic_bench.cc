@@ -372,9 +372,10 @@ static void ManualCompaction(benchmark::State& state) {
   }
   std::vector<LiveFileMetaData> files_meta;
   db->GetLiveFilesMetaData(&files_meta);
-  std::vector<std::string> files_before_compact(files_meta.size());
+  std::vector<std::string> files_before_compact;
+  files_before_compact.reserve(files_meta.size());
   for (const LiveFileMetaData& file : files_meta) {
-    files_before_compact.push_back(file.name);
+    files_before_compact.emplace_back(file.name);
   }
 
   SetPerfLevel(kEnableTime);
@@ -626,9 +627,9 @@ static void DBGetArguments(benchmark::internal::Benchmark* b) {
                "negative_query", "enable_filter"});
 }
 
-static const uint64_t DBGetNum = 10l << 10;
-BENCHMARK(DBGet)->Threads(1)->Iterations(DBGetNum)->Apply(DBGetArguments);
-BENCHMARK(DBGet)->Threads(8)->Iterations(DBGetNum / 8)->Apply(DBGetArguments);
+static constexpr uint64_t kDBGetNum = 10l << 10;
+BENCHMARK(DBGet)->Threads(1)->Iterations(kDBGetNum)->Apply(DBGetArguments);
+BENCHMARK(DBGet)->Threads(8)->Iterations(kDBGetNum / 8)->Apply(DBGetArguments);
 
 static void SimpleGetWithPerfContext(benchmark::State& state) {
   // setup DB
@@ -808,12 +809,11 @@ static void DataBlockSeek(benchmark::State& state) {
   BlockContents contents;
   contents.data = rawblock;
   Block reader(std::move(contents));
-  const InternalKeyComparator icmp(BytewiseComparator());
 
   SetPerfLevel(kEnableTime);
   uint64_t total = 0;
   for (auto _ : state) {
-    DataBlockIter* iter = reader.NewDataIterator(icmp.user_comparator(),
+    DataBlockIter* iter = reader.NewDataIterator(options.comparator,
                                                  kDisableGlobalSequenceNumber);
     uint32_t index = rnd.Uniform(static_cast<int>(num_records));
     std::string ukey(keys[index] + "1");
@@ -924,14 +924,14 @@ static void IteratorSeekArguments(benchmark::internal::Benchmark* b) {
                "negative_query", "enable_filter"});
 }
 
-static const uint64_t DBSeekNum = 10l << 10;
+static constexpr uint64_t kDBSeekNum = 10l << 10;
 BENCHMARK(IteratorSeek)
     ->Threads(1)
-    ->Iterations(DBSeekNum)
+    ->Iterations(kDBSeekNum)
     ->Apply(IteratorSeekArguments);
 BENCHMARK(IteratorSeek)
     ->Threads(8)
-    ->Iterations(DBSeekNum / 8)
+    ->Iterations(kDBSeekNum / 8)
     ->Apply(IteratorSeekArguments);
 
 static void IteratorNext(benchmark::State& state) {
@@ -1005,9 +1005,9 @@ static void IteratorNextArguments(benchmark::internal::Benchmark* b) {
   }
   b->ArgNames({"comp_style", "max_data", "per_key_size"});
 }
-static const uint64_t IteratorNextNum = 10l << 10;
+static constexpr uint64_t kIteratorNextNum = 10l << 10;
 BENCHMARK(IteratorNext)
-    ->Iterations(IteratorNextNum)
+    ->Iterations(kIteratorNextNum)
     ->Apply(IteratorNextArguments);
 
 static void IteratorNextWithPerfContext(benchmark::State& state) {
@@ -1165,9 +1165,9 @@ static void IteratorPrevArguments(benchmark::internal::Benchmark* b) {
   b->ArgNames({"comp_style", "max_data", "per_key_size"});
 }
 
-static const uint64_t IteratorPrevNum = 10l << 10;
+static constexpr uint64_t kIteratorPrevNum = 10l << 10;
 BENCHMARK(IteratorPrev)
-    ->Iterations(IteratorPrevNum)
+    ->Iterations(kIteratorPrevNum)
     ->Apply(IteratorPrevArguments);
 
 static void PrefixSeek(benchmark::State& state) {
@@ -1226,7 +1226,6 @@ static void PrefixSeek(benchmark::State& state) {
 
   {
     auto ro = ReadOptions();
-    size_t not_found = 0;
     std::unique_ptr<Iterator> iter(db->NewIterator(ro));
     for (auto _ : state) {
       iter->Seek(kg.NextPrefix());
@@ -1260,11 +1259,11 @@ static void PrefixSeekArguments(benchmark::internal::Benchmark* b) {
                "enable_filter"});
 }
 
-static const uint64_t PrefixSeekNum = 10l << 10;
-BENCHMARK(PrefixSeek)->Iterations(PrefixSeekNum)->Apply(PrefixSeekArguments);
+static constexpr uint64_t kPrefixSeekNum = 10l << 10;
+BENCHMARK(PrefixSeek)->Iterations(kPrefixSeekNum)->Apply(PrefixSeekArguments);
 BENCHMARK(DBGet)
     ->Threads(8)
-    ->Iterations(PrefixSeekNum / 8)
+    ->Iterations(kPrefixSeekNum / 8)
     ->Apply(DBGetArguments);
 
 }  // namespace ROCKSDB_NAMESPACE
