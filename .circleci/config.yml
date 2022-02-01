@@ -136,6 +136,21 @@ commands:
           command: |
             sudo apt-get update -y && sudo apt-get install -y libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev
 
+  install-libprotobuf-mutator:
+    steps:
+      - run:
+          name: Install libprotobuf-mutator libs
+          command: |
+            git clone --single-branch --branch master --depth 1 git@github.com:google/libprotobuf-mutator.git ~/libprotobuf-mutator
+            cd ~/libprotobuf-mutator && mkdir build && cd build
+            cmake .. -GNinja -DCMAKE_C_COMPILER=clang-13 -DCMAKE_CXX_COMPILER=clang++-13 -DCMAKE_BUILD_TYPE=Release -DLIB_PROTO_MUTATOR_DOWNLOAD_PROTOBUF=ON
+            ninja && sudo ninja install
+      - run:
+          name: Setup environment variables
+          command: |
+            echo "export PKG_CONFIG_PATH=/usr/local/OFF/:~/libprotobuf-mutator/build/external.protobuf/lib/pkgconfig/" >> $BASH_ENV
+            echo "export PROTOC_BIN=~/libprotobuf-mutator/build/external.protobuf/bin/protoc" >> $BASH_ENV
+
 executors:
   windows-2xlarge:
     machine:
@@ -732,6 +747,23 @@ jobs:
             tools/check_format_compatible.sh
       - post-steps
 
+  build-fuzzers:
+    machine:
+      image: ubuntu-2004:202010-01
+    resource_class: large
+    steps:
+      - pre-steps
+      - install-clang-13
+      - run: sudo apt-get update -y && sudo apt-get install -y cmake ninja-build binutils liblzma-dev libz-dev pkg-config autoconf libtool
+      - install-libprotobuf-mutator
+      - run:
+          name: "Build rocksdb lib"
+          command: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j4 static_lib
+      - run:
+          name: "Build fuzzers"
+          command: cd fuzz && make sst_file_writer_fuzzer db_fuzzer db_map_fuzzer
+      - post-steps
+
 workflows:
   version: 2
   build-linux:
@@ -838,6 +870,9 @@ workflows:
   build-microbench:
     jobs:
       - build-linux-microbench
+  build-fuzzers:
+    jobs:
+      - build-fuzzers
   nightly:
     triggers:
       - schedule:
