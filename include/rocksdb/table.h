@@ -368,7 +368,7 @@ struct BlockBasedTableOptions {
   // If true, detect corruption during Bloom Filter (format_version >= 5)
   // and Ribbon Filter construction.
   //
-  // This is an extra check (as in Options::DisableExtraChecks()) that is only
+  // This is an extra check that is only
   // useful in detecting software bugs or CPU+memory malfunction.
   // Turning on this feature increases filter construction time by 30%.
   //

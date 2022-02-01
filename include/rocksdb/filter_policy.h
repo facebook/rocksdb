@@ -69,6 +69,8 @@ class FilterBitsBuilder {
   // for a non-null status pointer argument, it will point to
   // Status::Corruption() when there is any corruption during filter
   // construction or Status::OK() otherwise.
+  //
+  // WARNING: do not use a filter resulted from a corrupted construction
   virtual Slice Finish(std::unique_ptr<const char[]>* buf,
                        Status* /* status */) {
     return Finish(buf);

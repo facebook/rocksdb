@@ -50,6 +50,9 @@ class BuiltinFilterBitsReader : public FilterBitsReader {
 // This class is considered internal API and subject to change.
 class BuiltinFilterPolicy : public FilterPolicy {
  public:
+  static BuiltinFilterBitsReader* GetBuiltinFilterBitsReader(
+      const Slice& contents);
+
   // Shared name because any built-in policy can read filters from
   // any other
   const char* Name() const override;
@@ -68,10 +71,10 @@ class BuiltinFilterPolicy : public FilterPolicy {
 
  private:
   // For Bloom filter implementation(s) (except deprecated block-based filter)
-  FilterBitsReader* GetBloomBitsReader(const Slice& contents) const;
+  static BuiltinFilterBitsReader* GetBloomBitsReader(const Slice& contents);
 
   // For Ribbon filter implementation(s)
-  FilterBitsReader* GetRibbonBitsReader(const Slice& contents) const;
+  static BuiltinFilterBitsReader* GetRibbonBitsReader(const Slice& contents);
 };
 
 // RocksDB built-in filter policy for Bloom or Bloom-like filters including
