@@ -3317,23 +3317,31 @@ jlong Java_org_rocksdb_RocksDB_getEnv(
 void Java_org_rocksdb_RocksDB_flush(
     JNIEnv* env, jobject, jlong jdb_handle, jlong jflush_opts_handle,
     jlongArray jcf_handles) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  const auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto* flush_opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::FlushOptions*>(jflush_opts_handle);
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
   if (jcf_handles == nullptr) {
-      cf_handles.push_back(db->DefaultColumnFamily());
+    cf_handles.push_back(dbAPI->DefaultColumnFamily());
   } else {
-      jboolean has_exception = JNI_FALSE;
-      cf_handles = ROCKSDB_NAMESPACE::JniUtil::fromJPointers<
-          ROCKSDB_NAMESPACE::ColumnFamilyHandle>(env, jcf_handles,
-                                                 &has_exception);
-      if (has_exception) {
-        // exception occurred
+    jboolean has_exception = JNI_FALSE;
+    std::vector<APIColumnFamilyHandle*> cfhAPIs =
+        ROCKSDB_NAMESPACE::JniUtil::fromJPointers<APIColumnFamilyHandle>(
+            env, jcf_handles, &has_exception);
+    if (has_exception) {
+      // exception occurred
+      return;
+    }
+    for (auto& cfhAPI : cfhAPIs) {
+      auto cfhPtr = cfhAPI->cfhLock(env);
+      if (!cfhPtr) {
+        // CFH expired - exception raised
         return;
       }
+      cf_handles.push_back(cfhPtr.get());
+    }
   }
-  auto s = db->Flush(*flush_opts, cf_handles);
+  auto s = dbAPI->Flush(*flush_opts, cf_handles);
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
@@ -3346,8 +3354,8 @@ void Java_org_rocksdb_RocksDB_flush(
  */
 void Java_org_rocksdb_RocksDB_flushWal(
     JNIEnv* env, jobject, jlong jdb_handle, jboolean jsync) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  auto s = db->FlushWAL(jsync == JNI_TRUE);
+  auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
+  auto s = dbAPI->FlushWAL(jsync == JNI_TRUE);
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
@@ -3360,8 +3368,8 @@ void Java_org_rocksdb_RocksDB_flushWal(
  */
 void Java_org_rocksdb_RocksDB_syncWal(
     JNIEnv* env, jobject, jlong jdb_handle) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  auto s = db->SyncWAL();
+  auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
+  auto s = dbAPI->SyncWAL();
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
