@@ -772,11 +772,13 @@ class TableFileCreationListener : public EventListener {
     ASSERT_EQ(info.file_checksum, kUnknownFileChecksum);
     ASSERT_EQ(info.file_checksum_func_name, kUnknownFileChecksumFuncName);
     if (info.status.ok()) {
-      ASSERT_GT(info.table_properties.data_size, 0U);
-      ASSERT_GT(info.table_properties.raw_key_size, 0U);
-      ASSERT_GT(info.table_properties.raw_value_size, 0U);
-      ASSERT_GT(info.table_properties.num_data_blocks, 0U);
-      ASSERT_GT(info.table_properties.num_entries, 0U);
+      if (info.table_properties.num_range_deletions == 0U) {
+        ASSERT_GT(info.table_properties.data_size, 0U);
+        ASSERT_GT(info.table_properties.raw_key_size, 0U);
+        ASSERT_GT(info.table_properties.raw_value_size, 0U);
+        ASSERT_GT(info.table_properties.num_data_blocks, 0U);
+        ASSERT_GT(info.table_properties.num_entries, 0U);
+      }
     } else {
       if (idx >= 0) {
         failure_[idx]++;
@@ -828,14 +830,6 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   listener->CheckAndResetCounters(0, 0, 0, 1, 1, 0);
 
-  // Verify that an empty table file that is immediately deleted gives Aborted
-  // status to listener.
-  ASSERT_OK(Put("baz", "z"));
-  ASSERT_OK(SingleDelete("baz"));
-  ASSERT_OK(Flush());
-  listener->CheckAndResetCounters(1, 1, 1, 0, 0, 0);
-  ASSERT_TRUE(listener->last_failure_.IsAborted());
-
   ASSERT_OK(Put("foo", "aaa3"));
   ASSERT_OK(Put("bar", "bbb3"));
   ASSERT_OK(Flush());
@@ -845,7 +839,31 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   ASSERT_NOK(dbfull()->TEST_WaitForCompact());
   listener->CheckAndResetCounters(1, 1, 0, 1, 1, 1);
   ASSERT_TRUE(listener->last_failure_.IsNotSupported());
-  Close();
+
+  // Reset
+  test_env->SetStatus(Status::OK());
+  DestroyAndReopen(options);
+
+  // Verify that an empty table file that is immediately deleted gives Aborted
+  // status to listener.
+  ASSERT_OK(Put("baz", "z"));
+  ASSERT_OK(SingleDelete("baz"));
+  ASSERT_OK(Flush());
+  listener->CheckAndResetCounters(1, 1, 1, 0, 0, 0);
+  ASSERT_TRUE(listener->last_failure_.IsAborted());
+
+  // Also in compaction
+  ASSERT_OK(Put("baz", "z"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             kRangeStart, kRangeEnd));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  listener->CheckAndResetCounters(2, 2, 0, 1, 1, 1);
+  ASSERT_TRUE(listener->last_failure_.IsAborted());
+
+  Close();  // Avoid UAF on listener
 }
 
 class MemTableSealedListener : public EventListener {
