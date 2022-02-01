@@ -337,14 +337,14 @@ jobs:
       - run: make V=1 -j8 -k check-headers 2>&1 | .circleci/cat_ignore_eagain # could be moved to a different build
       - post-steps
 
-  build-linux-gcc-4_8-no_test_run:
+  build-linux-gcc-7-no_test_run:
     machine:
       image: ubuntu-1604:202104-01
     resource_class: large
     steps:
       - pre-steps
-      - run: sudo apt-get update -y && sudo apt-get install gcc-4.8 g++-4.8 libgflags-dev
-      - run: CC=gcc-4.8 CXX=g++-4.8 V=1 SKIP_LINK=1 make -j8 all 2>&1 | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - run: sudo apt-get update -y && sudo apt-get install gcc-7 g++-7 libgflags-dev
+      - run: CC=gcc-7 CXX=g++-7 V=1 make -j8 all 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-gcc-8-no_test_run:
@@ -354,7 +354,7 @@ jobs:
     steps:
       - pre-steps
       - run: sudo apt-get update -y && sudo apt-get install gcc-8 g++-8 libgflags-dev
-      - run: CC=gcc-8 CXX=g++-8 V=1 SKIP_LINK=1 make -j8 all 2>&1 | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - run: CC=gcc-8 CXX=g++-8 V=1 make -j8 all 2>&1 | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-gcc-9-no_test_run:
