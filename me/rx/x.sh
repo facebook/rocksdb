@@ -6,7 +6,13 @@ nthreads=$5
 odirect=$6
 comp=$7
 numa=$8
-# Options: $9 ... lists db_bench binaries to use
+valbytes=$9
+gcac=${10}
+gcft=${11}
+nbg=${12}
+pendr=${13}
+
+# Options: ${14}+ lists db_bench binaries to use, this is optional
 
 dflags=""
 if [ $odirect -eq 1 ]; then
@@ -63,7 +69,7 @@ latest_versions=( v6.26.1 )
 use_versions="${latest_versions[@]}"
 #use_versions="${all_versions[@]}"
 
-shift 8
+shift 13
 if [ "$#" -eq 0 ] ; then
   versions="${use_versions[@]}"
   echo "No version args"
@@ -97,6 +103,12 @@ c16r64)
   cache_mb=$(( 1024 * 48 ))
   nsub=4
   ;;
+c16r64b)
+  # Options for 16-core, 64g RAM
+  args=( WRITE_BUF_MB=128 SST_MB=8 L1_MB=64 MAX_BG_JOBS=8 )
+  cache_mb=$(( 1024 * 48 ))
+  nsub=4
+  ;;
 c16bc1g)
   # Options for 16-core, 1g block cache
   args=( WRITE_BUF_MB=16 SST_MB=16 L1_MB=64 MAX_BG_JOBS=8 )
@@ -109,6 +121,10 @@ c16bc1g)
 esac
 
 args+=( NKEYS=$nkeys CACHE_MB=$cache_mb NSECS=$secs NSECS_RO=$secs_ro MB_WPS=2 NTHREADS=$nthreads COMP_TYPE=$comp IBLOB_COMPRESSION_TYPE=$comp CACHE_META=$cm $dflags )
+args+=( MAX_BG_JOBS=$nbg VALUE_BYTES=$valbytes IBLOB_GC_AGE_CUTOFF=$gcac IBLOB_GC_FORCE_THRESHOLD=$gcft PENDING_RATIO=$pendr )
+
+#iblob_gc_age_cutoff=${IBLOB_GC_AGE_CUTOFF:-"0.25"}
+#iblob_gc_force_threshold=${IBLOB_GC_FORCE_THRESHOLD:-1}
 
 if [ $numa -eq 1 ]; then
   args+=( NUMA=1 )
@@ -128,6 +144,8 @@ echo universal+subcomp+trivial_move using $odir at $( date )
 myargs=( "${args[@]}" )
 myargs+=( PCT_COMP=80 COMP_STYLE=universal SUBCOMP=$nsub UNIV_ALLOW_TRIVIAL_MOVE=1 )
 env "${myargs[@]}" bash perf_cmp.sh /data/m/rx $odir ${versions[@]}
+
+#exit
 
 # for blobDB
 
