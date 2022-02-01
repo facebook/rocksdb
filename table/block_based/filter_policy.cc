@@ -49,7 +49,7 @@ Slice FinishAlwaysFalse(std::unique_ptr<const char[]>* /*buf*/) {
 }
 
 Slice FinishAlwaysTrue(std::unique_ptr<const char[]>* /*buf*/) {
-  return Slice("\0\0\0\0\0", 5);
+  return Slice("\0\0\0\0\0\0", 6);
 }
 
 // Base class for filter builders using the XXH3 preview hash,
@@ -59,12 +59,11 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
   explicit XXPH3FilterBitsBuilder(
       std::atomic<int64_t>* aggregate_rounding_balance,
       std::shared_ptr<CacheReservationManager> cache_res_mgr,
-      bool detect_filter_construct_corruption,
-      std::shared_ptr<const FilterPolicy> filter_policy)
+      bool detect_filter_construct_corruption)
       : aggregate_rounding_balance_(aggregate_rounding_balance),
         cache_res_mgr_(cache_res_mgr),
-        detect_filter_construct_corruption_(detect_filter_construct_corruption),
-        filter_policy_(filter_policy) {}
+        detect_filter_construct_corruption_(
+            detect_filter_construct_corruption) {}
 
   ~XXPH3FilterBitsBuilder() override {}
 
@@ -260,8 +259,6 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
 
   bool detect_filter_construct_corruption_;
 
-  std::shared_ptr<const FilterPolicy> filter_policy_;
-
   struct HashEntriesInfo {
     // A deque avoids unnecessary copying of already-saved values
     // and has near-minimal peak memory use.
@@ -308,11 +305,9 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
       const int millibits_per_key,
       std::atomic<int64_t>* aggregate_rounding_balance,
       std::shared_ptr<CacheReservationManager> cache_res_mgr,
-      bool detect_filter_construct_corruption,
-      std::shared_ptr<const FilterPolicy> filter_policy)
+      bool detect_filter_construct_corruption)
       : XXPH3FilterBitsBuilder(aggregate_rounding_balance, cache_res_mgr,
-                               detect_filter_construct_corruption,
-                               filter_policy),
+                               detect_filter_construct_corruption),
         millibits_per_key_(millibits_per_key) {
     assert(millibits_per_key >= 1000);
   }
@@ -595,16 +590,13 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
       double desired_one_in_fp_rate, int bloom_millibits_per_key,
       std::atomic<int64_t>* aggregate_rounding_balance,
       std::shared_ptr<CacheReservationManager> cache_res_mgr,
-      bool detect_filter_construct_corruption,
-      std::shared_ptr<const FilterPolicy> filter_policy, Logger* info_log)
+      bool detect_filter_construct_corruption, Logger* info_log)
       : XXPH3FilterBitsBuilder(aggregate_rounding_balance, cache_res_mgr,
-                               detect_filter_construct_corruption,
-                               filter_policy),
+                               detect_filter_construct_corruption),
         desired_one_in_fp_rate_(desired_one_in_fp_rate),
         info_log_(info_log),
         bloom_fallback_(bloom_millibits_per_key, aggregate_rounding_balance,
-                        cache_res_mgr, detect_filter_construct_corruption,
-                        filter_policy) {
+                        cache_res_mgr, detect_filter_construct_corruption) {
     assert(desired_one_in_fp_rate >= 1.0);
   }
 
@@ -1296,8 +1288,7 @@ Status XXPH3FilterBitsBuilder::MaybePostVerify(const Slice& filter_content) {
   }
 
   std::unique_ptr<BuiltinFilterBitsReader> bits_reader(
-      static_cast<BuiltinFilterBitsReader*>(
-          filter_policy_->GetFilterBitsReader(filter_content)));
+      BuiltinFilterPolicy::GetBuiltinFilterBitsReader(filter_content));
 
   for (uint64_t h : hash_entries_info_.entries) {
     // The current approach will not detect corruption from XXPH3Filter to
@@ -1464,8 +1455,7 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
         return new FastLocalBloomBitsBuilder(
             millibits_per_key_, offm ? &aggregate_rounding_balance_ : nullptr,
             cache_res_mgr,
-            context.table_options.detect_filter_construct_corruption,
-            context.table_options.filter_policy);
+            context.table_options.detect_filter_construct_corruption);
       case kLegacyBloom:
         if (whole_bits_per_key_ >= 14 && context.info_log &&
             !warned_.load(std::memory_order_relaxed)) {
@@ -1492,7 +1482,7 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
             desired_one_in_fp_rate_, millibits_per_key_,
             offm ? &aggregate_rounding_balance_ : nullptr, cache_res_mgr,
             context.table_options.detect_filter_construct_corruption,
-            context.table_options.filter_policy, context.info_log);
+            context.info_log);
     }
   }
   assert(false);
@@ -1512,6 +1502,94 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderFromContext(
 // and return a new one.
 FilterBitsReader* BuiltinFilterPolicy::GetFilterBitsReader(
     const Slice& contents) const {
+  return BuiltinFilterPolicy::GetBuiltinFilterBitsReader(contents);
+}
+
+BuiltinFilterBitsReader* BuiltinFilterPolicy::GetRibbonBitsReader(
+    const Slice& contents) {
+  uint32_t len_with_meta = static_cast<uint32_t>(contents.size());
+  uint32_t len = len_with_meta - kMetadataLen;
+
+  assert(len > 0);  // precondition
+
+  uint32_t seed = static_cast<uint8_t>(contents.data()[len + 1]);
+  uint32_t num_blocks = static_cast<uint8_t>(contents.data()[len + 2]);
+  num_blocks |= static_cast<uint8_t>(contents.data()[len + 3]) << 8;
+  num_blocks |= static_cast<uint8_t>(contents.data()[len + 4]) << 16;
+  if (num_blocks < 2) {
+    // Not supported
+    // num_blocks == 1 is not used because num_starts == 1 is problematic
+    // for the hashing scheme. num_blocks == 0 is unused because there's
+    // already a concise encoding of an "always false" filter.
+    // Return something safe:
+    return new AlwaysTrueFilter();
+  }
+  return new Standard128RibbonBitsReader(contents.data(), len, num_blocks,
+                                         seed);
+}
+
+// For newer Bloom filter implementations
+BuiltinFilterBitsReader* BuiltinFilterPolicy::GetBloomBitsReader(
+    const Slice& contents) {
+  uint32_t len_with_meta = static_cast<uint32_t>(contents.size());
+  uint32_t len = len_with_meta - kMetadataLen;
+
+  assert(len > 0);  // precondition
+
+  // New Bloom filter data:
+  //             0 +-----------------------------------+
+  //               | Raw Bloom filter data             |
+  //               | ...                               |
+  //           len +-----------------------------------+
+  //               | char{-1} byte -> new Bloom filter |
+  //         len+1 +-----------------------------------+
+  //               | byte for subimplementation        |
+  //               |   0: FastLocalBloom               |
+  //               |   other: reserved                 |
+  //         len+2 +-----------------------------------+
+  //               | byte for block_and_probes         |
+  //               |   0 in top 3 bits -> 6 -> 64-byte |
+  //               |   reserved:                       |
+  //               |   1 in top 3 bits -> 7 -> 128-byte|
+  //               |   2 in top 3 bits -> 8 -> 256-byte|
+  //               |   ...                             |
+  //               |   num_probes in bottom 5 bits,    |
+  //               |     except 0 and 31 reserved      |
+  //         len+3 +-----------------------------------+
+  //               | two bytes reserved                |
+  //               |   possibly for hash seed          |
+  // len_with_meta +-----------------------------------+
+
+  // Read more metadata (see above)
+  char sub_impl_val = contents.data()[len_with_meta - 4];
+  char block_and_probes = contents.data()[len_with_meta - 3];
+  int log2_block_bytes = ((block_and_probes >> 5) & 7) + 6;
+
+  int num_probes = (block_and_probes & 31);
+  if (num_probes < 1 || num_probes > 30) {
+    // Reserved / future safe
+    return new AlwaysTrueFilter();
+  }
+
+  uint16_t rest = DecodeFixed16(contents.data() + len_with_meta - 2);
+  if (rest != 0) {
+    // Reserved, possibly for hash seed
+    // Future safe
+    return new AlwaysTrueFilter();
+  }
+
+  if (sub_impl_val == 0) {        // FastLocalBloom
+    if (log2_block_bytes == 6) {  // Only block size supported for now
+      return new FastLocalBloomBitsReader(contents.data(), num_probes, len);
+    }
+  }
+  // otherwise
+  // Reserved / future safe
+  return new AlwaysTrueFilter();
+}
+
+BuiltinFilterBitsReader* BuiltinFilterPolicy::GetBuiltinFilterBitsReader(
+    const Slice& contents) {
   uint32_t len_with_meta = static_cast<uint32_t>(contents.size());
   if (len_with_meta <= kMetadataLen) {
     // filter is empty or broken. Treat like zero keys added.
@@ -1589,89 +1667,6 @@ FilterBitsReader* BuiltinFilterPolicy::GetFilterBitsReader(
   // if not early return
   return new LegacyBloomBitsReader(contents.data(), num_probes, num_lines,
                                    log2_cache_line_size);
-}
-
-FilterBitsReader* BuiltinFilterPolicy::GetRibbonBitsReader(
-    const Slice& contents) const {
-  uint32_t len_with_meta = static_cast<uint32_t>(contents.size());
-  uint32_t len = len_with_meta - kMetadataLen;
-
-  assert(len > 0);  // precondition
-
-  uint32_t seed = static_cast<uint8_t>(contents.data()[len + 1]);
-  uint32_t num_blocks = static_cast<uint8_t>(contents.data()[len + 2]);
-  num_blocks |= static_cast<uint8_t>(contents.data()[len + 3]) << 8;
-  num_blocks |= static_cast<uint8_t>(contents.data()[len + 4]) << 16;
-  if (num_blocks < 2) {
-    // Not supported
-    // num_blocks == 1 is not used because num_starts == 1 is problematic
-    // for the hashing scheme. num_blocks == 0 is unused because there's
-    // already a concise encoding of an "always false" filter.
-    // Return something safe:
-    return new AlwaysTrueFilter();
-  }
-  return new Standard128RibbonBitsReader(contents.data(), len, num_blocks,
-                                         seed);
-}
-
-// For newer Bloom filter implementations
-FilterBitsReader* BuiltinFilterPolicy::GetBloomBitsReader(
-    const Slice& contents) const {
-  uint32_t len_with_meta = static_cast<uint32_t>(contents.size());
-  uint32_t len = len_with_meta - kMetadataLen;
-
-  assert(len > 0);  // precondition
-
-  // New Bloom filter data:
-  //             0 +-----------------------------------+
-  //               | Raw Bloom filter data             |
-  //               | ...                               |
-  //           len +-----------------------------------+
-  //               | char{-1} byte -> new Bloom filter |
-  //         len+1 +-----------------------------------+
-  //               | byte for subimplementation        |
-  //               |   0: FastLocalBloom               |
-  //               |   other: reserved                 |
-  //         len+2 +-----------------------------------+
-  //               | byte for block_and_probes         |
-  //               |   0 in top 3 bits -> 6 -> 64-byte |
-  //               |   reserved:                       |
-  //               |   1 in top 3 bits -> 7 -> 128-byte|
-  //               |   2 in top 3 bits -> 8 -> 256-byte|
-  //               |   ...                             |
-  //               |   num_probes in bottom 5 bits,    |
-  //               |     except 0 and 31 reserved      |
-  //         len+3 +-----------------------------------+
-  //               | two bytes reserved                |
-  //               |   possibly for hash seed          |
-  // len_with_meta +-----------------------------------+
-
-  // Read more metadata (see above)
-  char sub_impl_val = contents.data()[len_with_meta - 4];
-  char block_and_probes = contents.data()[len_with_meta - 3];
-  int log2_block_bytes = ((block_and_probes >> 5) & 7) + 6;
-
-  int num_probes = (block_and_probes & 31);
-  if (num_probes < 1 || num_probes > 30) {
-    // Reserved / future safe
-    return new AlwaysTrueFilter();
-  }
-
-  uint16_t rest = DecodeFixed16(contents.data() + len_with_meta - 2);
-  if (rest != 0) {
-    // Reserved, possibly for hash seed
-    // Future safe
-    return new AlwaysTrueFilter();
-  }
-
-  if (sub_impl_val == 0) {        // FastLocalBloom
-    if (log2_block_bytes == 6) {  // Only block size supported for now
-      return new FastLocalBloomBitsReader(contents.data(), num_probes, len);
-    }
-  }
-  // otherwise
-  // Reserved / future safe
-  return new AlwaysTrueFilter();
 }
 
 const FilterPolicy* NewBloomFilterPolicy(double bits_per_key,
