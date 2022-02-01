@@ -409,7 +409,7 @@ jlong Java_org_rocksdb_RocksDB_createColumnFamily(
 jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__JJ_3_3B(
     JNIEnv* env, jobject, jlong jhandle, jlong jcf_options_handle,
     jobjectArray jcf_names) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jhandle);
+  auto* dbAPI = reinterpret_cast<APIRocksDB*>(jhandle);
   auto* cf_options = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(
       jcf_options_handle);
   jboolean has_exception = JNI_FALSE;
@@ -426,15 +426,26 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__JJ_3_3B(
 
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
   ROCKSDB_NAMESPACE::Status s =
-      db->CreateColumnFamilies(*cf_options, cf_names, &cf_handles);
+      (*dbAPI)->CreateColumnFamilies(*cf_options, cf_names, &cf_handles);
   if (!s.ok()) {
     // error occurred
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return nullptr;
   }
 
-  jlongArray jcf_handles = ROCKSDB_NAMESPACE::JniUtil::toJPointers<
-      ROCKSDB_NAMESPACE::ColumnFamilyHandle>(env, cf_handles, &has_exception);
+  std::vector<APIColumnFamilyHandle*> cfhAPIs;
+  for (auto* cf_handle : cf_handles) {
+    std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh =
+        APIColumnFamilyHandle::createSharedPtr(cf_handle);
+    std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
+        new APIColumnFamilyHandle(dbAPI->db, cfh));
+    dbAPI->columnFamilyHandles.push_back(cfh);
+    cfhAPIs.push_back(cfhAPI.release());
+  }
+
+  jlongArray jcf_handles =
+      ROCKSDB_NAMESPACE::JniUtil::toJPointers<APIColumnFamilyHandle>(
+          env, cfhAPIs, &has_exception);
   if (has_exception == JNI_TRUE) {
     // exception occurred
     return nullptr;
@@ -450,7 +461,7 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__JJ_3_3B(
 jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__J_3J_3_3B(
     JNIEnv* env, jobject, jlong jhandle, jlongArray jcf_options_handles,
     jobjectArray jcf_names) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jhandle);
+  auto* dbAPI = reinterpret_cast<APIRocksDB*>(jhandle);
   const jsize jlen = env->GetArrayLength(jcf_options_handles);
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> cf_descriptors;
   cf_descriptors.reserve(jlen);
@@ -497,7 +508,7 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__J_3J_3_3B(
 
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
   ROCKSDB_NAMESPACE::Status s =
-      db->CreateColumnFamilies(cf_descriptors, &cf_handles);
+      (*dbAPI)->CreateColumnFamilies(cf_descriptors, &cf_handles);
 
   env->ReleaseLongArrayElements(jcf_options_handles, jcf_options_handles_elems, JNI_ABORT);
 
@@ -507,8 +518,19 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__J_3J_3_3B(
     return nullptr;
   }
 
-  jlongArray jcf_handles = ROCKSDB_NAMESPACE::JniUtil::toJPointers<
-      ROCKSDB_NAMESPACE::ColumnFamilyHandle>(env, cf_handles, &has_exception);
+  std::vector<APIColumnFamilyHandle*> cfhAPIs;
+  for (auto* cf_handle : cf_handles) {
+    std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh =
+        APIColumnFamilyHandle::createSharedPtr(cf_handle);
+    std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
+        new APIColumnFamilyHandle(dbAPI->db, cfh));
+    dbAPI->columnFamilyHandles.push_back(cfh);
+    cfhAPIs.push_back(cfhAPI.release());
+  }
+
+  jlongArray jcf_handles =
+      ROCKSDB_NAMESPACE::JniUtil::toJPointers<APIColumnFamilyHandle>(
+          env, cfhAPIs, &has_exception);
   if (has_exception == JNI_TRUE) {
     // exception occurred
     return nullptr;
