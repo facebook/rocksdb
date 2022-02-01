@@ -463,7 +463,7 @@ static void ManualFlush(benchmark::State& state) {
   options.level0_stop_writes_trigger = (1 << 30);
   options.soft_pending_compaction_bytes_limit = 0;
   options.hard_pending_compaction_bytes_limit = 0;
-  options.write_buffer_size = 2 << 30;  // 2G to avoid auto flush
+  options.write_buffer_size = 2l << 30;  // 2G to avoid auto flush
 
   auto rnd = Random(301 + state.thread_index);
   KeyGenerator kg(&rnd, key_num);
