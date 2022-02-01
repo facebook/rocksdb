@@ -10,6 +10,7 @@
 
 #include <vector>
 
+#include "api_rocksdb.h"
 #include "include/org_rocksdb_BackupEngine.h"
 #include "rocksdb/utilities/backup_engine.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
@@ -47,11 +48,11 @@ jlong Java_org_rocksdb_BackupEngine_open(JNIEnv* env, jclass /*jcls*/,
 void Java_org_rocksdb_BackupEngine_createNewBackup(
     JNIEnv* env, jobject /*jbe*/, jlong jbe_handle, jlong db_handle,
     jboolean jflush_before_backup) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(db_handle);
+  auto& dbAPI = *reinterpret_cast<APIRocksDB*>(db_handle);
   auto* backup_engine =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngine*>(jbe_handle);
   auto status = backup_engine->CreateNewBackup(
-      db, static_cast<bool>(jflush_before_backup));
+      dbAPI.get(), static_cast<bool>(jflush_before_backup));
 
   if (status.ok()) {
     return;
@@ -68,7 +69,7 @@ void Java_org_rocksdb_BackupEngine_createNewBackup(
 void Java_org_rocksdb_BackupEngine_createNewBackupWithMetadata(
     JNIEnv* env, jobject /*jbe*/, jlong jbe_handle, jlong db_handle,
     jstring japp_metadata, jboolean jflush_before_backup) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(db_handle);
+  auto& dbAPI = *reinterpret_cast<APIRocksDB*>(db_handle);
   auto* backup_engine =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngine*>(jbe_handle);
 
@@ -82,7 +83,7 @@ void Java_org_rocksdb_BackupEngine_createNewBackupWithMetadata(
   }
 
   auto status = backup_engine->CreateNewBackupWithMetadata(
-      db, app_metadata, static_cast<bool>(jflush_before_backup));
+      dbAPI.get(), app_metadata, static_cast<bool>(jflush_before_backup));
 
   if (status.ok()) {
     return;

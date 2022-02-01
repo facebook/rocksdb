@@ -36,10 +36,12 @@ class APIRocksDB : APIBase {
 
   std::shared_ptr<ROCKSDB_NAMESPACE::DB>& operator*() { return db; }
 
+  ROCKSDB_NAMESPACE::DB* get() const { return db.get(); }
+
   /**
-   * @brief Create a CFH wrapped with a SharedPtrContent which will NOT delete
-   * the CFH at delete() time, because it knows handle is the default CF,
-   * owned by the DB.
+   * @brief Create a CFH wrapped with a SharedPtrContent which will NOT
+   * delete the CFH at delete() time, because it knows handle is the default
+   * CF, owned by the DB.
    *
    * @param handle
    * @return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
