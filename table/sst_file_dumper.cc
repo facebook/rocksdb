@@ -125,7 +125,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
                               nullptr);
       file_.reset(new RandomAccessFileReader(std::move(file), file_path));
     }
-    options_.comparator = &internal_comparator_;
+    options_.comparator = internal_comparator_.user_comparator();
     // For old sst format, ReadTableProperties might fail but file can be read
     if (ReadTableProperties(magic_number, file_.get(), file_size,
                             (magic_number == kBlockBasedTableMagicNumber)
