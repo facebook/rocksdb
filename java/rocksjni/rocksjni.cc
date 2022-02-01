@@ -2574,6 +2574,7 @@ jlongArray Java_org_rocksdb_RocksDB_iterators(
   auto& read_options =
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
 
+  std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>> cfhs;
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
   if (jcolumn_family_handles != nullptr) {
     const jsize len_cols = env->GetArrayLength(jcolumn_family_handles);
@@ -2584,9 +2585,13 @@ jlongArray Java_org_rocksdb_RocksDB_iterators(
     }
 
     for (jsize i = 0; i < len_cols; i++) {
-      auto* cf_handle =
-          reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcfh[i]);
-      cf_handles.push_back(cf_handle);
+      const auto& cfhPtr = APIColumnFamilyHandle::lock(env, jcfh[i]);
+      if (!cfhPtr) {
+        // CFH exception
+        return nullptr;
+      }
+      cfhs.push_back(cfhPtr);
+      cf_handles.push_back(cfhPtr.get());
     }
 
     env->ReleaseLongArrayElements(jcolumn_family_handles, jcfh, JNI_ABORT);
@@ -2603,16 +2608,19 @@ jlongArray Java_org_rocksdb_RocksDB_iterators(
       return nullptr;
     }
 
+    std::vector<APIIterator*> itAPIs;
     for (std::vector<ROCKSDB_NAMESPACE::Iterator*>::size_type i = 0;
          i < iterators.size(); i++) {
-      env->SetLongArrayRegion(
-          jLongArray, static_cast<jsize>(i), 1,
-          const_cast<jlong*>(reinterpret_cast<const jlong*>(&iterators[i])));
-      if (env->ExceptionCheck()) {
-        // exception thrown: ArrayIndexOutOfBoundsException
-        env->DeleteLocalRef(jLongArray);
-        return nullptr;
-      }
+      std::unique_ptr<APIIterator> itAPI =
+          dbAPI.newIterator(iterators[i], cfhs[i]);
+      itAPIs.push_back(itAPI.release());
+    }
+    env->SetLongArrayRegion(jLongArray, 0, static_cast<jsize>(iterators.size()),
+                            reinterpret_cast<const jlong*>(itAPIs.data()));
+    if (env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      env->DeleteLocalRef(jLongArray);
+      return nullptr;
     }
 
     return jLongArray;
