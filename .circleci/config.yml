@@ -325,7 +325,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-benchmark
-      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20 && make microbench)
+      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20)
       - post-steps
 
   build-linux-unity-and-headers:

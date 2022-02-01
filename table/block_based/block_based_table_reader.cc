@@ -122,9 +122,8 @@ void ReleaseCachedEntry(void* arg, void* h) {
   cache->Release(handle, false /* force_erase */);
 }
 
-// For hash based index, return true if prefix_extractor and
-// prefix_extractor_block mismatch, false otherwise. This flag will be used
-// as total_order_seek via NewIndexIterator
+// For hash based index, return false if table_properties->prefix_extractor_name
+// and prefix_extractor both exist and match, otherwise true.
 inline bool PrefixExtractorChangedHelper(
     const TableProperties* table_properties,
     const SliceTransform* prefix_extractor) {
@@ -616,10 +615,6 @@ Status BlockBasedTable::Open(
         "version of RocksDB?");
   }
 
-  // We've successfully read the footer. We are ready to serve requests.
-  // Better not mutate rep_ after the creation. eg. internal_prefix_transform
-  // raw pointer will be used to create HashIndexReader, whose reset may
-  // access a dangling pointer.
   BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
   Rep* rep = new BlockBasedTable::Rep(ioptions, env_options, table_options,
                                       internal_comparator, skip_filters,
@@ -627,8 +622,14 @@ Status BlockBasedTable::Open(
   rep->file = std::move(file);
   rep->footer = footer;
   rep->hash_index_allow_collision = table_options.hash_index_allow_collision;
+
+  // We've successfully read the footer. We are ready to serve requests.
+  // Better not mutate rep_ after the creation. eg. internal_prefix_transform
+  // raw pointer will be used to create HashIndexReader, whose reset may
+  // access a dangling pointer.
   // We need to wrap data with internal_prefix_transform to make sure it can
   // handle prefix correctly.
+  // FIXME: is changed prefix_extractor handled anywhere for hash index?
   if (prefix_extractor != nullptr) {
     rep->internal_prefix_transform.reset(
         new InternalKeySliceTransform(prefix_extractor.get()));
@@ -2212,8 +2213,7 @@ FragmentedRangeTombstoneIterator* BlockBasedTable::NewRangeTombstoneIterator(
 }
 
 bool BlockBasedTable::FullFilterKeyMayMatch(
-    const ReadOptions& read_options, FilterBlockReader* filter,
-    const Slice& internal_key, const bool no_io,
+    FilterBlockReader* filter, const Slice& internal_key, const bool no_io,
     const SliceTransform* prefix_extractor, GetContext* get_context,
     BlockCacheLookupContext* lookup_context) const {
   if (filter == nullptr || filter->IsBlockBased()) {
@@ -2228,13 +2228,14 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
     may_match =
         filter->KeyMayMatch(user_key_without_ts, prefix_extractor, kNotValid,
                             no_io, const_ikey_ptr, get_context, lookup_context);
-  } else if (!read_options.total_order_seek &&
-             !PrefixExtractorChanged(prefix_extractor) &&
+  } else if (!PrefixExtractorChanged(prefix_extractor) &&
              prefix_extractor->InDomain(user_key_without_ts) &&
              !filter->PrefixMayMatch(
                  prefix_extractor->Transform(user_key_without_ts),
                  prefix_extractor, kNotValid, no_io, const_ikey_ptr,
                  get_context, lookup_context)) {
+    // FIXME ^^^: there should be no reason for Get() to depend on current
+    // prefix_extractor at all. It should always use table_prefix_extractor.
     may_match = false;
   }
   if (may_match) {
@@ -2245,8 +2246,7 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
 }
 
 void BlockBasedTable::FullFilterKeysMayMatch(
-    const ReadOptions& read_options, FilterBlockReader* filter,
-    MultiGetRange* range, const bool no_io,
+    FilterBlockReader* filter, MultiGetRange* range, const bool no_io,
     const SliceTransform* prefix_extractor,
     BlockCacheLookupContext* lookup_context) const {
   if (filter == nullptr || filter->IsBlockBased()) {
@@ -2269,8 +2269,9 @@ void BlockBasedTable::FullFilterKeysMayMatch(
       PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, filtered_keys,
                                 rep_->level);
     }
-  } else if (!read_options.total_order_seek &&
-             !PrefixExtractorChanged(prefix_extractor)) {
+  } else if (!PrefixExtractorChanged(prefix_extractor)) {
+    // FIXME ^^^: there should be no reason for MultiGet() to depend on current
+    // prefix_extractor at all. It should always use table_prefix_extractor.
     filter->PrefixesMayMatch(range, prefix_extractor, kNotValid, false,
                              lookup_context);
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_CHECKED, before_keys);
@@ -2308,9 +2309,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         read_options.snapshot != nullptr;
   }
   TEST_SYNC_POINT("BlockBasedTable::Get:BeforeFilterMatch");
-  const bool may_match =
-      FullFilterKeyMayMatch(read_options, filter, key, no_io, prefix_extractor,
-                            get_context, &lookup_context);
+  const bool may_match = FullFilterKeyMayMatch(
+      filter, key, no_io, prefix_extractor, get_context, &lookup_context);
   TEST_SYNC_POINT("BlockBasedTable::Get:AfterFilterMatch");
   if (!may_match) {
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_USEFUL);
@@ -2496,8 +2496,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
   BlockCacheLookupContext lookup_context{
       TableReaderCaller::kUserMultiGet, tracing_mget_id,
       /*get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
-  FullFilterKeysMayMatch(read_options, filter, &sst_file_range, no_io,
-                         prefix_extractor, &lookup_context);
+  FullFilterKeysMayMatch(filter, &sst_file_range, no_io, prefix_extractor,
+                         &lookup_context);
 
   if (!sst_file_range.empty()) {
     IndexBlockIter iiter_on_stack;
@@ -3110,12 +3110,6 @@ Status BlockBasedTable::CreateIndexReader(
     InternalIterator* meta_iter, bool use_cache, bool prefetch, bool pin,
     BlockCacheLookupContext* lookup_context,
     std::unique_ptr<IndexReader>* index_reader) {
-  // kHashSearch requires non-empty prefix_extractor but bypass checking
-  // prefix_extractor here since we have no access to MutableCFOptions.
-  // Add need_upper_bound_check flag in  BlockBasedTable::NewIndexIterator.
-  // If prefix_extractor does not match prefix_extractor_name from table
-  // properties, turn off Hash Index by setting total_order_seek to true
-
   switch (rep_->index_type) {
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
       return PartitionIndexReader::Create(this, ro, prefetch_buffer, use_cache,
@@ -3133,6 +3127,7 @@ Status BlockBasedTable::CreateIndexReader(
       std::unique_ptr<Block> metaindex_guard;
       std::unique_ptr<InternalIterator> metaindex_iter_guard;
       bool should_fallback = false;
+      // FIXME: is changed prefix_extractor handled anywhere for hash index?
       if (rep_->internal_prefix_transform.get() == nullptr) {
         ROCKS_LOG_WARN(rep_->ioptions.logger,
                        "No prefix extractor passed in. Fall back to binary"

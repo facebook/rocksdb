@@ -310,15 +310,6 @@ void StressTest::FinishInitDb(SharedState* shared) {
     }
   }
 
-  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
-    Status s = shared->SaveAtAndAfter(db_);
-    if (!s.ok()) {
-      fprintf(stderr, "Error enabling history tracing: %s\n",
-              s.ToString().c_str());
-      exit(1);
-    }
-  }
-
   if (FLAGS_enable_compaction_filter) {
     auto* compaction_filter_factory =
         reinterpret_cast<DbStressCompactionFilterFactory*>(
@@ -330,6 +321,17 @@ void StressTest::FinishInitDb(SharedState* shared) {
     compaction_filter_factory->SetSharedState(shared);
     fprintf(stdout, "Compaction filter factory: %s\n",
             compaction_filter_factory->Name());
+  }
+}
+
+void StressTest::TrackExpectedState(SharedState* shared) {
+  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
+    Status s = shared->SaveAtAndAfter(db_);
+    if (!s.ok()) {
+      fprintf(stderr, "Error enabling history tracing: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
   }
 }
 
