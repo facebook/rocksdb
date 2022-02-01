@@ -4793,7 +4793,8 @@ class Benchmark {
     }
 
     RandomGenerator gen;
-    WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0);
+    WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
+                     /*protection_bytes_per_key=*/0, user_timestamp_size_);
     Status s;
     int64_t bytes = 0;
 
@@ -6511,7 +6512,8 @@ class Benchmark {
   }
 
   void DoDelete(ThreadState* thread, bool seq) {
-    WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0);
+    WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
+                     /*protection_bytes_per_key=*/0, user_timestamp_size_);
     Duration duration(seq ? 0 : FLAGS_duration, deletes_);
     int64_t i = 0;
     std::unique_ptr<const char[]> key_guard;
@@ -6710,7 +6712,8 @@ class Benchmark {
     std::string suffixes[3] = {"2", "1", "0"};
     std::string keys[3];
 
-    WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0);
+    WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
+                     /*protection_bytes_per_key=*/0, user_timestamp_size_);
     Status s;
     for (int i = 0; i < 3; i++) {
       keys[i] = key.ToString() + suffixes[i];
@@ -6742,7 +6745,8 @@ class Benchmark {
     std::string suffixes[3] = {"1", "2", "0"};
     std::string keys[3];
 
-    WriteBatch batch(0, 0, 0, user_timestamp_size_);
+    WriteBatch batch(0, 0, /*protection_bytes_per_key=*/0,
+                     user_timestamp_size_);
     Status s;
     for (int i = 0; i < 3; i++) {
       keys[i] = key.ToString() + suffixes[i];
