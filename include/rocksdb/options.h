@@ -1499,8 +1499,7 @@ struct ReadOptions {
   // used in the table. Some table format (e.g. plain table) may not support
   // this option.
   // If true when calling Get(), we also skip prefix bloom when reading from
-  // block based table. It provides a way to read existing data after
-  // changing implementation of prefix extractor.
+  // block based table, which only affects Get() performance.
   // Default: false
   bool total_order_seek;
 
