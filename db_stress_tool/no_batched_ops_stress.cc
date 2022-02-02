@@ -500,8 +500,11 @@ class NonBatchedOpsStressTest : public StressTest {
       if (FLAGS_user_timestamp_size > 0) {
         write_ts_str = NowNanosStr();
         write_ts = write_ts_str;
-        write_opts.timestamp = &write_ts;
       }
+    }
+    if (write_ts.size() == 0 && FLAGS_user_timestamp_size) {
+      write_ts_str = NowNanosStr();
+      write_ts = write_ts_str;
     }
 
     std::string key_str = Key(rand_key);
@@ -540,7 +543,11 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     } else {
       if (!FLAGS_use_txn) {
-        s = db_->Put(write_opts, cfh, key, v);
+        if (FLAGS_user_timestamp_size == 0) {
+          s = db_->Put(write_opts, cfh, key, v);
+        } else {
+          s = db_->Put(write_opts, cfh, key, write_ts, v);
+        }
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;
@@ -599,8 +606,11 @@ class NonBatchedOpsStressTest : public StressTest {
       if (FLAGS_user_timestamp_size > 0) {
         write_ts_str = NowNanosStr();
         write_ts = write_ts_str;
-        write_opts.timestamp = &write_ts;
       }
+    }
+    if (write_ts.size() == 0 && FLAGS_user_timestamp_size) {
+      write_ts_str = NowNanosStr();
+      write_ts = write_ts_str;
     }
 
     std::string key_str = Key(rand_key);
@@ -613,7 +623,11 @@ class NonBatchedOpsStressTest : public StressTest {
     if (shared->AllowsOverwrite(rand_key)) {
       shared->Delete(rand_column_family, rand_key, true /* pending */);
       if (!FLAGS_use_txn) {
-        s = db_->Delete(write_opts, cfh, key);
+        if (FLAGS_user_timestamp_size == 0) {
+          s = db_->Delete(write_opts, cfh, key);
+        } else {
+          s = db_->Delete(write_opts, cfh, key, write_ts);
+        }
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;
@@ -646,7 +660,11 @@ class NonBatchedOpsStressTest : public StressTest {
     } else {
       shared->SingleDelete(rand_column_family, rand_key, true /* pending */);
       if (!FLAGS_use_txn) {
-        s = db_->SingleDelete(write_opts, cfh, key);
+        if (FLAGS_user_timestamp_size == 0) {
+          s = db_->SingleDelete(write_opts, cfh, key);
+        } else {
+          s = db_->SingleDelete(write_opts, cfh, key, write_ts);
+        }
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;

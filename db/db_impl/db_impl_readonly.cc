@@ -36,6 +36,15 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   assert(pinnable_val != nullptr);
   // TODO: stopwatch DB_GET needed?, perf timer needed?
   PERF_TIMER_GUARD(get_snapshot_time);
+
+  assert(column_family);
+  const Comparator* ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() || read_options.timestamp) {
+    // TODO: support timestamp
+    return Status::NotSupported();
+  }
+
   Status s;
   SequenceNumber snapshot = versions_->LastSequence();
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
@@ -73,6 +82,13 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
 
 Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
                                       ColumnFamilyHandle* column_family) {
+  assert(column_family);
+  const Comparator* ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() || read_options.timestamp) {
+    // TODO: support timestamp
+    return NewErrorIterator(Status::NotSupported());
+  }
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
@@ -100,6 +116,21 @@ Status DBImplReadOnly::NewIterators(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
+  if (read_options.timestamp) {
+    // TODO: support timestamp
+    return Status::NotSupported();
+  } else {
+    for (auto* cf : column_families) {
+      assert(cf);
+      const Comparator* ucmp = cf->GetComparator();
+      assert(ucmp);
+      if (ucmp->timestamp_size()) {
+        // TODO: support timestamp
+        return Status::NotSupported();
+      }
+    }
+  }
+
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (iterators == nullptr) {
     return Status::InvalidArgument("iterators not allowed to be nullptr");
