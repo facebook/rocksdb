@@ -1669,8 +1669,8 @@ Status StressTest::TestApproximateSize(
   std::string key2_str = Key(key2);
   Range range{Slice(key1_str), Slice(key2_str)};
   SizeApproximationOptions sao;
-  sao.include_memtabtles = thread->rand.OneIn(2);
-  if (sao.include_memtabtles) {
+  sao.include_memtables = thread->rand.OneIn(2);
+  if (sao.include_memtables) {
     sao.include_files = thread->rand.OneIn(2);
   }
   if (thread->rand.OneIn(2)) {
