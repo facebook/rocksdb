@@ -128,6 +128,68 @@ TEST_P(DBRateLimiterTest, Get) {
   }
 }
 
+TEST_P(DBRateLimiterTest, NewMultiGet) {
+  // The new void-returning `MultiGet()` APIs use `MultiRead()`, which does not
+  // yet support rate limiting.
+  if (use_direct_io_ && !IsDirectIOSupported()) {
+    return;
+  }
+  Init();
+
+  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
+
+  const int kNumKeys = kNumFiles * kNumKeysPerFile;
+  {
+    std::vector<std::string> key_bufs;
+    key_bufs.reserve(kNumKeys);
+    std::vector<Slice> keys;
+    keys.reserve(kNumKeys);
+    for (int i = 0; i < kNumKeys; ++i) {
+      key_bufs.emplace_back(Key(i));
+      keys.emplace_back(key_bufs[i]);
+    }
+    std::vector<Status> statuses(kNumKeys);
+    std::vector<PinnableSlice> values(kNumKeys);
+    db_->MultiGet(GetReadOptions(), dbfull()->DefaultColumnFamily(), kNumKeys,
+                  keys.data(), values.data(), statuses.data());
+    for (int i = 0; i < kNumKeys; ++i) {
+      ASSERT_TRUE(statuses[i].IsNotSupported());
+    }
+  }
+  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
+}
+
+TEST_P(DBRateLimiterTest, OldMultiGet) {
+  // The old `vector<Status>`-returning `MultiGet()` APIs use `Read()`, which
+  // supports rate limiting.
+  if (use_direct_io_ && !IsDirectIOSupported()) {
+    return;
+  }
+  Init();
+
+  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
+
+  const int kNumKeys = kNumFiles * kNumKeysPerFile;
+  int expected = 0;
+  {
+    std::vector<std::string> key_bufs;
+    key_bufs.reserve(kNumKeys);
+    std::vector<Slice> keys;
+    keys.reserve(kNumKeys);
+    for (int i = 0; i < kNumKeys; ++i) {
+      key_bufs.emplace_back(Key(i));
+      keys.emplace_back(key_bufs[i]);
+    }
+    std::vector<std::string> values;
+    std::vector<Status> statuses = db_->MultiGet(GetReadOptions(), keys, &values);
+    for (int i = 0; i < kNumKeys; ++i) {
+      ASSERT_OK(statuses[i]);
+    }
+  }
+  expected += kNumKeys;
+  ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
+}
+
 TEST_P(DBRateLimiterTest, Iterator) {
   if (use_direct_io_ && !IsDirectIOSupported()) {
     return;
