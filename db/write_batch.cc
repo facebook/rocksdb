@@ -726,6 +726,25 @@ WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(
   return std::make_tuple(s, cf_id, ts_sz);
 }
 
+namespace {
+Status CheckColumnFamilyTimestampSize(ColumnFamilyHandle* column_family,
+                                      const Slice& ts) {
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be null");
+  }
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  size_t cf_ts_sz = ucmp->timestamp_size();
+  if (0 == cf_ts_sz) {
+    return Status::InvalidArgument("timestamp disabled");
+  }
+  if (cf_ts_sz != ts.size()) {
+    return Status::InvalidArgument("timestamp size mismatch");
+  }
+  return Status::OK();
+}
+}  // namespace
+
 Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
                                const Slice& key, const Slice& value) {
   if (key.size() > size_t{port::kMaxUint32}) {
@@ -789,17 +808,11 @@ Status WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
 
 Status WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& ts, const Slice& value) {
-  if (!column_family) {
-    return Status::InvalidArgument("column family handle cannot be null");
+  const Status s = CheckColumnFamilyTimestampSize(column_family, ts);
+  if (!s.ok()) {
+    return s;
   }
-  const Comparator* const ucmp = column_family->GetComparator();
-  size_t cf_ts_sz = ucmp->timestamp_size();
-  if (0 == cf_ts_sz) {
-    return Status::InvalidArgument("timestamp disabled");
-  }
-  if (cf_ts_sz != ts.size()) {
-    return Status::InvalidArgument("timestamp size mismatch");
-  }
+  assert(column_family);
   uint32_t cf_id = column_family->GetID();
   std::array<Slice, 2> key_with_ts{{key, ts}};
   return WriteBatchInternal::Put(this, cf_id, SliceParts(key_with_ts.data(), 2),
@@ -997,17 +1010,11 @@ Status WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key) {
 
 Status WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key,
                           const Slice& ts) {
-  if (!column_family) {
-    return Status::InvalidArgument("column family handle cannot be null");
+  const Status s = CheckColumnFamilyTimestampSize(column_family, ts);
+  if (!s.ok()) {
+    return s;
   }
-  const Comparator* const ucmp = column_family->GetComparator();
-  size_t cf_ts_sz = ucmp->timestamp_size();
-  if (0 == cf_ts_sz) {
-    return Status::InvalidArgument("timestamp disabled");
-  }
-  if (cf_ts_sz != ts.size()) {
-    return Status::InvalidArgument("timestamp size mismatch");
-  }
+  assert(column_family);
   uint32_t cf_id = column_family->GetID();
   std::array<Slice, 2> key_with_ts{{key, ts}};
   return WriteBatchInternal::Delete(this, cf_id,
@@ -1116,17 +1123,11 @@ Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
 
 Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
                                 const Slice& key, const Slice& ts) {
-  if (!column_family) {
-    return Status::InvalidArgument("column family handle cannot be null");
+  const Status s = CheckColumnFamilyTimestampSize(column_family, ts);
+  if (!s.ok()) {
+    return s;
   }
-  const Comparator* const ucmp = column_family->GetComparator();
-  size_t cf_ts_sz = ucmp->timestamp_size();
-  if (0 == cf_ts_sz) {
-    return Status::InvalidArgument("timestamp disabled");
-  }
-  if (cf_ts_sz != ts.size()) {
-    return Status::InvalidArgument("timestamp size mismatch");
-  }
+  assert(column_family);
   uint32_t cf_id = column_family->GetID();
   std::array<Slice, 2> key_with_ts{{key, ts}};
   return WriteBatchInternal::SingleDelete(this, cf_id,
