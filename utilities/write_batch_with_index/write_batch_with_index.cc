@@ -322,6 +322,16 @@ Status WriteBatchWithIndex::Put(const Slice& key, const Slice& value) {
   return s;
 }
 
+Status WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,
+                                const Slice& /*key*/, const Slice& /*ts*/,
+                                const Slice& /*value*/) {
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be nullptr");
+  }
+  // TODO: support WBWI::Put() with timestamp.
+  return Status::NotSupported();
+}
+
 Status WriteBatchWithIndex::Delete(ColumnFamilyHandle* column_family,
                                    const Slice& key) {
   rep->SetLastEntryOffset();
@@ -341,6 +351,15 @@ Status WriteBatchWithIndex::Delete(const Slice& key) {
   return s;
 }
 
+Status WriteBatchWithIndex::Delete(ColumnFamilyHandle* column_family,
+                                   const Slice& /*key*/, const Slice& /*ts*/) {
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be nullptr");
+  }
+  // TODO: support WBWI::Delete() with timestamp.
+  return Status::NotSupported();
+}
+
 Status WriteBatchWithIndex::SingleDelete(ColumnFamilyHandle* column_family,
                                          const Slice& key) {
   rep->SetLastEntryOffset();
@@ -358,6 +377,16 @@ Status WriteBatchWithIndex::SingleDelete(const Slice& key) {
     rep->AddOrUpdateIndex(key, kSingleDeleteRecord);
   }
   return s;
+}
+
+Status WriteBatchWithIndex::SingleDelete(ColumnFamilyHandle* column_family,
+                                         const Slice& /*key*/,
+                                         const Slice& /*ts*/) {
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be nullptr");
+  }
+  // TODO: support WBWI::SingleDelete() with timestamp.
+  return Status::NotSupported();
 }
 
 Status WriteBatchWithIndex::Merge(ColumnFamilyHandle* column_family,

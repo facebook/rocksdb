@@ -3,6 +3,7 @@
 ### Public API changes
 * Remove ReadOptions::iter_start_seqnum which has been deprecated.
 * Remove DBOptions::preserved_deletes and DB::SetPreserveDeletesSequenceNumber().
+* Removed timestamp from WriteOptions. Accordingly, added to DB APIs Put, Delete, SingleDelete, etc. accepting an additional argument 'timestamp'. Added Put, Delete, SingleDelete, etc to WriteBatch accepting an additional argument 'timestamp'. Removed WriteBatch::AssignTimestamps(vector<Slice>) API. Renamed WriteBatch::AssignTimestamp() to WriteBatch::UpdateTimestamps() with clarified comments.
 
 ## 6.29.5 (03/29/2022)
 ### Bug Fixes

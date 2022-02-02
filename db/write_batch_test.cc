@@ -949,7 +949,48 @@ Status CheckTimestampsInWriteBatch(
 }
 }  // namespace
 
-TEST_F(WriteBatchTest, AssignTimestamps) {
+TEST_F(WriteBatchTest, SanityChecks) {
+  ColumnFamilyHandleImplDummy cf0(0, test::ComparatorWithU64Ts());
+  ColumnFamilyHandleImplDummy cf4(4);
+
+  WriteBatch wb(0, 0, 0, /*default_cf_ts_sz=*/sizeof(uint64_t));
+
+  // Sanity checks for the new WriteBatch APIs with extra 'ts' arg.
+  ASSERT_TRUE(wb.Put(nullptr, "key", "ts", "value").IsInvalidArgument());
+  ASSERT_TRUE(wb.Delete(nullptr, "key", "ts").IsInvalidArgument());
+  ASSERT_TRUE(wb.SingleDelete(nullptr, "key", "ts").IsInvalidArgument());
+  ASSERT_TRUE(wb.Merge(nullptr, "key", "ts", "value").IsNotSupported());
+  ASSERT_TRUE(
+      wb.DeleteRange(nullptr, "begin_key", "end_key", "ts").IsNotSupported());
+
+  ASSERT_TRUE(wb.Put(&cf4, "key", "ts", "value").IsInvalidArgument());
+  ASSERT_TRUE(wb.Delete(&cf4, "key", "ts").IsInvalidArgument());
+  ASSERT_TRUE(wb.SingleDelete(&cf4, "key", "ts").IsInvalidArgument());
+  ASSERT_TRUE(wb.Merge(&cf4, "key", "ts", "value").IsNotSupported());
+  ASSERT_TRUE(
+      wb.DeleteRange(&cf4, "begin_key", "end_key", "ts").IsNotSupported());
+
+  constexpr size_t wrong_ts_sz = 1 + sizeof(uint64_t);
+  std::string ts(wrong_ts_sz, '\0');
+
+  ASSERT_TRUE(wb.Put(&cf0, "key", ts, "value").IsInvalidArgument());
+  ASSERT_TRUE(wb.Delete(&cf0, "key", ts).IsInvalidArgument());
+  ASSERT_TRUE(wb.SingleDelete(&cf0, "key", ts).IsInvalidArgument());
+  ASSERT_TRUE(wb.Merge(&cf0, "key", ts, "value").IsNotSupported());
+  ASSERT_TRUE(
+      wb.DeleteRange(&cf0, "begin_key", "end_key", ts).IsNotSupported());
+
+  // Sanity checks for the new WriteBatch APIs without extra 'ts' arg.
+  WriteBatch wb1(0, 0, 0, wrong_ts_sz);
+  ASSERT_TRUE(wb1.Put(&cf0, "key", "value").IsInvalidArgument());
+  ASSERT_TRUE(wb1.Delete(&cf0, "key").IsInvalidArgument());
+  ASSERT_TRUE(wb1.SingleDelete(&cf0, "key").IsInvalidArgument());
+  ASSERT_TRUE(wb1.Merge(&cf0, "key", "value").IsInvalidArgument());
+  ASSERT_TRUE(
+      wb1.DeleteRange(&cf0, "begin_key", "end_key").IsInvalidArgument());
+}
+
+TEST_F(WriteBatchTest, UpdateTimestamps) {
   // We assume the last eight bytes of each key is reserved for timestamps.
   // Therefore, we must make sure each key is longer than eight bytes.
   constexpr size_t key_size = 16;
@@ -974,21 +1015,17 @@ TEST_F(WriteBatchTest, AssignTimestamps) {
   }
 
   static constexpr size_t timestamp_size = sizeof(uint64_t);
-  const auto checker1 = [](uint32_t cf, size_t& ts_sz) {
+  const auto checker1 = [](uint32_t cf) {
     if (cf == 4 || cf == 5) {
-      if (ts_sz != timestamp_size) {
-        return Status::InvalidArgument("Timestamp size mismatch");
-      }
+      return timestamp_size;
     } else if (cf == 0) {
-      ts_sz = 0;
-      return Status::OK();
+      return static_cast<size_t>(0);
     } else {
-      return Status::Corruption("Invalid cf");
+      return std::numeric_limits<size_t>::max();
     }
-    return Status::OK();
   };
   ASSERT_OK(
-      batch.AssignTimestamp(std::string(timestamp_size, '\xfe'), checker1));
+      batch.UpdateTimestamps(std::string(timestamp_size, '\xfe'), checker1));
   ASSERT_OK(CheckTimestampsInWriteBatch(
       batch, std::string(timestamp_size, '\xfe'), cf_to_ucmps));
 
@@ -1001,65 +1038,30 @@ TEST_F(WriteBatchTest, AssignTimestamps) {
   // mapping from cf to user comparators. If indexing is disabled, a transaction
   // writes directly to the underlying raw WriteBatch. We will need to track the
   // comparator information for the column families to which un-indexed writes
-  // are performed. When calling AssignTimestamp(s) API of WriteBatch, we need
+  // are performed. When calling UpdateTimestamp API of WriteBatch, we need
   // indexed_cf_to_ucmps, non_indexed_cfs_with_ts, and timestamp_size to perform
   // checking.
   std::unordered_map<uint32_t, const Comparator*> indexed_cf_to_ucmps = {
       {0, cf0.GetComparator()}, {4, cf4.GetComparator()}};
   std::unordered_set<uint32_t> non_indexed_cfs_with_ts = {cf5.GetID()};
-  const auto checker2 = [&indexed_cf_to_ucmps, &non_indexed_cfs_with_ts](
-                            uint32_t cf, size_t& ts_sz) {
+  const auto checker2 = [&indexed_cf_to_ucmps,
+                         &non_indexed_cfs_with_ts](uint32_t cf) {
     if (non_indexed_cfs_with_ts.count(cf) > 0) {
-      if (ts_sz != timestamp_size) {
-        return Status::InvalidArgument("Timestamp size mismatch");
-      }
-      return Status::OK();
+      return timestamp_size;
     }
     auto cf_iter = indexed_cf_to_ucmps.find(cf);
     if (cf_iter == indexed_cf_to_ucmps.end()) {
-      return Status::Corruption("Unknown cf");
+      assert(false);
+      return std::numeric_limits<size_t>::max();
     }
     const Comparator* const ucmp = cf_iter->second;
     assert(ucmp);
-    if (ucmp->timestamp_size() == 0) {
-      ts_sz = 0;
-    } else if (ts_sz != ucmp->timestamp_size()) {
-      return Status::InvalidArgument("Timestamp size mismatch");
-    }
-    return Status::OK();
+    return ucmp->timestamp_size();
   };
   ASSERT_OK(
-      batch.AssignTimestamp(std::string(timestamp_size, '\xef'), checker2));
+      batch.UpdateTimestamps(std::string(timestamp_size, '\xef'), checker2));
   ASSERT_OK(CheckTimestampsInWriteBatch(
       batch, std::string(timestamp_size, '\xef'), cf_to_ucmps));
-
-  std::vector<std::string> ts_strs;
-  for (size_t i = 0; i < 3 * key_strs.size(); ++i) {
-    if (0 == (i % 3)) {
-      ts_strs.emplace_back();
-    } else {
-      ts_strs.emplace_back(std::string(timestamp_size, '\xee'));
-    }
-  }
-  std::vector<Slice> ts_vec(ts_strs.size());
-  for (size_t i = 0; i < ts_vec.size(); ++i) {
-    ts_vec[i] = ts_strs[i];
-  }
-  const auto checker3 = [&cf_to_ucmps](uint32_t cf, size_t& ts_sz) {
-    auto cf_iter = cf_to_ucmps.find(cf);
-    if (cf_iter == cf_to_ucmps.end()) {
-      return Status::Corruption("Invalid cf");
-    }
-    const Comparator* const ucmp = cf_iter->second;
-    assert(ucmp);
-    if (ucmp->timestamp_size() != ts_sz) {
-      return Status::InvalidArgument("Timestamp size mismatch");
-    }
-    return Status::OK();
-  };
-  ASSERT_OK(batch.AssignTimestamps(ts_vec, checker3));
-  ASSERT_OK(CheckTimestampsInWriteBatch(
-      batch, std::string(timestamp_size, '\xee'), cf_to_ucmps));
 }
 
 TEST_F(WriteBatchTest, CommitWithTimestamp) {
