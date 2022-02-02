@@ -218,6 +218,8 @@ TEST_P(DBRateLimiterTest, Iterator) {
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 
+#if !defined(ROCKSDB_LITE)
+
 TEST_P(DBRateLimiterTest, VerifyChecksum) {
   if (use_direct_io_ && !IsDirectIOSupported()) {
     return;
@@ -245,6 +247,8 @@ TEST_P(DBRateLimiterTest, VerifyFileChecksums) {
   int expected = kNumFiles;
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
+
+#endif  // !defined(ROCKSDB_LITE)
 
 }  // namespace ROCKSDB_NAMESPACE
 
