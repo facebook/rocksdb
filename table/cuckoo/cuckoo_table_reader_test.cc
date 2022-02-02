@@ -255,20 +255,20 @@ TEST_F(CuckooReaderTest, WhenKeyExistsWithUint64Comparator) {
     // Give disjoint hash values.
     AddHashLookups(user_keys[i], i, kNumHashFunc);
   }
-  CreateCuckooFileAndCheckReader(test::Uint64Comparator());
+  CreateCuckooFileAndCheckReader(rocksdb::Uint64Comparator());
   // Last level file.
   UpdateKeys(true);
-  CreateCuckooFileAndCheckReader(test::Uint64Comparator());
+  CreateCuckooFileAndCheckReader(rocksdb::Uint64Comparator());
   // Test with collision. Make all hash values collide.
   hash_map.clear();
   for (uint32_t i = 0; i < num_items; i++) {
     AddHashLookups(user_keys[i], 0, kNumHashFunc);
   }
   UpdateKeys(false);
-  CreateCuckooFileAndCheckReader(test::Uint64Comparator());
+  CreateCuckooFileAndCheckReader(rocksdb::Uint64Comparator());
   // Last level file.
   UpdateKeys(true);
-  CreateCuckooFileAndCheckReader(test::Uint64Comparator());
+  CreateCuckooFileAndCheckReader(rocksdb::Uint64Comparator());
 }
 
 TEST_F(CuckooReaderTest, CheckIterator) {
@@ -302,12 +302,12 @@ TEST_F(CuckooReaderTest, CheckIteratorUint64) {
     // Give disjoint hash values, in reverse order.
     AddHashLookups(user_keys[i], num_items-i-1, kNumHashFunc);
   }
-  CreateCuckooFileAndCheckReader(test::Uint64Comparator());
-  CheckIterator(test::Uint64Comparator());
+  CreateCuckooFileAndCheckReader(rocksdb::Uint64Comparator());
+  CheckIterator(rocksdb::Uint64Comparator());
   // Last level file.
   UpdateKeys(true);
-  CreateCuckooFileAndCheckReader(test::Uint64Comparator());
-  CheckIterator(test::Uint64Comparator());
+  CreateCuckooFileAndCheckReader(rocksdb::Uint64Comparator());
+  CheckIterator(rocksdb::Uint64Comparator());
 }
 
 TEST_F(CuckooReaderTest, WhenKeyNotFound) {
@@ -417,7 +417,7 @@ void WriteFile(const std::vector<std::string>& keys,
   ASSERT_OK(WritableFileWriter::Create(fs, fname, file_options, &file_writer,
                                        nullptr));
   CuckooTableBuilder builder(
-      file_writer.get(), hash_ratio, 64, 1000, test::Uint64Comparator(), 5,
+      file_writer.get(), hash_ratio, 64, 1000, rocksdb::Uint64Comparator(), 5,
       false, FLAGS_identity_as_first_hash, nullptr, 0 /* column_family_id */,
       kDefaultColumnFamilyName);
   ASSERT_OK(builder.status());
@@ -440,7 +440,7 @@ void WriteFile(const std::vector<std::string>& keys,
 
   const ImmutableOptions ioptions(options);
   CuckooTableReader reader(ioptions, std::move(file_reader), file_size,
-                           test::Uint64Comparator(), nullptr);
+                           rocksdb::Uint64Comparator(), nullptr);
   ASSERT_OK(reader.status());
   ReadOptions r_options;
   PinnableSlice value;
@@ -473,7 +473,7 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
 
   const ImmutableOptions ioptions(options);
   CuckooTableReader reader(ioptions, std::move(file_reader), file_size,
-                           test::Uint64Comparator(), nullptr);
+                           rocksdb::Uint64Comparator(), nullptr);
   ASSERT_OK(reader.status());
   const UserCollectedProperties user_props =
     reader.GetTableProperties()->user_collected_properties;

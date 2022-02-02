@@ -6837,7 +6837,7 @@ TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   options.max_write_buffer_size_to_maintain = 64 << 10;
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
-  options.comparator = test::ComparatorWithU64Ts();
+  options.comparator = rocksdb::ComparatorWithU64Ts();
   options.statistics = CreateDBStatistics();
 
   Reopen(options);

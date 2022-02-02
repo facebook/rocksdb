@@ -125,7 +125,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
                               nullptr);
       file_.reset(new RandomAccessFileReader(std::move(file), file_path));
     }
-    options_.comparator = &internal_comparator_;
+
     // For old sst format, ReadTableProperties might fail but file can be read
     if (ReadTableProperties(magic_number, file_.get(), file_size,
                             (magic_number == kBlockBasedTableMagicNumber)
@@ -133,9 +133,20 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
                                 : nullptr)
             .ok()) {
       s = SetTableOptionsByMagicNumber(magic_number);
+      std::shared_ptr<const TableProperties> table_properties;
+      s = ReadTableProperties(&table_properties);
+      if (s.ok() && !table_properties->comparator_name.empty()) {
+        ConfigOptions config_options;
+        const Comparator *user_comparator;
+        s = Comparator::CreateFromString(config_options, table_properties->comparator_name, &user_comparator);
+        if (s.ok()) {
+          internal_comparator_ = InternalKeyComparator(user_comparator, true);
+        }
+      }
     } else {
       s = SetOldTableOptions();
     }
+    options_.comparator = internal_comparator_.user_comparator();
   }
 
   if (s.ok()) {

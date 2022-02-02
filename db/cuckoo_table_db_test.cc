@@ -218,7 +218,7 @@ static std::string Uint64Key(uint64_t i) {
 
 TEST_F(CuckooTableDBTest, Uint64Comparator) {
   Options options = CurrentOptions();
-  options.comparator = test::Uint64Comparator();
+  options.comparator = rocksdb::Uint64Comparator();
   DestroyAndReopen(&options);
 
   ASSERT_OK(Put(Uint64Key(1), "v1"));

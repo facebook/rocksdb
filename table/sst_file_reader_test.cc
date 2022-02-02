@@ -119,7 +119,7 @@ TEST_F(SstFileReaderTest, Basic) {
 }
 
 TEST_F(SstFileReaderTest, Uint64Comparator) {
-  options_.comparator = test::Uint64Comparator();
+  options_.comparator = rocksdb::Uint64Comparator();
   std::vector<std::string> keys;
   for (uint64_t i = 0; i < kNumKeys; i++) {
     keys.emplace_back(EncodeAsUint64(i));
@@ -130,7 +130,7 @@ TEST_F(SstFileReaderTest, Uint64Comparator) {
 TEST_F(SstFileReaderTest, ReadOptionsOutOfScope) {
   // Repro a bug where the SstFileReader depended on its configured ReadOptions
   // outliving it.
-  options_.comparator = test::Uint64Comparator();
+  options_.comparator = rocksdb::Uint64Comparator();
   std::vector<std::string> keys;
   for (uint64_t i = 0; i < kNumKeys; i++) {
     keys.emplace_back(EncodeAsUint64(i));
@@ -215,7 +215,7 @@ class SstFileReaderTimestampTest : public testing::Test {
 
     options_.env = env;
 
-    options_.comparator = test::ComparatorWithU64Ts();
+    options_.comparator = rocksdb::ComparatorWithU64Ts();
 
     sst_name_ = test::PerThreadDBPath("sst_file_ts");
   }

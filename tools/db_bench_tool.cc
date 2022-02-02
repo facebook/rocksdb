@@ -3799,7 +3799,7 @@ class Benchmark {
           NewFixedPrefixTransform(FLAGS_prefix_size));
     }
     if (FLAGS_use_uint64_comparator) {
-      options.comparator = test::Uint64Comparator();
+      options.comparator = rocksdb::Uint64Comparator();
       if (FLAGS_key_size != 8) {
         fprintf(stderr, "Using Uint64 comparator but key size is not 8.\n");
         exit(1);
@@ -4155,7 +4155,7 @@ class Benchmark {
         fprintf(stderr, "Only 64 bits timestamps are supported.\n");
         exit(1);
       }
-      options.comparator = ROCKSDB_NAMESPACE::test::ComparatorWithU64Ts();
+      options.comparator = ROCKSDB_NAMESPACE::ComparatorWithU64Ts();
     }
 
     // Integrated BlobDB
