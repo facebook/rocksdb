@@ -1564,8 +1564,11 @@ struct ReadOptions {
   // limiter (see `DBOptions::rate_limiter`) at the specified priority. The
   // special value `Env::IO_TOTAL` disables charging the rate limiter.
   //
-  // The rate limiting is bypassed no matter this option's value for
-  // plain/cuckoo table reads, and generally small reads like for file
+  // The rate limiting is bypassed no matter this option's value for file reads
+  // on plain tables (these can exist when `ColumnFamilyOptions::table_factory`
+  // is a `PlainTableFactory`) and cuckoo tables (these can exist when
+  // `ColumnFamilyOptions::table_factory` is a `CuckooTableFactory`). Rate
+  // limiting is also bypassed on generally small reads like for file
   // headers/footers.
   //
   // The new `DB::MultiGet()` APIs (i.e., the ones returning `void`) will return
