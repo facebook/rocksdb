@@ -420,16 +420,35 @@ function start_stats {
   while :; do ps aux | grep db_bench | grep -v grep | tail -1; sleep 10; done >& $output.ps &
   # This sets a global value
   pspid=$!
+
+  while :; do
+    b_gb=$( ls -l $DB_DIR 2> /dev/null | grep blob | awk '{ c += 1; b += $5 } END { printf "%.1f", b / (1024*1024*1024) }' )
+    s_gb=$( ls -l $DB_DIR 2> /dev/null | grep sst | awk '{ c += 1; b += $5 } END { printf "%.1f", b / (1024*1024*1024) }' )
+    l_gb=$( ls -l $WAL_DIR 2> /dev/null | grep log | awk '{ c += 1; b += $5 } END { printf "%.1f", b / (1024*1024*1024) }' )
+    a_gb=$( ls -l $DB_DIR 2> /dev/null | awk '{ c += 1; b += $5 } END { printf "%.1f", b / (1024*1024*1024) }' )
+    ts=$( date +%H%M%S )
+    echo -e "${a_gb}\t${s_gb}\t${l_gb}\t${b_gb}\t${ts}"
+    sleep 10
+  done >& $output.sizes &
+  # This sets a global value
+  szpid=$!
 }
 
 function stop_stats {
   output=$1
   kill $pspid
+  kill $szpid
   killall iostat
   killall vmstat
   sleep 1
   gzip $output.io
   gzip $output.vm
+
+  am=$( sort -nk 1,1 $output.sizes | tail -1 | awk '{ print $1 }' )
+  sm=$( sort -nk 2,2 $output.sizes | tail -1 | awk '{ print $2 }' )
+  lm=$( sort -nk 3,3 $output.sizes | tail -1 | awk '{ print $3 }' )
+  bm=$( sort -nk 4,4 $output.sizes | tail -1 | awk '{ print $4 }' )
+  echo -e "max sizes (GB): $am all, $sm sst, $lm log, $bm blob" >> $output.sizes
 }
 
 function summarize_result {
@@ -446,7 +465,7 @@ function summarize_result {
   my_date=$( month_to_num $date )
   uptime=$( grep ^Uptime\(secs $test_out | tail -1 | awk '{ printf "%.0f", $2 }' )
   stall_pct=$( grep "^Cumulative stall" $test_out| tail -1  | awk '{  print $5 }' )
-  nstall=$( grep ^Stalls\(count\):  $test_out | tail -1 | awk '{ print $2 + $4 + $6 + $8 + $10 + $14 + $18 + $20 }' )
+  nstall=$( grep ^Stalls\(count\):  $test_out | tail -1 | awk '{ print $2 + $6 + $10 + $14 + $18 + $20 }' )
   ops_sec=$( grep ^${bench_name} $test_out | awk '{ print $5 }' )
   mb_sec=$( grep ^${bench_name} $test_out | awk '{ print $7 }' )
 
@@ -458,7 +477,9 @@ function summarize_result {
   else
     wamp=$( echo "$sum_wgb / $flush_wgb" | bc -l | awk '{ printf "%.1f", $1 }' )
   fi
-  c_secs=$( grep "^Cumulative compaction" $test_out | tail -1 | awk '{ print $15 }' )
+  c_wsecs=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.0f", $14 }' )
+  #c_csecs=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.0f", $16 }' )
+  c_csecs="NA"
 
   lsm_size=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.0f%s", $3, $4 }' )
   blob_size=$( grep "^Blob file count:" $test_out | tail -1 | awk '{ printf "%s%s", $7, $8 }' )
@@ -491,7 +512,8 @@ function summarize_result {
     echo -e "# c_wgb - GB written by compaction" >> $report
     echo -e "# w_amp - Write-amplification as (bytes written by compaction / bytes written by memtable flush)" >> $report
     echo -e "# c_mbps - Average write rate for compaction" >> $report
-    echo -e "# c_secs - Wall clock seconds doing compaction" >> $report
+    echo -e "# c_wsecs - Wall clock seconds doing compaction" >> $report
+    echo -e "# c_csecs - CPU seconds doing compaction" >> $report
     echo -e "# b_rgb - Blob compaction read GB" >> $report
     echo -e "# b_wgb - Blob compaction write GB" >> $report
     echo -e "# usec_op - Microseconds per operation" >> $report
@@ -507,11 +529,11 @@ function summarize_result {
     echo -e "# date - Date/time of test" >> $report
     echo -e "# version - RocksDB version" >> $report
     echo -e "# job_id - User-provided job ID" >> $report
-    echo -e "ops_sec\tmb_sec\tlsm_sz\tblob_sz\tc_wgb\tw_amp\tc_mbps\tc_secs\tb_rgb\tb_wgb\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id" \
+    echo -e "ops_sec\tmb_sec\tlsm_sz\tblob_sz\tc_wgb\tw_amp\tc_mbps\tc_wsecs\tc_csecs\tb_rgb\tb_wgb\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id" \
       >> $report
   fi
 
-  echo -e "$ops_sec\t$mb_sec\t$lsm_size\t$blob_size\t$sum_wgb\t$wamp\t$cmb_ps\t$c_secs\t$b_rgb\t$b_wgb\t$usecs_op\t$p50\t$p99\t$p999\t$p9999\t$pmax\t$uptime\t$stall_pct\t$nstall\t$u_cpu\t$s_cpu\t$rss\t$test_name\t$my_date\t$version\t$job_id" \
+  echo -e "$ops_sec\t$mb_sec\t$lsm_size\t$blob_size\t$sum_wgb\t$wamp\t$cmb_ps\t$c_wsecs\t$c_csecs\t$b_rgb\t$b_wgb\t$usecs_op\t$p50\t$p99\t$p999\t$p9999\t$pmax\t$uptime\t$stall_pct\t$nstall\t$u_cpu\t$s_cpu\t$rss\t$test_name\t$my_date\t$version\t$job_id" \
     >> $report
 }
 
@@ -1045,7 +1067,7 @@ for job in ${jobs[@]}; do
     echo "Completed $job (ID: $job_id) in $((end-start)) seconds" | tee -a $schedule
   fi
 
-  echo -e "ops_sec\tmb_sec\tlsm_sz\tblob_sz\tc_wgb\tw_amp\tc_mbps\tc_secs\tb_rgb\tb_wgb\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id"
+  echo -e "ops_sec\tmb_sec\tlsm_sz\tblob_sz\tc_wgb\tw_amp\tc_mbps\tc_wsecs\tc_csecs\tb_rgb\tb_wgb\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id"
   tail -1 $report
 
 done

@@ -138,6 +138,8 @@ myargs=( "${args[@]}" )
 myargs+=( ML2_COMP=3 COMP_STYLE=leveled )
 env "${myargs[@]}" bash perf_cmp.v4.sh /data/m/rx $odir ${versions[@]}
 
+exit
+
 # for universal
 
 odir=bm.uc.nt${nthreads}.cm${cm}.d${odirect}.sc${nsub}.tm
