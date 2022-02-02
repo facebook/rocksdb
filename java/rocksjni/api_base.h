@@ -15,7 +15,7 @@
 class APIBase {
   /**
    * @brief control deletion of the RocksDB CFH, which we must avoid if this is
-   * the DB's default CFH
+   * the DB's default CFH. We could template this..
    *
    */
 

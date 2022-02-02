@@ -78,9 +78,23 @@ class APIColumnFamilyHandle : public APIWeakDB {
     return cfh;
   }
 
+  static std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
+  lockCFHOrDefault(JNIEnv* env, jlong jhandle, const APIRocksDB& dbAPI) {
+    if (jhandle != 0) {
+      return lock(env, jhandle);
+    } else {
+      auto defaultHandle = dbAPI.defaultColumnFamilyHandle;
+      if (!defaultHandle) {
+        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+            env, "Default column family is closed. DB may already be closed.");
+      }
+      return defaultHandle;
+    }
+  }
   /**
-   * @brief create a CFH wrapped with a SharedPtrContent which will delete the
-   * CFH at delete() time
+   * @brief create a CFH wrapped with a SharedPtrHolder which will delete the
+   * CFH at delete() time (whole idea is not to do this for the default CFH,
+   * which shouldn't be deleted by us)
    *
    * @param handle
    * @return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>

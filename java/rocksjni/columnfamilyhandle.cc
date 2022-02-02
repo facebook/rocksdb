@@ -101,7 +101,7 @@ jint Java_org_rocksdb_ColumnFamilyHandle_getID(JNIEnv* env, jobject,
 }
 
 /*
- * Class:     org_rocksdb_ColumnFamilyHandleNonDefault
+ * Class:     org_rocksdb_ColumnFamilyHandle
  * Method:    getDescriptor
  * Signature: (J)Lorg/rocksdb/ColumnFamilyDescriptor;
  */

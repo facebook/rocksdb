@@ -26,6 +26,8 @@ class APIRocksDB : APIBase {
   std::shared_ptr<ROCKSDB_NAMESPACE::DB> db;
   std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>>
       columnFamilyHandles;
+  // Every default APIColumnFamilyHandle must start from (i.e. share) this
+  // shared_ptr
   std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
       defaultColumnFamilyHandle;
 

@@ -546,12 +546,12 @@ void Java_org_rocksdb_RocksDB_dropColumnFamily(
     JNIEnv* env, jobject, jlong jdb_handle,
     jlong jcf_handle) {
   const auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
-  auto cfhLock = APIColumnFamilyHandle::lock(env, jcf_handle);
-  if (!cfhLock) {
+  auto cfhPtr = APIColumnFamilyHandle::lock(env, jcf_handle);
+  if (!cfhPtr) {
     // CFH exception
     return;
   }
-  ROCKSDB_NAMESPACE::Status s = dbAPI->DropColumnFamily(cfhLock.get());
+  ROCKSDB_NAMESPACE::Status s = dbAPI->DropColumnFamily(cfhPtr.get());
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
@@ -1413,15 +1413,15 @@ void Java_org_rocksdb_RocksDB_deleteDirect__JJLjava_nio_ByteBuffer_2IIJ(
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options);
-  const auto cfhLock = APIColumnFamilyHandle::lock(env, jcf_handle);
-  if (!cfhLock) {
+  const auto cfhPtr = APIColumnFamilyHandle::lock(env, jcf_handle);
+  if (!cfhPtr) {
     // CFH exception
     return;
   }
   auto remove = [&env, &dbAPI, &write_options,
-                 &cfhLock](ROCKSDB_NAMESPACE::Slice& key) {
+                 &cfhPtr](ROCKSDB_NAMESPACE::Slice& key) {
     ROCKSDB_NAMESPACE::Status s =
-        dbAPI->Delete(*write_options, cfhLock.get(), key);
+        dbAPI->Delete(*write_options, cfhPtr.get(), key);
     if (s.ok()) {
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
       return;
@@ -2195,18 +2195,14 @@ bool key_may_exist_helper(JNIEnv* env, jlong jdb_handle, jlong jcf_handle,
                           jint jkey_offset, jint jkey_len, bool* has_exception,
                           std::string* value, bool* value_found) {
   const auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
-  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
-  if (jcf_handle == 0) {
-    cf_handle = dbAPI->DefaultColumnFamily();
-  } else {
-    const auto cfhPtr = APIColumnFamilyHandle::lock(env, jcf_handle);
-    if (!cfhPtr) {
-      // CFH exception
-      *has_exception = true;
-      return false;
-    }
-    cf_handle = cfhPtr.get();
+  const auto cfhPtr =
+      APIColumnFamilyHandle::lockCFHOrDefault(env, jcf_handle, dbAPI);
+  if (!cfhPtr) {
+    // CFH exception
+    *has_exception = true;
+    return false;
   }
+
   ROCKSDB_NAMESPACE::ReadOptions read_opts =
       jread_opts_handle == 0
           ? ROCKSDB_NAMESPACE::ReadOptions()
@@ -2223,8 +2219,8 @@ bool key_may_exist_helper(JNIEnv* env, jlong jdb_handle, jlong jcf_handle,
   }
   ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
 
-  const bool exists =
-      dbAPI->KeyMayExist(read_opts, cf_handle, key_slice, value, value_found);
+  const bool exists = dbAPI->KeyMayExist(read_opts, cfhPtr.get(), key_slice,
+                                         value, value_found);
 
   // cleanup
   delete[] key;
@@ -2670,16 +2666,15 @@ jstring Java_org_rocksdb_RocksDB_getProperty(
   ROCKSDB_NAMESPACE::Slice property_name(property, jproperty_len);
 
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
-  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
-  if (jcf_handle == 0) {
-    cf_handle = dbAPI->DefaultColumnFamily();
-  } else {
-    cf_handle =
-        reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  const auto& cfhPtr =
+      APIColumnFamilyHandle::lockCFHOrDefault(env, jcf_handle, dbAPI);
+  if (!cfhPtr) {
+    return nullptr;
   }
 
   std::string property_value;
-  bool retCode = dbAPI->GetProperty(cf_handle, property_name, &property_value);
+  bool retCode =
+      dbAPI->GetProperty(cfhPtr.get(), property_name, &property_value);
   env->ReleaseStringUTFChars(jproperty, property);
 
   if (retCode) {
@@ -2707,17 +2702,14 @@ jobject Java_org_rocksdb_RocksDB_getMapProperty(
   ROCKSDB_NAMESPACE::Slice property_name(property, jproperty_len);
 
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
-  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
-  if (jcf_handle == 0) {
-    cf_handle = dbAPI->DefaultColumnFamily();
-  } else {
-    cf_handle =
-        reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  auto cfhPtr = APIColumnFamilyHandle::lockCFHOrDefault(env, jcf_handle, dbAPI);
+  if (!cfhPtr) {
+    return nullptr;
   }
 
   std::map<std::string, std::string> property_value;
   bool retCode =
-      dbAPI->GetMapProperty(cf_handle, property_name, &property_value);
+      dbAPI->GetMapProperty(cfhPtr.get(), property_name, &property_value);
   env->ReleaseStringUTFChars(jproperty, property);
 
   if (retCode) {
@@ -2745,17 +2737,14 @@ jlong Java_org_rocksdb_RocksDB_getLongProperty(
   ROCKSDB_NAMESPACE::Slice property_name(property, jproperty_len);
 
   const auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
-  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
-  if (jcf_handle == 0) {
-    cf_handle = dbAPI->DefaultColumnFamily();
-  } else {
-    cf_handle =
-        reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  auto cfhPtr = APIColumnFamilyHandle::lockCFHOrDefault(env, jcf_handle, dbAPI);
+  if (!cfhPtr) {
+    return 0;
   }
 
   uint64_t property_value;
   bool retCode =
-      dbAPI->GetIntProperty(cf_handle, property_name, &property_value);
+      dbAPI->GetIntProperty(cfhPtr.get(), property_name, &property_value);
   env->ReleaseStringUTFChars(jproperty, property);
 
   if (retCode) {
@@ -3134,20 +3123,14 @@ jstring Java_org_rocksdb_RocksDB_getOptions(JNIEnv* env, jobject,
                                             jlong jdb_handle,
                                             jlong jcf_handle) {
   const auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
-
-  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
-  if (jcf_handle == 0) {
-    cf_handle = dbAPI->DefaultColumnFamily();
-  } else {
-    auto cfhLock = APIColumnFamilyHandle::lock(env, jcf_handle);
-    if (!cfhLock) {
-      // exception raised
-      return nullptr;
-    }
-    cf_handle = cfhLock.get();
+  const auto& cfhPtr =
+      APIColumnFamilyHandle::lockCFHOrDefault(env, jcf_handle, dbAPI);
+  if (!cfhPtr) {
+    // exception raised
+    return nullptr;
   }
 
-  auto options = dbAPI->GetOptions(cf_handle);
+  auto options = dbAPI->GetOptions(cfhPtr.get());
   std::string options_as_string;
   ROCKSDB_NAMESPACE::Status s =
       GetStringFromColumnFamilyOptions(&options_as_string, options);
