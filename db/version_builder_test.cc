@@ -159,9 +159,7 @@ class VersionBuilderTest : public testing::Test {
     storage_info->SetFinalized();
   }
 
-  void UpdateVersionStorageInfo() {
-    UpdateVersionStorageInfo(&vstorage_);
-  }
+  void UpdateVersionStorageInfo() { UpdateVersionStorageInfo(&vstorage_); }
 };
 
 void UnrefFilesInVersion(VersionStorageInfo* new_vstorage) {
