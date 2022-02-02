@@ -1568,8 +1568,8 @@ struct ReadOptions {
   // plain/cuckoo table reads, old BlobDB reads, and generally small reads like
   // for file headers/footers.
   //
-  // APIs that rely on `RandomAccessFile::MultiRead()`, such as
-  // `DB::MultiGet()`, return `Status::NotSupported` when
+  // The new `DB::MultiGet()` APIs (i.e., the ones returning `void`) will return
+  // `Status::NotSupported` when that operation requires file read(s) and
   // `priority != Env::IO_TOTAL`.
   //
   // Default: `Env::IO_TOTAL`.
