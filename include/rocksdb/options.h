@@ -1565,8 +1565,8 @@ struct ReadOptions {
   // special value `Env::IO_TOTAL` disables charging the rate limiter.
   //
   // The rate limiting is bypassed no matter this option's value for
-  // plain/cuckoo table reads, old BlobDB reads, and generally small reads like
-  // for file headers/footers.
+  // plain/cuckoo table reads, and generally small reads like for file
+  // headers/footers.
   //
   // The new `DB::MultiGet()` APIs (i.e., the ones returning `void`) will return
   // `Status::NotSupported` when that operation requires file read(s) and
