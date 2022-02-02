@@ -371,6 +371,7 @@ class TransactionDB : public StackableDB {
   // used and `skip_concurrency_control` must be set. When using either
   // WRITE_PREPARED or WRITE_UNPREPARED , `skip_duplicate_key_check` must
   // additionally be set.
+  using StackableDB::DeleteRange;
   virtual Status DeleteRange(const WriteOptions&, ColumnFamilyHandle*,
                              const Slice&, const Slice&) override {
     return Status::NotSupported();

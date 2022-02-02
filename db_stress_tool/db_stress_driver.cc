@@ -79,7 +79,7 @@ bool RunStressTest(StressTest* stress) {
     shared.IncBgThreads();
   }
 
-  if (FLAGS_compaction_thread_pool_adjust_interval > 0) {
+  if (FLAGS_continuous_verification_interval > 0) {
     shared.IncBgThreads();
   }
 

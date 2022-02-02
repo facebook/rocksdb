@@ -1730,19 +1730,21 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
          get_impl_options.merge_operands != nullptr);
 
   assert(get_impl_options.column_family);
-  const Comparator* ucmp = get_impl_options.column_family->GetComparator();
-  assert(ucmp);
-  size_t ts_sz = ucmp->timestamp_size();
-  GetWithTimestampReadCallback read_cb(0);  // Will call Refresh
 
-#ifndef NDEBUG
-  if (ts_sz > 0) {
-    assert(read_options.timestamp);
-    assert(read_options.timestamp->size() == ts_sz);
+  if (read_options.timestamp) {
+    const Status s = FailIfTsSizesMismatch(get_impl_options.column_family,
+                                           *(read_options.timestamp));
+    if (!s.ok()) {
+      return s;
+    }
   } else {
-    assert(!read_options.timestamp);
+    const Status s = FailIfCfHasTs(get_impl_options.column_family);
+    if (!s.ok()) {
+      return s;
+    }
   }
-#endif  // NDEBUG
+
+  GetWithTimestampReadCallback read_cb(0);  // Will call Refresh
 
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
   StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
@@ -1811,7 +1813,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   // only if t <= read_opts.timestamp and s <= snapshot.
   // HACK: temporarily overwrite input struct field but restore
   SaveAndRestore<ReadCallback*> restore_callback(&get_impl_options.callback);
-  if (ts_sz > 0) {
+  const Comparator* ucmp = get_impl_options.column_family->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() > 0) {
     assert(!get_impl_options
                 .callback);  // timestamp with callback is not supported
     read_cb.Refresh(snapshot);
@@ -1834,7 +1838,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   bool skip_memtable = (read_options.read_tier == kPersistedTier &&
                         has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
-  std::string* timestamp = ts_sz > 0 ? get_impl_options.timestamp : nullptr;
+  std::string* timestamp =
+      ucmp->timestamp_size() > 0 ? get_impl_options.timestamp : nullptr;
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
@@ -1941,19 +1946,36 @@ std::vector<Status> DBImpl::MultiGet(
   StopWatch sw(immutable_db_options_.clock, stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
-#ifndef NDEBUG
-  for (const auto* cfh : column_family) {
-    assert(cfh);
-    const Comparator* const ucmp = cfh->GetComparator();
-    assert(ucmp);
-    if (ucmp->timestamp_size() > 0) {
-      assert(read_options.timestamp);
-      assert(ucmp->timestamp_size() == read_options.timestamp->size());
+  size_t num_keys = keys.size();
+  assert(column_family.size() == num_keys);
+  std::vector<Status> stat_list(num_keys);
+
+  bool should_fail = false;
+  for (size_t i = 0; i < num_keys; ++i) {
+    assert(column_family[i]);
+    if (read_options.timestamp) {
+      stat_list[i] =
+          FailIfTsSizesMismatch(column_family[i], *(read_options.timestamp));
+      if (!stat_list[i].ok()) {
+        should_fail = true;
+      }
     } else {
-      assert(!read_options.timestamp);
+      stat_list[i] = FailIfCfHasTs(column_family[i]);
+      if (!stat_list[i].ok()) {
+        should_fail = true;
+      }
     }
   }
-#endif  // NDEBUG
+
+  if (should_fail) {
+    for (auto& s : stat_list) {
+      if (s.ok()) {
+        s = Status::Incomplete(
+            "DB not queried due to invalid argument(s) in the same MultiGet");
+      }
+    }
+    return stat_list;
+  }
 
   if (tracer_) {
     // TODO: This mutex should be removed later, to improve performance when
@@ -1996,8 +2018,6 @@ std::vector<Status> DBImpl::MultiGet(
   MergeContext merge_context;
 
   // Note: this always resizes the values array
-  size_t num_keys = keys.size();
-  std::vector<Status> stat_list(num_keys);
   values->resize(num_keys);
   if (timestamps) {
     timestamps->resize(num_keys);
@@ -2262,20 +2282,31 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
     return;
   }
 
-#ifndef NDEBUG
+  bool should_fail = false;
   for (size_t i = 0; i < num_keys; ++i) {
     ColumnFamilyHandle* cfh = column_families[i];
     assert(cfh);
-    const Comparator* const ucmp = cfh->GetComparator();
-    assert(ucmp);
-    if (ucmp->timestamp_size() > 0) {
-      assert(read_options.timestamp);
-      assert(read_options.timestamp->size() == ucmp->timestamp_size());
+    if (read_options.timestamp) {
+      statuses[i] = FailIfTsSizesMismatch(cfh, *(read_options.timestamp));
+      if (!statuses[i].ok()) {
+        should_fail = true;
+      }
     } else {
-      assert(!read_options.timestamp);
+      statuses[i] = FailIfCfHasTs(cfh);
+      if (!statuses[i].ok()) {
+        should_fail = true;
+      }
     }
   }
-#endif  // NDEBUG
+  if (should_fail) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = Status::Incomplete(
+            "DB not queried due to invalid argument(s) in the same MultiGet");
+      }
+    }
+    return;
+  }
 
   if (tracer_) {
     // TODO: This mutex should be removed later, to improve performance when
@@ -2903,6 +2934,21 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         "ReadTier::kPersistedData is not yet supported in iterators."));
   }
 
+  assert(column_family);
+
+  if (read_options.timestamp) {
+    const Status s =
+        FailIfTsSizesMismatch(column_family, *(read_options.timestamp));
+    if (!s.ok()) {
+      return NewErrorIterator(s);
+    }
+  } else {
+    const Status s = FailIfCfHasTs(column_family);
+    if (!s.ok()) {
+      return NewErrorIterator(s);
+    }
+  }
+
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
   assert(cfd != nullptr);
@@ -3029,6 +3075,25 @@ Status DBImpl::NewIterators(
     return Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators.");
   }
+
+  if (read_options.timestamp) {
+    for (auto* cf : column_families) {
+      assert(cf);
+      const Status s = FailIfTsSizesMismatch(cf, *(read_options.timestamp));
+      if (!s.ok()) {
+        return s;
+      }
+    }
+  } else {
+    for (auto* cf : column_families) {
+      assert(cf);
+      const Status s = FailIfCfHasTs(cf);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+  }
+
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   iterators->clear();
   iterators->reserve(column_families.size());

@@ -2862,6 +2862,11 @@ class ModelDB : public DB {
     }
     return Write(o, &batch);
   }
+  Status Put(const WriteOptions& /*o*/, ColumnFamilyHandle* /*cf*/,
+             const Slice& /*k*/, const Slice& /*ts*/,
+             const Slice& /*v*/) override {
+    return Status::NotSupported();
+  }
   using DB::Close;
   Status Close() override { return Status::OK(); }
   using DB::Delete;
@@ -2874,6 +2879,10 @@ class ModelDB : public DB {
     }
     return Write(o, &batch);
   }
+  Status Delete(const WriteOptions& /*o*/, ColumnFamilyHandle* /*cf*/,
+                const Slice& /*key*/, const Slice& /*ts*/) override {
+    return Status::NotSupported();
+  }
   using DB::SingleDelete;
   Status SingleDelete(const WriteOptions& o, ColumnFamilyHandle* cf,
                       const Slice& key) override {
@@ -2883,6 +2892,10 @@ class ModelDB : public DB {
       return s;
     }
     return Write(o, &batch);
+  }
+  Status SingleDelete(const WriteOptions& /*o*/, ColumnFamilyHandle* /*cf*/,
+                      const Slice& /*key*/, const Slice& /*ts*/) override {
+    return Status::NotSupported();
   }
   using DB::Merge;
   Status Merge(const WriteOptions& o, ColumnFamilyHandle* cf, const Slice& k,

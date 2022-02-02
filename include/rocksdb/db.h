@@ -356,9 +356,16 @@ class DB {
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value) = 0;
+  virtual Status Put(const WriteOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     const Slice& ts, const Slice& value) = 0;
   virtual Status Put(const WriteOptions& options, const Slice& key,
                      const Slice& value) {
     return Put(options, DefaultColumnFamily(), key, value);
+  }
+  virtual Status Put(const WriteOptions& options, const Slice& key,
+                     const Slice& ts, const Slice& value) {
+    return Put(options, DefaultColumnFamily(), key, ts, value);
   }
 
   // Remove the database entry (if any) for "key".  Returns OK on
@@ -368,8 +375,15 @@ class DB {
   virtual Status Delete(const WriteOptions& options,
                         ColumnFamilyHandle* column_family,
                         const Slice& key) = 0;
+  virtual Status Delete(const WriteOptions& options,
+                        ColumnFamilyHandle* column_family, const Slice& key,
+                        const Slice& ts) = 0;
   virtual Status Delete(const WriteOptions& options, const Slice& key) {
     return Delete(options, DefaultColumnFamily(), key);
+  }
+  virtual Status Delete(const WriteOptions& options, const Slice& key,
+                        const Slice& ts) {
+    return Delete(options, DefaultColumnFamily(), key, ts);
   }
 
   // Remove the database entry for "key". Requires that the key exists
@@ -391,8 +405,15 @@ class DB {
   virtual Status SingleDelete(const WriteOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice& key) = 0;
+  virtual Status SingleDelete(const WriteOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice& key, const Slice& ts) = 0;
   virtual Status SingleDelete(const WriteOptions& options, const Slice& key) {
     return SingleDelete(options, DefaultColumnFamily(), key);
+  }
+  virtual Status SingleDelete(const WriteOptions& options, const Slice& key,
+                              const Slice& ts) {
+    return SingleDelete(options, DefaultColumnFamily(), key, ts);
   }
 
   // Removes the database entries in the range ["begin_key", "end_key"), i.e.,
@@ -416,6 +437,13 @@ class DB {
   virtual Status DeleteRange(const WriteOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key);
+  virtual Status DeleteRange(const WriteOptions& /*options*/,
+                             ColumnFamilyHandle* /*column_family*/,
+                             const Slice& /*begin_key*/,
+                             const Slice& /*end_key*/, const Slice& /*ts*/) {
+    return Status::NotSupported(
+        "DeleteRange does not support user-defined timestamp yet");
+  }
 
   // Merge the database entry for "key" with "value".  Returns OK on success,
   // and a non-OK status on error. The semantics of this operation is
@@ -427,6 +455,13 @@ class DB {
   virtual Status Merge(const WriteOptions& options, const Slice& key,
                        const Slice& value) {
     return Merge(options, DefaultColumnFamily(), key, value);
+  }
+  virtual Status Merge(const WriteOptions& /*options*/,
+                       ColumnFamilyHandle* /*column_family*/,
+                       const Slice& /*key*/, const Slice& /*ts*/,
+                       const Slice& /*value*/) {
+    return Status::NotSupported(
+        "Merge does not support user-defined timestamp yet");
   }
 
   // Apply the specified updates to the database.
