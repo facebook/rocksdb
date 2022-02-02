@@ -1560,7 +1560,7 @@ struct ReadOptions {
   // Default: false
   bool adaptive_readahead;
 
-  // For file reads associated with this operation, charge the internal rate
+  // For file reads associated with this option, charge the internal rate
   // limiter (see `DBOptions::rate_limiter`) at the specified priority. The
   // special value `Env::IO_TOTAL` disables charging the rate limiter.
   //
