@@ -103,7 +103,7 @@ commands:
 
   install-benchmark:
     steps:
-      - run: # currently doesn't support ubuntu-1604 which doesn't have libbenchmark package, user can still install by building it youself
+      - run:
           name: Install benchmark
           command: |
             sudo apt-get update -y && sudo apt-get install -y libbenchmark-dev
@@ -334,7 +334,7 @@ jobs:
 
   build-linux-cmake-ubuntu-20:
     machine:
-      image: ubuntu-2004:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -356,7 +356,7 @@ jobs:
 
   build-linux-gcc-7:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -366,7 +366,7 @@ jobs:
 
   build-linux-gcc-8-no_test_run:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: large
     steps:
       - pre-steps
@@ -741,7 +741,7 @@ jobs:
 
   build-fuzzers:
     machine:
-      image: ubuntu-2004:202010-01
+      image: ubuntu-2004:202111-02
     resource_class: large
     steps:
       - pre-steps
