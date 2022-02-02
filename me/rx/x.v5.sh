@@ -73,7 +73,8 @@ old_versions=( v4.1 v5.1.4 )
 #use_versions="${all_versions[@]}"
 use_versions="${five_versions[@]}"
 
-shift 8
+shift 13
+
 if [ "$#" -eq 0 ] ; then
   versions="${use_versions[@]}"
   echo "No version args"

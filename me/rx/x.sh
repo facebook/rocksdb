@@ -70,6 +70,7 @@ use_versions="${latest_versions[@]}"
 #use_versions="${all_versions[@]}"
 
 shift 13
+
 if [ "$#" -eq 0 ] ; then
   versions="${use_versions[@]}"
   echo "No version args"
