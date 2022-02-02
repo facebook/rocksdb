@@ -266,6 +266,8 @@ const_params_base="
   \
   $bench_args"
 
+# Note that compaction_pri is not set, the choices are  kCompactionPriByCompensatedSize (0) and kCompactionPriByLargestSeq (1) and the default is 0
+# RocksDB v4 will have more write-amp than later releases because it doesn't have kMinOverlappingRatio (3)
 level_const_params="
   $const_params_base \
   --compaction_style=0 \
@@ -474,7 +476,7 @@ function summarize_result {
   #c_csecs=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.0f", $16 }' )z
   c_csecs="NA"
 
-  lsm_size=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.0f%s", $3, $4 }' )
+  lsm_size=$( grep "^ Sum" $test_out | tail -1 | awk '{ gb=($3 / 1024); if (gb >= 1) { printf "%.1fGB", gb } else { printf "%.0fMB", $3 }' )
   blob_size=$( grep "^Blob file count:" $test_out | tail -1 | awk '{ printf "%s%s", $7, $8 }' )
 
   b_rgb=$( grep "^ Sum" $test_out | tail -1 | awk '{ print $21 }' )

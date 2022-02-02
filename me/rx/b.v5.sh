@@ -268,12 +268,14 @@ const_params_base="
   \
   $bench_args"
 
+# compaction_pri=3 means kMinOverlappingRatio, the default is 0
 level_const_params="
   $const_params_base \
   --compaction_style=0 \
   --min_level_to_compress=$min_level_to_compress \
   --level_compaction_dynamic_level_bytes=true \
   --pin_l0_filter_and_index_blocks_in_cache=1 \
+  --compaction_pri=3 \
   $soft_pending_arg \
   $hard_pending_arg \
 "
@@ -481,7 +483,7 @@ function summarize_result {
   #c_csecs=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.0f", $16 }' )
   c_csecs="NA"
 
-  lsm_size=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.0f%s", $3, $4 }' )
+  lsm_size=$( grep "^ Sum" $test_out | tail -1 | awk '{ gb=($3 / 1024); if (gb >= 1) { printf "%.1fGB", gb } else { printf "%.0fMB", $3 }' )
   blob_size=$( grep "^Blob file count:" $test_out | tail -1 | awk '{ printf "%s%s", $7, $8 }' )
 
   b_rgb=$( grep "^ Sum" $test_out | tail -1 | awk '{ print $21 }' )
