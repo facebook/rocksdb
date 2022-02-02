@@ -478,8 +478,8 @@ function summarize_result {
   lsm_size=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.0f%s", $3, $4 }' )
   blob_size=$( grep "^Blob file count:" $test_out | tail -1 | awk '{ printf "%s%s", $7, $8 }' )
 
-  b_rgb=$( grep "^ Sum" $test_out | tail -1 | awk '{ print $21 }' )
-  b_wgb=$( grep "^ Sum" $test_out | tail -1 | awk '{ print $22 }' )
+  b_rgb=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.0f", $21 }' )
+  b_wgb=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.0f", $22 }' )
 
   usecs_op=$( grep ^${bench_name} $test_out | awk '{ printf "%.1f", $3 }' )
   p50=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.1f", $3 }' )
