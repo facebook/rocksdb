@@ -340,7 +340,7 @@ extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_as_secondary_column_families(
     const char* secondary_path, int num_column_families,
     const char* const* column_family_names,
     const rocksdb_options_t* const* column_family_options,
-    rocksdb_column_family_handle_t** colummn_family_handles, char** errptr);
+    rocksdb_column_family_handle_t** column_family_handles, char** errptr);
 
 extern ROCKSDB_LIBRARY_API char** rocksdb_list_column_families(
     const rocksdb_options_t* options, const char* name, size_t* lencf,
