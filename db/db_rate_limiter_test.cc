@@ -181,7 +181,8 @@ TEST_P(DBRateLimiterTest, OldMultiGet) {
       keys.emplace_back(key_bufs[i]);
     }
     std::vector<std::string> values;
-    std::vector<Status> statuses = db_->MultiGet(GetReadOptions(), keys, &values);
+    std::vector<Status> statuses =
+        db_->MultiGet(GetReadOptions(), keys, &values);
     for (int i = 0; i < kNumKeys; ++i) {
       ASSERT_OK(statuses[i]);
     }
