@@ -5184,19 +5184,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   }
 
   if (first_nonempty_level > 0) {
-    auto& new_last_level = new_files_list[new_levels - 1];
-
-    new_last_level = vstorage->LevelFiles(first_nonempty_level);
-
-    for (size_t i = 0; i < new_last_level.size(); ++i) {
-      const FileMetaData* const meta = new_last_level[i];
-      assert(meta);
-
-      const uint64_t file_number = meta->fd.GetNumber();
-
-      vstorage->file_locations_[file_number] =
-          VersionStorageInfo::FileLocation(new_levels - 1, i);
-    }
+    new_files_list[new_levels - 1] = vstorage->LevelFiles(first_nonempty_level);
   }
 
   delete[] vstorage -> files_;
