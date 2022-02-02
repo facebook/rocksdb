@@ -5,6 +5,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "util/file_checksum_helper.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -46,6 +47,7 @@ class DBRateLimiterTest
   Options GetOptions() {
     Options options = CurrentOptions();
     options.disable_auto_compactions = true;
+    options.file_checksum_gen_factory.reset(new FileChecksumGenCrc32cFactory());
     options.rate_limiter.reset(NewGenericRateLimiter(
         1 << 20 /* rate_bytes_per_sec */, 100 * 1000 /* refill_period_us */,
         10 /* fairness */, RateLimiter::Mode::kAllIo));
@@ -213,6 +215,34 @@ TEST_P(DBRateLimiterTest, Iterator) {
   }
   // Reverse scan does not read evenly (one block per iteration) due to
   // descending seqno ordering, so wait until after the loop to check total.
+  ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
+}
+
+TEST_P(DBRateLimiterTest, VerifyChecksum) {
+  if (use_direct_io_ && !IsDirectIOSupported()) {
+    return;
+  }
+  Init();
+
+  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
+
+  ASSERT_OK(db_->VerifyChecksum(GetReadOptions()));
+  // The files are tiny so there should have just been one read per file.
+  int expected = kNumFiles;
+  ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
+}
+
+TEST_P(DBRateLimiterTest, VerifyFileChecksums) {
+  if (use_direct_io_ && !IsDirectIOSupported()) {
+    return;
+  }
+  Init();
+
+  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
+
+  ASSERT_OK(db_->VerifyFileChecksums(GetReadOptions()));
+  // The files are tiny so there should have just been one read per file.
+  int expected = kNumFiles;
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 
