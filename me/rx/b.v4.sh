@@ -153,7 +153,6 @@ else
 fi
 
 num_threads=${NUM_THREADS:-64}
-mb_written_per_sec=${MB_WRITE_PER_SEC:-0}
 # Only for tests that do range scans
 num_nexts_per_seek=${NUM_NEXTS_PER_SEEK:-10}
 cache_size=${CACHE_SIZE:-$((17179869184))}
@@ -168,6 +167,9 @@ writes=${WRITES:-0}
 num_keys=${NUM_KEYS:-8000000000}
 key_size=${KEY_SIZE:-20}
 value_size=${VALUE_SIZE:-400}
+mb_written_per_sec=${MB_WRITE_PER_SEC:-0}
+writes_per_second=$( echo $mb_written_per_sec $value_size $key_size | awk '{ printf "%.0f", (( $1 * 1024 * 1024 ) / ( $2 + $3 )) }' )
+
 block_size=${BLOCK_SIZE:-8192}
 write_buffer_mb=${WRITE_BUFFER_SIZE_MB:-128}
 target_file_mb=${TARGET_FILE_SIZE_BASE_MB:-128}
@@ -244,6 +246,7 @@ const_params_base="
   $cache_meta_flags \
   $o_direct_flags \
   --benchmark_write_rate_limit=$(( 1024 * 1024 * $mb_written_per_sec )) \
+  --writes_per_second=$writes_per_second \
   \
   --write_buffer_size=$(( $write_buffer_mb * M)) \
   --target_file_size_base=$(( $target_file_mb * M)) \
@@ -464,7 +467,7 @@ function summarize_result {
   ops_sec=$( grep ^${bench_name} $test_out | awk '{ print $5 }' )
   mb_sec=$( grep ^${bench_name} $test_out | awk '{ print $7 }' )
 
-  flush_wgb=$( grep "^Flush(GB)" $test_out | tail -1 | awk '{ print $3 }' | tr ',' ' ' | awk '{ print $1 }' )
+  flush_wgb=$( grep "^Flush(GB)" $test_out | tail -1 | awk '{ print $3 }' | tr ',' ' ' | awk '{ printf "%.0f", $1 }' )
   sum_wgb=$( grep "^Cumulative compaction" $test_out | tail -1 | awk '{ printf "%.1f", $3 }' )
   cmb_ps=$( grep "^Cumulative compaction" $test_out | tail -1 | awk '{ printf "%.1f", $6 }' )
   if [[ "$sum_wgb" == "" || "$flush_wgb" == "" || "$flush_wgb" == "0.000" ]]; then
