@@ -299,7 +299,7 @@ Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_String_
 
 /*
  * Class:     org_rocksdb_RocksDB
- * Method:    disposeInternal
+ * Method:    nativeClose
  * Signature: (J)V
  */
 void Java_org_rocksdb_RocksDB_nativeClose(JNIEnv*, jobject, jlong jhandle) {

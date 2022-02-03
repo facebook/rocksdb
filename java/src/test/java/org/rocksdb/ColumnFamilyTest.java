@@ -240,6 +240,21 @@ public class ColumnFamilyTest {
   }
 
   @Test
+  public void writeBatchSimple() throws RocksDBException {
+    try (final WriteOptions writeOpt = new WriteOptions(); final WriteBatch writeBatch = new WriteBatch();
+         final RocksDB db = RocksDB.open(
+             dbFolder.getRoot().getAbsolutePath())) {
+      writeBatch.put("key".getBytes(), "value".getBytes());
+      db.write(writeOpt, writeBatch);
+      db.put("key2".getBytes(), "value2".getBytes());
+      assertThat(db.get("key2".getBytes())).isNotNull();
+      assertThat(new String(db.get("key2".getBytes()))).isEqualTo("value2");
+      assertThat(db.get("key".getBytes())).isNotNull();
+      assertThat(new String(db.get("key".getBytes()))).isEqualTo("value");
+    }
+  }
+
+  @Test
   public void writeBatch() throws RocksDBException {
     try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
          final ColumnFamilyOptions defaultCfOptions = new ColumnFamilyOptions()
