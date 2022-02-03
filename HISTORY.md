@@ -33,6 +33,8 @@
 
 ## New Features
 * Introduced an option `BlockBasedTableBuilder::detect_filter_construct_corruption` for detecting corruption during Bloom Filter (format_version >= 5) and Ribbon Filter construction.
+* Introduced a new experimental comparator for user defined timestamp feature.
+* Improved the SstDumpTool to read the comparator from table properties and use it to read the SST File.
 
 ## 6.29.0 (01/21/2022)
 Note: The next release will be major release 7.0. See https://github.com/facebook/rocksdb/issues/9390 for more info.
