@@ -47,10 +47,16 @@ void FillWithSpecialChar(char* start_ptr, size_t total_size,
                          const OffsetGap& excluded,
                          char special_char = kSpecialChar) {
   size_t offset = 0;
+  // The excluded vector contains pairs of bytes, (first, second).
+  // The first bytes are all set to the special char (represented as 'c' below).
+  // The second bytes are simply skipped (padding bytes).
+  // ccccc[skipped]cccccccc[skiped]cccccccc[skipped]
   for (auto& pair : excluded) {
     std::memset(start_ptr + offset, special_char, pair.first - offset);
     offset = pair.first + pair.second;
   }
+  // The rest of the structure is filled with the special characters.
+  // ccccc[skipped]cccccccc[skiped]cccccccc[skipped]cccccccccccccccc
   std::memset(start_ptr + offset, special_char, total_size - offset);
 }
 
@@ -59,6 +65,10 @@ int NumUnsetBytes(char* start_ptr, size_t total_size,
   int total_unset_bytes_base = 0;
   size_t offset = 0;
   for (auto& pair : excluded) {
+    // The first part of the structure contains memory spaces that can be
+    // set (pair.first), and memory spaces that cannot be set (pair.second).
+    // Therefore total_unset_bytes_base only agregates bytes set to kSpecialChar
+    // in the pair.first bytes, but skips the pair.second bytes (padding bytes).
     for (char* ptr = start_ptr + offset; ptr < start_ptr + pair.first; ptr++) {
       if (*ptr == kSpecialChar) {
         total_unset_bytes_base++;
@@ -66,6 +76,8 @@ int NumUnsetBytes(char* start_ptr, size_t total_size,
     }
     offset = pair.first + pair.second;
   }
+  // Then total_unset_bytes_base aggregates the bytes
+  // set to kSpecialChar in the rest of the structure
   for (char* ptr = start_ptr + offset; ptr < start_ptr + total_size; ptr++) {
     if (*ptr == kSpecialChar) {
       total_unset_bytes_base++;
