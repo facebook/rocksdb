@@ -141,4 +141,8 @@ bool SerializeIntVector(const std::vector<int>& vec, std::string* value);
 
 extern const std::string kNullptrString;
 
+// errnoStr() function returns a string that describes the error code passed in
+// the argument err
+extern std::string errnoStr(int err);
+
 }  // namespace ROCKSDB_NAMESPACE

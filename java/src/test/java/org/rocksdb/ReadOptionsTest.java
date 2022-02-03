@@ -159,6 +159,8 @@ public class ReadOptionsTest {
       Slice upperBound = buildRandomSlice();
       opt.setIterateUpperBound(upperBound);
       assertThat(Arrays.equals(upperBound.data(), opt.iterateUpperBound().data())).isTrue();
+      opt.setIterateUpperBound(null);
+      assertThat(opt.iterateUpperBound()).isNull();
     }
   }
 
@@ -175,6 +177,8 @@ public class ReadOptionsTest {
       Slice lowerBound = buildRandomSlice();
       opt.setIterateLowerBound(lowerBound);
       assertThat(Arrays.equals(lowerBound.data(), opt.iterateLowerBound().data())).isTrue();
+      opt.setIterateLowerBound(null);
+      assertThat(opt.iterateLowerBound()).isNull();
     }
   }
 

@@ -13,8 +13,8 @@
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
-#include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/utility_db.h"
 #include "utilities/compaction_filters/layered_compaction_filter_base.h"
@@ -29,7 +29,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBWithTTLImpl : public DBWithTTL {
  public:
   static void SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
-                              Env* env);
+                              SystemClock* clock);
 
   explicit DBWithTTLImpl(DB* db);
 
@@ -82,9 +82,10 @@ class DBWithTTLImpl : public DBWithTTL {
 
   virtual DB* GetBaseDB() override { return db_; }
 
-  static bool IsStale(const Slice& value, int32_t ttl, Env* env);
+  static bool IsStale(const Slice& value, int32_t ttl, SystemClock* clock);
 
-  static Status AppendTS(const Slice& val, std::string* val_with_ts, Env* env);
+  static Status AppendTS(const Slice& val, std::string* val_with_ts,
+                         SystemClock* clock);
 
   static Status SanityCheckTimestamp(const Slice& str);
 
@@ -151,19 +152,19 @@ class TtlIterator : public Iterator {
 
 class TtlCompactionFilter : public LayeredCompactionFilterBase {
  public:
-  TtlCompactionFilter(int32_t ttl, Env* env,
+  TtlCompactionFilter(int32_t ttl, SystemClock* clock,
                       const CompactionFilter* _user_comp_filter,
                       std::unique_ptr<const CompactionFilter>
                           _user_comp_filter_from_factory = nullptr)
       : LayeredCompactionFilterBase(_user_comp_filter,
                                     std::move(_user_comp_filter_from_factory)),
         ttl_(ttl),
-        env_(env) {}
+        clock_(clock) {}
 
   virtual bool Filter(int level, const Slice& key, const Slice& old_val,
                       std::string* new_val, bool* value_changed) const
       override {
-    if (DBWithTTLImpl::IsStale(old_val, ttl_, env_)) {
+    if (DBWithTTLImpl::IsStale(old_val, ttl_, clock_)) {
       return true;
     }
     if (user_comp_filter() == nullptr) {
@@ -188,15 +189,17 @@ class TtlCompactionFilter : public LayeredCompactionFilterBase {
 
  private:
   int32_t ttl_;
-  Env* env_;
+  SystemClock* clock_;
 };
 
 class TtlCompactionFilterFactory : public CompactionFilterFactory {
  public:
   TtlCompactionFilterFactory(
-      int32_t ttl, Env* env,
+      int32_t ttl, SystemClock* clock,
       std::shared_ptr<CompactionFilterFactory> comp_filter_factory)
-      : ttl_(ttl), env_(env), user_comp_filter_factory_(comp_filter_factory) {}
+      : ttl_(ttl),
+        clock_(clock),
+        user_comp_filter_factory_(comp_filter_factory) {}
 
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override {
@@ -208,7 +211,7 @@ class TtlCompactionFilterFactory : public CompactionFilterFactory {
     }
 
     return std::unique_ptr<TtlCompactionFilter>(new TtlCompactionFilter(
-        ttl_, env_, nullptr, std::move(user_comp_filter_from_factory)));
+        ttl_, clock_, nullptr, std::move(user_comp_filter_from_factory)));
   }
 
   void SetTtl(int32_t ttl) {
@@ -221,7 +224,7 @@ class TtlCompactionFilterFactory : public CompactionFilterFactory {
 
  private:
   int32_t ttl_;
-  Env* env_;
+  SystemClock* clock_;
   std::shared_ptr<CompactionFilterFactory> user_comp_filter_factory_;
 };
 
@@ -229,10 +232,10 @@ class TtlMergeOperator : public MergeOperator {
 
  public:
   explicit TtlMergeOperator(const std::shared_ptr<MergeOperator>& merge_op,
-                            Env* env)
-      : user_merge_op_(merge_op), env_(env) {
+                            SystemClock* clock)
+      : user_merge_op_(merge_op), clock_(clock) {
     assert(merge_op);
-    assert(env);
+    assert(clock);
   }
 
   virtual bool FullMergeV2(const MergeOperationInput& merge_in,
@@ -288,7 +291,7 @@ class TtlMergeOperator : public MergeOperator {
 
     // Augment the *new_value with the ttl time-stamp
     int64_t curtime;
-    if (!env_->GetCurrentTime(&curtime).ok()) {
+    if (!clock_->GetCurrentTime(&curtime).ok()) {
       ROCKS_LOG_ERROR(
           merge_in.logger,
           "Error: Could not get current time to be attached internally "
@@ -329,7 +332,7 @@ class TtlMergeOperator : public MergeOperator {
 
     // Augment the *new_value with the ttl time-stamp
     int64_t curtime;
-    if (!env_->GetCurrentTime(&curtime).ok()) {
+    if (!clock_->GetCurrentTime(&curtime).ok()) {
       ROCKS_LOG_ERROR(
           logger,
           "Error: Could not get current time to be attached internally "
@@ -347,7 +350,7 @@ class TtlMergeOperator : public MergeOperator {
 
  private:
   std::shared_ptr<MergeOperator> user_merge_op_;
-  Env* env_;
+  SystemClock* clock_;
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

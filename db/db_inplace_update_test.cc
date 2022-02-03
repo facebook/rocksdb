@@ -13,7 +13,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBTestInPlaceUpdate : public DBTestBase {
  public:
-  DBTestInPlaceUpdate() : DBTestBase("/db_inplace_update_test") {}
+  DBTestInPlaceUpdate()
+      : DBTestBase("/db_inplace_update_test", /*env_do_fsync=*/true) {}
 };
 
 TEST_F(DBTestInPlaceUpdate, InPlaceUpdate) {

@@ -9,11 +9,11 @@
 #include "table/block_based/partitioned_index_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
-void ParititionedIndexIterator::Seek(const Slice& target) { SeekImpl(&target); }
+void PartitionedIndexIterator::Seek(const Slice& target) { SeekImpl(&target); }
 
-void ParititionedIndexIterator::SeekToFirst() { SeekImpl(nullptr); }
+void PartitionedIndexIterator::SeekToFirst() { SeekImpl(nullptr); }
 
-void ParititionedIndexIterator::SeekImpl(const Slice* target) {
+void PartitionedIndexIterator::SeekImpl(const Slice* target) {
   SavePrevIndexValue();
 
   if (target) {
@@ -47,7 +47,7 @@ void ParititionedIndexIterator::SeekImpl(const Slice* target) {
   }
 }
 
-void ParititionedIndexIterator::SeekToLast() {
+void PartitionedIndexIterator::SeekToLast() {
   SavePrevIndexValue();
   index_iter_->SeekToLast();
   if (!index_iter_->Valid()) {
@@ -59,20 +59,20 @@ void ParititionedIndexIterator::SeekToLast() {
   FindKeyBackward();
 }
 
-void ParititionedIndexIterator::Next() {
+void PartitionedIndexIterator::Next() {
   assert(block_iter_points_to_real_block_);
   block_iter_.Next();
   FindKeyForward();
 }
 
-void ParititionedIndexIterator::Prev() {
+void PartitionedIndexIterator::Prev() {
   assert(block_iter_points_to_real_block_);
   block_iter_.Prev();
 
   FindKeyBackward();
 }
 
-void ParititionedIndexIterator::InitPartitionedIndexBlock() {
+void PartitionedIndexIterator::InitPartitionedIndexBlock() {
   BlockHandle partitioned_index_handle = index_iter_->value().handle;
   if (!block_iter_points_to_real_block_ ||
       partitioned_index_handle.offset() != prev_block_offset_ ||
@@ -108,7 +108,7 @@ void ParititionedIndexIterator::InitPartitionedIndexBlock() {
   }
 }
 
-void ParititionedIndexIterator::FindKeyForward() {
+void PartitionedIndexIterator::FindKeyForward() {
   // This method's code is kept short to make it likely to be inlined.
 
   assert(block_iter_points_to_real_block_);
@@ -124,7 +124,7 @@ void ParititionedIndexIterator::FindKeyForward() {
   }
 }
 
-void ParititionedIndexIterator::FindBlockForward() {
+void PartitionedIndexIterator::FindBlockForward() {
   // TODO the while loop inherits from two-level-iterator. We don't know
   // whether a block can be empty so it can be replaced by an "if".
   do {
@@ -143,7 +143,7 @@ void ParititionedIndexIterator::FindBlockForward() {
   } while (!block_iter_.Valid());
 }
 
-void ParititionedIndexIterator::FindKeyBackward() {
+void PartitionedIndexIterator::FindKeyBackward() {
   while (!block_iter_.Valid()) {
     if (!block_iter_.status().ok()) {
       return;

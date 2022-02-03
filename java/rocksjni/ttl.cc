@@ -197,7 +197,7 @@ jlong Java_org_rocksdb_TtlDB_createColumnFamilyWithTtl(
       *cfOptions, std::string(reinterpret_cast<char*>(cfname), len), &handle,
       jttl);
 
-  env->ReleaseByteArrayElements(jcolumn_name, cfname, 0);
+  env->ReleaseByteArrayElements(jcolumn_name, cfname, JNI_ABORT);
 
   if (s.ok()) {
     return reinterpret_cast<jlong>(handle);

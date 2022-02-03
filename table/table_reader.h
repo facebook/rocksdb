@@ -39,6 +39,8 @@ class TableReader {
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
+  //
+  // read_options: Must outlive the returned iterator.
   // arena: If not null, the arena needs to be used to allocate the Iterator.
   //        When destroying the iterator, the caller will not call "delete"
   //        but Iterator::~Iterator() directly. The destructor needs to destroy
@@ -48,8 +50,8 @@ class TableReader {
   // compaction_readahead_size: its value will only be used if caller =
   // kCompaction
   virtual InternalIterator* NewIterator(
-      const ReadOptions&, const SliceTransform* prefix_extractor, Arena* arena,
-      bool skip_filters, TableReaderCaller caller,
+      const ReadOptions& read_options, const SliceTransform* prefix_extractor,
+      Arena* arena, bool skip_filters, TableReaderCaller caller,
       size_t compaction_readahead_size = 0,
       bool allow_unprepared_value = false) = 0;
 

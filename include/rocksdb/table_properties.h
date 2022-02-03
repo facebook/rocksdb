@@ -32,6 +32,7 @@ typedef std::map<std::string, std::string> UserCollectedProperties;
 struct TablePropertiesNames {
   static const std::string kDbId;
   static const std::string kDbSessionId;
+  static const std::string kDbHostId;
   static const std::string kDataSize;
   static const std::string kIndexSize;
   static const std::string kIndexPartitions;
@@ -60,6 +61,8 @@ struct TablePropertiesNames {
   static const std::string kCreationTime;
   static const std::string kOldestKeyTime;
   static const std::string kFileCreationTime;
+  static const std::string kSlowCompressionEstimatedDataSize;
+  static const std::string kFastCompressionEstimatedDataSize;
 };
 
 extern const std::string kPropertiesBlock;
@@ -98,9 +101,9 @@ class TablePropertiesCollector {
   }
 
   // Called after each new block is cut
-  virtual void BlockAdd(uint64_t /* blockRawBytes */,
-                        uint64_t /* blockCompressedBytesFast */,
-                        uint64_t /* blockCompressedBytesSlow */) {
+  virtual void BlockAdd(uint64_t /* block_raw_bytes */,
+                        uint64_t /* block_compressed_bytes_fast */,
+                        uint64_t /* block_compressed_bytes_slow */) {
     // Nothing to do here. Callback registers can override.
     return;
   }
@@ -194,6 +197,14 @@ struct TableProperties {
   uint64_t oldest_key_time = 0;
   // Actual SST file creation time. 0 means unknown.
   uint64_t file_creation_time = 0;
+  // Estimated size of data blocks if compressed using a relatively slower
+  // compression algorithm (see `ColumnFamilyOptions::sample_for_compression`).
+  // 0 means unknown.
+  uint64_t slow_compression_estimated_data_size = 0;
+  // Estimated size of data blocks if compressed using a relatively faster
+  // compression algorithm (see `ColumnFamilyOptions::sample_for_compression`).
+  // 0 means unknown.
+  uint64_t fast_compression_estimated_data_size = 0;
 
   // DB identity
   // db_id is an identifier generated the first time the DB is created
@@ -205,6 +216,12 @@ struct TableProperties {
   // If DB session identity is unset or unassigned, `db_session_id` will be an
   // empty string.
   std::string db_session_id;
+
+  // Location of the machine hosting the DB instance
+  // db_host_id identifies the location of the host in some form
+  // (hostname by default, but can also be any string of the user's choosing).
+  // It can potentially change whenever the DB is opened
+  std::string db_host_id;
 
   // Name of the column family with which this SST file is associated.
   // If column family is unknown, `column_family_name` will be an empty string.
@@ -251,6 +268,11 @@ struct TableProperties {
   // Aggregate the numerical member variables of the specified
   // TableProperties.
   void Add(const TableProperties& tp);
+
+  // Subset of properties that make sense when added together
+  // between tables. Keys match field names in this class instead
+  // of using full property names.
+  std::map<std::string, uint64_t> GetAggregatablePropertiesAsMap() const;
 };
 
 // Extra properties

@@ -4,17 +4,19 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/block_fetcher.h"
+
 #include "db/table_properties_collector.h"
+#include "file/file_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/file_system.h"
 #include "table/block_based/binary_search_index_reader.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
 #include "test_util/testharness.h"
-#include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -71,14 +73,14 @@ class BlockFetcherTest : public testing::Test {
 
  protected:
   void SetUp() override {
-    test::SetupSyncPointsToMockDirectIO();
+    SetupSyncPointsToMockDirectIO();
     test_dir_ = test::PerThreadDBPath("block_fetcher_test");
     env_ = Env::Default();
     fs_ = FileSystem::Default();
     ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
   }
 
-  void TearDown() override { EXPECT_OK(test::DestroyDir(env_, test_dir_)); }
+  void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
 
   void AssertSameBlock(const std::string& block1, const std::string& block2) {
     ASSERT_EQ(block1, block2);
@@ -98,15 +100,16 @@ class BlockFetcherTest : public testing::Test {
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>> factories;
     std::unique_ptr<TableBuilder> table_builder(table_factory_.NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, comparator, &factories,
-                            compression_type, 0 /* sample_for_compression */,
-                            CompressionOptions(), false /* skip_filters */,
-                            kDefaultColumnFamilyName, -1 /* level */),
+                            compression_type, CompressionOptions(),
+                            false /* skip_filters */, kDefaultColumnFamilyName,
+                            -1 /* level */),
         0 /* column_family_id */, writer.get()));
 
     // Build table.
     for (int i = 0; i < 9; i++) {
       std::string key = ToInternalKey(std::to_string(i));
-      std::string value = std::to_string(i);
+      // Append "00000000" to string value to enhance compression ratio
+      std::string value = "00000000" + std::to_string(i);
       table_builder->Add(key, value);
     }
     ASSERT_OK(table_builder->Finish());
@@ -188,22 +191,30 @@ class BlockFetcherTest : public testing::Test {
         ASSERT_EQ(memcpy_stats[i].num_compressed_buf_memcpy,
                   expected_stats.memcpy_stats.num_compressed_buf_memcpy);
 
-        ASSERT_EQ(heap_buf_allocators[i].GetNumAllocations(),
-                  expected_stats.buf_allocation_stats.num_heap_buf_allocations);
-        ASSERT_EQ(
-            compressed_buf_allocators[i].GetNumAllocations(),
-            expected_stats.buf_allocation_stats.num_compressed_buf_allocations);
+        if (kXpressCompression == compression_type) {
+          // XPRESS allocates memory internally, thus does not support for
+          // custom allocator verification
+          continue;
+        } else {
+          ASSERT_EQ(
+              heap_buf_allocators[i].GetNumAllocations(),
+              expected_stats.buf_allocation_stats.num_heap_buf_allocations);
+          ASSERT_EQ(compressed_buf_allocators[i].GetNumAllocations(),
+                    expected_stats.buf_allocation_stats
+                        .num_compressed_buf_allocations);
 
-        // The allocated buffers are not deallocated until
-        // the block content is deleted.
-        ASSERT_EQ(heap_buf_allocators[i].GetNumDeallocations(), 0);
-        ASSERT_EQ(compressed_buf_allocators[i].GetNumDeallocations(), 0);
-        blocks[i].allocation.reset();
-        ASSERT_EQ(heap_buf_allocators[i].GetNumDeallocations(),
-                  expected_stats.buf_allocation_stats.num_heap_buf_allocations);
-        ASSERT_EQ(
-            compressed_buf_allocators[i].GetNumDeallocations(),
-            expected_stats.buf_allocation_stats.num_compressed_buf_allocations);
+          // The allocated buffers are not deallocated until
+          // the block content is deleted.
+          ASSERT_EQ(heap_buf_allocators[i].GetNumDeallocations(), 0);
+          ASSERT_EQ(compressed_buf_allocators[i].GetNumDeallocations(), 0);
+          blocks[i].allocation.reset();
+          ASSERT_EQ(
+              heap_buf_allocators[i].GetNumDeallocations(),
+              expected_stats.buf_allocation_stats.num_heap_buf_allocations);
+          ASSERT_EQ(compressed_buf_allocators[i].GetNumDeallocations(),
+                    expected_stats.buf_allocation_stats
+                        .num_compressed_buf_allocations);
+        }
       }
     }
   }
@@ -246,11 +257,9 @@ class BlockFetcherTest : public testing::Test {
   void NewFileWriter(const std::string& filename,
                      std::unique_ptr<WritableFileWriter>* writer) {
     std::string path = Path(filename);
-    EnvOptions env_options;
-    std::unique_ptr<WritableFile> file;
-    ASSERT_OK(env_->NewWritableFile(path, &file, env_options));
-    writer->reset(new WritableFileWriter(
-        NewLegacyWritableFileWrapper(std::move(file)), path, env_options));
+    FileOptions file_options;
+    ASSERT_OK(WritableFileWriter::Create(env_->GetFileSystem(), path,
+                                         file_options, writer, nullptr));
   }
 
   void NewFileReader(const std::string& filename, const FileOptions& opt,
@@ -258,7 +267,8 @@ class BlockFetcherTest : public testing::Test {
     std::string path = Path(filename);
     std::unique_ptr<FSRandomAccessFile> f;
     ASSERT_OK(fs_->NewRandomAccessFile(path, opt, &f, nullptr));
-    reader->reset(new RandomAccessFileReader(std::move(f), path, env_));
+    reader->reset(new RandomAccessFileReader(std::move(f), path,
+                                             env_->GetSystemClock().get()));
   }
 
   void NewTableReader(const ImmutableCFOptions& ioptions,
@@ -274,9 +284,12 @@ class BlockFetcherTest : public testing::Test {
 
     std::unique_ptr<TableReader> table_reader;
     ReadOptions ro;
-    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(),
-                                    table_factory_.table_options(), comparator,
-                                    std::move(file), file_size, &table_reader));
+    const auto* table_options =
+        table_factory_.GetOptions<BlockBasedTableOptions>();
+    ASSERT_NE(table_options, nullptr);
+    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(), *table_options,
+                                    comparator, std::move(file), file_size,
+                                    &table_reader));
 
     table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
   }
@@ -290,8 +303,9 @@ class BlockFetcherTest : public testing::Test {
     uint64_t file_size = 0;
     ASSERT_OK(env_->GetFileSize(file->file_name(), &file_size));
     IOOptions opts;
-    ReadFooterFromFile(opts, file, nullptr /* prefetch_buffer */, file_size,
-                       footer, kBlockBasedTableMagicNumber);
+    ASSERT_OK(ReadFooterFromFile(opts, file, nullptr /* prefetch_buffer */,
+                                 file_size, footer,
+                                 kBlockBasedTableMagicNumber));
   }
 
   // NOTE: compression_type returns the compression type of the fetched block

@@ -5,17 +5,19 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_dump_tool.h"
+
 #include <stdio.h>
+
 #include <cinttypes>
 #include <iostream>
 #include <memory>
 #include <string>
-#include "env/composite_env_wrapper.h"
+
 #include "file/random_access_file_reader.h"
 #include "file/readahead_raf.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
-#include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/string_util.h"
@@ -32,18 +34,19 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
                          bool show_summary) {
   constexpr size_t kReadaheadSize = 2 * 1024 * 1024;
   Status s;
-  Env* env = Env::Default();
-  s = env->FileExists(filename);
+  const auto fs = FileSystem::Default();
+  IOOptions io_opts;
+  s = fs->FileExists(filename, io_opts, nullptr);
   if (!s.ok()) {
     return s;
   }
   uint64_t file_size = 0;
-  s = env->GetFileSize(filename, &file_size);
+  s = fs->GetFileSize(filename, io_opts, &file_size, nullptr);
   if (!s.ok()) {
     return s;
   }
-  std::unique_ptr<RandomAccessFile> file;
-  s = env->NewRandomAccessFile(filename, &file, EnvOptions());
+  std::unique_ptr<FSRandomAccessFile> file;
+  s = fs->NewRandomAccessFile(filename, FileOptions(), &file, nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -51,8 +54,7 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
   if (file_size == 0) {
     return Status::Corruption("File is empty.");
   }
-  reader_.reset(new RandomAccessFileReader(
-      NewLegacyRandomAccessFileWrapper(file), filename));
+  reader_.reset(new RandomAccessFileReader(std::move(file), filename));
   uint64_t offset = 0;
   uint64_t footer_offset = 0;
   CompressionType compression = kNoCompression;

@@ -28,7 +28,7 @@ class TraceWriter {
 };
 
 // TraceReader allows reading RocksDB traces from any system, one operation at
-// a time. A RocksDB Replayer could depend on this to replay opertions.
+// a time. A RocksDB Replayer could depend on this to replay operations.
 class TraceReader {
  public:
   TraceReader() {}

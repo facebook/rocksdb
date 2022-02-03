@@ -218,7 +218,7 @@ class HashLinkListRep : public MemTableRep {
   }
 
   size_t GetHash(const Slice& slice) const {
-    return fastrange64(GetSliceNPHash64(slice), bucket_size_);
+    return GetSliceRangedNPHash(slice, bucket_size_);
   }
 
   Pointer* GetBucket(size_t i) const {

@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#pragma once
 #include <gflags/gflags.h>
 
 #ifndef GFLAGS_NAMESPACE

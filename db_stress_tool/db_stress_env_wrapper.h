@@ -20,10 +20,12 @@ class DbStressEnvWrapper : public EnvWrapper {
     // We determine whether it is a manifest file by searching a strong,
     // so that there will be false positive if the directory path contains the
     // keyword but it is unlikely.
-    // Checkpoint directory needs to be exempted.
+    // Checkpoint, backup, and restore directories needs to be exempted.
     if (!if_preserve_all_manifests ||
         f.find("MANIFEST-") == std::string::npos ||
-        f.find("checkpoint") != std::string::npos) {
+        f.find("checkpoint") != std::string::npos ||
+        f.find(".backup") != std::string::npos ||
+        f.find(".restore") != std::string::npos) {
       return target()->DeleteFile(f);
     }
     return Status::OK();

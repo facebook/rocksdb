@@ -6,16 +6,19 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/ldb_cmd.h"
+
 #include "db/version_edit.h"
 #include "db/version_set.h"
 #include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "port/stack_trace.h"
 #include "rocksdb/file_checksum.h"
+#include "rocksdb/utilities/options_util.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/file_checksum_helper.h"
+#include "util/random.h"
 
 using std::string;
 using std::vector;
@@ -203,7 +206,7 @@ class FileChecksumTestHelper {
     WriteBufferManager wb(options_.db_write_buffer_size);
     ImmutableDBOptions immutable_db_options(options_);
     VersionSet versions(dbname_, &immutable_db_options, sopt, tc.get(), &wb,
-                        &wc, nullptr);
+                        &wc, nullptr, nullptr);
     std::vector<std::string> cf_name_list;
     Status s;
     s = versions.ListColumnFamilies(&cf_name_list, dbname_,
@@ -284,32 +287,28 @@ TEST_F(LdbCmdTest, DumpFileChecksumNoChecksum) {
   for (int i = 0; i < 200; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 100; i < 300; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 200; i < 400; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 300; i < 400; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
   }
   ASSERT_OK(db->Flush(fopts));
@@ -369,32 +368,28 @@ TEST_F(LdbCmdTest, DumpFileChecksumCRC32) {
   for (int i = 0; i < 100; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 50; i < 150; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 100; i < 200; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 150; i < 250; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
   }
   ASSERT_OK(db->Flush(fopts));
@@ -677,6 +672,52 @@ TEST_F(LdbCmdTest, TestBadDbPath) {
   snprintf(arg3, sizeof(arg3), "drop_column_family");
   ASSERT_EQ(1,
             LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
+}
+
+TEST_F(LdbCmdTest, LoadCFOptionsAndOverride) {
+  // Env* base_env = TryLoadCustomOrDefaultEnv();
+  // std::unique_ptr<Env> env(NewMemEnv(base_env));
+  std::unique_ptr<Env> env(new EnvWrapper(Env::Default()));
+  Options opts;
+  opts.env = env.get();
+  opts.create_if_missing = true;
+
+  DB* db = nullptr;
+  std::string dbname = test::PerThreadDBPath(env.get(), "ldb_cmd_test");
+  DestroyDB(dbname, opts);
+  ASSERT_OK(DB::Open(opts, dbname, &db));
+
+  ColumnFamilyHandle* cf_handle;
+  ColumnFamilyOptions cf_opts;
+  cf_opts.num_levels = 20;
+  ASSERT_OK(db->CreateColumnFamily(cf_opts, "cf1", &cf_handle));
+
+  delete cf_handle;
+  delete db;
+
+  char arg1[] = "./ldb";
+  char arg2[1024];
+  snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
+  char arg3[] = "put";
+  char arg4[] = "key1";
+  char arg5[] = "value1";
+  char arg6[] = "--try_load_options";
+  char arg7[] = "--column_family=cf1";
+  char arg8[] = "--write_buffer_size=268435456";
+  char* argv[] = {arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8};
+
+  ASSERT_EQ(0,
+            LDBCommandRunner::RunCommand(8, argv, opts, LDBOptions(), nullptr));
+
+  ConfigOptions config_opts;
+  Options options;
+  std::vector<ColumnFamilyDescriptor> column_families;
+  config_opts.env = env.get();
+  ASSERT_OK(LoadLatestOptions(config_opts, dbname, &options, &column_families));
+  ASSERT_EQ(column_families.size(), 2);
+  ASSERT_EQ(options.num_levels, opts.num_levels);
+  ASSERT_EQ(column_families[1].options.num_levels, cf_opts.num_levels);
+  ASSERT_EQ(column_families[1].options.write_buffer_size, 268435456);
 }
 }  // namespace ROCKSDB_NAMESPACE
 

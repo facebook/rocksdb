@@ -25,10 +25,13 @@ import argparse
 #   for txn:
 #       default_params < {blackbox,whitebox}_default_params < txn_params < args
 
-expected_values_file = tempfile.NamedTemporaryFile()
 
 default_params = {
     "acquire_snapshot_one_in": 10000,
+    "backup_max_size": 100 * 1024 * 1024,
+    # Consider larger number when backups considered more stable
+    "backup_one_in": 100000,
+    "batch_protection_bytes_per_key": lambda: random.choice([0, 8]),
     "block_size": 16384,
     "bloom_bits": lambda: random.choice([random.randint(0,19),
                                          random.lognormvariate(2.3, 1.3)]),
@@ -48,6 +51,7 @@ default_params = {
     # Disabled compression_parallel_threads as the feature is not stable
     # lambda: random.choice([1] * 9 + [4])
     "compression_parallel_threads": 1,
+    "compression_max_dict_buffer_bytes": lambda: (1 << random.randint(0, 40)) - 1,
     "clear_column_family_one_in": 0,
     "compact_files_one_in": 1000000,
     "compact_range_one_in": 1000000,
@@ -56,8 +60,9 @@ default_params = {
     "destroy_db_initially": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
-    "expected_values_path": expected_values_file.name,
+    "expected_values_path": lambda: setup_expected_values_file(),
     "flush_one_in": 1000000,
+    "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_one_in": 1000000,
     # Note: the following two are intentionally disabled as the corresponding
     # APIs are not guaranteed to succeed.
@@ -66,6 +71,7 @@ default_params = {
     # Temporarily disable hash index
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
     "iterpercent": 10,
+    "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
@@ -75,6 +81,7 @@ default_params = {
     "open_files": lambda : random.choice([-1, -1, 100, 500000]),
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
     "partition_filters": lambda: random.randint(0, 1),
+    "partition_pinning": lambda: random.randint(0, 3),
     "pause_background_one_in": 1000000,
     "prefixpercent": 5,
     "progress_reports": 0,
@@ -88,11 +95,14 @@ default_params = {
     "subcompactions": lambda: random.randint(1, 4),
     "target_file_size_base": 2097152,
     "target_file_size_multiplier": 2,
+    "top_level_index_pinning": lambda: random.randint(0, 3),
+    "unpartitioned_pinning": lambda: random.randint(0, 3),
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
+    "use_ribbon_filter": lambda: random.randint(0, 1),
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
@@ -127,7 +137,12 @@ default_params = {
     "max_key_len": 3,
     "key_len_percent_dist": "1,30,69",
     "read_fault_one_in": lambda: random.choice([0, 1000]),
-    "sync_fault_injection": False
+    "sync_fault_injection": False,
+    "get_property_one_in": 1000000,
+    "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
+    "max_write_buffer_size_to_maintain": lambda: random.choice(
+        [0, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024]),
+    "user_timestamp_size": 0,
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -148,6 +163,24 @@ def get_dbname(test_name):
         shutil.rmtree(dbname, True)
         os.mkdir(dbname)
     return dbname
+
+expected_values_file = None
+def setup_expected_values_file():
+    global expected_values_file
+    if expected_values_file is not None:
+        return expected_values_file
+    expected_file_name = "rocksdb_crashtest_" + "expected"
+    test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
+    if test_tmpdir is None or test_tmpdir == "":
+        expected_values_file = tempfile.NamedTemporaryFile(
+            prefix=expected_file_name, delete=False).name
+    else:
+        # if tmpdir is specified, store the expected_values_file in the same dir
+        expected_values_file = test_tmpdir + "/" + expected_file_name
+        if os.path.exists(expected_values_file):
+            os.remove(expected_values_file)
+        open(expected_values_file, 'a').close()
+    return expected_values_file
 
 
 def is_direct_io_supported(dbname):
@@ -192,6 +225,7 @@ simple_default_params = {
     "test_batches_snapshots": 0,
     "write_buffer_size": 32 * 1024 * 1024,
     "level_compaction_dynamic_level_bytes": False,
+    "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
 }
 
 blackbox_simple_default_params = {
@@ -233,11 +267,47 @@ best_efforts_recovery_params = {
     "continuous_verification_interval": 0,
 }
 
+blob_params = {
+    "allow_setting_blob_options_dynamically": 1,
+    # Enable blob files and GC with a 75% chance initially; note that they might still be
+    # enabled/disabled during the test via SetOptions
+    "enable_blob_files": lambda: random.choice([0] + [1] * 3),
+    "min_blob_size": lambda: random.choice([0, 8, 16]),
+    "blob_file_size": lambda: random.choice([1048576, 16777216, 268435456, 1073741824]),
+    "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
+    "enable_blob_garbage_collection": lambda: random.choice([0] + [1] * 3),
+    "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
+    # The following are currently incompatible with the integrated BlobDB
+    "use_merge": 0,
+    "backup_one_in": 0,
+}
+
+ts_params = {
+    "test_cf_consistency": 0,
+    "test_batches_snapshots": 0,
+    "user_timestamp_size": 8,
+    "use_merge": 0,
+    "use_full_merge_v1": 0,
+    # In order to disable SingleDelete
+    "nooverwritepercent": 0,
+    "use_txn": 0,
+    "read_only": 0,
+    "secondary_catch_up_one_in": 0,
+    "continuous_verification_interval": 0,
+    "checkpoint_one_in": 0,
+    "enable_blob_files": 0,
+    "use_blob_db": 0,
+    "enable_compaction_filter": 0,
+    "ingest_external_file_one_in": 0,
+}
+
 def finalize_and_sanitize(src_params):
     dest_params = dict([(k,  v() if callable(v) else v)
                         for (k, v) in src_params.items()])
-    if dest_params.get("compression_type") != "zstd" or \
-            dest_params.get("compression_max_dict_bytes") == 0:
+    if dest_params.get("compression_max_dict_bytes") == 0:
+        dest_params["compression_zstd_max_train_bytes"] = 0
+        dest_params["compression_max_dict_buffer_bytes"] = 0
+    if dest_params.get("compression_type") != "zstd":
         dest_params["compression_zstd_max_train_bytes"] = 0
     if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
         dest_params["memtablerep"] = "skip_list"
@@ -248,14 +318,18 @@ def finalize_and_sanitize(src_params):
             or dest_params["use_direct_reads"] == 1) and \
             not is_direct_io_supported(dest_params["db"]):
         if is_release_mode():
-            print("{} does not support direct IO".format(dest_params["db"]))
-            sys.exit(1)
+            print("{} does not support direct IO. Disabling use_direct_reads and "
+                    "use_direct_io_for_flush_and_compaction.\n".format(
+                        dest_params["db"]))
+            dest_params["use_direct_reads"] = 0
+            dest_params["use_direct_io_for_flush_and_compaction"] = 0
         else:
             dest_params["mock_direct_io"] = True
 
-    # DeleteRange is not currnetly compatible with Txns
-    if dest_params.get("test_batches_snapshots") == 1 or \
-            dest_params.get("use_txn") == 1:
+    # DeleteRange is not currnetly compatible with Txns and timestamp
+    if (dest_params.get("test_batches_snapshots") == 1 or
+        dest_params.get("use_txn") == 1 or
+        dest_params.get("user_timestamp_size") > 0):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
@@ -265,6 +339,7 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["atomic_flush"] = 1
         dest_params["sync"] = 0
+        dest_params["write_fault_one_in"] = 0
     if dest_params.get("open_files", 1) != -1:
         # Compaction TTL and periodic compactions are only compatible
         # with open_files = -1
@@ -295,6 +370,8 @@ def finalize_and_sanitize(src_params):
         dest_params["readpercent"] += dest_params.get("iterpercent", 10)
         dest_params["iterpercent"] = 0
         dest_params["test_batches_snapshots"] = 0
+    if dest_params.get("test_batches_snapshots") == 0:
+        dest_params["batch_protection_bytes_per_key"] = 0
     return dest_params
 
 def gen_cmd_params(args):
@@ -317,6 +394,16 @@ def gen_cmd_params(args):
         params.update(txn_params)
     if args.test_best_efforts_recovery:
         params.update(best_efforts_recovery_params)
+    if args.enable_ts:
+        params.update(ts_params)
+
+    # Best-effort recovery and BlobDB are currently incompatible. Test BE recovery
+    # if specified on the command line; otherwise, apply BlobDB related overrides
+    # with a 10% chance.
+    if (not args.test_best_efforts_recovery and
+        not args.enable_ts and
+        random.choice([0] * 9 + [1]) == 1):
+        params.update(blob_params)
 
     for k, v in vars(args).items():
         if v is not None:
@@ -331,7 +418,7 @@ def gen_cmd(params, unknown_params):
         for k, v in [(k, finalzied_params[k]) for k in sorted(finalzied_params)]
         if k not in set(['test_type', 'simple', 'duration', 'interval',
                          'random_kill_odd', 'cf_consistency', 'txn',
-                         'test_best_efforts_recovery'])
+                         'test_best_efforts_recovery', 'enable_ts'])
         and v is not None] + unknown_params
     return cmd
 
@@ -584,13 +671,16 @@ def main():
     parser.add_argument("--cf_consistency", action='store_true')
     parser.add_argument("--txn", action='store_true')
     parser.add_argument("--test_best_efforts_recovery", action='store_true')
+    parser.add_argument("--enable_ts", action='store_true')
 
     all_params = dict(list(default_params.items())
                       + list(blackbox_default_params.items())
                       + list(whitebox_default_params.items())
                       + list(simple_default_params.items())
                       + list(blackbox_simple_default_params.items())
-                      + list(whitebox_simple_default_params.items()))
+                      + list(whitebox_simple_default_params.items())
+                      + list(blob_params.items())
+                      + list(ts_params.items()))
 
     for k, v in all_params.items():
         parser.add_argument("--" + k, type=type(v() if callable(v) else v))
@@ -607,6 +697,10 @@ def main():
         blackbox_crash_main(args, unknown_args)
     if args.test_type == 'whitebox':
         whitebox_crash_main(args, unknown_args)
+    # Only delete the `expected_values_file` if test passes
+    if os.path.exists(expected_values_file):
+        os.remove(expected_values_file)
+
 
 if __name__ == '__main__':
     main()

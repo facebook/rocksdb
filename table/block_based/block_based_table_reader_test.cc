@@ -4,18 +4,20 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/block_based/block_based_table_reader.h"
-#include "rocksdb/file_system.h"
-#include "table/block_based/partitioned_index_iterator.h"
 
 #include "db/table_properties_collector.h"
+#include "file/file_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/file_system.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/partitioned_index_iterator.h"
 #include "table/format.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -33,7 +35,7 @@ class BlockBasedTableReaderTest
     std::tie(compression_type_, use_direct_reads_, index_type, no_block_cache) =
         GetParam();
 
-    test::SetupSyncPointsToMockDirectIO();
+    SetupSyncPointsToMockDirectIO();
     test_dir_ = test::PerThreadDBPath("block_based_table_reader_test");
     env_ = Env::Default();
     fs_ = FileSystem::Default();
@@ -46,7 +48,7 @@ class BlockBasedTableReaderTest
         static_cast<BlockBasedTableFactory*>(NewBlockBasedTableFactory(opts)));
   }
 
-  void TearDown() override { EXPECT_OK(test::DestroyDir(env_, test_dir_)); }
+  void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
 
   // Creates a table with the specificied key value pairs (kv).
   void CreateTable(const std::string& table_name,
@@ -64,9 +66,9 @@ class BlockBasedTableReaderTest
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>> factories;
     std::unique_ptr<TableBuilder> table_builder(table_factory_->NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, comparator, &factories,
-                            compression_type, 0 /* sample_for_compression */,
-                            CompressionOptions(), false /* skip_filters */,
-                            kDefaultColumnFamilyName, -1 /* level */),
+                            compression_type, CompressionOptions(),
+                            false /* skip_filters */, kDefaultColumnFamilyName,
+                            -1 /* level */),
         0 /* column_family_id */, writer.get()));
 
     // Build table.
@@ -91,9 +93,12 @@ class BlockBasedTableReaderTest
 
     std::unique_ptr<TableReader> table_reader;
     ReadOptions ro;
-    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(),
-                                    table_factory_->table_options(), comparator,
-                                    std::move(file), file_size, &table_reader));
+    const auto* table_options =
+        table_factory_->GetOptions<BlockBasedTableOptions>();
+    ASSERT_NE(table_options, nullptr);
+    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(), *table_options,
+                                    comparator, std::move(file), file_size,
+                                    &table_reader));
 
     table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
   }
@@ -130,7 +135,8 @@ class BlockBasedTableReaderTest
     std::string path = Path(filename);
     std::unique_ptr<FSRandomAccessFile> f;
     ASSERT_OK(fs_->NewRandomAccessFile(path, opt, &f, nullptr));
-    reader->reset(new RandomAccessFileReader(std::move(f), path, env_));
+    reader->reset(new RandomAccessFileReader(std::move(f), path,
+                                             env_->GetSystemClock().get()));
   }
 
   std::string ToInternalKey(const std::string& key) {
@@ -159,9 +165,9 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
         sprintf(k, "%08u", key);
         std::string v;
         if (block % 2) {
-          v = test::RandomHumanReadableString(&rnd, 256);
+          v = rnd.HumanReadableString(256);
         } else {
-          test::RandomString(&rnd, 256, &v);
+          v = rnd.RandomString(256);
         }
         kv[std::string(k)] = v;
         key++;
@@ -256,8 +262,7 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
         // and internal key size is required to be >= 8 bytes,
         // so use %08u as the format string.
         sprintf(k, "%08u", key);
-        std::string v;
-        test::RandomString(&rnd, 256, &v);
+        std::string v = rnd.RandomString(256);
         kv[std::string(k)] = v;
         key++;
       }
@@ -289,13 +294,14 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
   }
   ASSERT_OK(iiter->status());
   iiter->SeekToFirst();
-  BlockHandle handle = static_cast<ParititionedIndexIterator*>(iiter)
+  BlockHandle handle = static_cast<PartitionedIndexIterator*>(iiter)
                            ->index_iter_->value()
                            .handle;
   table.reset();
 
   // Corrupt the block pointed to by handle
-  test::CorruptFile(Path(table_name), static_cast<int>(handle.offset()), 128);
+  ASSERT_OK(test::CorruptFile(options.env, Path(table_name),
+                              static_cast<int>(handle.offset()), 128));
 
   NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
   Status s = table->VerifyChecksum(ReadOptions(),

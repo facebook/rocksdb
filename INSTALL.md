@@ -43,6 +43,8 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
       command line flags processing. You can compile rocksdb library even
       if you don't have gflags installed.
 
+* `make check` will also check code formatting, which requires [clang-format](https://clang.llvm.org/docs/ClangFormat.html)
+
 * If you wish to build the RocksJava static target, then cmake is required for building Snappy.
 
 ## Supported platforms
@@ -94,12 +96,21 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
               sudo yum install libasan
 
     * Install zstandard:
+        * With [EPEL](https://fedoraproject.org/wiki/EPEL):
 
-             wget https://github.com/facebook/zstd/archive/v1.1.3.tar.gz
-             mv v1.1.3.tar.gz zstd-1.1.3.tar.gz
-             tar zxvf zstd-1.1.3.tar.gz
-             cd zstd-1.1.3
-             make && sudo make install
+              sudo yum install libzstd-devel
+
+        * With CentOS 8:
+
+              sudo dnf install libzstd-devel
+
+        * From source:
+
+              wget https://github.com/facebook/zstd/archive/v1.1.3.tar.gz
+              mv v1.1.3.tar.gz zstd-1.1.3.tar.gz
+              tar zxvf zstd-1.1.3.tar.gz
+              cd zstd-1.1.3
+              make && sudo make install
 
 * **OS X**:
     * Install latest C++ compiler that supports C++ 11:

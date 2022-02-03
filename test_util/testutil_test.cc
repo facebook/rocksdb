@@ -5,6 +5,7 @@
 
 #include "test_util/testutil.h"
 
+#include "file/file_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "test_util/testharness.h"
@@ -28,7 +29,7 @@ TEST(TestUtil, DestroyDirRecursively) {
   ASSERT_OK(env->CreateDir(test_dir + "/dir"));
   CreateFile(env, test_dir + "/dir/file");
 
-  ASSERT_OK(test::DestroyDir(env, test_dir));
+  ASSERT_OK(DestroyDir(env, test_dir));
   auto s = env->FileExists(test_dir);
   ASSERT_TRUE(s.IsNotFound());
 }

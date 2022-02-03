@@ -6,7 +6,6 @@
 #include "test_util/testharness.h"
 #include "utilities/cassandra/serialize.h"
 
-using namespace ROCKSDB_NAMESPACE::cassandra;
 
 namespace ROCKSDB_NAMESPACE {
 namespace cassandra {

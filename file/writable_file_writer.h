@@ -10,9 +10,10 @@
 #pragma once
 #include <atomic>
 #include <string>
+
 #include "db/version_edit.h"
+#include "env/file_system_tracer.h"
 #include "port/port.h"
-#include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/io_status.h"
@@ -23,6 +24,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 class Statistics;
+class SystemClock;
 
 // WritableFileWriter is a wrapper on top of Env::WritableFile. It provides
 // facilities to:
@@ -34,17 +36,81 @@ class Statistics;
 class WritableFileWriter {
  private:
 #ifndef ROCKSDB_LITE
-  void NotifyOnFileWriteFinish(uint64_t offset, size_t length,
-                               const FileOperationInfo::TimePoint& start_ts,
-                               const FileOperationInfo::TimePoint& finish_ts,
-                               const IOStatus& io_status) {
-    FileOperationInfo info(file_name_, start_ts, finish_ts);
+  void NotifyOnFileWriteFinish(
+      uint64_t offset, size_t length,
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kWrite, file_name_, start_ts,
+                           finish_ts, io_status);
     info.offset = offset;
     info.length = length;
-    info.status = io_status;
 
     for (auto& listener : listeners_) {
       listener->OnFileWriteFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileFlushFinish(
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kFlush, file_name_, start_ts,
+                           finish_ts, io_status);
+
+    for (auto& listener : listeners_) {
+      listener->OnFileFlushFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileSyncFinish(
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status,
+      FileOperationType type = FileOperationType::kSync) {
+    FileOperationInfo info(type, file_name_, start_ts, finish_ts, io_status);
+
+    for (auto& listener : listeners_) {
+      listener->OnFileSyncFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileRangeSyncFinish(
+      uint64_t offset, size_t length,
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kRangeSync, file_name_, start_ts,
+                           finish_ts, io_status);
+    info.offset = offset;
+    info.length = length;
+
+    for (auto& listener : listeners_) {
+      listener->OnFileRangeSyncFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileTruncateFinish(
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kTruncate, file_name_, start_ts,
+                           finish_ts, io_status);
+
+    for (auto& listener : listeners_) {
+      listener->OnFileTruncateFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileCloseFinish(
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kClose, file_name_, start_ts,
+                           finish_ts, io_status);
+
+    for (auto& listener : listeners_) {
+      listener->OnFileCloseFinish(info);
     }
     info.status.PermitUncheckedError();
   }
@@ -52,10 +118,12 @@ class WritableFileWriter {
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
   void UpdateFileChecksum(const Slice& data);
+  void Crc32cHandoffChecksumCalculation(const char* data, size_t size,
+                                        char* buf);
 
-  std::unique_ptr<FSWritableFile> writable_file_;
   std::string file_name_;
-  Env* env_;
+  FSWritableFilePtr writable_file_;
+  SystemClock* clock_;
   AlignedBuffer buf_;
   size_t max_buffer_size_;
   // Actually written data size can be used for truncate
@@ -75,17 +143,20 @@ class WritableFileWriter {
   std::vector<std::shared_ptr<EventListener>> listeners_;
   std::unique_ptr<FileChecksumGenerator> checksum_generator_;
   bool checksum_finalized_;
+  bool perform_data_verification_;
 
  public:
   WritableFileWriter(
       std::unique_ptr<FSWritableFile>&& file, const std::string& _file_name,
-      const FileOptions& options, Env* env = nullptr,
+      const FileOptions& options, SystemClock* clock = nullptr,
+      const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       Statistics* stats = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
-      FileChecksumGenFactory* file_checksum_gen_factory = nullptr)
-      : writable_file_(std::move(file)),
-        file_name_(_file_name),
-        env_(env),
+      FileChecksumGenFactory* file_checksum_gen_factory = nullptr,
+      bool perform_data_verification = false)
+      : file_name_(_file_name),
+        writable_file_(std::move(file), io_tracer, _file_name),
+        clock_(clock),
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
         filesize_(0),
@@ -99,7 +170,8 @@ class WritableFileWriter {
         stats_(stats),
         listeners_(),
         checksum_generator_(nullptr),
-        checksum_finalized_(false) {
+        checksum_finalized_(false),
+        perform_data_verification_(perform_data_verification) {
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
@@ -123,6 +195,10 @@ class WritableFileWriter {
     }
   }
 
+  static Status Create(const std::shared_ptr<FileSystem>& fs,
+                       const std::string& fname, const FileOptions& file_opts,
+                       std::unique_ptr<WritableFileWriter>* writer,
+                       IODebugContext* dbg);
   WritableFileWriter(const WritableFileWriter&) = delete;
 
   WritableFileWriter& operator=(const WritableFileWriter&) = delete;

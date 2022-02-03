@@ -49,8 +49,13 @@ class FileChecksumGenCrc32cFactory : public FileChecksumGenFactory {
  public:
   std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
       const FileChecksumGenContext& context) override {
-    return std::unique_ptr<FileChecksumGenerator>(
-        new FileChecksumGenCrc32c(context));
+    if (context.requested_checksum_func_name.empty() ||
+        context.requested_checksum_func_name == "FileChecksumCrc32c") {
+      return std::unique_ptr<FileChecksumGenerator>(
+          new FileChecksumGenCrc32c(context));
+    } else {
+      return nullptr;
+    }
   }
 
   const char* Name() const override { return "FileChecksumGenCrc32cFactory"; }
@@ -83,5 +88,11 @@ class FileChecksumListImpl : public FileChecksumList {
   std::unordered_map<uint64_t, std::pair<std::string, std::string>>
       checksum_map_;
 };
+
+// If manifest_file_size < std::numeric_limits<uint64_t>::max(), only use
+// that length prefix of the manifest file.
+Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
+                                    uint64_t manifest_file_size,
+                                    FileChecksumList* checksum_list);
 
 }  // namespace ROCKSDB_NAMESPACE

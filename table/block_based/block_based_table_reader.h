@@ -64,9 +64,6 @@ class BlockBasedTable : public TableReader {
 
   // All the below fields control iterator readahead
   static const size_t kInitAutoReadaheadSize = 8 * 1024;
-  // Found that 256 KB readahead size provides the best performance, based on
-  // experiments, for auto readahead. Experiment data is in PR #3282.
-  static const size_t kMaxAutoReadaheadSize;
   static const int kMinNumFileReadsToStartAutoReadahead = 2;
 
   // Attempt to open the table that is stored in bytes [0..file_size)
@@ -113,6 +110,7 @@ class BlockBasedTable : public TableReader {
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
+  // @param read_options Must outlive the returned iterator.
   // @param skip_filters Disables loading/accessing the filter block
   // compaction_readahead_size: its value will only be used if caller =
   // kCompaction.
@@ -205,7 +203,10 @@ class BlockBasedTable : public TableReader {
     virtual size_t ApproximateMemoryUsage() const = 0;
     // Cache the dependencies of the index reader (e.g. the partitions
     // of a partitioned index).
-    virtual void CacheDependencies(const ReadOptions& /*ro*/, bool /* pin */) {}
+    virtual Status CacheDependencies(const ReadOptions& /*ro*/,
+                                     bool /* pin */) {
+      return Status::OK();
+    }
   };
 
   class IndexReaderCommon;
@@ -468,10 +469,10 @@ class BlockBasedTable : public TableReader {
       uint64_t data_size) const;
 
   // Helper functions for DumpTable()
-  Status DumpIndexBlock(WritableFile* out_file);
-  Status DumpDataBlocks(WritableFile* out_file);
+  Status DumpIndexBlock(std::ostream& out_stream);
+  Status DumpDataBlocks(std::ostream& out_stream);
   void DumpKeyValue(const Slice& key, const Slice& value,
-                    WritableFile* out_file);
+                    std::ostream& out_stream);
 
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer
@@ -518,8 +519,9 @@ struct BlockBasedTable::Rep {
         global_seqno(kDisableGlobalSequenceNumber),
         file_size(_file_size),
         level(_level),
-        immortal_table(_immortal_table) {}
-
+        immortal_table(_immortal_table) {
+  }
+  ~Rep() { status.PermitUncheckedError(); }
   const ImmutableCFOptions& ioptions;
   const EnvOptions& env_options;
   const BlockBasedTableOptions table_options;
@@ -629,5 +631,57 @@ struct BlockBasedTable::Rep {
                                       max_readahead_size,
                                       !ioptions.allow_mmap_reads /* enable */));
   }
+
+  void CreateFilePrefetchBufferIfNotExists(
+      size_t readahead_size, size_t max_readahead_size,
+      std::unique_ptr<FilePrefetchBuffer>* fpb) const {
+    if (!(*fpb)) {
+      CreateFilePrefetchBuffer(readahead_size, max_readahead_size, fpb);
+    }
+  }
 };
+
+// This is an adapter class for `WritableFile` to be used for `std::ostream`.
+// The adapter wraps a `WritableFile`, which can be passed to a `std::ostream`
+// constructor for storing streaming data.
+// Note:
+//  * This adapter doesn't provide any buffering, each write is forwarded to
+//    `WritableFile->Append()` directly.
+//  * For a failed write, the user needs to check the status by `ostream.good()`
+class WritableFileStringStreamAdapter : public std::stringbuf {
+ public:
+  explicit WritableFileStringStreamAdapter(WritableFile* writable_file)
+      : file_(writable_file) {}
+
+  // Override overflow() to handle `sputc()`. There are cases that will not go
+  // through `xsputn()` e.g. `std::endl` or an unsigned long long is written by
+  // `os.put()` directly and will call `sputc()` By internal implementation:
+  //    int_type __CLR_OR_THIS_CALL sputc(_Elem _Ch) {  // put a character
+  //        return 0 < _Pnavail() ? _Traits::to_int_type(*_Pninc() = _Ch) :
+  //        overflow(_Traits::to_int_type(_Ch));
+  //    }
+  // As we explicitly disabled buffering (_Pnavail() is always 0), every write,
+  // not captured by xsputn(), becomes an overflow here.
+  int overflow(int ch = EOF) override {
+    if (ch != EOF) {
+      Status s = file_->Append(Slice((char*)&ch, 1));
+      if (s.ok()) {
+        return ch;
+      }
+    }
+    return EOF;
+  }
+
+  std::streamsize xsputn(char const* p, std::streamsize n) override {
+    Status s = file_->Append(Slice(p, n));
+    if (!s.ok()) {
+      return 0;
+    }
+    return n;
+  }
+
+ private:
+  WritableFile* file_;
+};
+
 }  // namespace ROCKSDB_NAMESPACE

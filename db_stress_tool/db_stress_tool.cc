@@ -24,7 +24,7 @@
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 #ifndef NDEBUG
-#include "test_util/fault_injection_test_fs.h"
+#include "utilities/fault_injection_fs.h"
 #endif
 
 namespace ROCKSDB_NAMESPACE {
@@ -33,6 +33,11 @@ static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::DbStressEnvWrapper> env_wrapper_guard;
 static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
 }  // namespace
+
+static Env* GetCompositeEnv(std::shared_ptr<FileSystem> fs) {
+  static std::shared_ptr<Env> composite_env = NewCompositeEnv(fs);
+  return composite_env.get();
+}
 
 KeyGenContext key_gen_ctx;
 
@@ -47,7 +52,7 @@ int db_stress_tool(int argc, char** argv) {
 
 #ifndef NDEBUG
   if (FLAGS_mock_direct_io) {
-    test::SetupSyncPointsToMockDirectIO();
+    SetupSyncPointsToMockDirectIO();
   }
 #endif
   if (FLAGS_statistics) {
@@ -63,11 +68,15 @@ int db_stress_tool(int argc, char** argv) {
 
   Env* raw_env;
 
+  int env_opts =
+      !FLAGS_hdfs.empty() + !FLAGS_env_uri.empty() + !FLAGS_fs_uri.empty();
+  if (env_opts > 1) {
+    fprintf(stderr,
+            "Error: --hdfs, --env_uri and --fs_uri are mutually exclusive\n");
+    exit(1);
+  }
+
   if (!FLAGS_hdfs.empty()) {
-    if (!FLAGS_env_uri.empty()) {
-      fprintf(stderr, "Cannot specify both --hdfs and --env_uri.\n");
-      exit(1);
-    }
     raw_env = new ROCKSDB_NAMESPACE::HdfsEnv(FLAGS_hdfs);
   } else if (!FLAGS_env_uri.empty()) {
     Status s = Env::LoadEnv(FLAGS_env_uri, &raw_env, &env_guard);
@@ -75,24 +84,54 @@ int db_stress_tool(int argc, char** argv) {
       fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
       exit(1);
     }
+  } else if (!FLAGS_fs_uri.empty()) {
+    std::shared_ptr<FileSystem> fs;
+    Status s = FileSystem::Load(FLAGS_fs_uri, &fs);
+    if (!s.ok()) {
+      fprintf(stderr, "Error: %s\n", s.ToString().c_str());
+      exit(1);
+    }
+    raw_env = GetCompositeEnv(fs);
   } else {
     raw_env = Env::Default();
   }
 
 #ifndef NDEBUG
-  if (FLAGS_read_fault_one_in || FLAGS_sync_fault_injection) {
+  if (FLAGS_read_fault_one_in || FLAGS_sync_fault_injection ||
+      FLAGS_write_fault_one_in) {
     FaultInjectionTestFS* fs =
         new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);
-    fault_fs_guard->SetFilesystemDirectWritable(true);
+    if (FLAGS_write_fault_one_in) {
+      fault_fs_guard->SetFilesystemDirectWritable(false);
+    } else {
+      fault_fs_guard->SetFilesystemDirectWritable(true);
+    }
     fault_env_guard =
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
+  }
+  if (FLAGS_write_fault_one_in) {
+    SyncPoint::GetInstance()->SetCallBack(
+        "BuildTable:BeforeFinishBuildTable",
+        [&](void*) { fault_fs_guard->EnableWriteErrorInjection(); });
+    SyncPoint::GetInstance()->EnableProcessing();
   }
 #endif
 
   env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
   db_stress_env = env_wrapper_guard.get();
+
+#ifndef NDEBUG
+  if (FLAGS_write_fault_one_in) {
+    // In the write injection case, we need to use the FS interface and returns
+    // the IOStatus with different error and flags. Therefore,
+    // DbStressEnvWrapper cannot be used which will swallow the FS
+    // implementations. We should directly use the raw_env which is the
+    // CompositeEnvWrapper of env and fault_fs.
+    db_stress_env = raw_env;
+  }
+#endif
 
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
@@ -114,17 +153,22 @@ int db_stress_tool(int argc, char** argv) {
             "test_batches_snapshots test!\n");
     exit(1);
   }
-  if (FLAGS_memtable_prefix_bloom_size_ratio > 0.0 && FLAGS_prefix_size < 0) {
+  if (FLAGS_memtable_prefix_bloom_size_ratio > 0.0 && FLAGS_prefix_size < 0 &&
+      !FLAGS_memtable_whole_key_filtering) {
     fprintf(stderr,
-            "Error: please specify positive prefix_size in order to use "
-            "memtable_prefix_bloom_size_ratio\n");
+            "Error: please specify positive prefix_size or enable whole key "
+            "filtering in order to use memtable_prefix_bloom_size_ratio\n");
     exit(1);
   }
   if ((FLAGS_readpercent + FLAGS_prefixpercent + FLAGS_writepercent +
        FLAGS_delpercent + FLAGS_delrangepercent + FLAGS_iterpercent) != 100) {
     fprintf(stderr,
-            "Error: Read+Prefix+Write+Delete+DeleteRange+Iterate percents != "
-            "100!\n");
+            "Error: "
+            "Read(%d)+Prefix(%d)+Write(%d)+Delete(%d)+DeleteRange(%d)"
+            "+Iterate(%d) percents != "
+            "100!\n",
+            FLAGS_readpercent, FLAGS_prefixpercent, FLAGS_writepercent,
+            FLAGS_delpercent, FLAGS_delrangepercent, FLAGS_iterpercent);
     exit(1);
   }
   if (FLAGS_disable_wal == 1 && FLAGS_reopen > 0) {
@@ -245,6 +289,13 @@ int db_stress_tool(int argc, char** argv) {
         stderr,
         "Error: acquire_snapshot_one_in, compact_range_one_in, iterpercent, "
         "test_batches_snapshots  must all be 0 when using compaction filter\n");
+    exit(1);
+  }
+  if (FLAGS_batch_protection_bytes_per_key > 0 &&
+      !FLAGS_test_batches_snapshots) {
+    fprintf(stderr,
+            "Error: test_batches_snapshots must be enabled when "
+            "batch_protection_bytes_per_key > 0\n");
     exit(1);
   }
 

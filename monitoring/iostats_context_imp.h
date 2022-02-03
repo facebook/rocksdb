@@ -38,9 +38,9 @@ extern __thread IOStatsContext iostats_context;
   iostats_step_timer_##metric.Start();
 
 // Declare and set start time of the timer
-#define IOSTATS_CPU_TIMER_GUARD(metric, env)           \
+#define IOSTATS_CPU_TIMER_GUARD(metric, clock)         \
   PerfStepTimer iostats_step_timer_##metric(           \
-      &(iostats_context.metric), env, true,            \
+      &(iostats_context.metric), clock, true,          \
       PerfLevel::kEnableTimeAndCPUTimeExceptForMutex); \
   iostats_step_timer_##metric.Start();
 
@@ -55,6 +55,6 @@ extern __thread IOStatsContext iostats_context;
 #define IOSTATS(metric) 0
 
 #define IOSTATS_TIMER_GUARD(metric)
-#define IOSTATS_CPU_TIMER_GUARD(metric, env)   static_cast<void>(env)
+#define IOSTATS_CPU_TIMER_GUARD(metric, clock) static_cast<void>(clock)
 
 #endif  // ROCKSDB_SUPPORT_THREAD_LOCAL

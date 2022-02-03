@@ -29,7 +29,7 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
       IndexBlockIter* iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) override;
 
-  void CacheDependencies(const ReadOptions& ro, bool pin) override;
+  Status CacheDependencies(const ReadOptions& ro, bool pin) override;
   size_t ApproximateMemoryUsage() const override {
     size_t usage = ApproximateIndexBlockMemoryUsage();
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE

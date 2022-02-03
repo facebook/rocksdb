@@ -80,13 +80,13 @@ void BlockBasedFilterBlockBuilder::StartBlock(uint64_t block_offset) {
   }
 }
 
-void BlockBasedFilterBlockBuilder::Add(const Slice& key) {
-  if (prefix_extractor_ && prefix_extractor_->InDomain(key)) {
-    AddPrefix(key);
+void BlockBasedFilterBlockBuilder::Add(const Slice& key_without_ts) {
+  if (prefix_extractor_ && prefix_extractor_->InDomain(key_without_ts)) {
+    AddPrefix(key_without_ts);
   }
 
   if (whole_key_filtering_) {
-    AddKey(key);
+    AddKey(key_without_ts);
   }
 }
 

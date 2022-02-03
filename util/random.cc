@@ -35,4 +35,22 @@ Random* Random::GetTLSInstance() {
   return rv;
 }
 
+std::string Random::HumanReadableString(int len) {
+  std::string ret;
+  ret.resize(len);
+  for (int i = 0; i < len; ++i) {
+    ret[i] = static_cast<char>('a' + Uniform(26));
+  }
+  return ret;
+}
+
+std::string Random::RandomString(int len) {
+  std::string ret;
+  ret.resize(len);
+  for (int i = 0; i < len; i++) {
+    ret[i] = static_cast<char>(' ' + Uniform(95));  // ' ' .. '~'
+  }
+  return ret;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

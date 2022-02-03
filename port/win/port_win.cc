@@ -7,9 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#if !defined(OS_WIN) && !defined(WIN32) && !defined(_WIN32)
-#error Windows Specific Code
-#endif
+#if defined(OS_WIN)
 
 #include "port/win/port_win.h"
 
@@ -100,6 +98,15 @@ bool CondVar::TimedWait(uint64_t abs_time_us) {
 
   // Caller must ensure that mutex is held prior to calling this method
   std::unique_lock<std::mutex> lk(mu_->getLock(), std::adopt_lock);
+
+  // Work around https://github.com/microsoft/STL/issues/369
+#if defined(_MSC_VER) && \
+    (!defined(_MSVC_STL_UPDATE) || _MSVC_STL_UPDATE < 202008L)
+  if (relTimeUs == microseconds::zero()) {
+    lk.unlock();
+    lk.lock();
+  }
+#endif
 #ifndef NDEBUG
   mu_->locked_ = false;
 #endif
@@ -272,3 +279,5 @@ void SetCpuPriority(ThreadId id, CpuPriority priority) {
 
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
+
+#endif

@@ -98,6 +98,9 @@ class RocksDBOptionsParser {
 
   static Status ExtraParserCheck(const RocksDBOptionsParser& input_parser);
 
+  static Status ParseStatement(std::string* name, std::string* value,
+                               const std::string& line, const int line_num);
+
  protected:
   bool IsSection(const std::string& line);
   Status ParseSection(OptionSection* section, std::string* title,
@@ -107,9 +110,6 @@ class RocksDBOptionsParser {
   Status CheckSection(const OptionSection section,
                       const std::string& section_arg, const int line_num);
 
-  Status ParseStatement(std::string* name, std::string* value,
-                        const std::string& line, const int line_num);
-
   Status EndSection(
       const ConfigOptions& config_options, const OptionSection section,
       const std::string& title, const std::string& section_arg,
@@ -117,7 +117,7 @@ class RocksDBOptionsParser {
 
   Status ValidityCheck();
 
-  Status InvalidArgument(const int line_num, const std::string& message);
+  static Status InvalidArgument(const int line_num, const std::string& message);
 
   Status ParseVersionNumber(const std::string& ver_name,
                             const std::string& ver_string, const int max_count,

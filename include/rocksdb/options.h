@@ -10,6 +10,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <limits>
 #include <memory>
 #include <string>
@@ -18,9 +19,13 @@
 
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/compression_type.h"
+#include "rocksdb/data_structure.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/sst_partitioner.h"
+#include "rocksdb/types.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -51,35 +56,10 @@ class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
 
-// DB contents are stored in a set of blocks, each of which holds a
-// sequence of key,value pairs.  Each block may be compressed before
-// being stored in a file.  The following enum describes which
-// compression method (if any) is used to compress a block.
-enum CompressionType : unsigned char {
-  // NOTE: do not change the values of existing entries, as these are
-  // part of the persistent format on disk.
-  kNoCompression = 0x0,
-  kSnappyCompression = 0x1,
-  kZlibCompression = 0x2,
-  kBZip2Compression = 0x3,
-  kLZ4Compression = 0x4,
-  kLZ4HCCompression = 0x5,
-  kXpressCompression = 0x6,
-  kZSTD = 0x7,
-
-  // Only use kZSTDNotFinalCompression if you have to use ZSTD lib older than
-  // 0.8.0 or consider a possibility of downgrading the service or copying
-  // the database files to another service running with an older version of
-  // RocksDB that doesn't have kZSTD. Otherwise, you should use kZSTD. We will
-  // eventually remove the option from the public API.
-  kZSTDNotFinalCompression = 0x40,
-
-  // kDisableCompressionOption is used to disable some compression options.
-  kDisableCompressionOption = 0xff,
-};
-
 struct Options;
 struct DbPath;
+
+using FileTypeSet = SmallEnumSet<FileType, FileType::kBlobFile>;
 
 struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // The function recovers options to a previous version. Only 4.6 or later
@@ -308,6 +288,15 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: nullptr
   std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter = nullptr;
 
+  // If non-nullptr, use the specified factory for a function to determine the
+  // partitioning of sst files. This helps compaction to split the files
+  // on interesting boundaries (key prefixes) to make propagation of sst
+  // files less write amplifying (covering the whole key space).
+  // THE FEATURE IS STILL EXPERIMENTAL
+  //
+  // Default: nullptr
+  std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
+
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
@@ -318,8 +307,24 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
 
 enum class WALRecoveryMode : char {
   // Original levelDB recovery
-  // We tolerate incomplete record in trailing data on all logs
-  // Use case : This is legacy behavior
+  //
+  // We tolerate the last record in any log to be incomplete due to a crash
+  // while writing it. Zeroed bytes from preallocation are also tolerated in the
+  // trailing data of any log.
+  //
+  // Use case: Applications for which updates, once applied, must not be rolled
+  // back even after a crash-recovery. In this recovery mode, RocksDB guarantees
+  // this as long as `WritableFile::Append()` writes are durable. In case the
+  // user needs the guarantee in more situations (e.g., when
+  // `WritableFile::Append()` writes to page cache, but the user desires this
+  // guarantee in face of power-loss crash-recovery), RocksDB offers various
+  // mechanisms to additionally invoke `WritableFile::Sync()` in order to
+  // strengthen the guarantee.
+  //
+  // This differs from `kPointInTimeRecovery` in that, in case a corruption is
+  // detected during recovery, this mode will refuse to open the DB. Whereas,
+  // `kPointInTimeRecovery` will stop recovery just before the corruption since
+  // that is a valid point-in-time to which to recover.
   kTolerateCorruptedTailRecords = 0x00,
   // Recover from clean shutdown
   // We don't expect to find any corruption in the WAL
@@ -346,6 +351,8 @@ struct DbPath {
   DbPath() : target_size(0) {}
   DbPath(const std::string& p, uint64_t t) : path(p), target_size(t) {}
 };
+
+extern const char* kHostnameForDbHostId;
 
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
@@ -388,6 +395,16 @@ struct DBOptions {
   // In most cases you want this to be set to true.
   // Default: true
   bool paranoid_checks = true;
+
+  // If true, the log numbers and sizes of the synced WALs are tracked
+  // in MANIFEST, then during DB recovery, if a synced WAL is missing
+  // from disk, or the WAL's size does not match the recorded size in
+  // MANIFEST, an error will be reported and the recovery will be aborted.
+  //
+  // Note that this option does not work with secondary instance.
+  //
+  // Default: false
+  bool track_and_verify_wals_in_manifest = false;
 
   // Use the specified object to interact with the environment,
   // e.g. to read/write files, schedule background work, etc. In the near
@@ -558,6 +575,8 @@ struct DBOptions {
   // concurrently perform a compaction job by breaking it into multiple,
   // smaller ones that are run simultaneously.
   // Default: 1 (i.e. no subcompactions)
+  //
+  // Dynamically changeable through SetDBOptions() API.
   uint32_t max_subcompactions = 1;
 
   // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
@@ -817,7 +836,7 @@ struct DBOptions {
   // Allows OS to incrementally sync files to disk while they are being
   // written, asynchronously, in the background. This operation can be used
   // to smooth out write I/Os over time. Users shouldn't rely on it for
-  // persistency guarantee.
+  // persistence guarantee.
   // Issue one request for every bytes_per_sync written. 0 turns it off.
   //
   // You may consider using rate_limiter to regulate write rate to device.
@@ -1137,6 +1156,55 @@ struct DBOptions {
   // not be used for recovery if best_efforts_recovery is true.
   // Default: false
   bool best_efforts_recovery = false;
+
+  // It defines how many times db resume is called by a separate thread when
+  // background retryable IO Error happens. When background retryable IO
+  // Error happens, SetBGError is called to deal with the error. If the error
+  // can be auto-recovered (e.g., retryable IO Error during Flush or WAL write),
+  // then db resume is called in background to recover from the error. If this
+  // value is 0 or negative, db resume will not be called.
+  //
+  // Default: INT_MAX
+  int max_bgerror_resume_count = INT_MAX;
+
+  // If max_bgerror_resume_count is >= 2, db resume is called multiple times.
+  // This option decides how long to wait to retry the next resume if the
+  // previous resume fails and satisfy redo resume conditions.
+  //
+  // Default: 1000000 (microseconds).
+  uint64_t bgerror_resume_retry_interval = 1000000;
+
+  // It allows user to opt-in to get error messages containing corrupted
+  // keys/values. Corrupt keys, values will be logged in the
+  // messages/logs/status that will help users with the useful information
+  // regarding affected data. By default value is set false to prevent users
+  // data to be exposed in the logs/messages etc.
+  //
+  // Default: false
+  bool allow_data_in_errors = false;
+
+  // A string identifying the machine hosting the DB. This
+  // will be written as a property in every SST file written by the DB (or
+  // by offline writers such as SstFileWriter and RepairDB). It can be useful
+  // for troubleshooting in memory corruption caused by a failing host when
+  // writing a file, by tracing back to the writing host. These corruptions
+  // may not be caught by the checksum since they happen before checksumming.
+  // If left as default, the table writer will substitute it with the actual
+  // hostname when writing the SST file. If set to an empty string, the
+  // property will not be written to the SST file.
+  //
+  // Default: hostname
+  std::string db_host_id = kHostnameForDbHostId;
+
+  // Use this if your DB want to enable checksum handoff for specific file
+  // types writes. Make sure that the File_system you use support the
+  // crc32c checksum verification
+  // Currently supported file tyes: kWALFile, kTableFile, kDescriptorFile.
+  // NOTE: currently RocksDB only generates crc32c based checksum for the
+  // handoff. If the storage layer has different checksum support, user
+  // should enble this set as empty. Otherwise,it may cause unexpected
+  // write failures.
+  FileTypeSet checksum_handoff_file_types;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1211,7 +1279,7 @@ struct ReadOptions {
   // Default: nullptr
   const Slice* iterate_lower_bound;
 
-  // "iterate_upper_bound" defines the extent upto which the forward iterator
+  // "iterate_upper_bound" defines the extent up to which the forward iterator
   // can returns entries. Once the bound is reached, Valid() will be false.
   // "iterate_upper_bound" is exclusive ie the bound value is
   // not a valid entry. If prefix_extractor is not null, the Seek target
@@ -1223,7 +1291,7 @@ struct ReadOptions {
 
   // RocksDB does auto-readahead for iterators on noticing more than two reads
   // for a table file. The readahead starts at 8KB and doubles on every
-  // additional read upto 256KB.
+  // additional read up to 256KB.
   // This option can help if most of the range scans are large, and if it is
   // determined that a larger readahead than that enabled by auto-readahead is
   // needed.
@@ -1253,7 +1321,8 @@ struct ReadOptions {
   // block cache?
   // Callers may wish to set this field to false for bulk scans.
   // This would help not to the change eviction order of existing items in the
-  // block cache. Default: true
+  // block cache.
+  // Default: true
   bool fill_cache;
 
   // Specify to create a tailing iterator -- a special iterator that has a
@@ -1274,13 +1343,15 @@ struct ReadOptions {
   // If true when calling Get(), we also skip prefix bloom when reading from
   // block based table. It provides a way to read existing data after
   // changing implementation of prefix extractor.
+  // Default: false
   bool total_order_seek;
 
   // When true, by default use total_order_seek = true, and RocksDB can
   // selectively enable prefix seek mode if won't generate a different result
   // from total_order_seek, based on seek key, and iterator upper bound.
-  // Not suppported in ROCKSDB_LITE mode, in the way that even with value true
+  // Not supported in ROCKSDB_LITE mode, in the way that even with value true
   // prefix mode is not used.
+  // Default: false
   bool auto_prefix_mode;
 
   // Enforce that the iterator only iterates over the same prefix as the seek.
@@ -1336,10 +1407,12 @@ struct ReadOptions {
   // only the most recent version visible to timestamp is returned.
   // The user-specified timestamp feature is still under active development,
   // and the API is subject to change.
+  // Default: nullptr
   const Slice* timestamp;
   const Slice* iter_start_ts;
 
-  // Deadline for completing the read request (only Get/MultiGet for now) in us.
+  // Deadline for completing an API call (Get/MultiGet/Seek/Next for now)
+  // in microseconds.
   // It should be set to microseconds since epoch, i.e, gettimeofday or
   // equivalent plus allowed duration in microseconds. The best way is to use
   // env->NowMicros() + some timeout.
@@ -1348,6 +1421,12 @@ struct ReadOptions {
   // checking for deadline periodically rather than for every key if
   // processing a batch
   std::chrono::microseconds deadline;
+
+  // A timeout in microseconds to be passed to the underlying FileSystem for
+  // reads. As opposed to deadline, this determines the timeout for each
+  // individual file read request. If a MultiGet/Get/Seek/Next etc call
+  // results in multiple reads, each read can last up to io_timeout us.
+  std::chrono::microseconds io_timeout;
 
   // It limits the maximum cumulative value size of the keys in batch while
   // reading through MultiGet. Once the cumulative value size exceeds this
@@ -1400,7 +1479,7 @@ struct WriteOptions {
   bool no_slowdown;
 
   // If true, this write request is of lower priority if compaction is
-  // behind. In this case, no_slowdown = true, the request will be cancelled
+  // behind. In this case, no_slowdown = true, the request will be canceled
   // immediately with Status::Incomplete() returned. Otherwise, it will be
   // slowed down. The slowdown value is determined by RocksDB to guarantee
   // it introduces minimum impacts to high priority writes.
@@ -1515,6 +1594,9 @@ struct CompactRangeOptions {
   bool allow_write_stall = false;
   // If > 0, it will replace the option in the DBOptions for this compaction.
   uint32_t max_subcompactions = 0;
+  // Set user-defined timestamp low bound, the data with older timestamp than
+  // low bound maybe GCed by compaction. Default: nullptr
+  Slice* full_history_ts_low = nullptr;
 };
 
 // IngestExternalFileOptions is used by IngestExternalFile()
@@ -1534,7 +1616,7 @@ struct IngestExternalFileOptions {
   bool allow_blocking_flush = true;
   // Set to true if you would like duplicate keys in the file being ingested
   // to be skipped rather than overwriting existing data under that key.
-  // Usecase: back-fill of some historical data in the database without
+  // Use case: back-fill of some historical data in the database without
   // over-writing existing newer version of data.
   // This option could only be used if the DB has been running
   // with allow_ingest_behind=true since the dawn of time.
@@ -1574,7 +1656,7 @@ struct IngestExternalFileOptions {
   // will be ignored; 2) If DB enable the checksum function, we calculate the
   // sst file checksum after the file is moved or copied and compare the
   // checksum and checksum name. If checksum or checksum function name does
-  // not match, ingestion will be failed. If the verification is sucessful,
+  // not match, ingestion will be failed. If the verification is successful,
   // checksum and checksum function name will be stored in Manifest.
   // If this option is set to FALSE, 1) if DB does not enable checksum,
   // the ingested checksum information will be ignored; 2) if DB enable the

@@ -61,7 +61,7 @@ InternalIteratorBase<IndexValue>* BinarySearchIndexReader::NewIterator(
   // We don't return pinned data from index blocks, so no need
   // to set `block_contents_pinned`.
   auto it = index_block.GetValue()->NewIndexIterator(
-      internal_comparator(), internal_comparator()->user_comparator(),
+      internal_comparator()->user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), iter, kNullStats, true,
       index_has_first_key(), index_key_includes_seq(), index_value_is_full());
 

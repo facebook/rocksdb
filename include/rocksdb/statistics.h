@@ -117,7 +117,7 @@ enum Tickers : uint32_t {
   COMPACTION_RANGE_DEL_DROP_OBSOLETE,  // all keys in range were deleted.
   // Deletions obsoleted before bottom level due to file gap optimization.
   COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE,
-  // If a compaction was cancelled in sfm to prevent ENOSPC
+  // If a compaction was canceled in sfm to prevent ENOSPC
   COMPACTION_CANCELLED,
 
   // Number of keys written to the database via the Put and Write call's
@@ -183,7 +183,7 @@ enum Tickers : uint32_t {
   // over large number of keys with same userkey.
   NUMBER_OF_RESEEKS_IN_ITERATION,
 
-  // Record the number of calls to GetUpadtesSince. Useful to keep track of
+  // Record the number of calls to GetUpdatesSince. Useful to keep track of
   // transaction log iterator refreshes
   GET_UPDATES_SINCE_CALLS,
   BLOCK_CACHE_COMPRESSED_MISS,  // miss in the compressed block cache
@@ -204,6 +204,14 @@ enum Tickers : uint32_t {
   COMPACT_READ_BYTES,   // Bytes read during compaction
   COMPACT_WRITE_BYTES,  // Bytes written during compaction
   FLUSH_WRITE_BYTES,    // Bytes written during flush
+
+  // Compaction read and write statistics broken down by CompactionReason
+  COMPACT_READ_BYTES_MARKED,
+  COMPACT_READ_BYTES_PERIODIC,
+  COMPACT_READ_BYTES_TTL,
+  COMPACT_WRITE_BYTES_MARKED,
+  COMPACT_WRITE_BYTES_PERIODIC,
+  COMPACT_WRITE_BYTES_TTL,
 
   // Number of table's properties loaded directly from file, without creating
   // table reader object.
@@ -366,6 +374,15 @@ enum Tickers : uint32_t {
   // # of files deleted immediately by sst file manger through delete scheduler.
   FILES_DELETED_IMMEDIATELY,
 
+  // The counters for error handler, not that, bg_io_error is the subset of
+  // bg_error and bg_retryable_io_error is the subset of bg_io_error
+  ERROR_HANDLER_BG_ERROR_COUNT,
+  ERROR_HANDLER_BG_IO_ERROR_COUNT,
+  ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT,
+  ERROR_HANDLER_AUTORESUME_COUNT,
+  ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT,
+  ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT,
+
   TICKER_ENUM_MAX
 };
 
@@ -430,7 +447,7 @@ enum Histograms : uint32_t {
   BLOB_DB_VALUE_SIZE,
   // BlobDB Put/PutWithTTL/PutUntil/Write latency.
   BLOB_DB_WRITE_MICROS,
-  // BlobDB Get lagency.
+  // BlobDB Get latency.
   BLOB_DB_GET_MICROS,
   // BlobDB MultiGet latency.
   BLOB_DB_MULTIGET_MICROS,
@@ -456,6 +473,17 @@ enum Histograms : uint32_t {
   FLUSH_TIME,
   SST_BATCH_SIZE,
 
+  // MultiGet stats logged per level
+  // Num of index and filter blocks read from file system per level.
+  NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
+  // Num of data blocks read from file system per level.
+  NUM_DATA_BLOCKS_READ_PER_LEVEL,
+  // Num of sst files read from file system per level.
+  NUM_SST_READ_PER_LEVEL,
+
+  // Error handler statistics
+  ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
+
   HISTOGRAM_ENUM_MAX,
 };
 
@@ -480,6 +508,10 @@ struct HistogramData {
 // Usage:
 //   options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
 enum StatsLevel : uint8_t {
+  // Disable all metrics
+  kDisableAll,
+  // Disable tickers
+  kExceptTickers = kDisableAll,
   // Disable timer stats, and skip histogram stats
   kExceptHistogramOrTimers,
   // Skip timer stats

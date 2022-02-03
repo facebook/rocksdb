@@ -440,13 +440,12 @@ public class ReadOptions extends RocksObject {
    * @param iterateLowerBound Slice representing the upper bound
    * @return the reference to the current ReadOptions.
    */
-  public ReadOptions setIterateLowerBound(final Slice iterateLowerBound) {
+  public ReadOptions setIterateLowerBound(final AbstractSlice<?> iterateLowerBound) {
     assert(isOwningHandle());
-    if (iterateLowerBound != null) {
-      // Hold onto a reference so it doesn't get garbage collected out from under us.
-      iterateLowerBoundSlice_ = iterateLowerBound;
-      setIterateLowerBound(nativeHandle_, iterateLowerBoundSlice_.getNativeHandle());
-    }
+    setIterateLowerBound(
+        nativeHandle_, iterateLowerBound == null ? 0 : iterateLowerBound.getNativeHandle());
+    // Hold onto a reference so it doesn't get garbage collected out from under us.
+    iterateLowerBoundSlice_ = iterateLowerBound;
     return this;
   }
 
@@ -485,13 +484,12 @@ public class ReadOptions extends RocksObject {
    * @param iterateUpperBound Slice representing the upper bound
    * @return the reference to the current ReadOptions.
    */
-  public ReadOptions setIterateUpperBound(final Slice iterateUpperBound) {
+  public ReadOptions setIterateUpperBound(final AbstractSlice<?> iterateUpperBound) {
     assert(isOwningHandle());
-    if (iterateUpperBound != null) {
-      // Hold onto a reference so it doesn't get garbage collected out from under us.
-      iterateUpperBoundSlice_ = iterateUpperBound;
-      setIterateUpperBound(nativeHandle_, iterateUpperBoundSlice_.getNativeHandle());
-    }
+    setIterateUpperBound(
+        nativeHandle_, iterateUpperBound == null ? 0 : iterateUpperBound.getNativeHandle());
+    // Hold onto a reference so it doesn't get garbage collected out from under us.
+    iterateUpperBoundSlice_ = iterateUpperBound;
     return this;
   }
 
@@ -570,8 +568,8 @@ public class ReadOptions extends RocksObject {
   // freely leave scope without us losing the Java Slice object, which during
   // close() would also reap its associated rocksdb::Slice native object since
   // it's possibly (likely) to be an owning handle.
-  private Slice iterateLowerBoundSlice_;
-  private Slice iterateUpperBoundSlice_;
+  private AbstractSlice<?> iterateLowerBoundSlice_;
+  private AbstractSlice<?> iterateUpperBoundSlice_;
 
   private native static long newReadOptions();
   private native static long newReadOptions(final boolean verifyChecksums,

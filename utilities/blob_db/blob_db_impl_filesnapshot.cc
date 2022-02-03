@@ -98,6 +98,9 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
     // Path should be relative to db_name, but begin with slash.
     filemetadata.name = BlobFileName("", bdb_options_.blob_dir, file_number);
     filemetadata.file_number = file_number;
+    if (blob_file->HasTTL()) {
+      filemetadata.oldest_ancester_time = blob_file->GetExpirationRange().first;
+    }
     auto cfh =
         static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily());
     filemetadata.column_family_name = cfh->GetName();

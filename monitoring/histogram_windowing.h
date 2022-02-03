@@ -10,9 +10,9 @@
 #pragma once
 
 #include "monitoring/histogram.h"
-#include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
+class SystemClock;
 
 class HistogramWindowingImpl : public Histogram
 {
@@ -44,7 +44,13 @@ public:
   virtual double StandardDeviation() const override;
   virtual void Data(HistogramData* const data) const override;
 
-private:
+#ifndef NDEBUG
+  void TEST_UpdateClock(const std::shared_ptr<SystemClock>& clock) {
+    clock_ = clock;
+  }
+#endif  // NDEBUG
+
+ private:
   void TimerTick();
   void SwapHistoryBucket();
   inline uint64_t current_window() const {
@@ -54,7 +60,7 @@ private:
     return last_swap_time_.load(std::memory_order_relaxed);
   }
 
-  Env* env_;
+  std::shared_ptr<SystemClock> clock_;
   std::mutex mutex_;
 
   // Aggregated stats over windows_stats_, all the computation is done

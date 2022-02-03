@@ -43,12 +43,12 @@ class TruncatedRangeDelIterator {
 
   void InternalNext();
 
-  // Seeks to the tombstone with the highest viisble sequence number that covers
+  // Seeks to the tombstone with the highest visible sequence number that covers
   // target (a user key). If no such tombstone exists, the position will be at
   // the earliest tombstone that ends after target.
   void Seek(const Slice& target);
 
-  // Seeks to the tombstone with the highest viisble sequence number that covers
+  // Seeks to the tombstone with the highest visible sequence number that covers
   // target (a user key). If no such tombstone exists, the position will be at
   // the latest tombstone that starts before target.
   void SeekForPrev(const Slice& target);
@@ -283,9 +283,14 @@ class RangeDelAggregator {
 
   bool ShouldDelete(const Slice& key, RangeDelPositioningMode mode) {
     ParsedInternalKey parsed;
-    if (!ParseInternalKey(key, &parsed)) {
+
+    Status pik_status =
+        ParseInternalKey(key, &parsed, false /* log_err_key */);  // TODO
+    assert(pik_status.ok());
+    if (!pik_status.ok()) {
       return false;
     }
+
     return ShouldDelete(parsed, mode);
   }
   virtual bool ShouldDelete(const ParsedInternalKey& parsed,

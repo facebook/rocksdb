@@ -100,13 +100,13 @@ TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
     options.compaction_filter = new DestroyAllCompactionFilter();
     ASSERT_OK(DB::Open(options, dbname_, &db));
 
-    db->Put(WriteOptions(), Slice("key1"), Slice("destroy"));
-    db->Put(WriteOptions(), Slice("key2"), Slice("destroy"));
-    db->Put(WriteOptions(), Slice("key3"), Slice("value3"));
-    db->Put(WriteOptions(), Slice("key4"), Slice("destroy"));
+    ASSERT_OK(db->Put(WriteOptions(), Slice("key1"), Slice("destroy")));
+    ASSERT_OK(db->Put(WriteOptions(), Slice("key2"), Slice("destroy")));
+    ASSERT_OK(db->Put(WriteOptions(), Slice("key3"), Slice("value3")));
+    ASSERT_OK(db->Put(WriteOptions(), Slice("key4"), Slice("destroy")));
 
     Slice key4("key4");
-    db->CompactRange(CompactRangeOptions(), nullptr, &key4);
+    ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, &key4));
     Iterator* itr = db->NewIterator(ReadOptions());
     itr->SeekToFirst();
     ASSERT_TRUE(itr->Valid());
@@ -135,21 +135,21 @@ TEST_F(ManualCompactionTest, Test) {
   // create first key range
   WriteBatch batch;
   for (int i = 0; i < kNumKeys; i++) {
-    batch.Put(Key1(i), "value for range 1 key");
+    ASSERT_OK(batch.Put(Key1(i), "value for range 1 key"));
   }
   ASSERT_OK(db->Write(WriteOptions(), &batch));
 
   // create second key range
   batch.Clear();
   for (int i = 0; i < kNumKeys; i++) {
-    batch.Put(Key2(i), "value for range 2 key");
+    ASSERT_OK(batch.Put(Key2(i), "value for range 2 key"));
   }
   ASSERT_OK(db->Write(WriteOptions(), &batch));
 
   // delete second key range
   batch.Clear();
   for (int i = 0; i < kNumKeys; i++) {
-    batch.Delete(Key2(i));
+    ASSERT_OK(batch.Delete(Key2(i)));
   }
   ASSERT_OK(db->Write(WriteOptions(), &batch));
 
@@ -160,7 +160,7 @@ TEST_F(ManualCompactionTest, Test) {
   Slice greatest(end_key.data(), end_key.size());
 
   // commenting out the line below causes the example to work correctly
-  db->CompactRange(CompactRangeOptions(), &least, &greatest);
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), &least, &greatest));
 
   // count the keys
   Iterator* iter = db->NewIterator(ReadOptions());
@@ -205,7 +205,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     Slice start("5");
     Slice end("7");
     filter->Reset();
-    db->CompactRange(CompactRangeOptions(), &start, &end);
+    ASSERT_OK(db->CompactRange(CompactRangeOptions(), &start, &end));
     ASSERT_EQ(0, filter->NumKeys());
   }
 
@@ -215,7 +215,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     Slice start("3");
     Slice end("7");
     filter->Reset();
-    db->CompactRange(CompactRangeOptions(), &start, &end);
+    ASSERT_OK(db->CompactRange(CompactRangeOptions(), &start, &end));
     ASSERT_EQ(2, filter->NumKeys());
     ASSERT_EQ(0, filter->KeyLevel("4"));
     ASSERT_EQ(0, filter->KeyLevel("8"));
@@ -227,7 +227,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     // no file has keys in range (-inf, 0]
     Slice end("0");
     filter->Reset();
-    db->CompactRange(CompactRangeOptions(), nullptr, &end);
+    ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, &end));
     ASSERT_EQ(0, filter->NumKeys());
   }
 
@@ -237,7 +237,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     // no file has keys in range [9, inf)
     Slice start("9");
     filter->Reset();
-    db->CompactRange(CompactRangeOptions(), &start, nullptr);
+    ASSERT_OK(db->CompactRange(CompactRangeOptions(), &start, nullptr));
     ASSERT_EQ(0, filter->NumKeys());
   }
 
@@ -248,7 +248,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     Slice start("2");
     Slice end("2");
     filter->Reset();
-    db->CompactRange(CompactRangeOptions(), &start, &end);
+    ASSERT_OK(db->CompactRange(CompactRangeOptions(), &start, &end));
     ASSERT_EQ(1, filter->NumKeys());
     ASSERT_EQ(0, filter->KeyLevel("2"));
   }
@@ -260,7 +260,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     Slice start("2");
     Slice end("5");
     filter->Reset();
-    db->CompactRange(CompactRangeOptions(), &start, &end);
+    ASSERT_OK(db->CompactRange(CompactRangeOptions(), &start, &end));
     ASSERT_EQ(3, filter->NumKeys());
     ASSERT_EQ(1, filter->KeyLevel("2"));
     ASSERT_EQ(1, filter->KeyLevel("4"));
@@ -273,7 +273,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     // [0, inf) overlaps all files
     Slice start("0");
     filter->Reset();
-    db->CompactRange(CompactRangeOptions(), &start, nullptr);
+    ASSERT_OK(db->CompactRange(CompactRangeOptions(), &start, nullptr));
     ASSERT_EQ(4, filter->NumKeys());
     // 1 is first compacted to L1 and then further compacted into [2, 4, 8],
     // so finally the logged level for 1 is L1.

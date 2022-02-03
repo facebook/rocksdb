@@ -14,6 +14,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/system_clock.h"
 #include "table/format.h"
 #include "table/internal_iterator.h"
 
@@ -28,6 +29,7 @@ MergeHelper::MergeHelper(Env* env, const Comparator* user_comparator,
                          Statistics* stats,
                          const std::atomic<bool>* shutting_down)
     : env_(env),
+      clock_(env->GetSystemClock().get()),
       user_comparator_(user_comparator),
       user_merge_operator_(user_merge_operator),
       compaction_filter_(compaction_filter),
@@ -39,7 +41,7 @@ MergeHelper::MergeHelper(Env* env, const Comparator* user_comparator,
       snapshot_checker_(snapshot_checker),
       level_(level),
       keys_(),
-      filter_timer_(env_),
+      filter_timer_(clock_),
       total_filter_time_(0U),
       stats_(stats) {
   assert(user_comparator_ != nullptr);
@@ -52,7 +54,7 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
                                    const Slice& key, const Slice* value,
                                    const std::vector<Slice>& operands,
                                    std::string* result, Logger* logger,
-                                   Statistics* statistics, Env* env,
+                                   Statistics* statistics, SystemClock* clock,
                                    Slice* result_operand,
                                    bool update_num_ops_stats) {
   assert(merge_operator != nullptr);
@@ -75,7 +77,7 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
   MergeOperator::MergeOperationOutput merge_out(*result, tmp_result_operand);
   {
     // Setup to time the merge
-    StopWatchNano timer(env, statistics != nullptr);
+    StopWatchNano timer(clock, statistics != nullptr);
     PERF_TIMER_GUARD(merge_operator_time_nanos);
 
     // Do the merge
@@ -116,7 +118,8 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
 Status MergeHelper::MergeUntil(InternalIterator* iter,
                                CompactionRangeDelAggregator* range_del_agg,
                                const SequenceNumber stop_before,
-                               const bool at_bottom) {
+                               const bool at_bottom,
+                               const bool allow_data_in_errors) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
   assert(HasOperator());
@@ -138,27 +141,27 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   // orig_ikey is backed by original_key if keys_.empty()
   // orig_ikey is backed by keys_.back() if !keys_.empty()
   ParsedInternalKey orig_ikey;
-  bool succ = ParseInternalKey(original_key, &orig_ikey);
-  assert(succ);
-  if (!succ) {
-    return Status::Corruption("Cannot parse key in MergeUntil");
-  }
 
-  Status s;
+  Status s = ParseInternalKey(original_key, &orig_ikey, allow_data_in_errors);
+  assert(s.ok());
+  if (!s.ok()) return s;
+
   bool hit_the_next_user_key = false;
   for (; iter->Valid(); iter->Next(), original_key_is_iter = false) {
     if (IsShuttingDown()) {
-      return Status::ShutdownInProgress();
+      s = Status::ShutdownInProgress();
+      return s;
     }
 
     ParsedInternalKey ikey;
     assert(keys_.size() == merge_context_.GetNumOperands());
 
-    if (!ParseInternalKey(iter->key(), &ikey)) {
+    Status pik_status =
+        ParseInternalKey(iter->key(), &ikey, allow_data_in_errors);
+    if (!pik_status.ok()) {
       // stop at corrupted key
       if (assert_valid_internal_key_) {
-        assert(!"Corrupted internal key not expected.");
-        return Status::Corruption("Corrupted internal key not expected.");
+        return pik_status;
       }
       break;
     } else if (first_key) {
@@ -182,7 +185,6 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
 
     assert(IsValueType(ikey.type));
     if (ikey.type != kTypeMerge) {
-
       // hit a put/delete/single delete
       //   => merge the put value or a nullptr with operands_
       //   => store result in operands_.back() (and update keys_.back())
@@ -193,7 +195,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // the compaction iterator to write out the key we're currently at, which
       // is the put/delete we just encountered.
       if (keys_.empty()) {
-        return Status::OK();
+        return s;
       }
 
       // TODO(noetzli) If the merge operator returns false, we are currently
@@ -213,7 +215,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       std::string merge_result;
       s = TimedFullMerge(user_merge_operator_, ikey.user_key, val_ptr,
                          merge_context_.GetOperands(), &merge_result, logger_,
-                         stats_, env_);
+                         stats_, clock_);
 
       // We store the result in keys_.back() and operands_.back()
       // if nothing went wrong (i.e.: no operand corruption on disk)
@@ -268,7 +270,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         if (keys_.size() == 1) {
           // we need to re-anchor the orig_ikey because it was anchored by
           // original_key before
-          ParseInternalKey(keys_.back(), &orig_ikey);
+          pik_status =
+              ParseInternalKey(keys_.back(), &orig_ikey, allow_data_in_errors);
+          pik_status.PermitUncheckedError();
+          assert(pik_status.ok());
         }
         if (filter == CompactionFilter::Decision::kKeep) {
           merge_context_.PushOperand(
@@ -284,14 +289,14 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         keys_.clear();
         merge_context_.Clear();
         has_compaction_filter_skip_until_ = true;
-        return Status::OK();
+        return s;
       }
     }
   }
 
   if (merge_context_.GetNumOperands() == 0) {
     // we filtered out all the merge operands
-    return Status::OK();
+    return s;
   }
 
   // We are sure we have seen this key's entire history if:
@@ -321,7 +326,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     std::string merge_result;
     s = TimedFullMerge(user_merge_operator_, orig_ikey.user_key, nullptr,
                        merge_context_.GetOperands(), &merge_result, logger_,
-                       stats_, env_);
+                       stats_, clock_);
     if (s.ok()) {
       // The original key encountered
       // We are certain that keys_ is not empty here (see assertions couple of
@@ -344,7 +349,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       bool merge_success = false;
       std::string merge_result;
       {
-        StopWatchNano timer(env_, stats_ != nullptr);
+        StopWatchNano timer(clock_, stats_ != nullptr);
         PERF_TIMER_GUARD(merge_operator_time_nanos);
         merge_success = user_merge_operator_->PartialMergeMulti(
             orig_ikey.user_key,
@@ -410,7 +415,9 @@ CompactionFilter::Decision MergeHelper::FilterMerge(const Slice& user_key,
                                                        kValueTypeForSeek);
     }
   }
-  total_filter_time_ += filter_timer_.ElapsedNanosSafe();
+  if (stats_ != nullptr && ShouldReportDetailedTime(env_, stats_)) {
+    total_filter_time_ += filter_timer_.ElapsedNanosSafe();
+  }
   return ret;
 }
 

@@ -139,11 +139,9 @@ CompressionOptions GetCompressionOptions(const MutableCFOptions& cf_options,
   if (!enable_compression) {
     return cf_options.compression_opts;
   }
-  // If bottommost_compression is set and we are compacting to the
-  // bottommost level then we should use the specified compression options
-  // for the bottmomost_compression.
-  if (cf_options.bottommost_compression != kDisableCompressionOption &&
-      level >= (vstorage->num_non_empty_levels() - 1) &&
+  // If bottommost_compression_opts is enabled and we are compacting to the
+  // bottommost level then we should use the specified compression options.
+  if (level >= (vstorage->num_non_empty_levels() - 1) &&
       cf_options.bottommost_compression_opts.enabled) {
     return cf_options.bottommost_compression_opts;
   }
@@ -332,7 +330,7 @@ Compaction* CompactionPicker::CompactFiles(
     const CompactionOptions& compact_options,
     const std::vector<CompactionInputFiles>& input_files, int output_level,
     VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
-    uint32_t output_path_id) {
+    const MutableDBOptions& mutable_db_options, uint32_t output_path_id) {
   assert(input_files.size());
   // This compaction output should not overlap with a running compaction as
   // `SanitizeCompactionInputFiles` should've checked earlier and db mutex
@@ -356,8 +354,8 @@ Compaction* CompactionPicker::CompactFiles(
     compression_type = compact_options.compression;
   }
   auto c = new Compaction(
-      vstorage, ioptions_, mutable_cf_options, input_files, output_level,
-      compact_options.output_file_size_limit,
+      vstorage, ioptions_, mutable_cf_options, mutable_db_options, input_files,
+      output_level, compact_options.output_file_size_limit,
       mutable_cf_options.max_compaction_bytes, output_path_id, compression_type,
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
       compact_options.max_subcompactions,
@@ -563,7 +561,8 @@ void CompactionPicker::GetGrandparents(
 
 Compaction* CompactionPicker::CompactRange(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, int input_level, int output_level,
+    const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+    int input_level, int output_level,
     const CompactRangeOptions& compact_range_options, const InternalKey* begin,
     const InternalKey* end, InternalKey** compaction_end, bool* manual_conflict,
     uint64_t max_file_num_to_ignore) {
@@ -626,8 +625,8 @@ Compaction* CompactionPicker::CompactRange(
     }
 
     Compaction* c = new Compaction(
-        vstorage, ioptions_, mutable_cf_options, std::move(inputs),
-        output_level,
+        vstorage, ioptions_, mutable_cf_options, mutable_db_options,
+        std::move(inputs), output_level,
         MaxFileSizeForLevel(mutable_cf_options, output_level,
                             ioptions_.compaction_style),
         /* max_compaction_bytes */ LLONG_MAX,
@@ -638,6 +637,7 @@ Compaction* CompactionPicker::CompactRange(
         compact_range_options.max_subcompactions, /* grandparents */ {},
         /* is manual */ true);
     RegisterCompaction(c);
+    vstorage->ComputeCompactionScore(ioptions_, mutable_cf_options);
     return c;
   }
 
@@ -778,8 +778,8 @@ Compaction* CompactionPicker::CompactRange(
   std::vector<FileMetaData*> grandparents;
   GetGrandparents(vstorage, inputs, output_level_inputs, &grandparents);
   Compaction* compaction = new Compaction(
-      vstorage, ioptions_, mutable_cf_options, std::move(compaction_inputs),
-      output_level,
+      vstorage, ioptions_, mutable_cf_options, mutable_db_options,
+      std::move(compaction_inputs), output_level,
       MaxFileSizeForLevel(mutable_cf_options, output_level,
                           ioptions_.compaction_style, vstorage->base_level(),
                           ioptions_.level_compaction_dynamic_level_bytes),
@@ -1004,6 +1004,7 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
   // any currently-existing files.
   for (auto file_num : *input_files) {
     bool found = false;
+    int input_file_level = -1;
     for (const auto& level_meta : cf_meta.levels) {
       for (const auto& file_meta : level_meta.files) {
         if (file_num == TableFileNameToNumber(file_meta.name)) {
@@ -1013,6 +1014,7 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
                                    " is already being compacted.");
           }
           found = true;
+          input_file_level = level_meta.level;
           break;
         }
       }
@@ -1024,6 +1026,13 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
       return Status::InvalidArgument(
           "Specified compaction input file " + MakeTableFileName("", file_num) +
           " does not exist in column family " + cf_meta.name + ".");
+    }
+    if (input_file_level > output_level) {
+      return Status::InvalidArgument(
+          "Cannot compact file to up level, input file: " +
+          MakeTableFileName("", file_num) + " level " +
+          ToString(input_file_level) + " > output level " +
+          ToString(output_level));
     }
   }
 
@@ -1043,6 +1052,8 @@ void CompactionPicker::RegisterCompaction(Compaction* c) {
     level0_compactions_in_progress_.insert(c);
   }
   compactions_in_progress_.insert(c);
+  TEST_SYNC_POINT_CALLBACK("CompactionPicker::RegisterCompaction:Registered",
+                           c);
 }
 
 void CompactionPicker::UnregisterCompaction(Compaction* c) {

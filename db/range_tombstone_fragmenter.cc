@@ -6,11 +6,10 @@
 #include "db/range_tombstone_fragmenter.h"
 
 #include <algorithm>
+#include <cinttypes>
+#include <cstdio>
 #include <functional>
 #include <set>
-
-#include <stdio.h>
-#include <cinttypes>
 
 #include "util/autovector.h"
 #include "util/kv_map.h"

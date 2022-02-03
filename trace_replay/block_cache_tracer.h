@@ -9,13 +9,14 @@
 #include <fstream>
 
 #include "monitoring/instrumented_mutex.h"
-#include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "table/table_reader_caller.h"
 #include "trace_replay/trace_replay.h"
 
 namespace ROCKSDB_NAMESPACE {
+class Env;
+class SystemClock;
 
 extern const uint64_t kMicrosInSecond;
 extern const uint64_t kSecondInMinute;
@@ -172,7 +173,7 @@ struct BlockCacheTraceHeader {
 // payload.
 class BlockCacheTraceWriter {
  public:
-  BlockCacheTraceWriter(Env* env, const TraceOptions& trace_options,
+  BlockCacheTraceWriter(SystemClock* clock, const TraceOptions& trace_options,
                         std::unique_ptr<TraceWriter>&& trace_writer);
   ~BlockCacheTraceWriter() = default;
   // No copy and move.
@@ -191,7 +192,7 @@ class BlockCacheTraceWriter {
   Status WriteHeader();
 
  private:
-  Env* env_;
+  SystemClock* clock_;
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
 };
@@ -266,7 +267,7 @@ class BlockCacheTracer {
   BlockCacheTracer& operator=(BlockCacheTracer&&) = delete;
 
   // Start writing block cache accesses to the trace_writer.
-  Status StartTrace(Env* env, const TraceOptions& trace_options,
+  Status StartTrace(SystemClock* clock, const TraceOptions& trace_options,
                     std::unique_ptr<TraceWriter>&& trace_writer);
 
   // Stop writing block cache accesses to the trace_writer.

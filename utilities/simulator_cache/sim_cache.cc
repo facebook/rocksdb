@@ -4,12 +4,14 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "rocksdb/utilities/sim_cache.h"
+
 #include <atomic>
-#include "env/composite_env_wrapper.h"
+
 #include "file/writable_file_writer.h"
 #include "monitoring/statistics.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 
@@ -26,6 +28,7 @@ class CacheActivityLogger {
     MutexLock l(&mutex_);
 
     StopLoggingInternal();
+    bg_status_.PermitUncheckedError();
   }
 
   Status StartLogging(const std::string& activity_log_file, Env* env,
@@ -34,8 +37,7 @@ class CacheActivityLogger {
     assert(env != nullptr);
 
     Status status;
-    EnvOptions env_opts;
-    std::unique_ptr<WritableFile> log_file;
+    FileOptions file_opts;
 
     MutexLock l(&mutex_);
 
@@ -43,13 +45,11 @@ class CacheActivityLogger {
     StopLoggingInternal();
 
     // Open log file
-    status = env->NewWritableFile(activity_log_file, &log_file, env_opts);
+    status = WritableFileWriter::Create(env->GetFileSystem(), activity_log_file,
+                                        file_opts, &file_writer_, nullptr);
     if (!status.ok()) {
       return status;
     }
-    file_writer_.reset(new WritableFileWriter(
-        NewLegacyWritableFileWrapper(std::move(log_file)), activity_log_file,
-        env_opts));
 
     max_logging_size_ = max_logging_size;
     activity_logging_enabled_.store(true);
@@ -177,9 +177,11 @@ class SimCacheImpl : public SimCache {
     // *Lambda function without capture can be assgined to a function pointer
     Handle* h = key_only_cache_->Lookup(key);
     if (h == nullptr) {
-      key_only_cache_->Insert(key, nullptr, charge,
-                              [](const Slice& /*k*/, void* /*v*/) {}, nullptr,
-                              priority);
+      // TODO: Check for error here?
+      auto s = key_only_cache_->Insert(
+          key, nullptr, charge, [](const Slice& /*k*/, void* /*v*/) {}, nullptr,
+          priority);
+      s.PermitUncheckedError();
     } else {
       key_only_cache_->Release(h);
     }

@@ -20,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 
 // The file contains two classes PlainTableIndex and PlainTableIndexBuilder
 // The two classes implement the index format of PlainTable.
-// For descripton of PlainTable format, see comments of class
+// For description of PlainTable format, see comments of class
 // PlainTableFactory
 //
 //

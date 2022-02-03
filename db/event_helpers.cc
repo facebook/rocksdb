@@ -51,6 +51,7 @@ void EventHelpers::NotifyOnBackgroundError(
   db_mutex->Unlock();
   for (auto& listener : listeners) {
     listener->OnBackgroundError(reason, bg_error);
+    bg_error->PermitUncheckedError();
     if (*auto_recovery) {
       listener->OnErrorRecoveryBegin(reason, *bg_error, auto_recovery);
     }
@@ -71,14 +72,17 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
     const std::string& db_name, const std::string& cf_name,
     const std::string& file_path, int job_id, const FileDescriptor& fd,
     uint64_t oldest_blob_file_number, const TableProperties& table_properties,
-    TableFileCreationReason reason, const Status& s) {
+    TableFileCreationReason reason, const Status& s,
+    const std::string& file_checksum,
+    const std::string& file_checksum_func_name) {
   if (s.ok() && event_logger) {
     JSONWriter jwriter;
     AppendCurrentTime(&jwriter);
     jwriter << "cf_name" << cf_name << "job" << job_id << "event"
             << "table_file_creation"
             << "file_number" << fd.GetNumber() << "file_size"
-            << fd.GetFileSize();
+            << fd.GetFileSize() << "file_checksum" << file_checksum
+            << "file_checksum_func_name" << file_checksum_func_name;
 
     // table_properties
     {
@@ -121,8 +125,12 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << table_properties.compression_options << "creation_time"
               << table_properties.creation_time << "oldest_key_time"
               << table_properties.oldest_key_time << "file_creation_time"
-              << table_properties.file_creation_time << "db_id"
-              << table_properties.db_id << "db_session_id"
+              << table_properties.file_creation_time
+              << "slow_compression_estimated_data_size"
+              << table_properties.slow_compression_estimated_data_size
+              << "fast_compression_estimated_data_size"
+              << table_properties.fast_compression_estimated_data_size
+              << "db_id" << table_properties.db_id << "db_session_id"
               << table_properties.db_session_id;
 
       // user collected properties
@@ -154,9 +162,12 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
   info.table_properties = table_properties;
   info.reason = reason;
   info.status = s;
+  info.file_checksum = file_checksum;
+  info.file_checksum_func_name = file_checksum_func_name;
   for (auto& listener : listeners) {
     listener->OnTableFileCreated(info);
   }
+  info.status.PermitUncheckedError();
 #else
   (void)listeners;
   (void)db_name;
@@ -194,6 +205,7 @@ void EventHelpers::LogAndNotifyTableFileDeletion(
   for (auto& listener : listeners) {
     listener->OnTableFileDeleted(info);
   }
+  info.status.PermitUncheckedError();
 #else
   (void)file_path;
   (void)dbname;
@@ -205,16 +217,16 @@ void EventHelpers::NotifyOnErrorRecoveryCompleted(
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     Status old_bg_error, InstrumentedMutex* db_mutex) {
 #ifndef ROCKSDB_LITE
-  if (listeners.size() == 0U) {
-    return;
+  if (listeners.size() > 0) {
+    db_mutex->AssertHeld();
+    // release lock while notifying events
+    db_mutex->Unlock();
+    for (auto& listener : listeners) {
+      listener->OnErrorRecoveryCompleted(old_bg_error);
+    }
+    db_mutex->Lock();
   }
-  db_mutex->AssertHeld();
-  // release lock while notifying events
-  db_mutex->Unlock();
-  for (auto& listener : listeners) {
-    listener->OnErrorRecoveryCompleted(old_bg_error);
-  }
-  db_mutex->Lock();
+  old_bg_error.PermitUncheckedError();
 #else
   (void)listeners;
   (void)old_bg_error;

@@ -12,6 +12,7 @@
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
+#include "db/periodic_work_scheduler.h"
 #include "monitoring/thread_status_updater.h"
 #include "util/cast_util.h"
 
@@ -21,12 +22,13 @@ uint64_t DBImpl::TEST_GetLevel0TotalSize() {
   return default_cf_handle_->cfd()->current()->storage_info()->NumLevelBytes(0);
 }
 
-void DBImpl::TEST_SwitchWAL() {
+Status DBImpl::TEST_SwitchWAL() {
   WriteContext write_context;
   InstrumentedMutexLock l(&mutex_);
   void* writer = TEST_BeginWrite();
-  SwitchWAL(&write_context);
+  auto s = SwitchWAL(&write_context);
   TEST_EndWrite(writer);
+  return s;
 }
 
 bool DBImpl::TEST_WALBufferIsEmpty(bool lock) {
@@ -169,9 +171,14 @@ Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
   while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
           bg_flush_scheduled_ ||
           (wait_unscheduled && unscheduled_compactions_)) &&
-         (error_handler_.GetBGError() == Status::OK())) {
+         (error_handler_.GetBGError().ok())) {
     bg_cv_.Wait();
   }
+  return error_handler_.GetBGError();
+}
+
+Status DBImpl::TEST_GetBGError() {
+  InstrumentedMutexLock l(&mutex_);
   return error_handler_.GetBGError();
 }
 
@@ -271,21 +278,18 @@ size_t DBImpl::TEST_GetWalPreallocateBlockSize(
   return GetWalPreallocateBlockSize(write_buffer_size);
 }
 
-void DBImpl::TEST_WaitForDumpStatsRun(std::function<void()> callback) const {
-  if (thread_dump_stats_ != nullptr) {
-    thread_dump_stats_->TEST_WaitForRun(callback);
+#ifndef ROCKSDB_LITE
+void DBImpl::TEST_WaitForStatsDumpRun(std::function<void()> callback) const {
+  if (periodic_work_scheduler_ != nullptr) {
+    static_cast<PeriodicWorkTestScheduler*>(periodic_work_scheduler_)
+        ->TEST_WaitForRun(callback);
   }
 }
 
-void DBImpl::TEST_WaitForPersistStatsRun(std::function<void()> callback) const {
-  if (thread_persist_stats_ != nullptr) {
-    thread_persist_stats_->TEST_WaitForRun(callback);
-  }
+PeriodicWorkTestScheduler* DBImpl::TEST_GetPeriodicWorkScheduler() const {
+  return static_cast<PeriodicWorkTestScheduler*>(periodic_work_scheduler_);
 }
-
-bool DBImpl::TEST_IsPersistentStatsEnabled() const {
-  return thread_persist_stats_ && thread_persist_stats_->IsRunning();
-}
+#endif  // !ROCKSDB_LITE
 
 size_t DBImpl::TEST_EstimateInMemoryStatsHistorySize() const {
   return EstimateInMemoryStatsHistorySize();

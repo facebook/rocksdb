@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "db/table_properties_collector.h"
+
 #include <map>
 #include <memory>
 #include <string>
@@ -11,11 +13,10 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
-#include "db/table_properties_collector.h"
-#include "env/composite_env_wrapper.h"
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
+#include "rocksdb/flush_block_policy.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/meta_blocks.h"
@@ -47,16 +48,14 @@ void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
                      int_tbl_prop_collector_factories,
                  std::unique_ptr<WritableFileWriter>* writable,
                  std::unique_ptr<TableBuilder>* builder) {
-  std::unique_ptr<WritableFile> wf(new test::StringSink);
+  std::unique_ptr<FSWritableFile> wf(new test::StringSink);
   writable->reset(
-      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
-                             "" /* don't care */, EnvOptions()));
+      new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
   int unknown_level = -1;
   builder->reset(NewTableBuilder(
       ioptions, moptions, internal_comparator, int_tbl_prop_collector_factories,
       kTestColumnFamilyId, kTestColumnFamilyName, writable->get(),
-      options.compression, options.sample_for_compression,
-      options.compression_opts, unknown_level));
+      options.compression, options.compression_opts, unknown_level));
 }
 }  // namespace
 
@@ -176,9 +175,9 @@ class RegularKeysStartWithAInternal : public IntTblPropCollector {
     return Status::OK();
   }
 
-  void BlockAdd(uint64_t /* blockRawBytes */,
-                uint64_t /* blockCompressedBytesFast */,
-                uint64_t /* blockCompressedBytesSlow */) override {
+  void BlockAdd(uint64_t /* block_raw_bytes */,
+                uint64_t /* block_compressed_bytes_fast */,
+                uint64_t /* block_compressed_bytes_slow */) override {
     // Nothing to do.
     return;
   }
@@ -284,12 +283,13 @@ void TestCustomizedTablePropertiesCollector(
   writer->Flush();
 
   // -- Step 2: Read properties
-  LegacyWritableFileWrapper* file =
-      static_cast<LegacyWritableFileWrapper*>(writer->writable_file());
-  test::StringSink* fwf = static_cast<test::StringSink*>(file->target());
+  test::StringSink* fwf =
+      static_cast<test::StringSink*>(writer->writable_file());
+  std::unique_ptr<FSRandomAccessFile> source(
+      new test::StringSource(fwf->contents()));
   std::unique_ptr<RandomAccessFileReader> fake_file_reader(
-      test::GetRandomAccessFileReader(
-          new test::StringSource(fwf->contents())));
+      new RandomAccessFileReader(std::move(source), "test"));
+
   TableProperties* props;
   Status s = ReadTableProperties(fake_file_reader.get(), fwf->contents().size(),
                                  magic_number, ioptions, &props,
@@ -425,12 +425,13 @@ void TestInternalKeyPropertiesCollector(
     ASSERT_OK(builder->Finish());
     writable->Flush();
 
-    LegacyWritableFileWrapper* file =
-        static_cast<LegacyWritableFileWrapper*>(writable->writable_file());
-    test::StringSink* fwf = static_cast<test::StringSink*>(file->target());
+    test::StringSink* fwf =
+        static_cast<test::StringSink*>(writable->writable_file());
+    std::unique_ptr<FSRandomAccessFile> source(
+        new test::StringSource(fwf->contents()));
     std::unique_ptr<RandomAccessFileReader> reader(
-        test::GetRandomAccessFileReader(
-            new test::StringSource(fwf->contents())));
+        new RandomAccessFileReader(std::move(source), "test"));
+
     TableProperties* props;
     Status s =
         ReadTableProperties(reader.get(), fwf->contents().size(), magic_number,

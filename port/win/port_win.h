@@ -283,7 +283,7 @@ extern const size_t kPageSize;
 #endif
 
 static inline void AsmVolatilePause() {
-#if defined(_M_IX86) || defined(_M_X64)
+#if defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM64) || defined(_M_ARM)
   YieldProcessor();
 #endif
   // it would be nice to get "wfe" on ARM here
@@ -388,7 +388,7 @@ extern void SetCpuPriority(ThreadId id, CpuPriority priority);
 #define RX_FindFirstFileEx FindFirstFileExA
 #define RX_CreateDirectory CreateDirectoryA
 #define RX_FindNextFile FindNextFileA
-#define RX_WIN32_FIND_DATA WIN32_FIND_DATA
+#define RX_WIN32_FIND_DATA WIN32_FIND_DATAA
 #define RX_CreateDirectory CreateDirectoryA
 #define RX_RemoveDirectory RemoveDirectoryA
 #define RX_GetFileAttributesEx GetFileAttributesExA

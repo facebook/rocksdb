@@ -9,9 +9,8 @@
 
 #include "cache/lru_cache.h"
 
-#include <assert.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <cassert>
+#include <cstdio>
 #include <string>
 
 #include "util/mutexlock.h"

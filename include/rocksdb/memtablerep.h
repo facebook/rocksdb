@@ -62,7 +62,7 @@ class MemTableRep {
     typedef ROCKSDB_NAMESPACE::Slice DecodedType;
 
     virtual DecodedType decode_key(const char* key) const {
-      // The format of key is frozen and can be terated as a part of the API
+      // The format of key is frozen and can be treated as a part of the API
       // contract. Refer to MemTable::Add for details.
       return GetLengthPrefixedSlice(key);
     }
@@ -120,7 +120,7 @@ class MemTableRep {
     return true;
   }
 
-  // Same as ::InsertWithHint, but allow concurrnet write
+  // Same as ::InsertWithHint, but allow concurrent write
   //
   // If hint points to nullptr, a new hint will be allocated on heap, otherwise
   // the hint will be updated to reflect the last insert location. The hint is

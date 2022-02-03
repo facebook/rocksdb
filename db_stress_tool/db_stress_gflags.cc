@@ -287,6 +287,24 @@ DEFINE_int64(cache_size, 2LL * KB * KB * KB,
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "True if indexes/filters should be cached in block cache.");
 
+DEFINE_int32(
+    top_level_index_pinning,
+    static_cast<int32_t>(ROCKSDB_NAMESPACE::PinningTier::kFallback),
+    "Type of pinning for top-level indexes into metadata partitions (see "
+    "`enum PinningTier` in table.h)");
+
+DEFINE_int32(
+    partition_pinning,
+    static_cast<int32_t>(ROCKSDB_NAMESPACE::PinningTier::kFallback),
+    "Type of pinning for metadata partitions (see `enum PinningTier` in "
+    "table.h)");
+
+DEFINE_int32(
+    unpartitioned_pinning,
+    static_cast<int32_t>(ROCKSDB_NAMESPACE::PinningTier::kFallback),
+    "Type of pinning for unpartitioned metadata blocks (see `enum PinningTier` "
+    "in table.h)");
+
 DEFINE_bool(use_clock_cache, false,
             "Replace default LRU block cache with clock cache.");
 
@@ -307,32 +325,67 @@ DEFINE_bool(enable_write_thread_adaptive_yield, true,
             "Use a yielding spin loop for brief writer thread waits.");
 
 #ifndef ROCKSDB_LITE
-// BlobDB Options
-DEFINE_bool(use_blob_db, false, "Use BlobDB.");
+// Options for StackableDB-based BlobDB
+DEFINE_bool(use_blob_db, false, "[Stacked BlobDB] Use BlobDB.");
 
-DEFINE_uint64(blob_db_min_blob_size,
-              ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().min_blob_size,
-              "Smallest blob to store in a file. Blobs smaller than this "
-              "will be inlined with the key in the LSM tree.");
+DEFINE_uint64(
+    blob_db_min_blob_size,
+    ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().min_blob_size,
+    "[Stacked BlobDB] Smallest blob to store in a file. Blobs "
+    "smaller than this will be inlined with the key in the LSM tree.");
 
-DEFINE_uint64(blob_db_bytes_per_sync,
-              ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().bytes_per_sync,
-              "Sync blob files once per every N bytes written.");
+DEFINE_uint64(
+    blob_db_bytes_per_sync,
+    ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().bytes_per_sync,
+    "[Stacked BlobDB] Sync blob files once per every N bytes written.");
 
 DEFINE_uint64(blob_db_file_size,
               ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().blob_file_size,
-              "Target size of each blob file.");
+              "[Stacked BlobDB] Target size of each blob file.");
 
 DEFINE_bool(
     blob_db_enable_gc,
     ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().enable_garbage_collection,
-    "Enable BlobDB garbage collection.");
+    "[Stacked BlobDB] Enable BlobDB garbage collection.");
 
 DEFINE_double(
     blob_db_gc_cutoff,
     ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().garbage_collection_cutoff,
-    "Cutoff ratio for BlobDB garbage collection.");
+    "[Stacked BlobDB] Cutoff ratio for BlobDB garbage collection.");
 #endif  // !ROCKSDB_LITE
+
+// Options for integrated BlobDB
+DEFINE_bool(allow_setting_blob_options_dynamically, false,
+            "[Integrated BlobDB] Allow setting blob options dynamically.");
+
+DEFINE_bool(
+    enable_blob_files,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().enable_blob_files,
+    "[Integrated BlobDB] Enable writing large values to separate blob files.");
+
+DEFINE_uint64(min_blob_size,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().min_blob_size,
+              "[Integrated BlobDB] The size of the smallest value to be stored "
+              "separately in a blob file.");
+
+DEFINE_uint64(blob_file_size,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().blob_file_size,
+              "[Integrated BlobDB] The size limit for blob files.");
+
+DEFINE_string(blob_compression_type, "none",
+              "[Integrated BlobDB] The compression algorithm to use for large "
+              "values stored in blob files.");
+
+DEFINE_bool(enable_blob_garbage_collection,
+            ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                .enable_blob_garbage_collection,
+            "[Integrated BlobDB] Enable blob garbage collection.");
+
+DEFINE_double(blob_garbage_collection_age_cutoff,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_garbage_collection_age_cutoff,
+              "[Integrated BlobDB] The cutoff in terms of blob file age for "
+              "garbage collection.");
 
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
@@ -356,6 +409,9 @@ DEFINE_double(bloom_bits, 10,
 DEFINE_bool(use_block_based_filter, false,
             "use block based filter"
             "instead of full filter for block based table");
+
+DEFINE_bool(use_ribbon_filter, false,
+            "Use Ribbon filter instead of Bloom filter");
 
 DEFINE_bool(partition_filters, false,
             "use partitioned filters "
@@ -479,6 +535,10 @@ DEFINE_int32(backup_one_in, 0,
              "every N operations on average.  0 indicates CreateNewBackup() "
              "is disabled.");
 
+DEFINE_uint64(backup_max_size, 100 * 1024 * 1024,
+              "If non-zero, skip checking backup/restore when DB size in "
+              "bytes exceeds this setting.");
+
 DEFINE_int32(checkpoint_one_in, 0,
              "If non-zero, then CreateCheckpoint() will be called once for "
              "every N operations on average.  0 indicates CreateCheckpoint() "
@@ -499,6 +559,12 @@ DEFINE_int32(compact_files_one_in, 0,
 DEFINE_int32(compact_range_one_in, 0,
              "If non-zero, then CompactRange() will be called once for every N "
              "operations on average.  0 indicates CompactRange() is disabled.");
+
+DEFINE_int32(mark_for_compaction_one_file_in, 0,
+             "A `TablePropertiesCollectorFactory` will be registered, which "
+             "creates a `TablePropertiesCollector` with `NeedCompact()` "
+             "returning true once for every N files on average. 0 or negative "
+             "mean `NeedCompact()` always returns false.");
 
 DEFINE_int32(flush_one_in, 0,
              "If non-zero, then Flush() will be called once for every N ops "
@@ -595,16 +661,28 @@ DEFINE_int32(compression_zstd_max_train_bytes, 0,
 DEFINE_int32(compression_parallel_threads, 1,
              "Number of threads for parallel compression.");
 
+DEFINE_uint64(compression_max_dict_buffer_bytes, 0,
+              "Buffering limit for SST file data to sample for dictionary "
+              "compression.");
+
 DEFINE_string(bottommost_compression_type, "disable",
               "Algorithm to use to compress bottommost level of the database. "
               "\"disable\" means disabling the feature");
 
 DEFINE_string(checksum_type, "kCRC32c", "Algorithm to use to checksum blocks");
 
-DEFINE_string(hdfs, "", "Name of hdfs environment");
+DEFINE_string(hdfs, "",
+              "Name of hdfs environment. Mutually exclusive with"
+              " --env_uri and --fs_uri.");
 
-DEFINE_string(env_uri, "",
-              "URI for env lookup. Mutually exclusive with --hdfs");
+DEFINE_string(
+    env_uri, "",
+    "URI for env lookup. Mutually exclusive with --hdfs and --fs_uri");
+
+DEFINE_string(fs_uri, "",
+              "URI for registry Filesystem lookup. Mutually exclusive"
+              " with --hdfs and --env_uri."
+              " Creates a default environment with the specified filesystem.");
 
 DEFINE_uint64(ops_per_thread, 1200000, "Number of operations per thread.");
 static const bool FLAGS_ops_per_thread_dummy __attribute__((__unused__)) =
@@ -693,6 +771,11 @@ DEFINE_int32(approximate_size_one_in, 64,
 DEFINE_int32(read_fault_one_in, 1000,
             "On non-zero, enables fault injection on read");
 
+DEFINE_int32(get_property_one_in, 1000,
+             "If non-zero, then DB::GetProperty() will be called to get various"
+             " properties for every N ops on average. 0 indicates that"
+             " GetProperty() will be not be called.");
+
 DEFINE_bool(sync_fault_injection, false,
             "If true, FaultInjectionTestFS will be used for write operations, "
             " and unsynced data in DB will lost after crash.");
@@ -704,5 +787,25 @@ DEFINE_bool(skip_verifydb, false, "If true, skip VerifyDb() calls.");
 DEFINE_bool(enable_compaction_filter, false,
             "If true, configures a compaction filter that returns a kRemove "
             "decision for deleted keys.");
+
+DEFINE_bool(paranoid_file_checks, true,
+            "After writing every SST file, reopen it and read all the keys "
+            "and validate checksums");
+
+DEFINE_uint64(batch_protection_bytes_per_key, 0,
+              "If nonzero, enables integrity protection in `WriteBatch` at the "
+              "specified number of bytes per key. Currently the only supported "
+              "nonzero value is eight.");
+
+DEFINE_string(file_checksum_impl, "none",
+              "Name of an implementation for file_checksum_gen_factory, or "
+              "\"none\" for null.");
+
+DEFINE_int32(write_fault_one_in, 0,
+             "On non-zero, enables fault injection on write");
+
+DEFINE_uint64(user_timestamp_size, 0,
+              "Number of bytes for a user-defined timestamp. Currently, only "
+              "8-byte is supported");
 
 #endif  // GFLAGS

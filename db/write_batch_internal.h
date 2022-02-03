@@ -9,7 +9,9 @@
 
 #pragma once
 #include <vector>
+
 #include "db/flush_scheduler.h"
+#include "db/kv_checksum.h"
 #include "db/trim_history_scheduler.h"
 #include "db/write_thread.h"
 #include "rocksdb/db.h"
@@ -59,6 +61,14 @@ class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
  private:
   bool ok_;
   MemTable* mem_;
+};
+
+struct WriteBatch::ProtectionInfo {
+  // `WriteBatch` usually doesn't contain a huge number of keys so protecting
+  // with a fixed, non-configurable eight bytes per key may work well enough.
+  autovector<ProtectionInfoKVOTC64> entries_;
+
+  size_t GetBytesPerKey() const { return 8; }
 };
 
 // WriteBatchInternal provides static methods for manipulating a
@@ -232,6 +242,9 @@ class LocalSavePoint {
     if (batch_->max_bytes_ && batch_->rep_.size() > batch_->max_bytes_) {
       batch_->rep_.resize(savepoint_.size);
       WriteBatchInternal::SetCount(batch_, savepoint_.count);
+      if (batch_->prot_info_ != nullptr) {
+        batch_->prot_info_->entries_.resize(savepoint_.count);
+      }
       batch_->content_flags_.store(savepoint_.content_flags,
                                    std::memory_order_relaxed);
       return Status::MemoryLimit();

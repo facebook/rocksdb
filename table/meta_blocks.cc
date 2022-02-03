@@ -96,8 +96,23 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   if (props.file_creation_time > 0) {
     Add(TablePropertiesNames::kFileCreationTime, props.file_creation_time);
   }
-  Add(TablePropertiesNames::kDbId, props.db_id);
-  Add(TablePropertiesNames::kDbSessionId, props.db_session_id);
+  if (props.slow_compression_estimated_data_size > 0) {
+    Add(TablePropertiesNames::kSlowCompressionEstimatedDataSize,
+        props.slow_compression_estimated_data_size);
+  }
+  if (props.fast_compression_estimated_data_size > 0) {
+    Add(TablePropertiesNames::kFastCompressionEstimatedDataSize,
+        props.fast_compression_estimated_data_size);
+  }
+  if (!props.db_id.empty()) {
+    Add(TablePropertiesNames::kDbId, props.db_id);
+  }
+  if (!props.db_session_id.empty()) {
+    Add(TablePropertiesNames::kDbSessionId, props.db_session_id);
+  }
+  if (!props.db_host_id.empty()) {
+    Add(TablePropertiesNames::kDbHostId, props.db_host_id);
+  }
 
   if (!props.filter_policy_name.empty()) {
     Add(TablePropertiesNames::kFilterPolicy, props.filter_policy_name);
@@ -165,11 +180,11 @@ bool NotifyCollectTableCollectorsOnAdd(
 
 void NotifyCollectTableCollectorsOnBlockAdd(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    const uint64_t blockRawBytes, const uint64_t blockCompressedBytesFast,
-    const uint64_t blockCompressedBytesSlow) {
+    const uint64_t block_raw_bytes, const uint64_t block_compressed_bytes_fast,
+    const uint64_t block_compressed_bytes_slow) {
   for (auto& collector : collectors) {
-    collector->BlockAdd(blockRawBytes, blockCompressedBytesFast,
-                        blockCompressedBytesSlow);
+    collector->BlockAdd(block_raw_bytes, block_compressed_bytes_fast,
+                        block_compressed_bytes_slow);
   }
 }
 
@@ -231,7 +246,7 @@ Status ReadProperties(const ReadOptions& read_options,
 
   Block properties_block(std::move(block_contents));
   DataBlockIter iter;
-  properties_block.NewDataIterator(BytewiseComparator(), BytewiseComparator(),
+  properties_block.NewDataIterator(BytewiseComparator(),
                                    kDisableGlobalSequenceNumber, &iter);
 
   auto new_table_properties = new TableProperties();
@@ -272,6 +287,10 @@ Status ReadProperties(const ReadOptions& read_options,
        &new_table_properties->oldest_key_time},
       {TablePropertiesNames::kFileCreationTime,
        &new_table_properties->file_creation_time},
+      {TablePropertiesNames::kSlowCompressionEstimatedDataSize,
+       &new_table_properties->slow_compression_estimated_data_size},
+      {TablePropertiesNames::kFastCompressionEstimatedDataSize,
+       &new_table_properties->fast_compression_estimated_data_size},
   };
 
   std::string last_key;
@@ -318,6 +337,8 @@ Status ReadProperties(const ReadOptions& read_options,
       new_table_properties->db_id = raw_val.ToString();
     } else if (key == TablePropertiesNames::kDbSessionId) {
       new_table_properties->db_session_id = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kDbHostId) {
+      new_table_properties->db_host_id = raw_val.ToString();
     } else if (key == TablePropertiesNames::kFilterPolicy) {
       new_table_properties->filter_policy_name = raw_val.ToString();
     } else if (key == TablePropertiesNames::kColumnFamilyName) {
@@ -395,8 +416,7 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   // are to compress it.
   Block metaindex_block(std::move(metaindex_contents));
   std::unique_ptr<InternalIterator> meta_iter(metaindex_block.NewDataIterator(
-      BytewiseComparator(), BytewiseComparator(),
-      kDisableGlobalSequenceNumber));
+      BytewiseComparator(), kDisableGlobalSequenceNumber));
 
   // -- Read property block
   bool found_properties_block = true;
@@ -468,8 +488,7 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
 
   std::unique_ptr<InternalIterator> meta_iter;
   meta_iter.reset(metaindex_block.NewDataIterator(
-      BytewiseComparator(), BytewiseComparator(),
-      kDisableGlobalSequenceNumber));
+      BytewiseComparator(), kDisableGlobalSequenceNumber));
 
   return FindMetaBlock(meta_iter.get(), meta_block_name, block_handle);
 }
@@ -514,8 +533,7 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
 
   std::unique_ptr<InternalIterator> meta_iter;
   meta_iter.reset(metaindex_block.NewDataIterator(
-      BytewiseComparator(), BytewiseComparator(),
-      kDisableGlobalSequenceNumber));
+      BytewiseComparator(), kDisableGlobalSequenceNumber));
 
   BlockHandle block_handle;
   status = FindMetaBlock(meta_iter.get(), meta_block_name, &block_handle);

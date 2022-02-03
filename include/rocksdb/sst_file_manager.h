@@ -19,17 +19,16 @@ namespace ROCKSDB_NAMESPACE {
 class Env;
 class Logger;
 
-// SstFileManager is used to track SST files in the DB and control their
-// deletion rate.
-// All SstFileManager public functions are thread-safe.
+// SstFileManager is used to track SST and blob files in the DB and control
+// their deletion rate. All SstFileManager public functions are thread-safe.
 // SstFileManager is not extensible.
 class SstFileManager {
  public:
   virtual ~SstFileManager() {}
 
   // Update the maximum allowed space that should be used by RocksDB, if
-  // the total size of the SST files exceeds max_allowed_space, writes to
-  // RocksDB will fail.
+  // the total size of the SST and blob files exceeds max_allowed_space, writes
+  // to RocksDB will fail.
   //
   // Setting max_allowed_space to 0 will disable this feature; maximum allowed
   // space will be infinite (Default value).
@@ -43,14 +42,14 @@ class SstFileManager {
   // other background functions may continue, such as logging and flushing.
   virtual void SetCompactionBufferSize(uint64_t compaction_buffer_size) = 0;
 
-  // Return true if the total size of SST files exceeded the maximum allowed
-  // space usage.
+  // Return true if the total size of SST  and blob files exceeded the maximum
+  // allowed space usage.
   //
   // thread-safe.
   virtual bool IsMaxAllowedSpaceReached() = 0;
 
-  // Returns true if the total size of SST files as well as estimated size
-  // of ongoing compactions exceeds the maximums allowed space usage.
+  // Returns true if the total size of SST and blob files as well as estimated
+  // size of ongoing compactions exceeds the maximums allowed space usage.
   virtual bool IsMaxAllowedSpaceReachedIncludingCompactions() = 0;
 
   // Return the total size of all tracked files.
@@ -87,7 +86,7 @@ class SstFileManager {
 };
 
 // Create a new SstFileManager that can be shared among multiple RocksDB
-// instances to track SST file and control there deletion rate.
+// instances to track SST and blob files and control there deletion rate.
 // Even though SstFileManager don't track WAL files but it still control
 // there deletion rate.
 //

@@ -301,7 +301,7 @@ public interface AdvancedColumnFamilyOptionsInterface<
    * @return the reference to the current options.
    */
   @Experimental("Turning this feature on or off for an existing DB can cause" +
-      "unexpected LSM tree structure so it's not recommended")
+      " unexpected LSM tree structure so it's not recommended")
   T setLevelCompactionDynamicLevelBytes(
       boolean enableLevelCompactionDynamicLevelBytes);
 

@@ -19,6 +19,7 @@
 #endif
 
 #include <stdlib.h>
+
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -31,12 +32,13 @@
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "test_util/sync_point.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 void ThreadPoolImpl::PthreadCall(const char* label, int result) {
   if (result != 0) {
-    fprintf(stderr, "pthread %s: %s\n", label, strerror(result));
+    fprintf(stderr, "pthread %s: %s\n", label, errnoStr(result).c_str());
     abort();
   }
 }

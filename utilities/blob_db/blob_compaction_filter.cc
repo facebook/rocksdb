@@ -10,6 +10,7 @@
 #include <cinttypes>
 
 #include "db/dbformat.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -66,7 +67,10 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
     // Hack: Internal key is passed to BlobIndexCompactionFilter for it to
     // get sequence number.
     ParsedInternalKey ikey;
-    if (!ParseInternalKey(key, &ikey)) {
+    if (!ParseInternalKey(
+             key, &ikey,
+             context_.blob_db_impl->db_options_.allow_data_in_errors)
+             .ok()) {
       assert(false);
       return Decision::kKeep;
     }
@@ -83,7 +87,10 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
     // Hack: Internal key is passed to BlobIndexCompactionFilter for it to
     // get sequence number.
     ParsedInternalKey ikey;
-    if (!ParseInternalKey(key, &ikey)) {
+    if (!ParseInternalKey(
+             key, &ikey,
+             context_.blob_db_impl->db_options_.allow_data_in_errors)
+             .ok()) {
       assert(false);
       return Decision::kKeep;
     }
@@ -175,11 +182,13 @@ bool BlobIndexCompactionFilterBase::OpenNewBlobFileIfNeeded() const {
   assert(blob_db_impl);
 
   const Status s = blob_db_impl->CreateBlobFileAndWriter(
-      /* has_ttl */ false, ExpirationRange(), "GC", &blob_file_, &writer_);
+      /* has_ttl */ false, ExpirationRange(), "compaction/GC", &blob_file_,
+      &writer_);
   if (!s.ok()) {
-    ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
-                    "Error opening new blob file during GC, status: %s",
-                    s.ToString().c_str());
+    ROCKS_LOG_ERROR(
+        blob_db_impl->db_options_.info_log,
+        "Error opening new blob file during compaction/GC, status: %s",
+        s.ToString().c_str());
     blob_file_.reset();
     writer_.reset();
     return false;
@@ -202,11 +211,12 @@ bool BlobIndexCompactionFilterBase::ReadBlobFromOldFile(
       blob, compression_type);
 
   if (!s.ok()) {
-    ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
-                    "Error reading blob during GC, key: %s (%s), status: %s",
-                    key.ToString(/* output_hex */ true).c_str(),
-                    blob_index.DebugString(/* output_hex */ true).c_str(),
-                    s.ToString().c_str());
+    ROCKS_LOG_ERROR(
+        blob_db_impl->db_options_.info_log,
+        "Error reading blob during compaction/GC, key: %s (%s), status: %s",
+        key.ToString(/* output_hex */ true).c_str(),
+        blob_index.DebugString(/* output_hex */ true).c_str(),
+        s.ToString().c_str());
 
     return false;
   }
@@ -248,11 +258,12 @@ bool BlobIndexCompactionFilterBase::WriteBlobToNewFile(
     const BlobDBImpl* const blob_db_impl = context_.blob_db_impl;
     assert(blob_db_impl);
 
-    ROCKS_LOG_ERROR(
-        blob_db_impl->db_options_.info_log,
-        "Error writing blob to new file %s during GC, key: %s, status: %s",
-        blob_file_->PathName().c_str(),
-        key.ToString(/* output_hex */ true).c_str(), s.ToString().c_str());
+    ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
+                    "Error writing blob to new file %s during compaction/GC, "
+                    "key: %s, status: %s",
+                    blob_file_->PathName().c_str(),
+                    key.ToString(/* output_hex */ true).c_str(),
+                    s.ToString().c_str());
     return false;
   }
 
@@ -294,16 +305,17 @@ bool BlobIndexCompactionFilterBase::CloseAndRegisterNewBlobFile() const {
     s = blob_db_impl->CloseBlobFile(blob_file_);
 
     // Note: we delay registering the new blob file until it's closed to
-    // prevent FIFO eviction from processing it during the GC run.
+    // prevent FIFO eviction from processing it during compaction/GC.
     blob_db_impl->RegisterBlobFile(blob_file_);
   }
 
   assert(blob_file_->Immutable());
 
   if (!s.ok()) {
-    ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
-                    "Error closing new blob file %s during GC, status: %s",
-                    blob_file_->PathName().c_str(), s.ToString().c_str());
+    ROCKS_LOG_ERROR(
+        blob_db_impl->db_options_.info_log,
+        "Error closing new blob file %s during compaction/GC, status: %s",
+        blob_file_->PathName().c_str(), s.ToString().c_str());
   }
 
   blob_file_.reset();
@@ -355,9 +367,28 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
 
   PinnableSlice blob;
   CompressionType compression_type = kNoCompression;
+  std::string compression_output;
   if (!ReadBlobFromOldFile(key, blob_index, &blob, false, &compression_type)) {
     gc_stats_.SetError();
     return BlobDecision::kIOError;
+  }
+
+  // If the compression_type is changed, re-compress it with the new compression
+  // type.
+  if (compression_type != blob_db_impl->bdb_options_.compression) {
+    if (compression_type != kNoCompression) {
+      const Status status =
+          blob_db_impl->DecompressSlice(blob, compression_type, &blob);
+      if (!status.ok()) {
+        gc_stats_.SetError();
+        return BlobDecision::kCorruption;
+      }
+    }
+    if (blob_db_impl->bdb_options_.compression != kNoCompression) {
+      blob_db_impl->GetCompressedSlice(blob, &compression_output);
+      blob = PinnableSlice(&compression_output);
+      blob.PinSelf();
+    }
   }
 
   uint64_t new_blob_file_number = 0;
@@ -405,10 +436,10 @@ BlobIndexCompactionFilterFactoryBase::CreateUserCompactionFilterFromFactory(
 std::unique_ptr<CompactionFilter>
 BlobIndexCompactionFilterFactory::CreateCompactionFilter(
     const CompactionFilter::Context& _context) {
-  assert(env());
+  assert(clock());
 
   int64_t current_time = 0;
-  Status s = env()->GetCurrentTime(&current_time);
+  Status s = clock()->GetCurrentTime(&current_time);
   if (!s.ok()) {
     return nullptr;
   }
@@ -430,10 +461,10 @@ BlobIndexCompactionFilterFactory::CreateCompactionFilter(
 std::unique_ptr<CompactionFilter>
 BlobIndexCompactionFilterFactoryGC::CreateCompactionFilter(
     const CompactionFilter::Context& _context) {
-  assert(env());
+  assert(clock());
 
   int64_t current_time = 0;
-  Status s = env()->GetCurrentTime(&current_time);
+  Status s = clock()->GetCurrentTime(&current_time);
   if (!s.ok()) {
     return nullptr;
   }

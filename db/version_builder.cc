@@ -270,14 +270,7 @@ class VersionBuilder::Rep {
     (*expected_linked_ssts)[blob_file_number].emplace(table_file_number);
   }
 
-  Status CheckConsistency(VersionStorageInfo* vstorage) {
-#ifdef NDEBUG
-    if (!vstorage->force_consistency_checks()) {
-      // Dont run consistency checks in release mode except if
-      // explicitly asked to
-      return Status::OK();
-    }
-#endif
+  Status CheckConsistencyDetails(VersionStorageInfo* vstorage) {
     // Make sure the files are sorted correctly and that the links between
     // table files and blob files are consistent. The latter is checked using
     // the following mapping, which is built using the forward links
@@ -341,17 +334,23 @@ class VersionBuilder::Rep {
           TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency1", &pair);
 #endif
           if (!level_nonzero_cmp_(f1, f2)) {
-            return Status::Corruption("L" + NumberToString(level) +
-                                      " files are not sorted properly");
+            return Status::Corruption(
+                "L" + NumberToString(level) +
+                " files are not sorted properly: files #" +
+                NumberToString(f1->fd.GetNumber()) + ", #" +
+                NumberToString(f2->fd.GetNumber()));
           }
 
           // Make sure there is no overlap in levels > 0
           if (vstorage->InternalComparator()->Compare(f1->largest,
                                                       f2->smallest) >= 0) {
             return Status::Corruption(
-                "L" + NumberToString(level) + " have overlapping ranges " +
-                (f1->largest).DebugString(true) + " vs. " +
-                (f2->smallest).DebugString(true));
+                "L" + NumberToString(level) +
+                " have overlapping ranges: file #" +
+                NumberToString(f1->fd.GetNumber()) +
+                " largest key: " + (f1->largest).DebugString(true) +
+                " vs. file #" + NumberToString(f2->fd.GetNumber()) +
+                " smallest key: " + (f2->smallest).DebugString(true));
           }
         }
       }
@@ -387,6 +386,30 @@ class VersionBuilder::Rep {
     TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistencyBeforeReturn",
                              &ret_s);
     return ret_s;
+  }
+
+  Status CheckConsistency(VersionStorageInfo* vstorage) {
+    // Always run consistency checks in debug build
+#ifdef NDEBUG
+    if (!vstorage->force_consistency_checks()) {
+      return Status::OK();
+    }
+#endif
+    Status s = CheckConsistencyDetails(vstorage);
+    if (s.IsCorruption() && s.getState()) {
+      // Make it clear the error is due to force_consistency_checks = 1 or
+      // debug build
+#ifdef NDEBUG
+      auto prefix = "force_consistency_checks";
+#else
+      auto prefix = "force_consistency_checks(DEBUG)";
+#endif
+      s = Status::Corruption(prefix, s.getState());
+    } else {
+      // was only expecting corruption with message, or OK
+      assert(s.ok());
+    }
+    return s;
   }
 
   bool CheckConsistencyForNumLevels() const {
@@ -770,10 +793,11 @@ class VersionBuilder::Rep {
 
         ++base_it;
       } else if (delta_blob_file_number < base_blob_file_number) {
-        // Note: blob file numbers are strictly increasing over time and
-        // once blob files get marked obsolete, they never reappear. Thus,
-        // this case is not possible.
-        assert(false);
+        const auto& delta = delta_it->second;
+
+        auto meta = CreateMetaDataForNewBlobFile(delta);
+
+        AddBlobFileIfNeeded(vstorage, meta, &found_first_non_empty);
 
         ++delta_it;
       } else {
@@ -961,12 +985,15 @@ class VersionBuilder::Rep {
     for (auto& t : threads) {
       t.join();
     }
+    Status ret;
     for (const auto& s : statuses) {
       if (!s.ok()) {
-        return s;
+        if (ret.ok()) {
+          ret = s;
+        }
       }
     }
-    return Status::OK();
+    return ret;
   }
 
   void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
@@ -989,8 +1016,7 @@ class VersionBuilder::Rep {
       if (add_it != add_files.end() && add_it->second != f) {
         vstorage->RemoveCurrentStats(f);
       } else {
-        assert(ioptions_);
-        vstorage->AddFile(level, f, ioptions_->info_log);
+        vstorage->AddFile(level, f);
       }
     }
   }

@@ -27,7 +27,6 @@
 #include <sys/types.h>
 #ifdef OS_LINUX
 #include <sys/statfs.h>
-#include <sys/syscall.h>
 #include <sys/sysmacros.h>
 #endif
 #include "monitoring/iostats_context_imp.h"
@@ -59,7 +58,7 @@ IOStatus IOError(const std::string& context, const std::string& file_name,
   switch (err_number) {
     case ENOSPC: {
       IOStatus s = IOStatus::NoSpace(IOErrorMsg(context, file_name),
-                                     strerror(err_number));
+                                     errnoStr(err_number).c_str());
       s.SetRetryable(true);
       return s;
     }
@@ -67,10 +66,10 @@ IOStatus IOError(const std::string& context, const std::string& file_name,
       return IOStatus::IOError(IOStatus::kStaleFile);
     case ENOENT:
       return IOStatus::PathNotFound(IOErrorMsg(context, file_name),
-                                    strerror(err_number));
+                                    errnoStr(err_number).c_str());
     default:
       return IOStatus::IOError(IOErrorMsg(context, file_name),
-                               strerror(err_number));
+                               errnoStr(err_number).c_str());
   }
 }
 
@@ -928,7 +927,7 @@ IOStatus PosixMmapFile::MapNewRegion() {
     }
     if (alloc_status != 0) {
       return IOStatus::IOError("Error allocating space to file : " + filename_ +
-                               "Error : " + strerror(alloc_status));
+                               "Error : " + errnoStr(alloc_status).c_str());
     }
   }
 
@@ -990,7 +989,8 @@ PosixMmapFile::PosixMmapFile(const std::string& fname, int fd, size_t page_size,
 
 PosixMmapFile::~PosixMmapFile() {
   if (fd_ >= 0) {
-    PosixMmapFile::Close(IOOptions(), nullptr);
+    IOStatus s = PosixMmapFile::Close(IOOptions(), nullptr);
+    s.PermitUncheckedError();
   }
 }
 
@@ -1152,7 +1152,8 @@ PosixWritableFile::PosixWritableFile(const std::string& fname, int fd,
 
 PosixWritableFile::~PosixWritableFile() {
   if (fd_ >= 0) {
-    PosixWritableFile::Close(IOOptions(), nullptr);
+    IOStatus s = PosixWritableFile::Close(IOOptions(), nullptr);
+    s.PermitUncheckedError();
   }
 }
 
@@ -1212,6 +1213,7 @@ IOStatus PosixWritableFile::Close(const IOOptions& /*opts*/,
   size_t block_size;
   size_t last_allocated_block;
   GetPreallocationStatus(&block_size, &last_allocated_block);
+  TEST_SYNC_POINT_CALLBACK("PosixWritableFile::Close", &last_allocated_block);
   if (last_allocated_block > 0) {
     // trim the extra space preallocated at the end of the file
     // NOTE(ljin): we probably don't want to surface failure as an IOError,
@@ -1394,7 +1396,8 @@ PosixRandomRWFile::PosixRandomRWFile(const std::string& fname, int fd,
 
 PosixRandomRWFile::~PosixRandomRWFile() {
   if (fd_ >= 0) {
-    Close(IOOptions(), nullptr);
+    IOStatus s = Close(IOOptions(), nullptr);
+    s.PermitUncheckedError();
   }
 }
 

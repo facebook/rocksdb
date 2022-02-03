@@ -19,6 +19,7 @@ int main() {
 #include "memory/arena.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/system_clock.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/mock_block_based_table.h"
@@ -80,7 +81,8 @@ DEFINE_bool(new_builder, false,
 
 DEFINE_uint32(impl, 0,
               "Select filter implementation. Without -use_plain_table_bloom:"
-              "0 = full filter, 1 = block-based filter. With "
+              "0 = legacy full Bloom filter, 1 = block-based Bloom filter, "
+              "2 = format_version 5 Bloom filter, 3 = Ribbon128 filter. With "
               "-use_plain_table_bloom: 0 = no locality, 1 = locality.");
 
 DEFINE_bool(net_includes_hashing, false,
@@ -124,7 +126,7 @@ using ROCKSDB_NAMESPACE::BloomHash;
 using ROCKSDB_NAMESPACE::BuiltinFilterBitsBuilder;
 using ROCKSDB_NAMESPACE::CachableEntry;
 using ROCKSDB_NAMESPACE::EncodeFixed32;
-using ROCKSDB_NAMESPACE::fastrange32;
+using ROCKSDB_NAMESPACE::FastRange32;
 using ROCKSDB_NAMESPACE::FilterBitsReader;
 using ROCKSDB_NAMESPACE::FilterBuildingContext;
 using ROCKSDB_NAMESPACE::FullFilterBlockReader;
@@ -161,7 +163,7 @@ struct KeyMaker {
     if (FLAGS_vary_key_size_log2_interval < 30) {
       // To get range [avg_size - 2, avg_size + 2]
       // use range [smallest_size, smallest_size + 4]
-      len += fastrange32(
+      len += FastRange32(
           (val_num >> FLAGS_vary_key_size_log2_interval) * 1234567891, 5);
     }
     char * data = buf_.get() + start;
@@ -306,9 +308,9 @@ void FilterBench::Go() {
       throw std::runtime_error(
           "Block-based filter not currently supported by filter_bench");
     }
-    if (FLAGS_impl > 2) {
+    if (FLAGS_impl > 3) {
       throw std::runtime_error(
-          "-impl must currently be 0 or 2 for Block-based table");
+          "-impl must currently be 0, 2, or 3 for Block-based table");
     }
   }
 
@@ -357,15 +359,15 @@ void FilterBench::Go() {
     max_mem = static_cast<size_t>(1024 * 1024 * working_mem_size_mb);
   }
 
-  ROCKSDB_NAMESPACE::StopWatchNano timer(ROCKSDB_NAMESPACE::Env::Default(),
-                                         true);
+  ROCKSDB_NAMESPACE::StopWatchNano timer(
+      ROCKSDB_NAMESPACE::SystemClock::Default().get(), true);
 
   infos_.clear();
   while ((working_mem_size_mb == 0 || total_size < max_mem) &&
          total_keys_added < max_total_keys) {
     uint32_t filter_id = random_.Next();
     uint32_t keys_to_add = FLAGS_average_keys_per_filter +
-                           fastrange32(random_.Next(), variance_range) -
+                           FastRange32(random_.Next(), variance_range) -
                            variance_offset;
     if (max_total_keys - total_keys_added < keys_to_add) {
       keys_to_add = static_cast<uint32_t>(max_total_keys - total_keys_added);
@@ -561,15 +563,25 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
     // 100% of queries to 1 filter
     num_primary_filters = 1;
   } else if (mode == kFiftyOneFilter) {
+    if (num_infos < 50) {
+      return 0.0;  // skip
+    }
     // 50% of queries
     primary_filter_threshold /= 2;
     // to 1% of filters
     num_primary_filters = (num_primary_filters + 99) / 100;
   } else if (mode == kEightyTwentyFilter) {
+    if (num_infos < 5) {
+      return 0.0;  // skip
+    }
     // 80% of queries
     primary_filter_threshold = primary_filter_threshold / 5 * 4;
     // to 20% of filters
     num_primary_filters = (num_primary_filters + 4) / 5;
+  } else if (mode == kRandomFilter) {
+    if (num_infos == 1) {
+      return 0.0;  // skip
+    }
   }
   uint32_t batch_size = 1;
   std::unique_ptr<Slice[]> batch_slices;
@@ -587,8 +599,8 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
     batch_slice_ptrs[i] = &batch_slices[i];
   }
 
-  ROCKSDB_NAMESPACE::StopWatchNano timer(ROCKSDB_NAMESPACE::Env::Default(),
-                                         true);
+  ROCKSDB_NAMESPACE::StopWatchNano timer(
+      ROCKSDB_NAMESPACE::SystemClock::Default().get(), true);
 
   for (uint64_t q = 0; q < max_queries; q += batch_size) {
     bool inside_this_time = random_.Next() <= inside_threshold;

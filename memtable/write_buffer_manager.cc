@@ -54,6 +54,7 @@ WriteBufferManager::WriteBufferManager(size_t _buffer_size,
       mutable_limit_(buffer_size_ * 7 / 8),
       memory_used_(0),
       memory_active_(0),
+      dummy_size_(0),
       cache_rep_(nullptr) {
 #ifndef ROCKSDB_LITE
   if (cache) {
@@ -91,8 +92,10 @@ void WriteBufferManager::ReserveMemWithCache(size_t mem) {
     // Expand size by at least 256KB.
     // Add a dummy record to the cache
     Cache::Handle* handle = nullptr;
-    cache_rep_->cache_->Insert(cache_rep_->GetNextCacheKey(), nullptr,
-                               kSizeDummyEntry, nullptr, &handle);
+    Status s =
+        cache_rep_->cache_->Insert(cache_rep_->GetNextCacheKey(), nullptr,
+                                   kSizeDummyEntry, nullptr, &handle);
+    s.PermitUncheckedError();  // TODO: What to do on error?
     // We keep the handle even if insertion fails and a null handle is
     // returned, so that when memory shrinks, we don't release extra
     // entries from cache.
@@ -102,6 +105,7 @@ void WriteBufferManager::ReserveMemWithCache(size_t mem) {
     // it in the future.
     cache_rep_->dummy_handles_.push_back(handle);
     cache_rep_->cache_allocated_size_ += kSizeDummyEntry;
+    dummy_size_.fetch_add(kSizeDummyEntry, std::memory_order_relaxed);
   }
 #else
   (void)mem;
@@ -135,6 +139,7 @@ void WriteBufferManager::FreeMemWithCache(size_t mem) {
     }
     cache_rep_->dummy_handles_.pop_back();
     cache_rep_->cache_allocated_size_ -= kSizeDummyEntry;
+    dummy_size_.fetch_sub(kSizeDummyEntry, std::memory_order_relaxed);
   }
 #else
   (void)mem;

@@ -52,7 +52,9 @@ static const char* msgs[static_cast<int>(Status::kMaxSubCode)] = {
     "Insufficient capacity for merge operands",
     // kManualCompactionPaused
     "Manual compaction paused",
-    " (overwritten)",  // kOverwritten, subcode of OK
+    " (overwritten)",    // kOverwritten, subcode of OK
+    "Txn not prepared",  // kTxnNotPrepared
+    "IO fenced off",     // kIOFenced
 };
 
 Status::Status(Code _code, SubCode _subcode, const Slice& msg,
@@ -78,8 +80,7 @@ std::string Status::ToString() const {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
   checked_ = true;
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
-  char tmp[30];
-  const char* type;
+  const char* type = nullptr;
   switch (code_) {
     case kOk:
       return "OK";
@@ -122,23 +123,36 @@ std::string Status::ToString() const {
     case kTryAgain:
       type = "Operation failed. Try again.: ";
       break;
+    case kCompactionTooLarge:
+      type = "Compaction too large: ";
+      break;
     case kColumnFamilyDropped:
       type = "Column family dropped: ";
       break;
-    default:
-      snprintf(tmp, sizeof(tmp), "Unknown code(%d): ",
-               static_cast<int>(code()));
-      type = tmp;
+    case kMaxCode:
+      assert(false);
       break;
+  }
+  char tmp[30];
+  if (type == nullptr) {
+    // This should not happen since `code_` should be a valid non-`kMaxCode`
+    // member of the `Code` enum. The above switch-statement should have had a
+    // case assigning `type` to a corresponding string.
+    assert(false);
+    snprintf(tmp, sizeof(tmp), "Unknown code(%d): ", static_cast<int>(code()));
+    type = tmp;
   }
   std::string result(type);
   if (subcode_ != kNone) {
     uint32_t index = static_cast<int32_t>(subcode_);
-    assert(sizeof(msgs) > index);
+    assert(sizeof(msgs) / sizeof(msgs[0]) > index);
     result.append(msgs[index]);
   }
 
   if (state_ != nullptr) {
+    if (subcode_ != kNone) {
+      result.append(": ");
+    }
     result.append(state_);
   }
   return result;

@@ -22,20 +22,14 @@
  * Signature: ([J[J)Ljava/util/Map;
  */
 jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
-    JNIEnv *env, jclass /*jclazz*/, jlongArray jdb_handles, jlongArray jcache_handles) {
-  std::vector<ROCKSDB_NAMESPACE::DB *> dbs;
-  jsize db_handle_count = env->GetArrayLength(jdb_handles);
-  if(db_handle_count > 0) {
-    jlong *ptr_jdb_handles = env->GetLongArrayElements(jdb_handles, nullptr);
-    if (ptr_jdb_handles == nullptr) {
-      // exception thrown: OutOfMemoryError
-      return nullptr;
-    }
-    for (jsize i = 0; i < db_handle_count; i++) {
-      dbs.push_back(
-          reinterpret_cast<ROCKSDB_NAMESPACE::DB *>(ptr_jdb_handles[i]));
-    }
-    env->ReleaseLongArrayElements(jdb_handles, ptr_jdb_handles, JNI_ABORT);
+    JNIEnv *env, jclass, jlongArray jdb_handles, jlongArray jcache_handles) {
+  jboolean has_exception = JNI_FALSE;
+  std::vector<ROCKSDB_NAMESPACE::DB *> dbs =
+      ROCKSDB_NAMESPACE::JniUtil::fromJPointers<ROCKSDB_NAMESPACE::DB>(
+          env, jdb_handles, &has_exception);
+  if (has_exception == JNI_TRUE) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
   }
 
   std::unordered_set<const ROCKSDB_NAMESPACE::Cache *> cache_set;
@@ -103,5 +97,4 @@ jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
   }
 
   return jusage_by_type;
-
 }

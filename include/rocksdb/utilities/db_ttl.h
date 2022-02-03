@@ -57,7 +57,7 @@ class DBWithTTL : public StackableDB {
   static Status Open(const DBOptions& db_options, const std::string& dbname,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles,
-                     DBWithTTL** dbptr, std::vector<int32_t> ttls,
+                     DBWithTTL** dbptr, const std::vector<int32_t>& ttls,
                      bool read_only = false);
 
   virtual void SetTtl(int32_t ttl) = 0;

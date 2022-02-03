@@ -611,9 +611,9 @@ public class Transaction extends RocksObject {
   }
 
   /**
-   * Returns an iterator that will iterate on all keys in the default
-   * column family including both keys in the DB and uncommitted keys in this
-   * transaction.
+   * Returns an iterator that will iterate on all keys in the column family
+   * specified by {@code columnFamilyHandle} including both keys in the DB
+   * and uncommitted keys in this transaction.
    *
    * Setting {@link ReadOptions#setSnapshot(Snapshot)} will affect what is read
    * from the DB but will NOT change which keys are read from this transaction

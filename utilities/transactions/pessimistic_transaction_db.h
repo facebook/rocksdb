@@ -20,8 +20,9 @@
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/cast_util.h"
+#include "utilities/transactions/lock/lock_manager.h"
+#include "utilities/transactions/lock/range/range_lock_manager.h"
 #include "utilities/transactions/pessimistic_transaction.h"
-#include "utilities/transactions/transaction_lock_mgr.h"
 #include "utilities/transactions/write_prepared_txn.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -98,8 +99,10 @@ class PessimisticTransactionDB : public TransactionDB {
 
   Status TryLock(PessimisticTransaction* txn, uint32_t cfh_id,
                  const std::string& key, bool exclusive);
+  Status TryRangeLock(PessimisticTransaction* txn, uint32_t cfh_id,
+                      const Endpoint& start_endp, const Endpoint& end_endp);
 
-  void UnLock(PessimisticTransaction* txn, const TransactionKeyMap* keys);
+  void UnLock(PessimisticTransaction* txn, const LockTracker& keys);
   void UnLock(PessimisticTransaction* txn, uint32_t cfh_id,
               const std::string& key);
 
@@ -130,7 +133,7 @@ class PessimisticTransactionDB : public TransactionDB {
   // not thread safe. current use case is during recovery (single thread)
   void GetAllPreparedTransactions(std::vector<Transaction*>* trans) override;
 
-  TransactionLockMgr::LockStatusData GetLockStatusData() override;
+  LockManager::PointLockStatus GetLockStatusData() override;
 
   std::vector<DeadlockPath> GetDeadlockInfoBuffer() override;
   void SetDeadlockInfoBufferSize(uint32_t target_size) override;
@@ -141,6 +144,11 @@ class PessimisticTransactionDB : public TransactionDB {
   // the base class even when the subclass do not read it in the fast path.
   virtual void UpdateCFComparatorMap(const std::vector<ColumnFamilyHandle*>&) {}
   virtual void UpdateCFComparatorMap(ColumnFamilyHandle*) {}
+
+  // Use the returned factory to create LockTrackers in transactions.
+  const LockTrackerFactory& GetLockTrackerFactory() const {
+    return lock_manager_->GetLockTrackerFactory();
+  }
 
  protected:
   DBImpl* db_impl_;
@@ -166,7 +174,8 @@ class PessimisticTransactionDB : public TransactionDB {
   friend class TransactionStressTest_TwoPhaseLongPrepareTest_Test;
   friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
   friend class WriteUnpreparedTransactionTest_MarkLogWithPrepSection_Test;
-  TransactionLockMgr lock_mgr_;
+
+  std::shared_ptr<LockManager> lock_manager_;
 
   // Must be held when adding/dropping column families.
   InstrumentedMutex column_family_mutex_;

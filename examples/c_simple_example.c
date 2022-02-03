@@ -10,18 +10,35 @@
 
 #include "rocksdb/c.h"
 
+#if defined(OS_WIN)
+#include <Windows.h>
+#else
 #include <unistd.h>  // sysconf() - get CPU count
+#endif
 
-const char DBPath[] = "/tmp/rocksdb_simple_example";
-const char DBBackupPath[] = "/tmp/rocksdb_simple_example_backup";
+#if defined(OS_WIN)
+const char DBPath[] = "C:\\Windows\\TEMP\\rocksdb_c_simple_example";
+const char DBBackupPath[] =
+    "C:\\Windows\\TEMP\\rocksdb_c_simple_example_backup";
+#else
+const char DBPath[] = "/tmp/rocksdb_c_simple_example";
+const char DBBackupPath[] = "/tmp/rocksdb_c_simple_example_backup";
+#endif
 
 int main(int argc, char **argv) {
   rocksdb_t *db;
   rocksdb_backup_engine_t *be;
   rocksdb_options_t *options = rocksdb_options_create();
   // Optimize RocksDB. This is the easiest way to
-  // get RocksDB to perform well
-  long cpus = sysconf(_SC_NPROCESSORS_ONLN);  // get # of online cores
+  // get RocksDB to perform well.
+#if defined(OS_WIN)
+  SYSTEM_INFO system_info;
+  GetSystemInfo(&system_info);
+  long cpus = system_info.dwNumberOfProcessors;
+#else
+  long cpus = sysconf(_SC_NPROCESSORS_ONLN);
+#endif
+  // Set # of online cores
   rocksdb_options_increase_parallelism(options, (int)(cpus));
   rocksdb_options_optimize_level_style_compaction(options, 0);
   // create the DB if it's not already present

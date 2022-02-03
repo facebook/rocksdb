@@ -67,7 +67,7 @@ struct LRUHandle {
     IS_HIGH_PRI = (1 << 1),
     // Whether this entry is in high-pri pool.
     IN_HIGH_PRI_POOL = (1 << 2),
-    // Wwhether this entry has had any lookups (hits).
+    // Whether this entry has had any lookups (hits).
     HAS_HIT = (1 << 3),
   };
 
@@ -130,7 +130,7 @@ struct LRUHandle {
     delete[] reinterpret_cast<char*>(this);
   }
 
-  // Caclculate the memory usage by metadata
+  // Calculate the memory usage by metadata
   inline size_t CalcTotalCharge(
       CacheMetadataChargePolicy metadata_charge_policy) {
     size_t meta_charge = 0;
@@ -239,7 +239,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   //  not threadsafe
   size_t TEST_GetLRUSize();
 
-  //  Retrives high pri pool ratio
+  //  Retrieves high pri pool ratio
   double GetHighPriPoolRatio();
 
  private:
@@ -328,7 +328,7 @@ class LRUCache
 
   //  Retrieves number of elements in LRU, for unit test purpose only
   size_t TEST_GetLRUSize();
-  //  Retrives high pri pool ratio
+  //  Retrieves high pri pool ratio
   double GetHighPriPoolRatio();
 
  private:

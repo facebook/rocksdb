@@ -68,7 +68,7 @@ $BinariesFolder = -Join($RootFolder, "\build\Debug\")
 
 if($WorkFolder -eq "") {
 
-    # If TEST_TMPDIR is set use it    
+    # If TEST_TMPDIR is set use it
     [string]$var = $Env:TEST_TMPDIR
     if($var -eq "") {
         $WorkFolder = -Join($RootFolder, "\db_tests\")
@@ -93,7 +93,7 @@ $ExcludeCasesSet = New-Object System.Collections.Generic.HashSet[string]
 if($ExcludeCases -ne "") {
     Write-Host "ExcludeCases: $ExcludeCases"
     $l = $ExcludeCases -split ' '
-    ForEach($t in $l) { 
+    ForEach($t in $l) {
       $ExcludeCasesSet.Add($t) | Out-Null
     }
 }
@@ -102,7 +102,7 @@ $ExcludeExesSet = New-Object System.Collections.Generic.HashSet[string]
 if($ExcludeExes -ne "") {
     Write-Host "ExcludeExe: $ExcludeExes"
     $l = $ExcludeExes -split ' '
-    ForEach($t in $l) { 
+    ForEach($t in $l) {
       $ExcludeExesSet.Add($t) | Out-Null
     }
 }
@@ -118,6 +118,10 @@ if($ExcludeExes -ne "") {
 #   MultiThreaded/MultiThreadedDBTest.
 #     MultiThreaded/0  # GetParam() = 0
 #     MultiThreaded/1  # GetParam() = 1
+#   RibbonTypeParamTest/0.  # TypeParam = struct DefaultTypesAndSettings
+#     CompactnessAndBacktrackAndFpRate
+#     Extremes
+#     FindOccupancyForSuccessRate
 #
 # into this:
 #
@@ -125,6 +129,9 @@ if($ExcludeExes -ne "") {
 #   DBTest.WriteEmptyBatch
 #   MultiThreaded/MultiThreadedDBTest.MultiThreaded/0
 #   MultiThreaded/MultiThreadedDBTest.MultiThreaded/1
+#   RibbonTypeParamTest/0.CompactnessAndBacktrackAndFpRate
+#   RibbonTypeParamTest/0.Extremes
+#   RibbonTypeParamTest/0.FindOccupancyForSuccessRate
 #
 # Output into the parameter in a form TestName -> Log File Name
 function ExtractTestCases([string]$GTestExe, $HashTable) {
@@ -138,6 +145,8 @@ function ExtractTestCases([string]$GTestExe, $HashTable) {
 
     ForEach( $l in $Tests) {
 
+      # remove trailing comment if any
+      $l = $l -replace '\s+\#.*',''
       # Leading whitespace is fine
       $l = $l -replace '^\s+',''
       # Trailing dot is a test group but no whitespace
@@ -146,8 +155,7 @@ function ExtractTestCases([string]$GTestExe, $HashTable) {
       }  else {
         # Otherwise it is a test name, remove leading space
         $test = $l
-        # remove trailing comment if any and create a log name
-        $test = $test -replace '\s+\#.*',''
+        # create a log name
         $test = "$Group$test"
 
         if($ExcludeCasesSet.Contains($test)) {
@@ -253,7 +261,7 @@ if($Run -ne "") {
 
   $DiscoveredExe = @()
   dir -Path $search_path | ForEach-Object {
-     $DiscoveredExe += ($_.Name)     
+     $DiscoveredExe += ($_.Name)
   }
 
   # Remove exclusions
@@ -293,7 +301,7 @@ if($SuiteRun -ne "") {
 
   $ListOfExe = @()
   dir -Path $search_path | ForEach-Object {
-     $ListOfExe += ($_.Name)     
+     $ListOfExe += ($_.Name)
   }
 
   # Exclude those in RunOnly from running as suites
@@ -348,7 +356,7 @@ function RunJobs($Suites, $TestCmds, [int]$ConcurrencyVal)
 
     # Wait for all to finish and get the results
     while(($JobToLog.Count -gt 0) -or
-          ($TestCmds.Count -gt 0) -or 
+          ($TestCmds.Count -gt 0) -or
            ($Suites.Count -gt 0)) {
 
         # Make sure we have maximum concurrent jobs running if anything
@@ -468,8 +476,8 @@ RunJobs -Suites $CasesToRun -TestCmds $TestExes -ConcurrencyVal $Concurrency
 
 $EndDate = (Get-Date)
 
-New-TimeSpan -Start $StartDate -End $EndDate | 
-  ForEach-Object { 
+New-TimeSpan -Start $StartDate -End $EndDate |
+  ForEach-Object {
     "Elapsed time: {0:g}" -f $_
   }
 
@@ -484,4 +492,4 @@ if(!$script:success) {
 
  exit 0
 
- 
+

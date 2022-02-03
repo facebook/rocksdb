@@ -18,6 +18,7 @@ class SstFileDumper {
   explicit SstFileDumper(const Options& options, const std::string& file_name,
                          size_t readahead_size, bool verify_checksum,
                          bool output_hex, bool decode_blob_index,
+                         const EnvOptions& soptions = EnvOptions(),
                          bool silent = false);
 
   Status ReadSequential(bool print_kv, uint64_t read_num, bool has_from,
@@ -34,17 +35,16 @@ class SstFileDumper {
   Status DumpTable(const std::string& out_filename);
   Status getStatus() { return init_result_; }
 
-  int ShowAllCompressionSizes(
+  Status ShowAllCompressionSizes(
       size_t block_size,
       const std::vector<std::pair<CompressionType, const char*>>&
-        compression_types,
-      int32_t compress_level_from,
-      int32_t compress_level_to);
+          compression_types,
+      int32_t compress_level_from, int32_t compress_level_to,
+      uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes,
+      uint64_t max_dict_buffer_bytes);
 
-  int ShowCompressionSize(
-      size_t block_size,
-      CompressionType compress_type,
-      const CompressionOptions& compress_opt);
+  Status ShowCompressionSize(size_t block_size, CompressionType compress_type,
+                             const CompressionOptions& compress_opt);
 
  private:
   // Get the TableReader implementation for the sst file
@@ -53,9 +53,10 @@ class SstFileDumper {
                              RandomAccessFileReader* file, uint64_t file_size,
                              FilePrefetchBuffer* prefetch_buffer);
 
-  uint64_t CalculateCompressedTableSize(const TableBuilderOptions& tb_options,
-                                        size_t block_size,
-                                        uint64_t* num_data_blocks);
+  Status CalculateCompressedTableSize(const TableBuilderOptions& tb_options,
+                                      size_t block_size,
+                                      uint64_t* num_data_blocks,
+                                      uint64_t* compressed_table_size);
 
   Status SetTableOptionsByMagicNumber(uint64_t table_magic_number);
   Status SetOldTableOptions();

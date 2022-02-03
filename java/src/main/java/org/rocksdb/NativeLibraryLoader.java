@@ -87,7 +87,12 @@ public class NativeLibraryLoader {
     if (tmpDir == null || tmpDir.isEmpty()) {
       temp = File.createTempFile(tempFilePrefix, tempFileSuffix);
     } else {
-      temp = new File(tmpDir, jniLibraryFileName);
+      final File parentDir = new File(tmpDir);
+      if (!parentDir.exists()) {
+        throw new RuntimeException(
+            "Directory: " + parentDir.getAbsolutePath() + " does not exist!");
+      }
+      temp = new File(parentDir, jniLibraryFileName);
       if (temp.exists() && !temp.delete()) {
         throw new RuntimeException("File: " + temp.getAbsolutePath()
             + " already exists and cannot be removed.");

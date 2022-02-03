@@ -24,6 +24,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/sst_partitioner.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/wal_filter.h"
@@ -87,7 +88,14 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       report_bg_io_stats(options.report_bg_io_stats),
       ttl(options.ttl),
       periodic_compaction_seconds(options.periodic_compaction_seconds),
-      sample_for_compression(options.sample_for_compression) {
+      sample_for_compression(options.sample_for_compression),
+      enable_blob_files(options.enable_blob_files),
+      min_blob_size(options.min_blob_size),
+      blob_file_size(options.blob_file_size),
+      blob_compression_type(options.blob_compression_type),
+      enable_blob_garbage_collection(options.enable_blob_garbage_collection),
+      blob_garbage_collection_age_cutoff(
+          options.blob_garbage_collection_age_cutoff) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -122,12 +130,15 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
       log, "       Options.compaction_filter_factory: %s",
       compaction_filter_factory ? compaction_filter_factory->Name() : "None");
+  ROCKS_LOG_HEADER(
+      log, " Options.sst_partitioner_factory: %s",
+      sst_partitioner_factory ? sst_partitioner_factory->Name() : "None");
   ROCKS_LOG_HEADER(log, "        Options.memtable_factory: %s",
                    memtable_factory->Name());
   ROCKS_LOG_HEADER(log, "           Options.table_factory: %s",
                    table_factory->Name());
   ROCKS_LOG_HEADER(log, "           table_factory options: %s",
-                   table_factory->GetPrintableTableOptions().c_str());
+                   table_factory->GetPrintableOptions().c_str());
   ROCKS_LOG_HEADER(log, "       Options.write_buffer_size: %" ROCKSDB_PRIszt,
                    write_buffer_size);
   ROCKS_LOG_HEADER(log, " Options.max_write_buffer_number: %d",
@@ -190,6 +201,11 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(
         log, "                 Options.bottommost_compression_opts.enabled: %s",
         bottommost_compression_opts.enabled ? "true" : "false");
+    ROCKS_LOG_HEADER(
+        log,
+        "        Options.bottommost_compression_opts.max_dict_buffer_bytes: "
+        "%" PRIu64,
+        bottommost_compression_opts.max_dict_buffer_bytes);
     ROCKS_LOG_HEADER(log, "           Options.compression_opts.window_bits: %d",
                      compression_opts.window_bits);
     ROCKS_LOG_HEADER(log, "                 Options.compression_opts.level: %d",
@@ -211,6 +227,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "                 Options.compression_opts.enabled: %s",
                      compression_opts.enabled ? "true" : "false");
+    ROCKS_LOG_HEADER(log,
+                     "        Options.compression_opts.max_dict_buffer_bytes: "
+                     "%" PRIu64,
+                     compression_opts.max_dict_buffer_bytes);
     ROCKS_LOG_HEADER(log, "     Options.level0_file_num_compaction_trigger: %d",
                      level0_file_num_compaction_trigger);
     ROCKS_LOG_HEADER(log, "         Options.level0_slowdown_writes_trigger: %d",
@@ -365,6 +385,20 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "         Options.periodic_compaction_seconds: %" PRIu64,
                      periodic_compaction_seconds);
+    ROCKS_LOG_HEADER(log, "                   Options.enable_blob_files: %s",
+                     enable_blob_files ? "true" : "false");
+    ROCKS_LOG_HEADER(log,
+                     "                       Options.min_blob_size: %" PRIu64,
+                     min_blob_size);
+    ROCKS_LOG_HEADER(log,
+                     "                      Options.blob_file_size: %" PRIu64,
+                     blob_file_size);
+    ROCKS_LOG_HEADER(log, "               Options.blob_compression_type: %s",
+                     CompressionTypeToString(blob_compression_type).c_str());
+    ROCKS_LOG_HEADER(log, "      Options.enable_blob_garbage_collection: %s",
+                     enable_blob_garbage_collection ? "true" : "false");
+    ROCKS_LOG_HEADER(log, "  Options.blob_garbage_collection_age_cutoff: %f",
+                     blob_garbage_collection_age_cutoff);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {
@@ -609,6 +643,7 @@ ReadOptions::ReadOptions()
       timestamp(nullptr),
       iter_start_ts(nullptr),
       deadline(std::chrono::microseconds::zero()),
+      io_timeout(std::chrono::microseconds::zero()),
       value_size_soft_limit(std::numeric_limits<uint64_t>::max()) {}
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
@@ -632,6 +667,7 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       timestamp(nullptr),
       iter_start_ts(nullptr),
       deadline(std::chrono::microseconds::zero()),
+      io_timeout(std::chrono::microseconds::zero()),
       value_size_soft_limit(std::numeric_limits<uint64_t>::max()) {}
 
 }  // namespace ROCKSDB_NAMESPACE

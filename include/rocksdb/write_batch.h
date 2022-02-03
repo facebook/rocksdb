@@ -62,6 +62,11 @@ class WriteBatch : public WriteBatchBase {
  public:
   explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0);
   explicit WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz);
+  // `protection_bytes_per_key` is the number of bytes used to store
+  // protection information for each key entry. Currently supported values are
+  // zero (disabled) and eight.
+  explicit WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz,
+                      size_t protection_bytes_per_key);
   ~WriteBatch() override;
 
   using WriteBatchBase::Put;
@@ -307,10 +312,10 @@ class WriteBatch : public WriteBatchBase {
   // Returns true if MarkEndPrepare will be called during Iterate
   bool HasEndPrepare() const;
 
-  // Returns trie if MarkCommit will be called during Iterate
+  // Returns true if MarkCommit will be called during Iterate
   bool HasCommit() const;
 
-  // Returns trie if MarkRollback will be called during Iterate
+  // Returns true if MarkRollback will be called during Iterate
   bool HasRollback() const;
 
   // Assign timestamp to write batch
@@ -337,6 +342,9 @@ class WriteBatch : public WriteBatchBase {
   const SavePoint& GetWalTerminationPoint() const { return wal_term_point_; }
 
   void SetMaxBytes(size_t max_bytes) override { max_bytes_ = max_bytes; }
+
+  struct ProtectionInfo;
+  size_t GetProtectionBytesPerKey() const;
 
  private:
   friend class WriteBatchInternal;
@@ -367,11 +375,11 @@ class WriteBatch : public WriteBatchBase {
   // more details.
   bool is_latest_persistent_state_ = false;
 
+  std::unique_ptr<ProtectionInfo> prot_info_;
+
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
   const size_t timestamp_size_;
-
-  // Intentionally copyable
 };
 
 }  // namespace ROCKSDB_NAMESPACE

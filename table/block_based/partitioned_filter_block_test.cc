@@ -12,7 +12,6 @@
 #include "table/block_based/filter_policy_internal.h"
 
 #include "index_builder.h"
-#include "logging/logging.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"

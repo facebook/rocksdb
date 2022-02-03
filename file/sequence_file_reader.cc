@@ -22,6 +22,18 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
+Status SequentialFileReader::Create(
+    const std::shared_ptr<FileSystem>& fs, const std::string& fname,
+    const FileOptions& file_opts, std::unique_ptr<SequentialFileReader>* reader,
+    IODebugContext* dbg) {
+  std::unique_ptr<FSSequentialFile> file;
+  Status s = fs->NewSequentialFile(fname, file_opts, &file, dbg);
+  if (s.ok()) {
+    reader->reset(new SequentialFileReader(std::move(file), fname));
+  }
+  return s;
+}
+
 Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
   Status s;
   if (use_direct_io()) {
