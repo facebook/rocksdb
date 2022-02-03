@@ -2402,7 +2402,7 @@ void VersionStorageInfo::GenerateLevelFilesBrief() {
   }
 }
 
-void VersionStorageInfo::PrepareAppend(
+void VersionStorageInfo::PrepareForVersionAppend(
     const ImmutableOptions& immutable_options,
     const MutableCFOptions& mutable_cf_options) {
   ComputeCompensatedSizes();
@@ -2425,7 +2425,7 @@ void Version::PrepareAppend(const MutableCFOptions& mutable_cf_options,
     UpdateAccumulatedStats();
   }
 
-  storage_info_.PrepareAppend(*cfd_->ioptions(), mutable_cf_options);
+  storage_info_.PrepareForVersionAppend(*cfd_->ioptions(), mutable_cf_options);
 }
 
 bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
@@ -5911,8 +5911,8 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
                            current_version_number_++);
 
   assert(v->storage_info());
-  v->storage_info()->PrepareAppend(*new_cfd->ioptions(),
-                                   *new_cfd->GetLatestMutableCFOptions());
+  v->storage_info()->PrepareForVersionAppend(
+      *new_cfd->ioptions(), *new_cfd->GetLatestMutableCFOptions());
 
   AppendVersion(new_cfd, v);
   // GetLatestMutableCFOptions() is safe here without mutex since the
