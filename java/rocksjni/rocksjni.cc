@@ -3673,13 +3673,16 @@ void Java_org_rocksdb_RocksDB_ingestExternalFile(
     return;
   }
 
-  auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
-  auto* column_family =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  const auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
+  const auto& cfhPtr = APIColumnFamilyHandle::lock(env, jcf_handle);
+  if (!cfhPtr) {
+    // CFH exception
+    return;
+  }
   auto* ifo = reinterpret_cast<ROCKSDB_NAMESPACE::IngestExternalFileOptions*>(
       jingest_external_file_options_handle);
   ROCKSDB_NAMESPACE::Status s =
-      dbAPI->IngestExternalFile(column_family, file_path_list, *ifo);
+      dbAPI->IngestExternalFile(cfhPtr.get(), file_path_list, *ifo);
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
