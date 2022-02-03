@@ -276,6 +276,7 @@ DECLARE_int32(prepopulate_block_cache);
 
 DECLARE_bool(two_write_queues);
 #ifndef ROCKSDB_LITE
+DECLARE_bool(use_only_the_last_commit_time_batch_for_recovery);
 DECLARE_uint64(wp_snapshot_cache_bits);
 DECLARE_uint64(wp_commit_cache_bits);
 #endif  // !ROCKSDB_LITE

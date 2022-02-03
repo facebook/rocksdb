@@ -606,6 +606,8 @@ Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   }
   static std::atomic<uint64_t> txn_id = {0};
   TransactionOptions txn_options;
+  txn_options.use_only_the_last_commit_time_batch_for_recovery =
+      FLAGS_use_only_the_last_commit_time_batch_for_recovery;
   txn_options.lock_timeout = 600000;  // 10 min
   txn_options.deadlock_detect = true;
   *txn = txn_db_->BeginTransaction(write_opts, txn_options);
@@ -2169,6 +2171,9 @@ void StressTest::PrintEnv() const {
       fprintf(stdout, "Commit cache bits         : %d\n",
               static_cast<int>(FLAGS_wp_commit_cache_bits));
     }
+    fprintf(stdout, "last cwb for recovery    : %s\n",
+            FLAGS_use_only_the_last_commit_time_batch_for_recovery ? "true"
+                                                                   : "false");
 #endif  // !ROCKSDB_LITE
   }
 

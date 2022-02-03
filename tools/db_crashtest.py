@@ -338,6 +338,8 @@ multiops_txn_params = {
     "disable_wal": 0,
     "wp_snapshot_cache_bits": 1,
     "wp_commit_cache_bits": random.choice([0, 10]),
+    # TODO: change to random.choice([0, 1])
+    "use_only_the_last_commit_time_batch_for_recovery": 1,
     "clear_column_family_one_in": 0,
     "column_families": 1,
     # pipeline write is not currnetly compatible with WritePrepared txns

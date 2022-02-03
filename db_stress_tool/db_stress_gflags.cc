@@ -894,6 +894,10 @@ DEFINE_bool(two_write_queues, false,
             "Set to true to enable two write queues. Default: false");
 #ifndef ROCKSDB_LITE
 
+DEFINE_bool(use_only_the_last_commit_time_batch_for_recovery, false,
+            "If true, the commit-time write batch will not be immediately "
+            "inserted into the memtables. Default: false");
+
 DEFINE_uint64(
     wp_snapshot_cache_bits, 7ull,
     "Number of bits to represent write-prepared transaction db's snapshot "
