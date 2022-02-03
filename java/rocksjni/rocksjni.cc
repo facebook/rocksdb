@@ -2995,8 +2995,12 @@ void Java_org_rocksdb_RocksDB_compactRange(
   if (jcf_handle == 0) {
     cf_handle = dbAPI->DefaultColumnFamily();
   } else {
-    cf_handle =
-        reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+    const auto& cfhPtr = APIColumnFamilyHandle::lock(env, jcf_handle);
+    if (!cfhPtr) {
+      // CFH exception
+      return;
+    }
+    cf_handle = cfhPtr.get();
   }
 
   ROCKSDB_NAMESPACE::Status s;
