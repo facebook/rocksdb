@@ -244,13 +244,17 @@ public class ColumnFamilyTest {
     try (final WriteOptions writeOpt = new WriteOptions(); final WriteBatch writeBatch = new WriteBatch();
          final RocksDB db = RocksDB.open(
              dbFolder.getRoot().getAbsolutePath())) {
-      writeBatch.put("key".getBytes(), "value".getBytes());
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < 1000; i++) {
+        sb.append("value0123456789");
+      }
+      writeBatch.put("key".getBytes(), sb.toString().getBytes());
       db.write(writeOpt, writeBatch);
       db.put("key2".getBytes(), "value2".getBytes());
       assertThat(db.get("key2".getBytes())).isNotNull();
       assertThat(new String(db.get("key2".getBytes()))).isEqualTo("value2");
       assertThat(db.get("key".getBytes())).isNotNull();
-      assertThat(new String(db.get("key".getBytes()))).isEqualTo("value");
+      assertThat(new String(db.get("key".getBytes()))).isEqualTo(sb.toString());
     }
   }
 

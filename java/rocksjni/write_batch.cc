@@ -166,7 +166,6 @@ void Java_org_rocksdb_WriteBatch_put__J_3BI_3BI(JNIEnv* env, jobject jobj,
   assert(wb != nullptr);
   auto put = [&wb](ROCKSDB_NAMESPACE::Slice key,
                    ROCKSDB_NAMESPACE::Slice value) {
-    std::cout << "put to wb" << std::endl;
     return wb->Put(key, value);
   };
   std::unique_ptr<ROCKSDB_NAMESPACE::Status> status =
