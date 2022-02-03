@@ -3066,17 +3066,9 @@ void VersionStorageInfo::AddBlobFile(
   blob_files_.emplace_hint(it, blob_file_number, std::move(blob_file_meta));
 }
 
-// Version::PrepareAppend() need to be called before calling the function, or
-// following functions called:
-// 1. UpdateNumNonEmptyLevels();
-// 2. CalculateBaseBytes();
-// 3. UpdateFilesByCompactionPri();
-// 4. GenerateFileIndexer();
-// 5. GenerateLevelFilesBrief();
-// 6. GenerateLevel0NonOverlapping();
-// 7. GenerateBottommostFiles();
 void VersionStorageInfo::SetFinalized() {
   finalized_ = true;
+
 #ifndef NDEBUG
   if (compaction_style_ != kCompactionStyleLevel) {
     // Not level based compaction.
@@ -5918,9 +5910,10 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
                            *new_cfd->GetLatestMutableCFOptions(), io_tracer_,
                            current_version_number_++);
 
-  // Fill level target base information.
-  v->storage_info()->CalculateBaseBytes(*new_cfd->ioptions(),
-                                        *new_cfd->GetLatestMutableCFOptions());
+  assert(v->storage_info());
+  v->storage_info()->PrepareAppend(*new_cfd->ioptions(),
+                                   *new_cfd->GetLatestMutableCFOptions());
+
   AppendVersion(new_cfd, v);
   // GetLatestMutableCFOptions() is safe here without mutex since the
   // cfd is not available to client

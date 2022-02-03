@@ -132,22 +132,14 @@ class VersionStorageInfo {
   void PrepareAppend(const ImmutableOptions& immutable_options,
                      const MutableCFOptions& mutable_cf_options);
 
+  // REQUIRES: PrepareAppend has been called
   void SetFinalized();
-
-  // Update num_non_empty_levels_.
-  void UpdateNumNonEmptyLevels();
-
-  void GenerateFileIndexer() {
-    file_indexer_.UpdateIndex(&arena_, num_non_empty_levels_, files_);
-  }
 
   // Update the accumulated stats from a file-meta.
   void UpdateAccumulatedStats(FileMetaData* file_meta);
 
   // Decrease the current stat from a to-be-deleted file-meta
   void RemoveCurrentStats(FileMetaData* file_meta);
-
-  void ComputeCompensatedSizes();
 
   // Updates internal structures that keep track of compaction scores
   // We use compaction scores to figure out which compaction to do next
@@ -195,23 +187,9 @@ class VersionStorageInfo {
       double blob_garbage_collection_age_cutoff,
       double blob_garbage_collection_force_threshold);
 
-  // Generate level_files_brief_ from files_
-  void GenerateLevelFilesBrief();
-  // Sort all files for this version based on their file size and
-  // record results in files_by_compaction_pri_. The largest files are listed
-  // first.
-  void UpdateFilesByCompactionPri(const ImmutableOptions& immutable_options,
-                                  const MutableCFOptions& mutable_cf_options);
-
-  void GenerateLevel0NonOverlapping();
   bool level0_non_overlapping() const {
     return level0_non_overlapping_;
   }
-
-  // Check whether each file in this version is bottommost (i.e., nothing in its
-  // key-range could possibly exist in an older file/level).
-  // REQUIRES: This version has not been saved
-  void GenerateBottommostFiles();
 
   // Updates the oldest snapshot and related internal state, like the bottommost
   // files marked for compaction.
@@ -501,10 +479,6 @@ class VersionStorageInfo {
   // Returns maximum total bytes of data on a given level.
   uint64_t MaxBytesForLevel(int level) const;
 
-  // Must be called after any change to MutableCFOptions.
-  void CalculateBaseBytes(const ImmutableOptions& ioptions,
-                          const MutableCFOptions& options);
-
   // Returns an estimate of the amount of live data in bytes.
   uint64_t EstimateLiveDataSize() const;
 
@@ -533,6 +507,21 @@ class VersionStorageInfo {
                                      int last_level, int last_l0_idx);
 
  private:
+  void ComputeCompensatedSizes();
+  void UpdateNumNonEmptyLevels();
+  void CalculateBaseBytes(const ImmutableOptions& ioptions,
+                          const MutableCFOptions& options);
+  void UpdateFilesByCompactionPri(const ImmutableOptions& immutable_options,
+                                  const MutableCFOptions& mutable_cf_options);
+
+  void GenerateFileIndexer() {
+    file_indexer_.UpdateIndex(&arena_, num_non_empty_levels_, files_);
+  }
+
+  void GenerateLevelFilesBrief();
+  void GenerateLevel0NonOverlapping();
+  void GenerateBottommostFiles();
+
   const InternalKeyComparator* internal_comparator_;
   const Comparator* user_comparator_;
   int num_levels_;            // Number of levels
