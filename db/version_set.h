@@ -251,31 +251,29 @@ class VersionStorageInfo {
 
   int num_levels() const { return num_levels_; }
 
-  // REQUIRES: VersionStorageInfo has been finalized
+  // REQUIRES: PrepareAppend has been called
   int num_non_empty_levels() const {
     assert(finalized_);
     return num_non_empty_levels_;
   }
 
-  // REQUIRES: VersionStorageInfo has been finalized
+  // REQUIRES: PrepareAppend has been called
   // This may or may not return number of level files. It is to keep backward
   // compatible behavior in universal compaction.
-  int l0_delay_trigger_count() const {
-    assert(finalized_);
-    return l0_delay_trigger_count_;
-  }
+  int l0_delay_trigger_count() const { return l0_delay_trigger_count_; }
 
   void set_l0_delay_trigger_count(int v) { l0_delay_trigger_count_ = v; }
 
-  // REQUIRES: VersionStorageInfo has been saved to
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   int NumLevelFiles(int level) const {
+    assert(finalized_);
     return static_cast<int>(files_[level].size());
   }
 
   // Return the combined file size of all files at the specified level.
   uint64_t NumLevelBytes(int level) const;
 
-  // REQUIRES: VersionStorageInfo has been saved to
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   const std::vector<FileMetaData*>& LevelFiles(int level) const {
     return files_[level];
   }
@@ -304,10 +302,8 @@ class VersionStorageInfo {
     size_t position_ = 0;
   };
 
-  // REQUIRES: VersionStorageInfo has been finalized
+  // REQUIRES: PrepareAppend has been called
   FileLocation GetFileLocation(uint64_t file_number) const {
-    assert(finalized_);
-
     const auto it = file_locations_.find(file_number);
 
     if (it == file_locations_.end()) {
@@ -323,10 +319,8 @@ class VersionStorageInfo {
     return it->second;
   }
 
-  // REQUIRES: VersionStorageInfo has been finalized
+  // REQUIRES: PrepareAppend has been called
   FileMetaData* GetFileMetaDataByNumber(uint64_t file_number) const {
-    assert(finalized_);
-
     auto location = GetFileLocation(file_number);
 
     if (!location.IsValid()) {
@@ -336,7 +330,7 @@ class VersionStorageInfo {
     return files_[location.GetLevel()][location.GetPosition()];
   }
 
-  // REQUIRES: VersionStorageInfo has been saved to
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   using BlobFiles = std::map<uint64_t, std::shared_ptr<BlobFileMetaData>>;
   const BlobFiles& GetBlobFiles() const { return blob_files_; }
 
@@ -358,13 +352,13 @@ class VersionStorageInfo {
     return level_files_brief_[level];
   }
 
-  // REQUIRES: VersionStorageInfo has been finalized
+  // REQUIRES: PrepareAppend has been called
   const std::vector<int>& FilesByCompactionPri(int level) const {
     assert(finalized_);
     return files_by_compaction_pri_[level];
   }
 
-  // REQUIRES: VersionStorageInfo has been finalized
+  // REQUIRES: ComputeCompactionScore has been called
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>& FilesMarkedForCompaction()
       const {
@@ -372,14 +366,14 @@ class VersionStorageInfo {
     return files_marked_for_compaction_;
   }
 
-  // REQUIRES: VersionStorageInfo has been finalized
+  // REQUIRES: ComputeCompactionScore has been called
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>& ExpiredTtlFiles() const {
     assert(finalized_);
     return expired_ttl_files_;
   }
 
-  // REQUIRES: VersionStorageInfo has been finalized
+  // REQUIRES: ComputeCompactionScore has been called
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>&
   FilesMarkedForPeriodicCompaction() const {
@@ -391,7 +385,7 @@ class VersionStorageInfo {
     files_marked_for_periodic_compaction_.emplace_back(level, f);
   }
 
-  // REQUIRES: VersionStorageInfo has been finalized
+  // REQUIRES: ComputeCompactionScore has been called
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>&
   BottommostFilesMarkedForCompaction() const {
@@ -399,7 +393,7 @@ class VersionStorageInfo {
     return bottommost_files_marked_for_compaction_;
   }
 
-  // REQUIRES: VersionStorageInfo has been finalized
+  // REQUIRES: ComputeCompactionScore has been called
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>& FilesMarkedForForcedBlobGC()
       const {
@@ -422,7 +416,7 @@ class VersionStorageInfo {
     return next_file_to_compact_by_size_[level];
   }
 
-  // REQUIRES: VersionStorageInfo has been finalized
+  // REQUIRES: PrepareAppend has been called
   const FileIndexer& file_indexer() const {
     assert(finalized_);
     return file_indexer_;
@@ -638,7 +632,7 @@ class VersionStorageInfo {
 
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields
-  // are initialized by PrepareAppend().
+  // are initialized by ComputeCompactionScore.
   // The most critical level to be compacted is listed first
   // These are used to pick the best compaction level
   std::vector<double> compaction_score_;

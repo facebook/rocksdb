@@ -152,11 +152,11 @@ class VersionBuilderTest : public testing::Test {
     return meta;
   }
 
-  void UpdateVersionStorageInfo(VersionStorageInfo* storage_info) {
-    assert(storage_info);
+  void UpdateVersionStorageInfo(VersionStorageInfo* vstorage) {
+    assert(vstorage);
 
-    storage_info->PrepareAppend(ioptions_, mutable_cf_options_);
-    storage_info->SetFinalized();
+    vstorage->PrepareAppend(ioptions_, mutable_cf_options_);
+    vstorage->SetFinalized();
   }
 
   void UpdateVersionStorageInfo() { UpdateVersionStorageInfo(&vstorage_); }
@@ -186,6 +186,7 @@ TEST_F(VersionBuilderTest, ApplyAndSaveTo) {
   Add(3, 27U, "171", "179", 100U);
   Add(3, 28U, "191", "220", 100U);
   Add(3, 29U, "221", "300", 100U);
+
   UpdateVersionStorageInfo();
 
   VersionEdit version_edit;
@@ -229,6 +230,7 @@ TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic) {
 
   Add(5, 26U, "150", "170", 100U);
   Add(5, 27U, "171", "179", 100U);
+
   UpdateVersionStorageInfo();
 
   VersionEdit version_edit;
@@ -275,6 +277,7 @@ TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic2) {
 
   Add(5, 26U, "150", "170", 100U);
   Add(5, 27U, "171", "179", 100U);
+
   UpdateVersionStorageInfo();
 
   VersionEdit version_edit;
@@ -1667,6 +1670,7 @@ TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobFiles) {
 
 TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
   Add(0, 1U, "150", "200", 100U);
+
   UpdateVersionStorageInfo();
 
   VersionEdit version_edit;

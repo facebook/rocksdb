@@ -210,6 +210,7 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelStatic) {
   ioptions_.level_compaction_dynamic_level_bytes = false;
   mutable_cf_options_.max_bytes_for_level_base = 10;
   mutable_cf_options_.max_bytes_for_level_multiplier = 5;
+
   Add(4, 100U, "1", "2", 100U);
   Add(5, 101U, "1", "2", 100U);
 
@@ -313,6 +314,7 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicLotsOfData) {
   ioptions_.level_compaction_dynamic_level_bytes = true;
   mutable_cf_options_.max_bytes_for_level_base = 100;
   mutable_cf_options_.max_bytes_for_level_multiplier = 2;
+
   Add(0, 1U, "1", "2", 50U);
   Add(1, 2U, "1", "2", 50U);
   Add(2, 3U, "1", "2", 500U);
@@ -335,6 +337,7 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicLargeLevel) {
   ioptions_.level_compaction_dynamic_level_bytes = true;
   mutable_cf_options_.max_bytes_for_level_base = 10U * kOneGB;
   mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+
   Add(0, 1U, "1", "2", 50U);
   Add(3, 4U, "1", "2", 32U * kOneGB);
   Add(4, 5U, "1", "2", 500U * kOneGB);
@@ -449,6 +452,9 @@ TEST_F(VersionStorageInfoTest, EstimateLiveDataSize) {
   Add(4, 5U, "4", "5", 1U);  // Inside range of last level
   Add(4, 6U, "6", "7", 1U);  // Inside range of last level
   Add(5, 7U, "4", "7", 10U);
+
+  UpdateVersionStorageInfo();
+
   ASSERT_EQ(10U, vstorage_.EstimateLiveDataSize());
 }
 
@@ -460,6 +466,9 @@ TEST_F(VersionStorageInfoTest, EstimateLiveDataSize2) {
   Add(1, 5U, "5", "6", 1U);
   Add(2, 6U, "2", "3", 1U);
   Add(3, 7U, "7", "8", 1U);
+
+  UpdateVersionStorageInfo();
+
   ASSERT_EQ(4U, vstorage_.EstimateLiveDataSize());
 }
 

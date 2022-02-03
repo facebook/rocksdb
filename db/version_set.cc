@@ -5893,10 +5893,10 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
                            *new_cfd->GetLatestMutableCFOptions(), io_tracer_,
                            current_version_number_++);
 
-  // Fill level target base information.
   assert(v->storage_info());
   v->storage_info()->PrepareAppend(*new_cfd->ioptions(),
                                    *new_cfd->GetLatestMutableCFOptions());
+
   AppendVersion(new_cfd, v);
   // GetLatestMutableCFOptions() is safe here without mutex since the
   // cfd is not available to client
