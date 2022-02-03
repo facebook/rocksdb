@@ -4155,7 +4155,7 @@ class Benchmark {
         fprintf(stderr, "Only 64 bits timestamps are supported.\n");
         exit(1);
       }
-      options.comparator = ROCKSDB_NAMESPACE::ComparatorWithU64Ts();
+      options.comparator = ComparatorWithU64Ts();
     }
 
     // Integrated BlobDB
