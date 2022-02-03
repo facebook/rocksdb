@@ -530,7 +530,7 @@ class FlushJobTimestampTest : public FlushJobTestBase {
  public:
   FlushJobTimestampTest()
       : FlushJobTestBase(test::PerThreadDBPath("flush_job_ts_gc_test"),
-                         rocksdb::ComparatorWithU64Ts()) {}
+                         ComparatorWithU64Ts()) {}
 
   void AddKeyValueToMemtable(MemTable* memtable, std::string key, uint64_t ts,
                              SequenceNumber seq, ValueType value_type,

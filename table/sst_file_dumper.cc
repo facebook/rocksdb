@@ -133,16 +133,17 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
                                 : nullptr)
             .ok()) {
       s = SetTableOptionsByMagicNumber(magic_number);
-      std::shared_ptr<const TableProperties> table_properties;
-      s = ReadTableProperties(&table_properties);
-      if (s.ok() && !table_properties->comparator_name.empty()) {
-        ConfigOptions config_options;
-        const Comparator* user_comparator;
-        s = Comparator::CreateFromString(config_options,
-                                         table_properties->comparator_name,
-                                         &user_comparator);
-        if (s.ok()) {
-          internal_comparator_ = InternalKeyComparator(user_comparator, true);
+      if (s.ok()) {
+        if (table_properties_ != nullptr &&
+            !table_properties_->comparator_name.empty()) {
+          ConfigOptions config_options;
+          const Comparator* user_comparator = nullptr;
+          s = Comparator::CreateFromString(config_options,
+                                           table_properties_->comparator_name,
+                                           &user_comparator);
+          if (s.ok()) {
+            internal_comparator_ = InternalKeyComparator(user_comparator, true);
+          }
         }
       }
     } else {

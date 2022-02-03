@@ -1080,7 +1080,7 @@ INSTANTIATE_TEST_CASE_P(CompactionIteratorWithAllowIngestBehindTestInstance,
 class CompactionIteratorTsGcTest : public CompactionIteratorTest {
  public:
   CompactionIteratorTsGcTest()
-      : CompactionIteratorTest(rocksdb::ComparatorWithU64Ts()) {}
+      : CompactionIteratorTest(ComparatorWithU64Ts()) {}
 };
 
 TEST_P(CompactionIteratorTsGcTest, NoKeyEligibleForGC) {

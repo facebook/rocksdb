@@ -998,8 +998,8 @@ TEST_F(WriteBatchTest, UpdateTimestamps) {
   std::vector<std::string> key_strs(num_of_keys, std::string(key_size, '\0'));
 
   ColumnFamilyHandleImplDummy cf0(0);
-  ColumnFamilyHandleImplDummy cf4(4, rocksdb::ComparatorWithU64Ts());
-  ColumnFamilyHandleImplDummy cf5(5, rocksdb::ComparatorWithU64Ts());
+  ColumnFamilyHandleImplDummy cf4(4, ComparatorWithU64Ts());
+  ColumnFamilyHandleImplDummy cf5(5, ComparatorWithU64Ts());
 
   const std::unordered_map<uint32_t, const Comparator*> cf_to_ucmps = {
       {0, cf0.GetComparator()},

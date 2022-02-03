@@ -700,7 +700,7 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGC) {
 class VersionStorageInfoTimestampTest : public VersionStorageInfoTestBase {
  public:
   VersionStorageInfoTimestampTest()
-      : VersionStorageInfoTestBase(rocksdb::ComparatorWithU64Ts()) {}
+      : VersionStorageInfoTestBase(ComparatorWithU64Ts()) {}
   ~VersionStorageInfoTimestampTest() override {}
   std::string Timestamp(uint64_t ts) const {
     std::string ret;
@@ -1967,7 +1967,7 @@ class VersionSetWithTimestampTest : public VersionSetTest {
   void SetUp() override {
     NewDB();
     Options options;
-    options.comparator = rocksdb::ComparatorWithU64Ts();
+    options.comparator = ComparatorWithU64Ts();
     cfd_ = CreateColumnFamily(kNewCfName, options);
     EXPECT_NE(nullptr, cfd_);
     EXPECT_NE(nullptr, cfd_->GetLatestMutableCFOptions());

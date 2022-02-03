@@ -90,7 +90,8 @@ class SSTDumpToolTest : public testing::Test {
     snprintf(usage[2], kOptLength, "--file=%s", file_path.c_str());
   }
 
-  void createSST(const Options& opts, const std::string& file_name) {
+  void createSST(const Options& opts, const std::string& file_name,
+                 bool reverse = false) {
     Env* test_env = opts.env;
     FileOptions file_options(opts);
     ReadOptions read_options;
@@ -116,8 +117,14 @@ class SSTDumpToolTest : public testing::Test {
 
     // Populate slightly more than 1K keys
     uint32_t num_keys = kNumKey;
-    for (uint32_t i = 0; i < num_keys; i++) {
-      tb->Add(MakeKey(i), MakeValue(i));
+    if (reverse) {
+      for (uint32_t i = num_keys; i > 0; i--) {
+        tb->Add(MakeKey(i), MakeValue(i));
+      }
+    } else {
+      for (uint32_t i = 0; i < num_keys; i++) {
+        tb->Add(MakeKey(i), MakeValue(i));
+      }
     }
     ASSERT_OK(tb->Finish());
     ASSERT_OK(file_writer->Close());
@@ -148,6 +155,29 @@ TEST_F(SSTDumpToolTest, EmptyFilter) {
   opts.env = env();
   std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
   createSST(opts, file_path);
+
+  char* usage[3];
+  PopulateCommandArgs(file_path, "--command=raw", usage);
+
+  ROCKSDB_NAMESPACE::SSTDumpTool tool;
+  ASSERT_TRUE(!tool.Run(3, usage, opts));
+
+  cleanup(opts, file_path);
+  for (int i = 0; i < 3; i++) {
+    delete[] usage[i];
+  }
+}
+
+TEST_F(SSTDumpToolTest, SstDumpWithReverseBytewiseComparator) {
+  Options opts;
+  opts.env = env();
+  opts.comparator = ReverseBytewiseComparator();
+  BlockBasedTableOptions table_opts;
+  table_opts.filter_policy.reset(
+      ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10, false));
+  opts.table_factory.reset(new BlockBasedTableFactory(table_opts));
+  std::string file_path = MakeFilePath("rocksdb_sst_comparator.sst");
+  createSST(opts, file_path, true);
 
   char* usage[3];
   PopulateCommandArgs(file_path, "--command=raw", usage);

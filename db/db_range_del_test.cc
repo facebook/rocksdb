@@ -162,7 +162,7 @@ TEST_F(DBRangeDelTest, MaxCompactionBytesCutsOutputFiles) {
   // https://github.com/facebook/rocksdb/issues/1778
   const int kNumFiles = 2, kNumPerFile = 1 << 8, kBytesPerVal = 1 << 12;
   Options opts = CurrentOptions();
-  opts.comparator = rocksdb::Uint64Comparator();
+  opts.comparator = Uint64Comparator();
   opts.disable_auto_compactions = true;
   opts.level0_file_num_compaction_trigger = kNumFiles;
   opts.max_compaction_bytes = kNumPerFile * kBytesPerVal;
@@ -299,7 +299,7 @@ TEST_F(DBRangeDelTest, CompactRangeDelsSameStartKey) {
 TEST_F(DBRangeDelTest, FlushRemovesCoveredKeys) {
   const int kNum = 300, kRangeBegin = 50, kRangeEnd = 250;
   Options opts = CurrentOptions();
-  opts.comparator = rocksdb::Uint64Comparator();
+  opts.comparator = Uint64Comparator();
   DestroyAndReopen(opts);
 
   // Write a third before snapshot, a third between snapshot and tombstone, and
@@ -336,7 +336,7 @@ TEST_F(DBRangeDelTest, FlushRemovesCoveredKeys) {
 TEST_F(DBRangeDelTest, CompactionRemovesCoveredKeys) {
   const int kNumPerFile = 100, kNumFiles = 4;
   Options opts = CurrentOptions();
-  opts.comparator = rocksdb::Uint64Comparator();
+  opts.comparator = Uint64Comparator();
   opts.disable_auto_compactions = true;
   opts.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
   opts.num_levels = 2;
@@ -629,7 +629,7 @@ TEST_F(DBRangeDelTest, TableEvictedDuringScan) {
   // the aggregator properly references the range deletion block.
   const int kNum = 25, kRangeBegin = 0, kRangeEnd = 7, kNumRanges = 5;
   Options opts = CurrentOptions();
-  opts.comparator = rocksdb::Uint64Comparator();
+  opts.comparator = Uint64Comparator();
   opts.level0_file_num_compaction_trigger = 4;
   opts.level0_stop_writes_trigger = 4;
   opts.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
@@ -806,7 +806,7 @@ TEST_F(DBRangeDelTest, GetIgnoresRangeDeletions) {
 TEST_F(DBRangeDelTest, IteratorRemovesCoveredKeys) {
   const int kNum = 200, kRangeBegin = 50, kRangeEnd = 150, kNumPerFile = 25;
   Options opts = CurrentOptions();
-  opts.comparator = rocksdb::Uint64Comparator();
+  opts.comparator = Uint64Comparator();
   opts.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
   DestroyAndReopen(opts);
 
@@ -841,7 +841,7 @@ TEST_F(DBRangeDelTest, IteratorRemovesCoveredKeys) {
 TEST_F(DBRangeDelTest, IteratorOverUserSnapshot) {
   const int kNum = 200, kRangeBegin = 50, kRangeEnd = 150, kNumPerFile = 25;
   Options opts = CurrentOptions();
-  opts.comparator = rocksdb::Uint64Comparator();
+  opts.comparator = Uint64Comparator();
   opts.memtable_factory.reset(test::NewSpecialSkipListFactory(kNumPerFile));
   DestroyAndReopen(opts);
 
