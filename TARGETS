@@ -4,6 +4,8 @@
 # This file is a Facebook-specific integration for buck builds, so can
 # only be validated by Facebook employees.
 #
+# @noautodeps @nocodemods
+
 load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
 load("@fbcode_macros//build_defs:cpp_library.bzl", "cpp_library")
 load(":defs.bzl", "test_binary")
@@ -229,7 +231,6 @@ cpp_library(
         "env/env.cc",
         "env/env_chroot.cc",
         "env/env_encryption.cc",
-        "env/env_hdfs.cc",
         "env/env_posix.cc",
         "env/file_system.cc",
         "env/file_system_tracer.cc",
@@ -369,7 +370,6 @@ cpp_library(
         "util/murmurhash.cc",
         "util/random.cc",
         "util/rate_limiter.cc",
-        "util/regex.cc",
         "util/ribbon_config.cc",
         "util/slice.cc",
         "util/status.cc",
@@ -559,7 +559,6 @@ cpp_library(
         "env/env.cc",
         "env/env_chroot.cc",
         "env/env_encryption.cc",
-        "env/env_hdfs.cc",
         "env/env_posix.cc",
         "env/file_system.cc",
         "env/file_system_tracer.cc",
@@ -699,7 +698,6 @@ cpp_library(
         "util/murmurhash.cc",
         "util/random.cc",
         "util/rate_limiter.cc",
-        "util/regex.cc",
         "util/ribbon_config.cc",
         "util/slice.cc",
         "util/status.cc",

@@ -65,6 +65,37 @@ class FilterBitsBuilder {
   // The ownership of actual data is set to buf
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
 
+  // Similar to Finish(std::unique_ptr<const char[]>* buf), except that
+  // for a non-null status pointer argument, it will point to
+  // Status::Corruption() when there is any corruption during filter
+  // construction or Status::OK() otherwise.
+  //
+  // WARNING: do not use a filter resulted from a corrupted construction
+  virtual Slice Finish(std::unique_ptr<const char[]>* buf,
+                       Status* /* status */) {
+    return Finish(buf);
+  }
+
+  // Verify the filter returned from calling FilterBitsBuilder::Finish.
+  // The function returns Status::Corruption() if there is any corruption in the
+  // constructed filter or Status::OK() otherwise.
+  //
+  // Implementations should normally consult
+  // FilterBuildingContext::table_options.detect_filter_construct_corruption
+  // to determine whether to perform verification or to skip by returning
+  // Status::OK(). The decision is left to the FilterBitsBuilder so that
+  // verification prerequisites before PostVerify can be skipped when not
+  // configured.
+  //
+  // RocksDB internal will always call MaybePostVerify() on the filter after
+  // it is returned from calling FilterBitsBuilder::Finish
+  // except for FilterBitsBuilder::Finish resulting a corruption
+  // status, which indicates the filter is already in a corrupted state and
+  // there is no need to post-verify
+  virtual Status MaybePostVerify(const Slice& /* filter_content */) {
+    return Status::OK();
+  }
+
   // Approximate the number of keys that can be added and generate a filter
   // <= the specified number of bytes. Callers (including RocksDB) should
   // only use this result for optimizing performance and not as a guarantee.
@@ -177,6 +208,9 @@ class FilterPolicy {
   // passed to methods of this type.
   virtual const char* Name() const = 0;
 
+  // DEPRECATED: This function is part of the deprecated block-based
+  // filter, which will be removed in a future release.
+  //
   // keys[0,n-1] contains a list of keys (potentially with duplicates)
   // that are ordered according to the user supplied comparator.
   // Append a filter that summarizes keys[0,n-1] to *dst.
@@ -186,6 +220,9 @@ class FilterPolicy {
   virtual void CreateFilter(const Slice* keys, int n,
                             std::string* dst) const = 0;
 
+  // DEPRECATED: This function is part of the deprecated block-based
+  // filter, which will be removed in a future release.
+  //
   // "filter" contains the data appended by a preceding call to
   // CreateFilter() on this class.  This method must return true if
   // the key was in the list of keys passed to CreateFilter().
@@ -198,6 +235,7 @@ class FilterPolicy {
   // NOTE: This function is only called by GetBuilderWithContext() below for
   // custom FilterPolicy implementations. Thus, it is not necessary to
   // override this function if overriding GetBuilderWithContext().
+  // DEPRECATED: This function will be removed in a future release.
   virtual FilterBitsBuilder* GetFilterBitsBuilder() const { return nullptr; }
 
   // A newer variant of GetFilterBitsBuilder that allows a FilterPolicy
@@ -282,7 +320,7 @@ extern const FilterPolicy* NewBloomFilterPolicy(
 extern const FilterPolicy* NewRibbonFilterPolicy(
     double bloom_equivalent_bits_per_key, int bloom_before_level = 0);
 
-// Old name and old default behavior
+// Old name and old default behavior (DEPRECATED)
 inline const FilterPolicy* NewExperimentalRibbonFilterPolicy(
     double bloom_equivalent_bits_per_key) {
   return NewRibbonFilterPolicy(bloom_equivalent_bits_per_key, -1);

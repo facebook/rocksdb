@@ -6728,6 +6728,34 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
       DB::Properties::kLiveSstFilesSizeAtTemperature + std::to_string(22),
       &prop));
   ASSERT_EQ(std::atoi(prop.c_str()), 0);
+
+  // Update bottommost temperature dynamically with SetOptions
+  auto s = db_->SetOptions({{"bottommost_temperature", "kCold"}});
+  ASSERT_OK(s);
+  ASSERT_EQ(db_->GetOptions().bottommost_temperature, Temperature::kCold);
+  db_->GetColumnFamilyMetaData(&metadata);
+  // Should not impact the existing files
+  ASSERT_EQ(Temperature::kWarm,
+            metadata.levels[kBottommostLevel].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kCold);
+  ASSERT_EQ(size, 0);
+
+  // new generated files should have the new settings
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(1, metadata.file_count);
+  ASSERT_EQ(Temperature::kCold,
+            metadata.levels[kBottommostLevel].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kCold);
+  ASSERT_GT(size, 0);
 }
 #endif  // ROCKSDB_LITE
 
@@ -6817,16 +6845,13 @@ TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   constexpr uint64_t kTsU64Value = 12;
 
   for (uint64_t key = 0; key < 100; ++key) {
-    std::string ts_str;
-    PutFixed64(&ts_str, kTsU64Value);
-    Slice ts = ts_str;
-    WriteOptions write_opts;
-    write_opts.timestamp = &ts;
+    std::string ts;
+    PutFixed64(&ts, kTsU64Value);
 
     std::string key_str;
     PutFixed64(&key_str, key);
     std::reverse(key_str.begin(), key_str.end());
-    ASSERT_OK(Put(key_str, "value", write_opts));
+    ASSERT_OK(db_->Put(WriteOptions(), key_str, ts, "value"));
   }
 
   ASSERT_OK(Flush());

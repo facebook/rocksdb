@@ -139,9 +139,7 @@ class CompactionIterator {
       return compaction_->immutable_options()->allow_ingest_behind;
     }
 
-    bool preserve_deletes() const override {
-      return compaction_->immutable_options()->preserve_deletes;
-    }
+    bool preserve_deletes() const override { return false; }
 
     bool allow_mmap_reads() const override {
       return compaction_->immutable_options()->allow_mmap_reads;

@@ -2862,6 +2862,11 @@ class ModelDB : public DB {
     }
     return Write(o, &batch);
   }
+  Status Put(const WriteOptions& /*o*/, ColumnFamilyHandle* /*cf*/,
+             const Slice& /*k*/, const Slice& /*ts*/,
+             const Slice& /*v*/) override {
+    return Status::NotSupported();
+  }
   using DB::Close;
   Status Close() override { return Status::OK(); }
   using DB::Delete;
@@ -2874,6 +2879,10 @@ class ModelDB : public DB {
     }
     return Write(o, &batch);
   }
+  Status Delete(const WriteOptions& /*o*/, ColumnFamilyHandle* /*cf*/,
+                const Slice& /*key*/, const Slice& /*ts*/) override {
+    return Status::NotSupported();
+  }
   using DB::SingleDelete;
   Status SingleDelete(const WriteOptions& o, ColumnFamilyHandle* cf,
                       const Slice& key) override {
@@ -2883,6 +2892,10 @@ class ModelDB : public DB {
       return s;
     }
     return Write(o, &batch);
+  }
+  Status SingleDelete(const WriteOptions& /*o*/, ColumnFamilyHandle* /*cf*/,
+                      const Slice& /*key*/, const Slice& /*ts*/) override {
+    return Status::NotSupported();
   }
   using DB::Merge;
   Status Merge(const WriteOptions& o, ColumnFamilyHandle* cf, const Slice& k,
@@ -3198,10 +3211,6 @@ class ModelDB : public DB {
   }
 
   SequenceNumber GetLatestSequenceNumber() const override { return 0; }
-
-  bool SetPreserveDeletesSequenceNumber(SequenceNumber /*seqnum*/) override {
-    return true;
-  }
 
   Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* /*cf*/,
                                   std::string /*ts_low*/) override {
@@ -6530,6 +6539,10 @@ TEST_F(DBTest, SoftLimit) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Now there is one L1 file but doesn't trigger soft_rate_limit
+  //
+  // TODO: soft_rate_limit is depreciated. If this test
+  // relies on soft_rate_limit, then we need to change the test.
+  //
   // The L1 file size is around 30KB.
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
   ASSERT_TRUE(!dbfull()->TEST_write_controler().NeedsDelay());

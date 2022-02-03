@@ -51,6 +51,24 @@ TEST_F(DBBasicTest, OpenWhenOpen) {
   delete db2;
 }
 
+TEST_F(DBBasicTest, EnableDirectIOWithZeroBuf) {
+  if (!IsDirectIOSupported()) {
+    ROCKSDB_GTEST_BYPASS("Direct IO not supported");
+    return;
+  }
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.use_direct_io_for_flush_and_compaction = true;
+  options.writable_file_max_buffer_size = 0;
+  ASSERT_TRUE(TryReopen(options).IsInvalidArgument());
+
+  options.writable_file_max_buffer_size = 1024;
+  Reopen(options);
+  const std::unordered_map<std::string, std::string> new_db_opts = {
+      {"writable_file_max_buffer_size", "0"}};
+  ASSERT_TRUE(db_->SetDBOptions(new_db_opts).IsInvalidArgument());
+}
+
 TEST_F(DBBasicTest, UniqueSession) {
   Options options = CurrentOptions();
   std::string sid1, sid2, sid3, sid4;

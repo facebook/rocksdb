@@ -91,8 +91,7 @@ GenericRateLimiter::GenericRateLimiter(
       available_bytes_(0),
       rnd_((uint32_t)time(nullptr)),
       wait_until_refill_pending_(false),
-      num_drains_(0),
-      prev_num_drains_(0) {
+      num_drains_(0) {
   RegisterOptions(&options_, &generic_rate_limiter_type_info);
   for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
     total_requests_[i] = 0;
@@ -375,10 +374,9 @@ Status GenericRateLimiter::Tune() {
       std::chrono::microseconds(options_.refill_period_us);
   // We tune every kRefillsPerTune intervals, so the overflow and division-by-
   // zero conditions should never happen.
-  assert(num_drains_ - prev_num_drains_ <= port::kMaxInt64 / 100);
+  assert(num_drains_ <= port::kMaxInt64 / 100);
   assert(elapsed_intervals > 0);
-  int64_t drained_pct =
-      (num_drains_ - prev_num_drains_) * 100 / elapsed_intervals;
+  int64_t drained_pct = num_drains_ * 100 / elapsed_intervals;
 
   int64_t prev_bytes_per_sec = GetBytesPerSecond();
   int64_t new_bytes_per_sec;
@@ -404,7 +402,7 @@ Status GenericRateLimiter::Tune() {
   if (new_bytes_per_sec != prev_bytes_per_sec) {
     SetBytesPerSecond(new_bytes_per_sec);
   }
-  num_drains_ = prev_num_drains_;
+  num_drains_ = 0;
   return Status::OK();
 }
 
