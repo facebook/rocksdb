@@ -153,26 +153,6 @@ class CompactionPickerTest : public testing::Test {
     vstorage_->SetFinalized();
   }
 
-  void AddFileToVersionStorage(int level, uint32_t file_number,
-                               const char* smallest, const char* largest,
-                               uint64_t file_size = 1, uint32_t path_id = 0,
-                               SequenceNumber smallest_seq = 100,
-                               SequenceNumber largest_seq = 100,
-                               size_t compensated_file_size = 0,
-                               bool marked_for_compact = false) {
-    VersionStorageInfo* base_vstorage = vstorage_.release();
-    vstorage_.reset(new VersionStorageInfo(&icmp_, ucmp_, options_.num_levels,
-                                           kCompactionStyleUniversal,
-                                           base_vstorage, false));
-    Add(level, file_number, smallest, largest, file_size, path_id, smallest_seq,
-        largest_seq, compensated_file_size, marked_for_compact);
-
-    VersionBuilder builder(FileOptions(), &ioptions_, nullptr, base_vstorage,
-                           nullptr);
-    builder.SaveTo(vstorage_.get());
-    UpdateVersionStorageInfo();
-  }
-
  private:
   std::unique_ptr<VersionStorageInfo> temp_vstorage_;
 };
