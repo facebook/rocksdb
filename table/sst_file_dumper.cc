@@ -134,15 +134,15 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
             .ok()) {
       s = SetTableOptionsByMagicNumber(magic_number);
       if (s.ok()) {
-        if (table_properties_ != nullptr &&
-            !table_properties_->comparator_name.empty()) {
+        if (table_properties_ && !table_properties_->comparator_name.empty()) {
           ConfigOptions config_options;
           const Comparator* user_comparator = nullptr;
           s = Comparator::CreateFromString(config_options,
                                            table_properties_->comparator_name,
                                            &user_comparator);
           if (s.ok()) {
-            internal_comparator_ = InternalKeyComparator(user_comparator, true);
+            internal_comparator_ =
+                InternalKeyComparator(user_comparator, /*named=*/true);
           }
         }
       }

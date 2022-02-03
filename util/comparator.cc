@@ -218,38 +218,6 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
   }
 };
 
-class Uint64ComparatorImpl : public Comparator {
- public:
-  Uint64ComparatorImpl() {}
-
-  static const char* kClassName() { return "rocksdb.Uint64Comparator"; }
-  const char* Name() const override { return kClassName(); }
-
-  int Compare(const Slice& a, const Slice& b) const override {
-    assert(a.size() == sizeof(uint64_t) && b.size() == sizeof(uint64_t));
-    const uint64_t* left = reinterpret_cast<const uint64_t*>(a.data());
-    const uint64_t* right = reinterpret_cast<const uint64_t*>(b.data());
-    uint64_t leftValue;
-    uint64_t rightValue;
-    GetUnaligned(left, &leftValue);
-    GetUnaligned(right, &rightValue);
-    if (leftValue == rightValue) {
-      return 0;
-    } else if (leftValue < rightValue) {
-      return -1;
-    } else {
-      return 1;
-    }
-  }
-
-  void FindShortestSeparator(std::string* /*start*/,
-                             const Slice& /*limit*/) const override {
-    return;
-  }
-
-  void FindShortSuccessor(std::string* /*key*/) const override { return; }
-};
-
 // A test implementation of comparator with 64-bit integer timestamp.
 class ComparatorWithU64TsImpl : public Comparator {
  public:
@@ -316,11 +284,6 @@ const Comparator* ReverseBytewiseComparator() {
   return &rbytewise;
 }
 
-const Comparator* Uint64Comparator() {
-  static Uint64ComparatorImpl uint64comp;
-  return &uint64comp;
-}
-
 const Comparator* ComparatorWithU64Ts() {
   static ComparatorWithU64TsImpl comp_with_u64_ts;
   return &comp_with_u64_ts;
@@ -339,11 +302,6 @@ static int RegisterBuiltinComparators(ObjectLibrary& library,
       [](const std::string& /*uri*/,
          std::unique_ptr<const Comparator>* /*guard */,
          std::string* /* errmsg */) { return ReverseBytewiseComparator(); });
-  library.AddFactory<const Comparator>(
-      Uint64ComparatorImpl::kClassName(),
-      [](const std::string& /*uri*/,
-         std::unique_ptr<const Comparator>* /*guard */,
-         std::string* /* errmsg */) { return Uint64Comparator(); });
   library.AddFactory<const Comparator>(
       ComparatorWithU64TsImpl::kClassName(),
       [](const std::string& /*uri*/,
@@ -373,8 +331,6 @@ Status Comparator::CreateFromString(const ConfigOptions& config_options,
     *result = BytewiseComparator();
   } else if (id == ReverseBytewiseComparatorImpl::kClassName()) {
     *result = ReverseBytewiseComparator();
-  } else if (id == Uint64ComparatorImpl::kClassName()) {
-    *result = Uint64Comparator();
   } else if (id == ComparatorWithU64TsImpl::kClassName()) {
     *result = ComparatorWithU64Ts();
   } else if (value.empty()) {

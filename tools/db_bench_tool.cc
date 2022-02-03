@@ -3799,7 +3799,7 @@ class Benchmark {
           NewFixedPrefixTransform(FLAGS_prefix_size));
     }
     if (FLAGS_use_uint64_comparator) {
-      options.comparator = Uint64Comparator();
+      options.comparator = test::Uint64Comparator();
       if (FLAGS_key_size != 8) {
         fprintf(stderr, "Using Uint64 comparator but key size is not 8.\n");
         exit(1);

@@ -356,7 +356,7 @@ TEST_P(ComparatorDBTest, SimpleSuffixReverseComparator) {
 }
 
 TEST_P(ComparatorDBTest, Uint64Comparator) {
-  SetOwnedComparator(Uint64Comparator(), false /* owner */);
+  SetOwnedComparator(test::Uint64Comparator(), false /* owner */);
 
   for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
     Options* opt = GetOptions();

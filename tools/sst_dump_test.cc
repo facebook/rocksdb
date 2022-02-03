@@ -7,6 +7,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <cstdint>
+#include <string>
+
+#include "rocksdb/comparator.h"
 #ifndef ROCKSDB_LITE
 
 #include <stdint.h>
@@ -90,8 +94,7 @@ class SSTDumpToolTest : public testing::Test {
     snprintf(usage[2], kOptLength, "--file=%s", file_path.c_str());
   }
 
-  void createSST(const Options& opts, const std::string& file_name,
-                 bool reverse = false) {
+  void createSST(const Options& opts, const std::string& file_name) {
     Env* test_env = opts.env;
     FileOptions file_options(opts);
     ReadOptions read_options;
@@ -117,9 +120,18 @@ class SSTDumpToolTest : public testing::Test {
 
     // Populate slightly more than 1K keys
     uint32_t num_keys = kNumKey;
-    if (reverse) {
-      for (uint32_t i = num_keys; i > 0; i--) {
+    const std::string comparator_name = ikc.user_comparator()->Name();
+    if (comparator_name == ReverseBytewiseComparator()->Name()) {
+      for (int32_t i = num_keys; i >= 0; i--) {
         tb->Add(MakeKey(i), MakeValue(i));
+      }
+    } else if (comparator_name == ComparatorWithU64Ts()->Name()) {
+      for (uint32_t i = 0; i < num_keys; i++) {
+        char buf[100];
+        snprintf(buf, sizeof(buf), "v_%04d", i);
+        tb->Add(
+            test::KeyStr(/*ts=*/100, std::string(buf), /*seq=*/0, kTypeValue),
+            MakeValue(i));
       }
     } else {
       for (uint32_t i = 0; i < num_keys; i++) {
@@ -168,7 +180,7 @@ TEST_F(SSTDumpToolTest, EmptyFilter) {
   }
 }
 
-TEST_F(SSTDumpToolTest, SstDumpWithReverseBytewiseComparator) {
+TEST_F(SSTDumpToolTest, SstDumpReverseBytewiseComparator) {
   Options opts;
   opts.env = env();
   opts.comparator = ReverseBytewiseComparator();
@@ -176,8 +188,33 @@ TEST_F(SSTDumpToolTest, SstDumpWithReverseBytewiseComparator) {
   table_opts.filter_policy.reset(
       ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10, false));
   opts.table_factory.reset(new BlockBasedTableFactory(table_opts));
-  std::string file_path = MakeFilePath("rocksdb_sst_comparator.sst");
-  createSST(opts, file_path, true);
+  std::string file_path =
+      MakeFilePath("rocksdb_sst_reverse_bytewise_comparator.sst");
+  createSST(opts, file_path);
+
+  char* usage[3];
+  PopulateCommandArgs(file_path, "--command=raw", usage);
+
+  ROCKSDB_NAMESPACE::SSTDumpTool tool;
+  ASSERT_TRUE(!tool.Run(3, usage, opts));
+
+  cleanup(opts, file_path);
+  for (int i = 0; i < 3; i++) {
+    delete[] usage[i];
+  }
+}
+
+TEST_F(SSTDumpToolTest, SstDumpComparatorWithU64Ts) {
+  Options opts;
+  opts.env = env();
+  opts.comparator = ComparatorWithU64Ts();
+  BlockBasedTableOptions table_opts;
+  table_opts.filter_policy.reset(
+      ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10, false));
+  opts.table_factory.reset(new BlockBasedTableFactory(table_opts));
+  std::string file_path =
+      MakeFilePath("rocksdb_sst_comparator_with_u64_ts.sst");
+  createSST(opts, file_path);
 
   char* usage[3];
   PopulateCommandArgs(file_path, "--command=raw", usage);

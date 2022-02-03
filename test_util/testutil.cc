@@ -87,6 +87,44 @@ extern Slice CompressibleString(Random* rnd, double compressed_fraction,
   return Slice(*dst);
 }
 
+namespace {
+class Uint64ComparatorImpl : public Comparator {
+ public:
+  Uint64ComparatorImpl() {}
+
+  const char* Name() const override { return "rocksdb.Uint64Comparator"; }
+
+  int Compare(const Slice& a, const Slice& b) const override {
+    assert(a.size() == sizeof(uint64_t) && b.size() == sizeof(uint64_t));
+    const uint64_t* left = reinterpret_cast<const uint64_t*>(a.data());
+    const uint64_t* right = reinterpret_cast<const uint64_t*>(b.data());
+    uint64_t leftValue;
+    uint64_t rightValue;
+    GetUnaligned(left, &leftValue);
+    GetUnaligned(right, &rightValue);
+    if (leftValue == rightValue) {
+      return 0;
+    } else if (leftValue < rightValue) {
+      return -1;
+    } else {
+      return 1;
+    }
+  }
+
+  void FindShortestSeparator(std::string* /*start*/,
+                             const Slice& /*limit*/) const override {
+    return;
+  }
+
+  void FindShortSuccessor(std::string* /*key*/) const override { return; }
+};
+}  // namespace
+
+const Comparator* Uint64Comparator() {
+  static Uint64ComparatorImpl uint64comp;
+  return &uint64comp;
+}
+
 void CorruptKeyType(InternalKey* ikey) {
   std::string keystr = ikey->Encode().ToString();
   keystr[keystr.size() - 8] = kTypeLogData;
