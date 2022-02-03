@@ -7,8 +7,7 @@ package org.rocksdb;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 import java.util.*;
 import org.junit.ClassRule;
@@ -207,8 +206,7 @@ public class ColumnFamilyTest {
           new ColumnFamilyDescriptor("tmpCF".getBytes(), new ColumnFamilyOptions()));
       db.put(tmpColumnFamilyHandle, "key".getBytes(), "value".getBytes());
       db.dropColumnFamily(tmpColumnFamilyHandle);
-      //TODO (AP) RCA
-      //assertThat(tmpColumnFamilyHandle.isOwningHandle()).isTrue();
+      assertThat(tmpColumnFamilyHandle.isLastReference()).isTrue();
     }
   }
 
@@ -233,9 +231,8 @@ public class ColumnFamilyTest {
       db.put(tmpColumnFamilyHandle, "key".getBytes(), "value".getBytes());
       db.put(tmpColumnFamilyHandle2, "key".getBytes(), "value".getBytes());
       db.dropColumnFamilies(Arrays.asList(tmpColumnFamilyHandle, tmpColumnFamilyHandle2));
-      //TODO (AP) RCA
-      //assertThat(tmpColumnFamilyHandle.isOwningHandle()).isTrue();
-      //assertThat(tmpColumnFamilyHandle2.isOwningHandle()).isTrue();
+      assertThat(tmpColumnFamilyHandle.isLastReference()).isTrue();
+      assertThat(tmpColumnFamilyHandle2.isLastReference()).isTrue();
     }
   }
 
@@ -583,6 +580,7 @@ public class ColumnFamilyTest {
 
   @Test
   public void testDestroyColumnFamilyHandle() throws RocksDBException {
+    ColumnFamilyHandle cf2 = null;
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());) {
       final byte[] name1 = "cf1".getBytes();
@@ -590,16 +588,23 @@ public class ColumnFamilyTest {
       final ColumnFamilyDescriptor desc1 = new ColumnFamilyDescriptor(name1);
       final ColumnFamilyDescriptor desc2 = new ColumnFamilyDescriptor(name2);
       final ColumnFamilyHandle cf1 = db.createColumnFamily(desc1);
-      final ColumnFamilyHandle cf2 = db.createColumnFamily(desc2);
+      cf2 = db.createColumnFamily(desc2);
       //TODO (AP) RCA
-      //assertTrue(cf1.isOwningHandle());
-      //assertTrue(cf2.isOwningHandle());
-      assertFalse(cf1.isDefaultColumnFamily());
+      assertThat(cf1.isLastReference()).isFalse();
+      assertThat(cf2.isLastReference()).isFalse();
+      assertThat(cf1.isDefaultColumnFamily()).isFalse();
       db.destroyColumnFamilyHandle(cf1);
+      assertThat(cf1.isLastReference()).isFalse(); //destroy was deprecated, and is a no-op
+      cf1.close(); //but we can still close it
       // At this point cf1 should not be used!
-      //TODO (AP) RCA
-      //assertFalse(cf1.isOwningHandle());
-      //assertTrue(cf2.isOwningHandle());
+      try {
+        assertThat(cf1.isLastReference()).isTrue();
+        fail("cf1 should throw an exception on being closed");
+      } catch (IllegalStateException illegalStateException) {
+        assertThat(illegalStateException.getMessage()).contains("RocksDB native reference was previously closed");
+      }
+      assertThat(cf2.isLastReference()).isFalse();
     }
+    assertThat(cf2.isLastReference()).isTrue();
   }
 }

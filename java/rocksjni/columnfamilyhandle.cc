@@ -29,6 +29,28 @@ void Java_org_rocksdb_ColumnFamilyHandle_nativeClose(JNIEnv*, jobject,
 }
 
 /*
+ * Class:     org_rocksdb_ColumnFamilyHandle
+ * Method:    isDefaultColumnFamily
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ColumnFamilyHandle_isDefaultColumnFamily(
+    JNIEnv* env, jobject, jlong handle) {
+  const auto& cfhAPI = *reinterpret_cast<APIColumnFamilyHandle*>(handle);
+  const auto& rocksDB = cfhAPI.dbLock(env);
+  if (!rocksDB) {
+    // dbLock exception
+    return false;
+  }
+  const auto& cfh = cfhAPI.cfhLock(env);
+  if (!cfh) {
+    // cfhLock exception
+    return false;
+  }
+
+  return (rocksDB->DefaultColumnFamily() == cfh.get());
+}
+
+/*
  * Class:     org_rocksdb_ColumnFamilyHandleNonDefault
  * Method:    isLastReference
  * Signature: (J)Z

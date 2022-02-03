@@ -27,7 +27,7 @@ class APIWeakDB : public APIBase {
    *
    * @return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
    */
-  std::shared_ptr<ROCKSDB_NAMESPACE::DB> dbLock(JNIEnv* env) {
+  const std::shared_ptr<ROCKSDB_NAMESPACE::DB> dbLock(JNIEnv* env) const {
     auto lock = db.lock();
     if (!lock) {
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(

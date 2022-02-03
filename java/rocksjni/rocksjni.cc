@@ -545,7 +545,7 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__J_3J_3_3B(
 void Java_org_rocksdb_RocksDB_dropColumnFamily(
     JNIEnv* env, jobject, jlong jdb_handle,
     jlong jcf_handle) {
-  const auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
+  auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto cfhPtr = APIColumnFamilyHandle::lock(env, jcf_handle);
   if (!cfhPtr) {
     // CFH exception
@@ -554,6 +554,12 @@ void Java_org_rocksdb_RocksDB_dropColumnFamily(
   ROCKSDB_NAMESPACE::Status s = dbAPI->DropColumnFamily(cfhPtr.get());
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+
+  const auto& it = std::find(dbAPI.columnFamilyHandles.begin(),
+                             dbAPI.columnFamilyHandles.end(), cfhPtr);
+  if (it != dbAPI.columnFamilyHandles.end()) {
+    dbAPI.columnFamilyHandles.erase(it);
   }
 }
 
@@ -565,9 +571,10 @@ void Java_org_rocksdb_RocksDB_dropColumnFamily(
 void Java_org_rocksdb_RocksDB_dropColumnFamilies(
     JNIEnv* env, jobject, jlong jdb_handle,
     jlongArray jcolumn_family_handles) {
-  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
 
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
+  std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>> cfhPtrs;
   if (jcolumn_family_handles != nullptr) {
     const jsize len_cols = env->GetArrayLength(jcolumn_family_handles);
 
@@ -578,16 +585,30 @@ void Java_org_rocksdb_RocksDB_dropColumnFamilies(
     }
 
     for (jsize i = 0; i < len_cols; i++) {
-      auto* cf_handle =
-          reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcfh[i]);
-      cf_handles.push_back(cf_handle);
+      const auto cfhPtr = APIColumnFamilyHandle::lock(env, jcfh[i]);
+      if (!cfhPtr) {
+        // CFH exception
+        env->ReleaseLongArrayElements(jcolumn_family_handles, jcfh, JNI_ABORT);
+        return;
+      }
+      cf_handles.push_back(cfhPtr.get());
+      cfhPtrs.push_back(cfhPtr);
     }
     env->ReleaseLongArrayElements(jcolumn_family_handles, jcfh, JNI_ABORT);
   }
 
-  ROCKSDB_NAMESPACE::Status s = db_handle->DropColumnFamilies(cf_handles);
+  ROCKSDB_NAMESPACE::Status s = dbAPI->DropColumnFamilies(cf_handles);
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+    return;
+  }
+
+  for (const auto& cfhPtr : cfhPtrs) {
+    const auto& it = std::find(dbAPI.columnFamilyHandles.begin(),
+                               dbAPI.columnFamilyHandles.end(), cfhPtr);
+    if (it != dbAPI.columnFamilyHandles.end()) {
+      dbAPI.columnFamilyHandles.erase(it);
+    }
   }
 }
 

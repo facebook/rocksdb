@@ -28,7 +28,8 @@ class APIColumnFamilyHandle : public APIWeakDB {
 
   void check(std::string message);
 
-  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfhLock(JNIEnv* env) {
+  const std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfhLock(
+      JNIEnv* env) const {
     auto lock = cfh.lock();
     if (!lock) {
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
