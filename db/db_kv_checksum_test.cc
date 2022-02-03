@@ -37,7 +37,7 @@ class DbKvChecksumTest
   std::pair<WriteBatch, Status> GetWriteBatch(ColumnFamilyHandle* cf_handle) {
     Status s;
     WriteBatch wb(0 /* reserved_bytes */, 0 /* max_bytes */,
-                  8 /* protection_bytes_per_entry */);
+                  8 /* protection_bytes_per_entry */, 0 /* default_cf_ts_sz */);
     switch (op_type_) {
       case WriteBatchOpType::kPut:
         s = wb.Put(cf_handle, "key", "val");

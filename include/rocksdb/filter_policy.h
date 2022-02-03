@@ -65,6 +65,37 @@ class FilterBitsBuilder {
   // The ownership of actual data is set to buf
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
 
+  // Similar to Finish(std::unique_ptr<const char[]>* buf), except that
+  // for a non-null status pointer argument, it will point to
+  // Status::Corruption() when there is any corruption during filter
+  // construction or Status::OK() otherwise.
+  //
+  // WARNING: do not use a filter resulted from a corrupted construction
+  virtual Slice Finish(std::unique_ptr<const char[]>* buf,
+                       Status* /* status */) {
+    return Finish(buf);
+  }
+
+  // Verify the filter returned from calling FilterBitsBuilder::Finish.
+  // The function returns Status::Corruption() if there is any corruption in the
+  // constructed filter or Status::OK() otherwise.
+  //
+  // Implementations should normally consult
+  // FilterBuildingContext::table_options.detect_filter_construct_corruption
+  // to determine whether to perform verification or to skip by returning
+  // Status::OK(). The decision is left to the FilterBitsBuilder so that
+  // verification prerequisites before PostVerify can be skipped when not
+  // configured.
+  //
+  // RocksDB internal will always call MaybePostVerify() on the filter after
+  // it is returned from calling FilterBitsBuilder::Finish
+  // except for FilterBitsBuilder::Finish resulting a corruption
+  // status, which indicates the filter is already in a corrupted state and
+  // there is no need to post-verify
+  virtual Status MaybePostVerify(const Slice& /* filter_content */) {
+    return Status::OK();
+  }
+
   // Approximate the number of keys that can be added and generate a filter
   // <= the specified number of bytes. Callers (including RocksDB) should
   // only use this result for optimizing performance and not as a guarantee.
