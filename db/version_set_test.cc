@@ -159,6 +159,7 @@ class VersionStorageInfoTestBase : public testing::Test {
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
         kUnknownFileChecksum, kUnknownFileChecksumFuncName,
         kDisableUserTimestamp, kDisableUserTimestamp);
+    f->compensated_file_size = file_size;
     vstorage_.AddFile(level, f);
   }
 

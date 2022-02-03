@@ -73,6 +73,7 @@ class VersionBuilderTest : public testing::Test {
         kUnknownFileCreationTime, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kDisableUserTimestamp,
         kDisableUserTimestamp);
+    f->compensated_file_size = file_size;
     f->num_entries = num_entries;
     f->num_deletions = num_deletions;
     vstorage_.AddFile(level, f);
