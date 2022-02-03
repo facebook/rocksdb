@@ -25,7 +25,7 @@
 
 #define ROCKSDB_NOEXCEPT noexcept
 
-// Thread-local is part of C++11 (TODO: clean up this define)
+// thread_local is part of C++11 and later (TODO: clean up this define)
 #ifndef __thread
 #define __thread thread_local
 #endif

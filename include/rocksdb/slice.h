@@ -43,7 +43,7 @@ class Slice {
 
   // Create a slice that refers to the same contents as "sv"
   /* implicit */
-  Slice(std::string_view sv) : data_(sv.data()), size_(sv.size()) {}
+  Slice(const std::string_view& sv) : data_(sv.data()), size_(sv.size()) {}
 
   // Create a slice that refers to s[0,strlen(s)-1]
   /* implicit */

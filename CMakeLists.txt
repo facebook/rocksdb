@@ -369,7 +369,7 @@ endif()
 # Reset the required flags
 set(CMAKE_REQUIRED_FLAGS ${OLD_CMAKE_REQUIRED_FLAGS})
 
-# Thread-local is part of C++11 (TODO: clean up this flag)
+# thread_local is part of C++11 and later (TODO: clean up this define)
 add_definitions(-DROCKSDB_SUPPORT_THREAD_LOCAL)
 
 option(WITH_IOSTATS_CONTEXT "Enable IO stats context" ON)
