@@ -116,10 +116,10 @@ IOStatus RandomAccessFileReader::Create(
   return io_s;
 }
 
-IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
-                                      size_t n, Slice* result, char* scratch,
-                                      AlignedBuf* aligned_buf,
-                                      Env::IOPriority priority) const {
+IOStatus RandomAccessFileReader::Read(
+    const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
+    char* scratch, AlignedBuf* aligned_buf,
+    Env::IOPriority rate_limiter_priority) const {
   (void)aligned_buf;
 
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read", nullptr);
@@ -153,10 +153,11 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
       buf.AllocateNewBuffer(read_size);
       while (buf.CurrentSize() < read_size) {
         size_t allowed;
-        if (priority != Env::IO_TOTAL && rate_limiter_ != nullptr) {
+        if (rate_limiter_priority != Env::IO_TOTAL &&
+            rate_limiter_ != nullptr) {
           allowed = rate_limiter_->RequestToken(
-              buf.Capacity() - buf.CurrentSize(), buf.Alignment(), priority,
-              stats_, RateLimiter::OpType::kRead);
+              buf.Capacity() - buf.CurrentSize(), buf.Alignment(),
+              rate_limiter_priority, stats_, RateLimiter::OpType::kRead);
         } else {
           assert(buf.CurrentSize() == 0);
           allowed = read_size;
@@ -212,13 +213,14 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
       const char* res_scratch = nullptr;
       while (pos < n) {
         size_t allowed;
-        if (priority != Env::IO_TOTAL && rate_limiter_ != nullptr) {
+        if (rate_limiter_priority != Env::IO_TOTAL &&
+            rate_limiter_ != nullptr) {
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             sw.DelayStart();
           }
-          allowed =
-              rate_limiter_->RequestToken(n - pos, 0 /* alignment */, priority,
-                                          stats_, RateLimiter::OpType::kRead);
+          allowed = rate_limiter_->RequestToken(n - pos, 0 /* alignment */,
+                                                rate_limiter_priority, stats_,
+                                                RateLimiter::OpType::kRead);
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             sw.DelayStop();
           }
@@ -311,12 +313,10 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
   return true;
 }
 
-IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
-                                           FSReadRequest* read_reqs,
-                                           size_t num_reqs,
-                                           AlignedBuf* aligned_buf,
-                                           Env::IOPriority priority) const {
-  if (priority != Env::IO_TOTAL) {
+IOStatus RandomAccessFileReader::MultiRead(
+    const IOOptions& opts, FSReadRequest* read_reqs, size_t num_reqs,
+    AlignedBuf* aligned_buf, Env::IOPriority rate_limiter_priority) const {
+  if (rate_limiter_priority != Env::IO_TOTAL) {
     return IOStatus::NotSupported("Unable to rate limit MultiRead()");
   }
   (void)aligned_buf;  // suppress warning of unused variable in LITE mode

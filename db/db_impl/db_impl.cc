@@ -5176,7 +5176,7 @@ Status DBImpl::VerifyFullFileChecksum(const std::string& file_checksum_expected,
       func_name_expected, &file_checksum, &func_name,
       read_options.readahead_size, immutable_db_options_.allow_mmap_reads,
       io_tracer_, immutable_db_options_.rate_limiter.get(),
-      read_options.priority);
+      read_options.rate_limiter_priority);
   if (s.ok()) {
     assert(func_name_expected == func_name);
     if (file_checksum != file_checksum_expected) {

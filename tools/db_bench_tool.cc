@@ -3056,7 +3056,7 @@ class Benchmark {
       read_options_ = ReadOptions(FLAGS_verify_checksum, true);
       read_options_.total_order_seek = FLAGS_total_order_seek;
       read_options_.prefix_same_as_start = FLAGS_prefix_same_as_start;
-      read_options_.priority =
+      read_options_.rate_limiter_priority =
           FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
       read_options_.tailing = FLAGS_use_tailing_iterator;
       read_options_.readahead_size = FLAGS_readahead_size;
@@ -7233,7 +7233,8 @@ class Benchmark {
     DB* db = SelectDB(thread);
     ReadOptions ro;
     ro.adaptive_readahead = FLAGS_adaptive_readahead;
-    ro.priority = FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+    ro.rate_limiter_priority =
+        FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
     ro.readahead_size = FLAGS_readahead_size;
     Status s = db->VerifyChecksum(ro);
     if (!s.ok()) {
@@ -7246,7 +7247,8 @@ class Benchmark {
     DB* db = SelectDB(thread);
     ReadOptions ro;
     ro.adaptive_readahead = FLAGS_adaptive_readahead;
-    ro.priority = FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+    ro.rate_limiter_priority =
+        FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
     ro.readahead_size = FLAGS_readahead_size;
     Status s = db->VerifyFileChecksums(ro);
     if (!s.ok()) {

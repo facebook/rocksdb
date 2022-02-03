@@ -1545,12 +1545,12 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
     if (reader->use_direct_io()) {
       s = reader->Read(IOOptions(), record_offset,
                        static_cast<size_t>(record_size), &blob_record, nullptr,
-                       &aligned_buf, Env::IO_TOTAL /* priority */);
+                       &aligned_buf, Env::IO_TOTAL /* rate_limiter_priority */);
     } else {
       buf.reserve(static_cast<size_t>(record_size));
       s = reader->Read(IOOptions(), record_offset,
                        static_cast<size_t>(record_size), &blob_record, &buf[0],
-                       nullptr, Env::IO_TOTAL /* priority */);
+                       nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
     }
     RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, blob_record.size());
   }

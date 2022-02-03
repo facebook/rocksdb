@@ -504,7 +504,7 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   if (s.ok()) {
     s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
                                   static_cast<size_t>(prefetch_len),
-                                  ro.priority);
+                                  ro.rate_limiter_priority);
   }
   if (!s.ok()) {
     return s;

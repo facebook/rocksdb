@@ -124,7 +124,7 @@ IOStatus GenerateOneFileChecksum(
     std::string* file_checksum_func_name,
     size_t verify_checksums_readahead_size, bool allow_mmap_reads,
     std::shared_ptr<IOTracer>& io_tracer, RateLimiter* rate_limiter,
-    Env::IOPriority priority) {
+    Env::IOPriority rate_limiter_priority) {
   if (checksum_factory == nullptr) {
     return IOStatus::InvalidArgument("Checksum factory is invalid");
   }
@@ -196,7 +196,8 @@ IOStatus GenerateOneFileChecksum(
         static_cast<size_t>(std::min(uint64_t{readahead_size}, size));
     if (!prefetch_buffer.TryReadFromCache(
             opts, reader.get(), offset, bytes_to_read, &slice,
-            nullptr /* status */, priority, false /* for_compaction */)) {
+            nullptr /* status */, rate_limiter_priority,
+            false /* for_compaction */)) {
       return IOStatus::Corruption("file read failed");
     }
     if (slice.size() == 0) {

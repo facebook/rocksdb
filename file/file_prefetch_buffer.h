@@ -68,12 +68,14 @@ class FilePrefetchBuffer {
         num_file_reads_(kMinNumFileReadsToStartAutoReadahead + 1) {}
 
   // Load data into the buffer from a file.
-  // reader   : the file reader.
-  // offset   : the file offset to start reading from.
-  // n        : the number of bytes to read.
-  // priority : rate limiting priority, or `Env::IO_TOTAL` to bypass.
+  // reader                : the file reader.
+  // offset                : the file offset to start reading from.
+  // n                     : the number of bytes to read.
+  // rate_limiter_priority : rate limiting priority, or `Env::IO_TOTAL` to
+  //                         bypass.
   Status Prefetch(const IOOptions& opts, RandomAccessFileReader* reader,
-                  uint64_t offset, size_t n, Env::IOPriority priority);
+                  uint64_t offset, size_t n,
+                  Env::IOPriority rate_limiter_priority);
 
   // Tries returning the data for a file read from this buffer if that data is
   // in the buffer.
@@ -81,17 +83,19 @@ class FilePrefetchBuffer {
   // It also does the exponential readahead when readahead_size is set as part
   // of the constructor.
   //
-  // opts           : the IO options to use.
-  // reader         : the file reader.
-  // offset         : the file offset.
-  // n              : the number of bytes.
-  // result         : output buffer to put the data into.
-  // s              : output status.
-  // priority       : rate limiting priority, or `Env::IO_TOTAL` to bypass.
-  // for_compaction : true if cache read is done for compaction read.
+  // opts                  : the IO options to use.
+  // reader                : the file reader.
+  // offset                : the file offset.
+  // n                     : the number of bytes.
+  // result                : output buffer to put the data into.
+  // s                     : output status.
+  // rate_limiter_priority : rate limiting priority, or `Env::IO_TOTAL` to
+  //                         bypass.
+  // for_compaction        : true if cache read is done for compaction read.
   bool TryReadFromCache(const IOOptions& opts, RandomAccessFileReader* reader,
                         uint64_t offset, size_t n, Slice* result, Status* s,
-                        Env::IOPriority priority, bool for_compaction = false);
+                        Env::IOPriority rate_limiter_priority,
+                        bool for_compaction = false);
 
   // The minimum `offset` ever passed to TryReadFromCache(). This will nly be
   // tracked if track_min_offset = true.

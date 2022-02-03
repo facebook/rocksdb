@@ -39,7 +39,7 @@ class DBRateLimiterTest
 
   ReadOptions GetReadOptions() {
     ReadOptions read_options;
-    read_options.priority = Env::IO_USER;
+    read_options.rate_limiter_priority = Env::IO_USER;
     read_options.readahead_size = use_readahead_ ? kReadaheadBytes : 0;
     return read_options;
   }

@@ -1264,7 +1264,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   ReadOptions read_options;
   read_options.verify_checksums = true;
   read_options.fill_cache = false;
-  read_options.priority = Env::IO_LOW;
+  read_options.rate_limiter_priority = Env::IO_LOW;
   // Compaction iterators shouldn't be confined to a single prefix.
   // Compactions use Seek() for
   // (a) concurrent compactions,

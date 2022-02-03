@@ -497,8 +497,8 @@ struct DBOptions {
   // - Compaction requests read and write bandwidth at
   //   `Env::IOPriority::IO_LOW`
   // - Reads associated with a `ReadOptions` can be charged at
-  //   `ReadOptions::priority` (see that option's API doc for usage and
-  //   limitations).
+  //   `ReadOptions::rate_limiter_priority` (see that option's API doc for usage
+  //   and limitations).
   //
   // Rate limiting is disabled if nullptr. If rate limiter is enabled,
   // bytes_per_sync is set to 1MB by default.
@@ -1580,14 +1580,14 @@ struct ReadOptions {
   //
   // The new `DB::MultiGet()` APIs (i.e., the ones returning `void`) will return
   // `Status::NotSupported` when that operation requires file read(s) and
-  // `priority != Env::IO_TOTAL`.
+  // `rate_limiter_priority != Env::IO_TOTAL`.
   //
   // The bytes charged to rate limiter may not exactly match the file read bytes
   // since there are some seemingly insignificant reads, like for file
   // headers/footers, that we currently do not charge to rate limiter.
   //
   // Default: `Env::IO_TOTAL`.
-  Env::IOPriority priority = Env::IO_TOTAL;
+  Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);

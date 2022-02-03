@@ -108,7 +108,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
     IOOptions opts;
     s = prefetch_buffer.Prefetch(opts, file_.get(), prefetch_off,
                                  static_cast<size_t>(prefetch_size),
-                                 Env::IO_TOTAL /* priority */);
+                                 Env::IO_TOTAL /* rate_limiter_priority */);
 
     s = ReadFooterFromFile(opts, file_.get(), &prefetch_buffer, file_size,
                            &footer);

@@ -115,7 +115,7 @@ class CuckooBuilderTest : public testing::Test {
       Slice read_slice;
       ASSERT_OK(file_reader->Read(IOOptions(), i * bucket_size, bucket_size,
                                   &read_slice, nullptr, nullptr,
-                                  Env::IO_TOTAL /* priority */));
+                                  Env::IO_TOTAL /* rate_limiter_priority */));
       size_t key_idx =
           std::find(expected_locations.begin(), expected_locations.end(), i) -
           expected_locations.begin();

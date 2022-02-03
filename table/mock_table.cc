@@ -292,7 +292,7 @@ Status MockTableFactory::GetIDFromFile(RandomAccessFileReader* file,
   char buf[4];
   Slice result;
   Status s = file->Read(IOOptions(), 0, 4, &result, buf, nullptr,
-                        Env::IO_TOTAL /* priority */);
+                        Env::IO_TOTAL /* rate_limiter_priority */);
   assert(result.size() == 4);
   *id = DecodeFixed32(buf);
   return s;

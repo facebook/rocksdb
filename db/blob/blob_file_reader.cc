@@ -151,7 +151,7 @@ Status BlobFileReader::ReadHeader(const RandomAccessFileReader* file_reader,
     // TODO: rate limit reading headers from blob files.
     const Status s = ReadFromFile(file_reader, read_offset, read_size,
                                   statistics, &header_slice, &buf, &aligned_buf,
-                                  Env::IO_TOTAL /* priority */);
+                                  Env::IO_TOTAL /* rate_limiter_priority */);
     if (!s.ok()) {
       return s;
     }
@@ -202,7 +202,7 @@ Status BlobFileReader::ReadFooter(const RandomAccessFileReader* file_reader,
     // TODO: rate limit reading footers from blob files.
     const Status s = ReadFromFile(file_reader, read_offset, read_size,
                                   statistics, &footer_slice, &buf, &aligned_buf,
-                                  Env::IO_TOTAL /* priority */);
+                                  Env::IO_TOTAL /* rate_limiter_priority */);
     if (!s.ok()) {
       return s;
     }
@@ -233,7 +233,7 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
                                     uint64_t read_offset, size_t read_size,
                                     Statistics* statistics, Slice* slice,
                                     Buffer* buf, AlignedBuf* aligned_buf,
-                                    Env::IOPriority priority) {
+                                    Env::IOPriority rate_limiter_priority) {
   assert(slice);
   assert(buf);
   assert(aligned_buf);
@@ -248,13 +248,13 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
     constexpr char* scratch = nullptr;
 
     s = file_reader->Read(IOOptions(), read_offset, read_size, slice, scratch,
-                          aligned_buf, priority);
+                          aligned_buf, rate_limiter_priority);
   } else {
     buf->reset(new char[read_size]);
     constexpr AlignedBuf* aligned_scratch = nullptr;
 
     s = file_reader->Read(IOOptions(), read_offset, read_size, slice,
-                          buf->get(), aligned_scratch, priority);
+                          buf->get(), aligned_scratch, rate_limiter_priority);
   }
 
   if (!s.ok()) {
@@ -327,7 +327,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
     prefetched = prefetch_buffer->TryReadFromCache(
         IOOptions(), file_reader_.get(), record_offset,
         static_cast<size_t>(record_size), &record_slice, &s,
-        read_options.priority, for_compaction);
+        read_options.rate_limiter_priority, for_compaction);
     if (!s.ok()) {
       return s;
     }
@@ -336,9 +336,10 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   if (!prefetched) {
     TEST_SYNC_POINT("BlobFileReader::GetBlob:ReadFromFile");
 
-    const Status s = ReadFromFile(
-        file_reader_.get(), record_offset, static_cast<size_t>(record_size),
-        statistics_, &record_slice, &buf, &aligned_buf, read_options.priority);
+    const Status s = ReadFromFile(file_reader_.get(), record_offset,
+                                  static_cast<size_t>(record_size), statistics_,
+                                  &record_slice, &buf, &aligned_buf,
+                                  read_options.rate_limiter_priority);
     if (!s.ok()) {
       return s;
     }
@@ -429,7 +430,7 @@ void BlobFileReader::MultiGetBlob(
   TEST_SYNC_POINT("BlobFileReader::MultiGetBlob:ReadFromFile");
   s = file_reader_->MultiRead(IOOptions(), read_reqs.data(), read_reqs.size(),
                               direct_io ? &aligned_buf : nullptr,
-                              read_options.priority);
+                              read_options.rate_limiter_priority);
   if (!s.ok()) {
     for (auto& req : read_reqs) {
       req.status.PermitUncheckedError();
