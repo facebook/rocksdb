@@ -356,6 +356,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions, whole_key_filtering),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"detect_filter_construct_corruption",
+         {offsetof(struct BlockBasedTableOptions,
+                   detect_filter_construct_corruption),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"reserve_table_builder_memory",
          {offsetof(struct BlockBasedTableOptions, reserve_table_builder_memory),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -778,7 +783,7 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
     ret.append(buffer);
     ret.append(table_options_.persistent_cache->GetPrintableOptions());
   }
-  snprintf(buffer, kBufferSize, "  block_size: %" ROCKSDB_PRIszt "\n",
+  snprintf(buffer, kBufferSize, "  block_size: %" PRIu64 "\n",
            table_options_.block_size);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  block_size_deviation: %d\n",

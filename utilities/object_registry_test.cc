@@ -8,7 +8,6 @@
 #include "rocksdb/utilities/object_registry.h"
 
 #include "rocksdb/customizable.h"
-#include "rocksdb/utilities/regex.h"
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -441,32 +440,6 @@ TEST_F(ObjRegistryTest, TestGetOrCreateManagedObject) {
   ASSERT_EQ(1, m_a.use_count());
   ASSERT_OK(registry->GetOrCreateManagedObject("MC@B#1", &obj));
   ASSERT_EQ(2, obj.use_count());
-}
-
-TEST_F(ObjRegistryTest, TestDeprecatedRegex) {
-  Regex regex;
-  Env* env = nullptr;
-  auto registry = ObjectRegistry::NewInstance();
-  if (Regex::Parse("XYZ", &regex).ok()) {
-    registry->AddLibrary("XYZ")->Register<Env>(
-        "XYZ",
-        [](const std::string& /*uri*/, std::unique_ptr<Env>* /*env_guard*/,
-           std::string* /* errmsg */) { return Env::Default(); });
-    ASSERT_NOK(registry->NewStaticObject<Env>("X", &env));
-    ASSERT_OK(registry->NewStaticObject<Env>("XYZ", &env));
-    ASSERT_EQ(env, Env::Default());
-  }
-  if (Regex::Parse("ABC://.*", &regex).ok()) {
-    registry->AddLibrary("ABC")->Register<Env>(
-        "ABC://.*",
-        [](const std::string& /*uri*/, std::unique_ptr<Env>* /*env_guard*/,
-           std::string* /* errmsg */) { return Env::Default(); });
-    ASSERT_NOK(registry->NewStaticObject<Env>("ABC", &env));
-    ASSERT_OK(registry->NewStaticObject<Env>("ABC://123", &env));
-    ASSERT_EQ(env, Env::Default());
-    ASSERT_OK(registry->NewStaticObject<Env>("ABC://", &env));
-    ASSERT_EQ(env, Env::Default());
-  }
 }
 
 class PatternEntryTest : public testing::Test {};

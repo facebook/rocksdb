@@ -38,10 +38,21 @@ class BuiltinFilterBitsBuilder : public FilterBitsBuilder {
   virtual double EstimatedFpRate(size_t num_entries, size_t bytes) = 0;
 };
 
+// Base class for RocksDB built-in filter reader with
+// extra useful functionalities for inernal.
+class BuiltinFilterBitsReader : public FilterBitsReader {
+ public:
+  // Check if the hash of the entry match the bits in filter
+  virtual bool HashMayMatch(const uint64_t /* h */) { return true; }
+};
+
 // Abstract base class for RocksDB built-in filter policies.
 // This class is considered internal API and subject to change.
 class BuiltinFilterPolicy : public FilterPolicy {
  public:
+  static BuiltinFilterBitsReader* GetBuiltinFilterBitsReader(
+      const Slice& contents);
+
   // Shared name because any built-in policy can read filters from
   // any other
   const char* Name() const override;
@@ -60,10 +71,10 @@ class BuiltinFilterPolicy : public FilterPolicy {
 
  private:
   // For Bloom filter implementation(s) (except deprecated block-based filter)
-  FilterBitsReader* GetBloomBitsReader(const Slice& contents) const;
+  static BuiltinFilterBitsReader* GetBloomBitsReader(const Slice& contents);
 
   // For Ribbon filter implementation(s)
-  FilterBitsReader* GetRibbonBitsReader(const Slice& contents) const;
+  static BuiltinFilterBitsReader* GetRibbonBitsReader(const Slice& contents);
 };
 
 // RocksDB built-in filter policy for Bloom or Bloom-like filters including

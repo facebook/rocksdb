@@ -1524,32 +1524,6 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   boolean allowIngestBehind();
 
   /**
-   * Needed to support differential snapshots.
-   * If set to true then DB will only process deletes with sequence number
-   * less than what was set by SetPreserveDeletesSequenceNumber(uint64_t ts).
-   * Clients are responsible to periodically call this method to advance
-   * the cutoff time. If this method is never called and preserve_deletes
-   * is set to true NO deletes will ever be processed.
-   * At the moment this only keeps normal deletes, SingleDeletes will
-   * not be preserved.
-   *
-   * DEFAULT: false
-   *
-   * @param preserveDeletes true to preserve deletes.
-   *
-   * @return the reference to the current options.
-   */
-  T setPreserveDeletes(final boolean preserveDeletes);
-
-  /**
-   * Returns true if deletes are preserved.
-   * See {@link #setPreserveDeletes(boolean)}.
-   *
-   * @return true if deletes are preserved, false otherwise.
-   */
-  boolean preserveDeletes();
-
-  /**
    * If enabled it uses two queues for writes, one for the ones with
    * disable_memtable and one for the ones that also write to memtable. This
    * allows the memtable writes not to lag behind other writes. It can be used
