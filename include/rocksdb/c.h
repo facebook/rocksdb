@@ -1046,8 +1046,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_level0_stop_writes_trigger(
     rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API int rocksdb_options_get_level0_stop_writes_trigger(
     rocksdb_options_t*);
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_mem_compaction_level(
-    rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_target_file_size_base(
     rocksdb_options_t*, uint64_t);
 extern ROCKSDB_LIBRARY_API uint64_t
