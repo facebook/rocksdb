@@ -218,9 +218,9 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
   }
 };
 
-/* Comparator with 64-bit integer timestamp.
-This is still experimental, use it with caution.
-*/
+// EXPERIMENTAL
+// Comparator with 64-bit integer timestamp.
+// We did not performance test this yet.
 class ComparatorWithU64TsImpl : public Comparator {
  public:
   ComparatorWithU64TsImpl()

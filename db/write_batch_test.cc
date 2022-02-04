@@ -950,7 +950,7 @@ Status CheckTimestampsInWriteBatch(
 }  // namespace
 
 TEST_F(WriteBatchTest, SanityChecks) {
-  ColumnFamilyHandleImplDummy cf0(0, test::ComparatorWithU64Ts());
+  ColumnFamilyHandleImplDummy cf0(0, ComparatorWithU64Ts());
   ColumnFamilyHandleImplDummy cf4(4);
 
   WriteBatch wb(0, 0, 0, /*default_cf_ts_sz=*/sizeof(uint64_t));
