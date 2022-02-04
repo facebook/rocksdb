@@ -310,15 +310,6 @@ void StressTest::FinishInitDb(SharedState* shared) {
     }
   }
 
-  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
-    Status s = shared->SaveAtAndAfter(db_);
-    if (!s.ok()) {
-      fprintf(stderr, "Error enabling history tracing: %s\n",
-              s.ToString().c_str());
-      exit(1);
-    }
-  }
-
   if (FLAGS_enable_compaction_filter) {
     auto* compaction_filter_factory =
         reinterpret_cast<DbStressCompactionFilterFactory*>(
@@ -330,6 +321,17 @@ void StressTest::FinishInitDb(SharedState* shared) {
     compaction_filter_factory->SetSharedState(shared);
     fprintf(stdout, "Compaction filter factory: %s\n",
             compaction_filter_factory->Name());
+  }
+}
+
+void StressTest::TrackExpectedState(SharedState* shared) {
+  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
+    Status s = shared->SaveAtAndAfter(db_);
+    if (!s.ok()) {
+      fprintf(stderr, "Error enabling history tracing: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
   }
 }
 
@@ -511,9 +513,10 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
           if (FLAGS_user_timestamp_size > 0) {
             ts_str = NowNanosStr();
             ts = ts_str;
-            write_opts.timestamp = &ts;
+            s = db_->Put(write_opts, cfh, key, ts, v);
+          } else {
+            s = db_->Put(write_opts, cfh, key, v);
           }
-          s = db_->Put(write_opts, cfh, key, v);
         } else {
 #ifndef ROCKSDB_LITE
           Transaction* txn;
@@ -876,7 +879,6 @@ void StressTest::OperateDb(ThreadState* thread) {
         read_opts.timestamp = &read_ts;
         write_ts_str = NowNanosStr();
         write_ts = write_ts_str;
-        write_opts.timestamp = &write_ts;
       }
 
       int prob_op = thread->rand.Uniform(100);
@@ -1667,8 +1669,8 @@ Status StressTest::TestApproximateSize(
   std::string key2_str = Key(key2);
   Range range{Slice(key1_str), Slice(key2_str)};
   SizeApproximationOptions sao;
-  sao.include_memtabtles = thread->rand.OneIn(2);
-  if (sao.include_memtabtles) {
+  sao.include_memtables = thread->rand.OneIn(2);
+  if (sao.include_memtables) {
     sao.include_files = thread->rand.OneIn(2);
   }
   if (thread->rand.OneIn(2)) {
@@ -2270,6 +2272,8 @@ void StressTest::Open() {
     block_based_options.partition_filters = FLAGS_partition_filters;
     block_based_options.optimize_filters_for_memory =
         FLAGS_optimize_filters_for_memory;
+    block_based_options.detect_filter_construct_corruption =
+        FLAGS_detect_filter_construct_corruption;
     block_based_options.index_type =
         static_cast<BlockBasedTableOptions::IndexType>(FLAGS_index_type);
     block_based_options.prepopulate_block_cache =

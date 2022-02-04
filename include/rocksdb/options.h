@@ -1499,8 +1499,7 @@ struct ReadOptions {
   // used in the table. Some table format (e.g. plain table) may not support
   // this option.
   // If true when calling Get(), we also skip prefix bloom when reading from
-  // block based table. It provides a way to read existing data after
-  // changing implementation of prefix extractor.
+  // block based table, which only affects Get() performance.
   // Default: false
   bool total_order_seek;
 
@@ -1662,25 +1661,13 @@ struct WriteOptions {
   // Default: false
   bool memtable_insert_hint_per_batch;
 
-  // Timestamp of write operation, e.g. Put. All timestamps of the same
-  // database must share the same length and format. The user is also
-  // responsible for providing a customized compare function via Comparator to
-  // order <key, timestamp> tuples. If the user wants to enable timestamp, then
-  // all write operations must be associated with timestamp because RocksDB, as
-  // a single-node storage engine currently has no knowledge of global time,
-  // thus has to rely on the application.
-  // The user-specified timestamp feature is still under active development,
-  // and the API is subject to change.
-  const Slice* timestamp;
-
   WriteOptions()
       : sync(false),
         disableWAL(false),
         ignore_missing_column_families(false),
         no_slowdown(false),
         low_pri(false),
-        memtable_insert_hint_per_batch(false),
-        timestamp(nullptr) {}
+        memtable_insert_hint_per_batch(false) {}
 };
 
 // Options that control flush operations
@@ -1883,10 +1870,10 @@ struct ImportColumnFamilyOptions {
 // Options used with DB::GetApproximateSizes()
 struct SizeApproximationOptions {
   // Defines whether the returned size should include the recently written
-  // data in the mem-tables. If set to false, include_files must be true.
-  bool include_memtabtles = false;
+  // data in the memtables. If set to false, include_files must be true.
+  bool include_memtables = false;
   // Defines whether the returned size should include data serialized to disk.
-  // If set to false, include_memtabtles must be true.
+  // If set to false, include_memtables must be true.
   bool include_files = true;
   // When approximating the files total size that is used to store a keys range
   // using DB::GetApproximateSizes, allow approximation with an error margin of

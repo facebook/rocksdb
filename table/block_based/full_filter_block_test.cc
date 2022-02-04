@@ -30,6 +30,8 @@ class TestFilterBitsBuilder : public FilterBitsBuilder {
     hash_entries_.push_back(Hash(key.data(), key.size(), 1));
   }
 
+  using FilterBitsBuilder::Finish;
+
   // Generate the filter using the keys that are added
   Slice Finish(std::unique_ptr<const char[]>* buf) override {
     uint32_t len = static_cast<uint32_t>(hash_entries_.size()) * 4;
@@ -221,8 +223,12 @@ class CountUniqueFilterBitsBuilderWrapper : public FilterBitsBuilder {
     uniq_.insert(key.ToString());
   }
 
+  using FilterBitsBuilder::Finish;
+
   Slice Finish(std::unique_ptr<const char[]>* buf) override {
     Slice rv = b_->Finish(buf);
+    Status s_dont_care = b_->MaybePostVerify(rv);
+    s_dont_care.PermitUncheckedError();
     uniq_.clear();
     return rv;
   }

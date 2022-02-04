@@ -1944,17 +1944,21 @@ Status CompactionJob::FinishCompactionOutputFile(
   std::string fname;
   FileDescriptor output_fd;
   uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
+  Status status_for_listener = s;
   if (meta != nullptr) {
     fname = GetTableFileName(meta->fd.GetNumber());
     output_fd = meta->fd;
     oldest_blob_file_number = meta->oldest_blob_file_number;
   } else {
     fname = "(nil)";
+    if (s.ok()) {
+      status_for_listener = Status::Aborted("Empty SST file not kept");
+    }
   }
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname,
       job_id_, output_fd, oldest_blob_file_number, tp,
-      TableFileCreationReason::kCompaction, s, file_checksum,
+      TableFileCreationReason::kCompaction, status_for_listener, file_checksum,
       file_checksum_func_name);
 
 #ifndef ROCKSDB_LITE
