@@ -22,6 +22,7 @@ class MemkindKmemAllocator : public BaseMemoryAllocator {
 
   static bool IsSupported(std::string* msg) {
 #ifdef MEMKIND
+    (void)msg;
     return true;
 #else
     *msg = "Not compiled with MemKind";

@@ -14,6 +14,7 @@
 #include "cache/cache_key.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "file/filename.h"
+#include "rocksdb/slice_transform.h"
 #include "rocksdb/table_properties.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -90,24 +91,22 @@ class BlockBasedTable : public TableReader {
   //    are set.
   // @param force_direct_prefetch if true, always prefetching to RocksDB
   //    buffer, rather than calling RandomAccessFile::Prefetch().
-  static Status Open(const ReadOptions& ro, const ImmutableOptions& ioptions,
-                     const EnvOptions& env_options,
-                     const BlockBasedTableOptions& table_options,
-                     const InternalKeyComparator& internal_key_comparator,
-                     std::unique_ptr<RandomAccessFileReader>&& file,
-                     uint64_t file_size,
-                     std::unique_ptr<TableReader>* table_reader,
-                     const SliceTransform* prefix_extractor = nullptr,
-                     bool prefetch_index_and_filter_in_cache = true,
-                     bool skip_filters = false, int level = -1,
-                     const bool immortal_table = false,
-                     const SequenceNumber largest_seqno = 0,
-                     bool force_direct_prefetch = false,
-                     TailPrefetchStats* tail_prefetch_stats = nullptr,
-                     BlockCacheTracer* const block_cache_tracer = nullptr,
-                     size_t max_file_size_for_l0_meta_pin = 0,
-                     const std::string& cur_db_session_id = "",
-                     uint64_t cur_file_num = 0);
+  static Status Open(
+      const ReadOptions& ro, const ImmutableOptions& ioptions,
+      const EnvOptions& env_options,
+      const BlockBasedTableOptions& table_options,
+      const InternalKeyComparator& internal_key_comparator,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table_reader,
+      const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
+      bool prefetch_index_and_filter_in_cache = true, bool skip_filters = false,
+      int level = -1, const bool immortal_table = false,
+      const SequenceNumber largest_seqno = 0,
+      bool force_direct_prefetch = false,
+      TailPrefetchStats* tail_prefetch_stats = nullptr,
+      BlockCacheTracer* const block_cache_tracer = nullptr,
+      size_t max_file_size_for_l0_meta_pin = 0,
+      const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0);
 
   bool PrefixMayMatch(const Slice& internal_key,
                       const ReadOptions& read_options,
@@ -440,15 +439,13 @@ class BlockBasedTable : public TableReader {
                            BlockCacheLookupContext* lookup_context,
                            std::unique_ptr<IndexReader>* index_reader);
 
-  bool FullFilterKeyMayMatch(const ReadOptions& read_options,
-                             FilterBlockReader* filter, const Slice& user_key,
+  bool FullFilterKeyMayMatch(FilterBlockReader* filter, const Slice& user_key,
                              const bool no_io,
                              const SliceTransform* prefix_extractor,
                              GetContext* get_context,
                              BlockCacheLookupContext* lookup_context) const;
 
-  void FullFilterKeysMayMatch(const ReadOptions& read_options,
-                              FilterBlockReader* filter, MultiGetRange* range,
+  void FullFilterKeysMayMatch(FilterBlockReader* filter, MultiGetRange* range,
                               const bool no_io,
                               const SliceTransform* prefix_extractor,
                               BlockCacheLookupContext* lookup_context) const;
@@ -505,6 +502,10 @@ class BlockBasedTable : public TableReader {
   Status DumpDataBlocks(std::ostream& out_stream);
   void DumpKeyValue(const Slice& key, const Slice& value,
                     std::ostream& out_stream);
+
+  // Returns false if prefix_extractor exists and is compatible with that used
+  // in building the table file, otherwise true.
+  bool PrefixExtractorChanged(const SliceTransform* prefix_extractor) const;
 
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer

@@ -432,17 +432,6 @@ public class OptionsTest {
 
   @SuppressWarnings("deprecated")
   @Test
-  public void baseBackgroundCompactions() {
-    try (final Options opt = new Options()) {
-      final int intValue = rand.nextInt();
-      opt.setBaseBackgroundCompactions(intValue);
-      assertThat(opt.baseBackgroundCompactions()).
-          isEqualTo(intValue);
-    }
-  }
-
-  @SuppressWarnings("deprecated")
-  @Test
   public void maxBackgroundCompactions() {
     try (final Options opt = new Options()) {
       final int intValue = rand.nextInt();
@@ -969,15 +958,6 @@ public class OptionsTest {
       assertThat(opt.allowIngestBehind()).isFalse();
       opt.setAllowIngestBehind(true);
       assertThat(opt.allowIngestBehind()).isTrue();
-    }
-  }
-
-  @Test
-  public void preserveDeletes() {
-    try (final Options opt = new Options()) {
-      assertThat(opt.preserveDeletes()).isFalse();
-      opt.setPreserveDeletes(true);
-      assertThat(opt.preserveDeletes()).isTrue();
     }
   }
 
