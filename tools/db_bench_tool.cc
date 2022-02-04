@@ -84,6 +84,7 @@
 #include "util/string_util.h"
 #include "util/xxhash.h"
 #include "utilities/blob_db/blob_db.h"
+#include "utilities/counted_fs.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/bytesxor.h"
 #include "utilities/merge_operators/sortlist.h"
@@ -1569,192 +1570,6 @@ static Status CreateMemTableRepFactory(
   return s;
 }
 
-struct ReportFileOpCounters {
-  std::atomic<int> open_counter_;
-  std::atomic<int> delete_counter_;
-  std::atomic<int> rename_counter_;
-  std::atomic<int> flush_counter_;
-  std::atomic<int> sync_counter_;
-  std::atomic<int> fsync_counter_;
-  std::atomic<int> close_counter_;
-  std::atomic<int> read_counter_;
-  std::atomic<int> append_counter_;
-  std::atomic<uint64_t> bytes_read_;
-  std::atomic<uint64_t> bytes_written_;
-};
-
-// A special Env to records and report file operations in db_bench
-class ReportFileOpEnv : public EnvWrapper {
- public:
-  explicit ReportFileOpEnv(Env* base) : EnvWrapper(base) { reset(); }
-  const char* Name() const override { return "ReportFileOpEnv"; }
-
-  void reset() {
-    counters_.open_counter_ = 0;
-    counters_.delete_counter_ = 0;
-    counters_.rename_counter_ = 0;
-    counters_.flush_counter_ = 0;
-    counters_.sync_counter_ = 0;
-    counters_.fsync_counter_ = 0;
-    counters_.close_counter_ = 0;
-    counters_.read_counter_ = 0;
-    counters_.append_counter_ = 0;
-    counters_.bytes_read_ = 0;
-    counters_.bytes_written_ = 0;
-  }
-
-  Status NewSequentialFile(const std::string& f,
-                           std::unique_ptr<SequentialFile>* r,
-                           const EnvOptions& soptions) override {
-    class CountingFile : public SequentialFile {
-     private:
-      std::unique_ptr<SequentialFile> target_;
-      ReportFileOpCounters* counters_;
-
-     public:
-      CountingFile(std::unique_ptr<SequentialFile>&& target,
-                   ReportFileOpCounters* counters)
-          : target_(std::move(target)), counters_(counters) {}
-
-      Status Read(size_t n, Slice* result, char* scratch) override {
-        counters_->read_counter_.fetch_add(1, std::memory_order_relaxed);
-        Status rv = target_->Read(n, result, scratch);
-        counters_->bytes_read_.fetch_add(result->size(),
-                                         std::memory_order_relaxed);
-        return rv;
-      }
-
-      Status Skip(uint64_t n) override { return target_->Skip(n); }
-    };
-
-    Status s = target()->NewSequentialFile(f, r, soptions);
-    if (s.ok()) {
-      counters()->open_counter_.fetch_add(1, std::memory_order_relaxed);
-      r->reset(new CountingFile(std::move(*r), counters()));
-    }
-    return s;
-  }
-
-  Status DeleteFile(const std::string& fname) override {
-    Status s = target()->DeleteFile(fname);
-    if (s.ok()) {
-      counters()->delete_counter_.fetch_add(1, std::memory_order_relaxed);
-    }
-    return s;
-  }
-
-  Status RenameFile(const std::string& s, const std::string& t) override {
-    Status st = target()->RenameFile(s, t);
-    if (st.ok()) {
-      counters()->rename_counter_.fetch_add(1, std::memory_order_relaxed);
-    }
-    return st;
-  }
-
-  Status NewRandomAccessFile(const std::string& f,
-                             std::unique_ptr<RandomAccessFile>* r,
-                             const EnvOptions& soptions) override {
-    class CountingFile : public RandomAccessFile {
-     private:
-      std::unique_ptr<RandomAccessFile> target_;
-      ReportFileOpCounters* counters_;
-
-     public:
-      CountingFile(std::unique_ptr<RandomAccessFile>&& target,
-                   ReportFileOpCounters* counters)
-          : target_(std::move(target)), counters_(counters) {}
-      Status Read(uint64_t offset, size_t n, Slice* result,
-                  char* scratch) const override {
-        counters_->read_counter_.fetch_add(1, std::memory_order_relaxed);
-        Status rv = target_->Read(offset, n, result, scratch);
-        counters_->bytes_read_.fetch_add(result->size(),
-                                         std::memory_order_relaxed);
-        return rv;
-      }
-    };
-
-    Status s = target()->NewRandomAccessFile(f, r, soptions);
-    if (s.ok()) {
-      counters()->open_counter_.fetch_add(1, std::memory_order_relaxed);
-      r->reset(new CountingFile(std::move(*r), counters()));
-    }
-    return s;
-  }
-
-  Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
-                         const EnvOptions& soptions) override {
-    class CountingFile : public WritableFile {
-     private:
-      std::unique_ptr<WritableFile> target_;
-      ReportFileOpCounters* counters_;
-
-     public:
-      CountingFile(std::unique_ptr<WritableFile>&& target,
-                   ReportFileOpCounters* counters)
-          : target_(std::move(target)), counters_(counters) {}
-
-      Status Append(const Slice& data) override {
-        counters_->append_counter_.fetch_add(1, std::memory_order_relaxed);
-        Status rv = target_->Append(data);
-        counters_->bytes_written_.fetch_add(data.size(),
-                                            std::memory_order_relaxed);
-        return rv;
-      }
-
-      Status Append(
-          const Slice& data,
-          const DataVerificationInfo& /* verification_info */) override {
-        return Append(data);
-      }
-
-      Status Truncate(uint64_t size) override {
-        return target_->Truncate(size);
-      }
-      Status Close() override {
-        Status s = target_->Close();
-        if (s.ok()) {
-          counters_->close_counter_.fetch_add(1, std::memory_order_relaxed);
-        }
-        return s;
-      }
-      Status Flush() override {
-        Status s = target_->Flush();
-        if (s.ok()) {
-          counters_->flush_counter_.fetch_add(1, std::memory_order_relaxed);
-        }
-        return s;
-      }
-      Status Sync() override {
-        Status s = target_->Sync();
-        if (s.ok()) {
-          counters_->sync_counter_.fetch_add(1, std::memory_order_relaxed);
-        }
-        return s;
-      }
-      Status Fsync() override {
-        Status s = target_->Fsync();
-        if (s.ok()) {
-          counters_->fsync_counter_.fetch_add(1, std::memory_order_relaxed);
-        }
-        return s;
-      }
-    };
-
-    Status s = target()->NewWritableFile(f, r, soptions);
-    if (s.ok()) {
-      counters()->open_counter_.fetch_add(1, std::memory_order_relaxed);
-      r->reset(new CountingFile(std::move(*r), counters()));
-    }
-    return s;
-  }
-
-  // getter
-  ReportFileOpCounters* counters() { return &counters_; }
-
- private:
-  ReportFileOpCounters counters_;
-};
-
 }  // namespace
 
 enum DistributionType : unsigned char {
@@ -2410,31 +2225,11 @@ class Stats {
       }
     }
     if (FLAGS_report_file_operations) {
-      ReportFileOpEnv* env = static_cast<ReportFileOpEnv*>(FLAGS_env);
-      ReportFileOpCounters* counters = env->counters();
-      fprintf(stdout, "Num files opened: %d\n",
-              counters->open_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num files deleted: %d\n",
-              counters->delete_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num files renamed: %d\n",
-              counters->rename_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Flush(): %d\n",
-              counters->flush_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Sync(): %d\n",
-              counters->sync_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Fsync(): %d\n",
-              counters->fsync_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Close(): %d\n",
-              counters->close_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Read(): %d\n",
-              counters->read_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Append(): %d\n",
-              counters->append_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num bytes read: %" PRIu64 "\n",
-              counters->bytes_read_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num bytes written: %" PRIu64 "\n",
-              counters->bytes_written_.load(std::memory_order_relaxed));
-      env->reset();
+      auto* counted_fs =
+          FLAGS_env->GetFileSystem()->CheckedCast<CountedFileSystem>();
+      assert(counted_fs);
+      fprintf(stdout, "%s", counted_fs->PrintCounters().c_str());
+      counted_fs->ResetCounters();
     }
     fflush(stdout);
   }
@@ -3031,7 +2826,9 @@ class Benchmark {
     }
 
     if (report_file_operations_) {
-      FLAGS_env = new ReportFileOpEnv(FLAGS_env);
+      FLAGS_env = new CompositeEnvWrapper(
+          FLAGS_env,
+          std::make_shared<CountedFileSystem>(FLAGS_env->GetFileSystem()));
     }
 
     if (FLAGS_prefix_size > FLAGS_key_size) {

@@ -2805,9 +2805,6 @@ int rocksdb_options_get_level0_stop_writes_trigger(rocksdb_options_t* opt) {
   return opt->rep.level0_stop_writes_trigger;
 }
 
-void rocksdb_options_set_max_mem_compaction_level(rocksdb_options_t* /*opt*/,
-                                                  int /*n*/) {}
-
 void rocksdb_options_set_wal_recovery_mode(rocksdb_options_t* opt,int mode) {
   opt->rep.wal_recovery_mode = static_cast<WALRecoveryMode>(mode);
 }

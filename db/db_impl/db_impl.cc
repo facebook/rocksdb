@@ -3592,7 +3592,7 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
 Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
                                    ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes) {
-  if (!options.include_memtabtles && !options.include_files) {
+  if (!options.include_memtables && !options.include_files) {
     return Status::InvalidArgument("Invalid options");
   }
 
@@ -3630,7 +3630,7 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
           options, v, k1.Encode(), k2.Encode(), /*start_level=*/0,
           /*end_level=*/-1, TableReaderCaller::kUserApproximateSize);
     }
-    if (options.include_memtabtles) {
+    if (options.include_memtables) {
       sizes[i] += sv->mem->ApproximateStats(k1.Encode(), k2.Encode()).size;
       sizes[i] += sv->imm->ApproximateStats(k1.Encode(), k2.Encode()).size;
     }

@@ -788,7 +788,7 @@ TEST_F(LdbCmdTest, DisableConsistencyChecks) {
     char* argv[] = {arg1, arg2, arg3};
 
     SyncPoint::GetInstance()->SetCallBack(
-        "Version::PrepareApply:forced_check", [&](void* arg) {
+        "Version::PrepareAppend:forced_check", [&](void* arg) {
           bool* forced = reinterpret_cast<bool*>(arg);
           ASSERT_TRUE(*forced);
         });
@@ -808,7 +808,7 @@ TEST_F(LdbCmdTest, DisableConsistencyChecks) {
     char* argv[] = {arg1, arg2, arg3};
 
     SyncPoint::GetInstance()->SetCallBack(
-        "Version::PrepareApply:forced_check", [&](void* arg) {
+        "Version::PrepareAppend:forced_check", [&](void* arg) {
           bool* forced = reinterpret_cast<bool*>(arg);
           ASSERT_TRUE(*forced);
         });
