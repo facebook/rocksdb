@@ -281,6 +281,52 @@ class MultiOpsTxnsStressTest : public StressTest {
   }
 
  protected:
+  class KeyGenerator {
+   public:
+    explicit KeyGenerator(uint32_t s, uint32_t low, uint32_t high,
+                          std::vector<uint32_t>&& existing)
+        : rand_(s), low_(low), high_(high), existing_(std::move(existing)) {}
+    explicit KeyGenerator(uint32_t s, uint32_t low, uint32_t high,
+                          std::unordered_set<uint32_t>&& existing_uniq)
+        : rand_(s),
+          low_(low),
+          high_(high),
+          existing_uniq_(std::move(existing_uniq)) {}
+    std::pair<uint32_t, uint32_t> ChooseExisting();
+
+   protected:
+    Random rand_;
+    uint32_t low_ = 0;
+    uint32_t high_ = 0;
+    std::vector<uint32_t> existing_{};
+    std::unordered_set<uint32_t> existing_uniq_{};
+    bool initialized_ = false;
+  };
+
+  class KeyGeneratorForA : public KeyGenerator {
+   public:
+    explicit KeyGeneratorForA(uint32_t s, uint32_t low, uint32_t high,
+                              std::vector<uint32_t>&& existing)
+        : KeyGenerator(s, low, high, std::move(existing)) {}
+    void FinishInit();
+    void Replace(uint32_t old_val, uint32_t old_pos, uint32_t new_val);
+    uint32_t Allocate();
+    void UndoAllocation(uint32_t new_val);
+
+   private:
+    std::unordered_set<uint32_t> non_existing_uniq_{};
+  };
+
+  class KeyGeneratorForC : public KeyGenerator {
+   public:
+    explicit KeyGeneratorForC(uint32_t s, uint32_t low, uint32_t high,
+                              std::unordered_set<uint32_t>&& existing_uniq)
+        : KeyGenerator(s, low, high, std::move(existing_uniq)) {}
+    void FinishInit();
+    void Replace(uint32_t old_val, uint32_t old_pos, uint32_t new_val);
+    uint32_t ChooseOne();
+  };
+
   // Return <a, pos>
   std::pair<uint32_t, uint32_t> ChooseExistingA(ThreadState* thread);
 
@@ -291,21 +337,34 @@ class MultiOpsTxnsStressTest : public StressTest {
 
   uint32_t ChooseRandomC(ThreadState* thread);
 
+  std::vector<std::unique_ptr<KeyGeneratorForA>> key_gen_for_a_;
+  std::vector<std::unique_ptr<KeyGeneratorForC>> key_gen_for_c_;
+
  private:
+  struct KeySpaces {
+    uint32_t lb_a = 0;
+    uint32_t ub_a = 0;
+    uint32_t lb_c = 0;
+    uint32_t ub_c = 0;
+
+    explicit KeySpaces() = default;
+    explicit KeySpaces(uint32_t _lb_a, uint32_t _ub_a, uint32_t _lb_c,
+                       uint32_t _ub_c)
+        : lb_a(_lb_a), ub_a(_ub_a), lb_c(_lb_c), ub_c(_ub_c) {}
+
+    std::string EncodeTo() const;
+    bool DecodeFrom(Slice data);
+  };
+
+  void PersistKeySpacesDesc(const std::string& key_spaces_path, uint32_t lb_a,
+                            uint32_t ub_a, uint32_t lb_c, uint32_t ub_c);
+
+  KeySpaces ReadKeySpacesDesc(const std::string& key_spaces_path);
+
   void PreloadDb(SharedState* shared, int threads, uint32_t lb_a, uint32_t ub_a,
                  uint32_t lb_c, uint32_t ub_c);
 
-  void ScanExistingDb(int threads, uint32_t lb_a, uint32_t ub_a, uint32_t lb_c,
-                      uint32_t ub_c);
-
-  // TODO (yanqin) encapsulate the selection of keys a separate class, e.g.
-  // GeneratorForA, GeneratorForC, etc.
-  std::vector<std::unordered_set<uint32_t>> existing_a_sets_;
-  std::vector<std::vector<uint32_t>> existing_a_vecs_;
-  std::vector<std::unordered_set<uint32_t>> next_a_sets_;
-
-  std::vector<std::unordered_set<uint32_t>> existing_c_sets_;
-  std::vector<std::vector<uint32_t>> existing_c_vecs_;
+  void ScanExistingDb(SharedState* shared, int threads);
 };
 
 class InvariantChecker {

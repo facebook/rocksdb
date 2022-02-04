@@ -19,12 +19,121 @@
 namespace ROCKSDB_NAMESPACE {
 
 // TODO: move these to gflags.
-DEFINE_int32(ub_c, 1000, "(Exclusive) upper bound of C");
+DEFINE_int32(lb_a, 0, "(Inclusive) lower bound of A");
 DEFINE_int32(ub_a, 1000, "(Exclusive) upper bound of A");
+DEFINE_int32(lb_c, 0, "(Inclusive) lower bound of C");
+DEFINE_int32(ub_c, 1000, "(Exclusive) upper bound of C");
+
+DEFINE_string(key_spaces_path, "",
+              "Path to file describing the lower and upper bounds of A and C");
 
 DEFINE_int32(delay_snapshot_read_one_in, 0,
              "With a chance of 1/N, inject a random delay between taking "
              "snapshot and read.");
+
+std::pair<uint32_t, uint32_t>
+MultiOpsTxnsStressTest::KeyGenerator::ChooseExisting() {
+  assert(initialized_);
+  const size_t N = existing_.size();
+  assert(N > 0);
+  uint32_t rnd = rand_.Uniform(N);
+  assert(rnd < N);
+  return std::make_pair(existing_[rnd], rnd);
+}
+
+uint32_t MultiOpsTxnsStressTest::KeyGeneratorForA::Allocate() {
+  assert(initialized_);
+  auto it = non_existing_uniq_.begin();
+  assert(non_existing_uniq_.end() != it);
+  uint32_t ret = *it;
+  // Remove this element from non_existing_.
+  // Need to call UndoAllocation() if the calling transaction does not commit.
+  non_existing_uniq_.erase(it);
+  return ret;
+}
+
+void MultiOpsTxnsStressTest::KeyGeneratorForA::Replace(uint32_t old_val,
+                                                       uint32_t old_pos,
+                                                       uint32_t new_val) {
+  assert(initialized_);
+  {
+    auto it = existing_uniq_.find(old_val);
+    assert(it != existing_uniq_.end());
+    existing_uniq_.erase(it);
+  }
+
+  {
+    auto it = existing_uniq_.find(new_val);
+    assert(it == existing_uniq_.end());
+    existing_uniq_.insert(new_val);
+    existing_[old_pos] = new_val;
+  }
+
+  {
+    auto it = non_existing_uniq_.find(old_val);
+    assert(it == non_existing_uniq_.end());
+    non_existing_uniq_.insert(old_val);
+  }
+}
+
+void MultiOpsTxnsStressTest::KeyGeneratorForA::UndoAllocation(
+    uint32_t new_val) {
+  assert(initialized_);
+  auto it = non_existing_uniq_.find(new_val);
+  assert(it == non_existing_uniq_.end());
+  non_existing_uniq_.insert(new_val);
+}
+
+void MultiOpsTxnsStressTest::KeyGeneratorForA::FinishInit() {
+  assert(!existing_.empty());
+  assert(existing_uniq_.empty());
+  assert(non_existing_uniq_.empty());
+  assert(low_ < high_);
+  for (auto a : existing_) {
+    existing_uniq_.insert(a);
+  }
+  for (uint32_t a = low_; a < high_; ++a) {
+    if (existing_uniq_.count(a) == 0) {
+      non_existing_uniq_.insert(a);
+    }
+  }
+  initialized_ = true;
+}
+
+uint32_t MultiOpsTxnsStressTest::KeyGeneratorForC::ChooseOne() {
+  assert(initialized_);
+  const uint32_t N = high_ - low_;
+  return low_ + rand_.Uniform(N);
+}
+
+void MultiOpsTxnsStressTest::KeyGeneratorForC::Replace(uint32_t old_val,
+                                                       uint32_t old_pos,
+                                                       uint32_t new_val) {
+  assert(initialized_);
+  auto it = existing_uniq_.find(old_val);
+  assert(it != existing_uniq_.end());
+  existing_uniq_.erase(it);
+
+  it = existing_uniq_.find(new_val);
+  if (it == existing_uniq_.end()) {
+    existing_uniq_.insert(new_val);
+    existing_[old_pos] = new_val;
+  } else {
+    assert(existing_.size() >= 2);
+    uint32_t tmp = existing_.back();
+    existing_[old_pos] = tmp;
+    existing_.pop_back();
+  }
+}
+
+void MultiOpsTxnsStressTest::KeyGeneratorForC::FinishInit() {
+  assert(!existing_uniq_.empty());
+  assert(existing_.empty());
+  for (auto c : existing_uniq_) {
+    existing_.push_back(c);
+  }
+  initialized_ = true;
+}
 
 std::string MultiOpsTxnsStressTest::Record::EncodePrimaryKey(uint32_t a) {
   char buf[8];
@@ -227,9 +336,18 @@ void MultiOpsTxnsStressTest::FinishInitDb(SharedState* shared) {
   if (FLAGS_destroy_db_initially) {
     ReopenAndPreloadDb(shared);
   } else {
-    ScanExistingDb(FLAGS_threads, /*lb_a=*/0, FLAGS_ub_a, /*lb_c=*/0,
-                   FLAGS_ub_c);
+    ScanExistingDb(shared, FLAGS_threads);
   }
+  // TODO (yanqin) parallelize
+  for (auto& key_gen : key_gen_for_a_) {
+    assert(key_gen);
+    key_gen->FinishInit();
+  }
+  for (auto& key_gen : key_gen_for_c_) {
+    assert(key_gen);
+    key_gen->FinishInit();
+  }
+  fprintf(stdout, "DB init finished\n");
 }
 
 void MultiOpsTxnsStressTest::ReopenAndPreloadDb(SharedState* shared) {
@@ -259,7 +377,7 @@ void MultiOpsTxnsStressTest::ReopenAndPreloadDb(SharedState* shared) {
     exit(1);
   }
 
-  PreloadDb(shared, FLAGS_threads, /*lb_a=*/0, FLAGS_ub_a, /*lb_c=*/0,
+  PreloadDb(shared, FLAGS_threads, FLAGS_lb_a, FLAGS_ub_a, FLAGS_lb_c,
             FLAGS_ub_c);
 
   // Reopen
@@ -454,6 +572,7 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
 #ifdef ROCKSDB_LITE
   (void)thread;
   (void)old_a;
+  (void)old_a_pos;
   (void)new_a;
   return Status::NotSupported();
 #else
@@ -546,34 +665,11 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
 
   s = CommitTxn(txn);
 
+  auto& key_gen = key_gen_for_a_.at(thread->tid);
   if (s.ok()) {
-    const uint32_t num_a = FLAGS_ub_a - 0;
-    const uint32_t num_a_per_thread = (num_a % FLAGS_threads)
-                                          ? (num_a / FLAGS_threads + 1)
-                                          : (num_a / FLAGS_threads);
-    uint32_t idx = old_a / num_a_per_thread;
-    assert(new_a / num_a_per_thread == idx);
-    assert(idx == thread->tid);
-    {
-      auto& existing_a_set = existing_a_sets_[idx];
-      auto it = existing_a_set.find(old_a);
-      assert(it != existing_a_set.end());
-      existing_a_set.erase(it);
-
-      it = existing_a_set.find(new_a);
-      assert(existing_a_set.end() == it);
-      existing_a_set.insert(new_a);
-    }
-    {
-      auto& existing_a_vec = existing_a_vecs_[idx];
-      existing_a_vec[old_a_pos] = new_a;
-    }
-    {
-      auto& next_a_set = next_a_sets_[idx];
-      auto it = next_a_set.find(old_a);
-      assert(next_a_set.end() == it);
-      next_a_set.insert(old_a);
-    }
+    key_gen->Replace(old_a, old_a_pos, new_a);
+  } else {
+    key_gen->UndoAllocation(new_a);
   }
   return s;
 #endif  // !ROCKSDB_LITE
@@ -586,6 +682,7 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
 #ifdef ROCKSDB_LITE
   (void)thread;
   (void)old_c;
+  (void)old_c_pos;
   (void)new_c;
   return Status::NotSupported();
 #else
@@ -731,28 +828,8 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   s = CommitTxn(txn);
 
   if (s.ok()) {
-    const uint32_t num_c = FLAGS_ub_c - 0;
-    const uint32_t num_c_per_thread = (num_c % FLAGS_threads)
-                                          ? (num_c / FLAGS_threads + 1)
-                                          : (num_c / FLAGS_threads);
-    uint32_t idx = old_c / num_c_per_thread;
-    assert(new_c / num_c_per_thread == idx);
-    assert(idx == thread->tid);
-    {
-      auto& existing_c_set = existing_c_sets_[idx];
-      auto iter = existing_c_set.find(old_c);
-      assert(iter != existing_c_set.end());
-      existing_c_set.erase(iter);
-
-      iter = existing_c_set.find(new_c);
-      if (iter == existing_c_set.end()) {
-        existing_c_set.insert(new_c);
-      }
-    }
-    {
-      auto& existing_c_vec = existing_c_vecs_[idx];
-      existing_c_vec[old_c_pos] = new_c;
-    }
+    auto& key_gen = key_gen_for_c_.at(thread->tid);
+    key_gen->Replace(old_c, old_c_pos, new_c);
   }
 
   return s;
@@ -1047,50 +1124,77 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
 std::pair<uint32_t, uint32_t> MultiOpsTxnsStressTest::ChooseExistingA(
     ThreadState* thread) {
   uint32_t tid = thread->tid;
-  std::unordered_set<uint32_t>& existing_a_set = existing_a_sets_[tid];
-  std::vector<uint32_t>& existing_a_vec = existing_a_vecs_[tid];
-  const size_t N = existing_a_vec.size();
-  assert(N > 0);
-  assert(N == existing_a_set.size());
-  uint32_t rnd = thread->rand.Uniform(N);
-  assert(rnd < N);
-  return std::make_pair(existing_a_vec[rnd], rnd);
+  auto& key_gen = key_gen_for_a_.at(tid);
+  return key_gen->ChooseExisting();
 }
 
 uint32_t MultiOpsTxnsStressTest::GenerateNextA(ThreadState* thread) {
   uint32_t tid = thread->tid;
-  std::unordered_set<uint32_t>& next_a_set = next_a_sets_[tid];
-  auto it = next_a_set.begin();
-  assert(it != next_a_set.end());
-  uint32_t ret = *it;
-  // Remove this element.
-  // Will need to add it back if the calling transaction does not commit.
-  next_a_set.erase(it);
-  return ret;
+  auto& key_gen = key_gen_for_a_.at(tid);
+  return key_gen->Allocate();
 }
 
 std::pair<uint32_t, uint32_t> MultiOpsTxnsStressTest::ChooseExistingC(
     ThreadState* thread) {
   uint32_t tid = thread->tid;
-  std::unordered_set<uint32_t>& existing_c_set = existing_c_sets_[tid];
-  std::vector<uint32_t>& existing_c_vec = existing_c_vecs_[tid];
-  const size_t N = existing_c_vec.size();
-  assert(N > 0);
-  assert(N == existing_c_set.size());
-  uint32_t rnd = thread->rand.Uniform(N);
-  assert(rnd < N);
-  return std::make_pair(existing_c_vec[rnd], rnd);
+  auto& key_gen = key_gen_for_c_.at(tid);
+  return key_gen->ChooseExisting();
 }
 
 uint32_t MultiOpsTxnsStressTest::ChooseRandomC(ThreadState* thread) {
   uint32_t tid = thread->tid;
-  const uint32_t num_c = FLAGS_ub_c - 0;
-  const uint32_t num_c_per_thread = (num_c % FLAGS_threads)
-                                        ? (num_c / FLAGS_threads + 1)
-                                        : (num_c / FLAGS_threads);
-  const uint32_t c_lower_bound = tid * num_c_per_thread;
-  const uint32_t rnd = thread->rand.Uniform(num_c_per_thread);
-  return rnd + c_lower_bound;
+  auto& key_gen = key_gen_for_c_.at(tid);
+  return key_gen->ChooseOne();
+}
+
+std::string MultiOpsTxnsStressTest::KeySpaces::EncodeTo() const {
+  std::string result;
+  PutFixed32(&result, lb_a);
+  PutFixed32(&result, ub_a);
+  PutFixed32(&result, lb_c);
+  PutFixed32(&result, ub_c);
+  return result;
+}
+
+bool MultiOpsTxnsStressTest::KeySpaces::DecodeFrom(Slice data) {
+  if (!GetFixed32(&data, &lb_a) || !GetFixed32(&data, &ub_a) ||
+      !GetFixed32(&data, &lb_c) || !GetFixed32(&data, &ub_c)) {
+    return false;
+  }
+  return true;
+}
+
+void MultiOpsTxnsStressTest::PersistKeySpacesDesc(
+    const std::string& key_spaces_path, uint32_t lb_a, uint32_t ub_a,
+    uint32_t lb_c, uint32_t ub_c) {
+  KeySpaces key_spaces(lb_a, ub_a, lb_c, ub_c);
+  std::string key_spaces_rep = key_spaces.EncodeTo();
+
+  std::unique_ptr<WritableFile> wfile;
+  Status s1 =
+      Env::Default()->NewWritableFile(key_spaces_path, &wfile, EnvOptions());
+  assert(s1.ok());
+  assert(wfile);
+  s1 = wfile->Append(key_spaces_rep);
+  assert(s1.ok());
+}
+
+MultiOpsTxnsStressTest::KeySpaces MultiOpsTxnsStressTest::ReadKeySpacesDesc(
+    const std::string& key_spaces_path) {
+  KeySpaces key_spaces;
+  std::unique_ptr<SequentialFile> sfile;
+  Status s1 =
+      Env::Default()->NewSequentialFile(key_spaces_path, &sfile, EnvOptions());
+  assert(s1.ok());
+  assert(sfile);
+  char buf[16];
+  Slice result;
+  s1 = sfile->Read(sizeof(buf), &result, buf);
+  assert(s1.ok());
+  if (!key_spaces.DecodeFrom(result)) {
+    assert(false);
+  }
+  return key_spaces;
 }
 
 void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
@@ -1104,15 +1208,17 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
   (void)lb_c;
   (void)ub_c;
 #else
-  existing_a_sets_.resize(threads);
-  existing_a_vecs_.resize(threads);
-  next_a_sets_.resize(threads);
-
-  existing_c_sets_.resize(threads);
-  existing_c_vecs_.resize(threads);
+  key_gen_for_a_.resize(threads);
+  key_gen_for_c_.resize(threads);
 
   assert(ub_a > lb_a && ub_a > lb_a + threads);
   assert(ub_c > lb_c && ub_c > lb_c + threads);
+
+  PersistKeySpacesDesc(FLAGS_key_spaces_path, lb_a, ub_a, lb_c, ub_c);
+
+  fprintf(stdout, "lb_a=%d ub_a=%d lb_c=%d ub_c=%d\n", static_cast<int>(lb_a),
+          static_cast<int>(ub_a), static_cast<int>(lb_c),
+          static_cast<int>(ub_c));
 
   const uint32_t num_c = ub_c - lb_c;
   const uint32_t num_c_per_thread =
@@ -1127,19 +1233,44 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
   Random rnd(shared->GetSeed());
   assert(txn_db_);
 
+  std::vector<uint32_t> existing_a;
+  existing_a.reserve(num_a_per_thread);
+  std::unordered_set<uint32_t> existing_c;
+  existing_c.reserve(num_c_per_thread);
+
   for (uint32_t a = lb_a; a < ub_a; ++a) {
     uint32_t tid = (a - lb_a) / num_a_per_thread;
     uint32_t a_base = lb_a + tid * num_a_per_thread;
     uint32_t a_delta = a - a_base;
-    if (a - a_base + 1 >= num_a_per_thread) {
-      auto& next_a_set = next_a_sets_[tid];
-      next_a_set.insert(a);
-      continue;
-    }
 
     uint32_t c_base = lb_c + (tid * num_c_per_thread);
-    uint32_t c_delta = a_delta % num_c_per_thread;
+    uint32_t c_hi = c_base + num_c_per_thread;
+    if (c_hi > ub_c) {
+      c_hi = ub_c;
+    }
+    uint32_t c_delta = a_delta % (c_hi - c_base);
     uint32_t c = c_base + c_delta;
+
+    if (0 == ((a_delta + 1) % num_a_per_thread) || (ub_a - 1 == a)) {
+      std::unordered_set<uint32_t> non_existing_a = {a};
+      uint32_t my_seed = shared->GetSeed() + tid;
+      key_gen_for_a_[tid] = std::make_unique<KeyGeneratorForA>(
+          my_seed, a_base, a + 1, std::move(existing_a));
+
+      uint32_t h = c_base + num_c_per_thread;
+      if (h > ub_c) {
+        h = ub_c;
+      }
+      key_gen_for_c_[tid] = std::make_unique<KeyGeneratorForC>(
+          my_seed, c_base, h, std::move(existing_c));
+
+      assert(existing_a.empty());
+      assert(existing_c.empty());
+
+      existing_a.reserve(num_a_per_thread);
+      existing_c.reserve(num_c_per_thread);
+      continue;
+    }
 
     uint32_t b = rnd.Next();
     Record record(a, b, c);
@@ -1164,14 +1295,9 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
     assert(s.ok());
     assert(tmp_rec == record);
 
-    auto& existing_a_set = existing_a_sets_[tid];
-    auto& existing_a_vec = existing_a_vecs_[tid];
-    existing_a_set.insert(a);
-    existing_a_vec.push_back(a);
-
-    auto& existing_c_set = existing_c_sets_[tid];
-    if (existing_c_set.count(c) == 0) {
-      existing_c_set.insert(c);
+    existing_a.push_back(a);
+    if (a_delta < num_c_per_thread) {
+      existing_c.insert(c);
     }
   }
 
@@ -1181,15 +1307,22 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
 #endif  // !ROCKSDB_LITE
 }
 
-void MultiOpsTxnsStressTest::ScanExistingDb(int threads, uint32_t lb_a,
-                                            uint32_t ub_a, uint32_t lb_c,
-                                            uint32_t ub_c) {
-  existing_a_sets_.resize(threads);
-  existing_a_vecs_.resize(threads);
-  next_a_sets_.resize(threads);
+void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
+  key_gen_for_a_.resize(threads);
+  key_gen_for_c_.resize(threads);
 
-  existing_c_sets_.resize(threads);
-  existing_c_vecs_.resize(threads);
+  KeySpaces key_spaces = ReadKeySpacesDesc(FLAGS_key_spaces_path);
+
+  const uint32_t lb_a = key_spaces.lb_a;
+  const uint32_t ub_a = key_spaces.ub_a;
+  const uint32_t lb_c = key_spaces.lb_c;
+  const uint32_t ub_c = key_spaces.ub_c;
+
+  assert(lb_a < ub_a && lb_c < ub_c);
+
+  fprintf(stdout, "lb_a=%d ub_a=%d lb_c=%d ub_c=%d\n", static_cast<int>(lb_a),
+          static_cast<int>(ub_a), static_cast<int>(lb_c),
+          static_cast<int>(ub_c));
 
   assert(ub_a > lb_a && ub_a > lb_a + threads);
   assert(ub_c > lb_c && ub_c > lb_c + threads);
@@ -1201,10 +1334,10 @@ void MultiOpsTxnsStressTest::ScanExistingDb(int threads, uint32_t lb_a,
   const uint32_t num_a_per_thread =
       (num_a % threads) ? (num_a / threads + 1) : (num_a / threads);
 
-  assert(txn_db_);
-  const Snapshot* snapshot = txn_db_->GetSnapshot();
+  assert(db_);
   ReadOptions ropts;
-  ropts.snapshot = snapshot;
+  std::vector<uint32_t> existing_a;
+  std::vector<std::unordered_set<uint32_t>> existing_c_uniqs(threads);
   uint32_t count = 0;
   {
     std::string pk_lb_str = Record::EncodePrimaryKey(0);
@@ -1214,43 +1347,77 @@ void MultiOpsTxnsStressTest::ScanExistingDb(int threads, uint32_t lb_a,
     Slice pk_ub = pk_ub_str;
     ropts.iterate_lower_bound = &pk_lb;
     ropts.iterate_upper_bound = &pk_ub;
-    std::unique_ptr<Iterator> it(txn_db_->NewIterator(ropts));
+    std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
 
+    uint32_t tid = 0;
     for (it->SeekToFirst(); it->Valid(); it->Next(), ++count) {
       Record record;
       Status s = record.DecodePrimaryIndexEntry(it->key(), it->value());
       assert(s.ok());
       uint32_t a = record.a_value();
-      uint32_t idx = a / num_a_per_thread;
-      auto& existing_a_set = existing_a_sets_[idx];
-      auto& existing_a_vec = existing_a_vecs_[idx];
-      if (existing_a_set.count(a) == 0) {
-        existing_a_set.insert(a);
-        existing_a_vec.push_back(a);
+      assert(a >= lb_a);
+      assert(a < ub_a);
+      uint32_t prev_tid = tid;
+      tid = (a - lb_a) / num_a_per_thread;
+      if (prev_tid < tid) {
+        uint32_t my_seed = prev_tid + shared->GetSeed();
+        uint32_t low = lb_a + prev_tid * num_a_per_thread;
+        uint32_t high = low + num_a_per_thread;
+        if (high > ub_a) {
+          high = ub_a;
+        }
+        key_gen_for_a_[prev_tid] = std::make_unique<KeyGeneratorForA>(
+            my_seed, low, high, std::move(existing_a));
+      } else if (prev_tid == tid) {
+        existing_a.push_back(a);
+      } else {
+        assert(false);
       }
 
       uint32_t c = record.c_value();
-      idx = c / num_c_per_thread;
-      auto& existing_c_set = existing_c_sets_[idx];
-      auto& existing_c_vec = existing_c_vecs_[idx];
-      if (existing_c_set.count(c) == 0) {
-        existing_c_set.insert(c);
-        existing_c_vec.push_back(c);
+      assert(c >= lb_c);
+      assert(c < ub_c);
+      tid = (c - lb_c) / num_c_per_thread;
+      auto& existing_c_uniq = existing_c_uniqs[tid];
+      existing_c_uniq.insert(c);
+    }
+    if (!existing_a.empty()) {
+      uint32_t my_seed = tid + shared->GetSeed();
+      uint32_t low = lb_a + tid * num_a_per_thread;
+      uint32_t high = low + num_a_per_thread;
+      if (high > ub_a) {
+        high = ub_a;
       }
+      key_gen_for_a_[tid] = std::make_unique<KeyGeneratorForA>(
+          my_seed, low, high, std::move(existing_a));
     }
-  }
-  txn_db_->ReleaseSnapshot(snapshot);
 
-  for (uint32_t a = lb_a; a < ub_a; ++a) {
-    uint32_t idx = a / num_a_per_thread;
-    const auto& existing_a_set = existing_a_sets_[idx];
-    auto& next_a_set = next_a_sets_[idx];
-    auto it = existing_a_set.find(a);
-    if (it == existing_a_set.end()) {
-      next_a_set.insert(a);
+    for (int i = 0; i < threads; ++i) {
+      uint32_t my_seed = i + shared->GetSeed();
+      auto& key_gen_for_a = key_gen_for_a_[i];
+      if (!key_gen_for_a) {
+        uint32_t low = lb_a + i * num_a_per_thread;
+        uint32_t high = low + num_a_per_thread;
+        if (high > ub_a) {
+          high = ub_a;
+        }
+        key_gen_for_a = std::make_unique<KeyGeneratorForA>(
+            my_seed, low, high, std::vector<uint32_t>());
+      }
+      auto& existing_c_uniq = existing_c_uniqs[i];
+      uint32_t low = lb_c + i * num_c_per_thread;
+      uint32_t high = low + num_c_per_thread;
+      if (high > ub_c) {
+        high = ub_c;
+      }
+      assert(!key_gen_for_c_[i]);
+      key_gen_for_c_[i] = std::make_unique<KeyGeneratorForC>(
+          my_seed, low, high, std::move(existing_c_uniq));
     }
   }
-  fprintf(stdout, "Processed %d records\n", static_cast<int>(num_a));
+
+  fprintf(stdout, "Processed %d entries from primary index\n",
+          static_cast<int>(count));
 }
 
 StressTest* CreateMultiOpsTxnsStressTest() {
@@ -1294,6 +1461,12 @@ void CheckAndSetOptionsForMultiOpsTxnStressTest() {
     fprintf(stderr,
             "-test_multi_ops_txns requires that -writepercent, -delpercent and "
             "-delrangepercent be 0\n");
+    exit(1);
+  }
+  if (FLAGS_key_spaces_path.empty()) {
+    fprintf(stderr,
+            "Must specify a file to store ranges of A and C via "
+            "-key_spaces_path\n");
     exit(1);
   }
 #else
