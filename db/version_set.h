@@ -302,7 +302,7 @@ class VersionStorageInfo {
     size_t position_ = 0;
   };
 
-  // REQUIRES: PrepareAppend has been called
+  // REQUIRES: PrepareForVersionAppend has been called
   FileLocation GetFileLocation(uint64_t file_number) const {
     const auto it = file_locations_.find(file_number);
 
@@ -319,7 +319,7 @@ class VersionStorageInfo {
     return it->second;
   }
 
-  // REQUIRES: PrepareAppend has been called
+  // REQUIRES: PrepareForVersionAppend has been called
   FileMetaData* GetFileMetaDataByNumber(uint64_t file_number) const {
     auto location = GetFileLocation(file_number);
 
