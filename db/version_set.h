@@ -520,28 +520,7 @@ class VersionStorageInfo {
   void GenerateLevelFilesBrief();
   void GenerateLevel0NonOverlapping();
   void GenerateBottommostFiles();
-
-  void GenerateFileLocationIndex() {
-    size_t num_files = 0;
-
-    for (int level = 0; level < num_levels_; ++level) {
-      num_files += files_[level].size();
-    }
-
-    file_locations_.reserve(num_files);
-
-    for (int level = 0; level < num_levels_; ++level) {
-      for (size_t pos = 0; pos < files_[level].size(); ++pos) {
-        const FileMetaData* const meta = files_[level][pos];
-        assert(meta);
-
-        const uint64_t file_number = meta->fd.GetNumber();
-
-        assert(file_locations_.find(file_number) == file_locations_.end());
-        file_locations_.emplace(file_number, FileLocation(level, pos));
-      }
-    }
-  }
+  void GenerateFileLocationIndex();
 
   const InternalKeyComparator* internal_comparator_;
   const Comparator* user_comparator_;
