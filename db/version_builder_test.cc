@@ -155,7 +155,7 @@ class VersionBuilderTest : public testing::Test {
   void UpdateVersionStorageInfo(VersionStorageInfo* vstorage) {
     assert(vstorage);
 
-    vstorage->PrepareAppend(ioptions_, mutable_cf_options_);
+    vstorage->PrepareForVersionAppend(ioptions_, mutable_cf_options_);
     vstorage->SetFinalized();
   }
 

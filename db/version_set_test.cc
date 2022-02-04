@@ -179,7 +179,7 @@ class VersionStorageInfoTestBase : public testing::Test {
   }
 
   void UpdateVersionStorageInfo() {
-    vstorage_.PrepareAppend(ioptions_, mutable_cf_options_);
+    vstorage_.PrepareForVersionAppend(ioptions_, mutable_cf_options_);
     vstorage_.SetFinalized();
   }
 

@@ -129,10 +129,10 @@ class VersionStorageInfo {
 
   void AddBlobFile(std::shared_ptr<BlobFileMetaData> blob_file_meta);
 
-  void PrepareAppend(const ImmutableOptions& immutable_options,
-                     const MutableCFOptions& mutable_cf_options);
+  void PrepareForVersionAppend(const ImmutableOptions& immutable_options,
+                               const MutableCFOptions& mutable_cf_options);
 
-  // REQUIRES: PrepareAppend has been called
+  // REQUIRES: PrepareForVersionAppend has been called
   void SetFinalized();
 
   // Update the accumulated stats from a file-meta.
@@ -251,13 +251,13 @@ class VersionStorageInfo {
 
   int num_levels() const { return num_levels_; }
 
-  // REQUIRES: PrepareAppend has been called
+  // REQUIRES: PrepareForVersionAppend has been called
   int num_non_empty_levels() const {
     assert(finalized_);
     return num_non_empty_levels_;
   }
 
-  // REQUIRES: PrepareAppend has been called
+  // REQUIRES: PrepareForVersionAppend has been called
   // This may or may not return number of level files. It is to keep backward
   // compatible behavior in universal compaction.
   int l0_delay_trigger_count() const { return l0_delay_trigger_count_; }
@@ -352,7 +352,7 @@ class VersionStorageInfo {
     return level_files_brief_[level];
   }
 
-  // REQUIRES: PrepareAppend has been called
+  // REQUIRES: PrepareForVersionAppend has been called
   const std::vector<int>& FilesByCompactionPri(int level) const {
     assert(finalized_);
     return files_by_compaction_pri_[level];
@@ -416,7 +416,7 @@ class VersionStorageInfo {
     return next_file_to_compact_by_size_[level];
   }
 
-  // REQUIRES: PrepareAppend has been called
+  // REQUIRES: PrepareForVersionAppend has been called
   const FileIndexer& file_indexer() const {
     assert(finalized_);
     return file_indexer_;
