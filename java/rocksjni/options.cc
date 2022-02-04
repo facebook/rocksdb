@@ -7755,6 +7755,28 @@ jboolean Java_org_rocksdb_WriteOptions_lowPri(
   return reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jhandle)->low_pri;
 }
 
+/*
+ * Class:     org_rocksdb_WriteOptions
+ * Method:    setTimestamp
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_WriteOptions_setTimestamp(JNIEnv*, jobject, jlong jhandle,
+                                               jlong jtimestamp_slice_handle) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jhandle)->timestamp =
+      reinterpret_cast<ROCKSDB_NAMESPACE::Slice*>(jtimestamp_slice_handle);
+}
+
+/*
+ * Class:     org_rocksdb_WriteOptions
+ * Method:    timestamp
+ * Signature: (J)Z
+ */
+jlong Java_org_rocksdb_WriteOptions_timestamp(JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jhandle);
+  auto& timestamp_slice_handle = opt->timestamp;
+  return reinterpret_cast<jlong>(timestamp_slice_handle);
+}
+
 /////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::ReadOptions
 

@@ -1661,6 +1661,19 @@ struct WriteOptions {
   // Default: false
   bool memtable_insert_hint_per_batch;
 
+  // Timestamp of operation. Write should set specified timestamp for the data.
+  // All timestamps of the same database must be of the
+  // same length and format. The user is responsible for providing a customized
+  // compare function via Comparator to order <key, timestamp> tuples.
+  // For iterator, iter_start_ts is the lower bound (older) and timestamp
+  // serves as the upper bound. Versions of the same record that fall in
+  // the timestamp range will be returned. If iter_start_ts is nullptr,
+  // only the most recent version visible to timestamp is returned.
+  // The user-specified timestamp feature is still under active development,
+  // and the API is subject to change.
+  // Default: nullptr
+  const Slice* timestamp = nullptr;
+
   WriteOptions()
       : sync(false),
         disableWAL(false),

@@ -7,7 +7,7 @@ package org.rocksdb;
 
 import org.junit.ClassRule;
 import org.junit.Test;
-
+import java.util.Arrays;
 import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -59,11 +59,31 @@ public class WriteOptionsTest {
     origOpts.setDisableWAL(rand.nextBoolean());
     origOpts.setIgnoreMissingColumnFamilies(rand.nextBoolean());
     origOpts.setSync(rand.nextBoolean());
+    origOpts.setTimestamp(buildRandomSlice());
     WriteOptions copyOpts = new WriteOptions(origOpts);
     assertThat(origOpts.disableWAL()).isEqualTo(copyOpts.disableWAL());
     assertThat(origOpts.ignoreMissingColumnFamilies()).isEqualTo(
             copyOpts.ignoreMissingColumnFamilies());
     assertThat(origOpts.sync()).isEqualTo(copyOpts.sync());
+    assertThat(origOpts.timestamp()).isEqualTo(copyOpts.timestamp());
+  }
+
+  @Test
+  public void timestamp() {
+    try (final WriteOptions opt = new WriteOptions()) {
+      Slice timestamp = buildRandomSlice();
+      opt.setTimestamp(timestamp);
+      assertThat(Arrays.equals(timestamp.data(), opt.timestamp().data())).isTrue();
+      opt.setTimestamp(null);
+      assertThat(opt.timestamp()).isNull();
+    }
+  }
+
+  private Slice buildRandomSlice() {
+    final Random rand = new Random();
+    byte[] sliceBytes = new byte[rand.nextInt(100) + 1];
+    rand.nextBytes(sliceBytes);
+    return new Slice(sliceBytes);
   }
 
 }

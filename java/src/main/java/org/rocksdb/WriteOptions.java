@@ -36,6 +36,7 @@ public class WriteOptions extends RocksObject {
    */
   public WriteOptions(WriteOptions other) {
     super(copyWriteOptions(other.nativeHandle_));
+    this.timestampSlice_ = other.timestampSlice_;
   }
 
 
@@ -200,8 +201,58 @@ public class WriteOptions extends RocksObject {
     return lowPri(nativeHandle_);
   }
 
+  /**
+   * Timestamp of operation. Write should set specified timestamp for the data.
+   * All timestamps of the same database must be of the same length and format.
+   * The user is responsible for providing a customized
+   * compare function via Comparator to order {@code <key, timestamp>} tuples.
+   * For iterator, {@code iter_start_ts} is the lower bound (older) and timestamp
+   * serves as the upper bound. Versions of the same record that fall in
+   * the timestamp range will be returned. If iter_start_ts is nullptr,
+   * only the most recent version visible to timestamp is returned.
+   * The user-specified timestamp feature is still under active development,
+   * and the API is subject to change.
+   *
+   * Default: null
+   * @param timestamp Slice representing the timestamp
+   * @return the reference to the current WriteOptions.
+   */
+  public WriteOptions setTimestamp(final AbstractSlice<?> timestamp) {
+    assert (isOwningHandle());
+    setTimestamp(nativeHandle_, timestamp == null ? 0 : timestamp.getNativeHandle());
+    timestampSlice_ = timestamp;
+    return this;
+  }
+
+  /**
+   * Timestamp of operation. Write should set specified timestamp for the data.
+   * All timestamps of the same database must be of the
+   * same length and format. The user is responsible for providing a customized
+   * compare function via Comparator to order &gt;key, timestamp&gt; tuples.
+   * For iterator, iter_start_ts is the lower bound (older) and timestamp
+   * serves as the upper bound. Versions of the same record that fall in
+   * the timestamp range will be returned. If iter_start_ts is nullptr,
+   * only the most recent version visible to timestamp is returned.
+   * The user-specified timestamp feature is still under active development,
+   * and the API is subject to change.
+   *
+   * Default: null
+   * @return Reference to timestamp or null if there is no timestamp defined.
+   */
+  public Slice timestamp() {
+    assert (isOwningHandle());
+    final long timestampSliceHandle = timestamp(nativeHandle_);
+    if (timestampSliceHandle != 0) {
+      return new Slice(timestampSliceHandle);
+    } else {
+      return null;
+    }
+  }
+
   private native static long newWriteOptions();
   private native static long copyWriteOptions(long handle);
+  private AbstractSlice<?> timestampSlice_;
+
   @Override protected final native void disposeInternal(final long handle);
 
   private native void setSync(long handle, boolean flag);
@@ -216,4 +267,6 @@ public class WriteOptions extends RocksObject {
   private native boolean noSlowdown(final long handle);
   private native void setLowPri(final long handle, final boolean lowPri);
   private native boolean lowPri(final long handle);
+  private native long timestamp(final long handle);
+  private native void setTimestamp(final long handle, final long timestampSliceHandle);
 }
