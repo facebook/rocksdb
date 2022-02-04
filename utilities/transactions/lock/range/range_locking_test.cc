@@ -276,9 +276,10 @@ TEST_F(RangeLockingTest, BasicLockEscalation) {
 
   // Get the locks until we hit an escalation
   for (int i = 0; i < 2020; i++) {
-    char buf[32];
-    snprintf(buf, sizeof(buf) - 1, "%08d", i);
-    ASSERT_OK(txn->GetRangeLock(cf, Endpoint(buf), Endpoint(buf)));
+    std::ostringstream buf;
+    buf << std::setw(8) << std::setfill('0') << i;
+    std::string buf_str = buf.str();
+    ASSERT_OK(txn->GetRangeLock(cf, Endpoint(buf_str), Endpoint(buf_str)));
   }
   counters = range_lock_mgr->GetStatus();
   ASSERT_GT(counters.escalation_count, 0);
@@ -286,7 +287,87 @@ TEST_F(RangeLockingTest, BasicLockEscalation) {
 
   delete txn;
 }
+
+// An escalation barrier function. Allow escalation iff the first two bytes are
+// identical.
+static bool escalation_barrier(const Endpoint& a, const Endpoint& b) {
+  assert(a.slice.size() > 2);
+  assert(b.slice.size() > 2);
+  if (memcmp(a.slice.data(), b.slice.data(), 2)) {
+    return true;  // This is a barrier
+  } else {
+    return false;  // No barrier
+  }
+}
+
+TEST_F(RangeLockingTest, LockEscalationBarrier) {
+  auto cf = db->DefaultColumnFamily();
+
+  auto counters = range_lock_mgr->GetStatus();
+
+  // Initially not using any lock memory
+  ASSERT_EQ(counters.escalation_count, 0);
+
+  range_lock_mgr->SetMaxLockMemory(8000);
+  range_lock_mgr->SetEscalationBarrierFunc(escalation_barrier);
+
+  // Insert enough locks to cause lock escalations to happen
+  auto txn = NewTxn();
+  const int N = 2000;
+  for (int i = 0; i < N; i++) {
+    std::ostringstream buf;
+    buf << std::setw(4) << std::setfill('0') << i;
+    std::string buf_str = buf.str();
+    ASSERT_OK(txn->GetRangeLock(cf, Endpoint(buf_str), Endpoint(buf_str)));
+  }
+  counters = range_lock_mgr->GetStatus();
+  ASSERT_GT(counters.escalation_count, 0);
+
+  // Check that lock escalation was not performed across escalation barriers:
+  // Use another txn to acquire locks near the barriers.
+  auto txn2 = NewTxn();
+  range_lock_mgr->SetMaxLockMemory(500000);
+  for (int i = 100; i < N; i += 100) {
+    std::ostringstream buf;
+    buf << std::setw(4) << std::setfill('0') << i - 1 << "-a";
+    std::string buf_str = buf.str();
+    // Check that we CAN get a lock near the escalation barrier
+    ASSERT_OK(txn2->GetRangeLock(cf, Endpoint(buf_str), Endpoint(buf_str)));
+  }
+
+  txn->Rollback();
+  txn2->Rollback();
+  delete txn;
+  delete txn2;
+}
+
 #endif
+
+TEST_F(RangeLockingTest, LockWaitCount) {
+  TransactionOptions txn_options;
+  auto cf = db->DefaultColumnFamily();
+  txn_options.lock_timeout = 50;
+  Transaction* txn0 = db->BeginTransaction(WriteOptions(), txn_options);
+  Transaction* txn1 = db->BeginTransaction(WriteOptions(), txn_options);
+
+  // Get a range lock
+  ASSERT_OK(txn0->GetRangeLock(cf, Endpoint("a"), Endpoint("c")));
+
+  uint64_t lock_waits1 = range_lock_mgr->GetStatus().lock_wait_count;
+  // Attempt to get a conflicting lock
+  auto s = txn1->GetRangeLock(cf, Endpoint("b"), Endpoint("z"));
+  ASSERT_TRUE(s.IsTimedOut());
+
+  // Check that the counter was incremented
+  uint64_t lock_waits2 = range_lock_mgr->GetStatus().lock_wait_count;
+  ASSERT_EQ(lock_waits1 + 1, lock_waits2);
+
+  txn0->Rollback();
+  txn1->Rollback();
+
+  delete txn0;
+  delete txn1;
+}
 
 void PointLockManagerTestExternalSetup(PointLockManagerTest* self) {
   self->env_ = Env::Default();

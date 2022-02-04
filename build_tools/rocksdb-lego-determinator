@@ -109,6 +109,7 @@ ASAN="COMPILE_WITH_ASAN=1"
 CLANG="USE_CLANG=1"
 TSAN="COMPILE_WITH_TSAN=1"
 UBSAN="COMPILE_WITH_UBSAN=1"
+ASAN_CRASH="ASAN_OPTIONS=disable_coredump=0"
 TSAN_CRASH="CRASH_TEST_EXT_ARGS=\\\"--compression_type=zstd --log2_keys_per_lock=22\\\""
 NON_TSAN_CRASH="CRASH_TEST_EXT_ARGS=--compression_type=zstd"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
@@ -618,7 +619,7 @@ ASAN_CRASH_TEST_COMMANDS="[
             {
                 \"name\":\"Build and run RocksDB debug asan_crash_test\",
                 \"timeout\": 86400,
-                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make $PARALLELISM asan_crash_test || $CONTRUN_NAME=asan_crash_test $TASK_CREATION_TOOL\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $ASAN_CRASH $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make $PARALLELISM asan_crash_test || $CONTRUN_NAME=asan_crash_test $TASK_CREATION_TOOL\",
                 \"user\":\"root\",
                 $PARSER
             },
@@ -642,7 +643,7 @@ ASAN_BLACKBOX_CRASH_TEST_COMMANDS="[
             {
                 \"name\":\"Build and run RocksDB debug blackbox asan_crash_test\",
                 \"timeout\": 86400,
-                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make $PARALLELISM blackbox_asan_crash_test || $CONTRUN_NAME=blackbox_asan_crash_test $TASK_CREATION_TOOL\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $ASAN_CRASH $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make $PARALLELISM blackbox_asan_crash_test || $CONTRUN_NAME=blackbox_asan_crash_test $TASK_CREATION_TOOL\",
                 \"user\":\"root\",
                 $PARSER
             },
@@ -666,7 +667,7 @@ ASAN_WHITEBOX_CRASH_TEST_COMMANDS="[
             {
                 \"name\":\"Build and run RocksDB debug whitebox asan_crash_test\",
                 \"timeout\": 86400,
-                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make $PARALLELISM whitebox_asan_crash_test || $CONTRUN_NAME=whitebox_asan_crash_test $TASK_CREATION_TOOL\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $ASAN_CRASH $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make $PARALLELISM whitebox_asan_crash_test || $CONTRUN_NAME=whitebox_asan_crash_test $TASK_CREATION_TOOL\",
                 \"user\":\"root\",
                 $PARSER
             },
@@ -690,7 +691,7 @@ ASAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
             {
                 \"name\":\"Build and run RocksDB debug asan_crash_test_with_atomic_flush\",
                 \"timeout\": 86400,
-                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make $PARALLELISM asan_crash_test_with_atomic_flush || $CONTRUN_NAME=asan_crash_test_with_atomic_flush $TASK_CREATION_TOOL\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $ASAN_CRASH $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make $PARALLELISM asan_crash_test_with_atomic_flush || $CONTRUN_NAME=asan_crash_test_with_atomic_flush $TASK_CREATION_TOOL\",
                 \"user\":\"root\",
                 $PARSER
             },
@@ -714,7 +715,7 @@ ASAN_CRASH_TEST_WITH_TXN_COMMANDS="[
             {
                 \"name\":\"Build and run RocksDB debug asan_crash_test_with_txn\",
                 \"timeout\": 86400,
-                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make $PARALLELISM asan_crash_test_with_txn || $CONTRUN_NAME=asan_crash_test_with_txn $TASK_CREATION_TOOL\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $ASAN_CRASH $NON_TSAN_CRASH $SKIP_FORMAT_CHECKS make $PARALLELISM asan_crash_test_with_txn || $CONTRUN_NAME=asan_crash_test_with_txn $TASK_CREATION_TOOL\",
                 \"user\":\"root\",
                 $PARSER
             },

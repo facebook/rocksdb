@@ -917,8 +917,29 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
                               end_with_ts);
 }
 
-Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyData* cfd,
+Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
                                         std::string ts_low) {
+  ColumnFamilyData* cfd = nullptr;
+  if (column_family == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  } else {
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+    assert(cfh != nullptr);
+    cfd = cfh->cfd();
+  }
+  assert(cfd != nullptr && cfd->user_comparator() != nullptr);
+  if (cfd->user_comparator()->timestamp_size() == 0) {
+    return Status::InvalidArgument(
+        "Timestamp is not enabled in this column family");
+  }
+  if (cfd->user_comparator()->timestamp_size() != ts_low.size()) {
+    return Status::InvalidArgument("ts_low size mismatch");
+  }
+  return IncreaseFullHistoryTsLowImpl(cfd, ts_low);
+}
+
+Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
+                                            std::string ts_low) {
   VersionEdit edit;
   edit.SetColumnFamily(cfd->GetID());
   edit.SetFullHistoryTsLow(ts_low);
@@ -926,6 +947,7 @@ Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyData* cfd,
   InstrumentedMutexLock l(&mutex_);
   std::string current_ts_low = cfd->GetFullHistoryTsLow();
   const Comparator* ucmp = cfd->user_comparator();
+  assert(ucmp->timestamp_size() == ts_low.size() && !ts_low.empty());
   if (!current_ts_low.empty() &&
       ucmp->CompareTimestamp(ts_low, current_ts_low) < 0) {
     return Status::InvalidArgument(
@@ -956,7 +978,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
       return Status::InvalidArgument(
           "Cannot specify compaction range with full_history_ts_low");
     }
-    Status s = IncreaseFullHistoryTsLow(cfd, ts_low);
+    Status s = IncreaseFullHistoryTsLowImpl(cfd, ts_low);
     if (!s.ok()) {
       LogFlush(immutable_db_options_.info_log);
       return s;
@@ -2242,21 +2264,27 @@ Status DBImpl::WaitForFlushMemTables(
   int num = static_cast<int>(cfds.size());
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
+  Status s;
   // If the caller is trying to resume from bg error, then
   // error_handler_.IsDBStopped() is true.
   while (resuming_from_bg_err || !error_handler_.IsDBStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
-      return Status::ShutdownInProgress();
+      s = Status::ShutdownInProgress();
+      return s;
     }
     // If an error has occurred during resumption, then no need to wait.
+    // But flush operation may fail because of this error, so need to
+    // return the status.
     if (!error_handler_.GetRecoveryError().ok()) {
+      s = error_handler_.GetRecoveryError();
       break;
     }
     // If BGWorkStopped, which indicate that there is a BG error and
     // 1) soft error but requires no BG work, 2) no in auto_recovery_
     if (!resuming_from_bg_err && error_handler_.IsBGWorkStopped() &&
         error_handler_.GetBGError().severity() < Status::Severity::kHardError) {
-      return error_handler_.GetBGError();
+      s = error_handler_.GetBGError();
+      return s;
     }
 
     // Number of column families that have been dropped.
@@ -2274,7 +2302,8 @@ Status DBImpl::WaitForFlushMemTables(
       }
     }
     if (1 == num_dropped && 1 == num) {
-      return Status::ColumnFamilyDropped();
+      s = Status::ColumnFamilyDropped();
+      return s;
     }
     // Column families involved in this flush request have either been dropped
     // or finished flush. Then it's time to finish waiting.
@@ -2283,7 +2312,6 @@ Status DBImpl::WaitForFlushMemTables(
     }
     bg_cv_.Wait();
   }
-  Status s;
   // If not resuming from bg error, and an error has caused the DB to stop,
   // then report the bg error to caller.
   if (!resuming_from_bg_err && error_handler_.IsDBStopped()) {
@@ -3693,4 +3721,22 @@ void DBImpl::GetSnapshotContext(
   }
   *snapshot_seqs = snapshots_.GetAll(earliest_write_conflict_snapshot);
 }
+
+Status DBImpl::WaitForCompact(bool wait_unscheduled) {
+  // Wait until the compaction completes
+
+  // TODO: a bug here. This function actually does not necessarily
+  // wait for compact. It actually waits for scheduled compaction
+  // OR flush to finish.
+
+  InstrumentedMutexLock l(&mutex_);
+  while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
+          bg_flush_scheduled_ ||
+          (wait_unscheduled && unscheduled_compactions_)) &&
+         (error_handler_.GetBGError().ok())) {
+    bg_cv_.Wait();
+  }
+  return error_handler_.GetBGError();
+}
+
 }  // namespace ROCKSDB_NAMESPACE

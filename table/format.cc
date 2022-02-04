@@ -173,21 +173,25 @@ inline uint64_t UpconvertLegacyFooterFormat(uint64_t magic_number) {
     return kPlainTableMagicNumber;
   }
   assert(false);
-  return 0;
+  return magic_number;
 }
-}  // namespace
-
-Footer& Footer::set_table_magic_number(uint64_t magic_number) {
-  assert(table_magic_number_ == kNullTableMagicNumber);
-  table_magic_number_ = magic_number;
+inline uint64_t DownconvertToLegacyFooterFormat(uint64_t magic_number) {
+  if (magic_number == kBlockBasedTableMagicNumber) {
+    return kLegacyBlockBasedTableMagicNumber;
+  }
+  if (magic_number == kPlainTableMagicNumber) {
+    return kLegacyPlainTableMagicNumber;
+  }
+  assert(false);
+  return magic_number;
+}
+inline uint8_t BlockTrailerSizeForMagicNumber(uint64_t magic_number) {
   if (magic_number == kBlockBasedTableMagicNumber ||
       magic_number == kLegacyBlockBasedTableMagicNumber) {
-    block_trailer_size_ =
-        static_cast<uint8_t>(BlockBasedTable::kBlockTrailerSize);
+    return static_cast<uint8_t>(BlockBasedTable::kBlockTrailerSize);
   } else {
-    block_trailer_size_ = 0;
+    return 0;
   }
-  return *this;
 }
 
 // Footer format, in three parts:
@@ -206,60 +210,69 @@ Footer& Footer::set_table_magic_number(uint64_t magic_number) {
 //   -> format_version >= 1 (inferred from NOT legacy magic number)
 //      format_version (uint32LE, 4 bytes), also called "footer version"
 //      newer magic number (8 bytes)
-void Footer::EncodeTo(std::string* dst, uint64_t footer_offset) const {
+
+constexpr size_t kFooterPart2Size = 2 * BlockHandle::kMaxEncodedLength;
+}  // namespace
+
+void FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
+                          uint64_t footer_offset, ChecksumType checksum_type,
+                          const BlockHandle& metaindex_handle,
+                          const BlockHandle& index_handle) {
   (void)footer_offset;  // Future use
 
-  // Sanitize magic numbers & format versions
-  assert(table_magic_number_ != kNullTableMagicNumber);
-  uint64_t magic = table_magic_number_;
-  uint32_t fv = format_version_;
-  assert(fv != kInvalidFormatVersion);
-  assert(IsLegacyFooterFormat(magic) == (fv == 0));
+  assert(magic_number != Footer::kNullTableMagicNumber);
+  assert(IsSupportedFormatVersion(format_version));
 
-  ChecksumType ct = checksum_type();
-
-  // Allocate destination data and generate parts 1 and 3
-  const size_t original_size = dst->size();
   char* part2;
-  if (fv > 0) {
-    dst->resize(original_size + kNewVersionsEncodedLength);
-    char* part1 = &(*dst)[original_size];
-    part2 = part1 + 1;
-    char* part3 = part2 + 2 * BlockHandle::kMaxEncodedLength;
-    assert(&(*dst)[dst->size() - 1] + 1 - part3 == /* part 3 size */ 12);
+  char* part3;
+  if (format_version > 0) {
+    slice_ = Slice(data_.data(), Footer::kNewVersionsEncodedLength);
     // Generate parts 1 and 3
-    part1[0] = ct;
-    EncodeFixed32(part3, fv);
-    EncodeFixed64(part3 + 4, magic);
+    char* cur = data_.data();
+    // Part 1
+    *(cur++) = checksum_type;
+    // Part 2
+    part2 = cur;
+    // Skip over part 2 for now
+    cur += kFooterPart2Size;
+    // Part 3
+    part3 = cur;
+    EncodeFixed32(cur, format_version);
+    cur += 4;
+    EncodeFixed64(cur, magic_number);
+    assert(cur + 8 == slice_.data() + slice_.size());
   } else {
-    dst->resize(original_size + kVersion0EncodedLength);
-    part2 = &(*dst)[original_size];
-    char* part3 = part2 + 2 * BlockHandle::kMaxEncodedLength;
-    assert(&(*dst)[dst->size() - 1] + 1 - part3 == /* part 3 size */ 8);
+    slice_ = Slice(data_.data(), Footer::kVersion0EncodedLength);
     // Legacy SST files use kCRC32c checksum but it's not stored in footer.
-    assert(ct == kNoChecksum || ct == kCRC32c);
-    // Generate part 3 (part 1 empty)
-    EncodeFixed64(part3, magic);
+    assert(checksum_type == kNoChecksum || checksum_type == kCRC32c);
+    // Generate part 3 (part 1 empty, skip part 2 for now)
+    part2 = data_.data();
+    part3 = part2 + kFooterPart2Size;
+    char* cur = part3;
+    // Use legacy magic numbers to indicate format_version=0, for
+    // compatibility. No other cases should use format_version=0.
+    EncodeFixed64(cur, DownconvertToLegacyFooterFormat(magic_number));
+    assert(cur + 8 == slice_.data() + slice_.size());
   }
 
-  // Generate Part2
-  // Variable size encode handles (sigh)
-  part2 = metaindex_handle_.EncodeTo(part2);
-  /*part2 = */ index_handle_.EncodeTo(part2);
-
-  // remainder of part2 is already zero padded
+  {
+    char* cur = part2;
+    cur = metaindex_handle.EncodeTo(cur);
+    cur = index_handle.EncodeTo(cur);
+    // Zero pad remainder
+    std::fill(cur, part3, char{0});
+  }
 }
 
-Status Footer::DecodeFrom(Slice* input, uint64_t input_offset) {
+Status Footer::DecodeFrom(Slice input, uint64_t input_offset) {
   (void)input_offset;  // Future use
 
   // Only decode to unused Footer
   assert(table_magic_number_ == kNullTableMagicNumber);
   assert(input != nullptr);
-  assert(input->size() >= kMinEncodedLength);
+  assert(input.size() >= kMinEncodedLength);
 
-  const char* magic_ptr =
-      input->data() + input->size() - kMagicNumberLengthByte;
+  const char* magic_ptr = input.data() + input.size() - kMagicNumberLengthByte;
   uint64_t magic = DecodeFixed64(magic_ptr);
 
   // We check for legacy formats here and silently upconvert them
@@ -267,13 +280,14 @@ Status Footer::DecodeFrom(Slice* input, uint64_t input_offset) {
   if (legacy) {
     magic = UpconvertLegacyFooterFormat(magic);
   }
-  set_table_magic_number(magic);
+  table_magic_number_ = magic;
+  block_trailer_size_ = BlockTrailerSizeForMagicNumber(magic);
 
   // Parse Part3
   if (legacy) {
     // The size is already asserted to be at least kMinEncodedLength
     // at the beginning of the function
-    input->remove_prefix(input->size() - kVersion0EncodedLength);
+    input.remove_prefix(input.size() - kVersion0EncodedLength);
     format_version_ = 0 /* legacy */;
     checksum_type_ = kCRC32c;
   } else {
@@ -284,14 +298,14 @@ Status Footer::DecodeFrom(Slice* input, uint64_t input_offset) {
                                 ROCKSDB_NAMESPACE::ToString(format_version_));
     }
     // All known format versions >= 1 occupy exactly this many bytes.
-    if (input->size() < kNewVersionsEncodedLength) {
+    if (input.size() < kNewVersionsEncodedLength) {
       return Status::Corruption("Input is too short to be an SST file");
     }
-    uint64_t adjustment = input->size() - kNewVersionsEncodedLength;
-    input->remove_prefix(adjustment);
+    uint64_t adjustment = input.size() - kNewVersionsEncodedLength;
+    input.remove_prefix(adjustment);
 
     // Parse Part1
-    char chksum = input->data()[0];
+    char chksum = input.data()[0];
     checksum_type_ = lossless_cast<ChecksumType>(chksum);
     if (!IsSupportedChecksumType(checksum_type())) {
       return Status::Corruption(
@@ -299,21 +313,16 @@ Status Footer::DecodeFrom(Slice* input, uint64_t input_offset) {
           ROCKSDB_NAMESPACE::ToString(lossless_cast<uint8_t>(chksum)));
     }
     // Consume checksum type field
-    input->remove_prefix(1);
+    input.remove_prefix(1);
   }
 
   // Parse Part2
-  Status result = metaindex_handle_.DecodeFrom(input);
+  Status result = metaindex_handle_.DecodeFrom(&input);
   if (result.ok()) {
-    result = index_handle_.DecodeFrom(input);
+    result = index_handle_.DecodeFrom(&input);
   }
-  if (!result.ok()) {
-    return result;
-  }
-
-  // Mark all input consumed (skip padding & part3)
-  *input = Slice(input->data() + input->size(), 0U);
-  return Status::OK();
+  return result;
+  // Padding in part2 is ignored
 }
 
 std::string Footer::ToString() const {
@@ -384,7 +393,7 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
                               file->file_name());
   }
 
-  s = footer->DecodeFrom(&footer_input, read_offset);
+  s = footer->DecodeFrom(footer_input, read_offset);
   if (!s.ok()) {
     return s;
   }

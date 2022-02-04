@@ -652,7 +652,7 @@ TEST_F(DBBlockCacheTest, WarmCacheWithDataBlocksDuringFlush) {
 
 // This test cache data, index and filter blocks during flush.
 class DBBlockCacheTest1 : public DBTestBase,
-                          public ::testing::WithParamInterface<bool> {
+                          public ::testing::WithParamInterface<uint32_t> {
  public:
   const size_t kNumBlocks = 10;
   const size_t kValueSize = 100;
@@ -660,7 +660,7 @@ class DBBlockCacheTest1 : public DBTestBase,
 };
 
 INSTANTIATE_TEST_CASE_P(DBBlockCacheTest1, DBBlockCacheTest1,
-                        ::testing::Bool());
+                        ::testing::Values(1, 2, 3));
 
 TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
   Options options = CurrentOptions();
@@ -670,17 +670,27 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
   BlockBasedTableOptions table_options;
   table_options.block_cache = NewLRUCache(1 << 25, 0, false);
 
-  bool use_partition = GetParam();
-  if (use_partition) {
-    table_options.partition_filters = true;
-    table_options.index_type =
-        BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  uint32_t filter_type = GetParam();
+  switch (filter_type) {
+    case 1:  // partition_filter
+      table_options.partition_filters = true;
+      table_options.index_type =
+          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+      table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+      break;
+    case 2:  // block-based filter
+      table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+      break;
+    case 3:  // full filter
+      table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+      break;
+    default:
+      assert(false);
   }
 
   table_options.cache_index_and_filter_blocks = true;
   table_options.prepopulate_block_cache =
       BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly;
-  table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   DestroyAndReopen(options);
 
@@ -689,7 +699,7 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
     ASSERT_OK(Put(ToString(i), value));
     ASSERT_OK(Flush());
     ASSERT_EQ(i, options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
-    if (use_partition) {
+    if (filter_type == 1) {
       ASSERT_EQ(2 * i,
                 options.statistics->getTickerCount(BLOCK_CACHE_INDEX_ADD));
       ASSERT_EQ(2 * i,
@@ -705,7 +715,7 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
 
     ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_INDEX_MISS));
     ASSERT_EQ(i * 3, options.statistics->getTickerCount(BLOCK_CACHE_INDEX_HIT));
-    if (use_partition) {
+    if (filter_type == 1) {
       ASSERT_EQ(i * 3,
                 options.statistics->getTickerCount(BLOCK_CACHE_FILTER_HIT));
     } else {
@@ -723,7 +733,7 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
   // Index and filter blocks are automatically warmed when the new table file
   // is automatically opened at the end of compaction. This is not easily
   // disabled so results in the new index and filter blocks being warmed.
-  if (use_partition) {
+  if (filter_type == 1) {
     EXPECT_EQ(2 * (1 + kNumBlocks),
               options.statistics->getTickerCount(BLOCK_CACHE_INDEX_ADD));
     EXPECT_EQ(2 * (1 + kNumBlocks),
@@ -1579,7 +1589,8 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
     // This is a "control" side of the test that also ensures safely degraded
     // behavior on old files.
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "PropertyBlockBuilder::AddTableProperty:Start", [&](void* arg) {
+        "BlockBasedTableBuilder::BlockBasedTableBuilder:PreSetupBaseCacheKey",
+        [&](void* arg) {
           TableProperties* props = reinterpret_cast<TableProperties*>(arg);
           props->orig_file_number = 0;
         });
@@ -1639,11 +1650,7 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
   }
 
   if (exclude_file_numbers_) {
-    // FIXME(peterd): figure out where these extra two ADDs are coming from
-    options.statistics->recordTick(BLOCK_CACHE_INDEX_ADD,
-                                   uint64_t{0} - uint64_t{2});
-    options.statistics->recordTick(BLOCK_CACHE_FILTER_ADD,
-                                   uint64_t{0} - uint64_t{2});
+    // FIXME(peterd): figure out where these extra ADDs are coming from
     options.statistics->recordTick(BLOCK_CACHE_COMPRESSED_ADD,
                                    uint64_t{0} - uint64_t{2});
   }
@@ -1697,14 +1704,6 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
 
   IngestExternalFileOptions ingest_opts;
   ASSERT_OK(db_->IngestExternalFile(handles_[1], {external}, ingest_opts));
-
-  if (exclude_file_numbers_) {
-    // FIXME(peterd): figure out where these extra two ADDs are coming from
-    options.statistics->recordTick(BLOCK_CACHE_INDEX_ADD,
-                                   uint64_t{0} - uint64_t{2});
-    options.statistics->recordTick(BLOCK_CACHE_FILTER_ADD,
-                                   uint64_t{0} - uint64_t{2});
-  }
 
   perform_gets();
   verify_stats();

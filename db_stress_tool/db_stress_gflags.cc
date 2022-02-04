@@ -90,6 +90,11 @@ DEFINE_bool(test_cf_consistency, false,
             "multiple column families are consistent. Setting this implies "
             "`atomic_flush=true` is set true if `disable_wal=false`.\n");
 
+DEFINE_bool(test_multi_ops_txns, false,
+            "If set, runs stress test dedicated to verifying multi-ops "
+            "transactions on a simple relational table with primary and "
+            "secondary index.");
+
 DEFINE_int32(threads, 32, "Number of concurrent threads to run.");
 
 DEFINE_int32(ttl, -1,
@@ -448,6 +453,12 @@ DEFINE_bool(
     ROCKSDB_NAMESPACE::BlockBasedTableOptions().optimize_filters_for_memory,
     "Minimize memory footprint of filters");
 
+DEFINE_bool(
+    detect_filter_construct_corruption,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+        .detect_filter_construct_corruption,
+    "Detect corruption during new Bloom Filter and Ribbon Filter construction");
+
 DEFINE_int32(
     index_type,
     static_cast<int32_t>(
@@ -675,6 +686,10 @@ DEFINE_uint64(num_iterations, 10, "Number of iterations per MultiIterate run");
 static const bool FLAGS_num_iterations_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
 
+DEFINE_int32(
+    customopspercent, 0,
+    "Ratio of custom operations to total workload (expressed as a percentage)");
+
 DEFINE_string(compression_type, "snappy",
               "Algorithm to use to compress the database");
 
@@ -699,17 +714,12 @@ DEFINE_string(bottommost_compression_type, "disable",
 
 DEFINE_string(checksum_type, "kCRC32c", "Algorithm to use to checksum blocks");
 
-DEFINE_string(hdfs, "",
-              "Name of hdfs environment. Mutually exclusive with"
-              " --env_uri and --fs_uri.");
-
-DEFINE_string(
-    env_uri, "",
-    "URI for env lookup. Mutually exclusive with --hdfs and --fs_uri");
+DEFINE_string(env_uri, "",
+              "URI for env lookup. Mutually exclusive with --fs_uri");
 
 DEFINE_string(fs_uri, "",
               "URI for registry Filesystem lookup. Mutually exclusive"
-              " with --hdfs and --env_uri."
+              " with --env_uri."
               " Creates a default environment with the specified filesystem.");
 
 DEFINE_uint64(ops_per_thread, 1200000, "Number of operations per thread.");
@@ -809,7 +819,7 @@ DEFINE_bool(sync_fault_injection, false,
             "and unsynced data in DB will lost after crash. In such a case we "
             "track DB changes in a trace file (\"*.trace\") in "
             "--expected_values_dir for verifying there are no holes in the "
-            "recovered data (future work).");
+            "recovered data.");
 
 DEFINE_bool(best_efforts_recovery, false,
             "If true, use best efforts recovery.");

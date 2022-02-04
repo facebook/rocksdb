@@ -4,6 +4,8 @@
 # This file is a Facebook-specific integration for buck builds, so can
 # only be validated by Facebook employees.
 #
+# @noautodeps @nocodemods
+
 load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
 load("@fbcode_macros//build_defs:cpp_library.bzl", "cpp_library")
 load(":defs.bzl", "test_binary")
@@ -143,6 +145,7 @@ cpp_library(
     srcs = [
         "cache/cache.cc",
         "cache/cache_entry_roles.cc",
+        "cache/cache_key.cc",
         "cache/cache_reservation_manager.cc",
         "cache/clock_cache.cc",
         "cache/lru_cache.cc",
@@ -228,7 +231,6 @@ cpp_library(
         "env/env.cc",
         "env/env_chroot.cc",
         "env/env_encryption.cc",
-        "env/env_hdfs.cc",
         "env/env_posix.cc",
         "env/file_system.cc",
         "env/file_system_tracer.cc",
@@ -255,6 +257,7 @@ cpp_library(
         "memory/concurrent_arena.cc",
         "memory/jemalloc_nodump_allocator.cc",
         "memory/memkind_kmem_allocator.cc",
+        "memory/memory_allocator.cc",
         "memtable/alloc_tracker.cc",
         "memtable/hash_linklist_rep.cc",
         "memtable/hash_skiplist_rep.cc",
@@ -367,7 +370,6 @@ cpp_library(
         "util/murmurhash.cc",
         "util/random.cc",
         "util/rate_limiter.cc",
-        "util/regex.cc",
         "util/ribbon_config.cc",
         "util/slice.cc",
         "util/status.cc",
@@ -391,6 +393,7 @@ cpp_library(
         "utilities/compaction_filters.cc",
         "utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc",
         "utilities/convenience/info_log_finder.cc",
+        "utilities/counted_fs.cc",
         "utilities/debug.cc",
         "utilities/env_mirror.cc",
         "utilities/env_timed.cc",
@@ -462,9 +465,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = [],
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    exported_deps = [],
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
 cpp_library(
@@ -472,6 +474,7 @@ cpp_library(
     srcs = [
         "cache/cache.cc",
         "cache/cache_entry_roles.cc",
+        "cache/cache_key.cc",
         "cache/cache_reservation_manager.cc",
         "cache/clock_cache.cc",
         "cache/lru_cache.cc",
@@ -557,7 +560,6 @@ cpp_library(
         "env/env.cc",
         "env/env_chroot.cc",
         "env/env_encryption.cc",
-        "env/env_hdfs.cc",
         "env/env_posix.cc",
         "env/file_system.cc",
         "env/file_system_tracer.cc",
@@ -584,6 +586,7 @@ cpp_library(
         "memory/concurrent_arena.cc",
         "memory/jemalloc_nodump_allocator.cc",
         "memory/memkind_kmem_allocator.cc",
+        "memory/memory_allocator.cc",
         "memtable/alloc_tracker.cc",
         "memtable/hash_linklist_rep.cc",
         "memtable/hash_skiplist_rep.cc",
@@ -696,7 +699,6 @@ cpp_library(
         "util/murmurhash.cc",
         "util/random.cc",
         "util/rate_limiter.cc",
-        "util/regex.cc",
         "util/ribbon_config.cc",
         "util/slice.cc",
         "util/status.cc",
@@ -720,6 +722,7 @@ cpp_library(
         "utilities/compaction_filters.cc",
         "utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc",
         "utilities/convenience/info_log_finder.cc",
+        "utilities/counted_fs.cc",
         "utilities/debug.cc",
         "utilities/env_mirror.cc",
         "utilities/env_timed.cc",
@@ -791,9 +794,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = [],
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    exported_deps = [],
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
 cpp_library(
@@ -816,9 +818,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = [":rocksdb_lib"],
-    external_deps = ROCKSDB_EXTERNAL_DEPS + [
+    exported_deps = [":rocksdb_lib"],
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS + [
         ("googletest", None, "gtest"),
     ],
 )
@@ -840,9 +841,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = [":rocksdb_lib"],
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    exported_deps = [":rocksdb_lib"],
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
 cpp_library(
@@ -856,9 +856,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = [":rocksdb_lib"],
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    exported_deps = [":rocksdb_lib"],
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
 cpp_library(
@@ -875,6 +874,7 @@ cpp_library(
         "db_stress_tool/db_stress_test_base.cc",
         "db_stress_tool/db_stress_tool.cc",
         "db_stress_tool/expected_state.cc",
+        "db_stress_tool/multi_ops_txns_stress.cc",
         "db_stress_tool/no_batched_ops_stress.cc",
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
@@ -887,9 +887,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = ROCKSDB_LIB_DEPS,
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    exported_deps = ROCKSDB_LIB_DEPS,
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
 cpp_binary(
@@ -923,9 +922,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = [":rocksdb_test_lib"],
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    exported_deps = [":rocksdb_test_lib"],
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
 # [test_name, test_src, test_type, extra_deps, extra_compiler_flags]
@@ -1778,8 +1776,8 @@ ROCKS_TESTS = [
         [],
     ],
     [
-        "memkind_kmem_allocator_test",
-        "memory/memkind_kmem_allocator_test.cc",
+        "memory_allocator_test",
+        "memory/memory_allocator_test.cc",
         "parallel",
         [],
         [],

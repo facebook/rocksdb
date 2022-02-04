@@ -133,12 +133,29 @@ class ExpectedStateManager {
   virtual Status Open() = 0;
 
   // Saves expected values for the current state of `db` and begins tracking
-  // changes.
+  // changes. Following a successful `SaveAtAndAfter()`, `Restore()` can be
+  // called on the same DB, as long as its state does not roll back to before
+  // its current state.
   //
   // Requires external locking preventing concurrent execution with any other
   // member function. Furthermore, `db` must not be mutated while this function
   // is executing.
   virtual Status SaveAtAndAfter(DB* db) = 0;
+
+  // Returns true if at least one state of historical expected values can be
+  // restored.
+  //
+  // Requires external locking preventing concurrent execution with any other
+  // member function.
+  virtual bool HasHistory() = 0;
+
+  // Restores expected values according to the current state of `db`. See
+  // `SaveAtAndAfter()` for conditions where this can be called.
+  //
+  // Requires external locking preventing concurrent execution with any other
+  // member function. Furthermore, `db` must not be mutated while this function
+  // is executing.
+  virtual Status Restore(DB* db) = 0;
 
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) { return latest_->ClearColumnFamily(cf); }
@@ -204,7 +221,20 @@ class FileExpectedStateManager : public ExpectedStateManager {
   //
   // This implementation makes a copy of "LATEST.state" into
   // "<current seqno>.state", and starts a trace in "<current seqno>.trace".
+  // Due to using external files, a following `Restore()` can happen even
+  // from a different process.
   Status SaveAtAndAfter(DB* db) override;
+
+  // See `ExpectedStateManager::HasHistory()` API doc.
+  bool HasHistory() override;
+
+  // See `ExpectedStateManager::Restore()` API doc.
+  //
+  // Say `db->GetLatestSequenceNumber()` was `a` last time `SaveAtAndAfter()`
+  // was called and now it is `b`. Then this function replays `b - a` write
+  // operations from "`a`.trace" onto "`a`.state", and then copies the resulting
+  // file into "LATEST.state".
+  Status Restore(DB* db) override;
 
  private:
   // Requires external locking preventing concurrent execution with any other
@@ -237,6 +267,15 @@ class AnonExpectedStateManager : public ExpectedStateManager {
   Status SaveAtAndAfter(DB* /* db */) override {
     return Status::NotSupported();
   }
+
+  // See `ExpectedStateManager::HasHistory()` API doc.
+  bool HasHistory() override { return false; }
+
+  // See `ExpectedStateManager::Restore()` API doc.
+  //
+  // This implementation returns `Status::NotSupported` since we do not
+  // currently have a need to keep history of expected state within a process.
+  Status Restore(DB* /* db */) override { return Status::NotSupported(); }
 
   // Requires external locking preventing concurrent execution with any other
   // member function.

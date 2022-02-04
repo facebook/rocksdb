@@ -115,6 +115,9 @@ class SpecialEnv : public EnvWrapper {
  public:
   explicit SpecialEnv(Env* base, bool time_elapse_only_sleep = false);
 
+  static const char* kClassName() { return "SpecialEnv"; }
+  const char* Name() const override { return kClassName(); }
+
   Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& soptions) override {
     class SSTableFile : public WritableFile {
@@ -1018,8 +1021,6 @@ class DBTestBase : public testing::Test {
   Status SingleDelete(const std::string& k);
 
   Status SingleDelete(int cf, const std::string& k);
-
-  bool SetPreserveDeletesSequenceNumber(SequenceNumber sn);
 
   std::string Get(const std::string& k, const Snapshot* snapshot = nullptr);
 

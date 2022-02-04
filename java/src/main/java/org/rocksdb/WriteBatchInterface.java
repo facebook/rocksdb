@@ -50,7 +50,7 @@ public interface WriteBatchInterface {
      *     Supports direct buffer only.
      * @param value the value associated with the specified key. It is using position and limit.
      *     Supports direct buffer only.
-     * @throws RocksDBException
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void put(final ByteBuffer key, final ByteBuffer value) throws RocksDBException;
 
@@ -64,7 +64,7 @@ public interface WriteBatchInterface {
      *     Supports direct buffer only.
      * @param value the value associated with the specified key. It is using position and limit.
      *     Supports direct buffer only.
-     * @throws RocksDBException
+     * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void put(ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key, final ByteBuffer value)
         throws RocksDBException;

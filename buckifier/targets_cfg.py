@@ -11,6 +11,8 @@ rocksdb_target_header_template = \
 # This file is a Facebook-specific integration for buck builds, so can
 # only be validated by Facebook employees.
 #
+# @noautodeps @nocodemods
+
 load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
 load("@fbcode_macros//build_defs:cpp_library.bzl", "cpp_library")
 load(":defs.bzl", "test_binary")
@@ -159,9 +161,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = [{deps}],
-    external_deps = ROCKSDB_EXTERNAL_DEPS{extra_external_deps},
+    exported_deps = [{deps}],
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS{extra_external_deps},
 )
 """
 
@@ -176,9 +177,8 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    unexported_deps_by_default = False,
-    deps = ROCKSDB_LIB_DEPS,
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    exported_deps = ROCKSDB_LIB_DEPS,
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 """
 

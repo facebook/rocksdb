@@ -68,7 +68,7 @@ class SharedState {
         seed_(static_cast<uint32_t>(FLAGS_seed)),
         max_key_(FLAGS_max_key),
         log2_keys_per_lock_(static_cast<uint32_t>(FLAGS_log2_keys_per_lock)),
-        num_threads_(FLAGS_threads),
+        num_threads_(0),
         num_initialized_(0),
         num_populated_(0),
         vote_reopen_(0),
@@ -158,18 +158,7 @@ class SharedState {
     key_locks_.resize(FLAGS_column_families);
 
     for (int i = 0; i < FLAGS_column_families; ++i) {
-      key_locks_[i].resize(num_locks);
-      for (auto& ptr : key_locks_[i]) {
-        ptr.reset(new port::Mutex);
-      }
-    }
-    if (FLAGS_compaction_thread_pool_adjust_interval > 0) {
-      ++num_bg_threads_;
-      fprintf(stdout, "Starting compaction_thread_pool_adjust_thread\n");
-    }
-    if (FLAGS_continuous_verification_interval > 0) {
-      ++num_bg_threads_;
-      fprintf(stdout, "Starting continuous_verification_thread\n");
+      key_locks_[i].reset(new port::Mutex[num_locks]);
     }
 #ifndef NDEBUG
     if (FLAGS_read_fault_one_in) {
@@ -198,6 +187,8 @@ class SharedState {
   int64_t GetMaxKey() const { return max_key_; }
 
   uint32_t GetNumThreads() const { return num_threads_; }
+
+  void SetThreads(int num_threads) { num_threads_ = num_threads; }
 
   void IncInitialized() { num_initialized_++; }
 
@@ -233,26 +224,30 @@ class SharedState {
 
   // Returns a lock covering `key` in `cf`.
   port::Mutex* GetMutexForKey(int cf, int64_t key) {
-    return key_locks_[cf][key >> log2_keys_per_lock_].get();
+    return &key_locks_[cf][key >> log2_keys_per_lock_];
   }
 
   // Acquires locks for all keys in `cf`.
   void LockColumnFamily(int cf) {
-    for (auto& mutex : key_locks_[cf]) {
-      mutex->Lock();
+    for (int i = 0; i < max_key_ >> log2_keys_per_lock_; ++i) {
+      key_locks_[cf][i].Lock();
     }
   }
 
   // Releases locks for all keys in `cf`.
   void UnlockColumnFamily(int cf) {
-    for (auto& mutex : key_locks_[cf]) {
-      mutex->Unlock();
+    for (int i = 0; i < max_key_ >> log2_keys_per_lock_; ++i) {
+      key_locks_[cf][i].Unlock();
     }
   }
 
   Status SaveAtAndAfter(DB* db) {
     return expected_state_manager_->SaveAtAndAfter(db);
   }
+
+  bool HasHistory() { return expected_state_manager_->HasHistory(); }
+
+  Status Restore(DB* db) { return expected_state_manager_->Restore(db); }
 
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) {
@@ -313,6 +308,8 @@ class SharedState {
 
   bool ShouldStopBgThread() { return should_stop_bg_thread_; }
 
+  void IncBgThreads() { ++num_bg_threads_; }
+
   void IncBgThreadsFinished() { ++bg_thread_finished_; }
 
   bool BgThreadsFinished() const {
@@ -343,7 +340,7 @@ class SharedState {
   const uint32_t seed_;
   const int64_t max_key_;
   const uint32_t log2_keys_per_lock_;
-  const int num_threads_;
+  int num_threads_;
   long num_initialized_;
   long num_populated_;
   long vote_reopen_;
@@ -361,9 +358,9 @@ class SharedState {
   std::unordered_set<size_t> no_overwrite_ids_;
 
   std::unique_ptr<ExpectedStateManager> expected_state_manager_;
-  // Has to make it owned by a smart ptr as port::Mutex is not copyable
+  // Cannot store `port::Mutex` directly in vector since it is not copyable
   // and storing it in the container may require copying depending on the impl.
-  std::vector<std::vector<std::unique_ptr<port::Mutex>>> key_locks_;
+  std::vector<std::unique_ptr<port::Mutex[]>> key_locks_;
   std::atomic<bool> printing_verification_results_;
 };
 

@@ -44,6 +44,7 @@ public class MutableColumnFamilyOptions
    * key1=value1;intArrayKey1=1:2:3
    *
    * @param str The string representation of the mutable column family options
+   * @param ignoreUnknown what to do if the key is not one of the keys we expect
    *
    * @return A builder for the mutable column family options
    */
@@ -86,9 +87,7 @@ public class MutableColumnFamilyOptions
 
   public enum CompactionOption implements MutableColumnFamilyOptionKey {
     disable_auto_compactions(ValueType.BOOLEAN),
-    @Deprecated soft_rate_limit(ValueType.DOUBLE),
     soft_pending_compaction_bytes_limit(ValueType.LONG),
-    @Deprecated hard_rate_limit(ValueType.DOUBLE),
     hard_pending_compaction_bytes_limit(ValueType.LONG),
     level0_file_num_compaction_trigger(ValueType.INT),
     level0_slowdown_writes_trigger(ValueType.INT),

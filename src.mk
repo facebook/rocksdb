@@ -2,7 +2,8 @@
 LIB_SOURCES =                                                   \
   cache/cache.cc                                                \
   cache/cache_entry_roles.cc                                    \
-  cache/cache_reservation_manager.cc                                            \
+  cache/cache_key.cc                                            \
+  cache/cache_reservation_manager.cc                            \
   cache/clock_cache.cc                                          \
   cache/lru_cache.cc                                            \
   cache/sharded_cache.cc                                        \
@@ -32,7 +33,7 @@ LIB_SOURCES =                                                   \
   db/compaction/sst_partitioner.cc                              \
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
-  db/db_impl/compacted_db_impl.cc                                       \
+  db/db_impl/compacted_db_impl.cc                               \
   db/db_impl/db_impl.cc                                         \
   db/db_impl/db_impl_compaction_flush.cc                        \
   db/db_impl/db_impl_debug.cc                                   \
@@ -87,7 +88,6 @@ LIB_SOURCES =                                                   \
   env/env.cc                                                    \
   env/env_chroot.cc                                             \
   env/env_encryption.cc                                         \
-  env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
   env/file_system.cc                                            \
   env/fs_posix.cc                                               \
@@ -114,6 +114,7 @@ LIB_SOURCES =                                                   \
   memory/concurrent_arena.cc                                    \
   memory/jemalloc_nodump_allocator.cc                           \
   memory/memkind_kmem_allocator.cc                              \
+  memory/memory_allocator.cc                                    \
   memtable/alloc_tracker.cc                                     \
   memtable/hash_linklist_rep.cc                                 \
   memtable/hash_skiplist_rep.cc                                 \
@@ -222,7 +223,6 @@ LIB_SOURCES =                                                   \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \
   util/ribbon_config.cc                                         \
-  util/regex.cc                                                 \
   util/slice.cc                                                 \
   util/file_checksum_helper.cc                                  \
   util/status.cc                                                \
@@ -245,6 +245,7 @@ LIB_SOURCES =                                                   \
   utilities/compaction_filters.cc                               \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
   utilities/convenience/info_log_finder.cc                      \
+  utilities/counted_fs.cc                                       \
   utilities/debug.cc                                            \
   utilities/env_mirror.cc                                       \
   utilities/env_timed.cc                                        \
@@ -354,6 +355,7 @@ STRESS_LIB_SOURCES =                                            \
   db_stress_tool/db_stress_tool.cc                             \
   db_stress_tool/expected_state.cc                             \
   db_stress_tool/no_batched_ops_stress.cc                      \
+  db_stress_tool/multi_ops_txns_stress.cc                      \
 
 TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
@@ -499,7 +501,7 @@ TEST_MAIN_SOURCES =                                                     \
   logging/env_logger_test.cc                                            \
   logging/event_logger_test.cc                                          \
   memory/arena_test.cc                                                  \
-  memory/memkind_kmem_allocator_test.cc                                 \
+  memory/memory_allocator_test.cc                                       \
   memtable/inlineskiplist_test.cc                                       \
   memtable/skiplist_test.cc                                             \
   memtable/write_buffer_manager_test.cc                                 \
