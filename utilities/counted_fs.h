@@ -11,6 +11,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/rocksdb_namespace.h"
+#include "utilities/injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Logger;
@@ -75,7 +76,7 @@ struct FileOpCounters {
 };
 
 // A FileSystem class that counts operations (reads, writes, opens, closes, etc)
-class CountedFileSystem : public FileSystemWrapper {
+class CountedFileSystem : public InjectionFileSystem {
  public:
  private:
   FileOpCounters counters_;
@@ -148,5 +149,210 @@ class CountedFileSystem : public FileSystemWrapper {
   // Prints the counters to a string
   std::string PrintCounters() const { return counters_.PrintCounters(); }
   void ResetCounters() { counters_.Reset(); }
+
+ protected:
+  IOStatus DoRead(FSSequentialFile* file, size_t n, const IOOptions& options,
+                  Slice* result, char* scratch, IODebugContext* dbg) override {
+    auto rv =
+        InjectionFileSystem::DoRead(file, n, options, result, scratch, dbg);
+    counters_.reads.RecordOp(rv, result->size());
+    return rv;
+  }
+
+  IOStatus DoPositionedRead(FSSequentialFile* file, uint64_t offset, size_t n,
+                            const IOOptions& options, Slice* result,
+                            char* scratch, IODebugContext* dbg) override {
+    auto rv = InjectionFileSystem::DoPositionedRead(file, offset, n, options,
+                                                    result, scratch, dbg);
+    counters_.reads.RecordOp(rv, result->size());
+    return rv;
+  }
+  void DoClose(FSSequentialFile* file) override {
+    InjectionFileSystem::DoClose(file);
+    counters_.closes++;
+  }
+
+  IOStatus DoRead(FSRandomAccessFile* file, uint64_t offset, size_t n,
+                  const IOOptions& options, Slice* result, char* scratch,
+                  IODebugContext* dbg) override {
+    IOStatus rv = InjectionFileSystem::DoRead(file, offset, n, options, result,
+                                              scratch, dbg);
+    counters_.reads.RecordOp(rv, result->size());
+    return rv;
+  }
+
+  IOStatus DoMultiRead(FSRandomAccessFile* file, FSReadRequest* reqs,
+                       size_t num_reqs, const IOOptions& options,
+                       IODebugContext* dbg) override {
+    IOStatus rv =
+        InjectionFileSystem::DoMultiRead(file, reqs, num_reqs, options, dbg);
+    for (size_t r = 0; r < num_reqs; r++) {
+      counters_.reads.RecordOp(reqs[r].status, reqs[r].result.size());
+    }
+    return rv;
+  }
+
+  void DoClose(FSRandomAccessFile* file) override {
+    InjectionFileSystem::DoClose(file);
+    counters_.closes++;
+  }
+
+  IOStatus DoAppend(FSWritableFile* file, const Slice& data,
+                    const IOOptions& options, IODebugContext* dbg) override {
+    IOStatus rv = InjectionFileSystem::DoAppend(file, data, options, dbg);
+    counters_.writes.RecordOp(rv, data.size());
+    return rv;
+  }
+
+  IOStatus DoAppend(FSWritableFile* file, const Slice& data,
+                    const IOOptions& options, const DataVerificationInfo& info,
+                    IODebugContext* dbg) override {
+    IOStatus rv = InjectionFileSystem::DoAppend(file, data, options, info, dbg);
+    counters_.writes.RecordOp(rv, data.size());
+    return rv;
+  }
+
+  IOStatus DoPositionedAppend(FSWritableFile* file, const Slice& data,
+                              uint64_t offset, const IOOptions& options,
+                              IODebugContext* dbg) override {
+    IOStatus rv = InjectionFileSystem::DoPositionedAppend(file, data, offset,
+                                                          options, dbg);
+    counters_.writes.RecordOp(rv, data.size());
+    return rv;
+  }
+
+  IOStatus DoPositionedAppend(FSWritableFile* file, const Slice& data,
+                              uint64_t offset, const IOOptions& options,
+                              const DataVerificationInfo& info,
+                              IODebugContext* dbg) override {
+    IOStatus rv = InjectionFileSystem::DoPositionedAppend(file, data, offset,
+                                                          options, info, dbg);
+    counters_.writes.RecordOp(rv, data.size());
+    return rv;
+  }
+
+  IOStatus DoClose(FSWritableFile* file, const IOOptions& options,
+                   IODebugContext* dbg) override {
+    IOStatus rv = InjectionFileSystem::DoClose(file, options, dbg);
+    if (rv.ok()) {
+      counters_.closes++;
+    }
+    return rv;
+  }
+
+  IOStatus DoFlush(FSWritableFile* file, const IOOptions& options,
+                   IODebugContext* dbg) override {
+    IOStatus rv = InjectionFileSystem::DoFlush(file, options, dbg);
+    if (rv.ok()) {
+      counters_.flushes++;
+    }
+    return rv;
+  }
+
+  IOStatus DoSync(FSWritableFile* file, const IOOptions& options,
+                  IODebugContext* dbg) override {
+    IOStatus rv = InjectionFileSystem::DoSync(file, options, dbg);
+    if (rv.ok()) {
+      counters_.syncs++;
+    }
+    return rv;
+  }
+
+  IOStatus DoFsync(FSWritableFile* file, const IOOptions& options,
+                   IODebugContext* dbg) override {
+    IOStatus rv = InjectionFileSystem::DoFsync(file, options, dbg);
+    if (rv.ok()) {
+      counters_.fsyncs++;
+    }
+    return rv;
+  }
+
+  IOStatus DoRangeSync(FSWritableFile* file, uint64_t offset, uint64_t nbytes,
+                       const IOOptions& options, IODebugContext* dbg) override {
+    IOStatus rv =
+        InjectionFileSystem::DoRangeSync(file, offset, nbytes, options, dbg);
+    if (rv.ok()) {
+      counters_.syncs++;
+    }
+    return rv;
+  }
+
+  IOStatus DoWrite(FSRandomRWFile* file, uint64_t offset, const Slice& data,
+                   const IOOptions& options, IODebugContext* dbg) override {
+    IOStatus rv =
+        InjectionFileSystem::DoWrite(file, offset, data, options, dbg);
+    counters_.writes.RecordOp(rv, data.size());
+    return rv;
+  }
+
+  IOStatus DoRead(FSRandomRWFile* file, uint64_t offset, size_t n,
+                  const IOOptions& options, Slice* result, char* scratch,
+                  IODebugContext* dbg) override {
+    IOStatus rv = InjectionFileSystem::DoRead(file, offset, n, options, result,
+                                              scratch, dbg);
+    counters_.reads.RecordOp(rv, result->size());
+    return rv;
+  }
+
+  IOStatus DoFlush(FSRandomRWFile* file, const IOOptions& options,
+                   IODebugContext* dbg) override {
+    IOStatus rv = InjectionFileSystem::DoFlush(file, options, dbg);
+    if (rv.ok()) {
+      counters_.flushes++;
+    }
+    return rv;
+  }
+
+  IOStatus DoSync(FSRandomRWFile* file, const IOOptions& options,
+                  IODebugContext* dbg) override {
+    IOStatus rv = InjectionFileSystem::DoSync(file, options, dbg);
+    if (rv.ok()) {
+      counters_.syncs++;
+    }
+    return rv;
+  }
+
+  IOStatus DoFsync(FSRandomRWFile* file, const IOOptions& options,
+                   IODebugContext* dbg) override {
+    IOStatus rv = InjectionFileSystem::DoFsync(file, options, dbg);
+    if (rv.ok()) {
+      counters_.fsyncs++;
+    }
+    return rv;
+  }
+
+  IOStatus DoClose(FSRandomRWFile* file, const IOOptions& options,
+                   IODebugContext* dbg) override {
+    IOStatus rv = InjectionFileSystem::DoClose(file, options, dbg);
+    if (rv.ok()) {
+      counters_.closes++;
+    }
+    return rv;
+  }
+
+  IOStatus DoFsync(FSDirectory* dir, const IOOptions& options,
+                   IODebugContext* dbg) override {
+    IOStatus rv = InjectionFileSystem::DoFsync(dir, options, dbg);
+    if (rv.ok()) {
+      counters_.dsyncs++;
+    }
+    return rv;
+  }
+
+  IOStatus DoFsyncWithDirOptions(FSDirectory* dir, const IOOptions& options,
+                                 IODebugContext* dbg,
+                                 const DirFsyncOptions& dir_options) override {
+    IOStatus rv = InjectionFileSystem::DoFsyncWithDirOptions(dir, options, dbg,
+                                                             dir_options);
+    if (rv.ok()) {
+      counters_.dsyncs++;
+    }
+    return rv;
+  }
+
+  void DoClose(FSDirectory* dir) override {
+    InjectionFileSystem::DoClose(dir);
+    counters_.closes++;
+  }
 };
 }  // namespace ROCKSDB_NAMESPACE

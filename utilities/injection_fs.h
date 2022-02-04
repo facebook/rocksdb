@@ -200,6 +200,12 @@ class InjectionFileSystem : public FileSystemWrapper {
                                          const DirFsyncOptions& dir_options) {
     return dir->FsyncWithDirOptions(options, dbg, dir_options);
   }
+
+  virtual size_t DoGetUniqueId(FSDirectory* dir, char* id, size_t max_size) {
+    return dir->GetUniqueId(id, max_size);
+  }
+
+  virtual void DoClose(FSDirectory* /*dir*/) {}
 };
 
 class InjectionSequentialFile : public FSSequentialFileOwnerWrapper {
@@ -354,6 +360,8 @@ class InjectionDirectory : public FSDirectoryWrapper {
   InjectionDirectory(std::unique_ptr<FSDirectory>&& f, InjectionFileSystem* fs)
       : FSDirectoryWrapper(std::move(f)), fs_(fs) {}
 
+  ~InjectionDirectory() override { fs_->DoClose(target_); }
+
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
     return fs_->DoFsync(target_, options, dbg);
   }
@@ -361,6 +369,10 @@ class InjectionDirectory : public FSDirectoryWrapper {
   IOStatus FsyncWithDirOptions(const IOOptions& options, IODebugContext* dbg,
                                const DirFsyncOptions& dir_options) override {
     return fs_->DoFsyncWithDirOptions(target_, options, dbg, dir_options);
+  }
+
+  size_t GetUniqueId(char* id, size_t max_size) const override {
+    return fs_->DoGetUniqueId(target_, id, max_size);
   }
 };
 }  // namespace ROCKSDB_NAMESPACE
