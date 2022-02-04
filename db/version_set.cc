@@ -4414,8 +4414,10 @@ Status VersionSet::ProcessManifestWrites(
 
     if (s.ok()) {
       if (!first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
+        constexpr bool update_stats = true;
+
         for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
-          versions[i]->PrepareAppend(*mutable_cf_options_ptrs[i], true);
+          versions[i]->PrepareAppend(*mutable_cf_options_ptrs[i], update_stats);
         }
       }
 
@@ -5910,9 +5912,9 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
                            *new_cfd->GetLatestMutableCFOptions(), io_tracer_,
                            current_version_number_++);
 
-  assert(v->storage_info());
-  v->storage_info()->PrepareForVersionAppend(
-      *new_cfd->ioptions(), *new_cfd->GetLatestMutableCFOptions());
+  constexpr bool update_stats = false;
+
+  v->PrepareAppend(*new_cfd->GetLatestMutableCFOptions(), update_stats);
 
   AppendVersion(new_cfd, v);
   // GetLatestMutableCFOptions() is safe here without mutex since the
