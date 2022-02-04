@@ -129,22 +129,17 @@ class VersionStorageInfo {
 
   void AddBlobFile(std::shared_ptr<BlobFileMetaData> blob_file_meta);
 
+  void PrepareForVersionAppend(const ImmutableOptions& immutable_options,
+                               const MutableCFOptions& mutable_cf_options);
+
+  // REQUIRES: PrepareForVersionAppend has been called
   void SetFinalized();
-
-  // Update num_non_empty_levels_.
-  void UpdateNumNonEmptyLevels();
-
-  void GenerateFileIndexer() {
-    file_indexer_.UpdateIndex(&arena_, num_non_empty_levels_, files_);
-  }
 
   // Update the accumulated stats from a file-meta.
   void UpdateAccumulatedStats(FileMetaData* file_meta);
 
   // Decrease the current stat from a to-be-deleted file-meta
   void RemoveCurrentStats(FileMetaData* file_meta);
-
-  void ComputeCompensatedSizes();
 
   // Updates internal structures that keep track of compaction scores
   // We use compaction scores to figure out which compaction to do next
@@ -192,23 +187,9 @@ class VersionStorageInfo {
       double blob_garbage_collection_age_cutoff,
       double blob_garbage_collection_force_threshold);
 
-  // Generate level_files_brief_ from files_
-  void GenerateLevelFilesBrief();
-  // Sort all files for this version based on their file size and
-  // record results in files_by_compaction_pri_. The largest files are listed
-  // first.
-  void UpdateFilesByCompactionPri(const ImmutableOptions& immutable_options,
-                                  const MutableCFOptions& mutable_cf_options);
-
-  void GenerateLevel0NonOverlapping();
   bool level0_non_overlapping() const {
     return level0_non_overlapping_;
   }
-
-  // Check whether each file in this version is bottommost (i.e., nothing in its
-  // key-range could possibly exist in an older file/level).
-  // REQUIRES: This version has not been saved
-  void GenerateBottommostFiles();
 
   // Updates the oldest snapshot and related internal state, like the bottommost
   // files marked for compaction.
@@ -270,14 +251,13 @@ class VersionStorageInfo {
 
   int num_levels() const { return num_levels_; }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: PrepareForVersionAppend has been called
   int num_non_empty_levels() const {
     assert(finalized_);
     return num_non_empty_levels_;
   }
 
-  // REQUIRES: This version has been finalized.
-  // (CalculateBaseBytes() is called)
+  // REQUIRES: PrepareForVersionAppend has been called
   // This may or may not return number of level files. It is to keep backward
   // compatible behavior in universal compaction.
   int l0_delay_trigger_count() const { return l0_delay_trigger_count_; }
@@ -372,13 +352,13 @@ class VersionStorageInfo {
     return level_files_brief_[level];
   }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: PrepareForVersionAppend has been called
   const std::vector<int>& FilesByCompactionPri(int level) const {
     assert(finalized_);
     return files_by_compaction_pri_[level];
   }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: ComputeCompactionScore has been called
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>& FilesMarkedForCompaction()
       const {
@@ -386,14 +366,14 @@ class VersionStorageInfo {
     return files_marked_for_compaction_;
   }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: ComputeCompactionScore has been called
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>& ExpiredTtlFiles() const {
     assert(finalized_);
     return expired_ttl_files_;
   }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: ComputeCompactionScore has been called
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>&
   FilesMarkedForPeriodicCompaction() const {
@@ -405,7 +385,7 @@ class VersionStorageInfo {
     files_marked_for_periodic_compaction_.emplace_back(level, f);
   }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: ComputeCompactionScore has been called
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>&
   BottommostFilesMarkedForCompaction() const {
@@ -413,7 +393,7 @@ class VersionStorageInfo {
     return bottommost_files_marked_for_compaction_;
   }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: ComputeCompactionScore has been called
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>& FilesMarkedForForcedBlobGC()
       const {
@@ -436,7 +416,7 @@ class VersionStorageInfo {
     return next_file_to_compact_by_size_[level];
   }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: PrepareForVersionAppend has been called
   const FileIndexer& file_indexer() const {
     assert(finalized_);
     return file_indexer_;
@@ -498,10 +478,6 @@ class VersionStorageInfo {
   // Returns maximum total bytes of data on a given level.
   uint64_t MaxBytesForLevel(int level) const;
 
-  // Must be called after any change to MutableCFOptions.
-  void CalculateBaseBytes(const ImmutableOptions& ioptions,
-                          const MutableCFOptions& options);
-
   // Returns an estimate of the amount of live data in bytes.
   uint64_t EstimateLiveDataSize() const;
 
@@ -530,6 +506,21 @@ class VersionStorageInfo {
                                      int last_level, int last_l0_idx);
 
  private:
+  void ComputeCompensatedSizes();
+  void UpdateNumNonEmptyLevels();
+  void CalculateBaseBytes(const ImmutableOptions& ioptions,
+                          const MutableCFOptions& options);
+  void UpdateFilesByCompactionPri(const ImmutableOptions& immutable_options,
+                                  const MutableCFOptions& mutable_cf_options);
+
+  void GenerateFileIndexer() {
+    file_indexer_.UpdateIndex(&arena_, num_non_empty_levels_, files_);
+  }
+
+  void GenerateLevelFilesBrief();
+  void GenerateLevel0NonOverlapping();
+  void GenerateBottommostFiles();
+
   const InternalKeyComparator* internal_comparator_;
   const Comparator* user_comparator_;
   int num_levels_;            // Number of levels
@@ -619,7 +610,7 @@ class VersionStorageInfo {
 
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields
-  // are initialized by Finalize().
+  // are initialized by ComputeCompactionScore.
   // The most critical level to be compacted is listed first
   // These are used to pick the best compaction level
   std::vector<double> compaction_score_;
@@ -667,7 +658,6 @@ class Version {
   // yield the contents of this Version when merged together.
   // @param read_options Must outlive any iterator built by
   // `merger_iter_builder`.
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo).
   void AddIterators(const ReadOptions& read_options,
                     const FileOptions& soptions,
                     MergeIteratorBuilder* merger_iter_builder,
@@ -740,10 +730,11 @@ class Version {
   void MultiGetBlob(const ReadOptions& read_options, MultiGetRange& range,
                     std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs);
 
-  // Loads some stats information from files. Call without mutex held. It needs
-  // to be called before applying the version to the version set.
-  void PrepareApply(const MutableCFOptions& mutable_cf_options,
-                    bool update_stats);
+  // Loads some stats information from files (if update_stats is set) and
+  // populates derived data structures. Call without mutex held. It needs to be
+  // called before appending the version to the version set.
+  void PrepareAppend(const MutableCFOptions& mutable_cf_options,
+                     bool update_stats);
 
   // Reference count management (so Versions do not disappear out from
   // under live iterators)
@@ -849,7 +840,7 @@ class Version {
 
   // Update the accumulated stats associated with the current version.
   // This accumulated stats will be used in compaction.
-  void UpdateAccumulatedStats(bool update_stats);
+  void UpdateAccumulatedStats();
 
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   Logger* info_log_;
@@ -1296,7 +1287,7 @@ class VersionSet {
         new Version(cfd, this, file_options_, mutable_cf_options, io_tracer_);
 
     constexpr bool update_stats = false;
-    version->PrepareApply(mutable_cf_options, update_stats);
+    version->PrepareAppend(mutable_cf_options, update_stats);
     AppendVersion(cfd, version);
   }
 
