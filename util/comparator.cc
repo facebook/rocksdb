@@ -12,6 +12,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <cstring>
 #include <memory>
 #include <mutex>
 
@@ -221,7 +222,11 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
 // EXPERIMENTAL
 // Comparator with 64-bit integer timestamp.
 // We did not performance test this yet.
+template <typename T>
 class ComparatorWithU64TsImpl : public Comparator {
+  static_assert(std::is_base_of<Comparator, T>::value,
+                "T must be a inherited type of comparator");
+
  public:
   ComparatorWithU64TsImpl()
       : Comparator(/*ts_sz=*/sizeof(uint64_t)),
@@ -229,7 +234,12 @@ class ComparatorWithU64TsImpl : public Comparator {
     assert(cmp_without_ts_);
     assert(cmp_without_ts_->timestamp_size() == 0);
   }
-  static const char* kClassName() { return "rocksdb.ComparatorWithU64Ts"; }
+  static const char* kClassName() {
+    // Putting this up just for getting opinion,  need to make this better.
+    static char buf[128];
+    sprintf(buf, "%s.u64", T::kClassName());
+    return buf;
+  }
   const char* Name() const override { return kClassName(); }
 
   void FindShortSuccessor(std::string*) const override {}
@@ -287,7 +297,7 @@ const Comparator* ReverseBytewiseComparator() {
 }
 
 const Comparator* ComparatorWithU64Ts() {
-  static ComparatorWithU64TsImpl comp_with_u64_ts;
+  static ComparatorWithU64TsImpl<BytewiseComparatorImpl> comp_with_u64_ts;
   return &comp_with_u64_ts;
 }
 
@@ -305,7 +315,7 @@ static int RegisterBuiltinComparators(ObjectLibrary& library,
          std::unique_ptr<const Comparator>* /*guard */,
          std::string* /* errmsg */) { return ReverseBytewiseComparator(); });
   library.AddFactory<const Comparator>(
-      ComparatorWithU64TsImpl::kClassName(),
+      ComparatorWithU64TsImpl<BytewiseComparatorImpl>::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<const Comparator>* /*guard */,
          std::string* /* errmsg */) { return ComparatorWithU64Ts(); });
@@ -333,7 +343,8 @@ Status Comparator::CreateFromString(const ConfigOptions& config_options,
     *result = BytewiseComparator();
   } else if (id == ReverseBytewiseComparatorImpl::kClassName()) {
     *result = ReverseBytewiseComparator();
-  } else if (id == ComparatorWithU64TsImpl::kClassName()) {
+  } else if (id ==
+             ComparatorWithU64TsImpl<BytewiseComparatorImpl>::kClassName()) {
     *result = ComparatorWithU64Ts();
   } else if (value.empty()) {
     // No Id and no options.  Clear the object
