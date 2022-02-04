@@ -65,6 +65,7 @@
 #include "utilities/env_timed.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/fault_injection_fs.h"
+#include "utilities/nosync_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -2670,6 +2671,36 @@ TEST_F(CreateEnvTest, CreateEncryptedFileSystem) {
   ASSERT_TRUE(fs->AreEquivalent(config_options_, copy.get(), &mismatch));
 }
 
+TEST_F(CreateEnvTest, CreateNoSyncFileSystem) {
+  std::shared_ptr<FileSystem> fs, copy;
+  auto lib = config_options_.registry->AddLibrary("test");
+  test::RegisterTestObjects(*(lib.get()), "");
+  ASSERT_OK(FileSystem::CreateFromString(config_options_,
+                                         NoSyncFileSystem::kClassName(), &fs));
+  ASSERT_NE(fs, nullptr);
+  ASSERT_STREQ(fs->Name(), NoSyncFileSystem::kClassName());
+  ASSERT_EQ(fs->Inner(), FileSystem::Default().get());
+
+  std::string opts_str = fs->ToString(config_options_);
+  std::string mismatch;
+
+  ASSERT_OK(FileSystem::CreateFromString(config_options_, opts_str, &copy));
+  ASSERT_TRUE(fs->AreEquivalent(config_options_, copy.get(), &mismatch));
+
+  ASSERT_OK(FileSystem::CreateFromString(
+      config_options_,
+      std::string("id=") + NoSyncFileSystem::kClassName() +
+          "; target=" + TimedFileSystem::kClassName(),
+      &fs));
+  ASSERT_NE(fs, nullptr);
+  opts_str = fs->ToString(config_options_);
+  ASSERT_STREQ(fs->Name(), NoSyncFileSystem::kClassName());
+  ASSERT_NE(fs->Inner(), nullptr);
+  ASSERT_STREQ(fs->Inner()->Name(), TimedFileSystem::kClassName());
+  ASSERT_EQ(fs->Inner()->Inner(), FileSystem::Default().get());
+  ASSERT_OK(FileSystem::CreateFromString(config_options_, opts_str, &copy));
+  ASSERT_TRUE(fs->AreEquivalent(config_options_, copy.get(), &mismatch));
+}
 #endif  // ROCKSDB_LITE
 
 namespace {

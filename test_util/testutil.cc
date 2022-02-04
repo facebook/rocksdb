@@ -29,6 +29,7 @@
 #include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
+#include "utilities/nosync_fs.h"
 
 #ifndef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
@@ -765,6 +766,13 @@ int RegisterTestObjects(ObjectLibrary& library, const std::string& arg) {
       [](const std::string& /*uri*/, std::unique_ptr<SystemClock>* guard,
          std::string* /* errmsg */) {
         guard->reset(new MockSystemClock(SystemClock::Default()));
+        return guard->get();
+      });
+  library.AddFactory<FileSystem>(
+      NoSyncFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new NoSyncFileSystem(FileSystem::Default()));
         return guard->get();
       });
   return static_cast<int>(library.GetFactoryCount(&num_types));
