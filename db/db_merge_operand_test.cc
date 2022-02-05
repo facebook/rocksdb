@@ -47,6 +47,34 @@ class DBMergeOperandTest : public DBTestBase {
       : DBTestBase("db_merge_operand_test", /*env_do_fsync=*/true) {}
 };
 
+TEST_F(DBMergeOperandTest, PinSelfUseAfterFree) {
+  Options options;
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.env = env_;
+  BlockBasedTableOptions table_options;
+
+  // Small cache to simulate cache full
+  table_options.block_cache = NewLRUCache(1);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  Reopen(options);
+  int num_records = 2;
+  int number_of_operands = 0;
+  std::vector<PinnableSlice> values(num_records);
+  GetMergeOperandsOptions merge_operands_info;
+  merge_operands_info.expected_max_number_of_operands = num_records;
+
+  ASSERT_OK(Put("k1", "v0"));
+  ASSERT_OK(Merge("k1", "v1"));
+  ASSERT_OK(Merge("k1", "v2"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k1", values.data(), &merge_operands_info,
+                                  &number_of_operands));
+}
+
 TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   Options options;
   options.create_if_missing = true;
