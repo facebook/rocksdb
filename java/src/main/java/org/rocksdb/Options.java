@@ -1639,6 +1639,17 @@ public class Options extends RocksObject
   }
 
   @Override
+  public boolean memtableWholeKeyFiltering() {
+    return memtableWholeKeyFiltering(nativeHandle_);
+  }
+
+  @Override
+  public Options setMemtableWholeKeyFiltering(final boolean memtableWholeKeyFiltering) {
+    setMemtableWholeKeyFiltering(nativeHandle_, memtableWholeKeyFiltering);
+    return this;
+  }
+
+  @Override
   public int bloomLocality() {
     return bloomLocality(nativeHandle_);
   }
@@ -2405,6 +2416,8 @@ public class Options extends RocksObject
   private native void setMemtablePrefixBloomSizeRatio(
       long handle, double memtablePrefixBloomSizeRatio);
   private native double memtablePrefixBloomSizeRatio(long handle);
+  private native void setMemtableWholeKeyFiltering(long handle, boolean memtableWholeKeyFiltering);
+  private native boolean memtableWholeKeyFiltering(long handle);
   private native void setBloomLocality(
       long handle, int bloomLocality);
   private native int bloomLocality(long handle);
