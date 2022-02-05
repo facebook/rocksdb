@@ -114,7 +114,7 @@ class SimpleSuffixReverseComparator : public Comparator {
 // endian machines.
 extern const Comparator* Uint64Comparator();
 
-// A wrapper api for getting the ComparatorWithUn64Ts<BytewiseComparator>
+// A wrapper api for getting the ComparatorWithU64Ts<BytewiseComparator>
 const Comparator* BytewiseComparatorWithU64TsWrapper();
 
 class StringSink : public FSWritableFile {

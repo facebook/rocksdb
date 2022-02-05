@@ -235,6 +235,8 @@ class ComparatorWithU64TsImpl : public Comparator {
   }
 
   // returns the name of cmp_without_ts suffixed with .u64ts.
+  // For TComparator = BytewiseComparator the return value is
+  // "leveldb.BytewiseComparator.u64ts"
   static const char* kClassName() {
     static std::string class_name = kClassNameInternal();
     return class_name.c_str();
