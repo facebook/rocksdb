@@ -125,7 +125,8 @@ class SSTDumpToolTest : public testing::Test {
       for (int32_t i = num_keys; i >= 0; i--) {
         tb->Add(MakeKey(i), MakeValue(i));
       }
-    } else if (comparator_name == ComparatorWithU64Ts()->Name()) {
+    } else if (comparator_name ==
+               test::BytewiseComparatorWithU64TsWrapper()->Name()) {
       for (uint32_t i = 0; i < num_keys; i++) {
         char buf[100];
         snprintf(buf, sizeof(buf), "v_%04d", i);
@@ -207,7 +208,7 @@ TEST_F(SSTDumpToolTest, SstDumpReverseBytewiseComparator) {
 TEST_F(SSTDumpToolTest, SstDumpComparatorWithU64Ts) {
   Options opts;
   opts.env = env();
-  opts.comparator = ComparatorWithU64Ts();
+  opts.comparator = test::BytewiseComparatorWithU64TsWrapper();
   BlockBasedTableOptions table_opts;
   table_opts.filter_policy.reset(
       ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10, false));

@@ -17,6 +17,7 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/trace_record.h"
@@ -6837,7 +6838,7 @@ TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   options.max_write_buffer_size_to_maintain = 64 << 10;
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
-  options.comparator = ComparatorWithU64Ts();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
   options.statistics = CreateDBStatistics();
 
   Reopen(options);

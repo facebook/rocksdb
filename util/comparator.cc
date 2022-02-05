@@ -15,6 +15,8 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <sstream>
+#include <string>
 
 #include "db/dbformat.h"
 #include "port/port.h"
@@ -222,24 +224,22 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
 // EXPERIMENTAL
 // Comparator with 64-bit integer timestamp.
 // We did not performance test this yet.
-template <typename T>
+template <typename TComparator>
 class ComparatorWithU64TsImpl : public Comparator {
-  static_assert(std::is_base_of<Comparator, T>::value,
-                "T must be a inherited type of comparator");
+  static_assert(std::is_base_of<Comparator, TComparator>::value,
+                "template type must be a inherited type of comparator");
 
  public:
-  ComparatorWithU64TsImpl()
-      : Comparator(/*ts_sz=*/sizeof(uint64_t)),
-        cmp_without_ts_(BytewiseComparator()) {
-    assert(cmp_without_ts_);
-    assert(cmp_without_ts_->timestamp_size() == 0);
+  explicit ComparatorWithU64TsImpl() : Comparator(/*ts_sz=*/sizeof(uint64_t)) {
+    assert(cmp_without_ts_.timestamp_size() == 0);
   }
+
+  // returns the name of cmp_without_ts suffixed with .u64ts.
   static const char* kClassName() {
-    // Putting this up just for getting opinion,  need to make this better.
-    static char buf[128];
-    sprintf(buf, "%s.u64", T::kClassName());
-    return buf;
+    static std::string class_name = kClassNameInternal();
+    return class_name.c_str();
   }
+
   const char* Name() const override { return kClassName(); }
 
   void FindShortSuccessor(std::string*) const override {}
@@ -264,7 +264,7 @@ class ComparatorWithU64TsImpl : public Comparator {
     assert(!b_has_ts || b.size() >= ts_sz);
     Slice lhs = a_has_ts ? StripTimestampFromUserKey(a, ts_sz) : a;
     Slice rhs = b_has_ts ? StripTimestampFromUserKey(b, ts_sz) : b;
-    return cmp_without_ts_->Compare(lhs, rhs);
+    return cmp_without_ts_.Compare(lhs, rhs);
   }
   int CompareTimestamp(const Slice& ts1, const Slice& ts2) const override {
     assert(ts1.size() == sizeof(uint64_t));
@@ -281,7 +281,14 @@ class ComparatorWithU64TsImpl : public Comparator {
   }
 
  private:
-  const Comparator* cmp_without_ts_{nullptr};
+  static std::string kClassNameInternal() {
+    std::stringstream ss;
+    ss << TComparator::kClassName() << ".u64ts";
+    return ss.str();
+  }
+
+  TComparator cmp_without_ts_;
+  std::string name_;
 };
 
 }// namespace
@@ -296,7 +303,7 @@ const Comparator* ReverseBytewiseComparator() {
   return &rbytewise;
 }
 
-const Comparator* ComparatorWithU64Ts() {
+const Comparator* BytewiseComparatorWithU64Ts() {
   static ComparatorWithU64TsImpl<BytewiseComparatorImpl> comp_with_u64_ts;
   return &comp_with_u64_ts;
 }
@@ -318,8 +325,8 @@ static int RegisterBuiltinComparators(ObjectLibrary& library,
       ComparatorWithU64TsImpl<BytewiseComparatorImpl>::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<const Comparator>* /*guard */,
-         std::string* /* errmsg */) { return ComparatorWithU64Ts(); });
-  return 4;
+         std::string* /* errmsg */) { return BytewiseComparatorWithU64Ts(); });
+  return 3;
 }
 #endif  // ROCKSDB_LITE
 
@@ -345,7 +352,7 @@ Status Comparator::CreateFromString(const ConfigOptions& config_options,
     *result = ReverseBytewiseComparator();
   } else if (id ==
              ComparatorWithU64TsImpl<BytewiseComparatorImpl>::kClassName()) {
-    *result = ComparatorWithU64Ts();
+    *result = BytewiseComparatorWithU64Ts();
   } else if (value.empty()) {
     // No Id and no options.  Clear the object
     *result = nullptr;

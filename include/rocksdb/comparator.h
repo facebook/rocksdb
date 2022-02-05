@@ -150,6 +150,4 @@ extern const Comparator* BytewiseComparator();
 // ordering.
 extern const Comparator* ReverseBytewiseComparator();
 
-extern const Comparator* ComparatorWithU64Ts();
-
 }  // namespace ROCKSDB_NAMESPACE

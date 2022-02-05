@@ -1080,7 +1080,7 @@ INSTANTIATE_TEST_CASE_P(CompactionIteratorWithAllowIngestBehindTestInstance,
 class CompactionIteratorTsGcTest : public CompactionIteratorTest {
  public:
   CompactionIteratorTsGcTest()
-      : CompactionIteratorTest(ComparatorWithU64Ts()) {}
+      : CompactionIteratorTest(test::BytewiseComparatorWithU64TsWrapper()) {}
 };
 
 TEST_P(CompactionIteratorTsGcTest, NoKeyEligibleForGC) {
