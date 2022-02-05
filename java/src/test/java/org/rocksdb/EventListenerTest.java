@@ -399,8 +399,8 @@ public class EventListenerTest {
 
       @Override
       public void onFileTruncateFinish(final FileOperationInfo fileOperationInfo) {
-        assertEquals(fileOperationInfoTestData, fileOperationInfo);
         super.onFileTruncateFinish(fileOperationInfo);
+        assertEquals(fileOperationInfoTestData, fileOperationInfo);
       }
 
       @Override
