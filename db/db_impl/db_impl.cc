@@ -1881,6 +1881,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       return s;
     }
   }
+  std::shared_ptr<PinnedIteratorsManager> pinned_iters_mgr(
+      new PinnedIteratorsManager());
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(
@@ -1890,7 +1892,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         nullptr, nullptr,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
         get_impl_options.get_value ? get_impl_options.is_blob_index : nullptr,
-        get_impl_options.get_value);
+        get_impl_options.get_value, pinned_iters_mgr);
     RecordTick(stats_, MEMTABLE_MISS);
   }
 

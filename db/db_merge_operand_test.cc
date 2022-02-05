@@ -54,7 +54,8 @@ TEST_F(DBMergeOperandTest, PinSelfUseAfterFree) {
   options.env = env_;
   BlockBasedTableOptions table_options;
 
-  // Small cache to simulate cache full
+  // Small cache to simulate cache full to repro UseAfterFree in pinning merge
+  // operands
   table_options.block_cache = NewLRUCache(1);
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
