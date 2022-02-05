@@ -43,7 +43,6 @@ env:
   - JOB_NAME=cmake-gcc9 # 3-5 minutes
   - JOB_NAME=cmake-gcc9-c++20 # 3-5 minutes
   - JOB_NAME=cmake-mingw # 3 minutes
-  - JOB_NAME=make-gcc4.8
   - JOB_NAME=status_checked
 
 matrix:
@@ -51,21 +50,12 @@ matrix:
   - os : linux
     arch: arm64
     env: JOB_NAME=cmake-mingw
-  - os : linux
-    arch: arm64
-    env: JOB_NAME=make-gcc4.8
   - os: linux
     arch: ppc64le
     env: JOB_NAME=cmake-mingw
   - os: linux
-    arch: ppc64le
-    env: JOB_NAME=make-gcc4.8
-  - os: linux
     arch: s390x
     env: JOB_NAME=cmake-mingw
-  - os: linux
-    arch: s390x
-    env: JOB_NAME=make-gcc4.8
   - os: linux
     compiler: clang
   - if: type = pull_request AND commit_message !~ /FULL_CI/
@@ -210,6 +200,7 @@ matrix:
     env: JOB_NAME=status_checked
 
 install:
+  -  CC=gcc-7 && CXX=g++-7
   - if [ "${JOB_NAME}" == cmake-gcc8 ]; then
       sudo apt-get install -y g++-8 || exit $?;
       CC=gcc-8 && CXX=g++-8;
@@ -221,9 +212,8 @@ install:
   - if [ "${JOB_NAME}" == cmake-mingw ]; then
       sudo apt-get install -y mingw-w64 || exit $?;
     fi
-  - if [ "${JOB_NAME}" == make-gcc4.8 ]; then
-      sudo apt-get install -y g++-4.8 || exit $?;
-      CC=gcc-4.8 && CXX=g++-4.8;
+  - if [ "${CXX}" == "g++-7" ]; then
+      sudo apt-get install -y g++-7 || exit $?;
     fi
   - |
     if [[ "${JOB_NAME}" == cmake* ]]; then
@@ -292,9 +282,6 @@ script:
       esac
 
       mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DWITH_TESTS=0 -DWITH_GFLAGS=0 -DWITH_BENCHMARK_TOOLS=0 -DWITH_TOOLS=0 -DWITH_CORE_TOOLS=1 .. && make -j4 && cd  .. && rm -rf build && mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release $OPT && make -j4 rocksdb rocksdbjni
-      ;;
-    make-gcc4.8)
-      OPT=-DTRAVIS LIB_MODE=shared V=1 SKIP_LINK=1 make -j4 all && [ "Linking broken because libgflags compiled with newer ABI" ]
       ;;
     status_checked)
       OPT=-DTRAVIS LIB_MODE=shared V=1 ASSERT_STATUS_CHECKED=1 make -j4 check_some

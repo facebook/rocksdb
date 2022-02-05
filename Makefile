@@ -215,7 +215,7 @@ am__v_AR_0 = @echo "  AR      " $@;
 am__v_AR_1 =
 
 AM_LINK = $(AM_V_CCLD)$(CXX) -L. $(patsubst lib%.a, -l%, $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^)) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
-AM_SHARE = $(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$@ -L. $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^) $(LDFLAGS) -o $@
+AM_SHARE = $(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$@ -L. $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^) $(EXEC_LDFLAGS) $(LDFLAGS) -o $@
 
 # Detect what platform we're building on.
 # Export some common variables that might have been passed as Make variables
@@ -574,27 +574,29 @@ check-headers: $(HEADER_OK_FILES)
 
 # options_settable_test doesn't pass with UBSAN as we use hack in the test
 ifdef COMPILE_WITH_UBSAN
-        TESTS := $(shell echo $(TESTS) | sed 's/\boptions_settable_test\b//g')
+TESTS := $(shell echo $(TESTS) | sed 's/\boptions_settable_test\b//g')
 endif
 ifdef ASSERT_STATUS_CHECKED
-	# TODO: finish fixing all tests to pass this check
-	TESTS_FAILING_ASC = \
-		c_test \
-		env_test \
-		range_locking_test \
-		testutil_test \
+# TODO: finish fixing all tests to pass this check
+TESTS_FAILING_ASC = \
+	c_test \
+	env_test \
+	range_locking_test \
+	testutil_test \
 
-	# Since we have very few ASC exclusions left, excluding them from
-	# the build is the most convenient way to exclude them from testing
-	TESTS := $(filter-out $(TESTS_FAILING_ASC),$(TESTS))
+# Since we have very few ASC exclusions left, excluding them from
+# the build is the most convenient way to exclude them from testing
+TESTS := $(filter-out $(TESTS_FAILING_ASC),$(TESTS))
 endif
 
 ROCKSDBTESTS_SUBSET ?= $(TESTS)
 
+# c_test - doesn't use gtest
 # env_test - suspicious use of test::TmpDir
 # deletefile_test - serial because it generates giant temporary files in
 #   its various tests. Parallel can fill up your /dev/shm
 NON_PARALLEL_TEST = \
+	c_test \
 	env_test \
 	deletefile_test \
 
@@ -852,7 +854,7 @@ endif
 
 parallel_tests = $(patsubst %,parallel_%,$(PARALLEL_TEST))
 .PHONY: gen_parallel_tests $(parallel_tests)
-$(parallel_tests): $(PARALLEL_TEST)
+$(parallel_tests):
 	$(AM_V_at)TEST_BINARY=$(patsubst parallel_%,%,$@); \
   TEST_NAMES=` \
     (./$$TEST_BINARY --gtest_list_tests || echo "  $${TEST_BINARY}__list_tests_failure") \
@@ -2236,7 +2238,7 @@ rocksdbjavastaticosx_ub: rocksdbjavastaticosx_archs
 	lipo -create -output ./java/target/$(ROCKSDBJNILIB) java/target/librocksdbjni-osx-x86_64.jnilib java/target/librocksdbjni-osx-arm64.jnilib
 	$(MAKE) rocksdbjavastatic_jar
 
-rocksdbjavastaticosx_archs: 
+rocksdbjavastaticosx_archs:
 	$(MAKE) rocksdbjavastaticosx_arch_x86_64
 	$(MAKE) rocksdbjavastaticosx_arch_arm64
 
