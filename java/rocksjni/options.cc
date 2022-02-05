@@ -7801,6 +7801,29 @@ jboolean Java_org_rocksdb_WriteOptions_lowPri(
   return reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jhandle)->low_pri;
 }
 
+/*
+ * Class:     org_rocksdb_WriteOptions
+ * Method:    memtableInsertHintPerBatch
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_WriteOptions_memtableInsertHintPerBatch(
+    JNIEnv*, jobject, jlong jhandle) {
+  return reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jhandle)
+      ->memtable_insert_hint_per_batch;
+}
+
+/*
+ * Class:     org_rocksdb_WriteOptions
+ * Method:    setMemtableInsertHintPerBatch
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_WriteOptions_setMemtableInsertHintPerBatch(
+    JNIEnv*, jobject, jlong jhandle, jboolean jmemtable_insert_hint_per_batch) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jhandle)
+      ->memtable_insert_hint_per_batch =
+      static_cast<bool>(jmemtable_insert_hint_per_batch);
+}
+
 /////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::ReadOptions
 
