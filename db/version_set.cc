@@ -3000,7 +3000,8 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
   uint64_t sum_total_blob_bytes = oldest_meta->GetTotalBlobBytes();
   uint64_t sum_garbage_blob_bytes = oldest_meta->GetGarbageBlobBytes();
 
-  for (const auto& meta : blob_files_) {
+  while (true) {
+    const auto& meta = blob_files_[count];
     assert(meta);
 
     if (!meta->GetLinkedSsts().empty()) {
