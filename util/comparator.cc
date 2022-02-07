@@ -12,11 +12,9 @@
 #include <stdint.h>
 
 #include <algorithm>
-#include <cstring>
 #include <memory>
 #include <mutex>
 #include <sstream>
-#include <string>
 
 #include "db/dbformat.h"
 #include "port/port.h"
@@ -234,9 +232,6 @@ class ComparatorWithU64TsImpl : public Comparator {
     assert(cmp_without_ts_.timestamp_size() == 0);
   }
 
-  // returns the name of cmp_without_ts suffixed with .u64ts.
-  // For TComparator = BytewiseComparator the return value is
-  // "leveldb.BytewiseComparator.u64ts"
   static const char* kClassName() {
     static std::string class_name = kClassNameInternal();
     return class_name.c_str();
@@ -290,7 +285,6 @@ class ComparatorWithU64TsImpl : public Comparator {
   }
 
   TComparator cmp_without_ts_;
-  std::string name_;
 };
 
 }// namespace

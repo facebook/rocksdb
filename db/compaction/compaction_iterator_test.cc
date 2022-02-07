@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "db/dbformat.h"
-#include "options/options_parser.h"
 #include "port/port.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"

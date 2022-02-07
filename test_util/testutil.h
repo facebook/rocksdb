@@ -16,7 +16,6 @@
 #include "env/composite_env_wrapper.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/compaction_filter.h"
-#include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
@@ -115,7 +114,7 @@ class SimpleSuffixReverseComparator : public Comparator {
 extern const Comparator* Uint64Comparator();
 
 // A wrapper api for getting the ComparatorWithU64Ts<BytewiseComparator>
-const Comparator* BytewiseComparatorWithU64TsWrapper();
+extern const Comparator* BytewiseComparatorWithU64TsWrapper();
 
 class StringSink : public FSWritableFile {
  public:

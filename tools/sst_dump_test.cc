@@ -6,11 +6,6 @@
 // Copyright (c) 2012 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-
-#include <cstdint>
-#include <string>
-
-#include "rocksdb/comparator.h"
 #ifndef ROCKSDB_LITE
 
 #include <stdint.h>
@@ -35,6 +30,12 @@ static std::string MakeKey(int i) {
   snprintf(buf, sizeof(buf), "k_%04d", i);
   InternalKey key(std::string(buf), 0, ValueType::kTypeValue);
   return key.Encode().ToString();
+}
+
+static std::string MakeKeyWithTimeStamp(int i, uint64_t ts) {
+  char buf[100];
+  snprintf(buf, sizeof(buf), "k_%04d", i);
+  return test::KeyStr(ts, std::string(buf), /*seq=*/0, kTypeValue);
 }
 
 static std::string MakeValue(int i) {
@@ -120,19 +121,16 @@ class SSTDumpToolTest : public testing::Test {
 
     // Populate slightly more than 1K keys
     uint32_t num_keys = kNumKey;
-    const std::string comparator_name = ikc.user_comparator()->Name();
-    if (comparator_name == ReverseBytewiseComparator()->Name()) {
+    const char* comparator_name = ikc.user_comparator()->Name();
+    if (strcmp(comparator_name, ReverseBytewiseComparator()->Name()) == 0) {
       for (int32_t i = num_keys; i >= 0; i--) {
         tb->Add(MakeKey(i), MakeValue(i));
       }
-    } else if (comparator_name ==
-               test::BytewiseComparatorWithU64TsWrapper()->Name()) {
+    } else if (strcmp(comparator_name,
+                      test::BytewiseComparatorWithU64TsWrapper()->Name()) ==
+               0) {
       for (uint32_t i = 0; i < num_keys; i++) {
-        char buf[100];
-        snprintf(buf, sizeof(buf), "v_%04d", i);
-        tb->Add(
-            test::KeyStr(/*ts=*/100, std::string(buf), /*seq=*/0, kTypeValue),
-            MakeValue(i));
+        tb->Add(MakeKeyWithTimeStamp(i, 100 + i), MakeValue(i));
       }
     } else {
       for (uint32_t i = 0; i < num_keys; i++) {
