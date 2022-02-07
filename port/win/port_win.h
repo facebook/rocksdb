@@ -60,9 +60,10 @@ using ssize_t = SSIZE_T;
 #ifdef _MSC_VER
 #define __attribute__(A)
 
-// thread_local is part of C++11 and later (TODO: clean up this define)
+// Thread local storage on Linux
+// There is thread_local in C++11
 #ifndef __thread
-#define __thread thread_local
+#define __thread __declspec(thread)
 #endif
 
 #endif
