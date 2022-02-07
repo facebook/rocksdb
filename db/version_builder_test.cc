@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <algorithm>
 #include <cstring>
 #include <iomanip>
 #include <memory>
@@ -140,16 +141,20 @@ class VersionBuilderTest : public testing::Test {
   static std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
       const VersionStorageInfo::BlobFiles& blob_files,
       uint64_t blob_file_number) {
-    const auto it = blob_files.find(blob_file_number);
+    const auto it = std::lower_bound(
+        blob_files.begin(), blob_files.end(), blob_file_number,
+        [](const std::shared_ptr<BlobFileMetaData>& lhs, uint64_t rhs) {
+          assert(lhs);
+          return lhs->GetBlobFileNumber() < rhs;
+        });
+    assert(it == blob_files.end() || *it);
 
-    if (it == blob_files.end()) {
+    if (it == blob_files.end() ||
+        (*it)->GetBlobFileNumber() != blob_file_number) {
       return std::shared_ptr<BlobFileMetaData>();
     }
 
-    const auto& meta = it->second;
-    assert(meta);
-
-    return meta;
+    return *it;
   }
 
   void UpdateVersionStorageInfo(VersionStorageInfo* vstorage) {

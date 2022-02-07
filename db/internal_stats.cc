@@ -757,9 +757,15 @@ bool InternalStats::HandleLiveSstFilesSizeAtTemperature(std::string* value,
 
 bool InternalStats::HandleNumBlobFiles(uint64_t* value, DBImpl* /*db*/,
                                        Version* /*version*/) {
+  assert(cfd_);
+  assert(cfd_->current());
+
   const auto* vstorage = cfd_->current()->storage_info();
+  assert(vstorage);
+
   const auto& blob_files = vstorage->GetBlobFiles();
   *value = blob_files.size();
+
   return true;
 }
 
@@ -770,8 +776,9 @@ bool InternalStats::HandleBlobStats(std::string* value, Slice /*suffix*/) {
   uint64_t current_num_blob_files = blob_files.size();
   uint64_t current_file_size = 0;
   uint64_t current_garbage_size = 0;
-  for (const auto& pair : blob_files) {
-    const auto& meta = pair.second;
+  for (const auto& meta : blob_files) {
+    assert(meta);
+
     current_file_size += meta->GetBlobFileSize();
     current_garbage_size += meta->GetGarbageBlobBytes();
   }

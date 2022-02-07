@@ -1491,8 +1491,9 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
         level, level_size, std::move(files));
     cf_meta->size += level_size;
   }
-  for (const auto& iter : vstorage->GetBlobFiles()) {
-    const auto meta = iter.second.get();
+  for (const auto& meta : vstorage->GetBlobFiles()) {
+    assert(meta);
+
     cf_meta->blob_files.emplace_back(
         meta->GetBlobFileNumber(), BlobFileName("", meta->GetBlobFileNumber()),
         ioptions->cf_paths.front().path, meta->GetBlobFileSize(),
@@ -1825,8 +1826,15 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
 
   const uint64_t blob_file_number = blob_index.file_number();
 
-  const auto it = blob_files.find(blob_file_number);
-  if (it == blob_files.end()) {
+  const auto it = std::lower_bound(
+      blob_files.begin(), blob_files.end(), blob_file_number,
+      [](const std::shared_ptr<BlobFileMetaData>& lhs, uint64_t rhs) {
+        assert(lhs);
+        return lhs->GetBlobFileNumber() < rhs;
+      });
+  assert(it == blob_files.end() || *it);
+  if (it == blob_files.end() ||
+      (*it)->GetBlobFileNumber() != blob_file_number) {
     return Status::Corruption("Invalid blob file number");
   }
 
@@ -1873,7 +1881,17 @@ void Version::MultiGetBlob(
   const auto& blob_files = storage_info_.GetBlobFiles();
   for (auto& elem : blob_rqs) {
     uint64_t blob_file_number = elem.first;
-    if (blob_files.find(blob_file_number) == blob_files.end()) {
+
+    const auto it = std::lower_bound(
+        blob_files.begin(), blob_files.end(), blob_file_number,
+        [](const std::shared_ptr<BlobFileMetaData>& lhs, uint64_t rhs) {
+          assert(lhs);
+          return lhs->GetBlobFileNumber() < rhs;
+        });
+    assert(it == blob_files.end() || *it);
+
+    if (it == blob_files.end() ||
+        (*it)->GetBlobFileNumber() != blob_file_number) {
       auto& blobs_in_file = elem.second;
       for (const auto& blob : blobs_in_file) {
         const KeyContext& key_context = blob.second;
@@ -2972,9 +2990,7 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
   // blob_garbage_collection_force_threshold and the entire batch has to be
   // eligible for GC according to blob_garbage_collection_age_cutoff in order
   // for us to schedule any compactions.
-  const auto oldest_it = blob_files_.begin();
-
-  const auto& oldest_meta = oldest_it->second;
+  const auto& oldest_meta = blob_files_.front();
   assert(oldest_meta);
 
   const auto& linked_ssts = oldest_meta->GetLinkedSsts();
@@ -2984,9 +3000,7 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
   uint64_t sum_total_blob_bytes = oldest_meta->GetTotalBlobBytes();
   uint64_t sum_garbage_blob_bytes = oldest_meta->GetGarbageBlobBytes();
 
-  auto it = oldest_it;
-  for (++it; it != blob_files_.end(); ++it) {
-    const auto& meta = it->second;
+  for (const auto& meta : blob_files_) {
     assert(meta);
 
     if (!meta->GetLinkedSsts().empty()) {
@@ -3055,10 +3069,11 @@ void VersionStorageInfo::AddBlobFile(
 
   const uint64_t blob_file_number = blob_file_meta->GetBlobFileNumber();
 
-  auto it = blob_files_.lower_bound(blob_file_number);
-  assert(it == blob_files_.end() || it->first != blob_file_number);
+  assert(blob_files_.empty() ||
+         (blob_files_.back() &&
+          blob_files_.back()->GetBlobFileNumber() < blob_file_number));
 
-  blob_files_.emplace_hint(it, blob_file_number, std::move(blob_file_meta));
+  blob_files_.emplace_back(std::move(blob_file_meta));
 }
 
 void VersionStorageInfo::SetFinalized() {
@@ -3847,9 +3862,10 @@ uint64_t VersionStorageInfo::EstimateLiveDataSize() const {
   }
   // For BlobDB, the result also includes the exact value of live bytes in the
   // blob files of the version.
-  const auto& blobFiles = GetBlobFiles();
-  for (const auto& pair : blobFiles) {
-    const auto& meta = pair.second;
+  const auto& blob_files = GetBlobFiles();
+  for (const auto& meta : blob_files) {
+    assert(meta);
+
     size += meta->GetTotalBlobBytes();
     size -= meta->GetGarbageBlobBytes();
   }
@@ -3902,8 +3918,7 @@ void Version::AddLiveFiles(std::vector<uint64_t>* live_table_files,
   }
 
   const auto& blob_files = storage_info_.GetBlobFiles();
-  for (const auto& pair : blob_files) {
-    const auto& meta = pair.second;
+  for (const auto& meta : blob_files) {
     assert(meta);
 
     live_blob_files->emplace_back(meta->GetBlobFileNumber());
@@ -3960,8 +3975,7 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
     r.append("--- blob files --- version# ");
     AppendNumberTo(&r, version_number_);
     r.append(" ---\n");
-    for (const auto& pair : blob_files) {
-      const auto& blob_file_meta = pair.second;
+    for (const auto& blob_file_meta : blob_files) {
       assert(blob_file_meta);
 
       r.append(blob_file_meta->DebugString());
@@ -5269,12 +5283,8 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
 
     /* Blob files */
     const auto& blob_files = cfd->current()->storage_info()->GetBlobFiles();
-    for (const auto& pair : blob_files) {
-      const uint64_t blob_file_number = pair.first;
-      const auto& meta = pair.second;
-
+    for (const auto& meta : blob_files) {
       assert(meta);
-      assert(blob_file_number == meta->GetBlobFileNumber());
 
       std::string checksum_value = meta->GetChecksumValue();
       std::string checksum_method = meta->GetChecksumMethod();
@@ -5284,8 +5294,8 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
         checksum_method = kUnknownFileChecksumFuncName;
       }
 
-      s = checksum_list->InsertOneFileChecksum(blob_file_number, checksum_value,
-                                               checksum_method);
+      s = checksum_list->InsertOneFileChecksum(meta->GetBlobFileNumber(),
+                                               checksum_value, checksum_method);
       if (!s.ok()) {
         return s;
       }
@@ -5438,12 +5448,10 @@ Status VersionSet::WriteCurrentStateToManifest(
       }
 
       const auto& blob_files = cfd->current()->storage_info()->GetBlobFiles();
-      for (const auto& pair : blob_files) {
-        const uint64_t blob_file_number = pair.first;
-        const auto& meta = pair.second;
-
+      for (const auto& meta : blob_files) {
         assert(meta);
-        assert(blob_file_number == meta->GetBlobFileNumber());
+
+        const uint64_t blob_file_number = meta->GetBlobFileNumber();
 
         edit.AddBlobFile(blob_file_number, meta->GetTotalBlobCount(),
                          meta->GetTotalBlobBytes(), meta->GetChecksumMethod(),
@@ -5970,21 +5978,24 @@ uint64_t VersionSet::GetTotalSstFilesSize(Version* dummy_versions) {
 
 uint64_t VersionSet::GetTotalBlobFileSize(Version* dummy_versions) {
   std::unordered_set<uint64_t> unique_blob_files;
-  uint64_t all_v_blob_file_size = 0;
+  uint64_t all_versions_blob_file_size = 0;
   for (auto* v = dummy_versions->next_; v != dummy_versions; v = v->next_) {
     // iterate all the versions
     auto* vstorage = v->storage_info();
     const auto& blob_files = vstorage->GetBlobFiles();
-    for (const auto& pair : blob_files) {
-      if (unique_blob_files.find(pair.first) == unique_blob_files.end()) {
+    for (const auto& meta : blob_files) {
+      assert(meta);
+
+      const uint64_t blob_file_number = meta->GetBlobFileNumber();
+
+      if (unique_blob_files.find(blob_file_number) == unique_blob_files.end()) {
         // find Blob file that has not been counted
-        unique_blob_files.insert(pair.first);
-        const auto& meta = pair.second;
-        all_v_blob_file_size += meta->GetBlobFileSize();
+        unique_blob_files.insert(blob_file_number);
+        all_versions_blob_file_size += meta->GetBlobFileSize();
       }
     }
   }
-  return all_v_blob_file_size;
+  return all_versions_blob_file_size;
 }
 
 Status VersionSet::VerifyFileMetadata(const std::string& fpath,

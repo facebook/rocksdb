@@ -260,8 +260,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
       }
     }
     const auto& blob_files = vsi.GetBlobFiles();
-    for (const auto& pair : blob_files) {
-      const auto& meta = pair.second;
+    for (const auto& meta : blob_files) {
       assert(meta);
 
       results.emplace_back();

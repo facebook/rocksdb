@@ -76,7 +76,7 @@ void DBImpl::TEST_GetFilesMetaData(
   if (blob_metadata != nullptr) {
     blob_metadata->clear();
     for (const auto& blob : cfd->current()->storage_info()->GetBlobFiles()) {
-      blob_metadata->push_back(blob.second);
+      blob_metadata->push_back(blob);
     }
   }
 }

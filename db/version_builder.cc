@@ -464,10 +464,10 @@ class VersionBuilder::Rep {
     // Make sure that all blob files in the version have non-garbage data and
     // the links between them and the table files are consistent.
     const auto& blob_files = vstorage->GetBlobFiles();
-    for (const auto& pair : blob_files) {
-      const uint64_t blob_file_number = pair.first;
-      const auto& blob_file_meta = pair.second;
+    for (const auto& blob_file_meta : blob_files) {
       assert(blob_file_meta);
+
+      const uint64_t blob_file_number = blob_file_meta->GetBlobFileNumber();
 
       if (blob_file_meta->GetGarbageBlobCount() >=
           blob_file_meta->GetTotalBlobCount()) {
@@ -546,8 +546,15 @@ class VersionBuilder::Rep {
 
     const auto& base_blob_files = base_vstorage_->GetBlobFiles();
 
-    auto base_it = base_blob_files.find(blob_file_number);
-    if (base_it != base_blob_files.end()) {
+    auto base_it = std::lower_bound(
+        base_blob_files.begin(), base_blob_files.end(), blob_file_number,
+        [](const std::shared_ptr<BlobFileMetaData>& lhs, uint64_t rhs) {
+          assert(lhs);
+          return lhs->GetBlobFileNumber() < rhs;
+        });
+    assert(base_it == base_blob_files.end() || *base_it);
+    if (base_it != base_blob_files.end() &&
+        (*base_it)->GetBlobFileNumber() == blob_file_number) {
       return true;
     }
 
@@ -565,13 +572,20 @@ class VersionBuilder::Rep {
 
     const auto& base_blob_files = base_vstorage_->GetBlobFiles();
 
-    auto base_it = base_blob_files.find(blob_file_number);
-    if (base_it != base_blob_files.end()) {
-      assert(base_it->second);
+    auto base_it = std::lower_bound(
+        base_blob_files.begin(), base_blob_files.end(), blob_file_number,
+        [](const std::shared_ptr<BlobFileMetaData>& lhs, uint64_t rhs) {
+          assert(lhs);
+          return lhs->GetBlobFileNumber() < rhs;
+        });
+    assert(base_it == base_blob_files.end() || *base_it);
+    if (base_it != base_blob_files.end() &&
+        (*base_it)->GetBlobFileNumber() == blob_file_number) {
+      const auto& meta = *base_it;
+      assert(meta);
 
       mutable_it = mutable_blob_file_metas_
-                       .emplace(blob_file_number,
-                                MutableBlobFileMetaData(base_it->second))
+                       .emplace(blob_file_number, MutableBlobFileMetaData(meta))
                        .first;
       return &mutable_it->second;
     }
@@ -863,19 +877,25 @@ class VersionBuilder::Rep {
     assert(base_vstorage_);
 
     const auto& base_blob_files = base_vstorage_->GetBlobFiles();
-    auto base_it = base_blob_files.lower_bound(first_blob_file);
+    auto base_it = std::lower_bound(
+        base_blob_files.begin(), base_blob_files.end(), first_blob_file,
+        [](const std::shared_ptr<BlobFileMetaData>& lhs, uint64_t rhs) {
+          assert(lhs);
+          return lhs->GetBlobFileNumber() < rhs;
+        });
     const auto base_it_end = base_blob_files.end();
 
     auto mutable_it = mutable_blob_file_metas_.lower_bound(first_blob_file);
     const auto mutable_it_end = mutable_blob_file_metas_.end();
 
     while (base_it != base_it_end && mutable_it != mutable_it_end) {
-      const uint64_t base_blob_file_number = base_it->first;
+      const auto& base_meta = *base_it;
+      assert(base_meta);
+
+      const uint64_t base_blob_file_number = base_meta->GetBlobFileNumber();
       const uint64_t mutable_blob_file_number = mutable_it->first;
 
       if (base_blob_file_number < mutable_blob_file_number) {
-        const auto& base_meta = base_it->second;
-
         if (!process_base(base_meta)) {
           return;
         }
@@ -892,7 +912,6 @@ class VersionBuilder::Rep {
       } else {
         assert(base_blob_file_number == mutable_blob_file_number);
 
-        const auto& base_meta = base_it->second;
         const auto& mutable_meta = mutable_it->second;
 
         if (!process_both(base_meta, mutable_meta)) {
@@ -905,7 +924,7 @@ class VersionBuilder::Rep {
     }
 
     while (base_it != base_it_end) {
-      const auto& base_meta = base_it->second;
+      const auto& base_meta = *base_it;
 
       if (!process_base(base_meta)) {
         return;

@@ -1256,19 +1256,23 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
   explicit BlobDBJobLevelEventListenerTest(EventListenerTest* test)
       : test_(test), call_count_(0) {}
 
-  std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
+  static std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
       const VersionStorageInfo::BlobFiles& blob_files,
       uint64_t blob_file_number) {
-    const auto it = blob_files.find(blob_file_number);
+    const auto it = std::lower_bound(
+        blob_files.begin(), blob_files.end(), blob_file_number,
+        [](const std::shared_ptr<BlobFileMetaData>& lhs, uint64_t rhs) {
+          assert(lhs);
+          return lhs->GetBlobFileNumber() < rhs;
+        });
+    assert(it == blob_files.end() || *it);
 
-    if (it == blob_files.end()) {
-      return nullptr;
+    if (it == blob_files.end() ||
+        (*it)->GetBlobFileNumber() != blob_file_number) {
+      return std::shared_ptr<BlobFileMetaData>();
     }
 
-    const auto& meta = it->second;
-    assert(meta);
-
-    return meta;
+    return *it;
   }
 
   const VersionStorageInfo::BlobFiles& GetBlobFiles() {

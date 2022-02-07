@@ -331,14 +331,13 @@ class VersionStorageInfo {
   }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  using BlobFiles = std::map<uint64_t, std::shared_ptr<BlobFileMetaData>>;
+  using BlobFiles = std::vector<std::shared_ptr<BlobFileMetaData>>;
   const BlobFiles& GetBlobFiles() const { return blob_files_; }
 
   uint64_t GetTotalBlobFileSize() const {
     uint64_t total_blob_bytes = 0;
 
-    for (const auto& pair : blob_files_) {
-      const auto& meta = pair.second;
+    for (const auto& meta : blob_files_) {
       assert(meta);
 
       total_blob_bytes += meta->GetBlobFileSize();
@@ -546,7 +545,7 @@ class VersionStorageInfo {
   using FileLocations = std::unordered_map<uint64_t, FileLocation>;
   FileLocations file_locations_;
 
-  // Map of blob files in version by number.
+  // Vector of blob files in version sorted by blob file number.
   BlobFiles blob_files_;
 
   // Level that L0 data should be compacted to. All levels < base_level_ should
