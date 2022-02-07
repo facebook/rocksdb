@@ -461,13 +461,6 @@ public class Options extends RocksObject
   }
 
   @Override
-  @Deprecated
-  public int maxBackgroundCompactions() {
-    assert(isOwningHandle());
-    return maxBackgroundCompactions(nativeHandle_);
-  }
-
-  @Override
   public Options setStatistics(final Statistics statistics) {
     assert(isOwningHandle());
     setStatistics(nativeHandle_, statistics.nativeHandle_);
@@ -483,15 +476,6 @@ public class Options extends RocksObject
     } else {
       return new Statistics(statisticsNativeHandle);
     }
-  }
-
-  @Override
-  @Deprecated
-  public Options setMaxBackgroundCompactions(
-      final int maxBackgroundCompactions) {
-    assert(isOwningHandle());
-    setMaxBackgroundCompactions(nativeHandle_, maxBackgroundCompactions);
-    return this;
   }
 
   @Override

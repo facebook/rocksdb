@@ -133,20 +133,6 @@ public class MutableDBOptions extends AbstractMutableOptions {
     }
 
     @Override
-    @Deprecated
-    public MutableDBOptionsBuilder setMaxBackgroundCompactions(
-        final int maxBackgroundCompactions) {
-      return setInt(DBOption.max_background_compactions,
-          maxBackgroundCompactions);
-    }
-
-    @Override
-    @Deprecated
-    public int maxBackgroundCompactions() {
-      return getInt(DBOption.max_background_compactions);
-    }
-
-    @Override
     public MutableDBOptionsBuilder setAvoidFlushDuringShutdown(
         final boolean avoidFlushDuringShutdown) {
       return setBoolean(DBOption.avoid_flush_during_shutdown,

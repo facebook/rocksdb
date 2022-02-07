@@ -404,22 +404,6 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  @Deprecated
-  public DBOptions setMaxBackgroundCompactions(
-      final int maxBackgroundCompactions) {
-    assert(isOwningHandle());
-    setMaxBackgroundCompactions(nativeHandle_, maxBackgroundCompactions);
-    return this;
-  }
-
-  @Override
-  @Deprecated
-  public int maxBackgroundCompactions() {
-    assert(isOwningHandle());
-    return maxBackgroundCompactions(nativeHandle_);
-  }
-
-  @Override
   public DBOptions setMaxSubcompactions(final int maxSubcompactions) {
     assert(isOwningHandle());
     setMaxSubcompactions(nativeHandle_, maxSubcompactions);

@@ -439,17 +439,6 @@ public class OptionsTest {
     }
   }
 
-  @SuppressWarnings("deprecated")
-  @Test
-  public void maxBackgroundCompactions() {
-    try (final Options opt = new Options()) {
-      final int intValue = rand.nextInt();
-      opt.setMaxBackgroundCompactions(intValue);
-      assertThat(opt.maxBackgroundCompactions()).
-          isEqualTo(intValue);
-    }
-  }
-
   @Test
   public void maxSubcompactions() {
     try (final Options opt = new Options()) {
