@@ -26,6 +26,7 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/thread_local.h"
+#include "utilities/injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -129,44 +130,6 @@ class TestFSRandomRWFile : public FSRandomRWFile {
   FaultInjectionTestFS* fs_;
 };
 
-class TestFSRandomAccessFile : public FSRandomAccessFile {
- public:
-  explicit TestFSRandomAccessFile(const std::string& fname,
-                              std::unique_ptr<FSRandomAccessFile>&& f,
-                              FaultInjectionTestFS* fs);
-  ~TestFSRandomAccessFile() override {}
-  IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
-                Slice* result, char* scratch,
-                IODebugContext* dbg) const override;
-  IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
-                     const IOOptions& options, IODebugContext* dbg) override;
-  size_t GetRequiredBufferAlignment() const override {
-    return target_->GetRequiredBufferAlignment();
-  }
-  bool use_direct_io() const override { return target_->use_direct_io(); }
-
-  size_t GetUniqueId(char* id, size_t max_size) const override;
-
- private:
-  std::unique_ptr<FSRandomAccessFile> target_;
-  FaultInjectionTestFS* fs_;
-};
-
-class TestFSSequentialFile : public FSSequentialFileOwnerWrapper {
- public:
-  explicit TestFSSequentialFile(std::unique_ptr<FSSequentialFile>&& f,
-                                FaultInjectionTestFS* fs)
-      : FSSequentialFileOwnerWrapper(std::move(f)), fs_(fs) {}
-  IOStatus Read(size_t n, const IOOptions& options, Slice* result,
-                char* scratch, IODebugContext* dbg) override;
-  IOStatus PositionedRead(uint64_t offset, size_t n, const IOOptions& options,
-                          Slice* result, char* scratch,
-                          IODebugContext* dbg) override;
-
- private:
-  FaultInjectionTestFS* fs_;
-};
-
 class TestFSDirectory : public FSDirectory {
  public:
   explicit TestFSDirectory(FaultInjectionTestFS* fs, std::string dirname,
@@ -187,10 +150,10 @@ class TestFSDirectory : public FSDirectory {
   std::unique_ptr<FSDirectory> dir_;
 };
 
-class FaultInjectionTestFS : public FileSystemWrapper {
+class FaultInjectionTestFS : public InjectionFileSystem {
  public:
   explicit FaultInjectionTestFS(const std::shared_ptr<FileSystem>& base)
-      : FileSystemWrapper(base),
+      : InjectionFileSystem(base),
         filesystem_active_(true),
         filesystem_writable_(false),
         thread_local_error_(new ThreadLocalPtr(DeleteThreadLocalErrorContext)),
@@ -298,7 +261,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     MutexLock l(&mutex_);
     return filesystem_writable_;
   }
-  bool ShouldUseDiretWritable(const std::string& file_name) {
+  bool ShouldUseDirectWritable(const std::string& file_name) {
     MutexLock l(&mutex_);
     if (filesystem_writable_) {
       return true;
@@ -514,12 +477,40 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   // saved callstack
   void PrintFaultBacktrace();
 
+ protected:
+  IOStatus DoRead(FSSequentialFile* file, size_t n, const IOOptions& options,
+                  Slice* result, char* scratch, IODebugContext* dbg) override;
+
+  IOStatus DoPositionedRead(FSSequentialFile* file, uint64_t offset, size_t n,
+                            const IOOptions& options, Slice* result,
+                            char* scratch, IODebugContext* dbg) override;
+
+  IOStatus DoRead(FSRandomAccessFile* file, uint64_t offset, size_t n,
+                  const IOOptions& options, Slice* result, char* scratch,
+                  IODebugContext* dbg) override;
+  IOStatus DoMultiRead(FSRandomAccessFile* file, FSReadRequest* reqs,
+                       size_t num_reqs, const IOOptions& options,
+                       IODebugContext* dbg) override;
+  size_t DoGetUniqueId(FSRandomAccessFile* file, char* id,
+                       size_t max_size) override;
+  IOStatus DoWrite(FSRandomRWFile* file, uint64_t offset, const Slice& data,
+                   const IOOptions& options, IODebugContext* dbg) override;
+  IOStatus DoRead(FSRandomRWFile* file, uint64_t offset, size_t n,
+                  const IOOptions& options, Slice* result, char* scratch,
+                  IODebugContext* dbg) override;
+  IOStatus DoClose(FSRandomRWFile* file, const IOOptions& options,
+                   IODebugContext* dbg) override;
+  IOStatus DoFlush(FSRandomRWFile* file, const IOOptions& options,
+                   IODebugContext* dbg) override;
+  IOStatus DoSync(FSRandomRWFile* file, const IOOptions& options,
+                  IODebugContext* dbg) override;
+
  private:
   port::Mutex mutex_;
   std::map<std::string, FSFileState> db_file_state_;
   std::set<std::string> open_managed_files_;
   // directory -> (file name -> file contents to recover)
-  // When data is recovered from unsyned parent directory, the files with
+  // When data is recovered from unsynced parent directory, the files with
   // empty file contents to recover is deleted. Those with non-empty ones
   // will be recovered to content accordingly.
   std::unordered_map<std::string, std::map<std::string, std::string>>
