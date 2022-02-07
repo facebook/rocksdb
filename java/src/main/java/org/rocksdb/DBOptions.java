@@ -433,22 +433,6 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  @Deprecated
-  public DBOptions setMaxBackgroundFlushes(
-      final int maxBackgroundFlushes) {
-    assert(isOwningHandle());
-    setMaxBackgroundFlushes(nativeHandle_, maxBackgroundFlushes);
-    return this;
-  }
-
-  @Override
-  @Deprecated
-  public int maxBackgroundFlushes() {
-    assert(isOwningHandle());
-    return maxBackgroundFlushes(nativeHandle_);
-  }
-
-  @Override
   public DBOptions setMaxLogFileSize(final long maxLogFileSize) {
     assert(isOwningHandle());
     setMaxLogFileSize(nativeHandle_, maxLogFileSize);

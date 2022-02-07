@@ -460,17 +460,6 @@ public class OptionsTest {
     }
   }
 
-  @SuppressWarnings("deprecated")
-  @Test
-  public void maxBackgroundFlushes() {
-    try (final Options opt = new Options()) {
-      final int intValue = rand.nextInt();
-      opt.setMaxBackgroundFlushes(intValue);
-      assertThat(opt.maxBackgroundFlushes()).
-          isEqualTo(intValue);
-    }
-  }
-
   @Test
   public void maxBackgroundJobs() {
     try (final Options opt = new Options()) {

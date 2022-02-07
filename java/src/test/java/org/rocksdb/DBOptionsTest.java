@@ -236,16 +236,6 @@ public class DBOptionsTest {
     }
   }
 
-  @SuppressWarnings("deprecated")
-  @Test
-  public void maxBackgroundFlushes() {
-    try(final DBOptions opt = new DBOptions()) {
-      final int intValue = rand.nextInt();
-      opt.setMaxBackgroundFlushes(intValue);
-      assertThat(opt.maxBackgroundFlushes()).isEqualTo(intValue);
-    }
-  }
-
   @Test
   public void maxBackgroundJobs() {
     try (final DBOptions opt = new DBOptions()) {

@@ -434,49 +434,6 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   int maxSubcompactions();
 
   /**
-   * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
-   * value of max_background_jobs. For backwards compatibility we will set
-   * `max_background_jobs = max_background_compactions + max_background_flushes`
-   * in the case where user sets at least one of `max_background_compactions` or
-   * `max_background_flushes`.
-   *
-   * Specifies the maximum number of concurrent background flush jobs.
-   * If you're increasing this, also consider increasing number of threads in
-   * HIGH priority thread pool. For more information, see
-   * Default: -1
-   *
-   * @param maxBackgroundFlushes number of max concurrent flush jobs
-   * @return the instance of the current object.
-   *
-   * @see RocksEnv#setBackgroundThreads(int)
-   * @see RocksEnv#setBackgroundThreads(int, Priority)
-   * @see MutableDBOptionsInterface#maxBackgroundCompactions()
-   *
-   * @deprecated Use {@link MutableDBOptionsInterface#setMaxBackgroundJobs(int)}
-   */
-  @Deprecated
-  T setMaxBackgroundFlushes(int maxBackgroundFlushes);
-
-  /**
-   * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
-   * value of max_background_jobs. For backwards compatibility we will set
-   * `max_background_jobs = max_background_compactions + max_background_flushes`
-   * in the case where user sets at least one of `max_background_compactions` or
-   * `max_background_flushes`.
-   *
-   * Returns the maximum number of concurrent background flush jobs.
-   * If you're increasing this, also consider increasing number of threads in
-   * HIGH priority thread pool. For more information, see
-   * Default: -1
-   *
-   * @return the maximum number of concurrent background flush jobs.
-   * @see RocksEnv#setBackgroundThreads(int)
-   * @see RocksEnv#setBackgroundThreads(int, Priority)
-   */
-  @Deprecated
-  int maxBackgroundFlushes();
-
-  /**
    * Specifies the maximum size of a info log file. If the current log file
    * is larger than `max_log_file_size`, a new info log file will
    * be created.
