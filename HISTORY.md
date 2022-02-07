@@ -5,6 +5,7 @@
 * Fixed more cases of EventListener::OnTableFileCreated called with OK status, file_size==0, and no SST file kept. Now the status is Aborted.
 
 ### Public API changes
+* Require C++17 compatible compiler (GCC >= 7, Clang >= 5, Visual Studio >= 2017). See #9388.
 * Remove HDFS support from main repo.
 * Remove librados support from main repo.
 * Remove obsolete backupable_db.h and type alias `BackupableDBOptions`. Use backup_engine.h and `BackupEngineOptions`. Similar renamings are in the C and Java APIs.
@@ -24,6 +25,7 @@
 * Removed timestamp from WriteOptions. Accordingly, added to DB APIs Put, Delete, SingleDelete, etc. accepting an additional argument 'timestamp'. Added Put, Delete, SingleDelete, etc to WriteBatch accepting an additional argument 'timestamp'. Removed WriteBatch::AssignTimestamps(vector<Slice>) API. Renamed WriteBatch::AssignTimestamp() to WriteBatch::UpdateTimestamps() with clarified comments.
 * Remove default implementation of Name() from FileSystemWrapper.
 * Rename `SizeApproximationOptions.include_memtabtles` to `SizeApproximationOptions.include_memtables`.
+* Remove deprecated option DBOptions::max_mem_compaction_level.
 
 ### Behavior Changes
 * Disallow the combination of DBOptions.use_direct_io_for_flush_and_compaction == true and DBOptions.writable_file_max_buffer_size == 0. This combination can cause WritableFileWriter::Append() to loop forever, and it does not make much sense in direct IO.
