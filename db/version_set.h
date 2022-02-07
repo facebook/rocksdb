@@ -740,7 +740,7 @@ class Version {
            bool* value_found = nullptr, bool* key_exists = nullptr,
            SequenceNumber* seq = nullptr, ReadCallback* callback = nullptr,
            bool* is_blob = nullptr, bool do_merge = true,
-           std::shared_ptr<PinnedIteratorsManager> pinned_iters_mgr = nullptr);
+           PinnedIteratorsManager* pinned_iters_mgr = nullptr);
 
   void MultiGet(const ReadOptions&, MultiGetRange* range,
                 ReadCallback* callback = nullptr);

@@ -1968,7 +1968,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   SequenceNumber* max_covering_tombstone_seq, bool* value_found,
                   bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
                   bool* is_blob, bool do_merge,
-                  std::shared_ptr<PinnedIteratorsManager> pinned_iters_mgr) {
+                  PinnedIteratorsManager* pinned_iters_mgr) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
 
@@ -1979,9 +1979,14 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     *key_exists = true;
   }
 
-  if (!pinned_iters_mgr) {
-    pinned_iters_mgr.reset(new PinnedIteratorsManager());
+  PinnedIteratorsManager local_pinned_iters_mgr;
+  bool use_local_pinned_iters_mgr = !pinned_iters_mgr;
+  if (use_local_pinned_iters_mgr) {
+    pinned_iters_mgr = &local_pinned_iters_mgr;
+  } else {
+    (void)local_pinned_iters_mgr;
   }
+
   uint64_t tracing_get_id = BlockCacheTraceHelper::kReservedGetId;
   if (vset_ && vset_->block_cache_tracer_ &&
       vset_->block_cache_tracer_->is_tracing_enabled()) {
@@ -2000,8 +2005,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
       do_merge ? value : nullptr, do_merge ? timestamp : nullptr, value_found,
       merge_context, do_merge, max_covering_tombstone_seq, clock_, seq,
-      merge_operator_ ? pinned_iters_mgr.get() : nullptr, callback,
-      is_blob_to_use, tracing_get_id, &blob_fetcher);
+      merge_operator_ ? pinned_iters_mgr : nullptr, callback, is_blob_to_use,
+      tracing_get_id, &blob_fetcher);
 
   // Pin blocks that we read to hold merge operands
   if (merge_operator_) {
