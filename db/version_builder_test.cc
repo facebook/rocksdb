@@ -138,25 +138,6 @@ class VersionBuilderTest : public testing::Test {
                   kDisableUserTimestamp, kDisableUserTimestamp);
   }
 
-  static std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
-      const VersionStorageInfo::BlobFiles& blob_files,
-      uint64_t blob_file_number) {
-    const auto it = std::lower_bound(
-        blob_files.begin(), blob_files.end(), blob_file_number,
-        [](const std::shared_ptr<BlobFileMetaData>& lhs, uint64_t rhs) {
-          assert(lhs);
-          return lhs->GetBlobFileNumber() < rhs;
-        });
-    assert(it == blob_files.end() || *it);
-
-    if (it == blob_files.end() ||
-        (*it)->GetBlobFileNumber() != blob_file_number) {
-      return std::shared_ptr<BlobFileMetaData>();
-    }
-
-    return *it;
-  }
-
   void UpdateVersionStorageInfo(VersionStorageInfo* vstorage) {
     assert(vstorage);
 
@@ -748,7 +729,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
   const auto& new_blob_files = new_vstorage.GetBlobFiles();
   ASSERT_EQ(new_blob_files.size(), 1);
 
-  const auto new_meta = GetBlobFileMetaData(new_blob_files, blob_file_number);
+  const auto new_meta = new_vstorage.GetBlobFileMetaData(blob_file_number);
 
   ASSERT_NE(new_meta, nullptr);
   ASSERT_EQ(new_meta->GetBlobFileNumber(), blob_file_number);
@@ -850,8 +831,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
           checksum_value, BlobFileMetaData::LinkedSsts{table_file_number},
           garbage_blob_count, garbage_blob_bytes);
 
-  const auto meta =
-      GetBlobFileMetaData(vstorage_.GetBlobFiles(), blob_file_number);
+  const auto meta = vstorage_.GetBlobFileMetaData(blob_file_number);
   ASSERT_NE(meta, nullptr);
 
   // Add dummy table file to ensure the blob file is referenced.
@@ -888,7 +868,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
   const auto& new_blob_files = new_vstorage.GetBlobFiles();
   ASSERT_EQ(new_blob_files.size(), 1);
 
-  const auto new_meta = GetBlobFileMetaData(new_blob_files, blob_file_number);
+  const auto new_meta = new_vstorage.GetBlobFileMetaData(blob_file_number);
 
   ASSERT_NE(new_meta, nullptr);
   ASSERT_EQ(new_meta->GetSharedMeta(), meta->GetSharedMeta());
@@ -960,7 +940,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileAdditionApplied) {
   const auto& new_blob_files = new_vstorage.GetBlobFiles();
   ASSERT_EQ(new_blob_files.size(), 1);
 
-  const auto new_meta = GetBlobFileMetaData(new_blob_files, blob_file_number);
+  const auto new_meta = new_vstorage.GetBlobFileMetaData(blob_file_number);
 
   ASSERT_NE(new_meta, nullptr);
   ASSERT_EQ(new_meta->GetBlobFileNumber(), blob_file_number);
@@ -1139,7 +1119,7 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   const auto& new_blob_files = new_vstorage.GetBlobFiles();
   ASSERT_EQ(new_blob_files.size(), 3);
 
-  const auto meta3 = GetBlobFileMetaData(new_blob_files, 3);
+  const auto meta3 = new_vstorage.GetBlobFileMetaData(/* blob_file_number */ 3);
 
   ASSERT_NE(meta3, nullptr);
   ASSERT_EQ(meta3->GetBlobFileNumber(), 3);
@@ -1148,7 +1128,7 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   ASSERT_EQ(meta3->GetGarbageBlobCount(), 100);
   ASSERT_EQ(meta3->GetGarbageBlobBytes(), 20000);
 
-  const auto meta5 = GetBlobFileMetaData(new_blob_files, 5);
+  const auto meta5 = new_vstorage.GetBlobFileMetaData(/* blob_file_number */ 5);
 
   ASSERT_NE(meta5, nullptr);
   ASSERT_EQ(meta5->GetBlobFileNumber(), 5);
@@ -1157,7 +1137,7 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   ASSERT_EQ(meta5->GetGarbageBlobCount(), 400);
   ASSERT_EQ(meta5->GetGarbageBlobBytes(), 140000);
 
-  const auto meta9 = GetBlobFileMetaData(new_blob_files, 9);
+  const auto meta9 = new_vstorage.GetBlobFileMetaData(/* blob_file_number */ 9);
 
   ASSERT_NE(meta9, nullptr);
   ASSERT_EQ(meta9->GetBlobFileNumber(), 9);
@@ -1187,7 +1167,8 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   const auto& newer_blob_files = newer_vstorage.GetBlobFiles();
   ASSERT_EQ(newer_blob_files.size(), 2);
 
-  const auto newer_meta3 = GetBlobFileMetaData(newer_blob_files, 3);
+  const auto newer_meta3 =
+      newer_vstorage.GetBlobFileMetaData(/* blob_file_number */ 3);
 
   ASSERT_EQ(newer_meta3, nullptr);
 
@@ -1271,7 +1252,7 @@ TEST_F(VersionBuilderTest, SaveBlobFilesToConcurrentJobs) {
   ASSERT_EQ(new_blob_files.size(), 2);
 
   const auto base_meta =
-      GetBlobFileMetaData(new_blob_files, base_blob_file_number);
+      new_vstorage.GetBlobFileMetaData(base_blob_file_number);
 
   ASSERT_NE(base_meta, nullptr);
   ASSERT_EQ(base_meta->GetBlobFileNumber(), base_blob_file_number);
@@ -1282,7 +1263,7 @@ TEST_F(VersionBuilderTest, SaveBlobFilesToConcurrentJobs) {
   ASSERT_EQ(base_meta->GetChecksumMethod(), checksum_method);
   ASSERT_EQ(base_meta->GetChecksumValue(), checksum_value);
 
-  const auto added_meta = GetBlobFileMetaData(new_blob_files, blob_file_number);
+  const auto added_meta = new_vstorage.GetBlobFileMetaData(blob_file_number);
 
   ASSERT_NE(added_meta, nullptr);
   ASSERT_EQ(added_meta->GetBlobFileNumber(), blob_file_number);
@@ -1554,7 +1535,7 @@ TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobFiles) {
 
     for (size_t i = 0; i < 5; ++i) {
       const auto meta =
-          GetBlobFileMetaData(blob_files, /* blob_file_number */ i + 1);
+          vstorage_.GetBlobFileMetaData(/* blob_file_number */ i + 1);
       ASSERT_NE(meta, nullptr);
       ASSERT_EQ(meta->GetLinkedSsts(), expected_linked_ssts[i]);
     }
@@ -1594,8 +1575,7 @@ TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobFiles) {
   // Trivially move a file that references a blob file. Note that we save
   // the original BlobFileMetaData object so we can check that no new object
   // gets created.
-  auto meta3 =
-      GetBlobFileMetaData(vstorage_.GetBlobFiles(), /* blob_file_number */ 3);
+  auto meta3 = vstorage_.GetBlobFileMetaData(/* blob_file_number */ 3);
 
   edit.DeleteFile(/* level */ 1, /* file_number */ 3);
   edit.AddFile(/* level */ 2, /* file_number */ 3, /* path_id */ 0,
@@ -1667,14 +1647,15 @@ TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobFiles) {
 
     for (size_t i = 0; i < 5; ++i) {
       const auto meta =
-          GetBlobFileMetaData(blob_files, /* blob_file_number */ i + 1);
+          new_vstorage.GetBlobFileMetaData(/* blob_file_number */ i + 1);
       ASSERT_NE(meta, nullptr);
       ASSERT_EQ(meta->GetLinkedSsts(), expected_linked_ssts[i]);
     }
 
     // Make sure that no new BlobFileMetaData got created for the blob file
     // affected by the trivial move.
-    ASSERT_EQ(GetBlobFileMetaData(blob_files, /* blob_file_number */ 3), meta3);
+    ASSERT_EQ(new_vstorage.GetBlobFileMetaData(/* blob_file_number */ 3),
+              meta3);
   }
 
   UnrefFilesInVersion(&new_vstorage);
