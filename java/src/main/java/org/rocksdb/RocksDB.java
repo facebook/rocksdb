@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -3305,9 +3304,7 @@ public class RocksDB extends RocksObject {
    *
    * <p><strong>See also</strong></p>
    * <ul>
-   * <li>{@link #compactRange(boolean, int, int)}</li>
    * <li>{@link #compactRange(byte[], byte[])}</li>
-   * <li>{@link #compactRange(byte[], byte[], boolean, int, int)}</li>
    * </ul>
    *
    * @throws RocksDBException thrown if an error occurs within the native
@@ -3326,14 +3323,7 @@ public class RocksDB extends RocksObject {
    * <p><strong>See also</strong></p>
    * <ul>
    * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, boolean, int, int)}
-   * </li>
-   * <li>
    *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[])}
-   * </li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[],
-   *   boolean, int, int)}
    * </li>
    * </ul>
    *
@@ -3359,8 +3349,6 @@ public class RocksDB extends RocksObject {
    * <p><strong>See also</strong></p>
    * <ul>
    * <li>{@link #compactRange()}</li>
-   * <li>{@link #compactRange(boolean, int, int)}</li>
-   * <li>{@link #compactRange(byte[], byte[], boolean, int, int)}</li>
    * </ul>
    *
    * @param begin start of key range (included in range)
@@ -3383,13 +3371,6 @@ public class RocksDB extends RocksObject {
    * <p><strong>See also</strong></p>
    * <ul>
    * <li>{@link #compactRange(ColumnFamilyHandle)}</li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, boolean, int, int)}
-   * </li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[],
-   *   boolean, int, int)}
-   * </li>
    * </ul>
    *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
@@ -3407,174 +3388,6 @@ public class RocksDB extends RocksObject {
         begin, begin == null ? -1 : begin.length,
         end, end == null ? -1 : end.length,
         0, columnFamilyHandle == null ? 0: columnFamilyHandle.nativeHandle_);
-  }
-
-  /**
-   * <p>Range compaction of database.</p>
-   * <p><strong>Note</strong>: After the database has been compacted,
-   * all data will have been pushed down to the last level containing
-   * any data.</p>
-   *
-   * <p>Compaction outputs should be placed in options.db_paths
-   * [target_path_id]. Behavior is undefined if target_path_id is
-   * out of range.</p>
-   *
-   * <p><strong>See also</strong></p>
-   * <ul>
-   * <li>{@link #compactRange()}</li>
-   * <li>{@link #compactRange(byte[], byte[])}</li>
-   * <li>{@link #compactRange(byte[], byte[], boolean, int, int)}</li>
-   * </ul>
-   *
-   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
-   *
-   * @param changeLevel reduce level after compaction
-   * @param targetLevel target level to compact to
-   * @param targetPathId the target path id of output path
-   *
-   * @throws RocksDBException thrown if an error occurs within the native
-   *     part of the library.
-   */
-  @Deprecated
-  public void compactRange(final boolean changeLevel, final int targetLevel,
-      final int targetPathId) throws RocksDBException {
-    compactRange(null, changeLevel, targetLevel, targetPathId);
-  }
-
-  /**
-   * <p>Range compaction of column family.</p>
-   * <p><strong>Note</strong>: After the database has been compacted,
-   * all data will have been pushed down to the last level containing
-   * any data.</p>
-   *
-   * <p>Compaction outputs should be placed in options.db_paths
-   * [target_path_id]. Behavior is undefined if target_path_id is
-   * out of range.</p>
-   *
-   * <p><strong>See also</strong></p>
-   * <ul>
-   * <li>{@link #compactRange(ColumnFamilyHandle)}</li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[])}
-   * </li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[],
-   *   boolean, int, int)}
-   * </li>
-   * </ul>
-   *
-   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
-   *
-   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
-   *     instance, or null for the default column family.
-   * @param changeLevel reduce level after compaction
-   * @param targetLevel target level to compact to
-   * @param targetPathId the target path id of output path
-   *
-   * @throws RocksDBException thrown if an error occurs within the native
-   *     part of the library.
-   */
-  @Deprecated
-  public void compactRange(
-    /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle,
-    final boolean changeLevel, final int targetLevel, final int targetPathId)
-      throws RocksDBException {
-    final CompactRangeOptions options = new CompactRangeOptions();
-    options.setChangeLevel(changeLevel);
-    options.setTargetLevel(targetLevel);
-    options.setTargetPathId(targetPathId);
-    compactRange(nativeHandle_,
-        null, -1,
-        null, -1,
-        options.nativeHandle_,
-        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
-  }
-
-  /**
-   * <p>Range compaction of database.</p>
-   * <p><strong>Note</strong>: After the database has been compacted,
-   * all data will have been pushed down to the last level containing
-   * any data.</p>
-   *
-   * <p>Compaction outputs should be placed in options.db_paths
-   * [target_path_id]. Behavior is undefined if target_path_id is
-   * out of range.</p>
-   *
-   * <p><strong>See also</strong></p>
-   * <ul>
-   * <li>{@link #compactRange()}</li>
-   * <li>{@link #compactRange(boolean, int, int)}</li>
-   * <li>{@link #compactRange(byte[], byte[])}</li>
-   * </ul>
-   *
-   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)}
-   *     instead
-   *
-   * @param begin start of key range (included in range)
-   * @param end end of key range (excluded from range)
-   * @param changeLevel reduce level after compaction
-   * @param targetLevel target level to compact to
-   * @param targetPathId the target path id of output path
-   *
-   * @throws RocksDBException thrown if an error occurs within the native
-   *     part of the library.
-   */
-  @Deprecated
-  public void compactRange(final byte[] begin, final byte[] end,
-      final boolean changeLevel, final int targetLevel,
-      final int targetPathId) throws RocksDBException {
-    compactRange(null, begin, end, changeLevel, targetLevel, targetPathId);
-  }
-
-  /**
-   * <p>Range compaction of column family.</p>
-   * <p><strong>Note</strong>: After the database has been compacted,
-   * all data will have been pushed down to the last level containing
-   * any data.</p>
-   *
-   * <p>Compaction outputs should be placed in options.db_paths
-   * [target_path_id]. Behavior is undefined if target_path_id is
-   * out of range.</p>
-   *
-   * <p><strong>See also</strong></p>
-   * <ul>
-   * <li>{@link #compactRange(ColumnFamilyHandle)}</li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, boolean, int, int)}
-   * </li>
-   * <li>
-   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[])}
-   * </li>
-   * </ul>
-   *
-   * @deprecated Use {@link #compactRange(ColumnFamilyHandle, byte[], byte[], CompactRangeOptions)} instead
-   *
-   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
-   *     instance.
-   * @param begin start of key range (included in range)
-   * @param end end of key range (excluded from range)
-   * @param changeLevel reduce level after compaction
-   * @param targetLevel target level to compact to
-   * @param targetPathId the target path id of output path
-   *
-   * @throws RocksDBException thrown if an error occurs within the native
-   *     part of the library.
-   */
-  @Deprecated
-  public void compactRange(
-      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] begin, final byte[] end, final boolean changeLevel,
-      final int targetLevel, final int targetPathId)
-      throws RocksDBException {
-    final CompactRangeOptions options = new CompactRangeOptions();
-    options.setChangeLevel(changeLevel);
-    options.setTargetLevel(targetLevel);
-    options.setTargetPathId(targetPathId);
-    compactRange(nativeHandle_,
-        begin, begin == null ? -1 : begin.length,
-        end, end == null ? -1 : end.length,
-        options.nativeHandle_,
-        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
   }
 
   /**
