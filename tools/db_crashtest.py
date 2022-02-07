@@ -203,6 +203,21 @@ def setup_expected_values_dir():
         os.mkdir(expected_values_dir)
     return expected_values_dir
 
+multiops_txn_key_spaces_file = None
+def setup_multiops_txn_key_spaces_file():
+    global multiops_txn_key_spaces_file
+    if multiops_txn_key_spaces_file is not None:
+        return multiops_txn_key_spaces_file
+    key_spaces_file_prefix = "rocksdb_crashtest_multiops_txn_key_spaces"
+    test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
+    if test_tmpdir is None or test_tmpdir == "":
+        multiops_txn_key_spaces_file = tempfile.mkstemp(
+                prefix=key_spaces_file_prefix)[1]
+    else:
+        multiops_txn_key_spaces_file = tempfile.mkstemp(
+                prefix=key_spaces_file_prefix, dir=test_tmpdir)[1]
+    return multiops_txn_key_spaces_file
+
 
 def is_direct_io_supported(dbname):
     with tempfile.NamedTemporaryFile(dir=dbname) as f:
@@ -359,6 +374,7 @@ multiops_txn_params = {
     "continuous_verification_interval": 1000,
     "delay_snapshot_read_one_in": 3,
     "write_buffer_size": 1024,
+    "key_spaces_path": setup_multiops_txn_key_spaces_file(),
 }
 
 def finalize_and_sanitize(src_params):
@@ -787,6 +803,8 @@ def main():
     # Only delete the `expected_values_dir` if test passes
     if expected_values_dir is not None:
         shutil.rmtree(expected_values_dir)
+    if multiops_txn_key_spaces_file is not None:
+        os.remove(multiops_txn_key_spaces_file)
 
 
 if __name__ == '__main__':
