@@ -367,49 +367,4 @@ public class BlockBasedTableConfigTest {
     assertThat(blockBasedTableConfig.indexShortening())
         .isEqualTo(IndexShorteningMode.kShortenSeparatorsAndSuccessor);
   }
-
-  @Deprecated
-  @Test
-  public void hashIndexAllowCollision() {
-    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    blockBasedTableConfig.setHashIndexAllowCollision(false);
-    assertThat(blockBasedTableConfig.hashIndexAllowCollision()).
-        isTrue();  // NOTE: setHashIndexAllowCollision should do nothing!
-  }
-
-  @Deprecated
-  @Test
-  public void blockCacheSize() {
-    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    blockBasedTableConfig.setBlockCacheSize(8 * 1024);
-    assertThat(blockBasedTableConfig.blockCacheSize()).
-        isEqualTo(8 * 1024);
-  }
-
-  @Deprecated
-  @Test
-  public void blockCacheNumShardBits() {
-    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    blockBasedTableConfig.setCacheNumShardBits(5);
-    assertThat(blockBasedTableConfig.cacheNumShardBits()).
-        isEqualTo(5);
-  }
-
-  @Deprecated
-  @Test
-  public void blockCacheCompressedSize() {
-    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    blockBasedTableConfig.setBlockCacheCompressedSize(40);
-    assertThat(blockBasedTableConfig.blockCacheCompressedSize()).
-        isEqualTo(40);
-  }
-
-  @Deprecated
-  @Test
-  public void blockCacheCompressedNumShardBits() {
-    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    blockBasedTableConfig.setBlockCacheCompressedNumShardBits(4);
-    assertThat(blockBasedTableConfig.blockCacheCompressedNumShardBits()).
-        isEqualTo(4);
-  }
 }

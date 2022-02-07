@@ -42,14 +42,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     enableIndexCompression = true;
     blockAlign = false;
     indexShortening = IndexShorteningMode.kShortenSeparators;
-
-    // NOTE: ONLY used if blockCache == null
-    blockCacheSize = 8 * 1024 * 1024;
-    blockCacheNumShardBits = 0;
-
-    // NOTE: ONLY used if blockCacheCompressed == null
-    blockCacheCompressedSize = 0;
-    blockCacheCompressedNumShardBits = 0;
   }
 
   /**
@@ -569,20 +561,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   }
 
   /**
-   * Set the filter.
-   *
-   * @param filter the filter
-   * @return the reference to the current config.
-   *
-   * @deprecated Use {@link #setFilterPolicy(Filter)}
-   */
-  @Deprecated
-  public BlockBasedTableConfig setFilter(
-      final Filter filter) {
-    return setFilterPolicy(filter);
-  }
-
-  /**
    * Determine if whole keys as opposed to prefixes are placed in the filter.
    *
    * @return if whole key filtering is enabled
@@ -804,158 +782,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     return this;
   }
 
-  /**
-   * Get the size of the cache in bytes that will be used by RocksDB.
-   *
-   * @return block cache size in bytes
-   */
-  @Deprecated
-  public long blockCacheSize() {
-    return blockCacheSize;
-  }
-
-  /**
-   * Set the size of the cache in bytes that will be used by RocksDB.
-   * If cacheSize is negative, then cache will not be used.
-   * DEFAULT: 8M
-   *
-   * @param blockCacheSize block cache size in bytes
-   * @return the reference to the current config.
-   *
-   * @deprecated Use {@link #setBlockCache(Cache)}.
-   */
-  @Deprecated
-  public BlockBasedTableConfig setBlockCacheSize(final long blockCacheSize) {
-    this.blockCacheSize = blockCacheSize;
-    return this;
-  }
-
-  /**
-   * Returns the number of shard bits used in the block cache.
-   * The resulting number of shards would be 2 ^ (returned value).
-   * Any negative number means use default settings.
-   *
-   * @return the number of shard bits used in the block cache.
-   */
-  @Deprecated
-  public int cacheNumShardBits() {
-    return blockCacheNumShardBits;
-  }
-
-  /**
-   * Controls the number of shards for the block cache.
-   * This is applied only if cacheSize is set to non-negative.
-   *
-   * @param blockCacheNumShardBits the number of shard bits. The resulting
-   *     number of shards would be 2 ^ numShardBits.  Any negative
-   *     number means use default settings."
-   * @return the reference to the current option.
-   *
-   * @deprecated Use {@link #setBlockCache(Cache)}.
-   */
-  @Deprecated
-  public BlockBasedTableConfig setCacheNumShardBits(
-      final int blockCacheNumShardBits) {
-    this.blockCacheNumShardBits = blockCacheNumShardBits;
-    return this;
-  }
-
-  /**
-   * Size of compressed block cache. If 0, then block_cache_compressed is set
-   * to null.
-   *
-   * @return size of compressed block cache.
-   */
-  @Deprecated
-  public long blockCacheCompressedSize() {
-    return blockCacheCompressedSize;
-  }
-
-  /**
-   * Size of compressed block cache. If 0, then block_cache_compressed is set
-   * to null.
-   *
-   * @param blockCacheCompressedSize of compressed block cache.
-   * @return the reference to the current config.
-   *
-   * @deprecated Use {@link #setBlockCacheCompressed(Cache)}.
-   */
-  @Deprecated
-  public BlockBasedTableConfig setBlockCacheCompressedSize(
-      final long blockCacheCompressedSize) {
-    this.blockCacheCompressedSize = blockCacheCompressedSize;
-    return this;
-  }
-
-  /**
-   * Controls the number of shards for the block compressed cache.
-   * This is applied only if blockCompressedCacheSize is set to non-negative.
-   *
-   * @return numShardBits the number of shard bits.  The resulting
-   *     number of shards would be 2 ^ numShardBits.  Any negative
-   *     number means use default settings.
-   */
-  @Deprecated
-  public int blockCacheCompressedNumShardBits() {
-    return blockCacheCompressedNumShardBits;
-  }
-
-  /**
-   * Controls the number of shards for the block compressed cache.
-   * This is applied only if blockCompressedCacheSize is set to non-negative.
-   *
-   * @param blockCacheCompressedNumShardBits the number of shard bits.  The resulting
-   *     number of shards would be 2 ^ numShardBits.  Any negative
-   *     number means use default settings."
-   * @return the reference to the current option.
-   *
-   * @deprecated Use {@link #setBlockCacheCompressed(Cache)}.
-   */
-  @Deprecated
-  public BlockBasedTableConfig setBlockCacheCompressedNumShardBits(
-      final int blockCacheCompressedNumShardBits) {
-    this.blockCacheCompressedNumShardBits = blockCacheCompressedNumShardBits;
-    return this;
-  }
-
-  /**
-   * Influence the behavior when kHashSearch is used.
-   *  if false, stores a precise prefix to block range mapping
-   *  if true, does not store prefix and allows prefix hash collision
-   *  (less memory consumption)
-   *
-   * @return if hash collisions should be allowed.
-   *
-   * @deprecated This option is now deprecated. No matter what value it
-   *     is set to, it will behave as
-   *     if {@link #hashIndexAllowCollision()} == true.
-   */
-  @Deprecated
-  public boolean hashIndexAllowCollision() {
-    return true;
-  }
-
-  /**
-   * Influence the behavior when kHashSearch is used.
-   * if false, stores a precise prefix to block range mapping
-   * if true, does not store prefix and allows prefix hash collision
-   * (less memory consumption)
-   *
-   * @param hashIndexAllowCollision points out if hash collisions should be allowed.
-   *
-   * @return the reference to the current config.
-   *
-   * @deprecated This option is now deprecated. No matter what value it
-   *     is set to, it will behave as
-   *     if {@link #hashIndexAllowCollision()} == true.
-   */
-  @Deprecated
-  public BlockBasedTableConfig setHashIndexAllowCollision(
-      final boolean hashIndexAllowCollision) {
-    // no-op
-    return this;
-  }
-
   @Override protected long newTableFactoryHandle() {
     final long filterPolicyHandle;
     if (filterPolicy != null) {
@@ -993,8 +819,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
         blockRestartInterval, indexBlockRestartInterval, metadataBlockSize, partitionFilters,
         optimizeFiltersForMemory, useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering,
         verifyCompression, readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign,
-        indexShortening.getValue(), blockCacheSize, blockCacheNumShardBits,
-        blockCacheCompressedSize, blockCacheCompressedNumShardBits);
+        indexShortening.getValue());
   }
 
   private native long newTableFactoryHandle(final boolean cacheIndexAndFilterBlocks,
@@ -1009,12 +834,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final boolean optimizeFiltersForMemory, final boolean useDeltaEncoding,
       final long filterPolicyHandle, final boolean wholeKeyFiltering,
       final boolean verifyCompression, final int readAmpBytesPerBit, final int formatVersion,
-      final boolean enableIndexCompression, final boolean blockAlign, final byte indexShortening,
-
-      @Deprecated final long blockCacheSize, @Deprecated final int blockCacheNumShardBits,
-
-      @Deprecated final long blockCacheCompressedSize,
-      @Deprecated final int blockCacheCompressedNumShardBits);
+      final boolean enableIndexCompression, final boolean blockAlign, final byte indexShortening);
 
   //TODO(AR) flushBlockPolicyFactory
   private boolean cacheIndexAndFilterBlocks;
@@ -1045,12 +865,4 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private boolean enableIndexCompression;
   private boolean blockAlign;
   private IndexShorteningMode indexShortening;
-
-  // NOTE: ONLY used if blockCache == null
-  @Deprecated private long blockCacheSize;
-  @Deprecated private int blockCacheNumShardBits;
-
-  // NOTE: ONLY used if blockCacheCompressed == null
-  @Deprecated private long blockCacheCompressedSize;
-  @Deprecated private int blockCacheCompressedNumShardBits;
 }

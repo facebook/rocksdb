@@ -60,9 +60,7 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     jboolean jwhole_key_filtering, jboolean jverify_compression,
     jint jread_amp_bytes_per_bit, jint jformat_version,
     jboolean jenable_index_compression, jboolean jblock_align,
-    jbyte jindex_shortening, jlong jblock_cache_size,
-    jint jblock_cache_num_shard_bits, jlong jblock_cache_compressed_size,
-    jint jblock_cache_compressed_num_shard_bits) {
+    jbyte jindex_shortening) {
   ROCKSDB_NAMESPACE::BlockBasedTableOptions options;
   options.cache_index_and_filter_blocks =
       static_cast<bool>(jcache_index_and_filter_blocks);
@@ -90,15 +88,6 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
           reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache> *>(
               jblock_cache_handle);
       options.block_cache = *pCache;
-    } else if (jblock_cache_size >= 0) {
-      if (jblock_cache_num_shard_bits > 0) {
-        options.block_cache = ROCKSDB_NAMESPACE::NewLRUCache(
-            static_cast<size_t>(jblock_cache_size),
-            static_cast<int>(jblock_cache_num_shard_bits));
-      } else {
-        options.block_cache = ROCKSDB_NAMESPACE::NewLRUCache(
-            static_cast<size_t>(jblock_cache_size));
-      }
     } else {
       options.no_block_cache = true;
       options.block_cache = nullptr;
@@ -115,15 +104,6 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
         reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache> *>(
             jblock_cache_compressed_handle);
     options.block_cache_compressed = *pCache;
-  } else if (jblock_cache_compressed_size > 0) {
-    if (jblock_cache_compressed_num_shard_bits > 0) {
-      options.block_cache_compressed = ROCKSDB_NAMESPACE::NewLRUCache(
-          static_cast<size_t>(jblock_cache_compressed_size),
-          static_cast<int>(jblock_cache_compressed_num_shard_bits));
-    } else {
-      options.block_cache_compressed = ROCKSDB_NAMESPACE::NewLRUCache(
-          static_cast<size_t>(jblock_cache_compressed_size));
-    }
   }
   options.block_size = static_cast<size_t>(jblock_size);
   options.block_size_deviation = static_cast<int>(jblock_size_deviation);
