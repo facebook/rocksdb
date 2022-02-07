@@ -459,6 +459,14 @@ TEST_P(EnvPosixTestWithParam, RunMany) {
   env_->Schedule(&CB::Run, &cb2);
   env_->Schedule(&CB::Run, &cb3);
   env_->Schedule(&CB::Run, &cb4);
+  // thread-pool pops a thread function and then run the function, which may
+  // cause threadpool is empty but the last function is still running. Add a
+  // dummy function at the end, to make sure the last callback is finished
+  // before threadpool is empty.
+  struct DummyCB {
+    static void Run(void*) {}
+  };
+  env_->Schedule(&DummyCB::Run, nullptr);
 
   WaitThreadPoolsEmpty();
   ASSERT_EQ(4, last_id.load(std::memory_order_acquire));
