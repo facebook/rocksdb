@@ -333,11 +333,7 @@ void MultiOpsTxnsStressTest::FinishInitDb(SharedState* shared) {
   if (FLAGS_enable_compaction_filter) {
     // TODO (yanqin) enable compaction filter
   }
-  if (FLAGS_destroy_db_initially) {
-    ReopenAndPreloadDb(shared);
-  } else {
-    ScanExistingDb(shared, FLAGS_threads);
-  }
+  ReopenAndPreloadDbIfNeeded(shared);
   // TODO (yanqin) parallelize
   for (auto& key_gen : key_gen_for_a_) {
     assert(key_gen);
@@ -350,7 +346,7 @@ void MultiOpsTxnsStressTest::FinishInitDb(SharedState* shared) {
   fprintf(stdout, "DB init finished\n");
 }
 
-void MultiOpsTxnsStressTest::ReopenAndPreloadDb(SharedState* shared) {
+void MultiOpsTxnsStressTest::ReopenAndPreloadDbIfNeeded(SharedState* shared) {
   (void)shared;
 #ifndef ROCKSDB_LITE
   std::vector<ColumnFamilyDescriptor> cf_descs;
@@ -377,8 +373,21 @@ void MultiOpsTxnsStressTest::ReopenAndPreloadDb(SharedState* shared) {
     exit(1);
   }
 
-  PreloadDb(shared, FLAGS_threads, FLAGS_lb_a, FLAGS_ub_a, FLAGS_lb_c,
-            FLAGS_ub_c);
+  bool db_empty = false;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->SeekToFirst();
+    if (!iter->Valid()) {
+      db_empty = true;
+    }
+  }
+
+  if (db_empty) {
+    PreloadDb(shared, FLAGS_threads, FLAGS_lb_a, FLAGS_ub_a, FLAGS_lb_c,
+              FLAGS_ub_c);
+  } else {
+    ScanExistingDb(shared, FLAGS_threads);
+  }
 
   // Reopen
   CancelAllBackgroundWork(db_, /*wait=*/true);
@@ -1349,7 +1358,7 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
     ropts.iterate_upper_bound = &pk_ub;
     std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
 
-    uint32_t tid = 0;
+    uint32_t a_tid = 0;
     for (it->SeekToFirst(); it->Valid(); it->Next(), ++count) {
       Record record;
       Status s = record.DecodePrimaryIndexEntry(it->key(), it->value());
@@ -1357,9 +1366,9 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
       uint32_t a = record.a_value();
       assert(a >= lb_a);
       assert(a < ub_a);
-      uint32_t prev_tid = tid;
-      tid = (a - lb_a) / num_a_per_thread;
-      if (prev_tid < tid) {
+      uint32_t prev_tid = a_tid;
+      a_tid = (a - lb_a) / num_a_per_thread;
+      if (prev_tid < a_tid) {
         uint32_t my_seed = prev_tid + shared->GetSeed();
         uint32_t low = lb_a + prev_tid * num_a_per_thread;
         uint32_t high = low + num_a_per_thread;
@@ -1368,7 +1377,7 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
         }
         key_gen_for_a_[prev_tid] = std::make_unique<KeyGeneratorForA>(
             my_seed, low, high, std::move(existing_a));
-      } else if (prev_tid == tid) {
+      } else if (prev_tid == a_tid) {
         existing_a.push_back(a);
       } else {
         assert(false);
@@ -1377,18 +1386,18 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
       uint32_t c = record.c_value();
       assert(c >= lb_c);
       assert(c < ub_c);
-      tid = (c - lb_c) / num_c_per_thread;
-      auto& existing_c_uniq = existing_c_uniqs[tid];
+      uint32_t c_tid = (c - lb_c) / num_c_per_thread;
+      auto& existing_c_uniq = existing_c_uniqs[c_tid];
       existing_c_uniq.insert(c);
     }
     if (!existing_a.empty()) {
-      uint32_t my_seed = tid + shared->GetSeed();
-      uint32_t low = lb_a + tid * num_a_per_thread;
+      uint32_t my_seed = a_tid + shared->GetSeed();
+      uint32_t low = lb_a + a_tid * num_a_per_thread;
       uint32_t high = low + num_a_per_thread;
       if (high > ub_a) {
         high = ub_a;
       }
-      key_gen_for_a_[tid] = std::make_unique<KeyGeneratorForA>(
+      key_gen_for_a_[a_tid] = std::make_unique<KeyGeneratorForA>(
           my_seed, low, high, std::move(existing_a));
     }
 

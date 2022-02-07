@@ -196,7 +196,7 @@ class MultiOpsTxnsStressTest : public StressTest {
 
   void FinishInitDb(SharedState*) override;
 
-  void ReopenAndPreloadDb(SharedState* shared);
+  void ReopenAndPreloadDbIfNeeded(SharedState* shared);
 
   bool IsStateTracked() const override { return false; }
 
