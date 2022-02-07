@@ -107,7 +107,8 @@ Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
           : level + 1;
   return RunManualCompaction(cfd, level, output_level, CompactRangeOptions(),
                              begin, end, true, disallow_trivial_move,
-                             port::kMaxUint64 /*max_file_num_to_ignore*/);
+                             port::kMaxUint64 /*max_file_num_to_ignore*/,
+                             "" /*trim_ts*/);
 }
 
 Status DBImpl::TEST_SwitchMemtable(ColumnFamilyData* cfd) {

@@ -349,7 +349,7 @@ Compaction* FIFOCompactionPicker::CompactRange(
     const CompactRangeOptions& /*compact_range_options*/,
     const InternalKey* /*begin*/, const InternalKey* /*end*/,
     InternalKey** compaction_end, bool* /*manual_conflict*/,
-    uint64_t /*max_file_num_to_ignore*/) {
+    uint64_t /*max_file_num_to_ignore*/, const std::string& /*trim_ts*/) {
 #ifdef NDEBUG
   (void)input_level;
   (void)output_level;

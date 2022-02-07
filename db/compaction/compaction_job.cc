@@ -1279,10 +1279,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       versions_->MakeInputIterator(read_options, sub_compact->compaction,
                                    &range_del_agg, file_options_for_read_));
   if (cfd->user_comparator()->timestamp_size() > 0 && !trim_ts_.empty()) {
-    Slice trim_ts = trim_ts_;
-    auto iter = raw_input.release();
-    raw_input.reset(
-        new HistoryTrimmingIterator(iter, cfd->user_comparator(), trim_ts));
+    raw_input.reset(new HistoryTrimmingIterator(
+        std::move(raw_input), cfd->user_comparator(), trim_ts_));
   }
   InternalIterator* input = raw_input.get();
 

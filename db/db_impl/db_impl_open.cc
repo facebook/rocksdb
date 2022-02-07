@@ -1538,6 +1538,27 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                       !kSeqPerBatch, kBatchPerTxn);
 }
 
+Status DB::OpenAndTrimHistory(
+    const DBOptions& db_options, const std::string& dbname,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+    const std::string& trim_ts) {
+  auto s = DB::Open(db_options, dbname, column_families, handles, dbptr);
+  if (!s.ok()) {
+    return s;
+  }
+  CompactRangeOptions options;
+  auto db_impl = static_cast_with_check<DBImpl>(*dbptr);
+  for (auto handle : *handles) {
+    s = db_impl->CompactRangeInternal(options, handle, nullptr, nullptr,
+                                      trim_ts);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  return s;
+}
+
 IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                            size_t preallocate_block_size,
                            log::Writer** new_log) {

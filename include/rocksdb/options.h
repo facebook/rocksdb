@@ -1783,9 +1783,6 @@ struct CompactRangeOptions {
   // Cancellation can be delayed waiting on automatic compactions when used
   // together with `exclusive_manual_compaction == true`.
   std::atomic<bool>* canceled = nullptr;
-  // Set user-defined timestamp trim bound, the data with newer timestamp than
-  // trim bound is removed by compaction
-  Slice* trim_ts = nullptr;
 };
 
 // IngestExternalFileOptions is used by IngestExternalFile()

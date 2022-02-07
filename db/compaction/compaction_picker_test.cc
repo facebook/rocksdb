@@ -2678,7 +2678,7 @@ TEST_F(CompactionPickerTest, UniversalMarkedManualCompaction) {
       universal_compaction_picker.CompactRange(
           cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
           ColumnFamilyData::kCompactAllLevels, 6, CompactRangeOptions(), NULL,
-          NULL, &manual_end, &manual_conflict, port::kMaxUint64));
+          NULL, &manual_end, &manual_conflict, port::kMaxUint64, ""));
 
   ASSERT_TRUE(compaction);
 

@@ -207,9 +207,10 @@ inline Slice ExtractTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
 }
 
 inline Slice ExtractTimestampFromKey(const Slice& internal_key, size_t ts_sz) {
-  assert(internal_key.size() >= kNumInternalBytes + ts_sz);
-  const size_t n = internal_key.size();
-  return Slice(internal_key.data() + n - ts_sz - kNumInternalBytes, ts_sz);
+  const size_t key_size = internal_key.size();
+  assert(key_size >= kNumInternalBytes + ts_sz);
+  return Slice(internal_key.data() + key_size - ts_sz - kNumInternalBytes,
+               ts_sz);
 }
 
 inline uint64_t ExtractInternalKeyFooter(const Slice& internal_key) {
