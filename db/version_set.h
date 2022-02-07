@@ -302,7 +302,7 @@ class VersionStorageInfo {
     size_t position_ = 0;
   };
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: PrepareForVersionAppend has been called
   FileLocation GetFileLocation(uint64_t file_number) const {
     const auto it = file_locations_.find(file_number);
 
@@ -319,7 +319,7 @@ class VersionStorageInfo {
     return it->second;
   }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: PrepareForVersionAppend has been called
   FileMetaData* GetFileMetaDataByNumber(uint64_t file_number) const {
     auto location = GetFileLocation(file_number);
 
@@ -520,6 +520,7 @@ class VersionStorageInfo {
   void GenerateLevelFilesBrief();
   void GenerateLevel0NonOverlapping();
   void GenerateBottommostFiles();
+  void GenerateFileLocationIndex();
 
   const InternalKeyComparator* internal_comparator_;
   const Comparator* user_comparator_;
