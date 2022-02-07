@@ -210,9 +210,6 @@ struct rocksdb_optimistictransaction_options_t {
 struct rocksdb_compactionfiltercontext_t {
   CompactionFilter::Context rep;
 };
-struct rocksdb_status_t{
-  Status* rep;
-};
 struct rocksdb_loaded_options_t{
   std::vector<ColumnFamilyDescriptor> cf;
   DBOptions* dboption;
