@@ -276,30 +276,6 @@ public enum TickerType {
     NO_FILE_ERRORS((byte) 0x31),
 
     /**
-     * Time system had to wait to do LO-L1 compactions.
-     *
-     * @deprecated
-     */
-    @Deprecated
-    STALL_L0_SLOWDOWN_MICROS((byte) 0x32),
-
-    /**
-     * Time system had to wait to move memtable to L1.
-     *
-     * @deprecated
-     */
-    @Deprecated
-    STALL_MEMTABLE_COMPACTION_MICROS((byte) 0x33),
-
-    /**
-     * write throttle because of too many files in L0.
-     *
-     * @deprecated
-     */
-    @Deprecated
-    STALL_L0_NUM_FILES_MICROS((byte) 0x34),
-
-    /**
      * Writer has to wait for compaction or flush to finish.
      */
     STALL_MICROS((byte) 0x35),
