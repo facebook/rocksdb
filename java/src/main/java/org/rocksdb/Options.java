@@ -508,22 +508,6 @@ public class Options extends RocksObject
   }
 
   @Override
-  @Deprecated
-  public int maxBackgroundFlushes() {
-    assert(isOwningHandle());
-    return maxBackgroundFlushes(nativeHandle_);
-  }
-
-  @Override
-  @Deprecated
-  public Options setMaxBackgroundFlushes(
-      final int maxBackgroundFlushes) {
-    assert(isOwningHandle());
-    setMaxBackgroundFlushes(nativeHandle_, maxBackgroundFlushes);
-    return this;
-  }
-
-  @Override
   public int maxBackgroundJobs() {
     assert(isOwningHandle());
     return maxBackgroundJobs(nativeHandle_);
