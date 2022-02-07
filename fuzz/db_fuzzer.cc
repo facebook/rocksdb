@@ -153,6 +153,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         delete iter;
         break;
       }
+      case OP_COUNT:
+        break;
     }
   }
 

@@ -405,20 +405,6 @@ public class DBOptions extends RocksObject
 
   @Override
   @Deprecated
-  public void setBaseBackgroundCompactions(
-      final int baseBackgroundCompactions) {
-    assert(isOwningHandle());
-    setBaseBackgroundCompactions(nativeHandle_, baseBackgroundCompactions);
-  }
-
-  @Override
-  public int baseBackgroundCompactions() {
-    assert(isOwningHandle());
-    return baseBackgroundCompactions(nativeHandle_);
-  }
-
-  @Override
-  @Deprecated
   public DBOptions setMaxBackgroundCompactions(
       final int maxBackgroundCompactions) {
     assert(isOwningHandle());
@@ -1141,19 +1127,6 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public DBOptions setPreserveDeletes(final boolean preserveDeletes) {
-    assert(isOwningHandle());
-    setPreserveDeletes(nativeHandle_, preserveDeletes);
-    return this;
-  }
-
-  @Override
-  public boolean preserveDeletes() {
-    assert(isOwningHandle());
-    return preserveDeletes(nativeHandle_);
-  }
-
-  @Override
   public DBOptions setTwoWriteQueues(final boolean twoWriteQueues) {
     assert(isOwningHandle());
     setTwoWriteQueues(nativeHandle_, twoWriteQueues);
@@ -1342,9 +1315,6 @@ public class DBOptions extends RocksObject
   private native void setDeleteObsoleteFilesPeriodMicros(
       long handle, long micros);
   private native long deleteObsoleteFilesPeriodMicros(long handle);
-  private native void setBaseBackgroundCompactions(long handle,
-      int baseBackgroundCompactions);
-  private native int baseBackgroundCompactions(long handle);
   private native void setMaxBackgroundCompactions(
       long handle, int maxBackgroundCompactions);
   private native int maxBackgroundCompactions(long handle);
@@ -1502,9 +1472,6 @@ public class DBOptions extends RocksObject
   private native void setAllowIngestBehind(final long handle,
       final boolean allowIngestBehind);
   private native boolean allowIngestBehind(final long handle);
-  private native void setPreserveDeletes(final long handle,
-      final boolean preserveDeletes);
-  private native boolean preserveDeletes(final long handle);
   private native void setTwoWriteQueues(final long handle,
       final boolean twoWriteQueues);
   private native boolean twoWriteQueues(final long handle);

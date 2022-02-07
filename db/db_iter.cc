@@ -78,7 +78,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       range_del_agg_(&ioptions.internal_comparator, s),
       db_impl_(db_impl),
       cfd_(cfd),
-      start_seqnum_(read_options.iter_start_seqnum),
+      start_seqnum_(0ULL),
       timestamp_ub_(read_options.timestamp),
       timestamp_lb_(read_options.iter_start_ts),
       timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0) {

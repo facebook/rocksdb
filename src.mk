@@ -88,7 +88,6 @@ LIB_SOURCES =                                                   \
   env/env.cc                                                    \
   env/env_chroot.cc                                             \
   env/env_encryption.cc                                         \
-  env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
   env/file_system.cc                                            \
   env/fs_posix.cc                                               \
@@ -224,7 +223,6 @@ LIB_SOURCES =                                                   \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \
   util/ribbon_config.cc                                         \
-  util/regex.cc                                                 \
   util/slice.cc                                                 \
   util/file_checksum_helper.cc                                  \
   util/status.cc                                                \
@@ -247,6 +245,7 @@ LIB_SOURCES =                                                   \
   utilities/compaction_filters.cc                               \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
   utilities/convenience/info_log_finder.cc                      \
+  utilities/counted_fs.cc                                       \
   utilities/debug.cc                                            \
   utilities/env_mirror.cc                                       \
   utilities/env_timed.cc                                        \

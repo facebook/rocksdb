@@ -78,7 +78,8 @@ bool ExpectedState::Exists(int cf, int64_t key) {
 void ExpectedState::Reset() {
   for (size_t i = 0; i < num_column_families_; ++i) {
     for (size_t j = 0; j < max_key_; ++j) {
-      Delete(static_cast<int>(i), j, false /* pending */);
+      Value(static_cast<int>(i), j)
+          .store(SharedState::DELETION_SENTINEL, std::memory_order_relaxed);
     }
   }
 }

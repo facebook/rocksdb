@@ -453,6 +453,12 @@ DEFINE_bool(
     ROCKSDB_NAMESPACE::BlockBasedTableOptions().optimize_filters_for_memory,
     "Minimize memory footprint of filters");
 
+DEFINE_bool(
+    detect_filter_construct_corruption,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+        .detect_filter_construct_corruption,
+    "Detect corruption during new Bloom Filter and Ribbon Filter construction");
+
 DEFINE_int32(
     index_type,
     static_cast<int32_t>(
@@ -708,17 +714,12 @@ DEFINE_string(bottommost_compression_type, "disable",
 
 DEFINE_string(checksum_type, "kCRC32c", "Algorithm to use to checksum blocks");
 
-DEFINE_string(hdfs, "",
-              "Name of hdfs environment. Mutually exclusive with"
-              " --env_uri and --fs_uri.");
-
-DEFINE_string(
-    env_uri, "",
-    "URI for env lookup. Mutually exclusive with --hdfs and --fs_uri");
+DEFINE_string(env_uri, "",
+              "URI for env lookup. Mutually exclusive with --fs_uri");
 
 DEFINE_string(fs_uri, "",
               "URI for registry Filesystem lookup. Mutually exclusive"
-              " with --hdfs and --env_uri."
+              " with --env_uri."
               " Creates a default environment with the specified filesystem.");
 
 DEFINE_uint64(ops_per_thread, 1200000, "Number of operations per thread.");

@@ -134,12 +134,6 @@ CFLAGS +=  -DHAVE_POWER8
 HAVE_POWER8=1
 endif
 
-ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc+crypto -xc /dev/null 2>&1))
-CXXFLAGS += -march=armv8-a+crc+crypto
-CFLAGS += -march=armv8-a+crc+crypto
-ARMCRC_SOURCE=1
-endif
-
 # if we're compiling for shared libraries, add the shared flags
 ifeq ($(LIB_MODE),shared)
 CXXFLAGS += $(PLATFORM_SHARED_CFLAGS) -DROCKSDB_DLL
@@ -220,14 +214,8 @@ am__v_AR_ = $(am__v_AR_$(AM_DEFAULT_VERBOSITY))
 am__v_AR_0 = @echo "  AR      " $@;
 am__v_AR_1 =
 
-ifdef ROCKSDB_USE_LIBRADOS
-LIB_SOURCES += utilities/env_librados.cc
-TEST_MAIN_SOURCES += utilities/env_librados_test.cc
-LDFLAGS += -lrados
-endif
-
 AM_LINK = $(AM_V_CCLD)$(CXX) -L. $(patsubst lib%.a, -l%, $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^)) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
-AM_SHARE = $(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$@ -L. $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^) $(LDFLAGS) -o $@
+AM_SHARE = $(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$@ -L. $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^) $(EXEC_LDFLAGS) $(LDFLAGS) -o $@
 
 # Detect what platform we're building on.
 # Export some common variables that might have been passed as Make variables
@@ -261,6 +249,16 @@ endif
 CXXFLAGS := $(CXXFLAGS) $(shell pkg-config --cflags $(ROCKSDB_PLUGIN_PKGCONFIG_REQUIRES))
 ifneq ($(.SHELLSTATUS),0)
 $(error pkg-config failed)
+endif
+endif
+
+CXXFLAGS += $(ARCHFLAG)
+
+ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc+crypto -xc /dev/null 2>&1))
+ifneq ($(PLATFORM),OS_MACOSX)
+CXXFLAGS += -march=armv8-a+crc+crypto
+CFLAGS += -march=armv8-a+crc+crypto
+ARMCRC_SOURCE=1
 endif
 endif
 
@@ -311,6 +309,19 @@ endif
 ifeq ($(LIB_MODE),shared)
 # So that binaries are executable from build location, in addition to install location
 EXEC_LDFLAGS += -Wl,-rpath -Wl,'$$ORIGIN'
+endif
+
+ifeq ($(PLATFORM), OS_MACOSX)
+ifeq ($(ARCHFLAG), -arch arm64)
+ifneq ($(MACHINE), arm64)
+# If we're building on a non-arm64 machine but targeting arm64 Mac, we need to disable
+# linking with jemalloc (as it won't be arm64-compatible) and remove some other options
+# set during platform detection
+DISABLE_JEMALLOC=1
+PLATFORM_CFLAGS := $(filter-out -march=native -DHAVE_SSE42, $(PLATFORM_CFLAGS))
+PLATFORM_CXXFLAGS := $(filter-out -march=native -DHAVE_SSE42, $(PLATFORM_CXXFLAGS))
+endif
+endif
 endif
 
 # ASAN doesn't work well with jemalloc. If we're compiling with ASAN, we should use regular malloc.
@@ -542,9 +553,9 @@ endif
 # dependencies
 ifneq ($(filter check-headers, $(MAKECMDGOALS)),)
 # TODO: add/support JNI headers
-	DEV_HEADER_DIRS := $(sort include/ hdfs/ $(dir $(ALL_SOURCES)))
+	DEV_HEADER_DIRS := $(sort include/ $(dir $(ALL_SOURCES)))
 # Some headers like in port/ are platform-specific
-	DEV_HEADERS := $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | egrep -v 'port/|plugin/|lua/|range_tree/|tools/rdb/db_wrapper.h|include/rocksdb/utilities/env_librados.h')
+	DEV_HEADERS := $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | egrep -v 'port/|plugin/|lua/|range_tree/')
 else
 	DEV_HEADERS :=
 endif
@@ -563,27 +574,29 @@ check-headers: $(HEADER_OK_FILES)
 
 # options_settable_test doesn't pass with UBSAN as we use hack in the test
 ifdef COMPILE_WITH_UBSAN
-        TESTS := $(shell echo $(TESTS) | sed 's/\boptions_settable_test\b//g')
+TESTS := $(shell echo $(TESTS) | sed 's/\boptions_settable_test\b//g')
 endif
 ifdef ASSERT_STATUS_CHECKED
-	# TODO: finish fixing all tests to pass this check
-	TESTS_FAILING_ASC = \
-		c_test \
-		env_test \
-		range_locking_test \
-		testutil_test \
+# TODO: finish fixing all tests to pass this check
+TESTS_FAILING_ASC = \
+	c_test \
+	env_test \
+	range_locking_test \
+	testutil_test \
 
-	# Since we have very few ASC exclusions left, excluding them from
-	# the build is the most convenient way to exclude them from testing
-	TESTS := $(filter-out $(TESTS_FAILING_ASC),$(TESTS))
+# Since we have very few ASC exclusions left, excluding them from
+# the build is the most convenient way to exclude them from testing
+TESTS := $(filter-out $(TESTS_FAILING_ASC),$(TESTS))
 endif
 
 ROCKSDBTESTS_SUBSET ?= $(TESTS)
 
+# c_test - doesn't use gtest
 # env_test - suspicious use of test::TmpDir
 # deletefile_test - serial because it generates giant temporary files in
 #   its various tests. Parallel can fill up your /dev/shm
 NON_PARALLEL_TEST = \
+	c_test \
 	env_test \
 	deletefile_test \
 
@@ -841,7 +854,7 @@ endif
 
 parallel_tests = $(patsubst %,parallel_%,$(PARALLEL_TEST))
 .PHONY: gen_parallel_tests $(parallel_tests)
-$(parallel_tests): $(PARALLEL_TEST)
+$(parallel_tests):
 	$(AM_V_at)TEST_BINARY=$(patsubst parallel_%,%,$@); \
   TEST_NAMES=` \
     (./$$TEST_BINARY --gtest_list_tests || echo "  $${TEST_BINARY}__list_tests_failure") \
@@ -1595,11 +1608,6 @@ env_mirror_test: $(OBJ_DIR)/utilities/env_mirror_test.o $(TEST_LIBRARY) $(LIBRAR
 env_timed_test: $(OBJ_DIR)/utilities/env_timed_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-ifdef ROCKSDB_USE_LIBRADOS
-env_librados_test: $(OBJ_DIR)/utilities/env_librados_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
-endif
-
 object_registry_test: $(OBJ_DIR)/utilities/object_registry_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -2055,10 +2063,12 @@ ifneq ($(origin JNI_LIBC), undefined)
   JNI_LIBC_POSTFIX = -$(JNI_LIBC)
 endif
 
+ifeq (,$(ROCKSDBJNILIB))
 ifneq (,$(filter ppc% s390x arm64 aarch64 sparc64, $(MACHINE)))
 	ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE)$(JNI_LIBC_POSTFIX).so
 else
 	ROCKSDBJNILIB = librocksdbjni-linux$(ARCH)$(JNI_LIBC_POSTFIX).so
+endif
 endif
 ROCKSDB_JAVA_VERSION ?= $(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-linux$(ARCH)$(JNI_LIBC_POSTFIX).jar
@@ -2085,7 +2095,13 @@ ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 CURL_SSL_OPTS ?= --tlsv1
 
 ifeq ($(PLATFORM), OS_MACOSX)
+ifeq (,$(findstring librocksdbjni-osx,$(ROCKSDBJNILIB)))
+ifeq ($(MACHINE),arm64)
+	ROCKSDBJNILIB = librocksdbjni-osx-aarch64.jnilib
+else
 	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
+endif
+endif
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-osx.jar
 	SHA256_CMD = openssl sha256 -r
 ifneq ("$(wildcard $(JAVA_HOME)/include/darwin)","")
@@ -2094,6 +2110,7 @@ else
 	JAVA_INCLUDE = -I/System/Library/Frameworks/JavaVM.framework/Headers/
 endif
 endif
+
 ifeq ($(PLATFORM), OS_FREEBSD)
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/freebsd
 	ROCKSDBJNILIB = librocksdbjni-freebsd$(ARCH).so
@@ -2128,7 +2145,11 @@ zlib-$(ZLIB_VER).tar.gz:
 libz.a: zlib-$(ZLIB_VER).tar.gz
 	-rm -rf zlib-$(ZLIB_VER)
 	tar xvzf zlib-$(ZLIB_VER).tar.gz
-	cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' ./configure --static && $(MAKE)
+	if [ -n"$(ARCHFLAG)" ]; then \
+		cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' ./configure --static --archs="$(ARCHFLAG)" && $(MAKE);  \
+	else \
+		cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' ./configure --static && $(MAKE);  \
+	fi
 	cp zlib-$(ZLIB_VER)/libz.a .
 
 bzip2-$(BZIP2_VER).tar.gz:
@@ -2142,7 +2163,7 @@ bzip2-$(BZIP2_VER).tar.gz:
 libbz2.a: bzip2-$(BZIP2_VER).tar.gz
 	-rm -rf bzip2-$(BZIP2_VER)
 	tar xvzf bzip2-$(BZIP2_VER).tar.gz
-	cd bzip2-$(BZIP2_VER) && $(MAKE) CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64 ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' AR='ar ${EXTRA_ARFLAGS}'
+	cd bzip2-$(BZIP2_VER) && $(MAKE) CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64 $(ARCHFLAG) ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' AR='ar ${EXTRA_ARFLAGS}' libbz2.a
 	cp bzip2-$(BZIP2_VER)/libbz2.a .
 
 snappy-$(SNAPPY_VER).tar.gz:
@@ -2157,7 +2178,7 @@ libsnappy.a: snappy-$(SNAPPY_VER).tar.gz
 	-rm -rf snappy-$(SNAPPY_VER)
 	tar xvzf snappy-$(SNAPPY_VER).tar.gz
 	mkdir snappy-$(SNAPPY_VER)/build
-	cd snappy-$(SNAPPY_VER)/build && CFLAGS='${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' CXXFLAGS='${JAVA_STATIC_DEPS_CXXFLAGS} ${EXTRA_CXXFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' cmake -DCMAKE_POSITION_INDEPENDENT_CODE=ON ${PLATFORM_CMAKE_FLAGS} .. && $(MAKE) ${SNAPPY_MAKE_TARGET}
+	cd snappy-$(SNAPPY_VER)/build && CFLAGS='$(ARCHFLAG) ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' CXXFLAGS='$(ARCHFLAG) ${JAVA_STATIC_DEPS_CXXFLAGS} ${EXTRA_CXXFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' cmake -DCMAKE_POSITION_INDEPENDENT_CODE=ON ${PLATFORM_CMAKE_FLAGS} .. && $(MAKE) ${SNAPPY_MAKE_TARGET}
 	cp snappy-$(SNAPPY_VER)/build/libsnappy.a .
 
 lz4-$(LZ4_VER).tar.gz:
@@ -2171,7 +2192,7 @@ lz4-$(LZ4_VER).tar.gz:
 liblz4.a: lz4-$(LZ4_VER).tar.gz
 	-rm -rf lz4-$(LZ4_VER)
 	tar xvzf lz4-$(LZ4_VER).tar.gz
-	cd lz4-$(LZ4_VER)/lib && $(MAKE) CFLAGS='-fPIC -O2 ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' all
+	cd lz4-$(LZ4_VER)/lib && $(MAKE) CFLAGS='-fPIC -O2 $(ARCHFLAG) ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' all
 	cp lz4-$(LZ4_VER)/lib/liblz4.a .
 
 zstd-$(ZSTD_VER).tar.gz:
@@ -2185,7 +2206,7 @@ zstd-$(ZSTD_VER).tar.gz:
 libzstd.a: zstd-$(ZSTD_VER).tar.gz
 	-rm -rf zstd-$(ZSTD_VER)
 	tar xvzf zstd-$(ZSTD_VER).tar.gz
-	cd zstd-$(ZSTD_VER)/lib && DESTDIR=. PREFIX= $(MAKE) CFLAGS='-fPIC -O2 ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' libzstd.a
+	cd zstd-$(ZSTD_VER)/lib && DESTDIR=. PREFIX= $(MAKE) CFLAGS='-fPIC -O2 $(ARCHFLAG) ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' libzstd.a
 	cp zstd-$(ZSTD_VER)/lib/libzstd.a .
 
 # A version of each $(LIB_OBJECTS) compiled with -fPIC and a fixed set of static compression libraries
@@ -2207,6 +2228,29 @@ endif
 	$(MAKE) rocksdbjavastatic_deps
 	$(MAKE) rocksdbjavastatic_libobjects
 	$(MAKE) rocksdbjavastatic_javalib
+	$(MAKE) rocksdbjavastatic_jar
+
+rocksdbjavastaticosx: rocksdbjavastaticosx_archs
+	mv java/target/librocksdbjni-osx-x86_64.jnilib java/target/librocksdbjni-osx.jnilib
+	mv java/target/librocksdbjni-osx-arm64.jnilib java/target/librocksdbjni-osx-aarch64.jnilib
+
+rocksdbjavastaticosx_ub: rocksdbjavastaticosx_archs
+	lipo -create -output ./java/target/$(ROCKSDBJNILIB) java/target/librocksdbjni-osx-x86_64.jnilib java/target/librocksdbjni-osx-arm64.jnilib
+	$(MAKE) rocksdbjavastatic_jar
+
+rocksdbjavastaticosx_archs:
+	$(MAKE) rocksdbjavastaticosx_arch_x86_64
+	$(MAKE) rocksdbjavastaticosx_arch_arm64
+
+rocksdbjavastaticosx_arch_%:
+ifeq ($(JAVA_HOME),)
+	$(error JAVA_HOME is not set)
+endif
+	$(MAKE) clean-ext-libraries-bin
+	$(MAKE) clean-rocks
+	ARCHFLAG="-arch $*" $(MAKE) rocksdbjavastatic_deps
+	ARCHFLAG="-arch $*" $(MAKE) rocksdbjavastatic_libobjects
+	ARCHFLAG="-arch $*" ROCKSDBJNILIB="librocksdbjni-osx-$*.jnilib" $(MAKE) rocksdbjavastatic_javalib
 
 ifeq ($(JAR_CMD),)
 ifneq ($(JAVA_HOME),)
@@ -2225,7 +2269,9 @@ rocksdbjavastatic_javalib:
 	cd java/target;if [ "$(DEBUG_LEVEL)" == "0" ]; then \
 		strip $(STRIPFLAGS) $(ROCKSDBJNILIB); \
 	fi
-	cd java; $(JAR_CMD) -cf target/$(ROCKSDB_JAR) HISTORY*.md
+
+rocksdbjavastatic_jar:
+	cd java; $(JAR_CMD)  -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
 	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
 	cd java/target/apidocs; $(JAR_CMD) -cf ../$(ROCKSDB_JAVADOCS_JAR) *
@@ -2238,14 +2284,14 @@ rocksdbjavastatic_deps: $(JAVA_COMPRESSIONS)
 
 rocksdbjavastatic_libobjects: $(LIB_OBJECTS)
 
-rocksdbjavastaticrelease: rocksdbjavastatic
+rocksdbjavastaticrelease: rocksdbjavastaticosx
 	cd java/crossbuild && (vagrant destroy -f || true) && vagrant up linux32 && vagrant halt linux32 && vagrant up linux64 && vagrant halt linux64 && vagrant up linux64-musl && vagrant halt linux64-musl
 	cd java; $(JAR_CMD) -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
 	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
 	openssl sha1 java/target/$(ROCKSDB_JAR_ALL) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAR_ALL).sha1
 
-rocksdbjavastaticreleasedocker: rocksdbjavastatic rocksdbjavastaticdockerx86 rocksdbjavastaticdockerx86_64 rocksdbjavastaticdockerx86musl rocksdbjavastaticdockerx86_64musl
+rocksdbjavastaticreleasedocker: rocksdbjavastaticosx rocksdbjavastaticdockerx86 rocksdbjavastaticdockerx86_64 rocksdbjavastaticdockerx86musl rocksdbjavastaticdockerx86_64musl
 	cd java; $(JAR_CMD) -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
 	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class

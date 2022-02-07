@@ -34,7 +34,8 @@ class BatchedOpsStressTest : public StressTest {
     std::string values[10] = {"9", "8", "7", "6", "5", "4", "3", "2", "1", "0"};
     Slice value_slices[10];
     WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
-                     FLAGS_batch_protection_bytes_per_key);
+                     FLAGS_batch_protection_bytes_per_key,
+                     FLAGS_user_timestamp_size);
     Status s;
     auto cfh = column_families_[rand_column_families[0]];
     std::string key_str = Key(rand_keys[0]);
@@ -70,7 +71,8 @@ class BatchedOpsStressTest : public StressTest {
     std::string keys[10] = {"9", "7", "5", "3", "1", "8", "6", "4", "2", "0"};
 
     WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
-                     FLAGS_batch_protection_bytes_per_key);
+                     FLAGS_batch_protection_bytes_per_key,
+                     FLAGS_user_timestamp_size);
     Status s;
     auto cfh = column_families_[rand_column_families[0]];
     std::string key_str = Key(rand_keys[0]);

@@ -534,38 +534,10 @@ public class ReadOptions extends RocksObject {
   }
 
   /**
-   * Needed to support differential snapshots. Has 2 effects:
-   *     1) Iterator will skip all internal keys with seqnum &lt; iter_start_seqnum
-   *     2) if this param &gt; 0 iterator will return INTERNAL keys instead of user
-   *         keys; e.g. return tombstones as well.
-   *
-   * Default: 0 (don't filter by seqnum, return user keys)
-   *
-   * @param startSeqnum the starting sequence number.
-   *
-   * @return the reference to the current ReadOptions.
-   */
-  public ReadOptions setIterStartSeqnum(final long startSeqnum) {
-    assert (isOwningHandle());
-    setIterStartSeqnum(nativeHandle_, startSeqnum);
-    return this;
-  }
-
-  /**
-   * Returns the starting Sequence Number of any iterator.
-   * See {@link #setIterStartSeqnum(long)}.
-   *
-   * @return the starting sequence number of any iterator.
-   */
-  public long iterStartSeqnum() {
-    assert (isOwningHandle());
-    return iterStartSeqnum(nativeHandle_);
-  }
-
-  /**
    * Returns whether an auto prefix mode will be used
    *
-   * @return the setting of whether an auto prefix mode will be used.
+   * @return the setting of whether an auto prefix mode will be used,
+   *     true if auto prefix mode is set.
    */
   public boolean autoPrefixMode() {
     assert (isOwningHandle());
@@ -840,10 +812,7 @@ public class ReadOptions extends RocksObject {
   private native void setIterateLowerBound(final long handle,
       final long lowerBoundSliceHandle);
   private native long iterateLowerBound(final long handle);
-  private native void setTableFilter(final long handle,
-      final long tableFilterHandle);
-  private native void setIterStartSeqnum(final long handle, final long seqNum);
-  private native long iterStartSeqnum(final long handle);
+  private native void setTableFilter(final long handle, final long tableFilterHandle);
   private native boolean autoPrefixMode(final long handle);
   private native void setAutoPrefixMode(final long handle, final boolean autoPrefixMode);
   private native long timestamp(final long handle);
