@@ -47,15 +47,17 @@ class DBMergeOperandTest : public DBTestBase {
       : DBTestBase("db_merge_operand_test", /*env_do_fsync=*/true) {}
 };
 
-TEST_F(DBMergeOperandTest, PinSelfUseAfterFree) {
+TEST_F(DBMergeOperandTest, MergeOperandReadAfterFreeBug) {
+  // There was a bug of reading merge operands after they are mistakely freed
+  // in DB::GetMergeOperands, which is surfaced by cache full.
+  // See PR#9507 for more.
   Options options;
   options.create_if_missing = true;
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
   options.env = env_;
   BlockBasedTableOptions table_options;
 
-  // Small cache to simulate cache full to repro UseAfterFree in pinning merge
-  // operands
+  // Small cache to simulate cache full
   table_options.block_cache = NewLRUCache(1);
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
