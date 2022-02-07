@@ -3077,6 +3077,25 @@ void VersionStorageInfo::AddBlobFile(
   blob_files_.emplace_back(std::move(blob_file_meta));
 }
 
+VersionStorageInfo::BlobFiles::const_iterator
+VersionStorageInfo::GetBlobFileMetaDataImpl(uint64_t blob_file_number) const {
+  const auto it = std::lower_bound(
+      blob_files_.begin(), blob_files_.end(), blob_file_number,
+      [](const std::shared_ptr<BlobFileMetaData>& lhs, uint64_t rhs) {
+        assert(lhs);
+        return lhs->GetBlobFileNumber() < rhs;
+      });
+
+  assert(it == blob_files_.end() || *it);
+
+  if (it != blob_files_.end() &&
+      (*it)->GetBlobFileNumber() == blob_file_number) {
+    return it;
+  }
+
+  return blob_files_.end();
+}
+
 void VersionStorageInfo::SetFinalized() {
   finalized_ = true;
 
