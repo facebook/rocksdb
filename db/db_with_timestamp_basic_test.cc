@@ -572,7 +572,7 @@ TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
   std::string end = Key(60);
   Range r(start, end);
   SizeApproximationOptions size_approx_options;
-  size_approx_options.include_memtabtles = true;
+  size_approx_options.include_memtables = true;
   size_approx_options.include_files = true;
   ASSERT_OK(
       db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));

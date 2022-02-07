@@ -1139,7 +1139,7 @@ class DB {
                                      uint64_t* sizes,
                                      uint8_t include_flags = INCLUDE_FILES) {
     SizeApproximationOptions options;
-    options.include_memtabtles =
+    options.include_memtables =
         (include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) != 0;
     options.include_files =
         (include_flags & SizeApproximationFlags::INCLUDE_FILES) != 0;
