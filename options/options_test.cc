@@ -930,16 +930,13 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
 
-  // unrecognized filter policy config
-  s = GetBlockBasedTableOptionsFromString(config_options, table_opt,
-                                          "cache_index_and_filter_blocks=1;"
-                                          "filter_policy=bloomfilter:4",
-                                          &new_opt);
-  ASSERT_NOK(s);
-  ASSERT_TRUE(s.IsInvalidArgument());
-  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
-            new_opt.cache_index_and_filter_blocks);
-  ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
+  // Used to be rejected, now accepted
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=bloomfilter:4", &new_opt));
+  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 4000);
+  EXPECT_EQ(bfp->GetWholeBitsPerKey(), 4);
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kAutoBloom);
 
   // Ribbon filter policy (no Bloom hybrid)
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
@@ -981,15 +978,6 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kFastLocalBloom);
 
   bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyB());
-  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
-
-  // Old name
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(
-      config_options, table_opt, "filter_policy=experimental_ribbon:6.789;",
-      &new_opt));
-  ASSERT_TRUE(new_opt.filter_policy != nullptr);
-  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
   EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
   EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
 
@@ -2806,10 +2794,10 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(new_opt.format_version, 5U);
   ASSERT_EQ(new_opt.whole_key_filtering, true);
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
-  const BloomFilterPolicy& bfp =
-      dynamic_cast<const BloomFilterPolicy&>(*new_opt.filter_policy);
-  EXPECT_EQ(bfp.GetMillibitsPerKey(), 4567);
-  EXPECT_EQ(bfp.GetWholeBitsPerKey(), 5);
+  const BloomFilterPolicy* bfp =
+      dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 4567);
+  EXPECT_EQ(bfp->GetWholeBitsPerKey(), 5);
 
   // unknown option
   ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
@@ -2845,14 +2833,13 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
 
-  // unrecognized filter policy config
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
-             "cache_index_and_filter_blocks=1;"
-             "filter_policy=bloomfilter:4",
-             &new_opt));
-  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
-            new_opt.cache_index_and_filter_blocks);
-  ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
+  // Used to be rejected, now accepted
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      table_opt, "filter_policy=bloomfilter:4", &new_opt));
+  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 4000);
+  EXPECT_EQ(bfp->GetWholeBitsPerKey(), 4);
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kAutoBloom);
 
   // Check block cache options are overwritten when specified
   // in new format as a struct.

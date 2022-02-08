@@ -26,6 +26,34 @@
 * Remove DBOptions::preserved_deletes and DB::SetPreserveDeletesSequenceNumber().
 * Remove deprecated API AdvancedColumnFamilyOptions::rate_limit_delay_max_milliseconds.
 * Removed timestamp from WriteOptions. Accordingly, added to DB APIs Put, Delete, SingleDelete, etc. accepting an additional argument 'timestamp'. Added Put, Delete, SingleDelete, etc to WriteBatch accepting an additional argument 'timestamp'. Removed WriteBatch::AssignTimestamps(vector<Slice>) API. Renamed WriteBatch::AssignTimestamp() to WriteBatch::UpdateTimestamps() with clarified comments.
+* Significant updates to FilterPolicy-related APIs and configuration:
+  * Remove support for "filter_policy=experimental_ribbon" configuration
+  string. Use something like "filter_policy=ribbonfilter:10" instead.
+  * Allow configuration string like "filter_policy=bloomfilter:10" without
+  bool, to minimize acknowledgement of inefficient block-based filter.
+  * A `filter_policy` loaded from an OPTIONS file can read existing filters
+  but still does not support writing new filters.
+  * Inefficient block-based filter is no longer customizable in the public
+  API, though (for now) can still be enabled.
+    * Remove deprecated FilterPolicy::CreateFilter() and
+    FilterPolicy::KeyMayMatch()
+    * Remove `rocksdb_filterpolicy_create()` from C API
+  * Change meaning of nullptr return from GetBuilderWithContext() from "use
+    block-based filter" to "generate no filter in this case."
+    * Also, when user specifies bits_per_key < 0.5, we now round this down
+    to "no filter" because we expect a filter with >= 80% FP rate is
+    unlikely to be worth the CPU cost of accessing it (esp with
+    cache_index_and_filter_blocks=1 or partition_filters=1).
+    * bits_per_key >= 0.5 and < 1.0 is still rounded up to 1.0 (for 62% FP
+    rate)
+  * Also removed deprecated functions
+    * FilterBitsBuilder::CalculateNumEntry()
+    * FilterPolicy::GetFilterBitsBuilder()
+    * NewExperimentalRibbonFilterPolicy()
+  * Remove default implementations of
+    * FilterBitsBuilder::EstimateEntriesAdded()
+    * FilterBitsBuilder::ApproximateNumEntries()
+    * FilterPolicy::GetBuilderWithContext()
 * Remove default implementation of Name() from FileSystemWrapper.
 * Rename `SizeApproximationOptions.include_memtabtles` to `SizeApproximationOptions.include_memtables`.
 * Remove deprecated option DBOptions::max_mem_compaction_level.

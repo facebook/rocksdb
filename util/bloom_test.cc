@@ -63,7 +63,7 @@ static int NextLength(int length) {
 
 class BlockBasedBloomTest : public testing::Test {
  private:
-  std::unique_ptr<const FilterPolicy> policy_;
+  int bits_per_key_;
   std::string filter_;
   std::vector<std::string> keys_;
 
@@ -76,8 +76,9 @@ class BlockBasedBloomTest : public testing::Test {
   }
 
   void ResetPolicy(double bits_per_key) {
-    policy_.reset(new BloomFilterPolicy(bits_per_key,
-                                        BloomFilterPolicy::kDeprecatedBlock));
+    bits_per_key_ =
+        BloomFilterPolicy(bits_per_key, BloomFilterPolicy::kDeprecatedBlock)
+            .GetWholeBitsPerKey();
     Reset();
   }
 
@@ -93,8 +94,9 @@ class BlockBasedBloomTest : public testing::Test {
       key_slices.push_back(Slice(keys_[i]));
     }
     filter_.clear();
-    policy_->CreateFilter(&key_slices[0], static_cast<int>(key_slices.size()),
-                          &filter_);
+    BloomFilterPolicy::CreateFilter(key_slices.data(),
+                                    static_cast<int>(key_slices.size()),
+                                    bits_per_key_, &filter_);
     keys_.clear();
     if (kVerbose >= 2) DumpFilter();
   }
@@ -120,7 +122,7 @@ class BlockBasedBloomTest : public testing::Test {
     if (!keys_.empty()) {
       Build();
     }
-    return policy_->KeyMayMatch(s, filter_);
+    return BloomFilterPolicy::KeyMayMatch(s, filter_);
   }
 
   double FalsePositiveRate() {
@@ -280,7 +282,7 @@ class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
 
   BuiltinFilterBitsBuilder* GetBuiltinFilterBitsBuilder() {
     // Throws on bad cast
-    return &dynamic_cast<BuiltinFilterBitsBuilder&>(*bits_builder_);
+    return dynamic_cast<BuiltinFilterBitsBuilder*>(bits_builder_.get());
   }
 
   const BloomFilterPolicy* GetBloomFilterPolicy() {
@@ -397,23 +399,26 @@ TEST_P(FullBloomTest, FilterSize) {
   // checking that denoted and computed doubles are interpreted as expected
   // as bits_per_key values.
   bool some_computed_less_than_denoted = false;
-  // Note: enforced minimum is 1 bit per key (1000 millibits), and enforced
-  // maximum is 100 bits per key (100000 millibits).
-  for (auto bpk :
-       std::vector<std::pair<double, int> >{{-HUGE_VAL, 1000},
-                                            {-INFINITY, 1000},
-                                            {0.0, 1000},
-                                            {1.234, 1234},
-                                            {3.456, 3456},
-                                            {9.5, 9500},
-                                            {10.0, 10000},
-                                            {10.499, 10499},
-                                            {21.345, 21345},
-                                            {99.999, 99999},
-                                            {1234.0, 100000},
-                                            {HUGE_VAL, 100000},
-                                            {INFINITY, 100000},
-                                            {NAN, 100000}}) {
+  // Note: to avoid unproductive configurations, bits_per_key < 0.5 is rounded
+  // down to 0 (no filter), and 0.5 <= bits_per_key < 1.0 is rounded up to 1
+  // bit per key (1000 millibits). Also, enforced maximum is 100 bits per key
+  // (100000 millibits).
+  for (auto bpk : std::vector<std::pair<double, int> >{{-HUGE_VAL, 0},
+                                                       {-INFINITY, 0},
+                                                       {0.0, 0},
+                                                       {0.499, 0},
+                                                       {0.5, 1000},
+                                                       {1.234, 1234},
+                                                       {3.456, 3456},
+                                                       {9.5, 9500},
+                                                       {10.0, 10000},
+                                                       {10.499, 10499},
+                                                       {21.345, 21345},
+                                                       {99.999, 99999},
+                                                       {1234.0, 100000},
+                                                       {HUGE_VAL, 100000},
+                                                       {INFINITY, 100000},
+                                                       {NAN, 100000}}) {
     ResetPolicy(bpk.first);
     auto bfp = GetBloomFilterPolicy();
     EXPECT_EQ(bpk.second, bfp->GetMillibitsPerKey());
@@ -433,6 +438,10 @@ TEST_P(FullBloomTest, FilterSize) {
     EXPECT_EQ((bpk.second + 500) / 1000, bfp->GetWholeBitsPerKey());
 
     auto bits_builder = GetBuiltinFilterBitsBuilder();
+    if (bpk.second == 0) {
+      ASSERT_EQ(bits_builder, nullptr);
+      continue;
+    }
 
     size_t n = 1;
     size_t space = 0;
@@ -1294,13 +1303,8 @@ TEST(RibbonTest, RibbonTestLevelThreshold) {
       std::vector<std::unique_ptr<const FilterPolicy> > policies;
       policies.emplace_back(NewRibbonFilterPolicy(10, bloom_before_level));
 
-      if (bloom_before_level == -1) {
-        // Also test old API
-        policies.emplace_back(NewExperimentalRibbonFilterPolicy(10));
-      }
-
       if (bloom_before_level == 0) {
-        // Also test old API and new API default
+        // Also test new API default
         policies.emplace_back(NewRibbonFilterPolicy(10));
       }
 
