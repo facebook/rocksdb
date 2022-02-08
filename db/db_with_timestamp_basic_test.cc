@@ -713,8 +713,8 @@ TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
   options.comparator = &test_cmp;
   DestroyAndReopen(options);
   // Construct data of different versions with different ts
-  std::string ts_str = Timestamp(2, 0);
   WriteOptions wopts;
+  std::string ts_str = Timestamp(2, 0);
   Slice ts = ts_str;
   ASSERT_OK(db_->Put(wopts, "k1", ts, "v1"));
   ts_str = Timestamp(4, 0);
@@ -726,7 +726,6 @@ TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
   ts_str = Timestamp(6, 0);
   ts = ts_str;
   ASSERT_OK(db_->Put(wopts, "k1", ts, "v3"));
-  ts_str = Timestamp(3, 0);
   ASSERT_OK(Flush());
   Close();
 
@@ -737,18 +736,22 @@ TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
   DBOptions db_options(options);
   // Trim data whose version is newer than Timestamp(3, 0), which means
   // only (k1, v1) should survive after call DB::OpenAndTrimHistory.
+  ts_str = Timestamp(3, 0);
   ASSERT_OK(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
                                    &handles_, &db_, ts_str));
   ReadOptions ropts;
   ts_str = Timestamp(2, 0);
+  ts = ts_str;
+  ropts.timestamp = &ts;
   std::string value;
-  Status s = db_->Get(ropts, "k1", &value, &ts_str);
+  Status s = db_->Get(ropts, "k1", &value);
   ASSERT_OK(s);
   ASSERT_EQ("v1", value);
 
   ts_str = Timestamp(7, 0);
+  ts = ts_str;
   ropts.timestamp = &ts;
-  s = db_->Get(ropts, "k1", &value, &ts_str);
+  s = db_->Get(ropts, "k1", &value);
   ASSERT_OK(s);
   // read with ts=7 should only see (k1, v1)
   ASSERT_EQ("v1", value);
