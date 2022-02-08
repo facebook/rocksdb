@@ -543,22 +543,9 @@ class VersionBuilder::Rep {
     }
 
     assert(base_vstorage_);
+    const auto meta = base_vstorage_->GetBlobFileMetaData(blob_file_number);
 
-    const auto& base_blob_files = base_vstorage_->GetBlobFiles();
-
-    auto base_it = std::lower_bound(
-        base_blob_files.begin(), base_blob_files.end(), blob_file_number,
-        [](const std::shared_ptr<BlobFileMetaData>& lhs, uint64_t rhs) {
-          assert(lhs);
-          return lhs->GetBlobFileNumber() < rhs;
-        });
-    assert(base_it == base_blob_files.end() || *base_it);
-    if (base_it != base_blob_files.end() &&
-        (*base_it)->GetBlobFileNumber() == blob_file_number) {
-      return true;
-    }
-
-    return false;
+    return !!meta;
   }
 
   MutableBlobFileMetaData* GetOrCreateMutableBlobFileMetaData(
@@ -569,21 +556,9 @@ class VersionBuilder::Rep {
     }
 
     assert(base_vstorage_);
+    const auto meta = base_vstorage_->GetBlobFileMetaData(blob_file_number);
 
-    const auto& base_blob_files = base_vstorage_->GetBlobFiles();
-
-    auto base_it = std::lower_bound(
-        base_blob_files.begin(), base_blob_files.end(), blob_file_number,
-        [](const std::shared_ptr<BlobFileMetaData>& lhs, uint64_t rhs) {
-          assert(lhs);
-          return lhs->GetBlobFileNumber() < rhs;
-        });
-    assert(base_it == base_blob_files.end() || *base_it);
-    if (base_it != base_blob_files.end() &&
-        (*base_it)->GetBlobFileNumber() == blob_file_number) {
-      const auto& meta = *base_it;
-      assert(meta);
-
+    if (meta) {
       mutable_it = mutable_blob_file_metas_
                        .emplace(blob_file_number, MutableBlobFileMetaData(meta))
                        .first;
@@ -876,14 +851,8 @@ class VersionBuilder::Rep {
                           ProcessBoth process_both) const {
     assert(base_vstorage_);
 
-    const auto& base_blob_files = base_vstorage_->GetBlobFiles();
-    auto base_it = std::lower_bound(
-        base_blob_files.begin(), base_blob_files.end(), first_blob_file,
-        [](const std::shared_ptr<BlobFileMetaData>& lhs, uint64_t rhs) {
-          assert(lhs);
-          return lhs->GetBlobFileNumber() < rhs;
-        });
-    const auto base_it_end = base_blob_files.end();
+    auto base_it = base_vstorage_->GetBlobFileMetaDataLB(first_blob_file);
+    const auto base_it_end = base_vstorage_->GetBlobFiles().end();
 
     auto mutable_it = mutable_blob_file_metas_.lower_bound(first_blob_file);
     const auto mutable_it_end = mutable_blob_file_metas_.end();
