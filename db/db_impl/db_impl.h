@@ -1242,7 +1242,7 @@ class DBImpl : public DB {
   // If need_mutex_lock = false, the method will lock DB mutex.
   // If need_enter_write_thread = false, the method will enter write thread.
   Status WriteOptionsFile(bool need_mutex_lock, bool need_enter_write_thread);
- 
+
   Status CompactRangeInternal(const CompactRangeOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,

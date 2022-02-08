@@ -274,7 +274,7 @@ class DB {
       const std::string& input, std::string* output,
       const CompactionServiceOptionsOverride& override_options);
 
-  // Open DB and trim data to specified timestamp. 
+  // Open DB and trim data to specified timestamp.
   // The trim_ts specified the user-defined timestamp trim bound.
   // This API should only be used at a timestamp enabled db instance recovery.
   // The data with newer timestamp than specified trim bound will be removed
