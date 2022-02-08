@@ -1822,19 +1822,9 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
     return Status::Corruption("Unexpected TTL/inlined blob index");
   }
 
-  const auto& blob_files = storage_info_.GetBlobFiles();
-
   const uint64_t blob_file_number = blob_index.file_number();
 
-  const auto it = std::lower_bound(
-      blob_files.begin(), blob_files.end(), blob_file_number,
-      [](const std::shared_ptr<BlobFileMetaData>& lhs, uint64_t rhs) {
-        assert(lhs);
-        return lhs->GetBlobFileNumber() < rhs;
-      });
-  assert(it == blob_files.end() || *it);
-  if (it == blob_files.end() ||
-      (*it)->GetBlobFileNumber() != blob_file_number) {
+  if (!storage_info_.GetBlobFileMetaData(blob_file_number)) {
     return Status::Corruption("Invalid blob file number");
   }
 
@@ -1878,20 +1868,11 @@ void Version::MultiGetBlob(
 
   assert(!blob_rqs.empty());
   Status status;
-  const auto& blob_files = storage_info_.GetBlobFiles();
+
   for (auto& elem : blob_rqs) {
-    uint64_t blob_file_number = elem.first;
+    const uint64_t blob_file_number = elem.first;
 
-    const auto it = std::lower_bound(
-        blob_files.begin(), blob_files.end(), blob_file_number,
-        [](const std::shared_ptr<BlobFileMetaData>& lhs, uint64_t rhs) {
-          assert(lhs);
-          return lhs->GetBlobFileNumber() < rhs;
-        });
-    assert(it == blob_files.end() || *it);
-
-    if (it == blob_files.end() ||
-        (*it)->GetBlobFileNumber() != blob_file_number) {
+    if (!storage_info_.GetBlobFileMetaData(blob_file_number)) {
       auto& blobs_in_file = elem.second;
       for (const auto& blob : blobs_in_file) {
         const KeyContext& key_context = blob.second;
@@ -1899,6 +1880,7 @@ void Version::MultiGetBlob(
       }
       continue;
     }
+
     CacheHandleGuard<BlobFileReader> blob_file_reader;
     assert(blob_file_cache_);
     status = blob_file_cache_->GetBlobFileReader(blob_file_number,
@@ -3078,22 +3060,13 @@ void VersionStorageInfo::AddBlobFile(
 }
 
 VersionStorageInfo::BlobFiles::const_iterator
-VersionStorageInfo::GetBlobFileMetaDataImpl(uint64_t blob_file_number) const {
-  const auto it = std::lower_bound(
+VersionStorageInfo::GetBlobFileMetaDataLB(uint64_t blob_file_number) const {
+  return std::lower_bound(
       blob_files_.begin(), blob_files_.end(), blob_file_number,
       [](const std::shared_ptr<BlobFileMetaData>& lhs, uint64_t rhs) {
         assert(lhs);
         return lhs->GetBlobFileNumber() < rhs;
       });
-
-  assert(it == blob_files_.end() || *it);
-
-  if (it != blob_files_.end() &&
-      (*it)->GetBlobFileNumber() == blob_file_number) {
-    return it;
-  }
-
-  return blob_files_.end();
 }
 
 void VersionStorageInfo::SetFinalized() {
