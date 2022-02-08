@@ -60,6 +60,10 @@ matrix:
     compiler: clang
   - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: linux
+    arch: s390x # Temporary while working through gcc-7 + assembler issue
+    env: TEST_GROUP=platform_dependent
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os: linux
     arch: arm64
     env: TEST_GROUP=platform_dependent
   - if: type = pull_request AND commit_message !~ /FULL_CI/

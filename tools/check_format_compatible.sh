@@ -45,6 +45,10 @@ else
 fi
 git fetch $tmp_origin
 
+# Used in building some ancient RocksDB versions where by default it tries to
+# use a precompiled libsnappy.a checked in to the repo.
+export SNAPPY_LDFLAGS=-lsnappy
+
 cleanup() {
   echo "== Cleaning up"
   git reset --hard || true

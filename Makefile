@@ -1221,7 +1221,7 @@ analyze_incremental:
 	$(CLANG_SCAN_BUILD) --use-analyzer=$(CLANG_ANALYZER) \
 		--use-c++=$(CXX) --use-cc=$(CC) --status-bugs \
 		-o $(CURDIR)/scan_build_report \
-		$(MAKE) dbg
+		$(MAKE) SKIP_LINK=1 dbg
 
 CLEAN_FILES += unity.cc
 unity.cc: Makefile util/build_version.cc.in
