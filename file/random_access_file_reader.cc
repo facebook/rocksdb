@@ -278,6 +278,13 @@ IOStatus RandomAccessFileReader::Read(
     IOStatsAddCountByTemperature(file_temperature_, 1);
     StatisticAddBytesByTemperature(stats_, file_temperature_, result->size());
     StatisticAddCountByTemperature(stats_, file_temperature_, 1);
+    if (is_last_level_) {
+      RecordTick(stats_, LAST_LEVEL_READ_BYTES, result->size());
+      RecordTick(stats_, LAST_LEVEL_READ_COUNT, 1);
+    } else {
+      RecordTick(stats_, NON_LAST_LEVEL_READ_BYTES, result->size());
+      RecordTick(stats_, NON_LAST_LEVEL_READ_COUNT, 1);
+    }
     SetPerfLevel(prev_perf_level);
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
