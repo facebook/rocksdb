@@ -48,7 +48,8 @@ class BuiltinFilterBitsReader : public FilterBitsReader {
 
 // Base class for RocksDB built-in filter policies. This can read all
 // kinds of built-in filters (for backward compatibility with old
-// OPTIONS files) but does not write filters.
+// OPTIONS files) but does not build filters, so new SST files generated
+// under the policy will get no filters (like nullptr FilterPolicy).
 // This class is considered internal API and subject to change.
 class BuiltinFilterPolicy : public FilterPolicy {
  public:

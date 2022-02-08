@@ -399,8 +399,10 @@ TEST_P(FullBloomTest, FilterSize) {
   // checking that denoted and computed doubles are interpreted as expected
   // as bits_per_key values.
   bool some_computed_less_than_denoted = false;
-  // Note: enforced minimum is 1 bit per key (1000 millibits), and enforced
-  // maximum is 100 bits per key (100000 millibits).
+  // Note: to avoid unproductive configurations, bits_per_key < 0.5 is rounded
+  // down to 0 (no filter), and 0.5 <= bits_per_key < 1.0 is rounded up to 1
+  // bit per key (1000 millibits). Also, enforced maximum is 100 bits per key
+  // (100000 millibits).
   for (auto bpk : std::vector<std::pair<double, int> >{{-HUGE_VAL, 0},
                                                        {-INFINITY, 0},
                                                        {0.0, 0},
