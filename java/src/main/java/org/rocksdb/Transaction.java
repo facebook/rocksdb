@@ -310,7 +310,7 @@ public class Transaction extends RocksObject {
 
   /**
    * This function is similar to
-   * {@link RocksDB#multiGet(ReadOptions, List, List)} except it will
+   * {@link RocksDB#multiGetAsList(ReadOptions, List, List)} except it will
    * also read pending changes in this transaction.
    * Currently, this function will return Status::MergeInProgress if the most
    * recent write to the queried key in this batch is a Merge.
@@ -360,7 +360,7 @@ public class Transaction extends RocksObject {
 
   /**
    * This function is similar to
-   * {@link RocksDB#multiGet(ReadOptions, List)} except it will
+   * {@link RocksDB#multiGetAsList(ReadOptions, List)} except it will
    * also read pending changes in this transaction.
    * Currently, this function will return Status::MergeInProgress if the most
    * recent write to the queried key in this batch is a Merge.
