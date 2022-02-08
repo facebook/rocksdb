@@ -7939,9 +7939,8 @@ jboolean Java_org_rocksdb_ReadOptions_tailing(
   return reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle)->tailing;
 }
 
-**Class : org_rocksdb_ReadOptions* Method : totalOrderSeek* Signature : (J)Z* /
-    jboolean Java_org_rocksdb_ReadOptions_totalOrderSeek(JNIEnv*, jobject,
-                                                         jlong jhandle) {
+jboolean Java_org_rocksdb_ReadOptions_totalOrderSeek(JNIEnv*, jobject,
+                                                     jlong jhandle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jhandle)
       ->total_order_seek;
 }
