@@ -3050,11 +3050,9 @@ void VersionStorageInfo::AddBlobFile(
     std::shared_ptr<BlobFileMetaData> blob_file_meta) {
   assert(blob_file_meta);
 
-  const uint64_t blob_file_number = blob_file_meta->GetBlobFileNumber();
-
   assert(blob_files_.empty() ||
-         (blob_files_.back() &&
-          blob_files_.back()->GetBlobFileNumber() < blob_file_number));
+         (blob_files_.back() && blob_files_.back()->GetBlobFileNumber() <
+                                    blob_file_meta->GetBlobFileNumber()));
 
   blob_files_.emplace_back(std::move(blob_file_meta));
 }
