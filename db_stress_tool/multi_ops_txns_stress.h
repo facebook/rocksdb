@@ -284,15 +284,13 @@ class MultiOpsTxnsStressTest : public StressTest {
   class KeyGenerator {
    public:
     explicit KeyGenerator(uint32_t s, uint32_t low, uint32_t high,
-                          std::vector<uint32_t>&& existing)
-        : rand_(s), low_(low), high_(high), existing_(std::move(existing)) {}
-    explicit KeyGenerator(uint32_t s, uint32_t low, uint32_t high,
                           std::unordered_set<uint32_t>&& existing_uniq)
         : rand_(s),
           low_(low),
           high_(high),
           existing_uniq_(std::move(existing_uniq)) {}
     std::pair<uint32_t, uint32_t> ChooseExisting();
+    void FinishInit();
 
    protected:
     Random rand_;
@@ -306,9 +304,10 @@ class MultiOpsTxnsStressTest : public StressTest {
   class KeyGeneratorForA : public KeyGenerator {
    public:
     explicit KeyGeneratorForA(uint32_t s, uint32_t low, uint32_t high,
-                              std::vector<uint32_t>&& existing)
-        : KeyGenerator(s, low, high, std::move(existing)) {}
-    void FinishInit();
+                              std::unordered_set<uint32_t>&& existing_uniq,
+                              std::unordered_set<uint32_t>&& non_existing_uniq)
+        : KeyGenerator(s, low, high, std::move(existing_uniq)),
+          non_existing_uniq_(std::move(non_existing_uniq)) {}
     void Replace(uint32_t old_val, uint32_t old_pos, uint32_t new_val);
     uint32_t Allocate();
     void UndoAllocation(uint32_t new_val);
@@ -322,7 +321,6 @@ class MultiOpsTxnsStressTest : public StressTest {
     explicit KeyGeneratorForC(uint32_t s, uint32_t low, uint32_t high,
                               std::unordered_set<uint32_t>&& existing_uniq)
         : KeyGenerator(s, low, high, std::move(existing_uniq)) {}
-    void FinishInit();
     void Replace(uint32_t old_val, uint32_t old_pos, uint32_t new_val);
     uint32_t ChooseOne();
   };
