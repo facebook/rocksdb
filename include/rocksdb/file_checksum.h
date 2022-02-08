@@ -74,7 +74,7 @@ class FileChecksumGenerator {
 // including data loss, unreported corruption, deadlocks, and more.
 class FileChecksumGenFactory : public Customizable {
  public:
-  virtual ~FileChecksumGenFactory() {}
+  ~FileChecksumGenFactory() override {}
   static const char* Type() { return "FileChecksumGenFactory"; }
   static Status CreateFromString(
       const ConfigOptions& options, const std::string& value,

@@ -293,16 +293,16 @@ struct BlockBasedTableOptions {
   // the memory, if block cache available.
   //
   // Charged memory usage includes:
-  // 1. (new) Bloom Filter and Ribbon Filter construction
+  // 1. Bloom Filter (format_version >= 5) and Ribbon Filter construction
   // 2. More to come...
   //
   // Note:
-  // 1. (new) Bloom Filter and Ribbon Filter construction
+  // 1. Bloom Filter (format_version >= 5) and Ribbon Filter construction
   //
   // If additional temporary memory of Ribbon Filter uses up too much memory
   // relative to the avaible space left in the block cache
   // at some point (i.e, causing a cache full when strict_capacity_limit =
-  // true), construction will fall back to (new) Bloom Filter.
+  // true), construction will fall back to Bloom Filter.
   //
   // Default: false
   bool reserve_table_builder_memory = false;
@@ -364,6 +364,16 @@ struct BlockBasedTableOptions {
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.
   bool whole_key_filtering = true;
+
+  // If true, detect corruption during Bloom Filter (format_version >= 5)
+  // and Ribbon Filter construction.
+  //
+  // This is an extra check that is only
+  // useful in detecting software bugs or CPU+memory malfunction.
+  // Turning on this feature increases filter construction time by 30%.
+  //
+  // TODO: optimize this performance
+  bool detect_filter_construct_corruption = false;
 
   // Verify that decompressing the compressed block gives back the input. This
   // is a verification mode that we use to detect bugs in compression

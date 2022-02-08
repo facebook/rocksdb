@@ -532,7 +532,7 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
     s = builder->SaveTo(v->storage_info());
     if (s.ok()) {
       // Install new version
-      v->PrepareApply(
+      v->PrepareAppend(
           *cfd->GetLatestMutableCFOptions(),
           !(version_set_->db_options_->skip_stats_update_on_db_open));
       version_set_->AppendVersion(cfd, v);
@@ -564,7 +564,7 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
       cfd->internal_stats(),
       version_set_->db_options_->max_file_opening_threads,
       prefetch_index_and_filter_in_cache, is_initial_load,
-      cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
+      cfd->GetLatestMutableCFOptions()->prefix_extractor,
       MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
   if ((s.IsPathNotFound() || s.IsCorruption()) && no_error_if_files_missing_) {
     s = Status::OK();
@@ -806,7 +806,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
                                 version_set_->current_version_number_++);
     s = builder->SaveTo(version->storage_info());
     if (s.ok()) {
-      version->PrepareApply(
+      version->PrepareAppend(
           *cfd->GetLatestMutableCFOptions(),
           !version_set_->db_options_->skip_stats_update_on_db_open);
       auto v_iter = versions_.find(cfd->GetID());

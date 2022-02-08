@@ -14,7 +14,7 @@
 #        cd build
 # 3. Run cmake to generate project files for Windows, add more options to enable required third-party libraries.
 #    See thirdparty.inc for more information.
-#        sample command: cmake -G "Visual Studio 15 Win64" -DCMAKE_BUILD_TYPE=Release -DWITH_GFLAGS=1 -DWITH_SNAPPY=1 -DWITH_JEMALLOC=1 -DWITH_JNI=1 ..
+#        sample command: cmake -G "Visual Studio 16 2019" -DCMAKE_BUILD_TYPE=Release -DWITH_GFLAGS=1 -DWITH_SNAPPY=1 -DWITH_JEMALLOC=1 -DWITH_JNI=1 ..
 # 4. Then build the project in debug mode (you may want to add /m[:<N>] flag to run msbuild in <N> parallel threads
 #                                          or simply /m to use all avail cores)
 #        msbuild rocksdb.sln
@@ -27,7 +27,7 @@
 #
 # Linux:
 #
-# 1. Install a recent toolchain such as devtoolset-3 if you're on a older distro. C++11 required.
+# 1. Install a recent toolchain if you're on a older distro. C++17 required (GCC >= 7, Clang >= 5)
 # 2. mkdir build; cd build
 # 3. cmake ..
 # 4. make -j
@@ -92,7 +92,7 @@ else()
 endif()
 
 if( NOT DEFINED CMAKE_CXX_STANDARD )
-  set(CMAKE_CXX_STANDARD 11)
+  set(CMAKE_CXX_STANDARD 17)
 endif()
 
 include(CMakeDependentOption)
@@ -342,7 +342,7 @@ endif()
 
 # Check if -latomic is required or not
 if (NOT MSVC)
-  set(CMAKE_REQUIRED_FLAGS "--std=c++11")
+  set(CMAKE_REQUIRED_FLAGS "--std=c++17")
   CHECK_CXX_SOURCE_COMPILES("
 #include <atomic>
 std::atomic<uint64_t> x(0);
@@ -369,18 +369,8 @@ endif()
 # Reset the required flags
 set(CMAKE_REQUIRED_FLAGS ${OLD_CMAKE_REQUIRED_FLAGS})
 
-CHECK_CXX_SOURCE_COMPILES("
-#if defined(_MSC_VER) && !defined(__thread)
-#define __thread __declspec(thread)
-#endif
-int main() {
-  static __thread int tls;
-  (void)tls;
-}
-" HAVE_THREAD_LOCAL)
-if(HAVE_THREAD_LOCAL)
-  add_definitions(-DROCKSDB_SUPPORT_THREAD_LOCAL)
-endif()
+# thread_local is part of C++11 and later (TODO: clean up this define)
+add_definitions(-DROCKSDB_SUPPORT_THREAD_LOCAL)
 
 option(WITH_IOSTATS_CONTEXT "Enable IO stats context" ON)
 if (NOT WITH_IOSTATS_CONTEXT)
@@ -719,7 +709,6 @@ set(SOURCES
         env/env.cc
         env/env_chroot.cc
         env/env_encryption.cc
-        env/env_hdfs.cc
         env/file_system.cc
         env/file_system_tracer.cc
         env/fs_remap.cc
@@ -849,7 +838,6 @@ set(SOURCES
         util/random.cc
         util/rate_limiter.cc
         util/ribbon_config.cc
-        util/regex.cc
         util/slice.cc
         util/file_checksum_helper.cc
         util/status.cc
@@ -872,6 +860,7 @@ set(SOURCES
         utilities/checkpoint/checkpoint_impl.cc
         utilities/compaction_filters.cc
         utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc
+        utilities/counted_fs.cc
         utilities/debug.cc
         utilities/env_mirror.cc
         utilities/env_timed.cc
@@ -1019,12 +1008,6 @@ set(ROCKSDB_SHARED_LIB rocksdb-shared${ARTIFACT_SUFFIX})
 
 option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
 
-option(WITH_LIBRADOS "Build with librados" OFF)
-if(WITH_LIBRADOS)
-  list(APPEND SOURCES
-    utilities/env_librados.cc)
-  list(APPEND THIRDPARTY_LIBS rados)
-endif()
 
 if(WIN32)
   set(SYSTEM_LIBS ${SYSTEM_LIBS} shlwapi.lib rpcrt4.lib)
@@ -1350,9 +1333,6 @@ if(WITH_TESTS)
         utilities/write_batch_with_index/write_batch_with_index_test.cc
     )
   endif()
-  if(WITH_LIBRADOS)
-    list(APPEND TESTS utilities/env_librados_test.cc)
-  endif()
 
   if(WITH_FOLLY_DISTRIBUTED_MUTEX)
     list(APPEND TESTS third-party/folly/folly/synchronization/test/DistributedMutexTest.cpp)
@@ -1391,10 +1371,6 @@ if(WITH_TESTS)
       if(NOT "${exename}" MATCHES "db_sanity_test")
         gtest_discover_tests(${exename} DISCOVERY_TIMEOUT 120)
         add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
-      endif()
-      if("${exename}" MATCHES "env_librados_test")
-        # env_librados_test.cc uses librados directly
-        target_link_libraries(${exename}${ARTIFACT_SUFFIX} rados)
       endif()
   endforeach(sourcefile ${TESTS})
 

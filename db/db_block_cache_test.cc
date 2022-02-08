@@ -9,17 +9,26 @@
 #include <cstdlib>
 #include <functional>
 #include <memory>
+#include <unordered_set>
 
 #include "cache/cache_entry_roles.h"
+#include "cache/cache_key.h"
 #include "cache/lru_cache.h"
 #include "db/column_family.h"
+#include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
+#include "env/unique_id_gen.h"
 #include "port/stack_trace.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
+#include "rocksdb/table_properties.h"
+#include "table/block_based/block_based_table_reader.h"
+#include "table/unique_id_impl.h"
 #include "util/compression.h"
 #include "util/defer.h"
+#include "util/hash.h"
+#include "util/math.h"
 #include "util/random.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -1712,6 +1721,238 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
   Close();
   Destroy(options);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+class CacheKeyTest : public testing::Test {
+ public:
+  void SetupStableBase() {
+    // Like SemiStructuredUniqueIdGen::GenerateNext
+    tp_.db_session_id = EncodeSessionId(base_session_upper_,
+                                        base_session_lower_ ^ session_counter_);
+    tp_.db_id = ToString(db_id_);
+    tp_.orig_file_number = file_number_;
+    bool is_stable;
+    std::string cur_session_id = "";  // ignored
+    uint64_t cur_file_number = 42;    // ignored
+    BlockBasedTable::SetupBaseCacheKey(&tp_, cur_session_id, cur_file_number,
+                                       file_size_, &base_cache_key_,
+                                       &is_stable);
+    ASSERT_TRUE(is_stable);
+  }
+  CacheKey WithOffset(uint64_t offset) {
+    return BlockBasedTable::GetCacheKey(base_cache_key_,
+                                        BlockHandle(offset, /*size*/ 5));
+  }
+
+ protected:
+  OffsetableCacheKey base_cache_key_;
+  TableProperties tp_;
+  uint64_t file_size_ = 0;
+  uint64_t base_session_upper_ = 0;
+  uint64_t base_session_lower_ = 0;
+  uint64_t session_counter_ = 0;
+  uint64_t file_number_ = 0;
+  uint64_t db_id_ = 0;
+};
+
+namespace {
+template <typename T>
+int CountBitsDifferent(const T& t1, const T& t2) {
+  int diff = 0;
+  const uint8_t* p1 = reinterpret_cast<const uint8_t*>(&t1);
+  const uint8_t* p2 = reinterpret_cast<const uint8_t*>(&t2);
+  static_assert(sizeof(*p1) == 1, "Expecting uint8_t byte");
+  for (size_t i = 0; i < sizeof(T); ++i) {
+    diff += BitsSetToOne(p1[i] ^ p2[i]);
+  }
+  return diff;
+}
+
+}  // namespace
+
+TEST_F(CacheKeyTest, DBImplSessionIdStructure) {
+  // We have to generate our own session IDs for simulation purposes in other
+  // tests. Here we verify that the DBImpl implementation seems to match
+  // our construction here, by using lowest XORed-in bits for "session
+  // counter."
+  std::string session_id1 = DBImpl::GenerateDbSessionId(/*env*/ nullptr);
+  std::string session_id2 = DBImpl::GenerateDbSessionId(/*env*/ nullptr);
+  uint64_t upper1, upper2, lower1, lower2;
+  ASSERT_OK(DecodeSessionId(session_id1, &upper1, &lower1));
+  ASSERT_OK(DecodeSessionId(session_id2, &upper2, &lower2));
+  // Because generated in same process
+  ASSERT_EQ(upper1, upper2);
+  // Unless we generate > 4 billion session IDs in this process...
+  ASSERT_EQ(Upper32of64(lower1), Upper32of64(lower2));
+  // But they must be different somewhere
+  ASSERT_NE(Lower32of64(lower1), Lower32of64(lower2));
+}
+
+TEST_F(CacheKeyTest, StandardEncodingLimit) {
+  base_session_upper_ = 1234;
+  base_session_lower_ = 5678;
+  session_counter_ = 42;
+  file_number_ = 42;
+  db_id_ = 1234;
+
+  file_size_ = 42;
+  SetupStableBase();
+  CacheKey ck1;
+  ASSERT_TRUE(ck1.IsEmpty());
+  ck1 = WithOffset(0);
+  ASSERT_FALSE(ck1.IsEmpty());
+
+  // Should use same encoding
+  file_size_ = BlockBasedTable::kMaxFileSizeStandardEncoding;
+  SetupStableBase();
+  CacheKey ck2 = WithOffset(0);
+  ASSERT_EQ(CountBitsDifferent(ck1, ck2), 0);
+
+  // Should use different encoding
+  ++file_size_;
+  SetupStableBase();
+  CacheKey ck3 = WithOffset(0);
+  ASSERT_GT(CountBitsDifferent(ck2, ck3), 0);
+}
+
+TEST_F(CacheKeyTest, Encodings) {
+  // Claim from cache_key.cc:
+  // In fact, if our SST files are all < 4TB (see
+  // BlockBasedTable::kMaxFileSizeStandardEncoding), then SST files generated
+  // in a single process are guaranteed to have unique cache keys, unless/until
+  // number session ids * max file number = 2**86, e.g. 1 trillion DB::Open in
+  // a single process and 64 trillion files generated.
+
+  // We can generalize that. For
+  // * z bits in maximum file size
+  // * n bits in maximum file number
+  // * s bits in maximum session counter
+  // uniqueness is guaranteed at least when all of these hold:
+  // *  z + n + s <= 121  (128 - 2 meta + 2 offset trim - (8-1) byte granularity
+  //                       in encoding)
+  // *  n + s <= 86       (encoding limitation)
+  // *  s <= 62           (because of 2-bit metadata)
+
+  // We can verify this indirectly by how input bits get into the cache key,
+  // but we have to be mindful that for sufficiently large file sizes,
+  // different encodings might be used. But for cases mixing large and small
+  // files, we have to verify uniqueness between encodings.
+
+  // Going through all combinations would be a little expensive, so we test
+  // only one random "stripe" of the configuration space per run.
+  constexpr uint32_t kStripeBits = 8;
+  constexpr uint32_t kStripeMask = (uint32_t{1} << kStripeBits) - 1;
+
+  // Also cycle through stripes on repeated runs (not thread safe)
+  static uint32_t stripe =
+      static_cast<uint32_t>(std::random_device{}()) & kStripeMask;
+  stripe = (stripe + 1) & kStripeMask;
+
+  fprintf(stderr, "%u\n", stripe);
+
+  // We are going to randomly initialize some values which *should* not affect
+  // result
+  Random64 r{std::random_device{}()};
+
+  int max_num_encodings = 0;
+  uint32_t config_num = 0;
+  uint32_t session_counter_bits, file_number_bits, max_file_size_bits;
+
+  // Inner loop body, used later in a loop over configurations
+  auto TestConfig = [&]() {
+    base_session_upper_ = r.Next();
+    base_session_lower_ = r.Next();
+    session_counter_ = r.Next();
+    if (session_counter_bits < 64) {
+      // Avoid shifting UB
+      session_counter_ = session_counter_ >> 1 >> (63 - session_counter_bits);
+    }
+    file_number_ = r.Next() >> (64 - file_number_bits);
+    // Need two bits set to avoid temporary zero below
+    if (BitsSetToOne(file_number_) < 2) {
+      file_number_ = 3;
+    }
+    db_id_ = r.Next();
+
+    // Work-around clang-analyzer which thinks empty last_base is garbage
+    CacheKey last_base = CacheKey::CreateUniqueForProcessLifetime();
+
+    std::unordered_set<std::string> seen;
+    int num_encodings = 0;
+
+    // Loop over encodings by increasing file size bits
+    for (uint32_t file_size_bits = 1; file_size_bits <= max_file_size_bits;
+         ++file_size_bits) {
+      file_size_ = uint64_t{1} << (file_size_bits - 1);
+      SetupStableBase();
+      CacheKey new_base = WithOffset(0);
+      if (CountBitsDifferent(last_base, new_base) == 0) {
+        // Same as previous encoding
+        continue;
+      }
+
+      // New encoding
+      ++num_encodings;
+      ASSERT_TRUE(seen.insert(new_base.AsSlice().ToString()).second);
+      last_base = new_base;
+      for (uint32_t i = 0; i < file_size_bits; ++i) {
+        CacheKey ck = WithOffset(uint64_t{1} << i);
+        if (i < 2) {
+          // These cases are not relevant and optimized by dropping two
+          // lowest bits because there's always at least 5 bytes between
+          // blocks.
+          ASSERT_EQ(CountBitsDifferent(ck, new_base), 0);
+        } else {
+          // Normal case
+          // 1 bit different from base and never been seen implies the bit
+          // is encoded into cache key without overlapping other structured
+          // data.
+          ASSERT_EQ(CountBitsDifferent(ck, new_base), 1);
+          ASSERT_TRUE(seen.insert(ck.AsSlice().ToString()).second);
+        }
+      }
+      for (uint32_t i = 0; i < session_counter_bits; ++i) {
+        SaveAndRestore<uint64_t> tmp(&session_counter_,
+                                     session_counter_ ^ (uint64_t{1} << i));
+        SetupStableBase();
+        CacheKey ck = WithOffset(0);
+        ASSERT_EQ(CountBitsDifferent(ck, new_base), 1);
+        ASSERT_TRUE(seen.insert(ck.AsSlice().ToString()).second);
+      }
+      for (uint32_t i = 0; i < file_number_bits; ++i) {
+        SaveAndRestore<uint64_t> tmp(&file_number_,
+                                     file_number_ ^ (uint64_t{1} << i));
+        SetupStableBase();
+        CacheKey ck = WithOffset(0);
+        ASSERT_EQ(CountBitsDifferent(ck, new_base), 1);
+        ASSERT_TRUE(seen.insert(ck.AsSlice().ToString()).second);
+      }
+      max_num_encodings = std::max(max_num_encodings, num_encodings);
+    }
+  };
+
+  // Loop over configurations and test those in stripe
+  for (session_counter_bits = 0; session_counter_bits <= 62;
+       ++session_counter_bits) {
+    uint32_t max_file_number_bits =
+        std::min(uint32_t{64}, uint32_t{86} - session_counter_bits);
+    // Start with 2 to avoid file_number_ == 0 in testing
+    for (file_number_bits = 2; file_number_bits <= max_file_number_bits;
+         ++file_number_bits) {
+      uint32_t max_max_file_size_bits =
+          std::min(uint32_t{64},
+                   uint32_t{121} - file_number_bits - session_counter_bits);
+      for (max_file_size_bits = 1; max_file_size_bits <= max_max_file_size_bits;
+           ++max_file_size_bits) {
+        if ((config_num++ & kStripeMask) == stripe) {
+          TestConfig();
+        }
+      }
+    }
+  }
+
+  // Make sure the current implementation is exercised
+  ASSERT_EQ(max_num_encodings, 4);
 }
 
 INSTANTIATE_TEST_CASE_P(DBBlockCacheKeyTest, DBBlockCacheKeyTest,

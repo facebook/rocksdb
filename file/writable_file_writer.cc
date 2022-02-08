@@ -28,6 +28,11 @@ IOStatus WritableFileWriter::Create(const std::shared_ptr<FileSystem>& fs,
                                     const FileOptions& file_opts,
                                     std::unique_ptr<WritableFileWriter>* writer,
                                     IODebugContext* dbg) {
+  if (file_opts.use_direct_writes &&
+      0 == file_opts.writable_file_max_buffer_size) {
+    return IOStatus::InvalidArgument(
+        "Direct write requires writable_file_max_buffer_size > 0");
+  }
   std::unique_ptr<FSWritableFile> file;
   IOStatus io_s = fs->NewWritableFile(fname, file_opts, &file, dbg);
   if (io_s.ok()) {

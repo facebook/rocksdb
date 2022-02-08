@@ -256,7 +256,7 @@ void SstFileManagerImpl::ClearError() {
   while (true) {
     MutexLock l(&mu_);
 
-    if (closing_) {
+    if (error_handler_list_.empty() || closing_) {
       return;
     }
 
@@ -297,7 +297,8 @@ void SstFileManagerImpl::ClearError() {
 
     // Someone could have called CancelErrorRecovery() and the list could have
     // become empty, so check again here
-    if (s.ok() && !error_handler_list_.empty()) {
+    if (s.ok()) {
+      assert(!error_handler_list_.empty());
       auto error_handler = error_handler_list_.front();
       // Since we will release the mutex, set cur_instance_ to signal to the
       // shutdown thread, if it calls // CancelErrorRecovery() the meantime,

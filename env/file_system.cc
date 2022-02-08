@@ -16,6 +16,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"
+#include "utilities/counted_fs.h"
 #include "utilities/env_timed.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -54,6 +55,13 @@ static int RegisterBuiltinFileSystems(ObjectLibrary& library,
         if (!s.ok()) {
           *errmsg = s.ToString();
         }
+        return guard->get();
+      });
+  library.AddFactory<FileSystem>(
+      CountedFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new CountedFileSystem(FileSystem::Default()));
         return guard->get();
       });
   library.AddFactory<FileSystem>(
