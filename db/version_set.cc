@@ -1965,10 +1965,10 @@ void Version::MultiGetBlob(
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   PinnableSlice* value, std::string* timestamp, Status* status,
                   MergeContext* merge_context,
-                  SequenceNumber* max_covering_tombstone_seq, bool* value_found,
+                  SequenceNumber* max_covering_tombstone_seq,
+                  PinnedIteratorsManager* pinned_iters_mgr, bool* value_found,
                   bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
-                  bool* is_blob, bool do_merge,
-                  PinnedIteratorsManager* pinned_iters_mgr) {
+                  bool* is_blob, bool do_merge) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
 
@@ -1977,14 +1977,6 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   if (key_exists != nullptr) {
     // will falsify below if not found
     *key_exists = true;
-  }
-
-  PinnedIteratorsManager local_pinned_iters_mgr;
-  bool use_local_pinned_iters_mgr = !pinned_iters_mgr;
-  if (use_local_pinned_iters_mgr) {
-    pinned_iters_mgr = &local_pinned_iters_mgr;
-  } else {
-    (void)local_pinned_iters_mgr;
   }
 
   uint64_t tracing_get_id = BlockCacheTraceHelper::kReservedGetId;
@@ -2000,6 +1992,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   bool* const is_blob_to_use = is_blob ? is_blob : &is_blob_index;
   BlobFetcher blob_fetcher(this, read_options);
 
+  assert(pinned_iters_mgr);
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
