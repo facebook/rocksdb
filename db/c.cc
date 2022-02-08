@@ -171,7 +171,7 @@ struct rocksdb_cache_t {
 };
 struct rocksdb_livefiles_t       { std::vector<LiveFileMetaData> rep; };
 struct rocksdb_column_family_handle_t  { ColumnFamilyHandle* rep; };
-struct rocksdb_column_family_descriptor_t {std::vector<ColumnFamilyDescriptor> rep;};
+struct rocksdb_column_family_descriptors_t {std::vector<ColumnFamilyDescriptor> rep;};
 struct rocksdb_envoptions_t      { EnvOptions        rep; };
 struct rocksdb_ingestexternalfileoptions_t  { IngestExternalFileOptions rep; };
 struct rocksdb_sstfilewriter_t   { SstFileWriter*    rep; };
@@ -209,10 +209,6 @@ struct rocksdb_optimistictransaction_options_t {
 
 struct rocksdb_compactionfiltercontext_t {
   CompactionFilter::Context rep;
-};
-struct rocksdb_loaded_options_t{
-  std::vector<ColumnFamilyDescriptor> cf;
-  DBOptions* dboption;
 };
 
 
@@ -5569,34 +5565,26 @@ void rocksdb_cancel_all_background_work(rocksdb_t* db, unsigned char wait) {
   CancelAllBackgroundWork(db->rep, wait);
 }
 
-rocksdb_loaded_options_t* rocksdb_load_options_from_file(const char* file_name,
+void rocksdb_load_options_from_file(const char* file_name,
 rocksdb_env_t *env,rocksdb_dboptions_t* dboptions,
-rocksdb_column_family_descriptor_t* cf,int ignore_unknown_options,
+rocksdb_column_family_descriptors_t* cf,int ignore_unknown_options,
 rocksdb_cache_t* cache, char** errptr){
-  rocksdb_loaded_options_t* result=new rocksdb_loaded_options_t;
+
   SaveError(errptr,LoadOptionsFromFile(file_name,env->rep,dboptions->rep,&(cf->rep),
                                         ignore_unknown_options,
                                         &(cache->rep)));
-
-  result->cf=cf->rep;
-  result->dboption=dboptions->rep;
-  return result;
 }
-rocksdb_loaded_options_t* rocksdb_load_latest_options(const char* dbpath,
+void rocksdb_load_latest_options(const char* dbpath,
                                                       rocksdb_env_t* env,
                                                       rocksdb_dboptions_t* dboptions,
-                                                      rocksdb_column_family_descriptor_t* cf,
+                                                      rocksdb_column_family_descriptors_t* cf,
                                                       int ignore_unknwon_options,
                                                       rocksdb_cache_t* cache,
                                                       char** errptr){
-  rocksdb_loaded_options_t* result=new rocksdb_loaded_options_t;
 
   SaveError(errptr,LoadLatestOptions(dbpath,env->rep,dboptions->rep,&(cf->rep),
                                       ignore_unknwon_options,&(cache->rep)));
-
-    result->cf=cf->rep;
-    result->dboption=dboptions->rep;
-    return result;                                           
+                          
 }
 }  // end extern "C"
 
