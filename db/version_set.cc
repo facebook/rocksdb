@@ -2413,6 +2413,7 @@ void VersionStorageInfo::PrepareForVersionAppend(
   GenerateLevelFilesBrief();
   GenerateLevel0NonOverlapping();
   GenerateBottommostFiles();
+  GenerateFileLocationIndex();
 }
 
 void Version::PrepareAppend(const MutableCFOptions& mutable_cf_options,
@@ -3046,12 +3047,6 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f) {
   level_files.push_back(f);
 
   f->refs++;
-
-  const uint64_t file_number = f->fd.GetNumber();
-
-  assert(file_locations_.find(file_number) == file_locations_.end());
-  file_locations_.emplace(file_number,
-                          FileLocation(level, level_files.size() - 1));
 }
 
 void VersionStorageInfo::AddBlobFile(
@@ -3282,6 +3277,28 @@ void VersionStorageInfo::GenerateBottommostFiles() {
         bottommost_files_.emplace_back(static_cast<int>(level),
                                        f.file_metadata);
       }
+    }
+  }
+}
+
+void VersionStorageInfo::GenerateFileLocationIndex() {
+  size_t num_files = 0;
+
+  for (int level = 0; level < num_levels_; ++level) {
+    num_files += files_[level].size();
+  }
+
+  file_locations_.reserve(num_files);
+
+  for (int level = 0; level < num_levels_; ++level) {
+    for (size_t pos = 0; pos < files_[level].size(); ++pos) {
+      const FileMetaData* const meta = files_[level][pos];
+      assert(meta);
+
+      const uint64_t file_number = meta->fd.GetNumber();
+
+      assert(file_locations_.find(file_number) == file_locations_.end());
+      file_locations_.emplace(file_number, FileLocation(level, pos));
     }
   }
 }

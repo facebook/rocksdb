@@ -1164,25 +1164,6 @@ class DB {
     GetApproximateMemTableStats(DefaultColumnFamily(), range, count, size);
   }
 
-  // Deprecated versions of GetApproximateSizes
-  ROCKSDB_DEPRECATED_FUNC virtual void GetApproximateSizes(
-      const Range* range, int n, uint64_t* sizes, bool include_memtable) {
-    uint8_t include_flags = SizeApproximationFlags::INCLUDE_FILES;
-    if (include_memtable) {
-      include_flags |= SizeApproximationFlags::INCLUDE_MEMTABLES;
-    }
-    GetApproximateSizes(DefaultColumnFamily(), range, n, sizes, include_flags);
-  }
-  ROCKSDB_DEPRECATED_FUNC virtual void GetApproximateSizes(
-      ColumnFamilyHandle* column_family, const Range* range, int n,
-      uint64_t* sizes, bool include_memtable) {
-    uint8_t include_flags = SizeApproximationFlags::INCLUDE_FILES;
-    if (include_memtable) {
-      include_flags |= SizeApproximationFlags::INCLUDE_MEMTABLES;
-    }
-    GetApproximateSizes(column_family, range, n, sizes, include_flags);
-  }
-
   // Compact the underlying storage for the key range [*begin,*end].
   // The actual compaction interval might be superset of [*begin, *end].
   // In particular, deleted and overwritten versions are discarded,
