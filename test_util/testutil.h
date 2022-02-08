@@ -113,6 +113,9 @@ class SimpleSuffixReverseComparator : public Comparator {
 // endian machines.
 extern const Comparator* Uint64Comparator();
 
+// A wrapper api for getting the ComparatorWithU64Ts<BytewiseComparator>
+extern const Comparator* BytewiseComparatorWithU64TsWrapper();
+
 class StringSink : public FSWritableFile {
  public:
   std::string contents_;
@@ -793,8 +796,6 @@ class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
 // The factory for the hacky skip list mem table that triggers flush after
 // number of entries exceeds a threshold.
 extern MemTableRepFactory* NewSpecialSkipListFactory(int num_entries_per_flush);
-
-extern const Comparator* ComparatorWithU64Ts();
 
 CompressionType RandomCompressionType(Random* rnd);
 
