@@ -1500,7 +1500,7 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
         meta->GetTotalBlobCount(), meta->GetTotalBlobBytes(),
         meta->GetGarbageBlobCount(), meta->GetGarbageBlobBytes(),
         meta->GetChecksumMethod(), meta->GetChecksumValue());
-    cf_meta->blob_file_count++;
+    ++cf_meta->blob_file_count;
     cf_meta->blob_file_size += meta->GetBlobFileSize();
   }
 }
@@ -3853,15 +3853,16 @@ uint64_t VersionStorageInfo::EstimateLiveDataSize() const {
       }
     }
   }
+
   // For BlobDB, the result also includes the exact value of live bytes in the
   // blob files of the version.
-  const auto& blob_files = GetBlobFiles();
-  for (const auto& meta : blob_files) {
+  for (const auto& meta : blob_files_) {
     assert(meta);
 
     size += meta->GetTotalBlobBytes();
     size -= meta->GetGarbageBlobBytes();
   }
+
   return size;
 }
 
@@ -5258,13 +5259,21 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
   checksum_list->reset();
 
   for (auto cfd : *column_family_set_) {
+    assert(cfd);
+
     if (cfd->IsDropped() || !cfd->initialized()) {
       continue;
     }
+
+    const auto* current = cfd->current();
+    assert(current);
+
+    const auto* vstorage = current->storage_info();
+    assert(vstorage);
+
     /* SST files */
     for (int level = 0; level < cfd->NumberLevels(); level++) {
-      for (const auto& file :
-           cfd->current()->storage_info()->LevelFiles(level)) {
+      for (const auto& file : vstorage->LevelFiles(level)) {
         s = checksum_list->InsertOneFileChecksum(file->fd.GetNumber(),
                                                  file->file_checksum,
                                                  file->file_checksum_func_name);
@@ -5275,7 +5284,7 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
     }
 
     /* Blob files */
-    const auto& blob_files = cfd->current()->storage_info()->GetBlobFiles();
+    const auto& blob_files = vstorage->GetBlobFiles();
     for (const auto& meta : blob_files) {
       assert(meta);
 
@@ -5424,12 +5433,14 @@ Status VersionSet::WriteCurrentStateToManifest(
       VersionEdit edit;
       edit.SetColumnFamily(cfd->GetID());
 
-      assert(cfd->current());
-      assert(cfd->current()->storage_info());
+      const auto* current = cfd->current();
+      assert(current);
+
+      const auto* vstorage = current->storage_info();
+      assert(vstorage);
 
       for (int level = 0; level < cfd->NumberLevels(); level++) {
-        for (const auto& f :
-             cfd->current()->storage_info()->LevelFiles(level)) {
+        for (const auto& f : vstorage->LevelFiles(level)) {
           edit.AddFile(
               level, f->fd.GetNumber(), f->fd.GetPathId(), f->fd.GetFileSize(),
               f->smallest, f->largest, f->fd.smallest_seqno,
@@ -5440,7 +5451,7 @@ Status VersionSet::WriteCurrentStateToManifest(
         }
       }
 
-      const auto& blob_files = cfd->current()->storage_info()->GetBlobFiles();
+      const auto& blob_files = vstorage->GetBlobFiles();
       for (const auto& meta : blob_files) {
         assert(meta);
 
@@ -5971,11 +5982,16 @@ uint64_t VersionSet::GetTotalSstFilesSize(Version* dummy_versions) {
 
 uint64_t VersionSet::GetTotalBlobFileSize(Version* dummy_versions) {
   std::unordered_set<uint64_t> unique_blob_files;
+
   uint64_t all_versions_blob_file_size = 0;
+
   for (auto* v = dummy_versions->next_; v != dummy_versions; v = v->next_) {
     // iterate all the versions
-    auto* vstorage = v->storage_info();
+    const auto* vstorage = v->storage_info();
+    assert(vstorage);
+
     const auto& blob_files = vstorage->GetBlobFiles();
+
     for (const auto& meta : blob_files) {
       assert(meta);
 
@@ -5988,6 +6004,7 @@ uint64_t VersionSet::GetTotalBlobFileSize(Version* dummy_versions) {
       }
     }
   }
+
   return all_versions_blob_file_size;
 }
 

@@ -995,8 +995,6 @@ class VersionBuilder::Rep {
   void SaveBlobFilesTo(VersionStorageInfo* vstorage) const {
     assert(vstorage);
 
-    // TODO: make this tighter by considering the number of newly obsoleted blob
-    // files
     assert(base_vstorage_);
     vstorage->ReserveBlob(base_vstorage_->GetBlobFiles().size() +
                           mutable_blob_file_metas_.size());

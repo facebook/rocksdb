@@ -267,7 +267,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
       LiveFileStorageInfo& info = results.back();
 
       info.relative_filename = BlobFileName(meta->GetBlobFileNumber());
-      info.directory = GetName();  // TODO?: support db_paths/cf_paths
+      info.directory = GetDir(/* path_id */ 0);
       info.file_number = meta->GetBlobFileNumber();
       info.file_type = kBlobFile;
       info.size = meta->GetBlobFileSize();
