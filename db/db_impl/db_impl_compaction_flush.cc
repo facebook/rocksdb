@@ -868,6 +868,8 @@ void DBImpl::NotifyOnFlushCompleted(
       for (auto listener : immutable_db_options_.listeners) {
         listener->OnFlushCompleted(this, *info);
       }
+      TEST_SYNC_POINT(
+          "DBImpl::NotifyOnFlushCompleted::PostAllOnFlushCompleted");
     }
     flush_jobs_info->clear();
   }
