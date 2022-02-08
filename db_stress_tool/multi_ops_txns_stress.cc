@@ -584,7 +584,7 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
   assert(txn);
   txn->SetSnapshotOnNextOperation(/*notifier=*/nullptr);
 
-  const Defer cleanup([&s, thread, txn, this]() {
+  const Defer cleanup([new_a, &s, thread, txn, this]() {
     if (s.ok()) {
       // Two gets, one for existing pk, one for locking potential new pk.
       thread->stats.AddGets(/*ngets=*/2, /*nfounds=*/1);
@@ -602,6 +602,8 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
     } else {
       thread->stats.AddErrors(1);
     }
+    auto& key_gen = key_gen_for_a_[thread->tid];
+    key_gen->UndoAllocation(new_a);
     RollbackTxn(txn).PermitUncheckedError();
   });
 
@@ -665,8 +667,6 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
   auto& key_gen = key_gen_for_a_.at(thread->tid);
   if (s.ok()) {
     key_gen->Replace(old_a, old_a_pos, new_a);
-  } else {
-    key_gen->UndoAllocation(new_a);
   }
   return s;
 #endif  // !ROCKSDB_LITE
@@ -734,9 +734,7 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   std::string iter_ub_str = Record::EncodeSecondaryKey(old_c + 1);
   Slice iter_ub = iter_ub_str;
   ReadOptions ropts;
-  if (thread->rand.OneIn(2)) {
-    ropts.snapshot = txn->GetSnapshot();
-  }
+  ropts.snapshot = txn->GetSnapshot();
   ropts.total_order_seek = true;
   ropts.iterate_upper_bound = &iter_ub;
   ropts.rate_limiter_priority =
@@ -774,11 +772,12 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
       // Write conflict, or cannot acquire lock, or memtable size is not large
       // enough, or merge cannot be resolved.
       break;
-    } else if (!s.ok()) {
+    } else if (s.IsNotFound()) {
       // We can also fail verification here.
       VerificationAbort(thread->shared, "pk should exist, but does not", s);
       break;
     }
+    assert(s.ok());
     auto result = Record::DecodePrimaryIndexValue(value);
     s = std::get<0>(result);
     if (!s.ok()) {
