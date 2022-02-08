@@ -12,8 +12,8 @@ import java.util.*;
  * Options to control the behavior of a database.  It will be used
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
  *
- * If {@link #dispose()} function is not called, then it will be GC'd
- * automatically and native resources will be released as part of the process.
+ * As a descendent of {@link AbstractNativeReference}, this class is {@link AutoCloseable}
+ * and will be automatically released if opened in the preamble of a try with resources block.
  */
 public class Options extends RocksObject
     implements DBOptionsInterface<Options>,
