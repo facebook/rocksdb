@@ -338,9 +338,10 @@ public class Transaction extends RocksObject {
    * @throws IllegalArgumentException thrown if the size of passed keys is not
    *    equal to the amount of passed column family handles.
    */
-  @Deprecated public byte[][] multiGet(final ReadOptions readOptions,
-      final List<ColumnFamilyHandle> columnFamilyHandles,
-      final byte[][] keys) throws RocksDBException {
+  @Deprecated
+  public byte[][] multiGet(final ReadOptions readOptions,
+      final List<ColumnFamilyHandle> columnFamilyHandles, final byte[][] keys)
+      throws RocksDBException {
     assert(isOwningHandle());
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
@@ -390,14 +391,13 @@ public class Transaction extends RocksObject {
    */
 
   public List<byte[]> multiGetAsList(final ReadOptions readOptions,
-  final List<ColumnFamilyHandle> columnFamilyHandles,
-  final List<byte[]> keys) throws RocksDBException {
-    assert(isOwningHandle());
+      final List<ColumnFamilyHandle> columnFamilyHandles, final List<byte[]> keys)
+      throws RocksDBException {
+    assert (isOwningHandle());
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
     if (keys.size() != columnFamilyHandles.size()) {
-      throw new IllegalArgumentException(
-          "For each key there must be a ColumnFamilyHandle.");
+      throw new IllegalArgumentException("For each key there must be a ColumnFamilyHandle.");
     }
     if (keys.size() == 0) {
       return new ArrayList<>(0);
@@ -408,8 +408,7 @@ public class Transaction extends RocksObject {
       cfHandles[i] = columnFamilyHandles.get(i).nativeHandle_;
     }
 
-    return Arrays.asList(multiGet(nativeHandle_, readOptions.nativeHandle_,
-        keysArray, cfHandles));
+    return Arrays.asList(multiGet(nativeHandle_, readOptions.nativeHandle_, keysArray, cfHandles));
   }
 
   /**
@@ -437,8 +436,9 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  @Deprecated public byte[][] multiGet(final ReadOptions readOptions,
-      final byte[][] keys) throws RocksDBException {
+  @Deprecated
+  public byte[][] multiGet(final ReadOptions readOptions, final byte[][] keys)
+      throws RocksDBException {
     assert(isOwningHandle());
     if(keys.length == 0) {
       return new byte[0][0];
@@ -473,15 +473,14 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public List<byte[]> multiGetAsList(final ReadOptions readOptions,
-                           final List<byte[]> keys) throws RocksDBException {
+  public List<byte[]> multiGetAsList(final ReadOptions readOptions, final List<byte[]> keys)
+      throws RocksDBException {
     if (keys.size() == 0) {
       return new ArrayList<>(0);
     }
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
 
-    return Arrays.asList(multiGet(nativeHandle_, readOptions.nativeHandle_,
-        keysArray));
+    return Arrays.asList(multiGet(nativeHandle_, readOptions.nativeHandle_, keysArray));
   }
 
   /**
@@ -631,9 +630,10 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  @Deprecated public byte[][] multiGetForUpdate(final ReadOptions readOptions,
-      final List<ColumnFamilyHandle> columnFamilyHandles,
-      final byte[][] keys) throws RocksDBException {
+  @Deprecated
+  public byte[][] multiGetForUpdate(final ReadOptions readOptions,
+      final List<ColumnFamilyHandle> columnFamilyHandles, final byte[][] keys)
+      throws RocksDBException {
     assert(isOwningHandle());
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
@@ -668,16 +668,15 @@ public class Transaction extends RocksObject {
    *    native library.
    */
   public List<byte[]> multiGetForUpdateAsList(final ReadOptions readOptions,
-                                    final List<ColumnFamilyHandle> columnFamilyHandles,
-                                    final List<byte[]> keys) throws RocksDBException {
-    assert(isOwningHandle());
+      final List<ColumnFamilyHandle> columnFamilyHandles, final List<byte[]> keys)
+      throws RocksDBException {
+    assert (isOwningHandle());
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
-    if (keys.size() != columnFamilyHandles.size()){
-      throw new IllegalArgumentException(
-          "For each key there must be a ColumnFamilyHandle.");
+    if (keys.size() != columnFamilyHandles.size()) {
+      throw new IllegalArgumentException("For each key there must be a ColumnFamilyHandle.");
     }
-    if(keys.size() == 0) {
+    if (keys.size() == 0) {
       return new ArrayList<>();
     }
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
@@ -686,10 +685,9 @@ public class Transaction extends RocksObject {
     for (int i = 0; i < columnFamilyHandles.size(); i++) {
       cfHandles[i] = columnFamilyHandles.get(i).nativeHandle_;
     }
-    return Arrays.asList(multiGetForUpdate(nativeHandle_, readOptions.nativeHandle_,
-        keysArray, cfHandles));
+    return Arrays.asList(
+        multiGetForUpdate(nativeHandle_, readOptions.nativeHandle_, keysArray, cfHandles));
   }
-
 
   /**
    * A multi-key version of {@link #getForUpdate(ReadOptions, byte[], boolean)}.
@@ -703,8 +701,9 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  @Deprecated public byte[][] multiGetForUpdate(final ReadOptions readOptions,
-                                    final byte[][] keys) throws RocksDBException {
+  @Deprecated
+  public byte[][] multiGetForUpdate(final ReadOptions readOptions, final byte[][] keys)
+      throws RocksDBException {
     assert(isOwningHandle());
     if(keys.length == 0) {
       return new byte[0][0];
@@ -726,17 +725,16 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public List<byte[]> multiGetForUpdateAsList(final ReadOptions readOptions,
-                                    final List<byte[]> keys) throws RocksDBException {
-    assert(isOwningHandle());
-    if(keys.size() == 0) {
+  public List<byte[]> multiGetForUpdateAsList(
+      final ReadOptions readOptions, final List<byte[]> keys) throws RocksDBException {
+    assert (isOwningHandle());
+    if (keys.size() == 0) {
       return new ArrayList<>(0);
     }
 
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
 
-    return Arrays.asList(multiGetForUpdate(nativeHandle_,
-        readOptions.nativeHandle_, keysArray));
+    return Arrays.asList(multiGetForUpdate(nativeHandle_, readOptions.nativeHandle_, keysArray));
   }
 
   /**
