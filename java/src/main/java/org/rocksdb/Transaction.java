@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -310,7 +312,7 @@ public class Transaction extends RocksObject {
 
   /**
    * This function is similar to
-   * {@link RocksDB#multiGet(ReadOptions, List, List)} except it will
+   * {@link RocksDB#multiGetAsList} except it will
    * also read pending changes in this transaction.
    * Currently, this function will return Status::MergeInProgress if the most
    * recent write to the queried key in this batch is a Merge.
@@ -336,7 +338,7 @@ public class Transaction extends RocksObject {
    * @throws IllegalArgumentException thrown if the size of passed keys is not
    *    equal to the amount of passed column family handles.
    */
-  public byte[][] multiGet(final ReadOptions readOptions,
+  @Deprecated public byte[][] multiGet(final ReadOptions readOptions,
       final List<ColumnFamilyHandle> columnFamilyHandles,
       final byte[][] keys) throws RocksDBException {
     assert(isOwningHandle());
@@ -360,7 +362,59 @@ public class Transaction extends RocksObject {
 
   /**
    * This function is similar to
-   * {@link RocksDB#multiGet(ReadOptions, List)} except it will
+   * {@link RocksDB#multiGetAsList(ReadOptions, List, List)} except it will
+   * also read pending changes in this transaction.
+   * Currently, this function will return Status::MergeInProgress if the most
+   * recent write to the queried key in this batch is a Merge.
+   *
+   * If {@link ReadOptions#snapshot()} is not set, the current version of the
+   * key will be read. Calling {@link #setSnapshot()} does not affect the
+   * version of the data returned.
+   *
+   * Note that setting {@link ReadOptions#setSnapshot(Snapshot)} will affect
+   * what is read from the DB but will NOT change which keys are read from this
+   * transaction (the keys in this transaction do not yet belong to any snapshot
+   * and will be fetched regardless).
+   *
+   * @param readOptions Read options.
+   * @param columnFamilyHandles {@link java.util.List} containing
+   *     {@link org.rocksdb.ColumnFamilyHandle} instances.
+   * @param keys of keys for which values need to be retrieved.
+   *
+   * @return Array of values, one for each key
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   * @throws IllegalArgumentException thrown if the size of passed keys is not
+   *    equal to the amount of passed column family handles.
+   */
+
+  public List<byte[]> multiGetAsList(final ReadOptions readOptions,
+  final List<ColumnFamilyHandle> columnFamilyHandles,
+  final List<byte[]> keys) throws RocksDBException {
+    assert(isOwningHandle());
+    // Check if key size equals cfList size. If not a exception must be
+    // thrown. If not a Segmentation fault happens.
+    if (keys.size() != columnFamilyHandles.size()) {
+      throw new IllegalArgumentException(
+          "For each key there must be a ColumnFamilyHandle.");
+    }
+    if (keys.size() == 0) {
+      return new ArrayList<>(0);
+    }
+    final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
+    final long[] cfHandles = new long[columnFamilyHandles.size()];
+    for (int i = 0; i < columnFamilyHandles.size(); i++) {
+      cfHandles[i] = columnFamilyHandles.get(i).nativeHandle_;
+    }
+
+    return Arrays.asList(multiGet(nativeHandle_, readOptions.nativeHandle_,
+        keysArray, cfHandles));
+  }
+
+  /**
+   * This function is similar to
+   * {@link RocksDB#multiGetAsList} except it will
    * also read pending changes in this transaction.
    * Currently, this function will return Status::MergeInProgress if the most
    * recent write to the queried key in this batch is a Merge.
@@ -383,7 +437,7 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public byte[][] multiGet(final ReadOptions readOptions,
+  @Deprecated public byte[][] multiGet(final ReadOptions readOptions,
       final byte[][] keys) throws RocksDBException {
     assert(isOwningHandle());
     if(keys.length == 0) {
@@ -392,6 +446,42 @@ public class Transaction extends RocksObject {
 
     return multiGet(nativeHandle_, readOptions.nativeHandle_,
         keys);
+  }
+
+  /**
+   * This function is similar to
+   * {@link RocksDB#multiGetAsList} except it will
+   * also read pending changes in this transaction.
+   * Currently, this function will return Status::MergeInProgress if the most
+   * recent write to the queried key in this batch is a Merge.
+   *
+   * If {@link ReadOptions#snapshot()} is not set, the current version of the
+   * key will be read. Calling {@link #setSnapshot()} does not affect the
+   * version of the data returned.
+   *
+   * Note that setting {@link ReadOptions#setSnapshot(Snapshot)} will affect
+   * what is read from the DB but will NOT change which keys are read from this
+   * transaction (the keys in this transaction do not yet belong to any snapshot
+   * and will be fetched regardless).
+   *
+   * @param readOptions Read options.=
+   *     {@link org.rocksdb.ColumnFamilyHandle} instances.
+   * @param keys of keys for which values need to be retrieved.
+   *
+   * @return Array of values, one for each key
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public List<byte[]> multiGetAsList(final ReadOptions readOptions,
+                           final List<byte[]> keys) throws RocksDBException {
+    if (keys.size() == 0) {
+      return new ArrayList<>(0);
+    }
+    final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
+
+    return Arrays.asList(multiGet(nativeHandle_, readOptions.nativeHandle_,
+        keysArray));
   }
 
   /**
@@ -541,7 +631,7 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public byte[][] multiGetForUpdate(final ReadOptions readOptions,
+  @Deprecated public byte[][] multiGetForUpdate(final ReadOptions readOptions,
       final List<ColumnFamilyHandle> columnFamilyHandles,
       final byte[][] keys) throws RocksDBException {
     assert(isOwningHandle());
@@ -563,6 +653,45 @@ public class Transaction extends RocksObject {
   }
 
   /**
+   * A multi-key version of
+   * {@link #getForUpdate(ReadOptions, ColumnFamilyHandle, byte[], boolean)}.
+   *
+   *
+   * @param readOptions Read options.
+   * @param columnFamilyHandles {@link org.rocksdb.ColumnFamilyHandle}
+   *     instances
+   * @param keys the keys to retrieve the values for.
+   *
+   * @return Array of values, one for each key
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public List<byte[]> multiGetForUpdateAsList(final ReadOptions readOptions,
+                                    final List<ColumnFamilyHandle> columnFamilyHandles,
+                                    final List<byte[]> keys) throws RocksDBException {
+    assert(isOwningHandle());
+    // Check if key size equals cfList size. If not a exception must be
+    // thrown. If not a Segmentation fault happens.
+    if (keys.size() != columnFamilyHandles.size()){
+      throw new IllegalArgumentException(
+          "For each key there must be a ColumnFamilyHandle.");
+    }
+    if(keys.size() == 0) {
+      return new ArrayList<>();
+    }
+    final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
+
+    final long[] cfHandles = new long[columnFamilyHandles.size()];
+    for (int i = 0; i < columnFamilyHandles.size(); i++) {
+      cfHandles[i] = columnFamilyHandles.get(i).nativeHandle_;
+    }
+    return Arrays.asList(multiGetForUpdate(nativeHandle_, readOptions.nativeHandle_,
+        keysArray, cfHandles));
+  }
+
+
+  /**
    * A multi-key version of {@link #getForUpdate(ReadOptions, byte[], boolean)}.
    *
    *
@@ -574,8 +703,8 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public byte[][] multiGetForUpdate(final ReadOptions readOptions,
-      final byte[][] keys) throws RocksDBException {
+  @Deprecated public byte[][] multiGetForUpdate(final ReadOptions readOptions,
+                                    final byte[][] keys) throws RocksDBException {
     assert(isOwningHandle());
     if(keys.length == 0) {
       return new byte[0][0];
@@ -583,6 +712,31 @@ public class Transaction extends RocksObject {
 
     return multiGetForUpdate(nativeHandle_,
         readOptions.nativeHandle_, keys);
+  }
+
+  /**
+   * A multi-key version of {@link #getForUpdate(ReadOptions, byte[], boolean)}.
+   *
+   *
+   * @param readOptions Read options.
+   * @param keys the keys to retrieve the values for.
+   *
+   * @return List of values, one for each key
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public List<byte[]> multiGetForUpdateAsList(final ReadOptions readOptions,
+                                    final List<byte[]> keys) throws RocksDBException {
+    assert(isOwningHandle());
+    if(keys.size() == 0) {
+      return new ArrayList<>(0);
+    }
+
+    final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
+
+    return Arrays.asList(multiGetForUpdate(nativeHandle_,
+        readOptions.nativeHandle_, keysArray));
   }
 
   /**
