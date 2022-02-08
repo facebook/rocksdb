@@ -127,6 +127,8 @@ class VersionStorageInfo {
 
   void AddFile(int level, FileMetaData* f);
 
+  void ReserveBlob(size_t size) { blob_files_.reserve(size); }
+
   void AddBlobFile(std::shared_ptr<BlobFileMetaData> blob_file_meta);
 
   void PrepareForVersionAppend(const ImmutableOptions& immutable_options,
