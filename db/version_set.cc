@@ -5271,7 +5271,11 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
 
     /* SST files */
     for (int level = 0; level < cfd->NumberLevels(); level++) {
-      for (const auto& file : vstorage->LevelFiles(level)) {
+      const auto& level_files = vstorage->LevelFiles(level);
+
+      for (const auto& file : level_files) {
+        assert(file);
+
         s = checksum_list->InsertOneFileChecksum(file->fd.GetNumber(),
                                                  file->file_checksum,
                                                  file->file_checksum_func_name);
@@ -5438,7 +5442,11 @@ Status VersionSet::WriteCurrentStateToManifest(
       assert(vstorage);
 
       for (int level = 0; level < cfd->NumberLevels(); level++) {
-        for (const auto& f : vstorage->LevelFiles(level)) {
+        const auto& level_files = vstorage->LevelFiles(level);
+
+        for (const auto& f : level_files) {
+          assert(f);
+
           edit.AddFile(
               level, f->fd.GetNumber(), f->fd.GetPathId(), f->fd.GetFileSize(),
               f->smallest, f->largest, f->fd.smallest_seqno,

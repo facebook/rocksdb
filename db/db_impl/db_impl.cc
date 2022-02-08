@@ -5110,6 +5110,7 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
       const auto& blob_files = vstorage->GetBlobFiles();
       for (const auto& meta : blob_files) {
         assert(meta);
+
         const uint64_t blob_file_number = meta->GetBlobFileNumber();
 
         const std::string blob_file_name = BlobFileName(
