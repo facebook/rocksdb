@@ -575,7 +575,7 @@ class AlwaysTrueBitsBuilder : public FilterBitsBuilder {
 
 class AlwaysTrueFilterPolicy : public BloomFilterPolicy {
  public:
-  AlwaysTrueFilterPolicy(bool skip)
+  explicit AlwaysTrueFilterPolicy(bool skip)
       : BloomFilterPolicy(/* ignored */ 10, /* ignored */ BFP::kAutoBloom),
         skip_(skip) {}
 

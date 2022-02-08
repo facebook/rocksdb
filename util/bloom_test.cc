@@ -94,7 +94,7 @@ class BlockBasedBloomTest : public testing::Test {
       key_slices.push_back(Slice(keys_[i]));
     }
     filter_.clear();
-    BloomFilterPolicy::CreateFilter(&key_slices[0],
+    BloomFilterPolicy::CreateFilter(key_slices.data(),
                                     static_cast<int>(key_slices.size()),
                                     bits_per_key_, &filter_);
     keys_.clear();

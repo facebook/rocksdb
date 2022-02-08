@@ -1444,7 +1444,8 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
         // Internal contract: returns a new fake builder that encodes bits per
         // key into a special value from EstimateEntriesAdded()
         struct B : public FilterBitsBuilder {
-          B(int bits_per_key) : est(kSecretBitsPerKeyStart + bits_per_key) {}
+          explicit B(int bits_per_key)
+              : est(kSecretBitsPerKeyStart + bits_per_key) {}
           size_t est;
           size_t EstimateEntriesAdded() override { return est; }
           void AddKey(const Slice&) override {}
