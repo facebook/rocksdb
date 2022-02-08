@@ -2805,9 +2805,6 @@ int rocksdb_options_get_level0_stop_writes_trigger(rocksdb_options_t* opt) {
   return opt->rep.level0_stop_writes_trigger;
 }
 
-void rocksdb_options_set_max_mem_compaction_level(rocksdb_options_t* /*opt*/,
-                                                  int /*n*/) {}
-
 void rocksdb_options_set_wal_recovery_mode(rocksdb_options_t* opt,int mode) {
   opt->rep.wal_recovery_mode = static_cast<WALRecoveryMode>(mode);
 }
@@ -3272,16 +3269,6 @@ void rocksdb_options_set_hard_pending_compaction_bytes_limit(rocksdb_options_t* 
 size_t rocksdb_options_get_hard_pending_compaction_bytes_limit(
     rocksdb_options_t* opt) {
   return opt->rep.hard_pending_compaction_bytes_limit;
-}
-
-void rocksdb_options_set_rate_limit_delay_max_milliseconds(
-    rocksdb_options_t* opt, unsigned int v) {
-  opt->rep.rate_limit_delay_max_milliseconds = v;
-}
-
-unsigned int rocksdb_options_get_rate_limit_delay_max_milliseconds(
-    rocksdb_options_t* opt) {
-  return opt->rep.rate_limit_delay_max_milliseconds;
 }
 
 void rocksdb_options_set_max_manifest_file_size(

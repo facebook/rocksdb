@@ -6845,16 +6845,13 @@ TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   constexpr uint64_t kTsU64Value = 12;
 
   for (uint64_t key = 0; key < 100; ++key) {
-    std::string ts_str;
-    PutFixed64(&ts_str, kTsU64Value);
-    Slice ts = ts_str;
-    WriteOptions write_opts;
-    write_opts.timestamp = &ts;
+    std::string ts;
+    PutFixed64(&ts, kTsU64Value);
 
     std::string key_str;
     PutFixed64(&key_str, key);
     std::reverse(key_str.begin(), key_str.end());
-    ASSERT_OK(Put(key_str, "value", write_opts));
+    ASSERT_OK(db_->Put(WriteOptions(), key_str, ts, "value"));
   }
 
   ASSERT_OK(Flush());

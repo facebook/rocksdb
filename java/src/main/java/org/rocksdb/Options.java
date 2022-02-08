@@ -1212,19 +1212,6 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setPreserveDeletes(final boolean preserveDeletes) {
-    assert(isOwningHandle());
-    setPreserveDeletes(nativeHandle_, preserveDeletes);
-    return this;
-  }
-
-  @Override
-  public boolean preserveDeletes() {
-    assert(isOwningHandle());
-    return preserveDeletes(nativeHandle_);
-  }
-
-  @Override
   public Options setTwoWriteQueues(final boolean twoWriteQueues) {
     assert(isOwningHandle());
     setTwoWriteQueues(nativeHandle_, twoWriteQueues);
@@ -1648,6 +1635,17 @@ public class Options extends RocksObject
   @Override
   public Options setMemtablePrefixBloomSizeRatio(final double memtablePrefixBloomSizeRatio) {
     setMemtablePrefixBloomSizeRatio(nativeHandle_, memtablePrefixBloomSizeRatio);
+    return this;
+  }
+
+  @Override
+  public boolean memtableWholeKeyFiltering() {
+    return memtableWholeKeyFiltering(nativeHandle_);
+  }
+
+  @Override
+  public Options setMemtableWholeKeyFiltering(final boolean memtableWholeKeyFiltering) {
+    setMemtableWholeKeyFiltering(nativeHandle_, memtableWholeKeyFiltering);
     return this;
   }
 
@@ -2304,9 +2302,6 @@ public class Options extends RocksObject
   private native void setAllowIngestBehind(final long handle,
       final boolean allowIngestBehind);
   private native boolean allowIngestBehind(final long handle);
-  private native void setPreserveDeletes(final long handle,
-      final boolean preserveDeletes);
-  private native boolean preserveDeletes(final long handle);
   private native void setTwoWriteQueues(final long handle,
       final boolean twoWriteQueues);
   private native boolean twoWriteQueues(final long handle);
@@ -2421,6 +2416,8 @@ public class Options extends RocksObject
   private native void setMemtablePrefixBloomSizeRatio(
       long handle, double memtablePrefixBloomSizeRatio);
   private native double memtablePrefixBloomSizeRatio(long handle);
+  private native void setMemtableWholeKeyFiltering(long handle, boolean memtableWholeKeyFiltering);
+  private native boolean memtableWholeKeyFiltering(long handle);
   private native void setBloomLocality(
       long handle, int bloomLocality);
   private native int bloomLocality(long handle);

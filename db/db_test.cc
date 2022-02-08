@@ -1450,7 +1450,7 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   std::string end = Key(60);
   Range r(start, end);
   SizeApproximationOptions size_approx_options;
-  size_approx_options.include_memtabtles = true;
+  size_approx_options.include_memtables = true;
   size_approx_options.include_files = true;
   ASSERT_OK(
       db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
@@ -1551,8 +1551,8 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   ASSERT_GT(size_with_mt, size_without_mt);
   ASSERT_GT(size_without_mt, 6000);
 
-  // Check that include_memtabtles flag works as expected
-  size_approx_options.include_memtabtles = false;
+  // Check that include_memtables flag works as expected
+  size_approx_options.include_memtables = false;
   ASSERT_OK(
       db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_EQ(size, size_without_mt);
@@ -1614,7 +1614,7 @@ TEST_F(DBTest, ApproximateSizesFilesWithErrorMargin) {
     const Range r(start, end);
 
     SizeApproximationOptions size_approx_options;
-    size_approx_options.include_memtabtles = false;
+    size_approx_options.include_memtables = false;
     size_approx_options.include_files = true;
     size_approx_options.files_size_error_margin = -1.0;  // disabled
 
@@ -2862,6 +2862,11 @@ class ModelDB : public DB {
     }
     return Write(o, &batch);
   }
+  Status Put(const WriteOptions& /*o*/, ColumnFamilyHandle* /*cf*/,
+             const Slice& /*k*/, const Slice& /*ts*/,
+             const Slice& /*v*/) override {
+    return Status::NotSupported();
+  }
   using DB::Close;
   Status Close() override { return Status::OK(); }
   using DB::Delete;
@@ -2874,6 +2879,10 @@ class ModelDB : public DB {
     }
     return Write(o, &batch);
   }
+  Status Delete(const WriteOptions& /*o*/, ColumnFamilyHandle* /*cf*/,
+                const Slice& /*key*/, const Slice& /*ts*/) override {
+    return Status::NotSupported();
+  }
   using DB::SingleDelete;
   Status SingleDelete(const WriteOptions& o, ColumnFamilyHandle* cf,
                       const Slice& key) override {
@@ -2883,6 +2892,10 @@ class ModelDB : public DB {
       return s;
     }
     return Write(o, &batch);
+  }
+  Status SingleDelete(const WriteOptions& /*o*/, ColumnFamilyHandle* /*cf*/,
+                      const Slice& /*key*/, const Slice& /*ts*/) override {
+    return Status::NotSupported();
   }
   using DB::Merge;
   Status Merge(const WriteOptions& o, ColumnFamilyHandle* cf, const Slice& k,
@@ -3198,10 +3211,6 @@ class ModelDB : public DB {
   }
 
   SequenceNumber GetLatestSequenceNumber() const override { return 0; }
-
-  bool SetPreserveDeletesSequenceNumber(SequenceNumber /*seqnum*/) override {
-    return true;
-  }
 
   Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* /*cf*/,
                                   std::string /*ts_low*/) override {

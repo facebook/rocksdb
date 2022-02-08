@@ -453,6 +453,12 @@ DEFINE_bool(
     ROCKSDB_NAMESPACE::BlockBasedTableOptions().optimize_filters_for_memory,
     "Minimize memory footprint of filters");
 
+DEFINE_bool(
+    detect_filter_construct_corruption,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+        .detect_filter_construct_corruption,
+    "Detect corruption during new Bloom Filter and Ribbon Filter construction");
+
 DEFINE_int32(
     index_type,
     static_cast<int32_t>(

@@ -408,7 +408,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->level0_slowdown_writes_trigger = rnd->Uniform(100);
   cf_opt->level0_stop_writes_trigger = rnd->Uniform(100);
   cf_opt->max_bytes_for_level_multiplier = rnd->Uniform(100);
-  cf_opt->max_mem_compaction_level = rnd->Uniform(100);
   cf_opt->max_write_buffer_number = rnd->Uniform(100);
   cf_opt->max_write_buffer_number_to_maintain = rnd->Uniform(100);
   cf_opt->max_write_buffer_size_to_maintain = rnd->Uniform(10000);
@@ -448,9 +447,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->min_blob_size = uint_max + rnd->Uniform(10000);
   cf_opt->blob_file_size = uint_max + rnd->Uniform(10000);
   cf_opt->blob_compaction_readahead_size = uint_max + rnd->Uniform(10000);
-
-  // unsigned int options
-  cf_opt->rate_limit_delay_max_milliseconds = rnd->Uniform(10000);
 
   // pointer typed options
   cf_opt->prefix_extractor.reset(RandomSliceTransform(rnd));
