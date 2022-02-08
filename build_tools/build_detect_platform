@@ -45,11 +45,11 @@ if test -z "$OUTPUT"; then
   exit 1
 fi
 
-# we depend on C++11, but should be compatible with newer standards
+# we depend on C++17, but should be compatible with newer standards
 if [ "$ROCKSDB_CXX_STANDARD" ]; then
   PLATFORM_CXXFLAGS="-std=$ROCKSDB_CXX_STANDARD"
 else
-  PLATFORM_CXXFLAGS="-std=c++11"
+  PLATFORM_CXXFLAGS="-std=c++17"
 fi
 
 # we currently depend on POSIX platform
@@ -794,24 +794,8 @@ if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS -DHAVE_UINT128_EXTENSION"
 fi
 
-# iOS doesn't support thread-local storage, but this check would erroneously
-# succeed because the cross-compiler flags are added by the Makefile, not this
-# script.
-if [ "$PLATFORM" != IOS ]; then
-  $CXX $COMMON_FLAGS -x c++ - -o test.o 2>/dev/null <<EOF
-  #if defined(_MSC_VER) && !defined(__thread)
-  #define __thread __declspec(thread)
-  #endif
-  int main() {
-    static __thread int tls;
-    (void)tls;
-  }
-EOF
-  if [ "$?" = 0 ]; then
-    COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SUPPORT_THREAD_LOCAL"
-  fi
-fi
-
+# thread_local is part of C++11 and later (TODO: clean up this define)
+COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SUPPORT_THREAD_LOCAL"
 
 if [ "$FBCODE_BUILD" != "true" -a "$PLATFORM" = OS_LINUX ]; then
   $CXX $COMMON_FLAGS $PLATFORM_SHARED_CFLAGS -x c++ -c - -o test_dl.o 2>/dev/null <<EOF
