@@ -13,7 +13,8 @@ package org.rocksdb;
  * method, which frees its associated C++ object.</p>
  * <p>
  * This function should be called manually, or even better, called implicitly using a
- * <a href="https://docs.oracle.com/javase/tutorial/essential/exceptions/tryResourceClose.html">try-with-resources</a>
+ * <a
+ * href="https://docs.oracle.com/javase/tutorial/essential/exceptions/tryResourceClose.html">try-with-resources</a>
  * statement, when you are finished with the object. It is no longer
  * called automatically during the regular Java GC process via
  * {@link AbstractNativeReference#finalize()}.</p>
