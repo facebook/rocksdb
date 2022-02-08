@@ -7,7 +7,6 @@
 * `Options::OldDefaults` is marked deprecated, as it is no longer maintained.
 * Add ObjectLibrary::AddFactory and ObjectLibrary::PatternEntry classes.  This method and associated class are the preferred mechanism for registering factories with the ObjectLibrary going forward.  The ObjectLibrary::Register method, which uses regular expressions and may be problematic, is deprecated and will be in a future release.
 * Added API warning against using `Iterator::Refresh()` together with `DB::DeleteRange()`, which are incompatible and have always risked causing the refreshed iterator to return incorrect results.
-* Add DB::OpenAndTrimHistory API. This API will open DB and trim data to the timestamp specified by trim_ts (The data with newer timestamp than specified trim bound will be removed). This API should only be used at a timestamp-enabled db instance recovery.
 
 ### Behavior Changes
 * `DB::DestroyColumnFamilyHandle()` will return Status::InvalidArgument() if called with `DB::DefaultColumnFamily()`.
