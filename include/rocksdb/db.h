@@ -356,9 +356,16 @@ class DB {
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value) = 0;
+  virtual Status Put(const WriteOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     const Slice& ts, const Slice& value) = 0;
   virtual Status Put(const WriteOptions& options, const Slice& key,
                      const Slice& value) {
     return Put(options, DefaultColumnFamily(), key, value);
+  }
+  virtual Status Put(const WriteOptions& options, const Slice& key,
+                     const Slice& ts, const Slice& value) {
+    return Put(options, DefaultColumnFamily(), key, ts, value);
   }
 
   // Remove the database entry (if any) for "key".  Returns OK on
@@ -368,8 +375,15 @@ class DB {
   virtual Status Delete(const WriteOptions& options,
                         ColumnFamilyHandle* column_family,
                         const Slice& key) = 0;
+  virtual Status Delete(const WriteOptions& options,
+                        ColumnFamilyHandle* column_family, const Slice& key,
+                        const Slice& ts) = 0;
   virtual Status Delete(const WriteOptions& options, const Slice& key) {
     return Delete(options, DefaultColumnFamily(), key);
+  }
+  virtual Status Delete(const WriteOptions& options, const Slice& key,
+                        const Slice& ts) {
+    return Delete(options, DefaultColumnFamily(), key, ts);
   }
 
   // Remove the database entry for "key". Requires that the key exists
@@ -391,8 +405,15 @@ class DB {
   virtual Status SingleDelete(const WriteOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice& key) = 0;
+  virtual Status SingleDelete(const WriteOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice& key, const Slice& ts) = 0;
   virtual Status SingleDelete(const WriteOptions& options, const Slice& key) {
     return SingleDelete(options, DefaultColumnFamily(), key);
+  }
+  virtual Status SingleDelete(const WriteOptions& options, const Slice& key,
+                              const Slice& ts) {
+    return SingleDelete(options, DefaultColumnFamily(), key, ts);
   }
 
   // Removes the database entries in the range ["begin_key", "end_key"), i.e.,
@@ -416,6 +437,13 @@ class DB {
   virtual Status DeleteRange(const WriteOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key);
+  virtual Status DeleteRange(const WriteOptions& /*options*/,
+                             ColumnFamilyHandle* /*column_family*/,
+                             const Slice& /*begin_key*/,
+                             const Slice& /*end_key*/, const Slice& /*ts*/) {
+    return Status::NotSupported(
+        "DeleteRange does not support user-defined timestamp yet");
+  }
 
   // Merge the database entry for "key" with "value".  Returns OK on success,
   // and a non-OK status on error. The semantics of this operation is
@@ -427,6 +455,13 @@ class DB {
   virtual Status Merge(const WriteOptions& options, const Slice& key,
                        const Slice& value) {
     return Merge(options, DefaultColumnFamily(), key, value);
+  }
+  virtual Status Merge(const WriteOptions& /*options*/,
+                       ColumnFamilyHandle* /*column_family*/,
+                       const Slice& /*key*/, const Slice& /*ts*/,
+                       const Slice& /*value*/) {
+    return Status::NotSupported(
+        "Merge does not support user-defined timestamp yet");
   }
 
   // Apply the specified updates to the database.
@@ -1104,7 +1139,7 @@ class DB {
                                      uint64_t* sizes,
                                      uint8_t include_flags = INCLUDE_FILES) {
     SizeApproximationOptions options;
-    options.include_memtabtles =
+    options.include_memtables =
         (include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) != 0;
     options.include_files =
         (include_flags & SizeApproximationFlags::INCLUDE_FILES) != 0;
@@ -1127,25 +1162,6 @@ class DB {
                                            uint64_t* const count,
                                            uint64_t* const size) {
     GetApproximateMemTableStats(DefaultColumnFamily(), range, count, size);
-  }
-
-  // Deprecated versions of GetApproximateSizes
-  ROCKSDB_DEPRECATED_FUNC virtual void GetApproximateSizes(
-      const Range* range, int n, uint64_t* sizes, bool include_memtable) {
-    uint8_t include_flags = SizeApproximationFlags::INCLUDE_FILES;
-    if (include_memtable) {
-      include_flags |= SizeApproximationFlags::INCLUDE_MEMTABLES;
-    }
-    GetApproximateSizes(DefaultColumnFamily(), range, n, sizes, include_flags);
-  }
-  ROCKSDB_DEPRECATED_FUNC virtual void GetApproximateSizes(
-      ColumnFamilyHandle* column_family, const Range* range, int n,
-      uint64_t* sizes, bool include_memtable) {
-    uint8_t include_flags = SizeApproximationFlags::INCLUDE_FILES;
-    if (include_memtable) {
-      include_flags |= SizeApproximationFlags::INCLUDE_MEMTABLES;
-    }
-    GetApproximateSizes(column_family, range, n, sizes, include_flags);
   }
 
   // Compact the underlying storage for the key range [*begin,*end].
@@ -1172,27 +1188,6 @@ class DB {
                               const Slice* begin, const Slice* end) = 0;
   virtual Status CompactRange(const CompactRangeOptions& options,
                               const Slice* begin, const Slice* end) {
-    return CompactRange(options, DefaultColumnFamily(), begin, end);
-  }
-
-  ROCKSDB_DEPRECATED_FUNC virtual Status CompactRange(
-      ColumnFamilyHandle* column_family, const Slice* begin, const Slice* end,
-      bool change_level = false, int target_level = -1,
-      uint32_t target_path_id = 0) {
-    CompactRangeOptions options;
-    options.change_level = change_level;
-    options.target_level = target_level;
-    options.target_path_id = target_path_id;
-    return CompactRange(options, column_family, begin, end);
-  }
-
-  ROCKSDB_DEPRECATED_FUNC virtual Status CompactRange(
-      const Slice* begin, const Slice* end, bool change_level = false,
-      int target_level = -1, uint32_t target_path_id = 0) {
-    CompactRangeOptions options;
-    options.change_level = change_level;
-    options.target_level = target_level;
-    options.target_path_id = target_path_id;
     return CompactRange(options, DefaultColumnFamily(), begin, end);
   }
 
@@ -1346,14 +1341,6 @@ class DB {
 
   // The sequence number of the most recent transaction.
   virtual SequenceNumber GetLatestSequenceNumber() const = 0;
-
-  // Instructs DB to preserve deletes with sequence numbers >= passed seqnum.
-  // Has no effect if DBOptions.preserve_deletes is set to false.
-  // This function assumes that user calls this function with monotonically
-  // increasing seqnums (otherwise we can't guarantee that a particular delete
-  // hasn't been already processed); returns true if the value was successfully
-  // updated, false if user attempted to call if with seqnum <= current value.
-  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) = 0;
 
   // Prevent file deletions. Compactions will continue to occur,
   // but no obsolete files will be deleted. Calling this multiple

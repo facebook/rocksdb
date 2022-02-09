@@ -963,11 +963,14 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
   const auto& blob_files = vstorage->GetBlobFiles();
   if (!blob_files.empty()) {
-    ROCKS_LOG_BUFFER(log_buffer_,
-                     "[%s] Blob file summary: head=%" PRIu64 ", tail=%" PRIu64
-                     "\n",
-                     column_family_name.c_str(), blob_files.begin()->first,
-                     blob_files.rbegin()->first);
+    assert(blob_files.front());
+    assert(blob_files.back());
+
+    ROCKS_LOG_BUFFER(
+        log_buffer_,
+        "[%s] Blob file summary: head=%" PRIu64 ", tail=%" PRIu64 "\n",
+        column_family_name.c_str(), blob_files.front()->GetBlobFileNumber(),
+        blob_files.back()->GetBlobFileNumber());
   }
 
   UpdateCompactionJobStats(stats);
@@ -1014,8 +1017,11 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   stream.EndArray();
 
   if (!blob_files.empty()) {
-    stream << "blob_file_head" << blob_files.begin()->first;
-    stream << "blob_file_tail" << blob_files.rbegin()->first;
+    assert(blob_files.front());
+    stream << "blob_file_head" << blob_files.front()->GetBlobFileNumber();
+
+    assert(blob_files.back());
+    stream << "blob_file_tail" << blob_files.back()->GetBlobFileNumber();
   }
 
   CleanupCompaction();
@@ -1944,17 +1950,21 @@ Status CompactionJob::FinishCompactionOutputFile(
   std::string fname;
   FileDescriptor output_fd;
   uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
+  Status status_for_listener = s;
   if (meta != nullptr) {
     fname = GetTableFileName(meta->fd.GetNumber());
     output_fd = meta->fd;
     oldest_blob_file_number = meta->oldest_blob_file_number;
   } else {
     fname = "(nil)";
+    if (s.ok()) {
+      status_for_listener = Status::Aborted("Empty SST file not kept");
+    }
   }
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname,
       job_id_, output_fd, oldest_blob_file_number, tp,
-      TableFileCreationReason::kCompaction, s, file_checksum,
+      TableFileCreationReason::kCompaction, status_for_listener, file_checksum,
       file_checksum_func_name);
 
 #ifndef ROCKSDB_LITE

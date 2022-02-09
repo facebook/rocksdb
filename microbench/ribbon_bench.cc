@@ -5,8 +5,7 @@
 
 // this is a simple micro-benchmark for compare ribbon filter vs. other filter
 // for more comprehensive, please check the dedicate util/filter_bench.
-#include <benchmark/benchmark.h>
-
+#include "benchmark/benchmark.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/mock_block_based_table.h"
 
@@ -53,18 +52,18 @@ struct KeyMaker {
 // 2. average data key length
 // 3. data entry number
 static void CustomArguments(benchmark::internal::Benchmark *b) {
-  for (int filterMode :
+  for (int filter_mode :
        {BloomFilterPolicy::kLegacyBloom, BloomFilterPolicy::kFastLocalBloom,
         BloomFilterPolicy::kStandard128Ribbon}) {
-    //    for (int bits_per_key : {4, 10, 20, 30}) {
     for (int bits_per_key : {10, 20}) {
       for (int key_len_avg : {10, 100}) {
         for (int64_t entry_num : {1 << 10, 1 << 20}) {
-          b->Args({filterMode, bits_per_key, key_len_avg, entry_num});
+          b->Args({filter_mode, bits_per_key, key_len_avg, entry_num});
         }
       }
     }
   }
+  b->ArgNames({"filter_mode", "bits_per_key", "key_len_avg", "entry_num"});
 }
 
 static void FilterBuild(benchmark::State &state) {

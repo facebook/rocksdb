@@ -1164,12 +1164,17 @@ uint64_t CompactionIterator::ComputeBlobGarbageCollectionCutoffFileNumber(
 
   const auto& blob_files = storage_info->GetBlobFiles();
 
-  auto it = blob_files.begin();
-  std::advance(
-      it, compaction->blob_garbage_collection_age_cutoff() * blob_files.size());
+  const size_t cutoff_index = static_cast<size_t>(
+      compaction->blob_garbage_collection_age_cutoff() * blob_files.size());
 
-  return it != blob_files.end() ? it->first
-                                : std::numeric_limits<uint64_t>::max();
+  if (cutoff_index >= blob_files.size()) {
+    return std::numeric_limits<uint64_t>::max();
+  }
+
+  const auto& meta = blob_files[cutoff_index];
+  assert(meta);
+
+  return meta->GetBlobFileNumber();
 }
 
 std::unique_ptr<BlobFetcher> CompactionIterator::CreateBlobFetcherIfNeeded(

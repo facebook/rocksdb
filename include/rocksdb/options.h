@@ -657,12 +657,6 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   int max_background_jobs = 2;
 
-  // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
-  // value of max_background_jobs. This option is ignored.
-  //
-  // Dynamically changeable through SetDBOptions() API.
-  int base_background_compactions = -1;
-
   // DEPRECATED: RocksDB automatically decides this based on the
   // value of max_background_jobs. For backwards compatibility we will set
   // `max_background_jobs = max_background_compactions + max_background_flushes`
@@ -748,9 +742,6 @@ struct DBOptions {
   // Number of shards used for table cache.
   int table_cache_numshardbits = 6;
 
-  // NOT SUPPORTED ANYMORE
-  // int table_cache_remove_scan_count_limit;
-
   // The following two fields affect how archived logs will be deleted.
   // 1. If both set to 0, logs will be deleted asap and will not get into
   //    the archive.
@@ -791,7 +782,6 @@ struct DBOptions {
   // be used. Memory mapped files are not impacted by these parameters.
 
   // Use O_DIRECT for user and compaction reads.
-  // When true, we also force new_table_reader_for_compaction_inputs to true.
   // Default: false
   // Not supported in ROCKSDB_LITE mode!
   bool use_direct_reads = false;
@@ -814,9 +804,6 @@ struct DBOptions {
 
   // Disable child process inherit open files. Default: true
   bool is_fd_close_on_exec = true;
-
-  // NOT SUPPORTED ANYMORE -- this options is no longer used
-  bool skip_log_error_on_recovery = false;
 
   // if not zero, dump rocksdb.stats to LOG every stats_dump_period_sec
   //
@@ -902,26 +889,9 @@ struct DBOptions {
   enum AccessHint { NONE, NORMAL, SEQUENTIAL, WILLNEED };
   AccessHint access_hint_on_compaction_start = NORMAL;
 
-  // If true, always create a new file descriptor and new table reader
-  // for compaction inputs. Turn this parameter on may introduce extra
-  // memory usage in the table reader, if it allocates extra memory
-  // for indexes. This will allow file descriptor prefetch options
-  // to be set for compaction input files and not to impact file
-  // descriptors for the same file used by user queries.
-  // Suggest to enable BlockBasedTableOptions.cache_index_and_filter_blocks
-  // for this mode if using block-based table.
-  //
-  // Default: false
-  // This flag has no affect on the behavior of compaction and plan to delete
-  // in the future.
-  bool new_table_reader_for_compaction_inputs = false;
-
   // If non-zero, we perform bigger reads when doing compaction. If you're
   // running RocksDB on spinning disks, you should set this to at least 2MB.
   // That way RocksDB's compaction is doing sequential instead of random reads.
-  //
-  // When non-zero, we also force new_table_reader_for_compaction_inputs to
-  // true.
   //
   // Default: 0
   //
@@ -1210,11 +1180,6 @@ struct DBOptions {
   // DEFAULT: false
   // Immutable.
   bool allow_ingest_behind = false;
-
-  // Deprecated, will be removed in a future release.
-  // Please try using user-defined timestamp instead.
-  // DEFAULT: false
-  bool preserve_deletes = false;
 
   // If enabled it uses two queues for writes, one for the ones with
   // disable_memtable and one for the ones that also write to memtable. This
@@ -1516,8 +1481,7 @@ struct ReadOptions {
   // used in the table. Some table format (e.g. plain table) may not support
   // this option.
   // If true when calling Get(), we also skip prefix bloom when reading from
-  // block based table. It provides a way to read existing data after
-  // changing implementation of prefix extractor.
+  // block based table, which only affects Get() performance.
   // Default: false
   bool total_order_seek;
 
@@ -1566,11 +1530,6 @@ struct ReadOptions {
   // no impact on point lookups.
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
-
-  // Deprecated, will be removed in a future release.
-  // Please try using user-defined timestamp instead.
-  // Default: 0 (don't filter by seqnum, return user keys)
-  SequenceNumber iter_start_seqnum;
 
   // Timestamp of operation. Read should return the latest data visible to the
   // specified timestamp. All timestamps of the same database must be of the
@@ -1684,25 +1643,13 @@ struct WriteOptions {
   // Default: false
   bool memtable_insert_hint_per_batch;
 
-  // Timestamp of write operation, e.g. Put. All timestamps of the same
-  // database must share the same length and format. The user is also
-  // responsible for providing a customized compare function via Comparator to
-  // order <key, timestamp> tuples. If the user wants to enable timestamp, then
-  // all write operations must be associated with timestamp because RocksDB, as
-  // a single-node storage engine currently has no knowledge of global time,
-  // thus has to rely on the application.
-  // The user-specified timestamp feature is still under active development,
-  // and the API is subject to change.
-  const Slice* timestamp;
-
   WriteOptions()
       : sync(false),
         disableWAL(false),
         ignore_missing_column_families(false),
         no_slowdown(false),
         low_pri(false),
-        memtable_insert_hint_per_batch(false),
-        timestamp(nullptr) {}
+        memtable_insert_hint_per_batch(false) {}
 };
 
 // Options that control flush operations
@@ -1905,10 +1852,10 @@ struct ImportColumnFamilyOptions {
 // Options used with DB::GetApproximateSizes()
 struct SizeApproximationOptions {
   // Defines whether the returned size should include the recently written
-  // data in the mem-tables. If set to false, include_files must be true.
-  bool include_memtabtles = false;
+  // data in the memtables. If set to false, include_files must be true.
+  bool include_memtables = false;
   // Defines whether the returned size should include data serialized to disk.
-  // If set to false, include_memtabtles must be true.
+  // If set to false, include_memtables must be true.
   bool include_files = true;
   // When approximating the files total size that is used to store a keys range
   // using DB::GetApproximateSizes, allow approximation with an error margin of
