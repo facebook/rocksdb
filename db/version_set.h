@@ -266,7 +266,7 @@ class VersionStorageInfo {
 
   void set_l0_delay_trigger_count(int v) { l0_delay_trigger_count_ = v; }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
   int NumLevelFiles(int level) const {
     assert(finalized_);
     return static_cast<int>(files_[level].size());
@@ -275,7 +275,7 @@ class VersionStorageInfo {
   // Return the combined file size of all files at the specified level.
   uint64_t NumLevelBytes(int level) const;
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
   const std::vector<FileMetaData*>& LevelFiles(int level) const {
     return files_[level];
   }
@@ -332,15 +332,15 @@ class VersionStorageInfo {
     return files_[location.GetLevel()][location.GetPosition()];
   }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
   using BlobFiles = std::vector<std::shared_ptr<BlobFileMetaData>>;
   const BlobFiles& GetBlobFiles() const { return blob_files_; }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
   BlobFiles::const_iterator GetBlobFileMetaDataLB(
       uint64_t blob_file_number) const;
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
   std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
       uint64_t blob_file_number) const {
     const auto it = GetBlobFileMetaDataLB(blob_file_number);
@@ -355,7 +355,7 @@ class VersionStorageInfo {
     return std::shared_ptr<BlobFileMetaData>();
   }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
   uint64_t GetTotalBlobFileSize() const {
     uint64_t total_blob_bytes = 0;
 
