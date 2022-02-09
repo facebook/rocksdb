@@ -148,7 +148,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"advise_random_on_open", "true"},
       {"experimental_mempurge_threshold", "0.0"},
       {"use_adaptive_mutex", "false"},
-      {"new_table_reader_for_compaction_inputs", "true"},
       {"compaction_readahead_size", "100"},
       {"random_access_max_buffer_size", "3145728"},
       {"writable_file_max_buffer_size", "314159"},
@@ -309,7 +308,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
   ASSERT_EQ(new_db_opt.experimental_mempurge_threshold, 0.0);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
-  ASSERT_EQ(new_db_opt.new_table_reader_for_compaction_inputs, true);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
   ASSERT_EQ(new_db_opt.random_access_max_buffer_size, 3145728);
   ASSERT_EQ(new_db_opt.writable_file_max_buffer_size, 314159);
@@ -2302,7 +2300,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"advise_random_on_open", "true"},
       {"experimental_mempurge_threshold", "0.0"},
       {"use_adaptive_mutex", "false"},
-      {"new_table_reader_for_compaction_inputs", "true"},
       {"compaction_readahead_size", "100"},
       {"random_access_max_buffer_size", "3145728"},
       {"writable_file_max_buffer_size", "314159"},
@@ -2457,7 +2454,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
   ASSERT_EQ(new_db_opt.experimental_mempurge_threshold, 0.0);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
-  ASSERT_EQ(new_db_opt.new_table_reader_for_compaction_inputs, true);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
   ASSERT_EQ(new_db_opt.random_access_max_buffer_size, 3145728);
   ASSERT_EQ(new_db_opt.writable_file_max_buffer_size, 314159);
