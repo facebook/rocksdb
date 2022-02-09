@@ -558,6 +558,168 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
   } while (ChangeCompactOptions());
 }
 
+namespace {
+
+class AlwaysTrueBitsBuilder : public FilterBitsBuilder {
+ public:
+  void AddKey(const Slice&) override {}
+  size_t EstimateEntriesAdded() override { return 0U; }
+  Slice Finish(std::unique_ptr<const char[]>* /* buf */) override {
+    // Interpreted as "always true" filter (0 probes over 1 byte of
+    // payload, 5 bytes metadata)
+    return Slice("\0\0\0\0\0\0", 6);
+  }
+  using FilterBitsBuilder::Finish;
+  size_t ApproximateNumEntries(size_t) override { return SIZE_MAX; }
+};
+
+class AlwaysTrueFilterPolicy : public BloomFilterPolicy {
+ public:
+  explicit AlwaysTrueFilterPolicy(bool skip)
+      : BloomFilterPolicy(/* ignored */ 10, /* ignored */ BFP::kAutoBloom),
+        skip_(skip) {}
+
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext&) const override {
+    if (skip_) {
+      return nullptr;
+    } else {
+      return new AlwaysTrueBitsBuilder();
+    }
+  }
+
+ private:
+  bool skip_;
+};
+
+}  // namespace
+
+TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
+  constexpr int maxKey = 10;
+  auto PutFn = [&]() {
+    int i;
+    // Put
+    for (i = 0; i < maxKey; i++) {
+      ASSERT_OK(Put(Key(i), Key(i)));
+    }
+    Flush();
+  };
+  auto GetFn = [&]() {
+    int i;
+    // Get OK
+    for (i = 0; i < maxKey; i++) {
+      ASSERT_EQ(Key(i), Get(Key(i)));
+    }
+    // Get NotFound
+    for (; i < maxKey * 2; i++) {
+      ASSERT_EQ(Get(Key(i)), "NOT_FOUND");
+    }
+  };
+  auto PutAndGetFn = [&]() {
+    PutFn();
+    GetFn();
+  };
+#ifndef ROCKSDB_LITE
+  std::map<std::string, std::string> props;
+  const auto& kAggTableProps = DB::Properties::kAggregatedTableProperties;
+#endif  // ROCKSDB_LITE
+
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.partition_filters = partition_filters_;
+  if (partition_filters_) {
+    table_options.index_type =
+        BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  }
+  table_options.format_version = format_version_;
+
+  // Test 1: bits per key < 0.5 means skip filters -> no filter
+  // constructed or read.
+  table_options.filter_policy.reset(new BFP(0.4, bfp_impl_));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  PutAndGetFn();
+
+  // Verify no filter access nor contruction
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE), 0);
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE), 0);
+
+#ifndef ROCKSDB_LITE
+  props.clear();
+  ASSERT_TRUE(db_->GetMapProperty(kAggTableProps, &props));
+  EXPECT_EQ(props["filter_size"], "0");
+#endif  // ROCKSDB_LITE
+
+  // Test 2: use custom API to skip filters -> no filter constructed
+  // or read.
+  table_options.filter_policy.reset(
+      new AlwaysTrueFilterPolicy(/* skip */ true));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  PutAndGetFn();
+
+  // Verify no filter access nor construction
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE), 0);
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE), 0);
+
+#ifndef ROCKSDB_LITE
+  props.clear();
+  ASSERT_TRUE(db_->GetMapProperty(kAggTableProps, &props));
+  EXPECT_EQ(props["filter_size"], "0");
+#endif  // ROCKSDB_LITE
+
+  // Control test: using an actual filter with 100% FP rate -> the filter
+  // is constructed and checked on read.
+  table_options.filter_policy.reset(
+      new AlwaysTrueFilterPolicy(/* skip */ false));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  PutAndGetFn();
+
+  // Verify filter is accessed (and constructed)
+  EXPECT_EQ(TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE),
+            maxKey * 2);
+  EXPECT_EQ(
+      TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE),
+      maxKey);
+#ifndef ROCKSDB_LITE
+  props.clear();
+  ASSERT_TRUE(db_->GetMapProperty(kAggTableProps, &props));
+  EXPECT_NE(props["filter_size"], "0");
+#endif  // ROCKSDB_LITE
+
+  // Test 3 (options test): Able to read existing filters with longstanding
+  // generated options file entry `filter_policy=rocksdb.BuiltinBloomFilter`
+  ASSERT_OK(FilterPolicy::CreateFromString(ConfigOptions(),
+                                           "rocksdb.BuiltinBloomFilter",
+                                           &table_options.filter_policy));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+  GetFn();
+
+  // Verify filter is accessed
+  EXPECT_EQ(TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE),
+            maxKey * 2);
+  EXPECT_EQ(
+      TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE),
+      maxKey);
+
+  // But new filters are not generated (configuration details unknown)
+  DestroyAndReopen(options);
+  PutAndGetFn();
+
+  // Verify no filter access nor construction
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE), 0);
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE), 0);
+
+#ifndef ROCKSDB_LITE
+  props.clear();
+  ASSERT_TRUE(db_->GetMapProperty(kAggTableProps, &props));
+  EXPECT_EQ(props["filter_size"], "0");
+#endif  // ROCKSDB_LITE
+}
+
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestDefFormatVersion,
@@ -1377,84 +1539,6 @@ TEST_P(DBFilterConstructionCorruptionTestWithParam, DetectCorruption) {
 }
 
 namespace {
-// A wrapped bloom over block-based FilterPolicy
-class TestingWrappedBlockBasedFilterPolicy : public FilterPolicy {
- public:
-  explicit TestingWrappedBlockBasedFilterPolicy(int bits_per_key)
-      : filter_(NewBloomFilterPolicy(bits_per_key, true)), counter_(0) {}
-
-  ~TestingWrappedBlockBasedFilterPolicy() override { delete filter_; }
-
-  const char* Name() const override {
-    return "TestingWrappedBlockBasedFilterPolicy";
-  }
-
-  void CreateFilter(const ROCKSDB_NAMESPACE::Slice* keys, int n,
-                    std::string* dst) const override {
-    std::unique_ptr<ROCKSDB_NAMESPACE::Slice[]> user_keys(
-        new ROCKSDB_NAMESPACE::Slice[n]);
-    for (int i = 0; i < n; ++i) {
-      user_keys[i] = convertKey(keys[i]);
-    }
-    return filter_->CreateFilter(user_keys.get(), n, dst);
-  }
-
-  bool KeyMayMatch(const ROCKSDB_NAMESPACE::Slice& key,
-                   const ROCKSDB_NAMESPACE::Slice& filter) const override {
-    counter_++;
-    return filter_->KeyMayMatch(convertKey(key), filter);
-  }
-
-  uint32_t GetCounter() { return counter_; }
-
- private:
-  const FilterPolicy* filter_;
-  mutable uint32_t counter_;
-
-  ROCKSDB_NAMESPACE::Slice convertKey(
-      const ROCKSDB_NAMESPACE::Slice& key) const {
-    return key;
-  }
-};
-}  // namespace
-
-TEST_F(DBBloomFilterTest, WrappedBlockBasedFilterPolicy) {
-  Options options = CurrentOptions();
-  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-
-  BlockBasedTableOptions table_options;
-  TestingWrappedBlockBasedFilterPolicy* policy =
-      new TestingWrappedBlockBasedFilterPolicy(10);
-  table_options.filter_policy.reset(policy);
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-
-  CreateAndReopenWithCF({"pikachu"}, options);
-
-  const int maxKey = 10000;
-  for (int i = 0; i < maxKey; i++) {
-    ASSERT_OK(Put(1, Key(i), Key(i)));
-  }
-  // Add a large key to make the file contain wide range
-  ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
-  ASSERT_EQ(0U, policy->GetCounter());
-  Flush(1);
-
-  // Check if they can be found
-  for (int i = 0; i < maxKey; i++) {
-    ASSERT_EQ(Key(i), Get(1, Key(i)));
-  }
-  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
-  ASSERT_EQ(1U * maxKey, policy->GetCounter());
-
-  // Check if filter is useful
-  for (int i = 0; i < maxKey; i++) {
-    ASSERT_EQ("NOT_FOUND", Get(1, Key(i + 33333)));
-  }
-  ASSERT_GE(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), maxKey * 0.98);
-  ASSERT_EQ(2U * maxKey, policy->GetCounter());
-}
-
-namespace {
 // NOTE: This class is referenced by HISTORY.md as a model for a wrapper
 // FilterPolicy selecting among configurations based on context.
 class LevelAndStyleCustomFilterPolicy : public FilterPolicy {
@@ -1484,14 +1568,6 @@ class LevelAndStyleCustomFilterPolicy : public FilterPolicy {
     // OK to defer to any of them; they all can parse built-in filters
     // from any settings.
     return policy_fifo_->GetFilterBitsReader(contents);
-  }
-
-  // Defer just in case configuration uses block-based filter
-  void CreateFilter(const Slice* keys, int n, std::string* dst) const override {
-    policy_otherwise_->CreateFilter(keys, n, dst);
-  }
-  bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
-    return policy_otherwise_->KeyMayMatch(key, filter);
   }
 
  private:

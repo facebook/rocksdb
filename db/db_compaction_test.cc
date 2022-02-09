@@ -418,7 +418,6 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
 TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   Options options = CurrentOptions();
   options.env = env_;
-  options.new_table_reader_for_compaction_inputs = true;
   options.max_open_files = 20;
   options.level0_file_num_compaction_trigger = 3;
   // Avoid many shards with small max_open_files, where as little as

@@ -782,7 +782,6 @@ struct DBOptions {
   // be used. Memory mapped files are not impacted by these parameters.
 
   // Use O_DIRECT for user and compaction reads.
-  // When true, we also force new_table_reader_for_compaction_inputs to true.
   // Default: false
   // Not supported in ROCKSDB_LITE mode!
   bool use_direct_reads = false;
@@ -890,26 +889,9 @@ struct DBOptions {
   enum AccessHint { NONE, NORMAL, SEQUENTIAL, WILLNEED };
   AccessHint access_hint_on_compaction_start = NORMAL;
 
-  // If true, always create a new file descriptor and new table reader
-  // for compaction inputs. Turn this parameter on may introduce extra
-  // memory usage in the table reader, if it allocates extra memory
-  // for indexes. This will allow file descriptor prefetch options
-  // to be set for compaction input files and not to impact file
-  // descriptors for the same file used by user queries.
-  // Suggest to enable BlockBasedTableOptions.cache_index_and_filter_blocks
-  // for this mode if using block-based table.
-  //
-  // Default: false
-  // This flag has no affect on the behavior of compaction and plan to delete
-  // in the future.
-  bool new_table_reader_for_compaction_inputs = false;
-
   // If non-zero, we perform bigger reads when doing compaction. If you're
   // running RocksDB on spinning disks, you should set this to at least 2MB.
   // That way RocksDB's compaction is doing sequential instead of random reads.
-  //
-  // When non-zero, we also force new_table_reader_for_compaction_inputs to
-  // true.
   //
   // Default: 0
   //

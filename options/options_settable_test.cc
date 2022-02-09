@@ -292,7 +292,6 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "use_adaptive_mutex=false;"
                              "max_total_wal_size=4295005604;"
                              "compaction_readahead_size=0;"
-                             "new_table_reader_for_compaction_inputs=false;"
                              "keep_log_file_num=4890;"
                              "skip_stats_update_on_db_open=false;"
                              "skip_checking_sst_file_sizes_on_db_open=false;"
