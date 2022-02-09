@@ -1676,13 +1676,10 @@ BuiltinFilterBitsReader* BuiltinFilterPolicy::GetBloomBitsReader(
 }
 
 const FilterPolicy* NewBloomFilterPolicy(double bits_per_key,
-                                         bool use_block_based_builder) {
-  BloomFilterPolicy::Mode m;
-  if (use_block_based_builder) {
-    m = BloomFilterPolicy::kDeprecatedBlock;
-  } else {
-    m = BloomFilterPolicy::kAutoBloom;
-  }
+                                         bool /*use_block_based_builder*/) {
+  // NOTE: use_block_based_builder now ignored so block-based filter is no
+  // longer accessible in public API.
+  BloomFilterPolicy::Mode m = BloomFilterPolicy::kAutoBloom;
   assert(std::find(BloomFilterPolicy::kAllUserModes.begin(),
                    BloomFilterPolicy::kAllUserModes.end(),
                    m) != BloomFilterPolicy::kAllUserModes.end());
@@ -1763,37 +1760,42 @@ Status FilterPolicy::CreateFromString(
     policy->reset();
   } else if (value == "rocksdb.BuiltinBloomFilter") {
     *policy = std::make_shared<BuiltinFilterPolicy>();
+  } else {
 #ifndef ROCKSDB_LITE
-  } else if (value.compare(0, kBloomName.size(), kBloomName) == 0) {
-    size_t pos = value.find(':', kBloomName.size());
-    bool use_block_based_builder;
-    if (pos == std::string::npos) {
-      pos = value.size();
-      use_block_based_builder = false;
-    } else {
-      use_block_based_builder =
-          ParseBoolean("use_block_based_builder", trim(value.substr(pos + 1)));
+    const std::vector<std::string> vals = StringSplit(value, ':');
+    if (vals.size() < 2) {
+      return Status::NotFound("Invalid filter policy name ", value);
     }
-    double bits_per_key = ParseDouble(
-        trim(value.substr(kBloomName.size(), pos - kBloomName.size())));
-    policy->reset(NewBloomFilterPolicy(bits_per_key, use_block_based_builder));
-  } else if (value.compare(0, kRibbonName.size(), kRibbonName) == 0) {
-    size_t pos = value.find(':', kRibbonName.size());
-    int bloom_before_level;
-    if (pos == std::string::npos) {
-      pos = value.size();
-      bloom_before_level = 0;
+    const std::string& name = vals[0];
+    double bits_per_key = ParseDouble(trim(vals[1]));
+    if (name == "bloomfilter") {  // TODO: constants for names
+      // NOTE: ignoring obsolete bool for "use_block_based_builder"
+      policy->reset(NewBloomFilterPolicy(bits_per_key));
+    } else if (name == "ribbonfilter") {
+      int bloom_before_level;
+      if (vals.size() < 3) {
+        bloom_before_level = 0;
+      } else {
+        bloom_before_level = ParseInt(trim(vals[2]));
+      }
+      policy->reset(NewRibbonFilterPolicy(/*bloom_equivalent*/ bits_per_key,
+                                          bloom_before_level));
+    } else if (name == "rocksdb.internal.DeprecatedBlockBasedBloomFilter") {
+      *policy = std::make_shared<BloomFilterPolicy>(
+          bits_per_key, BloomFilterPolicy::kDeprecatedBlock);
+    } else if (name == "rocksdb.internal.LegacyBloomFilter") {
+      *policy = std::make_shared<BloomFilterPolicy>(
+          bits_per_key, BloomFilterPolicy::kLegacyBloom);
+    } else if (name == "rocksdb.internal.FastLocalBloomFilter") {
+      *policy = std::make_shared<BloomFilterPolicy>(
+          bits_per_key, BloomFilterPolicy::kFastLocalBloom);
+    } else if (name == "rocksdb.internal.Standard128RibbonFilter") {
+      *policy = std::make_shared<BloomFilterPolicy>(
+          bits_per_key, BloomFilterPolicy::kStandard128Ribbon);
     } else {
-      bloom_before_level = ParseInt(trim(value.substr(pos + 1)));
+      return Status::NotFound("Invalid filter policy name ", value);
     }
-    double bloom_equivalent_bits_per_key = ParseDouble(
-        trim(value.substr(kRibbonName.size(), pos - kRibbonName.size())));
-    policy->reset(NewRibbonFilterPolicy(bloom_equivalent_bits_per_key,
-                                        bloom_before_level));
-  } else {
-    return Status::NotFound("Invalid filter policy name ", value);
 #else
-  } else {
     return Status::NotSupported("Cannot load filter policy in LITE mode ",
                                 value);
 #endif  // ROCKSDB_LITE

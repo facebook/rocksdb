@@ -4217,12 +4217,22 @@ class Benchmark {
         table_options->filter_policy = BlockBasedTableOptions().filter_policy;
       } else if (FLAGS_bloom_bits == 0) {
         table_options->filter_policy.reset();
+      } else if (FLAGS_use_block_based_filter) {
+        // Use back-door way of enabling obsolete block-based Bloom
+        Status s = FilterPolicy::CreateFromString(
+            ConfigOptions(),
+            "rocksdb.internal.DeprecatedBlockBasedBloomFilter:" +
+                ROCKSDB_NAMESPACE::ToString(FLAGS_bloom_bits),
+            &table_options->filter_policy);
+        if (!s.ok()) {
+          fprintf(stderr, "failure creating obsolete block-based filter: %s\n",
+                  s.ToString().c_str());
+          exit(1);
+        }
       } else {
         table_options->filter_policy.reset(
-            FLAGS_use_ribbon_filter
-                ? NewRibbonFilterPolicy(FLAGS_bloom_bits)
-                : NewBloomFilterPolicy(FLAGS_bloom_bits,
-                                       FLAGS_use_block_based_filter));
+            FLAGS_use_ribbon_filter ? NewRibbonFilterPolicy(FLAGS_bloom_bits)
+                                    : NewBloomFilterPolicy(FLAGS_bloom_bits));
       }
     }
     if (FLAGS_row_cache_size) {
