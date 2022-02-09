@@ -308,6 +308,10 @@ class MultiOpsTxnsStressTest : public StressTest {
                               std::unordered_set<uint32_t>&& non_existing_uniq)
         : KeyGenerator(s, low, high, std::move(existing_uniq)),
           non_existing_uniq_(std::move(non_existing_uniq)) {}
+    ~KeyGeneratorForA() {
+      assert(!non_existing_uniq_.empty());
+      assert(!existing_uniq_.empty());
+    }
     void Replace(uint32_t old_val, uint32_t old_pos, uint32_t new_val);
     uint32_t Allocate();
     void UndoAllocation(uint32_t new_val);

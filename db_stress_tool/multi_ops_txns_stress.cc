@@ -35,8 +35,10 @@ void MultiOpsTxnsStressTest::KeyGenerator::FinishInit() {
   assert(existing_.empty());
   assert(!existing_uniq_.empty());
   assert(low_ < high_);
-  for (auto a : existing_uniq_) {
-    existing_.push_back(a);
+  for (auto v : existing_uniq_) {
+    assert(low_ <= v);
+    assert(high_ > v);
+    existing_.push_back(v);
   }
   initialized_ = true;
 }
@@ -1234,16 +1236,16 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
 
   std::vector<std::unordered_set<uint32_t>> existing_a_uniqs(threads);
   std::vector<std::unordered_set<uint32_t>> non_existing_a_uniqs(threads);
-  uint32_t next_a = ub_a;
-  for (auto& non_existing_uniq : non_existing_a_uniqs) {
-    non_existing_uniq.insert(next_a++);
-  }
   std::vector<std::unordered_set<uint32_t>> existing_c_uniqs(threads);
 
   for (uint32_t a = lb_a; a < ub_a; ++a) {
     uint32_t tid = (a - lb_a) / num_a_per_thread;
     uint32_t a_base = lb_a + tid * num_a_per_thread;
     uint32_t a_delta = a - a_base;
+
+    if (a == ub_a - 1 || a_delta == num_a_per_thread - 1) {
+      continue;
+    }
 
     uint32_t c_base = lb_c + (tid * num_c_per_thread);
     uint32_t c_hi = c_base + num_c_per_thread;
@@ -1289,9 +1291,14 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
     if (high > ub_a) {
       high = ub_a;
     }
+    auto it = existing_a_uniqs[i].begin();
+    assert(non_existing_a_uniqs[i].empty());
+    non_existing_a_uniqs[i].insert(*it);
+    existing_a_uniqs[i].erase(it);
     key_gen_for_a = std::make_unique<KeyGeneratorForA>(
         my_seed, low, high, std::move(existing_a_uniqs[i]),
         std::move(non_existing_a_uniqs[i]));
+
     auto& key_gen_for_c = key_gen_for_c_[i];
     assert(!key_gen_for_c);
     low = lb_c + i * num_c_per_thread;
@@ -1315,35 +1322,10 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
 
   KeySpaces key_spaces = ReadKeySpacesDesc(FLAGS_key_spaces_path);
 
-  uint32_t lb_a = key_spaces.lb_a;
-  uint32_t ub_a = key_spaces.ub_a;
+  const uint32_t lb_a = key_spaces.lb_a;
+  const uint32_t ub_a = key_spaces.ub_a;
   const uint32_t lb_c = key_spaces.lb_c;
   const uint32_t ub_c = key_spaces.ub_c;
-
-  {
-    std::string pk_lb_str = Record::EncodePrimaryKey(0);
-    std::string pk_ub_str =
-        Record::EncodePrimaryKey(std::numeric_limits<uint32_t>::max());
-    ReadOptions ropts;
-    ropts.total_order_seek = true;
-    Slice pk_lb = pk_lb_str;
-    Slice pk_ub = pk_ub_str;
-    ropts.iterate_lower_bound = &pk_lb;
-    ropts.iterate_upper_bound = &pk_ub;
-    std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
-    it->SeekToFirst();
-    Record smallest_pk;
-    assert(it->Valid());
-    Status s = smallest_pk.DecodePrimaryIndexEntry(it->key(), it->value());
-    assert(s.ok());
-    lb_a = smallest_pk.a_value();
-    it->SeekToLast();
-    assert(it->Valid());
-    Record largest_pk;
-    s = largest_pk.DecodePrimaryIndexEntry(it->key(), it->value());
-    assert(s.ok());
-    ub_a = largest_pk.a_value() + 1;
-  }
 
   assert(lb_a < ub_a && lb_c < ub_c);
 
@@ -1402,7 +1384,6 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
       }
     }
 
-    uint32_t next_a = ub_a;
     for (int i = 0; i < threads; ++i) {
       uint32_t my_seed = i + shared->GetSeed();
       auto& key_gen_for_a = key_gen_for_a_[i];
@@ -1412,9 +1393,7 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
       if (high > ub_a) {
         high = ub_a;
       }
-      if (non_existing_a_uniqs[i].empty()) {
-        non_existing_a_uniqs[i].insert(next_a++);
-      }
+      assert(!non_existing_a_uniqs[i].empty());
       key_gen_for_a = std::make_unique<KeyGeneratorForA>(
           my_seed, low, high, std::move(existing_a_uniqs[i]),
           std::move(non_existing_a_uniqs[i]));
