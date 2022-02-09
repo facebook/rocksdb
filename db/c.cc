@@ -172,7 +172,6 @@ struct rocksdb_cache_t {
 struct rocksdb_livefiles_t       { std::vector<LiveFileMetaData> rep; };
 struct rocksdb_column_family_handle_t  { ColumnFamilyHandle* rep; };
 struct rocksdb_column_family_descriptors_t {std::vector<ColumnFamilyDescriptor> rep;};
-struct rocksdb_column_family_options {ColumnFamilyOptions rep;};
 struct rocksdb_envoptions_t      { EnvOptions        rep; };
 struct rocksdb_ingestexternalfileoptions_t  { IngestExternalFileOptions rep; };
 struct rocksdb_sstfilewriter_t   { SstFileWriter*    rep; };
@@ -210,10 +209,6 @@ struct rocksdb_optimistictransaction_options_t {
 
 struct rocksdb_compactionfiltercontext_t {
   CompactionFilter::Context rep;
-};
-
-struct rocksdb_config_options_t{
-  ConfigOptions rep;
 };
 
 
