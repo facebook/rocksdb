@@ -1256,22 +1256,7 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
   explicit BlobDBJobLevelEventListenerTest(EventListenerTest* test)
       : test_(test), call_count_(0) {}
 
-  std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
-      const VersionStorageInfo::BlobFiles& blob_files,
-      uint64_t blob_file_number) {
-    const auto it = blob_files.find(blob_file_number);
-
-    if (it == blob_files.end()) {
-      return nullptr;
-    }
-
-    const auto& meta = it->second;
-    assert(meta);
-
-    return meta;
-  }
-
-  const VersionStorageInfo::BlobFiles& GetBlobFiles() {
+  const VersionStorageInfo* GetVersionStorageInfo() const {
     VersionSet* const versions = test_->dbfull()->GetVersionSet();
     assert(versions);
 
@@ -1284,8 +1269,28 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
     const VersionStorageInfo* const storage_info = current->storage_info();
     EXPECT_NE(storage_info, nullptr);
 
-    const auto& blob_files = storage_info->GetBlobFiles();
-    return blob_files;
+    return storage_info;
+  }
+
+  void CheckBlobFileAdditions(
+      const std::vector<BlobFileAdditionInfo>& blob_file_addition_infos) const {
+    const auto* vstorage = GetVersionStorageInfo();
+
+    EXPECT_FALSE(blob_file_addition_infos.empty());
+
+    for (const auto& blob_file_addition_info : blob_file_addition_infos) {
+      const auto meta = vstorage->GetBlobFileMetaData(
+          blob_file_addition_info.blob_file_number);
+
+      EXPECT_NE(meta, nullptr);
+      EXPECT_EQ(meta->GetBlobFileNumber(),
+                blob_file_addition_info.blob_file_number);
+      EXPECT_EQ(meta->GetTotalBlobBytes(),
+                blob_file_addition_info.total_blob_bytes);
+      EXPECT_EQ(meta->GetTotalBlobCount(),
+                blob_file_addition_info.total_blob_count);
+      EXPECT_FALSE(blob_file_addition_info.blob_file_path.empty());
+    }
   }
 
   std::vector<std::string> GetFlushedFiles() {
@@ -1299,46 +1304,28 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
 
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     call_count_++;
-    EXPECT_FALSE(info.blob_file_addition_infos.empty());
-    const auto& blob_files = GetBlobFiles();
+
     {
       std::lock_guard<std::mutex> lock(mutex_);
       flushed_files_.push_back(info.file_path);
     }
+
     EXPECT_EQ(info.blob_compression_type, kNoCompression);
 
-    for (const auto& blob_file_addition_info : info.blob_file_addition_infos) {
-      const auto meta = GetBlobFileMetaData(
-          blob_files, blob_file_addition_info.blob_file_number);
-      EXPECT_EQ(meta->GetBlobFileNumber(),
-                blob_file_addition_info.blob_file_number);
-      EXPECT_EQ(meta->GetTotalBlobBytes(),
-                blob_file_addition_info.total_blob_bytes);
-      EXPECT_EQ(meta->GetTotalBlobCount(),
-                blob_file_addition_info.total_blob_count);
-      EXPECT_FALSE(blob_file_addition_info.blob_file_path.empty());
-    }
+    CheckBlobFileAdditions(info.blob_file_addition_infos);
   }
 
-  void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
+  void OnCompactionCompleted(DB* /*db*/,
+                             const CompactionJobInfo& info) override {
     call_count_++;
-    EXPECT_FALSE(ci.blob_file_garbage_infos.empty());
-    const auto& blob_files = GetBlobFiles();
-    EXPECT_EQ(ci.blob_compression_type, kNoCompression);
 
-    for (const auto& blob_file_addition_info : ci.blob_file_addition_infos) {
-      const auto meta = GetBlobFileMetaData(
-          blob_files, blob_file_addition_info.blob_file_number);
-      EXPECT_EQ(meta->GetBlobFileNumber(),
-                blob_file_addition_info.blob_file_number);
-      EXPECT_EQ(meta->GetTotalBlobBytes(),
-                blob_file_addition_info.total_blob_bytes);
-      EXPECT_EQ(meta->GetTotalBlobCount(),
-                blob_file_addition_info.total_blob_count);
-      EXPECT_FALSE(blob_file_addition_info.blob_file_path.empty());
-    }
+    EXPECT_EQ(info.blob_compression_type, kNoCompression);
 
-    for (const auto& blob_file_garbage_info : ci.blob_file_garbage_infos) {
+    CheckBlobFileAdditions(info.blob_file_addition_infos);
+
+    EXPECT_FALSE(info.blob_file_garbage_infos.empty());
+
+    for (const auto& blob_file_garbage_info : info.blob_file_garbage_infos) {
       EXPECT_GT(blob_file_garbage_info.blob_file_number, 0U);
       EXPECT_GT(blob_file_garbage_info.garbage_blob_count, 0U);
       EXPECT_GT(blob_file_garbage_info.garbage_blob_bytes, 0U);
