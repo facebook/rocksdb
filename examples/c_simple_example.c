@@ -84,7 +84,7 @@ int main(int argc, char **argv) {
 
   db = rocksdb_open(options, DBPath, &err);
   assert(!err);
-
+  
   // cleanup
   rocksdb_writeoptions_destroy(writeoptions);
   rocksdb_readoptions_destroy(readoptions);

@@ -172,6 +172,7 @@ struct rocksdb_cache_t {
 struct rocksdb_livefiles_t       { std::vector<LiveFileMetaData> rep; };
 struct rocksdb_column_family_handle_t  { ColumnFamilyHandle* rep; };
 struct rocksdb_column_family_descriptors_t {std::vector<ColumnFamilyDescriptor> rep;};
+struct rocksdb_column_family_options {ColumnFamilyOptions rep;};
 struct rocksdb_envoptions_t      { EnvOptions        rep; };
 struct rocksdb_ingestexternalfileoptions_t  { IngestExternalFileOptions rep; };
 struct rocksdb_sstfilewriter_t   { SstFileWriter*    rep; };
@@ -209,6 +210,10 @@ struct rocksdb_optimistictransaction_options_t {
 
 struct rocksdb_compactionfiltercontext_t {
   CompactionFilter::Context rep;
+};
+
+struct rocksdb_config_options_t{
+  ConfigOptions rep;
 };
 
 
@@ -435,7 +440,7 @@ struct rocksdb_env_t {
 };
 
 struct rocksdb_dboptions_t{
-  DBOptions* rep;
+  DBOptions rep;
 };
 
 struct rocksdb_slicetransform_t : public SliceTransform {
@@ -5565,27 +5570,49 @@ void rocksdb_cancel_all_background_work(rocksdb_t* db, unsigned char wait) {
   CancelAllBackgroundWork(db->rep, wait);
 }
 
-void rocksdb_load_options_from_file(const char* file_name,
+void rocksdb_load_options_from_file(const char* filename,
 rocksdb_env_t *env,rocksdb_dboptions_t* dboptions,
-rocksdb_column_family_descriptors_t* cf,int ignore_unknown_options,
+rocksdb_column_family_descriptors_t* cf_descs,
+int ignore_unknown_options,
 rocksdb_cache_t* cache, char** errptr){
 
-  SaveError(errptr,LoadOptionsFromFile(file_name,env->rep,dboptions->rep,&(cf->rep),
+  SaveError(errptr,LoadOptionsFromFile(filename,env->rep,&(dboptions->rep),&(cf_descs->rep),
                                         ignore_unknown_options,
                                         &(cache->rep)));
 }
-void rocksdb_load_latest_options(const char* dbpath,
-                                                      rocksdb_env_t* env,
-                                                      rocksdb_dboptions_t* dboptions,
-                                                      rocksdb_column_family_descriptors_t* cf,
-                                                      int ignore_unknwon_options,
-                                                      rocksdb_cache_t* cache,
-                                                      char** errptr){
 
-  SaveError(errptr,LoadLatestOptions(dbpath,env->rep,dboptions->rep,&(cf->rep),
-                                      ignore_unknwon_options,&(cache->rep)));
+
+void rocksdb_load_latest_options(const char* dbpath,
+                                  rocksdb_env_t *env,
+                                  rocksdb_dboptions_t* dboptions,
+                                   rocksdb_column_family_descriptors_t* cf_descs,
+                                   int ignore_unknown_options,
+                                   rocksdb_cache_t* cache,
+                                   char** errptr){
+                                                
+  SaveError(errptr,LoadLatestOptions(dbpath,env->rep,&(dboptions->rep),&(cf_descs->rep),ignore_unknown_options
+                                      ,&(cache->rep)));
                           
 }
+
+rocksdb_dboptions_t* rocksdb_create_dboptions(void) {
+  return new rocksdb_dboptions_t;
+}
+void rocksdb_dboptions_destroy(rocksdb_dboptions_t* db_opt){
+  delete db_opt;
+}
+
+rocksdb_column_family_descriptors_t* rocksdb_create_column_family_desc(void){
+  return new rocksdb_column_family_descriptors_t;
+}
+
+void rocksdb_column_family_descriptors_destroy(rocksdb_column_family_descriptors_t* cf) {
+  delete cf;
+}
+
+
+
+
 }  // end extern "C"
 
 #endif  // !ROCKSDB_LITE

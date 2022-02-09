@@ -76,7 +76,7 @@ typedef struct rocksdb_restore_options_t rocksdb_restore_options_t;
 typedef struct rocksdb_memory_allocator_t rocksdb_memory_allocator_t;
 typedef struct rocksdb_lru_cache_options_t rocksdb_lru_cache_options_t;
 typedef struct rocksdb_cache_t rocksdb_cache_t;
-typedef struct rocksdb_column_family_descriptors_t  rocksdb_column_family_descriptors_t;
+typedef struct rocksdb_config_options_t rocksdb_config_options_t;
 typedef struct rocksdb_compactionfilter_t rocksdb_compactionfilter_t;
 typedef struct rocksdb_compactionfiltercontext_t
     rocksdb_compactionfiltercontext_t;
@@ -111,6 +111,8 @@ typedef struct rocksdb_writeoptions_t    rocksdb_writeoptions_t;
 typedef struct rocksdb_universal_compaction_options_t rocksdb_universal_compaction_options_t;
 typedef struct rocksdb_livefiles_t     rocksdb_livefiles_t;
 typedef struct rocksdb_column_family_handle_t rocksdb_column_family_handle_t;
+typedef struct rocksdb_column_family_descriptors_t  rocksdb_column_family_descriptors_t;
+typedef struct rocksdb_column_family_options rocksdb_column_family_options;
 typedef struct rocksdb_envoptions_t      rocksdb_envoptions_t;
 typedef struct rocksdb_ingestexternalfileoptions_t rocksdb_ingestexternalfileoptions_t;
 typedef struct rocksdb_sstfilewriter_t   rocksdb_sstfilewriter_t;
@@ -2327,6 +2329,24 @@ rocksdb_options_set_memtable_whole_key_filtering(rocksdb_options_t*,
 extern ROCKSDB_LIBRARY_API void rocksdb_cancel_all_background_work(
     rocksdb_t* db, unsigned char wait);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_load_options_from_file(const char* filename,
+rocksdb_env_t* env,rocksdb_dboptions_t* dboptions,
+rocksdb_column_family_descriptors_t* cf_descs,
+int ignore_unknown_optons,
+rocksdb_cache_t* cache, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_load_latest_options(const char* dbpath,
+                                  rocksdb_env_t* env,
+                                  rocksdb_dboptions_t* dboptions,
+                                   rocksdb_column_family_descriptors_t* cf_descs,
+                                   int ignore_unknown_options,
+                                   rocksdb_cache_t* cache,
+                                   char** errptr);
+
+extern ROCKSDB_LIBRARY_API rocksdb_dboptions_t* rocksdb_create_dboptions(void);
+extern ROCKSDB_LIBRARY_API rocksdb_column_family_descriptors_t* rocksdb_create_column_family_desc(void);
+extern ROCKSDB_LIBRARY_API void rocksdb_column_family_descriptors_destroy(rocksdb_column_family_descriptors_t* cf);
+extern ROCKSDB_LIBRARY_API void rocksdb_dboptions_destroy(rocksdb_dboptions_t* db_opt);
 #ifdef __cplusplus
 }  /* end extern "C" */
 #endif

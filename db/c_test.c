@@ -46,7 +46,7 @@ static char dbbackupname[200];
 static char dbcheckpointname[200];
 static char dbpathname[200];
 static char secondary_path[200];
-
+static char options_filename[200];
 static void StartPhase(const char* name) {
   fprintf(stderr, "=== Test %s\n", name);
   phase = name;
@@ -473,6 +473,10 @@ int main(int argc, char** argv) {
 
   snprintf(dbpathname, sizeof(dbpathname),
            "%s/rocksdb_c_test-%d-dbpath",
+           GetTempDir(),
+           ((int) geteuid()));
+  snprintf(options_filename, sizeof(options_filename),
+           "%s/rocksdb_c_test-%d/OPTIONS-000009",
            GetTempDir(),
            ((int) geteuid()));
 
@@ -2958,10 +2962,59 @@ int main(int argc, char** argv) {
     rocksdb_iter_destroy(iter);
     rocksdb_readoptions_destroy(ropts);
   }
+  StartPhase("load_options_from_file");
+  { 
+
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_options_t* db_options = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(db_options, 1);
+    db = rocksdb_open(db_options, dbname, &err);
+    CheckNoError(err)
+    rocksdb_column_family_handle_t* cfh;
+    cfh = rocksdb_create_column_family(db, db_options, "cf1", &err);
+    rocksdb_column_family_handle_destroy(cfh);
+    CheckNoError(err);
+
+    rocksdb_dboptions_t* loaded_db_opt=rocksdb_create_dboptions();
+    rocksdb_column_family_descriptors_t* loaded_cf_descs=rocksdb_create_column_family_desc();
+    env=rocksdb_create_default_env();
+    rocksdb_load_options_from_file(options_filename,env,loaded_db_opt,loaded_cf_descs,1,cache,&err);
+    CheckNoError(err);
+
+    rocksdb_dboptions_destroy(loaded_db_opt);
+    rocksdb_column_family_descriptors_destroy(loaded_cf_descs);
+  }
+  StartPhase("load_latest_options");
+  {
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_options_t* db_options = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(db_options, 1);
+    db = rocksdb_open(db_options, dbname, &err);
+    CheckNoError(err)
+    rocksdb_column_family_handle_t* cfh;
+    cfh = rocksdb_create_column_family(db, db_options, "cf1", &err);
+    rocksdb_column_family_handle_destroy(cfh);
+    CheckNoError(err);
+
+    rocksdb_dboptions_t* loaded_db_opt=rocksdb_create_dboptions();
+    rocksdb_column_family_descriptors_t* loaded_cf_descs=rocksdb_create_column_family_desc();
+    env=rocksdb_create_default_env();
+
+    rocksdb_load_latest_options(dbname,env,loaded_db_opt,loaded_cf_descs,1,cache,&err);
+    CheckNoError(err);
+
+    rocksdb_dboptions_destroy(loaded_db_opt);
+    rocksdb_column_family_descriptors_destroy(loaded_cf_descs);    
+  }
 
   StartPhase("cancel_all_background_work");
   rocksdb_cancel_all_background_work(db, 1);
-
   StartPhase("cleanup");
   rocksdb_close(db);
   rocksdb_options_destroy(options);
