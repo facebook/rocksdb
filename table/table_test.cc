@@ -3503,11 +3503,16 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       table_options.block_cache = NewLRUCache(1, 0);
       table_options.cache_index_and_filter_blocks = index_and_filter_in_cache;
       if (bloom_filter_type == 0) {
+#ifndef ROCKSDB_LITE
         // Use back-door way of enabling obsolete block-based Bloom
         ASSERT_OK(FilterPolicy::CreateFromString(
             ConfigOptions(),
             "rocksdb.internal.DeprecatedBlockBasedBloomFilter:10",
             &table_options.filter_policy));
+#else
+        // Skip this case in LITE build
+        continue;
+#endif
       } else {
         // Public API
         table_options.filter_policy.reset(

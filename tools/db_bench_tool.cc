@@ -7940,6 +7940,9 @@ int db_bench_tool(int argc, char** argv) {
     FLAGS_env = composite_env.get();
   }
 #endif  // ROCKSDB_LITE
+  // Let -readonly imply -use_existing_db
+  FLAGS_use_existing_db |= FLAGS_readonly;
+
   if (FLAGS_use_existing_keys && !FLAGS_use_existing_db) {
     fprintf(stderr,
             "`-use_existing_db` must be true for `-use_existing_keys` to be "
