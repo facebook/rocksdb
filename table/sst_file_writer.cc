@@ -174,12 +174,6 @@ struct SstFileWriter::Rep {
     auto ikey_and_end_key = tombstone.Serialize();
     builder->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
 
-    Status s = validator->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
-
-    if(!s.ok()) {
-      return s;
-    }
-
     // update file info
     file_info.num_range_del_entries++;
     file_info.file_size = builder->FileSize();
