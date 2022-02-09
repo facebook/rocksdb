@@ -336,30 +336,6 @@ void MultiOpsTxnsStressTest::FinishInitDb(SharedState* shared) {
 void MultiOpsTxnsStressTest::ReopenAndPreloadDbIfNeeded(SharedState* shared) {
   (void)shared;
 #ifndef ROCKSDB_LITE
-  std::vector<ColumnFamilyDescriptor> cf_descs;
-  for (const auto* handle : column_families_) {
-    cf_descs.emplace_back(handle->GetName(), ColumnFamilyOptions(options_));
-  }
-  CancelAllBackgroundWork(db_, /*wait=*/true);
-  for (auto* handle : column_families_) {
-    delete handle;
-  }
-  column_families_.clear();
-  delete db_;
-  db_ = nullptr;
-  txn_db_ = nullptr;
-
-  TransactionDBOptions txn_db_opts;
-  txn_db_opts.skip_concurrency_control = true;  // speed-up preloading
-  Status s = TransactionDB::Open(options_, txn_db_opts, FLAGS_db, cf_descs,
-                                 &column_families_, &txn_db_);
-  if (s.ok()) {
-    db_ = txn_db_;
-  } else {
-    fprintf(stderr, "Failed to open db: %s\n", s.ToString().c_str());
-    exit(1);
-  }
-
   bool db_empty = false;
   {
     std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
@@ -375,23 +351,6 @@ void MultiOpsTxnsStressTest::ReopenAndPreloadDbIfNeeded(SharedState* shared) {
   } else {
     ScanExistingDb(shared, FLAGS_threads);
   }
-
-  // Reopen
-  CancelAllBackgroundWork(db_, /*wait=*/true);
-  for (auto* handle : column_families_) {
-    delete handle;
-  }
-  column_families_.clear();
-  s = db_->Close();
-  if (!s.ok()) {
-    fprintf(stderr, "Error during closing db: %s\n", s.ToString().c_str());
-    exit(1);
-  }
-  delete db_;
-  db_ = nullptr;
-  txn_db_ = nullptr;
-
-  Open();
 #endif  // !ROCKSDB_LITE
 }
 
