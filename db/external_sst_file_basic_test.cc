@@ -1796,6 +1796,24 @@ TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
   ASSERT_EQ(std::atoi(prop.c_str()), 0);
 }
 
+TEST_F(ExternalSSTFileBasicTest, SSTFileWriterCorruption) {
+  Options options = CurrentOptions();
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+
+  std::string sst_file = sst_files_dir_ + "file00.sst";
+  ASSERT_OK(sst_file_writer.Open(sst_file));
+
+  for(int i=1010; i>=1000; --i) {
+    ASSERT_NOK(sst_file_writer.Put(Key(i), Key(i) + "_val"));
+  }
+  
+  for(int i=1000; i<=1010; ++i) {
+    ASSERT_OK(sst_file_writer.Put(Key(i), Key(i) + "_val"));
+  }
+
+  ASSERT_OK(sst_file_writer.DeleteRange(Key(1000), Key(1010)));
+}
+
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
                         testing::Values(std::make_tuple(true, true),
                                         std::make_tuple(true, false),
