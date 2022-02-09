@@ -27,7 +27,6 @@ package org.rocksdb;
  * </p>
  */
 public abstract class AbstractNativeReference implements AutoCloseable {
-
   /**
    * Returns true if we are responsible for freeing the underlying C++ object
    *
@@ -45,6 +44,5 @@ public abstract class AbstractNativeReference implements AutoCloseable {
    * closed, calling any of its functions will lead to undefined
    * behavior.</p>
    */
-  @Override
-  public abstract void close();
+  @Override public abstract void close();
 }
