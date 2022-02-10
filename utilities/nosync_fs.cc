@@ -9,32 +9,28 @@
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
-static std::unordered_map<std::string, OptionTypeInfo>
-    no_sync_fs_option_info = {
+static std::unordered_map<std::string, OptionTypeInfo> no_sync_fs_option_info =
+    {
 #ifndef ROCKSDB_LITE
         {"sync",
-         {offsetof(struct NoSyncOptions, do_sync),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kCompareNever}},
+         {offsetof(struct NoSyncOptions, do_sync), OptionType::kBoolean,
+          OptionVerificationType::kNormal, OptionTypeFlags::kCompareNever}},
         {"fsync",
-         {offsetof(struct NoSyncOptions, do_fsync),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kCompareNever}},
+         {offsetof(struct NoSyncOptions, do_fsync), OptionType::kBoolean,
+          OptionVerificationType::kNormal, OptionTypeFlags::kCompareNever}},
         {"range_sync",
-         {offsetof(struct NoSyncOptions, do_rsync),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kCompareNever}},
+         {offsetof(struct NoSyncOptions, do_rsync), OptionType::kBoolean,
+          OptionVerificationType::kNormal, OptionTypeFlags::kCompareNever}},
         {"dir_sync",
-         {offsetof(struct NoSyncOptions, do_dsync),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kCompareNever}},
-#endif // ROCKSDB_LITE
+         {offsetof(struct NoSyncOptions, do_dsync), OptionType::kBoolean,
+          OptionVerificationType::kNormal, OptionTypeFlags::kCompareNever}},
+#endif  // ROCKSDB_LITE
 };
-} // namespace
-  
+}  // namespace
+
 NoSyncFileSystem::NoSyncFileSystem(const std::shared_ptr<FileSystem>& base,
                                    bool enabled)
-  : InjectionFileSystem(base), sync_opts_(enabled) {
+    : InjectionFileSystem(base), sync_opts_(enabled) {
   RegisterOptions(&sync_opts_, &no_sync_fs_option_info);
 }
-} // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE
