@@ -364,12 +364,10 @@ TEST_LIB_SOURCES =                                              \
   test_util/testutil.cc                                         \
   utilities/cassandra/test_utils.cc                             \
 
-FOLLY_SOURCES = \
-  third-party/folly/folly/detail/Futex.cpp                                     \
-  third-party/folly/folly/synchronization/AtomicNotification.cpp               \
-  third-party/folly/folly/synchronization/DistributedMutex.cpp                 \
-  third-party/folly/folly/synchronization/ParkingLot.cpp                       \
-  third-party/folly/folly/synchronization/WaitOptions.cpp                      \
+FOLLY_SOURCES =                                                 \
+  third-party/folly/folly/container/detail/F14Table.cpp         \
+  third-party/folly/folly/lang/SafeAssert.cpp                   \
+  third-party/folly/folly/lang/ToAscii.cpp                      \
 
 TOOLS_MAIN_SOURCES =                                                    \
   db_stress_tool/db_stress.cc                                           \

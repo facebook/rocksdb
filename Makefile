@@ -388,6 +388,10 @@ ifndef DISABLE_JEMALLOC
 		PLATFORM_CXXFLAGS += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
 		PLATFORM_CCFLAGS  += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
 	endif
+	ifeq ($(USE_FOLLY),1)
+		PLATFORM_CXXFLAGS += -DUSE_JEMALLOC
+		PLATFORM_CCFLAGS  += -DUSE_JEMALLOC
+	endif
 	ifdef WITH_JEMALLOC_FLAG
 		PLATFORM_LDFLAGS += -ljemalloc
 		JAVA_LDFLAGS += -ljemalloc
@@ -397,8 +401,8 @@ ifndef DISABLE_JEMALLOC
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE)
 endif
 
-ifndef USE_FOLLY_DISTRIBUTED_MUTEX
-	USE_FOLLY_DISTRIBUTED_MUTEX=0
+ifndef USE_FOLLY
+	USE_FOLLY=0
 endif
 
 ifndef GTEST_THROW_ON_FAILURE
@@ -418,7 +422,7 @@ else
 	PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
 endif
 
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+ifeq ($(USE_FOLLY),1)
 	FOLLY_DIR = ./third-party/folly
 	# AIX: pre-defined system headers are surrounded by an extern "C" block
 	ifeq ($(PLATFORM), OS_AIX)
@@ -428,6 +432,8 @@ ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 		PLATFORM_CCFLAGS += -isystem $(FOLLY_DIR)
 		PLATFORM_CXXFLAGS += -isystem $(FOLLY_DIR)
 	endif
+	PLATFORM_CCFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
+	PLATFORM_CXXFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
 endif
 
 ifdef TEST_CACHE_LINE_SIZE
@@ -509,7 +515,7 @@ LIB_OBJECTS += $(patsubst %.c, $(OBJ_DIR)/%.o, $(LIB_SOURCES_C))
 LIB_OBJECTS += $(patsubst %.S, $(OBJ_DIR)/%.o, $(LIB_SOURCES_ASM))
 endif
 
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+ifeq ($(USE_FOLLY),1)
   LIB_OBJECTS += $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(FOLLY_SOURCES))
 endif
 
@@ -543,11 +549,6 @@ ALL_SOURCES += $(ROCKSDB_PLUGIN_SOURCES)
 
 TESTS = $(patsubst %.cc, %, $(notdir $(TEST_MAIN_SOURCES)))
 TESTS += $(patsubst %.c, %, $(notdir $(TEST_MAIN_SOURCES_C)))
-
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-	TESTS += folly_synchronization_distributed_mutex_test
-	ALL_SOURCES += third-party/folly/folly/synchronization/test/DistributedMutexTest.cc
-endif
 
 # `make check-headers` to very that each header file includes its own
 # dependencies
@@ -773,7 +774,7 @@ endif  # PLATFORM_SHARED_EXT
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
 	release tags tags0 valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava gen-pc install install-static install-shared uninstall \
-	analyze tools tools_lib check-headers \
+	analyze tools tools_lib check-headers checkout_folly \
 	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
 	blackbox_crash_test_with_txn whitebox_crash_test_with_txn \
 	blackbox_crash_test_with_best_efforts_recovery \
@@ -1341,11 +1342,6 @@ trace_analyzer: $(OBJ_DIR)/tools/trace_analyzer.o $(ANALYZE_OBJECTS) $(TOOLS_LIB
 
 block_cache_trace_analyzer: $(OBJ_DIR)/tools/block_cache_analyzer/block_cache_trace_analyzer_tool.o $(ANALYZE_OBJECTS) $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
-
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-folly_synchronization_distributed_mutex_test: $(OBJ_DIR)/third-party/folly/folly/synchronization/test/DistributedMutexTest.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
-endif
 
 cache_bench: $(OBJ_DIR)/cache/cache_bench.o $(CACHE_BENCH_OBJECTS) $(LIBRARY)
 	$(AM_LINK)
@@ -2399,6 +2395,15 @@ commit_prereq: build_tools/rocksdb-lego-determinator \
 	J=$(J) build_tools/precommit_checker.py unit unit_481 clang_unit release release_481 clang_release tsan asan ubsan lite unit_non_shm
 	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
 
+checkout_folly:
+	if [ -e third-party/folly ]; then \
+		cd third-party/folly && git fetch origin; \
+	else \
+		cd third-party && git clone https://github.com/facebook/folly.git; \
+	fi
+	cd third-party/folly && git reset --hard 7090d2e125a69a0d6896ce56b2f2fcebd1e31231
+	perl -pi -e 's/^(#include <boost)/\/\2/$1/' third-party/folly/folly/functional/Invoke.h
+
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation
 # ---------------------------------------------------------------------------
@@ -2451,7 +2456,7 @@ endif
 ifneq ($(SKIP_DEPENDS), 1)
 DEPFILES = $(patsubst %.cc, $(OBJ_DIR)/%.cc.d, $(ALL_SOURCES))
 DEPFILES+ = $(patsubst %.c, $(OBJ_DIR)/%.c.d, $(LIB_SOURCES_C) $(TEST_MAIN_SOURCES_C))
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+ifeq ($(USE_FOLLY),1)
   DEPFILES +=$(patsubst %.cpp, $(OBJ_DIR)/%.cpp.d, $(FOLLY_SOURCES))
 endif
 endif
@@ -2496,7 +2501,7 @@ build_subset_tests: $(ROCKSDBTESTS_SUBSET)
 
 # Remove the rules for which dependencies should not be generated and see if any are left.
 #If so, include the dependencies; if not, do not include the dependency files
-ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets check-headers check-sources jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test, $(MAKECMDGOALS))
+ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets check-headers check-sources jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test checkout_folly, $(MAKECMDGOALS))
 ifneq ("$(ROCKS_DEP_RULES)", "")
 -include $(DEPFILES)
 endif

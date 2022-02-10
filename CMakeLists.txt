@@ -613,8 +613,9 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
-if(WITH_FOLLY_DISTRIBUTED_MUTEX)
+if(USE_FOLLY)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
+  add_definitions(-DUSE_FOLLY)
 endif()
 find_package(Threads REQUIRED)
 
@@ -994,13 +995,11 @@ else()
     env/io_posix.cc)
 endif()
 
-if(WITH_FOLLY_DISTRIBUTED_MUTEX)
+if(USE_FOLLY)
   list(APPEND SOURCES
-    third-party/folly/folly/detail/Futex.cpp
-    third-party/folly/folly/synchronization/AtomicNotification.cpp
-    third-party/folly/folly/synchronization/DistributedMutex.cpp
-    third-party/folly/folly/synchronization/ParkingLot.cpp
-    third-party/folly/folly/synchronization/WaitOptions.cpp)
+    third-party/folly/folly/container/detail/F14Table.cpp
+    third-party/folly/folly/lang/SafeAssert.cpp
+    third-party/folly/folly/lang/ToAscii.cpp)
 endif()
 
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
