@@ -476,6 +476,9 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
   for (auto db : dbs) {
     delete db;
   }
+  for (int d = 0; d < kNumDBs; ++d) {
+    ASSERT_OK(DestroyDB(dbname_ + ToString(d), options));
+  }
 }
 
 TEST_F(EventListenerTest, DisableBGCompaction) {

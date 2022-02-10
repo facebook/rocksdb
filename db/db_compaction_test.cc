@@ -5369,6 +5369,7 @@ TEST_P(DBCompactionTestWithParam, FixFileIngestionCompactionDeadlock) {
   ingestion_thr.join();
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   Close();
+  ASSERT_OK(DestroyDir(env_, sst_files_dir));
 }
 
 TEST_F(DBCompactionTest, ConsistencyFailTest) {
@@ -5448,19 +5449,22 @@ TEST_F(DBCompactionTest, ConsistencyFailTest2) {
 
 void IngestOneKeyValue(DBImpl* db, const std::string& key,
                        const std::string& value, const Options& options) {
-  ExternalSstFileInfo info;
   std::string f = test::PerThreadDBPath("sst_file" + key);
-  EnvOptions env;
-  ROCKSDB_NAMESPACE::SstFileWriter writer(env, options);
-  auto s = writer.Open(f);
-  ASSERT_OK(s);
-  // ASSERT_OK(writer.Put(Key(), ""));
-  ASSERT_OK(writer.Put(key, value));
+  {
+    ExternalSstFileInfo info;
+    EnvOptions env;
+    ROCKSDB_NAMESPACE::SstFileWriter writer(env, options);
+    auto s = writer.Open(f);
+    ASSERT_OK(s);
+    // ASSERT_OK(writer.Put(Key(), ""));
+    ASSERT_OK(writer.Put(key, value));
 
-  ASSERT_OK(writer.Finish(&info));
-  IngestExternalFileOptions ingest_opt;
+    ASSERT_OK(writer.Finish(&info));
+    IngestExternalFileOptions ingest_opt;
 
-  ASSERT_OK(db->IngestExternalFile({info.file_path}, ingest_opt));
+    ASSERT_OK(db->IngestExternalFile({info.file_path}, ingest_opt));
+  }
+  ASSERT_OK(db->GetEnv()->DeleteFile(f));
 }
 
 TEST_P(DBCompactionTestWithParam,

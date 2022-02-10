@@ -20,6 +20,7 @@
 #include "db/error_handler.h"
 #include "db/version_set.h"
 #include "file/writable_file_writer.h"
+#include "options/options_helper.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -96,6 +97,12 @@ class CompactionJobTestBase : public testing::Test {
         test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
     env_ = base_env;
     fs_ = env_->GetFileSystem();
+  }
+
+  ~CompactionJobTestBase() {
+    Options options(BuildDBOptions(db_options_, mutable_db_options_),
+                    ColumnFamilyOptions());
+    EXPECT_OK(DestroyDB(dbname_, options));
   }
 
   void SetUp() override {

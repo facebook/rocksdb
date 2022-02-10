@@ -109,11 +109,18 @@ class EnvPosixTest : public testing::Test {
  public:
   Env* env_;
   bool direct_io_;
-  EnvPosixTest() : env_(Env::Default()), direct_io_(false) {}
+  std::string fname_;
+
+  EnvPosixTest() : env_(Env::Default()), direct_io_(false) {
+    fname_ = test::PerThreadDBPath(env_, "testfile");
+  }
   ~EnvPosixTest() {
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->LoadDependency({});
     SyncPoint::GetInstance()->ClearAllCallBacks();
+    if (env_->FileExists(fname_).ok()) {
+      EXPECT_OK(env_->DeleteFile(fname_));
+    }
   }
 };
 
@@ -312,11 +319,10 @@ TEST_F(EnvPosixTest, LowerThreadPoolCpuPriority) {
 TEST_F(EnvPosixTest, MemoryMappedFileBuffer) {
   const int kFileBytes = 1 << 15;  // 32 KB
   std::string expected_data;
-  std::string fname = test::PerThreadDBPath(env_, "testfile");
   {
     std::unique_ptr<WritableFile> wfile;
     const EnvOptions soptions;
-    ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
+    ASSERT_OK(env_->NewWritableFile(fname_, &wfile, soptions));
 
     Random rnd(301);
     expected_data = rnd.RandomString(kFileBytes);
@@ -324,7 +330,7 @@ TEST_F(EnvPosixTest, MemoryMappedFileBuffer) {
   }
 
   std::unique_ptr<MemoryMappedFileBuffer> mmap_buffer;
-  Status status = env_->NewMemoryMappedFileBuffer(fname, &mmap_buffer);
+  Status status = env_->NewMemoryMappedFileBuffer(fname_, &mmap_buffer);
   // it should be supported at least on linux
 #if !defined(OS_LINUX)
   if (status.IsNotSupported()) {
@@ -1219,7 +1225,6 @@ TEST_P(EnvPosixTestWithParam, DISABLED_RandomAccessUniqueIDDeletes) {
 TEST_P(EnvPosixTestWithParam, MultiRead) {
   EnvOptions soptions;
   soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
-  std::string fname = test::PerThreadDBPath(env_, "testfile");
 
   const size_t kSectorSize = 4096;
   const size_t kNumSectors = 8;
@@ -1233,7 +1238,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
       soptions.use_direct_writes = false;
     }
 #endif
-    ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
+    ASSERT_OK(env_->NewWritableFile(fname_, &wfile, soptions));
     for (size_t i = 0; i < kNumSectors; ++i) {
       auto data = NewAligned(kSectorSize * 8, static_cast<char>(i + 1));
       Slice slice(data.get(), kSectorSize);
@@ -1278,7 +1283,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
       soptions.use_direct_reads = false;
     }
 #endif
-    ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+    ASSERT_OK(env_->NewRandomAccessFile(fname_, &file, soptions));
     ASSERT_OK(file->MultiRead(reqs.data(), reqs.size()));
     for (size_t i = 0; i < reqs.size(); ++i) {
       auto buf = NewAligned(kSectorSize * 8, static_cast<char>(i * 2 + 1));
@@ -1294,7 +1299,6 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
   // direct I/O case.
   EnvOptions soptions;
   soptions.use_direct_reads = soptions.use_direct_writes = false;
-  std::string fname = test::PerThreadDBPath(env_, "testfile");
 
   const size_t kTotalSize = 81920;
   Random rnd(301);
@@ -1303,7 +1307,7 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
   // Create file.
   {
     std::unique_ptr<WritableFile> wfile;
-    ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
+    ASSERT_OK(env_->NewWritableFile(fname_, &wfile, soptions));
     ASSERT_OK(wfile->Append(expected_data));
     ASSERT_OK(wfile->Close());
   }
@@ -1367,7 +1371,7 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
 
     // Query the data
     std::unique_ptr<RandomAccessFile> file;
-    ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+    ASSERT_OK(env_->NewRandomAccessFile(fname_, &file, soptions));
     ASSERT_OK(file->MultiRead(reqs.data(), reqs.size()));
 
     // Validate results
@@ -1421,14 +1425,13 @@ TEST_F(EnvPosixTest, MultiReadIOUringError) {
   // In this test we don't do aligned read, so we can't do direct I/O.
   EnvOptions soptions;
   soptions.use_direct_reads = soptions.use_direct_writes = false;
-  std::string fname = test::PerThreadDBPath(env_, "testfile");
 
   std::vector<std::string> scratches;
   std::vector<ReadRequest> reqs;
-  GenerateFilesAndRequest(env_, fname, &reqs, &scratches);
+  GenerateFilesAndRequest(env_, fname_, &reqs, &scratches);
   // Query the data
   std::unique_ptr<RandomAccessFile> file;
-  ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+  ASSERT_OK(env_->NewRandomAccessFile(fname_, &file, soptions));
 
   bool io_uring_wait_cqe_called = false;
   SyncPoint::GetInstance()->SetCallBack(
@@ -1457,14 +1460,13 @@ TEST_F(EnvPosixTest, MultiReadIOUringError2) {
   // In this test we don't do aligned read, so we can't do direct I/O.
   EnvOptions soptions;
   soptions.use_direct_reads = soptions.use_direct_writes = false;
-  std::string fname = test::PerThreadDBPath(env_, "testfile");
 
   std::vector<std::string> scratches;
   std::vector<ReadRequest> reqs;
-  GenerateFilesAndRequest(env_, fname, &reqs, &scratches);
+  GenerateFilesAndRequest(env_, fname_, &reqs, &scratches);
   // Query the data
   std::unique_ptr<RandomAccessFile> file;
-  ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+  ASSERT_OK(env_->NewRandomAccessFile(fname_, &file, soptions));
 
   bool io_uring_submit_and_wait_called = false;
   SyncPoint::GetInstance()->SetCallBack(
@@ -1505,7 +1507,6 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   EnvOptions soptions;
   soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
-  std::string fname = test::PerThreadDBPath(env_, "testfile");
 
   const size_t kSectorSize = 512;
   auto data = NewAligned(kSectorSize, 0);
@@ -1519,7 +1520,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
         soptions.use_direct_writes = false;
       }
 #endif
-      ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
+      ASSERT_OK(env_->NewWritableFile(fname_, &wfile, soptions));
       ASSERT_OK(wfile->Append(slice));
       ASSERT_OK(wfile->InvalidateCache(0, 0));
       ASSERT_OK(wfile->Close());
@@ -1535,7 +1536,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
         soptions.use_direct_reads = false;
       }
 #endif
-      ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+      ASSERT_OK(env_->NewRandomAccessFile(fname_, &file, soptions));
       ASSERT_OK(file->Read(0, kSectorSize, &result, scratch.get()));
       ASSERT_EQ(memcmp(scratch.get(), data.get(), kSectorSize), 0);
       ASSERT_OK(file->InvalidateCache(0, 11));
@@ -1552,7 +1553,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
         soptions.use_direct_reads = false;
       }
 #endif
-      ASSERT_OK(env_->NewSequentialFile(fname, &file, soptions));
+      ASSERT_OK(env_->NewSequentialFile(fname_, &file, soptions));
       if (file->use_direct_io()) {
         ASSERT_OK(file->PositionedRead(0, kSectorSize, &result, scratch.get()));
       } else {
@@ -1562,8 +1563,6 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
       ASSERT_OK(file->InvalidateCache(0, 11));
       ASSERT_OK(file->InvalidateCache(0, 0));
     }
-    // Delete the file
-    ASSERT_OK(env_->DeleteFile(fname));
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
 }
 #endif  // not TRAVIS
@@ -1786,6 +1785,11 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
       ASSERT_EQ(size, file_attrs_iter->size_bytes);
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
+    for (int i = 0; i < kNumChildren; ++i) {
+      const std::string path = test_base_dir + "/testfile_" + std::to_string(i);
+      ASSERT_OK(env_->DeleteFile(path));
+    }
+    ASSERT_OK(env_->DeleteDir(test_base_dir));
 }
 
 // Test that all WritableFileWrapper forwards all calls to WritableFile.
@@ -2378,6 +2382,7 @@ TEST_F(EnvTest, IsDirectory) {
   }
   ASSERT_OK(Env::Default()->IsDirectory(test_file_path, &is_dir));
   ASSERT_FALSE(is_dir);
+  ASSERT_OK(DestroyDir(Env::Default(), test_directory_));
 }
 
 TEST_F(EnvTest, EnvWriteVerificationTest) {
@@ -2400,6 +2405,7 @@ TEST_F(EnvTest, EnvWriteVerificationTest) {
   v_info.checksum = Slice(checksum);
   s = file->Append(Slice(test_data), v_info);
   ASSERT_OK(s);
+  ASSERT_OK(DestroyDir(Env::Default(), test_directory_));
 }
 
 class CreateEnvTest : public testing::Test {

@@ -743,6 +743,7 @@ TEST_F(DBWALTest, IgnoreRecoveredLog) {
     ASSERT_NOK(s);
     Destroy(options);
   } while (ChangeWalOptions());
+  ASSERT_OK(DestroyDir(env_, backup_logs));
 }
 
 TEST_F(DBWALTest, RecoveryWithEmptyLog) {

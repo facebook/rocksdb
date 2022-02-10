@@ -30,45 +30,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// Path to the database on file system
-const std::string kDbName = test::PerThreadDBPath("stringappend_test");
-
-namespace {
-// OpenDb opens a (possibly new) rocksdb database with a StringAppendOperator
-std::shared_ptr<DB> OpenNormalDb(const std::string& delim) {
-  DB* db;
-  Options options;
-  options.create_if_missing = true;
-  MergeOperator* mergeOperator;
-  if (delim.size() == 1) {
-    mergeOperator = new StringAppendOperator(delim[0]);
-  } else {
-    mergeOperator = new StringAppendOperator(delim);
-  }
-  options.merge_operator.reset(mergeOperator);
-  EXPECT_OK(DB::Open(options, kDbName, &db));
-  return std::shared_ptr<DB>(db);
-}
-
-#ifndef ROCKSDB_LITE  // TtlDb is not supported in Lite
-// Open a TtlDB with a non-associative StringAppendTESTOperator
-std::shared_ptr<DB> OpenTtlDb(const std::string& delim) {
-  DBWithTTL* db;
-  Options options;
-  options.create_if_missing = true;
-  MergeOperator* mergeOperator;
-  if (delim.size() == 1) {
-    mergeOperator = new StringAppendTESTOperator(delim[0]);
-  } else {
-    mergeOperator = new StringAppendTESTOperator(delim);
-  }
-  options.merge_operator.reset(mergeOperator);
-  EXPECT_OK(DBWithTTL::Open(options, kDbName, &db, 123456));
-  return std::shared_ptr<DB>(db);
-}
-#endif  // !ROCKSDB_LITE
-}  // namespace
-
 /// StringLists represents a set of string-lists, each with a key-index.
 /// Supports Append(list, string) and Get(list)
 class StringLists {
@@ -131,36 +92,48 @@ class StringLists {
 class StringAppendOperatorTest : public testing::Test,
                                  public ::testing::WithParamInterface<bool> {
  public:
-  StringAppendOperatorTest() {
+  StringAppendOperatorTest() : use_ttl_(false) {
+    dbname_ = test::PerThreadDBPath("stringappend_test");
     EXPECT_OK(
-        DestroyDB(kDbName, Options()));  // Start each test with a fresh DB
-  }
-
-  void SetUp() override {
+        DestroyDB(dbname_, Options()));  // Start each test with a fresh DB
 #ifndef ROCKSDB_LITE  // TtlDb is not supported in Lite
-    bool if_use_ttl = GetParam();
-    if (if_use_ttl) {
-      fprintf(stderr, "Running tests with ttl db and generic operator.\n");
-      StringAppendOperatorTest::SetOpenDbFunction(&OpenTtlDb);
-      return;
-    }
+    use_ttl_ = GetParam();
 #endif  // !ROCKSDB_LITE
-    fprintf(stderr, "Running tests with regular db and operator.\n");
-    StringAppendOperatorTest::SetOpenDbFunction(&OpenNormalDb);
+    if (use_ttl_) {
+      fprintf(stderr, "Running tests with ttl db and generic operator.\n");
+    } else {
+      fprintf(stderr, "Running tests with regular db and operator.\n");
+    }
   }
 
-  using OpenFuncPtr = std::shared_ptr<DB> (*)(const std::string&);
-
-  // Allows user to open databases with different configurations.
-  // e.g.: Can open a DB or a TtlDB, etc.
-  static void SetOpenDbFunction(OpenFuncPtr func) {
-    OpenDb = func;
+  ~StringAppendOperatorTest() {
+    EXPECT_OK(DestroyDB(dbname_, Options()));  // Clean up after ourselves
   }
 
- protected:
-  static OpenFuncPtr OpenDb;
+  std::shared_ptr<DB> OpenDb(const std::string& delim) {
+    Options options;
+    options.create_if_missing = true;
+    if (delim.size() == 1) {
+      options.merge_operator.reset(new StringAppendTESTOperator(delim[0]));
+    } else {
+      options.merge_operator.reset(new StringAppendTESTOperator(delim));
+    }
+#ifndef ROCKSDB_LITE  // TtlDb is not supported in Lite
+    if (use_ttl_) {
+      DBWithTTL* dbttl;
+      EXPECT_OK(DBWithTTL::Open(options, dbname_, &dbttl, 123456));
+      return std::shared_ptr<DB>(dbttl);
+    }
+#endif  // ROCKSDB_LITE
+    DB* db;
+    EXPECT_OK(DB::Open(options, dbname_, &db));
+    return std::shared_ptr<DB>(db);
+  }
+
+ private:
+  bool use_ttl_;
+  std::string dbname_;
 };
-StringAppendOperatorTest::OpenFuncPtr StringAppendOperatorTest::OpenDb = nullptr;
 
 // THE TEST CASES BEGIN HERE
 

@@ -567,10 +567,15 @@ class DBConstructor: public Constructor {
   explicit DBConstructor(const Comparator* cmp)
       : Constructor(cmp),
         comparator_(cmp) {
+    dbname_ = test::PerThreadDBPath("table_testdb");
     db_ = nullptr;
     NewDB();
   }
-  ~DBConstructor() override { delete db_; }
+  ~DBConstructor() override {
+    delete db_;
+    EXPECT_OK(DestroyDB(dbname_, Options()));
+  }
+
   Status FinishImpl(const Options& /*options*/,
                     const ImmutableOptions& /*ioptions*/,
                     const MutableCFOptions& /*moptions*/,
@@ -596,18 +601,18 @@ class DBConstructor: public Constructor {
   DB* db() const override { return db_; }
 
  private:
+  std::string dbname_;
   void NewDB() {
-    std::string name = test::PerThreadDBPath("table_testdb");
 
     Options options;
     options.comparator = comparator_;
-    Status status = DestroyDB(name, options);
+    Status status = DestroyDB(dbname_, options);
     ASSERT_TRUE(status.ok()) << status.ToString();
 
     options.create_if_missing = true;
     options.error_if_exists = true;
     options.write_buffer_size = 10000;  // Something small to force merging
-    status = DB::Open(options, name, &db_);
+    status = DB::Open(options, dbname_, &db_);
     ASSERT_TRUE(status.ok()) << status.ToString();
   }
 
@@ -4384,6 +4389,7 @@ TEST_F(PrefixTest, PrefixAndWholeKeyTest) {
   // Trigger compaction.
   ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   delete db;
+  ASSERT_OK(DestroyDB(kDBPath, options));
   // In the second round, turn whole_key_filtering off and expect
   // rocksdb still works.
 }

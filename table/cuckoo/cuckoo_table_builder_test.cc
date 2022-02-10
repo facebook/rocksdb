@@ -41,6 +41,12 @@ class CuckooBuilderTest : public testing::Test {
     file_options_ = FileOptions(options);
   }
 
+  ~CuckooBuilderTest() override {
+    if (!fname.empty()) {
+      EXPECT_OK(env_->DeleteFile(fname));
+    }
+  }
+
   void CheckFileContents(const std::vector<std::string>& keys,
       const std::vector<std::string>& values,
       const std::vector<uint64_t>& expected_locations,

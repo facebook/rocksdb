@@ -117,6 +117,7 @@ TEST_F(DBEncryptionTest, ReadEmptyFile) {
   ASSERT_OK(status);
 
   ASSERT_TRUE(data.empty());
+  ASSERT_OK(defaultEnv->DeleteFile(filePath));
 }
 
 #endif // ROCKSDB_LITE

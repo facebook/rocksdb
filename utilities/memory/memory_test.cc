@@ -21,8 +21,22 @@ namespace ROCKSDB_NAMESPACE {
 class MemoryTest : public testing::Test {
  public:
   MemoryTest() : kDbDir(test::PerThreadDBPath("memory_test")), rnd_(301) {
-    assert(Env::Default()->CreateDirIfMissing(kDbDir).ok());
+    EXPECT_OK(Env::Default()->CreateDirIfMissing(kDbDir));
+    Options opt;
+    for (int i = 0; i < kNumDBs; ++i) {
+      EXPECT_OK(DestroyDB(GetDBName(i), opt));
+    }
   }
+
+  ~MemoryTest() {
+    Options opt;
+    for (int i = 0; i < kNumDBs; ++i) {
+      EXPECT_OK(DestroyDB(GetDBName(i), opt));
+    }
+    EXPECT_OK(Env::Default()->DeleteDir(kDbDir));
+  }
+
+  const int kNumDBs = 10;
 
   std::string GetDBName(int id) { return kDbDir + "db_" + ToString(id); }
 
@@ -92,7 +106,6 @@ class MemoryTest : public testing::Test {
 TEST_F(MemoryTest, SharedBlockCacheTotal) {
   std::vector<DB*> dbs;
   std::vector<uint64_t> usage_by_type;
-  const int kNumDBs = 10;
   const int kKeySize = 100;
   const int kValueSize = 500;
   Options opt;
@@ -145,7 +158,6 @@ TEST_F(MemoryTest, MemTableAndTableReadersTotal) {
   std::vector<DB*> dbs;
   std::vector<uint64_t> usage_by_type;
   std::vector<std::vector<ColumnFamilyHandle*>> vec_handles;
-  const int kNumDBs = 10;
   // These key/value sizes ensure each KV has its own memtable. Note that the
   // minimum write_buffer_size allowed is 64 KB.
   const int kKeySize = 100;

@@ -1147,6 +1147,7 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_EQ(env->GetCloseCount(), 2);
   options.info_log.reset();
   ASSERT_EQ(env->GetCloseCount(), 3);
+  ASSERT_OK(DestroyDB(dbname, options));
 }
 
 TEST_F(DBBasicTest, DBCloseFlushError) {

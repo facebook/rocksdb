@@ -72,6 +72,12 @@ class CuckooReaderTest : public testing::Test {
     file_options = FileOptions(options);
   }
 
+  ~CuckooReaderTest() {
+    if (!fname.empty()) {
+      env->DeleteFile(fname).PermitUncheckedError();
+    }
+  }
+
   void SetUp(int num) {
     num_items = num;
     hash_map.clear();

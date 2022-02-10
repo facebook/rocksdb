@@ -54,9 +54,6 @@ DEFINE_int32(memtable_huge_page_size, 2 * 1024 * 1024, "");
 DEFINE_int32(value_size, 40, "");
 DEFINE_bool(enable_print, false, "Print options generated to console.");
 
-// Path to the database on file system
-const std::string kDbName =
-    ROCKSDB_NAMESPACE::test::PerThreadDBPath("prefix_test");
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -219,6 +216,8 @@ class SamePrefixTransform : public SliceTransform {
 
 class PrefixTest : public testing::Test {
  public:
+  // Path to the database on file system
+
   std::shared_ptr<DB> OpenDb() {
     DB* db;
 
@@ -239,7 +238,7 @@ class PrefixTest : public testing::Test {
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
     options.allow_concurrent_memtable_write = false;
 
-    Status s = DB::Open(options, kDbName,  &db);
+    Status s = DB::Open(options, dbname_, &db);
     EXPECT_OK(s);
     return std::shared_ptr<DB>(db);
   }
@@ -279,8 +278,16 @@ class PrefixTest : public testing::Test {
 
   PrefixTest() : option_config_(kBegin) {
     options.comparator = new TestKeyComparator();
+    dbname_ = ROCKSDB_NAMESPACE::test::PerThreadDBPath("prefix_test");
+    EXPECT_OK(DestroyDB(dbname_, options));
+    EXPECT_OK(DestroyDB(dbname_, options));
   }
-  ~PrefixTest() override { delete options.comparator; }
+  ~PrefixTest() override {
+    EXPECT_OK(DestroyDB(dbname_, options));
+    delete options.comparator;
+  }
+
+  std::string dbname_;
 
  protected:
   enum OptionConfig {
@@ -295,7 +302,7 @@ class PrefixTest : public testing::Test {
   Options options;
 };
 
-TEST(SamePrefixTest, InDomainTest) {
+TEST_F(PrefixTest, InDomainTest) {
   DB* db;
   Options options;
   options.create_if_missing = true;
@@ -307,8 +314,8 @@ TEST(SamePrefixTest, InDomainTest) {
   WriteOptions write_options;
   ReadOptions read_options;
   {
-    ASSERT_OK(DestroyDB(kDbName, Options()));
-    ASSERT_OK(DB::Open(options, kDbName, &db));
+    ASSERT_OK(DestroyDB(dbname_, Options()));
+    ASSERT_OK(DB::Open(options, dbname_, &db));
     ASSERT_OK(db->Put(write_options, "HHKB pro2", "Mar 24, 2006"));
     ASSERT_OK(db->Put(write_options, "HHKB pro2 Type-S", "June 29, 2011"));
     ASSERT_OK(db->Put(write_options, "Realforce 87u", "idk"));
@@ -324,11 +331,11 @@ TEST(SamePrefixTest, InDomainTest) {
 
     delete db_iter;
     delete db;
-    ASSERT_OK(DestroyDB(kDbName, Options()));
+    ASSERT_OK(DestroyDB(dbname_, Options()));
   }
 
   {
-    ASSERT_OK(DB::Open(options, kDbName, &db));
+    ASSERT_OK(DB::Open(options, dbname_, &db));
     ASSERT_OK(db->Put(write_options, "pikachu", "1"));
     ASSERT_OK(db->Put(write_options, "Meowth", "1"));
     ASSERT_OK(db->Put(write_options, "Mewtwo", "idk"));
@@ -341,7 +348,7 @@ TEST(SamePrefixTest, InDomainTest) {
     ASSERT_OK(db_iter->status());
     delete db_iter;
     delete db;
-    ASSERT_OK(DestroyDB(kDbName, Options()));
+    ASSERT_OK(DestroyDB(dbname_, Options()));
   }
 }
 
@@ -352,7 +359,7 @@ TEST_F(PrefixTest, TestResult) {
       std::cout << "*** Mem table: " << options.memtable_factory->Name()
                 << " number of buckets: " << num_buckets
                 << std::endl;
-      ASSERT_OK(DestroyDB(kDbName, Options()));
+      ASSERT_OK(DestroyDB(dbname_, Options()));
       auto db = OpenDb();
       WriteOptions write_options;
       ReadOptions read_options;
@@ -529,7 +536,7 @@ TEST_F(PrefixTest, PrefixValid) {
     while (NextOptions(num_buckets)) {
       std::cout << "*** Mem table: " << options.memtable_factory->Name()
                 << " number of buckets: " << num_buckets << std::endl;
-      ASSERT_OK(DestroyDB(kDbName, Options()));
+      ASSERT_OK(DestroyDB(dbname_, Options()));
       auto db = OpenDb();
       WriteOptions write_options;
       ReadOptions read_options;
@@ -582,7 +589,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
   while (NextOptions(FLAGS_bucket_count)) {
     std::cout << "*** Mem table: " << options.memtable_factory->Name()
         << std::endl;
-    ASSERT_OK(DestroyDB(kDbName, Options()));
+    ASSERT_OK(DestroyDB(dbname_, Options()));
     auto db = OpenDb();
     WriteOptions write_options;
     ReadOptions read_options;
@@ -689,7 +696,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev) {
   for (size_t m = 1; m < 100; m++) {
     std::cout << "[" + std::to_string(m) + "]" + "*** Mem table: "
               << options.memtable_factory->Name() << std::endl;
-    ASSERT_OK(DestroyDB(kDbName, Options()));
+    ASSERT_OK(DestroyDB(dbname_, Options()));
     auto db = OpenDb();
     WriteOptions write_options;
     ReadOptions read_options;
@@ -806,7 +813,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev2) {
   options.memtable_factory.reset(new SkipListFactory);
   options.write_buffer_size = 1024 * 1024;
   std::string v13("v13");
-  ASSERT_OK(DestroyDB(kDbName, Options()));
+  ASSERT_OK(DestroyDB(dbname_, Options()));
   auto db = OpenDb();
   WriteOptions write_options;
   ReadOptions read_options;
@@ -842,7 +849,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
   Slice upper_bound = TestKeyToSlice(s, upper_bound_key);
 
   {
-    ASSERT_OK(DestroyDB(kDbName, Options()));
+    ASSERT_OK(DestroyDB(dbname_, Options()));
     auto db = OpenDb();
     WriteOptions write_options;
     ReadOptions read_options;
@@ -864,7 +871,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
     ASSERT_EQ(iter->value(), v14);
   }
   {
-    ASSERT_OK(DestroyDB(kDbName, Options()));
+    ASSERT_OK(DestroyDB(dbname_, Options()));
     auto db = OpenDb();
     WriteOptions write_options;
     ReadOptions read_options;

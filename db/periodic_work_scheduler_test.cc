@@ -192,6 +192,9 @@ TEST_F(PeriodicWorkSchedulerTest, MultiInstances) {
     ASSERT_OK(dbs[i]->Close());
     delete dbs[i];
   }
+  for (int i = 0; i < kInstanceNum; i++) {
+    ASSERT_OK(DestroyDB(test::PerThreadDBPath(std::to_string(i)), options));
+  }
 }
 
 TEST_F(PeriodicWorkSchedulerTest, MultiEnv) {
@@ -225,6 +228,7 @@ TEST_F(PeriodicWorkSchedulerTest, MultiEnv) {
   ASSERT_OK(db->Close());
   delete db;
   Close();
+  ASSERT_OK(DestroyDB(dbname, options2));
 }
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

@@ -614,6 +614,7 @@ TEST_P(FaultInjectionTest, NoDuplicateTrailingEntries) {
     // Verify that only one version edit exists in the file.
     ASSERT_EQ(1, count);
   }
+  ASSERT_OK(fault_fs->DeleteFile(file_name, IOOptions(), nullptr));
 }
 
 INSTANTIATE_TEST_CASE_P(

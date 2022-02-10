@@ -686,6 +686,12 @@ class BackupEngineTest : public testing::Test {
     backup_chroot_env_->DeleteFile(latest_backup_).PermitUncheckedError();
   }
 
+  ~BackupEngineTest() {
+    EXPECT_OK(
+        DestroyDir(Env::Default(), test::PerThreadDBPath("db_for_backup")));
+    EXPECT_OK(DestroyDir(Env::Default(), test::PerThreadDBPath("db_backups")));
+  }
+
   DB* OpenDB() {
     DB* db;
     EXPECT_OK(DB::Open(options_, dbname_, &db));

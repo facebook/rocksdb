@@ -2232,6 +2232,7 @@ TEST_F(DBTest, DBOpen_Options) {
 
   delete db;
   db = nullptr;
+  ASSERT_OK(DestroyDB(dbname, options));
 }
 
 TEST_F(DBTest, DBOpen_Change_NumLevels) {
@@ -2288,6 +2289,8 @@ TEST_F(DBTest, DestroyDBMetaDatabase) {
   ASSERT_TRUE(!(DB::Open(options, dbname, &db)).ok());
   ASSERT_TRUE(!(DB::Open(options, metadbname, &db)).ok());
   ASSERT_TRUE(!(DB::Open(options, metametadbname, &db)).ok());
+  ASSERT_OK(
+      DestroyDir(env_, dbname));  // The meta dbs leave stuff around.  Clean up
 }
 
 #ifndef ROCKSDB_LITE
@@ -2439,6 +2442,7 @@ TEST_F(DBTest, SnapshotFiles) {
         ASSERT_EQ(info.file_number, manifest_number);
       }
     }
+    ASSERT_OK(DestroyDir(env_, snapdir));
   } while (ChangeCompactOptions());
 }
 

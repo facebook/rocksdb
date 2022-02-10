@@ -715,6 +715,9 @@ TEST_P(DBSSTTestRateLimit, RateLimitedDelete) {
       0, options.statistics->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  if (different_wal_dir) {
+    ASSERT_OK(DestroyDir(options.env, alternative_wal_dir_));
+  }
 }
 
 INSTANTIATE_TEST_CASE_P(RateLimitedDelete, DBSSTTestRateLimit,

@@ -315,6 +315,7 @@ TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
     ASSERT_OK(statuses[2]);
     ASSERT_EQ(values[2], second_blob);
   }
+  ASSERT_OK(options.env->DeleteFile(file_path));
 }
 #endif  // !ROCKSDB_LITE
 
@@ -574,6 +575,7 @@ TEST_F(DBBlobBasicTest, GenerateIOTracing) {
     // Assuming blob files will have Append, Close and then Read operations.
     ASSERT_GT(blob_files_op_count, 2);
   }
+  ASSERT_OK(env_->DeleteFile(trace_file));
 }
 #endif  // !ROCKSDB_LITE
 

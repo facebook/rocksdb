@@ -55,7 +55,7 @@ class TraceAnalyzerTest : public testing::Test {
     dbname_ = test_path_ + "/db";
   }
 
-  ~TraceAnalyzerTest() override {}
+  ~TraceAnalyzerTest() override { EXPECT_OK(DestroyDir(env_, test_path_)); }
 
   void GenerateTrace(std::string trace_path) {
     Options options;
