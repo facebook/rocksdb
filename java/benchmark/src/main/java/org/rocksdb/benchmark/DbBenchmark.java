@@ -569,6 +569,7 @@ public class DbBenchmark {
     options.setMinWriteBufferNumberToMerge(
         (Integer)flags_.get(Flag.min_write_buffer_number_to_merge));
     options.setMemtablePrefixBloomSizeRatio((Double) flags_.get(Flag.memtable_bloom_size_ratio));
+    options.setMemtableWholeKeyFiltering((Boolean) flags_.get(Flag.memtable_whole_key_filtering));
     options.setNumLevels(
         (Integer)flags_.get(Flag.num_levels));
     options.setTargetFileSizeBase(
@@ -1188,6 +1189,12 @@ public class DbBenchmark {
             + "\t0 means no bloom filter.") {
       @Override public Object parseValue(String value) {
         return Double.parseDouble(value);
+      }
+    },
+    memtable_whole_key_filtering(false, "Enable whole key bloom filter in memtable.") {
+      @Override
+      public Object parseValue(String value) {
+        return parseBoolean(value);
       }
     },
     cache_numshardbits(-1,"Number of shards for the block cache\n" +

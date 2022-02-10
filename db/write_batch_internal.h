@@ -79,7 +79,7 @@ class WriteBatchInternal {
  public:
 
   // WriteBatch header has an 8-byte sequence number followed by a 4-byte count.
-  static const size_t kHeader = 12;
+  static constexpr size_t kHeader = 12;
 
   // WriteBatch methods with column_family_id instead of ColumnFamilyHandle*
   static Status Put(WriteBatch* batch, uint32_t column_family_id,
@@ -221,6 +221,13 @@ class WriteBatchInternal {
   // state meant to be used only during recovery.
   static void SetAsLatestPersistentState(WriteBatch* b);
   static bool IsLatestPersistentState(const WriteBatch* b);
+
+  static std::tuple<Status, uint32_t, size_t> GetColumnFamilyIdAndTimestampSize(
+      WriteBatch* b, ColumnFamilyHandle* column_family);
+
+  static bool TimestampsUpdateNeeded(const WriteBatch& wb) {
+    return wb.needs_in_place_update_ts_;
+  }
 };
 
 // LocalSavePoint is similar to a scope guard
@@ -265,39 +272,42 @@ class LocalSavePoint {
 #endif
 };
 
-template <typename Derived>
-class TimestampAssignerBase : public WriteBatch::Handler {
+template <typename TimestampSizeFuncType>
+class TimestampUpdater : public WriteBatch::Handler {
  public:
-  explicit TimestampAssignerBase(
-      WriteBatch::ProtectionInfo* prot_info,
-      std::function<Status(uint32_t, size_t&)>&& checker)
-      : prot_info_(prot_info), checker_(std::move(checker)) {}
+  explicit TimestampUpdater(WriteBatch::ProtectionInfo* prot_info,
+                            TimestampSizeFuncType&& ts_sz_func, const Slice& ts)
+      : prot_info_(prot_info),
+        ts_sz_func_(std::move(ts_sz_func)),
+        timestamp_(ts) {
+    assert(!timestamp_.empty());
+  }
 
-  ~TimestampAssignerBase() override {}
+  ~TimestampUpdater() override {}
 
   Status PutCF(uint32_t cf, const Slice& key, const Slice&) override {
-    return AssignTimestamp(cf, key);
+    return UpdateTimestamp(cf, key);
   }
 
   Status DeleteCF(uint32_t cf, const Slice& key) override {
-    return AssignTimestamp(cf, key);
+    return UpdateTimestamp(cf, key);
   }
 
   Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
-    return AssignTimestamp(cf, key);
+    return UpdateTimestamp(cf, key);
   }
 
   Status DeleteRangeCF(uint32_t cf, const Slice& begin_key,
                        const Slice&) override {
-    return AssignTimestamp(cf, begin_key);
+    return UpdateTimestamp(cf, begin_key);
   }
 
   Status MergeCF(uint32_t cf, const Slice& key, const Slice&) override {
-    return AssignTimestamp(cf, key);
+    return UpdateTimestamp(cf, key);
   }
 
   Status PutBlobIndexCF(uint32_t cf, const Slice& key, const Slice&) override {
-    return AssignTimestamp(cf, key);
+    return UpdateTimestamp(cf, key);
   }
 
   Status MarkBeginPrepare(bool) override { return Status::OK(); }
@@ -314,25 +324,32 @@ class TimestampAssignerBase : public WriteBatch::Handler {
 
   Status MarkNoop(bool /*empty_batch*/) override { return Status::OK(); }
 
- protected:
-  Status AssignTimestamp(uint32_t cf, const Slice& key) {
-    Status s = static_cast_with_check<Derived>(this)->AssignTimestampImpl(
-        cf, key, idx_);
+ private:
+  Status UpdateTimestamp(uint32_t cf, const Slice& key) {
+    Status s = UpdateTimestampImpl(cf, key, idx_);
     ++idx_;
     return s;
   }
 
-  Status CheckTimestampSize(uint32_t cf, size_t& ts_sz) {
-    return checker_(cf, ts_sz);
-  }
-
-  Status UpdateTimestampIfNeeded(size_t ts_sz, const Slice& key,
-                                 const Slice& ts) {
-    if (ts_sz > 0) {
-      assert(ts_sz == ts.size());
-      UpdateProtectionInformationIfNeeded(key, ts);
-      UpdateTimestamp(key, ts);
+  Status UpdateTimestampImpl(uint32_t cf, const Slice& key, size_t /*idx*/) {
+    if (timestamp_.empty()) {
+      return Status::InvalidArgument("Timestamp is empty");
     }
+    size_t cf_ts_sz = ts_sz_func_(cf);
+    if (0 == cf_ts_sz) {
+      // Skip this column family.
+      return Status::OK();
+    } else if (std::numeric_limits<size_t>::max() == cf_ts_sz) {
+      // Column family timestamp info not found.
+      return Status::NotFound();
+    } else if (cf_ts_sz != timestamp_.size()) {
+      return Status::InvalidArgument("timestamp size mismatch");
+    }
+    UpdateProtectionInformationIfNeeded(key, timestamp_);
+
+    char* ptr = const_cast<char*>(key.data() + key.size() - cf_ts_sz);
+    assert(ptr);
+    memcpy(ptr, timestamp_.data(), timestamp_.size());
     return Status::OK();
   }
 
@@ -347,83 +364,16 @@ class TimestampAssignerBase : public WriteBatch::Handler {
     }
   }
 
-  void UpdateTimestamp(const Slice& key, const Slice& ts) {
-    const size_t ts_sz = ts.size();
-    char* ptr = const_cast<char*>(key.data() + key.size() - ts_sz);
-    assert(ptr);
-    memcpy(ptr, ts.data(), ts_sz);
-  }
-
   // No copy or move.
-  TimestampAssignerBase(const TimestampAssignerBase&) = delete;
-  TimestampAssignerBase(TimestampAssignerBase&&) = delete;
-  TimestampAssignerBase& operator=(const TimestampAssignerBase&) = delete;
-  TimestampAssignerBase& operator=(TimestampAssignerBase&&) = delete;
+  TimestampUpdater(const TimestampUpdater&) = delete;
+  TimestampUpdater(TimestampUpdater&&) = delete;
+  TimestampUpdater& operator=(const TimestampUpdater&) = delete;
+  TimestampUpdater& operator=(TimestampUpdater&&) = delete;
 
   WriteBatch::ProtectionInfo* const prot_info_ = nullptr;
-  const std::function<Status(uint32_t, size_t&)> checker_{};
-  size_t idx_ = 0;
-};
-
-class SimpleListTimestampAssigner
-    : public TimestampAssignerBase<SimpleListTimestampAssigner> {
- public:
-  explicit SimpleListTimestampAssigner(
-      WriteBatch::ProtectionInfo* prot_info,
-      std::function<Status(uint32_t, size_t&)>&& checker,
-      const std::vector<Slice>& timestamps)
-      : TimestampAssignerBase<SimpleListTimestampAssigner>(prot_info,
-                                                           std::move(checker)),
-        timestamps_(timestamps) {}
-
-  ~SimpleListTimestampAssigner() override {}
-
- private:
-  friend class TimestampAssignerBase<SimpleListTimestampAssigner>;
-
-  Status AssignTimestampImpl(uint32_t cf, const Slice& key, size_t idx) {
-    if (idx >= timestamps_.size()) {
-      return Status::InvalidArgument("Need more timestamps for the assignment");
-    }
-    const Slice& ts = timestamps_[idx];
-    size_t ts_sz = ts.size();
-    const Status s = this->CheckTimestampSize(cf, ts_sz);
-    if (!s.ok()) {
-      return s;
-    }
-    return this->UpdateTimestampIfNeeded(ts_sz, key, ts);
-  }
-
-  const std::vector<Slice>& timestamps_;
-};
-
-class TimestampAssigner : public TimestampAssignerBase<TimestampAssigner> {
- public:
-  explicit TimestampAssigner(WriteBatch::ProtectionInfo* prot_info,
-                             std::function<Status(uint32_t, size_t&)>&& checker,
-                             const Slice& ts)
-      : TimestampAssignerBase<TimestampAssigner>(prot_info, std::move(checker)),
-        timestamp_(ts) {
-    assert(!timestamp_.empty());
-  }
-  ~TimestampAssigner() override {}
-
- private:
-  friend class TimestampAssignerBase<TimestampAssigner>;
-
-  Status AssignTimestampImpl(uint32_t cf, const Slice& key, size_t /*idx*/) {
-    if (timestamp_.empty()) {
-      return Status::InvalidArgument("Timestamp is empty");
-    }
-    size_t ts_sz = timestamp_.size();
-    const Status s = this->CheckTimestampSize(cf, ts_sz);
-    if (!s.ok()) {
-      return s;
-    }
-    return this->UpdateTimestampIfNeeded(ts_sz, key, timestamp_);
-  }
-
+  const TimestampSizeFuncType ts_sz_func_{};
   const Slice timestamp_;
+  size_t idx_ = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

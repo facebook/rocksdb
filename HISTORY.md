@@ -2,8 +2,14 @@
 ## Unreleased
 ### Bug Fixes
 * Fixed a major bug in which batched MultiGet could return old values for keys deleted by DeleteRange when memtable Bloom filter is enabled (memtable_prefix_bloom_size_ratio > 0). (The fix includes a substantial MultiGet performance improvement in the unusual case of both memtable_whole_key_filtering and prefix_extractor.)
+* Fixed more cases of EventListener::OnTableFileCreated called with OK status, file_size==0, and no SST file kept. Now the status is Aborted.
+
+### Performance Improvements
+* Mitigated the overhead of building the file location hash table used by the online LSM tree consistency checks, which can improve performance for certain workloads (see #9351).
+* Switched to using a sorted `std::vector` instead of `std::map` for storing the metadata objects for blob files, which can improve performance for certain workloads, especially when the number of blob files is high.
 
 ### Public API changes
+* Require C++17 compatible compiler (GCC >= 7, Clang >= 5, Visual Studio >= 2017). See #9388.
 * Remove HDFS support from main repo.
 * Remove librados support from main repo.
 * Remove obsolete backupable_db.h and type alias `BackupableDBOptions`. Use backup_engine.h and `BackupEngineOptions`. Similar renamings are in the C and Java APIs.
@@ -20,9 +26,48 @@
 * Remove ReadOptions::iter_start_seqnum which has been deprecated.
 * Remove DBOptions::preserved_deletes and DB::SetPreserveDeletesSequenceNumber().
 * Remove deprecated API AdvancedColumnFamilyOptions::rate_limit_delay_max_milliseconds.
+* Removed timestamp from WriteOptions. Accordingly, added to DB APIs Put, Delete, SingleDelete, etc. accepting an additional argument 'timestamp'. Added Put, Delete, SingleDelete, etc to WriteBatch accepting an additional argument 'timestamp'. Removed WriteBatch::AssignTimestamps(vector<Slice>) API. Renamed WriteBatch::AssignTimestamp() to WriteBatch::UpdateTimestamps() with clarified comments.
+* Significant updates to FilterPolicy-related APIs and configuration:
+  * Remove support for "filter_policy=experimental_ribbon" configuration
+  string. Use something like "filter_policy=ribbonfilter:10" instead.
+  * Allow configuration string like "filter_policy=bloomfilter:10" without
+  bool, to minimize acknowledgement of inefficient block-based filter.
+  * A `filter_policy` loaded from an OPTIONS file can read existing filters
+  but still does not support writing new filters.
+  * Inefficient block-based filter is no longer customizable in the public
+  API, though (for now) can still be enabled.
+    * Remove deprecated FilterPolicy::CreateFilter() and
+    FilterPolicy::KeyMayMatch()
+    * Remove `rocksdb_filterpolicy_create()` from C API
+  * Change meaning of nullptr return from GetBuilderWithContext() from "use
+    block-based filter" to "generate no filter in this case."
+    * Also, when user specifies bits_per_key < 0.5, we now round this down
+    to "no filter" because we expect a filter with >= 80% FP rate is
+    unlikely to be worth the CPU cost of accessing it (esp with
+    cache_index_and_filter_blocks=1 or partition_filters=1).
+    * bits_per_key >= 0.5 and < 1.0 is still rounded up to 1.0 (for 62% FP
+    rate)
+  * Also removed deprecated functions
+    * FilterBitsBuilder::CalculateNumEntry()
+    * FilterPolicy::GetFilterBitsBuilder()
+    * NewExperimentalRibbonFilterPolicy()
+  * Remove default implementations of
+    * FilterBitsBuilder::EstimateEntriesAdded()
+    * FilterBitsBuilder::ApproximateNumEntries()
+    * FilterPolicy::GetBuilderWithContext()
+* Remove default implementation of Name() from FileSystemWrapper.
+* Rename `SizeApproximationOptions.include_memtabtles` to `SizeApproximationOptions.include_memtables`.
+* Remove deprecated option DBOptions::max_mem_compaction_level.
+* Remove deprecated overloads of API DB::GetApproximateSizes.
+* Remove deprecated option DBOptions::new_table_reader_for_compaction_inputs.
 
 ### Behavior Changes
 * Disallow the combination of DBOptions.use_direct_io_for_flush_and_compaction == true and DBOptions.writable_file_max_buffer_size == 0. This combination can cause WritableFileWriter::Append() to loop forever, and it does not make much sense in direct IO.
+* `ReadOptions::total_order_seek` no longer affects `DB::Get()`. The original motivation for this interaction has been obsolete since RocksDB has been able to detect whether the current prefix extractor is compatible with that used to generate table files, probably RocksDB 5.14.0.
+
+## New Features
+* Introduced an option `BlockBasedTableBuilder::detect_filter_construct_corruption` for detecting corruption during Bloom Filter (format_version >= 5) and Ribbon Filter construction.
+* Improved the SstDumpTool to read the comparator from table properties and use it to read the SST File.
 
 ## 6.29.0 (01/21/2022)
 Note: The next release will be major release 7.0. See https://github.com/facebook/rocksdb/issues/9390 for more info.

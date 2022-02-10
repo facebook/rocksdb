@@ -757,42 +757,75 @@ bool InternalStats::HandleLiveSstFilesSizeAtTemperature(std::string* value,
 
 bool InternalStats::HandleNumBlobFiles(uint64_t* value, DBImpl* /*db*/,
                                        Version* /*version*/) {
-  const auto* vstorage = cfd_->current()->storage_info();
+  assert(cfd_);
+
+  const auto* current = cfd_->current();
+  assert(current);
+
+  const auto* vstorage = current->storage_info();
+  assert(vstorage);
+
   const auto& blob_files = vstorage->GetBlobFiles();
+
   *value = blob_files.size();
+
   return true;
 }
 
 bool InternalStats::HandleBlobStats(std::string* value, Slice /*suffix*/) {
-  std::ostringstream oss;
-  auto* current_version = cfd_->current();
-  const auto& blob_files = current_version->storage_info()->GetBlobFiles();
-  uint64_t current_num_blob_files = blob_files.size();
-  uint64_t current_file_size = 0;
-  uint64_t current_garbage_size = 0;
-  for (const auto& pair : blob_files) {
-    const auto& meta = pair.second;
-    current_file_size += meta->GetBlobFileSize();
-    current_garbage_size += meta->GetGarbageBlobBytes();
+  assert(cfd_);
+
+  const auto* current = cfd_->current();
+  assert(current);
+
+  const auto* vstorage = current->storage_info();
+  assert(vstorage);
+
+  const auto& blob_files = vstorage->GetBlobFiles();
+
+  uint64_t total_file_size = 0;
+  uint64_t total_garbage_size = 0;
+
+  for (const auto& meta : blob_files) {
+    assert(meta);
+
+    total_file_size += meta->GetBlobFileSize();
+    total_garbage_size += meta->GetGarbageBlobBytes();
   }
-  oss << "Number of blob files: " << current_num_blob_files
-      << "\nTotal size of blob files: " << current_file_size
-      << "\nTotal size of garbage in blob files: " << current_garbage_size
+
+  std::ostringstream oss;
+
+  oss << "Number of blob files: " << blob_files.size()
+      << "\nTotal size of blob files: " << total_file_size
+      << "\nTotal size of garbage in blob files: " << total_garbage_size
       << '\n';
+
   value->append(oss.str());
+
   return true;
 }
 
 bool InternalStats::HandleTotalBlobFileSize(uint64_t* value, DBImpl* /*db*/,
                                             Version* /*version*/) {
+  assert(cfd_);
+
   *value = cfd_->GetTotalBlobFileSize();
+
   return true;
 }
 
 bool InternalStats::HandleLiveBlobFileSize(uint64_t* value, DBImpl* /*db*/,
                                            Version* /*version*/) {
-  const auto* vstorage = cfd_->current()->storage_info();
+  assert(cfd_);
+
+  const auto* current = cfd_->current();
+  assert(current);
+
+  const auto* vstorage = current->storage_info();
+  assert(vstorage);
+
   *value = vstorage->GetTotalBlobFileSize();
+
   return true;
 }
 

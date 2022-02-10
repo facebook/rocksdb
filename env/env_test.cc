@@ -62,6 +62,7 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/string_util.h"
+#include "utilities/counted_fs.h"
 #include "utilities/env_timed.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/fault_injection_fs.h"
@@ -464,6 +465,14 @@ TEST_P(EnvPosixTestWithParam, RunMany) {
   env_->Schedule(&CB::Run, &cb2);
   env_->Schedule(&CB::Run, &cb3);
   env_->Schedule(&CB::Run, &cb4);
+  // thread-pool pops a thread function and then run the function, which may
+  // cause threadpool is empty but the last function is still running. Add a
+  // dummy function at the end, to make sure the last callback is finished
+  // before threadpool is empty.
+  struct DummyCB {
+    static void Run(void*) {}
+  };
+  env_->Schedule(&DummyCB::Run, nullptr);
 
   WaitThreadPoolsEmpty();
   ASSERT_EQ(4, last_id.load(std::memory_order_acquire));
@@ -2588,6 +2597,37 @@ TEST_F(CreateEnvTest, CreateTimedFileSystem) {
   ASSERT_OK(FileSystem::CreateFromString(config_options_, opts_str, &copy));
   ASSERT_TRUE(fs->AreEquivalent(config_options_, copy.get(), &mismatch));
 }
+
+TEST_F(CreateEnvTest, CreateCountedFileSystem) {
+  std::shared_ptr<FileSystem> fs, copy;
+
+  ASSERT_OK(FileSystem::CreateFromString(config_options_,
+                                         CountedFileSystem::kClassName(), &fs));
+  ASSERT_NE(fs, nullptr);
+  ASSERT_STREQ(fs->Name(), CountedFileSystem::kClassName());
+  ASSERT_EQ(fs->Inner(), FileSystem::Default().get());
+
+  std::string opts_str = fs->ToString(config_options_);
+  std::string mismatch;
+
+  ASSERT_OK(FileSystem::CreateFromString(config_options_, opts_str, &copy));
+  ASSERT_TRUE(fs->AreEquivalent(config_options_, copy.get(), &mismatch));
+
+  ASSERT_OK(FileSystem::CreateFromString(
+      config_options_,
+      std::string("id=") + CountedFileSystem::kClassName() +
+          "; target=" + ReadOnlyFileSystem::kClassName(),
+      &fs));
+  ASSERT_NE(fs, nullptr);
+  opts_str = fs->ToString(config_options_);
+  ASSERT_STREQ(fs->Name(), CountedFileSystem::kClassName());
+  ASSERT_NE(fs->Inner(), nullptr);
+  ASSERT_STREQ(fs->Inner()->Name(), ReadOnlyFileSystem::kClassName());
+  ASSERT_EQ(fs->Inner()->Inner(), FileSystem::Default().get());
+  ASSERT_OK(FileSystem::CreateFromString(config_options_, opts_str, &copy));
+  ASSERT_TRUE(fs->AreEquivalent(config_options_, copy.get(), &mismatch));
+}
+
 #ifndef OS_WIN
 TEST_F(CreateEnvTest, CreateChrootFileSystem) {
   std::shared_ptr<FileSystem> fs, copy;

@@ -171,7 +171,7 @@ inline IOStatus::IOStatus(Code _code, SubCode _subcode, const Slice& msg,
     memcpy(result + len1 + 2, msg2.data(), len2);
   }
   result[size] = '\0';  // null terminator for C style string
-  state_ = result;
+  state_.reset(result);
 }
 
 inline IOStatus::IOStatus(const IOStatus& s) : Status(s.code_, s.subcode_) {
@@ -181,7 +181,7 @@ inline IOStatus::IOStatus(const IOStatus& s) : Status(s.code_, s.subcode_) {
   retryable_ = s.retryable_;
   data_loss_ = s.data_loss_;
   scope_ = s.scope_;
-  state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
+  state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_.get());
 }
 inline IOStatus& IOStatus::operator=(const IOStatus& s) {
   // The following condition catches both aliasing (when this == &s),
@@ -196,8 +196,7 @@ inline IOStatus& IOStatus::operator=(const IOStatus& s) {
     retryable_ = s.retryable_;
     data_loss_ = s.data_loss_;
     scope_ = s.scope_;
-    delete[] state_;
-    state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
+    state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_.get());
   }
   return *this;
 }
@@ -228,9 +227,7 @@ inline IOStatus& IOStatus::operator=(IOStatus&& s)
     data_loss_ = s.data_loss_;
     scope_ = s.scope_;
     s.scope_ = kIOErrorScopeFileSystem;
-    delete[] state_;
-    state_ = nullptr;
-    std::swap(state_, s.state_);
+    state_ = std::move(s.state_);
   }
   return *this;
 }
