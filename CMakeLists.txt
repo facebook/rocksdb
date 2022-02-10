@@ -78,19 +78,6 @@ if ($ENV{CIRCLECI})
   add_definitions(-DCIRCLECI)
 endif()
 
-# third-party/folly is only validated to work on Linux and Windows for now.
-# So only turn it on there by default.
-if(CMAKE_SYSTEM_NAME MATCHES "Linux|Windows")
-  if(MSVC AND MSVC_VERSION LESS 1910)
-    # Folly does not compile with MSVC older than VS2017
-    option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
-  else()
-    option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" ON)
-  endif()
-else()
-  option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
-endif()
-
 if( NOT DEFINED CMAKE_CXX_STANDARD )
   set(CMAKE_CXX_STANDARD 17)
 endif()
@@ -1331,10 +1318,6 @@ if(WITH_TESTS)
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
     )
-  endif()
-
-  if(WITH_FOLLY_DISTRIBUTED_MUTEX)
-    list(APPEND TESTS third-party/folly/folly/synchronization/test/DistributedMutexTest.cpp)
   endif()
 
   set(TESTUTIL_SOURCE
