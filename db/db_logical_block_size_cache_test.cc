@@ -188,11 +188,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamilies) {
   ASSERT_TRUE(cache_->Contains(dbname_));
   ASSERT_EQ(1, cache_->GetRefCount(dbname_));
   ASSERT_TRUE(cache_->Contains(cf_path_0_));
-  // We can't assert exact ref count of column family
-  // as there might be extra reference to the column family
-  // outside of CF creation before we delete the CF, which causes the exact
-  // assertion to be flaky.
-  ASSERT_GE(2, cache_->GetRefCount(cf_path_0_));
+  ASSERT_EQ(2, cache_->GetRefCount(cf_path_0_));
 
   // Drop column family does not drop CF's entry from cache
   for (ColumnFamilyHandle* cf : cfs) {
@@ -201,11 +197,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamilies) {
     ASSERT_TRUE(cache_->Contains(dbname_));
     ASSERT_EQ(1, cache_->GetRefCount(dbname_));
     ASSERT_TRUE(cache_->Contains(cf_path_0_));
-    // We can't assert exact ref count of column family
-    // as there might be extra reference to the column family
-    // outside of CF creation before we delete the CF, which causes the exact
-    // assertion to be flaky.
-    ASSERT_GE(2, cache_->GetRefCount(cf_path_0_));
+    ASSERT_EQ(2, cache_->GetRefCount(cf_path_0_));
   }
 
   // Delete one handle will not drop CF's entry from cache because another
@@ -216,9 +208,9 @@ TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamilies) {
   ASSERT_EQ(1, cache_->GetRefCount(dbname_));
   ASSERT_TRUE(cache_->Contains(cf_path_0_));
   // We can't assert exact ref count of column family
-  // as there might be extra reference to the column family
-  // outside of CF creation before we delete the CF, which causes the exact
-  // assertion to be flaky.
+  // to be 1 as there might be extra reference to the column family
+  // outside of CF creation before deleting the CF,
+  // which causes the exact assertion to be flaky.
   ASSERT_GE(1, cache_->GetRefCount(cf_path_0_));
 
   // Delete the last handle will drop CF's entry from cache.
