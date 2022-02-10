@@ -491,6 +491,7 @@ class FaultInjectionTestFS : public InjectionFileSystem {
   IOStatus DoMultiRead(FSRandomAccessFile* file, FSReadRequest* reqs,
                        size_t num_reqs, const IOOptions& options,
                        IODebugContext* dbg) override;
+  using InjectionFileSystem::DoGetUniqueId;
   size_t DoGetUniqueId(FSRandomAccessFile* file, char* id,
                        size_t max_size) override;
   IOStatus DoWrite(FSRandomRWFile* file, uint64_t offset, const Slice& data,
@@ -498,10 +499,13 @@ class FaultInjectionTestFS : public InjectionFileSystem {
   IOStatus DoRead(FSRandomRWFile* file, uint64_t offset, size_t n,
                   const IOOptions& options, Slice* result, char* scratch,
                   IODebugContext* dbg) override;
+  using InjectionFileSystem::DoClose;
   IOStatus DoClose(FSRandomRWFile* file, const IOOptions& options,
                    IODebugContext* dbg) override;
+  using InjectionFileSystem::DoFlush;
   IOStatus DoFlush(FSRandomRWFile* file, const IOOptions& options,
                    IODebugContext* dbg) override;
+  using InjectionFileSystem::DoSync;
   IOStatus DoSync(FSRandomRWFile* file, const IOOptions& options,
                   IODebugContext* dbg) override;
 
