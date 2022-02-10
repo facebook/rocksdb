@@ -2402,7 +2402,7 @@ checkout_folly:
 		cd third-party && git clone https://github.com/facebook/folly.git; \
 	fi
 	cd third-party/folly && git reset --hard 7090d2e125a69a0d6896ce56b2f2fcebd1e31231
-	perl -pi -e 's/^(#include <boost)/\/\2/$1/' third-party/folly/folly/functional/Invoke.h
+	perl -pi -e 's/^(#include <boost)/\/\/$$1/' third-party/folly/folly/functional/Invoke.h
 
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation
