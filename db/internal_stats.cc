@@ -1675,7 +1675,7 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
 
   snprintf(buf, sizeof(buf),
            "\nBlob file count: %" ROCKSDB_PRIszt
-           ", total size: %.1f GB, garbage size: %.1f, space amp: %.1f\n\n",
+           ", total size: %.1f GB, garbage size: %.1f GB, space amp: %.1f\n\n",
            vstorage->GetBlobFiles().size(), blob_st.total_file_size / kGB,
            blob_st.total_garbage_size / kGB, blob_st.space_amp);
   value->append(buf);
