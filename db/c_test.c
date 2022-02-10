@@ -476,7 +476,7 @@ int main(int argc, char** argv) {
            GetTempDir(),
            ((int) geteuid()));
   snprintf(options_filename, sizeof(options_filename),
-           "%s/rocksdb_c_test-%d/OPTIONS-000009",
+           "%s/rocksdb_c_test-%d/OPTIONS-000011",
            GetTempDir(),
            ((int) geteuid()));
 
@@ -2970,13 +2970,16 @@ int main(int argc, char** argv) {
     CheckNoError(err);
 
     rocksdb_options_t* db_options = rocksdb_options_create();
-    rocksdb_options_set_create_if_missing(db_options, 1);
+    CheckNoError(err);
     db = rocksdb_open(db_options, dbname, &err);
     CheckNoError(err)
+    rocksdb_set_dboptions(db,"writable_file_max_buffer_size","2022",&err);
+    CheckNoError(err);
     rocksdb_column_family_handle_t* cfh;
-    cfh = rocksdb_create_column_family(db, db_options, "cf1", &err);
+    cfh=rocksdb_create_column_family(db, db_options, "hello", &err);
     rocksdb_column_family_handle_destroy(cfh);
     CheckNoError(err);
+
 
     rocksdb_dboptions_t* loaded_db_opt=rocksdb_create_dboptions();
     rocksdb_column_family_descriptors_t* loaded_cf_descs=rocksdb_create_column_family_desc();
@@ -2984,6 +2987,11 @@ int main(int argc, char** argv) {
     rocksdb_load_options_from_file(options_filename,env,loaded_db_opt,loaded_cf_descs,1,cache,&err);
     CheckNoError(err);
 
+    char expected_column_name[100];
+    rocksdb_column_family_descriptors_get_column_family_name(loaded_cf_descs,expected_column_name,1);      
+    CheckEqual("hello", expected_column_name, 5);
+    // CheckEqual("expected_column_name", expected_column_name, 20);
+    CheckCondition(2022 == rocksdb_dboptions_get_writable_file_max_buffer_size(loaded_db_opt));
     rocksdb_dboptions_destroy(loaded_db_opt);
     rocksdb_column_family_descriptors_destroy(loaded_cf_descs);
   }
@@ -2994,11 +3002,12 @@ int main(int argc, char** argv) {
     CheckNoError(err);
 
     rocksdb_options_t* db_options = rocksdb_options_create();
-    rocksdb_options_set_create_if_missing(db_options, 1);
     db = rocksdb_open(db_options, dbname, &err);
     CheckNoError(err)
+    rocksdb_set_dboptions(db,"writable_file_max_buffer_size","2044",&err);
+    CheckNoError(err);
     rocksdb_column_family_handle_t* cfh;
-    cfh = rocksdb_create_column_family(db, db_options, "cf1", &err);
+    cfh=rocksdb_create_column_family(db, db_options, "world", &err);
     rocksdb_column_family_handle_destroy(cfh);
     CheckNoError(err);
 
@@ -3006,9 +3015,14 @@ int main(int argc, char** argv) {
     rocksdb_column_family_descriptors_t* loaded_cf_descs=rocksdb_create_column_family_desc();
     env=rocksdb_create_default_env();
 
+    
     rocksdb_load_latest_options(dbname,env,loaded_db_opt,loaded_cf_descs,1,cache,&err);
     CheckNoError(err);
 
+    char expected_column_name[100];
+    rocksdb_column_family_descriptors_get_column_family_name(loaded_cf_descs,expected_column_name,1);      
+    CheckEqual("world", expected_column_name, 5);
+    CheckCondition(2044 == rocksdb_dboptions_get_writable_file_max_buffer_size(loaded_db_opt));
     rocksdb_dboptions_destroy(loaded_db_opt);
     rocksdb_column_family_descriptors_destroy(loaded_cf_descs);    
   }

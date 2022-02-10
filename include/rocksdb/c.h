@@ -2345,6 +2345,9 @@ extern ROCKSDB_LIBRARY_API rocksdb_dboptions_t* rocksdb_create_dboptions(void);
 extern ROCKSDB_LIBRARY_API rocksdb_column_family_descriptors_t* rocksdb_create_column_family_desc(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_column_family_descriptors_destroy(rocksdb_column_family_descriptors_t* cf);
 extern ROCKSDB_LIBRARY_API void rocksdb_dboptions_destroy(rocksdb_dboptions_t* db_opt);
+extern ROCKSDB_LIBRARY_API void rocksdb_set_dboptions(rocksdb_t* db,const char* option_name,const char* value,char** errptr);
+extern ROCKSDB_LIBRARY_API size_t rocksdb_dboptions_get_writable_file_max_buffer_size(rocksdb_dboptions_t* opt);
+extern ROCKSDB_LIBRARY_API void rocksdb_column_family_descriptors_get_column_family_name(rocksdb_column_family_descriptors_t * cf_descs,char* dest,size_t n);
 #ifdef __cplusplus
 }  /* end extern "C" */
 #endif

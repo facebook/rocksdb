@@ -5605,6 +5605,20 @@ void rocksdb_column_family_descriptors_destroy(rocksdb_column_family_descriptors
   delete cf;
 }
 
+void rocksdb_set_dboptions(rocksdb_t* db,const char* option_name,const char* value,char** errptr){
+  const std::unordered_map<std::string, std::string> new_db_opts={{option_name,value}};
+  SaveError(errptr,db->rep->SetDBOptions(new_db_opts));
+}
+
+size_t rocksdb_dboptions_get_writable_file_max_buffer_size(rocksdb_dboptions_t* opt) {
+
+  return opt->rep.writable_file_max_buffer_size;
+}
+void rocksdb_column_family_descriptors_get_column_family_name(rocksdb_column_family_descriptors_t * cf_descs,char* dest,size_t n){
+    size_t size=cf_descs->rep.size();
+    assert(n<size);
+    strcpy(dest,cf_descs->rep[n].name.c_str());
+}
 
 
 
