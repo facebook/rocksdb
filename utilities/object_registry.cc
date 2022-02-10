@@ -146,9 +146,8 @@ std::shared_ptr<ObjectLibrary> &ObjectLibrary::Default() {
 std::shared_ptr<ObjectRegistry> ObjectRegistry::Default() {
   // Use avoid destruction here so the default ObjectRegistry will not be
   // statically destroyed and long-lived.
-  STATIC_AVOID_DESTRUCTION(ObjectRegistry, registry)(ObjectLibrary::Default());
   STATIC_AVOID_DESTRUCTION(std::shared_ptr<ObjectRegistry>, instance)
-  (&registry);
+  (std::make_shared<ObjectRegistry>(ObjectLibrary::Default()));
   return instance;
 }
 
