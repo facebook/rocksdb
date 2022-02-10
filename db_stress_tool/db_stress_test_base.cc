@@ -19,6 +19,7 @@
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "test_util/testutil.h"
 #include "util/cast_util.h"
 #include "utilities/backupable/backupable_db_impl.h"
 #include "utilities/fault_injection_fs.h"
@@ -2405,9 +2406,6 @@ void StressTest::Open() {
         10 /* fairness */,
         FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
                                   : RateLimiter::Mode::kWritesOnly));
-    if (FLAGS_rate_limit_bg_reads) {
-      options_.new_table_reader_for_compaction_inputs = true;
-    }
   }
   if (FLAGS_sst_file_manager_bytes_per_sec > 0 ||
       FLAGS_sst_file_manager_bytes_per_truncate > 0) {
@@ -2854,7 +2852,7 @@ void StressTest::Reopen(ThreadState* thread) {
 
 void StressTest::CheckAndSetOptionsForUserTimestamp() {
   assert(FLAGS_user_timestamp_size > 0);
-  const Comparator* const cmp = test::ComparatorWithU64Ts();
+  const Comparator* const cmp = test::BytewiseComparatorWithU64TsWrapper();
   assert(cmp);
   if (FLAGS_user_timestamp_size != cmp->timestamp_size()) {
     fprintf(stderr,

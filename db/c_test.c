@@ -226,39 +226,6 @@ static const char* CmpName(void* arg) {
   return "foo";
 }
 
-// Custom filter policy
-static unsigned char fake_filter_result = 1;
-static void FilterDestroy(void* arg) { (void)arg; }
-static const char* FilterName(void* arg) {
-  (void)arg;
-  return "TestFilter";
-}
-static char* FilterCreate(
-    void* arg,
-    const char* const* key_array, const size_t* key_length_array,
-    int num_keys,
-    size_t* filter_length) {
-  (void)arg;
-  (void)key_array;
-  (void)key_length_array;
-  (void)num_keys;
-  *filter_length = 4;
-  char* result = malloc(4);
-  memcpy(result, "fake", 4);
-  return result;
-}
-static unsigned char FilterKeyMatch(
-    void* arg,
-    const char* key, size_t length,
-    const char* filter, size_t filter_length) {
-  (void)arg;
-  (void)key;
-  (void)length;
-  CheckCondition(filter_length == 4);
-  CheckCondition(memcmp(filter, "fake", 4) == 0);
-  return fake_filter_result;
-}
-
 // Custom compaction filter
 static void CFilterDestroy(void* arg) { (void)arg; }
 static const char* CFilterName(void* arg) {
@@ -1042,18 +1009,15 @@ int main(int argc, char** argv) {
   }
 
   StartPhase("filter");
-  for (run = 0; run <= 4; run++) {
-    // run=0 uses custom filter
+  for (run = 1; run <= 4; run++) {
+    // run=0 uses custom filter (not currently supported)
     // run=1 uses old block-based bloom filter
     // run=2 run uses full bloom filter
     // run=3 uses Ribbon
     // run=4 uses Ribbon-Bloom hybrid configuration
     CheckNoError(err);
     rocksdb_filterpolicy_t* policy;
-    if (run == 0) {
-      policy = rocksdb_filterpolicy_create(NULL, FilterDestroy, FilterCreate,
-                                           FilterKeyMatch, NULL, FilterName);
-    } else if (run == 1) {
+    if (run == 1) {
       policy = rocksdb_filterpolicy_create_bloom(8.0);
     } else if (run == 2) {
       policy = rocksdb_filterpolicy_create_bloom_full(8.0);
@@ -1088,19 +1052,8 @@ int main(int argc, char** argv) {
     }
     rocksdb_compact_range(db, NULL, 0, NULL, 0);
 
-    fake_filter_result = 1;
     CheckGet(db, roptions, "foo", "foovalue");
     CheckGet(db, roptions, "bar", "barvalue");
-    if (run == 0) {
-      // Must not find value when custom filter returns false
-      fake_filter_result = 0;
-      CheckGet(db, roptions, "foo", NULL);
-      CheckGet(db, roptions, "bar", NULL);
-      fake_filter_result = 1;
-
-      CheckGet(db, roptions, "foo", "foovalue");
-      CheckGet(db, roptions, "bar", "barvalue");
-    }
 
     {
       // Query some keys not added to identify Bloom filter implementation
@@ -1113,7 +1066,6 @@ int main(int argc, char** argv) {
       int i;
       char keybuf[100];
       for (i = 0; i < keys_to_query; i++) {
-        fake_filter_result = i % 2;
         snprintf(keybuf, sizeof(keybuf), "no%020d", i);
         CheckGet(db, roptions, keybuf, NULL);
       }

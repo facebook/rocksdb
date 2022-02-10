@@ -361,7 +361,7 @@ jobs:
     steps:
       - pre-steps
       - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-7 g++-7 libgflags-dev
-      - run: CC=gcc-7 CXX=g++-7 V=1 make -j32 check 2>&1 | .circleci/cat_ignore_eagain
+      - run: CC=gcc-7 CXX=g++-7 V=1 make -j32 check
       - post-steps
 
   build-linux-gcc-8-no_test_run:
@@ -371,7 +371,7 @@ jobs:
     steps:
       - pre-steps
       - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-8 g++-8 libgflags-dev
-      - run: CC=gcc-8 CXX=g++-8 V=1 make -j8 all 2>&1 | .circleci/cat_ignore_eagain
+      - run: CC=gcc-8 CXX=g++-8 V=1 make -j8 all
       - post-steps
 
   build-linux-gcc-10-cxx20-no_test_run:
