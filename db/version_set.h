@@ -356,16 +356,30 @@ class VersionStorageInfo {
   }
 
   // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
-  uint64_t GetTotalBlobFileSize() const {
-    uint64_t total_blob_bytes = 0;
+  struct BlobStats {
+    uint64_t total_file_size = 0;
+    uint64_t total_garbage_size = 0;
+    double space_amp = 0.0;
+  };
+
+  BlobStats GetBlobStats() const {
+    uint64_t total_file_size = 0;
+    uint64_t total_garbage_size = 0;
 
     for (const auto& meta : blob_files_) {
       assert(meta);
 
-      total_blob_bytes += meta->GetBlobFileSize();
+      total_file_size += meta->GetBlobFileSize();
+      total_garbage_size += meta->GetGarbageBlobBytes();
     }
 
-    return total_blob_bytes;
+    double space_amp = 0.0;
+    if (total_file_size > total_garbage_size) {
+      space_amp = static_cast<double>(total_file_size) /
+                  (total_file_size - total_garbage_size);
+    }
+
+    return BlobStats{total_file_size, total_garbage_size, space_amp};
   }
 
   const ROCKSDB_NAMESPACE::LevelFilesBrief& LevelFilesBrief(int level) const {
