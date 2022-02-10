@@ -289,8 +289,15 @@ class MultiOpsTxnsStressTest : public StressTest {
           low_(low),
           high_(high),
           existing_uniq_(std::move(existing_uniq)) {}
+    virtual ~KeyGenerator() = default;
     std::pair<uint32_t, uint32_t> ChooseExisting();
     void FinishInit();
+    virtual std::string ToString() const {
+      std::ostringstream oss;
+      oss << "[" << low_ << ", " << high_ << "): " << existing_.size()
+          << " elements, " << existing_uniq_.size() << " unique values";
+      return oss.str();
+    }
 
    protected:
     Random rand_;
@@ -311,6 +318,22 @@ class MultiOpsTxnsStressTest : public StressTest {
     ~KeyGeneratorForA() {
       assert(!non_existing_uniq_.empty());
       assert(!existing_uniq_.empty());
+    }
+    std::string ToString() const override {
+      std::ostringstream oss;
+      oss << "[" << low_ << ", " << high_ << "): " << existing_.size()
+          << " elements, " << existing_uniq_.size()
+          << " unique values, unused values: {";
+      for (auto it = non_existing_uniq_.cbegin();
+           it != non_existing_uniq_.end();) {
+        oss << *it;
+        ++it;
+        if (it != non_existing_uniq_.end()) {
+          oss << ", ";
+        }
+      }
+      oss << "}";
+      return oss.str();
     }
     void Replace(uint32_t old_val, uint32_t old_pos, uint32_t new_val);
     uint32_t Allocate();

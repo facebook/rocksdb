@@ -348,7 +348,7 @@ multiops_txn_params = {
     "test_multi_ops_txns": 1,
     "use_txn": 1,
     "two_write_queues": random.choice([0, 1]),
-    # Test write-prepared
+    # TODO: enable write-prepared
     "txn_write_policy": 0,
     "disable_wal": 0,
     "wp_snapshot_cache_bits": 1,

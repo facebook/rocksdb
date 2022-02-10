@@ -325,12 +325,14 @@ void MultiOpsTxnsStressTest::FinishInitDb(SharedState* shared) {
   for (auto& key_gen : key_gen_for_a_) {
     assert(key_gen);
     key_gen->FinishInit();
+    fprintf(stdout, "%s\n", key_gen->ToString().c_str());
   }
+  // TODO (yanqin) parallelize
   for (auto& key_gen : key_gen_for_c_) {
     assert(key_gen);
     key_gen->FinishInit();
+    fprintf(stdout, "%s\n", key_gen->ToString().c_str());
   }
-  fprintf(stdout, "DB init finished\n");
 }
 
 void MultiOpsTxnsStressTest::ReopenAndPreloadDbIfNeeded(SharedState* shared) {
@@ -1176,9 +1178,9 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
 
   PersistKeySpacesDesc(FLAGS_key_spaces_path, lb_a, ub_a, lb_c, ub_c);
 
-  fprintf(stdout, "lb_a=%d ub_a=%d lb_c=%d ub_c=%d\n", static_cast<int>(lb_a),
-          static_cast<int>(ub_a), static_cast<int>(lb_c),
-          static_cast<int>(ub_c));
+  fprintf(stdout, "a from [%u, %u), c from [%u, %u)\n",
+          static_cast<unsigned int>(lb_a), static_cast<unsigned int>(ub_a),
+          static_cast<unsigned int>(lb_c), static_cast<unsigned int>(ub_c));
 
   const uint32_t num_c = ub_c - lb_c;
   const uint32_t num_c_per_thread =
@@ -1271,7 +1273,6 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
 
   Status s = db_->Flush(FlushOptions());
   assert(s.ok());
-  fprintf(stdout, "DB preloaded with %d entries\n", static_cast<int>(num_a));
 #endif  // !ROCKSDB_LITE
 }
 
@@ -1288,9 +1289,9 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
 
   assert(lb_a < ub_a && lb_c < ub_c);
 
-  fprintf(stdout, "lb_a=%d ub_a=%d lb_c=%d ub_c=%d\n", static_cast<int>(lb_a),
-          static_cast<int>(ub_a), static_cast<int>(lb_c),
-          static_cast<int>(ub_c));
+  fprintf(stdout, "a from [%u, %u), c from [%u, %u)\n",
+          static_cast<unsigned int>(lb_a), static_cast<unsigned int>(ub_a),
+          static_cast<unsigned int>(lb_c), static_cast<unsigned int>(ub_c));
 
   assert(ub_a > lb_a && ub_a > lb_a + threads);
   assert(ub_c > lb_c && ub_c > lb_c + threads);
@@ -1307,7 +1308,6 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
   std::vector<std::unordered_set<uint32_t>> existing_a_uniqs(threads);
   std::vector<std::unordered_set<uint32_t>> non_existing_a_uniqs(threads);
   std::vector<std::unordered_set<uint32_t>> existing_c_uniqs(threads);
-  uint32_t count = 0;
   {
     std::string pk_lb_str = Record::EncodePrimaryKey(0);
     std::string pk_ub_str =
@@ -1318,7 +1318,7 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
     ropts.iterate_upper_bound = &pk_ub;
     std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
 
-    for (it->SeekToFirst(); it->Valid(); it->Next(), ++count) {
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
       Record record;
       Status s = record.DecodePrimaryIndexEntry(it->key(), it->value());
       assert(s.ok());
@@ -1368,9 +1368,6 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
           my_seed, low, high, std::move(existing_c_uniq));
     }
   }
-
-  fprintf(stdout, "Processed %d entries from primary index\n",
-          static_cast<int>(count));
 }
 
 StressTest* CreateMultiOpsTxnsStressTest() {
@@ -1421,6 +1418,11 @@ void CheckAndSetOptionsForMultiOpsTxnStressTest() {
             "Must specify a file to store ranges of A and C via "
             "-key_spaces_path\n");
     exit(1);
+  } else if (!FLAGS_destroy_db_initially) {
+    fprintf(stderr,
+            "Key ranges will be read from %s. Values specified via -ub_a, "
+            "-lb_a, -ub_c, -lb_c will be ignored\n",
+            FLAGS_key_spaces_path.c_str());
   }
 #else
   fprintf(stderr, "-test_multi_ops_txns not supported in ROCKSDB_LITE mode\n");
