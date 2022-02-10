@@ -63,7 +63,7 @@ constexpr int ConstexprFloorLog2(T v) {
   int rv = 0;
   while (v > T{1}) {
     ++rv;
-    v /= T{2};
+    v >>= 1;
   }
   return rv;
 }
