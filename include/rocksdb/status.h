@@ -35,7 +35,9 @@ namespace ROCKSDB_NAMESPACE {
 class Status {
  public:
   // Create a success status.
-  Status() : code_(kOk), subcode_(kNone), sev_(kNoError), state_(nullptr) {}
+  Status() : code_(kOk), subcode_(kNone), sev_(kNoError),
+             retryable_(false), data_loss_(false), scope_(0),
+             state_(nullptr) {}
   ~Status() {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
     if (!checked_) {
