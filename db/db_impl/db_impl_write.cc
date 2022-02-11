@@ -634,7 +634,8 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     if (log_context.need_log_sync) {
       InstrumentedMutexLock l(&log_write_mutex_);
       if (w.status.ok()) {
-        w.status = MarkLogsSynced(logfile_number_, log_context.need_log_dir_sync);
+        w.status =
+            MarkLogsSynced(logfile_number_, log_context.need_log_dir_sync);
       } else {
         MarkLogsNotSynced(logfile_number_);
       }

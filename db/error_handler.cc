@@ -478,16 +478,7 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
       return StartRecoverFromRetryableBGIOError(bg_io_err);
     } else {
       Status bg_err(new_bg_io_err, Status::Severity::kHardError);
-      if (recovery_in_prog_ && recovery_error_.ok()) {
-        recovery_error_ = bg_err;
-      }
-      if (bg_err.severity() > bg_error_.severity()) {
-        bg_error_ = bg_err;
-      }
-      if (bg_error_.severity() >= Status::Severity::kHardError) {
-        stop_state_.store(true, std::memory_order_release);
-      }
-      //CheckAndSetRecoveryAndBGError(bg_err);
+      CheckAndSetRecoveryAndBGError(bg_err);
       recover_context_ = context;
       return StartRecoverFromRetryableBGIOError(bg_io_err);
     }
