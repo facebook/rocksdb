@@ -1863,7 +1863,7 @@ void DBDumperCommand::DoDumpCommand() {
       bucket_size <= 0) {
     bucket_size = time_range;  // Will have just 1 bucket by default
   }
-  // cretaing variables for row count of each type
+  // creating variables for row count of each type
   std::string rtype1, rtype2, row, val;
   rtype2 = "";
   uint64_t c = 0;
