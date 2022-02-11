@@ -1818,6 +1818,8 @@ extern ROCKSDB_LIBRARY_API rocksdb_envoptions_t* rocksdb_envoptions_create(
     void);
 extern ROCKSDB_LIBRARY_API void rocksdb_envoptions_destroy(
     rocksdb_envoptions_t* opt);
+extern ROCKSDB_LIBRARY_API void rocksdb_create_dir_if_missing(
+    rocksdb_env_t* env, const char* path, char** errptr);
 
 /* SstFile */
 
