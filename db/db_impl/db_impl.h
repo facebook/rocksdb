@@ -2350,6 +2350,8 @@ class DBImpl : public DB {
   std::unique_ptr<StallInterface> wbm_stall_;
 };
 
+extern Status SanitizeOptions(const std::string& db, bool read_only,
+                              DBOptions& db_opts);
 extern Options SanitizeOptions(const std::string& db, const Options& src,
                                bool read_only = false);
 

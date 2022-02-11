@@ -241,8 +241,10 @@ struct SuperVersion {
   autovector<MemTable*> to_delete;
 };
 
-extern ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
+extern ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
                                            const ColumnFamilyOptions& src);
+extern ColumnFamilyOptions SanitizeIOptions(
+    const ImmutableDBOptions& db_options, const ColumnFamilyOptions& src);
 // Wrap user defined table properties collector factories `from cf_options`
 // into internal ones in int_tbl_prop_collector_factories. Add a system internal
 // one too.

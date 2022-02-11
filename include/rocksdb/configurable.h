@@ -244,6 +244,11 @@ class Configurable {
   // initialized.
   virtual Status PrepareOptions(const ConfigOptions& config_options);
 
+  virtual Status SanitizeOptions(const std::string& dbname, bool read_only,
+                                 DBOptions& db_opts);
+  virtual Status SanitizeOptions(const DBOptions& db_opts,
+                                 ColumnFamilyOptions& cf_opts);
+
   // Checks to see if the settings are valid for this object.
   // This method checks to see if the input DBOptions and ColumnFamilyOptions
   // are valid for the settings of this object.  For example, an Env might not

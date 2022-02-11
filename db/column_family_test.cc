@@ -279,9 +279,11 @@ class ColumnFamilyTestBase : public testing::Test {
       ASSERT_OK(handles_[cfi]->GetDescriptor(&desc));
       // Need to sanitize the default column family options before comparing
       // them.
+      auto sanitized_cf_opt = current_cf_opt;
+      ASSERT_OK(sanitized_cf_opt.Sanitize(dbfull()->GetDBOptions()));
+
       ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(
-          ConfigOptions(), desc.options,
-          SanitizeOptions(dbfull()->immutable_db_options(), current_cf_opt)));
+          ConfigOptions(), desc.options, sanitized_cf_opt));
 #endif  // !ROCKSDB_LITE
       cfi++;
     }
@@ -2254,8 +2256,8 @@ TEST_P(ColumnFamilyTest, SanitizeOptions) {
             original.write_buffer_size =
                 l * 4 * 1024 * 1024 + i * 1024 * 1024 + j * 1024 + k;
 
-            ColumnFamilyOptions result =
-                SanitizeOptions(ImmutableDBOptions(db_options), original);
+            ColumnFamilyOptions result = original;
+            ASSERT_OK(result.Sanitize(db_options));
             ASSERT_TRUE(result.level0_stop_writes_trigger >=
                         result.level0_slowdown_writes_trigger);
             ASSERT_TRUE(result.level0_slowdown_writes_trigger >=

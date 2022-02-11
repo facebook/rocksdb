@@ -1374,6 +1374,43 @@ bool OptionTypeInfo::AreEqualByName(const ConfigOptions& config_options,
   return (this_value == that_value);
 }
 
+Status OptionTypeInfo::Sanitize(const std::string& name,
+                                const std::string& dbname, bool readonly,
+                                DBOptions& db_opts, void* opt_ptr) const {
+  assert(ShouldSanitize(true));
+  if (sanitize_db_func_ != nullptr) {
+    void* opt_addr = GetOffset(opt_ptr);
+    return sanitize_db_func_(name, dbname, readonly, db_opts, opt_addr);
+  } else if (IsConfigurable()) {
+    Configurable* config = AsRawPointer<Configurable>(opt_ptr);
+    if (config != nullptr) {
+      return config->SanitizeOptions(dbname, readonly, db_opts);
+    } else if (!CanBeNull()) {
+      return Status::NotFound("Missing configurable object", name);
+    }
+  }
+  return Status::OK();
+}
+
+Status OptionTypeInfo::Sanitize(const std::string& name,
+                                const DBOptions& db_opts,
+                                ColumnFamilyOptions& cf_opts,
+                                void* opt_ptr) const {
+  assert(ShouldSanitize(false));
+  if (sanitize_cf_func_ != nullptr) {
+    void* opt_addr = GetOffset(opt_ptr);
+    return sanitize_cf_func_(name, db_opts, cf_opts, opt_addr);
+  } else if (IsConfigurable()) {
+    Configurable* config = AsRawPointer<Configurable>(opt_ptr);
+    if (config != nullptr) {
+      return config->SanitizeOptions(db_opts, cf_opts);
+    } else if (!CanBeNull()) {
+      return Status::NotFound("Missing configurable object", name);
+    }
+  }
+  return Status::OK();
+}
+
 const OptionTypeInfo* OptionTypeInfo::Find(
     const std::string& opt_name,
     const std::unordered_map<std::string, OptionTypeInfo>& opt_map,

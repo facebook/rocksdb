@@ -104,7 +104,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
       uint64_t memtable_memory_budget = 512 * 1024 * 1024);
 
   Status Validate(const DBOptions& db_opts) const;
-
+  Status Sanitize(const DBOptions& db_opts);
   // -------------------
   // Parameters that affect behavior
 
@@ -1350,6 +1350,7 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
                        int rocksdb_minor_version = 6);
 
   Status Validate() const;
+  Status Sanitize(const std::string& dbname, bool read_only);
   void Dump(Logger* log) const;
 
   void DumpCFOptions(Logger* log) const;

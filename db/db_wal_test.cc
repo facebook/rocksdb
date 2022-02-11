@@ -1249,7 +1249,8 @@ class RecoveryTestHelper {
   static void FillData(DBWALTestBase* test, const Options& options,
                        const size_t wal_count, size_t* count) {
     // Calling internal functions requires sanitized options.
-    Options sanitized_options = SanitizeOptions(test->dbname_, options);
+    DBOptions sanitized_options = options;
+    ASSERT_OK(sanitized_options.Sanitize(test->dbname_, false));
     const ImmutableDBOptions db_options(sanitized_options);
 
     *count = 0;

@@ -117,232 +117,31 @@ void GetIntTblPropCollectorFactory(
   }
 }
 
-namespace {
-const uint64_t kDefaultTtl = 0xfffffffffffffffe;
-const uint64_t kDefaultPeriodicCompSecs = 0xfffffffffffffffe;
-}  // namespace
-
-ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
+ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
                                     const ColumnFamilyOptions& src) {
   ColumnFamilyOptions result = src;
-  size_t clamp_max = std::conditional<
-      sizeof(size_t) == 4, std::integral_constant<size_t, 0xffffffff>,
-      std::integral_constant<uint64_t, 64ull << 30>>::type::value;
-  OptionTypeInfo::ClipToRange(&result.write_buffer_size,
-                              (static_cast<size_t>(64)) << 10, clamp_max);
-  // if user sets arena_block_size, we trust user to use this value. Otherwise,
-  // calculate a proper value from writer_buffer_size;
-  if (result.arena_block_size <= 0) {
-    result.arena_block_size =
-        std::min(size_t{1024 * 1024}, result.write_buffer_size / 8);
-
-    // Align up to 4k
-    const size_t align = 4 * 1024;
-    result.arena_block_size =
-        ((result.arena_block_size + align - 1) / align) * align;
-  }
-  result.min_write_buffer_number_to_merge =
-      std::min(result.min_write_buffer_number_to_merge,
-               result.max_write_buffer_number - 1);
-  if (result.min_write_buffer_number_to_merge < 1) {
-    result.min_write_buffer_number_to_merge = 1;
-  }
-
-  if (result.num_levels < 1) {
-    result.num_levels = 1;
-  }
-  if (result.compaction_style == kCompactionStyleLevel &&
-      result.num_levels < 2) {
-    result.num_levels = 2;
-  }
-
-  if (result.compaction_style == kCompactionStyleUniversal &&
-      db_options.allow_ingest_behind && result.num_levels < 3) {
-    result.num_levels = 3;
-  }
-
-  if (result.max_write_buffer_number < 2) {
-    result.max_write_buffer_number = 2;
-  }
-  // fall back max_write_buffer_number_to_maintain if
-  // max_write_buffer_size_to_maintain is not set
-  if (result.max_write_buffer_size_to_maintain < 0) {
-    result.max_write_buffer_size_to_maintain =
-        result.max_write_buffer_number *
-        static_cast<int64_t>(result.write_buffer_size);
-  } else if (result.max_write_buffer_size_to_maintain == 0 &&
-             result.max_write_buffer_number_to_maintain < 0) {
-    result.max_write_buffer_number_to_maintain = result.max_write_buffer_number;
-  }
-  // bloom filter size shouldn't exceed 1/4 of memtable size.
-  if (result.memtable_prefix_bloom_size_ratio > 0.25) {
-    result.memtable_prefix_bloom_size_ratio = 0.25;
-  } else if (result.memtable_prefix_bloom_size_ratio < 0) {
-    result.memtable_prefix_bloom_size_ratio = 0;
-  }
-
-  if (!result.prefix_extractor) {
-    assert(result.memtable_factory);
-    Slice name = result.memtable_factory->Name();
-    if (name.compare("HashSkipListRepFactory") == 0 ||
-        name.compare("HashLinkListRepFactory") == 0) {
-      result.memtable_factory = std::make_shared<SkipListFactory>();
-    }
-  }
-
-  if (result.compaction_style == kCompactionStyleFIFO) {
-    result.num_levels = 1;
-    // since we delete level0 files in FIFO compaction when there are too many
-    // of them, these options don't really mean anything
-    result.level0_slowdown_writes_trigger = std::numeric_limits<int>::max();
-    result.level0_stop_writes_trigger = std::numeric_limits<int>::max();
-  }
-
-  if (result.max_bytes_for_level_multiplier <= 0) {
-    result.max_bytes_for_level_multiplier = 1;
-  }
-
-  if (result.level0_file_num_compaction_trigger == 0) {
-    ROCKS_LOG_WARN(db_options.logger,
-                   "level0_file_num_compaction_trigger cannot be 0");
-    result.level0_file_num_compaction_trigger = 1;
-  }
-
-  if (result.level0_stop_writes_trigger <
-          result.level0_slowdown_writes_trigger ||
-      result.level0_slowdown_writes_trigger <
-          result.level0_file_num_compaction_trigger) {
-    ROCKS_LOG_WARN(db_options.logger,
-                   "This condition must be satisfied: "
-                   "level0_stop_writes_trigger(%d) >= "
-                   "level0_slowdown_writes_trigger(%d) >= "
-                   "level0_file_num_compaction_trigger(%d)",
-                   result.level0_stop_writes_trigger,
-                   result.level0_slowdown_writes_trigger,
-                   result.level0_file_num_compaction_trigger);
-    if (result.level0_slowdown_writes_trigger <
-        result.level0_file_num_compaction_trigger) {
-      result.level0_slowdown_writes_trigger =
-          result.level0_file_num_compaction_trigger;
-    }
-    if (result.level0_stop_writes_trigger <
-        result.level0_slowdown_writes_trigger) {
-      result.level0_stop_writes_trigger = result.level0_slowdown_writes_trigger;
-    }
-    ROCKS_LOG_WARN(db_options.logger,
-                   "Adjust the value to "
-                   "level0_stop_writes_trigger(%d)"
-                   "level0_slowdown_writes_trigger(%d)"
-                   "level0_file_num_compaction_trigger(%d)",
-                   result.level0_stop_writes_trigger,
-                   result.level0_slowdown_writes_trigger,
-                   result.level0_file_num_compaction_trigger);
-  }
-
-  if (result.soft_pending_compaction_bytes_limit == 0) {
-    result.soft_pending_compaction_bytes_limit =
-        result.hard_pending_compaction_bytes_limit;
-  } else if (result.hard_pending_compaction_bytes_limit > 0 &&
-             result.soft_pending_compaction_bytes_limit >
-                 result.hard_pending_compaction_bytes_limit) {
-    result.soft_pending_compaction_bytes_limit =
-        result.hard_pending_compaction_bytes_limit;
-  }
-
 #ifndef ROCKSDB_LITE
   // When the DB is stopped, it's possible that there are some .trash files that
   // were not deleted yet, when we open the DB we will find these .trash files
   // and schedule them to be deleted (or delete immediately if SstFileManager
   // was not used)
-  auto sfm = static_cast<SstFileManagerImpl*>(db_options.sst_file_manager.get());
+  auto sfm =
+      static_cast<SstFileManagerImpl*>(db_options.sst_file_manager.get());
   for (size_t i = 0; i < result.cf_paths.size(); i++) {
     DeleteScheduler::CleanupDirectory(db_options.env, sfm,
                                       result.cf_paths[i].path)
         .PermitUncheckedError();
   }
 #endif
-
-  if (result.cf_paths.empty()) {
-    result.cf_paths = db_options.db_paths;
-  }
-
-  if (result.level_compaction_dynamic_level_bytes) {
-    if (result.compaction_style != kCompactionStyleLevel) {
-      ROCKS_LOG_WARN(db_options.info_log.get(),
-                     "level_compaction_dynamic_level_bytes only makes sense"
-                     "for level-based compaction");
-      result.level_compaction_dynamic_level_bytes = false;
-    } else if (result.cf_paths.size() > 1U) {
-      // we don't yet know how to make both of this feature and multiple
-      // DB path work.
-      ROCKS_LOG_WARN(db_options.info_log.get(),
-                     "multiple cf_paths/db_paths and"
-                     "level_compaction_dynamic_level_bytes"
-                     "can't be used together");
-      result.level_compaction_dynamic_level_bytes = false;
-    }
-  }
-
-  if (result.max_compaction_bytes == 0) {
-    result.max_compaction_bytes = result.target_file_size_base * 25;
-  }
-
-  bool is_block_based_table = (result.table_factory->IsInstanceOf(
-      TableFactory::kBlockBasedTableName()));
-
-  const uint64_t kAdjustedTtl = 30 * 24 * 60 * 60;
-  if (result.ttl == kDefaultTtl) {
-    if (is_block_based_table &&
-        result.compaction_style != kCompactionStyleFIFO) {
-      result.ttl = kAdjustedTtl;
-    } else {
-      result.ttl = 0;
-    }
-  }
-
-  const uint64_t kAdjustedPeriodicCompSecs = 30 * 24 * 60 * 60;
-
-  // Turn on periodic compactions and set them to occur once every 30 days if
-  // compaction filters are used and periodic_compaction_seconds is set to the
-  // default value.
-  if (result.compaction_style != kCompactionStyleFIFO) {
-    if ((result.compaction_filter != nullptr ||
-         result.compaction_filter_factory != nullptr) &&
-        result.periodic_compaction_seconds == kDefaultPeriodicCompSecs &&
-        is_block_based_table) {
-      result.periodic_compaction_seconds = kAdjustedPeriodicCompSecs;
-    }
-  } else {
-    // result.compaction_style == kCompactionStyleFIFO
-    if (result.ttl == 0) {
-      if (is_block_based_table) {
-        if (result.periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
-          result.periodic_compaction_seconds = kAdjustedPeriodicCompSecs;
-        }
-        result.ttl = result.periodic_compaction_seconds;
-      }
-    } else if (result.periodic_compaction_seconds != 0) {
-      result.ttl = std::min(result.ttl, result.periodic_compaction_seconds);
-    }
-  }
-
-  // TTL compactions would work similar to Periodic Compactions in Universal in
-  // most of the cases. So, if ttl is set, execute the periodic compaction
-  // codepath.
-  if (result.compaction_style == kCompactionStyleUniversal && result.ttl != 0) {
-    if (result.periodic_compaction_seconds != 0) {
-      result.periodic_compaction_seconds =
-          std::min(result.ttl, result.periodic_compaction_seconds);
-    } else {
-      result.periodic_compaction_seconds = result.ttl;
-    }
-  }
-
-  if (result.periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
-    result.periodic_compaction_seconds = 0;
-  }
-
+  Status s = result.Sanitize(db_options);
+  s.PermitUncheckedError();
   return result;
+}
+
+ColumnFamilyOptions SanitizeIOptions(const ImmutableDBOptions& idb_options,
+                                     const ColumnFamilyOptions& src) {
+  DBOptions db_options(BuildDBOptions(idb_options, MutableDBOptions()));  // MJR
+  return SanitizeOptions(db_options, src);
 }
 
 int SuperVersion::dummy = 0;
@@ -441,7 +240,7 @@ ColumnFamilyData::ColumnFamilyData(
       initialized_(false),
       dropped_(false),
       internal_comparator_(cf_options.comparator),
-      initial_cf_options_(SanitizeOptions(db_options, cf_options)),
+      initial_cf_options_(SanitizeIOptions(db_options, cf_options)),
       ioptions_(db_options, initial_cf_options_),
       mutable_cf_options_(initial_cf_options_),
       is_delete_range_supported_(

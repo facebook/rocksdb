@@ -26,30 +26,18 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
-Options SanitizeOptions(const std::string& dbname, const Options& src,
-                        bool read_only) {
-  auto db_options = SanitizeOptions(dbname, DBOptions(src), read_only);
-  ImmutableDBOptions immutable_db_options(db_options);
-  auto cf_options =
-      SanitizeOptions(immutable_db_options, ColumnFamilyOptions(src));
-  return Options(db_options, cf_options);
-}
-
-DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
-                          bool read_only) {
-  DBOptions result(src);
-  Status s = result.Sanitize(dbname, read_only);
-  s.PermitUncheckedError();  //**TODO: What to do on error?
+Status SanitizeOptions(const std::string& dbname, bool read_only,
+                       DBOptions& db_opts) {
+  Status status = db_opts.Sanitize(dbname, read_only);
   auto bg_job_limits = DBImpl::GetBGJobLimits(
-      result.max_background_flushes, result.max_background_compactions,
-      result.max_background_jobs, true /* parallelize_compactions */);
-  result.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_compactions,
-                                           Env::Priority::LOW);
-  result.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_flushes,
-                                           Env::Priority::HIGH);
-
+      db_opts.max_background_flushes, db_opts.max_background_compactions,
+      db_opts.max_background_jobs, true /* parallelize_compactions */);
+  db_opts.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_compactions,
+                                            Env::Priority::LOW);
+  db_opts.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_flushes,
+                                            Env::Priority::HIGH);
 #ifndef ROCKSDB_LITE
-  ImmutableDBOptions immutable_db_options(result);
+  ImmutableDBOptions immutable_db_options(db_opts);
   if (!immutable_db_options.IsWalDirSameAsDBPath()) {
     // Either the WAL dir and db_paths[0]/db_name are not the same, or we
     // cannot tell for sure. In either case, assume they're different and
@@ -59,14 +47,14 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     // safe
     std::vector<std::string> filenames;
     auto wal_dir = immutable_db_options.GetWalDir();
-    s = result.env->GetChildren(wal_dir, &filenames);
+    Status s = db_opts.env->GetChildren(wal_dir, &filenames);
     s.PermitUncheckedError();  //**TODO: What to do on error?
     for (std::string& filename : filenames) {
       if (filename.find(".log.trash", filename.length() -
                                           std::string(".log.trash").length()) !=
           std::string::npos) {
         std::string trash_file = wal_dir + "/" + filename;
-        result.env->DeleteFile(trash_file).PermitUncheckedError();
+        db_opts.env->DeleteFile(trash_file).PermitUncheckedError();
       }
     }
   }
@@ -74,31 +62,48 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
   // were not deleted yet, when we open the DB we will find these .trash files
   // and schedule them to be deleted (or delete immediately if SstFileManager
   // was not used)
-  auto sfm = static_cast<SstFileManagerImpl*>(result.sst_file_manager.get());
-  for (size_t i = 0; i < result.db_paths.size(); i++) {
-    DeleteScheduler::CleanupDirectory(result.env, sfm, result.db_paths[i].path)
+  auto sfm = static_cast<SstFileManagerImpl*>(db_opts.sst_file_manager.get());
+  for (size_t i = 0; i < db_opts.db_paths.size(); i++) {
+    DeleteScheduler::CleanupDirectory(db_opts.env, sfm,
+                                      db_opts.db_paths[i].path)
         .PermitUncheckedError();
   }
 
   // Create a default SstFileManager for purposes of tracking compaction size
   // and facilitating recovery from out of space errors.
-  if (result.sst_file_manager.get() == nullptr) {
+  if (db_opts.sst_file_manager.get() == nullptr) {
     std::shared_ptr<SstFileManager> sst_file_manager(
-        NewSstFileManager(result.env, result.info_log));
-    result.sst_file_manager = sst_file_manager;
+        NewSstFileManager(db_opts.env, db_opts.info_log));
+    db_opts.sst_file_manager = sst_file_manager;
   }
 #endif  // !ROCKSDB_LITE
+  return status;
+}
+
+DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
+                          bool read_only) {
+  DBOptions result(src);
+  Status s = SanitizeOptions(dbname, read_only, result);
+  s.PermitUncheckedError();  //**TODO: What to do on error?
 
   return result;
+}
+
+Options SanitizeOptions(const std::string& dbname, const Options& src,
+                        bool read_only) {
+  DBOptions db_opts(src);
+  Status s = SanitizeOptions(dbname, read_only, db_opts);
+  s.PermitUncheckedError();
+  auto cf_opts = SanitizeOptions(db_opts, src);
+  return Options(db_opts, cf_opts);
 }
 
 namespace {
 Status ValidateOptionsByTable(
     const DBOptions& db_opts,
     const std::vector<ColumnFamilyDescriptor>& column_families) {
-  Status s;
   for (auto cf : column_families) {
-    s = ValidateOptions(db_opts, cf.options);
+    Status s = ValidateOptions(db_opts, cf.options);
     if (!s.ok()) {
       return s;
     }

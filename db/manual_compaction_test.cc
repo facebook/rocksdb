@@ -7,6 +7,7 @@
 #include <cstdlib>
 
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
 #include "rocksdb/slice.h"
@@ -129,6 +130,7 @@ TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
     delete itr;
 
     delete options.compaction_filter;
+    options.compaction_filter = nullptr;
     delete db;
     DestroyDB(dbname_, options);
   }
@@ -298,12 +300,14 @@ TEST_F(ManualCompactionTest, SkipLevel) {
 
   delete filter;
   delete db;
+  options.compaction_filter = nullptr;
   DestroyDB(dbname_, options);
 }
 
 }  // anonymous namespace
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

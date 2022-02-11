@@ -101,12 +101,10 @@ class Repairer {
         db_options_(SanitizeOptions(dbname_, db_options)),
         immutable_db_options_(ImmutableDBOptions(db_options_)),
         icmp_(default_cf_opts.comparator),
-        default_cf_opts_(
-            SanitizeOptions(immutable_db_options_, default_cf_opts)),
+        default_cf_opts_(SanitizeOptions(db_options_, default_cf_opts)),
         default_iopts_(
             ImmutableOptions(immutable_db_options_, default_cf_opts_)),
-        unknown_cf_opts_(
-            SanitizeOptions(immutable_db_options_, unknown_cf_opts)),
+        unknown_cf_opts_(SanitizeOptions(db_options_, unknown_cf_opts)),
         create_unknown_cfs_(create_unknown_cfs),
         raw_table_cache_(
             // TableCache can be small since we expect each table to be opened
