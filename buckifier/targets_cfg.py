@@ -94,6 +94,7 @@ ROCKSDB_OS_PREPROCESSOR_FLAGS_0 = [
 
 ROCKSDB_PREPROCESSOR_FLAGS = [
     "-DROCKSDB_SUPPORT_THREAD_LOCAL",
+    "-DUSE_FOLLY",
 
     # Flags to enable libs we include
     "-DSNAPPY",
@@ -156,6 +157,7 @@ cpp_library(
     {headers_attr_prefix}headers = {headers},
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    deps = [ "//folly/container:f14_hash" ],
     include_paths = ROCKSDB_INCLUDE_PATHS,
     link_whole = {link_whole},
     os_deps = ROCKSDB_OS_DEPS,
@@ -173,6 +175,7 @@ cpp_library(
     {headers_attr_prefix}headers = {headers},
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    deps = [ "//folly/container:f14_hash" ],
     include_paths = ROCKSDB_INCLUDE_PATHS,
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
@@ -188,6 +191,7 @@ cpp_binary(
     srcs = [{srcs}],
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    deps = [ "//folly/container:f14_hash" ],
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
     include_paths = ROCKSDB_INCLUDE_PATHS,
     deps = [{deps}],
@@ -218,6 +222,7 @@ ROCKS_TESTS = [
         srcs = [test_cc],
         arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
         compiler_flags = ROCKSDB_COMPILER_FLAGS + extra_compiler_flags,
+        deps = [ "//folly/container:f14_hash" ],
         include_paths = ROCKSDB_INCLUDE_PATHS,
         os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
         preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
