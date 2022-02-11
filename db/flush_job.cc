@@ -312,8 +312,11 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
 
   const auto& blob_files = vstorage->GetBlobFiles();
   if (!blob_files.empty()) {
-    stream << "blob_file_head" << blob_files.begin()->first;
-    stream << "blob_file_tail" << blob_files.rbegin()->first;
+    assert(blob_files.front());
+    stream << "blob_file_head" << blob_files.front()->GetBlobFileNumber();
+
+    assert(blob_files.back());
+    stream << "blob_file_tail" << blob_files.back()->GetBlobFileNumber();
   }
 
   stream << "immutable_memtables" << cfd_->imm()->NumNotFlushed();

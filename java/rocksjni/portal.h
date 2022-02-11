@@ -30,7 +30,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
@@ -3409,13 +3409,13 @@ class HistogramDataJni : public JavaClass {
   }
 };
 
-// The portal class for org.rocksdb.BackupableDBOptions
-class BackupableDBOptionsJni
-    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::BackupableDBOptions*,
-                                BackupableDBOptionsJni> {
+// The portal class for org.rocksdb.BackupEngineOptions
+class BackupEngineOptionsJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::BackupEngineOptions*,
+                                BackupEngineOptionsJni> {
  public:
   /**
-   * Get the Java Class org.rocksdb.BackupableDBOptions
+   * Get the Java Class org.rocksdb.BackupEngineOptions
    *
    * @param env A pointer to the Java environment
    *
@@ -3425,7 +3425,7 @@ class BackupableDBOptionsJni
    */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/BackupableDBOptions");
+                                         "org/rocksdb/BackupEngineOptions");
   }
 };
 

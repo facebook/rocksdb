@@ -47,10 +47,16 @@ void FillWithSpecialChar(char* start_ptr, size_t total_size,
                          const OffsetGap& excluded,
                          char special_char = kSpecialChar) {
   size_t offset = 0;
+  // The excluded vector contains pairs of bytes, (first, second).
+  // The first bytes are all set to the special char (represented as 'c' below).
+  // The second bytes are simply skipped (padding bytes).
+  // ccccc[skipped]cccccccc[skiped]cccccccc[skipped]
   for (auto& pair : excluded) {
     std::memset(start_ptr + offset, special_char, pair.first - offset);
     offset = pair.first + pair.second;
   }
+  // The rest of the structure is filled with the special characters.
+  // ccccc[skipped]cccccccc[skiped]cccccccc[skipped]cccccccccccccccc
   std::memset(start_ptr + offset, special_char, total_size - offset);
 }
 
@@ -59,6 +65,10 @@ int NumUnsetBytes(char* start_ptr, size_t total_size,
   int total_unset_bytes_base = 0;
   size_t offset = 0;
   for (auto& pair : excluded) {
+    // The first part of the structure contains memory spaces that can be
+    // set (pair.first), and memory spaces that cannot be set (pair.second).
+    // Therefore total_unset_bytes_base only agregates bytes set to kSpecialChar
+    // in the pair.first bytes, but skips the pair.second bytes (padding bytes).
     for (char* ptr = start_ptr + offset; ptr < start_ptr + pair.first; ptr++) {
       if (*ptr == kSpecialChar) {
         total_unset_bytes_base++;
@@ -66,6 +76,8 @@ int NumUnsetBytes(char* start_ptr, size_t total_size,
     }
     offset = pair.first + pair.second;
   }
+  // Then total_unset_bytes_base aggregates the bytes
+  // set to kSpecialChar in the rest of the structure
   for (char* ptr = start_ptr + offset; ptr < start_ptr + total_size; ptr++) {
     if (*ptr == kSpecialChar) {
       total_unset_bytes_base++;
@@ -174,7 +186,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "partition_filters=false;"
       "optimize_filters_for_memory=true;"
       "index_block_restart_interval=4;"
-      "filter_policy=bloomfilter:4:true;whole_key_filtering=1;"
+      "filter_policy=bloomfilter:4:true;whole_key_filtering=1;detect_filter_"
+      "construct_corruption=false;"
       "reserve_table_builder_memory=false;"
       "format_version=1;"
       "hash_index_allow_collision=false;"
@@ -274,19 +287,16 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "max_open_files=72;"
                              "max_file_opening_threads=35;"
                              "max_background_jobs=8;"
-                             "base_background_compactions=3;"
                              "max_background_compactions=33;"
                              "use_fsync=true;"
                              "use_adaptive_mutex=false;"
                              "max_total_wal_size=4295005604;"
                              "compaction_readahead_size=0;"
-                             "new_table_reader_for_compaction_inputs=false;"
                              "keep_log_file_num=4890;"
                              "skip_stats_update_on_db_open=false;"
                              "skip_checking_sst_file_sizes_on_db_open=false;"
                              "max_manifest_file_size=4295009941;"
                              "db_log_dir=path/to/db_log_dir;"
-                             "skip_log_error_on_recovery=true;"
                              "writable_file_max_buffer_size=1048576;"
                              "paranoid_checks=true;"
                              "flush_verify_memtable_count=true;"
@@ -330,7 +340,6 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "avoid_flush_during_recovery=false;"
                              "avoid_flush_during_shutdown=false;"
                              "allow_ingest_behind=false;"
-                             "preserve_deletes=false;"
                              "concurrent_prepare=false;"
                              "two_write_queues=false;"
                              "manual_wal_flush=false;"
@@ -424,10 +433,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // which did in fact modify padding bytes.
   ColumnFamilyOptions* options = new (options_ptr) ColumnFamilyOptions();
 
-  // Deprecatd option which is not initialized. Need to set it to avoid
-  // Valgrind error
-  options->max_mem_compaction_level = 0;
-
   int unset_bytes_base = NumUnsetBytes(options_ptr, sizeof(ColumnFamilyOptions),
                                        kColumnFamilyOptionsExcluded);
   ASSERT_GT(unset_bytes_base, 0);
@@ -439,12 +444,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
 
   // Following options are not settable through
   // GetColumnFamilyOptionsFromString():
-  options->rate_limit_delay_max_milliseconds = 33;
   options->compaction_options_universal = CompactionOptionsUniversal();
-  options->hard_rate_limit = 0;
-  options->soft_rate_limit = 0;
   options->num_levels = 42;  // Initialize options for MutableCF
-  options->max_mem_compaction_level = 0;
   options->compaction_filter = nullptr;
   options->sst_partitioner_factory = nullptr;
 
@@ -487,7 +488,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "level0_slowdown_writes_trigger=22;"
       "level0_file_num_compaction_trigger=14;"
       "compaction_filter=urxcqstuwnCompactionFilter;"
-      "soft_rate_limit=530.615385;"
       "soft_pending_compaction_bytes_limit=0;"
       "max_write_buffer_number_to_maintain=84;"
       "max_write_buffer_size_to_maintain=2147483648;"

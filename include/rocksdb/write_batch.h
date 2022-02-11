@@ -68,7 +68,7 @@ class WriteBatch : public WriteBatchBase {
   // protection information for each key entry. Currently supported values are
   // zero (disabled) and eight.
   explicit WriteBatch(size_t reserved_bytes, size_t max_bytes,
-                      size_t protection_bytes_per_key);
+                      size_t protection_bytes_per_key, size_t default_cf_ts_sz);
   ~WriteBatch() override;
 
   using WriteBatchBase::Put;
@@ -82,6 +82,8 @@ class WriteBatch : public WriteBatchBase {
   Status Put(const Slice& key, const Slice& value) override {
     return Put(nullptr, key, value);
   }
+  Status Put(ColumnFamilyHandle* column_family, const Slice& key,
+             const Slice& ts, const Slice& value) override;
 
   // Variant of Put() that gathers output like writev(2).  The key and value
   // that will be written to the database are concatenations of arrays of
@@ -104,6 +106,8 @@ class WriteBatch : public WriteBatchBase {
   // up the memory buffer pointed to by `key`.
   Status Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
   Status Delete(const Slice& key) override { return Delete(nullptr, key); }
+  Status Delete(ColumnFamilyHandle* column_family, const Slice& key,
+                const Slice& ts) override;
 
   // variant that takes SliceParts
   // These two variants of Delete(..., const SliceParts& key) can be used when
@@ -121,6 +125,8 @@ class WriteBatch : public WriteBatchBase {
   Status SingleDelete(const Slice& key) override {
     return SingleDelete(nullptr, key);
   }
+  Status SingleDelete(ColumnFamilyHandle* column_family, const Slice& key,
+                      const Slice& ts) override;
 
   // variant that takes SliceParts
   Status SingleDelete(ColumnFamilyHandle* column_family,
@@ -135,6 +141,12 @@ class WriteBatch : public WriteBatchBase {
                      const Slice& end_key) override;
   Status DeleteRange(const Slice& begin_key, const Slice& end_key) override {
     return DeleteRange(nullptr, begin_key, end_key);
+  }
+  Status DeleteRange(ColumnFamilyHandle* /*column_family*/,
+                     const Slice& /*begin_key*/, const Slice& /*end_key*/,
+                     const Slice& /*ts*/) override {
+    return Status::NotSupported(
+        "DeleteRange does not support user-defined timestamp");
   }
 
   // variant that takes SliceParts
@@ -153,6 +165,11 @@ class WriteBatch : public WriteBatchBase {
                const Slice& value) override;
   Status Merge(const Slice& key, const Slice& value) override {
     return Merge(nullptr, key, value);
+  }
+  Status Merge(ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
+               const Slice& /*ts*/, const Slice& /*value*/) override {
+    return Status::NotSupported(
+        "Merge does not support user-defined timestamp");
   }
 
   // variant that takes SliceParts
@@ -343,55 +360,25 @@ class WriteBatch : public WriteBatchBase {
   bool HasRollback() const;
 
   // Experimental.
-  // Assign timestamp to write batch.
+  //
+  // Update timestamps of existing entries in the write batch if
+  // applicable. If a key is intended for a column family that disables
+  // timestamp, then this API won't set the timestamp for this key.
   // This requires that all keys, if enable timestamp, (possibly from multiple
   // column families) in the write batch have timestamps of the same format.
   //
-  // checker: callable object to check the timestamp sizes of column families.
+  // ts_sz_func: callable object to obtain the timestamp sizes of column
+  // families. If ts_sz_func() accesses data structures, then the caller of this
+  // API must guarantee thread-safety. Like other parts of RocksDB, this API is
+  // not exception-safe. Therefore, ts_sz_func() must not throw.
   //
   // in: cf, the column family id.
-  // in/out: ts_sz. Input as the expected timestamp size of the column
-  //         family, output as the actual timestamp size of the column family.
-  // ret: OK if assignment succeeds.
-  // Status checker(uint32_t cf, size_t& ts_sz);
-  //
-  // User can call checker(uint32_t cf, size_t& ts_sz) which does the
-  // following:
-  // 1. find out the timestamp size of the column family whose id equals `cf`.
-  // 2. if cf's timestamp size is 0, then set ts_sz to 0 and return OK.
-  // 3. otherwise, compare ts_sz with cf's timestamp size and return
-  //    Status::InvalidArgument() if different.
-  Status AssignTimestamp(
-      const Slice& ts,
-      std::function<Status(uint32_t, size_t&)> checker =
-          [](uint32_t /*cf*/, size_t& /*ts_sz*/) { return Status::OK(); });
-
-  // Experimental.
-  // Assign timestamps to write batch.
-  // This API allows the write batch to include keys from multiple column
-  // families whose timestamps' formats can differ. For example, some column
-  // families can enable timestamp, while others disable the feature.
-  // If key does not have timestamp, then put an empty Slice in ts_list as
-  // a placeholder.
-  //
-  // checker: callable object specified by caller to check the timestamp sizes
-  // of column families.
-  //
-  // in: cf, the column family id.
-  // in/out: ts_sz. Input as the expected timestamp size of the column
-  //         family, output as the actual timestamp size of the column family.
-  // ret: OK if assignment succeeds.
-  // Status checker(uint32_t cf, size_t& ts_sz);
-  //
-  // User can call checker(uint32_t cf, size_t& ts_sz) which does the
-  // following:
-  // 1. find out the timestamp size of the column family whose id equals `cf`.
-  // 2. compare ts_sz with cf's timestamp size and return
-  //    Status::InvalidArgument() if different.
-  Status AssignTimestamps(
-      const std::vector<Slice>& ts_list,
-      std::function<Status(uint32_t, size_t&)> checker =
-          [](uint32_t /*cf*/, size_t& /*ts_sz*/) { return Status::OK(); });
+  // ret: timestamp size of the given column family. Return
+  //      std::numeric_limits<size_t>::max() indicating "dont know or column
+  //      family info not found", this will cause UpdateTimestamps() to fail.
+  // size_t ts_sz_func(uint32_t cf);
+  Status UpdateTimestamps(const Slice& ts,
+                          std::function<size_t(uint32_t /*cf*/)> ts_sz_func);
 
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }
@@ -445,6 +432,17 @@ class WriteBatch : public WriteBatchBase {
   bool is_latest_persistent_state_ = false;
 
   std::unique_ptr<ProtectionInfo> prot_info_;
+
+  size_t default_cf_ts_sz_ = 0;
+
+  // False if all keys are from column families that disable user-defined
+  // timestamp OR UpdateTimestamps() has been called at least once.
+  // This flag will be set to true if any of the above Put(), Delete(),
+  // SingleDelete(), etc. APIs are called at least once.
+  // Calling Put(ts), Delete(ts), SingleDelete(ts), etc. will not set this flag
+  // to true because the assumption is that these APIs have already set the
+  // timestamps to desired values.
+  bool needs_in_place_update_ts_ = false;
 
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_

@@ -11,6 +11,8 @@ rocksdb_target_header_template = \
 # This file is a Facebook-specific integration for buck builds, so can
 # only be validated by Facebook employees.
 #
+# @noautodeps @nocodemods
+
 load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
 load("@fbcode_macros//build_defs:cpp_library.bzl", "cpp_library")
 load(":defs.bzl", "test_binary")
