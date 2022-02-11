@@ -6339,6 +6339,82 @@ TEST_P(TransactionTest, CommitWithoutPrepare) {
   }
 }
 
+TEST_P(TransactionTest, OpenAndEnableU64Timestamp) {
+  ASSERT_OK(ReOpenNoDelete());
+
+  assert(db);
+
+  const std::string test_cf_name = "test_cf";
+  ColumnFamilyOptions cf_opts;
+  cf_opts.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  {
+    ColumnFamilyHandle* cfh = nullptr;
+    ASSERT_TRUE(
+        db->CreateColumnFamily(cf_opts, test_cf_name, &cfh).IsNotSupported());
+  }
+
+  // Bypass transaction db layer.
+  {
+    DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+    assert(db_impl);
+    ColumnFamilyHandle* cfh = nullptr;
+    ASSERT_OK(db_impl->CreateColumnFamily(cf_opts, test_cf_name, &cfh));
+    delete cfh;
+  }
+
+  {
+    std::vector<ColumnFamilyDescriptor> cf_descs;
+    cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+    cf_descs.emplace_back(test_cf_name, cf_opts);
+    std::vector<ColumnFamilyHandle*> handles;
+    ASSERT_TRUE(ReOpenNoDelete(cf_descs, &handles).IsNotSupported());
+  }
+}
+
+TEST_P(TransactionTest, OpenAndEnableU32Timestamp) {
+  class DummyComparatorWithU32Ts : public Comparator {
+   public:
+    DummyComparatorWithU32Ts() : Comparator(sizeof(uint32_t)) {}
+    const char* Name() const override { return "DummyComparatorWithU32Ts"; }
+    void FindShortSuccessor(std::string*) const override {}
+    void FindShortestSeparator(std::string*, const Slice&) const override {}
+    int Compare(const Slice&, const Slice&) const override { return 0; }
+  };
+
+  std::unique_ptr<Comparator> dummy_ucmp(new DummyComparatorWithU32Ts());
+
+  ASSERT_OK(ReOpenNoDelete());
+
+  assert(db);
+
+  const std::string test_cf_name = "test_cf";
+
+  ColumnFamilyOptions cf_opts;
+  cf_opts.comparator = dummy_ucmp.get();
+  {
+    ColumnFamilyHandle* cfh = nullptr;
+    ASSERT_TRUE(db->CreateColumnFamily(cf_opts, test_cf_name, &cfh)
+                    .IsInvalidArgument());
+  }
+
+  // Bypass transaction db layer.
+  {
+    ColumnFamilyHandle* cfh = nullptr;
+    DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+    assert(db_impl);
+    ASSERT_OK(db_impl->CreateColumnFamily(cf_opts, test_cf_name, &cfh));
+    delete cfh;
+  }
+
+  {
+    std::vector<ColumnFamilyDescriptor> cf_descs;
+    cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+    cf_descs.emplace_back(test_cf_name, cf_opts);
+    std::vector<ColumnFamilyHandle*> handles;
+    ASSERT_TRUE(ReOpenNoDelete(cf_descs, &handles).IsInvalidArgument());
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

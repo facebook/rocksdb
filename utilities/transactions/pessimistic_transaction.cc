@@ -133,7 +133,25 @@ bool PessimisticTransaction::IsExpired() const {
 WriteCommittedTxn::WriteCommittedTxn(TransactionDB* txn_db,
                                      const WriteOptions& write_options,
                                      const TransactionOptions& txn_options)
-    : PessimisticTransaction(txn_db, write_options, txn_options){};
+    : PessimisticTransaction(txn_db, write_options, txn_options) {}
+
+Status WriteCommittedTxn::SetReadTimestampForValidation(TxnTimestamp ts) {
+  if (read_timestamp_ < kMaxTxnTimestamp && ts < read_timestamp_) {
+    return Status::InvalidArgument(
+        "Cannot decrease read timestamp for validation");
+  }
+  read_timestamp_ = ts;
+  return Status::OK();
+}
+
+Status WriteCommittedTxn::SetCommitTimestamp(TxnTimestamp ts) {
+  if (read_timestamp_ < kMaxTxnTimestamp && ts <= read_timestamp_) {
+    return Status::InvalidArgument(
+        "Cannot commit at timestamp smaller than or equal to read timestamp");
+  }
+  commit_timestamp_ = ts;
+  return Status::OK();
+}
 
 Status PessimisticTransaction::CommitBatch(WriteBatch* batch) {
   std::unique_ptr<LockTracker> keys_to_unlock(lock_tracker_factory_.Create());
@@ -711,9 +729,19 @@ Status PessimisticTransaction::ValidateSnapshot(
   ColumnFamilyHandle* cfh =
       column_family ? column_family : db_impl_->DefaultColumnFamily();
 
-  // TODO (yanqin): support conflict checking based on timestamp.
+  assert(cfh);
+  const Comparator* const ucmp = cfh->GetComparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+  std::string ts_buf;
+  if (ts_sz > 0 && read_timestamp_ < kMaxTxnTimestamp) {
+    assert(ts_sz == sizeof(read_timestamp_));
+    PutFixed64(&ts_buf, read_timestamp_);
+  }
+
   return TransactionUtil::CheckKeyForConflicts(
-      db_impl_, cfh, key.ToString(), snap_seq, nullptr, false /* cache_only */);
+      db_impl_, cfh, key.ToString(), snap_seq, ts_sz == 0 ? nullptr : &ts_buf,
+      false /* cache_only */);
 }
 
 bool PessimisticTransaction::TryStealingLocks() {
