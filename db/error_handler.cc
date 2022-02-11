@@ -412,15 +412,7 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
     // it can directly overwrite any existing bg_error_.
     bool auto_recovery = false;
     Status bg_err(new_bg_io_err, Status::Severity::kUnrecoverableError);
-    bg_error_ = bg_err;
-    if (bg_error_.severity() >= Status::Severity::kHardError) {
-      stop_state_.store(true, std::memory_order_release);
-    }
-
-    if (recovery_in_prog_ && recovery_error_.ok()) {
-      recovery_error_ = bg_err;
-    }
-    //CheckAndSetRecoveryAndBGError(bg_err);
+    CheckAndSetRecoveryAndBGError(bg_err);
     if (bg_error_stats_ != nullptr) {
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT);
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
@@ -805,6 +797,9 @@ void ErrorHandler::CheckAndSetRecoveryAndBGError(const Status& bg_err) {
   }
   if (bg_err.severity() > bg_error_.severity()) {
     bg_error_ = bg_err;
+  }
+  if (bg_error_.severity() >= Status::Severity::kHardError) {
+    stop_state_.store(true, std::memory_order_release);
   }
   return;
 }

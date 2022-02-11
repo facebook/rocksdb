@@ -275,8 +275,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   bool in_parallel_group = false;
   uint64_t last_sequence = kMaxSequenceNumber;
 
-  // The writer will only be used when two_write_queues_ is false.
-  if (!two_write_queues_ || !disable_memtable) {
+  assert(!two_write_queues_ || !disable_memtable);
+  {
     // With concurrent writes we do preprocess only in the write thread that
     // also does write to memtable to avoid sync issue on shared data structure
     // with the other thread
@@ -293,7 +293,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
     PERF_TIMER_START(write_pre_and_post_process_time);
   }
-
 
   // Add to log and apply to memtable.  We can release the lock
   // during this phase since &w is currently responsible for logging
