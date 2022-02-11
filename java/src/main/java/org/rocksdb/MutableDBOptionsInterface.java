@@ -23,34 +23,6 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
 
   /**
    * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
-   * value of max_background_jobs. This option is ignored.
-   *
-   * Suggested number of concurrent background compaction jobs, submitted to
-   * the default LOW priority thread pool.
-   * Default: -1
-   *
-   * @param baseBackgroundCompactions Suggested number of background compaction
-   *     jobs
-   *
-   * @deprecated Use {@link #setMaxBackgroundJobs(int)}
-   */
-  @Deprecated
-  void setBaseBackgroundCompactions(int baseBackgroundCompactions);
-
-  /**
-   * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
-   * value of max_background_jobs. This option is ignored.
-   *
-   * Suggested number of concurrent background compaction jobs, submitted to
-   * the default LOW priority thread pool.
-   * Default: -1
-   *
-   * @return Suggested number of background compaction jobs
-   */
-  int baseBackgroundCompactions();
-
-  /**
-   * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
    * value of max_background_jobs. For backwards compatibility we will set
    * `max_background_jobs = max_background_compactions + max_background_flushes`
    * in the case where user sets at least one of `max_background_compactions` or
@@ -445,8 +417,6 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    * running RocksDB on spinning disks, you should set this to at least 2MB.
    *
    * That way RocksDB's compaction is doing sequential instead of random reads.
-   * When non-zero, we also force
-   * {@link DBOptionsInterface#newTableReaderForCompactionInputs()} to true.
    *
    * Default: 0
    *
@@ -461,8 +431,6 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    * running RocksDB on spinning disks, you should set this to at least 2MB.
    *
    * That way RocksDB's compaction is doing sequential instead of random reads.
-   * When non-zero, we also force
-   * {@link DBOptionsInterface#newTableReaderForCompactionInputs()} to true.
    *
    * Default: 0
    *

@@ -368,7 +368,7 @@ class TestPlainTableFactory : public PlainTableFactory {
         table_reader_options.internal_comparator, encoding_type, file_size,
         bloom_bits_per_key_, hash_table_ratio_, index_sparseness_,
         std::move(props), std::move(file), table_reader_options.ioptions,
-        table_reader_options.prefix_extractor, expect_bloom_not_match_,
+        table_reader_options.prefix_extractor.get(), expect_bloom_not_match_,
         store_index_in_file_, column_family_id_, column_family_name_));
 
     *table = std::move(new_reader);

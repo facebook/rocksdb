@@ -33,13 +33,13 @@ namespace {
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinEnvs(ObjectLibrary& library,
                                const std::string& /*arg*/) {
-  library.Register<Env>(MockEnv::kClassName(), [](const std::string& /*uri*/,
-                                                  std::unique_ptr<Env>* guard,
-                                                  std::string* /* errmsg */) {
+  library.AddFactory<Env>(MockEnv::kClassName(), [](const std::string& /*uri*/,
+                                                    std::unique_ptr<Env>* guard,
+                                                    std::string* /* errmsg */) {
     guard->reset(MockEnv::Create(Env::Default()));
     return guard->get();
   });
-  library.Register<Env>(
+  library.AddFactory<Env>(
       CompositeEnvWrapper::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
          std::string* /* errmsg */) {
@@ -687,12 +687,8 @@ Status Env::CreateFromString(const ConfigOptions& config_options,
   } else {
     RegisterSystemEnvs();
 #ifndef ROCKSDB_LITE
-    std::string errmsg;
-    env = config_options.registry->NewObject<Env>(id, &uniq, &errmsg);
-    if (!env) {
-      status = Status::NotSupported(
-          std::string("Cannot load environment[") + id + "]: ", errmsg);
-    }
+    // First, try to load the Env as a unique object.
+    status = config_options.registry->NewObject<Env>(id, &env, &uniq);
 #else
     status =
         Status::NotSupported("Cannot load environment in LITE mode", value);
@@ -1294,7 +1290,7 @@ std::string SystemClockWrapper::SerializeOptions(
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinSystemClocks(ObjectLibrary& library,
                                        const std::string& /*arg*/) {
-  library.Register<SystemClock>(
+  library.AddFactory<SystemClock>(
       EmulatedSystemClock::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<SystemClock>* guard,
          std::string* /* errmsg */) {

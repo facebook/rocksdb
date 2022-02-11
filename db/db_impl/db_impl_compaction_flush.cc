@@ -265,11 +265,14 @@ Status DBImpl::FlushMemTableToOutputFile(
 
     const auto& blob_files = storage_info->GetBlobFiles();
     if (!blob_files.empty()) {
-      ROCKS_LOG_BUFFER(log_buffer,
-                       "[%s] Blob file summary: head=%" PRIu64 ", tail=%" PRIu64
-                       "\n",
-                       column_family_name.c_str(), blob_files.begin()->first,
-                       blob_files.rbegin()->first);
+      assert(blob_files.front());
+      assert(blob_files.back());
+
+      ROCKS_LOG_BUFFER(
+          log_buffer,
+          "[%s] Blob file summary: head=%" PRIu64 ", tail=%" PRIu64 "\n",
+          column_family_name.c_str(), blob_files.front()->GetBlobFileNumber(),
+          blob_files.back()->GetBlobFileNumber());
     }
   }
 
@@ -706,11 +709,14 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
       const auto& blob_files = storage_info->GetBlobFiles();
       if (!blob_files.empty()) {
-        ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s] Blob file summary: head=%" PRIu64
-                         ", tail=%" PRIu64 "\n",
-                         column_family_name.c_str(), blob_files.begin()->first,
-                         blob_files.rbegin()->first);
+        assert(blob_files.front());
+        assert(blob_files.back());
+
+        ROCKS_LOG_BUFFER(
+            log_buffer,
+            "[%s] Blob file summary: head=%" PRIu64 ", tail=%" PRIu64 "\n",
+            column_family_name.c_str(), blob_files.front()->GetBlobFileNumber(),
+            blob_files.back()->GetBlobFileNumber());
       }
     }
     if (made_progress) {
@@ -862,6 +868,8 @@ void DBImpl::NotifyOnFlushCompleted(
       for (auto listener : immutable_db_options_.listeners) {
         listener->OnFlushCompleted(this, *info);
       }
+      TEST_SYNC_POINT(
+          "DBImpl::NotifyOnFlushCompleted::PostAllOnFlushCompleted");
     }
     flush_jobs_info->clear();
   }
@@ -2264,21 +2272,27 @@ Status DBImpl::WaitForFlushMemTables(
   int num = static_cast<int>(cfds.size());
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
+  Status s;
   // If the caller is trying to resume from bg error, then
   // error_handler_.IsDBStopped() is true.
   while (resuming_from_bg_err || !error_handler_.IsDBStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
-      return Status::ShutdownInProgress();
+      s = Status::ShutdownInProgress();
+      return s;
     }
     // If an error has occurred during resumption, then no need to wait.
+    // But flush operation may fail because of this error, so need to
+    // return the status.
     if (!error_handler_.GetRecoveryError().ok()) {
+      s = error_handler_.GetRecoveryError();
       break;
     }
     // If BGWorkStopped, which indicate that there is a BG error and
     // 1) soft error but requires no BG work, 2) no in auto_recovery_
     if (!resuming_from_bg_err && error_handler_.IsBGWorkStopped() &&
         error_handler_.GetBGError().severity() < Status::Severity::kHardError) {
-      return error_handler_.GetBGError();
+      s = error_handler_.GetBGError();
+      return s;
     }
 
     // Number of column families that have been dropped.
@@ -2296,7 +2310,8 @@ Status DBImpl::WaitForFlushMemTables(
       }
     }
     if (1 == num_dropped && 1 == num) {
-      return Status::ColumnFamilyDropped();
+      s = Status::ColumnFamilyDropped();
+      return s;
     }
     // Column families involved in this flush request have either been dropped
     // or finished flush. Then it's time to finish waiting.
@@ -2305,7 +2320,6 @@ Status DBImpl::WaitForFlushMemTables(
     }
     bg_cv_.Wait();
   }
-  Status s;
   // If not resuming from bg error, and an error has caused the DB to stop,
   // then report the bg error to caller.
   if (!resuming_from_bg_err && error_handler_.IsDBStopped()) {
@@ -3715,4 +3729,22 @@ void DBImpl::GetSnapshotContext(
   }
   *snapshot_seqs = snapshots_.GetAll(earliest_write_conflict_snapshot);
 }
+
+Status DBImpl::WaitForCompact(bool wait_unscheduled) {
+  // Wait until the compaction completes
+
+  // TODO: a bug here. This function actually does not necessarily
+  // wait for compact. It actually waits for scheduled compaction
+  // OR flush to finish.
+
+  InstrumentedMutexLock l(&mutex_);
+  while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
+          bg_flush_scheduled_ ||
+          (wait_unscheduled && unscheduled_compactions_)) &&
+         (error_handler_.GetBGError().ok())) {
+    bg_cv_.Wait();
+  }
+  return error_handler_.GetBGError();
+}
+
 }  // namespace ROCKSDB_NAMESPACE

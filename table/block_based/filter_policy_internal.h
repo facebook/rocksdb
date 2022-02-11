@@ -38,19 +38,27 @@ class BuiltinFilterBitsBuilder : public FilterBitsBuilder {
   virtual double EstimatedFpRate(size_t num_entries, size_t bytes) = 0;
 };
 
-// Abstract base class for RocksDB built-in filter policies.
+// Base class for RocksDB built-in filter reader with
+// extra useful functionalities for inernal.
+class BuiltinFilterBitsReader : public FilterBitsReader {
+ public:
+  // Check if the hash of the entry match the bits in filter
+  virtual bool HashMayMatch(const uint64_t /* h */) { return true; }
+};
+
+// Base class for RocksDB built-in filter policies. This can read all
+// kinds of built-in filters (for backward compatibility with old
+// OPTIONS files) but does not build filters, so new SST files generated
+// under the policy will get no filters (like nullptr FilterPolicy).
 // This class is considered internal API and subject to change.
 class BuiltinFilterPolicy : public FilterPolicy {
  public:
+  static BuiltinFilterBitsReader* GetBuiltinFilterBitsReader(
+      const Slice& contents);
+
   // Shared name because any built-in policy can read filters from
   // any other
   const char* Name() const override;
-
-  // Deprecated block-based filter only
-  bool KeyMayMatch(const Slice& key, const Slice& bloom_filter) const override;
-
-  // Old API
-  FilterBitsBuilder* GetFilterBitsBuilder() const override;
 
   // Read metadata to determine what kind of FilterBitsReader is needed
   // and return a new one. This must successfully process any filter data
@@ -58,12 +66,18 @@ class BuiltinFilterPolicy : public FilterPolicy {
   // chosen for this BloomFilterPolicy. Not compatible with CreateFilter.
   FilterBitsReader* GetFilterBitsReader(const Slice& contents) const override;
 
+  // Does not write filters.
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext&) const override {
+    return nullptr;
+  }
+
  private:
   // For Bloom filter implementation(s) (except deprecated block-based filter)
-  FilterBitsReader* GetBloomBitsReader(const Slice& contents) const;
+  static BuiltinFilterBitsReader* GetBloomBitsReader(const Slice& contents);
 
   // For Ribbon filter implementation(s)
-  FilterBitsReader* GetRibbonBitsReader(const Slice& contents) const;
+  static BuiltinFilterBitsReader* GetRibbonBitsReader(const Slice& contents);
 };
 
 // RocksDB built-in filter policy for Bloom or Bloom-like filters including
@@ -117,8 +131,10 @@ class BloomFilterPolicy : public BuiltinFilterPolicy {
 
   ~BloomFilterPolicy() override;
 
-  // Deprecated block-based filter only
-  void CreateFilter(const Slice* keys, int n, std::string* dst) const override;
+  // For Deprecated block-based filter (no longer customizable in public API)
+  static void CreateFilter(const Slice* keys, int n, int bits_per_key,
+                           std::string* dst);
+  static bool KeyMayMatch(const Slice& key, const Slice& bloom_filter);
 
   // To use this function, call GetBuilderFromContext().
   //
@@ -126,6 +142,11 @@ class BloomFilterPolicy : public BuiltinFilterPolicy {
   // the call to this function, unless it's shared_ptr.
   FilterBitsBuilder* GetBuilderWithContext(
       const FilterBuildingContext&) const override;
+
+  // Internal contract: for kDeprecatedBlock, GetBuilderWithContext returns
+  // a new fake builder that encodes bits per key into a special value from
+  // EstimateEntriesAdded(), using kSecretBitsPerKeyStart + bits_per_key
+  static constexpr size_t kSecretBitsPerKeyStart = 1234567890U;
 
   // Returns a new FilterBitsBuilder from the filter_policy in
   // table_options of a context, or nullptr if not applicable.
@@ -183,9 +204,6 @@ class LevelThresholdFilterPolicy : public BuiltinFilterPolicy {
   LevelThresholdFilterPolicy(std::unique_ptr<const FilterPolicy>&& a,
                              std::unique_ptr<const FilterPolicy>&& b,
                              int starting_level_for_b);
-
-  // Deprecated block-based filter only
-  void CreateFilter(const Slice* keys, int n, std::string* dst) const override;
 
   FilterBitsBuilder* GetBuilderWithContext(
       const FilterBuildingContext& context) const override;

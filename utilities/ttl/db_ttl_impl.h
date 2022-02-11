@@ -16,7 +16,6 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/db_ttl.h"
-#include "rocksdb/utilities/utility_db.h"
 #include "utilities/compaction_filters/layered_compaction_filter_base.h"
 
 #ifdef _WIN32

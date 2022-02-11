@@ -16,6 +16,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"
+#include "utilities/counted_fs.h"
 #include "utilities/env_timed.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -32,21 +33,21 @@ Status FileSystem::Load(const std::string& value,
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinFileSystems(ObjectLibrary& library,
                                       const std::string& /*arg*/) {
-  library.Register<FileSystem>(
+  library.AddFactory<FileSystem>(
       TimedFileSystem::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
          std::string* /* errmsg */) {
         guard->reset(new TimedFileSystem(nullptr));
         return guard->get();
       });
-  library.Register<FileSystem>(
+  library.AddFactory<FileSystem>(
       ReadOnlyFileSystem::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
          std::string* /* errmsg */) {
         guard->reset(new ReadOnlyFileSystem(nullptr));
         return guard->get();
       });
-  library.Register<FileSystem>(
+  library.AddFactory<FileSystem>(
       EncryptedFileSystem::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
          std::string* errmsg) {
@@ -56,7 +57,14 @@ static int RegisterBuiltinFileSystems(ObjectLibrary& library,
         }
         return guard->get();
       });
-  library.Register<FileSystem>(
+  library.AddFactory<FileSystem>(
+      CountedFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new CountedFileSystem(FileSystem::Default()));
+        return guard->get();
+      });
+  library.AddFactory<FileSystem>(
       MockFileSystem::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
          std::string* /*errmsg*/) {
@@ -64,7 +72,7 @@ static int RegisterBuiltinFileSystems(ObjectLibrary& library,
         return guard->get();
       });
 #ifndef OS_WIN
-  library.Register<FileSystem>(
+  library.AddFactory<FileSystem>(
       ChrootFileSystem::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
          std::string* /* errmsg */) {

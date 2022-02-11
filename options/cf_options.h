@@ -62,8 +62,6 @@ struct ImmutableCFOptions {
   // to PlainTableOptions just like bloom_bits_per_key
   uint32_t bloom_locality;
 
-  bool purge_redundant_kvs_while_flush;
-
   std::vector<CompressionType> compression_per_level;
 
   bool level_compaction_dynamic_level_bytes;

@@ -145,8 +145,8 @@ uint64_t WinClock::NowMicros() {
     li.QuadPart /= c_FtToMicroSec;
     return li.QuadPart;
   }
-  using namespace std::chrono;
-  return duration_cast<microseconds>(system_clock::now().time_since_epoch())
+  return std::chrono::duration_cast<std::chrono::microseconds>(
+             std::chrono::system_clock::now().time_since_epoch())
       .count();
 }
 
@@ -166,9 +166,8 @@ uint64_t WinClock::NowNanos() {
     li.QuadPart *= nano_seconds_per_period_;
     return li.QuadPart;
   }
-  using namespace std::chrono;
-  return duration_cast<nanoseconds>(
-             high_resolution_clock::now().time_since_epoch())
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(
+             std::chrono::high_resolution_clock::now().time_since_epoch())
       .count();
 }
 
@@ -299,9 +298,9 @@ IOStatus WinFileSystem::NewRandomAccessFile(
 
   UniqueCloseHandlePtr fileGuard(hFile, CloseHandleFunc);
 
-  // CAUTION! This will map the entire file into the process address space
-  if (options.use_mmap_reads && sizeof(void*) >= 8) {
-    // Use mmap when virtual address-space is plentiful.
+  // CAUTION! This will map the entire file into the process address space.
+  // Not recommended for 32-bit platforms.
+  if (options.use_mmap_reads) {
     uint64_t fileSize;
 
     s = GetFileSize(fname, IOOptions(), &fileSize, dbg);

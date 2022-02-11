@@ -9,7 +9,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.AbstractTransactionNotifier\
 	org.rocksdb.AbstractWalFilter\
 	org.rocksdb.BackupEngine\
-	org.rocksdb.BackupableDBOptions\
+	org.rocksdb.BackupEngineOptions\
 	org.rocksdb.BlockBasedTableConfig\
 	org.rocksdb.BloomFilter\
 	org.rocksdb.Checkpoint\
@@ -37,7 +37,6 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.IngestExternalFileOptions\
 	org.rocksdb.HashLinkedListMemTableConfig\
 	org.rocksdb.HashSkipListMemTableConfig\
-	org.rocksdb.HdfsEnv\
 	org.rocksdb.ConcurrentTaskLimiter\
 	org.rocksdb.ConcurrentTaskLimiterImpl\
 	org.rocksdb.KeyMayExist\
@@ -106,7 +105,7 @@ ARCH := $(shell getconf LONG_BIT)
 SHA256_CMD ?= sha256sum
 
 JAVA_TESTS = \
-	org.rocksdb.BackupableDBOptionsTest\
+	org.rocksdb.BackupEngineOptionsTest\
 	org.rocksdb.BackupEngineTest\
 	org.rocksdb.BlobOptionsTest\
 	org.rocksdb.BlockBasedTableConfigTest\
@@ -134,7 +133,6 @@ JAVA_TESTS = \
 	org.rocksdb.util.EnvironmentTest\
 	org.rocksdb.EnvOptionsTest\
 	org.rocksdb.EventListenerTest\
-	org.rocksdb.HdfsEnvTest\
 	org.rocksdb.IngestExternalFileOptionsTest\
 	org.rocksdb.util.IntComparatorTest\
 	org.rocksdb.util.JNIComparatorTest\

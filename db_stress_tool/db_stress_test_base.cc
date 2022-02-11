@@ -19,6 +19,7 @@
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "test_util/testutil.h"
 #include "util/cast_util.h"
 #include "utilities/backupable/backupable_db_impl.h"
 #include "utilities/fault_injection_fs.h"
@@ -202,8 +203,6 @@ bool StressTest::BuildOptionsTable() {
       {"inplace_update_num_locks", {"100", "200", "300"}},
       // TODO(ljin): enable test for this option
       // {"disable_auto_compactions", {"100", "200", "300"}},
-      {"soft_rate_limit", {"0", "0.5", "0.9"}},
-      {"hard_rate_limit", {"0", "1.1", "2.0"}},
       {"level0_file_num_compaction_trigger",
        {
            ToString(options_.level0_file_num_compaction_trigger),
@@ -312,15 +311,6 @@ void StressTest::FinishInitDb(SharedState* shared) {
     }
   }
 
-  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
-    Status s = shared->SaveAtAndAfter(db_);
-    if (!s.ok()) {
-      fprintf(stderr, "Error enabling history tracing: %s\n",
-              s.ToString().c_str());
-      exit(1);
-    }
-  }
-
   if (FLAGS_enable_compaction_filter) {
     auto* compaction_filter_factory =
         reinterpret_cast<DbStressCompactionFilterFactory*>(
@@ -332,6 +322,17 @@ void StressTest::FinishInitDb(SharedState* shared) {
     compaction_filter_factory->SetSharedState(shared);
     fprintf(stdout, "Compaction filter factory: %s\n",
             compaction_filter_factory->Name());
+  }
+}
+
+void StressTest::TrackExpectedState(SharedState* shared) {
+  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
+    Status s = shared->SaveAtAndAfter(db_);
+    if (!s.ok()) {
+      fprintf(stderr, "Error enabling history tracing: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
   }
 }
 
@@ -513,9 +514,10 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
           if (FLAGS_user_timestamp_size > 0) {
             ts_str = NowNanosStr();
             ts = ts_str;
-            write_opts.timestamp = &ts;
+            s = db_->Put(write_opts, cfh, key, ts, v);
+          } else {
+            s = db_->Put(write_opts, cfh, key, v);
           }
-          s = db_->Put(write_opts, cfh, key, v);
         } else {
 #ifndef ROCKSDB_LITE
           Transaction* txn;
@@ -572,12 +574,9 @@ Status StressTest::SetOptions(ThreadState* thread) {
   std::string name =
       options_index_[thread->rand.Next() % options_index_.size()];
   int value_idx = thread->rand.Next() % options_table_[name].size();
-  if (name == "soft_rate_limit" || name == "hard_rate_limit") {
-    opts["soft_rate_limit"] = options_table_["soft_rate_limit"][value_idx];
-    opts["hard_rate_limit"] = options_table_["hard_rate_limit"][value_idx];
-  } else if (name == "level0_file_num_compaction_trigger" ||
-             name == "level0_slowdown_writes_trigger" ||
-             name == "level0_stop_writes_trigger") {
+  if (name == "level0_file_num_compaction_trigger" ||
+      name == "level0_slowdown_writes_trigger" ||
+      name == "level0_stop_writes_trigger") {
     opts["level0_file_num_compaction_trigger"] =
         options_table_["level0_file_num_compaction_trigger"][value_idx];
     opts["level0_slowdown_writes_trigger"] =
@@ -881,7 +880,6 @@ void StressTest::OperateDb(ThreadState* thread) {
         read_opts.timestamp = &read_ts;
         write_ts_str = NowNanosStr();
         write_ts = write_ts_str;
-        write_opts.timestamp = &write_ts;
       }
 
       int prob_op = thread->rand.Uniform(100);
@@ -1409,7 +1407,7 @@ Status StressTest::TestBackupRestore(
     const std::vector<int64_t>& rand_keys) {
   std::string backup_dir = FLAGS_db + "/.backup" + ToString(thread->tid);
   std::string restore_dir = FLAGS_db + "/.restore" + ToString(thread->tid);
-  BackupableDBOptions backup_opts(backup_dir);
+  BackupEngineOptions backup_opts(backup_dir);
   // For debugging, get info_log from live options
   backup_opts.info_log = db_->GetDBOptions().info_log.get();
   if (thread->rand.OneIn(10)) {
@@ -1423,16 +1421,16 @@ Status StressTest::TestBackupRestore(
       if (thread->rand.OneIn(2)) {
         // old
         backup_opts.share_files_with_checksum_naming =
-            BackupableDBOptions::kLegacyCrc32cAndFileSize;
+            BackupEngineOptions::kLegacyCrc32cAndFileSize;
       } else {
         // new
         backup_opts.share_files_with_checksum_naming =
-            BackupableDBOptions::kUseDbSessionId;
+            BackupEngineOptions::kUseDbSessionId;
       }
       if (thread->rand.OneIn(2)) {
         backup_opts.share_files_with_checksum_naming =
             backup_opts.share_files_with_checksum_naming |
-            BackupableDBOptions::kFlagIncludeFileSize;
+            BackupEngineOptions::kFlagIncludeFileSize;
       }
     }
   }
@@ -1672,8 +1670,8 @@ Status StressTest::TestApproximateSize(
   std::string key2_str = Key(key2);
   Range range{Slice(key1_str), Slice(key2_str)};
   SizeApproximationOptions sao;
-  sao.include_memtabtles = thread->rand.OneIn(2);
-  if (sao.include_memtabtles) {
+  sao.include_memtables = thread->rand.OneIn(2);
+  if (sao.include_memtables) {
     sao.include_files = thread->rand.OneIn(2);
   }
   if (thread->rand.OneIn(2)) {
@@ -2275,6 +2273,8 @@ void StressTest::Open() {
     block_based_options.partition_filters = FLAGS_partition_filters;
     block_based_options.optimize_filters_for_memory =
         FLAGS_optimize_filters_for_memory;
+    block_based_options.detect_filter_construct_corruption =
+        FLAGS_detect_filter_construct_corruption;
     block_based_options.index_type =
         static_cast<BlockBasedTableOptions::IndexType>(FLAGS_index_type);
     block_based_options.prepopulate_block_cache =
@@ -2406,9 +2406,6 @@ void StressTest::Open() {
         10 /* fairness */,
         FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
                                   : RateLimiter::Mode::kWritesOnly));
-    if (FLAGS_rate_limit_bg_reads) {
-      options_.new_table_reader_for_compaction_inputs = true;
-    }
   }
   if (FLAGS_sst_file_manager_bytes_per_sec > 0 ||
       FLAGS_sst_file_manager_bytes_per_truncate > 0) {
@@ -2551,8 +2548,8 @@ void StressTest::Open() {
     }
     options_.listeners.clear();
 #ifndef ROCKSDB_LITE
-    options_.listeners.emplace_back(
-        new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors));
+    options_.listeners.emplace_back(new DbStressListener(
+        FLAGS_db, options_.db_paths, cf_descriptors, db_stress_listener_env));
 #endif  // !ROCKSDB_LITE
     options_.create_missing_column_families = true;
     if (!FLAGS_use_txn) {
@@ -2855,7 +2852,7 @@ void StressTest::Reopen(ThreadState* thread) {
 
 void StressTest::CheckAndSetOptionsForUserTimestamp() {
   assert(FLAGS_user_timestamp_size > 0);
-  const Comparator* const cmp = test::ComparatorWithU64Ts();
+  const Comparator* const cmp = test::BytewiseComparatorWithU64TsWrapper();
   assert(cmp);
   if (FLAGS_user_timestamp_size != cmp->timestamp_size()) {
     fprintf(stderr,

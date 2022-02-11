@@ -51,6 +51,24 @@ TEST_F(DBBasicTest, OpenWhenOpen) {
   delete db2;
 }
 
+TEST_F(DBBasicTest, EnableDirectIOWithZeroBuf) {
+  if (!IsDirectIOSupported()) {
+    ROCKSDB_GTEST_BYPASS("Direct IO not supported");
+    return;
+  }
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.use_direct_io_for_flush_and_compaction = true;
+  options.writable_file_max_buffer_size = 0;
+  ASSERT_TRUE(TryReopen(options).IsInvalidArgument());
+
+  options.writable_file_max_buffer_size = 1024;
+  Reopen(options);
+  const std::unordered_map<std::string, std::string> new_db_opts = {
+      {"writable_file_max_buffer_size", "0"}};
+  ASSERT_TRUE(db_->SetDBOptions(new_db_opts).IsInvalidArgument());
+}
+
 TEST_F(DBBasicTest, UniqueSession) {
   Options options = CurrentOptions();
   std::string sid1, sid2, sid3, sid4;
@@ -1892,7 +1910,6 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
 
   ASSERT_EQ(values.size(), keys.size());
 
-  uint64_t curr_value_size = 0;
   for (unsigned int j = 0; j < 26; ++j) {
     int key = j + 10;
     std::string value;
@@ -1909,11 +1926,9 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
       value.append(",");
       value.append("val_mem_" + std::to_string(key));
     }
-    curr_value_size += value.size();
     ASSERT_EQ(values[j], value);
     ASSERT_OK(statuses[j]);
   }
-  // ASSERT_TRUE(curr_value_size <= read_options.value_size_hard_limit);
 
   // All remaning keys status is set Status::Abort
   for (unsigned int j = 26; j < 40; j++) {

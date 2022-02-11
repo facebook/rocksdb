@@ -185,6 +185,7 @@ class TtlTest : public testing::Test {
 
   // Runs a manual compaction
   Status ManualCompact(ColumnFamilyHandle* cf = nullptr) {
+    assert(db_ttl_);
     if (cf == nullptr) {
       return db_ttl_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
     } else {
@@ -751,14 +752,14 @@ class DummyFilterFactory : public CompactionFilterFactory {
 
 static int RegisterTestObjects(ObjectLibrary& library,
                                const std::string& /*arg*/) {
-  library.Register<CompactionFilter>(
+  library.AddFactory<CompactionFilter>(
       "DummyFilter", [](const std::string& /*uri*/,
                         std::unique_ptr<CompactionFilter>* /*guard*/,
                         std::string* /* errmsg */) {
         static DummyFilter dummy;
         return &dummy;
       });
-  library.Register<CompactionFilterFactory>(
+  library.AddFactory<CompactionFilterFactory>(
       "DummyFilterFactory", [](const std::string& /*uri*/,
                                std::unique_ptr<CompactionFilterFactory>* guard,
                                std::string* /* errmsg */) {

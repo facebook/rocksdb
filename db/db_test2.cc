@@ -2827,7 +2827,6 @@ TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
     Close();
     Reopen(options);
 
-    uint64_t total_useful_bytes = 0;
     std::set<int> read_keys;
     std::string value;
     // Iter1: Read half the DB, Read even keys
@@ -2838,8 +2837,6 @@ TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
 
       if (read_keys.find(i) == read_keys.end()) {
         auto internal_key = InternalKey(key, 0, ValueType::kTypeValue);
-        total_useful_bytes +=
-            GetEncodedEntrySize(internal_key.size(), value.size());
         read_keys.insert(i);
       }
     }
@@ -2866,8 +2863,6 @@ TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
 
       if (read_keys.find(i) == read_keys.end()) {
         auto internal_key = InternalKey(key, 0, ValueType::kTypeValue);
-        total_useful_bytes +=
-            GetEncodedEntrySize(internal_key.size(), value.size());
         read_keys.insert(i);
       }
     }
@@ -3951,7 +3946,6 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
     options.level0_file_num_compaction_trigger = kNumL0Files;
     options.memtable_factory.reset(
         test::NewSpecialSkipListFactory(kNumKeysPerFile));
-    options.new_table_reader_for_compaction_inputs = true;
     // takes roughly one second, split into 100 x 10ms intervals. Each interval
     // permits 5.12KB, which is smaller than the block size, so this test
     // exercises the code for chunking reads.
@@ -6733,6 +6727,34 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
       DB::Properties::kLiveSstFilesSizeAtTemperature + std::to_string(22),
       &prop));
   ASSERT_EQ(std::atoi(prop.c_str()), 0);
+
+  // Update bottommost temperature dynamically with SetOptions
+  auto s = db_->SetOptions({{"bottommost_temperature", "kCold"}});
+  ASSERT_OK(s);
+  ASSERT_EQ(db_->GetOptions().bottommost_temperature, Temperature::kCold);
+  db_->GetColumnFamilyMetaData(&metadata);
+  // Should not impact the existing files
+  ASSERT_EQ(Temperature::kWarm,
+            metadata.levels[kBottommostLevel].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
+  size = GetSstSizeHelper(Temperature::kCold);
+  ASSERT_EQ(size, 0);
+
+  // new generated files should have the new settings
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  db_->GetColumnFamilyMetaData(&metadata);
+  ASSERT_EQ(1, metadata.file_count);
+  ASSERT_EQ(Temperature::kCold,
+            metadata.levels[kBottommostLevel].files[0].temperature);
+  size = GetSstSizeHelper(Temperature::kUnknown);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_EQ(size, 0);
+  size = GetSstSizeHelper(Temperature::kCold);
+  ASSERT_GT(size, 0);
 }
 #endif  // ROCKSDB_LITE
 
@@ -6814,7 +6836,7 @@ TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   options.max_write_buffer_size_to_maintain = 64 << 10;
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
-  options.comparator = test::ComparatorWithU64Ts();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
   options.statistics = CreateDBStatistics();
 
   Reopen(options);
@@ -6822,16 +6844,13 @@ TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   constexpr uint64_t kTsU64Value = 12;
 
   for (uint64_t key = 0; key < 100; ++key) {
-    std::string ts_str;
-    PutFixed64(&ts_str, kTsU64Value);
-    Slice ts = ts_str;
-    WriteOptions write_opts;
-    write_opts.timestamp = &ts;
+    std::string ts;
+    PutFixed64(&ts, kTsU64Value);
 
     std::string key_str;
     PutFixed64(&key_str, key);
     std::reverse(key_str.begin(), key_str.end());
-    ASSERT_OK(Put(key_str, "value", write_opts));
+    ASSERT_OK(db_->Put(WriteOptions(), key_str, ts, "value"));
   }
 
   ASSERT_OK(Flush());

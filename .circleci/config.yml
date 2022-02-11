@@ -10,19 +10,19 @@ aliases:
     only_for_branches: main
 
 commands:
-  install-pyenv-on-macos:
-    steps:
-      - run:
-          name: Install pyenv on macos
-          command: |
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install pyenv
-
   install-cmake-on-macos:
     steps:
       - run:
           name: Install cmake on macos
           command: |
             HOMEBREW_NO_AUTO_UPDATE=1 brew install cmake
+
+  install-jdk8-on-macos:
+    steps:
+      - run:
+          name: Install JDK 8 on macos
+          command: |
+            brew install --cask adoptopenjdk/openjdk/adoptopenjdk8
 
   increase-max-open-files-on-macos:
     steps:
@@ -34,14 +34,8 @@ commands:
             sudo launchctl limit maxfiles 1048576
 
   pre-steps:
-    parameters:
-      python-version:
-        default: "3.5.9"
-        type: string
     steps:
       - checkout
-      - run: pyenv install --skip-existing <<parameters.python-version>>
-      - run: pyenv global <<parameters.python-version>>
       - run:
           name: Setup Environment Variables
           command: |
@@ -51,11 +45,15 @@ commands:
             echo "export GTEST_COLOR=1" >> $BASH_ENV
             echo "export CTEST_OUTPUT_ON_FAILURE=1" >> $BASH_ENV
             echo "export CTEST_TEST_TIMEOUT=300" >> $BASH_ENV
+            echo "export ZLIB_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/zlib" >> $BASH_ENV
+            echo "export BZIP2_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/bzip2" >> $BASH_ENV
+            echo "export SNAPPY_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/snappy" >> $BASH_ENV
+            echo "export LZ4_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/lz4" >> $BASH_ENV
+            echo "export ZSTD_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/zstd" >> $BASH_ENV
 
   pre-steps-macos:
       steps:
-        - pre-steps:
-            python-version: "3.6.0"
+        - pre-steps
 
   post-steps:
     steps:
@@ -78,10 +76,23 @@ commands:
       - run:
           name: Install Clang 10
           command: |
-            echo "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
-            echo "deb-src http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
+            wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+            echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-10 main" | sudo tee -a /etc/apt/sources.list
+            echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-10 main" | sudo tee -a /etc/apt/sources.list
             echo "APT::Acquire::Retries \"10\";" | sudo tee -a /etc/apt/apt.conf.d/80-retries # llvm.org unreliable
             sudo apt-get update -y && sudo apt-get install -y clang-10
+
+  install-clang-13:
+    steps:
+      - run:
+          name: Install Clang 13
+          command: |
+            wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+            echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-13 main" | sudo tee -a /etc/apt/sources.list
+            echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-13 main" | sudo tee -a /etc/apt/sources.list
+            echo "APT::Acquire::Retries \"10\";" | sudo tee -a /etc/apt/apt.conf.d/80-retries # llvm.org unreliable
+            wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
+            sudo apt-get update -y && sudo apt-get install -y clang-13
 
   install-gflags:
     steps:
@@ -92,17 +103,10 @@ commands:
 
   install-benchmark:
     steps:
-      - run: # currently doesn't support ubuntu-1604 which doesn't have libbenchmark package, user can still install by building it youself
+      - run:
           name: Install benchmark
           command: |
             sudo apt-get update -y && sudo apt-get install -y libbenchmark-dev
-
-  install-librados:
-    steps:
-      - run:
-          name: Install librados
-          command: |
-            sudo apt-get update -y && sudo apt-get install -y librados-dev
 
   upgrade-cmake:
     steps:
@@ -134,6 +138,21 @@ commands:
           command: |
             sudo apt-get update -y && sudo apt-get install -y libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev
 
+  install-libprotobuf-mutator:
+    steps:
+      - run:
+          name: Install libprotobuf-mutator libs
+          command: |
+            git clone --single-branch --branch master --depth 1 git@github.com:google/libprotobuf-mutator.git ~/libprotobuf-mutator
+            cd ~/libprotobuf-mutator && mkdir build && cd build
+            cmake .. -GNinja -DCMAKE_C_COMPILER=clang-13 -DCMAKE_CXX_COMPILER=clang++-13 -DCMAKE_BUILD_TYPE=Release -DLIB_PROTO_MUTATOR_DOWNLOAD_PROTOBUF=ON
+            ninja && sudo ninja install
+      - run:
+          name: Setup environment variables
+          command: |
+            echo "export PKG_CONFIG_PATH=/usr/local/OFF/:~/libprotobuf-mutator/build/external.protobuf/lib/pkgconfig/" >> $BASH_ENV
+            echo "export PROTOC_BIN=~/libprotobuf-mutator/build/external.protobuf/bin/protoc" >> $BASH_ENV
+
 executors:
   windows-2xlarge:
     machine:
@@ -144,195 +163,184 @@ executors:
 jobs:
   build-macos:
     macos:
-      xcode: 11.3.0
+      xcode: 12.5.1
     resource_class: large
+    environment:
+      ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc cause env_test hang, disable it for now
     steps:
       - increase-max-open-files-on-macos
-      - install-pyenv-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
-      - run: ulimit -S -n 1048576 && OPT=-DCIRCLECI make V=1 J=32 -j32 check 2>&1 | .circleci/cat_ignore_eagain
+      - run: ulimit -S -n 1048576 && OPT=-DCIRCLECI make V=1 J=32 -j32 check
       - post-steps
 
   build-macos-cmake:
     macos:
-      xcode: 11.3.0
+      xcode: 12.5.1
     resource_class: large
     steps:
       - increase-max-open-files-on-macos
-      - install-pyenv-on-macos
       - install-cmake-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
-      - run: ulimit -S -n 1048576 && (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j32 && ctest -j10) 2>&1 | .circleci/cat_ignore_eagain
+      - run: ulimit -S -n 1048576 && (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j32 && ctest -j10)
       - post-steps
 
   build-linux:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
       - install-gflags
-      - run: make V=1 J=32 -j32 check 2>&1 | .circleci/cat_ignore_eagain
-      - post-steps
-
-  build-linux-mem-env-librados:
-    machine:
-      image: ubuntu-1604:202104-01
-    resource_class: 2xlarge
-    steps:
-      - pre-steps
-      - install-gflags
-      - install-librados
-      - run: MEM_ENV=1 ROCKSDB_USE_LIBRADOS=1 make V=1 J=32 -j32 check 2>&1 | .circleci/cat_ignore_eagain
+      - run: make V=1 J=32 -j32 check
       - post-steps
 
   build-linux-encrypted-env:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
       - install-gflags
-      - run: ENCRYPTED_ENV=1 make V=1 J=32 -j32 check 2>&1 | .circleci/cat_ignore_eagain
+      - run: ENCRYPTED_ENV=1 make V=1 J=32 -j32 check
       - post-steps
 
   build-linux-shared_lib-alt_namespace-status_checked:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
       - install-gflags
-      - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j32 check 2>&1 | .circleci/cat_ignore_eagain
+      - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j32 check
       - post-steps
 
   build-linux-release:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: large
     steps:
       - checkout # check out the code in the project directory
-      - run: make V=1 -j8 release 2>&1 | .circleci/cat_ignore_eagain
+      - run: make V=1 -j8 release
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - install-gflags
-      - run: make V=1 -j8 release 2>&1 | .circleci/cat_ignore_eagain
+      - run: make V=1 -j8 release
       - run: ./db_stress --version # ensure with gflags
       - post-steps
 
   build-linux-release-rtti:
     machine:
-      image: ubuntu-1604:201903-01
+      image: ubuntu-2004:202111-02
     resource_class: large
     steps:
       - checkout # check out the code in the project directory
       - run: make clean
-      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j8 static_lib tools db_bench 2>&1 | .circleci/cat_ignore_eagain
+      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j8 static_lib tools db_bench
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
       - run: make clean
-      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j8 static_lib tools db_bench 2>&1 | .circleci/cat_ignore_eagain
+      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j8 static_lib tools db_bench
       - run: ./db_stress --version # ensure with gflags
 
   build-linux-lite:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
       - install-gflags
-      - run: LITE=1 make V=1 J=32 -j32 check 2>&1 | .circleci/cat_ignore_eagain
+      - run: LITE=1 make V=1 J=32 -j32 check
       - post-steps
 
   build-linux-lite-release:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: large
     steps:
       - checkout # check out the code in the project directory
-      - run: LITE=1 make V=1 -j8 release 2>&1 | .circleci/cat_ignore_eagain
+      - run: LITE=1 make V=1 -j8 release
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - install-gflags
-      - run: LITE=1 make V=1 -j8 release 2>&1 | .circleci/cat_ignore_eagain
+      - run: LITE=1 make V=1 -j8 release
       - run: ./db_stress --version # ensure with gflags
       - post-steps
 
   build-linux-clang-no_test_run:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: xlarge
     steps:
       - checkout # check out the code in the project directory
       - run: sudo apt-get update -y && sudo apt-get install -y clang libgflags-dev libtbb-dev
-      - run: CC=clang CXX=clang++ USE_CLANG=1 PORTABLE=1 make V=1 -j16 all 2>&1 | .circleci/cat_ignore_eagain
+      - run: CC=clang CXX=clang++ USE_CLANG=1 PORTABLE=1 make V=1 -j16 all
       - post-steps
 
   build-linux-clang10-asan:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
       - install-gflags
       - install-clang-10
-      - run: COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check 2>&1 | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out
+      - run: COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check # aligned new doesn't work for reason we haven't figured out
       - post-steps
 
   build-linux-clang10-mini-tsan:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
       - install-gflags
       - install-clang-10
-      - run: COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check 2>&1 | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out.
+      - run: COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check # aligned new doesn't work for reason we haven't figured out.
       - post-steps
 
   build-linux-clang10-ubsan:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
       - install-gflags
       - install-clang-10
-      - run: COMPILE_WITH_UBSAN=1 OPT="-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 ubsan_check 2>&1 | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out
+      - run: COMPILE_WITH_UBSAN=1 OPT="-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 ubsan_check # aligned new doesn't work for reason we haven't figured out
       - post-steps
 
   build-linux-clang10-clang-analyze:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
       - install-gflags
       - install-clang-10
       - run: sudo apt-get update -y && sudo apt-get install -y clang-tools-10
-      - run: CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-10" CLANG_SCAN_BUILD=scan-build-10 USE_CLANG=1 make V=1 -j32 analyze 2>&1 | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out. For unknown, reason passing "clang++-10" as CLANG_ANALYZER doesn't work, and we need a full path.
+      - run: CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-10" CLANG_SCAN_BUILD=scan-build-10 USE_CLANG=1 make V=1 -j32 analyze # aligned new doesn't work for reason we haven't figured out. For unknown, reason passing "clang++-10" as CLANG_ANALYZER doesn't work, and we need a full path.
       - post-steps
 
   build-linux-cmake:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
       - install-gflags
       - upgrade-cmake
-      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j20 && ctest -j20) 2>&1 | .circleci/cat_ignore_eagain
+      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j20 && ctest -j20)
       - post-steps
 
   build-linux-cmake-ubuntu-20:
     machine:
-      image: ubuntu-2004:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
       - install-gflags
       - install-benchmark
-      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20 && make microbench) 2>&1 | .circleci/cat_ignore_eagain
+      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20)
       - post-steps
 
   build-linux-unity-and-headers:
@@ -342,69 +350,69 @@ jobs:
     steps:
       - checkout # check out the code in the project directory
       - run: apt-get update -y && apt-get install -y libgflags-dev
-      - run: TEST_TMPDIR=/dev/shm && make V=1 -j8 unity_test 2>&1 | .circleci/cat_ignore_eagain
-      - run: make V=1 -j8 -k check-headers 2>&1 | .circleci/cat_ignore_eagain # could be moved to a different build
+      - run: TEST_TMPDIR=/dev/shm && make V=1 -j8 unity_test
+      - run: make V=1 -j8 -k check-headers # could be moved to a different build
       - post-steps
 
-  build-linux-gcc-4_8-no_test_run:
+  build-linux-gcc-7:
     machine:
-      image: ubuntu-1604:202104-01
-    resource_class: large
+      image: ubuntu-2004:202111-02
+    resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: sudo apt-get update -y && sudo apt-get install gcc-4.8 g++-4.8 libgflags-dev
-      - run: CC=gcc-4.8 CXX=g++-4.8 V=1 SKIP_LINK=1 make -j8 all 2>&1 | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-7 g++-7 libgflags-dev
+      - run: CC=gcc-7 CXX=g++-7 V=1 make -j32 check
       - post-steps
 
   build-linux-gcc-8-no_test_run:
     machine:
-      image: ubuntu-2004:202010-01
+      image: ubuntu-2004:202111-02
     resource_class: large
     steps:
       - pre-steps
-      - run: sudo apt-get update -y && sudo apt-get install gcc-8 g++-8 libgflags-dev
-      - run: CC=gcc-8 CXX=g++-8 V=1 SKIP_LINK=1 make -j8 all 2>&1 | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
-      - post-steps
-
-  build-linux-gcc-9-no_test_run:
-    machine:
-      image: ubuntu-2004:202010-01
-    resource_class: large
-    steps:
-      - pre-steps
-      - run: sudo apt-get update -y && sudo apt-get install gcc-9 g++-9 libgflags-dev
-      - run: CC=gcc-9 CXX=g++-9 V=1 SKIP_LINK=1 make -j8 all 2>&1 | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-8 g++-8 libgflags-dev
+      - run: CC=gcc-8 CXX=g++-8 V=1 make -j8 all
       - post-steps
 
   build-linux-gcc-10-cxx20-no_test_run:
     machine:
-      image: ubuntu-2004:202010-01
+      image: ubuntu-2004:202111-02
     resource_class: xlarge
     steps:
       - pre-steps
       - run: sudo apt-get update -y && sudo apt-get install gcc-10 g++-10 libgflags-dev
-      - run: CC=gcc-10 CXX=g++-10 V=1 SKIP_LINK=1 ROCKSDB_CXX_STANDARD=c++20 make -j16 all 2>&1 | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - run: CC=gcc-10 CXX=g++-10 V=1 SKIP_LINK=1 ROCKSDB_CXX_STANDARD=c++20 make -j16 all # Linking broken because libgflags compiled with newer ABI
       - post-steps
 
   build-linux-gcc-11-no_test_run:
     machine:
-      image: ubuntu-2004:202010-01
+      image: ubuntu-2004:202111-02
     resource_class: xlarge
     steps:
       - pre-steps
-      - run: sudo apt-get update -y && sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get install gcc-11 g++-11 libgflags-dev
-      - run: CC=gcc-11 CXX=g++-11 V=1 SKIP_LINK=1 make -j16 all 2>&1 | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-11 g++-11 libgflags-dev
+      - run: CC=gcc-11 CXX=g++-11 V=1 SKIP_LINK=1 make -j16 all # Linking broken because libgflags compiled with newer ABI
+      - post-steps
+
+  build-linux-clang-13-no_test_run:
+    machine:
+      image: ubuntu-2004:202111-02
+    resource_class: xlarge
+    steps:
+      - pre-steps
+      - install-clang-13
+      - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j16 all
       - post-steps
 
   # This job is only to make sure the microbench tests are able to run, the benchmark result is not meaningful as the CI host is changing.
   build-linux-microbench:
     machine:
-      image: ubuntu-2004:202010-01
+      image: ubuntu-2004:202111-02
     resource_class: xlarge
     steps:
       - pre-steps
       - install-benchmark
-      - run: DEBUG_LEVEL=0 make microbench 2>&1 | .circleci/cat_ignore_eagain
+      - run: DEBUG_LEVEL=0 make microbench
       - post-steps
 
   build-windows:
@@ -477,7 +485,7 @@ jobs:
 
   build-linux-java:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: large
     environment:
       JAVA_HOME: /usr/lib/jvm/java-1.8.0-openjdk-amd64
@@ -493,15 +501,15 @@ jobs:
             which javac && javac -version
       - run:
           name: "Build RocksDBJava Shared Library"
-          command: make V=1 J=8 -j8 rocksdbjava 2>&1 | .circleci/cat_ignore_eagain
+          command: make V=1 J=8 -j8 rocksdbjava
       - run:
           name: "Test RocksDBJava"
-          command: make V=1 J=8 -j8 jtest 2>&1 | .circleci/cat_ignore_eagain
+          command: make V=1 J=8 -j8 jtest
       - post-steps
 
   build-linux-java-static:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: large
     environment:
       JAVA_HOME: /usr/lib/jvm/java-1.8.0-openjdk-amd64
@@ -517,19 +525,20 @@ jobs:
             which javac && javac -version
       - run:
           name: "Build RocksDBJava Static Library"
-          command: make V=1 J=8 -j8 rocksdbjavastatic 2>&1 | .circleci/cat_ignore_eagain
+          command: make V=1 J=8 -j8 rocksdbjavastatic
       - post-steps
 
   build-macos-java:
     macos:
-      xcode: 11.3.0
+      xcode: 12.5.1
     resource_class: medium
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+      ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc causes java 8 crash
     steps:
       - increase-max-open-files-on-macos
-      - install-pyenv-on-macos
       - install-gflags-on-macos
+      - install-jdk8-on-macos
       - pre-steps-macos
       - run:
           name: "Set Java Environment"
@@ -540,23 +549,23 @@ jobs:
             which javac && javac -version
       - run:
           name: "Build RocksDBJava Shared Library"
-          command: make V=1 J=8 -j8 rocksdbjava 2>&1 | .circleci/cat_ignore_eagain
+          command: make V=1 J=8 -j8 rocksdbjava
       - run:
           name: "Test RocksDBJava"
-          command: make V=1 J=8 -j8 jtest 2>&1 | .circleci/cat_ignore_eagain
+          command: make V=1 J=8 -j8 jtest
       - post-steps
 
   build-macos-java-static:
     macos:
-      xcode: 11.3.0
+      xcode: 12.5.1
     resource_class: medium
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
     steps:
       - increase-max-open-files-on-macos
-      - install-pyenv-on-macos
       - install-gflags-on-macos
       - install-cmake-on-macos
+      - install-jdk8-on-macos
       - pre-steps-macos
       - run:
           name: "Set Java Environment"
@@ -566,13 +575,37 @@ jobs:
             which java && java -version
             which javac && javac -version
       - run:
-          name: "Build RocksDBJava Static Library"
-          command: make V=1 J=8 -j8 rocksdbjavastatic 2>&1 | .circleci/cat_ignore_eagain
+          name: "Build RocksDBJava x86 and ARM Static Libraries"
+          command: make V=1 J=8 -j8 rocksdbjavastaticosx
+      - post-steps
+
+  build-macos-java-static-universal:
+    macos:
+      xcode: 12.5.1
+    resource_class: medium
+    environment:
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
+    steps:
+      - increase-max-open-files-on-macos
+      - install-gflags-on-macos
+      - install-cmake-on-macos
+      - install-jdk8-on-macos
+      - pre-steps-macos
+      - run:
+          name: "Set Java Environment"
+          command: |
+            echo "JAVA_HOME=${JAVA_HOME}"
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
+            which java && java -version
+            which javac && javac -version
+      - run:
+          name: "Build RocksDBJava Universal Binary Static Library"
+          command: make V=1 J=8 -j8 rocksdbjavastaticosx_ub
       - post-steps
 
   build-examples:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: large
     steps:
       - pre-steps
@@ -580,12 +613,12 @@ jobs:
       - run:
           name: "Build examples"
           command: |
-            OPT=-DTRAVIS V=1 make -j4 static_lib && cd examples && make -j4 | ../.circleci/cat_ignore_eagain
+            OPT=-DTRAVIS V=1 make -j4 static_lib && cd examples && make -j4
       - post-steps
 
   build-cmake-mingw:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -608,7 +641,7 @@ jobs:
 
   build-linux-non-shm:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     parameters:
       start_test:
@@ -638,27 +671,27 @@ jobs:
 
   build-linux-arm-test-full:
     machine:
-      image: ubuntu-2004:202101-01
+      image: ubuntu-2004:202111-02
     resource_class: arm.large
     steps:
       - pre-steps
       - install-gflags
-      - run: make V=1 J=4 -j4 check 2>&1 | .circleci/cat_ignore_eagain
+      - run: make V=1 J=4 -j4 check
       - post-steps
 
   build-linux-arm:
     machine:
-      image: ubuntu-2004:202101-01
+      image: ubuntu-2004:202111-02
     resource_class: arm.large
     steps:
       - pre-steps
       - install-gflags
-      - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some 2>&1 | .circleci/cat_ignore_eagain
+      - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some
       - post-steps
 
   build-linux-arm-cmake-no_test_run:
     machine:
-      image: ubuntu-2004:202101-01
+      image: ubuntu-2004:202111-02
     resource_class: arm.large
     environment:
       JAVA_HOME: /usr/lib/jvm/java-8-openjdk-arm64
@@ -691,7 +724,7 @@ jobs:
 
   build-format-compatible:
     machine:
-      image: ubuntu-1604:202104-01
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -706,6 +739,23 @@ jobs:
             tools/check_format_compatible.sh
       - post-steps
 
+  build-fuzzers:
+    machine:
+      image: ubuntu-2004:202111-02
+    resource_class: large
+    steps:
+      - pre-steps
+      - install-clang-13
+      - run: sudo apt-get update -y && sudo apt-get install -y cmake ninja-build binutils liblzma-dev libz-dev pkg-config autoconf libtool
+      - install-libprotobuf-mutator
+      - run:
+          name: "Build rocksdb lib"
+          command: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j4 static_lib
+      - run:
+          name: "Build fuzzers"
+          command: cd fuzz && make sst_file_writer_fuzzer db_fuzzer db_map_fuzzer
+      - post-steps
+
 workflows:
   version: 2
   build-linux:
@@ -715,9 +765,6 @@ workflows:
     jobs:
       - build-linux-cmake
       - build-linux-cmake-ubuntu-20
-  build-linux-mem-env-librados:
-    jobs:
-      - build-linux-mem-env-librados
   build-linux-encrypted-env:
     jobs:
       - build-linux-encrypted-env
@@ -772,6 +819,7 @@ workflows:
       - build-linux-java-static
       - build-macos-java
       - build-macos-java-static
+      - build-macos-java-static-universal
   build-examples:
     jobs:
       - build-examples
@@ -792,9 +840,9 @@ workflows:
   build-linux-compilers-no_test_run:
     jobs:
       - build-linux-clang-no_test_run
-      - build-linux-gcc-4_8-no_test_run
+      - build-linux-clang-13-no_test_run
+      - build-linux-gcc-7
       - build-linux-gcc-8-no_test_run
-      - build-linux-gcc-9-no_test_run
       - build-linux-gcc-10-cxx20-no_test_run
       - build-linux-gcc-11-no_test_run
       - build-linux-arm-cmake-no_test_run
@@ -813,6 +861,9 @@ workflows:
   build-microbench:
     jobs:
       - build-linux-microbench
+  build-fuzzers:
+    jobs:
+      - build-fuzzers
   nightly:
     triggers:
       - schedule:
