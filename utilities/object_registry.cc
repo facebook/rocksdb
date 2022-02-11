@@ -127,8 +127,7 @@ void ObjectLibrary::Dump(Logger *logger) const {
                        iter.first.c_str());
       bool printed_one = false;
       for (const auto &e : iter.second) {
-        ROCKS_LOG_HEADER(logger, "%c %s", (printed_one) ? ',' : ':',
-                         e->Name());
+        ROCKS_LOG_HEADER(logger, "%c %s", (printed_one) ? ',' : ':', e->Name());
         printed_one = true;
       }
     }

@@ -474,13 +474,14 @@ TEST_F(ObjRegistryTest, TestGetOrCreateManagedObject) {
 TEST_F(ObjRegistryTest, RegisterPlugin) {
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
   std::unique_ptr<Env> guard;
-  std::string msg;
+  Env* env = nullptr;
 
-  ASSERT_EQ(registry->NewObject<Env>("unguarded", &guard, &msg), nullptr);
+  ASSERT_NOK(registry->NewObject<Env>("unguarded", &env, &guard));
   ASSERT_EQ(registry->RegisterPlugin("Missing", nullptr), -1);
   ASSERT_EQ(registry->RegisterPlugin("", RegisterTestUnguarded), -1);
   ASSERT_GT(registry->RegisterPlugin("Valid", RegisterTestUnguarded), 0);
-  ASSERT_NE(registry->NewObject<Env>("unguarded", &guard, &msg), nullptr);
+  ASSERT_OK(registry->NewObject<Env>("unguarded", &env, &guard));
+  ASSERT_NE(env, nullptr);
 }
 class PatternEntryTest : public testing::Test {};
 
