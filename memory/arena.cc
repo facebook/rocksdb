@@ -12,11 +12,13 @@
 #include <sys/mman.h>
 #endif
 #include <algorithm>
+
 #include "logging/logging.h"
 #include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -170,7 +172,7 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
     if (addr == nullptr) {
       ROCKS_LOG_WARN(logger,
                      "AllocateAligned fail to allocate huge TLB pages: %s",
-                     strerror(errno));
+                     errnoStr(errno).c_str());
       // fail back to malloc
     } else {
       return addr;

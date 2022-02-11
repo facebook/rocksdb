@@ -27,14 +27,14 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBOptionsTest : public DBTestBase {
  public:
-  DBOptionsTest() : DBTestBase("/db_options_test", /*env_do_fsync=*/true) {}
+  DBOptionsTest() : DBTestBase("db_options_test", /*env_do_fsync=*/true) {}
 
 #ifndef ROCKSDB_LITE
   std::unordered_map<std::string, std::string> GetMutableDBOptionsMap(
       const DBOptions& options) {
     std::string options_str;
     std::unordered_map<std::string, std::string> mutable_map;
-    ConfigOptions config_options;
+    ConfigOptions config_options(options);
     config_options.delimiter = "; ";
 
     EXPECT_OK(GetStringFromMutableDBOptions(
@@ -97,6 +97,66 @@ TEST_F(DBOptionsTest, ImmutableTrackAndVerifyWalsInManifest) {
 
 // RocksDB lite don't support dynamic options.
 #ifndef ROCKSDB_LITE
+
+TEST_F(DBOptionsTest, AvoidUpdatingOptions) {
+  Options options;
+  options.env = env_;
+  options.max_background_jobs = 4;
+  options.delayed_write_rate = 1024;
+
+  Reopen(options);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  bool is_changed_stats = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteOptionsFile:PersistOptions", [&](void* /*arg*/) {
+        ASSERT_FALSE(is_changed_stats);  // should only save options file once
+        is_changed_stats = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // helper function to check the status and reset after each check
+  auto is_changed = [&] {
+    bool ret = is_changed_stats;
+    is_changed_stats = false;
+    return ret;
+  };
+
+  // without changing the value, but it's sanitized to a different value
+  ASSERT_OK(dbfull()->SetDBOptions({{"bytes_per_sync", "0"}}));
+  ASSERT_TRUE(is_changed());
+
+  // without changing the value
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_background_jobs", "4"}}));
+  ASSERT_FALSE(is_changed());
+
+  // changing the value
+  ASSERT_OK(dbfull()->SetDBOptions({{"bytes_per_sync", "123"}}));
+  ASSERT_TRUE(is_changed());
+
+  // update again
+  ASSERT_OK(dbfull()->SetDBOptions({{"bytes_per_sync", "123"}}));
+  ASSERT_FALSE(is_changed());
+
+  // without changing a default value
+  ASSERT_OK(dbfull()->SetDBOptions({{"strict_bytes_per_sync", "false"}}));
+  ASSERT_FALSE(is_changed());
+
+  // now change
+  ASSERT_OK(dbfull()->SetDBOptions({{"strict_bytes_per_sync", "true"}}));
+  ASSERT_TRUE(is_changed());
+
+  // multiple values without change
+  ASSERT_OK(dbfull()->SetDBOptions(
+      {{"max_total_wal_size", "0"}, {"stats_dump_period_sec", "600"}}));
+  ASSERT_FALSE(is_changed());
+
+  // multiple values with change
+  ASSERT_OK(dbfull()->SetDBOptions(
+      {{"max_open_files", "100"}, {"stats_dump_period_sec", "600"}}));
+  ASSERT_TRUE(is_changed());
+}
 
 TEST_F(DBOptionsTest, GetLatestDBOptions) {
   // GetOptions should be able to get latest option changed by SetOptions.
@@ -204,6 +264,50 @@ TEST_F(DBOptionsTest, SetMutableTableOptions) {
             {"table_factory.block_restart_interval", "7"}}));
   ASSERT_EQ(c_bbto->block_size, 16384);
   ASSERT_EQ(c_bbto->block_restart_interval, 13);
+}
+
+TEST_F(DBOptionsTest, SetWithCustomMemTableFactory) {
+  class DummySkipListFactory : public SkipListFactory {
+   public:
+    static const char* kClassName() { return "DummySkipListFactory"; }
+    const char* Name() const override { return kClassName(); }
+    explicit DummySkipListFactory() : SkipListFactory(2) {}
+  };
+  {
+    // Verify the DummySkipList cannot be created
+    ConfigOptions config_options;
+    config_options.ignore_unsupported_options = false;
+    std::unique_ptr<MemTableRepFactory> factory;
+    ASSERT_NOK(MemTableRepFactory::CreateFromString(
+        config_options, DummySkipListFactory::kClassName(), &factory));
+  }
+  Options options;
+  options.create_if_missing = true;
+  // Try with fail_if_options_file_error=false/true to update the options
+  for (bool on_error : {false, true}) {
+    options.fail_if_options_file_error = on_error;
+    options.env = env_;
+    options.disable_auto_compactions = false;
+
+    options.memtable_factory.reset(new DummySkipListFactory());
+    Reopen(options);
+
+    ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+    ASSERT_OK(
+        dbfull()->SetOptions(cfh, {{"disable_auto_compactions", "true"}}));
+    ColumnFamilyDescriptor cfd;
+    ASSERT_OK(cfh->GetDescriptor(&cfd));
+    ASSERT_STREQ(cfd.options.memtable_factory->Name(),
+                 DummySkipListFactory::kClassName());
+    ColumnFamilyHandle* test = nullptr;
+    ASSERT_OK(dbfull()->CreateColumnFamily(options, "test", &test));
+    ASSERT_OK(test->GetDescriptor(&cfd));
+    ASSERT_STREQ(cfd.options.memtable_factory->Name(),
+                 DummySkipListFactory::kClassName());
+
+    ASSERT_OK(dbfull()->DropColumnFamily(test));
+    delete test;
+  }
 }
 
 TEST_F(DBOptionsTest, SetBytesPerSync) {
@@ -899,7 +1003,6 @@ TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
   options.env = &env;
 
   options.compaction_readahead_size = 0;
-  options.new_table_reader_for_compaction_inputs = true;
   options.level0_file_num_compaction_trigger = 2;
   const std::string kValue(1024, 'v');
   Reopen(options);

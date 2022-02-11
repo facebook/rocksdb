@@ -54,7 +54,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   CachableEntry<Block> block;
   s = RetrieveBlock(prefetch_buffer, ro, handle, dict, &block, block_type,
                     get_context, lookup_context, for_compaction,
-                    /* use_cache */ true);
+                    /* use_cache */ true, /* wait_for_cache */ true);
 
   if (!s.ok()) {
     assert(block.IsEmpty());
@@ -78,35 +78,21 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
                                        block_contents_pinned);
 
   if (!block.IsCached()) {
-    if (!ro.fill_cache && rep_->cache_key_prefix_size != 0) {
-      // insert a dummy record to block cache to track the memory usage
+    if (!ro.fill_cache) {
       Cache* const block_cache = rep_->table_options.block_cache.get();
-      Cache::Handle* cache_handle = nullptr;
-      // There are two other types of cache keys: 1) SST cache key added in
-      // `MaybeReadBlockAndLoadToCache` 2) dummy cache key added in
-      // `write_buffer_manager`. Use longer prefix (41 bytes) to differentiate
-      // from SST cache key(31 bytes), and use non-zero prefix to
-      // differentiate from `write_buffer_manager`
-      const size_t kExtraCacheKeyPrefix = kMaxVarint64Length * 4 + 1;
-      char cache_key[kExtraCacheKeyPrefix + kMaxVarint64Length];
-      // Prefix: use rep_->cache_key_prefix padded by 0s
-      memset(cache_key, 0, kExtraCacheKeyPrefix + kMaxVarint64Length);
-      assert(rep_->cache_key_prefix_size != 0);
-      assert(rep_->cache_key_prefix_size <= kExtraCacheKeyPrefix);
-      memcpy(cache_key, rep_->cache_key_prefix, rep_->cache_key_prefix_size);
-      char* end = EncodeVarint64(cache_key + kExtraCacheKeyPrefix,
-                                 next_cache_key_id_++);
-      assert(end - cache_key <=
-             static_cast<int>(kExtraCacheKeyPrefix + kMaxVarint64Length));
-      const Slice unique_key(cache_key, static_cast<size_t>(end - cache_key));
-      s = block_cache->Insert(unique_key, nullptr,
-                              block.GetValue()->ApproximateMemoryUsage(),
-                              nullptr, &cache_handle);
+      if (block_cache) {
+        // insert a dummy record to block cache to track the memory usage
+        Cache::Handle* cache_handle = nullptr;
+        CacheKey key = CacheKey::CreateUniqueForCacheLifetime(block_cache);
+        s = block_cache->Insert(key.AsSlice(), nullptr,
+                                block.GetValue()->ApproximateMemoryUsage(),
+                                nullptr, &cache_handle);
 
-      if (s.ok()) {
-        assert(cache_handle != nullptr);
-        iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache,
-                              cache_handle);
+        if (s.ok()) {
+          assert(cache_handle != nullptr);
+          iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache,
+                                cache_handle);
+        }
       }
     }
   } else {
@@ -150,34 +136,21 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(const ReadOptions& ro,
                                        iter, block_contents_pinned);
 
   if (!block.IsCached()) {
-    if (!ro.fill_cache && rep_->cache_key_prefix_size != 0) {
-      // insert a dummy record to block cache to track the memory usage
+    if (!ro.fill_cache) {
       Cache* const block_cache = rep_->table_options.block_cache.get();
-      Cache::Handle* cache_handle = nullptr;
-      // There are two other types of cache keys: 1) SST cache key added in
-      // `MaybeReadBlockAndLoadToCache` 2) dummy cache key added in
-      // `write_buffer_manager`. Use longer prefix (41 bytes) to differentiate
-      // from SST cache key(31 bytes), and use non-zero prefix to
-      // differentiate from `write_buffer_manager`
-      const size_t kExtraCacheKeyPrefix = kMaxVarint64Length * 4 + 1;
-      char cache_key[kExtraCacheKeyPrefix + kMaxVarint64Length];
-      // Prefix: use rep_->cache_key_prefix padded by 0s
-      memset(cache_key, 0, kExtraCacheKeyPrefix + kMaxVarint64Length);
-      assert(rep_->cache_key_prefix_size != 0);
-      assert(rep_->cache_key_prefix_size <= kExtraCacheKeyPrefix);
-      memcpy(cache_key, rep_->cache_key_prefix, rep_->cache_key_prefix_size);
-      char* end = EncodeVarint64(cache_key + kExtraCacheKeyPrefix,
-                                 next_cache_key_id_++);
-      assert(end - cache_key <=
-             static_cast<int>(kExtraCacheKeyPrefix + kMaxVarint64Length));
-      const Slice unique_key(cache_key, static_cast<size_t>(end - cache_key));
-      s = block_cache->Insert(unique_key, nullptr,
-                              block.GetValue()->ApproximateMemoryUsage(),
-                              nullptr, &cache_handle);
-      if (s.ok()) {
-        assert(cache_handle != nullptr);
-        iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache,
-                              cache_handle);
+      if (block_cache) {
+        // insert a dummy record to block cache to track the memory usage
+        Cache::Handle* cache_handle = nullptr;
+        CacheKey key = CacheKey::CreateUniqueForCacheLifetime(block_cache);
+        s = block_cache->Insert(key.AsSlice(), nullptr,
+                                block.GetValue()->ApproximateMemoryUsage(),
+                                nullptr, &cache_handle);
+
+        if (s.ok()) {
+          assert(cache_handle != nullptr);
+          iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache,
+                                cache_handle);
+        }
       }
     }
   } else {

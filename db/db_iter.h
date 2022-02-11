@@ -12,7 +12,6 @@
 #include <string>
 
 #include "db/db_impl/db_impl.h"
-#include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
 #include "memory/arena.h"
 #include "options/cf_options.h"
@@ -114,7 +113,7 @@ class DBIter final : public Iterator {
   };
 
   DBIter(Env* _env, const ReadOptions& read_options,
-         const ImmutableCFOptions& cf_options,
+         const ImmutableOptions& ioptions,
          const MutableCFOptions& mutable_cf_options, const Comparator* cmp,
          InternalIterator* iter, const Version* version, SequenceNumber s,
          bool arena_mode, uint64_t max_sequential_skip_in_iterations,
@@ -235,7 +234,7 @@ class DBIter final : public Iterator {
   // If `skipping_saved_key` is true, the function will keep iterating until it
   // finds a user key that is larger than `saved_key_`.
   // If `prefix` is not null, the iterator needs to stop when all keys for the
-  // prefix are exhausted and the interator is set to invalid.
+  // prefix are exhausted and the iterator is set to invalid.
   bool FindNextUserEntry(bool skipping_saved_key, const Slice* prefix);
   // Internal implementation of FindNextUserEntry().
   bool FindNextUserEntryInternal(bool skipping_saved_key, const Slice* prefix);
@@ -298,6 +297,8 @@ class DBIter final : public Iterator {
   // Retrieves the blob value for the specified user key using the given blob
   // index when using the integrated BlobDB implementation.
   bool SetBlobValueIfNeeded(const Slice& user_key, const Slice& blob_index);
+
+  Status Merge(const Slice* val, const Slice& user_key);
 
   const SliceTransform* prefix_extractor_;
   Env* const env_;
@@ -383,8 +384,7 @@ class DBIter final : public Iterator {
 // "*internal_iter") that were live at the specified `sequence` number
 // into appropriate user keys.
 extern Iterator* NewDBIterator(
-    Env* env, const ReadOptions& read_options,
-    const ImmutableCFOptions& cf_options,
+    Env* env, const ReadOptions& read_options, const ImmutableOptions& ioptions,
     const MutableCFOptions& mutable_cf_options,
     const Comparator* user_key_comparator, InternalIterator* internal_iter,
     const Version* version, const SequenceNumber& sequence,

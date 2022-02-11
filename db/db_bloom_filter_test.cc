@@ -7,11 +7,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <cstring>
+#include <iomanip>
+#include <sstream>
+
+#include "cache/cache_entry_roles.h"
+#include "cache/cache_reservation_manager.h"
 #include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/perf_context.h"
+#include "rocksdb/table.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/filter_policy_internal.h"
+#include "test_util/testutil.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -24,7 +35,7 @@ using BFP = BloomFilterPolicy;
 class DBBloomFilterTest : public DBTestBase {
  public:
   DBBloomFilterTest()
-      : DBTestBase("/db_bloom_filter_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_bloom_filter_test", /*env_do_fsync=*/true) {}
 };
 
 class DBBloomFilterTestWithParam : public DBTestBase,
@@ -38,7 +49,7 @@ class DBBloomFilterTestWithParam : public DBTestBase,
 
  public:
   DBBloomFilterTestWithParam()
-      : DBTestBase("/db_bloom_filter_tests", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_bloom_filter_tests", /*env_do_fsync=*/true) {}
 
   ~DBBloomFilterTestWithParam() override {}
 
@@ -209,11 +220,23 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloomCustomPrefixExtractor) {
         (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
 
     ro.total_order_seek = true;
-    ASSERT_TRUE(db_->Get(ro, "foobarbar", &value).IsNotFound());
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
+    // NOTE: total_order_seek no longer affects Get()
+    ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 3);
     ASSERT_EQ(
-        2,
+        3,
         (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+
+    // No bloom on extractor changed
+#ifndef ROCKSDB_LITE
+    ASSERT_OK(db_->SetOptions({{"prefix_extractor", "capped:10"}}));
+    ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 3);
+    ASSERT_EQ(
+        3,
+        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+#endif  // ROCKSDB_LITE
+
     get_perf_context()->Reset();
   }
 }
@@ -260,11 +283,23 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
 
     ro.total_order_seek = true;
-    ASSERT_TRUE(db_->Get(ro, "foobarbar", &value).IsNotFound());
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
+    // NOTE: total_order_seek no longer affects Get()
+    ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 3);
     ASSERT_EQ(
-        2,
+        3,
         (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+
+    // No bloom on extractor changed
+#ifndef ROCKSDB_LITE
+    ASSERT_OK(db_->SetOptions({{"prefix_extractor", "capped:10"}}));
+    ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 3);
+    ASSERT_EQ(
+        3,
+        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+#endif  // ROCKSDB_LITE
+
     get_perf_context()->Reset();
   }
 }
@@ -503,12 +538,189 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
       ASSERT_LE(reads, 3 * N / 100);
     }
 
+#ifndef ROCKSDB_LITE
+    // Sanity check some table properties
+    std::map<std::string, std::string> props;
+    ASSERT_TRUE(db_->GetMapProperty(
+        handles_[1], DB::Properties::kAggregatedTableProperties, &props));
+    uint64_t nkeys = N + N / 100;
+    uint64_t filter_size = ParseUint64(props["filter_size"]);
+    EXPECT_LE(filter_size,
+              (partition_filters_ ? 12 : 11) * nkeys / /*bits / byte*/ 8);
+    EXPECT_GE(filter_size, 10 * nkeys / /*bits / byte*/ 8);
+
+    uint64_t num_filter_entries = ParseUint64(props["num_filter_entries"]);
+    EXPECT_EQ(num_filter_entries, nkeys);
+#endif  // ROCKSDB_LITE
+
     env_->delay_sstable_sync_.store(false, std::memory_order_release);
     Close();
   } while (ChangeCompactOptions());
 }
 
-#ifndef ROCKSDB_VALGRIND_RUN
+namespace {
+
+class AlwaysTrueBitsBuilder : public FilterBitsBuilder {
+ public:
+  void AddKey(const Slice&) override {}
+  size_t EstimateEntriesAdded() override { return 0U; }
+  Slice Finish(std::unique_ptr<const char[]>* /* buf */) override {
+    // Interpreted as "always true" filter (0 probes over 1 byte of
+    // payload, 5 bytes metadata)
+    return Slice("\0\0\0\0\0\0", 6);
+  }
+  using FilterBitsBuilder::Finish;
+  size_t ApproximateNumEntries(size_t) override { return SIZE_MAX; }
+};
+
+class AlwaysTrueFilterPolicy : public BloomFilterPolicy {
+ public:
+  explicit AlwaysTrueFilterPolicy(bool skip)
+      : BloomFilterPolicy(/* ignored */ 10, /* ignored */ BFP::kAutoBloom),
+        skip_(skip) {}
+
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext&) const override {
+    if (skip_) {
+      return nullptr;
+    } else {
+      return new AlwaysTrueBitsBuilder();
+    }
+  }
+
+ private:
+  bool skip_;
+};
+
+}  // namespace
+
+TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
+  constexpr int maxKey = 10;
+  auto PutFn = [&]() {
+    int i;
+    // Put
+    for (i = 0; i < maxKey; i++) {
+      ASSERT_OK(Put(Key(i), Key(i)));
+    }
+    Flush();
+  };
+  auto GetFn = [&]() {
+    int i;
+    // Get OK
+    for (i = 0; i < maxKey; i++) {
+      ASSERT_EQ(Key(i), Get(Key(i)));
+    }
+    // Get NotFound
+    for (; i < maxKey * 2; i++) {
+      ASSERT_EQ(Get(Key(i)), "NOT_FOUND");
+    }
+  };
+  auto PutAndGetFn = [&]() {
+    PutFn();
+    GetFn();
+  };
+#ifndef ROCKSDB_LITE
+  std::map<std::string, std::string> props;
+  const auto& kAggTableProps = DB::Properties::kAggregatedTableProperties;
+#endif  // ROCKSDB_LITE
+
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.partition_filters = partition_filters_;
+  if (partition_filters_) {
+    table_options.index_type =
+        BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  }
+  table_options.format_version = format_version_;
+
+  // Test 1: bits per key < 0.5 means skip filters -> no filter
+  // constructed or read.
+  table_options.filter_policy.reset(new BFP(0.4, bfp_impl_));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  PutAndGetFn();
+
+  // Verify no filter access nor contruction
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE), 0);
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE), 0);
+
+#ifndef ROCKSDB_LITE
+  props.clear();
+  ASSERT_TRUE(db_->GetMapProperty(kAggTableProps, &props));
+  EXPECT_EQ(props["filter_size"], "0");
+#endif  // ROCKSDB_LITE
+
+  // Test 2: use custom API to skip filters -> no filter constructed
+  // or read.
+  table_options.filter_policy.reset(
+      new AlwaysTrueFilterPolicy(/* skip */ true));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  PutAndGetFn();
+
+  // Verify no filter access nor construction
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE), 0);
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE), 0);
+
+#ifndef ROCKSDB_LITE
+  props.clear();
+  ASSERT_TRUE(db_->GetMapProperty(kAggTableProps, &props));
+  EXPECT_EQ(props["filter_size"], "0");
+#endif  // ROCKSDB_LITE
+
+  // Control test: using an actual filter with 100% FP rate -> the filter
+  // is constructed and checked on read.
+  table_options.filter_policy.reset(
+      new AlwaysTrueFilterPolicy(/* skip */ false));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  PutAndGetFn();
+
+  // Verify filter is accessed (and constructed)
+  EXPECT_EQ(TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE),
+            maxKey * 2);
+  EXPECT_EQ(
+      TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE),
+      maxKey);
+#ifndef ROCKSDB_LITE
+  props.clear();
+  ASSERT_TRUE(db_->GetMapProperty(kAggTableProps, &props));
+  EXPECT_NE(props["filter_size"], "0");
+#endif  // ROCKSDB_LITE
+
+  // Test 3 (options test): Able to read existing filters with longstanding
+  // generated options file entry `filter_policy=rocksdb.BuiltinBloomFilter`
+  ASSERT_OK(FilterPolicy::CreateFromString(ConfigOptions(),
+                                           "rocksdb.BuiltinBloomFilter",
+                                           &table_options.filter_policy));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+  GetFn();
+
+  // Verify filter is accessed
+  EXPECT_EQ(TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE),
+            maxKey * 2);
+  EXPECT_EQ(
+      TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE),
+      maxKey);
+
+  // But new filters are not generated (configuration details unknown)
+  DestroyAndReopen(options);
+  PutAndGetFn();
+
+  // Verify no filter access nor construction
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE), 0);
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE), 0);
+
+#ifndef ROCKSDB_LITE
+  props.clear();
+  ASSERT_TRUE(db_->GetMapProperty(kAggTableProps, &props));
+  EXPECT_EQ(props["filter_size"], "0");
+#endif  // ROCKSDB_LITE
+}
+
+#if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestDefFormatVersion,
     ::testing::Values(
@@ -528,11 +740,10 @@ INSTANTIATE_TEST_CASE_P(
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, DBBloomFilterTestWithParam,
     ::testing::Values(
-        std::make_tuple(BFP::kDeprecatedBlock, false,
-                        test::kLatestFormatVersion),
-        std::make_tuple(BFP::kAutoBloom, true, test::kLatestFormatVersion),
-        std::make_tuple(BFP::kAutoBloom, false, test::kLatestFormatVersion)));
-#endif  // ROCKSDB_VALGRIND_RUN
+        std::make_tuple(BFP::kDeprecatedBlock, false, kLatestFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, true, kLatestFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, false, kLatestFormatVersion)));
+#endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
   while (ChangeFilterOptions()) {
@@ -647,82 +858,684 @@ TEST_F(DBBloomFilterTest, BloomFilterReverseCompatibility) {
   }
 }
 
-namespace {
-// A wrapped bloom over block-based FilterPolicy
-class TestingWrappedBlockBasedFilterPolicy : public FilterPolicy {
+/*
+ * A cache wrapper that tracks peaks and increments of filter
+ * construction cache reservation.
+ *        p0
+ *       / \   p1
+ *      /   \  /\
+ *     /     \/  \
+ *  a /       b   \
+ * peaks = {p0, p1}
+ * increments = {p1-a, p2-b}
+ */
+class FilterConstructResPeakTrackingCache : public CacheWrapper {
  public:
-  explicit TestingWrappedBlockBasedFilterPolicy(int bits_per_key)
-      : filter_(NewBloomFilterPolicy(bits_per_key, true)), counter_(0) {}
+  explicit FilterConstructResPeakTrackingCache(std::shared_ptr<Cache> target)
+      : CacheWrapper(std::move(target)),
+        cur_cache_res_(0),
+        cache_res_peak_(0),
+        cache_res_increment_(0),
+        last_peak_tracked_(false),
+        cache_res_increments_sum_(0) {}
 
-  ~TestingWrappedBlockBasedFilterPolicy() override { delete filter_; }
-
-  const char* Name() const override {
-    return "TestingWrappedBlockBasedFilterPolicy";
-  }
-
-  void CreateFilter(const ROCKSDB_NAMESPACE::Slice* keys, int n,
-                    std::string* dst) const override {
-    std::unique_ptr<ROCKSDB_NAMESPACE::Slice[]> user_keys(
-        new ROCKSDB_NAMESPACE::Slice[n]);
-    for (int i = 0; i < n; ++i) {
-      user_keys[i] = convertKey(keys[i]);
+  using Cache::Insert;
+  Status Insert(const Slice& key, void* value, size_t charge,
+                void (*deleter)(const Slice& key, void* value),
+                Handle** handle = nullptr,
+                Priority priority = Priority::LOW) override {
+    Status s = target_->Insert(key, value, charge, deleter, handle, priority);
+    if (deleter == kNoopDeleterForFilterConstruction) {
+      if (last_peak_tracked_) {
+        cache_res_peak_ = 0;
+        cache_res_increment_ = 0;
+        last_peak_tracked_ = false;
+      }
+      cur_cache_res_ += charge;
+      cache_res_peak_ = std::max(cache_res_peak_, cur_cache_res_);
+      cache_res_increment_ += charge;
     }
-    return filter_->CreateFilter(user_keys.get(), n, dst);
+    return s;
   }
 
-  bool KeyMayMatch(const ROCKSDB_NAMESPACE::Slice& key,
-                   const ROCKSDB_NAMESPACE::Slice& filter) const override {
-    counter_++;
-    return filter_->KeyMayMatch(convertKey(key), filter);
+  using Cache::Release;
+  bool Release(Handle* handle, bool force_erase = false) override {
+    auto deleter = GetDeleter(handle);
+    if (deleter == kNoopDeleterForFilterConstruction) {
+      if (!last_peak_tracked_) {
+        cache_res_peaks_.push_back(cache_res_peak_);
+        cache_res_increments_sum_ += cache_res_increment_;
+        last_peak_tracked_ = true;
+      }
+      cur_cache_res_ -= GetCharge(handle);
+    }
+    bool is_successful = target_->Release(handle, force_erase);
+    return is_successful;
   }
 
-  uint32_t GetCounter() { return counter_; }
+  std::deque<std::size_t> GetReservedCachePeaks() { return cache_res_peaks_; }
+
+  std::size_t GetReservedCacheIncrementSum() {
+    return cache_res_increments_sum_;
+  }
 
  private:
-  const FilterPolicy* filter_;
-  mutable uint32_t counter_;
+  static const Cache::DeleterFn kNoopDeleterForFilterConstruction;
 
-  ROCKSDB_NAMESPACE::Slice convertKey(
-      const ROCKSDB_NAMESPACE::Slice& key) const {
-    return key;
-  }
+  std::size_t cur_cache_res_;
+  std::size_t cache_res_peak_;
+  std::size_t cache_res_increment_;
+  bool last_peak_tracked_;
+  std::deque<std::size_t> cache_res_peaks_;
+  std::size_t cache_res_increments_sum_;
 };
-}  // namespace
 
-TEST_F(DBBloomFilterTest, WrappedBlockBasedFilterPolicy) {
+const Cache::DeleterFn
+    FilterConstructResPeakTrackingCache::kNoopDeleterForFilterConstruction =
+        CacheReservationManager::TEST_GetNoopDeleterForRole<
+            CacheEntryRole::kFilterConstruction>();
+
+// To align with the type of hash entry being reserved in implementation.
+using FilterConstructionReserveMemoryHash = uint64_t;
+
+class DBFilterConstructionReserveMemoryTestWithParam
+    : public DBTestBase,
+      public testing::WithParamInterface<
+          std::tuple<bool, BloomFilterPolicy::Mode, bool, bool>> {
+ public:
+  DBFilterConstructionReserveMemoryTestWithParam()
+      : DBTestBase("db_bloom_filter_tests",
+                   /*env_do_fsync=*/true),
+        num_key_(0),
+        reserve_table_builder_memory_(std::get<0>(GetParam())),
+        policy_(std::get<1>(GetParam())),
+        partition_filters_(std::get<2>(GetParam())),
+        detect_filter_construct_corruption_(std::get<3>(GetParam())) {
+    if (!reserve_table_builder_memory_ ||
+        policy_ == BloomFilterPolicy::Mode::kDeprecatedBlock ||
+        policy_ == BloomFilterPolicy::Mode::kLegacyBloom) {
+      // For these cases, we only interested in whether filter construction
+      // cache resevation happens instead of its accuracy. Therefore we don't
+      // need many keys.
+      num_key_ = 5;
+    } else if (partition_filters_) {
+      // For PartitionFilter case, since we set
+      // table_options.metadata_block_size big enough such that each partition
+      // trigger at least 1 dummy entry reservation each for hash entries and
+      // final filter, we need a large number of keys to ensure we have at least
+      // two partitions.
+      num_key_ = 18 * CacheReservationManager::GetDummyEntrySize() /
+                 sizeof(FilterConstructionReserveMemoryHash);
+    } else if (policy_ == BloomFilterPolicy::Mode::kFastLocalBloom) {
+      // For Bloom Filter + FullFilter case, since we design the num_key_ to
+      // make hash entry cache reservation be a multiple of dummy entries, the
+      // correct behavior of charging final filter on top of it will trigger at
+      // least another dummy entry insertion. Therefore we can assert that
+      // behavior and we don't need a large number of keys to verify we
+      // indeed charge the final filter for cache reservation, even though final
+      // filter is a lot smaller than hash entries.
+      num_key_ = 1 * CacheReservationManager::GetDummyEntrySize() /
+                 sizeof(FilterConstructionReserveMemoryHash);
+    } else {
+      // For Ribbon Filter + FullFilter case, we need a large enough number of
+      // keys so that charging final filter after releasing the hash entries
+      // reservation will trigger at least another dummy entry (or equivalently
+      // to saying, causing another peak in cache reservation) as banding
+      // reservation might not be a multiple of dummy entry.
+      num_key_ = 12 * CacheReservationManager::GetDummyEntrySize() /
+                 sizeof(FilterConstructionReserveMemoryHash);
+    }
+  }
+
+  BlockBasedTableOptions GetBlockBasedTableOptions() {
+    BlockBasedTableOptions table_options;
+
+    // We set cache capacity big enough to prevent cache full for convenience in
+    // calculation.
+    constexpr std::size_t kCacheCapacity = 100 * 1024 * 1024;
+
+    table_options.reserve_table_builder_memory = reserve_table_builder_memory_;
+    table_options.filter_policy.reset(new BloomFilterPolicy(10, policy_));
+    table_options.partition_filters = partition_filters_;
+    if (table_options.partition_filters) {
+      table_options.index_type =
+          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+      // We set table_options.metadata_block_size big enough so that each
+      // partition trigger at least 1 dummy entry insertion each for hash
+      // entries and final filter.
+      table_options.metadata_block_size = 409000;
+    }
+    table_options.detect_filter_construct_corruption =
+        detect_filter_construct_corruption_;
+
+    LRUCacheOptions lo;
+    lo.capacity = kCacheCapacity;
+    lo.num_shard_bits = 0;  // 2^0 shard
+    lo.strict_capacity_limit = true;
+    cache_ = std::make_shared<FilterConstructResPeakTrackingCache>(
+        (NewLRUCache(lo)));
+    table_options.block_cache = cache_;
+
+    return table_options;
+  }
+
+  std::size_t GetNumKey() { return num_key_; }
+
+  bool ReserveTableBuilderMemory() { return reserve_table_builder_memory_; }
+
+  BloomFilterPolicy::Mode GetFilterPolicy() { return policy_; }
+
+  bool PartitionFilters() { return partition_filters_; }
+
+  std::shared_ptr<FilterConstructResPeakTrackingCache>
+  GetFilterConstructResPeakTrackingCache() {
+    return cache_;
+  }
+
+ private:
+  std::size_t num_key_;
+  bool reserve_table_builder_memory_;
+  BloomFilterPolicy::Mode policy_;
+  bool partition_filters_;
+  std::shared_ptr<FilterConstructResPeakTrackingCache> cache_;
+  bool detect_filter_construct_corruption_;
+};
+
+INSTANTIATE_TEST_CASE_P(
+    BlockBasedTableOptions, DBFilterConstructionReserveMemoryTestWithParam,
+    ::testing::Values(
+        std::make_tuple(false, BloomFilterPolicy::Mode::kFastLocalBloom, false,
+                        false),
+
+        std::make_tuple(true, BloomFilterPolicy::Mode::kFastLocalBloom, false,
+                        false),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kFastLocalBloom, false,
+                        true),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kFastLocalBloom, true,
+                        false),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kFastLocalBloom, true,
+                        true),
+
+        std::make_tuple(true, BloomFilterPolicy::Mode::kStandard128Ribbon,
+                        false, false),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kStandard128Ribbon,
+                        false, true),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kStandard128Ribbon, true,
+                        false),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kStandard128Ribbon, true,
+                        true),
+
+        std::make_tuple(true, BloomFilterPolicy::Mode::kDeprecatedBlock, false,
+                        false),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kLegacyBloom, false,
+                        false)));
+
+// TODO: Speed up this test.
+// The current test inserts many keys (on the scale of dummy entry size)
+// in order to make small memory user (e.g, final filter, partitioned hash
+// entries/filter/banding) , which is proportional to the number of
+// keys, big enough so that its cache reservation triggers dummy entry insertion
+// and becomes observable in the test.
+//
+// However, inserting that many keys slows down this test and leaves future
+// developers an opportunity to speed it up.
+//
+// Possible approaches & challenges:
+// 1. Use sync point during cache reservation of filter construction
+//
+// Benefit: It does not rely on triggering dummy entry insertion
+// but the sync point to verify small memory user is charged correctly.
+//
+// Challenge: this approach is intrusive.
+//
+// 2. Make dummy entry size configurable and set it small in the test
+//
+// Benefit: It increases the precision of cache reservation and therefore
+// small memory usage can still trigger insertion of dummy entry.
+//
+// Challenge: change CacheReservationManager related APIs and a hack
+// might be needed to control the size of dummmy entry of
+// CacheReservationManager used in filter construction for testing
+// since CacheReservationManager is not exposed at the high level.
+//
+TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
   Options options = CurrentOptions();
-  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-
-  BlockBasedTableOptions table_options;
-  TestingWrappedBlockBasedFilterPolicy* policy =
-      new TestingWrappedBlockBasedFilterPolicy(10);
-  table_options.filter_policy.reset(policy);
+  // We set write_buffer_size big enough so that in the case where there is
+  // filter construction cache reservation, flush won't be triggered before we
+  // manually trigger it for clean testing
+  options.write_buffer_size = 640 << 20;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-
-  CreateAndReopenWithCF({"pikachu"}, options);
-
-  const int maxKey = 10000;
-  for (int i = 0; i < maxKey; i++) {
-    ASSERT_OK(Put(1, Key(i), Key(i)));
+  std::shared_ptr<FilterConstructResPeakTrackingCache> cache =
+      GetFilterConstructResPeakTrackingCache();
+  options.create_if_missing = true;
+  // Disable auto compaction to prevent its unexpected side effect
+  // to the number of keys per partition designed by us in the test
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  int num_key = static_cast<int>(GetNumKey());
+  for (int i = 0; i < num_key; i++) {
+    ASSERT_OK(Put(Key(i), Key(i)));
   }
-  // Add a large key to make the file contain wide range
-  ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
-  ASSERT_EQ(0U, policy->GetCounter());
-  Flush(1);
 
-  // Check if they can be found
-  for (int i = 0; i < maxKey; i++) {
-    ASSERT_EQ(Key(i), Get(1, Key(i)));
-  }
-  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
-  ASSERT_EQ(1U * maxKey, policy->GetCounter());
+  ASSERT_EQ(cache->GetReservedCacheIncrementSum(), 0)
+      << "Flush was triggered too early in the test case with filter "
+         "construction cache reservation - please make sure no flush triggered "
+         "during the key insertions above";
 
-  // Check if filter is useful
-  for (int i = 0; i < maxKey; i++) {
-    ASSERT_EQ("NOT_FOUND", Get(1, Key(i + 33333)));
+  ASSERT_OK(Flush());
+
+  bool reserve_table_builder_memory = ReserveTableBuilderMemory();
+  BloomFilterPolicy::Mode policy = GetFilterPolicy();
+  bool partition_filters = PartitionFilters();
+  bool detect_filter_construct_corruption =
+      table_options.detect_filter_construct_corruption;
+
+  std::deque<std::size_t> filter_construction_cache_res_peaks =
+      cache->GetReservedCachePeaks();
+  std::size_t filter_construction_cache_res_increments_sum =
+      cache->GetReservedCacheIncrementSum();
+
+  if (!reserve_table_builder_memory) {
+    EXPECT_EQ(filter_construction_cache_res_peaks.size(), 0);
+    return;
   }
-  ASSERT_GE(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), maxKey * 0.98);
-  ASSERT_EQ(2U * maxKey, policy->GetCounter());
+
+  if (policy == BloomFilterPolicy::Mode::kDeprecatedBlock ||
+      policy == BloomFilterPolicy::Mode::kLegacyBloom) {
+    EXPECT_EQ(filter_construction_cache_res_peaks.size(), 0)
+        << "There shouldn't be filter construction cache reservation as this "
+           "feature does not support BloomFilterPolicy::Mode::kDeprecatedBlock "
+           "nor BloomFilterPolicy::Mode::kLegacyBloom";
+    return;
+  }
+
+  const std::size_t kDummyEntrySize =
+      CacheReservationManager::GetDummyEntrySize();
+
+  const std::size_t predicted_hash_entries_cache_res =
+      num_key * sizeof(FilterConstructionReserveMemoryHash);
+  ASSERT_EQ(predicted_hash_entries_cache_res % kDummyEntrySize, 0)
+      << "It's by this test's design that predicted_hash_entries_cache_res is "
+         "a multipe of dummy entry";
+
+  const std::size_t predicted_hash_entries_cache_res_dummy_entry_num =
+      predicted_hash_entries_cache_res / kDummyEntrySize;
+  const std::size_t predicted_final_filter_cache_res =
+      static_cast<std::size_t>(std::ceil(
+          1.0 * predicted_hash_entries_cache_res_dummy_entry_num / 6 *
+          (policy == BloomFilterPolicy::Mode::kStandard128Ribbon ? 0.7 : 1))) *
+      kDummyEntrySize;
+  const std::size_t predicted_banding_cache_res =
+      static_cast<std::size_t>(
+          std::ceil(predicted_hash_entries_cache_res_dummy_entry_num * 2.5)) *
+      kDummyEntrySize;
+
+  if (policy == BloomFilterPolicy::Mode::kFastLocalBloom) {
+    /* BloomFilterPolicy::Mode::kFastLocalBloom + FullFilter
+     *        p0
+     *       /  \
+     *    b /    \
+     *     /      \
+     *    /        \
+     *  0/          \
+     *  hash entries = b - 0, final filter = p0 - b
+     *  p0 = hash entries + final filter
+     *
+     *  The test is designed in a way such that the reservation for b is a
+     *  multiple of dummy entries so that reservation for (p0 - b)
+     *  will trigger at least another dummy entry insertion.
+     *
+     * BloomFilterPolicy::Mode::kFastLocalBloom + FullFilter +
+     * detect_filter_construct_corruption
+     *  The peak p0 stays the same as
+     *  (BloomFilterPolicy::Mode::kFastLocalBloom + FullFilter) but just lasts
+     *  longer since we release hash entries reservation later.
+     *
+     * BloomFilterPolicy::Mode::kFastLocalBloom + PartitionedFilter
+     *                   p1
+     *                  /  \
+     *        p0     b'/    \
+     *       /  \     /      \
+     *    b /    \   /        \
+     *     /      \ /          \
+     *    /        a            \
+     *  0/                       \
+     *  partitioned hash entries1 = b - 0, partitioned hash entries1 = b' - a
+     *  parittioned final filter1 = p0 - b, parittioned final filter2 = p1 - b'
+     *
+     *  (increment p0 - 0) + (increment p1 - a)
+     *  = partitioned hash entries1 + partitioned hash entries2
+     *  + parittioned final filter1 + parittioned final filter2
+     *  = hash entries + final filter
+     *
+     * BloomFilterPolicy::Mode::kFastLocalBloom + PartitionedFilter +
+     * detect_filter_construct_corruption
+     *  The peak p0, p1 stay the same as
+     *  (BloomFilterPolicy::Mode::kFastLocalBloom + PartitionedFilter) but just
+     *  last longer since we release hash entries reservation later.
+     *
+     */
+    if (!partition_filters) {
+      EXPECT_EQ(filter_construction_cache_res_peaks.size(), 1)
+          << "Filter construction cache reservation should have only 1 peak in "
+             "case: BloomFilterPolicy::Mode::kFastLocalBloom + FullFilter";
+      std::size_t filter_construction_cache_res_peak =
+          filter_construction_cache_res_peaks[0];
+      EXPECT_GT(filter_construction_cache_res_peak,
+                predicted_hash_entries_cache_res)
+          << "The testing number of hash entries is designed to make hash "
+             "entries cache reservation be multiples of dummy entries"
+             " so the correct behavior of charging final filter on top of it"
+             " should've triggered at least another dummy entry insertion";
+
+      std::size_t predicted_filter_construction_cache_res_peak =
+          predicted_hash_entries_cache_res + predicted_final_filter_cache_res;
+      EXPECT_GE(filter_construction_cache_res_peak,
+                predicted_filter_construction_cache_res_peak * 0.9);
+      EXPECT_LE(filter_construction_cache_res_peak,
+                predicted_filter_construction_cache_res_peak * 1.1);
+      return;
+    } else {
+      EXPECT_GE(filter_construction_cache_res_peaks.size(), 2)
+          << "Filter construction cache reservation should have multiple peaks "
+             "in case: BloomFilterPolicy::Mode::kFastLocalBloom + "
+             "PartitionedFilter";
+      std::size_t predicted_filter_construction_cache_res_increments_sum =
+          predicted_hash_entries_cache_res + predicted_final_filter_cache_res;
+      EXPECT_GE(filter_construction_cache_res_increments_sum,
+                predicted_filter_construction_cache_res_increments_sum * 0.9);
+      EXPECT_LE(filter_construction_cache_res_increments_sum,
+                predicted_filter_construction_cache_res_increments_sum * 1.1);
+      return;
+    }
+  }
+
+  if (policy == BloomFilterPolicy::Mode::kStandard128Ribbon) {
+    /* BloomFilterPolicy::Mode::kStandard128Ribbon + FullFilter
+     *        p0
+     *       /  \  p1
+     *      /    \/\
+     *   b /     b' \
+     *    /          \
+     *  0/            \
+     *  hash entries = b - 0, banding = p0 - b, final filter = p1 - b'
+     *  p0 = hash entries + banding
+     *
+     *  The test is designed in a way such that the reservation for (p1 - b')
+     *  will trigger at least another dummy entry insertion
+     *  (or equivelantly to saying, creating another peak).
+     *
+     * BloomFilterPolicy::Mode::kStandard128Ribbon + FullFilter +
+     * detect_filter_construct_corruption
+     *
+     *         new p0
+     *          /  \
+     *         /    \
+     *     pre p0    \
+     *       /        \
+     *      /          \
+     *   b /            \
+     *    /              \
+     *  0/                \
+     *  hash entries = b - 0, banding = pre p0 - b,
+     *  final filter = new p0 - pre p0
+     *  new p0 =  hash entries + banding + final filter
+     *
+     *  The previous p0 will no longer be a peak since under
+     *  detect_filter_construct_corruption == true, we do not release hash
+     *  entries reserveration (like p0 - b' previously) until after final filter
+     *  creation and post-verification
+     *
+     * BloomFilterPolicy::Mode::kStandard128Ribbon + PartitionedFilter
+     *                     p3
+     *        p0           /\  p4
+     *       /  \ p1      /  \ /\
+     *      /    \/\  b''/    a' \
+     *   b /     b' \   /         \
+     *    /          \ /           \
+     *  0/            a             \
+     *  partitioned hash entries1 = b - 0, partitioned hash entries2 = b'' - a
+     *  partitioned banding1 = p0 - b, partitioned banding2 = p3 - b''
+     *  parittioned final filter1 = p1 - b',parittioned final filter2 = p4 - a'
+     *
+     *  (increment p0 - 0) + (increment p1 - b')
+     *  + (increment p3 - a) + (increment p4 - a')
+     *  = partitioned hash entries1 + partitioned hash entries2
+     *  + parittioned banding1 + parittioned banding2
+     *  + parittioned final filter1 + parittioned final filter2
+     *  = hash entries + banding + final filter
+     *
+     * BloomFilterPolicy::Mode::kStandard128Ribbon + PartitionedFilter +
+     * detect_filter_construct_corruption
+     *
+     *                          new p3
+     *                          /    \
+     *                        pre p3  \
+     *        new p0          /        \
+     *         /  \          /          \
+     *      pre p0 \        /            \
+     *       /      \    b'/              \
+     *      /        \    /                \
+     *   b /          \  /                  \
+     *    /            \a                    \
+     *  0/                                    \
+     *  partitioned hash entries1 = b - 0, partitioned hash entries2 = b' - a
+     *  partitioned banding1 = pre p0 - b, partitioned banding2 = pre p3 - b'
+     *  parittioned final filter1 = new p0 - pre p0,
+     *  parittioned final filter2 = new p3 - pre p3
+     *
+     *  The previous p0 and p3 will no longer be a peak since under
+     *  detect_filter_construct_corruption == true, we do not release hash
+     *  entries reserveration (like p0 - b', p3 - a' previously) until after
+     *  parittioned final filter creation and post-verification
+     *
+     *  However, increments sum stay the same as shown below:
+     *    (increment new p0 - 0) + (increment new p3 - a)
+     *  = partitioned hash entries1 + partitioned hash entries2
+     *  + parittioned banding1 + parittioned banding2
+     *  + parittioned final filter1 + parittioned final filter2
+     *  = hash entries + banding + final filter
+     *
+     */
+    if (!partition_filters) {
+      ASSERT_GE(std::floor(1.0 * predicted_final_filter_cache_res /
+                           CacheReservationManager::GetDummyEntrySize()),
+                1)
+          << "Final filter cache reservation too small for this test - please "
+             "increase the number of keys";
+      if (!detect_filter_construct_corruption) {
+        EXPECT_EQ(filter_construction_cache_res_peaks.size(), 2)
+            << "Filter construction cache reservation should have 2 peaks in "
+               "case: BloomFilterPolicy::Mode::kStandard128Ribbon + "
+               "FullFilter. "
+               "The second peak is resulted from charging the final filter "
+               "after "
+               "decreasing the hash entry reservation since the testing final "
+               "filter reservation is designed to be at least 1 dummy entry "
+               "size";
+
+        std::size_t filter_construction_cache_res_peak =
+            filter_construction_cache_res_peaks[0];
+        std::size_t predicted_filter_construction_cache_res_peak =
+            predicted_hash_entries_cache_res + predicted_banding_cache_res;
+        EXPECT_GE(filter_construction_cache_res_peak,
+                  predicted_filter_construction_cache_res_peak * 0.9);
+        EXPECT_LE(filter_construction_cache_res_peak,
+                  predicted_filter_construction_cache_res_peak * 1.1);
+      } else {
+        EXPECT_EQ(filter_construction_cache_res_peaks.size(), 1)
+            << "Filter construction cache reservation should have 1 peaks in "
+               "case: BloomFilterPolicy::Mode::kStandard128Ribbon + FullFilter "
+               "+ detect_filter_construct_corruption. "
+               "The previous second peak now disappears since we don't "
+               "decrease the hash entry reservation"
+               "until after final filter reservation and post-verification";
+
+        std::size_t filter_construction_cache_res_peak =
+            filter_construction_cache_res_peaks[0];
+        std::size_t predicted_filter_construction_cache_res_peak =
+            predicted_hash_entries_cache_res + predicted_banding_cache_res +
+            predicted_final_filter_cache_res;
+        EXPECT_GE(filter_construction_cache_res_peak,
+                  predicted_filter_construction_cache_res_peak * 0.9);
+        EXPECT_LE(filter_construction_cache_res_peak,
+                  predicted_filter_construction_cache_res_peak * 1.1);
+      }
+      return;
+    } else {
+      if (!detect_filter_construct_corruption) {
+        EXPECT_GE(filter_construction_cache_res_peaks.size(), 3)
+            << "Filter construction cache reservation should have more than 3 "
+               "peaks "
+               "in case: BloomFilterPolicy::Mode::kStandard128Ribbon + "
+               "PartitionedFilter";
+      } else {
+        EXPECT_GE(filter_construction_cache_res_peaks.size(), 2)
+            << "Filter construction cache reservation should have more than 2 "
+               "peaks "
+               "in case: BloomFilterPolicy::Mode::kStandard128Ribbon + "
+               "PartitionedFilter + detect_filter_construct_corruption";
+      }
+      std::size_t predicted_filter_construction_cache_res_increments_sum =
+          predicted_hash_entries_cache_res + predicted_banding_cache_res +
+          predicted_final_filter_cache_res;
+      EXPECT_GE(filter_construction_cache_res_increments_sum,
+                predicted_filter_construction_cache_res_increments_sum * 0.9);
+      EXPECT_LE(filter_construction_cache_res_increments_sum,
+                predicted_filter_construction_cache_res_increments_sum * 1.1);
+      return;
+    }
+  }
+}
+
+class DBFilterConstructionCorruptionTestWithParam
+    : public DBTestBase,
+      public testing::WithParamInterface<
+          std::tuple<bool /* detect_filter_construct_corruption */,
+                     BloomFilterPolicy::Mode, bool /* partition_filters */>> {
+ public:
+  DBFilterConstructionCorruptionTestWithParam()
+      : DBTestBase("db_bloom_filter_tests",
+                   /*env_do_fsync=*/true) {}
+
+  BlockBasedTableOptions GetBlockBasedTableOptions() {
+    BlockBasedTableOptions table_options;
+    table_options.detect_filter_construct_corruption = std::get<0>(GetParam());
+    table_options.filter_policy.reset(
+        new BloomFilterPolicy(10, std::get<1>(GetParam())));
+    table_options.partition_filters = std::get<2>(GetParam());
+    if (table_options.partition_filters) {
+      table_options.index_type =
+          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+      // We set table_options.metadata_block_size small enough so we can
+      // trigger filter partitioning with GetNumKey() amount of keys
+      table_options.metadata_block_size = 10;
+    }
+
+    return table_options;
+  }
+
+  // Return an appropriate amount of keys for testing
+  // to generate a long filter (i.e, size >= 8 + kMetadataLen)
+  std::size_t GetNumKey() { return 5000; }
+};
+
+INSTANTIATE_TEST_CASE_P(
+    DBFilterConstructionCorruptionTestWithParam,
+    DBFilterConstructionCorruptionTestWithParam,
+    ::testing::Values(
+        std::make_tuple(false, BloomFilterPolicy::Mode::kFastLocalBloom, false),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kFastLocalBloom, false),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kFastLocalBloom, true),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kStandard128Ribbon,
+                        false),
+        std::make_tuple(true, BloomFilterPolicy::Mode::kStandard128Ribbon,
+                        true)));
+
+TEST_P(DBFilterConstructionCorruptionTestWithParam, DetectCorruption) {
+  Options options = CurrentOptions();
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+  int num_key = static_cast<int>(GetNumKey());
+  Status s;
+
+  // Case 1: No corruption in filter construction
+  for (int i = 0; i < num_key; i++) {
+    ASSERT_OK(Put(Key(i), Key(i)));
+  }
+  s = Flush();
+  EXPECT_TRUE(s.ok());
+
+  // Case 2: Corruption of hash entries in filter construction
+  for (int i = 0; i < num_key; i++) {
+    ASSERT_OK(Put(Key(i), Key(i)));
+  }
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "XXPH3FilterBitsBuilder::Finish::TamperHashEntries", [&](void* arg) {
+        std::deque<uint64_t>* hash_entries_to_corrupt =
+            (std::deque<uint64_t>*)arg;
+        assert(!hash_entries_to_corrupt->empty());
+        *(hash_entries_to_corrupt->begin()) =
+            *(hash_entries_to_corrupt->begin()) ^ uint64_t { 1 };
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  s = Flush();
+
+  if (table_options.detect_filter_construct_corruption) {
+    EXPECT_TRUE(s.IsCorruption());
+    EXPECT_TRUE(
+        s.ToString().find("Filter's hash entries checksum mismatched") !=
+        std::string::npos);
+  } else {
+    EXPECT_TRUE(s.ok());
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearCallBack(
+      "XXPH3FilterBitsBuilder::Finish::"
+      "TamperHashEntries");
+
+  // Case 3: Corruption of filter content in filter construction
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < num_key; i++) {
+    ASSERT_OK(Put(Key(i), Key(i)));
+  }
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "XXPH3FilterBitsBuilder::Finish::TamperFilter", [&](void* arg) {
+        std::pair<std::unique_ptr<char[]>*, std::size_t>* TEST_arg_pair =
+            (std::pair<std::unique_ptr<char[]>*, std::size_t>*)arg;
+        std::size_t filter_size = TEST_arg_pair->second;
+        // 5 is the kMetadataLen and
+        assert(filter_size >= 8 + 5);
+        std::unique_ptr<char[]>* filter_content_to_corrupt =
+            TEST_arg_pair->first;
+        std::memset(filter_content_to_corrupt->get(), '\0', 8);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  s = Flush();
+
+  if (table_options.detect_filter_construct_corruption) {
+    EXPECT_TRUE(s.IsCorruption());
+    EXPECT_TRUE(s.ToString().find("Corrupted filter content") !=
+                std::string::npos);
+  } else {
+    EXPECT_TRUE(s.ok());
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearCallBack(
+      "XXPH3FilterBitsBuilder::Finish::"
+      "TamperFilter");
 }
 
 namespace {
@@ -757,19 +1570,19 @@ class LevelAndStyleCustomFilterPolicy : public FilterPolicy {
     return policy_fifo_->GetFilterBitsReader(contents);
   }
 
-  // Defer just in case configuration uses block-based filter
-  void CreateFilter(const Slice* keys, int n, std::string* dst) const override {
-    policy_otherwise_->CreateFilter(keys, n, dst);
-  }
-  bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
-    return policy_otherwise_->KeyMayMatch(key, filter);
-  }
-
  private:
   const std::unique_ptr<const FilterPolicy> policy_fifo_;
   const std::unique_ptr<const FilterPolicy> policy_l0_other_;
   const std::unique_ptr<const FilterPolicy> policy_otherwise_;
 };
+
+static std::map<TableFileCreationReason, std::string>
+    table_file_creation_reason_to_string{
+        {TableFileCreationReason::kCompaction, "kCompaction"},
+        {TableFileCreationReason::kFlush, "kFlush"},
+        {TableFileCreationReason::kMisc, "kMisc"},
+        {TableFileCreationReason::kRecovery, "kRecovery"},
+    };
 
 class TestingContextCustomFilterPolicy
     : public LevelAndStyleCustomFilterPolicy {
@@ -783,11 +1596,17 @@ class TestingContextCustomFilterPolicy
       const FilterBuildingContext& context) const override {
     test_report_ += "cf=";
     test_report_ += context.column_family_name;
-    test_report_ += ",cs=";
+    test_report_ += ",s=";
     test_report_ +=
         OptionsHelper::compaction_style_to_string[context.compaction_style];
-    test_report_ += ",lv=";
-    test_report_ += std::to_string(context.level_at_creation);
+    test_report_ += ",n=";
+    test_report_ += ToString(context.num_levels);
+    test_report_ += ",l=";
+    test_report_ += ToString(context.level_at_creation);
+    test_report_ += ",b=";
+    test_report_ += ToString(int{context.is_bottommost});
+    test_report_ += ",r=";
+    test_report_ += table_file_creation_reason_to_string[context.reason];
     test_report_ += "\n";
 
     return LevelAndStyleCustomFilterPolicy::GetBuilderWithContext(context);
@@ -805,18 +1624,21 @@ class TestingContextCustomFilterPolicy
 }  // namespace
 
 TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
+  auto policy = std::make_shared<TestingContextCustomFilterPolicy>(15, 8, 5);
+  Options options;
   for (bool fifo : {true, false}) {
-    Options options = CurrentOptions();
+    options = CurrentOptions();
+    options.max_open_files = fifo ? -1 : options.max_open_files;
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options.compaction_style =
         fifo ? kCompactionStyleFIFO : kCompactionStyleLevel;
 
     BlockBasedTableOptions table_options;
-    auto policy = std::make_shared<TestingContextCustomFilterPolicy>(15, 8, 5);
     table_options.filter_policy = policy;
     table_options.format_version = 5;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
+    TryReopen(options);
     CreateAndReopenWithCF({fifo ? "abe" : "bob"}, options);
 
     const int maxKey = 10000;
@@ -827,16 +1649,16 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
     ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
     Flush(1);
     EXPECT_EQ(policy->DumpTestReport(),
-              fifo ? "cf=abe,cs=kCompactionStyleFIFO,lv=0\n"
-                   : "cf=bob,cs=kCompactionStyleLevel,lv=0\n");
+              fifo ? "cf=abe,s=kCompactionStyleFIFO,n=1,l=0,b=0,r=kFlush\n"
+                   : "cf=bob,s=kCompactionStyleLevel,n=7,l=0,b=0,r=kFlush\n");
 
     for (int i = maxKey / 2; i < maxKey; i++) {
       ASSERT_OK(Put(1, Key(i), Key(i)));
     }
     Flush(1);
     EXPECT_EQ(policy->DumpTestReport(),
-              fifo ? "cf=abe,cs=kCompactionStyleFIFO,lv=0\n"
-                   : "cf=bob,cs=kCompactionStyleLevel,lv=0\n");
+              fifo ? "cf=abe,s=kCompactionStyleFIFO,n=1,l=0,b=0,r=kFlush\n"
+                   : "cf=bob,s=kCompactionStyleLevel,n=7,l=0,b=0,r=kFlush\n");
 
     // Check that they can be found
     for (int i = 0; i < maxKey; i++) {
@@ -864,7 +1686,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
       ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
                                   nullptr));
       EXPECT_EQ(policy->DumpTestReport(),
-                "cf=bob,cs=kCompactionStyleLevel,lv=1\n");
+                "cf=bob,s=kCompactionStyleLevel,n=7,l=1,b=1,r=kCompaction\n");
 
       // Check that we now have one filter, about 9.2% FP rate (5 bits per key)
       for (int i = 0; i < maxKey; i++) {
@@ -876,6 +1698,20 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
         EXPECT_GE(useful_count, maxKey * 0.90);
         EXPECT_LE(useful_count, maxKey * 0.91);
       }
+    } else {
+#ifndef ROCKSDB_LITE
+      // Also try external SST file
+      {
+        std::string file_path = dbname_ + "/external.sst";
+        SstFileWriter sst_file_writer(EnvOptions(), options, handles_[1]);
+        ASSERT_OK(sst_file_writer.Open(file_path));
+        ASSERT_OK(sst_file_writer.Put("key", "value"));
+        ASSERT_OK(sst_file_writer.Finish());
+      }
+      // Note: kCompactionStyleLevel is default, ignored if num_levels == -1
+      EXPECT_EQ(policy->DumpTestReport(),
+                "cf=abe,s=kCompactionStyleLevel,n=-1,l=-1,b=0,r=kMisc\n");
+#endif
     }
 
     // Destroy
@@ -1016,6 +1852,63 @@ TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilter) {
   ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
 }
 
+TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilterMultiGet) {
+  Options options = CurrentOptions();
+  options.memtable_prefix_bloom_size_ratio = 0.015;
+  options.memtable_whole_key_filtering = true;
+  Reopen(options);
+  std::string key1("AA");
+  std::string key2("BB");
+  std::string key3("CC");
+  std::string key4("DD");
+  std::string key_not("EE");
+  std::string value1("Value1");
+  std::string value2("Value2");
+  std::string value3("Value3");
+  std::string value4("Value4");
+
+  ASSERT_OK(Put(key1, value1, WriteOptions()));
+  ASSERT_OK(Put(key2, value2, WriteOptions()));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(key3, value3, WriteOptions()));
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(Put(key4, value4, WriteOptions()));
+
+  // Delete key2 and key3
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "BA", "CZ"));
+
+  // Read without snapshot
+  auto results = MultiGet({key_not, key1, key2, key3, key4});
+  ASSERT_EQ(results[0], "NOT_FOUND");
+  ASSERT_EQ(results[1], value1);
+  ASSERT_EQ(results[2], "NOT_FOUND");
+  ASSERT_EQ(results[3], "NOT_FOUND");
+  ASSERT_EQ(results[4], value4);
+
+  // Also check Get
+  ASSERT_EQ(Get(key1), value1);
+  ASSERT_EQ(Get(key2), "NOT_FOUND");
+  ASSERT_EQ(Get(key3), "NOT_FOUND");
+  ASSERT_EQ(Get(key4), value4);
+
+  // Read with snapshot
+  results = MultiGet({key_not, key1, key2, key3, key4}, snapshot);
+  ASSERT_EQ(results[0], "NOT_FOUND");
+  ASSERT_EQ(results[1], value1);
+  ASSERT_EQ(results[2], value2);
+  ASSERT_EQ(results[3], value3);
+  ASSERT_EQ(results[4], "NOT_FOUND");
+
+  // Also check Get
+  ASSERT_EQ(Get(key1, snapshot), value1);
+  ASSERT_EQ(Get(key2, snapshot), value2);
+  ASSERT_EQ(Get(key3, snapshot), value3);
+  ASSERT_EQ(Get(key4, snapshot), "NOT_FOUND");
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
 TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
   constexpr size_t kPrefixSize = 8;
   const std::string kKey = "key";
@@ -1044,7 +1937,7 @@ class DBBloomFilterTestVaryPrefixAndFormatVer
 
  public:
   DBBloomFilterTestVaryPrefixAndFormatVer()
-      : DBTestBase("/db_bloom_filter_tests", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_bloom_filter_tests", /*env_do_fsync=*/true) {}
 
   ~DBBloomFilterTestVaryPrefixAndFormatVer() override {}
 
@@ -1769,8 +2662,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:5"}}));
-    ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
-                        "rocksdb.FixedPrefix.5"));
+    ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->AsString(),
+              "rocksdb.FixedPrefix.5");
     {
       // BF changed, [abcdxx00, abce) is a valid bound, will trigger BF read
       Slice upper_bound("abce");
@@ -1889,8 +2782,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 1);
 
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:3"}}));
-    ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
-                        "rocksdb.CappedPrefix.3"));
+    ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->AsString(),
+              "rocksdb.CappedPrefix.3");
     read_options.iterate_upper_bound = &upper_bound;
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
     ASSERT_EQ(CountIter(iter, "foo"), 2);
@@ -1923,8 +2816,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     }
 
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:2"}}));
-    ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
-                        "rocksdb.FixedPrefix.2"));
+    ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->AsString(),
+              "rocksdb.FixedPrefix.2");
     // third SST with fixed:2 BF
     ASSERT_OK(Put("foo6", "bar6"));
     ASSERT_OK(Put("foo7", "bar7"));
@@ -1971,8 +2864,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3);
     }
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:3"}}));
-    ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
-                        "rocksdb.CappedPrefix.3"));
+    ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->AsString(),
+              "rocksdb.CappedPrefix.3");
     {
       std::unique_ptr<Iterator> iter_all(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter_all, "foo"), 6);
@@ -2012,9 +2905,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
     // create a new CF and set prefix_extractor dynamically
     options.prefix_extractor.reset(NewCappedPrefixTransform(3));
     CreateColumnFamilies({"ramen_dojo_" + std::to_string(iteration)}, options);
-    ASSERT_EQ(0,
-              strcmp(dbfull()->GetOptions(handles_[2]).prefix_extractor->Name(),
-                     "rocksdb.CappedPrefix.3"));
+    ASSERT_EQ(dbfull()->GetOptions(handles_[2]).prefix_extractor->AsString(),
+              "rocksdb.CappedPrefix.3");
     ASSERT_OK(Put(2, "foo3", "bar3"));
     ASSERT_OK(Put(2, "foo4", "bar4"));
     ASSERT_OK(Put(2, "foo5", "bar5"));
@@ -2030,9 +2922,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
     }
     ASSERT_OK(
         dbfull()->SetOptions(handles_[2], {{"prefix_extractor", "fixed:2"}}));
-    ASSERT_EQ(0,
-              strcmp(dbfull()->GetOptions(handles_[2]).prefix_extractor->Name(),
-                     "rocksdb.FixedPrefix.2"));
+    ASSERT_EQ(dbfull()->GetOptions(handles_[2]).prefix_extractor->AsString(),
+              "rocksdb.FixedPrefix.2");
     {
       std::unique_ptr<Iterator> iter(
           db_->NewIterator(read_options, handles_[2]));
@@ -2097,8 +2988,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
 
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:3"}}));
-    ASSERT_EQ(0, strcmp(dbfull()->GetOptions().prefix_extractor->Name(),
-                        "rocksdb.CappedPrefix.3"));
+    ASSERT_EQ(dbfull()->GetOptions().prefix_extractor->AsString(),
+              "rocksdb.CappedPrefix.3");
     {
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       // "fp*" should be skipped
@@ -2115,6 +3006,55 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 12);
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3);
   }
+}
+
+TEST_F(DBBloomFilterTest, SeekForPrevWithPartitionedFilters) {
+  Options options = CurrentOptions();
+  constexpr size_t kNumKeys = 10000;
+  static_assert(kNumKeys <= 10000, "kNumKeys have to be <= 10000");
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeys + 10));
+  options.create_if_missing = true;
+  constexpr size_t kPrefixLength = 4;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(kPrefixLength));
+  options.compression = kNoCompression;
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(50));
+  bbto.index_shortening =
+      BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
+  bbto.block_size = 128;
+  bbto.metadata_block_size = 128;
+  bbto.partition_filters = true;
+  bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  const std::string value(64, '\0');
+
+  WriteOptions write_opts;
+  write_opts.disableWAL = true;
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(4) << std::fixed << i;
+    ASSERT_OK(db_->Put(write_opts, oss.str(), value));
+  }
+  ASSERT_OK(Flush());
+
+  ReadOptions read_opts;
+  // Use legacy, implicit prefix seek
+  read_opts.total_order_seek = false;
+  read_opts.auto_prefix_mode = false;
+  std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    // Seek with a key after each one added but with same prefix. One will
+    // surely cross a partition boundary.
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(4) << std::fixed << i << "a";
+    it->SeekForPrev(oss.str());
+    ASSERT_OK(it->status());
+    ASSERT_TRUE(it->Valid());
+  }
+  it.reset();
 }
 
 #endif  // ROCKSDB_LITE

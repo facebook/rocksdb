@@ -7,6 +7,7 @@
 
 #include "rocksdb/file_system.h"
 #include "rocksdb/system_clock.h"
+#include "rocksdb/trace_record.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -20,7 +21,7 @@ IOStatus FileSystemTracingWrapper::NewSequentialFile(
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           fname.substr(fname.find_last_of("/\\") + 1));
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -34,7 +35,7 @@ IOStatus FileSystemTracingWrapper::NewRandomAccessFile(
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           fname.substr(fname.find_last_of("/\\") + 1));
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -48,7 +49,7 @@ IOStatus FileSystemTracingWrapper::NewWritableFile(
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           fname.substr(fname.find_last_of("/\\") + 1));
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -62,7 +63,7 @@ IOStatus FileSystemTracingWrapper::ReopenWritableFile(
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           fname.substr(fname.find_last_of("/\\") + 1));
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -78,7 +79,7 @@ IOStatus FileSystemTracingWrapper::ReuseWritableFile(
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           fname.substr(fname.find_last_of("/\\") + 1));
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -92,7 +93,7 @@ IOStatus FileSystemTracingWrapper::NewRandomRWFile(
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           fname.substr(fname.find_last_of("/\\") + 1));
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -106,7 +107,7 @@ IOStatus FileSystemTracingWrapper::NewDirectory(
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           name.substr(name.find_last_of("/\\") + 1));
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -121,7 +122,7 @@ IOStatus FileSystemTracingWrapper::GetChildren(const std::string& dir,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           dir.substr(dir.find_last_of("/\\") + 1));
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -135,7 +136,7 @@ IOStatus FileSystemTracingWrapper::DeleteFile(const std::string& fname,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           fname.substr(fname.find_last_of("/\\") + 1));
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -149,7 +150,7 @@ IOStatus FileSystemTracingWrapper::CreateDir(const std::string& dirname,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           dirname.substr(dirname.find_last_of("/\\") + 1));
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -162,7 +163,7 @@ IOStatus FileSystemTracingWrapper::CreateDirIfMissing(
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           dirname.substr(dirname.find_last_of("/\\") + 1));
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -176,7 +177,7 @@ IOStatus FileSystemTracingWrapper::DeleteDir(const std::string& dirname,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           dirname.substr(dirname.find_last_of("/\\") + 1));
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -193,7 +194,7 @@ IOStatus FileSystemTracingWrapper::GetFileSize(const std::string& fname,
   IOTraceRecord io_record(
       clock_->NowNanos(), TraceType::kIOTracer, io_op_data, __func__, elapsed,
       s.ToString(), fname.substr(fname.find_last_of("/\\") + 1), *file_size);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -210,7 +211,7 @@ IOStatus FileSystemTracingWrapper::Truncate(const std::string& fname,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
                           __func__, elapsed, s.ToString(),
                           fname.substr(fname.find_last_of("/\\") + 1), size);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -227,7 +228,7 @@ IOStatus FSSequentialFileTracingWrapper::Read(size_t n,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
                           __func__, elapsed, s.ToString(), file_name_,
                           result->size(), 0 /*Offset*/);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -243,7 +244,7 @@ IOStatus FSSequentialFileTracingWrapper::InvalidateCache(size_t offset,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
                           __func__, elapsed, s.ToString(), file_name_, length,
                           offset);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, nullptr /*dbg*/);
   return s;
 }
 
@@ -261,7 +262,7 @@ IOStatus FSSequentialFileTracingWrapper::PositionedRead(
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
                           __func__, elapsed, s.ToString(), file_name_,
                           result->size(), offset);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -279,7 +280,7 @@ IOStatus FSRandomAccessFileTracingWrapper::Read(uint64_t offset, size_t n,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
                           __func__, elapsed, s.ToString(), file_name_, n,
                           offset);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -299,7 +300,7 @@ IOStatus FSRandomAccessFileTracingWrapper::MultiRead(FSReadRequest* reqs,
     IOTraceRecord io_record(
         clock_->NowNanos(), TraceType::kIOTracer, io_op_data, __func__, latency,
         reqs[i].status.ToString(), file_name_, reqs[i].len, reqs[i].offset);
-    io_tracer_->WriteIOOp(io_record);
+    io_tracer_->WriteIOOp(io_record, dbg);
   }
   return s;
 }
@@ -317,7 +318,7 @@ IOStatus FSRandomAccessFileTracingWrapper::Prefetch(uint64_t offset, size_t n,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
                           __func__, elapsed, s.ToString(), file_name_, n,
                           offset);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -333,7 +334,7 @@ IOStatus FSRandomAccessFileTracingWrapper::InvalidateCache(size_t offset,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
                           __func__, elapsed, s.ToString(), file_name_, length,
                           static_cast<uint64_t>(offset));
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, nullptr /*dbg*/);
   return s;
 }
 
@@ -349,7 +350,7 @@ IOStatus FSWritableFileTracingWrapper::Append(const Slice& data,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
                           __func__, elapsed, s.ToString(), file_name_,
                           data.size(), 0 /*Offset*/);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -366,7 +367,7 @@ IOStatus FSWritableFileTracingWrapper::PositionedAppend(
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
                           __func__, elapsed, s.ToString(), file_name_,
                           data.size(), offset);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -382,7 +383,7 @@ IOStatus FSWritableFileTracingWrapper::Truncate(uint64_t size,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
                           __func__, elapsed, s.ToString(), file_name_, size,
                           0 /*Offset*/);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -395,7 +396,7 @@ IOStatus FSWritableFileTracingWrapper::Close(const IOOptions& options,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           file_name_);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -409,7 +410,7 @@ uint64_t FSWritableFileTracingWrapper::GetFileSize(const IOOptions& options,
   io_op_data |= (1 << IOTraceOp::kIOFileSize);
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
                           __func__, elapsed, "OK", file_name_, file_size);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return file_size;
 }
 
@@ -425,7 +426,7 @@ IOStatus FSWritableFileTracingWrapper::InvalidateCache(size_t offset,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
                           __func__, elapsed, s.ToString(), file_name_, length,
                           static_cast<uint64_t>(offset));
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, nullptr /*dbg*/);
   return s;
 }
 
@@ -442,7 +443,7 @@ IOStatus FSRandomRWFileTracingWrapper::Write(uint64_t offset, const Slice& data,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
                           __func__, elapsed, s.ToString(), file_name_,
                           data.size(), offset);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -460,7 +461,7 @@ IOStatus FSRandomRWFileTracingWrapper::Read(uint64_t offset, size_t n,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
                           __func__, elapsed, s.ToString(), file_name_, n,
                           offset);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -473,7 +474,7 @@ IOStatus FSRandomRWFileTracingWrapper::Flush(const IOOptions& options,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           file_name_);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -486,7 +487,7 @@ IOStatus FSRandomRWFileTracingWrapper::Close(const IOOptions& options,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           file_name_);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -499,7 +500,7 @@ IOStatus FSRandomRWFileTracingWrapper::Sync(const IOOptions& options,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           file_name_);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 
@@ -512,7 +513,7 @@ IOStatus FSRandomRWFileTracingWrapper::Fsync(const IOOptions& options,
   IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
                           file_name_);
-  io_tracer_->WriteIOOp(io_record);
+  io_tracer_->WriteIOOp(io_record, dbg);
   return s;
 }
 }  // namespace ROCKSDB_NAMESPACE

@@ -238,15 +238,14 @@ public class EventListenerTest {
     final Map<String, String> userCollectedPropertiesTestData =
         Collections.singletonMap("key", "value");
     final Map<String, String> readablePropertiesTestData = Collections.singletonMap("key", "value");
-    final Map<String, Long> propertiesOffsetsTestData =
-        Collections.singletonMap("key", TEST_LONG_VAL);
     final TableProperties tablePropertiesTestData = new TableProperties(TEST_LONG_VAL,
         TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL,
         TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL,
         TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL,
-        "columnFamilyName".getBytes(), "filterPolicyName", "comparatorName", "mergeOperatorName",
-        "prefixExtractorName", "propertyCollectorsNames", "compressionName",
-        userCollectedPropertiesTestData, readablePropertiesTestData, propertiesOffsetsTestData);
+        TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, "columnFamilyName".getBytes(),
+        "filterPolicyName", "comparatorName", "mergeOperatorName", "prefixExtractorName",
+        "propertyCollectorsNames", "compressionName", userCollectedPropertiesTestData,
+        readablePropertiesTestData);
     final FlushJobInfo flushJobInfoTestData = new FlushJobInfo(Integer.MAX_VALUE,
         "testColumnFamily", "/file/path", TEST_LONG_VAL, Integer.MAX_VALUE, true, true,
         TEST_LONG_VAL, TEST_LONG_VAL, tablePropertiesTestData, (byte) 0x0a);
@@ -400,8 +399,8 @@ public class EventListenerTest {
 
       @Override
       public void onFileTruncateFinish(final FileOperationInfo fileOperationInfo) {
-        assertEquals(fileOperationInfoTestData, fileOperationInfo);
         super.onFileTruncateFinish(fileOperationInfo);
+        assertEquals(fileOperationInfoTestData, fileOperationInfo);
       }
 
       @Override

@@ -65,8 +65,6 @@ static_assert(sizeof(ZSTDCachedData) % CACHE_LINE_SIZE == 0,
               "Expected CACHE_LINE_SIZE alignment");
 }  // namespace compression_cache
 
-using namespace compression_cache;
-
 class CompressionContextCache::Rep {
  public:
   Rep() {}
@@ -82,7 +80,7 @@ class CompressionContextCache::Rep {
   }
 
  private:
-  CoreLocalArray<ZSTDCachedData> per_core_uncompr_;
+  CoreLocalArray<compression_cache::ZSTDCachedData> per_core_uncompr_;
 };
 
 CompressionContextCache::CompressionContextCache() : rep_(new Rep()) {}

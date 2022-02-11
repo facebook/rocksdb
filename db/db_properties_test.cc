@@ -19,6 +19,7 @@
 #include "rocksdb/perf_context.h"
 #include "rocksdb/perf_level.h"
 #include "rocksdb/table.h"
+#include "test_util/mock_time_env.h"
 #include "util/random.h"
 #include "util/string_util.h"
 
@@ -27,7 +28,26 @@ namespace ROCKSDB_NAMESPACE {
 class DBPropertiesTest : public DBTestBase {
  public:
   DBPropertiesTest()
-      : DBTestBase("/db_properties_test", /*env_do_fsync=*/false) {}
+      : DBTestBase("db_properties_test", /*env_do_fsync=*/false) {}
+
+  void AssertDbStats(const std::map<std::string, std::string>& db_stats,
+                     double expected_uptime, int expected_user_bytes_written,
+                     int expected_wal_bytes_written,
+                     int expected_user_writes_by_self,
+                     int expected_user_writes_with_wal) {
+    ASSERT_EQ(std::to_string(expected_uptime), db_stats.at("db.uptime"));
+    ASSERT_EQ(std::to_string(expected_wal_bytes_written),
+              db_stats.at("db.wal_bytes_written"));
+    ASSERT_EQ("0", db_stats.at("db.wal_syncs"));
+    ASSERT_EQ(std::to_string(expected_user_bytes_written),
+              db_stats.at("db.user_bytes_written"));
+    ASSERT_EQ("0", db_stats.at("db.user_writes_by_other"));
+    ASSERT_EQ(std::to_string(expected_user_writes_by_self),
+              db_stats.at("db.user_writes_by_self"));
+    ASSERT_EQ(std::to_string(expected_user_writes_with_wal),
+              db_stats.at("db.user_writes_with_wal"));
+    ASSERT_EQ("0", db_stats.at("db.user_write_stall_micros"));
+  }
 };
 
 #ifndef ROCKSDB_LITE
@@ -213,7 +233,7 @@ void VerifySimilar(uint64_t a, uint64_t b, double bias) {
 
 void VerifyTableProperties(
     const TableProperties& base_tp, const TableProperties& new_tp,
-    double filter_size_bias = CACHE_LINE_SIZE >= 256 ? 0.15 : 0.1,
+    double filter_size_bias = CACHE_LINE_SIZE >= 256 ? 0.18 : 0.1,
     double index_size_bias = 0.1, double data_size_bias = 0.1,
     double num_data_blocks_bias = 0.05) {
   VerifySimilar(base_tp.data_size, new_tp.data_size, data_size_bias);
@@ -317,7 +337,7 @@ TEST_F(DBPropertiesTest, ValidateSampleNumber) {
 
 TEST_F(DBPropertiesTest, AggregatedTableProperties) {
   for (int kTableCount = 40; kTableCount <= 100; kTableCount += 30) {
-    const int kDeletionsPerTable = 5;
+    const int kDeletionsPerTable = 0;
     const int kMergeOperandsPerTable = 15;
     const int kRangeDeletionsPerTable = 5;
     const int kPutsPerTable = 100;
@@ -329,7 +349,6 @@ TEST_F(DBPropertiesTest, AggregatedTableProperties) {
     options.level0_file_num_compaction_trigger = 8;
     options.compression = kNoCompression;
     options.create_if_missing = true;
-    options.preserve_deletes = true;
     options.merge_operator.reset(new TestPutOperator());
 
     BlockBasedTableOptions table_options;
@@ -510,7 +529,7 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
 
 TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   const int kTableCount = 100;
-  const int kDeletionsPerTable = 2;
+  const int kDeletionsPerTable = 0;
   const int kMergeOperandsPerTable = 2;
   const int kRangeDeletionsPerTable = 2;
   const int kPutsPerTable = 10;
@@ -529,7 +548,6 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   options.max_bytes_for_level_multiplier = 2;
   // This ensures there no compaction happening when we call GetProperty().
   options.disable_auto_compactions = true;
-  options.preserve_deletes = true;
   options.merge_operator.reset(new TestPutOperator());
 
   BlockBasedTableOptions table_options;
@@ -607,7 +625,8 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
           value_is_delta_encoded);
       // Gives larger bias here as index block size, filter block size,
       // and data block size become much harder to estimate in this test.
-      VerifyTableProperties(expected_tp, tp, 0.5, 0.4, 0.4, 0.25);
+      VerifyTableProperties(expected_tp, tp, CACHE_LINE_SIZE >= 256 ? 0.6 : 0.5,
+                            0.5, 0.5, 0.25);
     }
   }
 }
@@ -1175,6 +1194,61 @@ class CountingDeleteTabPropCollectorFactory
   }
 };
 
+class BlockCountingTablePropertiesCollector : public TablePropertiesCollector {
+ public:
+  static const std::string kNumSampledBlocksPropertyName;
+
+  const char* Name() const override {
+    return "BlockCountingTablePropertiesCollector";
+  }
+
+  Status Finish(UserCollectedProperties* properties) override {
+    (*properties)[kNumSampledBlocksPropertyName] =
+        ToString(num_sampled_blocks_);
+    return Status::OK();
+  }
+
+  Status AddUserKey(const Slice& /*user_key*/, const Slice& /*value*/,
+                    EntryType /*type*/, SequenceNumber /*seq*/,
+                    uint64_t /*file_size*/) override {
+    return Status::OK();
+  }
+
+  void BlockAdd(uint64_t /* block_raw_bytes */,
+                uint64_t block_compressed_bytes_fast,
+                uint64_t block_compressed_bytes_slow) override {
+    if (block_compressed_bytes_fast > 0 || block_compressed_bytes_slow > 0) {
+      num_sampled_blocks_++;
+    }
+  }
+
+  UserCollectedProperties GetReadableProperties() const override {
+    return UserCollectedProperties{
+        {kNumSampledBlocksPropertyName, ToString(num_sampled_blocks_)},
+    };
+  }
+
+ private:
+  uint32_t num_sampled_blocks_ = 0;
+};
+
+const std::string
+    BlockCountingTablePropertiesCollector::kNumSampledBlocksPropertyName =
+        "NumSampledBlocks";
+
+class BlockCountingTablePropertiesCollectorFactory
+    : public TablePropertiesCollectorFactory {
+ public:
+  const char* Name() const override {
+    return "BlockCountingTablePropertiesCollectorFactory";
+  }
+
+  TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context /* context */) override {
+    return new BlockCountingTablePropertiesCollector();
+  }
+};
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
   Options options = CurrentOptions();
@@ -1413,6 +1487,132 @@ TEST_F(DBPropertiesTest, NeedCompactHintPersistentTest) {
   }
 }
 
+// Excluded from RocksDB lite tests due to `GetPropertiesOfAllTables()` usage.
+TEST_F(DBPropertiesTest, BlockAddForCompressionSampling) {
+  // Sampled compression requires at least one of the following four types.
+  if (!Snappy_Supported() && !Zlib_Supported() && !LZ4_Supported() &&
+      !ZSTD_Supported()) {
+    return;
+  }
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.table_properties_collector_factories.emplace_back(
+      std::make_shared<BlockCountingTablePropertiesCollectorFactory>());
+
+  for (bool sample_for_compression : {false, true}) {
+    // For simplicity/determinism, sample 100% when enabled, or 0% when disabled
+    options.sample_for_compression = sample_for_compression ? 1 : 0;
+
+    DestroyAndReopen(options);
+
+    // Setup the following LSM:
+    //
+    // L0_0 ["a", "b"]
+    // L1_0 ["a", "b"]
+    //
+    // L0_0 was created by flush. L1_0 was created by compaction. Each file
+    // contains one data block.
+    for (int i = 0; i < 3; ++i) {
+      ASSERT_OK(Put("a", "val"));
+      ASSERT_OK(Put("b", "val"));
+      ASSERT_OK(Flush());
+      if (i == 1) {
+        ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+      }
+    }
+
+    // A `BlockAdd()` should have been seen for files generated by flush or
+    // compaction when `sample_for_compression` is enabled.
+    TablePropertiesCollection file_to_props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(&file_to_props));
+    ASSERT_EQ(2, file_to_props.size());
+    for (const auto& file_and_props : file_to_props) {
+      auto& user_props = file_and_props.second->user_collected_properties;
+      ASSERT_TRUE(user_props.find(BlockCountingTablePropertiesCollector::
+                                      kNumSampledBlocksPropertyName) !=
+                  user_props.end());
+      ASSERT_EQ(user_props.at(BlockCountingTablePropertiesCollector::
+                                  kNumSampledBlocksPropertyName),
+                ToString(sample_for_compression ? 1 : 0));
+    }
+  }
+}
+
+class CompressionSamplingDBPropertiesTest
+    : public DBPropertiesTest,
+      public ::testing::WithParamInterface<bool> {
+ public:
+  CompressionSamplingDBPropertiesTest() : fast_(GetParam()) {}
+
+ protected:
+  const bool fast_;
+};
+
+INSTANTIATE_TEST_CASE_P(CompressionSamplingDBPropertiesTest,
+                        CompressionSamplingDBPropertiesTest, ::testing::Bool());
+
+// Excluded from RocksDB lite tests due to `GetPropertiesOfAllTables()` usage.
+TEST_P(CompressionSamplingDBPropertiesTest,
+       EstimateDataSizeWithCompressionSampling) {
+  Options options = CurrentOptions();
+  if (fast_) {
+    // One of the following light compression libraries must be present.
+    if (LZ4_Supported()) {
+      options.compression = kLZ4Compression;
+    } else if (Snappy_Supported()) {
+      options.compression = kSnappyCompression;
+    } else {
+      return;
+    }
+  } else {
+    // One of the following heavy compression libraries must be present.
+    if (ZSTD_Supported()) {
+      options.compression = kZSTD;
+    } else if (Zlib_Supported()) {
+      options.compression = kZlibCompression;
+    } else {
+      return;
+    }
+  }
+  options.disable_auto_compactions = true;
+  // For simplicity/determinism, sample 100%.
+  options.sample_for_compression = 1;
+  Reopen(options);
+
+  // Setup the following LSM:
+  //
+  // L0_0 ["a", "b"]
+  // L1_0 ["a", "b"]
+  //
+  // L0_0 was created by flush. L1_0 was created by compaction. Each file
+  // contains one data block. The value consists of compressible data so the
+  // data block should be stored compressed.
+  std::string val(1024, 'a');
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("a", val));
+    ASSERT_OK(Put("b", val));
+    ASSERT_OK(Flush());
+    if (i == 1) {
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    }
+  }
+
+  TablePropertiesCollection file_to_props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&file_to_props));
+  ASSERT_EQ(2, file_to_props.size());
+  for (const auto& file_and_props : file_to_props) {
+    ASSERT_GT(file_and_props.second->data_size, 0);
+    if (fast_) {
+      ASSERT_EQ(file_and_props.second->data_size,
+                file_and_props.second->fast_compression_estimated_data_size);
+    } else {
+      ASSERT_EQ(file_and_props.second->data_size,
+                file_and_props.second->slow_compression_estimated_data_size);
+    }
+  }
+}
+
 TEST_F(DBPropertiesTest, EstimateNumKeysUnderflow) {
   Options options = CurrentOptions();
   Reopen(options);
@@ -1445,6 +1645,7 @@ TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
 
   options.compaction_style = kCompactionStyleFIFO;
   options.ttl = 300;
+  options.max_open_files = -1;
   options.compaction_options_fifo.allow_compaction = false;
   DestroyAndReopen(options);
 
@@ -1713,7 +1914,80 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
   ASSERT_EQ(0, value);
 }
 
+TEST_F(DBPropertiesTest, GetMapPropertyDbStats) {
+  auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+  CompositeEnvWrapper env(env_, mock_clock);
+
+  Options opts = CurrentOptions();
+  opts.env = &env;
+  Reopen(opts);
+
+  {
+    std::map<std::string, std::string> db_stats;
+    ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+    AssertDbStats(db_stats, 0.0 /* expected_uptime */,
+                  0 /* expected_user_bytes_written */,
+                  0 /* expected_wal_bytes_written */,
+                  0 /* expected_user_writes_by_self */,
+                  0 /* expected_user_writes_with_wal */);
+  }
+
+  {
+    mock_clock->SleepForMicroseconds(1500000);
+
+    std::map<std::string, std::string> db_stats;
+    ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+    AssertDbStats(db_stats, 1.5 /* expected_uptime */,
+                  0 /* expected_user_bytes_written */,
+                  0 /* expected_wal_bytes_written */,
+                  0 /* expected_user_writes_by_self */,
+                  0 /* expected_user_writes_with_wal */);
+  }
+
+  int expected_user_bytes_written = 0;
+  {
+    // Write with WAL disabled.
+    WriteOptions write_opts;
+    write_opts.disableWAL = true;
+
+    WriteBatch batch;
+    ASSERT_OK(batch.Put("key", "val"));
+    expected_user_bytes_written += static_cast<int>(batch.GetDataSize());
+
+    ASSERT_OK(db_->Write(write_opts, &batch));
+
+    std::map<std::string, std::string> db_stats;
+    ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+    AssertDbStats(db_stats, 1.5 /* expected_uptime */,
+                  expected_user_bytes_written,
+                  0 /* expected_wal_bytes_written */,
+                  1 /* expected_user_writes_by_self */,
+                  0 /* expected_user_writes_with_wal */);
+  }
+
+  int expected_wal_bytes_written = 0;
+  {
+    // Write with WAL enabled.
+    WriteBatch batch;
+    ASSERT_OK(batch.Delete("key"));
+    expected_user_bytes_written += static_cast<int>(batch.GetDataSize());
+    expected_wal_bytes_written += static_cast<int>(batch.GetDataSize());
+
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+    std::map<std::string, std::string> db_stats;
+    ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+    AssertDbStats(db_stats, 1.5 /* expected_uptime */,
+                  expected_user_bytes_written, expected_wal_bytes_written,
+                  2 /* expected_user_writes_by_self */,
+                  1 /* expected_user_writes_with_wal */);
+  }
+
+  Close();
+}
+
 #endif  // ROCKSDB_LITE
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

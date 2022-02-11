@@ -30,6 +30,12 @@ class Logger;
 class RandomAccessFile;
 struct TableProperties;
 
+// Meta block names for metaindex
+extern const std::string kPropertiesBlockName;
+extern const std::string kPropertiesBlockOldName;
+extern const std::string kCompressionDictBlockName;
+extern const std::string kRangeDelBlockName;
+
 class MetaIndexBuilder {
  public:
   MetaIndexBuilder(const MetaIndexBuilder&) = delete;
@@ -70,8 +76,8 @@ class PropertyBlockBuilder {
 
 // Were we encounter any error occurs during user-defined statistics collection,
 // we'll write the warning message to info log.
-void LogPropertiesCollectionError(
-    Logger* info_log, const std::string& method, const std::string& name);
+void LogPropertiesCollectionError(Logger* info_log, const std::string& method,
+                                  const std::string& name);
 
 // Utility functions help table builder to trigger batch events for user
 // defined property collectors.
@@ -86,8 +92,8 @@ bool NotifyCollectTableCollectorsOnAdd(
 
 void NotifyCollectTableCollectorsOnBlockAdd(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    uint64_t blockRawBytes, uint64_t blockCompressedBytesFast,
-    uint64_t blockCompressedBytesSlow);
+    uint64_t block_raw_bytes, uint64_t block_compressed_bytes_fast,
+    uint64_t block_compressed_bytes_slow);
 
 // NotifyCollectTableCollectorsOnFinish() triggers the `Finish` event for all
 // property collectors. The collected properties will be added to `builder`.
@@ -95,49 +101,49 @@ bool NotifyCollectTableCollectorsOnFinish(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
     Logger* info_log, PropertyBlockBuilder* builder);
 
-// Read the properties from the table.
+// Read table properties from a file using known BlockHandle.
 // @returns a status to indicate if the operation succeeded. On success,
 //          *table_properties will point to a heap-allocated TableProperties
 //          object, otherwise value of `table_properties` will not be modified.
-Status ReadProperties(const ReadOptions& ro, const Slice& handle_value,
-                      RandomAccessFileReader* file,
-                      FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
-                      const ImmutableCFOptions& ioptions,
-                      TableProperties** table_properties, bool verify_checksum,
-                      BlockHandle* block_handle,
-                      CacheAllocationPtr* verification_buf,
-                      bool compression_type_missing = false,
-                      MemoryAllocator* memory_allocator = nullptr);
+Status ReadTablePropertiesHelper(
+    const ReadOptions& ro, const BlockHandle& handle,
+    RandomAccessFileReader* file, FilePrefetchBuffer* prefetch_buffer,
+    const Footer& footer, const ImmutableOptions& ioptions,
+    std::unique_ptr<TableProperties>* table_properties,
+    MemoryAllocator* memory_allocator = nullptr);
 
-// Directly read the properties from the properties block of a plain table.
+// Read table properties from the properties block of a plain table.
 // @returns a status to indicate if the operation succeeded. On success,
 //          *table_properties will point to a heap-allocated TableProperties
 //          object, otherwise value of `table_properties` will not be modified.
-// certain tables do not have compression_type byte setup properly for
-// uncompressed blocks, caller can request to reset compression type by
-// passing compression_type_missing = true, the same applies to
-// `ReadProperties`, `FindMetaBlock`, and `ReadMetaBlock`
 Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
                            uint64_t table_magic_number,
-                           const ImmutableCFOptions& ioptions,
-                           TableProperties** properties,
-                           bool compression_type_missing = false,
+                           const ImmutableOptions& ioptions,
+                           std::unique_ptr<TableProperties>* properties,
                            MemoryAllocator* memory_allocator = nullptr,
                            FilePrefetchBuffer* prefetch_buffer = nullptr);
 
-// Find the meta block from the meta index block.
+// Find the meta block from the meta index block. Returns OK and
+// block_handle->IsNull() if not found.
+Status FindOptionalMetaBlock(InternalIterator* meta_index_iter,
+                             const std::string& meta_block_name,
+                             BlockHandle* block_handle);
+
+// Find the meta block from the meta index block. Returns Corruption if not
+// found.
 Status FindMetaBlock(InternalIterator* meta_index_iter,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle);
 
 // Find the meta block
-Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
-                     uint64_t table_magic_number,
-                     const ImmutableCFOptions& ioptions,
-                     const std::string& meta_block_name,
-                     BlockHandle* block_handle,
-                     bool compression_type_missing = false,
-                     MemoryAllocator* memory_allocator = nullptr);
+Status FindMetaBlockInFile(RandomAccessFileReader* file, uint64_t file_size,
+                           uint64_t table_magic_number,
+                           const ImmutableOptions& ioptions,
+                           const std::string& meta_block_name,
+                           BlockHandle* block_handle,
+                           MemoryAllocator* memory_allocator = nullptr,
+                           FilePrefetchBuffer* prefetch_buffer = nullptr,
+                           Footer* footer_out = nullptr);
 
 // Read the specified meta block with name meta_block_name
 // from `file` and initialize `contents` with contents of this block.
@@ -145,10 +151,9 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
 Status ReadMetaBlock(RandomAccessFileReader* file,
                      FilePrefetchBuffer* prefetch_buffer, uint64_t file_size,
                      uint64_t table_magic_number,
-                     const ImmutableCFOptions& ioptions,
+                     const ImmutableOptions& ioptions,
                      const std::string& meta_block_name, BlockType block_type,
                      BlockContents* contents,
-                     bool compression_type_missing = false,
                      MemoryAllocator* memory_allocator = nullptr);
 
 }  // namespace ROCKSDB_NAMESPACE

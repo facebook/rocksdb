@@ -1,7 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 package org.rocksdb.util;
 
-import java.io.File;
 import java.io.IOException;
 
 public class Environment {
@@ -106,12 +105,16 @@ public class Environment {
       if (isPowerPC() || isAarch64()) {
         return String.format("%sjni-linux-%s%s", name, ARCH, getLibcPostfix());
       } else if (isS390x()) {
-        return String.format("%sjni-linux%s", name, ARCH);
+        return String.format("%sjni-linux-%s", name, ARCH);
       } else {
         return String.format("%sjni-linux%s%s", name, arch, getLibcPostfix());
       }
     } else if (isMac()) {
-      return String.format("%sjni-osx", name);
+      if (isAarch64()) {
+        return String.format("%sjni-osx-%s", name, ARCH);
+      } else {
+        return String.format("%sjni-osx", name);
+      }
     } else if (isFreeBSD()) {
       return String.format("%sjni-freebsd%s", name, is64Bit() ? "64" : "32");
     } else if (isAix() && is64Bit()) {

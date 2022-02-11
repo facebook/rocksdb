@@ -26,7 +26,8 @@ IOTraceWriter::IOTraceWriter(SystemClock* clock,
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)) {}
 
-Status IOTraceWriter::WriteIOOp(const IOTraceRecord& record) {
+Status IOTraceWriter::WriteIOOp(const IOTraceRecord& record,
+                                IODebugContext* dbg) {
   uint64_t trace_file_size = trace_writer_->GetFileSize();
   if (trace_file_size > trace_options_.max_trace_file_size) {
     return Status::OK();
@@ -69,6 +70,26 @@ Status IOTraceWriter::WriteIOOp(const IOTraceRecord& record) {
     }
     // unset the rightmost bit.
     io_op_data &= (io_op_data - 1);
+  }
+
+  int64_t trace_data = 0;
+  if (dbg) {
+    trace_data = static_cast<int64_t>(dbg->trace_data);
+  }
+  PutFixed64(&trace.payload, trace_data);
+  while (trace_data) {
+    // Find the rightmost set bit.
+    uint32_t set_pos = static_cast<uint32_t>(log2(trace_data & -trace_data));
+    switch (set_pos) {
+      case IODebugContext::TraceData::kRequestID: {
+        Slice request_id(dbg->request_id);
+        PutLengthPrefixedSlice(&trace.payload, request_id);
+      } break;
+      default:
+        assert(false);
+    }
+    // unset the rightmost bit.
+    trace_data &= (trace_data - 1);
   }
 
   std::string encoded_trace;
@@ -213,6 +234,31 @@ Status IOTraceReader::ReadIOOp(IOTraceRecord* record) {
     // unset the rightmost bit.
     io_op_data &= (io_op_data - 1);
   }
+
+  if (!GetFixed64(&enc_slice, &record->trace_data)) {
+    return Status::Incomplete(
+        "Incomplete access record: Failed to read trace op.");
+  }
+  int64_t trace_data = static_cast<int64_t>(record->trace_data);
+  while (trace_data) {
+    // Find the rightmost set bit.
+    uint32_t set_pos = static_cast<uint32_t>(log2(trace_data & -trace_data));
+    switch (set_pos) {
+      case IODebugContext::TraceData::kRequestID: {
+        Slice request_id;
+        if (!GetLengthPrefixedSlice(&enc_slice, &request_id)) {
+          return Status::Incomplete(
+              "Incomplete access record: Failed to request id.");
+        }
+        record->request_id = request_id.ToString();
+      } break;
+      default:
+        assert(false);
+    }
+    // unset the rightmost bit.
+    trace_data &= (trace_data - 1);
+  }
+
   return Status::OK();
 }
 
@@ -244,8 +290,7 @@ void IOTracer::EndIOTrace() {
   tracing_enabled = false;
 }
 
-// TODO: Return status and handle that in file_system_tracer.h
-void IOTracer::WriteIOOp(const IOTraceRecord& record) {
+void IOTracer::WriteIOOp(const IOTraceRecord& record, IODebugContext* dbg) {
   if (!writer_.load()) {
     return;
   }
@@ -253,6 +298,6 @@ void IOTracer::WriteIOOp(const IOTraceRecord& record) {
   if (!writer_.load()) {
     return;
   }
-  writer_.load()->WriteIOOp(record).PermitUncheckedError();
+  writer_.load()->WriteIOOp(record, dbg).PermitUncheckedError();
 }
 }  // namespace ROCKSDB_NAMESPACE

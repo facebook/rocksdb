@@ -10,6 +10,7 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/db.h"
 #include "rocksdb/file_system.h"
 #include "table/block_based/binary_search_index_reader.h"
 #include "table/block_based/block_based_table_builder.h"
@@ -17,32 +18,10 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
 #include "test_util/testharness.h"
+#include "utilities/memory_allocators.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
-
-class CountedMemoryAllocator : public MemoryAllocator {
- public:
-  const char* Name() const override { return "CountedMemoryAllocator"; }
-
-  void* Allocate(size_t size) override {
-    num_allocations_++;
-    return static_cast<void*>(new char[size]);
-  }
-
-  void Deallocate(void* p) override {
-    num_deallocations_++;
-    delete[] static_cast<char*>(p);
-  }
-
-  int GetNumAllocations() const { return num_allocations_; }
-  int GetNumDeallocations() const { return num_deallocations_; }
-
- private:
-  int num_allocations_ = 0;
-  int num_deallocations_ = 0;
-};
-
 struct MemcpyStats {
   int num_stack_buf_memcpy;
   int num_heap_buf_memcpy;
@@ -93,17 +72,17 @@ class BlockFetcherTest : public testing::Test {
     NewFileWriter(table_name, &writer);
 
     // Create table builder.
-    ImmutableCFOptions ioptions(options_);
+    ImmutableOptions ioptions(options_);
     InternalKeyComparator comparator(options_.comparator);
     ColumnFamilyOptions cf_options(options_);
     MutableCFOptions moptions(cf_options);
-    std::vector<std::unique_ptr<IntTblPropCollectorFactory>> factories;
+    IntTblPropCollectorFactories factories;
     std::unique_ptr<TableBuilder> table_builder(table_factory_.NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, comparator, &factories,
-                            compression_type, 0 /* sample_for_compression */,
-                            CompressionOptions(), false /* skip_filters */,
-                            kDefaultColumnFamilyName, -1 /* level */),
-        0 /* column_family_id */, writer.get()));
+                            compression_type, CompressionOptions(),
+                            0 /* column_family_id */, kDefaultColumnFamilyName,
+                            -1 /* level */),
+        writer.get()));
 
     // Build table.
     for (int i = 0; i < 9; i++) {
@@ -271,7 +250,7 @@ class BlockFetcherTest : public testing::Test {
                                              env_->GetSystemClock().get()));
   }
 
-  void NewTableReader(const ImmutableCFOptions& ioptions,
+  void NewTableReader(const ImmutableOptions& ioptions,
                       const FileOptions& foptions,
                       const InternalKeyComparator& comparator,
                       const std::string& table_name,
@@ -317,7 +296,7 @@ class BlockFetcherTest : public testing::Test {
                   MemoryAllocator* compressed_buf_allocator,
                   BlockContents* contents, MemcpyStats* stats,
                   CompressionType* compresstion_type) {
-    ImmutableCFOptions ioptions(options_);
+    ImmutableOptions ioptions(options_);
     ReadOptions roptions;
     PersistentCacheOptions persistent_cache_options;
     Footer footer;
@@ -348,7 +327,7 @@ class BlockFetcherTest : public testing::Test {
                            MemoryAllocator* compressed_buf_allocator,
                            BlockContents* block, std::string* result,
                            MemcpyStats* memcpy_stats) {
-    ImmutableCFOptions ioptions(options_);
+    ImmutableOptions ioptions(options_);
     InternalKeyComparator comparator(options_.comparator);
     FileOptions foptions(options_);
 

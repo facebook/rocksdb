@@ -25,14 +25,25 @@
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/system_clock.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
+
+#ifndef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif
 
 namespace ROCKSDB_NAMESPACE {
 namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
-const uint32_t kLatestFormatVersion = 5u;
+const std::set<uint32_t> kFooterFormatVersionsToTest{
+    5U,
+    // In case any interesting future changes
+    kDefaultFormatVersion,
+    kLatestFormatVersion,
+};
 
 std::string RandomKey(Random* rnd, int len, RandomKeyType type) {
   // Make sure to generate a wide variety of characters so we
@@ -107,59 +118,6 @@ class Uint64ComparatorImpl : public Comparator {
 
   void FindShortSuccessor(std::string* /*key*/) const override { return; }
 };
-
-// A test implementation of comparator with 64-bit integer timestamp.
-class ComparatorWithU64TsImpl : public Comparator {
- public:
-  ComparatorWithU64TsImpl()
-      : Comparator(/*ts_sz=*/sizeof(uint64_t)),
-        cmp_without_ts_(BytewiseComparator()) {
-    assert(cmp_without_ts_);
-    assert(cmp_without_ts_->timestamp_size() == 0);
-  }
-  const char* Name() const override { return "ComparatorWithU64Ts"; }
-  void FindShortSuccessor(std::string*) const override {}
-  void FindShortestSeparator(std::string*, const Slice&) const override {}
-  int Compare(const Slice& a, const Slice& b) const override {
-    int ret = CompareWithoutTimestamp(a, b);
-    size_t ts_sz = timestamp_size();
-    if (ret != 0) {
-      return ret;
-    }
-    // Compare timestamp.
-    // For the same user key with different timestamps, larger (newer) timestamp
-    // comes first.
-    return -CompareTimestamp(ExtractTimestampFromUserKey(a, ts_sz),
-                             ExtractTimestampFromUserKey(b, ts_sz));
-  }
-  using Comparator::CompareWithoutTimestamp;
-  int CompareWithoutTimestamp(const Slice& a, bool a_has_ts, const Slice& b,
-                              bool b_has_ts) const override {
-    const size_t ts_sz = timestamp_size();
-    assert(!a_has_ts || a.size() >= ts_sz);
-    assert(!b_has_ts || b.size() >= ts_sz);
-    Slice lhs = a_has_ts ? StripTimestampFromUserKey(a, ts_sz) : a;
-    Slice rhs = b_has_ts ? StripTimestampFromUserKey(b, ts_sz) : b;
-    return cmp_without_ts_->Compare(lhs, rhs);
-  }
-  int CompareTimestamp(const Slice& ts1, const Slice& ts2) const override {
-    assert(ts1.size() == sizeof(uint64_t));
-    assert(ts2.size() == sizeof(uint64_t));
-    uint64_t lhs = DecodeFixed64(ts1.data());
-    uint64_t rhs = DecodeFixed64(ts2.data());
-    if (lhs < rhs) {
-      return -1;
-    } else if (lhs > rhs) {
-      return 1;
-    } else {
-      return 0;
-    }
-  }
-
- private:
-  const Comparator* cmp_without_ts_{nullptr};
-};
-
 }  // namespace
 
 const Comparator* Uint64Comparator() {
@@ -167,9 +125,13 @@ const Comparator* Uint64Comparator() {
   return &uint64comp;
 }
 
-const Comparator* ComparatorWithU64Ts() {
-  static ComparatorWithU64TsImpl comp_with_u64_ts;
-  return &comp_with_u64_ts;
+const Comparator* BytewiseComparatorWithU64TsWrapper() {
+  ConfigOptions config_options;
+  const Comparator* user_comparator = nullptr;
+  Status s = Comparator::CreateFromString(
+      config_options, "leveldb.BytewiseComparator.u64ts", &user_comparator);
+  s.PermitUncheckedError();
+  return user_comparator;
 }
 
 void CorruptKeyType(InternalKey* ikey) {
@@ -324,7 +286,6 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->is_fd_close_on_exec = rnd->Uniform(2);
   db_opt->paranoid_checks = rnd->Uniform(2);
   db_opt->track_and_verify_wals_in_manifest = rnd->Uniform(2);
-  db_opt->skip_log_error_on_recovery = rnd->Uniform(2);
   db_opt->skip_stats_update_on_db_open = rnd->Uniform(2);
   db_opt->skip_checking_sst_file_sizes_on_db_open = rnd->Uniform(2);
   db_opt->use_adaptive_mutex = rnd->Uniform(2);
@@ -380,7 +341,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->level_compaction_dynamic_level_bytes = rnd->Uniform(2);
   cf_opt->optimize_filters_for_hits = rnd->Uniform(2);
   cf_opt->paranoid_file_checks = rnd->Uniform(2);
-  cf_opt->purge_redundant_kvs_while_flush = rnd->Uniform(2);
   cf_opt->force_consistency_checks = rnd->Uniform(2);
   cf_opt->compaction_options_fifo.allow_compaction = rnd->Uniform(2);
   cf_opt->memtable_whole_key_filtering = rnd->Uniform(2);
@@ -388,18 +348,17 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->enable_blob_garbage_collection = rnd->Uniform(2);
 
   // double options
-  cf_opt->hard_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
-  cf_opt->soft_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
   cf_opt->memtable_prefix_bloom_size_ratio =
       static_cast<double>(rnd->Uniform(10000)) / 20000.0;
   cf_opt->blob_garbage_collection_age_cutoff = rnd->Uniform(10000) / 10000.0;
+  cf_opt->blob_garbage_collection_force_threshold =
+      rnd->Uniform(10000) / 10000.0;
 
   // int options
   cf_opt->level0_file_num_compaction_trigger = rnd->Uniform(100);
   cf_opt->level0_slowdown_writes_trigger = rnd->Uniform(100);
   cf_opt->level0_stop_writes_trigger = rnd->Uniform(100);
   cf_opt->max_bytes_for_level_multiplier = rnd->Uniform(100);
-  cf_opt->max_mem_compaction_level = rnd->Uniform(100);
   cf_opt->max_write_buffer_number = rnd->Uniform(100);
   cf_opt->max_write_buffer_number_to_maintain = rnd->Uniform(100);
   cf_opt->max_write_buffer_size_to_maintain = rnd->Uniform(10000);
@@ -438,9 +397,7 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
       uint_max + rnd->Uniform(10000);
   cf_opt->min_blob_size = uint_max + rnd->Uniform(10000);
   cf_opt->blob_file_size = uint_max + rnd->Uniform(10000);
-
-  // unsigned int options
-  cf_opt->rate_limit_delay_max_milliseconds = rnd->Uniform(10000);
+  cf_opt->blob_compaction_readahead_size = uint_max + rnd->Uniform(10000);
 
   // pointer typed options
   cf_opt->prefix_extractor.reset(RandomSliceTransform(rnd));
@@ -585,5 +542,196 @@ void DeleteDir(Env* env, const std::string& dirname) {
   TryDeleteDir(env, dirname).PermitUncheckedError();
 }
 
+Status CreateEnvFromSystem(const ConfigOptions& config_options, Env** result,
+                           std::shared_ptr<Env>* guard) {
+  const char* env_uri = getenv("TEST_ENV_URI");
+  const char* fs_uri = getenv("TEST_FS_URI");
+  if (env_uri || fs_uri) {
+    return Env::CreateFromUri(config_options,
+                              (env_uri != nullptr) ? env_uri : "",
+                              (fs_uri != nullptr) ? fs_uri : "", result, guard);
+  } else {
+    // Neither specified.  Use the default
+    *result = config_options.env;
+    guard->reset();
+    return Status::OK();
+  }
+}
+namespace {
+// A hacky skip list mem table that triggers flush after number of entries.
+class SpecialMemTableRep : public MemTableRep {
+ public:
+  explicit SpecialMemTableRep(Allocator* allocator, MemTableRep* memtable,
+                              int num_entries_flush)
+      : MemTableRep(allocator),
+        memtable_(memtable),
+        num_entries_flush_(num_entries_flush),
+        num_entries_(0) {}
+
+  virtual KeyHandle Allocate(const size_t len, char** buf) override {
+    return memtable_->Allocate(len, buf);
+  }
+
+  // Insert key into the list.
+  // REQUIRES: nothing that compares equal to key is currently in the list.
+  virtual void Insert(KeyHandle handle) override {
+    num_entries_++;
+    memtable_->Insert(handle);
+  }
+
+  void InsertConcurrently(KeyHandle handle) override {
+    num_entries_++;
+    memtable_->Insert(handle);
+  }
+
+  // Returns true iff an entry that compares equal to key is in the list.
+  virtual bool Contains(const char* key) const override {
+    return memtable_->Contains(key);
+  }
+
+  virtual size_t ApproximateMemoryUsage() override {
+    // Return a high memory usage when number of entries exceeds the threshold
+    // to trigger a flush.
+    return (num_entries_ < num_entries_flush_) ? 0 : 1024 * 1024 * 1024;
+  }
+
+  virtual void Get(const LookupKey& k, void* callback_args,
+                   bool (*callback_func)(void* arg,
+                                         const char* entry)) override {
+    memtable_->Get(k, callback_args, callback_func);
+  }
+
+  uint64_t ApproximateNumEntries(const Slice& start_ikey,
+                                 const Slice& end_ikey) override {
+    return memtable_->ApproximateNumEntries(start_ikey, end_ikey);
+  }
+
+  virtual MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override {
+    return memtable_->GetIterator(arena);
+  }
+
+  virtual ~SpecialMemTableRep() override {}
+
+ private:
+  std::unique_ptr<MemTableRep> memtable_;
+  int num_entries_flush_;
+  int num_entries_;
+};
+class SpecialSkipListFactory : public MemTableRepFactory {
+ public:
+#ifndef ROCKSDB_LITE
+  static bool Register(ObjectLibrary& library, const std::string& /*arg*/) {
+    library.AddFactory<MemTableRepFactory>(
+        ObjectLibrary::PatternEntry(SpecialSkipListFactory::kClassName(), true)
+            .AddNumber(":"),
+        [](const std::string& uri, std::unique_ptr<MemTableRepFactory>* guard,
+           std::string* /* errmsg */) {
+          auto colon = uri.find(":");
+          if (colon != std::string::npos) {
+            auto count = ParseInt(uri.substr(colon + 1));
+            guard->reset(new SpecialSkipListFactory(count));
+          } else {
+            guard->reset(new SpecialSkipListFactory(2));
+          }
+          return guard->get();
+        });
+    return true;
+  }
+#endif  // ROCKSDB_LITE
+  // After number of inserts exceeds `num_entries_flush` in a mem table, trigger
+  // flush.
+  explicit SpecialSkipListFactory(int num_entries_flush)
+      : num_entries_flush_(num_entries_flush) {}
+
+  using MemTableRepFactory::CreateMemTableRep;
+  virtual MemTableRep* CreateMemTableRep(
+      const MemTableRep::KeyComparator& compare, Allocator* allocator,
+      const SliceTransform* transform, Logger* /*logger*/) override {
+    return new SpecialMemTableRep(
+        allocator,
+        factory_.CreateMemTableRep(compare, allocator, transform, nullptr),
+        num_entries_flush_);
+  }
+  static const char* kClassName() { return "SpecialSkipListFactory"; }
+  virtual const char* Name() const override { return kClassName(); }
+  std::string GetId() const override {
+    std::string id = Name();
+    if (num_entries_flush_ > 0) {
+      id.append(":").append(ROCKSDB_NAMESPACE::ToString(num_entries_flush_));
+    }
+    return id;
+  }
+
+  bool IsInsertConcurrentlySupported() const override {
+    return factory_.IsInsertConcurrentlySupported();
+  }
+
+ private:
+  SkipListFactory factory_;
+  int num_entries_flush_;
+};
+}  // namespace
+
+MemTableRepFactory* NewSpecialSkipListFactory(int num_entries_per_flush) {
+  RegisterTestLibrary();
+  return new SpecialSkipListFactory(num_entries_per_flush);
+}
+
+#ifndef ROCKSDB_LITE
+// This method loads existing test classes into the ObjectRegistry
+int RegisterTestObjects(ObjectLibrary& library, const std::string& arg) {
+  size_t num_types;
+  library.AddFactory<const Comparator>(
+      test::SimpleSuffixReverseComparator::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /* errmsg */) {
+        static test::SimpleSuffixReverseComparator ssrc;
+        return &ssrc;
+      });
+  SpecialSkipListFactory::Register(library, arg);
+  library.AddFactory<MergeOperator>(
+      "Changling",
+      [](const std::string& uri, std::unique_ptr<MergeOperator>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new test::ChanglingMergeOperator(uri));
+        return guard->get();
+      });
+  library.AddFactory<CompactionFilter>(
+      "Changling",
+      [](const std::string& uri, std::unique_ptr<CompactionFilter>* /*guard*/,
+         std::string* /* errmsg */) {
+        return new test::ChanglingCompactionFilter(uri);
+      });
+  library.AddFactory<CompactionFilterFactory>(
+      "Changling", [](const std::string& uri,
+                      std::unique_ptr<CompactionFilterFactory>* guard,
+                      std::string* /* errmsg */) {
+        guard->reset(new test::ChanglingCompactionFilterFactory(uri));
+        return guard->get();
+      });
+  library.AddFactory<SystemClock>(
+      MockSystemClock::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<SystemClock>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockSystemClock(SystemClock::Default()));
+        return guard->get();
+      });
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+
+#endif  // ROCKSDB_LITE
+
+void RegisterTestLibrary(const std::string& arg) {
+  static bool registered = false;
+  if (!registered) {
+    registered = true;
+#ifndef ROCKSDB_LITE
+    ObjectRegistry::Default()->AddLibrary("test", RegisterTestObjects, arg);
+#else
+    (void)arg;
+#endif  // ROCKSDB_LITE
+  }
+}
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

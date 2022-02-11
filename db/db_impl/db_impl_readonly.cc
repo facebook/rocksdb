@@ -10,6 +10,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
 #include "db/merge_context.h"
+#include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "util/cast_util.h"
 
@@ -19,7 +20,8 @@ namespace ROCKSDB_NAMESPACE {
 
 DBImplReadOnly::DBImplReadOnly(const DBOptions& db_options,
                                const std::string& dbname)
-    : DBImpl(db_options, dbname) {
+    : DBImpl(db_options, dbname, /*seq_per_batch*/ false,
+             /*batch_per_txn*/ true, /*read_only*/ true) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Opening the db in read only mode");
   LogFlush(immutable_db_options_.info_log);
@@ -34,6 +36,15 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   assert(pinnable_val != nullptr);
   // TODO: stopwatch DB_GET needed?, perf timer needed?
   PERF_TIMER_GUARD(get_snapshot_time);
+
+  assert(column_family);
+  const Comparator* ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() || read_options.timestamp) {
+    // TODO: support timestamp
+    return Status::NotSupported();
+  }
+
   Status s;
   SequenceNumber snapshot = versions_->LastSequence();
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
@@ -71,6 +82,13 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
 
 Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
                                       ColumnFamilyHandle* column_family) {
+  assert(column_family);
+  const Comparator* ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() || read_options.timestamp) {
+    // TODO: support timestamp
+    return NewErrorIterator(Status::NotSupported());
+  }
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
@@ -98,6 +116,21 @@ Status DBImplReadOnly::NewIterators(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
+  if (read_options.timestamp) {
+    // TODO: support timestamp
+    return Status::NotSupported();
+  } else {
+    for (auto* cf : column_families) {
+      assert(cf);
+      const Comparator* ucmp = cf->GetComparator();
+      assert(ucmp);
+      if (ucmp->timestamp_size()) {
+        // TODO: support timestamp
+        return Status::NotSupported();
+      }
+    }
+  }
+
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (iterators == nullptr) {
     return Status::InvalidArgument("iterators not allowed to be nullptr");
@@ -131,8 +164,8 @@ Status DBImplReadOnly::NewIterators(
 }
 
 namespace {
-// Return OK if dbname exists in the file system
-// or create_if_missing is false
+// Return OK if dbname exists in the file system or create it if
+// create_if_missing
 Status OpenForReadOnlyCheckExistence(const DBOptions& db_options,
                                      const std::string& dbname) {
   Status s;
@@ -143,6 +176,9 @@ Status OpenForReadOnlyCheckExistence(const DBOptions& db_options,
     uint64_t manifest_file_number;
     s = VersionSet::GetCurrentManifestPath(dbname, fs.get(), &manifest_path,
                                            &manifest_file_number);
+  } else {
+    // Historic behavior that doesn't necessarily make sense
+    s = db_options.env->CreateDirIfMissing(dbname);
   }
   return s;
 }
@@ -150,7 +186,6 @@ Status OpenForReadOnlyCheckExistence(const DBOptions& db_options,
 
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
                            DB** dbptr, bool /*error_if_wal_file_exists*/) {
-  // If dbname does not exist in the file system, should not do anything
   Status s = OpenForReadOnlyCheckExistence(options, dbname);
   if (!s.ok()) {
     return s;

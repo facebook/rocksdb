@@ -23,13 +23,13 @@ class MockBlockBasedTableTester {
 
  public:
   Options options_;
-  ImmutableCFOptions ioptions_;
+  ImmutableOptions ioptions_;
   EnvOptions env_options_;
   BlockBasedTableOptions table_options_;
   InternalKeyComparator icomp_;
   std::unique_ptr<BlockBasedTable> table_;
 
-  MockBlockBasedTableTester(const FilterPolicy *filter_policy)
+  explicit MockBlockBasedTableTester(const FilterPolicy* filter_policy)
       : ioptions_(options_),
         env_options_(options_),
         icomp_(options_.comparator) {
@@ -47,7 +47,7 @@ class MockBlockBasedTableTester {
     context.column_family_name = "mock_cf";
     context.compaction_style = ioptions_.compaction_style;
     context.level_at_creation = kMockLevel;
-    context.info_log = ioptions_.info_log;
+    context.info_log = ioptions_.logger;
     return BloomFilterPolicy::GetBuilderFromContext(context);
   }
 };

@@ -6,7 +6,7 @@ than release mode.
 
 RocksDB's library should be able to compile without any dependency installed,
 although we recommend installing some compression libraries (see below).
-We do depend on newer gcc/clang with C++11 support.
+We do depend on newer gcc/clang with C++17 support (GCC >= 7, Clang >= 5).
 
 There are few options when compiling RocksDB:
 
@@ -43,12 +43,16 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
       command line flags processing. You can compile rocksdb library even
       if you don't have gflags installed.
 
+* `make check` will also check code formatting, which requires [clang-format](https://clang.llvm.org/docs/ClangFormat.html)
+
 * If you wish to build the RocksJava static target, then cmake is required for building Snappy.
+
+* If you wish to run microbench (e.g, `make microbench`, `make ribbon_bench` or `cmake -DWITH_BENCHMARK=1`), Google benchmark < 1.6.0 is needed.
 
 ## Supported platforms
 
 * **Linux - Ubuntu**
-    * Upgrade your gcc to version at least 4.8 to get C++11 support.
+    * Upgrade your gcc to version at least 7 to get C++17 support.
     * Install gflags. First, try: `sudo apt-get install libgflags-dev`
       If this doesn't work and you're using Ubuntu, here's a nice tutorial:
       (http://askubuntu.com/questions/312173/installing-gflags-12-04)
@@ -60,8 +64,7 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
     * Install zstandard: `sudo apt-get install libzstd-dev`.
 
 * **Linux - CentOS / RHEL**
-    * Upgrade your gcc to version at least 4.8 to get C++11 support:
-      `yum install gcc48-c++`
+    * Upgrade your gcc to version at least 7 to get C++17 support
     * Install gflags:
 
               git clone https://github.com/gflags/gflags.git
@@ -94,19 +97,28 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
               sudo yum install libasan
 
     * Install zstandard:
+        * With [EPEL](https://fedoraproject.org/wiki/EPEL):
 
-             wget https://github.com/facebook/zstd/archive/v1.1.3.tar.gz
-             mv v1.1.3.tar.gz zstd-1.1.3.tar.gz
-             tar zxvf zstd-1.1.3.tar.gz
-             cd zstd-1.1.3
-             make && sudo make install
+              sudo yum install libzstd-devel
+
+        * With CentOS 8:
+
+              sudo dnf install libzstd-devel
+
+        * From source:
+
+              wget https://github.com/facebook/zstd/archive/v1.1.3.tar.gz
+              mv v1.1.3.tar.gz zstd-1.1.3.tar.gz
+              tar zxvf zstd-1.1.3.tar.gz
+              cd zstd-1.1.3
+              make && sudo make install
 
 * **OS X**:
-    * Install latest C++ compiler that supports C++ 11:
+    * Install latest C++ compiler that supports C++ 17:
         * Update XCode:  run `xcode-select --install` (or install it from XCode App's settting).
         * Install via [homebrew](http://brew.sh/).
             * If you're first time developer in MacOS, you still need to run: `xcode-select --install` in your command line.
-            * run `brew tap homebrew/versions; brew install gcc48 --use-llvm` to install gcc 4.8 (or higher).
+            * run `brew tap homebrew/versions; brew install gcc7 --use-llvm` to install gcc 7 (or higher).
     * run `brew install rocksdb`
 
 * **FreeBSD** (11.01):
@@ -149,7 +161,7 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
 
     * Install the dependencies for RocksDB:
 
-        pkg_add gmake gflags snappy bzip2 lz4 zstd git jdk bash findutils gnuwatch 
+        pkg_add gmake gflags snappy bzip2 lz4 zstd git jdk bash findutils gnuwatch
 
     * Build RocksDB from source:
 
@@ -171,13 +183,13 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
 * **Windows**:
   * For building with MS Visual Studio 13 you will need Update 4 installed.
   * Read and follow the instructions at CMakeLists.txt
-  * Or install via [vcpkg](https://github.com/microsoft/vcpkg) 
+  * Or install via [vcpkg](https://github.com/microsoft/vcpkg)
        * run `vcpkg install rocksdb:x64-windows`
 
 * **AIX 6.1**
     * Install AIX Toolbox rpms with gcc
     * Use these environment variables:
-  
+
              export PORTABLE=1
              export CC=gcc
              export AR="ar -X64"
@@ -188,9 +200,9 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
              export LIBPATH=/opt/freeware/lib
              export JAVA_HOME=/usr/java8_64
              export PATH=/opt/freeware/bin:$PATH
-  
+
 * **Solaris Sparc**
-    * Install GCC 4.8.2 and higher.
+    * Install GCC 7 and higher.
     * Use these environment variables:
 
              export CC=gcc
@@ -199,4 +211,3 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
              export EXTRA_LDFLAGS=-m64
              export PORTABLE=1
              export PLATFORM_LDFLAGS="-static-libstdc++ -static-libgcc"
-

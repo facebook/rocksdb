@@ -9,7 +9,10 @@
 #include <fstream>
 
 #include "monitoring/instrumented_mutex.h"
+#include "port/lang.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
+#include "rocksdb/trace_record.h"
 #include "trace_replay/trace_replay.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -47,10 +50,15 @@ struct IOTraceRecord {
   std::string io_status;
   // Stores file name instead of full path.
   std::string file_name;
+
   // Fields added to record based on IO operation.
   uint64_t len = 0;
   uint64_t offset = 0;
   uint64_t file_size = 0;
+
+  // Additional information passed in IODebugContext.
+  uint64_t trace_data = 0;
+  std::string request_id;
 
   IOTraceRecord() {}
 
@@ -102,7 +110,7 @@ class IOTraceWriter {
   IOTraceWriter(IOTraceWriter&&) = delete;
   IOTraceWriter& operator=(IOTraceWriter&&) = delete;
 
-  Status WriteIOOp(const IOTraceRecord& record);
+  Status WriteIOOp(const IOTraceRecord& record, IODebugContext* dbg);
 
   // Write a trace header at the beginning, typically on initiating a trace,
   // with some metadata like a magic number and RocksDB version.
@@ -151,20 +159,6 @@ class IOTracer {
   // mutex and ignore the operation if writer_is null. So its ok if
   // tracing_enabled shows non updated value.
 
-#if defined(__clang__)
-#if defined(__has_feature) && __has_feature(thread_sanitizer)
-#define TSAN_SUPPRESSION __attribute__((no_sanitize("thread")))
-#endif  // __has_feature(thread_sanitizer)
-#else   // __clang__
-#ifdef __SANITIZE_THREAD__
-#define TSAN_SUPPRESSION __attribute__((no_sanitize("thread")))
-#endif  // __SANITIZE_THREAD__
-#endif  // __clang__
-
-#ifndef TSAN_SUPPRESSION
-#define TSAN_SUPPRESSION
-#endif  // TSAN_SUPPRESSION
-
   // Start writing IO operations to the trace_writer.
   TSAN_SUPPRESSION Status
   StartIOTrace(SystemClock* clock, const TraceOptions& trace_options,
@@ -175,7 +169,7 @@ class IOTracer {
 
   TSAN_SUPPRESSION bool is_tracing_enabled() const { return tracing_enabled; }
 
-  void WriteIOOp(const IOTraceRecord& record);
+  void WriteIOOp(const IOTraceRecord& record, IODebugContext* dbg);
 
  private:
   TraceOptions trace_options_;

@@ -19,6 +19,8 @@ int main() {
 #include <cmath>
 #include <vector>
 
+#include "cache/cache_entry_roles.h"
+#include "cache/cache_reservation_manager.h"
 #include "memory/arena.h"
 #include "port/jemalloc_helper.h"
 #include "rocksdb/filter_policy.h"
@@ -61,7 +63,7 @@ static int NextLength(int length) {
 
 class BlockBasedBloomTest : public testing::Test {
  private:
-  std::unique_ptr<const FilterPolicy> policy_;
+  int bits_per_key_;
   std::string filter_;
   std::vector<std::string> keys_;
 
@@ -74,8 +76,9 @@ class BlockBasedBloomTest : public testing::Test {
   }
 
   void ResetPolicy(double bits_per_key) {
-    policy_.reset(new BloomFilterPolicy(bits_per_key,
-                                        BloomFilterPolicy::kDeprecatedBlock));
+    bits_per_key_ =
+        BloomFilterPolicy(bits_per_key, BloomFilterPolicy::kDeprecatedBlock)
+            .GetWholeBitsPerKey();
     Reset();
   }
 
@@ -91,8 +94,9 @@ class BlockBasedBloomTest : public testing::Test {
       key_slices.push_back(Slice(keys_[i]));
     }
     filter_.clear();
-    policy_->CreateFilter(&key_slices[0], static_cast<int>(key_slices.size()),
-                          &filter_);
+    BloomFilterPolicy::CreateFilter(key_slices.data(),
+                                    static_cast<int>(key_slices.size()),
+                                    bits_per_key_, &filter_);
     keys_.clear();
     if (kVerbose >= 2) DumpFilter();
   }
@@ -118,7 +122,7 @@ class BlockBasedBloomTest : public testing::Test {
     if (!keys_.empty()) {
       Build();
     }
-    return policy_->KeyMayMatch(s, filter_);
+    return BloomFilterPolicy::KeyMayMatch(s, filter_);
   }
 
   double FalsePositiveRate() {
@@ -278,7 +282,7 @@ class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
 
   BuiltinFilterBitsBuilder* GetBuiltinFilterBitsBuilder() {
     // Throws on bad cast
-    return &dynamic_cast<BuiltinFilterBitsBuilder&>(*bits_builder_);
+    return dynamic_cast<BuiltinFilterBitsBuilder*>(bits_builder_.get());
   }
 
   const BloomFilterPolicy* GetBloomFilterPolicy() {
@@ -395,23 +399,26 @@ TEST_P(FullBloomTest, FilterSize) {
   // checking that denoted and computed doubles are interpreted as expected
   // as bits_per_key values.
   bool some_computed_less_than_denoted = false;
-  // Note: enforced minimum is 1 bit per key (1000 millibits), and enforced
-  // maximum is 100 bits per key (100000 millibits).
-  for (auto bpk :
-       std::vector<std::pair<double, int> >{{-HUGE_VAL, 1000},
-                                            {-INFINITY, 1000},
-                                            {0.0, 1000},
-                                            {1.234, 1234},
-                                            {3.456, 3456},
-                                            {9.5, 9500},
-                                            {10.0, 10000},
-                                            {10.499, 10499},
-                                            {21.345, 21345},
-                                            {99.999, 99999},
-                                            {1234.0, 100000},
-                                            {HUGE_VAL, 100000},
-                                            {INFINITY, 100000},
-                                            {NAN, 100000}}) {
+  // Note: to avoid unproductive configurations, bits_per_key < 0.5 is rounded
+  // down to 0 (no filter), and 0.5 <= bits_per_key < 1.0 is rounded up to 1
+  // bit per key (1000 millibits). Also, enforced maximum is 100 bits per key
+  // (100000 millibits).
+  for (auto bpk : std::vector<std::pair<double, int> >{{-HUGE_VAL, 0},
+                                                       {-INFINITY, 0},
+                                                       {0.0, 0},
+                                                       {0.499, 0},
+                                                       {0.5, 1000},
+                                                       {1.234, 1234},
+                                                       {3.456, 3456},
+                                                       {9.5, 9500},
+                                                       {10.0, 10000},
+                                                       {10.499, 10499},
+                                                       {21.345, 21345},
+                                                       {99.999, 99999},
+                                                       {1234.0, 100000},
+                                                       {HUGE_VAL, 100000},
+                                                       {INFINITY, 100000},
+                                                       {NAN, 100000}}) {
     ResetPolicy(bpk.first);
     auto bfp = GetBloomFilterPolicy();
     EXPECT_EQ(bpk.second, bfp->GetMillibitsPerKey());
@@ -431,6 +438,10 @@ TEST_P(FullBloomTest, FilterSize) {
     EXPECT_EQ((bpk.second + 500) / 1000, bfp->GetWholeBitsPerKey());
 
     auto bits_builder = GetBuiltinFilterBitsBuilder();
+    if (bpk.second == 0) {
+      ASSERT_EQ(bits_builder, nullptr);
+      continue;
+    }
 
     size_t n = 1;
     size_t space = 0;
@@ -552,7 +563,8 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
     }
     if (FLAGS_bits_per_key == 10) {
       EXPECT_LE(total_fp_rate / double{nfilters}, 0.011);
-      EXPECT_GE(total_fp_rate / double{nfilters}, 0.008);
+      EXPECT_GE(total_fp_rate / double{nfilters},
+                CACHE_LINE_SIZE >= 256 ? 0.007 : 0.008);
     }
 
     int64_t ex_min_total_size = int64_t{FLAGS_bits_per_key} * total_keys / 8;
@@ -596,6 +608,62 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
       // No storage penalty, just usual overhead
       EXPECT_LE(static_cast<int64_t>(total_size),
                 ex_min_total_size + blocked_bloom_overhead);
+    }
+  }
+}
+
+TEST(FullBloomFilterConstructionReserveMemTest,
+     RibbonFilterFallBackOnLargeBanding) {
+  constexpr std::size_t kCacheCapacity =
+      8 * CacheReservationManager::GetDummyEntrySize();
+  constexpr std::size_t num_entries_for_cache_full = kCacheCapacity / 8;
+
+  for (bool reserve_builder_mem : {true, false}) {
+    bool will_fall_back = reserve_builder_mem;
+
+    BlockBasedTableOptions table_options;
+    table_options.reserve_table_builder_memory = reserve_builder_mem;
+    LRUCacheOptions lo;
+    lo.capacity = kCacheCapacity;
+    lo.num_shard_bits = 0;  // 2^0 shard
+    lo.strict_capacity_limit = true;
+    std::shared_ptr<Cache> cache(NewLRUCache(lo));
+    table_options.block_cache = cache;
+    table_options.filter_policy.reset(new BloomFilterPolicy(
+        FLAGS_bits_per_key, BloomFilterPolicy::Mode::kStandard128Ribbon));
+    FilterBuildingContext ctx(table_options);
+    std::unique_ptr<FilterBitsBuilder> filter_bits_builder(
+        table_options.filter_policy->GetBuilderWithContext(ctx));
+
+    char key_buffer[sizeof(int)];
+    for (std::size_t i = 0; i < num_entries_for_cache_full; ++i) {
+      filter_bits_builder->AddKey(Key(static_cast<int>(i), key_buffer));
+    }
+
+    std::unique_ptr<const char[]> buf;
+    Slice filter = filter_bits_builder->Finish(&buf);
+
+    // To verify Ribbon Filter fallbacks to Bloom Filter properly
+    // based on cache reservation result
+    // See BloomFilterPolicy::GetBloomBitsReader re: metadata
+    // -1 = Marker for newer Bloom implementations
+    // -2 = Marker for Standard128 Ribbon
+    if (will_fall_back) {
+      EXPECT_EQ(filter.data()[filter.size() - 5], static_cast<char>(-1));
+    } else {
+      EXPECT_EQ(filter.data()[filter.size() - 5], static_cast<char>(-2));
+    }
+
+    if (reserve_builder_mem) {
+      const size_t dummy_entry_num = static_cast<std::size_t>(std::ceil(
+          filter.size() * 1.0 / CacheReservationManager::GetDummyEntrySize()));
+      EXPECT_GE(cache->GetPinnedUsage(),
+                dummy_entry_num * CacheReservationManager::GetDummyEntrySize());
+      EXPECT_LT(
+          cache->GetPinnedUsage(),
+          (dummy_entry_num + 1) * CacheReservationManager::GetDummyEntrySize());
+    } else {
+      EXPECT_EQ(cache->GetPinnedUsage(), 0);
     }
   }
 }
@@ -689,7 +757,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       SelectByCacheLineSize(1567096579, 1964771444, 2659542661U));
   EXPECT_EQ_FastBloom(BloomHash(FilterData()), 3817481309U);
-  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 1705851228);
+  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 1705851228U);
 
   EXPECT_EQ_FastBloom("11,13,17,25,29,30,35,37,45,53", FirstFPs(10));
   EXPECT_EQ_Ribbon("3,8,10,17,19,20,23,28,31,32", FirstFPs(10));
@@ -706,7 +774,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       SelectByCacheLineSize(2707206547U, 2571983456U, 218344685));
   EXPECT_EQ_FastBloom(BloomHash(FilterData()), 2807269961U);
-  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 1095342358);
+  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 1095342358U);
 
   EXPECT_EQ_FastBloom("4,15,17,24,27,28,29,53,63,70", FirstFPs(10));
   EXPECT_EQ_Ribbon("3,17,20,28,32,33,36,43,49,54", FirstFPs(10));
@@ -722,7 +790,7 @@ TEST_P(FullBloomTest, Schema) {
   EXPECT_EQ_LegacyBloom(
       BloomHash(FilterData()),
       SelectByCacheLineSize(515748486, 94611728, 2436112214U));
-  EXPECT_EQ_FastBloom(BloomHash(FilterData()), 204628445);
+  EXPECT_EQ_FastBloom(BloomHash(FilterData()), 204628445U);
   EXPECT_EQ_Ribbon(BloomHash(FilterData()), 3971337699U);
 
   EXPECT_EQ_FastBloom("15,24,29,39,53,87,89,100,103,104", FirstFPs(10));
@@ -739,7 +807,7 @@ TEST_P(FullBloomTest, Schema) {
   EXPECT_EQ_LegacyBloom(
       BloomHash(FilterData()),
       SelectByCacheLineSize(1302145999, 2811644657U, 756553699));
-  EXPECT_EQ_FastBloom(BloomHash(FilterData()), 355564975);
+  EXPECT_EQ_FastBloom(BloomHash(FilterData()), 355564975U);
   EXPECT_EQ_Ribbon(BloomHash(FilterData()), 3651449053U);
 
   EXPECT_EQ_FastBloom("16,60,66,126,220,238,244,256,265,287", FirstFPs(10));
@@ -757,7 +825,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       SelectByCacheLineSize(2092755149, 661139132, 1182970461));
   EXPECT_EQ_FastBloom(BloomHash(FilterData()), 2137566013U);
-  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 1005676675);
+  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 1005676675U);
 
   EXPECT_EQ_FastBloom("156,367,791,872,945,1015,1139,1159,1265", FirstFPs(9));
   EXPECT_EQ_Ribbon("33,187,203,296,411,419,604,612,615,619", FirstFPs(10));
@@ -798,7 +866,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       SelectByCacheLineSize(178861123, 379087593, 2574136516U));
   EXPECT_EQ_FastBloom(BloomHash(FilterData()), 3709876890U);
-  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 1855638875);
+  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 1855638875U);
 
   EXPECT_EQ_FastBloom("130,240,522,565,989,2002,2526,3147,3543", FirstFPs(9));
   EXPECT_EQ_Ribbon("665,727,1323,1755,3866,4232,4442,4492,4736", FirstFPs(9));
@@ -820,8 +888,8 @@ TEST_P(FullBloomTest, Schema) {
   EXPECT_EQ_LegacyBloom(
       BloomHash(FilterData()),
       SelectByCacheLineSize(1129406313, 3049154394U, 1727750964));
-  EXPECT_EQ_FastBloom(BloomHash(FilterData()), 1087138490);
-  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 459379967);
+  EXPECT_EQ_FastBloom(BloomHash(FilterData()), 1087138490U);
+  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 459379967U);
 
   EXPECT_EQ_FastBloom("3299,3611,3916,6620,7822,8079,8482,8942", FirstFPs(8));
   EXPECT_EQ_Ribbon("727,1323,1755,4442,4736,5386,6974,7154,8222", FirstFPs(9));
@@ -838,7 +906,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       SelectByCacheLineSize(1478976371, 2910591341U, 1182970461));
   EXPECT_EQ_FastBloom(BloomHash(FilterData()), 2498541272U);
-  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 1273231667);
+  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 1273231667U);
 
   EXPECT_EQ_FastBloom("16,126,133,422,466,472,813,1002,1035", FirstFPs(9));
   EXPECT_EQ_Ribbon("296,411,419,612,619,623,630,665,686,727", FirstFPs(10));
@@ -871,8 +939,8 @@ TEST_P(FullBloomTest, Schema) {
   EXPECT_EQ_LegacyBloom(
       BloomHash(FilterData()),
       SelectByCacheLineSize(2885052954U, 769447944, 4175124908U));
-  EXPECT_EQ_FastBloom(BloomHash(FilterData()), 23699164);
-  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 1942323379);
+  EXPECT_EQ_FastBloom(BloomHash(FilterData()), 23699164U);
+  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 1942323379U);
 
   EXPECT_EQ_FastBloom("16,126,133,422,466,472,813,1002,1035", FirstFPs(9));
   EXPECT_EQ_Ribbon("33,95,360,589,737,911,990,1048,1081,1414", FirstFPs(10));
@@ -892,7 +960,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       /*SAME*/ SelectByCacheLineSize(2885052954U, 769447944, 4175124908U));
   EXPECT_EQ_FastBloom(BloomHash(FilterData()), 3166884174U);
-  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 1148258663);
+  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 1148258663U);
 
   EXPECT_EQ_FastBloom("126,156,367,444,458,791,813,976,1015", FirstFPs(9));
   EXPECT_EQ_Ribbon("33,54,95,360,589,693,737,911,990,1048", FirstFPs(10));
@@ -910,7 +978,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       /*SAME*/ SelectByCacheLineSize(2885052954U, 769447944, 4175124908U));
   EXPECT_EQ_FastBloom(BloomHash(FilterData()), 4098502778U);
-  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 792138188);
+  EXPECT_EQ_Ribbon(BloomHash(FilterData()), 792138188U);
 
   EXPECT_EQ_FastBloom("16,236,240,472,1015,1045,1111,1409,1465", FirstFPs(9));
   EXPECT_EQ_Ribbon("33,95,360,589,737,990,1048,1081,1414,1643", FirstFPs(10));
@@ -1194,6 +1262,91 @@ INSTANTIATE_TEST_CASE_P(Full, FullBloomTest,
                         testing::Values(BloomFilterPolicy::kLegacyBloom,
                                         BloomFilterPolicy::kFastLocalBloom,
                                         BloomFilterPolicy::kStandard128Ribbon));
+
+static double GetEffectiveBitsPerKey(FilterBitsBuilder* builder) {
+  union {
+    uint64_t key_value = 0;
+    char key_bytes[8];
+  };
+
+  const unsigned kNumKeys = 1000;
+
+  Slice key_slice{key_bytes, 8};
+  for (key_value = 0; key_value < kNumKeys; ++key_value) {
+    builder->AddKey(key_slice);
+  }
+
+  std::unique_ptr<const char[]> buf;
+  auto filter = builder->Finish(&buf);
+  return filter.size() * /*bits per byte*/ 8 / (1.0 * kNumKeys);
+}
+
+static void SetTestingLevel(int levelish, FilterBuildingContext* ctx) {
+  if (levelish == -1) {
+    // Flush is treated as level -1 for this option but actually level 0
+    ctx->level_at_creation = 0;
+    ctx->reason = TableFileCreationReason::kFlush;
+  } else {
+    ctx->level_at_creation = levelish;
+    ctx->reason = TableFileCreationReason::kCompaction;
+  }
+}
+
+TEST(RibbonTest, RibbonTestLevelThreshold) {
+  BlockBasedTableOptions opts;
+  FilterBuildingContext ctx(opts);
+  // A few settings
+  for (CompactionStyle cs : {kCompactionStyleLevel, kCompactionStyleUniversal,
+                             kCompactionStyleFIFO, kCompactionStyleNone}) {
+    ctx.compaction_style = cs;
+    for (int bloom_before_level : {-1, 0, 1, 10}) {
+      std::vector<std::unique_ptr<const FilterPolicy> > policies;
+      policies.emplace_back(NewRibbonFilterPolicy(10, bloom_before_level));
+
+      if (bloom_before_level == 0) {
+        // Also test new API default
+        policies.emplace_back(NewRibbonFilterPolicy(10));
+      }
+
+      for (std::unique_ptr<const FilterPolicy>& policy : policies) {
+        // Claim to be generating filter for this level
+        SetTestingLevel(bloom_before_level, &ctx);
+
+        std::unique_ptr<FilterBitsBuilder> builder{
+            policy->GetBuilderWithContext(ctx)};
+
+        // Must be Ribbon (more space efficient than 10 bits per key)
+        ASSERT_LT(GetEffectiveBitsPerKey(builder.get()), 8);
+
+        if (bloom_before_level >= 0) {
+          // Claim to be generating filter for previous level
+          SetTestingLevel(bloom_before_level - 1, &ctx);
+
+          builder.reset(policy->GetBuilderWithContext(ctx));
+
+          if (cs == kCompactionStyleLevel || cs == kCompactionStyleUniversal) {
+            // Level is considered.
+            // Must be Bloom (~ 10 bits per key)
+            ASSERT_GT(GetEffectiveBitsPerKey(builder.get()), 9);
+          } else {
+            // Level is ignored under non-traditional compaction styles.
+            // Must be Ribbon (more space efficient than 10 bits per key)
+            ASSERT_LT(GetEffectiveBitsPerKey(builder.get()), 8);
+          }
+        }
+
+        // Like SST file writer
+        ctx.level_at_creation = -1;
+        ctx.reason = TableFileCreationReason::kMisc;
+
+        builder.reset(policy->GetBuilderWithContext(ctx));
+
+        // Must be Ribbon (more space efficient than 10 bits per key)
+        ASSERT_LT(GetEffectiveBitsPerKey(builder.get()), 8);
+      }
+    }
+  }
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

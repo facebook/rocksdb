@@ -102,7 +102,7 @@ class ErrorHandler {
     bool auto_recovery_;
     bool recovery_in_prog_;
     // A flag to indicate that for the soft error, we should not allow any
-    // backrgound work execpt the work is from recovery.
+    // background work except the work is from recovery.
     bool soft_error_no_bg_work_;
 
     // Used to store the context for recover, such as flush reason.
@@ -116,6 +116,10 @@ class ErrorHandler {
     void RecoverFromNoSpace();
     const Status& StartRecoverFromRetryableBGIOError(const IOStatus& io_error);
     void RecoverFromRetryableBGIOError();
+    // First, if it is in recovery and the recovery_error is ok. Set the
+    // recovery_error_ to bg_err. Second, if the severity is higher than the
+    // current bg_error_, overwrite it.
+    void CheckAndSetRecoveryAndBGError(const Status& bg_err);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

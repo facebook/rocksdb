@@ -9,6 +9,7 @@
 
 #include <string>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/rocksdb_namespace.h"
@@ -23,6 +24,9 @@ struct ConfigOptions;
 // read from disk.
 Env* NewEncryptedEnv(Env* base_env,
                      const std::shared_ptr<EncryptionProvider>& provider);
+std::shared_ptr<FileSystem> NewEncryptedFS(
+    const std::shared_ptr<FileSystem>& base_fs,
+    const std::shared_ptr<EncryptionProvider>& provider);
 
 // BlockAccessCipherStream is the base class for any cipher stream that
 // supports random access at block level (without requiring data from other
@@ -58,7 +62,11 @@ class BlockAccessCipherStream {
 };
 
 // BlockCipher
-class BlockCipher {
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
+class BlockCipher : public Customizable {
  public:
   virtual ~BlockCipher(){};
 
@@ -73,19 +81,19 @@ class BlockCipher {
   //   - ROT13         Create a ROT13 Cipher
   //   - ROT13:nn      Create a ROT13 Cipher with block size of nn
   // @param result The new cipher object
-  // @return OK if the cipher was sucessfully created
+  // @return OK if the cipher was successfully created
   // @return NotFound if an invalid name was specified in the value
   // @return InvalidArgument if either the options were not valid
   static Status CreateFromString(const ConfigOptions& config_options,
                                  const std::string& value,
                                  std::shared_ptr<BlockCipher>* result);
 
+  static const char* Type() { return "BlockCipher"; }
   // Short-cut method to create a ROT13 BlockCipher.
   // This cipher is only suitable for test purposes and should not be used in
   // production!!!
   static std::shared_ptr<BlockCipher> NewROT13Cipher(size_t block_size);
 
-  virtual const char* Name() const = 0;
   // BlockSize returns the size of each block supported by this cipher stream.
   virtual size_t BlockSize() = 0;
 
@@ -101,7 +109,11 @@ class BlockCipher {
 // The encryption provider is used to create a cipher stream for a specific
 // file. The returned cipher stream will be used for actual
 // encryption/decryption actions.
-class EncryptionProvider {
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
+class EncryptionProvider : public Customizable {
  public:
   virtual ~EncryptionProvider(){};
 
@@ -109,28 +121,27 @@ class EncryptionProvider {
   // The value describes the type of provider (and potentially optional
   // configuration parameters) used to create this provider.
   // For example, if the value is "CTR", a CTREncryptionProvider will be
-  // created. If the value is preceded by "test://" (e.g test://CTR"), the
-  // TEST_Initialize method will be invoked prior to returning the provider.
+  // created. If the value is ends with "://test" (e.g CTR://test"), the
+  // provider will be initialized in "TEST" mode prior to being returned.
   //
   // @param config_options  Options to control how this provider is created
   //                        and initialized.
   // @param value  The value might be:
   //   - CTR         Create a CTR provider
-  //   - test://CTR Create a CTR provider and initialize it for tests.
+  //   - CTR://test Create a CTR provider and initialize it for tests.
   // @param result The new provider object
-  // @return OK if the provider was sucessfully created
+  // @return OK if the provider was successfully created
   // @return NotFound if an invalid name was specified in the value
   // @return InvalidArgument if either the options were not valid
   static Status CreateFromString(const ConfigOptions& config_options,
                                  const std::string& value,
                                  std::shared_ptr<EncryptionProvider>* result);
 
+  static const char* Type() { return "EncryptionProvider"; }
+
   // Short-cut method to create a CTR-provider
   static std::shared_ptr<EncryptionProvider> NewCTRProvider(
       const std::shared_ptr<BlockCipher>& cipher);
-
-  // Returns the name of this EncryptionProvider
-  virtual const char* Name() const = 0;
 
   // GetPrefixLength returns the length of the prefix that is added to every
   // file and used for storing encryption options. For optimal performance, the
@@ -165,11 +176,6 @@ class EncryptionProvider {
   // or not a file is encrypted by this provider.  The maker will also be part
   // of any encryption prefix for this provider.
   virtual std::string GetMarker() const { return ""; }
-
- protected:
-  // Optional method to initialize an EncryptionProvider in the TEST
-  // environment.
-  virtual Status TEST_Initialize() { return Status::OK(); }
 };
 
 class EncryptedSequentialFile : public FSSequentialFile {
@@ -323,6 +329,10 @@ class EncryptedWritableFile : public FSWritableFile {
                             const IOOptions& options,
                             IODebugContext* dbg) override;
 
+  // true if Sync() and Fsync() are safe to call concurrently with Append()
+  // and Flush().
+  bool IsSyncThreadSafe() const override;
+
   // Indicates the upper layers if the current WritableFile implementation
   // uses direct IO.
   bool use_direct_io() const override;
@@ -365,6 +375,11 @@ class EncryptedWritableFile : public FSWritableFile {
   // pre-allocation.
   void PrepareWrite(size_t offset, size_t len, const IOOptions& options,
                     IODebugContext* dbg) override;
+
+  void SetPreallocationBlockSize(size_t size) override;
+
+  void GetPreallocationStatus(size_t* block_size,
+                              size_t* last_allocated_block) override;
 
   // Pre-allocates space for a file.
   IOStatus Allocate(uint64_t offset, uint64_t len, const IOOptions& options,
@@ -436,6 +451,14 @@ class EncryptedFileSystem : public FileSystemWrapper {
   // otherwise
   virtual Status AddCipher(const std::string& descriptor, const char* cipher,
                            size_t len, bool for_write) = 0;
+  static const char* kClassName() { return "EncryptedFileSystem"; }
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == kClassName()) {
+      return true;
+    } else {
+      return FileSystemWrapper::IsInstanceOf(name);
+    }
+  }
 };
 }  // namespace ROCKSDB_NAMESPACE
 

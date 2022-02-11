@@ -24,13 +24,37 @@ class DBWALTestBase : public DBTestBase {
 
 #if defined(ROCKSDB_PLATFORM_POSIX)
  public:
+#if defined(ROCKSDB_FALLOCATE_PRESENT)
+  bool IsFallocateSupported() {
+    // Test fallocate support of running file system.
+    // Skip this test if fallocate is not supported.
+    std::string fname_test_fallocate = dbname_ + "/preallocate_testfile";
+    int fd = -1;
+    do {
+      fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+    } while (fd < 0 && errno == EINTR);
+    assert(fd > 0);
+    int alloc_status = fallocate(fd, 0, 0, 1);
+    int err_number = errno;
+    close(fd);
+    assert(env_->DeleteFile(fname_test_fallocate) == Status::OK());
+    if (err_number == ENOSYS || err_number == EOPNOTSUPP) {
+      fprintf(stderr, "Skipped preallocated space check: %s\n",
+              errnoStr(err_number).c_str());
+      return false;
+    }
+    assert(alloc_status == 0);
+    return true;
+  }
+#endif  // ROCKSDB_FALLOCATE_PRESENT
+
   uint64_t GetAllocatedFileSize(std::string file_name) {
     struct stat sbuf;
     int err = stat(file_name.c_str(), &sbuf);
     assert(err == 0);
     return sbuf.st_blocks * 512;
   }
-#endif
+#endif  // ROCKSDB_PLATFORM_POSIX
 };
 
 class DBWALTest : public DBWALTestBase {
@@ -95,7 +119,7 @@ class EnrichedSpecialEnv : public SpecialEnv {
 class DBWALTestWithEnrichedEnv : public DBTestBase {
  public:
   DBWALTestWithEnrichedEnv()
-      : DBTestBase("/db_wal_test", /*env_do_fsync=*/true) {
+      : DBTestBase("db_wal_test", /*env_do_fsync=*/true) {
     enriched_env_ = new EnrichedSpecialEnv(env_->target());
     auto options = CurrentOptions();
     options.env = enriched_env_;
@@ -358,7 +382,7 @@ TEST_F(DBWALTest, RecoverWithBlob) {
 
   // There should be no files just yet since we haven't flushed.
   {
-    VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+    VersionSet* const versions = dbfull()->GetVersionSet();
     ASSERT_NE(versions, nullptr);
 
     ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
@@ -388,7 +412,7 @@ TEST_F(DBWALTest, RecoverWithBlob) {
   ASSERT_EQ(Get("key1"), short_value);
   ASSERT_EQ(Get("key2"), long_value);
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   ASSERT_NE(versions, nullptr);
 
   ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
@@ -409,7 +433,7 @@ TEST_F(DBWALTest, RecoverWithBlob) {
   const auto& blob_files = storage_info->GetBlobFiles();
   ASSERT_EQ(blob_files.size(), 1);
 
-  const auto& blob_file = blob_files.begin()->second;
+  const auto& blob_file = blob_files.front();
   ASSERT_NE(blob_file, nullptr);
 
   ASSERT_EQ(table_file->smallest.user_key(), "key1");
@@ -453,7 +477,7 @@ TEST_F(DBWALTest, RecoverWithBlobMultiSST) {
 
   // There should be no files just yet since we haven't flushed.
   {
-    VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+    VersionSet* const versions = dbfull()->GetVersionSet();
     ASSERT_NE(versions, nullptr);
 
     ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
@@ -485,7 +509,7 @@ TEST_F(DBWALTest, RecoverWithBlobMultiSST) {
     ASSERT_EQ(Get(Key(i)), large_value);
   }
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   ASSERT_NE(versions, nullptr);
 
   ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
@@ -1238,10 +1262,11 @@ class RecoveryTestHelper {
     std::unique_ptr<WalManager> wal_manager;
     WriteController write_controller;
 
-    versions.reset(new VersionSet(
-        test->dbname_, &db_options, file_options, table_cache.get(),
-        &write_buffer_manager, &write_controller,
-        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+    versions.reset(new VersionSet(test->dbname_, &db_options, file_options,
+                                  table_cache.get(), &write_buffer_manager,
+                                  &write_controller,
+                                  /*block_cache_tracer=*/nullptr,
+                                  /*io_tracer=*/nullptr, /*db_session_id*/ ""));
 
     wal_manager.reset(
         new WalManager(db_options, file_options, /*io_tracer=*/nullptr));
@@ -1777,19 +1802,8 @@ TEST_P(DBWALTestWithParamsVaryingRecoveryMode,
 // avoid_flush_during_recovery=true.
 // Flush should trigger if max_total_wal_size is reached.
 TEST_F(DBWALTest, RestoreTotalLogSizeAfterRecoverWithoutFlush) {
-  class TestFlushListener : public EventListener {
-   public:
-    std::atomic<int> count{0};
-
-    TestFlushListener() = default;
-
-    void OnFlushBegin(DB* /*db*/, const FlushJobInfo& flush_job_info) override {
-      count++;
-      ASSERT_EQ(FlushReason::kWriteBufferManager, flush_job_info.flush_reason);
-    }
-  };
-  std::shared_ptr<TestFlushListener> test_listener =
-      std::make_shared<TestFlushListener>();
+  auto test_listener = std::make_shared<FlushCounterListener>();
+  test_listener->expected_flush_reason = FlushReason::kWalFull;
 
   constexpr size_t kKB = 1024;
   constexpr size_t kMB = 1024 * 1024;
@@ -1849,23 +1863,9 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
     ROCKSDB_GTEST_SKIP("Test requires non-mem environment");
     return;
   }
-  // Test fallocate support of running file system.
-  // Skip this test if fallocate is not supported.
-  std::string fname_test_fallocate = dbname_ + "/preallocate_testfile";
-  int fd = -1;
-  do {
-    fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
-  } while (fd < 0 && errno == EINTR);
-  ASSERT_GT(fd, 0);
-  int alloc_status = fallocate(fd, 0, 0, 1);
-  int err_number = errno;
-  close(fd);
-  ASSERT_OK(options.env->DeleteFile(fname_test_fallocate));
-  if (err_number == ENOSYS || err_number == EOPNOTSUPP) {
-    fprintf(stderr, "Skipped preallocated space check: %s\n", strerror(err_number));
+  if (!IsFallocateSupported()) {
     return;
   }
-  ASSERT_EQ(0, alloc_status);
 
   DestroyAndReopen(options);
   size_t preallocated_size =
@@ -1887,6 +1887,175 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
   // The preallocated space should be truncated.
   ASSERT_LT(GetAllocatedFileSize(dbname_ + file_before->PathName()),
             preallocated_size);
+}
+// Tests that we will truncate the preallocated space of the last log from
+// previous.
+TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithFlush) {
+  constexpr size_t kKB = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.avoid_flush_during_recovery = false;
+  options.avoid_flush_during_shutdown = true;
+  if (mem_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem environment");
+    return;
+  }
+  if (!IsFallocateSupported()) {
+    return;
+  }
+
+  DestroyAndReopen(options);
+  size_t preallocated_size =
+      dbfull()->TEST_GetWalPreallocateBlockSize(options.write_buffer_size);
+  ASSERT_OK(Put("foo", "v1"));
+  VectorLogPtr log_files_before;
+  ASSERT_OK(dbfull()->GetSortedWalFiles(log_files_before));
+  ASSERT_EQ(1, log_files_before.size());
+  auto& file_before = log_files_before[0];
+  ASSERT_LT(file_before->SizeFileBytes(), 1 * kKB);
+  ASSERT_GE(GetAllocatedFileSize(dbname_ + file_before->PathName()),
+            preallocated_size);
+  // The log file has preallocated space.
+  Close();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::PurgeObsoleteFiles:Begin",
+        "DBWALTest::TruncateLastLogAfterRecoverWithFlush:AfterRecover"},
+       {"DBWALTest::TruncateLastLogAfterRecoverWithFlush:AfterTruncate",
+        "DBImpl::DeleteObsoleteFileImpl::BeforeDeletion"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread reopen_thread([&]() { Reopen(options); });
+
+  TEST_SYNC_POINT(
+      "DBWALTest::TruncateLastLogAfterRecoverWithFlush:AfterRecover");
+  // After the flush during Open, the log file should get deleted.  However,
+  // if  the process is in a crash loop, the log file may not get
+  // deleted and thte preallocated space will keep accumulating. So we need
+  // to ensure it gets trtuncated.
+  EXPECT_LT(GetAllocatedFileSize(dbname_ + file_before->PathName()),
+            preallocated_size);
+  TEST_SYNC_POINT(
+      "DBWALTest::TruncateLastLogAfterRecoverWithFlush:AfterTruncate");
+  reopen_thread.join();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBWALTest, TruncateLastLogAfterRecoverWALEmpty) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.avoid_flush_during_recovery = false;
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem/non-encrypted  environment");
+    return;
+  }
+  if (!IsFallocateSupported()) {
+    return;
+  }
+
+  DestroyAndReopen(options);
+  size_t preallocated_size =
+      dbfull()->TEST_GetWalPreallocateBlockSize(options.write_buffer_size);
+  Close();
+  std::vector<std::string> filenames;
+  std::string last_log;
+  uint64_t last_log_num = 0;
+  ASSERT_OK(env_->GetChildren(dbname_, &filenames));
+  for (auto fname : filenames) {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(fname, &number, &type, nullptr)) {
+      if (type == kWalFile && number > last_log_num) {
+        last_log = fname;
+      }
+    }
+  }
+  ASSERT_NE(last_log, "");
+  last_log = dbname_ + '/' + last_log;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::PurgeObsoleteFiles:Begin",
+        "DBWALTest::TruncateLastLogAfterRecoverWithFlush:AfterRecover"},
+       {"DBWALTest::TruncateLastLogAfterRecoverWithFlush:AfterTruncate",
+        "DBImpl::DeleteObsoleteFileImpl::BeforeDeletion"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "PosixWritableFile::Close",
+      [](void* arg) { *(reinterpret_cast<size_t*>(arg)) = 0; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  // Preallocate space for the empty log file. This could happen if WAL data
+  // was buffered in memory and the process crashed.
+  std::unique_ptr<WritableFile> log_file;
+  ASSERT_OK(env_->ReopenWritableFile(last_log, &log_file, EnvOptions()));
+  log_file->SetPreallocationBlockSize(preallocated_size);
+  log_file->PrepareWrite(0, 4096);
+  log_file.reset();
+
+  ASSERT_GE(GetAllocatedFileSize(last_log), preallocated_size);
+
+  port::Thread reopen_thread([&]() { Reopen(options); });
+
+  TEST_SYNC_POINT(
+      "DBWALTest::TruncateLastLogAfterRecoverWithFlush:AfterRecover");
+  // The preallocated space should be truncated.
+  EXPECT_LT(GetAllocatedFileSize(last_log), preallocated_size);
+  TEST_SYNC_POINT(
+      "DBWALTest::TruncateLastLogAfterRecoverWithFlush:AfterTruncate");
+  reopen_thread.join();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBWALTest, ReadOnlyRecoveryNoTruncate) {
+  constexpr size_t kKB = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.avoid_flush_during_recovery = true;
+  if (mem_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem environment");
+    return;
+  }
+  if (!IsFallocateSupported()) {
+    return;
+  }
+
+  // create DB and close with file truncate disabled
+  std::atomic_bool enable_truncate{false};
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "PosixWritableFile::Close", [&](void* arg) {
+        if (!enable_truncate) {
+          *(reinterpret_cast<size_t*>(arg)) = 0;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  DestroyAndReopen(options);
+  size_t preallocated_size =
+      dbfull()->TEST_GetWalPreallocateBlockSize(options.write_buffer_size);
+  ASSERT_OK(Put("foo", "v1"));
+  VectorLogPtr log_files_before;
+  ASSERT_OK(dbfull()->GetSortedWalFiles(log_files_before));
+  ASSERT_EQ(1, log_files_before.size());
+  auto& file_before = log_files_before[0];
+  ASSERT_LT(file_before->SizeFileBytes(), 1 * kKB);
+  // The log file has preallocated space.
+  auto db_size = GetAllocatedFileSize(dbname_ + file_before->PathName());
+  ASSERT_GE(db_size, preallocated_size);
+  Close();
+
+  // enable truncate and open DB as readonly, the file should not be truncated
+  // and DB size is not changed.
+  enable_truncate = true;
+  ASSERT_OK(ReadOnlyReopen(options));
+  VectorLogPtr log_files_after;
+  ASSERT_OK(dbfull()->GetSortedWalFiles(log_files_after));
+  ASSERT_EQ(1, log_files_after.size());
+  ASSERT_LT(log_files_after[0]->SizeFileBytes(), 1 * kKB);
+  ASSERT_EQ(log_files_after[0]->PathName(), file_before->PathName());
+  // The preallocated space should NOT be truncated.
+  // the DB size is almost the same.
+  ASSERT_NEAR(GetAllocatedFileSize(dbname_ + file_before->PathName()), db_size,
+              db_size / 100);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 #endif  // ROCKSDB_FALLOCATE_PRESENT
 #endif  // ROCKSDB_PLATFORM_POSIX

@@ -179,6 +179,8 @@ class NonBatchedOpsStressTest : public StressTest {
 
   bool ShouldAcquireMutexOnKey() const override { return true; }
 
+  bool IsStateTracked() const override { return true; }
+
   Status TestGet(ThreadState* thread, const ReadOptions& read_opts,
                  const std::vector<int>& rand_column_families,
                  const std::vector<int64_t>& rand_keys) override {
@@ -349,7 +351,9 @@ class NonBatchedOpsStressTest : public StressTest {
         // Grab mutex so multiple thread don't try to print the
         // stack trace at the same time
         MutexLock l(thread->shared->GetMutex());
-        fprintf(stderr, "Didn't get expected error from MultiGet\n");
+        fprintf(stderr, "Didn't get expected error from MultiGet. \n");
+        fprintf(stderr, "num_keys %zu Expected %d errors, seen %d\n", num_keys,
+                error_count, stat_nok);
         fprintf(stderr, "Callstack that injected the fault\n");
         fault_fs_guard->PrintFaultBacktrace();
         std::terminate();
@@ -496,8 +500,11 @@ class NonBatchedOpsStressTest : public StressTest {
       if (FLAGS_user_timestamp_size > 0) {
         write_ts_str = NowNanosStr();
         write_ts = write_ts_str;
-        write_opts.timestamp = &write_ts;
       }
+    }
+    if (write_ts.size() == 0 && FLAGS_user_timestamp_size) {
+      write_ts_str = NowNanosStr();
+      write_ts = write_ts_str;
     }
 
     std::string key_str = Key(rand_key);
@@ -536,7 +543,11 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     } else {
       if (!FLAGS_use_txn) {
-        s = db_->Put(write_opts, cfh, key, v);
+        if (FLAGS_user_timestamp_size == 0) {
+          s = db_->Put(write_opts, cfh, key, v);
+        } else {
+          s = db_->Put(write_opts, cfh, key, write_ts, v);
+        }
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;
@@ -552,8 +563,18 @@ class NonBatchedOpsStressTest : public StressTest {
     }
     shared->Put(rand_column_family, rand_key, value_base, false /* pending */);
     if (!s.ok()) {
-      fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
-      std::terminate();
+      if (FLAGS_injest_error_severity >= 2) {
+        if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
+          is_db_stopped_ = true;
+        } else if (!is_db_stopped_ ||
+                   s.severity() < Status::Severity::kFatalError) {
+          fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
+          std::terminate();
+        }
+      } else {
+        fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
+        std::terminate();
+      }
     }
     thread->stats.AddBytesForWrites(1, sz);
     PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
@@ -585,8 +606,11 @@ class NonBatchedOpsStressTest : public StressTest {
       if (FLAGS_user_timestamp_size > 0) {
         write_ts_str = NowNanosStr();
         write_ts = write_ts_str;
-        write_opts.timestamp = &write_ts;
       }
+    }
+    if (write_ts.size() == 0 && FLAGS_user_timestamp_size) {
+      write_ts_str = NowNanosStr();
+      write_ts = write_ts_str;
     }
 
     std::string key_str = Key(rand_key);
@@ -599,7 +623,11 @@ class NonBatchedOpsStressTest : public StressTest {
     if (shared->AllowsOverwrite(rand_key)) {
       shared->Delete(rand_column_family, rand_key, true /* pending */);
       if (!FLAGS_use_txn) {
-        s = db_->Delete(write_opts, cfh, key);
+        if (FLAGS_user_timestamp_size == 0) {
+          s = db_->Delete(write_opts, cfh, key);
+        } else {
+          s = db_->Delete(write_opts, cfh, key, write_ts);
+        }
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;
@@ -615,13 +643,28 @@ class NonBatchedOpsStressTest : public StressTest {
       shared->Delete(rand_column_family, rand_key, false /* pending */);
       thread->stats.AddDeletes(1);
       if (!s.ok()) {
-        fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
-        std::terminate();
+        if (FLAGS_injest_error_severity >= 2) {
+          if (!is_db_stopped_ &&
+              s.severity() >= Status::Severity::kFatalError) {
+            is_db_stopped_ = true;
+          } else if (!is_db_stopped_ ||
+                     s.severity() < Status::Severity::kFatalError) {
+            fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
+            std::terminate();
+          }
+        } else {
+          fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
+          std::terminate();
+        }
       }
     } else {
       shared->SingleDelete(rand_column_family, rand_key, true /* pending */);
       if (!FLAGS_use_txn) {
-        s = db_->SingleDelete(write_opts, cfh, key);
+        if (FLAGS_user_timestamp_size == 0) {
+          s = db_->SingleDelete(write_opts, cfh, key);
+        } else {
+          s = db_->SingleDelete(write_opts, cfh, key, write_ts);
+        }
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;
@@ -637,8 +680,19 @@ class NonBatchedOpsStressTest : public StressTest {
       shared->SingleDelete(rand_column_family, rand_key, false /* pending */);
       thread->stats.AddSingleDeletes(1);
       if (!s.ok()) {
-        fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
-        std::terminate();
+        if (FLAGS_injest_error_severity >= 2) {
+          if (!is_db_stopped_ &&
+              s.severity() >= Status::Severity::kFatalError) {
+            is_db_stopped_ = true;
+          } else if (!is_db_stopped_ ||
+                     s.severity() < Status::Severity::kFatalError) {
+            fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
+            std::terminate();
+          }
+        } else {
+          fprintf(stderr, "single delete error: %s\n", s.ToString().c_str());
+          std::terminate();
+        }
       }
     }
     return s;
@@ -684,8 +738,18 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice end_key = end_keystr;
     Status s = db_->DeleteRange(write_opts, cfh, key, end_key);
     if (!s.ok()) {
-      fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
-      std::terminate();
+      if (FLAGS_injest_error_severity >= 2) {
+        if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
+          is_db_stopped_ = true;
+        } else if (!is_db_stopped_ ||
+                   s.severity() < Status::Severity::kFatalError) {
+          fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
+          std::terminate();
+        }
+      } else {
+        fprintf(stderr, "delete range error: %s\n", s.ToString().c_str());
+        std::terminate();
+      }
     }
     int covered = shared->DeleteRange(rand_column_family, rand_key,
                                       rand_key + FLAGS_range_deletion_width,

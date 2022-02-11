@@ -301,10 +301,10 @@ void Java_org_rocksdb_WriteBatchWithIndex_singleDelete__J_3BIJ(
 
 /*
  * Class:     org_rocksdb_WriteBatchWithIndex
- * Method:    removeDirect
+ * Method:    deleteDirect
  * Signature: (JLjava/nio/ByteBuffer;IIJ)V
  */
-void Java_org_rocksdb_WriteBatchWithIndex_removeDirect(
+void Java_org_rocksdb_WriteBatchWithIndex_deleteDirect(
     JNIEnv* env, jobject /*jobj*/, jlong jwb_handle, jobject jkey,
     jint jkey_offset, jint jkey_len, jlong jcf_handle) {
   auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(jwb_handle);
@@ -551,7 +551,7 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_iteratorWithBase(
                 jread_opts_handle);
   auto* iterator =
       wbwi->NewIteratorWithBase(cf_handle, base_iterator, read_opts);
-  return reinterpret_cast<jlong>(iterator);
+  return reinterpret_cast<size_t>(iterator);
 }
 
 /*
