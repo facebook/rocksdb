@@ -296,29 +296,31 @@ class ObjectRegistry {
     library->Register(registrar, arg);
   }
 
-  // Creates a new T using the factory function that was registered for this
-  // target.  Searches through the libraries to find the first library where
-  // there is an entry that matches target (see PatternEntry for the matching
-  // rules).
-  //
-  // If no registered functions match, returns nullptr. If multiple functions
-  // match, the factory function used is unspecified.
-  //
-  // Populates guard with result pointer if caller is granted ownership.
-  // Deprecated.  Use NewShared/Static/UniqueObject instead.
+  // Finds the factory for target and instantiates a new T.
+  // Returns NotSupported if no factory is found
+  // Returns InvalidArgument if a factory is found but the factory failed.
   template <typename T>
-  T* NewObject(const std::string& target, std::unique_ptr<T>* guard,
-               std::string* errmsg) {
+  Status NewObject(const std::string& target, T** object,
+                   std::unique_ptr<T>* guard) {
+    assert(guard != nullptr);
     guard->reset();
     auto factory = FindFactory<T>(target);
     if (factory != nullptr) {
-      return factory(target, guard, errmsg);
+      std::string errmsg;
+      *object = factory(target, guard, &errmsg);
+      if (*object != nullptr) {
+        return Status::OK();
+      } else if (errmsg.empty()) {
+        return Status::InvalidArgument(
+            std::string("Could not load ") + T::Type(), target);
+      } else {
+        return Status::InvalidArgument(errmsg, target);
+      }
     } else {
-      *errmsg = std::string("Could not load ") + T::Type();
-      return nullptr;
+      return Status::NotSupported(std::string("Could not load ") + T::Type(),
+                                  target);
     }
   }
-
   // Creates a new unique T using the input factory functions.
   // Returns OK if a new unique T was successfully created
   // Returns NotSupported if the type/target could not be created
@@ -327,11 +329,13 @@ class ObjectRegistry {
   template <typename T>
   Status NewUniqueObject(const std::string& target,
                          std::unique_ptr<T>* result) {
-    std::string errmsg;
-    T* ptr = NewObject(target, result, &errmsg);
-    if (ptr == nullptr) {
-      return Status::NotSupported(errmsg, target);
-    } else if (*result) {
+    T* ptr = nullptr;
+    std::unique_ptr<T> guard;
+    Status s = NewObject(target, &ptr, &guard);
+    if (!s.ok()) {
+      return s;
+    } else if (guard) {
+      result->reset(guard.release());
       return Status::OK();
     } else {
       return Status::InvalidArgument(std::string("Cannot make a unique ") +
@@ -348,11 +352,11 @@ class ObjectRegistry {
   template <typename T>
   Status NewSharedObject(const std::string& target,
                          std::shared_ptr<T>* result) {
-    std::string errmsg;
     std::unique_ptr<T> guard;
-    T* ptr = NewObject(target, &guard, &errmsg);
-    if (ptr == nullptr) {
-      return Status::NotSupported(errmsg, target);
+    T* ptr = nullptr;
+    Status s = NewObject(target, &ptr, &guard);
+    if (!s.ok()) {
+      return s;
     } else if (guard) {
       result->reset(guard.release());
       return Status::OK();
@@ -370,11 +374,11 @@ class ObjectRegistry {
   //                      (meaning it is managed by a unique ptr)
   template <typename T>
   Status NewStaticObject(const std::string& target, T** result) {
-    std::string errmsg;
     std::unique_ptr<T> guard;
-    T* ptr = NewObject(target, &guard, &errmsg);
-    if (ptr == nullptr) {
-      return Status::NotSupported(errmsg, target);
+    T* ptr = nullptr;
+    Status s = NewObject(target, &ptr, &guard);
+    if (!s.ok()) {
+      return s;
     } else if (guard.get()) {
       return Status::InvalidArgument(std::string("Cannot make a static ") +
                                          T::Type() + " from a guarded one ",

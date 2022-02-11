@@ -58,6 +58,7 @@
 * Remove default implementation of Name() from FileSystemWrapper.
 * Rename `SizeApproximationOptions.include_memtabtles` to `SizeApproximationOptions.include_memtables`.
 * Remove deprecated option DBOptions::max_mem_compaction_level.
+* Return Status::InvalidArgument from ObjectRegistry::NewObject if a factory exists but the object ould not be created (returns NotFound if the factory is missing).
 * Remove deprecated overloads of API DB::GetApproximateSizes.
 * Remove deprecated option DBOptions::new_table_reader_for_compaction_inputs.
 
