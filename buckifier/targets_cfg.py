@@ -221,11 +221,10 @@ ROCKS_TESTS = [
         srcs = [test_cc],
         arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
         compiler_flags = ROCKSDB_COMPILER_FLAGS + extra_compiler_flags,
-        deps = [ "//folly/container:f14_hash" ],
+        deps = [ "//folly/container:f14_hash", ":rocksdb_test_lib"] + extra_deps,
         include_paths = ROCKSDB_INCLUDE_PATHS,
         os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
         preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-        deps = [":rocksdb_test_lib"] + extra_deps,
         external_deps = ROCKSDB_EXTERNAL_DEPS + [
             ("googletest", None, "gtest"),
         ],
