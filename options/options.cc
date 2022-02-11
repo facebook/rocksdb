@@ -390,8 +390,12 @@ Status ColumnFamilyOptions::Sanitize(const DBOptions& db_opts) {
     periodic_compaction_seconds = 0;
   }
 
+#ifndef ROCKSDB_LITE
   auto cf_cfg = CFOptionsAsConfigurable(*this);
   return cf_cfg->SanitizeOptions(db_opts, *this);
+#else
+  return Status::OK();
+#endif  // ROCKSDB_LITE
 }
 
 Status ColumnFamilyOptions::Validate(const DBOptions& db_opts) const {
@@ -451,7 +455,7 @@ Status ColumnFamilyOptions::Validate(const DBOptions& db_opts) const {
   auto cf_cfg = CFOptionsAsConfigurable(*this);
   s = cf_cfg->ValidateOptions(db_opts, *this);
 #else
-  s = cf_opts.table_factory->ValidateOptions(db_opts, *this);
+  s = table_factory->ValidateOptions(db_opts, *this);
 #endif
   return s;
 }
@@ -520,6 +524,7 @@ Status DBOptions::Validate(const ColumnFamilyOptions& cf_opts) const {
   auto db_cfg = DBOptionsAsConfigurable(*this);
   return db_cfg->ValidateOptions(*this, cf_opts);
 #else
+  (void)cf_opts;
   return Status::OK();
 #endif
 }
@@ -644,8 +649,12 @@ Status DBOptions::Sanitize(const std::string& dbname, bool read_only) {
                    "file size check will be skipped during open.");
   }
 
+#ifndef ROCKSDB_LITE
   auto db_cfg = DBOptionsAsConfigurable(*this);
   return db_cfg->SanitizeOptions(dbname, read_only, *this);
+#else
+  return Status::OK();
+#endif  // ROCKSDB_LITE
 }
 
 void ColumnFamilyOptions::Dump(Logger* log) const {

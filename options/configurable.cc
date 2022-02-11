@@ -120,8 +120,7 @@ Status Configurable::SanitizeOptions(const DBOptions& db_opts,
   }
 #else
   (void)db_opts;
-  (void)dbname;
-  (void)read_only;
+  (void)cf_opts;
 #endif  // ROCKSDB_LITE
   return status;
 }
