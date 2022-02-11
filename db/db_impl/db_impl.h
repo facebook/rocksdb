@@ -1606,7 +1606,7 @@ class DBImpl : public DB {
   void ReleaseFileNumberFromPendingOutputs(
       std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
-  IOStatus SyncClosedLogs(JobContext* job_context);
+  IOStatus SyncClosedLogs(JobContext* job_context, VersionEdit* synced_wals);
 
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful. Then
@@ -1877,7 +1877,8 @@ class DBImpl : public DB {
       std::unique_ptr<TaskLimiterToken>* token, LogBuffer* log_buffer);
 
   // helper function to call after some of the logs_ were synced
-  Status MarkLogsSynced(uint64_t up_to, bool synced_dir);
+  void MarkLogsSynced(uint64_t up_to, bool synced_dir, VersionEdit* edit);
+  Status ApplyWALToManifest(VersionEdit* edit);
   // WALs with log number up to up_to are not synced successfully.
   void MarkLogsNotSynced(uint64_t up_to);
 

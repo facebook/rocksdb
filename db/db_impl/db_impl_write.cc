@@ -491,13 +491,20 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   if (log_context.need_log_sync) {
+    VersionEdit synced_wals;
     log_write_mutex_.Lock();
     if (status.ok()) {
-      status = MarkLogsSynced(logfile_number_, log_context.need_log_dir_sync);
+      MarkLogsSynced(logfile_number_, log_context.need_log_dir_sync,
+                     &synced_wals);
     } else {
       MarkLogsNotSynced(logfile_number_);
     }
     log_write_mutex_.Unlock();
+    if (status.ok() && synced_wals.IsWalAddition()) {
+      InstrumentedMutexLock l(&mutex_);
+      status = ApplyWALToManifest(&synced_wals);
+    }
+
     // Requesting sync with two_write_queues_ is expected to be very rare. We
     // hence provide a simple implementation that is not necessarily efficient.
     if (two_write_queues_) {
@@ -631,16 +638,20 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       }
     }
 
+    VersionEdit synced_wals;
     if (log_context.need_log_sync) {
       InstrumentedMutexLock l(&log_write_mutex_);
       if (w.status.ok()) {
-        w.status =
-            MarkLogsSynced(logfile_number_, log_context.need_log_dir_sync);
+        MarkLogsSynced(logfile_number_, log_context.need_log_dir_sync,
+                       &synced_wals);
       } else {
         MarkLogsNotSynced(logfile_number_);
       }
     }
-
+    if (w.status.ok() && synced_wals.IsWalAddition()) {
+      InstrumentedMutexLock l(&mutex_);
+      w.status = ApplyWALToManifest(&synced_wals);
+    }
     write_thread_.ExitAsBatchGroupLeader(wal_write_group, w.status);
   }
 
@@ -1064,6 +1075,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     if (write_options.no_slowdown) {
       status = Status::Incomplete("Write stall");
     } else {
+      InstrumentedMutexLock l(&mutex_);
       WriteBufferManagerStallWrites();
     }
   }
