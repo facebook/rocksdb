@@ -279,13 +279,14 @@ Status SliceTransform::CreateFromString(
 }
 
 std::string SliceTransform::AsString() const {
+#ifndef ROCKSDB_LITE
   if (HasRegisteredOptions()) {
     ConfigOptions opts;
     opts.delimiter = ";";
     return ToString(opts);
-  } else {
-    return GetId();
   }
+#endif  // ROCKSDB_LITE
+  return GetId();
 }
 
 // 2 small internal utility functions, for efficient hex conversions
