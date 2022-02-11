@@ -58,6 +58,7 @@
 * Remove default implementation of Name() from FileSystemWrapper.
 * Rename `SizeApproximationOptions.include_memtabtles` to `SizeApproximationOptions.include_memtables`.
 * Remove deprecated option DBOptions::max_mem_compaction_level.
+* Return Status::InvalidArgument from ObjectRegistry::NewObject if a factory exists but the object ould not be created (returns NotFound if the factory is missing).
 * Remove deprecated overloads of API DB::GetApproximateSizes.
 * Remove deprecated option DBOptions::new_table_reader_for_compaction_inputs.
 
@@ -68,6 +69,7 @@
 ## New Features
 * Introduced an option `BlockBasedTableBuilder::detect_filter_construct_corruption` for detecting corruption during Bloom Filter (format_version >= 5) and Ribbon Filter construction.
 * Improved the SstDumpTool to read the comparator from table properties and use it to read the SST File.
+* Extended the column family statistics in the info log so the total amount of garbage in the blob files and the blob file space amplification factor are also logged. Also exposed the blob file space amp via the `rocksdb.blob-stats` DB property.
 
 ## 6.29.0 (01/21/2022)
 Note: The next release will be major release 7.0. See https://github.com/facebook/rocksdb/issues/9390 for more info.
