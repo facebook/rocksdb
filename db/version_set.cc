@@ -2982,20 +2982,29 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
   uint64_t sum_total_blob_bytes = oldest_meta->GetTotalBlobBytes();
   uint64_t sum_garbage_blob_bytes = oldest_meta->GetGarbageBlobBytes();
 
-  while (count < blob_files_.size()) {
+  assert(cutoff_count <= blob_files_.size());
+
+  for (; count < cutoff_count; ++count) {
     const auto& meta = blob_files_[count];
     assert(meta);
 
     if (!meta->GetLinkedSsts().empty()) {
+      // Found the beginning of the next batch of blob files
       break;
-    }
-
-    if (++count > cutoff_count) {
-      return;
     }
 
     sum_total_blob_bytes += meta->GetTotalBlobBytes();
     sum_garbage_blob_bytes += meta->GetGarbageBlobBytes();
+  }
+
+  if (count < blob_files_.size()) {
+    const auto& meta = blob_files_[count];
+    assert(meta);
+
+    if (meta->GetLinkedSsts().empty()) {
+      // Some files in the oldest batch are not eligible for GC
+      return;
+    }
   }
 
   if (sum_garbage_blob_bytes <
