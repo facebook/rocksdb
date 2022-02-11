@@ -5108,10 +5108,11 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
 
     if (s.ok() && use_file_checksum) {
       const auto& blob_files = vstorage->GetBlobFiles();
-      for (const auto& pair : blob_files) {
-        const uint64_t blob_file_number = pair.first;
-        const auto& meta = pair.second;
+      for (const auto& meta : blob_files) {
         assert(meta);
+
+        const uint64_t blob_file_number = meta->GetBlobFileNumber();
+
         const std::string blob_file_name = BlobFileName(
             cfd->ioptions()->cf_paths.front().path, blob_file_number);
         s = VerifyFullFileChecksum(meta->GetChecksumValue(),

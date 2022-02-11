@@ -948,43 +948,6 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   AccessHint accessHintOnCompactionStart();
 
   /**
-   * If true, always create a new file descriptor and new table reader
-   * for compaction inputs. Turn this parameter on may introduce extra
-   * memory usage in the table reader, if it allocates extra memory
-   * for indexes. This will allow file descriptor prefetch options
-   * to be set for compaction input files and not to impact file
-   * descriptors for the same file used by user queries.
-   * Suggest to enable {@link BlockBasedTableConfig#cacheIndexAndFilterBlocks()}
-   * for this mode if using block-based table.
-   *
-   * Default: false
-   *
-   * @param newTableReaderForCompactionInputs true if a new file descriptor and
-   *     table reader should be created for compaction inputs
-   *
-   * @return the reference to the current options.
-   */
-  T setNewTableReaderForCompactionInputs(
-      boolean newTableReaderForCompactionInputs);
-
-  /**
-   * If true, always create a new file descriptor and new table reader
-   * for compaction inputs. Turn this parameter on may introduce extra
-   * memory usage in the table reader, if it allocates extra memory
-   * for indexes. This will allow file descriptor prefetch options
-   * to be set for compaction input files and not to impact file
-   * descriptors for the same file used by user queries.
-   * Suggest to enable {@link BlockBasedTableConfig#cacheIndexAndFilterBlocks()}
-   * for this mode if using block-based table.
-   *
-   * Default: false
-   *
-   * @return true if a new file descriptor and table reader are created for
-   *     compaction inputs
-   */
-  boolean newTableReaderForCompactionInputs();
-
-  /**
    * This is a maximum buffer size that is used by WinMmapReadableFile in
    * unbuffered disk I/O mode. We need to maintain an aligned buffer for
    * reads. We allow the buffer to grow until the specified value and then

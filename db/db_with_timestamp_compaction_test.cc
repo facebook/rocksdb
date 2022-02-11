@@ -54,7 +54,7 @@ TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
   Options options = CurrentOptions();
   options.env = env_;
   options.compaction_style = kCompactionStyleLevel;
-  options.comparator = test::ComparatorWithU64Ts();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
   options.level0_file_num_compaction_trigger = 3;
   constexpr size_t kNumKeysPerFile = 101;
   options.memtable_factory.reset(

@@ -41,6 +41,10 @@ class BloomMath {
   // cache line size.
   static double CacheLocalFpRate(double bits_per_key, int num_probes,
                                  int cache_line_bits) {
+    if (bits_per_key <= 0.0) {
+      // Fix a discontinuity
+      return 1.0;
+    }
     double keys_per_cache_line = cache_line_bits / bits_per_key;
     // A reasonable estimate is the average of the FP rates for one standard
     // deviation above and below the mean bucket occupancy. See
