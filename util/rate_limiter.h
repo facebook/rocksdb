@@ -156,7 +156,6 @@ class GenericRateLimiter : public RateLimiter {
   bool wait_until_refill_pending_;
 
   int64_t num_drains_;
-  int64_t prev_num_drains_;
   std::chrono::microseconds tuned_time_;
 };
 

@@ -66,6 +66,7 @@ public class MutableColumnFamilyOptions
     write_buffer_size(ValueType.LONG),
     arena_block_size(ValueType.LONG),
     memtable_prefix_bloom_size_ratio(ValueType.DOUBLE),
+    memtable_whole_key_filtering(ValueType.BOOLEAN),
     @Deprecated memtable_prefix_bloom_bits(ValueType.INT),
     @Deprecated memtable_prefix_bloom_probes(ValueType.INT),
     memtable_huge_page_size(ValueType.LONG),
@@ -224,6 +225,17 @@ public class MutableColumnFamilyOptions
     @Override
     public double memtablePrefixBloomSizeRatio() {
       return getDouble(MemtableOption.memtable_prefix_bloom_size_ratio);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setMemtableWholeKeyFiltering(
+        final boolean memtableWholeKeyFiltering) {
+      return setBoolean(MemtableOption.memtable_whole_key_filtering, memtableWholeKeyFiltering);
+    }
+
+    @Override
+    public boolean memtableWholeKeyFiltering() {
+      return getBoolean(MemtableOption.memtable_whole_key_filtering);
     }
 
     @Override

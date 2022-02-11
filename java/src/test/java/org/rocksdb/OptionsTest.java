@@ -275,6 +275,15 @@ public class OptionsTest {
   }
 
   @Test
+  public void memtableWholeKeyFiltering() {
+    try (final Options opt = new Options()) {
+      final boolean booleanValue = rand.nextBoolean();
+      opt.setMemtableWholeKeyFiltering(booleanValue);
+      assertThat(opt.memtableWholeKeyFiltering()).isEqualTo(booleanValue);
+    }
+  }
+
+  @Test
   public void memtableHugePageSize() {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();
@@ -691,15 +700,6 @@ public class OptionsTest {
       final AccessHint accessHint = AccessHint.SEQUENTIAL;
       opt.setAccessHintOnCompactionStart(accessHint);
       assertThat(opt.accessHintOnCompactionStart()).isEqualTo(accessHint);
-    }
-  }
-
-  @Test
-  public void newTableReaderForCompactionInputs() {
-    try (final Options opt = new Options()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setNewTableReaderForCompactionInputs(boolValue);
-      assertThat(opt.newTableReaderForCompactionInputs()).isEqualTo(boolValue);
     }
   }
 

@@ -78,9 +78,18 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
   FilterBitsBuilder* filter_bits_builder =
       BloomFilterPolicy::GetBuilderFromContext(context);
   if (filter_bits_builder == nullptr) {
-    return new BlockBasedFilterBlockBuilder(mopt.prefix_extractor.get(),
-                                            table_opt);
+    return nullptr;
   } else {
+    // Check for backdoor deprecated block-based bloom config
+    size_t starting_est = filter_bits_builder->EstimateEntriesAdded();
+    constexpr auto kSecretStart = BloomFilterPolicy::kSecretBitsPerKeyStart;
+    if (starting_est >= kSecretStart && starting_est < kSecretStart + 100) {
+      int bits_per_key = static_cast<int>(starting_est - kSecretStart);
+      delete filter_bits_builder;
+      return new BlockBasedFilterBlockBuilder(mopt.prefix_extractor.get(),
+                                              table_opt, bits_per_key);
+    }
+    // END check for backdoor deprecated block-based bloom config
     if (table_opt.partition_filters) {
       assert(p_index_builder != nullptr);
       // Since after partition cut request from filter builder it takes time
@@ -1252,6 +1261,15 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   uint32_t checksum = ComputeBuiltinChecksumWithLastByte(
       r->table_options.checksum, block_contents.data(), block_contents.size(),
       /*last_byte*/ type);
+
+  if (block_type == BlockType::kFilter) {
+    Status s = r->filter_builder->MaybePostVerifyFilter(block_contents);
+    if (!s.ok()) {
+      r->SetStatus(s);
+      return;
+    }
+  }
+
   EncodeFixed32(trailer.data() + 1, checksum);
   TEST_SYNC_POINT_CALLBACK(
       "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",
@@ -1552,7 +1570,13 @@ void BlockBasedTableBuilder::WriteFilterBlock(
       std::unique_ptr<const char[]> filter_data;
       Slice filter_content =
           rep_->filter_builder->Finish(filter_block_handle, &s, &filter_data);
-      assert(s.ok() || s.IsIncomplete());
+
+      assert(s.ok() || s.IsIncomplete() || s.IsCorruption());
+      if (s.IsCorruption()) {
+        rep_->SetStatus(s);
+        break;
+      }
+
       rep_->props.filter_size += filter_content.size();
 
       // TODO: Refactor code so that BlockType can determine both the C++ type

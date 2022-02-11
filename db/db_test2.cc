@@ -3946,7 +3946,6 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
     options.level0_file_num_compaction_trigger = kNumL0Files;
     options.memtable_factory.reset(
         test::NewSpecialSkipListFactory(kNumKeysPerFile));
-    options.new_table_reader_for_compaction_inputs = true;
     // takes roughly one second, split into 100 x 10ms intervals. Each interval
     // permits 5.12KB, which is smaller than the block size, so this test
     // exercises the code for chunking reads.
@@ -6837,7 +6836,7 @@ TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   options.max_write_buffer_size_to_maintain = 64 << 10;
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
-  options.comparator = test::ComparatorWithU64Ts();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
   options.statistics = CreateDBStatistics();
 
   Reopen(options);
@@ -6845,16 +6844,13 @@ TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   constexpr uint64_t kTsU64Value = 12;
 
   for (uint64_t key = 0; key < 100; ++key) {
-    std::string ts_str;
-    PutFixed64(&ts_str, kTsU64Value);
-    Slice ts = ts_str;
-    WriteOptions write_opts;
-    write_opts.timestamp = &ts;
+    std::string ts;
+    PutFixed64(&ts, kTsU64Value);
 
     std::string key_str;
     PutFixed64(&key_str, key);
     std::reverse(key_str.begin(), key_str.end());
-    ASSERT_OK(Put(key_str, "value", write_opts));
+    ASSERT_OK(db_->Put(WriteOptions(), key_str, ts, "value"));
   }
 
   ASSERT_OK(Flush());

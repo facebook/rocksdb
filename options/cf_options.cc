@@ -29,6 +29,11 @@
 #include "rocksdb/utilities/options_type.h"
 #include "util/cast_util.h"
 
+// NOTE: in this file, many option flags that were deprecated
+// and removed from the rest of the code have to be kept here
+// and marked as kDeprecated in order to be able to read old
+// OPTIONS files.
+
 namespace ROCKSDB_NAMESPACE {
 // offset_of is used to get the offset of a class data member
 // ex: offset_of(&ColumnFamilyOptions::num_levels)
@@ -528,6 +533,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ImmutableCFOptions::force_consistency_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        // Need to keep this around to be able to read old OPTIONS files.
         {"max_mem_compaction_level",
          {0, OptionType::kInt, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},

@@ -79,7 +79,7 @@ bool RunStressTest(StressTest* stress) {
     shared.IncBgThreads();
   }
 
-  if (FLAGS_compaction_thread_pool_adjust_interval > 0) {
+  if (FLAGS_continuous_verification_interval > 0) {
     shared.IncBgThreads();
   }
 
@@ -116,6 +116,10 @@ bool RunStressTest(StressTest* stress) {
         fprintf(stdout, "Crash-recovery verification passed :)\n");
       }
     }
+
+    // This is after the verification step to avoid making all those `Get()`s
+    // and `MultiGet()`s contend on the DB-wide trace mutex.
+    stress->TrackExpectedState(&shared);
 
     now = clock->NowMicros();
     fprintf(stdout, "%s Starting database operations\n",

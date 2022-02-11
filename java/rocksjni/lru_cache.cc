@@ -26,7 +26,7 @@ jlong Java_org_rocksdb_LRUCache_newLRUCache(JNIEnv* /*env*/, jclass /*jcls*/,
           static_cast<size_t>(jcapacity), static_cast<int>(jnum_shard_bits),
           static_cast<bool>(jstrict_capacity_limit),
           static_cast<double>(jhigh_pri_pool_ratio)));
-  return reinterpret_cast<jlong>(sptr_lru_cache);
+  return reinterpret_cast<size_t>(sptr_lru_cache);
 }
 
 /*

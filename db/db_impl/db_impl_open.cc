@@ -48,7 +48,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
   result.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_flushes,
                                            Env::Priority::HIGH);
 
-
 #ifndef ROCKSDB_LITE
   ImmutableDBOptions immutable_db_options(result);
   if (!immutable_db_options.IsWalDirSameAsDBPath()) {

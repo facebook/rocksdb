@@ -1568,30 +1568,6 @@ jbyte Java_org_rocksdb_Options_accessHintOnCompactionStart(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setNewTableReaderForCompactionInputs
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setNewTableReaderForCompactionInputs(
-    JNIEnv*, jobject, jlong jhandle,
-    jboolean jnew_table_reader_for_compaction_inputs) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  opt->new_table_reader_for_compaction_inputs =
-      static_cast<bool>(jnew_table_reader_for_compaction_inputs);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    newTableReaderForCompactionInputs
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_newTableReaderForCompactionInputs(
-    JNIEnv*, jobject, jlong jhandle) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  return static_cast<bool>(opt->new_table_reader_for_compaction_inputs);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    setCompactionReadaheadSize
  * Signature: (JJ)V
  */
@@ -3122,6 +3098,29 @@ void Java_org_rocksdb_Options_setMemtablePrefixBloomSizeRatio(
   reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
       ->memtable_prefix_bloom_size_ratio =
       static_cast<double>(jmemtable_prefix_bloom_size_ratio);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    memtableWholeKeyFiltering
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_memtableWholeKeyFiltering(JNIEnv*, jobject,
+                                                            jlong jhandle) {
+  return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+      ->memtable_whole_key_filtering;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setMemtableWholeKeyFiltering
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setMemtableWholeKeyFiltering(
+    JNIEnv*, jobject, jlong jhandle, jboolean jmemtable_whole_key_filtering) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+      ->memtable_whole_key_filtering =
+      static_cast<bool>(jmemtable_whole_key_filtering);
 }
 
 /*
@@ -4907,6 +4906,29 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMemtablePrefixBloomSizeRatio(
   reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
       ->memtable_prefix_bloom_size_ratio =
       static_cast<double>(jmemtable_prefix_bloom_size_ratio);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    memtableWholeKeyFiltering
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ColumnFamilyOptions_memtableWholeKeyFiltering(
+    JNIEnv*, jobject, jlong jhandle) {
+  return reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
+      ->memtable_whole_key_filtering;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setMemtableWholeKeyFiltering
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setMemtableWholeKeyFiltering(
+    JNIEnv*, jobject, jlong jhandle, jboolean jmemtable_whole_key_filtering) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
+      ->memtable_whole_key_filtering =
+      static_cast<bool>(jmemtable_whole_key_filtering);
 }
 
 /*
@@ -6771,30 +6793,6 @@ jbyte Java_org_rocksdb_DBOptions_accessHintOnCompactionStart(
 
 /*
  * Class:     org_rocksdb_DBOptions
- * Method:    setNewTableReaderForCompactionInputs
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_DBOptions_setNewTableReaderForCompactionInputs(
-    JNIEnv*, jobject, jlong jhandle,
-    jboolean jnew_table_reader_for_compaction_inputs) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
-  opt->new_table_reader_for_compaction_inputs =
-      static_cast<bool>(jnew_table_reader_for_compaction_inputs);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    newTableReaderForCompactionInputs
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_DBOptions_newTableReaderForCompactionInputs(
-    JNIEnv*, jobject, jlong jhandle) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
-  return static_cast<bool>(opt->new_table_reader_for_compaction_inputs);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
  * Method:    setCompactionReadaheadSize
  * Signature: (JJ)V
  */
@@ -7753,6 +7751,29 @@ void Java_org_rocksdb_WriteOptions_setLowPri(
 jboolean Java_org_rocksdb_WriteOptions_lowPri(
     JNIEnv*, jobject, jlong jhandle) {
   return reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jhandle)->low_pri;
+}
+
+/*
+ * Class:     org_rocksdb_WriteOptions
+ * Method:    memtableInsertHintPerBatch
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_WriteOptions_memtableInsertHintPerBatch(
+    JNIEnv*, jobject, jlong jhandle) {
+  return reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jhandle)
+      ->memtable_insert_hint_per_batch;
+}
+
+/*
+ * Class:     org_rocksdb_WriteOptions
+ * Method:    setMemtableInsertHintPerBatch
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_WriteOptions_setMemtableInsertHintPerBatch(
+    JNIEnv*, jobject, jlong jhandle, jboolean jmemtable_insert_hint_per_batch) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jhandle)
+      ->memtable_insert_hint_per_batch =
+      static_cast<bool>(jmemtable_insert_hint_per_batch);
 }
 
 /////////////////////////////////////////////////////////////////////

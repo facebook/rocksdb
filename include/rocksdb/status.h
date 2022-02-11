@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #endif
 
+#include <memory>
 #include <string>
 
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
@@ -43,7 +44,6 @@ class Status {
       abort();
     }
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
-    delete[] state_;
   }
 
   // Copy the specified status.
@@ -144,7 +144,7 @@ class Status {
   // Returns a C style string indicating the message of the Status
   const char* getState() const {
     MarkChecked();
-    return state_;
+    return state_.get();
   }
 
   // Return a success status.
@@ -456,20 +456,20 @@ class Status {
   Severity sev_;
   // A nullptr state_ (which is at least the case for OK) means the extra
   // message is empty.
-  const char* state_;
+  std::unique_ptr<const char[]> state_;
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
   mutable bool checked_ = false;
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
 
   explicit Status(Code _code, SubCode _subcode = kNone)
-      : code_(_code), subcode_(_subcode), sev_(kNoError), state_(nullptr) {}
+      : code_(_code), subcode_(_subcode), sev_(kNoError) {}
 
   Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2,
          Severity sev = kNoError);
   Status(Code _code, const Slice& msg, const Slice& msg2)
       : Status(_code, kNone, msg, msg2) {}
 
-  static const char* CopyState(const char* s);
+  static std::unique_ptr<const char[]> CopyState(const char* s);
 
   inline void MarkChecked() const {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
@@ -481,12 +481,12 @@ class Status {
 inline Status::Status(const Status& s)
     : code_(s.code_), subcode_(s.subcode_), sev_(s.sev_) {
   s.MarkChecked();
-  state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
+  state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_.get());
 }
 inline Status::Status(const Status& s, Severity sev)
     : code_(s.code_), subcode_(s.subcode_), sev_(sev) {
   s.MarkChecked();
-  state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
+  state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_.get());
 }
 inline Status& Status::operator=(const Status& s) {
   if (this != &s) {
@@ -495,8 +495,7 @@ inline Status& Status::operator=(const Status& s) {
     code_ = s.code_;
     subcode_ = s.subcode_;
     sev_ = s.sev_;
-    delete[] state_;
-    state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
+    state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_.get());
   }
   return *this;
 }
@@ -524,9 +523,7 @@ inline Status& Status::operator=(Status&& s)
     s.subcode_ = kNone;
     sev_ = std::move(s.sev_);
     s.sev_ = kNoError;
-    delete[] state_;
-    state_ = nullptr;
-    std::swap(state_, s.state_);
+    state_ = std::move(s.state_);
   }
   return *this;
 }

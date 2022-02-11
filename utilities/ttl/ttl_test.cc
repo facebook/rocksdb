@@ -185,6 +185,7 @@ class TtlTest : public testing::Test {
 
   // Runs a manual compaction
   Status ManualCompact(ColumnFamilyHandle* cf = nullptr) {
+    assert(db_ttl_);
     if (cf == nullptr) {
       return db_ttl_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
     } else {

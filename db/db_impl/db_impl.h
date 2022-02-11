@@ -146,24 +146,36 @@ class DBImpl : public DB {
   // ---- Implementations of the DB interface ----
 
   using DB::Resume;
-  virtual Status Resume() override;
+  Status Resume() override;
 
   using DB::Put;
-  virtual Status Put(const WriteOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     const Slice& value) override;
+  Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, const Slice& value) override;
+  Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, const Slice& ts, const Slice& value) override;
+
   using DB::Merge;
-  virtual Status Merge(const WriteOptions& options,
-                       ColumnFamilyHandle* column_family, const Slice& key,
-                       const Slice& value) override;
+  Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
+               const Slice& key, const Slice& value) override;
   using DB::Delete;
-  virtual Status Delete(const WriteOptions& options,
-                        ColumnFamilyHandle* column_family,
-                        const Slice& key) override;
+  Status Delete(const WriteOptions& options, ColumnFamilyHandle* column_family,
+                const Slice& key) override;
+  Status Delete(const WriteOptions& options, ColumnFamilyHandle* column_family,
+                const Slice& key, const Slice& ts) override;
+
   using DB::SingleDelete;
-  virtual Status SingleDelete(const WriteOptions& options,
-                              ColumnFamilyHandle* column_family,
-                              const Slice& key) override;
+  Status SingleDelete(const WriteOptions& options,
+                      ColumnFamilyHandle* column_family,
+                      const Slice& key) override;
+  Status SingleDelete(const WriteOptions& options,
+                      ColumnFamilyHandle* column_family, const Slice& key,
+                      const Slice& ts) override;
+
+  using DB::DeleteRange;
+  Status DeleteRange(const WriteOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& begin_key,
+                     const Slice& end_key) override;
+
   using DB::Write;
   virtual Status Write(const WriteOptions& options,
                        WriteBatch* updates) override;
@@ -952,6 +964,11 @@ class DBImpl : public DB {
 
   VersionSet* GetVersionSet() const { return versions_.get(); }
 
+  // Wait for any compaction
+  // We add a bool parameter to wait for unscheduledCompactions_ == 0, but this
+  // is only for the special test of CancelledCompactions
+  Status WaitForCompact(bool waitUnscheduled = false);
+
 #ifndef NDEBUG
   // Compact any files in the named level that overlap [*begin, *end]
   Status TEST_CompactRange(int level, const Slice* begin, const Slice* end,
@@ -1362,6 +1379,10 @@ class DBImpl : public DB {
   // SetDbSessionId() should be called in the constuctor DBImpl()
   // to ensure that db_session_id_ gets updated every time the DB is opened
   void SetDbSessionId();
+
+  Status FailIfCfHasTs(const ColumnFamilyHandle* column_family) const;
+  Status FailIfTsSizesMismatch(const ColumnFamilyHandle* column_family,
+                               const Slice& ts) const;
 
  private:
   friend class DB;
@@ -2378,4 +2399,42 @@ extern uint64_t FindMinPrepLogReferencedByMemTable(
     VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
     const autovector<const autovector<MemTable*>*>& memtables_to_flush);
 
+inline Status DBImpl::FailIfCfHasTs(
+    const ColumnFamilyHandle* column_family) const {
+  column_family = column_family ? column_family : DefaultColumnFamily();
+  assert(column_family);
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() > 0) {
+    std::ostringstream oss;
+    oss << "cannot call this method on column family "
+        << column_family->GetName() << " that enables timestamp";
+    return Status::InvalidArgument(oss.str());
+  }
+  return Status::OK();
+}
+
+inline Status DBImpl::FailIfTsSizesMismatch(
+    const ColumnFamilyHandle* column_family, const Slice& ts) const {
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be null");
+  }
+  assert(column_family);
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (0 == ucmp->timestamp_size()) {
+    std::stringstream oss;
+    oss << "cannot call this method on column family "
+        << column_family->GetName() << " that does not enable timestamp";
+    return Status::InvalidArgument(oss.str());
+  }
+  const size_t ts_sz = ts.size();
+  if (ts_sz != ucmp->timestamp_size()) {
+    std::stringstream oss;
+    oss << "Timestamp sizes mismatch: expect " << ucmp->timestamp_size() << ", "
+        << ts_sz << " given";
+    return Status::InvalidArgument(oss.str());
+  }
+  return Status::OK();
+}
 }  // namespace ROCKSDB_NAMESPACE
