@@ -43,6 +43,7 @@ struct LockInfo {
     txn_ids = lock_info.txn_ids;
     expiration_time = lock_info.expiration_time;
   }
+  DECLARE_DEFAULT_MOVES(LockInfo);
 };
 
 struct LockMapStripe {

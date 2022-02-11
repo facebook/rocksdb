@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "port/lang.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -319,6 +320,8 @@ class autovector {
   autovector(const autovector& other) { assign(other); }
 
   autovector& operator=(const autovector& other) { return assign(other); }
+
+  DECLARE_DEFAULT_MOVES(autovector);
 
   // -- Iterator Operations
   iterator begin() { return iterator(this, 0); }

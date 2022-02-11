@@ -368,6 +368,7 @@ FOLLY_SOURCES =                                                 \
   third-party/folly/folly/container/detail/F14Table.cpp         \
   third-party/folly/folly/lang/SafeAssert.cpp                   \
   third-party/folly/folly/lang/ToAscii.cpp                      \
+  third-party/folly/folly/ScopeGuard.cpp                        \
 
 TOOLS_MAIN_SOURCES =                                                    \
   db_stress_tool/db_stress.cc                                           \

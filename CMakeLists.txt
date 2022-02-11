@@ -986,7 +986,8 @@ if(USE_FOLLY)
   list(APPEND SOURCES
     third-party/folly/folly/container/detail/F14Table.cpp
     third-party/folly/folly/lang/SafeAssert.cpp
-    third-party/folly/folly/lang/ToAscii.cpp)
+    third-party/folly/folly/lang/ToAscii.cpp
+    third-party/folly/folly/ScopeGuard.cpp)
 endif()
 
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
