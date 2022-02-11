@@ -821,13 +821,7 @@ std::unordered_map<std::string, CompactionStopStyle>
         {"kCompactionStopStyleSimilarSize", kCompactionStopStyleSimilarSize},
         {"kCompactionStopStyleTotalSize", kCompactionStopStyleTotalSize}};
 
-std::unordered_map<std::string, FilePreload>
-    OptionsHelper::file_preload_string_map = {
-        {"kFilePreloadWithPinning", FilePreload::kFilePreloadWithPinning},
-        {"kFilePreloadWithoutPinning", FilePreload::kFilePreloadWithoutPinning},
-        {"kFilePreloadDisabled", FilePreload::kFilePreloadDisabled}};
-
-  std::unordered_map<std::string, Temperature>
+std::unordered_map<std::string, Temperature>
     OptionsHelper::temperature_string_map = {
         {"kUnknown", Temperature::kUnknown},
         {"kHot", Temperature::kHot},

@@ -140,6 +140,12 @@ static Status ParseCompressionOptions(const std::string& value,
 const std::string kOptNameBMCompOpts = "bottommost_compression_opts";
 const std::string kOptNameCompOpts = "compression_opts";
 
+static std::unordered_map<std::string, FilePreload>
+    file_preload_string_map = {
+        {"kFilePreloadWithPinning", FilePreload::kFilePreloadWithPinning},
+        {"kFilePreloadWithoutPinning", FilePreload::kFilePreloadWithoutPinning},
+        {"kFilePreloadDisabled", FilePreload::kFilePreloadDisabled}};
+
 // OptionTypeInfo map for CompressionOptions
 static std::unordered_map<std::string, OptionTypeInfo>
     compression_options_type_info = {
