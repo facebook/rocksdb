@@ -784,8 +784,7 @@ size_t DBImpl::EstimateInMemoryStatsHistorySize() const {
   size_t size_per_slice =
       sizeof(uint64_t) + sizeof(std::map<std::string, uint64_t>);
   // non-empty map, stats_history_.begin() guaranteed to exist
-  std::map<std::string, uint64_t> sample_slice(stats_history_.begin()->second);
-  for (const auto& pairs : sample_slice) {
+  for (const auto& pairs : stats_history_.begin()->second) {
     size_per_slice +=
         pairs.first.capacity() + sizeof(pairs.first) + sizeof(pairs.second);
   }
