@@ -14,6 +14,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
+#include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -278,9 +279,11 @@ class ColumnFamilyTestBase : public testing::Test {
       ASSERT_OK(handles_[cfi]->GetDescriptor(&desc));
       // Need to sanitize the default column family options before comparing
       // them.
+      auto sanitized_cf_opt = current_cf_opt;
+      ASSERT_OK(sanitized_cf_opt.Sanitize(dbfull()->GetDBOptions()));
+
       ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(
-          ConfigOptions(), desc.options,
-          SanitizeOptions(dbfull()->immutable_db_options(), current_cf_opt)));
+          ConfigOptions(), desc.options, sanitized_cf_opt));
 #endif  // !ROCKSDB_LITE
       cfi++;
     }
@@ -2253,8 +2256,8 @@ TEST_P(ColumnFamilyTest, SanitizeOptions) {
             original.write_buffer_size =
                 l * 4 * 1024 * 1024 + i * 1024 * 1024 + j * 1024 + k;
 
-            ColumnFamilyOptions result =
-                SanitizeOptions(ImmutableDBOptions(db_options), original);
+            ColumnFamilyOptions result = original;
+            ASSERT_OK(result.Sanitize(db_options));
             ASSERT_TRUE(result.level0_stop_writes_trigger >=
                         result.level0_slowdown_writes_trigger);
             ASSERT_TRUE(result.level0_slowdown_writes_trigger >=
@@ -3390,21 +3393,19 @@ TEST(ColumnFamilyTest, ValidateBlobGCCutoff) {
   cf_options.enable_blob_garbage_collection = true;
 
   cf_options.blob_garbage_collection_age_cutoff = -0.5;
-  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
-                  .IsInvalidArgument());
+  ASSERT_TRUE(ValidateOptions(db_options, cf_options).IsInvalidArgument());
 
   cf_options.blob_garbage_collection_age_cutoff = 0.0;
-  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+  ASSERT_OK(ValidateOptions(db_options, cf_options));
 
   cf_options.blob_garbage_collection_age_cutoff = 0.5;
-  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+  ASSERT_OK(ValidateOptions(db_options, cf_options));
 
   cf_options.blob_garbage_collection_age_cutoff = 1.0;
-  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+  ASSERT_OK(ValidateOptions(db_options, cf_options));
 
   cf_options.blob_garbage_collection_age_cutoff = 1.5;
-  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
-                  .IsInvalidArgument());
+  ASSERT_TRUE(ValidateOptions(db_options, cf_options).IsInvalidArgument());
 }
 
 TEST(ColumnFamilyTest, ValidateBlobGCForceThreshold) {
@@ -3414,21 +3415,19 @@ TEST(ColumnFamilyTest, ValidateBlobGCForceThreshold) {
   cf_options.enable_blob_garbage_collection = true;
 
   cf_options.blob_garbage_collection_force_threshold = -0.5;
-  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
-                  .IsInvalidArgument());
+  ASSERT_TRUE(ValidateOptions(db_options, cf_options).IsInvalidArgument());
 
   cf_options.blob_garbage_collection_force_threshold = 0.0;
-  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+  ASSERT_OK(ValidateOptions(db_options, cf_options));
 
   cf_options.blob_garbage_collection_force_threshold = 0.5;
-  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+  ASSERT_OK(ValidateOptions(db_options, cf_options));
 
   cf_options.blob_garbage_collection_force_threshold = 1.0;
-  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+  ASSERT_OK(ValidateOptions(db_options, cf_options));
 
   cf_options.blob_garbage_collection_force_threshold = 1.5;
-  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
-                  .IsInvalidArgument());
+  ASSERT_TRUE(ValidateOptions(db_options, cf_options).IsInvalidArgument());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

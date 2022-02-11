@@ -241,16 +241,10 @@ struct SuperVersion {
   autovector<MemTable*> to_delete;
 };
 
-extern Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options);
-
-extern Status CheckConcurrentWritesSupported(
-    const ColumnFamilyOptions& cf_options);
-
-extern Status CheckCFPathsSupported(const DBOptions& db_options,
-                                    const ColumnFamilyOptions& cf_options);
-
-extern ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
+extern ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
                                            const ColumnFamilyOptions& src);
+extern ColumnFamilyOptions SanitizeIOptions(
+    const ImmutableDBOptions& db_options, const ColumnFamilyOptions& src);
 // Wrap user defined table properties collector factories `from cf_options`
 // into internal ones in int_tbl_prop_collector_factories. Add a system internal
 // one too.
@@ -331,10 +325,6 @@ class ColumnFamilyData {
   ColumnFamilyOptions GetLatestCFOptions() const;
 
   bool is_delete_range_supported() { return is_delete_range_supported_; }
-
-  // Validate CF options against DB options
-  static Status ValidateOptions(const DBOptions& db_options,
-                                const ColumnFamilyOptions& cf_options);
 #ifndef ROCKSDB_LITE
   // REQUIRES: DB mutex held
   Status SetOptions(

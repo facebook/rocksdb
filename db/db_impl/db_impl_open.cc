@@ -26,131 +26,18 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
-Options SanitizeOptions(const std::string& dbname, const Options& src,
-                        bool read_only) {
-  auto db_options = SanitizeOptions(dbname, DBOptions(src), read_only);
-  ImmutableDBOptions immutable_db_options(db_options);
-  auto cf_options =
-      SanitizeOptions(immutable_db_options, ColumnFamilyOptions(src));
-  return Options(db_options, cf_options);
-}
-
-DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
-                          bool read_only) {
-  DBOptions result(src);
-
-  if (result.env == nullptr) {
-    result.env = Env::Default();
-  }
-
-  // result.max_open_files means an "infinite" open files.
-  if (result.max_open_files != -1) {
-    int max_max_open_files = port::GetMaxOpenFiles();
-    if (max_max_open_files == -1) {
-      max_max_open_files = 0x400000;
-    }
-    ClipToRange(&result.max_open_files, 20, max_max_open_files);
-    TEST_SYNC_POINT_CALLBACK("SanitizeOptions::AfterChangeMaxOpenFiles",
-                             &result.max_open_files);
-  }
-
-  if (result.info_log == nullptr && !read_only) {
-    Status s = CreateLoggerFromOptions(dbname, result, &result.info_log);
-    if (!s.ok()) {
-      // No place suitable for logging
-      result.info_log = nullptr;
-    }
-  }
-
-  if (!result.write_buffer_manager) {
-    result.write_buffer_manager.reset(
-        new WriteBufferManager(result.db_write_buffer_size));
-  }
+Status SanitizeOptions(const std::string& dbname, bool read_only,
+                       DBOptions& db_opts) {
+  Status status = db_opts.Sanitize(dbname, read_only);
   auto bg_job_limits = DBImpl::GetBGJobLimits(
-      result.max_background_flushes, result.max_background_compactions,
-      result.max_background_jobs, true /* parallelize_compactions */);
-  result.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_compactions,
-                                           Env::Priority::LOW);
-  result.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_flushes,
-                                           Env::Priority::HIGH);
-
-  if (result.rate_limiter.get() != nullptr) {
-    if (result.bytes_per_sync == 0) {
-      result.bytes_per_sync = 1024 * 1024;
-    }
-  }
-
-  if (result.delayed_write_rate == 0) {
-    if (result.rate_limiter.get() != nullptr) {
-      result.delayed_write_rate = result.rate_limiter->GetBytesPerSecond();
-    }
-    if (result.delayed_write_rate == 0) {
-      result.delayed_write_rate = 16 * 1024 * 1024;
-    }
-  }
-
-  if (result.WAL_ttl_seconds > 0 || result.WAL_size_limit_MB > 0) {
-    result.recycle_log_file_num = false;
-  }
-
-  if (result.recycle_log_file_num &&
-      (result.wal_recovery_mode ==
-           WALRecoveryMode::kTolerateCorruptedTailRecords ||
-       result.wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery ||
-       result.wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency)) {
-    // - kTolerateCorruptedTailRecords is inconsistent with recycle log file
-    //   feature. WAL recycling expects recovery success upon encountering a
-    //   corrupt record at the point where new data ends and recycled data
-    //   remains at the tail. However, `kTolerateCorruptedTailRecords` must fail
-    //   upon encountering any such corrupt record, as it cannot differentiate
-    //   between this and a real corruption, which would cause committed updates
-    //   to be truncated -- a violation of the recovery guarantee.
-    // - kPointInTimeRecovery and kAbsoluteConsistency are incompatible with
-    //   recycle log file feature temporarily due to a bug found introducing a
-    //   hole in the recovered data
-    //   (https://github.com/facebook/rocksdb/pull/7252#issuecomment-673766236).
-    //   Besides this bug, we believe the features are fundamentally compatible.
-    result.recycle_log_file_num = 0;
-  }
-
-  if (result.db_paths.size() == 0) {
-    result.db_paths.emplace_back(dbname, std::numeric_limits<uint64_t>::max());
-  } else if (result.wal_dir.empty()) {
-    // Use dbname as default
-    result.wal_dir = dbname;
-  }
-  if (!result.wal_dir.empty()) {
-    // If there is a wal_dir already set, check to see if the wal_dir is the
-    // same as the dbname AND the same as the db_path[0] (which must exist from
-    // a few lines ago). If the wal_dir matches both of these values, then clear
-    // the wal_dir value, which will make wal_dir == dbname.  Most likely this
-    // condition was the result of reading an old options file where we forced
-    // wal_dir to be set (to dbname).
-    auto npath = NormalizePath(dbname + "/");
-    if (npath == NormalizePath(result.wal_dir + "/") &&
-        npath == NormalizePath(result.db_paths[0].path + "/")) {
-      result.wal_dir.clear();
-    }
-  }
-
-  if (!result.wal_dir.empty() && result.wal_dir.back() == '/') {
-    result.wal_dir = result.wal_dir.substr(0, result.wal_dir.size() - 1);
-  }
-
-  if (result.use_direct_reads && result.compaction_readahead_size == 0) {
-    TEST_SYNC_POINT_CALLBACK("SanitizeOptions:direct_io", nullptr);
-    result.compaction_readahead_size = 1024 * 1024 * 2;
-  }
-
-  // Force flush on DB open if 2PC is enabled, since with 2PC we have no
-  // guarantee that consecutive log files have consecutive sequence id, which
-  // make recovery complicated.
-  if (result.allow_2pc) {
-    result.avoid_flush_during_recovery = false;
-  }
-
+      db_opts.max_background_flushes, db_opts.max_background_compactions,
+      db_opts.max_background_jobs, true /* parallelize_compactions */);
+  db_opts.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_compactions,
+                                            Env::Priority::LOW);
+  db_opts.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_flushes,
+                                            Env::Priority::HIGH);
 #ifndef ROCKSDB_LITE
-  ImmutableDBOptions immutable_db_options(result);
+  ImmutableDBOptions immutable_db_options(db_opts);
   if (!immutable_db_options.IsWalDirSameAsDBPath()) {
     // Either the WAL dir and db_paths[0]/db_name are not the same, or we
     // cannot tell for sure. In either case, assume they're different and
@@ -160,14 +47,14 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     // safe
     std::vector<std::string> filenames;
     auto wal_dir = immutable_db_options.GetWalDir();
-    Status s = result.env->GetChildren(wal_dir, &filenames);
+    Status s = db_opts.env->GetChildren(wal_dir, &filenames);
     s.PermitUncheckedError();  //**TODO: What to do on error?
     for (std::string& filename : filenames) {
       if (filename.find(".log.trash", filename.length() -
                                           std::string(".log.trash").length()) !=
           std::string::npos) {
         std::string trash_file = wal_dir + "/" + filename;
-        result.env->DeleteFile(trash_file).PermitUncheckedError();
+        db_opts.env->DeleteFile(trash_file).PermitUncheckedError();
       }
     }
   }
@@ -175,45 +62,48 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
   // were not deleted yet, when we open the DB we will find these .trash files
   // and schedule them to be deleted (or delete immediately if SstFileManager
   // was not used)
-  auto sfm = static_cast<SstFileManagerImpl*>(result.sst_file_manager.get());
-  for (size_t i = 0; i < result.db_paths.size(); i++) {
-    DeleteScheduler::CleanupDirectory(result.env, sfm, result.db_paths[i].path)
+  auto sfm = static_cast<SstFileManagerImpl*>(db_opts.sst_file_manager.get());
+  for (size_t i = 0; i < db_opts.db_paths.size(); i++) {
+    DeleteScheduler::CleanupDirectory(db_opts.env, sfm,
+                                      db_opts.db_paths[i].path)
         .PermitUncheckedError();
   }
 
   // Create a default SstFileManager for purposes of tracking compaction size
   // and facilitating recovery from out of space errors.
-  if (result.sst_file_manager.get() == nullptr) {
+  if (db_opts.sst_file_manager.get() == nullptr) {
     std::shared_ptr<SstFileManager> sst_file_manager(
-        NewSstFileManager(result.env, result.info_log));
-    result.sst_file_manager = sst_file_manager;
+        NewSstFileManager(db_opts.env, db_opts.info_log));
+    db_opts.sst_file_manager = sst_file_manager;
   }
 #endif  // !ROCKSDB_LITE
+  return status;
+}
 
-  // Supported wal compression types
-  if (result.wal_compression != kNoCompression &&
-      result.wal_compression != kZSTD) {
-    result.wal_compression = kNoCompression;
-    ROCKS_LOG_WARN(result.info_log,
-                   "wal_compression is disabled since only zstd is supported");
-  }
-
-  if (!result.paranoid_checks) {
-    result.skip_checking_sst_file_sizes_on_db_open = true;
-    ROCKS_LOG_INFO(result.info_log,
-                   "file size check will be skipped during open.");
-  }
+DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
+                          bool read_only) {
+  DBOptions result(src);
+  Status s = SanitizeOptions(dbname, read_only, result);
+  s.PermitUncheckedError();  //**TODO: What to do on error?
 
   return result;
+}
+
+Options SanitizeOptions(const std::string& dbname, const Options& src,
+                        bool read_only) {
+  DBOptions db_opts(src);
+  Status s = SanitizeOptions(dbname, read_only, db_opts);
+  s.PermitUncheckedError();
+  auto cf_opts = SanitizeOptions(db_opts, src);
+  return Options(db_opts, cf_opts);
 }
 
 namespace {
 Status ValidateOptionsByTable(
     const DBOptions& db_opts,
     const std::vector<ColumnFamilyDescriptor>& column_families) {
-  Status s;
   for (auto cf : column_families) {
-    s = ValidateOptions(db_opts, cf.options);
+    Status s = ValidateOptions(db_opts, cf.options);
     if (!s.ok()) {
       return s;
     }
@@ -221,76 +111,6 @@ Status ValidateOptionsByTable(
   return Status::OK();
 }
 }  // namespace
-
-Status DBImpl::ValidateOptions(
-    const DBOptions& db_options,
-    const std::vector<ColumnFamilyDescriptor>& column_families) {
-  Status s;
-  for (auto& cfd : column_families) {
-    s = ColumnFamilyData::ValidateOptions(db_options, cfd.options);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-  s = ValidateOptions(db_options);
-  return s;
-}
-
-Status DBImpl::ValidateOptions(const DBOptions& db_options) {
-  if (db_options.db_paths.size() > 4) {
-    return Status::NotSupported(
-        "More than four DB paths are not supported yet. ");
-  }
-
-  if (db_options.allow_mmap_reads && db_options.use_direct_reads) {
-    // Protect against assert in PosixMMapReadableFile constructor
-    return Status::NotSupported(
-        "If memory mapped reads (allow_mmap_reads) are enabled "
-        "then direct I/O reads (use_direct_reads) must be disabled. ");
-  }
-
-  if (db_options.allow_mmap_writes &&
-      db_options.use_direct_io_for_flush_and_compaction) {
-    return Status::NotSupported(
-        "If memory mapped writes (allow_mmap_writes) are enabled "
-        "then direct I/O writes (use_direct_io_for_flush_and_compaction) must "
-        "be disabled. ");
-  }
-
-  if (db_options.keep_log_file_num == 0) {
-    return Status::InvalidArgument("keep_log_file_num must be greater than 0");
-  }
-
-  if (db_options.unordered_write &&
-      !db_options.allow_concurrent_memtable_write) {
-    return Status::InvalidArgument(
-        "unordered_write is incompatible with !allow_concurrent_memtable_write");
-  }
-
-  if (db_options.unordered_write && db_options.enable_pipelined_write) {
-    return Status::InvalidArgument(
-        "unordered_write is incompatible with enable_pipelined_write");
-  }
-
-  if (db_options.atomic_flush && db_options.enable_pipelined_write) {
-    return Status::InvalidArgument(
-        "atomic_flush is incompatible with enable_pipelined_write");
-  }
-
-  // TODO remove this restriction
-  if (db_options.atomic_flush && db_options.best_efforts_recovery) {
-    return Status::InvalidArgument(
-        "atomic_flush is currently incompatible with best-efforts recovery");
-  }
-
-  if (db_options.use_direct_io_for_flush_and_compaction &&
-      0 == db_options.writable_file_max_buffer_size) {
-    return Status::InvalidArgument(
-        "writes in direct IO require writable_file_max_buffer_size > 0");
-  }
-
-  return Status::OK();
-}
 
 Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
   VersionEdit new_db;
@@ -1590,11 +1410,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
                     const bool seq_per_batch, const bool batch_per_txn) {
   Status s = ValidateOptionsByTable(db_options, column_families);
-  if (!s.ok()) {
-    return s;
-  }
-
-  s = ValidateOptions(db_options, column_families);
   if (!s.ok()) {
     return s;
   }

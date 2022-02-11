@@ -61,11 +61,11 @@ class DBOptionsTest : public DBTestBase {
       Random* rnd) {
     Options options = CurrentOptions();
     options.env = env_;
-    ImmutableDBOptions db_options(options);
-    test::RandomInitCFOptions(&options, options, rnd);
-    auto sanitized_options = SanitizeOptions(db_options, options);
-    auto opt_map = GetMutableCFOptionsMap(sanitized_options);
-    delete options.compaction_filter;
+    ColumnFamilyOptions cf_opts = options;
+    test::RandomInitCFOptions(&cf_opts, options, rnd);
+    EXPECT_OK(cf_opts.Sanitize(options));
+    auto opt_map = GetMutableCFOptionsMap(cf_opts);
+    delete cf_opts.compaction_filter;
     return opt_map;
   }
 
@@ -73,8 +73,8 @@ class DBOptionsTest : public DBTestBase {
       Random* rnd) {
     DBOptions db_options;
     test::RandomInitDBOptions(&db_options, rnd);
-    auto sanitized_options = SanitizeOptions(dbname_, db_options);
-    return GetMutableDBOptionsMap(sanitized_options);
+    EXPECT_OK(db_options.Sanitize(dbname_, false));
+    return GetMutableDBOptionsMap(db_options);
   }
 #endif  // ROCKSDB_LITE
 };

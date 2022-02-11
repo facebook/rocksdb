@@ -12,6 +12,7 @@
 #include <cinttypes>
 #include <limits>
 
+#include "file/filename.h"
 #include "logging/logging.h"
 #include "monitoring/statistics.h"
 #include "options/db_options.h"
@@ -23,18 +24,102 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/sst_partitioner.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/utilities/options_type.h"
 #include "rocksdb/wal_filter.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "test_util/sync_point.h"
 #include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+const uint64_t kDefaultTtl = 0xfffffffffffffffe;
+const uint64_t kDefaultPeriodicCompSecs = 0xfffffffffffffffe;
 
+Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
+  if (!cf_options.compression_per_level.empty()) {
+    for (size_t level = 0; level < cf_options.compression_per_level.size();
+         ++level) {
+      if (!CompressionTypeSupported(cf_options.compression_per_level[level])) {
+        return Status::InvalidArgument(
+            "Compression type " +
+            CompressionTypeToString(cf_options.compression_per_level[level]) +
+            " is not linked with the binary.");
+      }
+    }
+  } else {
+    if (!CompressionTypeSupported(cf_options.compression)) {
+      return Status::InvalidArgument(
+          "Compression type " +
+          CompressionTypeToString(cf_options.compression) +
+          " is not linked with the binary.");
+    }
+  }
+  if (cf_options.compression_opts.zstd_max_train_bytes > 0) {
+    if (!ZSTD_TrainDictionarySupported()) {
+      return Status::InvalidArgument(
+          "zstd dictionary trainer cannot be used because ZSTD 1.1.3+ "
+          "is not linked with the binary.");
+    }
+    if (cf_options.compression_opts.max_dict_bytes == 0) {
+      return Status::InvalidArgument(
+          "The dictionary size limit (`CompressionOptions::max_dict_bytes`) "
+          "should be nonzero if we're using zstd's dictionary generator.");
+    }
+  }
+
+  if (!CompressionTypeSupported(cf_options.blob_compression_type)) {
+    std::ostringstream oss;
+    oss << "The specified blob compression type "
+        << CompressionTypeToString(cf_options.blob_compression_type)
+        << " is not available.";
+
+    return Status::InvalidArgument(oss.str());
+  }
+
+  return Status::OK();
+}
+
+Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options) {
+  if (cf_options.inplace_update_support) {
+    return Status::InvalidArgument(
+        "In-place memtable updates (inplace_update_support) is not compatible "
+        "with concurrent writes (allow_concurrent_memtable_write)");
+  }
+  if (!cf_options.memtable_factory->IsInsertConcurrentlySupported()) {
+    return Status::InvalidArgument(
+        "Memtable doesn't concurrent writes (allow_concurrent_memtable_write)");
+  }
+  return Status::OK();
+}
+
+Status CheckCFPathsSupported(const DBOptions& db_options,
+                             const ColumnFamilyOptions& cf_options) {
+  // More than one cf_paths are supported only in universal
+  // and level compaction styles. This function also checks the case
+  // in which cf_paths is not specified, which results in db_paths
+  // being used.
+  if ((cf_options.compaction_style != kCompactionStyleUniversal) &&
+      (cf_options.compaction_style != kCompactionStyleLevel)) {
+    if (cf_options.cf_paths.size() > 1) {
+      return Status::NotSupported(
+          "More than one CF paths are only supported in "
+          "universal and level compaction styles. ");
+    } else if (cf_options.cf_paths.empty() && db_options.db_paths.size() > 1) {
+      return Status::NotSupported(
+          "More than one DB paths are only supported in "
+          "universal and level compaction styles. ");
+    }
+  }
+  return Status::OK();
+}
+}  // anonymous namespace
 AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions() {
   assert(memtable_factory.get() != nullptr);
 }
@@ -116,6 +201,265 @@ ColumnFamilyOptions::ColumnFamilyOptions()
 ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
     : ColumnFamilyOptions(*static_cast<const ColumnFamilyOptions*>(&options)) {}
 
+Status ColumnFamilyOptions::Sanitize(const DBOptions& db_opts) {
+  size_t clamp_max = std::conditional<
+      sizeof(size_t) == 4, std::integral_constant<size_t, 0xffffffff>,
+      std::integral_constant<uint64_t, 64ull << 30>>::type::value;
+  OptionTypeInfo::ClipToRange(&write_buffer_size,
+                              (static_cast<size_t>(64)) << 10, clamp_max);
+  // if user sets arena_block_size, we trust user to use this value. Otherwise,
+  // calculate a proper value from writer_buffer_size;
+  if (arena_block_size <= 0) {
+    arena_block_size = std::min(size_t{1024 * 1024}, write_buffer_size / 8);
+
+    // Align up to 4k
+    const size_t align = 4 * 1024;
+    arena_block_size = ((arena_block_size + align - 1) / align) * align;
+  }
+  min_write_buffer_number_to_merge =
+      std::min(min_write_buffer_number_to_merge, max_write_buffer_number - 1);
+  if (min_write_buffer_number_to_merge < 1) {
+    min_write_buffer_number_to_merge = 1;
+  }
+
+  if (num_levels < 1) {
+    num_levels = 1;
+  }
+  if (compaction_style == kCompactionStyleLevel && num_levels < 2) {
+    num_levels = 2;
+  }
+
+  if (compaction_style == kCompactionStyleUniversal &&
+      db_opts.allow_ingest_behind && num_levels < 3) {
+    num_levels = 3;
+  }
+
+  if (max_write_buffer_number < 2) {
+    max_write_buffer_number = 2;
+  }
+  // fall back max_write_buffer_number_to_maintain if
+  // max_write_buffer_size_to_maintain is not set
+  if (max_write_buffer_size_to_maintain < 0) {
+    max_write_buffer_size_to_maintain =
+        max_write_buffer_number * static_cast<int64_t>(write_buffer_size);
+  } else if (max_write_buffer_size_to_maintain == 0 &&
+             max_write_buffer_number_to_maintain < 0) {
+    max_write_buffer_number_to_maintain = max_write_buffer_number;
+  }
+  // bloom filter size shouldn't exceed 1/4 of memtable size.
+  if (memtable_prefix_bloom_size_ratio > 0.25) {
+    memtable_prefix_bloom_size_ratio = 0.25;
+  } else if (memtable_prefix_bloom_size_ratio < 0) {
+    memtable_prefix_bloom_size_ratio = 0;
+  }
+
+  if (!prefix_extractor) {
+    assert(memtable_factory);
+    Slice name = memtable_factory->Name();
+    if (name.compare("HashSkipListRepFactory") == 0 ||
+        name.compare("HashLinkListRepFactory") == 0) {
+      memtable_factory = std::make_shared<SkipListFactory>();
+    }
+  }
+
+  if (compaction_style == kCompactionStyleFIFO) {
+    num_levels = 1;
+    // since we delete level0 files in FIFO compaction when there are too many
+    // of them, these options don't really mean anything
+    level0_slowdown_writes_trigger = std::numeric_limits<int>::max();
+    level0_stop_writes_trigger = std::numeric_limits<int>::max();
+  }
+
+  if (max_bytes_for_level_multiplier <= 0) {
+    max_bytes_for_level_multiplier = 1;
+  }
+
+  if (level0_file_num_compaction_trigger == 0) {
+    ROCKS_LOG_WARN(db_opts.info_log,
+                   "level0_file_num_compaction_trigger cannot be 0");
+    level0_file_num_compaction_trigger = 1;
+  }
+
+  if (level0_stop_writes_trigger < level0_slowdown_writes_trigger ||
+      level0_slowdown_writes_trigger < level0_file_num_compaction_trigger) {
+    ROCKS_LOG_WARN(db_opts.info_log,
+                   "This condition must be satisfied: "
+                   "level0_stop_writes_trigger(%d) >= "
+                   "level0_slowdown_writes_trigger(%d) >= "
+                   "level0_file_num_compaction_trigger(%d)",
+                   level0_stop_writes_trigger, level0_slowdown_writes_trigger,
+                   level0_file_num_compaction_trigger);
+    if (level0_slowdown_writes_trigger < level0_file_num_compaction_trigger) {
+      level0_slowdown_writes_trigger = level0_file_num_compaction_trigger;
+    }
+    if (level0_stop_writes_trigger < level0_slowdown_writes_trigger) {
+      level0_stop_writes_trigger = level0_slowdown_writes_trigger;
+    }
+    ROCKS_LOG_WARN(db_opts.info_log,
+                   "Adjust the value to "
+                   "level0_stop_writes_trigger(%d)"
+                   "level0_slowdown_writes_trigger(%d)"
+                   "level0_file_num_compaction_trigger(%d)",
+                   level0_stop_writes_trigger, level0_slowdown_writes_trigger,
+                   level0_file_num_compaction_trigger);
+  }
+
+  if (soft_pending_compaction_bytes_limit == 0) {
+    soft_pending_compaction_bytes_limit = hard_pending_compaction_bytes_limit;
+  } else if (hard_pending_compaction_bytes_limit > 0 &&
+             soft_pending_compaction_bytes_limit >
+                 hard_pending_compaction_bytes_limit) {
+    soft_pending_compaction_bytes_limit = hard_pending_compaction_bytes_limit;
+  }
+
+  if (cf_paths.empty()) {
+    cf_paths = db_opts.db_paths;
+  }
+
+  if (level_compaction_dynamic_level_bytes) {
+    if (compaction_style != kCompactionStyleLevel) {
+      ROCKS_LOG_WARN(db_opts.info_log,
+                     "level_compaction_dynamic_level_bytes only makes sense"
+                     "for level-based compaction");
+      level_compaction_dynamic_level_bytes = false;
+    } else if (cf_paths.size() > 1U) {
+      // we don't yet know how to make both of this feature and multiple
+      // DB path work.
+      ROCKS_LOG_WARN(db_opts.info_log,
+                     "multiple cf_paths/db_paths and"
+                     "level_compaction_dynamic_level_bytes"
+                     "can't be used together");
+      level_compaction_dynamic_level_bytes = false;
+    }
+  }
+
+  if (max_compaction_bytes == 0) {
+    max_compaction_bytes = target_file_size_base * 25;
+  }
+
+  bool is_block_based_table =
+      (table_factory->IsInstanceOf(TableFactory::kBlockBasedTableName()));
+
+  const uint64_t kAdjustedTtl = 30 * 24 * 60 * 60;
+  if (ttl == kDefaultTtl) {
+    if (is_block_based_table && compaction_style != kCompactionStyleFIFO) {
+      ttl = kAdjustedTtl;
+    } else {
+      ttl = 0;
+    }
+  }
+
+  const uint64_t kAdjustedPeriodicCompSecs = 30 * 24 * 60 * 60;
+
+  // Turn on periodic compactions and set them to occur once every 30 days if
+  // compaction filters are used and periodic_compaction_seconds is set to the
+  // default value.
+  if (compaction_style != kCompactionStyleFIFO) {
+    if ((compaction_filter != nullptr ||
+         compaction_filter_factory != nullptr) &&
+        periodic_compaction_seconds == kDefaultPeriodicCompSecs &&
+        is_block_based_table) {
+      periodic_compaction_seconds = kAdjustedPeriodicCompSecs;
+    }
+  } else {
+    // compaction_style == kCompactionStyleFIFO
+    if (ttl == 0) {
+      if (is_block_based_table) {
+        if (periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
+          periodic_compaction_seconds = kAdjustedPeriodicCompSecs;
+        }
+        ttl = periodic_compaction_seconds;
+      }
+    } else if (periodic_compaction_seconds != 0) {
+      ttl = std::min(ttl, periodic_compaction_seconds);
+    }
+  }
+
+  // TTL compactions would work similar to Periodic Compactions in Universal in
+  // most of the cases. So, if ttl is set, execute the periodic compaction
+  // codepath.
+  if (compaction_style == kCompactionStyleUniversal && ttl != 0) {
+    if (periodic_compaction_seconds != 0) {
+      periodic_compaction_seconds = std::min(ttl, periodic_compaction_seconds);
+    } else {
+      periodic_compaction_seconds = ttl;
+    }
+  }
+
+  if (periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
+    periodic_compaction_seconds = 0;
+  }
+
+#ifndef ROCKSDB_LITE
+  auto cf_cfg = CFOptionsAsConfigurable(*this);
+  return cf_cfg->SanitizeOptions(db_opts, *this);
+#else
+  return Status::OK();
+#endif  // ROCKSDB_LITE
+}
+
+Status ColumnFamilyOptions::Validate(const DBOptions& db_opts) const {
+  Status s;
+  s = CheckCompressionSupported(*this);
+  if (s.ok() && db_opts.allow_concurrent_memtable_write) {
+    s = CheckConcurrentWritesSupported(*this);
+  }
+  if (s.ok() && db_opts.unordered_write && max_successive_merges != 0) {
+    s = Status::InvalidArgument(
+        "max_successive_merges > 0 is incompatible with unordered_write");
+  }
+  if (s.ok()) {
+    s = CheckCFPathsSupported(db_opts, *this);
+  }
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (ttl > 0 && ttl != kDefaultTtl) {
+    if (!table_factory->IsInstanceOf(TableFactory::kBlockBasedTableName())) {
+      return Status::NotSupported(
+          "TTL is only supported in Block-Based Table format. ");
+    }
+  }
+
+  if (periodic_compaction_seconds > 0 &&
+      periodic_compaction_seconds != kDefaultPeriodicCompSecs) {
+    if (!table_factory->IsInstanceOf(TableFactory::kBlockBasedTableName())) {
+      return Status::NotSupported(
+          "Periodic Compaction is only supported in "
+          "Block-Based Table format. ");
+    }
+  }
+
+  if (enable_blob_garbage_collection) {
+    if (blob_garbage_collection_age_cutoff < 0.0 ||
+        blob_garbage_collection_age_cutoff > 1.0) {
+      return Status::InvalidArgument(
+          "The age cutoff for blob garbage collection should be in the range "
+          "[0.0, 1.0].");
+    }
+    if (blob_garbage_collection_force_threshold < 0.0 ||
+        blob_garbage_collection_force_threshold > 1.0) {
+      return Status::InvalidArgument(
+          "The garbage ratio threshold for forcing blob garbage collection "
+          "should be in the range [0.0, 1.0].");
+    }
+  }
+
+  if (compaction_style == kCompactionStyleFIFO &&
+      db_opts.max_open_files != -1 && ttl > 0) {
+    return Status::NotSupported(
+        "FIFO compaction only supported with max_open_files = -1.");
+  }
+#ifndef ROCKSDB_LITE
+  auto cf_cfg = CFOptionsAsConfigurable(*this);
+  s = cf_cfg->ValidateOptions(db_opts, *this);
+#else
+  s = table_factory->ValidateOptions(db_opts, *this);
+#endif
+  return s;
+}
+
 DBOptions::DBOptions() {}
 DBOptions::DBOptions(const Options& options)
     : DBOptions(*static_cast<const DBOptions*>(&options)) {}
@@ -124,6 +468,194 @@ void DBOptions::Dump(Logger* log) const {
     ImmutableDBOptions(*this).Dump(log);
     MutableDBOptions(*this).Dump(log);
 }  // DBOptions::Dump
+
+Status DBOptions::Validate(const ColumnFamilyOptions& cf_opts) const {
+  if (db_paths.size() > 4) {
+    return Status::NotSupported(
+        "More than four DB paths are not supported yet. ");
+  }
+
+  if (allow_mmap_reads && use_direct_reads) {
+    // Protect against assert in PosixMMapReadableFile constructor
+    return Status::NotSupported(
+        "If memory mapped reads (allow_mmap_reads) are enabled "
+        "then direct I/O reads (use_direct_reads) must be disabled. ");
+  }
+
+  if (allow_mmap_writes && use_direct_io_for_flush_and_compaction) {
+    return Status::NotSupported(
+        "If memory mapped writes (allow_mmap_writes) are enabled "
+        "then direct I/O writes (use_direct_io_for_flush_and_compaction) must "
+        "be disabled. ");
+  }
+
+  if (keep_log_file_num == 0) {
+    return Status::InvalidArgument("keep_log_file_num must be greater than 0");
+  }
+
+  if (unordered_write && !allow_concurrent_memtable_write) {
+    return Status::InvalidArgument(
+        "unordered_write is incompatible with "
+        "!allow_concurrent_memtable_write");
+  }
+
+  if (unordered_write && enable_pipelined_write) {
+    return Status::InvalidArgument(
+        "unordered_write is incompatible with enable_pipelined_write");
+  }
+
+  if (atomic_flush && enable_pipelined_write) {
+    return Status::InvalidArgument(
+        "atomic_flush is incompatible with enable_pipelined_write");
+  }
+
+  // TODO remove this restriction
+  if (atomic_flush && best_efforts_recovery) {
+    return Status::InvalidArgument(
+        "atomic_flush is currently incompatible with best-efforts recovery");
+  }
+  if (use_direct_io_for_flush_and_compaction &&
+      0 == writable_file_max_buffer_size) {
+    return Status::InvalidArgument(
+        "writes in direct IO require writable_file_max_buffer_size > 0");
+  }
+  
+#ifndef ROCKSDB_LITE
+  auto db_cfg = DBOptionsAsConfigurable(*this);
+  return db_cfg->ValidateOptions(*this, cf_opts);
+#else
+  (void)cf_opts;
+  return Status::OK();
+#endif
+}
+
+Status DBOptions::Sanitize(const std::string& dbname, bool read_only) {
+  if (env == nullptr) {
+    env = Env::Default();
+  }
+
+  // max_open_files means an "infinite" open files.
+  if (max_open_files != -1) {
+    int max_max_open_files = port::GetMaxOpenFiles();
+    if (max_max_open_files == -1) {
+      max_max_open_files = 0x400000;
+    }
+    OptionTypeInfo::ClipToRange(&max_open_files, 20, max_max_open_files);
+    TEST_SYNC_POINT_CALLBACK("SanitizeOptions::AfterChangeMaxOpenFiles",
+                             &max_open_files);
+  }
+
+  if (info_log == nullptr && !read_only) {
+    Status s = CreateLoggerFromOptions(dbname, *this, &info_log);
+    if (!s.ok()) {
+      // No place suitable for logging
+      info_log = nullptr;
+    }
+  }
+
+  if (!write_buffer_manager) {
+    write_buffer_manager.reset(new WriteBufferManager(db_write_buffer_size));
+  }
+  if (rate_limiter.get() != nullptr) {
+    if (bytes_per_sync == 0) {
+      bytes_per_sync = 1024 * 1024;
+    }
+  }
+
+  if (delayed_write_rate == 0) {
+    if (rate_limiter.get() != nullptr) {
+      delayed_write_rate = rate_limiter->GetBytesPerSecond();
+    }
+    if (delayed_write_rate == 0) {
+      delayed_write_rate = 16 * 1024 * 1024;
+    }
+  }
+
+  if (WAL_ttl_seconds > 0 || WAL_size_limit_MB > 0) {
+    recycle_log_file_num = false;
+  }
+
+  if (recycle_log_file_num &&
+      (wal_recovery_mode == WALRecoveryMode::kTolerateCorruptedTailRecords ||
+       wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery ||
+       wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency)) {
+    // - kTolerateCorruptedTailRecords is inconsistent with recycle log file
+    //   feature. WAL recycling expects recovery success upon encountering a
+    //   corrupt record at the point where new data ends and recycled data
+    //   remains at the tail. However, `kTolerateCorruptedTailRecords` must fail
+    //   upon encountering any such corrupt record, as it cannot differentiate
+    //   between this and a real corruption, which would cause committed updates
+    //   to be truncated -- a violation of the recovery guarantee.
+    // - kPointInTimeRecovery and kAbsoluteConsistency are incompatible with
+    //   recycle log file feature temporarily due to a bug found introducing a
+    //   hole in the recovered data
+    //   (https://github.com/facebook/rocksdb/pull/7252#issuecomment-673766236).
+    //   Besides this bug, we believe the features are fundamentally compatible.
+    recycle_log_file_num = 0;
+  }
+
+  if (db_paths.size() == 0) {
+    db_paths.emplace_back(dbname, std::numeric_limits<uint64_t>::max());
+  } else if (wal_dir.empty()) {
+    // Use dbname as default
+    wal_dir = dbname;
+  }
+  if (!wal_dir.empty()) {
+    // If there is a wal_dir already set, check to see if the wal_dir is the
+    // same as the dbname AND the same as the db_path[0] (which must exist from
+    // a few lines ago). If the wal_dir matches both of these values, then clear
+    // the wal_dir value, which will make wal_dir == dbname.  Most likely this
+    // condition was the result of reading an old options file where we forced
+    // wal_dir to be set (to dbname).
+    auto npath = NormalizePath(dbname + "/");
+    if (npath == NormalizePath(wal_dir + "/") &&
+        npath == NormalizePath(db_paths[0].path + "/")) {
+      wal_dir.clear();
+    }
+  }
+
+  if (!wal_dir.empty() && wal_dir.back() == '/') {
+    wal_dir = wal_dir.substr(0, wal_dir.size() - 1);
+  }
+
+  if (use_direct_reads && compaction_readahead_size == 0) {
+    TEST_SYNC_POINT_CALLBACK("SanitizeOptions:direct_io", nullptr);
+    compaction_readahead_size = 1024 * 1024 * 2;
+  }
+
+  // Force flush on DB open if 2PC is enabled, since with 2PC we have no
+  // guarantee that consecutive log files have consecutive sequence id, which
+  // make recovery complicated.
+  if (allow_2pc) {
+    avoid_flush_during_recovery = false;
+  }
+
+  if (!paranoid_checks) {
+    skip_checking_sst_file_sizes_on_db_open = true;
+    ROCKS_LOG_INFO(info_log, "file size check will be skipped during open.");
+  }
+
+  // Supported wal compression types
+  if (wal_compression != kNoCompression &&
+      wal_compression != kZSTD) {
+    wal_compression = kNoCompression;
+    ROCKS_LOG_WARN(info_log,
+                   "wal_compression is disabled since only zstd is supported");
+  }
+
+  if (!paranoid_checks) {
+    skip_checking_sst_file_sizes_on_db_open = true;
+    ROCKS_LOG_INFO(info_log,
+                   "file size check will be skipped during open.");
+  }
+
+#ifndef ROCKSDB_LITE
+  auto db_cfg = DBOptionsAsConfigurable(*this);
+  return db_cfg->SanitizeOptions(dbname, read_only, *this);
+#else
+  return Status::OK();
+#endif  // ROCKSDB_LITE
+}
 
 void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "              Options.comparator: %s",
@@ -417,6 +949,22 @@ void Options::Dump(Logger* log) const {
 void Options::DumpCFOptions(Logger* log) const {
   ColumnFamilyOptions::Dump(log);
 }  // Options::DumpCFOptions
+
+Status Options::Validate() const {
+  Status s = DBOptions::Validate(*this);
+  if (s.ok()) {
+    s = ColumnFamilyOptions::Validate(*this);
+  }
+  return s;
+}
+
+Status Options::Sanitize(const std::string& dbname, bool read_only) {
+  Status s = DBOptions::Sanitize(dbname, read_only);
+  if (s.ok()) {
+    s = ColumnFamilyOptions::Sanitize(*this);
+  }
+  return s;
+}
 
 //
 // The goal of this method is to create a configuration that

@@ -71,6 +71,60 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
   return status;
 }
 
+Status Configurable::SanitizeOptions(const std::string& dbname, bool read_only,
+                                     DBOptions& db_opts) {
+  Status status;
+#ifndef ROCKSDB_LITE
+  if (HasRegisteredOptions()) {
+    for (auto opt_iter : options_) {
+      if (opt_iter.type_map != nullptr) {
+        for (auto map_iter : *(opt_iter.type_map)) {
+          auto& opt_info = map_iter.second;
+          if (opt_info.ShouldSanitize(true)) {
+            Status s = opt_info.Sanitize(map_iter.first, dbname, read_only,
+                                         db_opts, opt_iter.opt_ptr);
+            if (!s.ok() && status.ok()) {
+              status = s;
+            }
+          }
+        }
+      }
+    }
+  }
+#else
+  (void)db_opts;
+  (void)dbname;
+  (void)read_only;
+#endif  // ROCKSDB_LITE
+  return status;
+}
+Status Configurable::SanitizeOptions(const DBOptions& db_opts,
+                                     ColumnFamilyOptions& cf_opts) {
+  Status status;
+#ifndef ROCKSDB_LITE
+  if (HasRegisteredOptions()) {
+    for (auto opt_iter : options_) {
+      if (opt_iter.type_map != nullptr) {
+        for (auto map_iter : *(opt_iter.type_map)) {
+          auto& opt_info = map_iter.second;
+          if (opt_info.ShouldSanitize(false)) {
+            Status s = opt_info.Sanitize(map_iter.first, db_opts, cf_opts,
+                                         opt_iter.opt_ptr);
+            if (!s.ok() && status.ok()) {
+              status = s;
+            }
+          }
+        }
+      }
+    }
+  }
+#else
+  (void)db_opts;
+  (void)cf_opts;
+#endif  // ROCKSDB_LITE
+  return status;
+}
+
 Status Configurable::ValidateOptions(const DBOptions& db_opts,
                                      const ColumnFamilyOptions& cf_opts) const {
   Status status;

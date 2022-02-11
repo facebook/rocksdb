@@ -45,15 +45,10 @@ ConfigOptions::ConfigOptions(const DBOptions& db_opts) : env(db_opts.env) {
 
 Status ValidateOptions(const DBOptions& db_opts,
                        const ColumnFamilyOptions& cf_opts) {
-  Status s;
-#ifndef ROCKSDB_LITE
-  auto db_cfg = DBOptionsAsConfigurable(db_opts);
-  auto cf_cfg = CFOptionsAsConfigurable(cf_opts);
-  s = db_cfg->ValidateOptions(db_opts, cf_opts);
-  if (s.ok()) s = cf_cfg->ValidateOptions(db_opts, cf_opts);
-#else
-  s = cf_opts.table_factory->ValidateOptions(db_opts, cf_opts);
-#endif
+  Status s = db_opts.Validate(cf_opts);
+  if (s.ok()) {
+    s = cf_opts.Validate(db_opts);
+  }
   return s;
 }
 
@@ -1377,6 +1372,43 @@ bool OptionTypeInfo::AreEqualByName(const ConfigOptions& config_options,
     }
   }
   return (this_value == that_value);
+}
+
+Status OptionTypeInfo::Sanitize(const std::string& name,
+                                const std::string& dbname, bool readonly,
+                                DBOptions& db_opts, void* opt_ptr) const {
+  assert(ShouldSanitize(true));
+  if (sanitize_db_func_ != nullptr) {
+    void* opt_addr = GetOffset(opt_ptr);
+    return sanitize_db_func_(name, dbname, readonly, db_opts, opt_addr);
+  } else if (IsConfigurable()) {
+    Configurable* config = AsRawPointer<Configurable>(opt_ptr);
+    if (config != nullptr) {
+      return config->SanitizeOptions(dbname, readonly, db_opts);
+    } else if (!CanBeNull()) {
+      return Status::NotFound("Missing configurable object", name);
+    }
+  }
+  return Status::OK();
+}
+
+Status OptionTypeInfo::Sanitize(const std::string& name,
+                                const DBOptions& db_opts,
+                                ColumnFamilyOptions& cf_opts,
+                                void* opt_ptr) const {
+  assert(ShouldSanitize(false));
+  if (sanitize_cf_func_ != nullptr) {
+    void* opt_addr = GetOffset(opt_ptr);
+    return sanitize_cf_func_(name, db_opts, cf_opts, opt_addr);
+  } else if (IsConfigurable()) {
+    Configurable* config = AsRawPointer<Configurable>(opt_ptr);
+    if (config != nullptr) {
+      return config->SanitizeOptions(db_opts, cf_opts);
+    } else if (!CanBeNull()) {
+      return Status::NotFound("Missing configurable object", name);
+    }
+  }
+  return Status::OK();
 }
 
 const OptionTypeInfo* OptionTypeInfo::Find(

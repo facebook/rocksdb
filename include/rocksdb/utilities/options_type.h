@@ -15,6 +15,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 class OptionTypeInfo;
+struct ColumnFamilyOptions;
+struct DBOptions;
 
 // The underlying "class/type" of the option.
 // This enum is used to determine how the option should
@@ -90,14 +92,15 @@ enum class OptionTypeFlags : uint32_t {
   kCompareLoose = ConfigOptions::kSanityLevelLooselyCompatible,
   kCompareExact = ConfigOptions::kSanityLevelExactMatch,
 
-  kMutable = 0x0100,         // Option is mutable
-  kRawPointer = 0x0200,      // The option is stored as a raw pointer
-  kShared = 0x0400,          // The option is stored as a shared_ptr
-  kUnique = 0x0800,          // The option is stored as a unique_ptr
-  kAllowNull = 0x1000,       // The option can be null
-  kDontSerialize = 0x2000,   // Don't serialize the option
-  kDontPrepare = 0x4000,     // Don't prepare or sanitize this option
-  kStringNameOnly = 0x8000,  // The option serializes to a name only
+  kMutable = 0x00100,         // Option is mutable
+  kRawPointer = 0x00200,      // The option is stored as a raw pointer
+  kShared = 0x00400,          // The option is stored as a shared_ptr
+  kUnique = 0x00800,          // The option is stored as a unique_ptr
+  kAllowNull = 0x01000,       // The option can be null
+  kDontSerialize = 0x02000,   // Don't serialize the option
+  kDontPrepare = 0x04000,     // Don't prepare this option
+  kStringNameOnly = 0x08000,  // The option serializes to a name only
+  kDontSanitize = 0x10000,    // Don't sanitize this option
 };
 
 inline OptionTypeFlags operator|(const OptionTypeFlags &a,
@@ -196,6 +199,16 @@ using SerializeFunc = std::function<Status(
 using EqualsFunc = std::function<bool(
     const ConfigOptions& /*opts*/, const std::string& /*name*/,
     const void* /*addr1*/, const void* /*addr2*/, std::string* mismatch)>;
+
+// Function for sanitizing a DBOption.
+using SanitizeDBOptsFunc =
+    std::function<Status(const std::string& name, const std::string& /*dbname*/,
+                         bool readonly, DBOptions& db_opts, void* /*addr*/)>;
+
+// Function for sanitizing a ColumnFamilyOption.
+using SanitizeCFOptsFunc =
+    std::function<Status(const std::string& name, const DBOptions& db_opts,
+                         ColumnFamilyOptions& cf_opts, void* /*addr*/)>;
 
 // A struct for storing constant option information such as option name,
 // option type, and offset.
@@ -516,6 +529,16 @@ class OptionTypeInfo {
         serialize_func, equals_func);
   }
 
+  OptionTypeInfo& SetSantizeFunc(const SanitizeDBOptsFunc& f) {
+    sanitize_db_func_ = f;
+    return *this;
+  }
+
+  OptionTypeInfo& SetSantizeFunc(const SanitizeCFOptsFunc& f) {
+    sanitize_cf_func_ = f;
+    return *this;
+  }
+
   bool IsEnabled(OptionTypeFlags otf) const { return (flags_ & otf) == otf; }
 
   bool IsEditable(const ConfigOptions& opts) const {
@@ -570,6 +593,20 @@ class OptionTypeInfo {
     }
   }
 
+  bool ShouldSanitize(bool do_db_opts) const {
+    if (IsDeprecated() || IsAlias()) {
+      return false;
+    } else if (IsEnabled(OptionTypeFlags::kDontSanitize)) {
+      return false;
+    } else if (IsConfigurable()) {
+      return true;
+    } else if (do_db_opts) {
+      return (sanitize_db_func_ != nullptr);
+    } else {
+      return (sanitize_cf_func_ != nullptr);
+    }
+  }
+
   // Returns true if the option is allowed to be null.
   // Options can be null if the verification type is allow from null
   // or if the flags specify allow null.
@@ -599,6 +636,14 @@ class OptionTypeInfo {
   }
 
   bool IsCustomizable() const { return (type_ == OptionType::kCustomizable); }
+
+  inline const void* GetOffset(const void* base) const {
+    return static_cast<const char*>(base) + offset_;
+  }
+
+  inline void* GetOffset(void* base) const {
+    return static_cast<char*>(base) + offset_;
+  }
 
   // Returns the underlying pointer for the type at base_addr
   // The value returned is the underlying "raw" pointer, offset from base.
@@ -676,6 +721,10 @@ class OptionTypeInfo {
                       const std::string& opt_name, const void* const this_ptr,
                       const std::string& that_value) const;
 
+  Status Sanitize(const std::string& name, const std::string& dbname,
+                  bool readonly, DBOptions& db_opts, void* opt_ptr) const;
+  Status Sanitize(const std::string& name, const DBOptions& db_opts,
+                  ColumnFamilyOptions& cf_opts, void* opt_ptr) const;
   // Parses the input opts_map according to the type_map for the opt_addr
   // For each name-value pair in opts_map, find the corresponding name in
   // type_map If the name is found:
@@ -791,6 +840,13 @@ class OptionTypeInfo {
   constexpr static const char* kIdPropName() { return "id"; }
   constexpr static const char* kIdPropSuffix() { return ".id"; }
 
+  // Fix user-supplied options to be reasonable
+  template <class T, class V>
+  static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
+    if (static_cast<V>(*ptr) > maxvalue) *ptr = maxvalue;
+    if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
+  }
+
  private:
   int offset_;
 
@@ -802,6 +858,12 @@ class OptionTypeInfo {
 
   // The optional function to match two option values
   EqualsFunc equals_func_;
+
+  // The optional function for sanitizing a DBOptions
+  SanitizeDBOptsFunc sanitize_db_func_;
+
+  // The optional function for sanitizing a ColumnFamilyOptions
+  SanitizeCFOptsFunc sanitize_cf_func_;
 
   OptionType type_;
   OptionVerificationType verification_;
