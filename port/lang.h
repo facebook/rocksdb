@@ -17,7 +17,7 @@
 
 #define DECLARE_DEFAULT_MOVES(Name) \
   Name(Name&&) noexcept = default;  \
-  Name& operator=(Name&& lock_info) = default
+  Name& operator=(Name&&) = default
 
 // ASAN (Address sanitizer)
 

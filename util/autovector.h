@@ -321,7 +321,8 @@ class autovector {
 
   autovector& operator=(const autovector& other) { return assign(other); }
 
-  DECLARE_DEFAULT_MOVES(autovector);
+  autovector(autovector&& other) noexcept { *this = std::move(other); }
+  autovector& operator=(autovector&& other);
 
   // -- Iterator Operations
   iterator begin() { return iterator(this, 0); }
@@ -355,7 +356,8 @@ class autovector {
 };
 
 template <class T, size_t kSize>
-autovector<T, kSize>& autovector<T, kSize>::assign(const autovector& other) {
+autovector<T, kSize>& autovector<T, kSize>::assign(
+    const autovector<T, kSize>& other) {
   values_ = reinterpret_cast<pointer>(buf_);
   // copy the internal vector
   vect_.assign(other.vect_.begin(), other.vect_.end());
@@ -366,5 +368,20 @@ autovector<T, kSize>& autovector<T, kSize>::assign(const autovector& other) {
 
   return *this;
 }
+
+template <class T, size_t kSize>
+autovector<T, kSize>& autovector<T, kSize>::operator=(
+    autovector<T, kSize>&& other) {
+  values_ = reinterpret_cast<pointer>(buf_);
+  vect_ = std::move(other.vect_);
+  size_t n = other.num_stack_items_;
+  num_stack_items_ = n;
+  other.num_stack_items_ = 0;
+  for (size_t i = 0; i < n; ++i) {
+    values_[i] = std::move(other.values_[i]);
+  }
+  return *this;
+}
+
 #endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
