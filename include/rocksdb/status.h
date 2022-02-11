@@ -527,7 +527,6 @@ inline Status& Status::operator=(const Status& s) {
     retryable_ = s.retryable_;
     data_loss_ = s.data_loss_;
     scope_ = s.scope_;
-    delete[] state_;
     state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_.get());
   }
   return *this;
