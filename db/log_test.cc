@@ -47,7 +47,8 @@ static std::string RandomSkewedString(int i, Random* rnd) {
 // Param type is tuple<int, bool>
 // get<0>(tuple): non-zero if recycling log, zero if regular log
 // get<1>(tuple): true if allow retry after read EOF, false otherwise
-class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
+class LogTest
+    : public ::testing::TestWithParam<std::tuple<int, bool, CompressionType>> {
  private:
   class StringSource : public FSSequentialFile {
    public:
@@ -148,18 +149,24 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
 
  protected:
   bool allow_retry_read_;
+  CompressionType compression_type_;
 
  public:
   LogTest()
       : reader_contents_(),
         sink_(new test::StringSink(&reader_contents_)),
         source_(new StringSource(reader_contents_, !std::get<1>(GetParam()))),
-        allow_retry_read_(std::get<1>(GetParam())) {
+        allow_retry_read_(std::get<1>(GetParam())),
+        compression_type_(std::get<2>(GetParam())) {
     std::unique_ptr<FSWritableFile> sink_holder(sink_);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(sink_holder), "" /* don't care */, FileOptions()));
-    writer_.reset(
-        new Writer(std::move(file_writer), 123, std::get<0>(GetParam())));
+    Writer* writer =
+        new Writer(std::move(file_writer), 123, std::get<0>(GetParam()), false,
+                   compression_type_);
+    // Noop if compression is not enabled
+    writer->AddCompressionTypeRecord();
+    writer_.reset(writer);
     std::unique_ptr<FSSequentialFile> source_holder(source_);
     std::unique_ptr<SequentialFileReader> file_reader(
         new SequentialFileReader(std::move(source_holder), "" /* file name */));
@@ -250,7 +257,14 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
   }
 };
 
-TEST_P(LogTest, Empty) { ASSERT_EQ("EOF", Read()); }
+TEST_P(LogTest, Empty) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // If WAL compression is enabled, a record is added for the compression type
+  const int compression_record_size = compression_enabled ? kHeaderSize + 4 : 0;
+  ASSERT_EQ(compression_record_size, WrittenBytes());
+  ASSERT_EQ("EOF", Read());
+}
 
 TEST_P(LogTest, ReadWrite) {
   Write("foo");
@@ -286,6 +300,12 @@ TEST_P(LogTest, Fragmentation) {
 }
 
 TEST_P(LogTest, MarginalTrailer) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   // Make a trailer that is exactly the same length as an empty record.
   int header_size =
       std::get<0>(GetParam()) ? kRecyclableHeaderSize : kHeaderSize;
@@ -301,6 +321,12 @@ TEST_P(LogTest, MarginalTrailer) {
 }
 
 TEST_P(LogTest, MarginalTrailer2) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   // Make a trailer that is exactly the same length as an empty record.
   int header_size =
       std::get<0>(GetParam()) ? kRecyclableHeaderSize : kHeaderSize;
@@ -316,6 +342,12 @@ TEST_P(LogTest, MarginalTrailer2) {
 }
 
 TEST_P(LogTest, ShortTrailer) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   int header_size =
       std::get<0>(GetParam()) ? kRecyclableHeaderSize : kHeaderSize;
   const int n = kBlockSize - 2 * header_size + 4;
@@ -330,6 +362,12 @@ TEST_P(LogTest, ShortTrailer) {
 }
 
 TEST_P(LogTest, AlignedEof) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   int header_size =
       std::get<0>(GetParam()) ? kRecyclableHeaderSize : kHeaderSize;
   const int n = kBlockSize - 2 * header_size + 4;
@@ -363,6 +401,12 @@ TEST_P(LogTest, ReadError) {
 }
 
 TEST_P(LogTest, BadRecordType) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   Write("foo");
   // Type is stored in header[6]
   IncrementByte(6, 100);
@@ -396,6 +440,12 @@ TEST_P(LogTest, TruncatedTrailingRecordIsNotIgnored) {
 }
 
 TEST_P(LogTest, BadLength) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   if (allow_retry_read_) {
     // If read retry is allowed, then we should not raise an error when the
     // record length specified in header is longer than data currently
@@ -447,6 +497,12 @@ TEST_P(LogTest, BadLengthAtEndIsNotIgnored) {
 }
 
 TEST_P(LogTest, ChecksumMismatch) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   Write("foooooo");
   IncrementByte(0, 14);
   ASSERT_EQ("EOF", Read());
@@ -461,6 +517,12 @@ TEST_P(LogTest, ChecksumMismatch) {
 }
 
 TEST_P(LogTest, UnexpectedMiddleType) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   Write("foo");
   bool recyclable_log = (std::get<0>(GetParam()) != 0);
   SetByte(6, static_cast<char>(recyclable_log ? kRecyclableMiddleType
@@ -472,6 +534,12 @@ TEST_P(LogTest, UnexpectedMiddleType) {
 }
 
 TEST_P(LogTest, UnexpectedLastType) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   Write("foo");
   bool recyclable_log = (std::get<0>(GetParam()) != 0);
   SetByte(6,
@@ -483,6 +551,12 @@ TEST_P(LogTest, UnexpectedLastType) {
 }
 
 TEST_P(LogTest, UnexpectedFullType) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   Write("foo");
   Write("bar");
   bool recyclable_log = (std::get<0>(GetParam()) != 0);
@@ -496,6 +570,12 @@ TEST_P(LogTest, UnexpectedFullType) {
 }
 
 TEST_P(LogTest, UnexpectedFirstType) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   Write("foo");
   Write(BigString("bar", 100000));
   bool recyclable_log = (std::get<0>(GetParam()) != 0);
@@ -518,6 +598,12 @@ TEST_P(LogTest, MissingLastIsIgnored) {
 }
 
 TEST_P(LogTest, MissingLastIsNotIgnored) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   if (allow_retry_read_) {
     // If read retry is allowed, then truncated trailing record should not
     // raise an error.
@@ -555,6 +641,12 @@ TEST_P(LogTest, PartialLastIsNotIgnored) {
 }
 
 TEST_P(LogTest, ErrorJoinsRecords) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   // Consider two fragmented records:
   //    first(R1) last(R1) first(R2) last(R2)
   // where the middle two fragments disappear.  We do not want
@@ -583,6 +675,12 @@ TEST_P(LogTest, ErrorJoinsRecords) {
 }
 
 TEST_P(LogTest, ClearEofSingleBlock) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   Write("foo");
   Write("bar");
   bool recyclable_log = (std::get<0>(GetParam()) != 0);
@@ -600,6 +698,12 @@ TEST_P(LogTest, ClearEofSingleBlock) {
 }
 
 TEST_P(LogTest, ClearEofMultiBlock) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   size_t num_full_blocks = 5;
   bool recyclable_log = (std::get<0>(GetParam()) != 0);
   int header_size = recyclable_log ? kRecyclableHeaderSize : kHeaderSize;
@@ -676,11 +780,11 @@ TEST_P(LogTest, Recycle) {
   ASSERT_EQ("EOF", Read());
 }
 
-INSTANTIATE_TEST_CASE_P(bool, LogTest,
-                        ::testing::Values(std::make_tuple(0, false),
-                                          std::make_tuple(0, true),
-                                          std::make_tuple(1, false),
-                                          std::make_tuple(1, true)));
+INSTANTIATE_TEST_CASE_P(
+    Log, LogTest,
+    ::testing::Combine(::testing::Values(0, 1), ::testing::Bool(),
+                       ::testing::Values(CompressionType::kNoCompression,
+                                         CompressionType::kZSTD)));
 
 class RetriableLogTest : public ::testing::TestWithParam<int> {
  private:

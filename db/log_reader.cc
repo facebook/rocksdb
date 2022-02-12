@@ -38,7 +38,8 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       last_record_offset_(0),
       end_of_buffer_offset_(0),
       log_number_(log_num),
-      recycled_(false) {}
+      recycled_(false),
+      compression_type_(kNoCompression) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
@@ -211,6 +212,21 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           scratch->clear();
         }
         break;
+
+      case kSetCompressionType: {
+        prospective_record_offset = physical_record_offset;
+        scratch->clear();
+        last_record_offset_ = prospective_record_offset;
+        CompressionTypeRecord compression_record(kNoCompression);
+        Status s = compression_record.DecodeFrom(&fragment);
+        if (!s.ok()) {
+          ReportCorruption(fragment.size(),
+                           "could not decode SetCompressionType record");
+        } else {
+          compression_type_ = compression_record.GetCompressionType();
+        }
+        break;
+      }
 
       default: {
         char buf[40];
@@ -511,6 +527,22 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
           fragments_.clear();
         }
         break;
+
+      case kSetCompressionType: {
+        fragments_.clear();
+        prospective_record_offset = physical_record_offset;
+        last_record_offset_ = prospective_record_offset;
+        in_fragmented_record_ = false;
+        CompressionTypeRecord compression_record(kNoCompression);
+        Status s = compression_record.DecodeFrom(&fragment);
+        if (!s.ok()) {
+          ReportCorruption(fragment.size(),
+                           "could not decode SetCompressionType record");
+        } else {
+          compression_type_ = compression_record.GetCompressionType();
+        }
+        break;
+      }
 
       default: {
         char buf[40];
