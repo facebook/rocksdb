@@ -325,13 +325,11 @@ void MultiOpsTxnsStressTest::FinishInitDb(SharedState* shared) {
   for (auto& key_gen : key_gen_for_a_) {
     assert(key_gen);
     key_gen->FinishInit();
-    fprintf(stdout, "%s\n", key_gen->ToString().c_str());
   }
   // TODO (yanqin) parallelize
   for (auto& key_gen : key_gen_for_c_) {
     assert(key_gen);
     key_gen->FinishInit();
-    fprintf(stdout, "%s\n", key_gen->ToString().c_str());
   }
 }
 
@@ -1211,8 +1209,7 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
       (num_a % threads) ? (num_a / threads + 1) : (num_a / threads);
 
   WriteOptions wopts;
-  wopts.disableWAL = true;
-  wopts.sync = false;
+  wopts.disableWAL = FLAGS_disable_wal;
   Random rnd(shared->GetSeed());
   assert(txn_db_);
 
@@ -1291,9 +1288,6 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
     key_gen_for_c = std::make_unique<KeyGeneratorForC>(
         my_seed, low, high, std::move(existing_c_uniqs[i]));
   }
-
-  Status s = db_->Flush(FlushOptions());
-  assert(s.ok());
 #endif  // !ROCKSDB_LITE
 }
 
