@@ -6825,17 +6825,26 @@ TEST_F(DBCompactionTest, DisableManualCompactionThreadQueueFull) {
     CompactRangeOptions cro;
     cro.exclusive_manual_compaction = true;
     auto s = db_->CompactRange(cro, nullptr, nullptr);
+    ASSERT_TRUE(s.IsIncomplete());
   });
 
   TEST_SYNC_POINT(
       "DBCompactionTest::DisableManualCompactionThreadQueueFull:"
       "PreDisableManualCompaction");
+
+  // generate 4th file to trigger auto compaction
+  ASSERT_OK(Put(Key(1), "value1"));
+  ASSERT_OK(Put(Key(2), "value2"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("4", FilesPerLevel(0));
+
   db_->DisableManualCompaction();
 
   t.join();
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
-
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+  ASSERT_EQ("0,1", FilesPerLevel(0));
 }
 
 TEST_F(DBCompactionTest,
