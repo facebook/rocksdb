@@ -1879,7 +1879,8 @@ Status DBImpl::RunManualCompaction(
       assert(!exclusive || !manual_conflict);
       // Running either this or some other manual compaction
       bg_cv_.Wait();
-      if (manual_compaction_paused_ > 0) {
+      fprintf(stdout, "JJJ2: manual compaction: in_progress %d\n", manual.in_progress);
+      if (manual_compaction_paused_ > 0 && !manual.in_progress) {
         manual.done = true;
         manual.status =
             Status::Incomplete(Status::SubCode::kManualCompactionPaused);
@@ -3052,6 +3053,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   if (is_manual) {
     // another thread cannot pick up the same work
+    fprintf(stdout, "JJJ1: set in_progress to true\n");
     manual_compaction->in_progress = true;
   }
 
