@@ -1760,7 +1760,7 @@ Status DBImpl::RunManualCompaction(
          input_level >= 0);
 
   InternalKey begin_storage, end_storage;
-  CompactionArg* ca;
+  CompactionArg* ca = nullptr;
 
   bool scheduled = false;
   bool manual_conflict = false;
@@ -1883,7 +1883,7 @@ Status DBImpl::RunManualCompaction(
         manual.done = true;
         manual.status =
             Status::Incomplete(Status::SubCode::kManualCompactionPaused);
-        if (ca->prepicked_compaction) {
+        if (ca && ca->prepicked_compaction) {
           ca->prepicked_compaction->is_canceled = true;
           if (ca->prepicked_compaction->compaction) {
             ca->prepicked_compaction->compaction->ReleaseCompactionFiles(
