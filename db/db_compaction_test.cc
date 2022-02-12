@@ -6797,6 +6797,47 @@ TEST_F(DBCompactionTest, FIFOWarm) {
   Destroy(options);
 }
 
+TEST_F(DBCompactionTest, DisableManualCompactionThreadQueueFull) {
+  const int kNumL0Files = 4;
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::RunManualCompaction:Scheduled",
+        "DBCompactionTest::DisableManualCompactionThreadQueueFull:PreDisableManualCompaction"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  Reopen(options);
+
+  // Block compaction queue
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+
+  // generate files, but avoid trigger auto compaction
+  for (int i = 0; i < kNumL0Files - 1; i++) {
+    ASSERT_OK(Put(Key(1), "value1"));
+    ASSERT_OK(Put(Key(2), "value2"));
+    ASSERT_OK(Flush());
+  }
+
+  port::Thread t([&](){
+    CompactRangeOptions cro;
+    cro.exclusive_manual_compaction = true;
+    auto s = db_->CompactRange(cro, nullptr, nullptr);
+  });
+
+  TEST_SYNC_POINT(
+      "DBCompactionTest::DisableManualCompactionThreadQueueFull:"
+      "PreDisableManualCompaction");
+  db_->DisableManualCompaction();
+
+  t.join();
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
+
+}
+
 TEST_F(DBCompactionTest,
        DisableManualCompactionDoesNotWaitForDrainingAutomaticCompaction) {
   // When `CompactRangeOptions::exclusive_manual_compaction == true`, we wait

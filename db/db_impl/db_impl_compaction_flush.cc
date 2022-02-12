@@ -1915,6 +1915,8 @@ Status DBImpl::RunManualCompaction(
                        &DBImpl::UnscheduleCompactionCallback);
       }
       scheduled = true;
+      fprintf(stdout, "JJJ4: scheduled\n");
+      TEST_SYNC_POINT("DBImpl::RunManualCompaction:Scheduled");
     }
   }
 
