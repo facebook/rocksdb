@@ -1881,9 +1881,15 @@ Status DBImpl::RunManualCompaction(
       bg_cv_.Wait();
       if (manual_compaction_paused_ > 0) {
         manual.done = true;
-        manual.status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
-        assert(ca->prepicked_compaction);
-        ca->prepicked_compaction->is_canceled = true;
+        manual.status =
+            Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+        if (ca->prepicked_compaction) {
+          ca->prepicked_compaction->is_canceled = true;
+          if (ca->prepicked_compaction->compaction) {
+            ca->prepicked_compaction->compaction->ReleaseCompactionFiles(
+                manual.status);
+          }
+        }
         break;
       }
       if (scheduled && manual.incomplete == true) {
@@ -1922,7 +1928,6 @@ Status DBImpl::RunManualCompaction(
                        &DBImpl::UnscheduleCompactionCallback);
       }
       scheduled = true;
-      fprintf(stdout, "JJJ4: scheduled\n");
       TEST_SYNC_POINT("DBImpl::RunManualCompaction:Scheduled");
     }
   }
@@ -2858,7 +2863,9 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     if (prepicked_compaction && prepicked_compaction->is_canceled) {
       assert(prepicked_compaction->compaction);
       ROCKS_LOG_BUFFER(&log_buffer, "[%s] Skip canceled manual compaction job",
-                       prepicked_compaction->compaction->column_family_data()->GetName().c_str());
+                       prepicked_compaction->compaction->column_family_data()
+                           ->GetName()
+                           .c_str());
       delete prepicked_compaction->compaction;
     } else {
       JobContext job_context(next_job_id_.fetch_add(1), true);
@@ -2912,7 +2919,9 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
       ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
-      // If compaction failed, we want to delete all temporary files that we might have created (they might not be all recorded in job_context in case of a failure). Thus, we force full scan in FindObsoleteFiles()
+      // If compaction failed, we want to delete all temporary files that we
+      // might have created (they might not be all recorded in job_context in
+      // case of a failure). Thus, we force full scan in FindObsoleteFiles()
       FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress() &&
                                           !s.IsManualCompactionPaused() &&
                                           !s.IsColumnFamilyDropped() &&
