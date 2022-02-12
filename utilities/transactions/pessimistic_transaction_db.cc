@@ -8,6 +8,7 @@
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
 #include <cinttypes>
+#include <sstream>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -70,8 +71,23 @@ PessimisticTransactionDB::~PessimisticTransactionDB() {
   }
 }
 
-Status PessimisticTransactionDB::VerifyCFOptions(const ColumnFamilyOptions&) {
-  return Status::OK();
+Status PessimisticTransactionDB::VerifyCFOptions(
+    const ColumnFamilyOptions& cf_options) {
+  const Comparator* const ucmp = cf_options.comparator;
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+  if (0 == ts_sz) {
+    return Status::OK();
+  }
+  if (ts_sz != sizeof(TxnTimestamp)) {
+    std::ostringstream oss;
+    oss << "Timestamp of transaction must have " << sizeof(TxnTimestamp)
+        << " bytes. CF comparator " << std::string(ucmp->Name())
+        << " timestamp size is " << ts_sz << " bytes";
+    return Status::InvalidArgument(oss.str());
+  }
+  // TODO: Update this check once timestamp is supported.
+  return Status::NotSupported("Transaction DB does not support timestamp");
 }
 
 Status PessimisticTransactionDB::Initialize(
@@ -243,12 +259,10 @@ Status TransactionDB::Open(
     ROCKS_LOG_WARN(db->GetDBOptions().info_log,
                    "Transaction write_policy is %" PRId32,
                    static_cast<int>(txn_db_options.write_policy));
+    // if WrapDB return non-ok, db will be deleted in WrapDB() via
+    // ~StackableDB().
     s = WrapDB(db, txn_db_options, compaction_enabled_cf_indices, *handles,
                dbptr);
-  }
-  if (!s.ok()) {
-    // just in case it was not deleted (and not set to nullptr).
-    delete db;
   }
   return s;
 }
@@ -287,6 +301,7 @@ Status WrapAnotherDBInternal(
   assert(dbptr != nullptr);
   *dbptr = nullptr;
   std::unique_ptr<PessimisticTransactionDB> txn_db;
+  // txn_db owns object pointed to by the raw db pointer.
   switch (txn_db_options.write_policy) {
     case WRITE_UNPREPARED:
       txn_db.reset(new WriteUnpreparedTxnDB(
@@ -307,6 +322,14 @@ Status WrapAnotherDBInternal(
   // and set to nullptr.
   if (s.ok()) {
     *dbptr = txn_db.release();
+  } else {
+    for (auto* h : handles) {
+      delete h;
+    }
+    // txn_db still owns db, and ~StackableDB() will be called when txn_db goes
+    // out of scope, deleting the input db pointer.
+    ROCKS_LOG_FATAL(db->GetDBOptions().info_log,
+                    "Failed to initialize txn_db: %s", s.ToString().c_str());
   }
   return s;
 }

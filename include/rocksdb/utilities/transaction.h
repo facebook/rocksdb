@@ -7,6 +7,7 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -23,6 +24,11 @@ class WriteBatchWithIndex;
 using TransactionName = std::string;
 
 using TransactionID = uint64_t;
+
+using TxnTimestamp = uint64_t;
+
+constexpr TxnTimestamp kMaxTxnTimestamp =
+    std::numeric_limits<TxnTimestamp>::max();
 
 /*
   class Endpoint allows to define prefix ranges.
@@ -593,6 +599,14 @@ class Transaction {
   // assigns the id. Although currently it is the case, the id is not guaranteed
   // to remain the same across restarts.
   uint64_t GetId() { return id_; }
+
+  virtual Status SetReadTimestampForValidation(TxnTimestamp /*ts*/) {
+    return Status::NotSupported("timestamp not supported");
+  }
+
+  virtual Status SetCommitTimestamp(TxnTimestamp /*ts*/) {
+    return Status::NotSupported("timestamp not supported");
+  }
 
  protected:
   explicit Transaction(const TransactionDB* /*db*/) {}
