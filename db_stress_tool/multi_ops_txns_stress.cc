@@ -625,10 +625,17 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
     return s;
   }
 
-  s = CommitTxn(txn);
+  s = txn->Prepare();
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  s = txn->Commit();
 
   auto& key_gen = key_gen_for_a_.at(thread->tid);
   if (s.ok()) {
+    delete txn;
     key_gen->Replace(old_a, old_a_pos, new_a);
   }
   return s;
@@ -784,9 +791,16 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
     return s;
   }
 
-  s = CommitTxn(txn);
+  s = txn->Prepare();
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  s = txn->Commit();
 
   if (s.ok()) {
+    delete txn;
     auto& key_gen = key_gen_for_c_.at(thread->tid);
     key_gen->Replace(old_c, old_c_pos, new_c);
   }
@@ -856,7 +870,14 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
   if (!s.ok()) {
     return s;
   }
-  s = CommitTxn(txn);
+  s = txn->Prepare();
+  if (!s.ok()) {
+    return s;
+  }
+  s = txn->Commit();
+  if (s.ok()) {
+    delete txn;
+  }
   return s;
 #endif  // !ROCKSDB_LITE
 }
