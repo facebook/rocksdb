@@ -919,14 +919,16 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
 
   // unrecognized filter policy name
   s = GetBlockBasedTableOptionsFromString(config_options, table_opt,
-                                          "cache_index_and_filter_blocks=1;"
                                           "filter_policy=bloomfilterxx:4:true",
                                           &new_opt);
   ASSERT_NOK(s);
   ASSERT_TRUE(s.IsInvalidArgument());
-  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
-            new_opt.cache_index_and_filter_blocks);
-  ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
+
+  // missing bits per key
+  s = GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=bloomfilter", &new_opt);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
 
   // Used to be rejected, now accepted
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
@@ -935,6 +937,46 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   EXPECT_EQ(bfp->GetMillibitsPerKey(), 4000);
   EXPECT_EQ(bfp->GetWholeBitsPerKey(), 4);
   EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kAutoBloom);
+
+  // use_block_based_builder=true now ignored in public API (same as false)
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=bloomfilter:4:true", &new_opt));
+  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 4000);
+  EXPECT_EQ(bfp->GetWholeBitsPerKey(), 4);
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kAutoBloom);
+
+  // Back door way of enabling deprecated block-based Bloom
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt,
+      "filter_policy=rocksdb.internal.DeprecatedBlockBasedBloomFilter:4",
+      &new_opt));
+  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(bfp->GetWholeBitsPerKey(), 4);  // Only whole bits used
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kDeprecatedBlock);
+
+  // Test configuring using other internal names
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt,
+      "filter_policy=rocksdb.internal.LegacyBloomFilter:3", &new_opt));
+  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(bfp->GetWholeBitsPerKey(), 3);  // Only whole bits used
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kLegacyBloom);
+
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt,
+      "filter_policy=rocksdb.internal.FastLocalBloomFilter:1.234", &new_opt));
+  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 1234);
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kFastLocalBloom);
+
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt,
+      "filter_policy=rocksdb.internal.Standard128RibbonFilter:1.234",
+      &new_opt));
+  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 1234);
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
 
   // Ribbon filter policy (no Bloom hybrid)
   ASSERT_OK(GetBlockBasedTableOptionsFromString(

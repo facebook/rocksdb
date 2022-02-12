@@ -28,17 +28,17 @@
 * Remove deprecated API AdvancedColumnFamilyOptions::rate_limit_delay_max_milliseconds.
 * Removed timestamp from WriteOptions. Accordingly, added to DB APIs Put, Delete, SingleDelete, etc. accepting an additional argument 'timestamp'. Added Put, Delete, SingleDelete, etc to WriteBatch accepting an additional argument 'timestamp'. Removed WriteBatch::AssignTimestamps(vector<Slice>) API. Renamed WriteBatch::AssignTimestamp() to WriteBatch::UpdateTimestamps() with clarified comments.
 * Significant updates to FilterPolicy-related APIs and configuration:
+  * Remove public API support for deprecated, inefficient block-based filter (use_block_based_builder=true).
+    * Old code and configuration strings that would enable it now quietly enable full filters instead, though any built-in FilterPolicy can still read block-based filters.
+    * Remove deprecated FilterPolicy::CreateFilter() and FilterPolicy::KeyMayMatch()
+    * Remove `rocksdb_filterpolicy_create()` from C API, as the only C API support for custom filter policies is now obsolete.
+    * If temporary memory usage in full filter creation is a problem, consider using partitioned filters, smaller SST files, or setting reserve_table_builder_memory=true.
   * Remove support for "filter_policy=experimental_ribbon" configuration
   string. Use something like "filter_policy=ribbonfilter:10" instead.
   * Allow configuration string like "filter_policy=bloomfilter:10" without
-  bool, to minimize acknowledgement of inefficient block-based filter.
+  bool, to minimize acknowledgement of obsolete block-based filter.
   * A `filter_policy` loaded from an OPTIONS file can read existing filters
   but still does not support writing new filters.
-  * Inefficient block-based filter is no longer customizable in the public
-  API, though (for now) can still be enabled.
-    * Remove deprecated FilterPolicy::CreateFilter() and
-    FilterPolicy::KeyMayMatch()
-    * Remove `rocksdb_filterpolicy_create()` from C API
   * Change meaning of nullptr return from GetBuilderWithContext() from "use
     block-based filter" to "generate no filter in this case."
     * Also, when user specifies bits_per_key < 0.5, we now round this down
