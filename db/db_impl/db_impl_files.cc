@@ -490,6 +490,9 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
                 (number == state.prev_log_number) ||
                 (log_recycle_files_set.find(number) !=
                  log_recycle_files_set.end()));
+        ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                       "y7jin number=%d state.log_number=%d\n", (int)number,
+                       (int)state.log_number);
         break;
       case kDescriptorFile:
         // Keep my manifest file, and any newer incarnations'
@@ -835,6 +838,9 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
       min_log_refed_by_mem < min_log_number_to_keep) {
     min_log_number_to_keep = min_log_refed_by_mem;
   }
+  ROCKS_LOG_INFO(vset->db_options()->info_log, "y7jin precompute %d %d %d\n",
+                 (int)min_log_number_to_keep, (int)min_log_in_prep_heap,
+                 (int)min_log_refed_by_mem);
   return min_log_number_to_keep;
 }
 
