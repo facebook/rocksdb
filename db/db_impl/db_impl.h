@@ -1517,7 +1517,7 @@ class DBImpl : public DB {
     uint32_t output_path_id;
     Status status;
     bool done;
-    std::atomic_bool in_progress;             // compaction request being processed?
+    bool in_progress;             // compaction request being processed?
     bool incomplete;              // only part of requested range compacted
     bool exclusive;               // current behavior of only one manual
     bool disallow_trivial_move;   // Force actual compaction to run
