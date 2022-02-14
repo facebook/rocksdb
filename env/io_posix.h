@@ -210,6 +210,10 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
   virtual size_t GetRequiredBufferAlignment() const override {
     return logical_sector_size_;
   }
+  virtual IOStatus ReadAsync(const IOOptions& opts, IODebugContext* dbg,
+                             FSReadRequest* req,
+                             std::function<void(FSReadResponse* resp)> cb,
+                             IOHandle* io_handle) override;
 };
 
 class PosixWritableFile : public FSWritableFile {

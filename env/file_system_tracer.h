@@ -228,6 +228,11 @@ class FSRandomAccessFileTracingWrapper : public FSRandomAccessFileOwnerWrapper {
 
   IOStatus InvalidateCache(size_t offset, size_t length) override;
 
+  IOStatus ReadAsync(const IOOptions& opts, IODebugContext* dbg,
+                     FSReadRequest* req,
+                     std::function<void(FSReadResponse* resp)> cb,
+                     IOHandle* io_handle) override;
+
  private:
   std::shared_ptr<IOTracer> io_tracer_;
   SystemClock* clock_;

@@ -338,6 +338,23 @@ IOStatus FSRandomAccessFileTracingWrapper::InvalidateCache(size_t offset,
   return s;
 }
 
+IOStatus FSRandomAccessFileTracingWrapper::ReadAsync(
+    const IOOptions& opts, IODebugContext* dbg, FSReadRequest* req,
+    std::function<void(FSReadResponse* resp)> cb, IOHandle* io_handle) {
+  StopWatchNano timer(clock_);
+  timer.Start();
+  IOStatus s = target()->ReadAsync(opts, dbg, req, cb, io_handle);
+  uint64_t elapsed = timer.ElapsedNanos();
+  uint64_t io_op_data = 0;
+  io_op_data |= (1 << IOTraceOp::kIOLen);
+  io_op_data |= (1 << IOTraceOp::kIOOffset);
+  IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
+                          __func__, elapsed, req->status.ToString(), file_name_,
+                          req->len, static_cast<uint64_t>(req->offset));
+  io_tracer_->WriteIOOp(io_record, nullptr /*dbg*/);
+  return s;
+}
+
 IOStatus FSWritableFileTracingWrapper::Append(const Slice& data,
                                               const IOOptions& options,
                                               IODebugContext* dbg) {
