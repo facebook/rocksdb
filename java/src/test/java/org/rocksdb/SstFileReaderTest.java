@@ -21,7 +21,6 @@ import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.rocksdb.util.ByteBufferAllocator;
-import org.rocksdb.util.BytewiseComparator;
 
 @RunWith(Parameterized.class)
 public class SstFileReaderTest {
@@ -56,7 +55,7 @@ public class SstFileReaderTest {
   @Parameterized.Parameters(name = "{0}")
   public static Iterable<Object[]> parameters() {
     return Arrays.asList(new Object[][] {
-        {"direct", ByteBufferAllocator.DIRECT}, {"indirect", ByteBufferAllocator.INDIRECT}});
+        {"direct", ByteBufferAllocator.DIRECT}, {"indirect", ByteBufferAllocator.HEAP}});
   }
 
   @Parameterized.Parameter(0) public String name;

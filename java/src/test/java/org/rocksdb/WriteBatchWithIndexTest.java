@@ -200,7 +200,7 @@ public class WriteBatchWithIndexTest {
 
   @Test
   public void readYourOwnWritesCfIterIndirectBB() throws RocksDBException {
-    readYourOwnWritesCfIterDirect(ByteBufferAllocator.INDIRECT);
+    readYourOwnWritesCfIterDirect(ByteBufferAllocator.HEAP);
   }
 
   public void readYourOwnWritesCfIterDirect(final ByteBufferAllocator byteBufferAllocator)
