@@ -501,9 +501,10 @@ endif
 CFLAGS += $(C_WARNING_FLAGS) $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers
 
-# For offsetof to work on non-standard layout types, until some compiler
-# completely rejects our usage of offsetof
-CXXFLAGS += -Wno-expansion-to-defined
+# Allow offsetof to work on non-standard layout types. Some compiler could
+# completely reject our usage of offsetof, but we will solve that when it
+# happens.
+CXXFLAGS += -Wno-invalid-offsetof
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
 

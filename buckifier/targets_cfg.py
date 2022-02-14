@@ -21,8 +21,9 @@ REPO_PATH = package_name() + "/"
 
 ROCKSDB_COMPILER_FLAGS_0 = [
     "-fno-builtin-memcmp",
-    # For offsetof to work on non-standard layout types, until some compiler
-    # completely rejects our usage of offsetof
+    # Allow offsetof to work on non-standard layout types. Some compiler could
+    # completely reject our usage of offsetof, but we will solve that when it
+    # happens.
     "-Wno-invalid-offsetof",
     # Added missing flags from output of build_detect_platform
     "-Wnarrowing",
