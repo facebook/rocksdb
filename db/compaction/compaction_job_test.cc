@@ -1292,7 +1292,8 @@ class CompactionJobTimestampTest : public CompactionJobTestBase {
  public:
   CompactionJobTimestampTest()
       : CompactionJobTestBase(test::PerThreadDBPath("compaction_job_ts_test"),
-                              test::ComparatorWithU64Ts(), test::EncodeInt) {}
+                              test::BytewiseComparatorWithU64TsWrapper(),
+                              test::EncodeInt) {}
 };
 
 TEST_F(CompactionJobTimestampTest, GCDisabled) {

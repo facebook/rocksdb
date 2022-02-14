@@ -1003,7 +1003,6 @@ TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
   options.env = &env;
 
   options.compaction_readahead_size = 0;
-  options.new_table_reader_for_compaction_inputs = true;
   options.level0_file_num_compaction_trigger = 2;
   const std::string kValue(1024, 'v');
   Reopen(options);

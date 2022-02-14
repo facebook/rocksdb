@@ -1568,30 +1568,6 @@ jbyte Java_org_rocksdb_Options_accessHintOnCompactionStart(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setNewTableReaderForCompactionInputs
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setNewTableReaderForCompactionInputs(
-    JNIEnv*, jobject, jlong jhandle,
-    jboolean jnew_table_reader_for_compaction_inputs) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  opt->new_table_reader_for_compaction_inputs =
-      static_cast<bool>(jnew_table_reader_for_compaction_inputs);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    newTableReaderForCompactionInputs
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_newTableReaderForCompactionInputs(
-    JNIEnv*, jobject, jlong jhandle) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  return static_cast<bool>(opt->new_table_reader_for_compaction_inputs);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    setCompactionReadaheadSize
  * Signature: (JJ)V
  */
@@ -6813,30 +6789,6 @@ jbyte Java_org_rocksdb_DBOptions_accessHintOnCompactionStart(
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
   return ROCKSDB_NAMESPACE::AccessHintJni::toJavaAccessHint(
       opt->access_hint_on_compaction_start);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    setNewTableReaderForCompactionInputs
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_DBOptions_setNewTableReaderForCompactionInputs(
-    JNIEnv*, jobject, jlong jhandle,
-    jboolean jnew_table_reader_for_compaction_inputs) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
-  opt->new_table_reader_for_compaction_inputs =
-      static_cast<bool>(jnew_table_reader_for_compaction_inputs);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    newTableReaderForCompactionInputs
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_DBOptions_newTableReaderForCompactionInputs(
-    JNIEnv*, jobject, jlong jhandle) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
-  return static_cast<bool>(opt->new_table_reader_for_compaction_inputs);
 }
 
 /*

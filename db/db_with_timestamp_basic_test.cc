@@ -206,7 +206,7 @@ TEST_F(DBBasicTestWithTimestamp, SanityChecks) {
 
   Options options1 = CurrentOptions();
   options1.env = env_;
-  options1.comparator = test::ComparatorWithU64Ts();
+  options1.comparator = test::BytewiseComparatorWithU64TsWrapper();
   options1.merge_operator = MergeOperators::CreateStringAppendTESTOperator();
   assert(options1.comparator &&
          options1.comparator->timestamp_size() == sizeof(uint64_t));

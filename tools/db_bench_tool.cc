@@ -662,9 +662,6 @@ DEFINE_int32(file_opening_threads,
              "If open_files is set to -1, this option set the number of "
              "threads that will be used to open files during DB::Open()");
 
-DEFINE_bool(new_table_reader_for_compaction_inputs, true,
-             "If true, uses a separate file handle for compaction inputs");
-
 DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
 
 DEFINE_int32(log_readahead_size, 0, "WAL and manifest readahead size");
@@ -3818,8 +3815,6 @@ class Benchmark {
     }
     options.bloom_locality = FLAGS_bloom_locality;
     options.max_file_opening_threads = FLAGS_file_opening_threads;
-    options.new_table_reader_for_compaction_inputs =
-        FLAGS_new_table_reader_for_compaction_inputs;
     options.compaction_readahead_size = FLAGS_compaction_readahead_size;
     options.log_readahead_size = FLAGS_log_readahead_size;
     options.random_access_max_buffer_size = FLAGS_random_access_max_buffer_size;
@@ -4155,7 +4150,7 @@ class Benchmark {
         fprintf(stderr, "Only 64 bits timestamps are supported.\n");
         exit(1);
       }
-      options.comparator = ROCKSDB_NAMESPACE::test::ComparatorWithU64Ts();
+      options.comparator = test::BytewiseComparatorWithU64TsWrapper();
     }
 
     // Integrated BlobDB
@@ -4222,12 +4217,22 @@ class Benchmark {
         table_options->filter_policy = BlockBasedTableOptions().filter_policy;
       } else if (FLAGS_bloom_bits == 0) {
         table_options->filter_policy.reset();
+      } else if (FLAGS_use_block_based_filter) {
+        // Use back-door way of enabling obsolete block-based Bloom
+        Status s = FilterPolicy::CreateFromString(
+            ConfigOptions(),
+            "rocksdb.internal.DeprecatedBlockBasedBloomFilter:" +
+                ROCKSDB_NAMESPACE::ToString(FLAGS_bloom_bits),
+            &table_options->filter_policy);
+        if (!s.ok()) {
+          fprintf(stderr, "failure creating obsolete block-based filter: %s\n",
+                  s.ToString().c_str());
+          exit(1);
+        }
       } else {
         table_options->filter_policy.reset(
-            FLAGS_use_ribbon_filter
-                ? NewRibbonFilterPolicy(FLAGS_bloom_bits)
-                : NewBloomFilterPolicy(FLAGS_bloom_bits,
-                                       FLAGS_use_block_based_filter));
+            FLAGS_use_ribbon_filter ? NewRibbonFilterPolicy(FLAGS_bloom_bits)
+                                    : NewBloomFilterPolicy(FLAGS_bloom_bits));
       }
     }
     if (FLAGS_row_cache_size) {
@@ -4252,13 +4257,6 @@ class Benchmark {
     }
 
     if (FLAGS_rate_limiter_bytes_per_sec > 0) {
-      if (FLAGS_rate_limit_bg_reads &&
-          !FLAGS_new_table_reader_for_compaction_inputs) {
-        fprintf(stderr,
-                "rate limit compaction reads must have "
-                "new_table_reader_for_compaction_inputs set\n");
-        exit(1);
-      }
       options.rate_limiter.reset(NewGenericRateLimiter(
           FLAGS_rate_limiter_bytes_per_sec, FLAGS_rate_limiter_refill_period_us,
           10 /* fairness */,
@@ -7941,7 +7939,11 @@ int db_bench_tool(int argc, char** argv) {
             /*is_full_fs_warm=*/FLAGS_simulate_hdd));
     FLAGS_env = composite_env.get();
   }
+
+  // Let -readonly imply -use_existing_db
+  FLAGS_use_existing_db |= FLAGS_readonly;
 #endif  // ROCKSDB_LITE
+
   if (FLAGS_use_existing_keys && !FLAGS_use_existing_db) {
     fprintf(stderr,
             "`-use_existing_db` must be true for `-use_existing_keys` to be "

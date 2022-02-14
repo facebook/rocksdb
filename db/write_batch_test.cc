@@ -950,7 +950,8 @@ Status CheckTimestampsInWriteBatch(
 }  // namespace
 
 TEST_F(WriteBatchTest, SanityChecks) {
-  ColumnFamilyHandleImplDummy cf0(0, test::ComparatorWithU64Ts());
+  ColumnFamilyHandleImplDummy cf0(0,
+                                  test::BytewiseComparatorWithU64TsWrapper());
   ColumnFamilyHandleImplDummy cf4(4);
 
   WriteBatch wb(0, 0, 0, /*default_cf_ts_sz=*/sizeof(uint64_t));
@@ -998,8 +999,10 @@ TEST_F(WriteBatchTest, UpdateTimestamps) {
   std::vector<std::string> key_strs(num_of_keys, std::string(key_size, '\0'));
 
   ColumnFamilyHandleImplDummy cf0(0);
-  ColumnFamilyHandleImplDummy cf4(4, test::ComparatorWithU64Ts());
-  ColumnFamilyHandleImplDummy cf5(5, test::ComparatorWithU64Ts());
+  ColumnFamilyHandleImplDummy cf4(4,
+                                  test::BytewiseComparatorWithU64TsWrapper());
+  ColumnFamilyHandleImplDummy cf5(5,
+                                  test::BytewiseComparatorWithU64TsWrapper());
 
   const std::unordered_map<uint32_t, const Comparator*> cf_to_ucmps = {
       {0, cf0.GetComparator()},

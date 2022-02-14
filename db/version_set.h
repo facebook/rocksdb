@@ -127,6 +127,8 @@ class VersionStorageInfo {
 
   void AddFile(int level, FileMetaData* f);
 
+  void ReserveBlob(size_t size) { blob_files_.reserve(size); }
+
   void AddBlobFile(std::shared_ptr<BlobFileMetaData> blob_file_meta);
 
   void PrepareForVersionAppend(const ImmutableOptions& immutable_options,
@@ -264,7 +266,7 @@ class VersionStorageInfo {
 
   void set_l0_delay_trigger_count(int v) { l0_delay_trigger_count_ = v; }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
   int NumLevelFiles(int level) const {
     assert(finalized_);
     return static_cast<int>(files_[level].size());
@@ -273,7 +275,7 @@ class VersionStorageInfo {
   // Return the combined file size of all files at the specified level.
   uint64_t NumLevelBytes(int level) const;
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
   const std::vector<FileMetaData*>& LevelFiles(int level) const {
     return files_[level];
   }
@@ -330,21 +332,54 @@ class VersionStorageInfo {
     return files_[location.GetLevel()][location.GetPosition()];
   }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  using BlobFiles = std::map<uint64_t, std::shared_ptr<BlobFileMetaData>>;
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
+  using BlobFiles = std::vector<std::shared_ptr<BlobFileMetaData>>;
   const BlobFiles& GetBlobFiles() const { return blob_files_; }
 
-  uint64_t GetTotalBlobFileSize() const {
-    uint64_t total_blob_bytes = 0;
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
+  BlobFiles::const_iterator GetBlobFileMetaDataLB(
+      uint64_t blob_file_number) const;
 
-    for (const auto& pair : blob_files_) {
-      const auto& meta = pair.second;
-      assert(meta);
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
+  std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
+      uint64_t blob_file_number) const {
+    const auto it = GetBlobFileMetaDataLB(blob_file_number);
 
-      total_blob_bytes += meta->GetBlobFileSize();
+    assert(it == blob_files_.end() || *it);
+
+    if (it != blob_files_.end() &&
+        (*it)->GetBlobFileNumber() == blob_file_number) {
+      return *it;
     }
 
-    return total_blob_bytes;
+    return std::shared_ptr<BlobFileMetaData>();
+  }
+
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
+  struct BlobStats {
+    uint64_t total_file_size = 0;
+    uint64_t total_garbage_size = 0;
+    double space_amp = 0.0;
+  };
+
+  BlobStats GetBlobStats() const {
+    uint64_t total_file_size = 0;
+    uint64_t total_garbage_size = 0;
+
+    for (const auto& meta : blob_files_) {
+      assert(meta);
+
+      total_file_size += meta->GetBlobFileSize();
+      total_garbage_size += meta->GetGarbageBlobBytes();
+    }
+
+    double space_amp = 0.0;
+    if (total_file_size > total_garbage_size) {
+      space_amp = static_cast<double>(total_file_size) /
+                  (total_file_size - total_garbage_size);
+    }
+
+    return BlobStats{total_file_size, total_garbage_size, space_amp};
   }
 
   const ROCKSDB_NAMESPACE::LevelFilesBrief& LevelFilesBrief(int level) const {
@@ -546,7 +581,7 @@ class VersionStorageInfo {
   using FileLocations = std::unordered_map<uint64_t, FileLocation>;
   FileLocations file_locations_;
 
-  // Map of blob files in version by number.
+  // Vector of blob files in version sorted by blob file number.
   BlobFiles blob_files_;
 
   // Level that L0 data should be compacted to. All levels < base_level_ should

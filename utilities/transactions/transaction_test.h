@@ -173,12 +173,11 @@ class TransactionTestBase : public ::testing::Test {
     StackableDB* stackable_db = new StackableDB(root_db);
     if (s.ok()) {
       assert(root_db != nullptr);
+      // If WrapStackableDB() returns non-ok, then stackable_db is already
+      // deleted within WrapStackableDB().
       s = TransactionDB::WrapStackableDB(stackable_db, txn_db_options,
                                          compaction_enabled_cf_indices,
                                          *handles, &db);
-    }
-    if (!s.ok()) {
-      delete stackable_db;
     }
     return s;
   }
