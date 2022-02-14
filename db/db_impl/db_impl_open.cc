@@ -1080,6 +1080,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         ColumnFamilyData* cfd;
 
         while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
+          assert(false);
           cfd->UnrefAndTryDelete();
           // If this asserts, it means that InsertInto failed in
           // filtering updates to already-flushed column families
@@ -1220,6 +1221,12 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       TEST_SYNC_POINT_CALLBACK(
           "DBImpl::RecoverLogFiles:BeforeFlushFinalMemtable", /*arg=*/nullptr);
 
+      auto* mem = cfd->mem();
+      ROCKS_LOG_INFO(
+          immutable_db_options_.info_log,
+          "y7jin num_entries=%d num_deletes=%d %" PRIu64 " %" PRIu64 "\n",
+          (int)mem->num_entries(), (int)mem->num_deletes(),
+          mem->GetFirstSequenceNumber(), mem->GetEarliestSequenceNumber());
       // flush the final memtable (if non-empty)
       if (cfd->mem()->GetFirstSequenceNumber() != 0) {
         // If flush happened in the middle of recovery (e.g. due to memtable
