@@ -603,6 +603,13 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
     s = txn_db_impl_->TryLock(this, cfh_id, key_str, exclusive);
   }
 
+  const ColumnFamilyHandle* const cfh =
+      column_family ? column_family : db_impl_->DefaultColumnFamily();
+  assert(cfh);
+  const Comparator* const ucmp = cfh->GetComparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+
   SetSnapshotIfNeeded();
 
   // Even though we do not care about doing conflict checking for this write,
@@ -610,10 +617,11 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   // some other write.  However, we do not need to check if there have been
   // any writes since this transaction's snapshot.
   // TODO(agiardullo): could optimize by supporting shared txn locks in the
-  // future
+  // future.
   SequenceNumber tracked_at_seq =
       status.locked ? status.seq : kMaxSequenceNumber;
-  if (!do_validate || snapshot_ == nullptr) {
+  if (!do_validate || (snapshot_ == nullptr &&
+                       (0 == ts_sz || kMaxTxnTimestamp == read_timestamp_))) {
     if (assume_tracked && !previously_locked &&
         tracked_locks_->IsPointLockSupported()) {
       s = Status::InvalidArgument(
@@ -621,8 +629,7 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
     }
     // Need to remember the earliest sequence number that we know that this
     // key has not been modified after.  This is useful if this same
-    // transaction
-    // later tries to lock this key again.
+    // transaction later tries to lock this key again.
     if (tracked_at_seq == kMaxSequenceNumber) {
       // Since we haven't checked a snapshot, we only know this key has not
       // been modified since after we locked it.
@@ -633,24 +640,21 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
       // lock, which would be an unusual sequence.
       tracked_at_seq = db_->GetLatestSequenceNumber();
     }
-  } else {
+  } else if (s.ok()) {
     // If a snapshot is set, we need to make sure the key hasn't been modified
     // since the snapshot.  This must be done after we locked the key.
     // If we already have validated an earilier snapshot it must has been
     // reflected in tracked_at_seq and ValidateSnapshot will return OK.
-    if (s.ok()) {
-      s = ValidateSnapshot(column_family, key, &tracked_at_seq);
+    s = ValidateSnapshot(column_family, key, &tracked_at_seq);
 
-      if (!s.ok()) {
-        // Failed to validate key
-        // Unlock key we just locked
-        if (lock_upgrade) {
-          s = txn_db_impl_->TryLock(this, cfh_id, key_str,
-                                    false /* exclusive */);
-          assert(s.ok());
-        } else if (!previously_locked) {
-          txn_db_impl_->UnLock(this, cfh_id, key.ToString());
-        }
+    if (!s.ok()) {
+      // Failed to validate key
+      // Unlock key we just locked
+      if (lock_upgrade) {
+        s = txn_db_impl_->TryLock(this, cfh_id, key_str, false /* exclusive */);
+        assert(s.ok());
+      } else if (!previously_locked) {
+        txn_db_impl_->UnLock(this, cfh_id, key.ToString());
       }
     }
   }
@@ -709,15 +713,21 @@ Status PessimisticTransaction::GetRangeLock(ColumnFamilyHandle* column_family,
 Status PessimisticTransaction::ValidateSnapshot(
     ColumnFamilyHandle* column_family, const Slice& key,
     SequenceNumber* tracked_at_seq) {
-  assert(snapshot_);
+  assert(snapshot_ || read_timestamp_ < kMaxTxnTimestamp);
 
-  SequenceNumber snap_seq = snapshot_->GetSequenceNumber();
-  if (*tracked_at_seq <= snap_seq) {
-    // If the key has been previous validated (or locked) at a sequence number
-    // earlier than the current snapshot's sequence number, we already know it
-    // has not been modified aftter snap_seq either.
-    return Status::OK();
+  SequenceNumber snap_seq = 0;
+  if (snapshot_) {
+    snap_seq = snapshot_->GetSequenceNumber();
+    if (*tracked_at_seq <= snap_seq) {
+      // If the key has been previous validated (or locked) at a sequence number
+      // earlier than the current snapshot's sequence number, we already know it
+      // has not been modified aftter snap_seq either.
+      return Status::OK();
+    }
+  } else {
+    snap_seq = db_impl_->GetLatestSequenceNumber();
   }
+
   // Otherwise we have either
   // 1: tracked_at_seq == kMaxSequenceNumber, i.e., first time tracking the key
   // 2: snap_seq < tracked_at_seq: last time we lock the key was via
