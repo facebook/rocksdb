@@ -1349,6 +1349,14 @@ const char* BuiltinFilterPolicy::Name() const {
   return "rocksdb.BuiltinBloomFilter";
 }
 
+const char* DeprecatedBlockBasedBloomFilterPolicy::kName() {
+  return "rocksdb.internal.DeprecatedBlockBasedBloomFilter";
+}
+
+std::string DeprecatedBlockBasedBloomFilterPolicy::GetId() const {
+  return kName() + GetBitsPerKeySuffix();
+}
+
 DeprecatedBlockBasedBloomFilterPolicy::DeprecatedBlockBasedBloomFilterPolicy(
     double bits_per_key)
     : BloomLikeFilterPolicy(bits_per_key) {}
@@ -1437,9 +1445,12 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
   }
 }
 
-std::string BloomFilterPolicy::ToString() const {
-  // Including ":false" for better forward-compatibility
-  return kName + GetBitsPerKeySuffix() + ":false";
+const char* BloomFilterPolicy::kName() { return "bloomfilter"; }
+
+std::string BloomFilterPolicy::GetId() const {
+  // Including ":false" for better forward-compatibility with 6.29 and earlier
+  // which required a boolean `use_block_based_builder` parameter
+  return kName() + GetBitsPerKeySuffix() + ":false";
 }
 
 FilterBitsBuilder* BloomLikeFilterPolicy::GetFastLocalBloomBuilderWithContext(
@@ -1531,6 +1542,14 @@ FilterBitsBuilder* BuiltinFilterPolicy::GetBuilderFromContext(
 // For testing only, but always constructable with internal names
 namespace test {
 
+const char* LegacyBloomFilterPolicy::kName() {
+  return "rocksdb.internal.LegacyBloomFilter";
+}
+
+std::string LegacyBloomFilterPolicy::GetId() const {
+  return kName() + GetBitsPerKeySuffix();
+}
+
 FilterBitsBuilder* LegacyBloomFilterPolicy::GetBuilderWithContext(
     const FilterBuildingContext& context) const {
   if (GetMillibitsPerKey() == 0) {
@@ -1540,6 +1559,14 @@ FilterBitsBuilder* LegacyBloomFilterPolicy::GetBuilderWithContext(
   return GetLegacyBloomBuilderWithContext(context);
 }
 
+const char* FastLocalBloomFilterPolicy::kName() {
+  return "rocksdb.internal.FastLocalBloomFilter";
+}
+
+std::string FastLocalBloomFilterPolicy::GetId() const {
+  return kName() + GetBitsPerKeySuffix();
+}
+
 FilterBitsBuilder* FastLocalBloomFilterPolicy::GetBuilderWithContext(
     const FilterBuildingContext& context) const {
   if (GetMillibitsPerKey() == 0) {
@@ -1547,6 +1574,14 @@ FilterBitsBuilder* FastLocalBloomFilterPolicy::GetBuilderWithContext(
     return nullptr;
   }
   return GetFastLocalBloomBuilderWithContext(context);
+}
+
+const char* Standard128RibbonFilterPolicy::kName() {
+  return "rocksdb.internal.Standard128RibbonFilter";
+}
+
+std::string Standard128RibbonFilterPolicy::GetId() const {
+  return kName() + GetBitsPerKeySuffix();
 }
 
 FilterBitsBuilder* Standard128RibbonFilterPolicy::GetBuilderWithContext(
@@ -1776,8 +1811,10 @@ FilterBitsBuilder* RibbonFilterPolicy::GetBuilderWithContext(
   }
 }
 
-std::string RibbonFilterPolicy::ToString() const {
-  return kName + GetBitsPerKeySuffix() + ":" +
+const char* RibbonFilterPolicy::kName() { return "ribbonfilter"; }
+
+std::string RibbonFilterPolicy::GetId() const {
+  return kName() + GetBitsPerKeySuffix() + ":" +
          ROCKSDB_NAMESPACE::ToString(bloom_before_level_);
 }
 
@@ -1795,19 +1832,19 @@ FilterPolicy::~FilterPolicy() { }
 
 std::shared_ptr<const FilterPolicy> BloomLikeFilterPolicy::Create(
     const std::string& name, double bits_per_key) {
-  if (name == test::LegacyBloomFilterPolicy::kName) {
+  if (name == test::LegacyBloomFilterPolicy::kName()) {
     return std::make_shared<test::LegacyBloomFilterPolicy>(bits_per_key);
-  } else if (name == test::FastLocalBloomFilterPolicy::kName) {
+  } else if (name == test::FastLocalBloomFilterPolicy::kName()) {
     return std::make_shared<test::FastLocalBloomFilterPolicy>(bits_per_key);
-  } else if (name == test::Standard128RibbonFilterPolicy::kName) {
+  } else if (name == test::Standard128RibbonFilterPolicy::kName()) {
     return std::make_shared<test::Standard128RibbonFilterPolicy>(bits_per_key);
-  } else if (name == DeprecatedBlockBasedBloomFilterPolicy::kName) {
+  } else if (name == DeprecatedBlockBasedBloomFilterPolicy::kName()) {
     return std::make_shared<DeprecatedBlockBasedBloomFilterPolicy>(
         bits_per_key);
-  } else if (name == BloomFilterPolicy::kName) {
+  } else if (name == BloomFilterPolicy::kName()) {
     // For testing
     return std::make_shared<BloomFilterPolicy>(bits_per_key);
-  } else if (name == RibbonFilterPolicy::kName) {
+  } else if (name == RibbonFilterPolicy::kName()) {
     // For testing
     return std::make_shared<RibbonFilterPolicy>(bits_per_key,
                                                 /*bloom_before_level*/ 0);
@@ -1833,14 +1870,14 @@ Status FilterPolicy::CreateFromString(
   }
   const std::string& name = vals[0];
   double bits_per_key = ParseDouble(trim(vals[1]));
-  if (name == BloomFilterPolicy::kName) {
+  if (name == BloomFilterPolicy::kName()) {
     bool use_block_based_builder = false;
     if (vals.size() > 2) {
       use_block_based_builder =
           ParseBoolean("use_block_based_builder", trim(vals[2]));
     }
     policy->reset(NewBloomFilterPolicy(bits_per_key, use_block_based_builder));
-  } else if (name == RibbonFilterPolicy::kName) {
+  } else if (name == RibbonFilterPolicy::kName()) {
     int bloom_before_level;
     if (vals.size() < 3) {
       bloom_before_level = 0;
@@ -1864,10 +1901,10 @@ Status FilterPolicy::CreateFromString(
 
 const std::vector<std::string> BloomLikeFilterPolicy::kAllFixedImpls = {
     // Match filter_bench -impl=x ordering
-    test::LegacyBloomFilterPolicy::kName,
-    DeprecatedBlockBasedBloomFilterPolicy::kName,
-    test::FastLocalBloomFilterPolicy::kName,
-    test::Standard128RibbonFilterPolicy::kName,
+    test::LegacyBloomFilterPolicy::kName(),
+    DeprecatedBlockBasedBloomFilterPolicy::kName(),
+    test::FastLocalBloomFilterPolicy::kName(),
+    test::Standard128RibbonFilterPolicy::kName(),
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -58,7 +58,7 @@ class BuiltinFilterPolicy : public FilterPolicy {
   const char* Name() const override;
 
   // Convert to a string understood by FilterPolicy::CreateFromString
-  virtual std::string ToString() const = 0;
+  virtual std::string GetId() const = 0;
 
   // Read metadata to determine what kind of FilterBitsReader is needed
   // and return a new one. This must successfully process any filter data
@@ -99,7 +99,7 @@ class BuiltinFilterPolicy : public FilterPolicy {
 class ReadOnlyBuiltinFilterPolicy : public BuiltinFilterPolicy {
  public:
   // Convert to a string understood by FilterPolicy::CreateFromString
-  virtual std::string ToString() const override { return Name(); }
+  virtual std::string GetId() const override { return Name(); }
 
   // Does not write filters.
   FilterBitsBuilder* GetBuilderWithContext(
@@ -191,8 +191,8 @@ class BloomFilterPolicy : public BloomLikeFilterPolicy {
   FilterBitsBuilder* GetBuilderWithContext(
       const FilterBuildingContext&) const override;
 
-  static constexpr const char* kName = "bloomfilter";
-  std::string ToString() const override;
+  static const char* kName();
+  std::string GetId() const override;
 };
 
 // For NewRibbonFilterPolicy
@@ -210,8 +210,8 @@ class RibbonFilterPolicy : public BloomLikeFilterPolicy {
 
   int GetBloomBeforeLevel() const { return bloom_before_level_; }
 
-  static constexpr const char* kName = "ribbonfilter";
-  std::string ToString() const override;
+  static const char* kName();
+  std::string GetId() const override;
 
  private:
   const int bloom_before_level_;
@@ -229,11 +229,8 @@ class DeprecatedBlockBasedBloomFilterPolicy : public BloomLikeFilterPolicy {
       const FilterBuildingContext&) const override;
   static constexpr size_t kSecretBitsPerKeyStart = 1234567890U;
 
-  static constexpr const char* kName =
-      "rocksdb.internal.DeprecatedBlockBasedBloomFilter";
-  std::string ToString() const override {
-    return kName + GetBitsPerKeySuffix();
-  }
+  static const char* kName();
+  std::string GetId() const override;
 
   static void CreateFilter(const Slice* keys, int n, int bits_per_key,
                            std::string* dst);
@@ -251,10 +248,8 @@ class LegacyBloomFilterPolicy : public BloomLikeFilterPolicy {
   FilterBitsBuilder* GetBuilderWithContext(
       const FilterBuildingContext& context) const override;
 
-  static constexpr const char* kName = "rocksdb.internal.LegacyBloomFilter";
-  std::string ToString() const override {
-    return kName + GetBitsPerKeySuffix();
-  }
+  static const char* kName();
+  std::string GetId() const override;
 };
 
 class FastLocalBloomFilterPolicy : public BloomLikeFilterPolicy {
@@ -265,10 +260,8 @@ class FastLocalBloomFilterPolicy : public BloomLikeFilterPolicy {
   FilterBitsBuilder* GetBuilderWithContext(
       const FilterBuildingContext& context) const override;
 
-  static constexpr const char* kName = "rocksdb.internal.FastLocalBloomFilter";
-  std::string ToString() const override {
-    return kName + GetBitsPerKeySuffix();
-  }
+  static const char* kName();
+  std::string GetId() const override;
 };
 
 class Standard128RibbonFilterPolicy : public BloomLikeFilterPolicy {
@@ -279,11 +272,8 @@ class Standard128RibbonFilterPolicy : public BloomLikeFilterPolicy {
   FilterBitsBuilder* GetBuilderWithContext(
       const FilterBuildingContext& context) const override;
 
-  static constexpr const char* kName =
-      "rocksdb.internal.Standard128RibbonFilter";
-  std::string ToString() const override {
-    return kName + GetBitsPerKeySuffix();
-  }
+  static const char* kName();
+  std::string GetId() const override;
 };
 
 }  // namespace test

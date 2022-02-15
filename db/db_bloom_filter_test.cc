@@ -32,13 +32,13 @@ std::shared_ptr<const FilterPolicy> Create(double bits_per_key,
                                            const std::string& name) {
   return BloomLikeFilterPolicy::Create(name, bits_per_key);
 }
-const std::string kLegacyBloom = test::LegacyBloomFilterPolicy::kName;
+const std::string kLegacyBloom = test::LegacyBloomFilterPolicy::kName();
 const std::string kDeprecatedBlock =
-    DeprecatedBlockBasedBloomFilterPolicy::kName;
-const std::string kFastLocalBloom = test::FastLocalBloomFilterPolicy::kName;
+    DeprecatedBlockBasedBloomFilterPolicy::kName();
+const std::string kFastLocalBloom = test::FastLocalBloomFilterPolicy::kName();
 const std::string kStandard128Ribbon =
-    test::Standard128RibbonFilterPolicy::kName;
-const std::string kAutoBloom = BloomFilterPolicy::kName;
+    test::Standard128RibbonFilterPolicy::kName();
+const std::string kAutoBloom = BloomFilterPolicy::kName();
 }  // namespace
 
 // DB tests related to bloom filter.
@@ -599,7 +599,7 @@ class AlwaysTrueFilterPolicy : public BloomLikeFilterPolicy {
     }
   }
 
-  std::string ToString() const override {
+  std::string GetId() const override {
     return "rocksdb.test.AlwaysTrueFilterPolicy";
   }
 
