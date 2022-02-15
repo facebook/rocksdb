@@ -164,8 +164,6 @@ class LogTest
     Writer* writer =
         new Writer(std::move(file_writer), 123, std::get<0>(GetParam()), false,
                    compression_type_);
-    // Noop if compression is not enabled
-    Status s = writer->AddCompressionTypeRecord();
     writer_.reset(writer);
     std::unique_ptr<FSSequentialFile> source_holder(source_);
     std::unique_ptr<SequentialFileReader> file_reader(

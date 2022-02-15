@@ -83,8 +83,6 @@ class Writer {
 
   IOStatus AddRecord(const Slice& slice);
 
-  IOStatus AddCompressionTypeRecord();
-
   WritableFileWriter* file() { return dest_.get(); }
   const WritableFileWriter* file() const { return dest_.get(); }
 
@@ -108,6 +106,7 @@ class Writer {
   uint32_t type_crc_[kMaxRecordType + 1];
 
   IOStatus EmitPhysicalRecord(RecordType type, const char* ptr, size_t length);
+  IOStatus AddCompressionTypeRecord();
 
   // If true, it does not flush after each write. Instead it relies on the upper
   // layer to manually does the flush by calling ::WriteBuffer()
@@ -115,6 +114,9 @@ class Writer {
 
   // Compression Type
   CompressionType compression_type_;
+  // Store the status of the Add Compression Type Record and if it fails, return
+  // it when the first AddRecord is called.
+  IOStatus add_compression_type_record_status_;
 };
 
 }  // namespace log

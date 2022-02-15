@@ -1576,7 +1576,12 @@ class CompressionTypeRecord {
       return Status::Corruption(class_name,
                                 "Error decoding WAL compression type");
     }
-    compression_type_ = static_cast<CompressionType>(val);
+    CompressionType compression_type = static_cast<CompressionType>(val);
+    if (!StreamingCompressionTypeSupported(compression_type)) {
+      return Status::Corruption(class_name,
+                                "WAL compression type not supported");
+    }
+    compression_type_ = compression_type;
     return Status::OK();
   }
 

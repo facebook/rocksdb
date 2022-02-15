@@ -1285,7 +1285,6 @@ class RecoveryTestHelper {
                           db_options.recycle_log_file_num > 0, false,
                           db_options.wal_compression);
       current_log_writer.reset(log_writer);
-      ASSERT_OK(log_writer->AddCompressionTypeRecord());
 
       WriteBatch batch;
       for (int i = 0; i < kKeysPerWALFile; i++) {
