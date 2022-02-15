@@ -58,9 +58,10 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
     RecordTick(stats_, MEMTABLE_HIT);
   } else {
     PERF_TIMER_GUARD(get_from_output_files_time);
+    PinnedIteratorsManager pinned_iters_mgr;
     super_version->current->Get(read_options, lkey, pinnable_val,
                                 /*timestamp=*/nullptr, &s, &merge_context,
-                                &max_covering_tombstone_seq);
+                                &max_covering_tombstone_seq, &pinned_iters_mgr);
     RecordTick(stats_, MEMTABLE_MISS);
   }
   RecordTick(stats_, NUMBER_KEYS_READ);
