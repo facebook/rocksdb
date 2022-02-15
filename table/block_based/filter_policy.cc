@@ -1826,6 +1826,7 @@ Status FilterPolicy::CreateFromString(
     *policy = std::make_shared<ReadOnlyBuiltinFilterPolicy>();
     return Status::OK();
   }
+#ifndef ROCKSDB_LITE
   const std::vector<std::string> vals = StringSplit(value, ':');
   if (vals.size() < 2) {
     return Status::NotFound("Invalid filter policy name ", value);
@@ -1856,6 +1857,9 @@ Status FilterPolicy::CreateFromString(
   } else {
     return Status::NotFound("Invalid filter policy name ", value);
   }
+#else
+  return Status::NotSupported("Cannot load filter policy in LITE mode ", value);
+#endif  // ROCKSDB_LITE
 }
 
 const std::vector<std::string> BloomLikeFilterPolicy::kAllFixedImpls = {
