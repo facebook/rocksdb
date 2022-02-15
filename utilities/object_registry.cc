@@ -8,6 +8,7 @@
 #include <ctype.h>
 
 #include "logging/logging.h"
+#include "port/lang.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
 #include "util/string_util.h"
@@ -135,14 +136,18 @@ void ObjectLibrary::Dump(Logger *logger) const {
 // Returns the Default singleton instance of the ObjectLibrary
 // This instance will contain most of the "standard" registered objects
 std::shared_ptr<ObjectLibrary> &ObjectLibrary::Default() {
-  static std::shared_ptr<ObjectLibrary> instance =
-      std::make_shared<ObjectLibrary>("default");
+  // Use avoid destruction here so the default ObjectLibrary will not be
+  // statically destroyed and long-lived.
+  STATIC_AVOID_DESTRUCTION(std::shared_ptr<ObjectLibrary>, instance)
+  (std::make_shared<ObjectLibrary>("default"));
   return instance;
 }
 
 std::shared_ptr<ObjectRegistry> ObjectRegistry::Default() {
-  static std::shared_ptr<ObjectRegistry> instance(
-      new ObjectRegistry(ObjectLibrary::Default()));
+  // Use avoid destruction here so the default ObjectRegistry will not be
+  // statically destroyed and long-lived.
+  STATIC_AVOID_DESTRUCTION(std::shared_ptr<ObjectRegistry>, instance)
+  (std::make_shared<ObjectRegistry>(ObjectLibrary::Default()));
   return instance;
 }
 

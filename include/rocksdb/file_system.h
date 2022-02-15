@@ -701,6 +701,13 @@ class FSSequentialFile {
     return IOStatus::NotSupported("PositionedRead");
   }
 
+  // EXPERIMENTAL
+  // When available, returns the actual temperature for the file. This is
+  // useful in case some outside process moves a file from one tier to another,
+  // though the temperature is generally expected not to change while a file is
+  // open.
+  virtual Temperature GetTemperature() const { return Temperature::kUnknown; }
+
   // If you're adding methods here, remember to add them to
   // SequentialFileWrapper too.
 };
@@ -817,6 +824,13 @@ class FSRandomAccessFile {
   virtual IOStatus InvalidateCache(size_t /*offset*/, size_t /*length*/) {
     return IOStatus::NotSupported("InvalidateCache not supported.");
   }
+
+  // EXPERIMENTAL
+  // When available, returns the actual temperature for the file. This is
+  // useful in case some outside process moves a file from one tier to another,
+  // though the temperature is generally expected not to change while a file is
+  // open.
+  virtual Temperature GetTemperature() const { return Temperature::kUnknown; }
 
   // If you're adding methods here, remember to add them to
   // RandomAccessFileWrapper too.
@@ -1101,6 +1115,13 @@ class FSRandomRWFile {
   }
 
   virtual IOStatus Close(const IOOptions& options, IODebugContext* dbg) = 0;
+
+  // EXPERIMENTAL
+  // When available, returns the actual temperature for the file. This is
+  // useful in case some outside process moves a file from one tier to another,
+  // though the temperature is generally expected not to change while a file is
+  // open.
+  virtual Temperature GetTemperature() const { return Temperature::kUnknown; }
 
   // If you're adding methods here, remember to add them to
   // RandomRWFileWrapper too.
@@ -1418,6 +1439,9 @@ class FSSequentialFileWrapper : public FSSequentialFile {
                           IODebugContext* dbg) override {
     return target_->PositionedRead(offset, n, options, result, scratch, dbg);
   }
+  Temperature GetTemperature() const override {
+    return target_->GetTemperature();
+  }
 
  private:
   FSSequentialFile* target_;
@@ -1465,6 +1489,9 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
   }
   IOStatus InvalidateCache(size_t offset, size_t length) override {
     return target_->InvalidateCache(offset, length);
+  }
+  Temperature GetTemperature() const override {
+    return target_->GetTemperature();
   }
 
  private:
@@ -1628,6 +1655,9 @@ class FSRandomRWFileWrapper : public FSRandomRWFile {
   }
   IOStatus Close(const IOOptions& options, IODebugContext* dbg) override {
     return target_->Close(options, dbg);
+  }
+  Temperature GetTemperature() const override {
+    return target_->GetTemperature();
   }
 
  private:

@@ -260,15 +260,14 @@ Status DBImpl::GetLiveFilesStorageInfo(
       }
     }
     const auto& blob_files = vsi.GetBlobFiles();
-    for (const auto& pair : blob_files) {
-      const auto& meta = pair.second;
+    for (const auto& meta : blob_files) {
       assert(meta);
 
       results.emplace_back();
       LiveFileStorageInfo& info = results.back();
 
       info.relative_filename = BlobFileName(meta->GetBlobFileNumber());
-      info.directory = GetName();  // TODO?: support db_paths/cf_paths
+      info.directory = GetDir(/* path_id */ 0);
       info.file_number = meta->GetBlobFileNumber();
       info.file_type = kBlobFile;
       info.size = meta->GetBlobFileSize();

@@ -66,6 +66,7 @@ public class MutableColumnFamilyOptions
     write_buffer_size(ValueType.LONG),
     arena_block_size(ValueType.LONG),
     memtable_prefix_bloom_size_ratio(ValueType.DOUBLE),
+    memtable_whole_key_filtering(ValueType.BOOLEAN),
     @Deprecated memtable_prefix_bloom_bits(ValueType.INT),
     @Deprecated memtable_prefix_bloom_probes(ValueType.INT),
     memtable_huge_page_size(ValueType.LONG),
@@ -119,7 +120,8 @@ public class MutableColumnFamilyOptions
     blob_compression_type(ValueType.ENUM),
     enable_blob_garbage_collection(ValueType.BOOLEAN),
     blob_garbage_collection_age_cutoff(ValueType.DOUBLE),
-    blob_garbage_collection_force_threshold(ValueType.DOUBLE);
+    blob_garbage_collection_force_threshold(ValueType.DOUBLE),
+    blob_compaction_readahead_size(ValueType.LONG);
 
     private final ValueType valueType;
     BlobOption(final ValueType valueType) {
@@ -224,6 +226,17 @@ public class MutableColumnFamilyOptions
     @Override
     public double memtablePrefixBloomSizeRatio() {
       return getDouble(MemtableOption.memtable_prefix_bloom_size_ratio);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setMemtableWholeKeyFiltering(
+        final boolean memtableWholeKeyFiltering) {
+      return setBoolean(MemtableOption.memtable_whole_key_filtering, memtableWholeKeyFiltering);
+    }
+
+    @Override
+    public boolean memtableWholeKeyFiltering() {
+      return getBoolean(MemtableOption.memtable_whole_key_filtering);
     }
 
     @Override
@@ -557,6 +570,17 @@ public class MutableColumnFamilyOptions
     @Override
     public double blobGarbageCollectionForceThreshold() {
       return getDouble(BlobOption.blob_garbage_collection_force_threshold);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setBlobCompactionReadaheadSize(
+        final long blobCompactionReadaheadSize) {
+      return setLong(BlobOption.blob_compaction_readahead_size, blobCompactionReadaheadSize);
+    }
+
+    @Override
+    public long blobCompactionReadaheadSize() {
+      return getLong(BlobOption.blob_compaction_readahead_size);
     }
   }
 }

@@ -9,6 +9,7 @@
 #include "db/event_helpers.h"
 #include "file/sst_file_manager_impl.h"
 #include "logging/logging.h"
+#include "port/lang.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -251,6 +252,8 @@ void ErrorHandler::CancelErrorRecovery() {
 #endif
 }
 
+STATIC_AVOID_DESTRUCTION(const Status, kOkStatus){Status::OK()};
+
 // This is the main function for looking at an error during a background
 // operation and deciding the severity, and error recovery strategy. The high
 // level algorithm is as follows -
@@ -273,7 +276,7 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
                                        BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
   if (bg_err.ok()) {
-    return bg_err;
+    return kOkStatus;
   }
 
   if (bg_error_stats_ != nullptr) {
@@ -383,7 +386,7 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
                                        BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
   if (bg_io_err.ok()) {
-    return bg_io_err;
+    return kOkStatus;
   }
   ROCKS_LOG_WARN(db_options_.info_log, "Background IO error %s",
                  bg_io_err.ToString().c_str());
@@ -625,7 +628,7 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
   if (bg_error_.ok()) {
     return bg_error_;
   } else if (io_error.ok()) {
-    return io_error;
+    return kOkStatus;
   } else if (db_options_.max_bgerror_resume_count <= 0 || recovery_in_prog_) {
     // Auto resume BG error is not enabled, directly return bg_error_.
     return bg_error_;

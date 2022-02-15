@@ -16,6 +16,13 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+TEST(SliceTest, StringView) {
+  std::string s = "foo";
+  std::string_view sv = s;
+  ASSERT_EQ(Slice(s), Slice(sv));
+  ASSERT_EQ(Slice(s), Slice(std::move(sv)));
+}
+
 // Use this to keep track of the cleanups that were actually performed
 void Multiplier(void* arg1, void* arg2) {
   int* res = reinterpret_cast<int*>(arg1);

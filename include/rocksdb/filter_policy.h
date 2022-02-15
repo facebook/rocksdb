@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/memory_allocator.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
@@ -53,12 +54,8 @@ class FilterBitsBuilder {
   // Called by RocksDB before Finish to populate
   // TableProperties::num_filter_entries, so should represent the
   // number of unique keys (and/or prefixes) added, but does not have
-  // to be exact.
-  virtual size_t EstimateEntriesAdded() {
-    // Default implementation for backward compatibility.
-    // 0 conspicuously stands for "unknown".
-    return 0;
-  }
+  // to be exact. `return 0;` may be used to conspicuously indicate "unknown".
+  virtual size_t EstimateEntriesAdded() = 0;
 
   // Generate the filter using the keys that are added
   // The return value of this function would be the filter bits,
@@ -99,22 +96,7 @@ class FilterBitsBuilder {
   // Approximate the number of keys that can be added and generate a filter
   // <= the specified number of bytes. Callers (including RocksDB) should
   // only use this result for optimizing performance and not as a guarantee.
-  // This default implementation is for compatibility with older custom
-  // FilterBitsBuilders only implementing deprecated CalculateNumEntry.
-  virtual size_t ApproximateNumEntries(size_t bytes) {
-    bytes = std::min(bytes, size_t{0xffffffff});
-    return static_cast<size_t>(CalculateNumEntry(static_cast<uint32_t>(bytes)));
-  }
-
-  // Old, DEPRECATED version of ApproximateNumEntries. This is not
-  // called by RocksDB except as the default implementation of
-  // ApproximateNumEntries for API compatibility.
-  virtual int CalculateNumEntry(const uint32_t bytes) {
-    // DEBUG: ideally should not rely on this implementation
-    assert(false);
-    // RELEASE: something reasonably conservative: 2 bytes per entry
-    return static_cast<int>(bytes / 2);
-  }
+  virtual size_t ApproximateNumEntries(size_t bytes) = 0;
 };
 
 // A class that checks if a key can be in filter
@@ -208,49 +190,17 @@ class FilterPolicy {
   // passed to methods of this type.
   virtual const char* Name() const = 0;
 
-  // DEPRECATED: This function is part of the deprecated block-based
-  // filter, which will be removed in a future release.
-  //
-  // keys[0,n-1] contains a list of keys (potentially with duplicates)
-  // that are ordered according to the user supplied comparator.
-  // Append a filter that summarizes keys[0,n-1] to *dst.
-  //
-  // Warning: do not change the initial contents of *dst.  Instead,
-  // append the newly constructed filter to *dst.
-  virtual void CreateFilter(const Slice* keys, int n,
-                            std::string* dst) const = 0;
-
-  // DEPRECATED: This function is part of the deprecated block-based
-  // filter, which will be removed in a future release.
-  //
-  // "filter" contains the data appended by a preceding call to
-  // CreateFilter() on this class.  This method must return true if
-  // the key was in the list of keys passed to CreateFilter().
-  // This method may return true or false if the key was not on the
-  // list, but it should aim to return false with a high probability.
-  virtual bool KeyMayMatch(const Slice& key, const Slice& filter) const = 0;
-
-  // Return a new FilterBitsBuilder for full or partitioned filter blocks, or
-  // nullptr if using block-based filter.
-  // NOTE: This function is only called by GetBuilderWithContext() below for
-  // custom FilterPolicy implementations. Thus, it is not necessary to
-  // override this function if overriding GetBuilderWithContext().
-  // DEPRECATED: This function will be removed in a future release.
-  virtual FilterBitsBuilder* GetFilterBitsBuilder() const { return nullptr; }
-
-  // A newer variant of GetFilterBitsBuilder that allows a FilterPolicy
-  // to customize the builder for contextual constraints and hints.
-  // (Name changed to avoid triggering -Werror=overloaded-virtual.)
-  // If overriding GetFilterBitsBuilder() suffices, it is not necessary to
-  // override this function.
+  // Return a new FilterBitsBuilder for constructing full or partitioned
+  // filter blocks. The configuration details can depend on the input
+  // FilterBuildingContext but must be serialized such that FilterBitsReader
+  // can operate based on the block contents without knowing a
+  // FilterBuildingContext.
+  // Change in 7.0 release: returning nullptr indicates "no filter"
   virtual FilterBitsBuilder* GetBuilderWithContext(
-      const FilterBuildingContext&) const {
-    return GetFilterBitsBuilder();
-  }
+      const FilterBuildingContext&) const = 0;
 
-  // Return a new FilterBitsReader for full or partitioned filter blocks, or
-  // nullptr if using block-based filter.
-  // As here, the input slice should NOT be deleted by FilterPolicy.
+  // Return a new FilterBitsReader for full or partitioned filter blocks.
+  // Caller retains ownership of any buffer pointed to by the input Slice.
   virtual FilterBitsReader* GetFilterBitsReader(
       const Slice& /*contents*/) const {
     return nullptr;
@@ -258,7 +208,8 @@ class FilterPolicy {
 };
 
 // Return a new filter policy that uses a bloom filter with approximately
-// the specified number of bits per key.
+// the specified number of bits per key. See
+// https://github.com/facebook/rocksdb/wiki/RocksDB-Bloom-Filter
 //
 // bits_per_key: average bits allocated per key in bloom filter. A good
 // choice is 9.9, which yields a filter with ~ 1% false positive rate.
@@ -266,11 +217,18 @@ class FilterPolicy {
 // integer. Recommend using no more than three decimal digits after the
 // decimal point, as in 6.667.
 //
-// use_block_based_builder: use deprecated block based filter (true) rather
-// than full or partitioned filter (false).
+// To avoid configurations that are unlikely to produce good filtering
+// value for the CPU overhead, bits_per_key < 0.5 is rounded down to 0.0
+// which means "generate no filter", and 0.5 <= bits_per_key < 1.0 is
+// rounded up to 1.0, for a 62% FP rate.
 //
-// Callers must delete the result after any database that is using the
-// result has been closed.
+// The caller is responsible for eventually deleting the result, though
+// this is typically handled automatically with BlockBasedTableOptions:
+//   table_options.filter_policy.reset(NewBloomFilterPolicy(...));
+//
+// As of RocksDB 7.0, the use_block_based_builder parameter is ignored.
+// (The old, inefficient block-based filter is no longer accessible in
+// the public API.)
 //
 // Note: if you are using a custom comparator that ignores some parts
 // of the keys being compared, you must not use NewBloomFilterPolicy()
@@ -280,7 +238,7 @@ class FilterPolicy {
 // FilterPolicy (like NewBloomFilterPolicy) that does not ignore
 // trailing spaces in keys.
 extern const FilterPolicy* NewBloomFilterPolicy(
-    double bits_per_key, bool use_block_based_builder = false);
+    double bits_per_key, bool IGNORED_use_block_based_builder = false);
 
 // A new Bloom alternative that saves about 30% space compared to
 // Bloom filters, with similar query times but roughly 3-4x CPU time
@@ -319,11 +277,5 @@ extern const FilterPolicy* NewBloomFilterPolicy(
 // memory.
 extern const FilterPolicy* NewRibbonFilterPolicy(
     double bloom_equivalent_bits_per_key, int bloom_before_level = 0);
-
-// Old name and old default behavior (DEPRECATED)
-inline const FilterPolicy* NewExperimentalRibbonFilterPolicy(
-    double bloom_equivalent_bits_per_key) {
-  return NewRibbonFilterPolicy(bloom_equivalent_bits_per_key, -1);
-}
 
 }  // namespace ROCKSDB_NAMESPACE
