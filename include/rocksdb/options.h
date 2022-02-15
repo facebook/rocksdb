@@ -410,15 +410,15 @@ class CompactionService : public Customizable {
   // passed to `DB::OpenAndCompact()` on the remote side. `info` provides the
   // information the user might want to know, which includes `job_id`.
   virtual CompactionServiceJobStatus StartV2(
-      const CompactionServiceJobInfo& info,
-      const std::string& compaction_service_input) {
+      const CompactionServiceJobInfo& /*info*/,
+      const std::string& /*compaction_service_input*/) {
     return CompactionServiceJobStatus::kUseLocal;
   }
 
   // Wait for remote compaction to finish.
   virtual CompactionServiceJobStatus WaitForCompleteV2(
-      const CompactionServiceJobInfo& info,
-      std::string* compaction_service_result) {
+      const CompactionServiceJobInfo& /*info*/,
+      std::string* /*compaction_service_result*/) {
     return CompactionServiceJobStatus::kUseLocal;
   }
 
