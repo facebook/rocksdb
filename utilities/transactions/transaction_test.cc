@@ -152,7 +152,7 @@ TEST_P(TransactionTest, SwitchMemtableDuringPrepareAndCommit_WC) {
   const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
 
   if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
-    ROCKSDB_GTEST_SKIP("Test applies to write-committed only");
+    ROCKSDB_GTEST_BYPASS("Test applies to write-committed only");
     return;
   }
 
