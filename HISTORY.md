@@ -29,7 +29,7 @@
 * Removed timestamp from WriteOptions. Accordingly, added to DB APIs Put, Delete, SingleDelete, etc. accepting an additional argument 'timestamp'. Added Put, Delete, SingleDelete, etc to WriteBatch accepting an additional argument 'timestamp'. Removed WriteBatch::AssignTimestamps(vector<Slice>) API. Renamed WriteBatch::AssignTimestamp() to WriteBatch::UpdateTimestamps() with clarified comments.
 * Significant updates to FilterPolicy-related APIs and configuration:
   * Remove public API support for deprecated, inefficient block-based filter (use_block_based_builder=true).
-    * Old code and configuration strings that would enable it now quietly enable full filters instead, though any built-in FilterPolicy can still read block-based filters.
+    * Old code and configuration strings that would enable it now quietly enable full filters instead, though any built-in FilterPolicy can still read block-based filters. This includes changing the longstanding default behavior of the Java API.
     * Remove deprecated FilterPolicy::CreateFilter() and FilterPolicy::KeyMayMatch()
     * Remove `rocksdb_filterpolicy_create()` from C API, as the only C API support for custom filter policies is now obsolete.
     * If temporary memory usage in full filter creation is a problem, consider using partitioned filters, smaller SST files, or setting reserve_table_builder_memory=true.
