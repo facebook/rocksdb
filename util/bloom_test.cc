@@ -40,9 +40,10 @@ DEFINE_int32(bits_per_key, 10, "");
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
-const std::string kLegacyBloom = BloomLikeFilterPolicy::kAllFixedImpls[0];
-const std::string kFastLocalBloom = BloomLikeFilterPolicy::kAllFixedImpls[2];
-const std::string kStandard128Ribbon = BloomLikeFilterPolicy::kAllFixedImpls[3];
+const std::string kLegacyBloom = test::LegacyBloomFilterPolicy::kName;
+const std::string kFastLocalBloom = test::FastLocalBloomFilterPolicy::kName;
+const std::string kStandard128Ribbon =
+    test::Standard128RibbonFilterPolicy::kName;
 }  // namespace
 
 static const int kVerbose = 1;

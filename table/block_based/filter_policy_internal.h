@@ -240,4 +240,52 @@ class DeprecatedBlockBasedBloomFilterPolicy : public BloomLikeFilterPolicy {
   static bool KeyMayMatch(const Slice& key, const Slice& bloom_filter);
 };
 
+// For testing only, but always constructable with internal names
+namespace test {
+
+class LegacyBloomFilterPolicy : public BloomLikeFilterPolicy {
+ public:
+  explicit LegacyBloomFilterPolicy(double bits_per_key)
+      : BloomLikeFilterPolicy(bits_per_key) {}
+
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext& context) const override;
+
+  static constexpr const char* kName = "rocksdb.internal.LegacyBloomFilter";
+  std::string ToString() const override {
+    return kName + GetBitsPerKeySuffix();
+  }
+};
+
+class FastLocalBloomFilterPolicy : public BloomLikeFilterPolicy {
+ public:
+  explicit FastLocalBloomFilterPolicy(double bits_per_key)
+      : BloomLikeFilterPolicy(bits_per_key) {}
+
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext& context) const override;
+
+  static constexpr const char* kName = "rocksdb.internal.FastLocalBloomFilter";
+  std::string ToString() const override {
+    return kName + GetBitsPerKeySuffix();
+  }
+};
+
+class Standard128RibbonFilterPolicy : public BloomLikeFilterPolicy {
+ public:
+  explicit Standard128RibbonFilterPolicy(double bloom_equiv_bits_per_key)
+      : BloomLikeFilterPolicy(bloom_equiv_bits_per_key) {}
+
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext& context) const override;
+
+  static constexpr const char* kName =
+      "rocksdb.internal.Standard128RibbonFilter";
+  std::string ToString() const override {
+    return kName + GetBitsPerKeySuffix();
+  }
+};
+
+}  // namespace test
+
 }  // namespace ROCKSDB_NAMESPACE

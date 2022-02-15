@@ -32,10 +32,12 @@ std::shared_ptr<const FilterPolicy> Create(double bits_per_key,
                                            const std::string& name) {
   return BloomLikeFilterPolicy::Create(name, bits_per_key);
 }
-const std::string kLegacyBloom = BloomLikeFilterPolicy::kAllFixedImpls[0];
-const std::string kDeprecatedBlock = BloomLikeFilterPolicy::kAllFixedImpls[1];
-const std::string kFastLocalBloom = BloomLikeFilterPolicy::kAllFixedImpls[2];
-const std::string kStandard128Ribbon = BloomLikeFilterPolicy::kAllFixedImpls[3];
+const std::string kLegacyBloom = test::LegacyBloomFilterPolicy::kName;
+const std::string kDeprecatedBlock =
+    DeprecatedBlockBasedBloomFilterPolicy::kName;
+const std::string kFastLocalBloom = test::FastLocalBloomFilterPolicy::kName;
+const std::string kStandard128Ribbon =
+    test::Standard128RibbonFilterPolicy::kName;
 const std::string kAutoBloom = BloomFilterPolicy::kName;
 }  // namespace
 
