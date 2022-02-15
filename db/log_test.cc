@@ -415,6 +415,12 @@ TEST_P(LogTest, BadRecordType) {
 }
 
 TEST_P(LogTest, TruncatedTrailingRecordIsIgnored) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   Write("foo");
   ShrinkSize(4);   // Drop all payload as well as a header byte
   ASSERT_EQ("EOF", Read());
@@ -471,6 +477,12 @@ TEST_P(LogTest, BadLengthAtEndIsIgnored) {
     // If read retry is allowed, then we should not raise an error when the
     // record length specified in header is longer than data currently
     // available. It's possible that the body of the record is not written yet.
+    return;
+  }
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
     return;
   }
   Write("foo");
@@ -587,6 +599,12 @@ TEST_P(LogTest, UnexpectedFirstType) {
 }
 
 TEST_P(LogTest, MissingLastIsIgnored) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   Write(BigString("bar", kBlockSize));
   // Remove the LAST block, including header.
   ShrinkSize(14);
@@ -616,6 +634,12 @@ TEST_P(LogTest, MissingLastIsNotIgnored) {
 }
 
 TEST_P(LogTest, PartialLastIsIgnored) {
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // Only run if WAL compression is not enabled.
+  if (compression_enabled) {
+    return;
+  }
   Write(BigString("bar", kBlockSize));
   // Cause a bad record length in the LAST block.
   ShrinkSize(1);
