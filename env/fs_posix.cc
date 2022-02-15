@@ -1043,6 +1043,110 @@ class PosixFileSystem : public FileSystem {
   }
 #endif  // ROCKSDB_IOURING_PRESENT
 
+  virtual IOStatus Poll(std::vector<void*>& io_handles,
+                        size_t min_completions) override {
+    IOStatus io_s;
+#if defined(ROCKSDB_IOURING_PRESENT)
+    // io_uring_queue_init.
+    struct io_uring* iu = nullptr;
+    if (thread_local_io_urings_) {
+      iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
+      if (iu == nullptr) {
+        iu = CreateIOUring();
+        if (iu != nullptr) {
+          thread_local_io_urings_->Reset(iu);
+        }
+      }
+    }
+
+    // Init failed, platform doesn't support io_uring.
+    if (iu == nullptr) {
+      return IOStatus::NotSupported("Poll");
+    }
+
+    size_t count = 0;
+    for (size_t i = 0; i < io_handles.size() && count < min_completions; i++) {
+      // The request has been completed in earlier runs.
+      if ((static_cast<Posix_IOHandle*>(io_handles[i]))->is_finished) {
+        count++;
+        continue;
+      }
+      // Loop until IO for io_handles[i] is completed.
+      while (true) {
+        // io_uring_wait_cqe.
+        struct io_uring_cqe* cqe = nullptr;
+        ssize_t ret = io_uring_wait_cqe(iu, &cqe);
+        if (ret) {
+          io_s = IOStatus::IOError("io_uring_wait_cqe() returns " +
+                                   ROCKSDB_NAMESPACE::ToString(ret));
+          if (cqe != nullptr) {
+            io_uring_cqe_seen(iu, cqe);
+          }
+          // TODO akankshamahajan: How to figure out if requested read for
+          // io_handles[i] showed error or it's some other request???
+          continue;
+        }
+
+        // Step 3: Populate the request.
+        Posix_IOHandle* posix_handle =
+            static_cast<Posix_IOHandle*>(io_uring_cqe_get_data(cqe));
+
+        assert(posix_handle->iu != iu);
+        if (posix_handle->iu != iu) {
+          return IOStatus::IOError("");
+        }
+        // Reset cqe data to catch any stray reuse of it
+        static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
+
+        FSReadRequest req;
+        req.scratch = posix_handle->req->scratch;
+        req.offset = posix_handle->req->offset;
+
+        if (cqe->res < 0) {
+          // Request failed.
+          req.result = Slice(req.scratch, 0);
+          req.status = IOStatus::IOError("Req failed");
+        } else {
+          size_t bytes_read = static_cast<size_t>(cqe->res);
+          if (bytes_read == posix_handle->iov.iov_len) {
+            // Request successfull.
+            req.result = Slice(req.scratch, req.len);
+            req.status = IOStatus::OK();
+          } else if (bytes_read == 0) {
+            // No  bytes read.
+            req.result = Slice(req.scratch, 0);
+            req.status = IOStatus::IOError("No bytes read");
+          } else if (bytes_read < posix_handle->iov.iov_len) {
+            // EOF, or partial results.
+            assert(bytes_read + posix_handle->finished_len < req.len);
+            req.result = Slice(req.scratch, posix_handle->finished_len);
+            req.status = IOStatus::OK();
+          } else {
+            // More bytes than requested.
+            req.result = Slice(req.scratch, 0);
+            req.status =
+                IOStatus::IOError("Req returned more bytes than requested");
+          }
+          posix_handle->is_finished = true;
+          io_uring_cqe_seen(iu, cqe);
+          posix_handle->cb(req, posix_handle->cb_arg);
+        }
+
+        Posix_IOHandle* expected_handle =
+            static_cast<Posix_IOHandle*>(io_handles[i]);
+        if (expected_handle->req->offset == posix_handle->req->offset &&
+            expected_handle->fd == posix_handle->fd) {
+          count++;
+          break;
+        }
+      }
+    }
+    return io_s;
+#else
+    return IOStatus::NotSupported("Poll");
+#endif
+  }
+
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance
   std::unique_ptr<ThreadLocalPtr> thread_local_io_urings_;

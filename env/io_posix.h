@@ -49,6 +49,19 @@ class PosixHelper {
                                                size_t* size);
 };
 
+#if defined(ROCKSDB_IOURING_PRESENT)
+struct Posix_IOHandle {
+  struct iovec iov;
+  struct io_uring* iu;
+  std::function<void(const FSReadRequest&, void*)> cb;
+  void* cb_arg;
+  FSReadRequest* req;
+  int fd;
+  size_t finished_len = 0;
+  bool is_finished = false;
+};
+#endif
+
 #ifdef OS_LINUX
 // Files under a specific directory have the same logical block size.
 // This class caches the logical block size for the specified directories to
@@ -210,6 +223,10 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
   virtual size_t GetRequiredBufferAlignment() const override {
     return logical_sector_size_;
   }
+  virtual IOStatus ReadAsync(
+      FSReadRequest& req, const IOOptions& opts,
+      std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+      void** io_handle, IOHandleDeleter* del_fn, IODebugContext* dbg) override;
 };
 
 class PosixWritableFile : public FSWritableFile {

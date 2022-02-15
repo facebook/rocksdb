@@ -872,6 +872,76 @@ IOStatus PosixRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
 #endif
 }
 
+IOStatus PosixRandomAccessFile::ReadAsync(
+    FSReadRequest& req, const IOOptions& /*opts*/,
+    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
+  IOStatus io_s;
+  if (use_direct_io()) {
+    assert(IsSectorAligned(req.offset, GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(req.len, GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(req.scratch, GetRequiredBufferAlignment()));
+  }
+
+#if defined(ROCKSDB_IOURING_PRESENT)
+  // io_uring_queue_init.
+  struct io_uring* iu = nullptr;
+  if (thread_local_io_urings_) {
+    iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
+    if (iu == nullptr) {
+      iu = CreateIOUring();
+      if (iu != nullptr) {
+        thread_local_io_urings_->Reset(iu);
+      }
+    }
+  }
+
+  // Init failed, platform doesn't support io_uring.
+  if (iu == nullptr) {
+    return IOStatus::NotSupported("ReadAsync");
+  }
+
+  // Allocate io_handle.
+  IOHandleDeleter deletefn = [](void* args) -> void {
+    delete (static_cast<Posix_IOHandle*>(args));
+    args = nullptr;
+  };
+
+  Posix_IOHandle* posix_handle = new Posix_IOHandle();
+  *io_handle = static_cast<void*>(posix_handle);
+  *del_fn = deletefn;
+
+  // Initialize Posix_IOHandle.
+  posix_handle->iu = iu;
+  posix_handle->req = &req;
+  posix_handle->iov.iov_base = posix_handle->req->scratch;
+  posix_handle->iov.iov_len = posix_handle->req->len;
+  posix_handle->cb = cb;
+  posix_handle->cb_arg = cb_arg;
+  posix_handle->fd = fd_;
+
+  // Step 3: io_uring_sqe_set_data
+  struct io_uring_sqe* sqe;
+  sqe = io_uring_get_sqe(iu);
+
+  io_uring_prep_readv(sqe, fd_, &posix_handle->iov, 1,
+                      posix_handle->req->offset);
+
+  io_uring_sqe_set_data(sqe, posix_handle);
+
+  // Step 4: io_uring_submit
+  ssize_t ret = io_uring_submit(iu);
+  if (ret < 0) {
+    fprintf(stderr, "io_uring_submit error: %ld\n", long(ret));
+    return IOStatus::IOError("io_uring_submit() requested but returned " +
+                             ToString(ret));
+  }
+  return io_s;
+#else
+  return IOStatus::NotSupported("ReadAsync");
+#endif
+}
+
 /*
  * PosixMmapReadableFile
  *
