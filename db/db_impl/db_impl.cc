@@ -1880,11 +1880,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       return s;
     }
   }
+  PinnedIteratorsManager pinned_iters_mgr;
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(
         read_options, lkey, get_impl_options.value, timestamp, &s,
-        &merge_context, &max_covering_tombstone_seq,
+        &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
         get_impl_options.get_value ? get_impl_options.value_found : nullptr,
         nullptr, nullptr,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
@@ -2076,11 +2077,13 @@ std::vector<Status> DBImpl::MultiGet(
     if (!done) {
       PinnableSlice pinnable_val;
       PERF_TIMER_GUARD(get_from_output_files_time);
-      super_version->current->Get(
-          read_options, lkey, &pinnable_val, timestamp, &s, &merge_context,
-          &max_covering_tombstone_seq, /*value_found=*/nullptr,
-          /*key_exists=*/nullptr,
-          /*seq=*/nullptr, read_callback);
+      PinnedIteratorsManager pinned_iters_mgr;
+      super_version->current->Get(read_options, lkey, &pinnable_val, timestamp,
+                                  &s, &merge_context,
+                                  &max_covering_tombstone_seq,
+                                  &pinned_iters_mgr, /*value_found=*/nullptr,
+                                  /*key_exists=*/nullptr,
+                                  /*seq=*/nullptr, read_callback);
       value->assign(pinnable_val.data(), pinnable_val.size());
       RecordTick(stats_, MEMTABLE_MISS);
     }
@@ -4573,10 +4576,12 @@ Status DBImpl::GetLatestSequenceForKey(
   // SST files if cache_only=true?
   if (!cache_only) {
     // Check tables
+    PinnedIteratorsManager pinned_iters_mgr;
     sv->current->Get(read_options, lkey, /*value=*/nullptr, timestamp, &s,
                      &merge_context, &max_covering_tombstone_seq,
-                     nullptr /* value_found */, found_record_for_key, seq,
-                     nullptr /*read_callback*/, is_blob_index);
+                     &pinned_iters_mgr, nullptr /* value_found */,
+                     found_record_for_key, seq, nullptr /*read_callback*/,
+                     is_blob_index);
 
     if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
       // unexpected error reading SST files
