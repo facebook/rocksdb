@@ -948,8 +948,8 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
       config_options, table_opt,
       "filter_policy=rocksdb.internal.DeprecatedBlockBasedBloomFilter:4",
       &new_opt));
-  auto builtin = dynamic_cast<const BuiltinFilterPolicy*>(
-      new_opt.filter_policy.get());
+  auto builtin =
+      dynamic_cast<const BuiltinFilterPolicy*>(new_opt.filter_policy.get());
   EXPECT_EQ(builtin->GetId(),
             "rocksdb.internal.DeprecatedBlockBasedBloomFilter:4");
 
@@ -957,23 +957,23 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt,
       "filter_policy=rocksdb.internal.LegacyBloomFilter:3", &new_opt));
-  builtin = dynamic_cast<const BuiltinFilterPolicy*>(
-      new_opt.filter_policy.get());
+  builtin =
+      dynamic_cast<const BuiltinFilterPolicy*>(new_opt.filter_policy.get());
   EXPECT_EQ(builtin->GetId(), "rocksdb.internal.LegacyBloomFilter:3");
 
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt,
       "filter_policy=rocksdb.internal.FastLocalBloomFilter:1.234", &new_opt));
-  builtin = dynamic_cast<const BuiltinFilterPolicy*>(
-      new_opt.filter_policy.get());
+  builtin =
+      dynamic_cast<const BuiltinFilterPolicy*>(new_opt.filter_policy.get());
   EXPECT_EQ(builtin->GetId(), "rocksdb.internal.FastLocalBloomFilter:1.234");
 
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt,
       "filter_policy=rocksdb.internal.Standard128RibbonFilter:1.234",
       &new_opt));
-  builtin = dynamic_cast<const BuiltinFilterPolicy*>(
-      new_opt.filter_policy.get());
+  builtin =
+      dynamic_cast<const BuiltinFilterPolicy*>(new_opt.filter_policy.get());
   EXPECT_EQ(builtin->GetId(), "rocksdb.internal.Standard128RibbonFilter:1.234");
 
   // Ribbon filter policy (no Bloom hybrid)
