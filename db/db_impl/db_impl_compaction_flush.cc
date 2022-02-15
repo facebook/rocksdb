@@ -1886,10 +1886,6 @@ Status DBImpl::RunManualCompaction(
             Status::Incomplete(Status::SubCode::kManualCompactionPaused);
         if (ca && ca->prepicked_compaction) {
           ca->prepicked_compaction->is_canceled = true;
-          if (ca->prepicked_compaction->compaction) {
-            ca->prepicked_compaction->compaction->ReleaseCompactionFiles(
-                manual.status);
-          }
         }
         break;
       }
@@ -2867,6 +2863,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
                        prepicked_compaction->compaction->column_family_data()
                            ->GetName()
                            .c_str());
+      prepicked_compaction->compaction->ReleaseCompactionFiles(
+          Status::Incomplete(Status::SubCode::kManualCompactionPaused));
       delete prepicked_compaction->compaction;
     } else {
       JobContext job_context(next_job_id_.fetch_add(1), true);
