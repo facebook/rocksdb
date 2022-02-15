@@ -206,7 +206,8 @@ TEST_P(TransactionTest, SwitchMemtableDuringPrepareAndCommit_WC) {
   } else {
     s = OpenWithStackableDB();
   }
-  assert(!s.ok() || db != nullptr);
+  ASSERT_OK(s);
+  assert(db);
 
   {
     std::string value;
