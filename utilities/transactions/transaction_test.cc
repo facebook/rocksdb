@@ -160,7 +160,7 @@ TEST_P(TransactionTest, SwitchMemtableDuringPrepareAndCommit_WC) {
 
   TransactionOptions txn_opts;
   txn_opts.use_only_the_last_commit_time_batch_for_recovery = true;
-  Transaction* txn = db->BeginTransaction(WriteOptions(), TransactionOptions());
+  Transaction* txn = db->BeginTransaction(WriteOptions(), txn_opts);
   assert(txn);
 
   SyncPoint::GetInstance()->DisableProcessing();
@@ -193,9 +193,6 @@ TEST_P(TransactionTest, SwitchMemtableDuringPrepareAndCommit_WC) {
     std::string value;
     ASSERT_OK(db->Get(ReadOptions(), "key1", &value));
     ASSERT_EQ("value", value);
-
-    ASSERT_OK(db->Get(ReadOptions(), "gtid", &value));
-    ASSERT_EQ("123", value);
   }
 
   delete db;
