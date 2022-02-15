@@ -159,7 +159,8 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
   // Generate filter for current set of keys and append to result_.
   filter_offsets_.push_back(static_cast<uint32_t>(result_.size()));
   DeprecatedBlockBasedBloomFilterPolicy::CreateFilter(
-      &tmp_entries_[0], static_cast<int>(num_entries), bits_per_key_, &result_);
+      tmp_entries_.data(), static_cast<int>(num_entries), bits_per_key_,
+      &result_);
 
   tmp_entries_.clear();
   entries_.clear();

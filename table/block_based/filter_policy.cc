@@ -19,6 +19,7 @@
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_reservation_manager.h"
 #include "logging/logging.h"
+#include "port/lang.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "table/block_based/block_based_filter_block.h"
@@ -1370,7 +1371,7 @@ FilterBitsBuilder* DeprecatedBlockBasedBloomFilterPolicy::GetBuilderWithContext(
   // Internal contract: returns a new fake builder that encodes bits per key
   // into a special value from EstimateEntriesAdded()
   struct B : public FilterBitsBuilder {
-    B(int bits_per_key) : est(kSecretBitsPerKeyStart + bits_per_key) {}
+    explicit B(int bits_per_key) : est(kSecretBitsPerKeyStart + bits_per_key) {}
     size_t est;
     size_t EstimateEntriesAdded() override { return est; }
     void AddKey(const Slice&) override {}
@@ -1899,12 +1900,15 @@ Status FilterPolicy::CreateFromString(
 #endif  // ROCKSDB_LITE
 }
 
-const std::vector<std::string> BloomLikeFilterPolicy::kAllFixedImpls = {
-    // Match filter_bench -impl=x ordering
-    test::LegacyBloomFilterPolicy::kName(),
-    DeprecatedBlockBasedBloomFilterPolicy::kName(),
-    test::FastLocalBloomFilterPolicy::kName(),
-    test::Standard128RibbonFilterPolicy::kName(),
-};
+const std::vector<std::string>& BloomLikeFilterPolicy::GetAllFixedImpls() {
+  STATIC_AVOID_DESTRUCTION(std::vector<std::string>, impls){
+      // Match filter_bench -impl=x ordering
+      test::LegacyBloomFilterPolicy::kName(),
+      DeprecatedBlockBasedBloomFilterPolicy::kName(),
+      test::FastLocalBloomFilterPolicy::kName(),
+      test::Standard128RibbonFilterPolicy::kName(),
+  };
+  return impls;
+}
 
 }  // namespace ROCKSDB_NAMESPACE

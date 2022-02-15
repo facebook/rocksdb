@@ -67,7 +67,7 @@ static void CustomArguments(benchmark::internal::Benchmark *b) {
 static void FilterBuild(benchmark::State &state) {
   // setup data
   auto filter = BloomLikeFilterPolicy::Create(
-      BloomLikeFilterPolicy::kAllFixedImpls[state.range(0)],
+      BloomLikeFilterPolicy::GetAllFixedImpls().at(state.range(0)),
       static_cast<double>(state.range(1)));
   auto tester = new mock::MockBlockBasedTableTester(filter);
   KeyMaker km(state.range(2));
@@ -90,7 +90,7 @@ BENCHMARK(FilterBuild)->Apply(CustomArguments);
 static void FilterQueryPositive(benchmark::State &state) {
   // setup data
   auto filter = BloomLikeFilterPolicy::Create(
-      BloomLikeFilterPolicy::kAllFixedImpls[state.range(0)],
+      BloomLikeFilterPolicy::GetAllFixedImpls().at(state.range(0)),
       static_cast<double>(state.range(1)));
   auto tester = new mock::MockBlockBasedTableTester(filter);
   KeyMaker km(state.range(2));
@@ -118,7 +118,7 @@ BENCHMARK(FilterQueryPositive)->Apply(CustomArguments);
 static void FilterQueryNegative(benchmark::State &state) {
   // setup data
   auto filter = BloomLikeFilterPolicy::Create(
-      BloomLikeFilterPolicy::kAllFixedImpls[state.range(0)],
+      BloomLikeFilterPolicy::GetAllFixedImpls().at(state.range(0)),
       static_cast<double>(state.range(1)));
   auto tester = new mock::MockBlockBasedTableTester(filter);
   KeyMaker km(state.range(2));

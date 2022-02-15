@@ -126,7 +126,7 @@ class BloomLikeFilterPolicy : public BuiltinFilterPolicy {
   // All the different underlying implementations that a BloomLikeFilterPolicy
   // might use, as a configuration string name for a testing mode for
   // "always use this implementation." Only appropriate for unit tests.
-  static const std::vector<std::string> kAllFixedImpls;
+  static const std::vector<std::string>& GetAllFixedImpls();
 
   // Convenience function for creating by name for fixed impls
   static std::shared_ptr<const FilterPolicy> Create(const std::string& name,
@@ -217,7 +217,11 @@ class RibbonFilterPolicy : public BloomLikeFilterPolicy {
   const int bloom_before_level_;
 };
 
-// Deprecated block-based filter only (no longer in public API)
+// Deprecated block-based filter only. We still support reading old
+// block-based filters from any BuiltinFilterPolicy, but there is no public
+// option to build them. However, this class is used to build them for testing
+// and for a public backdoor to building them by constructing this policy from
+// a string.
 class DeprecatedBlockBasedBloomFilterPolicy : public BloomLikeFilterPolicy {
  public:
   explicit DeprecatedBlockBasedBloomFilterPolicy(double bits_per_key);

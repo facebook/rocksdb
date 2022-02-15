@@ -2610,7 +2610,7 @@ int CountIter(std::unique_ptr<Iterator>& iter, const Slice& key) {
 // into the same string, or 2) the transformed seek key is of the same length
 // as the upper bound and two keys are adjacent according to the comparator.
 TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
-  for (auto bfp_impl : BloomLikeFilterPolicy::kAllFixedImpls) {
+  for (const auto& bfp_impl : BloomLikeFilterPolicy::GetAllFixedImpls()) {
     int using_full_builder = bfp_impl != kDeprecatedBlock;
     Options options;
     options.create_if_missing = true;
@@ -2742,7 +2742,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
 // Create multiple SST files each with a different prefix_extractor config,
 // verify iterators can read all SST files using the latest config.
 TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
-  for (auto bfp_impl : BloomLikeFilterPolicy::kAllFixedImpls) {
+  for (const auto& bfp_impl : BloomLikeFilterPolicy::GetAllFixedImpls()) {
     int using_full_builder = bfp_impl != kDeprecatedBlock;
     Options options;
     options.env = CurrentOptions().env;
@@ -2878,7 +2878,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
 // as expected
 TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
   int iteration = 0;
-  for (auto bfp_impl : BloomLikeFilterPolicy::kAllFixedImpls) {
+  for (const auto& bfp_impl : BloomLikeFilterPolicy::GetAllFixedImpls()) {
     Options options = CurrentOptions();
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -2934,7 +2934,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
 // Verify it's possible to change prefix_extractor at runtime and iterators
 // behaves as expected
 TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
-  for (auto bfp_impl : BloomLikeFilterPolicy::kAllFixedImpls) {
+  for (const auto& bfp_impl : BloomLikeFilterPolicy::GetAllFixedImpls()) {
     Options options;
     options.env = CurrentOptions().env;
     options.create_if_missing = true;
