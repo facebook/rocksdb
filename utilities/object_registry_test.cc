@@ -599,6 +599,69 @@ TEST_F(PatternEntryTest, TestNumericEntry) {
   ASSERT_FALSE(entry.Matches("A:B"));
   ASSERT_FALSE(entry.Matches("A:1B"));
   ASSERT_FALSE(entry.Matches("A:B1"));
+
+  entry.AddSeparator(":", false);
+  ASSERT_FALSE(entry.Matches("A"));
+  ASSERT_FALSE(entry.Matches("AA"));
+  ASSERT_FALSE(entry.Matches("A:"));
+  ASSERT_FALSE(entry.Matches("AA:"));
+  ASSERT_TRUE(entry.Matches("A:1:"));
+  ASSERT_TRUE(entry.Matches("A:11:"));
+  ASSERT_FALSE(entry.Matches("A:1"));
+  ASSERT_FALSE(entry.Matches("A:B1:"));
+  ASSERT_FALSE(entry.Matches("A:1B:"));
+  ASSERT_FALSE(entry.Matches("A::"));
+}
+
+TEST_F(PatternEntryTest, TestDoubleEntry) {
+  ObjectLibrary::PatternEntry entry("A", false);
+  entry.AddNumber(":", false);
+  ASSERT_FALSE(entry.Matches("A"));
+  ASSERT_FALSE(entry.Matches("AA"));
+  ASSERT_FALSE(entry.Matches("A:"));
+  ASSERT_FALSE(entry.Matches("AA:"));
+  ASSERT_FALSE(entry.Matches("AA:1"));
+  ASSERT_FALSE(entry.Matches("AA:11"));
+  ASSERT_FALSE(entry.Matches("A:B"));
+  ASSERT_FALSE(entry.Matches("A:1B"));
+  ASSERT_FALSE(entry.Matches("A:B1"));
+  ASSERT_TRUE(entry.Matches("A:1"));
+  ASSERT_TRUE(entry.Matches("A:11"));
+  ASSERT_TRUE(entry.Matches("A:1.1"));
+  ASSERT_TRUE(entry.Matches("A:11.11"));
+  ASSERT_TRUE(entry.Matches("A:1."));
+  ASSERT_TRUE(entry.Matches("A:.1"));
+  ASSERT_TRUE(entry.Matches("A:0.1"));
+  ASSERT_TRUE(entry.Matches("A:1.0"));
+  ASSERT_TRUE(entry.Matches("A:1.0"));
+
+  ASSERT_FALSE(entry.Matches("A:1.0."));
+  ASSERT_FALSE(entry.Matches("A:1.0.2"));
+  ASSERT_FALSE(entry.Matches("A:.1.0"));
+  ASSERT_FALSE(entry.Matches("A:..10"));
+  ASSERT_FALSE(entry.Matches("A:10.."));
+  ASSERT_FALSE(entry.Matches("A:."));
+
+  entry.AddSeparator(":", false);
+  ASSERT_FALSE(entry.Matches("A:1"));
+  ASSERT_FALSE(entry.Matches("A:1.0"));
+
+  ASSERT_TRUE(entry.Matches("A:11:"));
+  ASSERT_TRUE(entry.Matches("A:1.1:"));
+  ASSERT_TRUE(entry.Matches("A:11.11:"));
+  ASSERT_TRUE(entry.Matches("A:1.:"));
+  ASSERT_TRUE(entry.Matches("A:.1:"));
+  ASSERT_TRUE(entry.Matches("A:0.1:"));
+  ASSERT_TRUE(entry.Matches("A:1.0:"));
+  ASSERT_TRUE(entry.Matches("A:1.0:"));
+
+  ASSERT_FALSE(entry.Matches("A:1.0.:"));
+  ASSERT_FALSE(entry.Matches("A:1.0.2:"));
+  ASSERT_FALSE(entry.Matches("A:.1.0:"));
+  ASSERT_FALSE(entry.Matches("A:..10:"));
+  ASSERT_FALSE(entry.Matches("A:10..:"));
+  ASSERT_FALSE(entry.Matches("A:.:"));
+  ASSERT_FALSE(entry.Matches("A::"));
 }
 
 TEST_F(PatternEntryTest, TestIndividualIdEntry) {

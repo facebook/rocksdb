@@ -13,6 +13,39 @@
 #include "rocksdb/env.h"
 #include "util/string_util.h"
 
+namespace {
+bool MatchesInteger(const std::string &target, size_t start, size_t pos) {
+  // If it is numeric, everything up to the match must be a number
+  int digits = 0;
+  while (start < pos) {
+    if (!isdigit(target[start++])) {
+      return false;
+    } else {
+      digits++;
+    }
+  }
+  return (digits > 0);
+}
+
+bool MatchesDouble(const std::string &target, size_t start, size_t pos) {
+  int digits = 0;
+  for (bool point = false; start < pos; start++) {
+    if (target[start] == '.') {
+      if (point) {
+        return false;
+      } else {
+        point = true;
+      }
+    } else if (!isdigit(target[start])) {
+      return false;
+    } else {
+      digits++;
+    }
+  }
+  return (digits > 0);
+}
+}  // namespace
+
 namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 size_t ObjectLibrary::PatternEntry::MatchSeparatorAt(
@@ -36,12 +69,13 @@ size_t ObjectLibrary::PatternEntry::MatchSeparatorAt(
     }
     if (pos == std::string::npos) {
       return pos;
-    } else if (mode == kMatchNumeric) {
-      // If it is numeric, everything up to the match must be a number
-      while (start < pos) {
-        if (!isdigit(target[start++])) {
-          return std::string::npos;
-        }
+    } else if (mode == kMatchInteger) {
+      if (!MatchesInteger(target, start, pos)) {
+        return std::string::npos;
+      }
+    } else if (mode == kMatchDouble) {
+      if (!MatchesDouble(target, start, pos)) {
+        return std::string::npos;
       }
     }
     return pos + slen;
@@ -84,12 +118,10 @@ bool ObjectLibrary::PatternEntry::MatchesTarget(const std::string &name,
       return (start == tlen);
     } else if (start > tlen || (start == tlen && mode != kMatchZeroOrMore)) {
       return false;
-    } else if (mode == kMatchNumeric) {
-      while (start < tlen) {
-        if (!isdigit(target[start++])) {
-          return false;
-        }
-      }
+    } else if (mode == kMatchInteger) {
+      return MatchesInteger(target, start, tlen);
+    } else if (mode == kMatchDouble) {
+      return MatchesDouble(target, start, tlen);
     }
   }
   return true;
