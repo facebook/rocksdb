@@ -87,12 +87,12 @@ std::shared_ptr<Compressor> GetCompressor(const VersionStorageInfo* vstorage,
   // If bottommost_compression is set and we are compacting to the
   // bottommost level then we should use it.
   bool bottom_level = (level >= (vstorage->num_non_empty_levels() - 1));
-  if (moptions.bottommost_compressor != nullptr && bottom_level) {
-    return moptions.bottommost_compressor;
+  if (moptions.derived_bottommost_compressor != nullptr && bottom_level) {
+    return moptions.derived_bottommost_compressor;
   }
   // If the user has specified a different compression level for each level,
   // then pick the compression for that level.
-  if (!moptions.compressor_per_level.empty()) {
+  if (!moptions.derived_compressor_per_level.empty()) {
     // It is possible for level_ to be -1; in that case, we use level
     // 0's compression.  This occurs mostly in backwards compatibility
     // situations when the builder doesn't know what level the file
@@ -101,7 +101,8 @@ std::shared_ptr<Compressor> GetCompressor(const VersionStorageInfo* vstorage,
     assert(level == 0 || level >= base_level);
     int lvl = std::max(0, level - base_level + 1);
     int idx = std::min(
-        static_cast<int>(moptions.compressor_per_level.size()) - 1, lvl);
+        static_cast<int>(moptions.derived_compressor_per_level.size()) - 1,
+        lvl);
     // If not specified directly by the user, compressors in
     // compressor_per_level are instantiated using compression_opts. If the user
     // enabled bottommost_compression_opts, we need to create a new compressor
@@ -112,10 +113,10 @@ std::shared_ptr<Compressor> GetCompressor(const VersionStorageInfo* vstorage,
           moptions.compression_per_level[idx],
           moptions.bottommost_compression_opts);
     } else {
-      return moptions.compressor_per_level[idx];
+      return moptions.derived_compressor_per_level[idx];
     }
   } else {
-    return moptions.compressor;
+    return moptions.derived_compressor;
   }
 }
 

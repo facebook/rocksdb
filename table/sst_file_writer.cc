@@ -341,14 +341,14 @@ Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
   sst_file->SetIOPriority(r->io_priority);
 
   std::shared_ptr<Compressor> compressor;
-  if (r->mutable_cf_options.bottommost_compressor != nullptr) {
-    compressor = r->mutable_cf_options.bottommost_compressor;
-  } else if (r->mutable_cf_options.compressor_per_level.empty()) {
-    compressor = r->mutable_cf_options.compressor;
+  if (r->mutable_cf_options.derived_bottommost_compressor != nullptr) {
+    compressor = r->mutable_cf_options.derived_bottommost_compressor;
+  } else if (r->mutable_cf_options.derived_compressor_per_level.empty()) {
+    compressor = r->mutable_cf_options.derived_compressor;
   } else {
     // Use the compression of the last level if we have per level compression
-    auto levels = r->mutable_cf_options.compressor_per_level.size();
-    compressor = r->mutable_cf_options.compressor_per_level[levels - 1];
+    auto levels = r->mutable_cf_options.derived_compressor_per_level.size();
+    compressor = r->mutable_cf_options.derived_compressor_per_level[levels - 1];
   }
 
   InternalTblPropCollFactories internal_tbl_prop_coll_factories;

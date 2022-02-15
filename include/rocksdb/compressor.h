@@ -164,7 +164,9 @@ class Compressor : public Customizable {
   static std::vector<std::string> GetDictSupported();
 
   // Get the numeric type associated with this compressor
-  virtual CompressionType GetCompressionType() const = 0;
+  virtual CompressionType GetCompressionType() const {
+    return kPluginCompression;
+  };
 
   // Whether the compressor is supported.
   // For example, a compressor can implement this method to verify its

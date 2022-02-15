@@ -113,17 +113,18 @@ void GetInternalTblPropCollFactory(
 Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
   MutableCFOptions moptions(cf_options);
   ImmutableCFOptions ioptions(cf_options);
-  if (moptions.compressor && !moptions.compressor->Supported()) {
+  if (moptions.derived_compressor &&
+      !moptions.derived_compressor->Supported()) {
     return Status::InvalidArgument("Compression type " +
-                                   moptions.compressor->GetId() +
+                                   moptions.derived_compressor->GetId() +
                                    " is not linked with the binary.");
-  } else if (moptions.bottommost_compressor &&
-             !moptions.bottommost_compressor->Supported()) {
-    return Status::InvalidArgument("Compression type " +
-                                   moptions.bottommost_compressor->GetId() +
-                                   " is not linked with the binary.");
-  } else if (!moptions.compressor_per_level.empty()) {
-    for (const auto& compressor : moptions.compressor_per_level) {
+  } else if (moptions.derived_bottommost_compressor &&
+             !moptions.derived_bottommost_compressor->Supported()) {
+    return Status::InvalidArgument(
+        "Compression type " + moptions.derived_bottommost_compressor->GetId() +
+        " is not linked with the binary.");
+  } else if (!moptions.derived_compressor_per_level.empty()) {
+    for (const auto& compressor : moptions.derived_compressor_per_level) {
       if (compressor == nullptr) {
         return Status::InvalidArgument("Compression type is invalid.");
       } else if (!compressor->Supported()) {
@@ -153,9 +154,10 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
           "should be nonzero if we're using zstd's dictionary generator.");
     }
   }
-  if (moptions.blob_compressor && !moptions.blob_compressor->Supported()) {
+  if (moptions.derived_blob_compressor &&
+      !moptions.derived_blob_compressor->Supported()) {
     return Status::InvalidArgument("Blob compression type " +
-                                   moptions.blob_compressor->GetId() +
+                                   moptions.derived_blob_compressor->GetId() +
                                    " is not linked with the binary.");
   }
   return Status::OK();

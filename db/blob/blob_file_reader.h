@@ -13,7 +13,6 @@
 #include "rocksdb/compression_type.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "util/autovector.h"
-#include "util/compressor.h"
 
 namespace ROCKSDB_NAMESPACE {
 

@@ -12,7 +12,6 @@
 #include "file/random_access_file_reader.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "util/compressor.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace blob_db {

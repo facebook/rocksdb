@@ -61,6 +61,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       bloom_locality(options.bloom_locality),
       arena_block_size(options.arena_block_size),
       compression_per_level(options.compression_per_level),
+      compressor_per_level(options.compressor_per_level),
       num_levels(options.num_levels),
       level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
       level0_stop_writes_trigger(options.level0_stop_writes_trigger),
@@ -104,6 +105,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       min_blob_size(options.min_blob_size),
       blob_file_size(options.blob_file_size),
       blob_compression_type(options.blob_compression_type),
+      blob_compressor(options.blob_compressor),
       enable_blob_garbage_collection(options.enable_blob_garbage_collection),
       blob_garbage_collection_age_cutoff(
           options.blob_garbage_collection_age_cutoff),
@@ -169,14 +171,17 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   MutableCFOptions moptions(*this);
   ConfigOptions config_options;
 
-  if (!moptions.compressor_per_level.empty()) {
-    for (unsigned int i = 0; i < moptions.compressor_per_level.size(); i++) {
-      ROCKS_LOG_HEADER(log, "       Options.compression[%d]: %s", i,
-                       moptions.compressor_per_level[i]->GetId().c_str());
+  if (!moptions.derived_compressor_per_level.empty()) {
+    for (unsigned int i = 0; i < moptions.derived_compressor_per_level.size();
+         i++) {
+      ROCKS_LOG_HEADER(
+          log, "       Options.compression[%d]: %s", i,
+          moptions.derived_compressor_per_level[i]->GetId().c_str());
     }
-  } else if (moptions.compressor) {
-    ROCKS_LOG_HEADER(log, "         Options.compression: %s",
-                     moptions.compressor->ToString(config_options).c_str());
+  } else if (moptions.derived_compressor) {
+    ROCKS_LOG_HEADER(
+        log, "         Options.compression: %s",
+        moptions.derived_compressor->ToString(config_options).c_str());
   } else {
     ROCKS_LOG_HEADER(
         log, "         Options.compression: %s",
@@ -209,10 +214,11 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      "%" PRIu64,
                      compression_opts.max_dict_buffer_bytes);
   }
-  if (moptions.bottommost_compressor) {
+  if (moptions.derived_bottommost_compressor) {
     ROCKS_LOG_HEADER(
         log, "                 Options.bottommost_compression: %s",
-        moptions.bottommost_compressor->ToString(config_options).c_str());
+        moptions.derived_bottommost_compressor->ToString(config_options)
+            .c_str());
   } else {
     ROCKS_LOG_HEADER(
         log, "                 Options.bottommost_compression: %s",
@@ -432,9 +438,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "                         Options.blob_file_size: %" PRIu64,
                    blob_file_size);
-  if (moptions.blob_compressor) {
+  if (moptions.derived_blob_compressor) {
     ROCKS_LOG_HEADER(log, "                  Options.blob_compression: %s",
-                     moptions.blob_compressor->GetId().c_str());
+                     moptions.derived_blob_compressor->GetId().c_str());
   } else {
     ROCKS_LOG_HEADER(
         log, "                  Options.blob_compression_type: %s",

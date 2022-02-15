@@ -66,7 +66,7 @@ BlobFileBuilder::BlobFileBuilder(
       immutable_options_(immutable_options),
       min_blob_size_(mutable_cf_options->min_blob_size),
       blob_file_size_(mutable_cf_options->blob_file_size),
-      blob_compressor_(mutable_cf_options->blob_compressor),
+      blob_compressor_(mutable_cf_options->derived_blob_compressor),
       prepopulate_blob_cache_(mutable_cf_options->prepopulate_blob_cache),
       file_options_(file_options),
       write_options_(write_options),

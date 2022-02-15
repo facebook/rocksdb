@@ -128,14 +128,14 @@ std::shared_ptr<Compressor> GetCompressionFlush(
   // latency overhead is not offset by saving much space.
   if (ioptions.compaction_style == kCompactionStyleUniversal) {
     if (moptions.compaction_options_universal.compression_size_percent < 0) {
-      return moptions.compressor;
+      return moptions.derived_compressor;
     } else {
       return BuiltinCompressor::GetCompressor(kNoCompression);
     }
-  } else if (moptions.compressor_per_level.empty()) {
-    return moptions.compressor;
+  } else if (moptions.derived_compressor_per_level.empty()) {
+    return moptions.derived_compressor;
   } else {
-    return moptions.compressor_per_level[0];
+    return moptions.derived_compressor_per_level[0];
   }
 }
 

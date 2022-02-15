@@ -23,12 +23,12 @@
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "port/port.h"
+#include "rocksdb/compressor.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
-#include "util/compressor.h"
 #include "util/random.h"
 #include "util/string_util.h"
 

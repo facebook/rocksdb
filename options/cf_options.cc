@@ -19,6 +19,7 @@
 #include "port/port.h"
 #include "rocksdb/advanced_cache.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/compressor.h"
 #include "rocksdb/concurrent_task_limiter.h"
 #include "rocksdb/configurable.h"
 #include "rocksdb/convenience.h"
@@ -31,7 +32,6 @@
 #include "rocksdb/utilities/options_type.h"
 #include "util/cast_util.h"
 #include "util/compression.h"
-#include "util/compressor.h"
 #include "util/string_util.h"
 
 // NOTE: in this file, many option flags that were deprecated
@@ -513,6 +513,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, compression),
           OptionType::kCompressionType, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"compressor",
+         OptionTypeInfo::AsCustomSharedPtr<Compressor>(
+             offsetof(struct MutableCFOptions, compressor),
+             OptionVerificationType::kByNameAllowNull,
+             OptionTypeFlags::kMutable | OptionTypeFlags::kAllowNull)},
         {"prefix_extractor",
          OptionTypeInfo::AsCustomSharedPtr<const SliceTransform>(
              offsetof(struct MutableCFOptions, prefix_extractor),
@@ -590,6 +595,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, blob_compression_type),
           OptionType::kCompressionType, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"blob_compressor",
+         OptionTypeInfo::AsCustomSharedPtr<Compressor>(
+             offsetof(struct MutableCFOptions, blob_compressor),
+             OptionVerificationType::kByNameAllowNull,
+             OptionTypeFlags::kMutable | OptionTypeFlags::kAllowNull)},
         {"enable_blob_garbage_collection",
          {offsetof(struct MutableCFOptions, enable_blob_garbage_collection),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -623,11 +633,22 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, bottommost_compression),
           OptionType::kCompressionType, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"bottommost_compressor",
+         OptionTypeInfo::AsCustomSharedPtr<Compressor>(
+             offsetof(struct MutableCFOptions, bottommost_compressor),
+             OptionVerificationType::kByNameAllowNull,
+             OptionTypeFlags::kMutable | OptionTypeFlags::kAllowNull)},
         {"compression_per_level",
          OptionTypeInfo::Vector<CompressionType>(
              offsetof(struct MutableCFOptions, compression_per_level),
              OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
              {0, OptionType::kCompressionType})},
+        {"compressor_per_level",
+         OptionTypeInfo::Vector<std::shared_ptr<Compressor>>(
+             offsetof(struct MutableCFOptions, compressor_per_level),
+             OptionVerificationType::kByName, OptionTypeFlags::kMutable,
+             OptionTypeInfo::AsCustomSharedPtr<Compressor>(
+                 0, OptionVerificationType::kByName, OptionTypeFlags::kNone))},
         {"experimental_mempurge_threshold",
          {offsetof(struct MutableCFOptions, experimental_mempurge_threshold),
           OptionType::kDouble, OptionVerificationType::kNormal,
@@ -1114,6 +1135,7 @@ MutableCFOptions::MutableCFOptions(const ColumnFamilyOptions& options)
       min_blob_size(options.min_blob_size),
       blob_file_size(options.blob_file_size),
       blob_compression_type(options.blob_compression_type),
+      blob_compressor(options.blob_compressor),
       enable_blob_garbage_collection(options.enable_blob_garbage_collection),
       blob_garbage_collection_age_cutoff(
           options.blob_garbage_collection_age_cutoff),
@@ -1127,7 +1149,9 @@ MutableCFOptions::MutableCFOptions(const ColumnFamilyOptions& options)
       paranoid_file_checks(options.paranoid_file_checks),
       report_bg_io_stats(options.report_bg_io_stats),
       compression(options.compression),
+      compressor(options.compressor),
       bottommost_compression(options.bottommost_compression),
+      bottommost_compressor(options.bottommost_compressor),
       compression_opts(options.compression_opts),
       bottommost_compression_opts(options.bottommost_compression_opts),
       last_level_temperature(options.last_level_temperature),
@@ -1139,6 +1163,7 @@ MutableCFOptions::MutableCFOptions(const ColumnFamilyOptions& options)
       sample_for_compression(
           options.sample_for_compression),  // TODO: is 0 fine here?
       compression_per_level(options.compression_per_level),
+      compressor_per_level(options.compressor_per_level),
       memtable_max_range_deletions(options.memtable_max_range_deletions),
       bottommost_file_compaction_delay(
           options.bottommost_file_compaction_delay),
@@ -1215,27 +1240,55 @@ void MutableCFOptions::RefreshDerivedOptions(int num_levels,
       max_file_size[i] = target_file_size_base;
     }
   }
-  compressor = BuiltinCompressor::GetCompressor(compression, compression_opts);
 
-  if (bottommost_compression != kDisableCompressionOption) {
-    if (bottommost_compression_opts.enabled) {
-      bottommost_compressor = BuiltinCompressor::GetCompressor(
-          bottommost_compression, bottommost_compression_opts);
-    } else {
-      bottommost_compressor = BuiltinCompressor::GetCompressor(
-          bottommost_compression, compression_opts);
+  derived_compressor.reset();
+  if (compressor == nullptr) {
+    derived_compressor =
+        BuiltinCompressor::GetCompressor(compression, compression_opts);
+    if (derived_compressor == nullptr) {
+      derived_compressor = BuiltinCompressor::GetCompressor(kSnappyCompression);
     }
+  } else {
+    derived_compressor = compressor;
   }
 
-  if (blob_compression_type != kDisableCompressionOption) {
-    blob_compressor = BuiltinCompressor::GetCompressor(blob_compression_type,
-                                                       compression_opts);
+  derived_bottommost_compressor.reset();
+  if (bottommost_compressor == nullptr) {
+    if (bottommost_compression != kDisableCompressionOption) {
+      if (bottommost_compression_opts.enabled) {
+        derived_bottommost_compressor = BuiltinCompressor::GetCompressor(
+            bottommost_compression, bottommost_compression_opts);
+      } else {
+        derived_bottommost_compressor = BuiltinCompressor::GetCompressor(
+            bottommost_compression, compression_opts);
+      }
+    }
+  } else {
+    derived_bottommost_compressor = bottommost_compressor;
   }
+
+  derived_blob_compressor.reset();
+  if (blob_compressor == nullptr) {
+    if (blob_compression_type != kDisableCompressionOption) {
+      derived_blob_compressor = BuiltinCompressor::GetCompressor(
+          blob_compression_type, compression_opts);
+    }
+    if (derived_blob_compressor == nullptr) {
+      derived_blob_compressor =
+          BuiltinCompressor::GetCompressor(kNoCompression);
+    }
+  } else {
+    derived_blob_compressor = blob_compressor;
+  }
+
+  derived_compressor_per_level.clear();
   if (compressor_per_level.empty()) {
     for (auto type : compression_per_level) {
-      compressor_per_level.push_back(
+      derived_compressor_per_level.push_back(
           BuiltinCompressor::GetCompressor(type, compression_opts));
     }
+  } else {
+    derived_compressor_per_level = compressor_per_level;
   }
 }
 

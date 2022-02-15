@@ -384,7 +384,7 @@ class TableConstructor : public Constructor {
         TableBuilderOptions(ioptions, moptions, read_options, write_options,
                             internal_comparator,
                             &internal_tbl_prop_coll_factories,
-                            moptions.compressor, kUnknownColumnFamily,
+                            moptions.derived_compressor, kUnknownColumnFamily,
                             column_family_name, level_, kUnknownNewestKeyTime),
         file_writer_.get()));
 
@@ -4465,7 +4465,7 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
   builder.reset(moptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, read_options, write_options,
                           *comparator, &internal_tbl_prop_coll_factories,
-                          moptions.compressor, kUnknownColumnFamily,
+                          moptions.derived_compressor, kUnknownColumnFamily,
                           column_family_name, level, kUnknownNewestKeyTime),
       f.GetFileWriter()));
   ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
@@ -4503,7 +4503,7 @@ TEST_P(BlockBasedTableTest, Crc32cFileChecksum) {
   builder.reset(moptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, read_options, write_options,
                           *comparator, &internal_tbl_prop_coll_factories,
-                          moptions.compressor, kUnknownColumnFamily,
+                          moptions.derived_compressor, kUnknownColumnFamily,
                           column_family_name, level, kUnknownNewestKeyTime),
       f.GetFileWriter()));
   ASSERT_OK(f.ResetTableBuilder(std::move(builder)));

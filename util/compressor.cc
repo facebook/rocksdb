@@ -86,7 +86,7 @@ bool CreateIfMatches(const std::string& id, std::shared_ptr<Compressor>* c) {
   }
 }
 
-static Status NewCompressor(const ConfigOptions& /*config_options*/,
+static Status NewCompressor(const ConfigOptions& config_options,
                             const std::string& id,
                             std::shared_ptr<Compressor>* result) {
   if (CreateIfMatches<NoCompressor>(id, result) ||
@@ -100,6 +100,10 @@ static Status NewCompressor(const ConfigOptions& /*config_options*/,
       CreateIfMatches<ZSTDNotFinalCompressor>(id, result)) {
     return Status::OK();
   } else {
+    Status s = LoadSharedObject<Compressor>(config_options, id, result);
+    if (s.ok() && *result != nullptr) {
+      return Status::OK();
+    }
     return Status::NotSupported("Cannot find compressor ", id);
   }
 }

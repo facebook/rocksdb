@@ -10,6 +10,7 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/compressor.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/file_system.h"
@@ -19,7 +20,6 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
 #include "test_util/testharness.h"
-#include "util/compressor.h"
 #include "utilities/memory_allocators.h"
 
 namespace ROCKSDB_NAMESPACE {

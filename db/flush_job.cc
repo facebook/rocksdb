@@ -1153,7 +1153,7 @@ std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
   info->table_properties = table_properties_;
   info->flush_reason = flush_reason_;
   info->blob_compression_type =
-      mutable_cf_options_.blob_compressor->GetCompressionType();
+      mutable_cf_options_.derived_blob_compressor->GetCompressionType();
 
   // Update BlobFilesInfo.
   for (const auto& blob_file : edit_->GetBlobFileAdditions()) {

@@ -34,6 +34,10 @@ enum CompressionType : unsigned char {
   // eventually remove the option from the public API.
   kZSTDNotFinalCompression = 0x40,
 
+  // Used as block compression type identifier when using a non built-in
+  // compressor.
+  kPluginCompression = 0x41,
+
   // kDisableCompressionOption is used to disable some compression options.
   kDisableCompressionOption = 0xff,
 };

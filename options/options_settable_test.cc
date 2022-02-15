@@ -506,6 +506,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<const SliceTransform>)},
       {offsetof(struct ColumnFamilyOptions, compression_per_level),
        sizeof(std::vector<CompressionType>)},
+      {offsetof(struct ColumnFamilyOptions, compressor_per_level),
+       sizeof(std::vector<std::shared_ptr<Compressor>>)},
       {offsetof(struct ColumnFamilyOptions,
                 max_bytes_for_level_multiplier_additional),
        sizeof(std::vector<int>)},
@@ -520,6 +522,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(uint64_t)},
       {offsetof(struct ColumnFamilyOptions, preserve_internal_time_seconds),
        sizeof(uint64_t)},
+      {offsetof(struct ColumnFamilyOptions, blob_compressor),
+       sizeof(std::shared_ptr<Compressor>)},
       {offsetof(struct ColumnFamilyOptions, blob_cache),
        sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct ColumnFamilyOptions, comparator), sizeof(Comparator*)},
@@ -529,6 +533,10 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(const CompactionFilter*)},
       {offsetof(struct ColumnFamilyOptions, compaction_filter_factory),
        sizeof(std::shared_ptr<CompactionFilterFactory>)},
+      {offsetof(struct ColumnFamilyOptions, compressor),
+       sizeof(std::shared_ptr<Compressor>)},
+      {offsetof(struct ColumnFamilyOptions, bottommost_compressor),
+       sizeof(std::shared_ptr<Compressor>)},
       {offsetof(struct ColumnFamilyOptions, prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
       {offsetof(struct ColumnFamilyOptions, snap_refresh_nanos),
@@ -722,6 +730,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::vector<std::shared_ptr<Compressor>>)},
       {offsetof(struct MutableCFOptions, max_file_size),
        sizeof(std::vector<uint64_t>)},
+      {offsetof(struct MutableCFOptions, derived_compressor_per_level),
+       sizeof(std::vector<std::shared_ptr<Compressor>>)},
   };
 
   // For all memory used for options, pre-fill every char. Otherwise, the

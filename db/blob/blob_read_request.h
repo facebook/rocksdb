@@ -8,10 +8,10 @@
 #include <cinttypes>
 
 #include "rocksdb/compression_type.h"
+#include "rocksdb/compressor.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "util/autovector.h"
-#include "util/compressor.h"
 
 namespace ROCKSDB_NAMESPACE {
 

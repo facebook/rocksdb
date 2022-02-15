@@ -21,6 +21,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 class OptionTypeInfo;
@@ -1133,15 +1134,23 @@ Status ParseVector(const ConfigOptions& config_options,
   result->clear();
   Status status;
 
+  // If the input string starts and ends with "{{...}}", strip off the outer
+  // brackets
+  std::string opts = value;
+  if (opts.size() > 4 && opts[0] == '{' && opts[1] == '{' &&
+      opts[opts.size() - 2] == '}' && opts[opts.size() - 1] == '}') {
+    opts = trim(opts.substr(1, opts.size() - 2));
+  }
+
   // Turn off ignore_unknown_objects so we can tell if the returned
   // object is valid or not.
   ConfigOptions copy = config_options;
   copy.ignore_unsupported_options = false;
   for (size_t start = 0, end = 0;
-       status.ok() && start < value.size() && end != std::string::npos;
+       status.ok() && start < opts.size() && end != std::string::npos;
        start = end + 1) {
     std::string token;
-    status = OptionTypeInfo::NextToken(value, separator, start, &end, &token);
+    status = OptionTypeInfo::NextToken(opts, separator, start, &end, &token);
     if (status.ok()) {
       T elem;
       status = elem_info.Parse(copy, name, token, &elem);
@@ -1156,6 +1165,22 @@ Status ParseVector(const ConfigOptions& config_options,
     }
   }
   return status;
+}
+
+static inline bool IsSeparatorNotEnclosed(std::string& str, char separator) {
+  size_t pos = 0;
+  int count = 0;
+  while (pos < str.size()) {
+    if (str[pos] == separator && count == 0) {
+      return true;
+    } else if (str[pos] == '{') {
+      count++;
+    } else if (str[pos] == '}') {
+      count--;
+    }
+    pos++;
+  }
+  return false;
 }
 
 // Serializes the input vector into its output value.  Elements are
@@ -1194,17 +1219,18 @@ Status SerializeVector(const ConfigOptions& config_options,
       if (printed++ > 0) {
         result += separator;
       }
-      // If the element contains embedded separators, put it inside of brackets
-      if (elem_str.find(separator) != std::string::npos) {
+      // If the element contains embedded separators not already enclosed by
+      // brackets, put it inside of brackets
+      if (IsSeparatorNotEnclosed(elem_str, separator)) {
         result += "{" + elem_str + "}";
       } else {
         result += elem_str;
       }
     }
   }
-  if (result.find("=") != std::string::npos) {
+  if (IsSeparatorNotEnclosed(result, '=')) {
     *value = "{" + result + "}";
-  } else if (printed > 1 && result.at(0) == '{') {
+  } else if (printed > 0 && result.at(0) == '{') {
     *value = "{" + result + "}";
   } else {
     *value = result;

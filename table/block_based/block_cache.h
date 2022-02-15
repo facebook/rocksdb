@@ -12,11 +12,11 @@
 
 #include "cache/typed_cache.h"
 #include "port/lang.h"
+#include "rocksdb/compressor.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_type.h"
 #include "table/block_based/parsed_full_filter_block.h"
 #include "table/format.h"
-#include "util/compressor.h"
 
 namespace ROCKSDB_NAMESPACE {
 

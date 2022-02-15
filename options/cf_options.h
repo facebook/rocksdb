@@ -207,7 +207,7 @@ struct MutableCFOptions {
 
   uint64_t sample_for_compression;
   std::vector<CompressionType> compression_per_level;
-  std::vector<std::shared_ptr<Compressor> > compressor_per_level;
+  std::vector<std::shared_ptr<Compressor>> compressor_per_level;
   uint32_t memtable_max_range_deletions;
   uint32_t bottommost_file_compaction_delay;
   uint32_t uncache_aggressiveness;
@@ -215,6 +215,11 @@ struct MutableCFOptions {
   // Derived options
   // Per-level target file size.
   std::vector<uint64_t> max_file_size;
+  // Compression settings derived from CompressionType or Compressor options
+  std::shared_ptr<Compressor> derived_compressor;
+  std::shared_ptr<Compressor> derived_bottommost_compressor;
+  std::shared_ptr<Compressor> derived_blob_compressor;
+  std::vector<std::shared_ptr<Compressor>> derived_compressor_per_level;
 };
 
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2);

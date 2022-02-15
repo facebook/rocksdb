@@ -11,10 +11,10 @@
 
 #include "options/options_helper.h"
 #include "port/port.h"
+#include "rocksdb/compressor.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/utilities/ldb_cmd.h"
 #include "table/sst_file_dumper.h"
-#include "util/compressor.h"
 
 namespace ROCKSDB_NAMESPACE {
 

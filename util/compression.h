@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "memory/memory_allocator_impl.h"
+#include "rocksdb/compressor.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
@@ -29,7 +30,6 @@
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
-#include "util/compressor.h"
 #include "util/string_util.h"
 
 #ifdef SNAPPY
@@ -278,6 +278,9 @@ inline std::string CompressionOptionsToString(
       .append("; ");
   result.append("enabled=")
       .append(std::to_string(compression_options.enabled))
+      .append("; ");
+  result.append("parallel_threads=")
+      .append(std::to_string(compression_options.parallel_threads))
       .append("; ");
   result.append("max_dict_buffer_bytes=")
       .append(std::to_string(compression_options.max_dict_buffer_bytes))
