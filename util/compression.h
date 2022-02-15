@@ -724,9 +724,6 @@ inline bool Zlib_Compress(const CompressionInfo& info,
     output_header_len = compression::PutDecompressedSizeInfo(
         output, static_cast<uint32_t>(length));
   }
-  // Resize output to be the plain data length.
-  // This may not be big enough if the compression actually expands data.
-  output->resize(output_header_len + length);
 
   // The memLevel parameter specifies how much memory should be allocated for
   // the internal compression state.
@@ -760,12 +757,16 @@ inline bool Zlib_Compress(const CompressionInfo& info,
     }
   }
 
+  // Get an upper bound on the compressed size.
+  size_t upper_bound = deflateBound(&_stream, length);
+  output->resize(output_header_len + upper_bound);
+
   // Compress the input, and put compressed data in output.
   _stream.next_in = (Bytef*)input;
   _stream.avail_in = static_cast<unsigned int>(length);
 
   // Initialize the output size.
-  _stream.avail_out = static_cast<unsigned int>(length);
+  _stream.avail_out = static_cast<unsigned int>(upper_bound);
   _stream.next_out = reinterpret_cast<Bytef*>(&(*output)[output_header_len]);
 
   bool compressed = false;
