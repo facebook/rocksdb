@@ -610,20 +610,6 @@ Status DBImpl::CloseHelper() {
     cfd->UnrefAndTryDelete();
   }
 
-  if (default_cf_handle_) {
-    auto* cfd =
-        static_cast_with_check<ColumnFamilyHandleImpl>(default_cf_handle_)
-            ->cfd();
-    auto* mem = cfd->mem();
-    auto* imm = cfd->imm();
-    assert(imm->GetLatestMemTableID() == 0);
-    ROCKS_LOG_INFO(
-        immutable_db_options_.info_log,
-        "y7jin num_entries=%d num_deletes=%d %" PRIu64 " %" PRIu64 "\n",
-        (int)mem->num_entries(), (int)mem->num_deletes(),
-        mem->GetFirstSequenceNumber(), mem->GetEarliestSequenceNumber());
-  }
-
   if (default_cf_handle_ != nullptr || persist_stats_cf_handle_ != nullptr) {
     // we need to delete handle outside of lock because it does its own locking
     mutex_.Unlock();

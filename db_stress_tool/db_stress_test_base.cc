@@ -2412,7 +2412,7 @@ void StressTest::Open() {
         FLAGS_level_compaction_dynamic_level_bytes;
     options_.file_checksum_gen_factory =
         GetFileChecksumImpl(FLAGS_file_checksum_impl);
-    // options_.track_and_verify_wals_in_manifest = true;
+    options_.track_and_verify_wals_in_manifest = true;
 
     // Integrated BlobDB
     options_.enable_blob_files = FLAGS_enable_blob_files;
@@ -2446,8 +2446,6 @@ void StressTest::Open() {
     options_ = Options(db_options, cf_descriptors[0].options);
 #endif  // ROCKSDB_LITE
   }
-
-  options_.disable_auto_compactions = true;
 
   if (FLAGS_rate_limiter_bytes_per_sec > 0) {
     options_.rate_limiter.reset(NewGenericRateLimiter(
@@ -2750,7 +2748,6 @@ void StressTest::Open() {
       // after a crash, rollback to commit recovered transactions
       std::vector<Transaction*> trans;
       txn_db_->GetAllPreparedTransactions(&trans);
-      fprintf(stdout, "y7jin %d prepared transactions\n", (int)trans.size());
       Random rand(static_cast<uint32_t>(FLAGS_seed));
       for (auto txn : trans) {
         if (rand.OneIn(2)) {
