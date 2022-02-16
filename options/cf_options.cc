@@ -556,7 +556,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
              {0, OptionType::kCompressionType})},
         {"comparator",
          OptionTypeInfo::AsCustomRawPtr<const Comparator>(
-             offset_of(&ImmutableCFOptions::user_comparator),
+             offsetof(struct ImmutableCFOptions, user_comparator),
              OptionVerificationType::kByName, OptionTypeFlags::kCompareLoose)
              .SetSerializeFunc(
                  // Serializes a Comparator
