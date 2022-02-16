@@ -143,9 +143,9 @@ public class ReadOptionsTest {
   public void readaheadSize() {
     try (final ReadOptions opt = new ReadOptions()) {
       final Random rand = new Random();
-      final long longValue = rand.nextLong();
-      opt.setReadaheadSize(longValue);
-      assertThat(opt.readaheadSize()).isEqualTo(longValue);
+      final int intValue = rand.nextInt(2147483647);
+      opt.setReadaheadSize(intValue);
+      assertThat(opt.readaheadSize()).isEqualTo(intValue);
     }
   }
 
@@ -198,16 +198,6 @@ public class ReadOptionsTest {
     try (final ReadOptions opt = new ReadOptions();
          final AbstractTableFilter allTablesFilter = new AllTablesFilter()) {
       opt.setTableFilter(allTablesFilter);
-    }
-  }
-
-  @Test
-  public void iterStartSeqnum() {
-    try (final ReadOptions opt = new ReadOptions()) {
-      assertThat(opt.iterStartSeqnum()).isEqualTo(0);
-
-      opt.setIterStartSeqnum(10);
-      assertThat(opt.iterStartSeqnum()).isEqualTo(10);
     }
   }
 

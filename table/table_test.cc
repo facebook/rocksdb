@@ -32,6 +32,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
@@ -51,6 +52,7 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/flush_block_policy.h"
 #include "table/block_fetcher.h"
 #include "table/format.h"
@@ -438,7 +440,7 @@ class TableConstructor : public Constructor {
 
     file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
     return ioptions.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
+        TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
                            *last_internal_comparator_, /*skip_filters*/ false,
                            /*immortal*/ false, false, level_, largest_seqno_,
                            &block_cache_tracer_, moptions.write_buffer_size, "",
@@ -2982,7 +2984,7 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   options.create_if_missing = true;
   table_options.block_cache = NewLRUCache(1024 * 1024, 0);
   table_options.cache_index_and_filter_blocks = true;
-  table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   SetupTracingTest(&c);
   std::vector<std::string> keys;
@@ -3021,14 +3023,14 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   // Then we should have three records for one index, one filter, and one data
   // block access.
   record.get_id = 1;
-  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.block_type = TraceType::kBlockTraceFilterBlock;
   record.caller = TableReaderCaller::kUserGet;
   record.get_from_user_specified_snapshot = Boolean::kFalse;
   record.referenced_key = encoded_key;
   record.referenced_key_exist_in_block = Boolean::kTrue;
   record.is_cache_hit = Boolean::kTrue;
   expected_records.push_back(record);
-  record.block_type = TraceType::kBlockTraceFilterBlock;
+  record.block_type = TraceType::kBlockTraceIndexBlock;
   expected_records.push_back(record);
   record.is_cache_hit = Boolean::kFalse;
   record.block_type = TraceType::kBlockTraceDataBlock;
@@ -3036,12 +3038,12 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   // The second get should all observe cache hits.
   record.is_cache_hit = Boolean::kTrue;
   record.get_id = 2;
-  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.block_type = TraceType::kBlockTraceFilterBlock;
   record.caller = TableReaderCaller::kUserGet;
   record.get_from_user_specified_snapshot = Boolean::kFalse;
   record.referenced_key = encoded_key;
   expected_records.push_back(record);
-  record.block_type = TraceType::kBlockTraceFilterBlock;
+  record.block_type = TraceType::kBlockTraceIndexBlock;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceDataBlock;
   expected_records.push_back(record);
@@ -3487,9 +3489,11 @@ TEST_P(BlockBasedTableTest, InvalidOptions) {
 }
 
 TEST_P(BlockBasedTableTest, BlockReadCountTest) {
-  // bloom_filter_type = 0 -- block-based filter
-  // bloom_filter_type = 0 -- full filter
-  for (int bloom_filter_type = 0; bloom_filter_type < 2; ++bloom_filter_type) {
+  // bloom_filter_type = 0 -- block-based filter (not available in public API)
+  // bloom_filter_type = 1 -- full filter using use_block_based_builder=false
+  // bloom_filter_type = 2 -- full filter using use_block_based_builder=true
+  //                          because of API change to hide block-based filter
+  for (int bloom_filter_type = 0; bloom_filter_type <= 2; ++bloom_filter_type) {
     for (int index_and_filter_in_cache = 0; index_and_filter_in_cache < 2;
          ++index_and_filter_in_cache) {
       Options options;
@@ -3498,8 +3502,22 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
       table_options.block_cache = NewLRUCache(1, 0);
       table_options.cache_index_and_filter_blocks = index_and_filter_in_cache;
-      table_options.filter_policy.reset(
-          NewBloomFilterPolicy(10, bloom_filter_type == 0));
+      if (bloom_filter_type == 0) {
+#ifndef ROCKSDB_LITE
+        // Use back-door way of enabling obsolete block-based Bloom
+        ASSERT_OK(FilterPolicy::CreateFromString(
+            ConfigOptions(),
+            "rocksdb.internal.DeprecatedBlockBasedBloomFilter:10",
+            &table_options.filter_policy));
+#else
+        // Skip this case in LITE build
+        continue;
+#endif
+      } else {
+        // Public API
+        table_options.filter_policy.reset(
+            NewBloomFilterPolicy(10, bloom_filter_type == 2));
+      }
       options.table_factory.reset(new BlockBasedTableFactory(table_options));
       std::vector<std::string> keys;
       stl_wrappers::KVMap kvmap;
@@ -4472,8 +4490,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
         new RandomAccessFileReader(std::move(source), ""));
 
     options.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions.prefix_extractor.get(),
-                           EnvOptions(), ikc),
+        TableReaderOptions(ioptions, moptions.prefix_extractor, EnvOptions(),
+                           ikc),
         std::move(file_reader), ss_rw.contents().size(), &table_reader);
 
     return table_reader->NewIterator(
@@ -4640,8 +4658,7 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   const MutableCFOptions moptions2(options2);
 
   ASSERT_OK(ioptions.table_factory->NewTableReader(
-      TableReaderOptions(ioptions2, moptions2.prefix_extractor.get(),
-                         EnvOptions(),
+      TableReaderOptions(ioptions2, moptions2.prefix_extractor, EnvOptions(),
                          GetPlainInternalComparator(options2.comparator)),
       std::move(file_reader), sink->contents().size(), &table_reader));
 
@@ -4819,8 +4836,7 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
 
   // verify properties block comes last
   std::unique_ptr<InternalIterator> metaindex_iter{
-      metaindex_block.NewDataIterator(options.comparator,
-                                      kDisableGlobalSequenceNumber)};
+      metaindex_block.NewMetaIterator()};
   uint64_t max_offset = 0;
   std::string key_at_max_offset;
   for (metaindex_iter->SeekToFirst(); metaindex_iter->Valid();
@@ -4837,6 +4853,90 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
   // index handle is stored in footer rather than metaindex block, so need
   // separate logic to verify it comes before properties block.
   ASSERT_GT(max_offset, footer.index_handle().offset());
+  c.ResetTableReader();
+}
+
+TEST_P(BlockBasedTableTest, SeekMetaBlocks) {
+  TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
+  c.Add("foo_a1", "val1");
+  c.Add("foo_b2", "val2");
+  c.Add("foo_c3", "val3");
+  c.Add("foo_d4", "val4");
+  c.Add("foo_e5", "val5");
+  c.Add("foo_f6", "val6");
+  c.Add("foo_g7", "val7");
+  c.Add("foo_h8", "val8");
+  c.Add("foo_j9", "val9");
+
+  // write an SST file
+  Options options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  table_options.index_type = BlockBasedTableOptions::kHashSearch;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(
+      8 /* bits_per_key */, false /* use_block_based_filter */));
+  options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  c.Finish(options, ioptions, moptions, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+
+  // get file reader
+  test::StringSink* table_sink = c.TEST_GetSink();
+  std::unique_ptr<FSRandomAccessFile> source(new test::StringSource(
+      table_sink->contents(), 0 /* unique_id */, false /* allow_mmap_reads */));
+
+  std::unique_ptr<RandomAccessFileReader> table_reader(
+      new RandomAccessFileReader(std::move(source), "test"));
+  size_t table_size = table_sink->contents().size();
+
+  // read footer
+  Footer footer;
+  IOOptions opts;
+  ASSERT_OK(ReadFooterFromFile(opts, table_reader.get(),
+                               nullptr /* prefetch_buffer */, table_size,
+                               &footer, kBlockBasedTableMagicNumber));
+
+  // read metaindex
+  auto metaindex_handle = footer.metaindex_handle();
+  BlockContents metaindex_contents;
+  PersistentCacheOptions pcache_opts;
+  BlockFetcher block_fetcher(
+      table_reader.get(), nullptr /* prefetch_buffer */, footer, ReadOptions(),
+      metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
+      false /*maybe_compressed*/, BlockType::kMetaIndex,
+      UncompressionDict::GetEmptyDict(), pcache_opts,
+      nullptr /*memory_allocator*/);
+  ASSERT_OK(block_fetcher.ReadBlockContents());
+  Block metaindex_block(std::move(metaindex_contents));
+
+  // verify properties block comes last
+  std::unique_ptr<MetaBlockIter> metaindex_iter(
+      metaindex_block.NewMetaIterator());
+  bool has_hash_prefixes = false;
+  bool has_hash_metadata = false;
+  for (metaindex_iter->SeekToFirst(); metaindex_iter->Valid();
+       metaindex_iter->Next()) {
+    if (metaindex_iter->key().ToString() == kHashIndexPrefixesBlock) {
+      has_hash_prefixes = true;
+    } else if (metaindex_iter->key().ToString() ==
+               kHashIndexPrefixesMetadataBlock) {
+      has_hash_metadata = true;
+    }
+  }
+  if (has_hash_metadata) {
+    metaindex_iter->Seek(kHashIndexPrefixesMetadataBlock);
+    ASSERT_TRUE(metaindex_iter->Valid());
+    ASSERT_EQ(kHashIndexPrefixesMetadataBlock,
+              metaindex_iter->key().ToString());
+  }
+  if (has_hash_prefixes) {
+    metaindex_iter->Seek(kHashIndexPrefixesBlock);
+    ASSERT_TRUE(metaindex_iter->Valid());
+    ASSERT_EQ(kHashIndexPrefixesBlock, metaindex_iter->key().ToString());
+  }
   c.ResetTableReader();
 }
 

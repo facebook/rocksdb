@@ -55,38 +55,33 @@ static bool LoadMergeOperator(const std::string& id,
 static int RegisterBuiltinMergeOperators(ObjectLibrary& library,
                                          const std::string& /*arg*/) {
   size_t num_types;
-  auto AsRegex = [](const std::string& name, const std::string& alt) {
-    std::string regex;
-    regex.append("(").append(name);
-    regex.append("|").append(alt).append(")");
-    return regex;
-  };
-
-  library.Register<MergeOperator>(
-      AsRegex(StringAppendOperator::kClassName(),
-              StringAppendOperator::kNickName()),
+  library.AddFactory<MergeOperator>(
+      ObjectLibrary::PatternEntry(StringAppendOperator::kClassName())
+          .AnotherName(StringAppendOperator::kNickName()),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new StringAppendOperator(","));
         return guard->get();
       });
-  library.Register<MergeOperator>(
-      AsRegex(StringAppendTESTOperator::kClassName(),
-              StringAppendTESTOperator::kNickName()),
+  library.AddFactory<MergeOperator>(
+      ObjectLibrary::PatternEntry(StringAppendTESTOperator::kClassName())
+          .AnotherName(StringAppendTESTOperator::kNickName()),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new StringAppendTESTOperator(","));
         return guard->get();
       });
-  library.Register<MergeOperator>(
-      AsRegex(SortList::kClassName(), SortList::kNickName()),
+  library.AddFactory<MergeOperator>(
+      ObjectLibrary::PatternEntry(SortList::kClassName())
+          .AnotherName(SortList::kNickName()),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new SortList());
         return guard->get();
       });
-  library.Register<MergeOperator>(
-      AsRegex(BytesXOROperator::kClassName(), BytesXOROperator::kNickName()),
+  library.AddFactory<MergeOperator>(
+      ObjectLibrary::PatternEntry(BytesXOROperator::kClassName())
+          .AnotherName(BytesXOROperator::kNickName()),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /*errmsg*/) {
         guard->reset(new BytesXOROperator());

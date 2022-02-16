@@ -790,8 +790,8 @@ Status CompactionJob::Run() {
       }
     }
     ColumnFamilyData* cfd = compact_->compaction->column_family_data();
-    auto prefix_extractor =
-        compact_->compaction->mutable_cf_options()->prefix_extractor.get();
+    auto& prefix_extractor =
+        compact_->compaction->mutable_cf_options()->prefix_extractor;
     std::atomic<size_t> next_file_idx(0);
     auto verify_table = [&](Status& output_status) {
       while (true) {
@@ -963,11 +963,14 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
   const auto& blob_files = vstorage->GetBlobFiles();
   if (!blob_files.empty()) {
-    ROCKS_LOG_BUFFER(log_buffer_,
-                     "[%s] Blob file summary: head=%" PRIu64 ", tail=%" PRIu64
-                     "\n",
-                     column_family_name.c_str(), blob_files.begin()->first,
-                     blob_files.rbegin()->first);
+    assert(blob_files.front());
+    assert(blob_files.back());
+
+    ROCKS_LOG_BUFFER(
+        log_buffer_,
+        "[%s] Blob file summary: head=%" PRIu64 ", tail=%" PRIu64 "\n",
+        column_family_name.c_str(), blob_files.front()->GetBlobFileNumber(),
+        blob_files.back()->GetBlobFileNumber());
   }
 
   UpdateCompactionJobStats(stats);
@@ -1014,8 +1017,11 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   stream.EndArray();
 
   if (!blob_files.empty()) {
-    stream << "blob_file_head" << blob_files.begin()->first;
-    stream << "blob_file_tail" << blob_files.rbegin()->first;
+    assert(blob_files.front());
+    stream << "blob_file_head" << blob_files.front()->GetBlobFileNumber();
+
+    assert(blob_files.back());
+    stream << "blob_file_tail" << blob_files.back()->GetBlobFileNumber();
   }
 
   CleanupCompaction();
@@ -1944,17 +1950,21 @@ Status CompactionJob::FinishCompactionOutputFile(
   std::string fname;
   FileDescriptor output_fd;
   uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
+  Status status_for_listener = s;
   if (meta != nullptr) {
     fname = GetTableFileName(meta->fd.GetNumber());
     output_fd = meta->fd;
     oldest_blob_file_number = meta->oldest_blob_file_number;
   } else {
     fname = "(nil)";
+    if (s.ok()) {
+      status_for_listener = Status::Aborted("Empty SST file not kept");
+    }
   }
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname,
       job_id_, output_fd, oldest_blob_file_number, tp,
-      TableFileCreationReason::kCompaction, s, file_checksum,
+      TableFileCreationReason::kCompaction, status_for_listener, file_checksum,
       file_checksum_func_name);
 
 #ifndef ROCKSDB_LITE
@@ -2496,34 +2506,14 @@ enum BinaryFormatVersion : uint32_t {
   kOptionsString = 1,  // Use string format similar to Option string format
 };
 
-// offset_of is used to get the offset of a class data member
-// ex: offset_of(&ColumnFamilyDescriptor::options)
-// This call will return the offset of options in ColumnFamilyDescriptor class
-//
-// This is the same as offsetof() but allow us to work with non standard-layout
-// classes and structures
-// refs:
-// http://en.cppreference.com/w/cpp/concept/StandardLayoutType
-// https://gist.github.com/graphitemaster/494f21190bb2c63c5516
-static ColumnFamilyDescriptor dummy_cfd("", ColumnFamilyOptions());
-template <typename T1>
-int offset_of(T1 ColumnFamilyDescriptor::*member) {
-  return int(size_t(&(dummy_cfd.*member)) - size_t(&dummy_cfd));
-}
-
-static CompactionServiceInput dummy_cs_input;
-template <typename T1>
-int offset_of(T1 CompactionServiceInput::*member) {
-  return int(size_t(&(dummy_cs_input.*member)) - size_t(&dummy_cs_input));
-}
-
 static std::unordered_map<std::string, OptionTypeInfo> cfd_type_info = {
     {"name",
-     {offset_of(&ColumnFamilyDescriptor::name), OptionType::kEncodedString,
+     {offsetof(struct ColumnFamilyDescriptor, name), OptionType::kEncodedString,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"options",
-     {offset_of(&ColumnFamilyDescriptor::options), OptionType::kConfigurable,
-      OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+     {offsetof(struct ColumnFamilyDescriptor, options),
+      OptionType::kConfigurable, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone,
       [](const ConfigOptions& opts, const std::string& /*name*/,
          const std::string& value, void* addr) {
         auto cf_options = static_cast<ColumnFamilyOptions*>(addr);
@@ -2557,13 +2547,14 @@ static std::unordered_map<std::string, OptionTypeInfo> cfd_type_info = {
 
 static std::unordered_map<std::string, OptionTypeInfo> cs_input_type_info = {
     {"column_family",
-     OptionTypeInfo::Struct("column_family", &cfd_type_info,
-                            offset_of(&CompactionServiceInput::column_family),
-                            OptionVerificationType::kNormal,
-                            OptionTypeFlags::kNone)},
+     OptionTypeInfo::Struct(
+         "column_family", &cfd_type_info,
+         offsetof(struct CompactionServiceInput, column_family),
+         OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
     {"db_options",
-     {offset_of(&CompactionServiceInput::db_options), OptionType::kConfigurable,
-      OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+     {offsetof(struct CompactionServiceInput, db_options),
+      OptionType::kConfigurable, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone,
       [](const ConfigOptions& opts, const std::string& /*name*/,
          const std::string& value, void* addr) {
         auto options = static_cast<DBOptions*>(addr);
@@ -2592,31 +2583,33 @@ static std::unordered_map<std::string, OptionTypeInfo> cs_input_type_info = {
         return result;
       }}},
     {"snapshots", OptionTypeInfo::Vector<uint64_t>(
-                      offset_of(&CompactionServiceInput::snapshots),
+                      offsetof(struct CompactionServiceInput, snapshots),
                       OptionVerificationType::kNormal, OptionTypeFlags::kNone,
                       {0, OptionType::kUInt64T})},
     {"input_files", OptionTypeInfo::Vector<std::string>(
-                        offset_of(&CompactionServiceInput::input_files),
+                        offsetof(struct CompactionServiceInput, input_files),
                         OptionVerificationType::kNormal, OptionTypeFlags::kNone,
                         {0, OptionType::kEncodedString})},
     {"output_level",
-     {offset_of(&CompactionServiceInput::output_level), OptionType::kInt,
+     {offsetof(struct CompactionServiceInput, output_level), OptionType::kInt,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"has_begin",
-     {offset_of(&CompactionServiceInput::has_begin), OptionType::kBoolean,
+     {offsetof(struct CompactionServiceInput, has_begin), OptionType::kBoolean,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"begin",
-     {offset_of(&CompactionServiceInput::begin), OptionType::kEncodedString,
-      OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+     {offsetof(struct CompactionServiceInput, begin),
+      OptionType::kEncodedString, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
     {"has_end",
-     {offset_of(&CompactionServiceInput::has_end), OptionType::kBoolean,
+     {offsetof(struct CompactionServiceInput, has_end), OptionType::kBoolean,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"end",
-     {offset_of(&CompactionServiceInput::end), OptionType::kEncodedString,
+     {offsetof(struct CompactionServiceInput, end), OptionType::kEncodedString,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"approx_size",
-     {offset_of(&CompactionServiceInput::approx_size), OptionType::kUInt64T,
-      OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+     {offsetof(struct CompactionServiceInput, approx_size),
+      OptionType::kUInt64T, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>

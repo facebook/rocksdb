@@ -1459,24 +1459,13 @@ public class RocksDBTest {
   }
 
   @Test
-  public void setPreserveDeletesSequenceNumber() throws RocksDBException {
-    try (final Options options = new Options().setCreateIfMissing(true)) {
-      final String dbPath = dbFolder.getRoot().getAbsolutePath();
-      try (final RocksDB db = RocksDB.open(options, dbPath)) {
-        assertThat(db.setPreserveDeletesSequenceNumber(db.getLatestSequenceNumber()))
-            .isFalse();
-      }
-    }
-  }
-
-  @Test
   public void getLiveFiles() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true)) {
       final String dbPath = dbFolder.getRoot().getAbsolutePath();
       try (final RocksDB db = RocksDB.open(options, dbPath)) {
         final RocksDB.LiveFiles livefiles = db.getLiveFiles(true);
         assertThat(livefiles).isNotNull();
-        assertThat(livefiles.manifestFileSize).isEqualTo(57);
+        assertThat(livefiles.manifestFileSize).isEqualTo(59);
         assertThat(livefiles.files.size()).isEqualTo(3);
         assertThat(livefiles.files.get(0)).isEqualTo("/CURRENT");
         assertThat(livefiles.files.get(1)).isEqualTo("/MANIFEST-000004");

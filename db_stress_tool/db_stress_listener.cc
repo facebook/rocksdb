@@ -17,7 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 
 // TODO: consider using expected_values_dir instead, but this is more
 // convenient for now.
-UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name)
+UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name, Env* env)
     : path_(db_name + "/.unique_ids") {
   // We expect such a small number of files generated during this test
   // (thousands?), checking full 192-bit IDs for uniqueness is a very
@@ -27,11 +27,10 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name)
   // very good probability for the quantities in this test.
   offset_ = Random::GetTLSInstance()->Uniform(17);  // 0 to 16
 
-  // Use default FileSystem to avoid fault injection, etc.
-  FileSystem& fs = *FileSystem::Default();
+  const std::shared_ptr<FileSystem> fs = env->GetFileSystem();
   IOOptions opts;
 
-  Status st = fs.CreateDirIfMissing(db_name, opts, nullptr);
+  Status st = fs->CreateDirIfMissing(db_name, opts, nullptr);
   if (!st.ok()) {
     fprintf(stderr, "Failed to create directory %s: %s\n", db_name.c_str(),
             st.ToString().c_str());
@@ -41,7 +40,7 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name)
   {
     std::unique_ptr<FSSequentialFile> reader;
     Status s =
-        fs.NewSequentialFile(path_, FileOptions(), &reader, /*dbg*/ nullptr);
+        fs->NewSequentialFile(path_, FileOptions(), &reader, /*dbg*/ nullptr);
     if (s.ok()) {
       // Load from file
       std::string id(24U, '\0');
@@ -61,7 +60,7 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name)
             fprintf(stdout, "Warning: clearing corrupt unique id file\n");
             id_set_.clear();
             reader.reset();
-            s = fs.DeleteFile(path_, opts, /*dbg*/ nullptr);
+            s = fs->DeleteFile(path_, opts, /*dbg*/ nullptr);
             assert(s.ok());
           }
           break;
@@ -72,7 +71,7 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name)
       // Newly created is ok.
       // But FileSystem doesn't tell us whether non-existence was the cause of
       // the failure. (Issue #9021)
-      Status s2 = fs.FileExists(path_, opts, /*dbg*/ nullptr);
+      Status s2 = fs->FileExists(path_, opts, /*dbg*/ nullptr);
       if (!s2.IsNotFound()) {
         fprintf(stderr, "Error opening unique id file: %s\n",
                 s.ToString().c_str());
@@ -81,8 +80,8 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name)
     }
   }
   fprintf(stdout, "(Re-)verified %zu unique IDs\n", id_set_.size());
-  Status s = fs.ReopenWritableFile(path_, FileOptions(), &data_file_writer_,
-                                   /*dbg*/ nullptr);
+  Status s = fs->ReopenWritableFile(path_, FileOptions(), &data_file_writer_,
+                                    /*dbg*/ nullptr);
   if (!s.ok()) {
     fprintf(stderr, "Error opening unique id file for append: %s\n",
             s.ToString().c_str());

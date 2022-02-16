@@ -22,11 +22,10 @@ namespace ROCKSDB_NAMESPACE {
 class RateLimiter : public Customizable {
  public:
   enum class OpType {
-    // Limitation: we currently only invoke Request() with OpType::kRead for
-    // compactions when DBOptions::new_table_reader_for_compaction_inputs is set
     kRead,
     kWrite,
   };
+
   enum class Mode {
     kReadsOnly,
     kWritesOnly,
@@ -59,13 +58,15 @@ class RateLimiter : public Customizable {
   // Request for token for bytes. If this request can not be satisfied, the call
   // is blocked. Caller is responsible to make sure
   // bytes <= GetSingleBurstBytes()
+  // and bytes >= 0.
   virtual void Request(const int64_t /*bytes*/, const Env::IOPriority /*pri*/) {
     assert(false);
   }
 
   // Request for token for bytes and potentially update statistics. If this
   // request can not be satisfied, the call is blocked. Caller is responsible to
-  // make sure bytes <= GetSingleBurstBytes().
+  // make sure bytes <= GetSingleBurstBytes()
+  // and bytes >= 0.
   virtual void Request(const int64_t bytes, const Env::IOPriority pri,
                        Statistics* /* stats */) {
     // For API compatibility, default implementation calls the older API in

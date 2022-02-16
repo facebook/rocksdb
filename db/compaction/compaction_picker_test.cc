@@ -76,7 +76,7 @@ class CompactionPickerTest : public testing::Test {
     options_.num_levels = num_levels;
     vstorage_.reset(new VersionStorageInfo(&icmp_, ucmp_, options_.num_levels,
                                            style, nullptr, false));
-    vstorage_->CalculateBaseBytes(ioptions_, mutable_cf_options_);
+    vstorage_->PrepareForVersionAppend(ioptions_, mutable_cf_options_);
   }
 
   // Create a new VersionStorageInfo object so we can add mode files and then
@@ -148,34 +148,9 @@ class CompactionPickerTest : public testing::Test {
       ASSERT_OK(builder.SaveTo(temp_vstorage_.get()));
       vstorage_ = std::move(temp_vstorage_);
     }
-    vstorage_->CalculateBaseBytes(ioptions_, mutable_cf_options_);
-    vstorage_->UpdateFilesByCompactionPri(ioptions_, mutable_cf_options_);
-    vstorage_->UpdateNumNonEmptyLevels();
-    vstorage_->GenerateFileIndexer();
-    vstorage_->GenerateLevelFilesBrief();
+    vstorage_->PrepareForVersionAppend(ioptions_, mutable_cf_options_);
     vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_);
-    vstorage_->GenerateLevel0NonOverlapping();
-    vstorage_->ComputeFilesMarkedForCompaction();
     vstorage_->SetFinalized();
-  }
-  void AddFileToVersionStorage(int level, uint32_t file_number,
-                               const char* smallest, const char* largest,
-                               uint64_t file_size = 1, uint32_t path_id = 0,
-                               SequenceNumber smallest_seq = 100,
-                               SequenceNumber largest_seq = 100,
-                               size_t compensated_file_size = 0,
-                               bool marked_for_compact = false) {
-    VersionStorageInfo* base_vstorage = vstorage_.release();
-    vstorage_.reset(new VersionStorageInfo(&icmp_, ucmp_, options_.num_levels,
-                                           kCompactionStyleUniversal,
-                                           base_vstorage, false));
-    Add(level, file_number, smallest, largest, file_size, path_id, smallest_seq,
-        largest_seq, compensated_file_size, marked_for_compact);
-
-    VersionBuilder builder(FileOptions(), &ioptions_, nullptr, base_vstorage,
-                           nullptr);
-    builder.SaveTo(vstorage_.get());
-    UpdateVersionStorageInfo();
   }
 
  private:
@@ -964,13 +939,11 @@ TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
 
   // verify whether compaction is needed based on the current
   // size of L0 files.
-  uint64_t current_size = 0;
   for (int i = 1; i <= kFileCount; ++i) {
     NewVersionStorage(1, kCompactionStyleFIFO);
     Add(0, i, ToString((i + 100) * 1000).c_str(),
-        ToString((i + 100) * 1000 + 999).c_str(),
-        kFileSize, 0, i * 100, i * 100 + 99);
-    current_size += kFileSize;
+        ToString((i + 100) * 1000 + 999).c_str(), kFileSize, 0, i * 100,
+        i * 100 + 99);
     UpdateVersionStorageInfo();
     ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()),
               vstorage_->CompactionScore(0) >= 1);

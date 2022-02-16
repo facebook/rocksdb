@@ -29,7 +29,7 @@ class MockBlockBasedTableTester {
   InternalKeyComparator icomp_;
   std::unique_ptr<BlockBasedTable> table_;
 
-  MockBlockBasedTableTester(const FilterPolicy *filter_policy)
+  explicit MockBlockBasedTableTester(const FilterPolicy* filter_policy)
       : ioptions_(options_),
         env_options_(options_),
         icomp_(options_.comparator) {

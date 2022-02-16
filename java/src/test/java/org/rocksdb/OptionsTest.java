@@ -275,6 +275,15 @@ public class OptionsTest {
   }
 
   @Test
+  public void memtableWholeKeyFiltering() {
+    try (final Options opt = new Options()) {
+      final boolean booleanValue = rand.nextBoolean();
+      opt.setMemtableWholeKeyFiltering(booleanValue);
+      assertThat(opt.memtableWholeKeyFiltering()).isEqualTo(booleanValue);
+    }
+  }
+
+  @Test
   public void memtableHugePageSize() {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();
@@ -427,17 +436,6 @@ public class OptionsTest {
       opt.setDeleteObsoleteFilesPeriodMicros(longValue);
       assertThat(opt.deleteObsoleteFilesPeriodMicros()).
           isEqualTo(longValue);
-    }
-  }
-
-  @SuppressWarnings("deprecated")
-  @Test
-  public void baseBackgroundCompactions() {
-    try (final Options opt = new Options()) {
-      final int intValue = rand.nextInt();
-      opt.setBaseBackgroundCompactions(intValue);
-      assertThat(opt.baseBackgroundCompactions()).
-          isEqualTo(intValue);
     }
   }
 
@@ -706,15 +704,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void newTableReaderForCompactionInputs() {
-    try (final Options opt = new Options()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setNewTableReaderForCompactionInputs(boolValue);
-      assertThat(opt.newTableReaderForCompactionInputs()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void compactionReadaheadSize() {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();
@@ -969,15 +958,6 @@ public class OptionsTest {
       assertThat(opt.allowIngestBehind()).isFalse();
       opt.setAllowIngestBehind(true);
       assertThat(opt.allowIngestBehind()).isTrue();
-    }
-  }
-
-  @Test
-  public void preserveDeletes() {
-    try (final Options opt = new Options()) {
-      assertThat(opt.preserveDeletes()).isFalse();
-      opt.setPreserveDeletes(true);
-      assertThat(opt.preserveDeletes()).isTrue();
     }
   }
 

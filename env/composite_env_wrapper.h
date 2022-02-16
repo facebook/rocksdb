@@ -254,6 +254,8 @@ class CompositeEnvWrapper : public CompositeEnv {
  public:
   // Initialize a CompositeEnvWrapper that delegates all thread/time related
   // calls to env, and all file operations to fs
+  explicit CompositeEnvWrapper(Env* env)
+      : CompositeEnvWrapper(env, env->GetFileSystem(), env->GetSystemClock()) {}
   explicit CompositeEnvWrapper(Env* env, const std::shared_ptr<FileSystem>& fs)
       : CompositeEnvWrapper(env, fs, env->GetSystemClock()) {}
 
@@ -261,82 +263,110 @@ class CompositeEnvWrapper : public CompositeEnv {
       : CompositeEnvWrapper(env, env->GetFileSystem(), sc) {}
 
   explicit CompositeEnvWrapper(Env* env, const std::shared_ptr<FileSystem>& fs,
+                               const std::shared_ptr<SystemClock>& sc);
+
+  explicit CompositeEnvWrapper(const std::shared_ptr<Env>& env,
+                               const std::shared_ptr<FileSystem>& fs)
+      : CompositeEnvWrapper(env, fs, env->GetSystemClock()) {}
+
+  explicit CompositeEnvWrapper(const std::shared_ptr<Env>& env,
                                const std::shared_ptr<SystemClock>& sc)
-      : CompositeEnv(fs, sc), env_target_(env) {}
+      : CompositeEnvWrapper(env, env->GetFileSystem(), sc) {}
+
+  explicit CompositeEnvWrapper(const std::shared_ptr<Env>& env,
+                               const std::shared_ptr<FileSystem>& fs,
+                               const std::shared_ptr<SystemClock>& sc);
+
+  static const char* kClassName() { return "CompositeEnv"; }
+  const char* Name() const override { return kClassName(); }
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == kClassName()) {
+      return true;
+    } else {
+      return CompositeEnv::IsInstanceOf(name);
+    }
+  }
+  const Customizable* Inner() const override { return target_.env; }
+
+  Status PrepareOptions(const ConfigOptions& options) override;
+#ifndef ROCKSDB_LITE
+  std::string SerializeOptions(const ConfigOptions& config_options,
+                               const std::string& header) const override;
+#endif  // ROCKSDB_LITE
 
   // Return the target to which this Env forwards all calls
-  Env* env_target() const { return env_target_; }
+  Env* env_target() const { return target_.env; }
 
 #if !defined(OS_WIN) && !defined(ROCKSDB_NO_DYNAMIC_EXTENSION)
   Status LoadLibrary(const std::string& lib_name,
                      const std::string& search_path,
                      std::shared_ptr<DynamicLibrary>* result) override {
-    return env_target_->LoadLibrary(lib_name, search_path, result);
+    return target_.env->LoadLibrary(lib_name, search_path, result);
   }
 #endif
 
   void Schedule(void (*f)(void* arg), void* a, Priority pri,
                 void* tag = nullptr, void (*u)(void* arg) = nullptr) override {
-    return env_target_->Schedule(f, a, pri, tag, u);
+    return target_.env->Schedule(f, a, pri, tag, u);
   }
 
   int UnSchedule(void* tag, Priority pri) override {
-    return env_target_->UnSchedule(tag, pri);
+    return target_.env->UnSchedule(tag, pri);
   }
 
   void StartThread(void (*f)(void*), void* a) override {
-    return env_target_->StartThread(f, a);
+    return target_.env->StartThread(f, a);
   }
-  void WaitForJoin() override { return env_target_->WaitForJoin(); }
+  void WaitForJoin() override { return target_.env->WaitForJoin(); }
   unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override {
-    return env_target_->GetThreadPoolQueueLen(pri);
+    return target_.env->GetThreadPoolQueueLen(pri);
   }
 
   Status GetHostName(char* name, uint64_t len) override {
-    return env_target_->GetHostName(name, len);
+    return target_.env->GetHostName(name, len);
   }
   void SetBackgroundThreads(int num, Priority pri) override {
-    return env_target_->SetBackgroundThreads(num, pri);
+    return target_.env->SetBackgroundThreads(num, pri);
   }
   int GetBackgroundThreads(Priority pri) override {
-    return env_target_->GetBackgroundThreads(pri);
+    return target_.env->GetBackgroundThreads(pri);
   }
 
   Status SetAllowNonOwnerAccess(bool allow_non_owner_access) override {
-    return env_target_->SetAllowNonOwnerAccess(allow_non_owner_access);
+    return target_.env->SetAllowNonOwnerAccess(allow_non_owner_access);
   }
 
   void IncBackgroundThreadsIfNeeded(int num, Priority pri) override {
-    return env_target_->IncBackgroundThreadsIfNeeded(num, pri);
+    return target_.env->IncBackgroundThreadsIfNeeded(num, pri);
   }
 
   void LowerThreadPoolIOPriority(Priority pool) override {
-    env_target_->LowerThreadPoolIOPriority(pool);
+    target_.env->LowerThreadPoolIOPriority(pool);
   }
 
   void LowerThreadPoolCPUPriority(Priority pool) override {
-    env_target_->LowerThreadPoolCPUPriority(pool);
+    target_.env->LowerThreadPoolCPUPriority(pool);
   }
 
   Status LowerThreadPoolCPUPriority(Priority pool, CpuPriority pri) override {
-    return env_target_->LowerThreadPoolCPUPriority(pool, pri);
+    return target_.env->LowerThreadPoolCPUPriority(pool, pri);
   }
 
   Status GetThreadList(std::vector<ThreadStatus>* thread_list) override {
-    return env_target_->GetThreadList(thread_list);
+    return target_.env->GetThreadList(thread_list);
   }
 
   ThreadStatusUpdater* GetThreadStatusUpdater() const override {
-    return env_target_->GetThreadStatusUpdater();
+    return target_.env->GetThreadStatusUpdater();
   }
 
-  uint64_t GetThreadID() const override { return env_target_->GetThreadID(); }
+  uint64_t GetThreadID() const override { return target_.env->GetThreadID(); }
 
   std::string GenerateUniqueId() override {
-    return env_target_->GenerateUniqueId();
+    return target_.env->GenerateUniqueId();
   }
 
  private:
-  Env* env_target_;
+  EnvWrapper::Target target_;
 };
 }  // namespace ROCKSDB_NAMESPACE

@@ -1,7 +1,115 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Fixed a major bug in which batched MultiGet could return old values for keys deleted by DeleteRange when memtable Bloom filter is enabled (memtable_prefix_bloom_size_ratio > 0). (The fix includes a substantial MultiGet performance improvement in the unusual case of both memtable_whole_key_filtering and prefix_extractor.)
+* Fixed more cases of EventListener::OnTableFileCreated called with OK status, file_size==0, and no SST file kept. Now the status is Aborted.
+* Fixed a read-after-free bug in `DB::GetMergeOperands()`.
+
+### Performance Improvements
+* Mitigated the overhead of building the file location hash table used by the online LSM tree consistency checks, which can improve performance for certain workloads (see #9351).
+* Switched to using a sorted `std::vector` instead of `std::map` for storing the metadata objects for blob files, which can improve performance for certain workloads, especially when the number of blob files is high.
+* DisableManualCompaction() doesn't have to wait scheduled manual compaction to be executed in thread-pool to cancel the job.
+
+### Public API changes
+* Require C++17 compatible compiler (GCC >= 7, Clang >= 5, Visual Studio >= 2017). See #9388.
+* Remove HDFS support from main repo.
+* Remove librados support from main repo.
+* Remove obsolete backupable_db.h and type alias `BackupableDBOptions`. Use backup_engine.h and `BackupEngineOptions`. Similar renamings are in the C and Java APIs.
+* Removed obsolete utility_db.h and `UtilityDB::OpenTtlDB`. Use db_ttl.h and `DBWithTTL::Open`.
+* Remove deprecated API DB::AddFile from main repo.
+* Remove deprecated API ObjectLibrary::Register() and the (now obsolete) Regex public API. Use ObjectLibrary::AddFactory() with PatternEntry instead.
+* Remove deprecated option DBOption::table_cache_remove_scan_count_limit.
+* Remove deprecated API AdvancedColumnFamilyOptions::soft_rate_limit.
+* Remove deprecated API AdvancedColumnFamilyOptions::hard_rate_limit.
+* Remove deprecated API DBOption::base_background_compactions.
+* Remove deprecated API DBOptions::purge_redundant_kvs_while_flush.
+* Remove deprecated overloads of API DB::CompactRange.
+* Remove deprecated option DBOptions::skip_log_error_on_recovery.
+* Remove ReadOptions::iter_start_seqnum which has been deprecated.
+* Remove DBOptions::preserved_deletes and DB::SetPreserveDeletesSequenceNumber().
+* Remove deprecated API AdvancedColumnFamilyOptions::rate_limit_delay_max_milliseconds.
+* Removed timestamp from WriteOptions. Accordingly, added to DB APIs Put, Delete, SingleDelete, etc. accepting an additional argument 'timestamp'. Added Put, Delete, SingleDelete, etc to WriteBatch accepting an additional argument 'timestamp'. Removed WriteBatch::AssignTimestamps(vector<Slice>) API. Renamed WriteBatch::AssignTimestamp() to WriteBatch::UpdateTimestamps() with clarified comments.
+* Significant updates to FilterPolicy-related APIs and configuration:
+  * Remove public API support for deprecated, inefficient block-based filter (use_block_based_builder=true).
+    * Old code and configuration strings that would enable it now quietly enable full filters instead, though any built-in FilterPolicy can still read block-based filters. This includes changing the longstanding default behavior of the Java API.
+    * Remove deprecated FilterPolicy::CreateFilter() and FilterPolicy::KeyMayMatch()
+    * Remove `rocksdb_filterpolicy_create()` from C API, as the only C API support for custom filter policies is now obsolete.
+    * If temporary memory usage in full filter creation is a problem, consider using partitioned filters, smaller SST files, or setting reserve_table_builder_memory=true.
+  * Remove support for "filter_policy=experimental_ribbon" configuration
+  string. Use something like "filter_policy=ribbonfilter:10" instead.
+  * Allow configuration string like "filter_policy=bloomfilter:10" without
+  bool, to minimize acknowledgement of obsolete block-based filter.
+  * A `filter_policy` loaded from an OPTIONS file can read existing filters
+  but still does not support writing new filters.
+  * Change meaning of nullptr return from GetBuilderWithContext() from "use
+    block-based filter" to "generate no filter in this case."
+    * Also, when user specifies bits_per_key < 0.5, we now round this down
+    to "no filter" because we expect a filter with >= 80% FP rate is
+    unlikely to be worth the CPU cost of accessing it (esp with
+    cache_index_and_filter_blocks=1 or partition_filters=1).
+    * bits_per_key >= 0.5 and < 1.0 is still rounded up to 1.0 (for 62% FP
+    rate)
+  * Also removed deprecated functions
+    * FilterBitsBuilder::CalculateNumEntry()
+    * FilterPolicy::GetFilterBitsBuilder()
+    * NewExperimentalRibbonFilterPolicy()
+  * Remove default implementations of
+    * FilterBitsBuilder::EstimateEntriesAdded()
+    * FilterBitsBuilder::ApproximateNumEntries()
+    * FilterPolicy::GetBuilderWithContext()
+* Remove default implementation of Name() from FileSystemWrapper.
+* Rename `SizeApproximationOptions.include_memtabtles` to `SizeApproximationOptions.include_memtables`.
+* Remove deprecated option DBOptions::max_mem_compaction_level.
+* Return Status::InvalidArgument from ObjectRegistry::NewObject if a factory exists but the object ould not be created (returns NotFound if the factory is missing).
+* Remove deprecated overloads of API DB::GetApproximateSizes.
+* Remove deprecated option DBOptions::new_table_reader_for_compaction_inputs.
+* Add Transaction::SetReadTimestampForValidation() and Transaction::SetCommitTimestamp(). Default impl returns NotSupported().
+
+### Behavior Changes
+* Disallow the combination of DBOptions.use_direct_io_for_flush_and_compaction == true and DBOptions.writable_file_max_buffer_size == 0. This combination can cause WritableFileWriter::Append() to loop forever, and it does not make much sense in direct IO.
+* `ReadOptions::total_order_seek` no longer affects `DB::Get()`. The original motivation for this interaction has been obsolete since RocksDB has been able to detect whether the current prefix extractor is compatible with that used to generate table files, probably RocksDB 5.14.0.
+
+## New Features
+* Introduced an option `BlockBasedTableOptions::detect_filter_construct_corruption` for detecting corruption during Bloom Filter (format_version >= 5) and Ribbon Filter construction.
+* Improved the SstDumpTool to read the comparator from table properties and use it to read the SST File.
+* Extended the column family statistics in the info log so the total amount of garbage in the blob files and the blob file space amplification factor are also logged. Also exposed the blob file space amp via the `rocksdb.blob-stats` DB property.
+* Introduced the API rocksdb_create_dir_if_missing in c.h that calls underlying file system's CreateDirIfMissing API to create the directory.
+
+## 6.29.0 (01/21/2022)
+Note: The next release will be major release 7.0. See https://github.com/facebook/rocksdb/issues/9390 for more info.
+### Public API change
+* Added values to `TraceFilterType`: `kTraceFilterIteratorSeek`, `kTraceFilterIteratorSeekForPrev`, and `kTraceFilterMultiGet`. They can be set in `TraceOptions` to filter out the operation types after which they are named.
+* Added `TraceOptions::preserve_write_order`. When enabled it  guarantees write records are traced in the same order they are logged to WAL and applied to the DB. By default it is disabled (false) to match the legacy behavior and prevent regression.
+* Made the Env class extend the Customizable class.  Implementations need to be registered with the ObjectRegistry and to implement a Name() method in order to be created via this method.
+* `Options::OldDefaults` is marked deprecated, as it is no longer maintained.
+* Add ObjectLibrary::AddFactory and ObjectLibrary::PatternEntry classes.  This method and associated class are the preferred mechanism for registering factories with the ObjectLibrary going forward.  The ObjectLibrary::Register method, which uses regular expressions and may be problematic, is deprecated and will be in a future release.
+* Changed `BlockBasedTableOptions::block_size` from `size_t` to `uint64_t`.
+* Added API warning against using `Iterator::Refresh()` together with `DB::DeleteRange()`, which are incompatible and have always risked causing the refreshed iterator to return incorrect results.
+* Made `AdvancedColumnFamilyOptions.bottommost_temperature` dynamically changeable with `SetOptions()`.
+
+### Behavior Changes
+* `DB::DestroyColumnFamilyHandle()` will return Status::InvalidArgument() if called with `DB::DefaultColumnFamily()`.
+* On 32-bit platforms, mmap reads are no longer quietly disabled, just discouraged.
+
+### New Features
+* Added `Options::DisableExtraChecks()` that can be used to improve peak write performance by disabling checks that should not be necessary in the absence of software logic errors or CPU+memory hardware errors. (Default options are slowly moving toward some performance overheads for extra correctness checking.)
+
+### Performance Improvements
+* Improved read performance when a prefix extractor is used (Seek, Get, MultiGet), even compared to version 6.25 baseline (see bug fix below), by optimizing the common case of prefix extractor compatible with table file and unchanging.
+
+### Bug Fixes
+* Fix a bug that FlushMemTable may return ok even flush not succeed.
+* Fixed a bug of Sync() and Fsync() not using `fcntl(F_FULLFSYNC)` on OS X and iOS.
+* Fixed a significant performance regression in version 6.26 when a prefix extractor is used on the read path (Seek, Get, MultiGet). (Excessive time was spent in SliceTransform::AsString().)
+* Fixed a race condition in SstFileManagerImpl error recovery code that can cause a crash during process shutdown.
+
+### New Features
+* Added RocksJava support for MacOS universal binary (ARM+x86)
+
 ## 6.28.0 (2021-12-17)
 ### New Features
 * Introduced 'CommitWithTimestamp' as a new tag. Currently, there is no API for user to trigger a write with this tag to the WAL. This is part of the efforts to support write-commited transactions with user-defined timestamps.
+* Introduce SimulatedHybridFileSystem which can help simulating HDD latency in db_bench. Tiered Storage latency simulation can be enabled using -simulate_hybrid_fs_file (note that it doesn't work if db_bench is interrupted in the middle). -simulate_hdd can also be used to simulate all files on HDD.
 
 ### Bug Fixes
 * Fixed a bug in rocksdb automatic implicit prefetching which got broken because of new feature adaptive_readahead and internal prefetching got disabled when iterator moves from one file to next.
@@ -10,6 +118,7 @@
 * Fixed a bug causing two duplicate entries to be appended to a file opened in non-direct mode and tracked by `FaultInjectionTestFS`.
 * Fixed a bug in TableOptions.prepopulate_block_cache to support block-based filters also.
 * Block cache keys no longer use `FSRandomAccessFile::GetUniqueId()` (previously used when available), so a filesystem recycling unique ids can no longer lead to incorrect result or crash (#7405). For files generated by RocksDB >= 6.24, the cache keys are stable across DB::Open and DB directory move / copy / import / export / migration, etc. Although collisions are still theoretically possible, they are (a) impossible in many common cases, (b) not dependent on environmental factors, and (c) much less likely than a CPU miscalculation while executing RocksDB.
+* Fixed a bug in C bindings causing iterator to return incorrect result (#9343).
 
 ### Behavior Changes
 * MemTableList::TrimHistory now use allocated bytes when max_write_buffer_size_to_maintain > 0(default in TrasactionDB, introduced in PR#5022) Fix #8371.
@@ -17,6 +126,8 @@
 ### Public API change
 * Extend WriteBatch::AssignTimestamp and AssignTimestamps API so that both functions can accept an optional `checker` argument that performs additional checking on timestamp sizes.
 * Introduce a new EventListener callback that will be called upon the end of automatic error recovery.
+* Add IncreaseFullHistoryTsLow API so users can advance each column family's full_history_ts_low seperately.
+* Add GetFullHistoryTsLow API so users can query current full_history_low value of specified column family.
 
 ### Performance Improvements
 * Replaced map property `TableProperties::properties_offsets`  with uint64_t property `external_sst_file_global_seqno_offset` to save table properties's memory.

@@ -40,11 +40,13 @@
 #include "env/env_chroot.h"
 #include "env/env_encryption_ctr.h"
 #include "env/fs_readonly.h"
+#include "env/mock_env.h"
 #include "env/unique_id_gen.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
 #include "port/malloc.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/env_encryption.h"
@@ -60,6 +62,7 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/string_util.h"
+#include "utilities/counted_fs.h"
 #include "utilities/env_timed.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/fault_injection_fs.h"
@@ -456,11 +459,17 @@ TEST_P(EnvPosixTestWithParam, RunMany) {
   env_->Schedule(&CB::Run, &cb2);
   env_->Schedule(&CB::Run, &cb3);
   env_->Schedule(&CB::Run, &cb4);
+  // thread-pool pops a thread function and then run the function, which may
+  // cause threadpool is empty but the last function is still running. Add a
+  // dummy function at the end, to make sure the last callback is finished
+  // before threadpool is empty.
+  struct DummyCB {
+    static void Run(void*) {}
+  };
+  env_->Schedule(&DummyCB::Run, nullptr);
 
-  Env::Default()->SleepForMicroseconds(kDelayMicros);
-  int cur = last_id.load(std::memory_order_acquire);
-  ASSERT_EQ(4, cur);
   WaitThreadPoolsEmpty();
+  ASSERT_EQ(4, last_id.load(std::memory_order_acquire));
 }
 #endif
 
@@ -2136,29 +2145,29 @@ class TestEnv : public EnvWrapper {
   public:
     explicit TestEnv() : EnvWrapper(Env::Default()),
                 close_count(0) { }
-
-  class TestLogger : public Logger {
-   public:
-    using Logger::Logv;
-    TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
-    ~TestLogger() override {
-      if (!closed_) {
-        Status s = CloseHelper();
-        s.PermitUncheckedError();
+    const char* Name() const override { return "TestEnv"; }
+    class TestLogger : public Logger {
+     public:
+      using Logger::Logv;
+      explicit TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
+      ~TestLogger() override {
+        if (!closed_) {
+          Status s = CloseHelper();
+          s.PermitUncheckedError();
+        }
       }
-    }
-    void Logv(const char* /*format*/, va_list /*ap*/) override{};
+      void Logv(const char* /*format*/, va_list /*ap*/) override {}
 
-   protected:
-    Status CloseImpl() override { return CloseHelper(); }
+     protected:
+      Status CloseImpl() override { return CloseHelper(); }
 
-   private:
-    Status CloseHelper() {
-      env->CloseCountInc();;
-      return Status::OK();
-    }
-    TestEnv* env;
-  };
+     private:
+      Status CloseHelper() {
+        env->CloseCountInc();
+        return Status::OK();
+      }
+      TestEnv* env;
+    };
 
   void CloseCountInc() { close_count++; }
 
@@ -2490,7 +2499,7 @@ TEST_F(CreateEnvTest, CreateDefaultSystemClock) {
 TEST_F(CreateEnvTest, CreateMockSystemClock) {
   std::shared_ptr<SystemClock> mock, copy;
 
-  config_options_.registry->AddLibrary("test")->Register<SystemClock>(
+  config_options_.registry->AddLibrary("test")->AddFactory<SystemClock>(
       MockSystemClock::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<SystemClock>* guard,
          std::string* /* errmsg */) {
@@ -2582,6 +2591,37 @@ TEST_F(CreateEnvTest, CreateTimedFileSystem) {
   ASSERT_OK(FileSystem::CreateFromString(config_options_, opts_str, &copy));
   ASSERT_TRUE(fs->AreEquivalent(config_options_, copy.get(), &mismatch));
 }
+
+TEST_F(CreateEnvTest, CreateCountedFileSystem) {
+  std::shared_ptr<FileSystem> fs, copy;
+
+  ASSERT_OK(FileSystem::CreateFromString(config_options_,
+                                         CountedFileSystem::kClassName(), &fs));
+  ASSERT_NE(fs, nullptr);
+  ASSERT_STREQ(fs->Name(), CountedFileSystem::kClassName());
+  ASSERT_EQ(fs->Inner(), FileSystem::Default().get());
+
+  std::string opts_str = fs->ToString(config_options_);
+  std::string mismatch;
+
+  ASSERT_OK(FileSystem::CreateFromString(config_options_, opts_str, &copy));
+  ASSERT_TRUE(fs->AreEquivalent(config_options_, copy.get(), &mismatch));
+
+  ASSERT_OK(FileSystem::CreateFromString(
+      config_options_,
+      std::string("id=") + CountedFileSystem::kClassName() +
+          "; target=" + ReadOnlyFileSystem::kClassName(),
+      &fs));
+  ASSERT_NE(fs, nullptr);
+  opts_str = fs->ToString(config_options_);
+  ASSERT_STREQ(fs->Name(), CountedFileSystem::kClassName());
+  ASSERT_NE(fs->Inner(), nullptr);
+  ASSERT_STREQ(fs->Inner()->Name(), ReadOnlyFileSystem::kClassName());
+  ASSERT_EQ(fs->Inner()->Inner(), FileSystem::Default().get());
+  ASSERT_OK(FileSystem::CreateFromString(config_options_, opts_str, &copy));
+  ASSERT_TRUE(fs->AreEquivalent(config_options_, copy.get(), &mismatch));
+}
+
 #ifndef OS_WIN
 TEST_F(CreateEnvTest, CreateChrootFileSystem) {
   std::shared_ptr<FileSystem> fs, copy;
@@ -2894,9 +2934,186 @@ TEST_F(EnvTest, FailureToCreateLockFile) {
   // Clean up
   ASSERT_OK(DestroyDir(env, dir));
 }
+
+TEST_F(EnvTest, CreateDefaultEnv) {
+  ConfigOptions options;
+  options.ignore_unsupported_options = false;
+
+  std::shared_ptr<Env> guard;
+  Env* env = nullptr;
+  ASSERT_OK(Env::CreateFromString(options, "", &env));
+  ASSERT_EQ(env, Env::Default());
+
+  env = nullptr;
+  ASSERT_OK(Env::CreateFromString(options, Env::kDefaultName(), &env));
+  ASSERT_EQ(env, Env::Default());
+
+  env = nullptr;
+  ASSERT_OK(Env::CreateFromString(options, "", &env, &guard));
+  ASSERT_EQ(env, Env::Default());
+  ASSERT_EQ(guard, nullptr);
+
+  env = nullptr;
+  ASSERT_OK(Env::CreateFromString(options, Env::kDefaultName(), &env, &guard));
+  ASSERT_EQ(env, Env::Default());
+  ASSERT_EQ(guard, nullptr);
+
+#ifndef ROCKSDB_LITE
+  std::string opt_str = env->ToString(options);
+  ASSERT_OK(Env::CreateFromString(options, opt_str, &env));
+  ASSERT_EQ(env, Env::Default());
+  ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &guard));
+  ASSERT_EQ(env, Env::Default());
+  ASSERT_EQ(guard, nullptr);
+#endif  // ROCKSDB_LITE
+}
+
+#ifndef ROCKSDB_LITE
+namespace {
+class WrappedEnv : public EnvWrapper {
+ public:
+  explicit WrappedEnv(Env* t) : EnvWrapper(t) {}
+  explicit WrappedEnv(const std::shared_ptr<Env>& t) : EnvWrapper(t) {}
+  static const char* kClassName() { return "WrappedEnv"; }
+  const char* Name() const override { return kClassName(); }
+  static void Register(ObjectLibrary& lib, const std::string& /*arg*/) {
+    lib.AddFactory<Env>(
+        WrappedEnv::kClassName(),
+        [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
+           std::string* /* errmsg */) {
+          guard->reset(new WrappedEnv(nullptr));
+          return guard->get();
+        });
+  }
+};
+}  // namespace
+TEST_F(EnvTest, CreateMockEnv) {
+  ConfigOptions options;
+  options.ignore_unsupported_options = false;
+  WrappedEnv::Register(*(options.registry->AddLibrary("test")), "");
+  std::shared_ptr<Env> guard, copy;
+  std::string opt_str;
+
+  Env* env = nullptr;
+  ASSERT_NOK(Env::CreateFromString(options, MockEnv::kClassName(), &env));
+  ASSERT_OK(
+      Env::CreateFromString(options, MockEnv::kClassName(), &env, &guard));
+  ASSERT_NE(env, nullptr);
+  ASSERT_NE(env, Env::Default());
+  opt_str = env->ToString(options);
+  ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
+  ASSERT_NE(copy, guard);
+  std::string mismatch;
+  ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
+  guard.reset(MockEnv::Create(Env::Default(), SystemClock::Default()));
+  opt_str = guard->ToString(options);
+  ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
+  std::unique_ptr<Env> wrapped_env(new WrappedEnv(Env::Default()));
+  guard.reset(MockEnv::Create(wrapped_env.get(), SystemClock::Default()));
+  opt_str = guard->ToString(options);
+  ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
+  opt_str = copy->ToString(options);
+}
+
+TEST_F(EnvTest, CreateWrappedEnv) {
+  ConfigOptions options;
+  options.ignore_unsupported_options = false;
+  WrappedEnv::Register(*(options.registry->AddLibrary("test")), "");
+  Env* env = nullptr;
+  std::shared_ptr<Env> guard, copy;
+  std::string opt_str;
+  std::string mismatch;
+
+  ASSERT_NOK(Env::CreateFromString(options, WrappedEnv::kClassName(), &env));
+  ASSERT_OK(
+      Env::CreateFromString(options, WrappedEnv::kClassName(), &env, &guard));
+  ASSERT_NE(env, nullptr);
+  ASSERT_NE(env, Env::Default());
+  ASSERT_FALSE(guard->AreEquivalent(options, Env::Default(), &mismatch));
+
+  opt_str = env->ToString(options);
+  ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
+  ASSERT_NE(copy, guard);
+  ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
+
+  guard.reset(new WrappedEnv(std::make_shared<WrappedEnv>(Env::Default())));
+  ASSERT_NE(guard.get(), env);
+  opt_str = guard->ToString(options);
+  ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
+  ASSERT_NE(copy, guard);
+  ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
+
+  guard.reset(new WrappedEnv(std::make_shared<WrappedEnv>(
+      std::make_shared<WrappedEnv>(Env::Default()))));
+  ASSERT_NE(guard.get(), env);
+  opt_str = guard->ToString(options);
+  ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
+  ASSERT_NE(copy, guard);
+  ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
+}
+
+TEST_F(EnvTest, CreateCompositeEnv) {
+  ConfigOptions options;
+  options.ignore_unsupported_options = false;
+  std::shared_ptr<Env> guard, copy;
+  Env* env = nullptr;
+  std::string mismatch, opt_str;
+
+  WrappedEnv::Register(*(options.registry->AddLibrary("test")), "");
+  std::unique_ptr<Env> base(NewCompositeEnv(FileSystem::Default()));
+  std::unique_ptr<Env> wrapped(new WrappedEnv(Env::Default()));
+  std::shared_ptr<FileSystem> timed_fs =
+      std::make_shared<TimedFileSystem>(FileSystem::Default());
+  std::shared_ptr<SystemClock> clock =
+      std::make_shared<EmulatedSystemClock>(SystemClock::Default());
+
+  opt_str = base->ToString(options);
+  ASSERT_NOK(Env::CreateFromString(options, opt_str, &env));
+  ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &guard));
+  ASSERT_NE(env, nullptr);
+  ASSERT_NE(env, Env::Default());
+  ASSERT_EQ(env->GetFileSystem(), FileSystem::Default());
+  ASSERT_EQ(env->GetSystemClock(), SystemClock::Default());
+
+  base = NewCompositeEnv(timed_fs);
+  opt_str = base->ToString(options);
+  ASSERT_NOK(Env::CreateFromString(options, opt_str, &env));
+  ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &guard));
+  ASSERT_NE(env, nullptr);
+  ASSERT_NE(env, Env::Default());
+  ASSERT_NE(env->GetFileSystem(), FileSystem::Default());
+  ASSERT_EQ(env->GetSystemClock(), SystemClock::Default());
+
+  env = nullptr;
+  guard.reset(new CompositeEnvWrapper(wrapped.get(), timed_fs));
+  opt_str = guard->ToString(options);
+  ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
+  ASSERT_NE(env, nullptr);
+  ASSERT_NE(env, Env::Default());
+  ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
+
+  env = nullptr;
+  guard.reset(new CompositeEnvWrapper(wrapped.get(), clock));
+  opt_str = guard->ToString(options);
+  ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
+  ASSERT_NE(env, nullptr);
+  ASSERT_NE(env, Env::Default());
+  ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
+
+  env = nullptr;
+  guard.reset(new CompositeEnvWrapper(wrapped.get(), timed_fs, clock));
+  opt_str = guard->ToString(options);
+  ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
+  ASSERT_NE(env, nullptr);
+  ASSERT_NE(env, Env::Default());
+  ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
+}
+#endif  // ROCKSDB_LITE
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

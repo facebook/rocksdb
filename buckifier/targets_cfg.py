@@ -11,6 +11,8 @@ rocksdb_target_header_template = \
 # This file is a Facebook-specific integration for buck builds, so can
 # only be validated by Facebook employees.
 #
+# @noautodeps @nocodemods
+
 load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
 load("@fbcode_macros//build_defs:cpp_library.bzl", "cpp_library")
 load(":defs.bzl", "test_binary")
@@ -19,8 +21,10 @@ REPO_PATH = package_name() + "/"
 
 ROCKSDB_COMPILER_FLAGS_0 = [
     "-fno-builtin-memcmp",
-    # Needed to compile in fbcode
-    "-Wno-expansion-to-defined",
+    # Allow offsetof to work on non-standard layout types. Some compiler could
+    # completely reject our usage of offsetof, but we will solve that when it
+    # happens.
+    "-Wno-invalid-offsetof",
     # Added missing flags from output of build_detect_platform
     "-Wnarrowing",
     "-DROCKSDB_NO_DYNAMIC_EXTENSION",
