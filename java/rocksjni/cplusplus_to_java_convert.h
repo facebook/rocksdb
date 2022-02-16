@@ -1,5 +1,9 @@
-#ifndef _CPLUSPLUS_TO_JAVA_CONVERT_H
-#define _CPLUSPLUS_TO_JAVA_CONVERT_H
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
+#pragma once
 
 /*
  * This macro is used for 32 bit OS. In 32 bit OS, the result number is a
@@ -31,5 +35,3 @@
 
 #define GET_CPLUSPLUS_POINTER(_pointer) \
   static_cast<jlong>(reinterpret_cast<size_t>(_pointer))
-
-#endif
