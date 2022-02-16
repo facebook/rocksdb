@@ -645,13 +645,16 @@ class FileSystem : public Customizable {
                                const IOOptions& options, bool* is_dir,
                                IODebugContext* /*dgb*/) = 0;
 
-  // Poll for completion of read IO. The Poll() method should call the callback
-  // provided to ReadAsync to indicate completion. A return value of
-  // IOStatus::NotSupported() indicates that polling is not supported, and
-  // RocksDB will be informed of IO completions via the callback on another
-  // thread.
-  virtual IOStatus Poll(IOHandle* /*io_handle*/) {
-    return IOStatus::NotSupported("Poll");
+  // EXPERIMENTAL
+  // Poll for completion of read IO requests. The Poll() method should call the
+  // callback functions to indicate completion of read requests. RocksDB will be
+  // informed of IO completions via the callback on another thread.
+  //
+  // Default implementation is to return IOStatus::OK.
+
+  virtual IOStatus Poll(std::vector<IOHandle*>& /*io_handles*/,
+                        size_t /*min_completions*/) {
+    return IOStatus::OK();
   }
 
   // If you're adding methods here, remember to add them to EnvWrapper too.
@@ -852,18 +855,35 @@ class FSRandomAccessFile {
     return IOStatus::NotSupported("InvalidateCache not supported.");
   }
 
-  //  Asynchronous Read of the data requested in FSReadRequest. This is a
-  //  asynchronous call, i.e it will return after submitting the request.
-  //  When read request is completed callback function specified in cb will be
-  //  called with result populated in FSReadResponse. This API also populates
-  //  IOHandle. req contains the request offset and size, but the result and
-  //  status fields should be ignored. Instead, they should be passed in the
-  //  FSReadResponse structure to the callback.
-  virtual IOStatus ReadAsync(const IOOptions& /*opts*/, IODebugContext* /*dbg*/,
-                             FSReadRequest* /*req*/,
-                             std::function<void(FSReadResponse* resp)> /*cb*/,
-                             IOHandle* /*io_handle*/) {
-    return IOStatus::NotSupported("ReadAsync");
+  // EXPERIMENTAL
+  // This API reads the requested data in FSReadRequest asynchronously. This is
+  // a asynchronous call, i.e it should return after submitting the request.
+  //
+  // When the read request is completed, callback function specified in cb
+  // should be called with arguments cb_arg and the result populated in
+  // FSReadResponse.
+  // cb_arg should be used by the callback to track the original request
+  // submitted.
+  //
+  // This API should also populate IOHandle which should be used by
+  // underlying FileSystem to store the context in order to distinguish the read
+  // requests at their side.
+  //
+  // req contains the request offset and size, but the result and status fields
+  // should be ignored. Instead, they should be passed in the FSReadResponse
+  // structure to the callback.
+  //
+  // Default implementation is to read the data synchronously.
+  virtual IOStatus ReadAsync(
+      FSReadRequest* req, const IOOptions& opts,
+      std::function<void(FSReadResponse* resp, void* cb_arg)> cb, void* cb_arg,
+      IOHandle* /*io_handle*/, IODebugContext* dbg) {
+    assert(req != nullptr);
+    FSReadResponse resp;
+    resp.status =
+        Read(req->offset, req->len, opts, &(resp.result), req->scratch, dbg);
+    cb(&resp, cb_arg);
+    return IOStatus::OK();
   }
 
   // EXPERIMENTAL
@@ -1452,8 +1472,9 @@ class FileSystemWrapper : public FileSystem {
                                const std::string& header) const override;
 #endif  // ROCKSDB_LITE
 
-  virtual IOStatus Poll(IOHandle* io_handle) override {
-    return target_->Poll(io_handle);
+  virtual IOStatus Poll(std::vector<IOHandle*>& io_handles,
+                        size_t min_completions) override {
+    return target_->Poll(io_handles, min_completions);
   }
 
  protected:
@@ -1536,11 +1557,11 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
   IOStatus InvalidateCache(size_t offset, size_t length) override {
     return target_->InvalidateCache(offset, length);
   }
-  IOStatus ReadAsync(const IOOptions& opts, IODebugContext* dbg,
-                     FSReadRequest* req,
-                     std::function<void(FSReadResponse* resp)> cb,
-                     IOHandle* io_handle) override {
-    return target()->ReadAsync(opts, dbg, req, cb, io_handle);
+  IOStatus ReadAsync(FSReadRequest* req, const IOOptions& opts,
+                     std::function<void(FSReadResponse* resp, void* cb_arg)> cb,
+                     void* cb_arg, IOHandle* io_handle,
+                     IODebugContext* dbg) override {
+    return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, dbg);
   }
   Temperature GetTemperature() const override {
     return target_->GetTemperature();

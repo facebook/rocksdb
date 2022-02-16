@@ -339,11 +339,12 @@ IOStatus FSRandomAccessFileTracingWrapper::InvalidateCache(size_t offset,
 }
 
 IOStatus FSRandomAccessFileTracingWrapper::ReadAsync(
-    const IOOptions& opts, IODebugContext* dbg, FSReadRequest* req,
-    std::function<void(FSReadResponse* resp)> cb, IOHandle* io_handle) {
+    FSReadRequest* req, const IOOptions& opts,
+    std::function<void(FSReadResponse* resp, void* cb_arg)> cb, void* cb_arg,
+    IOHandle* io_handle, IODebugContext* dbg) {
   StopWatchNano timer(clock_);
   timer.Start();
-  IOStatus s = target()->ReadAsync(opts, dbg, req, cb, io_handle);
+  IOStatus s = target()->ReadAsync(req, opts, cb, cb_arg, io_handle, dbg);
   uint64_t elapsed = timer.ElapsedNanos();
   uint64_t io_op_data = 0;
   io_op_data |= (1 << IOTraceOp::kIOLen);

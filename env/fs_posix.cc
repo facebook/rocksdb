@@ -1041,7 +1041,8 @@ class PosixFileSystem : public FileSystem {
   }
 #endif  // ROCKSDB_IOURING_PRESENT
 
-  virtual IOStatus Poll(IOHandle* /*io_handle*/) override {
+  virtual IOStatus Poll(std::vector<IOHandle*>& /*io_handles*/,
+                        size_t /*min_completions*/) override {
     return IOStatus::NotSupported("Poll");
   }
 
