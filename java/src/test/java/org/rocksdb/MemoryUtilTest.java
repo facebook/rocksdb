@@ -45,7 +45,6 @@ public class MemoryUtilTest {
                  new FlushOptions().setWaitForFlush(true);
          final RocksDB db =
                  RocksDB.open(options, dbFolder1.getRoot().getAbsolutePath())) {
-
       final List<RocksDB> dbs = new ArrayList<>(1);
       dbs.add(db);
       final Set<Cache> caches = new HashSet<>(1);
@@ -123,13 +122,14 @@ public class MemoryUtilTest {
       caches.add(cache1);
       caches.add(cache2);
 
-      for (final RocksDB db: dbs) {
+      for (final RocksDB db : dbs) {
         db.put(key, value);
         db.flush(flushOptions);
         db.get(key);
       }
 
-      final Map<MemoryUsageType, Long> usage = MemoryUtil.getApproximateMemoryUsageByType(dbs, caches);
+      final Map<MemoryUsageType, Long> usage =
+          MemoryUtil.getApproximateMemoryUsageByType(dbs, caches);
       assertThat(usage.get(MemoryUsageType.kMemTableTotal)).isEqualTo(
               db1.getAggregatedLongProperty(MEMTABLE_SIZE) + db2.getAggregatedLongProperty(MEMTABLE_SIZE));
       assertThat(usage.get(MemoryUsageType.kMemTableUnFlushed)).isEqualTo(

@@ -33,7 +33,7 @@ public class MemoryUtil {
     final long[] dbHandles = new long[dbCount];
     final long[] cacheHandles = new long[cacheCount];
     for (int i = 0; i < dbCount; i++) {
-        dbHandles[i] = dbs.get(i).nativeHandle_;
+      dbHandles[i] = dbs.get(i).nativeHandle_;
     }
     Iterator<Cache> itCache = null;
     for (int i = 0; i < cacheCount; i++) {

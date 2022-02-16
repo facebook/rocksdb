@@ -79,8 +79,8 @@ public class TestUtil {
    *
    * @return the random int
    */
-  public static int intBetween(final Random random, final int minInclusive,
-        final int maxInclusive) {
+  public static int intBetween(
+      final Random random, final int minInclusive, final int maxInclusive) {
     return random.nextInt((maxInclusive - minInclusive) + 1) + minInclusive;
   }
 }
