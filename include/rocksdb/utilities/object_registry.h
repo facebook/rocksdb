@@ -76,7 +76,7 @@ class ObjectLibrary {
       kMatchAtLeastOne,  // [suffix].+
       kMatchExact,       // [suffix]
       kMatchInteger,     // [suffix][0-9]+
-      kMatchDouble,      // [suffix][0-9]+[.][0-9]+
+      kMatchDecimal,     // [suffix][0-9]+[.][0-9]+
     };
 
    public:
@@ -126,7 +126,7 @@ class ObjectLibrary {
     // entry
     PatternEntry& AddNumber(const std::string& separator, bool is_int = true) {
       separators_.emplace_back(separator,
-                               (is_int) ? kMatchInteger : kMatchDouble);
+                               (is_int) ? kMatchInteger : kMatchDecimal);
       slength_ += separator.size() + 1;
       return *this;
     }

@@ -13,6 +13,8 @@
 #include "rocksdb/env.h"
 #include "util/string_util.h"
 
+namespace ROCKSDB_NAMESPACE {
+#ifndef ROCKSDB_LITE
 namespace {
 bool MatchesInteger(const std::string &target, size_t start, size_t pos) {
   // If it is numeric, everything up to the match must be a number
@@ -27,7 +29,7 @@ bool MatchesInteger(const std::string &target, size_t start, size_t pos) {
   return (digits > 0);
 }
 
-bool MatchesDouble(const std::string &target, size_t start, size_t pos) {
+bool MatchesDecimal(const std::string &target, size_t start, size_t pos) {
   int digits = 0;
   for (bool point = false; start < pos; start++) {
     if (target[start] == '.') {
@@ -46,8 +48,6 @@ bool MatchesDouble(const std::string &target, size_t start, size_t pos) {
 }
 }  // namespace
 
-namespace ROCKSDB_NAMESPACE {
-#ifndef ROCKSDB_LITE
 size_t ObjectLibrary::PatternEntry::MatchSeparatorAt(
     size_t start, Quantifier mode, const std::string &target, size_t tlen,
     const std::string &separator) const {
@@ -73,8 +73,8 @@ size_t ObjectLibrary::PatternEntry::MatchSeparatorAt(
       if (!MatchesInteger(target, start, pos)) {
         return std::string::npos;
       }
-    } else if (mode == kMatchDouble) {
-      if (!MatchesDouble(target, start, pos)) {
+    } else if (mode == kMatchDecimal) {
+      if (!MatchesDecimal(target, start, pos)) {
         return std::string::npos;
       }
     }
@@ -120,8 +120,8 @@ bool ObjectLibrary::PatternEntry::MatchesTarget(const std::string &name,
       return false;
     } else if (mode == kMatchInteger) {
       return MatchesInteger(target, start, tlen);
-    } else if (mode == kMatchDouble) {
-      return MatchesDouble(target, start, tlen);
+    } else if (mode == kMatchDecimal) {
+      return MatchesDecimal(target, start, tlen);
     }
   }
   return true;
