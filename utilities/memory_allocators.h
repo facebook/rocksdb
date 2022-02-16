@@ -5,10 +5,9 @@
 
 #pragma once
 
-#include <malloc.h>
-
 #include <atomic>
 
+#include "port/malloc.h"
 #include "rocksdb/memory_allocator.h"
 
 namespace ROCKSDB_NAMESPACE {

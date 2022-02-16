@@ -1297,11 +1297,13 @@ Status XXPH3FilterBitsBuilder::MaybePostVerify(const Slice& filter_content) {
 Slice FilterBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
   Slice filter;
   Status s = FinishV2(/*allocator*/ nullptr, &filter);
-  if (s.ok()) {
-    if (filter.size() > 0) {
-      buf->reset(filter.data());
-    }
+  if (filter.size() > 0) {
+    assert(s.ok());
+    buf->reset(filter.data());
     return filter;
+  } else if (s.ok()) {
+    // Empty filter
+    return Slice();
   } else {
     // Safe fallback
     return kAlwaysTrueFilter;
