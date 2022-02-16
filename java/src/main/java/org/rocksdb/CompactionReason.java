@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
+
 public enum CompactionReason {
   kUnknown((byte)0x0),
 
@@ -113,13 +115,13 @@ public enum CompactionReason {
    * @throws IllegalArgumentException if the value is unknown.
    */
   static CompactionReason fromValue(final byte value) {
-    for (final CompactionReason compactionReason : CompactionReason.values()) {
+    for (final CompactionReason compactionReason : values()) {
       if(compactionReason.value == value) {
         return compactionReason;
       }
     }
 
     throw new IllegalArgumentException(
-        "Illegal value provided for CompactionReason: " + value);
+        MessageFormat.format("Illegal value provided for CompactionReason: {0}", value));
   }
 }

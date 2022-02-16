@@ -38,14 +38,14 @@ public enum CompactionStopStyle {
    *
    * @param value byte representation of CompactionStopStyle.
    *
-   * @return {@link org.rocksdb.CompactionStopStyle} instance or null.
+   * @return {@code CompactionStopStyle} instance or null.
    * @throws java.lang.IllegalArgumentException if an invalid
    *     value is provided.
    */
   public static CompactionStopStyle getCompactionStopStyle(final byte value) {
     for (final CompactionStopStyle compactionStopStyle :
         CompactionStopStyle.values()) {
-      if (compactionStopStyle.getValue() == value){
+      if (compactionStopStyle.value == value){
         return compactionStopStyle;
       }
     }

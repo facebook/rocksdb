@@ -64,14 +64,14 @@ public enum CompactionPriority {
    *
    * @param value byte representation of CompactionPriority.
    *
-   * @return {@link org.rocksdb.CompactionPriority} instance or null.
+   * @return {@code CompactionPriority} instance or null.
    * @throws java.lang.IllegalArgumentException if an invalid
    *     value is provided.
    */
   public static CompactionPriority getCompactionPriority(final byte value) {
     for (final CompactionPriority compactionPriority :
         CompactionPriority.values()) {
-      if (compactionPriority.getValue() == value){
+      if (compactionPriority.value == value){
         return compactionPriority;
       }
     }

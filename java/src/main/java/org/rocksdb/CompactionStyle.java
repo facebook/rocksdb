@@ -5,6 +5,7 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
 import java.util.List;
 
 /**
@@ -67,14 +68,13 @@ public enum CompactionStyle {
    * @throws IllegalArgumentException if the value does not match a
    *     CompactionStyle
    */
-  static CompactionStyle fromValue(final byte value)
-      throws IllegalArgumentException {
-    for (final CompactionStyle compactionStyle : CompactionStyle.values()) {
+  static CompactionStyle fromValue(final byte value) {
+    for (final CompactionStyle compactionStyle : values()) {
       if (compactionStyle.value == value) {
         return compactionStyle;
       }
     }
-    throw new IllegalArgumentException("Unknown value for CompactionStyle: "
-        + value);
+    throw new IllegalArgumentException(
+        MessageFormat.format("Unknown value for CompactionStyle: {0}", value));
   }
 }
