@@ -892,6 +892,9 @@ Status MultiOpsTxnsStressTest::PointLookupTxn(ThreadState* thread,
   if (s.ok()) {
     s = txn->Commit();
   }
+  if (s.ok()) {
+    delete txn;
+  }
   return s;
 #endif  // !ROCKSDB_LITE
 }
@@ -949,6 +952,10 @@ Status MultiOpsTxnsStressTest::RangeScanTxn(ThreadState* thread,
     s = txn->Commit();
   } else {
     s = iter->status();
+  }
+
+  if (s.ok()) {
+    delete txn;
   }
 
   return s;
