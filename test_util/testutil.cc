@@ -363,8 +363,8 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->max_write_buffer_number_to_maintain = rnd->Uniform(100);
   cf_opt->max_write_buffer_size_to_maintain = rnd->Uniform(10000);
   cf_opt->min_write_buffer_number_to_merge = rnd->Uniform(100);
-  uint32_t isZero=rnd->Uniform(100);
-  cf_opt->num_levels = isZero ? 1 : isZero;
+  uint32_t isNotZero=rnd->Uniform(100);
+  cf_opt->num_levels = isNotZero ? isNotZero : 1;
   cf_opt->target_file_size_multiplier = rnd->Uniform(100);
 
   // vector int options
