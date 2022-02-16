@@ -10,6 +10,7 @@
 #include "rocksdb/filter_policy.h"
 
 #include <array>
+#include <climits>
 #include <cstring>
 #include <deque>
 #include <limits>
@@ -18,6 +19,8 @@
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_reservation_manager.h"
 #include "logging/logging.h"
+#include "port/lang.h"
+#include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "table/block_based/block_based_filter_block.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -29,6 +32,7 @@
 #include "util/hash.h"
 #include "util/ribbon_config.h"
 #include "util/ribbon_impl.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -1307,21 +1311,8 @@ Status XXPH3FilterBitsBuilder::MaybePostVerify(const Slice& filter_content) {
 }
 }  // namespace
 
-const std::vector<BloomFilterPolicy::Mode> BloomFilterPolicy::kAllFixedImpls = {
-    kLegacyBloom,
-    kDeprecatedBlock,
-    kFastLocalBloom,
-    kStandard128Ribbon,
-};
-
-const std::vector<BloomFilterPolicy::Mode> BloomFilterPolicy::kAllUserModes = {
-    kDeprecatedBlock,
-    kAutoBloom,
-    kStandard128Ribbon,
-};
-
-BloomFilterPolicy::BloomFilterPolicy(double bits_per_key, Mode mode)
-    : mode_(mode), warned_(false), aggregate_rounding_balance_(0) {
+BloomLikeFilterPolicy::BloomLikeFilterPolicy(double bits_per_key)
+    : warned_(false), aggregate_rounding_balance_(0) {
   // Sanitize bits_per_key
   if (bits_per_key < 0.5) {
     // Round down to no filter
@@ -1353,14 +1344,48 @@ BloomFilterPolicy::BloomFilterPolicy(double bits_per_key, Mode mode)
   whole_bits_per_key_ = (millibits_per_key_ + 500) / 1000;
 }
 
-BloomFilterPolicy::~BloomFilterPolicy() {}
+BloomLikeFilterPolicy::~BloomLikeFilterPolicy() {}
 
 const char* BuiltinFilterPolicy::Name() const {
   return "rocksdb.BuiltinBloomFilter";
 }
 
-void BloomFilterPolicy::CreateFilter(const Slice* keys, int n, int bits_per_key,
-                                     std::string* dst) {
+const char* DeprecatedBlockBasedBloomFilterPolicy::kName() {
+  return "rocksdb.internal.DeprecatedBlockBasedBloomFilter";
+}
+
+std::string DeprecatedBlockBasedBloomFilterPolicy::GetId() const {
+  return kName() + GetBitsPerKeySuffix();
+}
+
+DeprecatedBlockBasedBloomFilterPolicy::DeprecatedBlockBasedBloomFilterPolicy(
+    double bits_per_key)
+    : BloomLikeFilterPolicy(bits_per_key) {}
+
+FilterBitsBuilder* DeprecatedBlockBasedBloomFilterPolicy::GetBuilderWithContext(
+    const FilterBuildingContext&) const {
+  if (GetWholeBitsPerKey() == 0) {
+    // "No filter" special case
+    return nullptr;
+  }
+  // Internal contract: returns a new fake builder that encodes bits per key
+  // into a special value from EstimateEntriesAdded()
+  struct B : public FilterBitsBuilder {
+    explicit B(int bits_per_key) : est(kSecretBitsPerKeyStart + bits_per_key) {}
+    size_t est;
+    size_t EstimateEntriesAdded() override { return est; }
+    void AddKey(const Slice&) override {}
+    using FilterBitsBuilder::Finish;  // FIXME
+    Slice Finish(std::unique_ptr<const char[]>*) override { return Slice(); }
+    size_t ApproximateNumEntries(size_t) override { return 0; }
+  };
+  return new B(GetWholeBitsPerKey());
+}
+
+void DeprecatedBlockBasedBloomFilterPolicy::CreateFilter(const Slice* keys,
+                                                         int n,
+                                                         int bits_per_key,
+                                                         std::string* dst) {
   // Compute bloom filter size (in both bits and bytes)
   uint32_t bits = static_cast<uint32_t>(n * bits_per_key);
 
@@ -1383,8 +1408,8 @@ void BloomFilterPolicy::CreateFilter(const Slice* keys, int n, int bits_per_key,
   }
 }
 
-bool BloomFilterPolicy::KeyMayMatch(const Slice& key,
-                                    const Slice& bloom_filter) {
+bool DeprecatedBlockBasedBloomFilterPolicy::KeyMayMatch(
+    const Slice& key, const Slice& bloom_filter) {
   const size_t len = bloom_filter.size();
   if (len < 2 || len > 0xffffffffU) {
     return false;
@@ -1406,13 +1431,31 @@ bool BloomFilterPolicy::KeyMayMatch(const Slice& key,
                                                  array);
 }
 
+BloomFilterPolicy::BloomFilterPolicy(double bits_per_key)
+    : BloomLikeFilterPolicy(bits_per_key) {}
+
 FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
     const FilterBuildingContext& context) const {
-  if (millibits_per_key_ == 0) {
+  if (GetMillibitsPerKey() == 0) {
     // "No filter" special case
     return nullptr;
+  } else if (context.table_options.format_version < 5) {
+    return GetLegacyBloomBuilderWithContext(context);
+  } else {
+    return GetFastLocalBloomBuilderWithContext(context);
   }
-  Mode cur = mode_;
+}
+
+const char* BloomFilterPolicy::kName() { return "bloomfilter"; }
+
+std::string BloomFilterPolicy::GetId() const {
+  // Including ":false" for better forward-compatibility with 6.29 and earlier
+  // which required a boolean `use_block_based_builder` parameter
+  return kName() + GetBitsPerKeySuffix() + ":false";
+}
+
+FilterBitsBuilder* BloomLikeFilterPolicy::GetFastLocalBloomBuilderWithContext(
+    const FilterBuildingContext& context) const {
   bool offm = context.table_options.optimize_filters_for_memory;
   bool reserve_filter_construction_mem =
       (context.table_options.reserve_table_builder_memory &&
@@ -1422,80 +1465,73 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
     cache_res_mgr = std::make_shared<CacheReservationManager>(
         context.table_options.block_cache);
   }
-  // Unusual code construction so that we can have just
-  // one exhaustive switch without (risky) recursion
-  for (int i = 0; i < 2; ++i) {
-    switch (cur) {
-      case kAutoBloom:
-        if (context.table_options.format_version < 5) {
-          cur = kLegacyBloom;
-        } else {
-          cur = kFastLocalBloom;
-        }
-        break;
-      case kDeprecatedBlock: {
-        if (context.info_log && !warned_.load(std::memory_order_relaxed)) {
-          warned_ = true;
-          ROCKS_LOG_WARN(context.info_log,
-                         "Using deprecated block-based Bloom filter is "
-                         "inefficient (%d bits per key).",
-                         whole_bits_per_key_);
-        }
-        // Internal contract: returns a new fake builder that encodes bits per
-        // key into a special value from EstimateEntriesAdded()
-        struct B : public FilterBitsBuilder {
-          explicit B(int bits_per_key)
-              : est(kSecretBitsPerKeyStart + bits_per_key) {}
-          size_t est;
-          size_t EstimateEntriesAdded() override { return est; }
-          void AddKey(const Slice&) override {}
-          using FilterBitsBuilder::Finish;  // FIXME
-          Slice Finish(std::unique_ptr<const char[]>*) override {
-            return Slice();
-          }
-          size_t ApproximateNumEntries(size_t) override { return 0; }
-        };
-        return new B(GetWholeBitsPerKey());
-      }
-      case kFastLocalBloom:
         return new FastLocalBloomBitsBuilder(
             millibits_per_key_, offm ? &aggregate_rounding_balance_ : nullptr,
             cache_res_mgr,
             context.table_options.detect_filter_construct_corruption);
-      case kLegacyBloom:
-        if (whole_bits_per_key_ >= 14 && context.info_log &&
-            !warned_.load(std::memory_order_relaxed)) {
-          warned_ = true;
-          const char* adjective;
-          if (whole_bits_per_key_ >= 20) {
-            adjective = "Dramatic";
-          } else {
-            adjective = "Significant";
-          }
-          // For more details, see
-          // https://github.com/facebook/rocksdb/wiki/RocksDB-Bloom-Filter
-          ROCKS_LOG_WARN(
-              context.info_log,
-              "Using legacy Bloom filter with high (%d) bits/key. "
-              "%s filter space and/or accuracy improvement is available "
-              "with format_version>=5.",
-              whole_bits_per_key_, adjective);
-        }
-        return new LegacyBloomBitsBuilder(whole_bits_per_key_,
-                                          context.info_log);
-      case kStandard128Ribbon:
-        return new Standard128RibbonBitsBuilder(
-            desired_one_in_fp_rate_, millibits_per_key_,
-            offm ? &aggregate_rounding_balance_ : nullptr, cache_res_mgr,
-            context.table_options.detect_filter_construct_corruption,
-            context.info_log);
-    }
-  }
-  assert(false);
-  return nullptr;  // something legal
 }
 
-FilterBitsBuilder* BloomFilterPolicy::GetBuilderFromContext(
+FilterBitsBuilder* BloomLikeFilterPolicy::GetLegacyBloomBuilderWithContext(
+    const FilterBuildingContext& context) const {
+  if (whole_bits_per_key_ >= 14 && context.info_log &&
+      !warned_.load(std::memory_order_relaxed)) {
+    warned_ = true;
+    const char* adjective;
+    if (whole_bits_per_key_ >= 20) {
+      adjective = "Dramatic";
+    } else {
+      adjective = "Significant";
+    }
+    // For more details, see
+    // https://github.com/facebook/rocksdb/wiki/RocksDB-Bloom-Filter
+    ROCKS_LOG_WARN(context.info_log,
+                   "Using legacy Bloom filter with high (%d) bits/key. "
+                   "%s filter space and/or accuracy improvement is available "
+                   "with format_version>=5.",
+                   whole_bits_per_key_, adjective);
+  }
+  return new LegacyBloomBitsBuilder(whole_bits_per_key_, context.info_log);
+}
+
+FilterBitsBuilder*
+BloomLikeFilterPolicy::GetStandard128RibbonBuilderWithContext(
+    const FilterBuildingContext& context) const {
+  // FIXME: code duplication with GetFastLocalBloomBuilderWithContext
+  bool offm = context.table_options.optimize_filters_for_memory;
+  bool reserve_filter_construction_mem =
+      (context.table_options.reserve_table_builder_memory &&
+       context.table_options.block_cache);
+  std::shared_ptr<CacheReservationManager> cache_res_mgr;
+  if (reserve_filter_construction_mem) {
+    cache_res_mgr = std::make_shared<CacheReservationManager>(
+        context.table_options.block_cache);
+  }
+  return new Standard128RibbonBitsBuilder(
+      desired_one_in_fp_rate_, millibits_per_key_,
+      offm ? &aggregate_rounding_balance_ : nullptr, cache_res_mgr,
+      context.table_options.detect_filter_construct_corruption,
+      context.info_log);
+}
+
+std::string BloomLikeFilterPolicy::GetBitsPerKeySuffix() const {
+  std::string rv = ":" + ROCKSDB_NAMESPACE::ToString(millibits_per_key_ / 1000);
+  int frac = millibits_per_key_ % 1000;
+  if (frac > 0) {
+    rv.push_back('.');
+    rv.push_back(static_cast<char>('0' + (frac / 100)));
+    frac %= 100;
+    if (frac > 0) {
+      rv.push_back(static_cast<char>('0' + (frac / 10)));
+      frac %= 10;
+      if (frac > 0) {
+        rv.push_back(static_cast<char>('0' + frac));
+      }
+    }
+  }
+  return rv;
+}
+
+FilterBitsBuilder* BuiltinFilterPolicy::GetBuilderFromContext(
     const FilterBuildingContext& context) {
   if (context.table_options.filter_policy) {
     return context.table_options.filter_policy->GetBuilderWithContext(context);
@@ -1503,6 +1539,62 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderFromContext(
     return nullptr;
   }
 }
+
+// For testing only, but always constructable with internal names
+namespace test {
+
+const char* LegacyBloomFilterPolicy::kName() {
+  return "rocksdb.internal.LegacyBloomFilter";
+}
+
+std::string LegacyBloomFilterPolicy::GetId() const {
+  return kName() + GetBitsPerKeySuffix();
+}
+
+FilterBitsBuilder* LegacyBloomFilterPolicy::GetBuilderWithContext(
+    const FilterBuildingContext& context) const {
+  if (GetMillibitsPerKey() == 0) {
+    // "No filter" special case
+    return nullptr;
+  }
+  return GetLegacyBloomBuilderWithContext(context);
+}
+
+const char* FastLocalBloomFilterPolicy::kName() {
+  return "rocksdb.internal.FastLocalBloomFilter";
+}
+
+std::string FastLocalBloomFilterPolicy::GetId() const {
+  return kName() + GetBitsPerKeySuffix();
+}
+
+FilterBitsBuilder* FastLocalBloomFilterPolicy::GetBuilderWithContext(
+    const FilterBuildingContext& context) const {
+  if (GetMillibitsPerKey() == 0) {
+    // "No filter" special case
+    return nullptr;
+  }
+  return GetFastLocalBloomBuilderWithContext(context);
+}
+
+const char* Standard128RibbonFilterPolicy::kName() {
+  return "rocksdb.internal.Standard128RibbonFilter";
+}
+
+std::string Standard128RibbonFilterPolicy::GetId() const {
+  return kName() + GetBitsPerKeySuffix();
+}
+
+FilterBitsBuilder* Standard128RibbonFilterPolicy::GetBuilderWithContext(
+    const FilterBuildingContext& context) const {
+  if (GetMillibitsPerKey() == 0) {
+    // "No filter" special case
+    return nullptr;
+  }
+  return GetStandard128RibbonBuilderWithContext(context);
+}
+
+}  // namespace test
 
 BuiltinFilterBitsReader* BuiltinFilterPolicy::GetBuiltinFilterBitsReader(
     const Slice& contents) {
@@ -1679,70 +1771,58 @@ const FilterPolicy* NewBloomFilterPolicy(double bits_per_key,
                                          bool /*use_block_based_builder*/) {
   // NOTE: use_block_based_builder now ignored so block-based filter is no
   // longer accessible in public API.
-  BloomFilterPolicy::Mode m = BloomFilterPolicy::kAutoBloom;
-  assert(std::find(BloomFilterPolicy::kAllUserModes.begin(),
-                   BloomFilterPolicy::kAllUserModes.end(),
-                   m) != BloomFilterPolicy::kAllUserModes.end());
-  return new BloomFilterPolicy(bits_per_key, m);
+  return new BloomFilterPolicy(bits_per_key);
 }
 
-// Chooses between two filter policies based on LSM level, but
-// only for Level and Universal compaction styles. Flush is treated
-// as level -1. Policy b is considered fallback / primary policy.
-LevelThresholdFilterPolicy::LevelThresholdFilterPolicy(
-    std::unique_ptr<const FilterPolicy>&& a,
-    std::unique_ptr<const FilterPolicy>&& b, int starting_level_for_b)
-    : policy_a_(std::move(a)),
-      policy_b_(std::move(b)),
-      starting_level_for_b_(starting_level_for_b) {
-  // Don't use this wrapper class if you were going to set to -1
-  assert(starting_level_for_b_ >= 0);
-}
+RibbonFilterPolicy::RibbonFilterPolicy(double bloom_equivalent_bits_per_key,
+                                       int bloom_before_level)
+    : BloomLikeFilterPolicy(bloom_equivalent_bits_per_key),
+      bloom_before_level_(bloom_before_level) {}
 
-FilterBitsBuilder* LevelThresholdFilterPolicy::GetBuilderWithContext(
+FilterBitsBuilder* RibbonFilterPolicy::GetBuilderWithContext(
     const FilterBuildingContext& context) const {
+  // Treat unknown same as bottommost
+  int levelish = INT_MAX;
+
   switch (context.compaction_style) {
     case kCompactionStyleLevel:
     case kCompactionStyleUniversal: {
-      int levelish;
       if (context.reason == TableFileCreationReason::kFlush) {
         // Treat flush as level -1
         assert(context.level_at_creation == 0);
         levelish = -1;
       } else if (context.level_at_creation == -1) {
         // Unknown level
-        // Policy b considered fallback / primary
-        return policy_b_->GetBuilderWithContext(context);
+        assert(levelish == INT_MAX);
       } else {
         levelish = context.level_at_creation;
       }
-      if (levelish >= starting_level_for_b_) {
-        return policy_b_->GetBuilderWithContext(context);
-      } else {
-        return policy_a_->GetBuilderWithContext(context);
-      }
+      break;
     }
     case kCompactionStyleFIFO:
     case kCompactionStyleNone:
+      // Treat as bottommost
+      assert(levelish == INT_MAX);
       break;
   }
-  // Policy b considered fallback / primary
-  return policy_b_->GetBuilderWithContext(context);
+  if (levelish < bloom_before_level_) {
+    return GetFastLocalBloomBuilderWithContext(context);
+  } else {
+    return GetStandard128RibbonBuilderWithContext(context);
+  }
+}
+
+const char* RibbonFilterPolicy::kName() { return "ribbonfilter"; }
+
+std::string RibbonFilterPolicy::GetId() const {
+  return kName() + GetBitsPerKeySuffix() + ":" +
+         ROCKSDB_NAMESPACE::ToString(bloom_before_level_);
 }
 
 const FilterPolicy* NewRibbonFilterPolicy(double bloom_equivalent_bits_per_key,
                                           int bloom_before_level) {
-  std::unique_ptr<const FilterPolicy> ribbon_only{new BloomFilterPolicy(
-      bloom_equivalent_bits_per_key, BloomFilterPolicy::kStandard128Ribbon)};
-  if (bloom_before_level > -1) {
-    // Could also use Bloom policy
-    std::unique_ptr<const FilterPolicy> bloom_only{new BloomFilterPolicy(
-        bloom_equivalent_bits_per_key, BloomFilterPolicy::kFastLocalBloom)};
-    return new LevelThresholdFilterPolicy(
-        std::move(bloom_only), std::move(ribbon_only), bloom_before_level);
-  } else {
-    return ribbon_only.release();
-  }
+  return new RibbonFilterPolicy(bloom_equivalent_bits_per_key,
+                                bloom_before_level);
 }
 
 FilterBuildingContext::FilterBuildingContext(
@@ -1751,55 +1831,84 @@ FilterBuildingContext::FilterBuildingContext(
 
 FilterPolicy::~FilterPolicy() { }
 
+std::shared_ptr<const FilterPolicy> BloomLikeFilterPolicy::Create(
+    const std::string& name, double bits_per_key) {
+  if (name == test::LegacyBloomFilterPolicy::kName()) {
+    return std::make_shared<test::LegacyBloomFilterPolicy>(bits_per_key);
+  } else if (name == test::FastLocalBloomFilterPolicy::kName()) {
+    return std::make_shared<test::FastLocalBloomFilterPolicy>(bits_per_key);
+  } else if (name == test::Standard128RibbonFilterPolicy::kName()) {
+    return std::make_shared<test::Standard128RibbonFilterPolicy>(bits_per_key);
+  } else if (name == DeprecatedBlockBasedBloomFilterPolicy::kName()) {
+    return std::make_shared<DeprecatedBlockBasedBloomFilterPolicy>(
+        bits_per_key);
+  } else if (name == BloomFilterPolicy::kName()) {
+    // For testing
+    return std::make_shared<BloomFilterPolicy>(bits_per_key);
+  } else if (name == RibbonFilterPolicy::kName()) {
+    // For testing
+    return std::make_shared<RibbonFilterPolicy>(bits_per_key,
+                                                /*bloom_before_level*/ 0);
+  } else {
+    return nullptr;
+  }
+}
+
 Status FilterPolicy::CreateFromString(
     const ConfigOptions& /*options*/, const std::string& value,
     std::shared_ptr<const FilterPolicy>* policy) {
-  const std::string kBloomName = "bloomfilter:";
-  const std::string kRibbonName = "ribbonfilter:";
   if (value == kNullptrString) {
     policy->reset();
+    return Status::OK();
   } else if (value == "rocksdb.BuiltinBloomFilter") {
-    *policy = std::make_shared<BuiltinFilterPolicy>();
-  } else {
-#ifndef ROCKSDB_LITE
-    const std::vector<std::string> vals = StringSplit(value, ':');
-    if (vals.size() < 2) {
-      return Status::NotFound("Invalid filter policy name ", value);
-    }
-    const std::string& name = vals[0];
-    double bits_per_key = ParseDouble(trim(vals[1]));
-    if (name == "bloomfilter") {  // TODO: constants for names
-      // NOTE: ignoring obsolete bool for "use_block_based_builder"
-      policy->reset(NewBloomFilterPolicy(bits_per_key));
-    } else if (name == "ribbonfilter") {
-      int bloom_before_level;
-      if (vals.size() < 3) {
-        bloom_before_level = 0;
-      } else {
-        bloom_before_level = ParseInt(trim(vals[2]));
-      }
-      policy->reset(NewRibbonFilterPolicy(/*bloom_equivalent*/ bits_per_key,
-                                          bloom_before_level));
-    } else if (name == "rocksdb.internal.DeprecatedBlockBasedBloomFilter") {
-      *policy = std::make_shared<BloomFilterPolicy>(
-          bits_per_key, BloomFilterPolicy::kDeprecatedBlock);
-    } else if (name == "rocksdb.internal.LegacyBloomFilter") {
-      *policy = std::make_shared<BloomFilterPolicy>(
-          bits_per_key, BloomFilterPolicy::kLegacyBloom);
-    } else if (name == "rocksdb.internal.FastLocalBloomFilter") {
-      *policy = std::make_shared<BloomFilterPolicy>(
-          bits_per_key, BloomFilterPolicy::kFastLocalBloom);
-    } else if (name == "rocksdb.internal.Standard128RibbonFilter") {
-      *policy = std::make_shared<BloomFilterPolicy>(
-          bits_per_key, BloomFilterPolicy::kStandard128Ribbon);
-    } else {
-      return Status::NotFound("Invalid filter policy name ", value);
-    }
-#else
-    return Status::NotSupported("Cannot load filter policy in LITE mode ",
-                                value);
-#endif  // ROCKSDB_LITE
+    *policy = std::make_shared<ReadOnlyBuiltinFilterPolicy>();
+    return Status::OK();
   }
-  return Status::OK();
+#ifndef ROCKSDB_LITE
+  const std::vector<std::string> vals = StringSplit(value, ':');
+  if (vals.size() < 2) {
+    return Status::NotFound("Invalid filter policy name ", value);
+  }
+  const std::string& name = vals[0];
+  double bits_per_key = ParseDouble(trim(vals[1]));
+  if (name == BloomFilterPolicy::kName()) {
+    bool use_block_based_builder = false;
+    if (vals.size() > 2) {
+      use_block_based_builder =
+          ParseBoolean("use_block_based_builder", trim(vals[2]));
+    }
+    policy->reset(NewBloomFilterPolicy(bits_per_key, use_block_based_builder));
+  } else if (name == RibbonFilterPolicy::kName()) {
+    int bloom_before_level;
+    if (vals.size() < 3) {
+      bloom_before_level = 0;
+    } else {
+      bloom_before_level = ParseInt(trim(vals[2]));
+    }
+    policy->reset(NewRibbonFilterPolicy(/*bloom_equivalent*/ bits_per_key,
+                                        bloom_before_level));
+  } else {
+    *policy = BloomLikeFilterPolicy::Create(name, bits_per_key);
+  }
+  if (*policy) {
+    return Status::OK();
+  } else {
+    return Status::NotFound("Invalid filter policy name ", value);
+  }
+#else
+  return Status::NotSupported("Cannot load filter policy in LITE mode ", value);
+#endif  // ROCKSDB_LITE
 }
+
+const std::vector<std::string>& BloomLikeFilterPolicy::GetAllFixedImpls() {
+  STATIC_AVOID_DESTRUCTION(std::vector<std::string>, impls){
+      // Match filter_bench -impl=x ordering
+      test::LegacyBloomFilterPolicy::kName(),
+      DeprecatedBlockBasedBloomFilterPolicy::kName(),
+      test::FastLocalBloomFilterPolicy::kName(),
+      test::Standard128RibbonFilterPolicy::kName(),
+  };
+  return impls;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

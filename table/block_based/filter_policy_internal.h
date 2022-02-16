@@ -46,19 +46,19 @@ class BuiltinFilterBitsReader : public FilterBitsReader {
   virtual bool HashMayMatch(const uint64_t /* h */) { return true; }
 };
 
-// Base class for RocksDB built-in filter policies. This can read all
-// kinds of built-in filters (for backward compatibility with old
-// OPTIONS files) but does not build filters, so new SST files generated
-// under the policy will get no filters (like nullptr FilterPolicy).
-// This class is considered internal API and subject to change.
+// Base class for RocksDB built-in filter policies. This provides the
+// ability to read all kinds of built-in filters (so that old filters can
+// be used even when you change between built-in policies).
 class BuiltinFilterPolicy : public FilterPolicy {
- public:
-  static BuiltinFilterBitsReader* GetBuiltinFilterBitsReader(
-      const Slice& contents);
-
+ public:  // overrides
   // Shared name because any built-in policy can read filters from
   // any other
+  // FIXME when making filter policies Configurable. For now, this
+  // is still rocksdb.BuiltinBloomFilter
   const char* Name() const override;
+
+  // Convert to a string understood by FilterPolicy::CreateFromString
+  virtual std::string GetId() const = 0;
 
   // Read metadata to determine what kind of FilterBitsReader is needed
   // and return a new one. This must successfully process any filter data
@@ -66,11 +66,21 @@ class BuiltinFilterPolicy : public FilterPolicy {
   // chosen for this BloomFilterPolicy. Not compatible with CreateFilter.
   FilterBitsReader* GetFilterBitsReader(const Slice& contents) const override;
 
-  // Does not write filters.
-  FilterBitsBuilder* GetBuilderWithContext(
-      const FilterBuildingContext&) const override {
-    return nullptr;
-  }
+ public:  // new
+  // An internal function for the implementation of
+  // BuiltinFilterBitsReader::GetFilterBitsReader without requiring an instance
+  // or working around potential virtual overrides.
+  static BuiltinFilterBitsReader* GetBuiltinFilterBitsReader(
+      const Slice& contents);
+
+  // Returns a new FilterBitsBuilder from the filter_policy in
+  // table_options of a context, or nullptr if not applicable.
+  // (An internal convenience function to save boilerplate.)
+  static FilterBitsBuilder* GetBuilderFromContext(const FilterBuildingContext&);
+
+ protected:
+  // Deprecated block-based filter only (no longer in public API)
+  bool KeyMayMatch(const Slice& key, const Slice& bloom_filter) const;
 
  private:
   // For Bloom filter implementation(s) (except deprecated block-based filter)
@@ -80,85 +90,58 @@ class BuiltinFilterPolicy : public FilterPolicy {
   static BuiltinFilterBitsReader* GetRibbonBitsReader(const Slice& contents);
 };
 
+// A "read only" filter policy used for backward compatibility with old
+// OPTIONS files, which did not specifying a Bloom configuration, just
+// "rocksdb.BuiltinBloomFilter". Although this can read existing filters,
+// this policy does not build new filters, so new SST files generated
+// under the policy will get no filters (like nullptr FilterPolicy).
+// This class is considered internal API and subject to change.
+class ReadOnlyBuiltinFilterPolicy : public BuiltinFilterPolicy {
+ public:
+  // Convert to a string understood by FilterPolicy::CreateFromString
+  virtual std::string GetId() const override { return Name(); }
+
+  // Does not write filters.
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext&) const override {
+    return nullptr;
+  }
+};
+
 // RocksDB built-in filter policy for Bloom or Bloom-like filters including
 // Ribbon filters.
 // This class is considered internal API and subject to change.
 // See NewBloomFilterPolicy and NewRibbonFilterPolicy.
-class BloomFilterPolicy : public BuiltinFilterPolicy {
+class BloomLikeFilterPolicy : public BuiltinFilterPolicy {
  public:
-  // An internal marker for operating modes of BloomFilterPolicy, in terms
-  // of selecting an implementation. This makes it easier for tests to track
-  // or to walk over the built-in set of Bloom filter implementations. The
-  // only variance in BloomFilterPolicy by mode/implementation is in
-  // GetFilterBitsBuilder(), so an enum is practical here vs. subclasses.
-  //
-  // This enum is essentially the union of all the different kinds of return
-  // value from GetFilterBitsBuilder, or "underlying implementation", and
-  // higher-level modes that choose an underlying implementation based on
-  // context information.
-  enum Mode {
-    // Legacy implementation of Bloom filter for full and partitioned filters.
-    // Set to 0 in case of value confusion with bool use_block_based_builder
-    // NOTE: TESTING ONLY as this mode does not use best compatible
-    // implementation
-    kLegacyBloom = 0,
-    // Deprecated block-based Bloom filter implementation.
-    // Set to 1 in case of value confusion with bool use_block_based_builder
-    // NOTE: DEPRECATED but user exposed
-    kDeprecatedBlock = 1,
-    // A fast, cache-local Bloom filter implementation. See description in
-    // FastLocalBloomImpl.
-    // NOTE: TESTING ONLY as this mode does not check format_version
-    kFastLocalBloom = 2,
-    // A Bloom alternative saving about 30% space for ~3-4x construction
-    // CPU time. See ribbon_alg.h and ribbon_impl.h.
-    kStandard128Ribbon = 3,
-    // Automatically choose between kLegacyBloom and kFastLocalBloom based on
-    // context at build time, including compatibility with format_version.
-    kAutoBloom = 100,
-  };
-  // All the different underlying implementations that a BloomFilterPolicy
-  // might use, as a mode that says "always use this implementation."
-  // Only appropriate for unit tests.
-  static const std::vector<Mode> kAllFixedImpls;
+  explicit BloomLikeFilterPolicy(double bits_per_key);
 
-  // All the different modes of BloomFilterPolicy that are exposed from
-  // user APIs. Only appropriate for higher-level unit tests. Integration
-  // tests should prefer using NewBloomFilterPolicy (user-exposed).
-  static const std::vector<Mode> kAllUserModes;
-
-  explicit BloomFilterPolicy(double bits_per_key, Mode mode);
-
-  ~BloomFilterPolicy() override;
-
-  // For Deprecated block-based filter (no longer customizable in public API)
-  static void CreateFilter(const Slice* keys, int n, int bits_per_key,
-                           std::string* dst);
-  static bool KeyMayMatch(const Slice& key, const Slice& bloom_filter);
-
-  // To use this function, call GetBuilderFromContext().
-  //
-  // Neither the context nor any objects therein should be saved beyond
-  // the call to this function, unless it's shared_ptr.
-  FilterBitsBuilder* GetBuilderWithContext(
-      const FilterBuildingContext&) const override;
-
-  // Internal contract: for kDeprecatedBlock, GetBuilderWithContext returns
-  // a new fake builder that encodes bits per key into a special value from
-  // EstimateEntriesAdded(), using kSecretBitsPerKeyStart + bits_per_key
-  static constexpr size_t kSecretBitsPerKeyStart = 1234567890U;
-
-  // Returns a new FilterBitsBuilder from the filter_policy in
-  // table_options of a context, or nullptr if not applicable.
-  // (An internal convenience function to save boilerplate.)
-  static FilterBitsBuilder* GetBuilderFromContext(const FilterBuildingContext&);
+  ~BloomLikeFilterPolicy() override;
 
   // Essentially for testing only: configured millibits/key
   int GetMillibitsPerKey() const { return millibits_per_key_; }
   // Essentially for testing only: legacy whole bits/key
   int GetWholeBitsPerKey() const { return whole_bits_per_key_; }
-  // Testing only
-  Mode GetMode() const { return mode_; }
+
+  // All the different underlying implementations that a BloomLikeFilterPolicy
+  // might use, as a configuration string name for a testing mode for
+  // "always use this implementation." Only appropriate for unit tests.
+  static const std::vector<std::string>& GetAllFixedImpls();
+
+  // Convenience function for creating by name for fixed impls
+  static std::shared_ptr<const FilterPolicy> Create(const std::string& name,
+                                                    double bits_per_key);
+
+ protected:
+  // Some implementations used by aggregating policies
+  FilterBitsBuilder* GetLegacyBloomBuilderWithContext(
+      const FilterBuildingContext& context) const;
+  FilterBitsBuilder* GetFastLocalBloomBuilderWithContext(
+      const FilterBuildingContext& context) const;
+  FilterBitsBuilder* GetStandard128RibbonBuilderWithContext(
+      const FilterBuildingContext& context) const;
+
+  std::string GetBitsPerKeySuffix() const;
 
  private:
   // Bits per key settings are for configuring Bloom filters.
@@ -177,10 +160,6 @@ class BloomFilterPolicy : public BuiltinFilterPolicy {
   // example, 100 -> 1% fp rate.
   double desired_one_in_fp_rate_;
 
-  // Selected mode (a specific implementation or way of selecting an
-  // implementation) for building new SST filters.
-  Mode mode_;
-
   // Whether relevant warnings have been logged already. (Remember so we
   // only report once per BloomFilterPolicy instance, to keep the noise down.)
   mutable std::atomic<bool> warned_;
@@ -196,28 +175,111 @@ class BloomFilterPolicy : public BuiltinFilterPolicy {
   mutable std::atomic<int64_t> aggregate_rounding_balance_;
 };
 
-// Chooses between two filter policies based on LSM level, but
-// only for Level and Universal compaction styles. Flush is treated
-// as level -1. Policy b is considered fallback / primary policy.
-class LevelThresholdFilterPolicy : public BuiltinFilterPolicy {
+// For NewBloomFilterPolicy
+//
+// This is a user-facing policy that automatically choose between
+// LegacyBloom and FastLocalBloom based on context at build time,
+// including compatibility with format_version.
+class BloomFilterPolicy : public BloomLikeFilterPolicy {
  public:
-  LevelThresholdFilterPolicy(std::unique_ptr<const FilterPolicy>&& a,
-                             std::unique_ptr<const FilterPolicy>&& b,
-                             int starting_level_for_b);
+  explicit BloomFilterPolicy(double bits_per_key);
+
+  // To use this function, call BuiltinFilterPolicy::GetBuilderFromContext().
+  //
+  // Neither the context nor any objects therein should be saved beyond
+  // the call to this function, unless it's shared_ptr.
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext&) const override;
+
+  static const char* kName();
+  std::string GetId() const override;
+};
+
+// For NewRibbonFilterPolicy
+//
+// This is a user-facing policy that chooses between Standard128Ribbon
+// and FastLocalBloom based on context at build time (LSM level and other
+// factors in extreme cases).
+class RibbonFilterPolicy : public BloomLikeFilterPolicy {
+ public:
+  explicit RibbonFilterPolicy(double bloom_equivalent_bits_per_key,
+                              int bloom_before_level);
+
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext&) const override;
+
+  int GetBloomBeforeLevel() const { return bloom_before_level_; }
+
+  static const char* kName();
+  std::string GetId() const override;
+
+ private:
+  const int bloom_before_level_;
+};
+
+// Deprecated block-based filter only. We still support reading old
+// block-based filters from any BuiltinFilterPolicy, but there is no public
+// option to build them. However, this class is used to build them for testing
+// and for a public backdoor to building them by constructing this policy from
+// a string.
+class DeprecatedBlockBasedBloomFilterPolicy : public BloomLikeFilterPolicy {
+ public:
+  explicit DeprecatedBlockBasedBloomFilterPolicy(double bits_per_key);
+
+  // Internal contract: returns a new fake builder that encodes bits per key
+  // into a special value from EstimateEntriesAdded(), using
+  // kSecretBitsPerKeyStart
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext&) const override;
+  static constexpr size_t kSecretBitsPerKeyStart = 1234567890U;
+
+  static const char* kName();
+  std::string GetId() const override;
+
+  static void CreateFilter(const Slice* keys, int n, int bits_per_key,
+                           std::string* dst);
+  static bool KeyMayMatch(const Slice& key, const Slice& bloom_filter);
+};
+
+// For testing only, but always constructable with internal names
+namespace test {
+
+class LegacyBloomFilterPolicy : public BloomLikeFilterPolicy {
+ public:
+  explicit LegacyBloomFilterPolicy(double bits_per_key)
+      : BloomLikeFilterPolicy(bits_per_key) {}
 
   FilterBitsBuilder* GetBuilderWithContext(
       const FilterBuildingContext& context) const override;
 
-  inline int TEST_GetStartingLevelForB() const { return starting_level_for_b_; }
-
-  inline const FilterPolicy* TEST_GetPolicyA() const { return policy_a_.get(); }
-
-  inline const FilterPolicy* TEST_GetPolicyB() const { return policy_b_.get(); }
-
- private:
-  const std::unique_ptr<const FilterPolicy> policy_a_;
-  const std::unique_ptr<const FilterPolicy> policy_b_;
-  int starting_level_for_b_;
+  static const char* kName();
+  std::string GetId() const override;
 };
+
+class FastLocalBloomFilterPolicy : public BloomLikeFilterPolicy {
+ public:
+  explicit FastLocalBloomFilterPolicy(double bits_per_key)
+      : BloomLikeFilterPolicy(bits_per_key) {}
+
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext& context) const override;
+
+  static const char* kName();
+  std::string GetId() const override;
+};
+
+class Standard128RibbonFilterPolicy : public BloomLikeFilterPolicy {
+ public:
+  explicit Standard128RibbonFilterPolicy(double bloom_equiv_bits_per_key)
+      : BloomLikeFilterPolicy(bloom_equiv_bits_per_key) {}
+
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext& context) const override;
+
+  static const char* kName();
+  std::string GetId() const override;
+};
+
+}  // namespace test
 
 }  // namespace ROCKSDB_NAMESPACE
