@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.29.2 (02/15/2022)
 ### Performance Improvements
 * DisableManualCompaction() doesn't have to wait scheduled manual compaction to be executed in thread-pool to cancel the job.
 
