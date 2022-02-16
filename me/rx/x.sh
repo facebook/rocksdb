@@ -50,6 +50,7 @@ v6.24.2 \
 v6.25.3 \
 v6.26.1 \
 v6.27.3 \
+v6.28.2 \
 )
 
 some_versions=( \
@@ -63,7 +64,7 @@ v6.25.3 \
 v6.26.1 \
 )
 
-latest_versions=( v6.26.1 )
+latest_versions=( v6.28.2 )
 
 #use_versions="${some_versions[@]}"
 use_versions="${latest_versions[@]}"
