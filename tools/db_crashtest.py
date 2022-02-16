@@ -347,13 +347,13 @@ multiops_txn_params = {
     "test_batches_snapshots": 0,
     "test_multi_ops_txns": 1,
     "use_txn": 1,
-    "two_write_queues": random.choice([0, 1]),
+    "two_write_queues": lambda: random.choice([0, 1]),
     # TODO: enable write-prepared
     "txn_write_policy": 0,
     "disable_wal": 0,
     "wp_snapshot_cache_bits": 1,
-    "wp_commit_cache_bits": random.choice([0, 10]),
-    "use_only_the_last_commit_time_batch_for_recovery": random.choice([0, 1]),
+    "wp_commit_cache_bits": lambda: random.choice([0, 10]),
+    "use_only_the_last_commit_time_batch_for_recovery": lambda: random.choice([0, 1]),
     "clear_column_family_one_in": 0,
     "column_families": 1,
     # pipeline write is not currnetly compatible with WritePrepared txns

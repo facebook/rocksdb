@@ -29,7 +29,7 @@ enum TxnDBWritePolicy {
   WRITE_UNPREPARED  // write data before the prepare phase of 2pc
 };
 
-const uint32_t kInitialMaxDeadlocks = 5;
+constexpr uint32_t kInitialMaxDeadlocks = 5;
 
 class LockManager;
 struct RangeLockInfo;

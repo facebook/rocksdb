@@ -48,7 +48,7 @@ MultiOpsTxnsStressTest::KeyGenerator::ChooseExisting() {
   assert(initialized_);
   const size_t N = existing_.size();
   assert(N > 0);
-  uint32_t rnd = rand_.Uniform(N);
+  uint32_t rnd = rand_.Uniform(static_cast<int>(N));
   assert(rnd < N);
   return std::make_pair(existing_[rnd], rnd);
 }
@@ -75,15 +75,13 @@ void MultiOpsTxnsStressTest::KeyGeneratorForA::Replace(uint32_t old_val,
   }
 
   {
-    auto it = existing_uniq_.find(new_val);
-    assert(it == existing_uniq_.end());
+    assert(0 == existing_uniq_.count(new_val));
     existing_uniq_.insert(new_val);
     existing_[old_pos] = new_val;
   }
 
   {
-    auto it = non_existing_uniq_.find(old_val);
-    assert(it == non_existing_uniq_.end());
+    assert(0 == non_existing_uniq_.count(old_val));
     non_existing_uniq_.insert(old_val);
   }
 }
@@ -91,8 +89,7 @@ void MultiOpsTxnsStressTest::KeyGeneratorForA::Replace(uint32_t old_val,
 void MultiOpsTxnsStressTest::KeyGeneratorForA::UndoAllocation(
     uint32_t new_val) {
   assert(initialized_);
-  auto it = non_existing_uniq_.find(new_val);
-  assert(it == non_existing_uniq_.end());
+  assert(0 == non_existing_uniq_.count(new_val));
   non_existing_uniq_.insert(new_val);
 }
 
