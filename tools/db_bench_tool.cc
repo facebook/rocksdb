@@ -4217,12 +4217,22 @@ class Benchmark {
         table_options->filter_policy = BlockBasedTableOptions().filter_policy;
       } else if (FLAGS_bloom_bits == 0) {
         table_options->filter_policy.reset();
+      } else if (FLAGS_use_block_based_filter) {
+        // Use back-door way of enabling obsolete block-based Bloom
+        Status s = FilterPolicy::CreateFromString(
+            ConfigOptions(),
+            "rocksdb.internal.DeprecatedBlockBasedBloomFilter:" +
+                ROCKSDB_NAMESPACE::ToString(FLAGS_bloom_bits),
+            &table_options->filter_policy);
+        if (!s.ok()) {
+          fprintf(stderr, "failure creating obsolete block-based filter: %s\n",
+                  s.ToString().c_str());
+          exit(1);
+        }
       } else {
         table_options->filter_policy.reset(
-            FLAGS_use_ribbon_filter
-                ? NewRibbonFilterPolicy(FLAGS_bloom_bits)
-                : NewBloomFilterPolicy(FLAGS_bloom_bits,
-                                       FLAGS_use_block_based_filter));
+            FLAGS_use_ribbon_filter ? NewRibbonFilterPolicy(FLAGS_bloom_bits)
+                                    : NewBloomFilterPolicy(FLAGS_bloom_bits));
       }
     }
     if (FLAGS_row_cache_size) {
@@ -7929,7 +7939,11 @@ int db_bench_tool(int argc, char** argv) {
             /*is_full_fs_warm=*/FLAGS_simulate_hdd));
     FLAGS_env = composite_env.get();
   }
+
+  // Let -readonly imply -use_existing_db
+  FLAGS_use_existing_db |= FLAGS_readonly;
 #endif  // ROCKSDB_LITE
+
   if (FLAGS_use_existing_keys && !FLAGS_use_existing_db) {
     fprintf(stderr,
             "`-use_existing_db` must be true for `-use_existing_keys` to be "

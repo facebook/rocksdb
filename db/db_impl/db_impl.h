@@ -1536,6 +1536,7 @@ class DBImpl : public DB {
     ManualCompactionState* manual_compaction_state;  // nullptr if non-manual
     // task limiter token is requested during compaction picking.
     std::unique_ptr<TaskLimiterToken> task_token;
+    bool is_canceled = false;
   };
 
   struct CompactionArg {

@@ -1209,6 +1209,35 @@ public class ColumnFamilyOptions extends RocksObject
     return blobGarbageCollectionForceThreshold(nativeHandle_);
   }
 
+  /**
+   * Set compaction readahead for blob files.
+   *
+   * Default: 0
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param blobCompactionReadaheadSize the compaction readahead for blob files
+   *
+   * @return the reference to the current options.
+   */
+  @Override
+  public ColumnFamilyOptions setBlobCompactionReadaheadSize(
+      final long blobCompactionReadaheadSize) {
+    setBlobCompactionReadaheadSize(nativeHandle_, blobCompactionReadaheadSize);
+    return this;
+  }
+
+  /**
+   * Get compaction readahead for blob files.
+   *
+   * @return the current compaction readahead for blob files
+   */
+  @Override
+  public long blobCompactionReadaheadSize() {
+    return blobCompactionReadaheadSize(nativeHandle_);
+  }
+
   //
   // END options for blobs (integrated BlobDB)
   //
@@ -1408,6 +1437,9 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setBlobGarbageCollectionForceThreshold(
       final long nativeHandle_, final double blobGarbageCollectionForceThreshold);
   private native double blobGarbageCollectionForceThreshold(final long nativeHandle_);
+  private native void setBlobCompactionReadaheadSize(
+      final long nativeHandle_, final long blobCompactionReadaheadSize);
+  private native long blobCompactionReadaheadSize(final long nativeHandle_);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!

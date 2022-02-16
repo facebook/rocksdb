@@ -208,7 +208,8 @@ class FilterPolicy {
 };
 
 // Return a new filter policy that uses a bloom filter with approximately
-// the specified number of bits per key.
+// the specified number of bits per key. See
+// https://github.com/facebook/rocksdb/wiki/RocksDB-Bloom-Filter
 //
 // bits_per_key: average bits allocated per key in bloom filter. A good
 // choice is 9.9, which yields a filter with ~ 1% false positive rate.
@@ -216,11 +217,18 @@ class FilterPolicy {
 // integer. Recommend using no more than three decimal digits after the
 // decimal point, as in 6.667.
 //
-// use_block_based_builder: use deprecated block based filter (true) rather
-// than full or partitioned filter (false).
+// To avoid configurations that are unlikely to produce good filtering
+// value for the CPU overhead, bits_per_key < 0.5 is rounded down to 0.0
+// which means "generate no filter", and 0.5 <= bits_per_key < 1.0 is
+// rounded up to 1.0, for a 62% FP rate.
 //
-// Callers must delete the result after any database that is using the
-// result has been closed.
+// The caller is responsible for eventually deleting the result, though
+// this is typically handled automatically with BlockBasedTableOptions:
+//   table_options.filter_policy.reset(NewBloomFilterPolicy(...));
+//
+// As of RocksDB 7.0, the use_block_based_builder parameter is ignored.
+// (The old, inefficient block-based filter is no longer accessible in
+// the public API.)
 //
 // Note: if you are using a custom comparator that ignores some parts
 // of the keys being compared, you must not use NewBloomFilterPolicy()
@@ -230,7 +238,7 @@ class FilterPolicy {
 // FilterPolicy (like NewBloomFilterPolicy) that does not ignore
 // trailing spaces in keys.
 extern const FilterPolicy* NewBloomFilterPolicy(
-    double bits_per_key, bool use_block_based_builder = false);
+    double bits_per_key, bool IGNORED_use_block_based_builder = false);
 
 // A new Bloom alternative that saves about 30% space compared to
 // Bloom filters, with similar query times but roughly 3-4x CPU time

@@ -2506,34 +2506,14 @@ enum BinaryFormatVersion : uint32_t {
   kOptionsString = 1,  // Use string format similar to Option string format
 };
 
-// offset_of is used to get the offset of a class data member
-// ex: offset_of(&ColumnFamilyDescriptor::options)
-// This call will return the offset of options in ColumnFamilyDescriptor class
-//
-// This is the same as offsetof() but allow us to work with non standard-layout
-// classes and structures
-// refs:
-// http://en.cppreference.com/w/cpp/concept/StandardLayoutType
-// https://gist.github.com/graphitemaster/494f21190bb2c63c5516
-static ColumnFamilyDescriptor dummy_cfd("", ColumnFamilyOptions());
-template <typename T1>
-int offset_of(T1 ColumnFamilyDescriptor::*member) {
-  return int(size_t(&(dummy_cfd.*member)) - size_t(&dummy_cfd));
-}
-
-static CompactionServiceInput dummy_cs_input;
-template <typename T1>
-int offset_of(T1 CompactionServiceInput::*member) {
-  return int(size_t(&(dummy_cs_input.*member)) - size_t(&dummy_cs_input));
-}
-
 static std::unordered_map<std::string, OptionTypeInfo> cfd_type_info = {
     {"name",
-     {offset_of(&ColumnFamilyDescriptor::name), OptionType::kEncodedString,
+     {offsetof(struct ColumnFamilyDescriptor, name), OptionType::kEncodedString,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"options",
-     {offset_of(&ColumnFamilyDescriptor::options), OptionType::kConfigurable,
-      OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+     {offsetof(struct ColumnFamilyDescriptor, options),
+      OptionType::kConfigurable, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone,
       [](const ConfigOptions& opts, const std::string& /*name*/,
          const std::string& value, void* addr) {
         auto cf_options = static_cast<ColumnFamilyOptions*>(addr);
@@ -2567,13 +2547,14 @@ static std::unordered_map<std::string, OptionTypeInfo> cfd_type_info = {
 
 static std::unordered_map<std::string, OptionTypeInfo> cs_input_type_info = {
     {"column_family",
-     OptionTypeInfo::Struct("column_family", &cfd_type_info,
-                            offset_of(&CompactionServiceInput::column_family),
-                            OptionVerificationType::kNormal,
-                            OptionTypeFlags::kNone)},
+     OptionTypeInfo::Struct(
+         "column_family", &cfd_type_info,
+         offsetof(struct CompactionServiceInput, column_family),
+         OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
     {"db_options",
-     {offset_of(&CompactionServiceInput::db_options), OptionType::kConfigurable,
-      OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+     {offsetof(struct CompactionServiceInput, db_options),
+      OptionType::kConfigurable, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone,
       [](const ConfigOptions& opts, const std::string& /*name*/,
          const std::string& value, void* addr) {
         auto options = static_cast<DBOptions*>(addr);
@@ -2602,31 +2583,33 @@ static std::unordered_map<std::string, OptionTypeInfo> cs_input_type_info = {
         return result;
       }}},
     {"snapshots", OptionTypeInfo::Vector<uint64_t>(
-                      offset_of(&CompactionServiceInput::snapshots),
+                      offsetof(struct CompactionServiceInput, snapshots),
                       OptionVerificationType::kNormal, OptionTypeFlags::kNone,
                       {0, OptionType::kUInt64T})},
     {"input_files", OptionTypeInfo::Vector<std::string>(
-                        offset_of(&CompactionServiceInput::input_files),
+                        offsetof(struct CompactionServiceInput, input_files),
                         OptionVerificationType::kNormal, OptionTypeFlags::kNone,
                         {0, OptionType::kEncodedString})},
     {"output_level",
-     {offset_of(&CompactionServiceInput::output_level), OptionType::kInt,
+     {offsetof(struct CompactionServiceInput, output_level), OptionType::kInt,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"has_begin",
-     {offset_of(&CompactionServiceInput::has_begin), OptionType::kBoolean,
+     {offsetof(struct CompactionServiceInput, has_begin), OptionType::kBoolean,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"begin",
-     {offset_of(&CompactionServiceInput::begin), OptionType::kEncodedString,
-      OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+     {offsetof(struct CompactionServiceInput, begin),
+      OptionType::kEncodedString, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
     {"has_end",
-     {offset_of(&CompactionServiceInput::has_end), OptionType::kBoolean,
+     {offsetof(struct CompactionServiceInput, has_end), OptionType::kBoolean,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"end",
-     {offset_of(&CompactionServiceInput::end), OptionType::kEncodedString,
+     {offsetof(struct CompactionServiceInput, end), OptionType::kEncodedString,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"approx_size",
-     {offset_of(&CompactionServiceInput::approx_size), OptionType::kUInt64T,
-      OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+     {offsetof(struct CompactionServiceInput, approx_size),
+      OptionType::kUInt64T, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
