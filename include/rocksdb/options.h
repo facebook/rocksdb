@@ -406,42 +406,20 @@ class CompactionService : public Customizable {
   // Returns the name of this compaction service.
   const char* Name() const override = 0;
 
-  // Start the compaction with input information, which can be passed to
-  // `DB::OpenAndCompact()`.
-  // job_id is pre-assigned, it will be reset after DB re-open.
-  // Warning: deprecated, please use the new interface
-  // `StartV2(CompactionServiceJobInfo, ...)` instead.
-  virtual CompactionServiceJobStatus Start(
-      const std::string& /*compaction_service_input*/, uint64_t /*job_id*/) {
-    return CompactionServiceJobStatus::kUseLocal;
-  }
-
   // Start the remote compaction with `compaction_service_input`, which can be
   // passed to `DB::OpenAndCompact()` on the remote side. `info` provides the
   // information the user might want to know, which includes `job_id`.
   virtual CompactionServiceJobStatus StartV2(
-      const CompactionServiceJobInfo& info,
-      const std::string& compaction_service_input) {
-    // Default implementation to call legacy interface, please override and
-    // replace the legacy implementation
-    return Start(compaction_service_input, info.job_id);
-  }
-
-  // Wait compaction to be finish.
-  // Warning: deprecated, please use the new interface
-  // `WaitForCompleteV2(CompactionServiceJobInfo, ...)` instead.
-  virtual CompactionServiceJobStatus WaitForComplete(
-      uint64_t /*job_id*/, std::string* /*compaction_service_result*/) {
+      const CompactionServiceJobInfo& /*info*/,
+      const std::string& /*compaction_service_input*/) {
     return CompactionServiceJobStatus::kUseLocal;
   }
 
   // Wait for remote compaction to finish.
   virtual CompactionServiceJobStatus WaitForCompleteV2(
-      const CompactionServiceJobInfo& info,
-      std::string* compaction_service_result) {
-    // Default implementation to call legacy interface, please override and
-    // replace the legacy implementation
-    return WaitForComplete(info.job_id, compaction_service_result);
+      const CompactionServiceJobInfo& /*info*/,
+      std::string* /*compaction_service_result*/) {
+    return CompactionServiceJobStatus::kUseLocal;
   }
 
   ~CompactionService() override = default;
