@@ -621,7 +621,7 @@ jobs:
   build-linux-alpine-x64-java:
     docker:
       - image: evolvedbinary/rocksjava:alpine3_x64-be
-    resource_class: large
+    resource_class: xlarge  # large does not have enough memory!
     steps:
       - checkout
       - run:
