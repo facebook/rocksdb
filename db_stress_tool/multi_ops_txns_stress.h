@@ -284,72 +284,40 @@ class MultiOpsTxnsStressTest : public StressTest {
   class KeyGenerator {
    public:
     explicit KeyGenerator(uint32_t s, uint32_t low, uint32_t high,
-                          std::unordered_set<uint32_t>&& existing_uniq)
+                          std::unordered_set<uint32_t>&& existing_uniq,
+                          std::unordered_set<uint32_t>&& non_existing_uniq)
         : rand_(s),
           low_(low),
           high_(high),
-          existing_uniq_(std::move(existing_uniq)) {}
-    virtual ~KeyGenerator() = default;
-    std::pair<uint32_t, uint32_t> ChooseExisting();
+          existing_uniq_(std::move(existing_uniq)),
+          non_existing_uniq_(std::move(non_existing_uniq)) {}
+    ~KeyGenerator() {
+      assert(!existing_uniq_.empty());
+      assert(!non_existing_uniq_.empty());
+    }
     void FinishInit();
-    virtual std::string ToString() const {
+
+    std::pair<uint32_t, uint32_t> ChooseExisting();
+    void Replace(uint32_t old_val, uint32_t old_pos, uint32_t new_val);
+    uint32_t Allocate();
+    void UndoAllocation(uint32_t new_val);
+
+    std::string ToString() const {
       std::ostringstream oss;
       oss << "[" << low_ << ", " << high_ << "): " << existing_.size()
-          << " elements, " << existing_uniq_.size() << " unique values";
+          << " elements, " << existing_uniq_.size() << " unique values, "
+          << non_existing_uniq_.size() << " unique non-existing values";
       return oss.str();
     }
 
-   protected:
+   private:
     Random rand_;
     uint32_t low_ = 0;
     uint32_t high_ = 0;
     std::vector<uint32_t> existing_{};
     std::unordered_set<uint32_t> existing_uniq_{};
-    bool initialized_ = false;
-  };
-
-  class KeyGeneratorForA : public KeyGenerator {
-   public:
-    explicit KeyGeneratorForA(uint32_t s, uint32_t low, uint32_t high,
-                              std::unordered_set<uint32_t>&& existing_uniq,
-                              std::unordered_set<uint32_t>&& non_existing_uniq)
-        : KeyGenerator(s, low, high, std::move(existing_uniq)),
-          non_existing_uniq_(std::move(non_existing_uniq)) {}
-    ~KeyGeneratorForA() {
-      assert(!non_existing_uniq_.empty());
-      assert(!existing_uniq_.empty());
-    }
-    std::string ToString() const override {
-      std::ostringstream oss;
-      oss << "[" << low_ << ", " << high_ << "): " << existing_.size()
-          << " elements, " << existing_uniq_.size()
-          << " unique values, unused values: {";
-      for (auto it = non_existing_uniq_.cbegin();
-           it != non_existing_uniq_.end();) {
-        oss << *it;
-        ++it;
-        if (it != non_existing_uniq_.end()) {
-          oss << ", ";
-        }
-      }
-      oss << "}";
-      return oss.str();
-    }
-    void Replace(uint32_t old_val, uint32_t old_pos, uint32_t new_val);
-    uint32_t Allocate();
-    void UndoAllocation(uint32_t new_val);
-
-   private:
     std::unordered_set<uint32_t> non_existing_uniq_{};
-  };
-
-  class KeyGeneratorForC : public KeyGenerator {
-   public:
-    explicit KeyGeneratorForC(uint32_t s, uint32_t low, uint32_t high,
-                              std::unordered_set<uint32_t>&& existing_uniq)
-        : KeyGenerator(s, low, high, std::move(existing_uniq)) {}
-    void Replace(uint32_t old_val, uint32_t old_pos, uint32_t new_val);
-    uint32_t ChooseOne();
+    bool initialized_ = false;
   };
 
   // Return <a, pos>
@@ -360,10 +328,10 @@ class MultiOpsTxnsStressTest : public StressTest {
   // Return <c, pos>
   std::pair<uint32_t, uint32_t> ChooseExistingC(ThreadState* thread);
 
-  uint32_t ChooseRandomC(ThreadState* thread);
+  uint32_t GenerateNextC(ThreadState* thread);
 
-  std::vector<std::unique_ptr<KeyGeneratorForA>> key_gen_for_a_;
-  std::vector<std::unique_ptr<KeyGeneratorForC>> key_gen_for_c_;
+  std::vector<std::unique_ptr<KeyGenerator>> key_gen_for_a_;
+  std::vector<std::unique_ptr<KeyGenerator>> key_gen_for_c_;
 
  private:
   struct KeySpaces {
