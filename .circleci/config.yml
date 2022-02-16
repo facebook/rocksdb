@@ -575,7 +575,7 @@ jobs:
           command: J=8 SKIP_COPY=1 java/crossbuild/docker-build-linux-centos.sh
       - run:
           name: "Test RocksDBJava"
-          command: scl enable devtoolset-2 'make -j8 jtest'
+          command: scl enable devtoolset-8 'make -j8 jtest'
       - post-steps
 
   build-linux-centos-x64-java:
