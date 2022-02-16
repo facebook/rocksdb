@@ -31,7 +31,7 @@ class BlockBasedFilterBlockTest : public mock::MockBlockBasedTableTester,
 TEST_F(BlockBasedFilterBlockTest, BlockBasedEmptyBuilder) {
   FilterBlockBuilder* builder =
       new BlockBasedFilterBlockBuilder(nullptr, table_options_, 10);
-  Slice slice(builder->Finish());
+  Slice slice(builder->TEST_Finish());
   ASSERT_EQ("\\x00\\x00\\x00\\x00\\x0b", EscapeString(slice));
 
   CachableEntry<BlockContents> block(
@@ -64,7 +64,7 @@ TEST_F(BlockBasedFilterBlockTest, BlockBasedSingleChunk) {
   builder->Add("box");
   builder->StartBlock(300);
   builder->Add("hello");
-  Slice slice(builder->Finish());
+  Slice slice(builder->TEST_Finish());
 
   CachableEntry<BlockContents> block(
       new BlockContents(slice), nullptr /* cache */, nullptr /* cache_handle */,
@@ -126,7 +126,7 @@ TEST_F(BlockBasedFilterBlockTest, BlockBasedMultiChunk) {
   builder->Add("box");
   builder->Add("hello");
 
-  Slice slice(builder->Finish());
+  Slice slice(builder->TEST_Finish());
 
   CachableEntry<BlockContents> block(
       new BlockContents(slice), nullptr /* cache */, nullptr /* cache_handle */,

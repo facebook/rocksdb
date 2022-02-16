@@ -89,10 +89,15 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
   }
 
   total_added_in_built_ += filter_bits_builder_->EstimateEntriesAdded();
-  std::unique_ptr<const char[]> filter_data;
-  Status filter_construction_status = Status::OK();
-  Slice filter =
-      filter_bits_builder_->Finish(&filter_data, &filter_construction_status);
+  Slice filter;
+  Status filter_construction_status =
+      filter_bits_builder_->FinishV2(/*TODO: allocator*/ nullptr, &filter);
+  CacheAllocationPtr filter_data;
+
+  if (filter.size() > 0) {
+    filter_data = CacheAllocationPtr(const_cast<char*>(filter.data()),
+                                     /*TODO: allocator*/ nullptr);
+  }
   if (filter_construction_status.ok()) {
     filter_construction_status = filter_bits_builder_->MaybePostVerify(filter);
   }
@@ -120,18 +125,18 @@ size_t PartitionedFilterBlockBuilder::EstimateEntriesAdded() {
   return total_added_in_built_ + filter_bits_builder_->EstimateEntriesAdded();
 }
 
-Slice PartitionedFilterBlockBuilder::Finish(
-    const BlockHandle& last_partition_block_handle, Status* status,
-    std::unique_ptr<const char[]>* filter_data) {
+Status PartitionedFilterBlockBuilder::Finish(const BlockHandle& prev,
+                                             MemoryAllocator* /*allocator*/,
+                                             CacheAllocationPtr* output_buf,
+                                             Slice* output_filter) {
   if (finishing_filters == true) {
     // Record the handle of the last written filter block in the index
     std::string handle_encoding;
-    last_partition_block_handle.EncodeTo(&handle_encoding);
+    prev.EncodeTo(&handle_encoding);
     std::string handle_delta_encoding;
-    PutVarsignedint64(
-        &handle_delta_encoding,
-        last_partition_block_handle.size() - last_encoded_handle_.size());
-    last_encoded_handle_ = last_partition_block_handle;
+    PutVarsignedint64(&handle_delta_encoding,
+                      prev.size() - last_encoded_handle_.size());
+    last_encoded_handle_ = prev;
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
     index_on_filter_block_builder_.Add(last_filter_entry_key, handle_encoding,
                                        &handle_delta_encoding_slice);
@@ -145,41 +150,41 @@ Slice PartitionedFilterBlockBuilder::Finish(
   }
 
   if (!partitioned_filters_construction_status_.ok()) {
-    *status = partitioned_filters_construction_status_;
-    return Slice();
+    *output_filter = Slice();
+    return partitioned_filters_construction_status_;
   }
 
   // If there is no filter partition left, then return the index on filter
   // partitions
   if (UNLIKELY(filters.empty())) {
-    *status = Status::OK();
     last_filter_data.reset();
     if (finishing_filters) {
       // Simplest to just add them all at the end
       total_added_in_built_ = 0;
       if (p_index_builder_->seperator_is_key_plus_seq()) {
-        return index_on_filter_block_builder_.Finish();
+        *output_filter = index_on_filter_block_builder_.Finish();
       } else {
-        return index_on_filter_block_builder_without_seq_.Finish();
+        *output_filter = index_on_filter_block_builder_without_seq_.Finish();
       }
     } else {
       // This is the rare case where no key was added to the filter
-      return Slice();
+      *output_filter = Slice();
     }
+    return Status::OK();
   } else {
     // Return the next filter partition in line and set Incomplete() status to
     // indicate we expect more calls to Finish
-    *status = Status::Incomplete();
     finishing_filters = true;
 
     last_filter_entry_key = filters.front().key;
-    Slice filter = filters.front().filter;
-    last_filter_data = std::move(filters.front().filter_data);
-    if (filter_data != nullptr) {
-      *filter_data = std::move(last_filter_data);
+    *output_filter = filters.front().filter;
+    if (output_buf != nullptr) {
+      *output_buf = std::move(filters.front().filter_data);
+    } else {
+      last_filter_data = std::move(filters.front().filter_data);
     }
     filters.pop_front();
-    return filter;
+    return Status::Incomplete();
   }
 }
 

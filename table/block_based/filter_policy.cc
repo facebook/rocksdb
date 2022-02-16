@@ -19,9 +19,11 @@
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_reservation_manager.h"
 #include "logging/logging.h"
+#include "memory/memory_allocator.h"
 #include "port/lang.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/status.h"
 #include "table/block_based/block_based_filter_block.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/filter_policy_internal.h"
@@ -33,10 +35,13 @@
 #include "util/ribbon_config.h"
 #include "util/ribbon_impl.h"
 #include "util/string_util.h"
+#include "utilities/memory_allocators.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+
+DefaultMemoryAllocator kDefaultAllocator;
 
 // Metadata trailer size for built-in filters. (This is separate from
 // block-based table block trailer.)
@@ -45,16 +50,13 @@ namespace {
 // cache lines in the Bloom filter, but now the first trailer byte is
 // usually an implementation marker and remaining 4 bytes have various
 // meanings.
-static constexpr uint32_t kMetadataLen = 5;
+constexpr uint32_t kMetadataLen = 5;
 
-Slice FinishAlwaysFalse(std::unique_ptr<const char[]>* /*buf*/) {
-  // Missing metadata, treated as zero entries
-  return Slice(nullptr, 0);
-}
+// Missing metadata, treated as zero entries
+const Slice kAlwaysFalseFilter = Slice();
 
-Slice FinishAlwaysTrue(std::unique_ptr<const char[]>* /*buf*/) {
-  return Slice("\0\0\0\0\0\0", 6);
-}
+// Treated as legit filter with zero probes
+const Slice kAlwaysTrueFilter("\0\0\0\0\0\0", 6);
 
 // Base class for filter builders using the XXH3 preview hash,
 // also known as Hash64 or GetSliceHash64.
@@ -125,8 +127,8 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
 
   // To choose size using malloc_usable_size, we have to actually allocate.
   size_t AllocateMaybeRounding(size_t target_len_with_metadata,
-                               size_t num_entries,
-                               std::unique_ptr<char[]>* buf) {
+                               size_t num_entries, MemoryAllocator& allocator,
+                               CacheAllocationPtr* buf) {
     // Return value set to a default; overwritten in some cases
     size_t rv = target_len_with_metadata;
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
@@ -185,8 +187,8 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
       size_t requested = rv + kExtraPadding;
 
       // Allocate and get usable size
-      buf->reset(new char[requested]);
-      size_t usable = malloc_usable_size(buf->get());
+      *buf = AllocateBlock(requested, &allocator);
+      size_t usable = allocator.UsableSize(buf->get(), requested);
 
       if (usable - usable / 4 > requested) {
         // Ratio greater than 4/3 is too much for utilizing, if it's
@@ -205,19 +207,19 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
         // Too small means bad malloc_usable_size
         assert(usable == requested);
       }
-      memset(buf->get(), 0, rv);
 
       // Update balance
       int64_t diff = static_cast<int64_t>((rv_fp_rate - target_fp_rate) *
                                           double{0x100000000});
       *aggregate_rounding_balance_ += diff;
     } else {
-      buf->reset(new char[rv]());
+      *buf = AllocateBlock(rv, &allocator);
     }
 #else
     (void)num_entries;
-    buf->reset(new char[rv]());
+    *buf = AllocateBlock(rv, &allocator);
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
+    memset(buf->get(), 0, rv);
     return rv;
   }
 
@@ -322,22 +324,18 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
 
   ~FastLocalBloomBitsBuilder() override {}
 
-  using FilterBitsBuilder::Finish;
-
-  virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
-    return Finish(buf, nullptr);
-  }
-
-  virtual Slice Finish(std::unique_ptr<const char[]>* buf,
-                       Status* status) override {
+  Status FinishV2(MemoryAllocator* allocator, Slice* output_filter) override {
     size_t num_entries = hash_entries_info_.entries.size();
     size_t len_with_metadata = CalculateSpace(num_entries);
+    if (!allocator) {
+      allocator = &kDefaultAllocator;
+    }
 
-    std::unique_ptr<char[]> mutable_buf;
+    CacheAllocationPtr mutable_buf;
     std::unique_ptr<CacheReservationHandle<CacheEntryRole::kFilterConstruction>>
         final_filter_cache_res_handle;
-    len_with_metadata =
-        AllocateMaybeRounding(len_with_metadata, num_entries, &mutable_buf);
+    len_with_metadata = AllocateMaybeRounding(len_with_metadata, num_entries,
+                                              *allocator, &mutable_buf);
     // Cache reservation for mutable_buf
     if (cache_res_mgr_) {
       Status s =
@@ -367,10 +365,7 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
       Status verify_hash_entries_checksum_status =
           MaybeVerifyHashEntriesChecksum();
       if (!verify_hash_entries_checksum_status.ok()) {
-        if (status) {
-          *status = verify_hash_entries_checksum_status;
-        }
-        return FinishAlwaysTrue(buf);
+        return verify_hash_entries_checksum_status;
       }
     }
 
@@ -393,14 +388,12 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
     TEST_SYNC_POINT_CALLBACK("XXPH3FilterBitsBuilder::Finish::TamperFilter",
                              &TEST_arg_pair);
 
-    Slice rv(mutable_buf.get(), len_with_metadata);
-    *buf = std::move(mutable_buf);
+    assert(mutable_buf.get_deleter().allocator == allocator);
+    *output_filter = Slice(mutable_buf.release(), len_with_metadata);
+    assert(output_filter->size() > 0);
     final_filter_cache_res_handles_.push_back(
         std::move(final_filter_cache_res_handle));
-    if (status) {
-      *status = Status::OK();
-    }
-    return rv;
+    return Status::OK();
   }
 
   size_t ApproximateNumEntries(size_t bytes) override {
@@ -610,29 +603,26 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
 
   ~Standard128RibbonBitsBuilder() override {}
 
-  using FilterBitsBuilder::Finish;
-
-  virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
-    return Finish(buf, nullptr);
-  }
-
-  virtual Slice Finish(std::unique_ptr<const char[]>* buf,
-                       Status* status) override {
+  Status FinishV2(MemoryAllocator* allocator, Slice* output_filter) override {
+    if (!allocator) {
+      allocator = &kDefaultAllocator;
+    }
     if (hash_entries_info_.entries.size() > kMaxRibbonEntries) {
       ROCKS_LOG_WARN(
           info_log_, "Too many keys for Ribbon filter: %llu",
           static_cast<unsigned long long>(hash_entries_info_.entries.size()));
       SwapEntriesWith(&bloom_fallback_);
       assert(hash_entries_info_.entries.empty());
-      return bloom_fallback_.Finish(buf, status);
+      return bloom_fallback_.FinishV2(allocator, output_filter);
     }
     if (hash_entries_info_.entries.size() == 0) {
       // Save a conditional in Ribbon queries by using alternate reader
       // for zero entries added.
-      if (status) {
-        *status = Status::OK();
-      }
-      return FinishAlwaysFalse(buf);
+      // Returning a static filter from FinishV2 is only allowed if zero
+      // length.
+      assert(kAlwaysFalseFilter.empty());
+      *output_filter = kAlwaysFalseFilter;
+      return Status::OK();
     }
     uint32_t num_entries =
         static_cast<uint32_t>(hash_entries_info_.entries.size());
@@ -645,7 +635,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
     if (num_slots == 0) {
       SwapEntriesWith(&bloom_fallback_);
       assert(hash_entries_info_.entries.empty());
-      return bloom_fallback_.Finish(buf, status);
+      return bloom_fallback_.FinishV2(allocator, output_filter);
     }
 
     uint32_t entropy = 0;
@@ -676,7 +666,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
       assert(hash_entries_info_.entries.empty());
       // Release cache for banding since the banding won't be allocated
       banding_res_handle.reset();
-      return bloom_fallback_.Finish(buf, status);
+      return bloom_fallback_.FinishV2(allocator, output_filter);
     }
 
     TEST_SYNC_POINT_CALLBACK(
@@ -695,7 +685,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
           static_cast<unsigned long long>(num_slots));
       SwapEntriesWith(&bloom_fallback_);
       assert(hash_entries_info_.entries.empty());
-      return bloom_fallback_.Finish(buf, status);
+      return bloom_fallback_.FinishV2(allocator, output_filter);
     }
 
     Status verify_hash_entries_checksum_status =
@@ -703,10 +693,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
     if (!verify_hash_entries_checksum_status.ok()) {
       ROCKS_LOG_WARN(info_log_, "Verify hash entries checksum error: %s",
                      verify_hash_entries_checksum_status.getState());
-      if (status) {
-        *status = verify_hash_entries_checksum_status;
-      }
-      return FinishAlwaysTrue(buf);
+      return verify_hash_entries_checksum_status;
     }
 
     bool keep_entries_for_postverify = detect_filter_construct_corruption_;
@@ -717,11 +704,11 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
     uint32_t seed = banding.GetOrdinalSeed();
     assert(seed < 256);
 
-    std::unique_ptr<char[]> mutable_buf;
+    CacheAllocationPtr mutable_buf;
     std::unique_ptr<CacheReservationHandle<CacheEntryRole::kFilterConstruction>>
         final_filter_cache_res_handle;
-    len_with_metadata =
-        AllocateMaybeRounding(len_with_metadata, num_entries, &mutable_buf);
+    len_with_metadata = AllocateMaybeRounding(len_with_metadata, num_entries,
+                                              *allocator, &mutable_buf);
     // Cache reservation for mutable_buf
     if (cache_res_mgr_) {
       Status s =
@@ -761,14 +748,12 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
     TEST_SYNC_POINT_CALLBACK("XXPH3FilterBitsBuilder::Finish::TamperFilter",
                              &TEST_arg_pair);
 
-    Slice rv(mutable_buf.get(), len_with_metadata);
-    *buf = std::move(mutable_buf);
+    assert(mutable_buf.get_deleter().allocator == allocator);
+    *output_filter = Slice(mutable_buf.release(), len_with_metadata);
+    assert(output_filter->size() > 0);
     final_filter_cache_res_handles_.push_back(
         std::move(final_filter_cache_res_handle));
-    if (status) {
-      *status = Status::OK();
-    }
-    return rv;
+    return Status::OK();
   }
 
   // Setting num_slots to 0 means "fall back on Bloom filter."
@@ -1030,8 +1015,6 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   virtual size_t EstimateEntriesAdded() override {
     return hash_entries_.size();
   }
-
-  using FilterBitsBuilder::Finish;
 
   Slice Finish(std::unique_ptr<const char[]>* buf) override;
 
@@ -1311,6 +1294,40 @@ Status XXPH3FilterBitsBuilder::MaybePostVerify(const Slice& filter_content) {
 }
 }  // namespace
 
+Slice FilterBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
+  Slice filter;
+  Status s = FinishV2(/*allocator*/ nullptr, &filter);
+  if (s.ok()) {
+    if (filter.size() > 0) {
+      buf->reset(filter.data());
+    }
+    return filter;
+  } else {
+    // Safe fallback
+    return kAlwaysTrueFilter;
+  }
+}
+
+Status FilterBitsBuilder::FinishV2(MemoryAllocator* allocator,
+                                   Slice* output_filter) {
+  std::unique_ptr<const char[]> buf;
+  Slice slice = Finish(&buf);
+
+  if (allocator == nullptr && buf.get() == slice.data()) {
+    // Buffer already allocated with right allocator
+    *output_filter = Slice(buf.release(), slice.size());
+  } else if (slice.empty()) {
+    // No allocator used on empty filter
+    *output_filter = Slice();
+  } else {
+    // Need to copy to buffer with right allocator
+    CacheAllocationPtr buf2 = AllocateBlock(slice.size(), allocator);
+    std::memcpy(buf2.get(), slice.data(), slice.size());
+    *output_filter = Slice(buf2.release(), slice.size());
+  }
+  return Status::OK();
+}
+
 BloomLikeFilterPolicy::BloomLikeFilterPolicy(double bits_per_key)
     : warned_(false), aggregate_rounding_balance_(0) {
   // Sanitize bits_per_key
@@ -1375,7 +1392,6 @@ FilterBitsBuilder* DeprecatedBlockBasedBloomFilterPolicy::GetBuilderWithContext(
     size_t est;
     size_t EstimateEntriesAdded() override { return est; }
     void AddKey(const Slice&) override {}
-    using FilterBitsBuilder::Finish;  // FIXME
     Slice Finish(std::unique_ptr<const char[]>*) override { return Slice(); }
     size_t ApproximateNumEntries(size_t) override { return 0; }
   };

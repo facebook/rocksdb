@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <malloc.h>
+
 #include <atomic>
 
 #include "rocksdb/memory_allocator.h"
@@ -20,6 +22,16 @@ class DefaultMemoryAllocator : public MemoryAllocator {
   }
 
   void Deallocate(void* p) override { delete[] static_cast<char*>(p); }
+
+  size_t UsableSize(void* p, size_t allocation_size) const override {
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    (void)allocation_size;
+    return malloc_usable_size(p);
+#else
+    (void)p;
+    return allocation_size;
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+  }
 };
 
 // Base class for a MemoryAllocator.  This implementation does nothing

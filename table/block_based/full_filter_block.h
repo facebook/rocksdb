@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "memory/memory_allocator.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -54,10 +55,9 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   virtual void Add(const Slice& key_without_ts) override;
   virtual bool IsEmpty() const override { return !any_added_; }
   virtual size_t EstimateEntriesAdded() override;
-  virtual Slice Finish(
-      const BlockHandle& tmp, Status* status,
-      std::unique_ptr<const char[]>* filter_data = nullptr) override;
-  using FilterBlockBuilder::Finish;
+  virtual Status Finish(const BlockHandle& prev, MemoryAllocator* allocator,
+                        CacheAllocationPtr* output_buf,
+                        Slice* output_filter) override;
 
   virtual void ResetFilterBitsBuilder() override {
     filter_bits_builder_.reset();
@@ -91,7 +91,7 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   // last_key_in_domain_ is true, regardless of the current key.
   bool last_key_in_domain_;
   bool any_added_;
-  std::unique_ptr<const char[]> filter_data_;
+  CacheAllocationPtr filter_data_;
 };
 
 // A FilterBlockReader is used to parse filter from SST table.

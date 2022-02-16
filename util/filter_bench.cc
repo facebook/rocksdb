@@ -440,8 +440,11 @@ void FilterBench::Go() {
       for (uint32_t i = 0; i < keys_to_add; ++i) {
         builder->AddKey(kms_[0].Get(filter_id, i));
       }
-      info.filter_ =
-          builder->Finish(&info.owner_, &info.filter_construction_status);
+      info.filter_construction_status =
+          builder->FinishV2(/*allocator*/ nullptr, &info.filter_);
+      if (info.filter_.size() > 0) {
+        info.owner_.reset(info.filter_.data());
+      }
       if (info.filter_construction_status.ok()) {
         info.filter_construction_status =
             builder->MaybePostVerify(info.filter_);

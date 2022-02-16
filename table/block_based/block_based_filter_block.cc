@@ -117,12 +117,10 @@ inline void BlockBasedFilterBlockBuilder::AddPrefix(const Slice& key) {
   }
 }
 
-Slice BlockBasedFilterBlockBuilder::Finish(
-    const BlockHandle& /*tmp*/, Status* status,
-    std::unique_ptr<const char[]>* /* filter_data */) {
-  // In this impl we ignore BlockHandle and filter_data
-  *status = Status::OK();
-
+Status BlockBasedFilterBlockBuilder::Finish(const BlockHandle& /*prev*/,
+                                            MemoryAllocator* /*allocator*/,
+                                            CacheAllocationPtr* /*output_buf*/,
+                                            Slice* output_filter) {
   if (!start_.empty()) {
     GenerateFilter();
   }
@@ -135,7 +133,8 @@ Slice BlockBasedFilterBlockBuilder::Finish(
 
   PutFixed32(&result_, array_offset);
   result_.push_back(kFilterBaseLg);  // Save encoding parameter in result
-  return Slice(result_);
+  *output_filter = result_;
+  return Status::OK();
 }
 
 void BlockBasedFilterBlockBuilder::GenerateFilter() {

@@ -37,9 +37,9 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   void Add(const Slice& key) override;
   size_t EstimateEntriesAdded() override;
 
-  virtual Slice Finish(
-      const BlockHandle& last_partition_block_handle, Status* status,
-      std::unique_ptr<const char[]>* filter_data = nullptr) override;
+  virtual Status Finish(const BlockHandle& prev, MemoryAllocator* allocator,
+                        CacheAllocationPtr* output_buf,
+                        Slice* output_filter) override;
 
   virtual void ResetFilterBitsBuilder() override {
     // Previously constructed partitioned filters by
@@ -65,7 +65,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
       index_on_filter_block_builder_without_seq_;  // same for user keys
   struct FilterEntry {
     std::string key;
-    std::unique_ptr<const char[]> filter_data;
+    CacheAllocationPtr filter_data;
     Slice filter;
   };
   std::deque<FilterEntry> filters;  // list of partitioned filters and keys used
@@ -77,7 +77,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   // then the whole partitioned filters should not be used.
   Status partitioned_filters_construction_status_;
   std::string last_filter_entry_key;
-  std::unique_ptr<const char[]> last_filter_data;
+  CacheAllocationPtr last_filter_data;
   std::unique_ptr<IndexBuilder> value;
   bool finishing_filters =
       false;  // true if Finish is called once but not complete yet.

@@ -30,8 +30,6 @@ class TestFilterBitsBuilder : public FilterBitsBuilder {
     hash_entries_.push_back(Hash(key.data(), key.size(), 1));
   }
 
-  using FilterBitsBuilder::Finish;
-
   // Generate the filter using the keys that are added
   Slice Finish(std::unique_ptr<const char[]>* buf) override {
     uint32_t len = static_cast<uint32_t>(hash_entries_.size()) * 4;
@@ -104,7 +102,7 @@ class PluginFullFilterBlockTest : public mock::MockBlockBasedTableTester,
 
 TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
   FullFilterBlockBuilder builder(nullptr, true, GetBuilder());
-  Slice slice = builder.Finish();
+  Slice slice = builder.TEST_Finish();
   ASSERT_EQ("", EscapeString(slice));
 
   CachableEntry<ParsedFullFilterBlock> block(
@@ -128,7 +126,7 @@ TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
   builder.Add("box");
   builder.Add("box");
   builder.Add("hello");
-  Slice slice = builder.Finish();
+  Slice slice = builder.TEST_Finish();
 
   CachableEntry<ParsedFullFilterBlock> block(
       new ParsedFullFilterBlock(table_options_.filter_policy.get(),
@@ -180,7 +178,7 @@ class FullFilterBlockTest : public mock::MockBlockBasedTableTester,
 
 TEST_F(FullFilterBlockTest, EmptyBuilder) {
   FullFilterBlockBuilder builder(nullptr, true, GetBuilder());
-  Slice slice = builder.Finish();
+  Slice slice = builder.TEST_Finish();
   ASSERT_EQ("", EscapeString(slice));
 
   CachableEntry<ParsedFullFilterBlock> block(
@@ -210,8 +208,6 @@ class CountUniqueFilterBitsBuilderWrapper : public FilterBitsBuilder {
     b_->AddKey(key);
     uniq_.insert(key.ToString());
   }
-
-  using FilterBitsBuilder::Finish;
 
   Slice Finish(std::unique_ptr<const char[]>* buf) override {
     Slice rv = b_->Finish(buf);
@@ -281,8 +277,9 @@ TEST_F(FullFilterBlockTest, SingleChunk) {
   // "box" only counts once
   ASSERT_EQ(4, builder.EstimateEntriesAdded());
   ASSERT_FALSE(builder.IsEmpty());
-  Status s;
-  Slice slice = builder.Finish(BlockHandle(), &s);
+  Slice slice;
+  Status s = builder.Finish(BlockHandle(), /*allocator*/ nullptr,
+                            /*output_buf*/ nullptr, &slice);
   ASSERT_OK(s);
 
   CachableEntry<ParsedFullFilterBlock> block(

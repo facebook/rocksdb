@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "memory/memory_allocator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
@@ -66,22 +67,26 @@ class FilterBlockBuilder {
   virtual bool IsEmpty() const = 0;            // Empty == none added
   // For reporting stats on how many entries the builder considered unique
   virtual size_t EstimateEntriesAdded() = 0;
-  Slice Finish() {                             // Generate Filter
+#ifndef NDEBUG
+  // Simpler version of Finish for testing
+  Slice TEST_Finish() {
     const BlockHandle empty_handle;
-    Status dont_care_status;
-    auto ret = Finish(empty_handle, &dont_care_status);
-    assert(dont_care_status.ok());
-    return ret;
+    Slice filter;
+    Status s = Finish(empty_handle, /*allocator*/ nullptr,
+                      /*output_buf*/ nullptr, &filter);
+    assert(s.ok());
+    return filter;
   }
-  // If filter_data is not nullptr, Finish() may transfer ownership of
-  // underlying filter data to the caller,  so that it can be freed as soon as
-  // possible. BlockBasedFilterBlock will ignore this parameter.
-  //
-  virtual Slice Finish(
-      const BlockHandle& tmp /* only used in PartitionedFilterBlock as
-                                last_partition_block_handle */
-      ,
-      Status* status, std::unique_ptr<const char[]>* filter_data = nullptr) = 0;
+#endif  // !NDEBUG
+  // Creates (next) filter block. On success, OK status is returned and a
+  // pointer to result is saved in `output_filter`. If `output_buf` is not
+  // nullptr, ownership may be transferred to the caller for freeing as soon
+  // as possible; otherwise this builder retains ownership until destruction
+  // or next call to Finish(). `prev` is only used by partitioned filter as
+  // a block handle to the previously Finish()ed partition (when applicable).
+  virtual Status Finish(const BlockHandle& prev, MemoryAllocator* allocator,
+                        CacheAllocationPtr* output_buf,
+                        Slice* output_filter) = 0;
 
   // This is called when finishes using the FilterBitsBuilder
   // in order to release memory usage and cache reservation

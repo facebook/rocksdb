@@ -52,10 +52,10 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
     return start_.empty() && filter_offsets_.empty();
   }
   virtual size_t EstimateEntriesAdded() override;
-  virtual Slice Finish(
-      const BlockHandle& tmp, Status* status,
-      std::unique_ptr<const char[]>* filter_data = nullptr) override;
-  using FilterBlockBuilder::Finish;
+
+  virtual Status Finish(const BlockHandle& prev, MemoryAllocator* allocator,
+                        CacheAllocationPtr* output_buf,
+                        Slice* output_filter) override;
 
  private:
   void AddKey(const Slice& key);

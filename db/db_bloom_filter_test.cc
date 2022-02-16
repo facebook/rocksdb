@@ -581,7 +581,6 @@ class AlwaysTrueBitsBuilder : public FilterBitsBuilder {
     // payload, 5 bytes metadata)
     return Slice("\0\0\0\0\0\0", 6);
   }
-  using FilterBitsBuilder::Finish;
   size_t ApproximateNumEntries(size_t) override { return SIZE_MAX; }
 };
 
@@ -1506,13 +1505,12 @@ TEST_P(DBFilterConstructionCorruptionTestWithParam, DetectCorruption) {
 
   SyncPoint::GetInstance()->SetCallBack(
       "XXPH3FilterBitsBuilder::Finish::TamperFilter", [&](void* arg) {
-        std::pair<std::unique_ptr<char[]>*, std::size_t>* TEST_arg_pair =
-            (std::pair<std::unique_ptr<char[]>*, std::size_t>*)arg;
+        std::pair<CacheAllocationPtr*, std::size_t>* TEST_arg_pair =
+            (std::pair<CacheAllocationPtr*, std::size_t>*)arg;
         std::size_t filter_size = TEST_arg_pair->second;
         // 5 is the kMetadataLen and
         assert(filter_size >= 8 + 5);
-        std::unique_ptr<char[]>* filter_content_to_corrupt =
-            TEST_arg_pair->first;
+        CacheAllocationPtr* filter_content_to_corrupt = TEST_arg_pair->first;
         std::memset(filter_content_to_corrupt->get(), '\0', 8);
       });
   SyncPoint::GetInstance()->EnableProcessing();

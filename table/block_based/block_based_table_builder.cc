@@ -1568,9 +1568,11 @@ void BlockBasedTableBuilder::WriteFilterBlock(
       // See FilterBlockBuilder::Finish() for more on the difference in
       // transferred filter data payload among different FilterBlockBuilder
       // subtypes.
-      std::unique_ptr<const char[]> filter_data;
-      Slice filter_content =
-          rep_->filter_builder->Finish(filter_block_handle, &s, &filter_data);
+      CacheAllocationPtr filter_data;
+      Slice filter_content;
+      s = rep_->filter_builder->Finish(filter_block_handle,
+                                       /*TODO: allocator*/ nullptr,
+                                       &filter_data, &filter_content);
 
       assert(s.ok() || s.IsIncomplete() || s.IsCorruption());
       if (s.IsCorruption()) {

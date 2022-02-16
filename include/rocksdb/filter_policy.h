@@ -59,19 +59,32 @@ class FilterBitsBuilder {
 
   // Generate the filter using the keys that are added
   // The return value of this function would be the filter bits,
-  // The ownership of actual data is set to buf
-  virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
+  // The ownership of actual data is set to buf.
+  // RocksDB does not call this function in production except via the default
+  // implementation of FinishV2. The default implementation of this function
+  // calls FinishV2, so one of Finish and FinishV2 must be overridden (to
+  // avoid call stack overflow).
+  virtual Slice Finish(std::unique_ptr<const char[]>* buf);
 
-  // Similar to Finish(std::unique_ptr<const char[]>* buf), except that
-  // for a non-null status pointer argument, it will point to
-  // Status::Corruption() when there is any corruption during filter
-  // construction or Status::OK() otherwise.
+  // Newer version of Finish() that supports
+  // * Returning a Status, in case an unexpected memory corruption is detected
+  // in filter construction.
+  // * Allocating the returned buffer with a custom allocator (such as for
+  // cache warming during table construction)
   //
-  // WARNING: do not use a filter resulted from a corrupted construction
-  virtual Slice Finish(std::unique_ptr<const char[]>* buf,
-                       Status* /* status */) {
-    return Finish(buf);
-  }
+  // If returning Status::OK() and output_filter->size() > 0, then
+  // output_filter->data() points to a buffer allocated by `allocator` (or
+  // default allocator with allocator==nullptr). output_filter->size() might
+  // be larger than the original requested allocation size if
+  // allocator->UsableSize() says the space is usable. (See
+  // optimize_filters_for_memory.)
+  //
+  // If not returning Status::OK(), then `output_filter` should be unmodified
+  // or reset to Slice(). (Caller is not responsible for any deallocation.)
+  //
+  // The default implementation uses Finish() in a backwards-compatible way,
+  // copying the buffer if needed to use the specified allocator.
+  virtual Status FinishV2(MemoryAllocator* allocator, Slice* output_filter);
 
   // Verify the filter returned from calling FilterBitsBuilder::Finish.
   // The function returns Status::Corruption() if there is any corruption in the

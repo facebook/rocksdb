@@ -4,12 +4,15 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/block_based/full_filter_block.h"
+
 #include <array>
 
+#include "memory/memory_allocator.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/status.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "util/coding.h"
 
@@ -101,19 +104,33 @@ void FullFilterBlockBuilder::Reset() {
   last_prefix_recorded_ = false;
 }
 
-Slice FullFilterBlockBuilder::Finish(
-    const BlockHandle& /*tmp*/, Status* status,
-    std::unique_ptr<const char[]>* filter_data) {
+Status FullFilterBlockBuilder::Finish(const BlockHandle& /*prev*/,
+                                      MemoryAllocator* allocator,
+                                      CacheAllocationPtr* output_buf,
+                                      Slice* output_filter) {
   Reset();
-  // In this impl we ignore BlockHandle
-  *status = Status::OK();
   if (any_added_) {
     any_added_ = false;
-    Slice filter_content = filter_bits_builder_->Finish(
-        filter_data ? filter_data : &filter_data_, status);
-    return filter_content;
+    Status s = filter_bits_builder_->FinishV2(allocator, output_filter);
+    if (output_filter->size() > 0) {
+      assert(s.ok());
+      if (output_buf) {
+        *output_buf = CacheAllocationPtr(
+            const_cast<char*>(output_filter->data()), allocator);
+      } else {
+        filter_data_ = CacheAllocationPtr(
+            const_cast<char*>(output_filter->data()), allocator);
+      }
+    } else {
+      // Should not generate empty filter if any added
+      assert(!s.ok());
+    }
+    return s;
+  } else {
+    // Empty filter
+    *output_filter = Slice();
+    return Status::OK();
   }
-  return Slice();
 }
 
 FullFilterBlockReader::FullFilterBlockReader(
