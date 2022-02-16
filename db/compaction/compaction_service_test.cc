@@ -155,7 +155,7 @@ class CompactionServiceTest : public DBTestBase {
 
   MyTestCompactionService* GetCompactionService() {
     CompactionService* cs = compaction_service_.get();
-    return dynamic_cast<MyTestCompactionService*>(cs);
+    return static_cast_with_check<MyTestCompactionService>(cs);
   }
 
   void GenerateTestData() {
