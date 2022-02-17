@@ -167,6 +167,7 @@ TEST_P(TransactionTest, SwitchMemtableDuringPrepareAndCommit_WC) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "FlushJob::WriteLevel0Table", [&](void* arg) {
+        // db mutex not held.
         auto* mems = reinterpret_cast<autovector<MemTable*>*>(arg);
         assert(mems);
         ASSERT_EQ(1, mems->size());
