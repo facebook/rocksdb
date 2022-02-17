@@ -6,6 +6,7 @@
 #include "rocksdb/sst_file_writer.h"
 
 #include <vector>
+#include <memory>
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
@@ -15,6 +16,7 @@
 #include "table/block_based/block_based_table_builder.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/sync_point.h"
+#include "db/output_validator.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -53,6 +55,8 @@ struct SstFileWriter::Rep {
   InternalKey ikey;
   std::string column_family_name;
   ColumnFamilyHandle* cfh;
+  std::unique_ptr<OutputValidator> kv_validator;
+  std::unique_ptr<OutputValidator> tombstone_validator;
   // If true, We will give the OS a hint that this file pages is not needed
   // every time we write 1MB to the file.
   bool invalidate_page_cache;
@@ -89,6 +93,11 @@ struct SstFileWriter::Rep {
     ikey.Set(user_key, sequence_number, value_type);
 
     builder->Add(ikey.Encode(), value);
+
+    Status s = kv_validator->Add(ikey.Encode(), value);
+    if(!s.ok()){
+      return s;
+    }
 
     // update file info
     file_info.num_entries++;
@@ -161,6 +170,11 @@ struct SstFileWriter::Rep {
     auto ikey_and_end_key = tombstone.Serialize();
     builder->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
 
+    Status s = tombstone_validator->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
+    if(!s.ok()){
+      return s;
+    }
+
     // update file info
     file_info.num_range_del_entries++;
     file_info.file_size = builder->FileSize();
@@ -231,6 +245,8 @@ Status SstFileWriter::Open(const std::string& file_path) {
   }
 
   sst_file->SetIOPriority(r->io_priority);
+  r->kv_validator = std::unique_ptr<OutputValidator>(new OutputValidator(r->internal_comparator, true, true));
+  r->tombstone_validator = std::unique_ptr<OutputValidator>(new OutputValidator(r->internal_comparator, true, true));
 
   CompressionType compression_type;
   CompressionOptions compression_opts;
