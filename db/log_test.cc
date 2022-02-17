@@ -144,10 +144,10 @@ class LogTest
   test::StringSink* sink_;
   StringSource* source_;
   ReportCollector report_;
-  std::unique_ptr<Writer> writer_;
-  std::unique_ptr<Reader> reader_;
 
  protected:
+  std::unique_ptr<Writer> writer_;
+  std::unique_ptr<Reader> reader_;
   bool allow_retry_read_;
   CompressionType compression_type_;
 
@@ -897,9 +897,13 @@ TEST_P(RetriableLogTest, NonBlockingReadFullRecord) {
 
 INSTANTIATE_TEST_CASE_P(bool, RetriableLogTest, ::testing::Values(0, 2));
 
-class CompressionLogTest : public LogTest {};
+class CompressionLogTest : public LogTest {
+ public:
+  Status SetupTestEnv() { return writer_->AddCompressionTypeRecord(); }
+};
 
 TEST_P(CompressionLogTest, Empty) {
+  ASSERT_OK(SetupTestEnv());
   const bool compression_enabled =
       std::get<2>(GetParam()) == kNoCompression ? false : true;
   // If WAL compression is enabled, a record is added for the compression type

@@ -31,7 +31,6 @@ Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
     char t = static_cast<char>(i);
     type_crc_[i] = crc32c::Value(&t, 1);
   }
-  add_compression_type_record_status_ = AddCompressionTypeRecord();
 }
 
 Writer::~Writer() {
@@ -40,14 +39,7 @@ Writer::~Writer() {
   }
 }
 
-IOStatus Writer::WriteBuffer() {
-  // If the compression type record could not be written, return the failure
-  // status here.
-  if (!add_compression_type_record_status_.ok()) {
-    return add_compression_type_record_status_;
-  }
-  return dest_->Flush();
-}
+IOStatus Writer::WriteBuffer() { return dest_->Flush(); }
 
 IOStatus Writer::Close() {
   IOStatus s;
@@ -65,12 +57,6 @@ IOStatus Writer::AddRecord(const Slice& slice) {
   // Header size varies depending on whether we are recycling or not.
   const int header_size =
       recycle_log_files_ ? kRecyclableHeaderSize : kHeaderSize;
-
-  // If the compression type record could not be written, return the failure
-  // status here.
-  if (!add_compression_type_record_status_.ok()) {
-    return add_compression_type_record_status_;
-  }
 
   // Fragment the record if necessary and emit it.  Note that if slice
   // is empty, we still want to iterate once to emit a single

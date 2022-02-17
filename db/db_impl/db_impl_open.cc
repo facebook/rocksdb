@@ -1581,6 +1581,7 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                                immutable_db_options_.recycle_log_file_num > 0,
                                immutable_db_options_.manual_wal_flush,
                                immutable_db_options_.wal_compression);
+    io_s = (*new_log)->AddCompressionTypeRecord();
   }
   return io_s;
 }

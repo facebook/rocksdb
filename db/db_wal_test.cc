@@ -1284,6 +1284,7 @@ class RecoveryTestHelper {
           new log::Writer(std::move(file_writer), current_log_number,
                           db_options.recycle_log_file_num > 0, false,
                           db_options.wal_compression);
+      ASSERT_OK(log_writer->AddCompressionTypeRecord());
       current_log_writer.reset(log_writer);
 
       WriteBatch batch;
