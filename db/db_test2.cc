@@ -6510,6 +6510,18 @@ TEST_F(DBTest2, BottommostTemperature) {
       UpdateFileTemperature(info);
     }
 
+    void OnFileFlushFinish(const FileOperationInfo& info) override {
+      UpdateFileTemperature(info);
+    }
+
+    void OnFileSyncFinish(const FileOperationInfo& info) override {
+      UpdateFileTemperature(info);
+    }
+
+    void OnFileCloseFinish(const FileOperationInfo& info) override {
+      UpdateFileTemperature(info);
+    }
+
     bool ShouldBeNotifiedOnFileIO() override { return true; }
 
     std::unordered_map<uint64_t, Temperature> file_temperatures;
@@ -6524,7 +6536,7 @@ TEST_F(DBTest2, BottommostTemperature) {
         MutexLock l(&mutex_);
         auto ret = file_temperatures.insert({number, info.temperature});
         if (!ret.second) {
-          // the same file temperature should always be the same
+          // the same file temperature should always be the same for all events
           ASSERT_TRUE(ret.first->second == info.temperature);
         }
       }
