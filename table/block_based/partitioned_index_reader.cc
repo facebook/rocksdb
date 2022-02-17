@@ -158,7 +158,8 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
     Status s = rep->file->PrepareIOOptions(ro, opts);
     if (s.ok()) {
       s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
-                                    static_cast<size_t>(prefetch_len));
+                                    static_cast<size_t>(prefetch_len),
+                                    ro.rate_limiter_priority);
     }
     if (!s.ok()) {
       return s;
