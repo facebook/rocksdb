@@ -38,7 +38,7 @@ class Slice;
 struct BlockBasedTableOptions;
 struct ConfigOptions;
 
-// As of RocksDB, these are internal-use-only classes
+// As of RocksDB 7.0, the details of these classes are internal
 class FilterBitsBuilder;
 class FilterBitsReader;
 
