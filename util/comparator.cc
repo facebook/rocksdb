@@ -368,9 +368,10 @@ Status Comparator::CreateFromString(const ConfigOptions& config_options,
       } else {
         return status;
       }
-    } else if (!opt_map.empty()) {
+    } else {
       Comparator* comparator = const_cast<Comparator*>(*result);
-      status = comparator->ConfigureFromMap(config_options, opt_map);
+      status =
+          Customizable::ConfigureNewObject(config_options, comparator, opt_map);
     }
   }
   return status;

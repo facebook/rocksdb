@@ -447,6 +447,10 @@ int main(int argc, char** argv) {
   cmp = rocksdb_comparator_create(NULL, CmpDestroy, CmpCompare, CmpName);
   dbpath = rocksdb_dbpath_create(dbpathname, 1024 * 1024);
   env = rocksdb_create_default_env();
+
+  rocksdb_create_dir_if_missing(env, GetTempDir(), &err);
+  CheckNoError(err);
+
   cache = rocksdb_cache_create_lru(100000);
 
   options = rocksdb_options_create();
@@ -1075,10 +1079,10 @@ int main(int argc, char** argv) {
       if (run == 0) {
         // Due to half true, half false with fake filter result
         CheckCondition(hits == keys_to_query / 2);
-      } else if (run == 1) {
-        // Essentially a fingerprint of the block-based Bloom schema
-        CheckCondition(hits == 241);
-      } else if (run == 2 || run == 4) {
+      } else if (run == 1 || run == 2 || run == 4) {
+        // For run == 1, block-based Bloom is no longer available in public
+        // API; attempting to enable it enables full Bloom instead.
+        //
         // Essentially a fingerprint of full Bloom schema, format_version=5
         CheckCondition(hits == 188);
       } else {
