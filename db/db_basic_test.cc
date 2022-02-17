@@ -1994,13 +1994,17 @@ TEST_F(DBBasicTest, MultiGetStats) {
     }
   }
   ASSERT_OK(Flush(1));
+  MoveFilesToLevel(1, 1);
   Close();
 
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_OK(options.statistics->Reset());
 
-  db_->MultiGet(read_opts, handles_[1], total_keys, keys.data(), values.data(),
-                s.data(), false);
+  //  db_->MultiGet(read_opts, handles_[1], total_keys, keys.data(),
+  //  values.data(),
+  //                s.data(), false);
+  db_->MultiGet(read_opts, handles_[1], 100, &keys[1250], &values[1250],
+                &s[1250], false);
 
   ASSERT_EQ(values.size(), total_keys);
   HistogramData hist_data_blocks;
@@ -2014,16 +2018,16 @@ TEST_F(DBBasicTest, MultiGetStats) {
   options.statistics->histogramData(NUM_SST_READ_PER_LEVEL, &hist_sst);
 
   // Maximum number of blocks read from a file system in a level.
-  ASSERT_GT(hist_data_blocks.max, 0);
+  ASSERT_EQ(hist_data_blocks.max, 32);
   ASSERT_GT(hist_index_and_filter_blocks.max, 0);
   // Maximum number of sst files read from file system in a level.
-  ASSERT_GT(hist_sst.max, 0);
+  ASSERT_EQ(hist_sst.max, 2);
 
   // Minimun number of blocks read in a level.
-  ASSERT_EQ(hist_data_blocks.min, 3);
+  ASSERT_EQ(hist_data_blocks.min, 4);
   ASSERT_GT(hist_index_and_filter_blocks.min, 0);
   // Minimun number of sst files read in a level.
-  ASSERT_GT(hist_sst.max, 0);
+  ASSERT_EQ(hist_sst.min, 1);
 }
 
 // Test class for batched MultiGet with prefix extractor
