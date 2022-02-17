@@ -109,7 +109,7 @@ public class ColumnFamilyHandle extends RocksObject {
           getID() == that.getID() &&
           Arrays.equals(getName(), that.getName());
     } catch (final RocksDBException e) {
-      throw new RuntimeException("Cannot compare column family handles", e);
+      throw new RocksDBRuntimeException("Cannot compare column family handles", e);
     }
   }
 
@@ -119,8 +119,8 @@ public class ColumnFamilyHandle extends RocksObject {
       int result = Objects.hash(getID(), rocksDB_.nativeHandle_);
       result = 31 * result + Arrays.hashCode(getName());
       return result;
-    } catch (RocksDBException e) {
-      throw new RuntimeException("Cannot calculate hash code of column family handle", e);
+    } catch (final RocksDBException e) {
+      throw new RocksDBRuntimeException("Cannot calculate hash code of column family handle", e);
     }
   }
 

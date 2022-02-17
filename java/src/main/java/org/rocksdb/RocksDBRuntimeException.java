@@ -9,10 +9,10 @@ package org.rocksdb;
  * A RocksDBException encapsulates the error of an operation.  This exception
  * type is used to describe an internal error from the c++ rocksdb library.
  */
-@SuppressWarnings({"SerializableHasSerializationMethods", "CheckedExceptionClass"})
-public class RocksDBException extends Exception {
+@SuppressWarnings({"SerializableHasSerializationMethods", "UncheckedExceptionClass"})
+public class RocksDBRuntimeException extends RuntimeException {
 
-  private static final long serialVersionUID = 345912921372541616L;
+  private static final long serialVersionUID = -9108026450339418124L;
   /* @Nullable */ private final Status status;
 
   /**
@@ -20,16 +20,19 @@ public class RocksDBException extends Exception {
    *
    * @param msg the specified error message.
    */
-  public RocksDBException(final String msg) {
+  @SuppressWarnings("unused")
+  public RocksDBRuntimeException(final String msg) {
     this(msg, null);
   }
 
-  public RocksDBException(final String msg, final Status status) {
-    super(msg);
-    this.status = status;
+  @SuppressWarnings("WeakerAccess")
+  public RocksDBRuntimeException(final String msg, final RocksDBException cause) {
+    super(msg, cause);
+    this.status = cause.getStatus();
   }
 
-  public RocksDBException(final Status status) {
+  @SuppressWarnings("unused")
+  public RocksDBRuntimeException(final Status status) {
     super(status.getState() != null ? status.getState()
         : status.getCodeString());
     this.status = status;

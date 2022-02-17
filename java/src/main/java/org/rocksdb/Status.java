@@ -5,15 +5,19 @@
 
 package org.rocksdb;
 
+import java.io.Serializable;
+import java.text.MessageFormat;
 import java.util.Objects;
 
 /**
  * Represents the status returned by a function call in RocksDB.
  *
- * Currently only used with {@link RocksDBException} when the
+ * Currently, only used with {@link RocksDBException} when the
  * status is not {@link Code#Ok}
  */
-public class Status {
+@SuppressWarnings({"SerializableDeserializableClassInSecureContext", "SerializableHasSerializationMethods"})
+public class Status implements Serializable {
+  private static final long serialVersionUID = -3794191127754280439L;
   private final Code code;
   /* @Nullable */ private final SubCode subCode;
   /* @Nullable */ private final String state;
@@ -27,6 +31,7 @@ public class Status {
   /**
    * Intentionally private as this will be called from JNI
    */
+  @SuppressWarnings("unused")
   private Status(final byte code, final byte subCode, final String state) {
     this.code = Code.getCode(code);
     this.subCode = SubCode.getSubCode(subCode);
@@ -81,13 +86,13 @@ public class Status {
     }
 
     public static Code getCode(final byte value) {
-      for (final Code code : Code.values()) {
+      for (final Code code : values()) {
         if (code.value == value){
           return code;
         }
       }
       throw new IllegalArgumentException(
-          "Illegal value provided for Code (" + value + ").");
+          MessageFormat.format("Illegal value provided for Code ({0}).", value));
     }
 
     /**
@@ -119,13 +124,13 @@ public class Status {
     }
 
     public static SubCode getSubCode(final byte value) {
-      for (final SubCode subCode : SubCode.values()) {
+      for (final SubCode subCode : values()) {
         if (subCode.value == value){
           return subCode;
         }
       }
       throw new IllegalArgumentException(
-          "Illegal value provided for SubCode (" + value + ").");
+          MessageFormat.format("Illegal value provided for SubCode ({0}).", value));
     }
 
     /**
@@ -139,12 +144,12 @@ public class Status {
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o)
       return true;
     if (o == null || getClass() != o.getClass())
       return false;
-    Status status = (Status) o;
+    final Status status = (Status) o;
     return code == status.code && subCode == status.subCode && Objects.equals(state, status.state);
   }
 
