@@ -3982,7 +3982,8 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
           options.rate_limiter->GetTotalBytesThrough(Env::IO_TOTAL);
       // There must be no charges at non-`IO_LOW` priorities.
       ASSERT_EQ(rate_limited_bytes,
-                options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW));
+                static_cast<size_t>(
+                    options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW)));
       // Include the explicit prefetch of the footer in direct I/O case.
       size_t direct_io_extra = use_direct_io ? 512 * 1024 : 0;
       ASSERT_GE(
