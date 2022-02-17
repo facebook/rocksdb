@@ -3110,6 +3110,88 @@ TEST_F(EnvTest, CreateCompositeEnv) {
 }
 #endif  // ROCKSDB_LITE
 
+class TestAsyncRead : public testing::Test {
+ public:
+  TestAsyncRead() { env_ = Env::Default(); }
+
+  Env* env_;
+};
+
+// Tests the default implementation of ReadAsync API.
+TEST_F(TestAsyncRead, ReadAsync) {
+  EnvOptions soptions;
+  std::string fname = test::PerThreadDBPath(env_, "testfile");
+
+  const size_t kSectorSize = 4096;
+  const size_t kNumSectors = 8;
+
+  // 1. create & write to a file.
+  {
+    std::unique_ptr<FSWritableFile> wfile;
+    ASSERT_OK(Env::Default()->GetFileSystem()->NewWritableFile(
+        fname, FileOptions(), &wfile, nullptr /*dbg*/));
+
+    for (size_t i = 0; i < kNumSectors; ++i) {
+      auto data = NewAligned(kSectorSize * 8, static_cast<char>(i + 1));
+      Slice slice(data.get(), kSectorSize);
+      ASSERT_OK(wfile->Append(slice, IOOptions(), nullptr));
+    }
+    ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+  }
+  // 2. Read file.
+  {
+    std::unique_ptr<FSRandomAccessFile> file;
+    ASSERT_OK(Env::Default()->GetFileSystem()->NewRandomAccessFile(
+        fname, FileOptions(), &file, nullptr /*dbg*/));
+    IOOptions opts;
+
+    InstrumentedMutex mutex;
+    int offset = 0;
+    int j = 0;
+
+    // callback function
+    std::function<void(FSReadResponse * resp, void* cb_arg)> callback =
+        [&](FSReadResponse* resp, void* cb_arg) {
+          int i = *reinterpret_cast<int*>(cb_arg);
+          ASSERT_EQ(resp->offset, i * kSectorSize);
+          auto buf = NewAligned(kSectorSize * 8, static_cast<char>(i + 1));
+          Slice expected_data(buf.get(), kSectorSize);
+          ASSERT_OK(resp->status);
+          ASSERT_EQ(expected_data.ToString(), resp->result.ToString());
+        };
+
+    // submit the read requests.
+    std::function<void()> submit_request = [&]() {
+      FSReadRequest req;
+      void* cb_arg = nullptr;
+      int x;
+      {
+        InstrumentedMutexLock lock(&mutex);
+        req.offset = offset;
+        offset += kSectorSize;
+        x = j;
+        // cb_arg is used to identify requests at user side.
+        cb_arg = (void*)(&x);
+        j++;
+      }
+      req.len = kSectorSize;
+      req.scratch = NewAligned(kSectorSize * 8, 0).get();
+      ASSERT_OK(file->ReadAsync(&req, opts, callback, cb_arg,
+                                nullptr /*io_handle*/, nullptr /*dbg*/));
+    };
+
+    std::vector<port::Thread> threads;
+
+    for (size_t i = 0; i < kNumSectors; i++) {
+      threads.emplace_back(submit_request);
+    }
+
+    for (auto& t : threads) {
+      t.join();
+    }
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

@@ -647,8 +647,9 @@ class FileSystem : public Customizable {
 
   // EXPERIMENTAL
   // Poll for completion of read IO requests. The Poll() method should call the
-  // callback functions to indicate completion of read requests. RocksDB will be
-  // informed of IO completions via the callback on another thread.
+  // callback functions to indicate completion of read requests. If Poll is not
+  // supported it means callee should be informed of IO completions via the
+  // callback on another thread.
   //
   // Default implementation is to return IOStatus::OK.
 
@@ -739,7 +740,9 @@ struct FSReadRequest {
   size_t len;
 
   // A buffer that MultiRead()  can optionally place data in. It can
-  // ignore this and allocate its own buffer
+  // ignore this and allocate its own buffer.
+  // The lifecycle of scratch should be until IO is completed. In case of
+  // asynchronous reads, it should be maintained until callback has been called.
   char* scratch;
 
   // Output parameter set by MultiRead() to point to the data buffer, and
@@ -755,8 +758,10 @@ struct FSReadResponse {
   // File offset in bytes
   uint64_t offset;
 
-  // Output parameter set by Read APIs to point to the data buffer, and
+  // Output parameter set by Async Read APIs to point to the data buffer, and
   // the number of valid bytes.
+  // Slice result should point to scratch of FSReadRequest i.e the data should
+  // always be read into scratch.
   Slice result;
 
   // Status of read.
@@ -874,12 +879,13 @@ class FSRandomAccessFile {
   // structure to the callback.
   //
   // Default implementation is to read the data synchronously.
-  virtual IOStatus ReadAsync(
-      FSReadRequest* req, const IOOptions& opts,
-      std::function<void(FSReadResponse* resp, void* cb_arg)> cb, void* cb_arg,
-      IOHandle* /*io_handle*/, IODebugContext* dbg) {
+  virtual IOStatus ReadAsync(FSReadRequest* req, const IOOptions& opts,
+                             std::function<void(FSReadResponse*, void*)> cb,
+                             void* cb_arg, IOHandle* /*io_handle*/,
+                             IODebugContext* dbg) {
     assert(req != nullptr);
     FSReadResponse resp;
+    resp.offset = req->offset;
     resp.status =
         Read(req->offset, req->len, opts, &(resp.result), req->scratch, dbg);
     cb(&resp, cb_arg);
@@ -1558,7 +1564,7 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
     return target_->InvalidateCache(offset, length);
   }
   IOStatus ReadAsync(FSReadRequest* req, const IOOptions& opts,
-                     std::function<void(FSReadResponse* resp, void* cb_arg)> cb,
+                     std::function<void(FSReadResponse*, void*)> cb,
                      void* cb_arg, IOHandle* io_handle,
                      IODebugContext* dbg) override {
     return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, dbg);

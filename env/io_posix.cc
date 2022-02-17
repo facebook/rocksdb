@@ -872,13 +872,6 @@ IOStatus PosixRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
 #endif
 }
 
-IOStatus PosixRandomAccessFile::ReadAsync(
-    FSReadRequest* /*req*/, const IOOptions& /*opts*/,
-    std::function<void(FSReadResponse* resp, void* cb_arg)> /*cb*/,
-    void* /*cb_arg*/, IOHandle* /*io_handle*/, IODebugContext* /*dbg*/) {
-  return IOStatus::NotSupported("ReadAsync");
-}
-
 /*
  * PosixMmapReadableFile
  *
