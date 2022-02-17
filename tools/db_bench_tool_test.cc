@@ -194,7 +194,6 @@ const std::string options_file_content = R"OPTIONS_FILE(
   use_adaptive_mutex=false
   max_total_wal_size=18446744073709551615
   compaction_readahead_size=0
-  new_table_reader_for_compaction_inputs=false
   keep_log_file_num=10
   skip_stats_update_on_db_open=false
   max_manifest_file_size=18446744073709551615

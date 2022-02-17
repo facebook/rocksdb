@@ -21,9 +21,13 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   ret.append("commands MUST specify --" + LDBCommand::ARG_DB +
              "=<full_path_to_db_directory> when necessary\n");
   ret.append("\n");
-  ret.append("commands can optionally specify --" + LDBCommand::ARG_ENV_URI +
-             "=<uri_of_environment> or --" + LDBCommand::ARG_FS_URI +
-             "=<uri_of_filesystem> if necessary\n\n");
+  ret.append("commands can optionally specify\n");
+  ret.append("  --" + LDBCommand::ARG_ENV_URI + "=<uri_of_environment> or --" +
+             LDBCommand::ARG_FS_URI + "=<uri_of_filesystem> if necessary");
+  ret.append("\n");
+  ret.append("  --" + LDBCommand::ARG_SECONDARY_PATH +
+             "=<secondary_path> to open DB as secondary instance. Operations "
+             "not supported in secondary instance will fail.\n\n");
   ret.append(
       "The following optional parameters control if keys/values are "
       "input/output as hex or as plain strings:\n");

@@ -47,10 +47,16 @@ void FillWithSpecialChar(char* start_ptr, size_t total_size,
                          const OffsetGap& excluded,
                          char special_char = kSpecialChar) {
   size_t offset = 0;
+  // The excluded vector contains pairs of bytes, (first, second).
+  // The first bytes are all set to the special char (represented as 'c' below).
+  // The second bytes are simply skipped (padding bytes).
+  // ccccc[skipped]cccccccc[skiped]cccccccc[skipped]
   for (auto& pair : excluded) {
     std::memset(start_ptr + offset, special_char, pair.first - offset);
     offset = pair.first + pair.second;
   }
+  // The rest of the structure is filled with the special characters.
+  // ccccc[skipped]cccccccc[skiped]cccccccc[skipped]cccccccccccccccc
   std::memset(start_ptr + offset, special_char, total_size - offset);
 }
 
@@ -59,6 +65,10 @@ int NumUnsetBytes(char* start_ptr, size_t total_size,
   int total_unset_bytes_base = 0;
   size_t offset = 0;
   for (auto& pair : excluded) {
+    // The first part of the structure contains memory spaces that can be
+    // set (pair.first), and memory spaces that cannot be set (pair.second).
+    // Therefore total_unset_bytes_base only agregates bytes set to kSpecialChar
+    // in the pair.first bytes, but skips the pair.second bytes (padding bytes).
     for (char* ptr = start_ptr + offset; ptr < start_ptr + pair.first; ptr++) {
       if (*ptr == kSpecialChar) {
         total_unset_bytes_base++;
@@ -66,6 +76,8 @@ int NumUnsetBytes(char* start_ptr, size_t total_size,
     }
     offset = pair.first + pair.second;
   }
+  // Then total_unset_bytes_base aggregates the bytes
+  // set to kSpecialChar in the rest of the structure
   for (char* ptr = start_ptr + offset; ptr < start_ptr + total_size; ptr++) {
     if (*ptr == kSpecialChar) {
       total_unset_bytes_base++;
@@ -174,7 +186,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "partition_filters=false;"
       "optimize_filters_for_memory=true;"
       "index_block_restart_interval=4;"
-      "filter_policy=bloomfilter:4:true;whole_key_filtering=1;"
+      "filter_policy=bloomfilter:4:true;whole_key_filtering=1;detect_filter_"
+      "construct_corruption=false;"
       "reserve_table_builder_memory=false;"
       "format_version=1;"
       "hash_index_allow_collision=false;"
@@ -279,7 +292,6 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "use_adaptive_mutex=false;"
                              "max_total_wal_size=4295005604;"
                              "compaction_readahead_size=0;"
-                             "new_table_reader_for_compaction_inputs=false;"
                              "keep_log_file_num=4890;"
                              "skip_stats_update_on_db_open=false;"
                              "skip_checking_sst_file_sizes_on_db_open=false;"
@@ -355,12 +367,6 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
   delete[] new_options_ptr;
 }
 
-template <typename T1, typename T2>
-inline int offset_of(T1 T2::*member) {
-  static T2 obj;
-  return int(size_t(&(obj.*member)) - size_t(&obj));
-}
-
 // If the test fails, likely a new option is added to ColumnFamilyOptions
 // but it cannot be set through GetColumnFamilyOptionsFromString(), or the
 // test is not updated accordingly.
@@ -374,36 +380,39 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // options in the excluded set need to appear in the same order as in
   // ColumnFamilyOptions.
   const OffsetGap kColumnFamilyOptionsExcluded = {
-      {offset_of(&ColumnFamilyOptions::inplace_callback),
+      {offsetof(struct ColumnFamilyOptions, inplace_callback),
        sizeof(UpdateStatus(*)(char*, uint32_t*, Slice, std::string*))},
-      {offset_of(
-           &ColumnFamilyOptions::memtable_insert_with_hint_prefix_extractor),
+      {offsetof(struct ColumnFamilyOptions,
+                memtable_insert_with_hint_prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
-      {offset_of(&ColumnFamilyOptions::compression_per_level),
+      {offsetof(struct ColumnFamilyOptions, compression_per_level),
        sizeof(std::vector<CompressionType>)},
-      {offset_of(
-           &ColumnFamilyOptions::max_bytes_for_level_multiplier_additional),
+      {offsetof(struct ColumnFamilyOptions,
+                max_bytes_for_level_multiplier_additional),
        sizeof(std::vector<int>)},
-      {offset_of(&ColumnFamilyOptions::memtable_factory),
+      {offsetof(struct ColumnFamilyOptions, memtable_factory),
        sizeof(std::shared_ptr<MemTableRepFactory>)},
-      {offset_of(&ColumnFamilyOptions::table_properties_collector_factories),
+      {offsetof(struct ColumnFamilyOptions,
+                table_properties_collector_factories),
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
-      {offset_of(&ColumnFamilyOptions::comparator), sizeof(Comparator*)},
-      {offset_of(&ColumnFamilyOptions::merge_operator),
+      {offsetof(struct ColumnFamilyOptions, comparator), sizeof(Comparator*)},
+      {offsetof(struct ColumnFamilyOptions, merge_operator),
        sizeof(std::shared_ptr<MergeOperator>)},
-      {offset_of(&ColumnFamilyOptions::compaction_filter),
+      {offsetof(struct ColumnFamilyOptions, compaction_filter),
        sizeof(const CompactionFilter*)},
-      {offset_of(&ColumnFamilyOptions::compaction_filter_factory),
+      {offsetof(struct ColumnFamilyOptions, compaction_filter_factory),
        sizeof(std::shared_ptr<CompactionFilterFactory>)},
-      {offset_of(&ColumnFamilyOptions::prefix_extractor),
+      {offsetof(struct ColumnFamilyOptions, prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
-      {offset_of(&ColumnFamilyOptions::snap_refresh_nanos), sizeof(uint64_t)},
-      {offset_of(&ColumnFamilyOptions::table_factory),
+      {offsetof(struct ColumnFamilyOptions, snap_refresh_nanos),
+       sizeof(uint64_t)},
+      {offsetof(struct ColumnFamilyOptions, table_factory),
        sizeof(std::shared_ptr<TableFactory>)},
-      {offset_of(&ColumnFamilyOptions::cf_paths), sizeof(std::vector<DbPath>)},
-      {offset_of(&ColumnFamilyOptions::compaction_thread_limiter),
+      {offsetof(struct ColumnFamilyOptions, cf_paths),
+       sizeof(std::vector<DbPath>)},
+      {offsetof(struct ColumnFamilyOptions, compaction_thread_limiter),
        sizeof(std::shared_ptr<ConcurrentTaskLimiter>)},
-      {offset_of(&ColumnFamilyOptions::sst_partitioner_factory),
+      {offsetof(struct ColumnFamilyOptions, sst_partitioner_factory),
        sizeof(std::shared_ptr<SstPartitionerFactory>)},
   };
 
@@ -421,10 +430,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // which did in fact modify padding bytes.
   ColumnFamilyOptions* options = new (options_ptr) ColumnFamilyOptions();
 
-  // Deprecatd option which is not initialized. Need to set it to avoid
-  // Valgrind error
-  options->max_mem_compaction_level = 0;
-
   int unset_bytes_base = NumUnsetBytes(options_ptr, sizeof(ColumnFamilyOptions),
                                        kColumnFamilyOptionsExcluded);
   ASSERT_GT(unset_bytes_base, 0);
@@ -438,7 +443,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // GetColumnFamilyOptionsFromString():
   options->compaction_options_universal = CompactionOptionsUniversal();
   options->num_levels = 42;  // Initialize options for MutableCF
-  options->max_mem_compaction_level = 0;
   options->compaction_filter = nullptr;
   options->sst_partitioner_factory = nullptr;
 
@@ -531,11 +535,12 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // Test copying to mutabable and immutable options and copy back the mutable
   // part.
   const OffsetGap kMutableCFOptionsExcluded = {
-      {offset_of(&MutableCFOptions::prefix_extractor),
+      {offsetof(struct MutableCFOptions, prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
-      {offset_of(&MutableCFOptions::max_bytes_for_level_multiplier_additional),
+      {offsetof(struct MutableCFOptions,
+                max_bytes_for_level_multiplier_additional),
        sizeof(std::vector<int>)},
-      {offset_of(&MutableCFOptions::max_file_size),
+      {offsetof(struct MutableCFOptions, max_file_size),
        sizeof(std::vector<uint64_t>)},
   };
 

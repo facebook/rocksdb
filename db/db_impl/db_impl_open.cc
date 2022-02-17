@@ -142,10 +142,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     result.compaction_readahead_size = 1024 * 1024 * 2;
   }
 
-  if (result.compaction_readahead_size > 0 || result.use_direct_reads) {
-    result.new_table_reader_for_compaction_inputs = true;
-  }
-
   // Force flush on DB open if 2PC is enabled, since with 2PC we have no
   // guarantee that consecutive log files have consecutive sequence id, which
   // make recovery complicated.
@@ -1378,6 +1374,12 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
 Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                                            MemTable* mem, VersionEdit* edit) {
   mutex_.AssertHeld();
+  assert(cfd);
+  assert(cfd->imm());
+  // The immutable memtable list must be empty.
+  assert(std::numeric_limits<uint64_t>::max() ==
+         cfd->imm()->GetEarliestMemTableID());
+
   const uint64_t start_micros = immutable_db_options_.clock->NowMicros();
 
   FileMetaData meta;

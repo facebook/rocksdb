@@ -241,9 +241,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"new_table_reader_for_compaction_inputs",
-         {offsetof(struct ImmutableDBOptions,
-                   new_table_reader_for_compaction_inputs),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"random_access_max_buffer_size",
          {offsetof(struct ImmutableDBOptions, random_access_max_buffer_size),
@@ -698,8 +696,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       db_write_buffer_size(options.db_write_buffer_size),
       write_buffer_manager(options.write_buffer_manager),
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
-      new_table_reader_for_compaction_inputs(
-          options.new_table_reader_for_compaction_inputs),
       random_access_max_buffer_size(options.random_access_max_buffer_size),
       use_adaptive_mutex(options.use_adaptive_mutex),
       listeners(options.listeners),
@@ -839,8 +835,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    write_buffer_manager.get());
   ROCKS_LOG_HEADER(log, "        Options.access_hint_on_compaction_start: %d",
                    static_cast<int>(access_hint_on_compaction_start));
-  ROCKS_LOG_HEADER(log, " Options.new_table_reader_for_compaction_inputs: %d",
-                   new_table_reader_for_compaction_inputs);
   ROCKS_LOG_HEADER(
       log, "          Options.random_access_max_buffer_size: %" ROCKSDB_PRIszt,
       random_access_max_buffer_size);

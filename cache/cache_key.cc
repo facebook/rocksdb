@@ -35,7 +35,8 @@ CacheKey CacheKey::CreateUniqueForCacheLifetime(Cache *cache) {
 CacheKey CacheKey::CreateUniqueForProcessLifetime() {
   // To avoid colliding with CreateUniqueForCacheLifetime, assuming
   // Cache::NewId counts up from zero, here we count down from UINT64_MAX.
-  // If this ever becomes a point of contention, we could use CoreLocalArray.
+  // If this ever becomes a point of contention, we could sub-divide the
+  // space and use CoreLocalArray.
   static std::atomic<uint64_t> counter{UINT64_MAX};
   uint64_t id = counter.fetch_sub(1, std::memory_order_relaxed);
   // Ensure we don't collide with CreateUniqueForCacheLifetime
@@ -118,9 +119,10 @@ CacheKey CacheKey::CreateUniqueForProcessLifetime() {
 // "structured" uniqueness hasn't been cloned. Using a static
 // SemiStructuredUniqueIdGen for db_session_ids, this means we only get an
 // "all new" session id when a new process uses RocksDB. (Between processes,
-// we don't know if a DB or other persistent storage has been cloned.) Within
-// a process, only the session_lower of the db_session_id changes
-// incrementally ("structured" uniqueness).
+// we don't know if a DB or other persistent storage has been cloned. We
+// assume that if VM hot cloning is used, subsequently generated SST files
+// do not interact.) Within a process, only the session_lower of the
+// db_session_id changes incrementally ("structured" uniqueness).
 //
 // This basically means that our offsets, counters and file numbers allow us
 // to do somewhat "better than random" (birthday paradox) while in the
@@ -168,12 +170,83 @@ CacheKey CacheKey::CreateUniqueForProcessLifetime() {
 // data from the last 180 days is in cache, but NOT the other assumption
 // for the 1 in a trillion estimate above).
 //
-// Conclusion: Burning through session IDs, particularly "all new" IDs that
-// only arise when a new process is started, is the only way to have a
-// plausible chance of cache key collision. When processes live for hours
-// or days, the chance of a cache key collision seems more plausibly due
-// to bad hardware than to bad luck in random session ID data.
 //
+// Collision probability estimation through simulation:
+// A tool ./cache_bench -stress_cache_key broadly simulates host-wide cache
+// activity over many months, by making some pessimistic simplifying
+// assumptions. See class StressCacheKey in cache_bench_tool.cc for details.
+// Here is some sample output with
+// `./cache_bench -stress_cache_key -sck_keep_bits=40`:
+//
+//   Total cache or DBs size: 32TiB  Writing 925.926 MiB/s or 76.2939TiB/day
+//   Multiply by 9.22337e+18 to correct for simulation losses (but still
+//   assume whole file cached)
+//
+// These come from default settings of 2.5M files per day of 32 MB each, and
+// `-sck_keep_bits=40` means that to represent a single file, we are only
+// keeping 40 bits of the 128-bit (base) cache key.  With file size of 2**25
+// contiguous keys (pessimistic), our simulation is about 2\*\*(128-40-25) or
+// about 9 billion billion times more prone to collision than reality.
+//
+// More default assumptions, relatively pessimistic:
+// * 100 DBs in same process (doesn't matter much)
+// * Re-open DB in same process (new session ID related to old session ID) on
+// average every 100 files generated
+// * Restart process (all new session IDs unrelated to old) 24 times per day
+//
+// After enough data, we get a result at the end (-sck_keep_bits=40):
+//
+//   (keep 40 bits)  17 collisions after 2 x 90 days, est 10.5882 days between
+//                   (9.76592e+19 corrected)
+//
+// If we believe the (pessimistic) simulation and the mathematical
+// extrapolation, we would need to run a billion machines all for 97 billion
+// days to expect a cache key collision. To help verify that our extrapolation
+// ("corrected") is robust, we can make our simulation more precise with
+// `-sck_keep_bits=41` and `42`, which takes more running time to get enough
+// collision data:
+//
+//   (keep 41 bits)  16 collisions after 4 x 90 days, est 22.5 days between
+//                   (1.03763e+20 corrected)
+//   (keep 42 bits)  19 collisions after 10 x 90 days, est 47.3684 days between
+//                   (1.09224e+20 corrected)
+//
+// The extrapolated prediction is very close. If anything, we might have some
+// very small losses of structured data (see class StressCacheKey in
+// cache_bench_tool.cc) leading to more accurate & more attractive prediction
+// with more bits kept.
+//
+// With the `-sck_randomize` option, we can see that typical workloads like
+// above have lower collision probability than "random" cache keys (note:
+// offsets still non-randomized) by a modest amount (roughly 20x less collision
+// prone than random), which should make us reasonably comfortable even in
+// "degenerate" cases (e.g. repeatedly launch a process to generate 1 file
+// with SstFileWriter):
+//
+//   (rand 40 bits) 197 collisions after 1 x 90 days, est 0.456853 days between
+//                  (4.21372e+18 corrected)
+//
+// We can see that with more frequent process restarts (all new session IDs),
+// we get closer to the "random" cache key performance:
+//
+//   (-sck_restarts_per_day=5000): 140 collisions after 1 x 90 days, ...
+//                  (5.92931e+18 corrected)
+//
+// Other tests have been run to validate other conditions behave as expected,
+// never behaving "worse than random" unless we start chopping off structured
+// data.
+//
+//
+// Conclusion: Even in extreme cases, rapidly burning through "all new" IDs
+// that only arise when a new process is started, the chance of any cache key
+// collisions in a giant fleet of machines is negligible. Especially when
+// processes live for hours or days, the chance of a cache key collision is
+// likely more plausibly due to bad hardware than to bad luck in random
+// session ID data. Software defects are surely more likely to cause corruption
+// than both of those.
+//
+// TODO: Nevertheless / regardless, an efficient way to detect (and thus
+// quantify) block cache corruptions, including collisions, should be added.
 OffsetableCacheKey::OffsetableCacheKey(const std::string &db_id,
                                        const std::string &db_session_id,
                                        uint64_t file_number,

@@ -29,7 +29,7 @@ enum TxnDBWritePolicy {
   WRITE_UNPREPARED  // write data before the prepare phase of 2pc
 };
 
-const uint32_t kInitialMaxDeadlocks = 5;
+constexpr uint32_t kInitialMaxDeadlocks = 5;
 
 class LockManager;
 struct RangeLockInfo;
@@ -371,6 +371,7 @@ class TransactionDB : public StackableDB {
   // used and `skip_concurrency_control` must be set. When using either
   // WRITE_PREPARED or WRITE_UNPREPARED , `skip_duplicate_key_check` must
   // additionally be set.
+  using StackableDB::DeleteRange;
   virtual Status DeleteRange(const WriteOptions&, ColumnFamilyHandle*,
                              const Slice&, const Slice&) override {
     return Status::NotSupported();

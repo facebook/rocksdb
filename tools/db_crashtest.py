@@ -36,15 +36,14 @@ default_params = {
     "bloom_bits": lambda: random.choice([random.randint(0,19),
                                          random.lognormvariate(2.3, 1.3)]),
     "cache_index_and_filter_blocks": lambda: random.randint(0, 1),
-    "cache_size": 1048576,
+    "cache_size": 8388608,
     "checkpoint_one_in": 1000000,
     "compression_type": lambda: random.choice(
-        ["none", "snappy", "zlib", "bzip2", "lz4", "lz4hc", "xpress", "zstd"]),
+        ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),
     "bottommost_compression_type": lambda:
         "disable" if random.randint(0, 1) == 0 else
         random.choice(
-            ["none", "snappy", "zlib", "bzip2", "lz4", "lz4hc", "xpress",
-             "zstd"]),
+            ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),
     "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64", "kXXH3"]),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
@@ -75,7 +74,7 @@ default_params = {
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
-    "max_key": 100000000,
+    "max_key": 25000000,
     "max_write_buffer_number": 3,
     "mmap_read": lambda: random.randint(0, 1),
     # Setting `nooverwritepercent > 0` is only possible because we do not vary
@@ -111,6 +110,7 @@ default_params = {
     # 999 -> use Bloom API
     "ribbon_starting_level": lambda: random.choice([random.randint(-1, 10), 999]),
     "use_block_based_filter": lambda: random.randint(0, 1),
+    "value_size_mult": 32,
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
@@ -134,7 +134,7 @@ default_params = {
         [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]),
     "avoid_unnecessary_blocking_io" : random.randint(0, 1),
     "write_dbid_to_manifest" : random.randint(0, 1),
-    "avoid_flush_during_recovery" : random.choice(
+    "avoid_flush_during_recovery" : lambda: random.choice(
         [1 if t == 0 else 0 for t in range(0, 8)]),
     "max_write_batch_group_size_bytes" : lambda: random.choice(
         [16, 64, 1024 * 1024, 16 * 1024 * 1024]),
@@ -158,6 +158,7 @@ default_params = {
     "prepopulate_block_cache" : lambda: random.choice([0, 1]),
     "memtable_prefix_bloom_size_ratio": lambda: random.choice([0.001, 0.01, 0.1, 0.5]),
     "memtable_whole_key_filtering": lambda: random.randint(0, 1),
+    "detect_filter_construct_corruption": lambda: random.choice([0, 1]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -314,6 +315,7 @@ ts_params = {
     "use_full_merge_v1": 0,
     "use_txn": 0,
     "read_only": 0,
+    "backup_one_in": 0,
     "secondary_catch_up_one_in": 0,
     "continuous_verification_interval": 0,
     "checkpoint_one_in": 0,

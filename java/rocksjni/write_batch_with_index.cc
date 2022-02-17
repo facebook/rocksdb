@@ -551,7 +551,7 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_iteratorWithBase(
                 jread_opts_handle);
   auto* iterator =
       wbwi->NewIteratorWithBase(cf_handle, base_iterator, read_opts);
-  return reinterpret_cast<jlong>(iterator);
+  return reinterpret_cast<size_t>(iterator);
 }
 
 /*

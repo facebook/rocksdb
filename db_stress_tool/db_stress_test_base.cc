@@ -19,6 +19,7 @@
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "test_util/testutil.h"
 #include "util/cast_util.h"
 #include "utilities/backupable/backupable_db_impl.h"
 #include "utilities/fault_injection_fs.h"
@@ -310,15 +311,6 @@ void StressTest::FinishInitDb(SharedState* shared) {
     }
   }
 
-  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
-    Status s = shared->SaveAtAndAfter(db_);
-    if (!s.ok()) {
-      fprintf(stderr, "Error enabling history tracing: %s\n",
-              s.ToString().c_str());
-      exit(1);
-    }
-  }
-
   if (FLAGS_enable_compaction_filter) {
     auto* compaction_filter_factory =
         reinterpret_cast<DbStressCompactionFilterFactory*>(
@@ -330,6 +322,17 @@ void StressTest::FinishInitDb(SharedState* shared) {
     compaction_filter_factory->SetSharedState(shared);
     fprintf(stdout, "Compaction filter factory: %s\n",
             compaction_filter_factory->Name());
+  }
+}
+
+void StressTest::TrackExpectedState(SharedState* shared) {
+  if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
+    Status s = shared->SaveAtAndAfter(db_);
+    if (!s.ok()) {
+      fprintf(stderr, "Error enabling history tracing: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
   }
 }
 
@@ -346,6 +349,8 @@ bool StressTest::VerifySecondaries() {
       fprintf(stderr, "Secondary failed to catch up with primary\n");
       return false;
     }
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions ropts;
     ropts.total_order_seek = true;
     // Verify only the default column family since the primary may have
@@ -394,6 +399,8 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
   if (cf->GetName() != snap_state.cf_at_name) {
     return s;
   }
+  // This `ReadOptions` is for validation purposes. Ignore
+  // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
   ReadOptions ropt;
   ropt.snapshot = snap_state.snapshot;
   Slice ts;
@@ -511,9 +518,10 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
           if (FLAGS_user_timestamp_size > 0) {
             ts_str = NowNanosStr();
             ts = ts_str;
-            write_opts.timestamp = &ts;
+            s = db_->Put(write_opts, cfh, key, ts, v);
+          } else {
+            s = db_->Put(write_opts, cfh, key, v);
           }
-          s = db_->Put(write_opts, cfh, key, v);
         } else {
 #ifndef ROCKSDB_LITE
           Transaction* txn;
@@ -629,6 +637,8 @@ Status StressTest::RollbackTxn(Transaction* txn) {
 
 void StressTest::OperateDb(ThreadState* thread) {
   ReadOptions read_opts(FLAGS_verify_checksum, true);
+  read_opts.rate_limiter_priority =
+      FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
   WriteOptions write_opts;
   auto shared = thread->shared;
   char value[100];
@@ -876,7 +886,6 @@ void StressTest::OperateDb(ThreadState* thread) {
         read_opts.timestamp = &read_ts;
         write_ts_str = NowNanosStr();
         write_ts = write_ts_str;
-        write_opts.timestamp = &write_ts;
       }
 
       int prob_op = thread->rand.Uniform(100);
@@ -1130,6 +1139,8 @@ Status StressTest::TestIterate(ThreadState* thread,
     // to bounds, prefix extractor or reseeking. Sometimes we are comparing
     // iterators with the same set-up, and it doesn't hurt to check them
     // to be equal.
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions cmp_ro;
     cmp_ro.timestamp = readoptionscopy.timestamp;
     cmp_ro.snapshot = snapshot;
@@ -1570,6 +1581,8 @@ Status StressTest::TestBackupRestore(
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     std::string restored_value;
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions read_opts;
     std::string ts_str;
     Slice ts;
@@ -1667,8 +1680,8 @@ Status StressTest::TestApproximateSize(
   std::string key2_str = Key(key2);
   Range range{Slice(key1_str), Slice(key2_str)};
   SizeApproximationOptions sao;
-  sao.include_memtabtles = thread->rand.OneIn(2);
-  if (sao.include_memtabtles) {
+  sao.include_memtables = thread->rand.OneIn(2);
+  if (sao.include_memtables) {
     sao.include_files = thread->rand.OneIn(2);
   }
   if (thread->rand.OneIn(2)) {
@@ -1940,6 +1953,8 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
                                      const std::string& keystr, uint64_t i) {
   Slice key = keystr;
   ColumnFamilyHandle* column_family = column_families_[rand_column_family];
+  // This `ReadOptions` is for validation purposes. Ignore
+  // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
   ReadOptions ropt;
 #ifndef ROCKSDB_LITE
   auto db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
@@ -2093,6 +2108,8 @@ uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
                                   const Slice& end_key) {
   const std::string kCrcCalculatorSepearator = ";";
   uint32_t crc = 0;
+  // This `ReadOptions` is for validation purposes. Ignore
+  // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
   ReadOptions ro;
   ro.snapshot = snapshot;
   ro.total_order_seek = true;
@@ -2270,6 +2287,8 @@ void StressTest::Open() {
     block_based_options.partition_filters = FLAGS_partition_filters;
     block_based_options.optimize_filters_for_memory =
         FLAGS_optimize_filters_for_memory;
+    block_based_options.detect_filter_construct_corruption =
+        FLAGS_detect_filter_construct_corruption;
     block_based_options.index_type =
         static_cast<BlockBasedTableOptions::IndexType>(FLAGS_index_type);
     block_based_options.prepopulate_block_cache =
@@ -2401,9 +2420,6 @@ void StressTest::Open() {
         10 /* fairness */,
         FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
                                   : RateLimiter::Mode::kWritesOnly));
-    if (FLAGS_rate_limit_bg_reads) {
-      options_.new_table_reader_for_compaction_inputs = true;
-    }
   }
   if (FLAGS_sst_file_manager_bytes_per_sec > 0 ||
       FLAGS_sst_file_manager_bytes_per_truncate > 0) {
@@ -2850,7 +2866,7 @@ void StressTest::Reopen(ThreadState* thread) {
 
 void StressTest::CheckAndSetOptionsForUserTimestamp() {
   assert(FLAGS_user_timestamp_size > 0);
-  const Comparator* const cmp = test::ComparatorWithU64Ts();
+  const Comparator* const cmp = test::BytewiseComparatorWithU64TsWrapper();
   assert(cmp);
   if (FLAGS_user_timestamp_size != cmp->timestamp_size()) {
     fprintf(stderr,

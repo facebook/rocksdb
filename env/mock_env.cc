@@ -790,7 +790,11 @@ IOStatus MockFileSystem::GetChildren(const std::string& dir,
                                      IODebugContext* /*dbg*/) {
   MutexLock lock(&mutex_);
   bool found_dir = GetChildrenInternal(dir, result);
+#ifndef __clang_analyzer__
   return found_dir ? IOStatus::OK() : IOStatus::NotFound(dir);
+#else
+  return found_dir ? IOStatus::OK() : IOStatus::NotFound();
+#endif
 }
 
 void MockFileSystem::DeleteFileInternal(const std::string& fname) {

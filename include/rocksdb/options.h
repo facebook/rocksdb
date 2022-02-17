@@ -406,42 +406,20 @@ class CompactionService : public Customizable {
   // Returns the name of this compaction service.
   const char* Name() const override = 0;
 
-  // Start the compaction with input information, which can be passed to
-  // `DB::OpenAndCompact()`.
-  // job_id is pre-assigned, it will be reset after DB re-open.
-  // Warning: deprecated, please use the new interface
-  // `StartV2(CompactionServiceJobInfo, ...)` instead.
-  virtual CompactionServiceJobStatus Start(
-      const std::string& /*compaction_service_input*/, uint64_t /*job_id*/) {
-    return CompactionServiceJobStatus::kUseLocal;
-  }
-
   // Start the remote compaction with `compaction_service_input`, which can be
   // passed to `DB::OpenAndCompact()` on the remote side. `info` provides the
   // information the user might want to know, which includes `job_id`.
   virtual CompactionServiceJobStatus StartV2(
-      const CompactionServiceJobInfo& info,
-      const std::string& compaction_service_input) {
-    // Default implementation to call legacy interface, please override and
-    // replace the legacy implementation
-    return Start(compaction_service_input, info.job_id);
-  }
-
-  // Wait compaction to be finish.
-  // Warning: deprecated, please use the new interface
-  // `WaitForCompleteV2(CompactionServiceJobInfo, ...)` instead.
-  virtual CompactionServiceJobStatus WaitForComplete(
-      uint64_t /*job_id*/, std::string* /*compaction_service_result*/) {
+      const CompactionServiceJobInfo& /*info*/,
+      const std::string& /*compaction_service_input*/) {
     return CompactionServiceJobStatus::kUseLocal;
   }
 
   // Wait for remote compaction to finish.
   virtual CompactionServiceJobStatus WaitForCompleteV2(
-      const CompactionServiceJobInfo& info,
-      std::string* compaction_service_result) {
-    // Default implementation to call legacy interface, please override and
-    // replace the legacy implementation
-    return WaitForComplete(info.job_id, compaction_service_result);
+      const CompactionServiceJobInfo& /*info*/,
+      std::string* /*compaction_service_result*/) {
+    return CompactionServiceJobStatus::kUseLocal;
   }
 
   ~CompactionService() override = default;
@@ -513,9 +491,18 @@ struct DBOptions {
   // Default: Env::Default()
   Env* env = Env::Default();
 
-  // Use to control write/read rate of flush and compaction. Flush has higher
-  // priority than compaction. Rate limiting is disabled if nullptr.
-  // If rate limiter is enabled, bytes_per_sync is set to 1MB by default.
+  // Limits internal file read/write bandwidth:
+  //
+  // - Flush requests write bandwidth at `Env::IOPriority::IO_HIGH`
+  // - Compaction requests read and write bandwidth at
+  //   `Env::IOPriority::IO_LOW`
+  // - Reads associated with a `ReadOptions` can be charged at
+  //   `ReadOptions::rate_limiter_priority` (see that option's API doc for usage
+  //   and limitations).
+  //
+  // Rate limiting is disabled if nullptr. If rate limiter is enabled,
+  // bytes_per_sync is set to 1MB by default.
+  //
   // Default: nullptr
   std::shared_ptr<RateLimiter> rate_limiter = nullptr;
 
@@ -782,7 +769,6 @@ struct DBOptions {
   // be used. Memory mapped files are not impacted by these parameters.
 
   // Use O_DIRECT for user and compaction reads.
-  // When true, we also force new_table_reader_for_compaction_inputs to true.
   // Default: false
   // Not supported in ROCKSDB_LITE mode!
   bool use_direct_reads = false;
@@ -890,26 +876,9 @@ struct DBOptions {
   enum AccessHint { NONE, NORMAL, SEQUENTIAL, WILLNEED };
   AccessHint access_hint_on_compaction_start = NORMAL;
 
-  // If true, always create a new file descriptor and new table reader
-  // for compaction inputs. Turn this parameter on may introduce extra
-  // memory usage in the table reader, if it allocates extra memory
-  // for indexes. This will allow file descriptor prefetch options
-  // to be set for compaction input files and not to impact file
-  // descriptors for the same file used by user queries.
-  // Suggest to enable BlockBasedTableOptions.cache_index_and_filter_blocks
-  // for this mode if using block-based table.
-  //
-  // Default: false
-  // This flag has no affect on the behavior of compaction and plan to delete
-  // in the future.
-  bool new_table_reader_for_compaction_inputs = false;
-
   // If non-zero, we perform bigger reads when doing compaction. If you're
   // running RocksDB on spinning disks, you should set this to at least 2MB.
   // That way RocksDB's compaction is doing sequential instead of random reads.
-  //
-  // When non-zero, we also force new_table_reader_for_compaction_inputs to
-  // true.
   //
   // Default: 0
   //
@@ -1499,8 +1468,7 @@ struct ReadOptions {
   // used in the table. Some table format (e.g. plain table) may not support
   // this option.
   // If true when calling Get(), we also skip prefix bloom when reading from
-  // block based table. It provides a way to read existing data after
-  // changing implementation of prefix extractor.
+  // block based table, which only affects Get() performance.
   // Default: false
   bool total_order_seek;
 
@@ -1601,6 +1569,26 @@ struct ReadOptions {
   // Default: false
   bool adaptive_readahead;
 
+  // For file reads associated with this option, charge the internal rate
+  // limiter (see `DBOptions::rate_limiter`) at the specified priority. The
+  // special value `Env::IO_TOTAL` disables charging the rate limiter.
+  //
+  // The rate limiting is bypassed no matter this option's value for file reads
+  // on plain tables (these can exist when `ColumnFamilyOptions::table_factory`
+  // is a `PlainTableFactory`) and cuckoo tables (these can exist when
+  // `ColumnFamilyOptions::table_factory` is a `CuckooTableFactory`).
+  //
+  // The new `DB::MultiGet()` APIs (i.e., the ones returning `void`) will return
+  // `Status::NotSupported` when that operation requires file read(s) and
+  // `rate_limiter_priority != Env::IO_TOTAL`.
+  //
+  // The bytes charged to rate limiter may not exactly match the file read bytes
+  // since there are some seemingly insignificant reads, like for file
+  // headers/footers, that we currently do not charge to rate limiter.
+  //
+  // Default: `Env::IO_TOTAL`.
+  Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };
@@ -1662,25 +1650,13 @@ struct WriteOptions {
   // Default: false
   bool memtable_insert_hint_per_batch;
 
-  // Timestamp of write operation, e.g. Put. All timestamps of the same
-  // database must share the same length and format. The user is also
-  // responsible for providing a customized compare function via Comparator to
-  // order <key, timestamp> tuples. If the user wants to enable timestamp, then
-  // all write operations must be associated with timestamp because RocksDB, as
-  // a single-node storage engine currently has no knowledge of global time,
-  // thus has to rely on the application.
-  // The user-specified timestamp feature is still under active development,
-  // and the API is subject to change.
-  const Slice* timestamp;
-
   WriteOptions()
       : sync(false),
         disableWAL(false),
         ignore_missing_column_families(false),
         no_slowdown(false),
         low_pri(false),
-        memtable_insert_hint_per_batch(false),
-        timestamp(nullptr) {}
+        memtable_insert_hint_per_batch(false) {}
 };
 
 // Options that control flush operations
@@ -1883,10 +1859,10 @@ struct ImportColumnFamilyOptions {
 // Options used with DB::GetApproximateSizes()
 struct SizeApproximationOptions {
   // Defines whether the returned size should include the recently written
-  // data in the mem-tables. If set to false, include_files must be true.
-  bool include_memtabtles = false;
+  // data in the memtables. If set to false, include_files must be true.
+  bool include_memtables = false;
   // Defines whether the returned size should include data serialized to disk.
-  // If set to false, include_memtabtles must be true.
+  // If set to false, include_memtables must be true.
   bool include_files = true;
   // When approximating the files total size that is used to store a keys range
   // using DB::GetApproximateSizes, allow approximation with an error margin of
