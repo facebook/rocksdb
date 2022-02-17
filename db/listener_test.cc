@@ -378,18 +378,27 @@ TEST_F(EventListenerTest, MultiCF) {
     ASSERT_OK(Put(5, "nikitich", std::string(90000, 'n')));
     ASSERT_OK(Put(6, "alyosha", std::string(90000, 'a')));
     ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
     for (int i = 1; i < 8; ++i) {
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+          {{"DBImpl::NotifyOnFlushCompleted::PostAllOnFlushCompleted",
+            "EventListenerTest.MultiCF:PreVerifyListener"}});
       ASSERT_OK(Flush(i));
-      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+      TEST_SYNC_POINT("EventListenerTest.MultiCF:PreVerifyListener");
       ASSERT_EQ(listener->flushed_dbs_.size(), i);
       ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
+      // make sure callback functions are called in the right order
+      if (i == 7) {
+        for (size_t j = 0; j < cf_names.size(); j++) {
+          ASSERT_EQ(listener->flushed_dbs_[j], db_);
+          ASSERT_EQ(listener->flushed_column_family_names_[j], cf_names[j]);
+        }
+      }
     }
 
-    // make sure callback functions are called in the right order
-    for (size_t i = 0; i < cf_names.size(); i++) {
-      ASSERT_EQ(listener->flushed_dbs_[i], db_);
-      ASSERT_EQ(listener->flushed_column_family_names_[i], cf_names[i]);
-    }
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
     Close();
   }
 }

@@ -58,8 +58,11 @@ COMMON_FLAGS="-DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX"
 # Default to fbcode gcc on internal fb machines
 if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
     FBCODE_BUILD="true"
-    # If we're compiling with TSAN we need pic build
+    # If we're compiling with TSAN or shared lib, we need pic build
     PIC_BUILD=$COMPILE_WITH_TSAN
+    if [ "$LIB_MODE" == "shared" ]; then
+      PIC_BUILD=1
+    fi
     if [ -n "$ROCKSDB_FBCODE_BUILD_WITH_481" ]; then
       # we need this to build with MySQL. Don't use for other purposes.
       source "$PWD/build_tools/fbcode_config4.8.1.sh"

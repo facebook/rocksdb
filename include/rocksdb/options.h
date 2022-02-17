@@ -406,42 +406,20 @@ class CompactionService : public Customizable {
   // Returns the name of this compaction service.
   const char* Name() const override = 0;
 
-  // Start the compaction with input information, which can be passed to
-  // `DB::OpenAndCompact()`.
-  // job_id is pre-assigned, it will be reset after DB re-open.
-  // Warning: deprecated, please use the new interface
-  // `StartV2(CompactionServiceJobInfo, ...)` instead.
-  virtual CompactionServiceJobStatus Start(
-      const std::string& /*compaction_service_input*/, uint64_t /*job_id*/) {
-    return CompactionServiceJobStatus::kUseLocal;
-  }
-
   // Start the remote compaction with `compaction_service_input`, which can be
   // passed to `DB::OpenAndCompact()` on the remote side. `info` provides the
   // information the user might want to know, which includes `job_id`.
   virtual CompactionServiceJobStatus StartV2(
-      const CompactionServiceJobInfo& info,
-      const std::string& compaction_service_input) {
-    // Default implementation to call legacy interface, please override and
-    // replace the legacy implementation
-    return Start(compaction_service_input, info.job_id);
-  }
-
-  // Wait compaction to be finish.
-  // Warning: deprecated, please use the new interface
-  // `WaitForCompleteV2(CompactionServiceJobInfo, ...)` instead.
-  virtual CompactionServiceJobStatus WaitForComplete(
-      uint64_t /*job_id*/, std::string* /*compaction_service_result*/) {
+      const CompactionServiceJobInfo& /*info*/,
+      const std::string& /*compaction_service_input*/) {
     return CompactionServiceJobStatus::kUseLocal;
   }
 
   // Wait for remote compaction to finish.
   virtual CompactionServiceJobStatus WaitForCompleteV2(
-      const CompactionServiceJobInfo& info,
-      std::string* compaction_service_result) {
-    // Default implementation to call legacy interface, please override and
-    // replace the legacy implementation
-    return WaitForComplete(info.job_id, compaction_service_result);
+      const CompactionServiceJobInfo& /*info*/,
+      std::string* /*compaction_service_result*/) {
+    return CompactionServiceJobStatus::kUseLocal;
   }
 
   ~CompactionService() override = default;
@@ -513,9 +491,18 @@ struct DBOptions {
   // Default: Env::Default()
   Env* env = Env::Default();
 
-  // Use to control write/read rate of flush and compaction. Flush has higher
-  // priority than compaction. Rate limiting is disabled if nullptr.
-  // If rate limiter is enabled, bytes_per_sync is set to 1MB by default.
+  // Limits internal file read/write bandwidth:
+  //
+  // - Flush requests write bandwidth at `Env::IOPriority::IO_HIGH`
+  // - Compaction requests read and write bandwidth at
+  //   `Env::IOPriority::IO_LOW`
+  // - Reads associated with a `ReadOptions` can be charged at
+  //   `ReadOptions::rate_limiter_priority` (see that option's API doc for usage
+  //   and limitations).
+  //
+  // Rate limiting is disabled if nullptr. If rate limiter is enabled,
+  // bytes_per_sync is set to 1MB by default.
+  //
   // Default: nullptr
   std::shared_ptr<RateLimiter> rate_limiter = nullptr;
 
@@ -1581,6 +1568,26 @@ struct ReadOptions {
   //
   // Default: false
   bool adaptive_readahead;
+
+  // For file reads associated with this option, charge the internal rate
+  // limiter (see `DBOptions::rate_limiter`) at the specified priority. The
+  // special value `Env::IO_TOTAL` disables charging the rate limiter.
+  //
+  // The rate limiting is bypassed no matter this option's value for file reads
+  // on plain tables (these can exist when `ColumnFamilyOptions::table_factory`
+  // is a `PlainTableFactory`) and cuckoo tables (these can exist when
+  // `ColumnFamilyOptions::table_factory` is a `CuckooTableFactory`).
+  //
+  // The new `DB::MultiGet()` APIs (i.e., the ones returning `void`) will return
+  // `Status::NotSupported` when that operation requires file read(s) and
+  // `rate_limiter_priority != Env::IO_TOTAL`.
+  //
+  // The bytes charged to rate limiter may not exactly match the file read bytes
+  // since there are some seemingly insignificant reads, like for file
+  // headers/footers, that we currently do not charge to rate limiter.
+  //
+  // Default: `Env::IO_TOTAL`.
+  Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);

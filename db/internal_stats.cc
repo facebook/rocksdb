@@ -781,24 +781,14 @@ bool InternalStats::HandleBlobStats(std::string* value, Slice /*suffix*/) {
   const auto* vstorage = current->storage_info();
   assert(vstorage);
 
-  const auto& blob_files = vstorage->GetBlobFiles();
-
-  uint64_t total_file_size = 0;
-  uint64_t total_garbage_size = 0;
-
-  for (const auto& meta : blob_files) {
-    assert(meta);
-
-    total_file_size += meta->GetBlobFileSize();
-    total_garbage_size += meta->GetGarbageBlobBytes();
-  }
+  const auto blob_st = vstorage->GetBlobStats();
 
   std::ostringstream oss;
 
-  oss << "Number of blob files: " << blob_files.size()
-      << "\nTotal size of blob files: " << total_file_size
-      << "\nTotal size of garbage in blob files: " << total_garbage_size
-      << '\n';
+  oss << "Number of blob files: " << vstorage->GetBlobFiles().size()
+      << "\nTotal size of blob files: " << blob_st.total_file_size
+      << "\nTotal size of garbage in blob files: " << blob_st.total_garbage_size
+      << "\nBlob file space amplification: " << blob_st.space_amp << '\n';
 
   value->append(oss.str());
 
@@ -824,7 +814,7 @@ bool InternalStats::HandleLiveBlobFileSize(uint64_t* value, DBImpl* /*db*/,
   const auto* vstorage = current->storage_info();
   assert(vstorage);
 
-  *value = vstorage->GetTotalBlobFileSize();
+  *value = vstorage->GetBlobStats().total_file_size;
 
   return true;
 }
@@ -1681,10 +1671,13 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
     }
   }
 
+  const auto blob_st = vstorage->GetBlobStats();
+
   snprintf(buf, sizeof(buf),
-           "\nBlob file count: %" ROCKSDB_PRIszt ", total size: %.1f GB\n\n",
-           vstorage->GetBlobFiles().size(),
-           vstorage->GetTotalBlobFileSize() / kGB);
+           "\nBlob file count: %" ROCKSDB_PRIszt
+           ", total size: %.1f GB, garbage size: %.1f GB, space amp: %.1f\n\n",
+           vstorage->GetBlobFiles().size(), blob_st.total_file_size / kGB,
+           blob_st.total_garbage_size / kGB, blob_st.space_amp);
   value->append(buf);
 
   uint64_t now_micros = clock_->NowMicros();

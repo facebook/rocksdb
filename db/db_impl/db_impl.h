@@ -1536,6 +1536,7 @@ class DBImpl : public DB {
     ManualCompactionState* manual_compaction_state;  // nullptr if non-manual
     // task limiter token is requested during compaction picking.
     std::unique_ptr<TaskLimiterToken> task_token;
+    bool is_canceled = false;
   };
 
   struct CompactionArg {
@@ -2398,11 +2399,10 @@ extern uint64_t PrecomputeMinLogNumberToKeepNon2PC(
 // will not depend on any WAL file. nullptr means no memtable is being flushed.
 // The function is only applicable to 2pc mode.
 extern uint64_t FindMinPrepLogReferencedByMemTable(
-    VersionSet* vset, const ColumnFamilyData* cfd_to_flush,
-    const autovector<MemTable*>& memtables_to_flush);
+    VersionSet* vset, const autovector<MemTable*>& memtables_to_flush);
 // For atomic flush.
 extern uint64_t FindMinPrepLogReferencedByMemTable(
-    VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
+    VersionSet* vset,
     const autovector<const autovector<MemTable*>*>& memtables_to_flush);
 
 // Fix user-supplied options to be reasonable
