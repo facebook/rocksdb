@@ -423,6 +423,8 @@ else
 	PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
 endif
 
+# This provides a Makefile simulation of a Meta-internal folly integration.
+# It is not validated for general use.
 ifeq ($(USE_FOLLY),1)
 	ifeq (,$(FOLLY_DIR))
 		FOLLY_DIR = ./third-party/folly
@@ -2403,14 +2405,20 @@ commit_prereq: build_tools/rocksdb-lego-determinator \
 	J=$(J) build_tools/precommit_checker.py unit unit_481 clang_unit release release_481 clang_release tsan asan ubsan lite unit_non_shm
 	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
 
+# For public CI runs, checkout folly in a way that can build with RocksDB.
+# This is mostly intended as a test-only simulation of Meta-internal folly
+# integration.
 checkout_folly:
 	if [ -e third-party/folly ]; then \
 		cd third-party/folly && git fetch origin; \
 	else \
 		cd third-party && git clone https://github.com/facebook/folly.git; \
 	fi
+	@# Pin to a particular version for public CI, so that PR authors don't
+	@# need to worry about folly breaking our integration. Update periodically
 	cd third-party/folly && git reset --hard 7090d2e125a69a0d6896ce56b2f2fcebd1e31231
-	@# A hack to remove boost dependency; not needed if using FBCODE compiler config
+	@# A hack to remove boost dependency.
+	@# NOTE: this hack is not needed if using FBCODE compiler config
 	perl -pi -e 's/^(#include <boost)/\/\/$$1/' third-party/folly/folly/functional/Invoke.h
 
 # ---------------------------------------------------------------------------
