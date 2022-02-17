@@ -19,6 +19,9 @@ namespace {
 bool MatchesInteger(const std::string &target, size_t start, size_t pos) {
   // If it is numeric, everything up to the match must be a number
   int digits = 0;
+  if (target[start] == '-') {
+    start++;  // Allow negative numbers
+  }
   while (start < pos) {
     if (!isdigit(target[start++])) {
       return false;
@@ -31,6 +34,9 @@ bool MatchesInteger(const std::string &target, size_t start, size_t pos) {
 
 bool MatchesDecimal(const std::string &target, size_t start, size_t pos) {
   int digits = 0;
+  if (target[start] == '-') {
+    start++;  // Allow negative numbers
+  }
   for (bool point = false; start < pos; start++) {
     if (target[start] == '.') {
       if (point) {
