@@ -209,6 +209,9 @@ TEST_P(DBRateLimiterTest, Iterator) {
   }
 
   for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+    // When `use_block_cache_ == true`, the reverse scan will access the blocks
+    // loaded to cache during the above forward scan, in which case no further
+    // file reads are expected.
     if (!use_block_cache_) {
       ++expected;
     }

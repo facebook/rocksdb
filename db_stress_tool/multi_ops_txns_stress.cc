@@ -477,6 +477,8 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
   });
 
   ReadOptions ropts;
+  ropts.rate_limiter_priority =
+      FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
   std::string value;
   s = txn->GetForUpdate(ropts, old_pk, &value);
   if (!s.ok()) {
@@ -596,6 +598,8 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   }
   ropts.total_order_seek = true;
   ropts.iterate_upper_bound = &iter_ub;
+  ropts.rate_limiter_priority =
+      FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
   it = txn->GetIterator(ropts);
 
   assert(it);
@@ -620,6 +624,8 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
     std::string pk = Record::EncodePrimaryKey(record.a_value());
     std::string value;
     ReadOptions read_opts;
+    read_opts.rate_limiter_priority =
+        FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
     read_opts.snapshot = txn->GetSnapshot();
     s = txn->GetForUpdate(read_opts, pk, &value);
     if (s.IsBusy() || s.IsTimedOut() || s.IsTryAgain() ||
@@ -722,6 +728,8 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
     RollbackTxn(txn).PermitUncheckedError();
   });
   ReadOptions ropts;
+  ropts.rate_limiter_priority =
+      FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
   std::string value;
   s = txn->GetForUpdate(ropts, pk_str, &value);
   if (!s.ok()) {
@@ -851,6 +859,8 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
     std::string iter_ub_str(buf, sizeof(buf));
     Slice iter_ub = iter_ub_str;
 
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions ropts;
     ropts.snapshot = snapshot;
     ropts.total_order_seek = true;
@@ -870,6 +880,8 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
     std::reverse(buf, buf + sizeof(buf));
     const std::string start_key(buf, sizeof(buf));
 
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions ropts;
     ropts.snapshot = snapshot;
     ropts.total_order_seek = true;
