@@ -1956,8 +1956,9 @@ TEST_F(DBBasicTest, MultiGetStats) {
   int total_keys = 2000;
   std::vector<std::string> keys_str(total_keys);
   std::vector<Slice> keys(total_keys);
-  std::vector<PinnableSlice> values(total_keys);
-  std::vector<Status> s(total_keys);
+  static size_t kMultiGetBatchSize = 100;
+  std::vector<PinnableSlice> values(kMultiGetBatchSize);
+  std::vector<Status> s(kMultiGetBatchSize);
   ReadOptions read_opts;
 
   Random rnd(309);
@@ -2000,13 +2001,10 @@ TEST_F(DBBasicTest, MultiGetStats) {
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_OK(options.statistics->Reset());
 
-  //  db_->MultiGet(read_opts, handles_[1], total_keys, keys.data(),
-  //  values.data(),
-  //                s.data(), false);
-  db_->MultiGet(read_opts, handles_[1], 100, &keys[1250], &values[1250],
-                &s[1250], false);
+  db_->MultiGet(read_opts, handles_[1], kMultiGetBatchSize, &keys[1250],
+                values.data(), s.data(), false);
 
-  ASSERT_EQ(values.size(), total_keys);
+  ASSERT_EQ(values.size(), kMultiGetBatchSize);
   HistogramData hist_data_blocks;
   HistogramData hist_index_and_filter_blocks;
   HistogramData hist_sst;
