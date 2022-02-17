@@ -18,7 +18,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// TODO: move these to gflags.
 DEFINE_int32(lb_a, 0, "(Inclusive) lower bound of A");
 DEFINE_int32(ub_a, 1000, "(Exclusive) upper bound of A");
 DEFINE_int32(lb_c, 0, "(Inclusive) lower bound of C");
@@ -31,6 +30,35 @@ DEFINE_int32(delay_snapshot_read_one_in, 0,
              "With a chance of 1/N, inject a random delay between taking "
              "snapshot and read.");
 
+// MultiOpsTxnsStressTest can either operate on a database with pre-populated
+// data (possibly from previous ones), or create a new db and preload it with
+// data specified via `-lb_a`, `-ub_a`, `-lb_c`, `-ub_c`, etc. Among these, we
+// define the test key spaces as two key ranges: [lb_a, ub_a) and [lb_c, ub_c).
+// The key spaces specification is persisted in a file whose absolute path can
+// be specified via `-key_spaces_path`.
+//
+// Whether an existing db is used or a new one is created, key_spaces_path will
+// be used. In the former case, the test reads the key spaces specification
+// from `-key_spaces_path` and decodes [lb_a, ub_a) and [lb_c, ub_c). In the
+// latter case, the test writes a key spaces specification to a file at the
+// location, and this file will be used by future runs until a new db is
+// created.
+//
+// Create a fresh new dataabse (-destroy_db_initially=1 or there is no database
+// in the location specified by -db). See PreloadDb().
+//
+// Use an existing, non-empty database. See ScanExistingDb().
+//
+// This test is multi-threaded, and thread count can be specified via
+// `-threads`. For simplicity, we partition the key ranges and each thread
+// operates on a subrange independently.
+// Within each subrange, a KeyGenerator object is responsible for key
+// generation. A KeyGenerator maintains two sets: set of existing keys within
+// [low, high), set of non-existing keys within [low, high). [low, high) is the
+// subrange. The test initialization makes sure there is at least one
+// non-existing key, otherwise the test will return an error and exit before
+// any test thread is spawned.
+
 void MultiOpsTxnsStressTest::KeyGenerator::FinishInit() {
   assert(existing_.empty());
   assert(!existing_uniq_.empty());
@@ -40,7 +68,15 @@ void MultiOpsTxnsStressTest::KeyGenerator::FinishInit() {
     assert(high_ > v);
     existing_.push_back(v);
   }
-  assert(!non_existing_uniq_.empty());
+  if (non_existing_uniq_.empty()) {
+    fprintf(
+        stderr,
+        "Cannot allocate key in [%u, %u)\nStart with a new DB or try change "
+        "the number of threads for testing via -threads=<#threads>\n",
+        static_cast<unsigned int>(low_), static_cast<unsigned int>(high_));
+    fflush(stderr);
+    std::terminate();
+  }
   initialized_ = true;
 }
 
@@ -292,12 +328,12 @@ void MultiOpsTxnsStressTest::FinishInitDb(SharedState* shared) {
     // TODO (yanqin) enable compaction filter
   }
   ReopenAndPreloadDbIfNeeded(shared);
-  // TODO (yanqin) parallelize
+  // TODO (yanqin) parallelize if key space is large
   for (auto& key_gen : key_gen_for_a_) {
     assert(key_gen);
     key_gen->FinishInit();
   }
-  // TODO (yanqin) parallelize
+  // TODO (yanqin) parallelize if key space is large
   for (auto& key_gen : key_gen_for_c_) {
     assert(key_gen);
     key_gen->FinishInit();
@@ -320,6 +356,11 @@ void MultiOpsTxnsStressTest::ReopenAndPreloadDbIfNeeded(SharedState* shared) {
     PreloadDb(shared, FLAGS_threads, FLAGS_lb_a, FLAGS_ub_a, FLAGS_lb_c,
               FLAGS_ub_c);
   } else {
+    fprintf(stdout,
+            "Key ranges will be read from %s.\n-lb_a, -ub_a, -lb_c, -ub_c will "
+            "be ignored\n",
+            FLAGS_key_spaces_path.c_str());
+    fflush(stdout);
     ScanExistingDb(shared, FLAGS_threads);
   }
 #endif  // !ROCKSDB_LITE
@@ -1148,6 +1189,22 @@ MultiOpsTxnsStressTest::KeySpaces MultiOpsTxnsStressTest::ReadKeySpacesDesc(
   return key_spaces;
 }
 
+// Create an empty database if necessary and preload it with initial test data.
+// Key range [lb_a, ub_a), [lb_c, ub_c). The key ranges will be shared by
+// 'threads' threads.
+// PreloadDb() also sets up KeyGenerator objects for each sub key range
+// operated on by each thread.
+// Both [lb_a, ub_a) and [lb_c, ub_c) are partitioned. Each thread operates on
+// one sub range, using KeyGenerators to generate keys.
+// For example, we choose a from [0, 10000) and c from [0, 100). Number of
+// threads is 32, their tids range from 0 to 31.
+// Thread k chooses a from [312*k,312*(k+1)) and c from [3*k,3*(k+1)) if k<31.
+// Thread 31 chooses a from [9672, 10000) and c from [93, 100).
+// Within each subrange: a from [low1, high1), c from [low2, high2).
+// high1 - low1 > high2 - low2
+// We reserve {high1 - 1} and {high2 - 1} as unallocated.
+// The records are <low1,low2>, <low1+1,low2+1>, ...,
+// <low1+k,low2+k%(high2-low2-1), <low1+k+1,low2+(k+1)%(high2-low2-1)>, ...
 void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
                                        uint32_t lb_a, uint32_t ub_a,
                                        uint32_t lb_c, uint32_t ub_c) {
@@ -1251,10 +1308,6 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
     assert(!key_gen_for_c);
     low = lb_c + i * num_c_per_thread;
     high = (i < threads - 1) ? (low + num_c_per_thread) : ub_c;
-    if (!non_existing_c_uniqs[i].empty()) {
-      fprintf(stdout, "i=%d %d\n", i, (int)non_existing_c_uniqs[i].size());
-      fflush(stdout);
-    }
     assert(non_existing_c_uniqs[i].empty());
     non_existing_c_uniqs[i].insert(high - 1);
     key_gen_for_c = std::make_unique<KeyGenerator>(
@@ -1264,6 +1317,13 @@ void MultiOpsTxnsStressTest::PreloadDb(SharedState* shared, int threads,
 #endif  // !ROCKSDB_LITE
 }
 
+// Scan an existing, non-empty database.
+// Set up [lb_a, ub_a) and [lb_c, ub_c) as test key ranges.
+// Set up KeyGenerator objects for each sub key range operated on by each
+// thread.
+// Scan the entire database and for each subrange, populate the existing keys
+// and non-existing keys. We currently require the non-existing keys be
+// non-empty after initialization.
 void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
   key_gen_for_a_.resize(threads);
   key_gen_for_c_.resize(threads);
@@ -1421,11 +1481,6 @@ void CheckAndSetOptionsForMultiOpsTxnStressTest() {
             "Must specify a file to store ranges of A and C via "
             "-key_spaces_path\n");
     exit(1);
-  } else if (!FLAGS_destroy_db_initially) {
-    fprintf(stderr,
-            "Key ranges will be read from %s. Values specified via -ub_a, "
-            "-lb_a, -ub_c, -lb_c will be ignored\n",
-            FLAGS_key_spaces_path.c_str());
   }
 #else
   fprintf(stderr, "-test_multi_ops_txns not supported in ROCKSDB_LITE mode\n");
