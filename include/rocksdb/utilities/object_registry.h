@@ -75,7 +75,8 @@ class ObjectLibrary {
       kMatchZeroOrMore,  // [suffix].*
       kMatchAtLeastOne,  // [suffix].+
       kMatchExact,       // [suffix]
-      kMatchNumeric,     // [suffix][0-9]+
+      kMatchInteger,     // [suffix][0-9]+
+      kMatchDecimal,     // [suffix][0-9]+[.][0-9]+
     };
 
    public:
@@ -123,8 +124,9 @@ class ObjectLibrary {
 
     // Adds a separator (exact match of separator with trailing numbers) to the
     // entry
-    PatternEntry& AddNumber(const std::string& separator) {
-      separators_.emplace_back(separator, kMatchNumeric);
+    PatternEntry& AddNumber(const std::string& separator, bool is_int = true) {
+      separators_.emplace_back(separator,
+                               (is_int) ? kMatchInteger : kMatchDecimal);
       slength_ += separator.size() + 1;
       return *this;
     }

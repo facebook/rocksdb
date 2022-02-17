@@ -4,6 +4,7 @@
 * Fixed a major bug in which batched MultiGet could return old values for keys deleted by DeleteRange when memtable Bloom filter is enabled (memtable_prefix_bloom_size_ratio > 0). (The fix includes a substantial MultiGet performance improvement in the unusual case of both memtable_whole_key_filtering and prefix_extractor.)
 * Fixed more cases of EventListener::OnTableFileCreated called with OK status, file_size==0, and no SST file kept. Now the status is Aborted.
 * Fixed a read-after-free bug in `DB::GetMergeOperands()`.
+* Fix a data loss bug for 2PC write-committed transaction caused by concurrent transaction commit and memtable switch (#9571).
 
 ### Performance Improvements
 * Mitigated the overhead of building the file location hash table used by the online LSM tree consistency checks, which can improve performance for certain workloads (see #9351).
@@ -12,6 +13,7 @@
 
 ### Public API changes
 * Require C++17 compatible compiler (GCC >= 7, Clang >= 5, Visual Studio >= 2017). See #9388.
+* Added `ReadOptions::rate_limiter_priority`. When set to something other than `Env::IO_TOTAL`, the internal rate limiter (`DBOptions::rate_limiter`) will be charged at the specified priority for file reads associated with the API to which the `ReadOptions` was provided.
 * Remove HDFS support from main repo.
 * Remove librados support from main repo.
 * Remove obsolete backupable_db.h and type alias `BackupableDBOptions`. Use backup_engine.h and `BackupEngineOptions`. Similar renamings are in the C and Java APIs.
@@ -64,6 +66,8 @@
 * Remove deprecated overloads of API DB::GetApproximateSizes.
 * Remove deprecated option DBOptions::new_table_reader_for_compaction_inputs.
 * Add Transaction::SetReadTimestampForValidation() and Transaction::SetCommitTimestamp(). Default impl returns NotSupported().
+* Add support for decimal patterns to ObjectLibrary::PatternEntry
+* Remove deprecated remote compaction APIs `CompactionService::Start()` and `CompactionService::WaitForComplete()`. Please use `CompactionService::StartV2()`, `CompactionService::WaitForCompleteV2()` instead, which provides the same information plus extra data like priority, db_id, etc.
 
 ### Behavior Changes
 * Disallow the combination of DBOptions.use_direct_io_for_flush_and_compaction == true and DBOptions.writable_file_max_buffer_size == 0. This combination can cause WritableFileWriter::Append() to loop forever, and it does not make much sense in direct IO.

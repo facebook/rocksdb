@@ -3937,68 +3937,74 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
   const int kBytesPerKey = 1024;
   const int kNumL0Files = 4;
 
-  for (auto use_direct_io : {false, true}) {
-    if (use_direct_io && !IsDirectIOSupported()) {
-      continue;
-    }
-    Options options = CurrentOptions();
-    options.compression = kNoCompression;
-    options.level0_file_num_compaction_trigger = kNumL0Files;
-    options.memtable_factory.reset(
-        test::NewSpecialSkipListFactory(kNumKeysPerFile));
-    // takes roughly one second, split into 100 x 10ms intervals. Each interval
-    // permits 5.12KB, which is smaller than the block size, so this test
-    // exercises the code for chunking reads.
-    options.rate_limiter.reset(NewGenericRateLimiter(
-        static_cast<int64_t>(kNumL0Files * kNumKeysPerFile *
-                             kBytesPerKey) /* rate_bytes_per_sec */,
-        10 * 1000 /* refill_period_us */, 10 /* fairness */,
-        RateLimiter::Mode::kReadsOnly));
-    options.use_direct_reads = options.use_direct_io_for_flush_and_compaction =
-        use_direct_io;
-    BlockBasedTableOptions bbto;
-    bbto.block_size = 16384;
-    bbto.no_block_cache = true;
-    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    DestroyAndReopen(options);
-
-    for (int i = 0; i < kNumL0Files; ++i) {
-      for (int j = 0; j <= kNumKeysPerFile; ++j) {
-        ASSERT_OK(Put(Key(j), DummyString(kBytesPerKey)));
+  for (int compaction_readahead_size : {0, 32 << 10}) {
+    for (auto use_direct_io : {false, true}) {
+      if (use_direct_io && !IsDirectIOSupported()) {
+        continue;
       }
-      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-      if (i + 1 < kNumL0Files) {
-        ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
+      Options options = CurrentOptions();
+      options.compaction_readahead_size = compaction_readahead_size;
+      options.compression = kNoCompression;
+      options.level0_file_num_compaction_trigger = kNumL0Files;
+      options.memtable_factory.reset(
+          test::NewSpecialSkipListFactory(kNumKeysPerFile));
+      // takes roughly one second, split into 100 x 10ms intervals. Each
+      // interval permits 5.12KB, which is smaller than the block size, so this
+      // test exercises the code for chunking reads.
+      options.rate_limiter.reset(NewGenericRateLimiter(
+          static_cast<int64_t>(kNumL0Files * kNumKeysPerFile *
+                               kBytesPerKey) /* rate_bytes_per_sec */,
+          10 * 1000 /* refill_period_us */, 10 /* fairness */,
+          RateLimiter::Mode::kReadsOnly));
+      options.use_direct_reads =
+          options.use_direct_io_for_flush_and_compaction = use_direct_io;
+      BlockBasedTableOptions bbto;
+      bbto.block_size = 16384;
+      bbto.no_block_cache = true;
+      options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+      DestroyAndReopen(options);
+
+      for (int i = 0; i < kNumL0Files; ++i) {
+        for (int j = 0; j <= kNumKeysPerFile; ++j) {
+          ASSERT_OK(Put(Key(j), DummyString(kBytesPerKey)));
+        }
+        ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+        if (i + 1 < kNumL0Files) {
+          ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
+        }
       }
-    }
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-    ASSERT_EQ(0, NumTableFilesAtLevel(0));
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+      ASSERT_EQ(0, NumTableFilesAtLevel(0));
 
-    ASSERT_EQ(0, options.rate_limiter->GetTotalBytesThrough(Env::IO_HIGH));
-    // should be slightly above 512KB due to non-data blocks read. Arbitrarily
-    // chose 1MB as the upper bound on the total bytes read.
-    size_t rate_limited_bytes =
-        options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW);
-    // Include the explicit prefetch of the footer in direct I/O case.
-    size_t direct_io_extra = use_direct_io ? 512 * 1024 : 0;
-    ASSERT_GE(
-        rate_limited_bytes,
-        static_cast<size_t>(kNumKeysPerFile * kBytesPerKey * kNumL0Files));
-    ASSERT_LT(
-        rate_limited_bytes,
-        static_cast<size_t>(2 * kNumKeysPerFile * kBytesPerKey * kNumL0Files +
-                            direct_io_extra));
+      // should be slightly above 512KB due to non-data blocks read. Arbitrarily
+      // chose 1MB as the upper bound on the total bytes read.
+      size_t rate_limited_bytes =
+          options.rate_limiter->GetTotalBytesThrough(Env::IO_TOTAL);
+      // There must be no charges at non-`IO_LOW` priorities.
+      ASSERT_EQ(rate_limited_bytes,
+                static_cast<size_t>(
+                    options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW)));
+      // Include the explicit prefetch of the footer in direct I/O case.
+      size_t direct_io_extra = use_direct_io ? 512 * 1024 : 0;
+      ASSERT_GE(
+          rate_limited_bytes,
+          static_cast<size_t>(kNumKeysPerFile * kBytesPerKey * kNumL0Files));
+      ASSERT_LT(
+          rate_limited_bytes,
+          static_cast<size_t>(2 * kNumKeysPerFile * kBytesPerKey * kNumL0Files +
+                              direct_io_extra));
 
-    Iterator* iter = db_->NewIterator(ReadOptions());
-    ASSERT_OK(iter->status());
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      ASSERT_EQ(iter->value().ToString(), DummyString(kBytesPerKey));
+      Iterator* iter = db_->NewIterator(ReadOptions());
+      ASSERT_OK(iter->status());
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        ASSERT_EQ(iter->value().ToString(), DummyString(kBytesPerKey));
+      }
+      delete iter;
+      // bytes read for user iterator shouldn't count against the rate limit.
+      ASSERT_EQ(rate_limited_bytes,
+                static_cast<size_t>(
+                    options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW)));
     }
-    delete iter;
-    // bytes read for user iterator shouldn't count against the rate limit.
-    ASSERT_EQ(rate_limited_bytes,
-              static_cast<size_t>(
-                  options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW)));
   }
 }
 #endif  // ROCKSDB_LITE

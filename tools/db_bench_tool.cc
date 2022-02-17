@@ -77,6 +77,7 @@
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
+#include "util/file_checksum_helper.h"
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
@@ -1076,6 +1077,14 @@ extern "C" bool RocksDbIOUringEnable() { return FLAGS_io_uring_enabled; }
 DEFINE_bool(adaptive_readahead, false,
             "carry forward internal auto readahead size from one file to next "
             "file at each level during iteration");
+
+DEFINE_bool(rate_limit_user_ops, false,
+            "When true use Env::IO_USER priority level to charge internal rate "
+            "limiter for reads associated with user operations.");
+
+DEFINE_bool(file_checksum, false,
+            "When true use FileChecksumGenCrc32cFactory for "
+            "file_checksum_gen_factory.");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -3047,6 +3056,8 @@ class Benchmark {
       read_options_ = ReadOptions(FLAGS_verify_checksum, true);
       read_options_.total_order_seek = FLAGS_total_order_seek;
       read_options_.prefix_same_as_start = FLAGS_prefix_same_as_start;
+      read_options_.rate_limiter_priority =
+          FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
       read_options_.tailing = FLAGS_use_tailing_iterator;
       read_options_.readahead_size = FLAGS_readahead_size;
       read_options_.adaptive_readahead = FLAGS_adaptive_readahead;
@@ -3313,6 +3324,12 @@ class Benchmark {
 #endif  // ROCKSDB_LITE
       } else if (name == "getmergeoperands") {
         method = &Benchmark::GetMergeOperands;
+#ifndef ROCKSDB_LITE
+      } else if (name == "verifychecksum") {
+        method = &Benchmark::VerifyChecksum;
+      } else if (name == "verifyfilechecksums") {
+        method = &Benchmark::VerifyFileChecksums;
+#endif                             // ROCKSDB_LITE
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
         ErrorExit();
@@ -4266,6 +4283,11 @@ class Benchmark {
     }
 
     options.listeners.emplace_back(listener_);
+
+    if (FLAGS_file_checksum) {
+      options.file_checksum_gen_factory.reset(
+          new FileChecksumGenCrc32cFactory());
+    }
 
     if (FLAGS_num_multi_db <= 1) {
       OpenDb(options, FLAGS_db, &db_);
@@ -7207,6 +7229,35 @@ class Benchmark {
   }
 
 #ifndef ROCKSDB_LITE
+  void VerifyChecksum(ThreadState* thread) {
+    DB* db = SelectDB(thread);
+    ReadOptions ro;
+    ro.adaptive_readahead = FLAGS_adaptive_readahead;
+    ro.rate_limiter_priority =
+        FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+    ro.readahead_size = FLAGS_readahead_size;
+    Status s = db->VerifyChecksum(ro);
+    if (!s.ok()) {
+      fprintf(stderr, "VerifyChecksum() failed: %s\n", s.ToString().c_str());
+      exit(1);
+    }
+  }
+
+  void VerifyFileChecksums(ThreadState* thread) {
+    DB* db = SelectDB(thread);
+    ReadOptions ro;
+    ro.adaptive_readahead = FLAGS_adaptive_readahead;
+    ro.rate_limiter_priority =
+        FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+    ro.readahead_size = FLAGS_readahead_size;
+    Status s = db->VerifyFileChecksums(ro);
+    if (!s.ok()) {
+      fprintf(stderr, "VerifyFileChecksums() failed: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
+  }
+
   // This benchmark stress tests Transactions.  For a given --duration (or
   // total number of --writes, a Transaction will perform a read-modify-write
   // to increment the value of a key in each of N(--transaction-sets) sets of
