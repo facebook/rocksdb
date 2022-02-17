@@ -342,39 +342,47 @@ ts_params = {
     "use_block_based_filter": 0,
 }
 
-multiops_txn_params = {
+multiops_txn_default_params = {
     "test_cf_consistency": 0,
     "test_batches_snapshots": 0,
     "test_multi_ops_txns": 1,
     "use_txn": 1,
     "two_write_queues": lambda: random.choice([0, 1]),
     # TODO: enable write-prepared
-    "txn_write_policy": 0,
     "disable_wal": 0,
-    "wp_snapshot_cache_bits": 1,
-    "wp_commit_cache_bits": lambda: random.choice([0, 10]),
     "use_only_the_last_commit_time_batch_for_recovery": lambda: random.choice([0, 1]),
     "clear_column_family_one_in": 0,
     "column_families": 1,
-    # pipeline write is not currnetly compatible with WritePrepared txns
-    "enable_pipelined_write": 0,
-    # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
-    "checkpoint_one_in": 0,
-    # This test acquires snapshots in reads
+    "enable_pipelined_write": lambda: random.choice([0, 1]),
+    # This test already acquires snapshots in reads
     "acquire_snapshot_one_in": 0,
     "backup_one_in": 0,
     "writepercent": 0,
     "delpercent": 0,
     "delrangepercent": 0,
-    "customopspercent": 60,
+    "customopspercent": 80,
     "readpercent": 5,
-    "iterpercent": 35,
+    "iterpercent": 15,
     "prefixpercent": 0,
     "verify_db_one_in": 1000,
     "continuous_verification_interval": 1000,
     "delay_snapshot_read_one_in": 3,
     "write_buffer_size": 1024,
     "key_spaces_path": setup_multiops_txn_key_spaces_file(),
+}
+
+multiops_wc_txn_params = {
+    "txn_write_policy": 0,
+}
+
+multiops_wp_txn_params = {
+    "txn_write_policy": 1,
+    "wp_snapshot_cache_bits": 1,
+    "wp_commit_cache_bits": lambda: random.choice([0, 10]),
+    # pipeline write is not currnetly compatible with WritePrepared txns
+    "enable_pipelined_write": 0,
+    # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
+    "checkpoint_one_in": 0,
 }
 
 def finalize_and_sanitize(src_params):
@@ -486,7 +494,11 @@ def gen_cmd_params(args):
     if args.enable_ts:
         params.update(ts_params)
     if args.test_multiops_txn:
-        params.update(multiops_txn_params)
+        params.update(multiops_txn_default_params)
+        if args.write_policy == 'write_committed':
+            params.update(multiops_wc_txn_params)
+        elif args.write_policy == 'write_prepared':
+            params.update(multiops_wp_txn_params)
 
     # Best-effort recovery and BlobDB are currently incompatible. Test BE recovery
     # if specified on the command line; otherwise, apply BlobDB related overrides
@@ -510,7 +522,7 @@ def gen_cmd(params, unknown_params):
         if k not in set(['test_type', 'simple', 'duration', 'interval',
                          'random_kill_odd', 'cf_consistency', 'txn',
                          'test_best_efforts_recovery', 'enable_ts',
-                         'test_multiops_txn', 'stress_cmd'])
+                         'test_multiops_txn', 'write_policy', 'stress_cmd'])
         and v is not None] + unknown_params
     return cmd
 
@@ -771,6 +783,7 @@ def main():
     parser.add_argument("--test_best_efforts_recovery", action='store_true')
     parser.add_argument("--enable_ts", action='store_true')
     parser.add_argument("--test_multiops_txn", action='store_true')
+    parser.add_argument("--write_policy", choices=["write_committed", "write_prepared"])
     parser.add_argument("--stress_cmd")
 
     all_params = dict(list(default_params.items())
@@ -781,7 +794,9 @@ def main():
                       + list(whitebox_simple_default_params.items())
                       + list(blob_params.items())
                       + list(ts_params.items())
-                      + list(multiops_txn_params.items()))
+                      + list(multiops_txn_default_params.items())
+                      + list(multiops_wc_txn_params.items())
+                      + list(multiops_wp_txn_params.items()))
 
     for k, v in all_params.items():
         parser.add_argument("--" + k, type=type(v() if callable(v) else v))
