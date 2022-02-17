@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/customizable.h"
@@ -260,15 +261,22 @@ struct FileOperationInfo {
   const Duration duration;
   const SystemTimePoint& start_ts;
   Status status;
+
+  // Rocksdb try to provide file temperature information, but it's not
+  // guaranteed.
+  Temperature temperature;
+
   FileOperationInfo(const FileOperationType _type, const std::string& _path,
                     const StartTimePoint& _start_ts,
-                    const FinishTimePoint& _finish_ts, const Status& _status)
+                    const FinishTimePoint& _finish_ts, const Status& _status,
+                    const Temperature _temperature = Temperature::kUnknown)
       : type(_type),
         path(_path),
         duration(std::chrono::duration_cast<std::chrono::nanoseconds>(
             _finish_ts - _start_ts.second)),
         start_ts(_start_ts.first),
-        status(_status) {}
+        status(_status),
+        temperature(_temperature) {}
   static StartTimePoint StartNow() {
     return std::make_pair<SystemTimePoint, SteadyTimePoint>(
         std::chrono::system_clock::now(), std::chrono::steady_clock::now());
