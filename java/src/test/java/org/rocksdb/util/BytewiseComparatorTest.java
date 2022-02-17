@@ -9,15 +9,36 @@ import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-import org.rocksdb.*;
+import org.rocksdb.AbstractComparator;
+import org.rocksdb.BuiltinComparator;
+import org.rocksdb.ComparatorOptions;
+import org.rocksdb.FlushOptions;
+import org.rocksdb.Options;
+import org.rocksdb.ReadOptions;
+import org.rocksdb.RocksDB;
+import org.rocksdb.RocksDBException;
+import org.rocksdb.RocksIterator;
+import org.rocksdb.RocksIteratorInterface;
+import org.rocksdb.RocksNativeLibraryResource;
+import org.rocksdb.WriteOptions;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.FileSystems;
+import java.nio.file.Path;
+import java.security.SecureRandom;
+import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.TreeMap;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.*;
+import static org.assertj.core.api.Fail.fail;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.rocksdb.util.ByteUtil.bytes;
 
 /**
@@ -25,6 +46,7 @@ import static org.rocksdb.util.ByteUtil.bytes;
  * tests from db/comparator_db_test.cc
  * and some code to adapt it to RocksJava
  */
+@SuppressWarnings({"ObjectAllocationInLoop", "MultipleExceptionsDeclaredOnTestMethod"})
 public class BytewiseComparatorTest {
 
   @ClassRule
@@ -34,8 +56,8 @@ public class BytewiseComparatorTest {
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
-  private List<String> source_strings = Arrays.asList("b", "d", "f", "h", "j", "l");
-  private List<String> interleaving_strings = Arrays.asList("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m");
+  private final List<String> source_strings = Arrays.asList("b", "d", "f", "h", "j", "l");
+  private final List<String> interleaving_strings = Arrays.asList("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m");
 
   /**
    * Open the database using the C++ BytewiseComparatorImpl
@@ -50,7 +72,7 @@ public class BytewiseComparatorTest {
       try(final RocksDB db = openDatabase(dbDir,
           BuiltinComparator.BYTEWISE_COMPARATOR)) {
 
-        final Random rnd = new Random(rand_seed);
+        final Random rnd = new SecureRandom(new byte[]{(byte)(rand_seed & 0xff),(byte)(rand_seed & 0xff00 >> 8)});
         try(final ComparatorOptions copt2 = new ComparatorOptions()
             .setUseDirectBuffer(false);
             final AbstractComparator comparator2 = new BytewiseComparator(copt2)) {
@@ -58,8 +80,7 @@ public class BytewiseComparatorTest {
           doRandomIterationTest(
               db,
               jComparator,
-              rnd,
-              8, 100, 3
+              rnd
           );
         }
       }
@@ -81,7 +102,7 @@ public class BytewiseComparatorTest {
           final AbstractComparator comparator = new BytewiseComparator(copt);
           final RocksDB db = openDatabase(dbDir, comparator)) {
 
-        final Random rnd = new Random(rand_seed);
+        final Random rnd = new SecureRandom(new byte[]{(byte)(rand_seed & 0xff),(byte)(rand_seed & 0xff00 >> 8)});
         try(final ComparatorOptions copt2 = new ComparatorOptions()
             .setUseDirectBuffer(false);
             final AbstractComparator comparator2 = new BytewiseComparator(copt2)) {
@@ -89,8 +110,7 @@ public class BytewiseComparatorTest {
           doRandomIterationTest(
               db,
               jComparator,
-              rnd,
-              8, 100, 3
+              rnd
           );
         }
       }
@@ -110,7 +130,7 @@ public class BytewiseComparatorTest {
       try(final RocksDB db = openDatabase(dbDir,
           BuiltinComparator.BYTEWISE_COMPARATOR)) {
 
-        final Random rnd = new Random(rand_seed);
+        final Random rnd = new SecureRandom(new byte[]{(byte)(rand_seed & 0xff),(byte)(rand_seed & 0xff00 >> 8)});
         try(final ComparatorOptions copt2 = new ComparatorOptions()
               .setUseDirectBuffer(true);
             final AbstractComparator comparator2 = new BytewiseComparator(copt2)) {
@@ -118,8 +138,7 @@ public class BytewiseComparatorTest {
           doRandomIterationTest(
               db,
               jComparator,
-              rnd,
-              8, 100, 3
+              rnd
           );
         }
       }
@@ -141,7 +160,7 @@ public class BytewiseComparatorTest {
           final AbstractComparator comparator = new BytewiseComparator(copt);
           final RocksDB db = openDatabase(dbDir, comparator)) {
 
-        final Random rnd = new Random(rand_seed);
+        final Random rnd = new SecureRandom(new byte[]{(byte)(rand_seed & 0xff),(byte)(rand_seed & 0xff00 >> 8)});
         try(final ComparatorOptions copt2 = new ComparatorOptions()
               .setUseDirectBuffer(true);
             final AbstractComparator comparator2 = new BytewiseComparator(copt2)) {
@@ -149,8 +168,7 @@ public class BytewiseComparatorTest {
           doRandomIterationTest(
               db,
               jComparator,
-              rnd,
-              8, 100, 3
+              rnd
           );
         }
       }
@@ -170,7 +188,7 @@ public class BytewiseComparatorTest {
       try(final RocksDB db = openDatabase(dbDir,
           BuiltinComparator.REVERSE_BYTEWISE_COMPARATOR)) {
 
-        final Random rnd = new Random(rand_seed);
+        final Random rnd = new SecureRandom(new byte[]{(byte)(rand_seed & 0xff),(byte)(rand_seed & 0xff00 >> 8)});
         try(final ComparatorOptions copt2 = new ComparatorOptions()
             .setUseDirectBuffer(false);
             final AbstractComparator comparator2 = new ReverseBytewiseComparator(copt2)) {
@@ -178,8 +196,7 @@ public class BytewiseComparatorTest {
           doRandomIterationTest(
               db,
               jComparator,
-              rnd,
-              8, 100, 3
+              rnd
           );
         }
       }
@@ -201,7 +218,7 @@ public class BytewiseComparatorTest {
            final AbstractComparator comparator = new ReverseBytewiseComparator(copt);
            final RocksDB db = openDatabase(dbDir, comparator)) {
 
-        final Random rnd = new Random(rand_seed);
+        final Random rnd = new SecureRandom(new byte[]{(byte)(rand_seed & 0xff),(byte)(rand_seed & 0xff00 >> 8)});
         try(final ComparatorOptions copt2 = new ComparatorOptions()
             .setUseDirectBuffer(false);
             final AbstractComparator comparator2 = new ReverseBytewiseComparator(copt2)) {
@@ -209,8 +226,7 @@ public class BytewiseComparatorTest {
           doRandomIterationTest(
               db,
               jComparator,
-              rnd,
-              8, 100, 3
+              rnd
           );
         }
       }
@@ -218,17 +234,18 @@ public class BytewiseComparatorTest {
   }
 
   private void doRandomIterationTest(
-      final RocksDB db, final java.util.Comparator<String> javaComparator,
-      final Random rnd,
-      final int num_writes, final int num_iter_ops,
-      final int num_trigger_flush) throws RocksDBException {
+      final RocksDB db, final Comparator<String> javaComparator,
+      final Random rnd) throws RocksDBException {
 
+    final int num_writes = 8;
+    final int num_iter_ops = 100;
+    final int num_trigger_flush = 3;
     final TreeMap<String, String> map = new TreeMap<>(javaComparator);
 
     try (final FlushOptions flushOptions = new FlushOptions();
          final WriteOptions writeOptions = new WriteOptions()) {
       for (int i = 0; i < num_writes; i++) {
-        if (num_trigger_flush > 0 && i != 0 && i % num_trigger_flush == 0) {
+        if (i != 0 && i % num_trigger_flush == 0) {
           db.flush(flushOptions);
         }
 
@@ -243,9 +260,7 @@ public class BytewiseComparatorTest {
             break;
           case 1:
             // delete
-            if (map.containsKey(key)) {
-              map.remove(key);
-            }
+            map.remove(key);
             db.delete(writeOptions, bytes(key));
             break;
 
@@ -298,6 +313,7 @@ public class BytewiseComparatorTest {
               iter.next();
               result_iter.next();
             } else {
+              //noinspection ContinueStatement
               continue;
             }
             break;
@@ -307,6 +323,7 @@ public class BytewiseComparatorTest {
               iter.prev();
               result_iter.prev();
             } else {
+              //noinspection ContinueStatement
               continue;
             }
             break;
@@ -318,29 +335,30 @@ public class BytewiseComparatorTest {
             result_iter.seekToFirst();
             break;
           default: {
+            //noinspection ConstantConditions
             assert (type == 7);
             final int key_idx = rnd.nextInt(source_strings.size());
             final String key = source_strings.get(key_idx);
             final byte[] result = db.get(readOptions, bytes(key));
-            if (!map.containsKey(key)) {
-              assertNull(result);
+            if (map.containsKey(key)) {
+              assertThat(result).containsExactly(bytes(map.get(key)));
             } else {
-              assertArrayEquals(bytes(map.get(key)), result);
+              assertThat(result).isNull();
             }
             break;
           }
         }
 
-        assertEquals(result_iter.isValid(), iter.isValid());
+        assertThat(result_iter.isValid()).isEqualTo(iter.isValid());
 
         is_valid = iter.isValid();
 
         if (is_valid) {
-          assertArrayEquals(bytes(result_iter.key()), iter.key());
+          assertThat(bytes(result_iter.key())).containsExactly(iter.key());
 
           //note that calling value on a non-valid iterator from the Java API
           //results in a SIGSEGV
-          assertArrayEquals(bytes(result_iter.value()), iter.value());
+          assertThat(bytes(result_iter.value())).containsExactly(iter.value());
         }
       }
     }
@@ -349,9 +367,9 @@ public class BytewiseComparatorTest {
   /**
    * Open the database using a C++ Comparator
    */
-  private RocksDB openDatabase(
+  private static RocksDB openDatabase(
       final Path dbDir, final BuiltinComparator cppComparator)
-      throws IOException, RocksDBException {
+      throws RocksDBException {
     final Options options = new Options()
         .setCreateIfMissing(true)
         .setComparator(cppComparator);
@@ -361,36 +379,33 @@ public class BytewiseComparatorTest {
   /**
    * Open the database using a Java Comparator
    */
-  private RocksDB openDatabase(
+  private static RocksDB openDatabase(
       final Path dbDir,
       final AbstractComparator javaComparator)
-      throws IOException, RocksDBException {
+      throws RocksDBException {
     final Options options = new Options()
         .setCreateIfMissing(true)
         .setComparator(javaComparator);
     return RocksDB.open(options, dbDir.toAbsolutePath().toString());
   }
 
-  private java.util.Comparator<String> toJavaComparator(
+  private static java.util.Comparator<String> toJavaComparator(
       final AbstractComparator rocksComparator) {
-    return new java.util.Comparator<String>() {
-      @Override
-      public int compare(final String s1, final String s2) {
-        final ByteBuffer bufS1;
-        final ByteBuffer bufS2;
-        if (rocksComparator.usingDirectBuffers()) {
-          bufS1 = ByteBuffer.allocateDirect(s1.length());
-          bufS2 = ByteBuffer.allocateDirect(s2.length());
-        } else {
-          bufS1 = ByteBuffer.allocate(s1.length());
-          bufS2 = ByteBuffer.allocate(s2.length());
-        }
-        bufS1.put(bytes(s1));
-        bufS1.flip();
-        bufS2.put(bytes(s2));
-        bufS2.flip();
-        return rocksComparator.compare(bufS1, bufS2);
+    return (s1, s2) -> {
+      final ByteBuffer bufS1;
+      final ByteBuffer bufS2;
+      if (rocksComparator.usingDirectBuffers()) {
+        bufS1 = ByteBuffer.allocateDirect(s1.length());
+        bufS2 = ByteBuffer.allocateDirect(s2.length());
+      } else {
+        bufS1 = ByteBuffer.allocate(s1.length());
+        bufS2 = ByteBuffer.allocate(s2.length());
       }
+      bufS1.put(bytes(s1));
+      bufS1.flip();
+      bufS2.put(bytes(s2));
+      bufS2.flip();
+      return rocksComparator.compare(bufS1, bufS2);
     };
   }
 
@@ -400,10 +415,7 @@ public class BytewiseComparatorTest {
     private final java.util.Comparator<? super K> comparator;
     private int offset = -1;
 
-    private int lastPrefixMatchIdx = -1;
-    private int lastPrefixMatch = 0;
-
-    public KVIter(final TreeMap<K, V> map) {
+    private KVIter(final TreeMap<K, V> map) {
       this.entries = new ArrayList<>();
       entries.addAll(map.entrySet());
       this.comparator = map.comparator();
@@ -452,7 +464,8 @@ public class BytewiseComparatorTest {
      *
      * @return The length of the matching prefix, or 0 if it is not a prefix
      */
-    private int isPrefix(final byte[] a, final byte[] b) {
+    @SuppressWarnings("unused")
+    private static int isPrefix(final byte[] a, final byte[] b) {
       if(b.length >= a.length) {
         for(int i = 0; i < a.length; i++) {
           if(a[i] != b[i]) {
@@ -480,51 +493,51 @@ public class BytewiseComparatorTest {
     }
 
     @Override
-    public void refresh() throws RocksDBException {
+    public void refresh() {
       offset = -1;
     }
 
     @Override
     public void status() throws RocksDBException {
       if(offset < 0 || offset >= entries.size()) {
-        throw new RocksDBException("Index out of bounds. Size is: " +
-            entries.size() + ", offset is: " + offset);
+        throw new RocksDBException(MessageFormat.format("Index out of bounds. Size is: {0}, offset is: {1}", entries.size(), offset));
       }
     }
 
     @SuppressWarnings("unchecked")
     public K key() {
-      if(!isValid()) {
-        if(entries.isEmpty()) {
-          return (K)"";
-        } else if(offset == -1){
+      if (isValid()) {
+        return entries.get(offset).getKey();
+      } else {
+        //noinspection IfStatementWithTooManyBranches
+        if (entries.isEmpty()) {
+          return (K) "";
+        } else if (offset == -1) {
           return entries.get(0).getKey();
-        } else if(offset == entries.size()) {
+        } else if (offset == entries.size()) {
           return entries.get(offset - 1).getKey();
         } else {
-          return (K)"";
+          return (K) "";
         }
-      } else {
-        return entries.get(offset).getKey();
       }
     }
 
     @SuppressWarnings("unchecked")
     public V value() {
-      if(!isValid()) {
-        return (V)"";
-      } else {
+      if (isValid()) {
         return entries.get(offset).getValue();
+      } else {
+        return (V) "";
       }
     }
 
     @Override
-    public void seek(ByteBuffer target) {
+    public void seek(final ByteBuffer target) {
       throw new IllegalAccessError("Not implemented");
     }
 
     @Override
-    public void seekForPrev(ByteBuffer target) {
+    public void seekForPrev(final ByteBuffer target) {
       throw new IllegalAccessError("Not implemented");
     }
   }

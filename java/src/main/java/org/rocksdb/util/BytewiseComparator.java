@@ -47,7 +47,7 @@ public final class BytewiseComparator extends AbstractComparator {
       if (a.remaining() < b.remaining()) {
         r = -1;
       } else if (a.remaining() > b.remaining()) {
-        r = +1;
+        r = 1;
       }
     }
     return r;
@@ -64,9 +64,8 @@ public final class BytewiseComparator extends AbstractComparator {
       diffIndex++;
     }
 
-    if (diffIndex >= minLength) {
-      // Do not shorten if one string is a prefix of the other
-    } else {
+    // Do not shorten if one string is a prefix of the other
+    if (diffIndex < minLength) {
       final int startByte = start.get(diffIndex) & 0xff;
       final int limitByte = limit.get(diffIndex) & 0xff;
       if (startByte >= limitByte) {
@@ -74,9 +73,11 @@ public final class BytewiseComparator extends AbstractComparator {
         // already the shortest possible.
         return;
       }
+      //noinspection ConstantConditions
       assert(startByte < limitByte);
 
       if (diffIndex < limit.remaining() - 1 || startByte + 1 < limitByte) {
+        //noinspection NumericCastThatLosesPrecision
         start.put(diffIndex, (byte)((start.get(diffIndex) & 0xff) + 1));
         start.limit(diffIndex + 1);
       } else {
@@ -94,8 +95,10 @@ public final class BytewiseComparator extends AbstractComparator {
           // increment it
           if ((start.get(diffIndex) & 0xff) <
               0xff) {
+            //noinspection NumericCastThatLosesPrecision
             start.put(diffIndex, (byte)((start.get(diffIndex) & 0xff) + 1));
             start.limit(diffIndex + 1);
+            //noinspection BreakStatement
             break;
           }
           diffIndex++;
@@ -112,6 +115,7 @@ public final class BytewiseComparator extends AbstractComparator {
     for (int i = 0; i < n; i++) {
       final int byt = key.get(i) & 0xff;
       if (byt != 0xff) {
+        //noinspection NumericCastThatLosesPrecision
         key.put(i, (byte)(byt + 1));
         key.limit(i+1);
         return;

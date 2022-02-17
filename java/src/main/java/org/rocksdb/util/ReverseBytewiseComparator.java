@@ -50,17 +50,7 @@ public final class ReverseBytewiseComparator extends AbstractComparator {
     }
 
     assert(diffIndex <= minLength);
-    if (diffIndex == minLength) {
-      // Do not shorten if one string is a prefix of the other
-      //
-      // We could handle cases like:
-      //     V
-      // A A 2 X Y
-      // A A 2
-      // in a similar way as BytewiseComparator::FindShortestSeparator().
-      // We keep it simple by not implementing it. We can come back to it
-      // later when needed.
-    } else {
+    if (diffIndex != minLength) {
       final int startByte = start.get(diffIndex) & 0xff;
       final int limitByte = limit.get(diffIndex) & 0xff;
       if (startByte > limitByte && diffIndex < start.remaining() - 1) {
@@ -83,6 +73,15 @@ public final class ReverseBytewiseComparator extends AbstractComparator {
 //#endif
         assert(BytewiseComparator._compare(start.duplicate(), limit.duplicate()) > 0);
       }
+      // Do not shorten if one string is a prefix of the other
+      //
+      // We could handle cases like:
+      //     V
+      // A A 2 X Y
+      // A A 2
+      // in a similar way as BytewiseComparator::FindShortestSeparator().
+      // We keep it simple by not implementing it. We can come back to it
+      // later when needed.
     }
   }
 }
