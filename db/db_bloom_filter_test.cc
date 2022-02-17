@@ -22,6 +22,7 @@
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/filter_policy_internal.h"
+#include "table/format.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
 
@@ -39,6 +40,7 @@ const std::string kFastLocalBloom = test::FastLocalBloomFilterPolicy::kName();
 const std::string kStandard128Ribbon =
     test::Standard128RibbonFilterPolicy::kName();
 const std::string kAutoBloom = BloomFilterPolicy::kName();
+const std::string kAutoRibbon = RibbonFilterPolicy::kName();
 }  // namespace
 
 // DB tests related to bloom filter.
@@ -559,7 +561,13 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
     uint64_t filter_size = ParseUint64(props["filter_size"]);
     EXPECT_LE(filter_size,
               (partition_filters_ ? 12 : 11) * nkeys / /*bits / byte*/ 8);
-    EXPECT_GE(filter_size, 10 * nkeys / /*bits / byte*/ 8);
+    if (bfp_impl_ == kAutoRibbon) {
+      // Sometimes using Ribbon filter which is more space-efficient
+      EXPECT_GE(filter_size, 7 * nkeys / /*bits / byte*/ 8);
+    } else {
+      // Always Bloom
+      EXPECT_GE(filter_size, 10 * nkeys / /*bits / byte*/ 8);
+    }
 
     uint64_t num_filter_entries = ParseUint64(props["num_filter_entries"]);
     EXPECT_EQ(num_filter_entries, nkeys);
@@ -741,21 +749,24 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(
         std::make_tuple(kDeprecatedBlock, false, test::kDefaultFormatVersion),
         std::make_tuple(kAutoBloom, true, test::kDefaultFormatVersion),
-        std::make_tuple(kAutoBloom, false, test::kDefaultFormatVersion)));
+        std::make_tuple(kAutoBloom, false, test::kDefaultFormatVersion),
+        std::make_tuple(kAutoRibbon, false, test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestWithParam,
     ::testing::Values(
         std::make_tuple(kDeprecatedBlock, false, test::kDefaultFormatVersion),
         std::make_tuple(kAutoBloom, true, test::kDefaultFormatVersion),
-        std::make_tuple(kAutoBloom, false, test::kDefaultFormatVersion)));
+        std::make_tuple(kAutoBloom, false, test::kDefaultFormatVersion),
+        std::make_tuple(kAutoRibbon, false, test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, DBBloomFilterTestWithParam,
     ::testing::Values(
         std::make_tuple(kDeprecatedBlock, false, kLatestFormatVersion),
         std::make_tuple(kAutoBloom, true, kLatestFormatVersion),
-        std::make_tuple(kAutoBloom, false, kLatestFormatVersion)));
+        std::make_tuple(kAutoBloom, false, kLatestFormatVersion),
+        std::make_tuple(kAutoRibbon, false, kLatestFormatVersion)));
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
