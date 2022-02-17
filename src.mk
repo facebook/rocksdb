@@ -365,10 +365,10 @@ TEST_LIB_SOURCES =                                              \
   utilities/cassandra/test_utils.cc                             \
 
 FOLLY_SOURCES =                                                 \
-  third-party/folly/folly/container/detail/F14Table.cpp         \
-  third-party/folly/folly/lang/SafeAssert.cpp                   \
-  third-party/folly/folly/lang/ToAscii.cpp                      \
-  third-party/folly/folly/ScopeGuard.cpp                        \
+  $(FOLLY_DIR)/folly/container/detail/F14Table.cpp              \
+  $(FOLLY_DIR)/folly/lang/SafeAssert.cpp                        \
+  $(FOLLY_DIR)/folly/lang/ToAscii.cpp                           \
+  $(FOLLY_DIR)/folly/ScopeGuard.cpp                             \
 
 TOOLS_MAIN_SOURCES =                                                    \
   db_stress_tool/db_stress.cc                                           \

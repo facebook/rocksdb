@@ -423,7 +423,9 @@ else
 endif
 
 ifeq ($(USE_FOLLY),1)
-	FOLLY_DIR = ./third-party/folly
+	ifeq (,$(FOLLY_DIR))
+		FOLLY_DIR = ./third-party/folly
+	endif
 	# AIX: pre-defined system headers are surrounded by an extern "C" block
 	ifeq ($(PLATFORM), OS_AIX)
 		PLATFORM_CCFLAGS += -I$(FOLLY_DIR)
@@ -2402,6 +2404,7 @@ checkout_folly:
 		cd third-party && git clone https://github.com/facebook/folly.git; \
 	fi
 	cd third-party/folly && git reset --hard 7090d2e125a69a0d6896ce56b2f2fcebd1e31231
+	@# A hack to remove boost dependency; not needed if using FBCODE compiler config
 	perl -pi -e 's/^(#include <boost)/\/\/$$1/' third-party/folly/folly/functional/Invoke.h
 
 # ---------------------------------------------------------------------------
