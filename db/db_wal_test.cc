@@ -1280,9 +1280,12 @@ class RecoveryTestHelper {
       ASSERT_OK(WritableFileWriter::Create(db_options.env->GetFileSystem(),
                                            fname, file_options, &file_writer,
                                            nullptr));
-      current_log_writer.reset(
+      log::Writer* log_writer =
           new log::Writer(std::move(file_writer), current_log_number,
-                          db_options.recycle_log_file_num > 0));
+                          db_options.recycle_log_file_num > 0, false,
+                          db_options.wal_compression);
+      ASSERT_OK(log_writer->AddCompressionTypeRecord());
+      current_log_writer.reset(log_writer);
 
       WriteBatch batch;
       for (int i = 0; i < kKeysPerWALFile; i++) {
@@ -1351,9 +1354,9 @@ class RecoveryTestHelper {
   }
 };
 
-class DBWALTestWithParams
-    : public DBWALTestBase,
-      public ::testing::WithParamInterface<std::tuple<bool, int, int>> {
+class DBWALTestWithParams : public DBWALTestBase,
+                            public ::testing::WithParamInterface<
+                                std::tuple<bool, int, int, CompressionType>> {
  public:
   DBWALTestWithParams() : DBWALTestBase("/db_wal_test_with_params") {}
 };
@@ -1364,12 +1367,14 @@ INSTANTIATE_TEST_CASE_P(
                        ::testing::Range(RecoveryTestHelper::kWALFileOffset,
                                         RecoveryTestHelper::kWALFileOffset +
                                             RecoveryTestHelper::kWALFilesCount,
-                                        1)));
+                                        1),
+                       ::testing::Values(CompressionType::kNoCompression,
+                                         CompressionType::kZSTD)));
 
 class DBWALTestWithParamsVaryingRecoveryMode
     : public DBWALTestBase,
       public ::testing::WithParamInterface<
-          std::tuple<bool, int, int, WALRecoveryMode>> {
+          std::tuple<bool, int, int, WALRecoveryMode, CompressionType>> {
  public:
   DBWALTestWithParamsVaryingRecoveryMode()
       : DBWALTestBase("/db_wal_test_with_params_mode") {}
@@ -1386,7 +1391,9 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(WALRecoveryMode::kTolerateCorruptedTailRecords,
                           WALRecoveryMode::kAbsoluteConsistency,
                           WALRecoveryMode::kPointInTimeRecovery,
-                          WALRecoveryMode::kSkipAnyCorruptedRecords)));
+                          WALRecoveryMode::kSkipAnyCorruptedRecords),
+        ::testing::Values(CompressionType::kNoCompression,
+                          CompressionType::kZSTD)));
 
 // Test scope:
 // - We expect to open the data store when there is incomplete trailing writes
@@ -1432,6 +1439,9 @@ TEST_P(DBWALTestWithParams, kAbsoluteConsistency) {
   // Corruption offset position
   int corrupt_offset = std::get<1>(GetParam());
   int wal_file_id = std::get<2>(GetParam());  // WAL file
+  // WAL compression type
+  CompressionType compression_type = std::get<3>(GetParam());
+  options.wal_compression = compression_type;
 
   if (trunc && corrupt_offset == 0) {
     return;
@@ -1492,9 +1502,12 @@ TEST_P(DBWALTestWithParams, kPointInTimeRecovery) {
   // Corruption offset position
   int corrupt_offset = std::get<1>(GetParam());
   int wal_file_id = std::get<2>(GetParam());  // WAL file
+  // WAL compression type
+  CompressionType compression_type = std::get<3>(GetParam());
 
   // Fill data for testing
   Options options = CurrentOptions();
+  options.wal_compression = compression_type;
   const size_t row_count = RecoveryTestHelper::FillData(this, &options);
 
   // Corrupt the wal
@@ -1543,9 +1556,12 @@ TEST_P(DBWALTestWithParams, kSkipAnyCorruptedRecords) {
   // Corruption offset position
   int corrupt_offset = std::get<1>(GetParam());
   int wal_file_id = std::get<2>(GetParam());  // WAL file
+  // WAL compression type
+  CompressionType compression_type = std::get<3>(GetParam());
 
   // Fill data for testing
   Options options = CurrentOptions();
+  options.wal_compression = compression_type;
   const size_t row_count = RecoveryTestHelper::FillData(this, &options);
 
   // Corrupt the WAL
@@ -1769,8 +1785,11 @@ TEST_P(DBWALTestWithParamsVaryingRecoveryMode,
   int corrupt_offset = std::get<1>(GetParam());
   int wal_file_id = std::get<2>(GetParam());  // WAL file
   WALRecoveryMode recovery_mode = std::get<3>(GetParam());
+  // WAL compression type
+  CompressionType compression_type = std::get<4>(GetParam());
 
   options.wal_recovery_mode = recovery_mode;
+  options.wal_compression = compression_type;
   // Create corrupted WAL
   RecoveryTestHelper::FillData(this, &options);
   RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
