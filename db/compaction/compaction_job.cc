@@ -195,6 +195,10 @@ struct CompactionJob::SubcompactionState {
   // within the same compaction job.
   const uint32_t sub_job_id;
 
+  // Notify on sub-compaction completion only if listener was notified on
+  // sub-compaction begin.
+  bool notify_on_subcompaction_completion = false;
+
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end, uint64_t size,
                      uint32_t _sub_job_id)
       : compaction(c),
@@ -1215,7 +1219,81 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
              compaction_result.bytes_written);
   return CompactionServiceJobStatus::kSuccess;
 }
+
+void CompactionJob::BuildSubcompactionJobInfo(
+    SubcompactionState* sub_compact,
+    SubcompactionJobInfo* subcompaction_job_info) const {
+  Compaction* c = compact_->compaction;
+  ColumnFamilyData* cfd = c->column_family_data();
+
+  subcompaction_job_info->cf_id = cfd->GetID();
+  subcompaction_job_info->cf_name = cfd->GetName();
+  subcompaction_job_info->status = sub_compact->status;
+  subcompaction_job_info->thread_id = env_->GetThreadID();
+  subcompaction_job_info->job_id = job_id_;
+  subcompaction_job_info->subcompaction_job_id = sub_compact->sub_job_id;
+  subcompaction_job_info->base_input_level = c->start_level();
+  subcompaction_job_info->output_level = c->output_level();
+  subcompaction_job_info->stats = sub_compact->compaction_job_stats;
+}
 #endif  // !ROCKSDB_LITE
+
+void CompactionJob::NotifyOnSubcompactionBegin(
+    SubcompactionState* sub_compact) {
+#ifndef ROCKSDB_LITE
+  Compaction* c = compact_->compaction;
+
+  if (db_options_.listeners.empty()) {
+    return;
+  }
+  if (shutting_down_->load(std::memory_order_acquire)) {
+    return;
+  }
+  if (c->is_manual_compaction() &&
+      manual_compaction_paused_->load(std::memory_order_acquire) > 0) {
+    return;
+  }
+
+  sub_compact->notify_on_subcompaction_completion = true;
+
+  SubcompactionJobInfo info{};
+  BuildSubcompactionJobInfo(sub_compact, &info);
+
+  for (auto listener : db_options_.listeners) {
+    listener->OnSubcompactionBegin(info);
+  }
+  info.status.PermitUncheckedError();
+
+#else
+  (void)sub_compact;
+#endif  // ROCKSDB_LITE
+}
+
+void CompactionJob::NotifyOnSubcompactionCompleted(
+    SubcompactionState* sub_compact) {
+#ifndef ROCKSDB_LITE
+
+  if (db_options_.listeners.empty()) {
+    return;
+  }
+  if (shutting_down_->load(std::memory_order_acquire)) {
+    return;
+  }
+
+  if (sub_compact->notify_on_subcompaction_completion == false) {
+    return;
+  }
+
+  SubcompactionJobInfo info{};
+  BuildSubcompactionJobInfo(sub_compact, &info);
+
+  for (auto listener : db_options_.listeners) {
+    listener->OnSubcompactionCompleted(info);
+  }
+#else
+  (void)sub_compact;
+#endif  // ROCKSDB_LITE
+}
 
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact);
@@ -1254,6 +1332,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         "anymore.");
     return;
   }
+
+  NotifyOnSubcompactionBegin(sub_compact);
 
   CompactionRangeDelAggregator range_del_agg(&cfd->internal_comparator(),
                                              existing_snapshots_);
@@ -1614,6 +1694,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   clip.reset();
   raw_input.reset();
   sub_compact->status = status;
+  NotifyOnSubcompactionCompleted(sub_compact);
 }
 
 uint64_t CompactionJob::GetCompactionId(SubcompactionState* sub_compact) {

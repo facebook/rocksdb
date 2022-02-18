@@ -763,7 +763,7 @@ DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
 DEFINE_bool(manual_wal_flush, false,
             "If true, buffer WAL until buffer is full or a manual FlushWAL().");
 
-DEFINE_string(wal_compression, "string",
+DEFINE_string(wal_compression, "none",
               "Algorithm to use for WAL compression. none to disable.");
 static enum ROCKSDB_NAMESPACE::CompressionType FLAGS_wal_compression_e =
     ROCKSDB_NAMESPACE::kNoCompression;
