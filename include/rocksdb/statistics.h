@@ -425,6 +425,12 @@ enum Tickers : uint32_t {
   WARM_FILE_READ_COUNT,
   COLD_FILE_READ_COUNT,
 
+  // Last level and non-last level read statistics
+  LAST_LEVEL_READ_BYTES,
+  LAST_LEVEL_READ_COUNT,
+  NON_LAST_LEVEL_READ_BYTES,
+  NON_LAST_LEVEL_READ_COUNT,
+
   TICKER_ENUM_MAX
 };
 

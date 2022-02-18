@@ -22,85 +22,43 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
-inline void IOStatsAddBytesByTemperature(Temperature file_temperature,
-                                         size_t value) {
-  if (file_temperature == Temperature::kUnknown) {
-    return;
-  }
-  switch (file_temperature) {
-    case Temperature::kHot:
-      IOSTATS_ADD(file_io_stats_by_temperature.hot_file_bytes_read, value);
-      break;
-    case Temperature::kWarm:
-      IOSTATS_ADD(file_io_stats_by_temperature.warm_file_bytes_read, value);
-      break;
-    case Temperature::kCold:
-      IOSTATS_ADD(file_io_stats_by_temperature.cold_file_bytes_read, value);
-      break;
-    default:
-      break;
-  }
-}
 
-inline void IOStatsAddCountByTemperature(Temperature file_temperature,
-                                         size_t value) {
-  if (file_temperature == Temperature::kUnknown) {
-    return;
+inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
+                          bool is_last_level, size_t size) {
+  IOSTATS_ADD(bytes_read, size);
+  // record for last/non-last level
+  if (is_last_level) {
+    RecordTick(stats, LAST_LEVEL_READ_BYTES, size);
+    RecordTick(stats, LAST_LEVEL_READ_COUNT, 1);
+  } else {
+    RecordTick(stats, NON_LAST_LEVEL_READ_BYTES, size);
+    RecordTick(stats, NON_LAST_LEVEL_READ_COUNT, 1);
   }
-  switch (file_temperature) {
-    case Temperature::kHot:
-      IOSTATS_ADD(file_io_stats_by_temperature.hot_file_read_count, value);
-      break;
-    case Temperature::kWarm:
-      IOSTATS_ADD(file_io_stats_by_temperature.warm_file_read_count, value);
-      break;
-    case Temperature::kCold:
-      IOSTATS_ADD(file_io_stats_by_temperature.cold_file_read_count, value);
-      break;
-    default:
-      break;
-  }
-}
 
-inline void StatisticAddBytesByTemperature(Statistics* stats,
-                                           Temperature file_temperature,
-                                           size_t value) {
-  if (stats == nullptr || file_temperature == Temperature::kUnknown) {
-    return;
-  }
-  switch (file_temperature) {
-    case Temperature::kHot:
-      RecordTick(stats, HOT_FILE_READ_BYTES, value);
-      break;
-    case Temperature::kWarm:
-      RecordTick(stats, WARM_FILE_READ_BYTES, value);
-      break;
-    case Temperature::kCold:
-      RecordTick(stats, COLD_FILE_READ_BYTES, value);
-      break;
-    default:
-      break;
-  }
-}
-
-inline void StatisticAddCountByTemperature(Statistics* stats,
-                                           Temperature file_temperature,
-                                           size_t value) {
-  if (stats == nullptr || file_temperature == Temperature::kUnknown) {
-    return;
-  }
-  switch (file_temperature) {
-    case Temperature::kHot:
-      RecordTick(stats, HOT_FILE_READ_COUNT, value);
-      break;
-    case Temperature::kWarm:
-      RecordTick(stats, WARM_FILE_READ_COUNT, value);
-      break;
-    case Temperature::kCold:
-      RecordTick(stats, COLD_FILE_READ_COUNT, value);
-      break;
-    default:
-      break;
+  // record for temperature file
+  if (file_temperature != Temperature::kUnknown) {
+    switch (file_temperature) {
+      case Temperature::kHot:
+        IOSTATS_ADD(file_io_stats_by_temperature.hot_file_bytes_read, size);
+        IOSTATS_ADD(file_io_stats_by_temperature.hot_file_read_count, 1);
+        RecordTick(stats, HOT_FILE_READ_BYTES, size);
+        RecordTick(stats, HOT_FILE_READ_COUNT, 1);
+        break;
+      case Temperature::kWarm:
+        IOSTATS_ADD(file_io_stats_by_temperature.warm_file_bytes_read, size);
+        IOSTATS_ADD(file_io_stats_by_temperature.warm_file_read_count, 1);
+        RecordTick(stats, WARM_FILE_READ_BYTES, size);
+        RecordTick(stats, WARM_FILE_READ_COUNT, 1);
+        break;
+      case Temperature::kCold:
+        IOSTATS_ADD(file_io_stats_by_temperature.cold_file_bytes_read, size);
+        IOSTATS_ADD(file_io_stats_by_temperature.cold_file_read_count, 1);
+        RecordTick(stats, COLD_FILE_READ_BYTES, size);
+        RecordTick(stats, COLD_FILE_READ_COUNT, 1);
+        break;
+      default:
+        break;
+    }
   }
 }
 
@@ -273,11 +231,7 @@ IOStatus RandomAccessFileReader::Read(
       }
       *result = Slice(res_scratch, io_s.ok() ? pos : 0);
     }
-    IOSTATS_ADD(bytes_read, result->size());
-    IOStatsAddBytesByTemperature(file_temperature_, result->size());
-    IOStatsAddCountByTemperature(file_temperature_, 1);
-    StatisticAddBytesByTemperature(stats_, file_temperature_, result->size());
-    StatisticAddCountByTemperature(stats_, file_temperature_, 1);
+    RecordIOStats(stats_, file_temperature_, is_last_level_, result->size());
     SetPerfLevel(prev_perf_level);
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
@@ -450,13 +404,8 @@ IOStatus RandomAccessFileReader::MultiRead(
       }
 
 #endif  // ROCKSDB_LITE
-      IOSTATS_ADD(bytes_read, read_reqs[i].result.size());
-      IOStatsAddBytesByTemperature(file_temperature_,
-                                   read_reqs[i].result.size());
-      IOStatsAddCountByTemperature(file_temperature_, 1);
-      StatisticAddBytesByTemperature(stats_, file_temperature_,
-                                     read_reqs[i].result.size());
-      StatisticAddCountByTemperature(stats_, file_temperature_, 1);
+      RecordIOStats(stats_, file_temperature_, is_last_level_,
+                    read_reqs[i].result.size());
     }
     SetPerfLevel(prev_perf_level);
   }

@@ -5045,6 +5045,14 @@ class TickerTypeJni {
         return -0x28;
       case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT:
         return -0x29;
+      case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_BYTES:
+        return -0x2A;
+      case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_COUNT:
+        return -0x2B;
+      case ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_BYTES:
+        return -0x2C;
+      case ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_COUNT:
+        return -0x2D;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5406,6 +5414,14 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT;
       case -0x29:
         return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT;
+      case -0x2A:
+        return ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_BYTES;
+      case -0x2B:
+        return ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_COUNT;
+      case -0x2C:
+        return ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_BYTES;
+      case -0x2D:
+        return ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_COUNT;
       case 0x5F:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep

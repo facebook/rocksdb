@@ -6847,6 +6847,58 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   size = GetSstSizeHelper(Temperature::kCold);
   ASSERT_GT(size, 0);
 }
+
+TEST_F(DBTest2, LastLevelStatistics) {
+  Options options = CurrentOptions();
+  options.bottommost_temperature = Temperature::kWarm;
+  options.level0_file_num_compaction_trigger = 2;
+  options.level_compaction_dynamic_level_bytes = true;
+  options.statistics = CreateDBStatistics();
+  Reopen(options);
+
+  // generate 1 sst on level 0
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("bar", Get("bar"));
+
+  ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES), 0);
+  ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT), 0);
+
+  // 2nd flush to trigger compaction
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("bar", Get("bar"));
+
+  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES),
+            options.statistics->getTickerCount(WARM_FILE_READ_BYTES));
+  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
+            options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
+
+  auto pre_bytes =
+      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES);
+  auto pre_count =
+      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+
+  // 3rd flush to generate 1 sst on level 0
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("bar", Get("bar"));
+
+  ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
+            pre_bytes);
+  ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
+            pre_count);
+  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES),
+            options.statistics->getTickerCount(WARM_FILE_READ_BYTES));
+  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
+            options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
+}
 #endif  // ROCKSDB_LITE
 
 // WAL recovery mode is WALRecoveryMode::kPointInTimeRecovery.
