@@ -128,7 +128,8 @@ static void SetupDB(benchmark::State& state, Options& options, DB** dpptr,
     state.SkipWithError(s.ToString().c_str());
     return;
   }
-  std::string db_name = db_path + kFilePathSeparator + test_name + std::to_string(getpid());
+  std::string db_name =
+      db_path + kFilePathSeparator + test_name + std::to_string(getpid());
   DestroyDB(db_name, options);
 
   s = DB::Open(options, db_name, dpptr);
@@ -1301,9 +1302,11 @@ static void RandomAccessFileReaderRead(benchmark::State& state) {
     return;
   }
 
-  // Setup multiple `RandomAccessFileReader`s with different parameters to be used for test
+  // Setup multiple `RandomAccessFileReader`s with different parameters to be
+  // used for test
   Random rand(301);
-  std::string fname_base = db_path + kFilePathSeparator + "random-access-file-reader-read";
+  std::string fname_base =
+      db_path + kFilePathSeparator + "random-access-file-reader-read";
   std::vector<std::unique_ptr<RandomAccessFileReader>> readers;
   auto statistics_share = CreateDBStatistics();
   Statistics* statistics = enable_statistics ? statistics_share.get() : nullptr;
@@ -1318,8 +1321,12 @@ static void RandomAccessFileReaderRead(benchmark::State& state) {
     std::unique_ptr<FSRandomAccessFile> f;
     fs->NewRandomAccessFile(fname, FileOptions(), &f, nullptr);
     int rand_num = rand.Next() % 3;
-    auto temperature = rand_num == 0 ? Temperature::kUnknown : rand_num == 1 ? Temperature::kWarm : Temperature::kCold;
-    readers.emplace_back(new RandomAccessFileReader(std::move(f), fname, env->GetSystemClock().get(), nullptr, statistics, 0, nullptr, nullptr, {}, temperature, rand_num == 1));
+    auto temperature = rand_num == 0   ? Temperature::kUnknown
+                       : rand_num == 1 ? Temperature::kWarm
+                                       : Temperature::kCold;
+    readers.emplace_back(new RandomAccessFileReader(
+        std::move(f), fname, env->GetSystemClock().get(), nullptr, statistics,
+        0, nullptr, nullptr, {}, temperature, rand_num == 1));
   }
 
   IOOptions io_options;
@@ -1327,7 +1334,9 @@ static void RandomAccessFileReaderRead(benchmark::State& state) {
   Slice result;
   uint64_t idx = 0;
   for (auto _ : state) {
-    s = readers[idx++ % kFileNum]->Read(io_options, 0, kDefaultPageSize / 3, &result, scratch.get(), nullptr, Env::IO_TOTAL);
+    s = readers[idx++ % kFileNum]->Read(io_options, 0, kDefaultPageSize / 3,
+                                        &result, scratch.get(), nullptr,
+                                        Env::IO_TOTAL);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
     }
@@ -1336,11 +1345,15 @@ static void RandomAccessFileReaderRead(benchmark::State& state) {
   // clean up
   for (int i = 0; i < kFileNum; i++) {
     std::string fname = fname_base + ToString(i);
-    env->DeleteFile(fname); // ignore return, okay to fail cleanup
+    env->DeleteFile(fname);  // ignore return, okay to fail cleanup
   }
 }
 
-BENCHMARK(RandomAccessFileReaderRead)->Iterations(1000000)->Arg(0)->Arg(1)->ArgName("enable_statistics");
+BENCHMARK(RandomAccessFileReaderRead)
+    ->Iterations(1000000)
+    ->Arg(0)
+    ->Arg(1)
+    ->ArgName("enable_statistics");
 
 }  // namespace ROCKSDB_NAMESPACE
 
