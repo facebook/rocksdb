@@ -150,4 +150,9 @@ BENCHMARK(FilterQueryNegative)->Apply(CustomArguments);
 
 }  // namespace ROCKSDB_NAMESPACE
 
+#ifndef BENCHMARK_MAIN_ONCE
+#ifndef IS_BENCH_BUILD
 BENCHMARK_MAIN();
+#define BENCHMARK_MAIN_ONCE
+#endif
+#endif

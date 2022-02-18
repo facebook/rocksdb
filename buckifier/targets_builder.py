@@ -40,7 +40,8 @@ class TARGETSBuilder(object):
         self.targets_file.close()
 
     def add_library(self, name, srcs, deps=None, headers=None,
-                    extra_external_deps="", link_whole=False):
+                    extra_external_deps="", link_whole=False,
+                     external_dependencies=None):
         headers_attr_prefix = ""
         if headers is None:
             headers_attr_prefix = "auto_"
@@ -54,10 +55,13 @@ class TARGETSBuilder(object):
             headers=headers,
             deps=pretty_list(deps),
             extra_external_deps=extra_external_deps,
-            link_whole=link_whole).encode("utf-8"))
+            link_whole=link_whole,
+            external_dependencies=pretty_list(external_dependencies)
+            ).encode("utf-8"))
         self.total_lib = self.total_lib + 1
 
-    def add_rocksdb_library(self, name, srcs, headers=None):
+    def add_rocksdb_library(self, name, srcs, headers=None,
+                            external_dependencies=None):
         headers_attr_prefix = ""
         if headers is None:
             headers_attr_prefix = "auto_"
@@ -68,14 +72,19 @@ class TARGETSBuilder(object):
             name=name,
             srcs=pretty_list(srcs),
             headers_attr_prefix=headers_attr_prefix,
-            headers=headers).encode("utf-8"))
+            headers=headers,
+            external_dependencies=pretty_list(external_dependencies)
+            ).encode("utf-8")
+            )
         self.total_lib = self.total_lib + 1
 
-    def add_binary(self, name, srcs, deps=None):
+    def add_binary(self, name, srcs, deps=None, extra_preprocessor_flags=None):
         self.targets_file.write(targets_cfg.binary_template.format(
             name=name,
             srcs=pretty_list(srcs),
-            deps=pretty_list(deps)).encode("utf-8"))
+            deps=pretty_list(deps),
+            extra_preprocessor_flags=pretty_list(extra_preprocessor_flags)
+            ).encode("utf-8"))
         self.total_bin = self.total_bin + 1
 
     def add_c_test(self):

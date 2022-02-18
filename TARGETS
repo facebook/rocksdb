@@ -8,6 +8,7 @@
 
 load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
 load("@fbcode_macros//build_defs:cpp_library.bzl", "cpp_library")
+load("@fbcode_macros//build_defs:cpp_binary.bzl", "cpp_binary")
 load(":defs.bzl", "test_binary")
 
 REPO_PATH = package_name() + "/"
@@ -820,10 +821,13 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    exported_deps = [":rocksdb_lib"],
-    exported_external_deps = ROCKSDB_EXTERNAL_DEPS + [
-        ("googletest", None, "gtest"),
+    exported_deps = [
+        ":rocksdb_lib",
+        "fbsource//third-party/benchmark:benchmark",
+        "fbsource//third-party/gmock-global:gmock-global",
+        "fbsource//third-party/googletest:gtest",
     ],
+    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
 cpp_library(
@@ -891,6 +895,25 @@ cpp_library(
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
     exported_deps = ROCKSDB_LIB_DEPS,
     exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
+)
+
+cpp_binary(
+    name = "rocksdb_microbench_bin",
+    srcs = [
+        "microbench/db_basic_bench.cc",
+        "microbench/ribbon_bench.cc",
+    ],
+    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
+    compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    os_deps = ROCKSDB_OS_DEPS,
+    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS+["-DIS_BENCH_BUILD"],
+    include_paths = ROCKSDB_INCLUDE_PATHS,
+    deps = [
+        ":rocksdb_lib",
+        ":rocksdb_test_lib",
+    ],
+    external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
 cpp_binary(
@@ -2254,9 +2277,7 @@ ROCKS_TESTS = [
         os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
         preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
         deps = [":rocksdb_test_lib"] + extra_deps,
-        external_deps = ROCKSDB_EXTERNAL_DEPS + [
-            ("googletest", None, "gtest"),
-        ],
+        external_deps = ROCKSDB_EXTERNAL_DEPS
     )
     for test_name, test_cc, parallelism, extra_deps, extra_compiler_flags in ROCKS_TESTS
     if not is_opt_mode

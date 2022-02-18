@@ -162,10 +162,11 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("TEST_LIB_SOURCES", []) +
         src_mk.get("EXP_LIB_SOURCES", []) +
         src_mk.get("ANALYZER_LIB_SOURCES", []),
-        [":rocksdb_lib"],
-        extra_external_deps=""" + [
-        ("googletest", None, "gtest"),
-    ]""")
+        [":rocksdb_lib",
+        "fbsource//third-party/benchmark:benchmark",
+        "fbsource//third-party/googletest:gtest",
+        "fbsource//third-party/gmock-global:gmock-global"]
+        )
     # rocksdb_tools_lib
     TARGETS.add_library(
         "rocksdb_tools_lib",
@@ -184,12 +185,17 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("ANALYZER_LIB_SOURCES", [])
         + src_mk.get('STRESS_LIB_SOURCES', [])
         + ["test_util/testutil.cc"])
-
+    # rocksdb_microbench_bin
+    TARGETS.add_binary(
+        "rocksdb_microbench_bin",
+        src_mk.get("MICROBENCH_SOURCES", []),
+        [":rocksdb_lib", ":rocksdb_test_lib"],
+        ["-DIS_BENCH_BUILD"]
+        )
     print("Extra dependencies:\n{0}".format(json.dumps(deps_map)))
 
     # Dictionary test executable name -> relative source file path
     test_source_map = {}
-    print(src_mk)
 
     # c_test.c is added through TARGETS.add_c_test(). If there
     # are more than one .c test file, we need to extend

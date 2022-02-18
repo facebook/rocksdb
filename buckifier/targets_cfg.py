@@ -15,6 +15,7 @@ rocksdb_target_header_template = \
 
 load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
 load("@fbcode_macros//build_defs:cpp_library.bzl", "cpp_library")
+load("@fbcode_macros//build_defs:cpp_binary.bzl", "cpp_binary")
 load(":defs.bzl", "test_binary")
 
 REPO_PATH = package_name() + "/"
@@ -190,7 +191,9 @@ cpp_binary(
     srcs = [{srcs}],
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    os_deps = ROCKSDB_OS_DEPS,
+    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS+[{extra_preprocessor_flags}],
     include_paths = ROCKSDB_INCLUDE_PATHS,
     deps = [{deps}],
     external_deps = ROCKSDB_EXTERNAL_DEPS,
@@ -224,9 +227,7 @@ ROCKS_TESTS = [
         os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
         preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
         deps = [":rocksdb_test_lib"] + extra_deps,
-        external_deps = ROCKSDB_EXTERNAL_DEPS + [
-            ("googletest", None, "gtest"),
-        ],
+        external_deps = ROCKSDB_EXTERNAL_DEPS
     )
     for test_name, test_cc, parallelism, extra_deps, extra_compiler_flags in ROCKS_TESTS
     if not is_opt_mode
