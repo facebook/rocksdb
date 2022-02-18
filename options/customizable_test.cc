@@ -2147,6 +2147,7 @@ TEST_F(LoadCustomizableTest, LoadFilterPolicyTest) {
   ASSERT_NE(result, nullptr);
   ASSERT_STREQ(result->Name(), ReadOnlyBuiltinFilterPolicy::kClassName());
 
+#ifndef ROCKSDB_LITE
   std::string table_opts = "id=BlockBasedTable; filter_policy=";
   ASSERT_OK(TableFactory::CreateFromString(config_options_,
                                            table_opts + "nullptr", &table));
@@ -2167,7 +2168,6 @@ TEST_F(LoadCustomizableTest, LoadFilterPolicyTest) {
   bbto = table->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(bbto, nullptr);
   ASSERT_EQ(bbto->filter_policy.get(), nullptr);
-#ifndef ROCKSDB_LITE
   if (RegisterTests("Test")) {
     ASSERT_OK(FilterPolicy::CreateFromString(
         config_options_, MockFilterPolicy::kClassName(), &result));

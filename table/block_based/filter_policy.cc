@@ -1472,6 +1472,7 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
 }
 
 const char* BloomFilterPolicy::kClassName() { return "bloomfilter"; }
+const char* BloomFilterPolicy::kNickName() { return "rocksdb.BloomFilter"; }
 
 std::string BloomFilterPolicy::GetId() const {
   // Including ":false" for better forward-compatibility with 6.29 and earlier
@@ -1826,6 +1827,7 @@ FilterBitsBuilder* RibbonFilterPolicy::GetBuilderWithContext(
 }
 
 const char* RibbonFilterPolicy::kClassName() { return "ribbonfilter"; }
+const char* RibbonFilterPolicy::kNickName() { return "rocksdb.RibbonFilter"; }
 
 std::string RibbonFilterPolicy::GetId() const {
   return BloomLikeFilterPolicy::GetId() + ":" +
@@ -1891,7 +1893,8 @@ static int RegisterBuiltinFilterPolicies(ObjectLibrary& library,
       });
 
   library.AddFactory<const FilterPolicy>(
-      FilterPatternEntryWithBits(BloomFilterPolicy::kClassName()),
+      FilterPatternEntryWithBits(BloomFilterPolicy::kClassName())
+          .AnotherName(BloomFilterPolicy::kNickName()),
       [](const std::string& uri, std::unique_ptr<const FilterPolicy>* guard,
          std::string* /* errmsg */) {
         guard->reset(NewBuiltinFilterPolicyWithBits<BloomFilterPolicy>(uri));
@@ -1899,14 +1902,20 @@ static int RegisterBuiltinFilterPolicies(ObjectLibrary& library,
       });
   library.AddFactory<const FilterPolicy>(
       FilterPatternEntryWithBits(BloomFilterPolicy::kClassName())
+          .AnotherName(BloomFilterPolicy::kNickName())
           .AddSuffix(":false"),
       [](const std::string& uri, std::unique_ptr<const FilterPolicy>* guard,
          std::string* /* errmsg */) {
+        // NOTE: This case previously configured the deprecated block-based
+        // filter, but old ways of configuring that now map to full filter. We
+        // defer to the corresponding API to ensure consistency in case that
+        // change is reverted.
         guard->reset(NewBuiltinFilterPolicyWithBits<BloomFilterPolicy>(uri));
         return guard->get();
       });
   library.AddFactory<const FilterPolicy>(
       FilterPatternEntryWithBits(BloomFilterPolicy::kClassName())
+          .AnotherName(BloomFilterPolicy::kNickName())
           .AddSuffix(":true"),
       [](const std::string& uri, std::unique_ptr<const FilterPolicy>* guard,
          std::string* /* errmsg */) {
@@ -1916,16 +1925,18 @@ static int RegisterBuiltinFilterPolicies(ObjectLibrary& library,
         return guard->get();
       });
   library.AddFactory<const FilterPolicy>(
-      FilterPatternEntryWithBits(RibbonFilterPolicy::kClassName()),
+      FilterPatternEntryWithBits(RibbonFilterPolicy::kClassName())
+          .AnotherName(RibbonFilterPolicy::kNickName()),
       [](const std::string& uri, std::unique_ptr<const FilterPolicy>* guard,
          std::string* /* errmsg */) {
         const std::vector<std::string> vals = StringSplit(uri, ':');
         double bits_per_key = ParseDouble(vals[1]);
-        guard->reset(NewRibbonFilterPolicy(bits_per_key, 0));
+        guard->reset(NewRibbonFilterPolicy(bits_per_key));
         return guard->get();
       });
   library.AddFactory<const FilterPolicy>(
       FilterPatternEntryWithBits(RibbonFilterPolicy::kClassName())
+          .AnotherName(RibbonFilterPolicy::kNickName())
           .AddNumber(":", true),
       [](const std::string& uri, std::unique_ptr<const FilterPolicy>* guard,
          std::string* /* errmsg */) {

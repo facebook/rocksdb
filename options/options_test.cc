@@ -1105,6 +1105,25 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
                 ->GetHighPriPoolRatio(),
             0.5);
+
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=rocksdb.BloomFilter:1.234",
+      &new_opt));
+  ASSERT_TRUE(new_opt.filter_policy != nullptr);
+  ASSERT_TRUE(
+      new_opt.filter_policy->IsInstanceOf(BloomFilterPolicy::kClassName()));
+  ASSERT_TRUE(
+      new_opt.filter_policy->IsInstanceOf(BloomFilterPolicy::kNickName()));
+
+  // Ribbon filter policy alternative name
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=rocksdb.RibbonFilter:6.789:5;",
+      &new_opt));
+  ASSERT_TRUE(new_opt.filter_policy != nullptr);
+  ASSERT_TRUE(
+      new_opt.filter_policy->IsInstanceOf(RibbonFilterPolicy::kClassName()));
+  ASSERT_TRUE(
+      new_opt.filter_policy->IsInstanceOf(RibbonFilterPolicy::kNickName()));
 }
 #endif  // !ROCKSDB_LITE
 

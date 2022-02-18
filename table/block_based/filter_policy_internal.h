@@ -190,6 +190,8 @@ class BloomFilterPolicy : public BloomLikeFilterPolicy {
 
   static const char* kClassName();
   const char* Name() const override { return kClassName(); }
+  static const char* kNickName();
+  const char* NickName() const override { return kNickName(); }
   std::string GetId() const override;
 };
 
@@ -210,6 +212,8 @@ class RibbonFilterPolicy : public BloomLikeFilterPolicy {
 
   static const char* kClassName();
   const char* Name() const override { return kClassName(); }
+  static const char* kNickName();
+  const char* NickName() const override { return kNickName(); }
   std::string GetId() const override;
 
  private:
