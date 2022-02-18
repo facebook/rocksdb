@@ -1795,6 +1795,10 @@ RibbonFilterPolicy::RibbonFilterPolicy(double bloom_equivalent_bits_per_key,
 
 FilterBitsBuilder* RibbonFilterPolicy::GetBuilderWithContext(
     const FilterBuildingContext& context) const {
+  if (GetMillibitsPerKey() == 0) {
+    // "No filter" special case
+    return nullptr;
+  }
   // Treat unknown same as bottommost
   int levelish = INT_MAX;
 

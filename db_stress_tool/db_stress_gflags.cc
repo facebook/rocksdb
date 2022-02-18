@@ -546,6 +546,10 @@ DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 DEFINE_bool(rate_limit_bg_reads, false,
             "Use options.rate_limiter on compaction reads");
 
+DEFINE_bool(rate_limit_user_ops, false,
+            "When true use Env::IO_USER priority level to charge internal rate "
+            "limiter for reads associated with user operations.");
+
 DEFINE_uint64(sst_file_manager_bytes_per_sec, 0,
               "Set `Options::sst_file_manager` to delete at this rate. By "
               "default the deletion rate is unbounded.");

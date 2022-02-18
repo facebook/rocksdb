@@ -771,7 +771,9 @@ Status BlockBasedTable::PrefetchTail(
   IOOptions opts;
   Status s = file->PrepareIOOptions(ro, opts);
   if (s.ok()) {
-    s = (*prefetch_buffer)->Prefetch(opts, file, prefetch_off, prefetch_len);
+    s = (*prefetch_buffer)
+            ->Prefetch(opts, file, prefetch_off, prefetch_len,
+                       ro.rate_limiter_priority);
   }
   return s;
 }
@@ -1730,8 +1732,8 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     IOOptions opts;
     IOStatus s = file->PrepareIOOptions(options, opts);
     if (s.ok()) {
-      s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(),
-                          &direct_io_buf);
+      s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(), &direct_io_buf,
+                          options.rate_limiter_priority);
     }
     if (!s.ok()) {
       // Discard all the results in this batch if there is any time out
@@ -2981,7 +2983,7 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
     BlockHandle handle = index_iter->value().handle;
     BlockContents contents;
     BlockFetcher block_fetcher(
-        rep_->file.get(), &prefetch_buffer, rep_->footer, ReadOptions(), handle,
+        rep_->file.get(), &prefetch_buffer, rep_->footer, read_options, handle,
         &contents, rep_->ioptions, false /* decompress */,
         false /*maybe_compressed*/, BlockType::kData,
         UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options);
