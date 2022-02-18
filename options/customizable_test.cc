@@ -1491,6 +1491,10 @@ class MockFilterPolicy : public FilterPolicy {
       const FilterBuildingContext&) const override {
     return nullptr;
   }
+  FilterBitsReader* GetFilterBitsReader(
+      const Slice& /*contents*/) const override {
+    return nullptr;
+  }
 };
 
 #ifndef ROCKSDB_LITE
