@@ -1965,7 +1965,8 @@ void Version::MultiGetBlob(
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   PinnableSlice* value, std::string* timestamp, Status* status,
                   MergeContext* merge_context,
-                  SequenceNumber* max_covering_tombstone_seq, bool* value_found,
+                  SequenceNumber* max_covering_tombstone_seq,
+                  PinnedIteratorsManager* pinned_iters_mgr, bool* value_found,
                   bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
                   bool* is_blob, bool do_merge) {
   Slice ikey = k.internal_key();
@@ -1978,7 +1979,6 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     *key_exists = true;
   }
 
-  PinnedIteratorsManager pinned_iters_mgr;
   uint64_t tracing_get_id = BlockCacheTraceHelper::kReservedGetId;
   if (vset_ && vset_->block_cache_tracer_ &&
       vset_->block_cache_tracer_->is_tracing_enabled()) {
@@ -1992,17 +1992,18 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   bool* const is_blob_to_use = is_blob ? is_blob : &is_blob_index;
   BlobFetcher blob_fetcher(this, read_options);
 
+  assert(pinned_iters_mgr);
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
       do_merge ? value : nullptr, do_merge ? timestamp : nullptr, value_found,
       merge_context, do_merge, max_covering_tombstone_seq, clock_, seq,
-      merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob_to_use,
+      merge_operator_ ? pinned_iters_mgr : nullptr, callback, is_blob_to_use,
       tracing_get_id, &blob_fetcher);
 
   // Pin blocks that we read to hold merge operands
   if (merge_operator_) {
-    pinned_iters_mgr.StartPinning();
+    pinned_iters_mgr->StartPinning();
   }
 
   FilePicker fp(user_key, ikey, &storage_info_.level_files_brief_,
@@ -2188,12 +2189,31 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   MultiGetRange keys_with_blobs_range(*range, range->begin(), range->end());
   // blob_file => [[blob_idx, it], ...]
   std::unordered_map<uint64_t, BlobReadRequests> blob_rqs;
+  int level = -1;
 
   while (f != nullptr) {
     MultiGetRange file_range = fp.CurrentFileRange();
     bool timer_enabled =
         GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
         get_perf_context()->per_level_perf_context_enabled;
+
+    // Report MultiGet stats per level.
+    if (level >= 0 && level != (int)fp.GetHitFileLevel()) {
+      // Dump the stats if the search has moved to the next level and
+      // reset for next level.
+      RecordInHistogram(db_statistics_,
+                        NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
+                        num_index_read + num_filter_read);
+      RecordInHistogram(db_statistics_, NUM_DATA_BLOCKS_READ_PER_LEVEL,
+                        num_data_read);
+      RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
+      num_filter_read = 0;
+      num_index_read = 0;
+      num_data_read = 0;
+      num_sst_read = 0;
+      level = fp.GetHitFileLevel();
+    }
+
     StopWatchNano timer(clock_, timer_enabled /* auto_start */);
     s = table_cache_->MultiGet(
         read_options, *internal_comparator(), *f->file_metadata, &file_range,
@@ -2238,6 +2258,11 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       num_filter_read += get_context.get_context_stats_.num_filter_read;
       num_data_read += get_context.get_context_stats_.num_data_read;
       num_sst_read += get_context.get_context_stats_.num_sst_read;
+      // Reset these stats since they're specific to a level
+      get_context.get_context_stats_.num_index_read = 0;
+      get_context.get_context_stats_.num_filter_read = 0;
+      get_context.get_context_stats_.num_data_read = 0;
+      get_context.get_context_stats_.num_sst_read = 0;
 
       // report the counters before returning
       if (get_context.State() != GetContext::kNotFound &&
@@ -2314,28 +2339,19 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       }
     }
 
-    // Report MultiGet stats per level.
-    if (fp.IsHitFileLastInLevel()) {
-      // Dump the stats if this is the last file of this level and reset for
-      // next level.
-      RecordInHistogram(db_statistics_,
-                        NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
-                        num_index_read + num_filter_read);
-      RecordInHistogram(db_statistics_, NUM_DATA_BLOCKS_READ_PER_LEVEL,
-                        num_data_read);
-      RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
-      num_filter_read = 0;
-      num_index_read = 0;
-      num_data_read = 0;
-      num_sst_read = 0;
-    }
-
     RecordInHistogram(db_statistics_, SST_BATCH_SIZE, batch_size);
     if (!s.ok() || file_picker_range.empty()) {
       break;
     }
     f = fp.GetNextFile();
   }
+
+  // Dump stats for most recent level
+  RecordInHistogram(db_statistics_, NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
+                    num_index_read + num_filter_read);
+  RecordInHistogram(db_statistics_, NUM_DATA_BLOCKS_READ_PER_LEVEL,
+                    num_data_read);
+  RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
 
   if (s.ok() && !blob_rqs.empty()) {
     MultiGetBlob(read_options, keys_with_blobs_range, blob_rqs);
@@ -2982,20 +2998,29 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
   uint64_t sum_total_blob_bytes = oldest_meta->GetTotalBlobBytes();
   uint64_t sum_garbage_blob_bytes = oldest_meta->GetGarbageBlobBytes();
 
-  while (count < blob_files_.size()) {
+  assert(cutoff_count <= blob_files_.size());
+
+  for (; count < cutoff_count; ++count) {
     const auto& meta = blob_files_[count];
     assert(meta);
 
     if (!meta->GetLinkedSsts().empty()) {
+      // Found the beginning of the next batch of blob files
       break;
-    }
-
-    if (++count > cutoff_count) {
-      return;
     }
 
     sum_total_blob_bytes += meta->GetTotalBlobBytes();
     sum_garbage_blob_bytes += meta->GetGarbageBlobBytes();
+  }
+
+  if (count < blob_files_.size()) {
+    const auto& meta = blob_files_[count];
+    assert(meta);
+
+    if (meta->GetLinkedSsts().empty()) {
+      // Some files in the oldest batch are not eligible for GC
+      return;
+    }
   }
 
   if (sum_garbage_blob_bytes <

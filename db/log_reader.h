@@ -8,14 +8,16 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <memory>
 #include <stdint.h>
+
+#include <memory>
 
 #include "db/log_format.h"
 #include "file/sequence_file_reader.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Logger;
@@ -127,6 +129,13 @@ class Reader {
 
   // Whether this is a recycled log file
   bool recycled_;
+
+  // Whether the first record has been read or not.
+  bool first_record_read_;
+  // Type of compression used
+  CompressionType compression_type_;
+  // Track whether the compression type record has been read or not.
+  bool compression_type_record_read_;
 
   // Extend record types with the following special values
   enum {

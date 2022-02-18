@@ -12,6 +12,7 @@
 #include <memory>
 
 #include "db/log_format.h"
+#include "rocksdb/compression_type.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -72,7 +73,8 @@ class Writer {
   // "*dest" must remain live while this Writer is in use.
   explicit Writer(std::unique_ptr<WritableFileWriter>&& dest,
                   uint64_t log_number, bool recycle_log_files,
-                  bool manual_flush = false);
+                  bool manual_flush = false,
+                  CompressionType compressionType = kNoCompression);
   // No copying allowed
   Writer(const Writer&) = delete;
   void operator=(const Writer&) = delete;
@@ -80,6 +82,7 @@ class Writer {
   ~Writer();
 
   IOStatus AddRecord(const Slice& slice);
+  IOStatus AddCompressionTypeRecord();
 
   WritableFileWriter* file() { return dest_.get(); }
   const WritableFileWriter* file() const { return dest_.get(); }
@@ -108,6 +111,9 @@ class Writer {
   // If true, it does not flush after each write. Instead it relies on the upper
   // layer to manually does the flush by calling ::WriteBuffer()
   bool manual_flush_;
+
+  // Compression Type
+  CompressionType compression_type_;
 };
 
 }  // namespace log

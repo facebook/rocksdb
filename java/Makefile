@@ -252,14 +252,6 @@ JAVAC_CMD := javac
 endif
 endif
 
-ifeq ($(JAVAH_CMD),)
-ifneq ($(JAVA_HOME),)
-JAVAH_CMD := $(JAVA_HOME)/bin/javah
-else
-JAVAH_CMD := javah
-endif
-endif
-
 ifeq ($(JAVADOC_CMD),)
 ifneq ($(JAVA_HOME),)
 JAVADOC_CMD := $(JAVA_HOME)/bin/javadoc
@@ -267,6 +259,17 @@ else
 JAVADOC_CMD := javadoc
 endif
 endif
+
+# Look for the Java version (1.6->6, 1.7->7, 1.8->8, 11.0->11, 13.0->13, 15.0->15 etc..)
+JAVAC_VERSION := $(shell $(JAVAC_CMD) -version 2>&1)
+JAVAC_MAJOR_VERSION := $(word 2,$(subst ., ,$(JAVAC_VERSION)))
+ifeq ($(JAVAC_MAJOR_VERSION),1)
+JAVAC_MAJOR_VERSION := $(word 3,$(subst ., ,$(JAVAC_VERSION)))
+endif
+
+# Test whether the version we see meets our minimum
+MIN_JAVAC_MAJOR_VERSION := 8
+JAVAC_VERSION_GE_MIN := $(shell [ $(JAVAC_MAJOR_VERSION) -ge $(MIN_JAVAC_MAJOR_VERSION) ] > /dev/null 2>&1 && echo true)
 
 # Set the default JAVA_ARGS to "" for DEBUG_LEVEL=0
 JAVA_ARGS ?=
@@ -282,6 +285,12 @@ endif
 # Using a Facebook AWS account for S3 storage. (maven.org has a history
 # of failing in Travis builds.)
 DEPS_URL?=https://rocksdb-deps.s3-us-west-2.amazonaws.com/jars
+
+java-version:
+ifneq ($(JAVAC_VERSION_GE_MIN),true)
+	echo 'Java version is $(JAVAC_VERSION), minimum required version is $(MIN_JAVAC_MAJOR_VERSION)'
+	exit 1
+endif
 
 clean: clean-not-downloaded clean-downloaded
 
@@ -301,22 +310,13 @@ javadocs: java
 
 javalib: java java_test javadocs
 
-java:
+java: java-version
 	$(AM_V_GEN)mkdir -p $(MAIN_CLASSES)
-ifeq ($(shell $(JAVAC_CMD) -version 2>&1 | grep 1.7.0 > /dev/null; printf $$?), 0)
-	$(AM_V_at)$(JAVAC_CMD) $(JAVAC_ARGS) -d $(MAIN_CLASSES)\
-		$(MAIN_SRC)/org/rocksdb/util/*.java\
-		$(MAIN_SRC)/org/rocksdb/*.java
-else
 	$(AM_V_at)$(JAVAC_CMD) $(JAVAC_ARGS) -h $(NATIVE_INCLUDE) -d $(MAIN_CLASSES)\
 		$(MAIN_SRC)/org/rocksdb/util/*.java\
 		$(MAIN_SRC)/org/rocksdb/*.java
-endif
 	$(AM_V_at)@cp ../HISTORY.md ./HISTORY-CPP.md
 	$(AM_V_at)@rm -f ./HISTORY-CPP.md
-ifeq ($(shell $(JAVAH_CMD) -version 2>&1 | grep 1.7.0 > /dev/null; printf $$?), 0)
-	$(AM_V_at)$(JAVAH_CMD) -cp $(MAIN_CLASSES) -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_CLASSES)
-endif
 
 sample: java
 	$(AM_V_GEN)mkdir -p $(SAMPLES_MAIN_CLASSES)
@@ -415,18 +415,10 @@ resolve_test_deps: $(JAVA_JUNIT_JAR_PATH) $(JAVA_HAMCREST_JAR_PATH) $(JAVA_MOCKI
 
 java_test: java resolve_test_deps
 	$(AM_V_GEN)mkdir -p $(TEST_CLASSES)
-ifeq ($(shell $(JAVAC_CMD) -version 2>&1|grep 1.7.0 >/dev/null; printf $$?),0)
-	$(AM_V_at)$(JAVAC_CMD) $(JAVAC_ARGS) -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -d $(TEST_CLASSES)\
-		$(TEST_SRC)/org/rocksdb/test/*.java\
-		$(TEST_SRC)/org/rocksdb/util/*.java\
-		$(TEST_SRC)/org/rocksdb/*.java
-	$(AM_V_at)$(JAVAH_CMD) -cp $(MAIN_CLASSES):$(TEST_CLASSES) -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_TEST_CLASSES)
-else
 	$(AM_V_at)$(JAVAC_CMD) $(JAVAC_ARGS) -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -h $(NATIVE_INCLUDE) -d $(TEST_CLASSES)\
 		$(TEST_SRC)/org/rocksdb/test/*.java\
 		$(TEST_SRC)/org/rocksdb/util/*.java\
 		$(TEST_SRC)/org/rocksdb/*.java
-endif
 
 test: java java_test run_test
 

@@ -51,20 +51,8 @@ extern IOStatus GenerateOneFileChecksum(
     const std::string& requested_checksum_func_name, std::string* file_checksum,
     std::string* file_checksum_func_name,
     size_t verify_checksums_readahead_size, bool allow_mmap_reads,
-    std::shared_ptr<IOTracer>& io_tracer, RateLimiter* rate_limiter = nullptr);
-
-inline IOStatus GenerateOneFileChecksum(
-    const std::shared_ptr<FileSystem>& fs, const std::string& file_path,
-    FileChecksumGenFactory* checksum_factory,
-    const std::string& requested_checksum_func_name, std::string* file_checksum,
-    std::string* file_checksum_func_name,
-    size_t verify_checksums_readahead_size, bool allow_mmap_reads,
-    std::shared_ptr<IOTracer>& io_tracer) {
-  return GenerateOneFileChecksum(
-      fs.get(), file_path, checksum_factory, requested_checksum_func_name,
-      file_checksum, file_checksum_func_name, verify_checksums_readahead_size,
-      allow_mmap_reads, io_tracer);
-}
+    std::shared_ptr<IOTracer>& io_tracer, RateLimiter* rate_limiter,
+    Env::IOPriority rate_limiter_priority);
 
 inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
                                          SystemClock* clock, IOOptions& opts) {
