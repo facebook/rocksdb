@@ -512,12 +512,6 @@ bool SerializeSingleOptionHelper(const void* opt_address,
           compression_type_string_map,
           *(static_cast<const CompressionType*>(opt_address)), value);
       break;
-    case OptionType::kFilterPolicy: {
-      const auto* ptr =
-          static_cast<const std::shared_ptr<FilterPolicy>*>(opt_address);
-      *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
-      break;
-    }
     case OptionType::kChecksumType:
       return SerializeEnum<ChecksumType>(
           checksum_type_string_map,
