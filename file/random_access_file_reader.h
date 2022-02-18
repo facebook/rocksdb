@@ -89,8 +89,8 @@ class RandomAccessFileReader {
   HistogramImpl* file_read_hist_;
   RateLimiter* rate_limiter_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
-  Temperature file_temperature_;
-  bool is_last_level_;
+  const Temperature file_temperature_;
+  const bool is_last_level_;
 
  public:
   explicit RandomAccessFileReader(
