@@ -256,15 +256,14 @@ struct FileOperationInfo {
 
   FileOperationType type;
   const std::string& path;
+  // Rocksdb try to provide file temperature information, but it's not
+  // guaranteed.
+  Temperature temperature;
   uint64_t offset;
   size_t length;
   const Duration duration;
   const SystemTimePoint& start_ts;
   Status status;
-
-  // Rocksdb try to provide file temperature information, but it's not
-  // guaranteed.
-  Temperature temperature;
 
   FileOperationInfo(const FileOperationType _type, const std::string& _path,
                     const StartTimePoint& _start_ts,
@@ -272,11 +271,11 @@ struct FileOperationInfo {
                     const Temperature _temperature = Temperature::kUnknown)
       : type(_type),
         path(_path),
+        temperature(_temperature),
         duration(std::chrono::duration_cast<std::chrono::nanoseconds>(
             _finish_ts - _start_ts.second)),
         start_ts(_start_ts.first),
-        status(_status),
-        temperature(_temperature) {}
+        status(_status) {}
   static StartTimePoint StartNow() {
     return std::make_pair<SystemTimePoint, SteadyTimePoint>(
         std::chrono::system_clock::now(), std::chrono::steady_clock::now());
