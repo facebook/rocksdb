@@ -163,9 +163,8 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("EXP_LIB_SOURCES", []) +
         src_mk.get("ANALYZER_LIB_SOURCES", []),
         [":rocksdb_lib"],
-        extra_external_deps=""" + [
-        ("googletest", None, "gtest"),
-    ]""")
+        extra_test_libs=True
+        )
     # rocksdb_tools_lib
     TARGETS.add_library(
         "rocksdb_tools_lib",
@@ -184,12 +183,19 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("ANALYZER_LIB_SOURCES", [])
         + src_mk.get('STRESS_LIB_SOURCES', [])
         + ["test_util/testutil.cc"])
-
+    # bench binaries
+    for src in src_mk.get("MICROBENCH_SOURCES", []):
+        name =  src.rsplit('/',1)[1].split('.')[0] if '/' in src else src.split('.')[0]
+        TARGETS.add_binary(
+            name,
+            [src],
+            [],
+            extra_bench_libs=True
+            )
     print("Extra dependencies:\n{0}".format(json.dumps(deps_map)))
 
     # Dictionary test executable name -> relative source file path
     test_source_map = {}
-    print(src_mk)
 
     # c_test.c is added through TARGETS.add_c_test(). If there
     # are more than one .c test file, we need to extend
@@ -199,6 +205,23 @@ def generate_targets(repo_path, deps_map):
             print("Don't know how to deal with " + test_src)
             return False
     TARGETS.add_c_test()
+
+    try:
+        with open(f"{repo_path}/buckifier/bench.json") as json_file:
+            fast_fancy_bench_config_list = json.load(json_file)
+            for config_dict in fast_fancy_bench_config_list:
+                TARGETS.add_fancy_bench_config(config_dict['name'],config_dict['benchmarks'], False, config_dict['expected_runtime'])
+
+        with open(f"{repo_path}/buckifier/bench-slow.json") as json_file:
+            slow_fancy_bench_config_list = json.load(json_file)
+            for config_dict in slow_fancy_bench_config_list:
+                TARGETS.add_fancy_bench_config(config_dict['name']+"_slow",config_dict['benchmarks'], True, config_dict['expected_runtime'])
+
+    except (FileNotFoundError, KeyError):
+        print(ColorString.warning("Failed to process bench config jsons"))
+        pass
+
+    TARGETS.add_test_header()
 
     for test_src in src_mk.get("TEST_MAIN_SOURCES", []):
         test = test_src.split('.c')[0].strip().split('/')[-1].strip()
@@ -213,17 +236,21 @@ def generate_targets(repo_path, deps_map):
 
             test_target_name = \
                 test if not target_alias else test + "_" + target_alias
-            TARGETS.register_test(
-                test_target_name,
-                test_src,
-                test not in non_parallel_tests,
-                json.dumps(deps['extra_deps']),
-                json.dumps(deps['extra_compiler_flags']))
 
             if test in _EXPORTED_TEST_LIBS:
                 test_library = "%s_lib" % test_target_name
-                TARGETS.add_library(test_library, [test_src], [":rocksdb_test_lib"])
-    TARGETS.flush_tests()
+                TARGETS.add_library(test_library, [test_src], deps=[":rocksdb_test_lib"], extra_test_libs=True)
+                TARGETS.register_test(
+                    test_target_name,
+                    test_src,
+                    deps = json.dumps(deps['extra_deps'] + [':'+test_library]),
+                    extra_compiler_flags = json.dumps(deps['extra_compiler_flags']))
+            else:
+                TARGETS.register_test(
+                    test_target_name,
+                    test_src,
+                    deps = json.dumps(deps['extra_deps'] + [":rocksdb_test_lib"] ),
+                    extra_compiler_flags = json.dumps(deps['extra_compiler_flags']))
 
     print(ColorString.info("Generated TARGETS Summary:"))
     print(ColorString.info("- %d libs" % TARGETS.total_lib))

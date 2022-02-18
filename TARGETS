@@ -4,147 +4,11 @@
 # This file is a Facebook-specific integration for buck builds, so can
 # only be validated by Facebook employees.
 #
-# @noautodeps @nocodemods
 
-load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
-load("@fbcode_macros//build_defs:cpp_library.bzl", "cpp_library")
-load(":defs.bzl", "test_binary")
+load("//rocks/buckifier:defs.bzl", "cpp_library_wrapper","rocks_cpp_library_wrapper","cpp_binary_wrapper","cpp_unittest_wrapper","fancy_bench_wrapper","add_c_test_wrapper")
 
-REPO_PATH = package_name() + "/"
 
-ROCKSDB_COMPILER_FLAGS_0 = [
-    "-fno-builtin-memcmp",
-    # Allow offsetof to work on non-standard layout types. Some compiler could
-    # completely reject our usage of offsetof, but we will solve that when it
-    # happens.
-    "-Wno-invalid-offsetof",
-    # Added missing flags from output of build_detect_platform
-    "-Wnarrowing",
-    "-DROCKSDB_NO_DYNAMIC_EXTENSION",
-]
-
-ROCKSDB_EXTERNAL_DEPS = [
-    ("bzip2", None, "bz2"),
-    ("snappy", None, "snappy"),
-    ("zlib", None, "z"),
-    ("gflags", None, "gflags"),
-    ("lz4", None, "lz4"),
-    ("zstd", None, "zstd"),
-]
-
-ROCKSDB_OS_DEPS_0 = [
-    (
-        "linux",
-        [
-            "third-party//numa:numa",
-            "third-party//liburing:uring",
-            "third-party//tbb:tbb",
-        ],
-    ),
-    (
-        "macos",
-        ["third-party//tbb:tbb"],
-    ),
-]
-
-ROCKSDB_OS_PREPROCESSOR_FLAGS_0 = [
-    (
-        "linux",
-        [
-            "-DOS_LINUX",
-            "-DROCKSDB_FALLOCATE_PRESENT",
-            "-DROCKSDB_MALLOC_USABLE_SIZE",
-            "-DROCKSDB_PTHREAD_ADAPTIVE_MUTEX",
-            "-DROCKSDB_RANGESYNC_PRESENT",
-            "-DROCKSDB_SCHED_GETCPU_PRESENT",
-            "-DROCKSDB_IOURING_PRESENT",
-            "-DHAVE_SSE42",
-            "-DLIBURING",
-            "-DNUMA",
-            "-DROCKSDB_PLATFORM_POSIX",
-            "-DROCKSDB_LIB_IO_POSIX",
-            "-DTBB",
-        ],
-    ),
-    (
-        "macos",
-        [
-            "-DOS_MACOSX",
-            "-DROCKSDB_PLATFORM_POSIX",
-            "-DROCKSDB_LIB_IO_POSIX",
-            "-DTBB",
-        ],
-    ),
-    (
-        "windows",
-        [
-            "-DOS_WIN",
-            "-DWIN32",
-            "-D_MBCS",
-            "-DWIN64",
-            "-DNOMINMAX",
-        ],
-    ),
-]
-
-ROCKSDB_PREPROCESSOR_FLAGS = [
-    "-DROCKSDB_SUPPORT_THREAD_LOCAL",
-
-    # Flags to enable libs we include
-    "-DSNAPPY",
-    "-DZLIB",
-    "-DBZIP2",
-    "-DLZ4",
-    "-DZSTD",
-    "-DZSTD_STATIC_LINKING_ONLY",
-    "-DGFLAGS=gflags",
-
-    # Added missing flags from output of build_detect_platform
-    "-DROCKSDB_BACKTRACE",
-]
-
-# Directories with files for #include
-ROCKSDB_INCLUDE_PATHS = [
-    "",
-    "include",
-]
-
-ROCKSDB_ARCH_PREPROCESSOR_FLAGS = {
-    "x86_64": [
-        "-DHAVE_PCLMUL",
-    ],
-}
-
-build_mode = read_config("fbcode", "build_mode")
-
-is_opt_mode = build_mode.startswith("opt")
-
-# -DNDEBUG is added by default in opt mode in fbcode. But adding it twice
-# doesn't harm and avoid forgetting to add it.
-ROCKSDB_COMPILER_FLAGS = ROCKSDB_COMPILER_FLAGS_0 + (["-DNDEBUG"] if is_opt_mode else [])
-
-sanitizer = read_config("fbcode", "sanitizer")
-
-# Do not enable jemalloc if sanitizer presents. RocksDB will further detect
-# whether the binary is linked with jemalloc at runtime.
-ROCKSDB_OS_PREPROCESSOR_FLAGS = ROCKSDB_OS_PREPROCESSOR_FLAGS_0 + ([(
-    "linux",
-    ["-DROCKSDB_JEMALLOC"],
-)] if sanitizer == "" else [])
-
-ROCKSDB_OS_DEPS = ROCKSDB_OS_DEPS_0 + ([(
-    "linux",
-    ["third-party//jemalloc:headers"],
-)] if sanitizer == "" else [])
-
-ROCKSDB_LIB_DEPS = [
-    ":rocksdb_lib",
-    ":rocksdb_test_lib",
-] if not is_opt_mode else [":rocksdb_lib"]
-
-cpp_library(
-    name = "rocksdb_lib",
-    srcs = [
+cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "cache/cache.cc",
         "cache/cache_entry_roles.cc",
         "cache/cache_key.cc",
@@ -458,22 +322,9 @@ cpp_library(
         "utilities/wal_filter.cc",
         "utilities/write_batch_with_index/write_batch_with_index.cc",
         "utilities/write_batch_with_index/write_batch_with_index_internal.cc",
-    ],
-    auto_headers = AutoHeaders.RECURSIVE_GLOB,
-    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
-    link_whole = False,
-    os_deps = ROCKSDB_OS_DEPS,
-    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    exported_deps = [],
-    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
-)
+    ], deps=[], headers=None, link_whole=False, extra_test_libs=False)
 
-cpp_library(
-    name = "rocksdb_whole_archive_lib",
-    srcs = [
+cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
         "cache/cache.cc",
         "cache/cache_entry_roles.cc",
         "cache/cache_key.cc",
@@ -787,22 +638,9 @@ cpp_library(
         "utilities/wal_filter.cc",
         "utilities/write_batch_with_index/write_batch_with_index.cc",
         "utilities/write_batch_with_index/write_batch_with_index_internal.cc",
-    ],
-    auto_headers = AutoHeaders.RECURSIVE_GLOB,
-    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
-    link_whole = True,
-    os_deps = ROCKSDB_OS_DEPS,
-    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    exported_deps = [],
-    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
-)
+    ], deps=[], headers=None, link_whole=True, extra_test_libs=False)
 
-cpp_library(
-    name = "rocksdb_test_lib",
-    srcs = [
+cpp_library_wrapper(name="rocksdb_test_lib", srcs=[
         "db/db_test_util.cc",
         "table/mock_table.cc",
         "test_util/mock_time_env.cc",
@@ -811,60 +649,19 @@ cpp_library(
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
         "tools/trace_analyzer_tool.cc",
         "utilities/cassandra/test_utils.cc",
-    ],
-    auto_headers = AutoHeaders.RECURSIVE_GLOB,
-    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
-    link_whole = False,
-    os_deps = ROCKSDB_OS_DEPS,
-    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    exported_deps = [":rocksdb_lib"],
-    exported_external_deps = ROCKSDB_EXTERNAL_DEPS + [
-        ("googletest", None, "gtest"),
-    ],
-)
+    ], deps=[":rocksdb_lib"], headers=None, link_whole=False, extra_test_libs=True)
 
-cpp_library(
-    name = "rocksdb_tools_lib",
-    srcs = [
+cpp_library_wrapper(name="rocksdb_tools_lib", srcs=[
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
         "tools/db_bench_tool.cc",
         "tools/simulated_hybrid_file_system.cc",
         "tools/trace_analyzer_tool.cc",
-    ],
-    auto_headers = AutoHeaders.RECURSIVE_GLOB,
-    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
-    link_whole = False,
-    os_deps = ROCKSDB_OS_DEPS,
-    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    exported_deps = [":rocksdb_lib"],
-    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
-)
+    ], deps=[":rocksdb_lib"], headers=None, link_whole=False, extra_test_libs=False)
 
-cpp_library(
-    name = "rocksdb_cache_bench_tools_lib",
-    srcs = ["cache/cache_bench_tool.cc"],
-    auto_headers = AutoHeaders.RECURSIVE_GLOB,
-    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
-    link_whole = False,
-    os_deps = ROCKSDB_OS_DEPS,
-    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    exported_deps = [":rocksdb_lib"],
-    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
-)
+cpp_library_wrapper(name="rocksdb_cache_bench_tools_lib", srcs=["cache/cache_bench_tool.cc"], deps=[":rocksdb_lib"], headers=None, link_whole=False, extra_test_libs=False)
 
-cpp_library(
-    name = "rocksdb_stress_lib",
-    srcs = [
+rocks_cpp_library_wrapper(name="rocksdb_stress_lib", srcs=[
         "db_stress_tool/batched_ops_stress.cc",
         "db_stress_tool/cf_consistency_stress.cc",
         "db_stress_tool/db_stress_common.cc",
@@ -881,1383 +678,1139 @@ cpp_library(
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
         "tools/trace_analyzer_tool.cc",
-    ],
-    auto_headers = AutoHeaders.RECURSIVE_GLOB,
-    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
-    os_deps = ROCKSDB_OS_DEPS,
-    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    exported_deps = ROCKSDB_LIB_DEPS,
-    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
-)
+    ], headers=None)
 
-cpp_binary(
-    name = "c_test_bin",
-    srcs = ["db/c_test.c"],
-    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
-    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    deps = [":rocksdb_test_lib"],
-) if not is_opt_mode else None
 
-custom_unittest(
-    name = "c_test",
-    command = [
-        native.package_name() + "/buckifier/rocks_test_runner.sh",
-        "$(location :{})".format("c_test_bin"),
-    ],
-    type = "simple",
-) if not is_opt_mode else None
+cpp_binary_wrapper(name="ribbon_bench", srcs=["microbench/ribbon_bench.cc"], deps=[], extra_preprocessor_flags=[], extra_bench_libs=True)
 
-cpp_library(
-    name = "env_basic_test_lib",
-    srcs = ["env/env_basic_test.cc"],
-    auto_headers = AutoHeaders.RECURSIVE_GLOB,
-    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
-    link_whole = False,
-    os_deps = ROCKSDB_OS_DEPS,
-    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    exported_deps = [":rocksdb_test_lib"],
-    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
-)
+cpp_binary_wrapper(name="db_basic_bench", srcs=["microbench/db_basic_bench.cc"], deps=[], extra_preprocessor_flags=[], extra_bench_libs=True)
 
-# [test_name, test_src, test_type, extra_deps, extra_compiler_flags]
-ROCKS_TESTS = [
-    [
-        "arena_test",
-        "memory/arena_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "auto_roll_logger_test",
-        "logging/auto_roll_logger_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "autovector_test",
-        "util/autovector_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "backupable_db_test",
-        "utilities/backupable/backupable_db_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "blob_counting_iterator_test",
-        "db/blob/blob_counting_iterator_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "blob_db_test",
-        "utilities/blob_db/blob_db_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "blob_file_addition_test",
-        "db/blob/blob_file_addition_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "blob_file_builder_test",
-        "db/blob/blob_file_builder_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "blob_file_cache_test",
-        "db/blob/blob_file_cache_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "blob_file_garbage_test",
-        "db/blob/blob_file_garbage_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "blob_file_reader_test",
-        "db/blob/blob_file_reader_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "blob_garbage_meter_test",
-        "db/blob/blob_garbage_meter_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "block_based_filter_block_test",
-        "table/block_based/block_based_filter_block_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "block_based_table_reader_test",
-        "table/block_based/block_based_table_reader_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "block_cache_trace_analyzer_test",
-        "tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "block_cache_tracer_test",
-        "trace_replay/block_cache_tracer_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "block_fetcher_test",
-        "table/block_fetcher_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "block_test",
-        "table/block_based/block_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "bloom_test",
-        "util/bloom_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "cache_reservation_manager_test",
-        "cache/cache_reservation_manager_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "cache_simulator_test",
-        "utilities/simulator_cache/cache_simulator_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "cache_test",
-        "cache/cache_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "cassandra_format_test",
-        "utilities/cassandra/cassandra_format_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "cassandra_functional_test",
-        "utilities/cassandra/cassandra_functional_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "cassandra_row_merge_test",
-        "utilities/cassandra/cassandra_row_merge_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "cassandra_serialize_test",
-        "utilities/cassandra/cassandra_serialize_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "checkpoint_test",
-        "utilities/checkpoint/checkpoint_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "cleanable_test",
-        "table/cleanable_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "clipping_iterator_test",
-        "db/compaction/clipping_iterator_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "coding_test",
-        "util/coding_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "column_family_test",
-        "db/column_family_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "compact_files_test",
-        "db/compact_files_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "compact_on_deletion_collector_test",
-        "utilities/table_properties_collectors/compact_on_deletion_collector_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "compaction_iterator_test",
-        "db/compaction/compaction_iterator_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "compaction_job_stats_test",
-        "db/compaction/compaction_job_stats_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "compaction_job_test",
-        "db/compaction/compaction_job_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "compaction_picker_test",
-        "db/compaction/compaction_picker_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "compaction_service_test",
-        "db/compaction/compaction_service_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "comparator_db_test",
-        "db/comparator_db_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "configurable_test",
-        "options/configurable_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "corruption_test",
-        "db/corruption_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "crc32c_test",
-        "util/crc32c_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "cuckoo_table_builder_test",
-        "table/cuckoo/cuckoo_table_builder_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "cuckoo_table_db_test",
-        "db/cuckoo_table_db_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "cuckoo_table_reader_test",
-        "table/cuckoo/cuckoo_table_reader_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "customizable_test",
-        "options/customizable_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "data_block_hash_index_test",
-        "table/block_based/data_block_hash_index_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_basic_test",
-        "db/db_basic_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_blob_basic_test",
-        "db/blob/db_blob_basic_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_blob_compaction_test",
-        "db/blob/db_blob_compaction_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_blob_corruption_test",
-        "db/blob/db_blob_corruption_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_blob_index_test",
-        "db/blob/db_blob_index_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_block_cache_test",
-        "db/db_block_cache_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_bloom_filter_test",
-        "db/db_bloom_filter_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_compaction_filter_test",
-        "db/db_compaction_filter_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_compaction_test",
-        "db/db_compaction_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_dynamic_level_test",
-        "db/db_dynamic_level_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_encryption_test",
-        "db/db_encryption_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_flush_test",
-        "db/db_flush_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_inplace_update_test",
-        "db/db_inplace_update_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_io_failure_test",
-        "db/db_io_failure_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_iter_stress_test",
-        "db/db_iter_stress_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_iter_test",
-        "db/db_iter_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_iterator_test",
-        "db/db_iterator_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_kv_checksum_test",
-        "db/db_kv_checksum_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_log_iter_test",
-        "db/db_log_iter_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_logical_block_size_cache_test",
-        "db/db_logical_block_size_cache_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_memtable_test",
-        "db/db_memtable_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_merge_operand_test",
-        "db/db_merge_operand_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_merge_operator_test",
-        "db/db_merge_operator_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_options_test",
-        "db/db_options_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_properties_test",
-        "db/db_properties_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_range_del_test",
-        "db/db_range_del_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_rate_limiter_test",
-        "db/db_rate_limiter_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_secondary_test",
-        "db/db_secondary_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_sst_test",
-        "db/db_sst_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_statistics_test",
-        "db/db_statistics_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_table_properties_test",
-        "db/db_table_properties_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_tailing_iter_test",
-        "db/db_tailing_iter_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_test",
-        "db/db_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_test2",
-        "db/db_test2.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_universal_compaction_test",
-        "db/db_universal_compaction_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_wal_test",
-        "db/db_wal_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_with_timestamp_basic_test",
-        "db/db_with_timestamp_basic_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_with_timestamp_compaction_test",
-        "db/db_with_timestamp_compaction_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_write_buffer_manager_test",
-        "db/db_write_buffer_manager_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "db_write_test",
-        "db/db_write_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "dbformat_test",
-        "db/dbformat_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "defer_test",
-        "util/defer_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "delete_scheduler_test",
-        "file/delete_scheduler_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "deletefile_test",
-        "db/deletefile_test.cc",
-        "serial",
-        [],
-        [],
-    ],
-    [
-        "dynamic_bloom_test",
-        "util/dynamic_bloom_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "env_basic_test",
-        "env/env_basic_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "env_logger_test",
-        "logging/env_logger_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "env_test",
-        "env/env_test.cc",
-        "serial",
-        [],
-        [],
-    ],
-    [
-        "env_timed_test",
-        "utilities/env_timed_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "error_handler_fs_test",
-        "db/error_handler_fs_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "event_logger_test",
-        "logging/event_logger_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "external_sst_file_basic_test",
-        "db/external_sst_file_basic_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "external_sst_file_test",
-        "db/external_sst_file_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "fault_injection_test",
-        "db/fault_injection_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "file_indexer_test",
-        "db/file_indexer_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "file_reader_writer_test",
-        "util/file_reader_writer_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "filelock_test",
-        "util/filelock_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "filename_test",
-        "db/filename_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "flush_job_test",
-        "db/flush_job_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "full_filter_block_test",
-        "table/block_based/full_filter_block_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "hash_table_test",
-        "utilities/persistent_cache/hash_table_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "hash_test",
-        "util/hash_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "heap_test",
-        "util/heap_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "histogram_test",
-        "monitoring/histogram_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "import_column_family_test",
-        "db/import_column_family_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "inlineskiplist_test",
-        "memtable/inlineskiplist_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "io_posix_test",
-        "env/io_posix_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "io_tracer_parser_test",
-        "tools/io_tracer_parser_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "io_tracer_test",
-        "trace_replay/io_tracer_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "iostats_context_test",
-        "monitoring/iostats_context_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "ldb_cmd_test",
-        "tools/ldb_cmd_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "listener_test",
-        "db/listener_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "log_test",
-        "db/log_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "lru_cache_test",
-        "cache/lru_cache_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "manual_compaction_test",
-        "db/manual_compaction_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "memory_allocator_test",
-        "memory/memory_allocator_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "memory_test",
-        "utilities/memory/memory_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "memtable_list_test",
-        "db/memtable_list_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "merge_helper_test",
-        "db/merge_helper_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "merge_test",
-        "db/merge_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "merger_test",
-        "table/merger_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "mock_env_test",
-        "env/mock_env_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "object_registry_test",
-        "utilities/object_registry_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "obsolete_files_test",
-        "db/obsolete_files_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "optimistic_transaction_test",
-        "utilities/transactions/optimistic_transaction_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "option_change_migration_test",
-        "utilities/option_change_migration/option_change_migration_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "options_file_test",
-        "db/options_file_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "options_settable_test",
-        "options/options_settable_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "options_test",
-        "options/options_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "options_util_test",
-        "utilities/options/options_util_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "partitioned_filter_block_test",
-        "table/block_based/partitioned_filter_block_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "perf_context_test",
-        "db/perf_context_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "periodic_work_scheduler_test",
-        "db/periodic_work_scheduler_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "persistent_cache_test",
-        "utilities/persistent_cache/persistent_cache_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "plain_table_db_test",
-        "db/plain_table_db_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "point_lock_manager_test",
-        "utilities/transactions/lock/point/point_lock_manager_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "prefetch_test",
-        "file/prefetch_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "prefix_test",
-        "db/prefix_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "random_access_file_reader_test",
-        "file/random_access_file_reader_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "random_test",
-        "util/random_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "range_del_aggregator_test",
-        "db/range_del_aggregator_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "range_locking_test",
-        "utilities/transactions/lock/range/range_locking_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "range_tombstone_fragmenter_test",
-        "db/range_tombstone_fragmenter_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "rate_limiter_test",
-        "util/rate_limiter_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "reduce_levels_test",
-        "tools/reduce_levels_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "repair_test",
-        "db/repair_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "repeatable_thread_test",
-        "util/repeatable_thread_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "ribbon_test",
-        "util/ribbon_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "sim_cache_test",
-        "utilities/simulator_cache/sim_cache_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "skiplist_test",
-        "memtable/skiplist_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "slice_test",
-        "util/slice_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "slice_transform_test",
-        "util/slice_transform_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "sst_dump_test",
-        "tools/sst_dump_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "sst_file_reader_test",
-        "table/sst_file_reader_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "statistics_test",
-        "monitoring/statistics_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "stats_history_test",
-        "monitoring/stats_history_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "stringappend_test",
-        "utilities/merge_operators/string_append/stringappend_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "table_properties_collector_test",
-        "db/table_properties_collector_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "table_test",
-        "table/table_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "testutil_test",
-        "test_util/testutil_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "thread_list_test",
-        "util/thread_list_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "thread_local_test",
-        "util/thread_local_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "timer_queue_test",
-        "util/timer_queue_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "timer_test",
-        "util/timer_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "trace_analyzer_test",
-        "tools/trace_analyzer_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "transaction_test",
-        "utilities/transactions/transaction_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "ttl_test",
-        "utilities/ttl/ttl_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "util_merge_operators_test",
-        "utilities/util_merge_operators_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "version_builder_test",
-        "db/version_builder_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "version_edit_test",
-        "db/version_edit_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "version_set_test",
-        "db/version_set_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "wal_manager_test",
-        "db/wal_manager_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "work_queue_test",
-        "util/work_queue_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "write_batch_test",
-        "db/write_batch_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "write_batch_with_index_test",
-        "utilities/write_batch_with_index/write_batch_with_index_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "write_buffer_manager_test",
-        "memtable/write_buffer_manager_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "write_callback_test",
-        "db/write_callback_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "write_controller_test",
-        "db/write_controller_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "write_prepared_transaction_test",
-        "utilities/transactions/write_prepared_transaction_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-    [
-        "write_unprepared_transaction_test",
-        "utilities/transactions/write_unprepared_transaction_test.cc",
-        "parallel",
-        [],
-        [],
-    ],
-]
+add_c_test_wrapper()
 
-# Generate a test rule for each entry in ROCKS_TESTS
-# Do not build the tests in opt mode, since SyncPoint and other test code
-# will not be included.
-[
-    cpp_unittest(
-        name = test_name,
-        srcs = [test_cc],
-        arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-        compiler_flags = ROCKSDB_COMPILER_FLAGS + extra_compiler_flags,
-        include_paths = ROCKSDB_INCLUDE_PATHS,
-        os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-        preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-        deps = [":rocksdb_test_lib"] + extra_deps,
-        external_deps = ROCKSDB_EXTERNAL_DEPS + [
-            ("googletest", None, "gtest"),
-        ],
-    )
-    for test_name, test_cc, parallelism, extra_deps, extra_compiler_flags in ROCKS_TESTS
-    if not is_opt_mode
-]
+        # Generate a test rule for each entry in ROCKS_TESTS
+        # Do not build the tests in opt mode, since SyncPoint and other test code
+        # will not be included.
+
+cpp_unittest_wrapper(name="arena_test",
+            srcs=["memory/arena_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="auto_roll_logger_test",
+            srcs=["logging/auto_roll_logger_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="autovector_test",
+            srcs=["util/autovector_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="backupable_db_test",
+            srcs=["utilities/backupable/backupable_db_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="blob_counting_iterator_test",
+            srcs=["db/blob/blob_counting_iterator_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="blob_db_test",
+            srcs=["utilities/blob_db/blob_db_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="blob_file_addition_test",
+            srcs=["db/blob/blob_file_addition_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="blob_file_builder_test",
+            srcs=["db/blob/blob_file_builder_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="blob_file_cache_test",
+            srcs=["db/blob/blob_file_cache_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="blob_file_garbage_test",
+            srcs=["db/blob/blob_file_garbage_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="blob_file_reader_test",
+            srcs=["db/blob/blob_file_reader_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="blob_garbage_meter_test",
+            srcs=["db/blob/blob_garbage_meter_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="block_based_filter_block_test",
+            srcs=["table/block_based/block_based_filter_block_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="block_based_table_reader_test",
+            srcs=["table/block_based/block_based_table_reader_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="block_cache_trace_analyzer_test",
+            srcs=["tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="block_cache_tracer_test",
+            srcs=["trace_replay/block_cache_tracer_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="block_fetcher_test",
+            srcs=["table/block_fetcher_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="block_test",
+            srcs=["table/block_based/block_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="bloom_test",
+            srcs=["util/bloom_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="cache_reservation_manager_test",
+            srcs=["cache/cache_reservation_manager_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="cache_simulator_test",
+            srcs=["utilities/simulator_cache/cache_simulator_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="cache_test",
+            srcs=["cache/cache_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="cassandra_format_test",
+            srcs=["utilities/cassandra/cassandra_format_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="cassandra_functional_test",
+            srcs=["utilities/cassandra/cassandra_functional_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="cassandra_row_merge_test",
+            srcs=["utilities/cassandra/cassandra_row_merge_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="cassandra_serialize_test",
+            srcs=["utilities/cassandra/cassandra_serialize_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="checkpoint_test",
+            srcs=["utilities/checkpoint/checkpoint_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="cleanable_test",
+            srcs=["table/cleanable_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="clipping_iterator_test",
+            srcs=["db/compaction/clipping_iterator_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="coding_test",
+            srcs=["util/coding_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="column_family_test",
+            srcs=["db/column_family_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="compact_files_test",
+            srcs=["db/compact_files_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="compact_on_deletion_collector_test",
+            srcs=["utilities/table_properties_collectors/compact_on_deletion_collector_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="compaction_iterator_test",
+            srcs=["db/compaction/compaction_iterator_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="compaction_job_stats_test",
+            srcs=["db/compaction/compaction_job_stats_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="compaction_job_test",
+            srcs=["db/compaction/compaction_job_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="compaction_picker_test",
+            srcs=["db/compaction/compaction_picker_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="compaction_service_test",
+            srcs=["db/compaction/compaction_service_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="comparator_db_test",
+            srcs=["db/comparator_db_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="configurable_test",
+            srcs=["options/configurable_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="corruption_test",
+            srcs=["db/corruption_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="crc32c_test",
+            srcs=["util/crc32c_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="cuckoo_table_builder_test",
+            srcs=["table/cuckoo/cuckoo_table_builder_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="cuckoo_table_db_test",
+            srcs=["db/cuckoo_table_db_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="cuckoo_table_reader_test",
+            srcs=["table/cuckoo/cuckoo_table_reader_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="customizable_test",
+            srcs=["options/customizable_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="data_block_hash_index_test",
+            srcs=["table/block_based/data_block_hash_index_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_basic_test",
+            srcs=["db/db_basic_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_blob_basic_test",
+            srcs=["db/blob/db_blob_basic_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_blob_compaction_test",
+            srcs=["db/blob/db_blob_compaction_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_blob_corruption_test",
+            srcs=["db/blob/db_blob_corruption_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_blob_index_test",
+            srcs=["db/blob/db_blob_index_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_block_cache_test",
+            srcs=["db/db_block_cache_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_bloom_filter_test",
+            srcs=["db/db_bloom_filter_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_compaction_filter_test",
+            srcs=["db/db_compaction_filter_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_compaction_test",
+            srcs=["db/db_compaction_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_dynamic_level_test",
+            srcs=["db/db_dynamic_level_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_encryption_test",
+            srcs=["db/db_encryption_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_flush_test",
+            srcs=["db/db_flush_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_inplace_update_test",
+            srcs=["db/db_inplace_update_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_io_failure_test",
+            srcs=["db/db_io_failure_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_iter_stress_test",
+            srcs=["db/db_iter_stress_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_iter_test",
+            srcs=["db/db_iter_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_iterator_test",
+            srcs=["db/db_iterator_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_kv_checksum_test",
+            srcs=["db/db_kv_checksum_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_log_iter_test",
+            srcs=["db/db_log_iter_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_logical_block_size_cache_test",
+            srcs=["db/db_logical_block_size_cache_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_memtable_test",
+            srcs=["db/db_memtable_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_merge_operand_test",
+            srcs=["db/db_merge_operand_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_merge_operator_test",
+            srcs=["db/db_merge_operator_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_options_test",
+            srcs=["db/db_options_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_properties_test",
+            srcs=["db/db_properties_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_range_del_test",
+            srcs=["db/db_range_del_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_rate_limiter_test",
+            srcs=["db/db_rate_limiter_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_secondary_test",
+            srcs=["db/db_secondary_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_sst_test",
+            srcs=["db/db_sst_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_statistics_test",
+            srcs=["db/db_statistics_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_table_properties_test",
+            srcs=["db/db_table_properties_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_tailing_iter_test",
+            srcs=["db/db_tailing_iter_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_test",
+            srcs=["db/db_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_test2",
+            srcs=["db/db_test2.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_universal_compaction_test",
+            srcs=["db/db_universal_compaction_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_wal_test",
+            srcs=["db/db_wal_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_with_timestamp_basic_test",
+            srcs=["db/db_with_timestamp_basic_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_with_timestamp_compaction_test",
+            srcs=["db/db_with_timestamp_compaction_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_write_buffer_manager_test",
+            srcs=["db/db_write_buffer_manager_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_write_test",
+            srcs=["db/db_write_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="dbformat_test",
+            srcs=["db/dbformat_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="defer_test",
+            srcs=["util/defer_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="delete_scheduler_test",
+            srcs=["file/delete_scheduler_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="deletefile_test",
+            srcs=["db/deletefile_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="dynamic_bloom_test",
+            srcs=["util/dynamic_bloom_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_library_wrapper(name="env_basic_test_lib", srcs=["env/env_basic_test.cc"], deps=[":rocksdb_test_lib"], headers=None, link_whole=False, extra_test_libs=True)
+
+cpp_unittest_wrapper(name="env_basic_test",
+            srcs=["env/env_basic_test.cc"],
+            deps=[":env_basic_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="env_logger_test",
+            srcs=["logging/env_logger_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="env_test",
+            srcs=["env/env_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="env_timed_test",
+            srcs=["utilities/env_timed_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="error_handler_fs_test",
+            srcs=["db/error_handler_fs_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="event_logger_test",
+            srcs=["logging/event_logger_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="external_sst_file_basic_test",
+            srcs=["db/external_sst_file_basic_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="external_sst_file_test",
+            srcs=["db/external_sst_file_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="fault_injection_test",
+            srcs=["db/fault_injection_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="file_indexer_test",
+            srcs=["db/file_indexer_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="file_reader_writer_test",
+            srcs=["util/file_reader_writer_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="filelock_test",
+            srcs=["util/filelock_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="filename_test",
+            srcs=["db/filename_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="flush_job_test",
+            srcs=["db/flush_job_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="full_filter_block_test",
+            srcs=["table/block_based/full_filter_block_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="hash_table_test",
+            srcs=["utilities/persistent_cache/hash_table_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="hash_test",
+            srcs=["util/hash_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="heap_test",
+            srcs=["util/heap_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="histogram_test",
+            srcs=["monitoring/histogram_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="import_column_family_test",
+            srcs=["db/import_column_family_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="inlineskiplist_test",
+            srcs=["memtable/inlineskiplist_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="io_posix_test",
+            srcs=["env/io_posix_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="io_tracer_parser_test",
+            srcs=["tools/io_tracer_parser_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="io_tracer_test",
+            srcs=["trace_replay/io_tracer_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="iostats_context_test",
+            srcs=["monitoring/iostats_context_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="ldb_cmd_test",
+            srcs=["tools/ldb_cmd_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="listener_test",
+            srcs=["db/listener_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="log_test",
+            srcs=["db/log_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="lru_cache_test",
+            srcs=["cache/lru_cache_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="manual_compaction_test",
+            srcs=["db/manual_compaction_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="memory_allocator_test",
+            srcs=["memory/memory_allocator_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="memory_test",
+            srcs=["utilities/memory/memory_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="memtable_list_test",
+            srcs=["db/memtable_list_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="merge_helper_test",
+            srcs=["db/merge_helper_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="merge_test",
+            srcs=["db/merge_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="merger_test",
+            srcs=["table/merger_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="mock_env_test",
+            srcs=["env/mock_env_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="object_registry_test",
+            srcs=["utilities/object_registry_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="obsolete_files_test",
+            srcs=["db/obsolete_files_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="optimistic_transaction_test",
+            srcs=["utilities/transactions/optimistic_transaction_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="option_change_migration_test",
+            srcs=["utilities/option_change_migration/option_change_migration_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="options_file_test",
+            srcs=["db/options_file_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="options_settable_test",
+            srcs=["options/options_settable_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="options_test",
+            srcs=["options/options_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="options_util_test",
+            srcs=["utilities/options/options_util_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="partitioned_filter_block_test",
+            srcs=["table/block_based/partitioned_filter_block_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="perf_context_test",
+            srcs=["db/perf_context_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="periodic_work_scheduler_test",
+            srcs=["db/periodic_work_scheduler_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="persistent_cache_test",
+            srcs=["utilities/persistent_cache/persistent_cache_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="plain_table_db_test",
+            srcs=["db/plain_table_db_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="point_lock_manager_test",
+            srcs=["utilities/transactions/lock/point/point_lock_manager_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="prefetch_test",
+            srcs=["file/prefetch_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="prefix_test",
+            srcs=["db/prefix_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="random_access_file_reader_test",
+            srcs=["file/random_access_file_reader_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="random_test",
+            srcs=["util/random_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="range_del_aggregator_test",
+            srcs=["db/range_del_aggregator_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="range_locking_test",
+            srcs=["utilities/transactions/lock/range/range_locking_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="range_tombstone_fragmenter_test",
+            srcs=["db/range_tombstone_fragmenter_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="rate_limiter_test",
+            srcs=["util/rate_limiter_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="reduce_levels_test",
+            srcs=["tools/reduce_levels_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="repair_test",
+            srcs=["db/repair_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="repeatable_thread_test",
+            srcs=["util/repeatable_thread_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="ribbon_test",
+            srcs=["util/ribbon_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="sim_cache_test",
+            srcs=["utilities/simulator_cache/sim_cache_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="skiplist_test",
+            srcs=["memtable/skiplist_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="slice_test",
+            srcs=["util/slice_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="slice_transform_test",
+            srcs=["util/slice_transform_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="sst_dump_test",
+            srcs=["tools/sst_dump_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="sst_file_reader_test",
+            srcs=["table/sst_file_reader_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="statistics_test",
+            srcs=["monitoring/statistics_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="stats_history_test",
+            srcs=["monitoring/stats_history_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="stringappend_test",
+            srcs=["utilities/merge_operators/string_append/stringappend_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="table_properties_collector_test",
+            srcs=["db/table_properties_collector_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="table_test",
+            srcs=["table/table_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="testutil_test",
+            srcs=["test_util/testutil_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="thread_list_test",
+            srcs=["util/thread_list_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="thread_local_test",
+            srcs=["util/thread_local_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="timer_queue_test",
+            srcs=["util/timer_queue_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="timer_test",
+            srcs=["util/timer_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="trace_analyzer_test",
+            srcs=["tools/trace_analyzer_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="transaction_test",
+            srcs=["utilities/transactions/transaction_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="ttl_test",
+            srcs=["utilities/ttl/ttl_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="util_merge_operators_test",
+            srcs=["utilities/util_merge_operators_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="version_builder_test",
+            srcs=["db/version_builder_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="version_edit_test",
+            srcs=["db/version_edit_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="version_set_test",
+            srcs=["db/version_set_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="wal_manager_test",
+            srcs=["db/wal_manager_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="work_queue_test",
+            srcs=["util/work_queue_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="write_batch_test",
+            srcs=["db/write_batch_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="write_batch_with_index_test",
+            srcs=["utilities/write_batch_with_index/write_batch_with_index_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="write_buffer_manager_test",
+            srcs=["memtable/write_buffer_manager_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="write_callback_test",
+            srcs=["db/write_callback_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="write_controller_test",
+            srcs=["db/write_controller_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="write_prepared_transaction_test",
+            srcs=["utilities/transactions/write_prepared_transaction_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="write_unprepared_transaction_test",
+            srcs=["utilities/transactions/write_unprepared_transaction_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
