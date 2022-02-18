@@ -26,6 +26,15 @@ namespace ROCKSDB_NAMESPACE {
 inline void RecordStats(Statistics* stats, Temperature file_temperature,
                         bool is_last_level, size_t size) {
   IOSTATS_ADD(bytes_read, size);
+  // record for last/non-last level
+  if (is_last_level) {
+    RecordTick(stats, LAST_LEVEL_READ_BYTES, size);
+    RecordTick(stats, LAST_LEVEL_READ_COUNT, 1);
+  } else {
+    RecordTick(stats, NON_LAST_LEVEL_READ_BYTES, size);
+    RecordTick(stats, NON_LAST_LEVEL_READ_COUNT, 1);
+  }
+
   // record for temperature file
   if (file_temperature != Temperature::kUnknown) {
     switch (file_temperature) {
@@ -50,14 +59,6 @@ inline void RecordStats(Statistics* stats, Temperature file_temperature,
       default:
         break;
     }
-  }
-  // record for last/non-last level
-  if (is_last_level) {
-    RecordTick(stats, LAST_LEVEL_READ_BYTES, size);
-    RecordTick(stats, LAST_LEVEL_READ_COUNT, 1);
-  } else {
-    RecordTick(stats, NON_LAST_LEVEL_READ_BYTES, size);
-    RecordTick(stats, NON_LAST_LEVEL_READ_COUNT, 1);
   }
 }
 
