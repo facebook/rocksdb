@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 
+#include "db/db_test_util.h"
 #include "db/version_edit.h"
 #include "db/version_set.h"
 #include "rocksdb/advanced_options.h"
@@ -1683,10 +1684,10 @@ TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
   UpdateVersionStorageInfo(&new_vstorage);
 
   VersionBuilder version_builder2(env_options, &ioptions_, table_cache,
-                                 &new_vstorage, version_set);
+                                  &new_vstorage, version_set);
   VersionStorageInfo new_vstorage2(&icmp_, ucmp_, options_.num_levels,
-                                  kCompactionStyleLevel, nullptr,
-                                  true /* force_consistency_checks */);
+                                   kCompactionStyleLevel, nullptr,
+                                   true /* force_consistency_checks */);
   ASSERT_NOK(version_builder2.Apply(&version_edit));
 
   UnrefFilesInVersion(&new_vstorage);
@@ -1703,10 +1704,8 @@ TEST_F(VersionBuilderTest, EstimatedActiveKeys) {
   for (uint32_t i = 0; i < kNumFiles; ++i) {
     Add(static_cast<int>(i / kFilesPerLevel), i + 1,
         ToString((i + 100) * 1000).c_str(),
-        ToString((i + 100) * 1000 + 999).c_str(),
-        100U,  0, 100, 100,
-        kEntriesPerFile, kDeletionsPerFile,
-        (i < kTotalSamples));
+        ToString((i + 100) * 1000 + 999).c_str(), 100U, 0, 100, 100,
+        kEntriesPerFile, kDeletionsPerFile, (i < kTotalSamples));
   }
   // minus 2X for the number of deletion entries because:
   // 1x for deletion entry does not count as a data entry.
@@ -1715,6 +1714,94 @@ TEST_F(VersionBuilderTest, EstimatedActiveKeys) {
             (kEntriesPerFile - 2 * kDeletionsPerFile) * kNumFiles);
 }
 
+class FilePreloadTest : public DBTestBase {
+ public:
+  FilePreloadTest() : DBTestBase("/file_preload_test", /*env_do_fsync=*/true) {}
+};
+
+TEST_F(FilePreloadTest, PreloadCaching) {
+  // create a DB with 3 files
+  ASSERT_OK(Put("key", "val"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key3", "val3"));
+  ASSERT_OK(Flush());
+
+  DBImpl* db_impl = dbfull();
+  Cache* table_cache = db_impl->TEST_table_cache();
+
+  ASSERT_EQ(table_cache->GetUsage(), 3) << "with preload: failed";
+  table_cache->EraseUnRefEntries();
+  ASSERT_EQ(table_cache->GetUsage(), 3) << "with pinning: failed";
+
+  Options new_options = GetOptions(kPreloadWithoutPinning);
+  Reopen(new_options);
+  db_impl = dbfull();
+  table_cache = db_impl->TEST_table_cache();
+
+  ASSERT_EQ(table_cache->GetUsage(), 3) << "without preload: failed";
+  table_cache->EraseUnRefEntries();
+  ASSERT_EQ(table_cache->GetUsage(), 0) << "without pinning: should not happen";
+
+  new_options = GetOptions(kPreloadDisabled);
+  Reopen(new_options);
+  db_impl = dbfull();
+  table_cache = db_impl->TEST_table_cache();
+
+  ASSERT_EQ(table_cache->GetUsage(), 0)
+      << "disabled preload: should not happen";
+  table_cache->EraseUnRefEntries();
+  ASSERT_EQ(table_cache->GetUsage(), 0)
+      << "disabled pinning:  should not happen";
+}
+
+#ifndef ROCKSDB_LITE
+// lite does not support GetColumnFamilyMetaData()
+
+TEST_F(FilePreloadTest, PreloadCorruption) {
+  // create a DB with 3 files
+  ASSERT_OK(Put("key", "val"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key3", "val3"));
+  ASSERT_OK(Flush());
+
+  DBImpl* db_impl = dbfull();
+  Cache* table_cache = db_impl->TEST_table_cache();
+
+  ASSERT_EQ(table_cache->GetUsage(), 3);
+  table_cache->EraseUnRefEntries();
+  ASSERT_EQ(table_cache->GetUsage(), 3);
+
+  Options new_options = GetOptions(kDefault);
+  ASSERT_OK(TryReopen(new_options));
+  db_impl = dbfull();
+  table_cache = db_impl->TEST_table_cache();
+
+  ASSERT_EQ(table_cache->GetUsage(), 3);
+  table_cache->EraseUnRefEntries();
+  ASSERT_EQ(table_cache->GetUsage(), 3);
+
+  // find name of txn file
+  //  must corrupt file of same size to bypass paranoid_checks fail
+  ColumnFamilyMetaData meta;
+  db_->GetColumnFamilyMetaData(&meta);
+  // name starts with slash
+  std::string fail_file =
+      meta.levels[0].files[0].db_path + meta.levels[0].files[0].name;
+  std::string garbage(meta.levels[0].files[0].size, '@');
+  ASSERT_OK(WriteStringToFile(db_->GetEnv(), garbage, fail_file, true));
+
+  ASSERT_NOK(TryReopen(new_options))
+      << "reopen should fail with corrupted .sst";
+
+  new_options = GetOptions(kPreloadDisabled);
+  ASSERT_OK(TryReopen(new_options))
+      << "reopen should fail with preload disabled";
+}
+#endif
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

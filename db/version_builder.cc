@@ -1146,6 +1146,11 @@ class VersionBuilder::Rep {
     bool always_load = (table_cache_capacity == TableCache::kInfiniteCapacity);
     size_t max_load = port::kMaxSizet;
 
+    if (FilePreload::kFilePreloadDisabled == ioptions_->file_preload) {
+      max_load = 0;
+      always_load = true;
+    }
+
     if (!always_load) {
       // If it is initial loading and not set to always loading all the
       // files, we only load up to kInitialLoadLimit files, to limit the
@@ -1173,27 +1178,12 @@ class VersionBuilder::Rep {
       }
     }
 
-    // <file metadata, level>
+    std::atomic<size_t> next_file_meta_idx(0);
     std::vector<std::pair<FileMetaData*, int>> files_meta;
     std::vector<Status> statuses;
-    for (int level = 0; level < num_levels_; level++) {
-      for (auto& file_meta_pair : levels_[level].added_files) {
-        auto* file_meta = file_meta_pair.second;
-        // If the file has been opened before, just skip it.
-        if (!file_meta->table_reader_handle) {
-          files_meta.emplace_back(file_meta, level);
-          statuses.emplace_back(Status::OK());
-        }
-        if (files_meta.size() >= max_load) {
-          break;
-        }
-      }
-      if (files_meta.size() >= max_load) {
-        break;
-      }
-    }
 
-    std::atomic<size_t> next_file_meta_idx(0);
+    // function called by multiple threads via loop
+    //  that follows when preloading active
     std::function<void()> load_handlers_func([&]() {
       while (true) {
         size_t file_idx = next_file_meta_idx.fetch_add(1);
@@ -1211,30 +1201,64 @@ class VersionBuilder::Rep {
             internal_stats->GetFileReadHist(level), false, level,
             prefetch_index_and_filter_in_cache, max_file_size_for_l0_meta_pin,
             file_meta->temperature);
+
+        // The code is attempting two things:
+        //  1. preload / warm the table cache with new file objects
+        //  2. create higher performance via a cache lookup avoidance
+        // The issue is that number 2 creates permanent objects in the
+        //  table cache which over time are no longer useful.  The
+        //  kFilePreloadWithoutPinning option keeps #1 and disables #2.
         if (file_meta->table_reader_handle != nullptr) {
-          // Load table_reader
-          file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(
-              file_meta->table_reader_handle);
+          if (ioptions_->file_preload == kFilePreloadWithPinning) {
+            file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(
+                file_meta->table_reader_handle);
+          } else {  // kFilePreloadWithoutPinning
+            table_cache_->ReleaseHandle(file_meta->table_reader_handle);
+            file_meta->table_reader_handle = nullptr;
+          }
         }
       }
     });
 
-    std::vector<port::Thread> threads;
-    for (int i = 1; i < max_threads; i++) {
-      threads.emplace_back(load_handlers_func);
-    }
-    load_handlers_func();
-    for (auto& t : threads) {
-      t.join();
-    }
     Status ret;
-    for (const auto& s : statuses) {
-      if (!s.ok()) {
-        if (ret.ok()) {
-          ret = s;
+    // Threaded preloading
+    if (max_load > 0) {
+      // <file metadata, level>
+      for (int level = 0; level < num_levels_; level++) {
+        for (auto& file_meta_pair : levels_[level].added_files) {
+          auto* file_meta = file_meta_pair.second;
+          // If the file has been opened before, just skip it.
+          if (!file_meta->table_reader_handle) {
+            files_meta.emplace_back(file_meta, level);
+            statuses.emplace_back(Status::OK());
+          }
+          if (files_meta.size() >= max_load) {
+            break;
+          }
+        }
+        if (files_meta.size() >= max_load) {
+          break;
+        }
+      }
+
+      std::vector<port::Thread> threads;
+      for (int i = 1; i < max_threads; i++) {
+        threads.emplace_back(load_handlers_func);
+      }
+      load_handlers_func();
+      for (auto& t : threads) {
+        t.join();
+      }
+
+      for (const auto& s : statuses) {
+        if (!s.ok()) {
+          if (ret.ok()) {
+            ret = s;
+          }
         }
       }
     }
+
     return ret;
   }
 };

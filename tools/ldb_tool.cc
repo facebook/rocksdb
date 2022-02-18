@@ -53,6 +53,8 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
              " : Try to load option file from DB.\n");
   ret.append("  --" + LDBCommand::ARG_DISABLE_CONSISTENCY_CHECKS +
              " : Set options.force_consistency_checks = false.\n");
+  ret.append("  --" + LDBCommand::ARG_FILE_PRELOAD +
+             " : Set options.file_preload = <int, 0,1,2.\n");
   ret.append("  --" + LDBCommand::ARG_IGNORE_UNKNOWN_OPTIONS +
              " : Ignore unknown options when loading option file.\n");
   ret.append("  --" + LDBCommand::ARG_BLOOM_BITS + "=<int,e.g.:14>\n");

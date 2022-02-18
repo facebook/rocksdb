@@ -534,7 +534,8 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
       // Install new version
       v->PrepareAppend(
           *cfd->GetLatestMutableCFOptions(),
-          !(version_set_->db_options_->skip_stats_update_on_db_open));
+          !(version_set_->db_options_->skip_stats_update_on_db_open ||
+            kFilePreloadDisabled == cfd->ioptions()->file_preload));
       version_set_->AppendVersion(cfd, v);
     } else {
       delete v;
@@ -808,7 +809,8 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     if (s.ok()) {
       version->PrepareAppend(
           *cfd->GetLatestMutableCFOptions(),
-          !version_set_->db_options_->skip_stats_update_on_db_open);
+          !(version_set_->db_options_->skip_stats_update_on_db_open ||
+            kFilePreloadDisabled == cfd->ioptions()->file_preload));
       auto v_iter = versions_.find(cfd->GetID());
       if (v_iter != versions_.end()) {
         delete v_iter->second;

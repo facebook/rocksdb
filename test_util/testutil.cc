@@ -342,6 +342,7 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->optimize_filters_for_hits = rnd->Uniform(2);
   cf_opt->paranoid_file_checks = rnd->Uniform(2);
   cf_opt->force_consistency_checks = rnd->Uniform(2);
+  cf_opt->file_preload = (FilePreload)(rnd->Uniform(3));
   cf_opt->compaction_options_fifo.allow_compaction = rnd->Uniform(2);
   cf_opt->memtable_whole_key_filtering = rnd->Uniform(2);
   cf_opt->enable_blob_files = rnd->Uniform(2);

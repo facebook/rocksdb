@@ -222,9 +222,8 @@ Status SstFileDumper::CalculateCompressedTableSize(
   table_options.block_size = block_size;
   BlockBasedTableFactory block_based_tf(table_options);
   std::unique_ptr<TableBuilder> table_builder;
-  table_builder.reset(block_based_tf.NewTableBuilder(
-      tb_options,
-      dest_writer.get()));
+  table_builder.reset(
+      block_based_tf.NewTableBuilder(tb_options, dest_writer.get()));
   std::unique_ptr<InternalIterator> iter(table_reader_->NewIterator(
       read_options_, moptions_.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kSSTDumpTool));

@@ -593,6 +593,8 @@ class OptionTypeInfo {
 
   bool IsStruct() const { return (type_ == OptionType::kStruct); }
 
+  bool IsVector() const { return (type_ == OptionType::kVector); }
+
   bool IsConfigurable() const {
     return (type_ == OptionType::kConfigurable ||
             type_ == OptionType::kCustomizable);
