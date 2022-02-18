@@ -3110,15 +3110,63 @@ TEST_F(EnvTest, CreateCompositeEnv) {
 }
 #endif  // ROCKSDB_LITE
 
+// Forward declaration.
+class AsyncReadFS;
+
+class AsynReadRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
+ public:
+  AsynReadRandomAccessFile(std::unique_ptr<FSRandomAccessFile>& file)
+      : FSRandomAccessFileOwnerWrapper(std::move(file)) {}
+
+  IOStatus ReadAsync(FSReadRequest* req, const IOOptions& opts,
+                     std::function<void(const FSReadResponse&, void*)> cb,
+                     void* cb_arg, IOHandle* io_handle,
+                     IODebugContext* dbg) override {
+    target()->ReadAsync(req, opts, cb, cb_arg, io_handle, dbg);
+    // TODO akanksha: create a thread that will submit the request to create
+    // asynchronous read call and then Poll will join the thread.
+    return IOStatus::OK();
+  }
+
+ private:
+  // AsyncReadFS& fs_;
+  std::unique_ptr<FSRandomAccessFile> file_;
+};
+
+class AsyncReadFS : public FileSystemWrapper {
+ public:
+  explicit AsyncReadFS(const std::shared_ptr<FileSystem>& wrapped)
+      : FileSystemWrapper(wrapped) {}
+
+  static const char* kClassName() { return "AsyncReadFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> file;
+    IOStatus s;
+    s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+    result->reset(new AsynReadRandomAccessFile(file));
+    return s;
+  }
+
+ private:
+};
+
 class TestAsyncRead : public testing::Test {
  public:
   TestAsyncRead() { env_ = Env::Default(); }
-
   Env* env_;
 };
 
 // Tests the default implementation of ReadAsync API.
 TEST_F(TestAsyncRead, ReadAsync) {
+  std::shared_ptr<AsyncReadFS> fs =
+      std::make_shared<AsyncReadFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+
   EnvOptions soptions;
   std::string fname = test::PerThreadDBPath(env_, "testfile");
 
@@ -3128,8 +3176,8 @@ TEST_F(TestAsyncRead, ReadAsync) {
   // 1. create & write to a file.
   {
     std::unique_ptr<FSWritableFile> wfile;
-    ASSERT_OK(Env::Default()->GetFileSystem()->NewWritableFile(
-        fname, FileOptions(), &wfile, nullptr /*dbg*/));
+    ASSERT_OK(env->GetFileSystem()->NewWritableFile(fname, FileOptions(),
+                                                    &wfile, nullptr /*dbg*/));
 
     for (size_t i = 0; i < kNumSectors; ++i) {
       auto data = NewAligned(kSectorSize * 8, static_cast<char>(i + 1));
@@ -3141,53 +3189,31 @@ TEST_F(TestAsyncRead, ReadAsync) {
   // 2. Read file.
   {
     std::unique_ptr<FSRandomAccessFile> file;
-    ASSERT_OK(Env::Default()->GetFileSystem()->NewRandomAccessFile(
+    ASSERT_OK(env->GetFileSystem()->NewRandomAccessFile(
         fname, FileOptions(), &file, nullptr /*dbg*/));
     IOOptions opts;
 
-    InstrumentedMutex mutex;
-    int offset = 0;
-    int j = 0;
-
     // callback function
-    std::function<void(FSReadResponse * resp, void* cb_arg)> callback =
-        [&](FSReadResponse* resp, void* cb_arg) {
-          int i = *reinterpret_cast<int*>(cb_arg);
-          ASSERT_EQ(resp->offset, i * kSectorSize);
+    std::function<void(const FSReadResponse&, void*)> callback =
+        [&](const FSReadResponse& resp, void* cb_arg) {
+          size_t i = *reinterpret_cast<size_t*>(cb_arg);
+          ASSERT_EQ(resp.offset, i * kSectorSize);
           auto buf = NewAligned(kSectorSize * 8, static_cast<char>(i + 1));
           Slice expected_data(buf.get(), kSectorSize);
-          ASSERT_OK(resp->status);
-          ASSERT_EQ(expected_data.ToString(), resp->result.ToString());
+          ASSERT_OK(resp.status);
+          ASSERT_EQ(expected_data.ToString(), resp.result.ToString());
         };
 
-    // submit the read requests.
-    std::function<void()> submit_request = [&]() {
-      FSReadRequest req;
-      void* cb_arg = nullptr;
-      int x;
-      {
-        InstrumentedMutexLock lock(&mutex);
-        req.offset = offset;
-        offset += kSectorSize;
-        x = j;
-        // cb_arg is used to identify requests at user side.
-        cb_arg = (void*)(&x);
-        j++;
-      }
-      req.len = kSectorSize;
-      req.scratch = NewAligned(kSectorSize * 8, 0).get();
-      ASSERT_OK(file->ReadAsync(&req, opts, callback, cb_arg,
-                                nullptr /*io_handle*/, nullptr /*dbg*/));
-    };
-
-    std::vector<port::Thread> threads;
-
     for (size_t i = 0; i < kNumSectors; i++) {
-      threads.emplace_back(submit_request);
-    }
-
-    for (auto& t : threads) {
-      t.join();
+      IOHandle io_handle;
+      FSReadRequest req;
+      req.offset = i * kSectorSize;
+      req.len = kSectorSize;
+      size_t x = i;
+      void* cb_arg = (void*)(&x);
+      req.scratch = NewAligned(kSectorSize * 8, 0).get();
+      ASSERT_OK(file->ReadAsync(&req, opts, callback, cb_arg, &io_handle,
+                                nullptr /*dbg*/));
     }
   }
 }

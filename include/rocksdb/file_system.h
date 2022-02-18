@@ -741,8 +741,10 @@ struct FSReadRequest {
 
   // A buffer that MultiRead()  can optionally place data in. It can
   // ignore this and allocate its own buffer.
-  // The lifecycle of scratch should be until IO is completed. In case of
-  // asynchronous reads, it should be maintained until callback has been called.
+  // The lifecycle of scratch will be until IO is completed. In case of
+  // asynchronous reads, it will be maintained until callback has been called.
+  // Scratch is allocated in RocksDB and will be passed to underlying
+  // FileSystem.
   char* scratch;
 
   // Output parameter set by MultiRead() to point to the data buffer, and
@@ -879,16 +881,16 @@ class FSRandomAccessFile {
   // structure to the callback.
   //
   // Default implementation is to read the data synchronously.
-  virtual IOStatus ReadAsync(FSReadRequest* req, const IOOptions& opts,
-                             std::function<void(FSReadResponse*, void*)> cb,
-                             void* cb_arg, IOHandle* /*io_handle*/,
-                             IODebugContext* dbg) {
+  virtual IOStatus ReadAsync(
+      FSReadRequest* req, const IOOptions& opts,
+      std::function<void(const FSReadResponse&, void*)> cb, void* cb_arg,
+      IOHandle* /*io_handle*/, IODebugContext* dbg) {
     assert(req != nullptr);
     FSReadResponse resp;
     resp.offset = req->offset;
     resp.status =
         Read(req->offset, req->len, opts, &(resp.result), req->scratch, dbg);
-    cb(&resp, cb_arg);
+    cb(resp, cb_arg);
     return IOStatus::OK();
   }
 
@@ -1564,7 +1566,7 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
     return target_->InvalidateCache(offset, length);
   }
   IOStatus ReadAsync(FSReadRequest* req, const IOOptions& opts,
-                     std::function<void(FSReadResponse*, void*)> cb,
+                     std::function<void(const FSReadResponse&, void*)> cb,
                      void* cb_arg, IOHandle* io_handle,
                      IODebugContext* dbg) override {
     return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, dbg);
