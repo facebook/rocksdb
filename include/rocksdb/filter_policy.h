@@ -85,7 +85,7 @@ struct FilterBuildingContext {
 // defer to other built-in policies (see NewBloomFilterPolicy and
 // NewRibbonFilterPolicy) based on the context provided to
 // GetBuilderWithContext.
- class FilterPolicy : public Customizable {
+class FilterPolicy : public Customizable {
  public:
   virtual ~FilterPolicy();
   static const char* Type() { return "FilterPolicy"; }
