@@ -47,7 +47,8 @@ static std::string RandomSkewedString(int i, Random* rnd) {
 // Param type is tuple<int, bool>
 // get<0>(tuple): non-zero if recycling log, zero if regular log
 // get<1>(tuple): true if allow retry after read EOF, false otherwise
-class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
+class LogTest
+    : public ::testing::TestWithParam<std::tuple<int, bool, CompressionType>> {
  private:
   class StringSource : public FSSequentialFile {
    public:
@@ -143,23 +144,27 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
   test::StringSink* sink_;
   StringSource* source_;
   ReportCollector report_;
-  std::unique_ptr<Writer> writer_;
-  std::unique_ptr<Reader> reader_;
 
  protected:
+  std::unique_ptr<Writer> writer_;
+  std::unique_ptr<Reader> reader_;
   bool allow_retry_read_;
+  CompressionType compression_type_;
 
  public:
   LogTest()
       : reader_contents_(),
         sink_(new test::StringSink(&reader_contents_)),
         source_(new StringSource(reader_contents_, !std::get<1>(GetParam()))),
-        allow_retry_read_(std::get<1>(GetParam())) {
+        allow_retry_read_(std::get<1>(GetParam())),
+        compression_type_(std::get<2>(GetParam())) {
     std::unique_ptr<FSWritableFile> sink_holder(sink_);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(sink_holder), "" /* don't care */, FileOptions()));
-    writer_.reset(
-        new Writer(std::move(file_writer), 123, std::get<0>(GetParam())));
+    Writer* writer =
+        new Writer(std::move(file_writer), 123, std::get<0>(GetParam()), false,
+                   compression_type_);
+    writer_.reset(writer);
     std::unique_ptr<FSSequentialFile> source_holder(source_);
     std::unique_ptr<SequentialFileReader> file_reader(
         new SequentialFileReader(std::move(source_holder), "" /* file name */));
@@ -676,11 +681,11 @@ TEST_P(LogTest, Recycle) {
   ASSERT_EQ("EOF", Read());
 }
 
-INSTANTIATE_TEST_CASE_P(bool, LogTest,
-                        ::testing::Values(std::make_tuple(0, false),
-                                          std::make_tuple(0, true),
-                                          std::make_tuple(1, false),
-                                          std::make_tuple(1, true)));
+// Do NOT enable compression for this instantiation.
+INSTANTIATE_TEST_CASE_P(
+    Log, LogTest,
+    ::testing::Combine(::testing::Values(0, 1), ::testing::Bool(),
+                       ::testing::Values(CompressionType::kNoCompression)));
 
 class RetriableLogTest : public ::testing::TestWithParam<int> {
  private:
@@ -891,6 +896,27 @@ TEST_P(RetriableLogTest, NonBlockingReadFullRecord) {
 }
 
 INSTANTIATE_TEST_CASE_P(bool, RetriableLogTest, ::testing::Values(0, 2));
+
+class CompressionLogTest : public LogTest {
+ public:
+  Status SetupTestEnv() { return writer_->AddCompressionTypeRecord(); }
+};
+
+TEST_P(CompressionLogTest, Empty) {
+  ASSERT_OK(SetupTestEnv());
+  const bool compression_enabled =
+      std::get<2>(GetParam()) == kNoCompression ? false : true;
+  // If WAL compression is enabled, a record is added for the compression type
+  const int compression_record_size = compression_enabled ? kHeaderSize + 4 : 0;
+  ASSERT_EQ(compression_record_size, WrittenBytes());
+  ASSERT_EQ("EOF", Read());
+}
+
+INSTANTIATE_TEST_CASE_P(
+    Compression, CompressionLogTest,
+    ::testing::Combine(::testing::Values(0, 1), ::testing::Bool(),
+                       ::testing::Values(CompressionType::kNoCompression,
+                                         CompressionType::kZSTD)));
 
 }  // namespace log
 }  // namespace ROCKSDB_NAMESPACE

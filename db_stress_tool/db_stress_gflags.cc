@@ -453,6 +453,12 @@ DEFINE_bool(
     ROCKSDB_NAMESPACE::BlockBasedTableOptions().optimize_filters_for_memory,
     "Minimize memory footprint of filters");
 
+DEFINE_bool(
+    detect_filter_construct_corruption,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+        .detect_filter_construct_corruption,
+    "Detect corruption during new Bloom Filter and Ribbon Filter construction");
+
 DEFINE_int32(
     index_type,
     static_cast<int32_t>(
@@ -539,6 +545,10 @@ DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 
 DEFINE_bool(rate_limit_bg_reads, false,
             "Use options.rate_limiter on compaction reads");
+
+DEFINE_bool(rate_limit_user_ops, false,
+            "When true use Env::IO_USER priority level to charge internal rate "
+            "limiter for reads associated with user operations.");
 
 DEFINE_uint64(sst_file_manager_bytes_per_sec, 0,
               "Set `Options::sst_file_manager` to delete at this rate. By "

@@ -50,7 +50,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
-#include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/debug.h"
@@ -149,6 +149,7 @@ DECLARE_bool(use_block_based_filter);
 DECLARE_int32(ribbon_starting_level);
 DECLARE_bool(partition_filters);
 DECLARE_bool(optimize_filters_for_memory);
+DECLARE_bool(detect_filter_construct_corruption);
 DECLARE_int32(index_type);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
@@ -174,6 +175,7 @@ DECLARE_double(max_bytes_for_level_multiplier);
 DECLARE_int32(range_deletion_width);
 DECLARE_uint64(rate_limiter_bytes_per_sec);
 DECLARE_bool(rate_limit_bg_reads);
+DECLARE_bool(rate_limit_user_ops);
 DECLARE_uint64(sst_file_manager_bytes_per_sec);
 DECLARE_uint64(sst_file_manager_bytes_per_truncate);
 DECLARE_bool(use_txn);
@@ -407,17 +409,15 @@ inline bool GetNextPrefix(const ROCKSDB_NAMESPACE::Slice& src, std::string* v) {
 #pragma warning(pop)
 #endif
 
-// convert long to a big-endian slice key
-extern inline std::string GetStringFromInt(int64_t val) {
-  std::string little_endian_key;
-  std::string big_endian_key;
-  PutFixed64(&little_endian_key, val);
-  assert(little_endian_key.size() == sizeof(val));
-  big_endian_key.resize(sizeof(val));
-  for (size_t i = 0; i < sizeof(val); ++i) {
-    big_endian_key[i] = little_endian_key[sizeof(val) - 1 - i];
+// Append `val` to `*key` in fixed-width big-endian format
+extern inline void AppendIntToString(uint64_t val, std::string* key) {
+  // PutFixed64 uses little endian
+  PutFixed64(key, val);
+  // Reverse to get big endian
+  char* int_data = &((*key)[key->size() - sizeof(uint64_t)]);
+  for (size_t i = 0; i < sizeof(uint64_t) / 2; ++i) {
+    std::swap(int_data[i], int_data[sizeof(uint64_t) - 1 - i]);
   }
-  return big_endian_key;
 }
 
 // A struct for maintaining the parameters for generating variable length keys
@@ -443,13 +443,22 @@ extern inline std::string Key(int64_t val) {
   uint64_t window = key_gen_ctx.window;
   size_t levels = key_gen_ctx.weights.size();
   std::string key;
+  // Over-reserve and for now do not bother `shrink_to_fit()` since the key
+  // strings are transient.
+  key.reserve(FLAGS_max_key_len * 8);
 
+  uint64_t window_idx = static_cast<uint64_t>(val) / window;
+  uint64_t offset = static_cast<uint64_t>(val) % window;
   for (size_t level = 0; level < levels; ++level) {
     uint64_t weight = key_gen_ctx.weights[level];
-    uint64_t offset = static_cast<uint64_t>(val) % window;
-    uint64_t mult = static_cast<uint64_t>(val) / window;
-    uint64_t pfx = mult * weight + (offset >= weight ? weight - 1 : offset);
-    key.append(GetStringFromInt(pfx));
+    uint64_t pfx;
+    if (level == 0) {
+      pfx = window_idx * weight;
+    } else {
+      pfx = 0;
+    }
+    pfx += offset >= weight ? weight - 1 : offset;
+    AppendIntToString(pfx, &key);
     if (offset < weight) {
       // Use the bottom 3 bits of offset as the number of trailing 'x's in the
       // key. If the next key is going to be of the next level, then skip the
@@ -461,8 +470,7 @@ extern inline std::string Key(int64_t val) {
       }
       break;
     }
-    val = offset - weight;
-    window -= weight;
+    offset -= weight;
   }
 
   return key;

@@ -694,18 +694,21 @@ TEST_F(DBBlobBasicTest, Properties) {
   constexpr char key3[] = "key3";
   constexpr size_t key3_size = sizeof(key3) - 1;
 
-  constexpr char blob[] = "0000000000";
+  constexpr char blob[] = "00000000000000";
   constexpr size_t blob_size = sizeof(blob) - 1;
 
+  constexpr char longer_blob[] = "00000000000000000000";
+  constexpr size_t longer_blob_size = sizeof(longer_blob) - 1;
+
   ASSERT_OK(Put(key1, blob));
-  ASSERT_OK(Put(key2, blob));
+  ASSERT_OK(Put(key2, longer_blob));
   ASSERT_OK(Flush());
 
   constexpr size_t first_blob_file_expected_size =
       BlobLogHeader::kSize +
       BlobLogRecord::CalculateAdjustmentForRecordHeader(key1_size) + blob_size +
-      BlobLogRecord::CalculateAdjustmentForRecordHeader(key2_size) + blob_size +
-      BlobLogFooter::kSize;
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(key2_size) +
+      longer_blob_size + BlobLogFooter::kSize;
 
   ASSERT_OK(Put(key3, blob));
   ASSERT_OK(Flush());
@@ -747,7 +750,12 @@ TEST_F(DBBlobBasicTest, Properties) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
 
   constexpr size_t expected_garbage_size =
-      BlobLogRecord::CalculateAdjustmentForRecordHeader(key2_size) + blob_size;
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(key2_size) +
+      longer_blob_size;
+
+  constexpr double expected_space_amp =
+      static_cast<double>(total_expected_size) /
+      (total_expected_size - expected_garbage_size);
 
   // Blob file stats
   std::string blob_stats;
@@ -757,7 +765,7 @@ TEST_F(DBBlobBasicTest, Properties) {
   oss << "Number of blob files: 2\nTotal size of blob files: "
       << total_expected_size
       << "\nTotal size of garbage in blob files: " << expected_garbage_size
-      << '\n';
+      << "\nBlob file space amplification: " << expected_space_amp << '\n';
 
   ASSERT_EQ(blob_stats, oss.str());
 }

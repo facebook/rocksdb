@@ -146,24 +146,36 @@ class DBImpl : public DB {
   // ---- Implementations of the DB interface ----
 
   using DB::Resume;
-  virtual Status Resume() override;
+  Status Resume() override;
 
   using DB::Put;
-  virtual Status Put(const WriteOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     const Slice& value) override;
+  Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, const Slice& value) override;
+  Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, const Slice& ts, const Slice& value) override;
+
   using DB::Merge;
-  virtual Status Merge(const WriteOptions& options,
-                       ColumnFamilyHandle* column_family, const Slice& key,
-                       const Slice& value) override;
+  Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
+               const Slice& key, const Slice& value) override;
   using DB::Delete;
-  virtual Status Delete(const WriteOptions& options,
-                        ColumnFamilyHandle* column_family,
-                        const Slice& key) override;
+  Status Delete(const WriteOptions& options, ColumnFamilyHandle* column_family,
+                const Slice& key) override;
+  Status Delete(const WriteOptions& options, ColumnFamilyHandle* column_family,
+                const Slice& key, const Slice& ts) override;
+
   using DB::SingleDelete;
-  virtual Status SingleDelete(const WriteOptions& options,
-                              ColumnFamilyHandle* column_family,
-                              const Slice& key) override;
+  Status SingleDelete(const WriteOptions& options,
+                      ColumnFamilyHandle* column_family,
+                      const Slice& key) override;
+  Status SingleDelete(const WriteOptions& options,
+                      ColumnFamilyHandle* column_family, const Slice& key,
+                      const Slice& ts) override;
+
+  using DB::DeleteRange;
+  Status DeleteRange(const WriteOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& begin_key,
+                     const Slice& end_key) override;
+
   using DB::Write;
   virtual Status Write(const WriteOptions& options,
                        WriteBatch* updates) override;
@@ -352,8 +364,6 @@ class DBImpl : public DB {
   virtual Status UnlockWAL() override;
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
-
-  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
 
   // IncreaseFullHistoryTsLow(ColumnFamilyHandle*, std::string) will acquire
   // and release db_mutex
@@ -954,6 +964,11 @@ class DBImpl : public DB {
 
   VersionSet* GetVersionSet() const { return versions_.get(); }
 
+  // Wait for any compaction
+  // We add a bool parameter to wait for unscheduledCompactions_ == 0, but this
+  // is only for the special test of CancelledCompactions
+  Status WaitForCompact(bool waitUnscheduled = false);
+
 #ifndef NDEBUG
   // Compact any files in the named level that overlap [*begin, *end]
   Status TEST_CompactRange(int level, const Slice* begin, const Slice* end,
@@ -1365,6 +1380,10 @@ class DBImpl : public DB {
   // to ensure that db_session_id_ gets updated every time the DB is opened
   void SetDbSessionId();
 
+  Status FailIfCfHasTs(const ColumnFamilyHandle* column_family) const;
+  Status FailIfTsSizesMismatch(const ColumnFamilyHandle* column_family,
+                               const Slice& ts) const;
+
  private:
   friend class DB;
   friend class ErrorHandler;
@@ -1517,6 +1536,7 @@ class DBImpl : public DB {
     ManualCompactionState* manual_compaction_state;  // nullptr if non-manual
     // task limiter token is requested during compaction picking.
     std::unique_ptr<TaskLimiterToken> task_token;
+    bool is_canceled = false;
   };
 
   struct CompactionArg {
@@ -2306,12 +2326,10 @@ class DBImpl : public DB {
   // DB::Open() or passed to us
   bool own_sfm_;
 
-  // Clients must periodically call SetPreserveDeletesSequenceNumber()
-  // to advance this seqnum. Default value is 0 which means ALL deletes are
-  // preserved. Note that this has no effect if DBOptions.preserve_deletes
-  // is set to false.
-  std::atomic<SequenceNumber> preserve_deletes_seqnum_;
-  const bool preserve_deletes_;
+  // Default value is 0 which means ALL deletes are
+  // preserved. Note that this has no effect if preserve_deletes is false.
+  const std::atomic<SequenceNumber> preserve_deletes_seqnum_{0};
+  const bool preserve_deletes_ = false;
 
   // Flag to check whether Close() has been called on this DB
   bool closed_;
@@ -2337,10 +2355,6 @@ class DBImpl : public DB {
 
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;
-
-  // Indicate if deprecation warning message is logged before. Will be removed
-  // soon with the deprecated feature.
-  std::atomic_bool iter_start_seqnum_deprecation_warned_{false};
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,
@@ -2385,11 +2399,10 @@ extern uint64_t PrecomputeMinLogNumberToKeepNon2PC(
 // will not depend on any WAL file. nullptr means no memtable is being flushed.
 // The function is only applicable to 2pc mode.
 extern uint64_t FindMinPrepLogReferencedByMemTable(
-    VersionSet* vset, const ColumnFamilyData* cfd_to_flush,
-    const autovector<MemTable*>& memtables_to_flush);
+    VersionSet* vset, const autovector<MemTable*>& memtables_to_flush);
 // For atomic flush.
 extern uint64_t FindMinPrepLogReferencedByMemTable(
-    VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
+    VersionSet* vset,
     const autovector<const autovector<MemTable*>*>& memtables_to_flush);
 
 // Fix user-supplied options to be reasonable
@@ -2397,6 +2410,45 @@ template <class T, class V>
 static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
   if (static_cast<V>(*ptr) > maxvalue) *ptr = maxvalue;
   if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
+}
+
+inline Status DBImpl::FailIfCfHasTs(
+    const ColumnFamilyHandle* column_family) const {
+  column_family = column_family ? column_family : DefaultColumnFamily();
+  assert(column_family);
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() > 0) {
+    std::ostringstream oss;
+    oss << "cannot call this method on column family "
+        << column_family->GetName() << " that enables timestamp";
+    return Status::InvalidArgument(oss.str());
+  }
+  return Status::OK();
+}
+
+inline Status DBImpl::FailIfTsSizesMismatch(
+    const ColumnFamilyHandle* column_family, const Slice& ts) const {
+  if (!column_family) {
+    return Status::InvalidArgument("column family handle cannot be null");
+  }
+  assert(column_family);
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (0 == ucmp->timestamp_size()) {
+    std::stringstream oss;
+    oss << "cannot call this method on column family "
+        << column_family->GetName() << " that does not enable timestamp";
+    return Status::InvalidArgument(oss.str());
+  }
+  const size_t ts_sz = ts.size();
+  if (ts_sz != ucmp->timestamp_size()) {
+    std::stringstream oss;
+    oss << "Timestamp sizes mismatch: expect " << ucmp->timestamp_size() << ", "
+        << ts_sz << " given";
+    return Status::InvalidArgument(oss.str());
+  }
+  return Status::OK();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

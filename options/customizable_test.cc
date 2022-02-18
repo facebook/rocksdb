@@ -209,31 +209,22 @@ struct SimpleOptions {
   TestCustomizable* cp = nullptr;
 };
 
-static SimpleOptions dummy_simple_options;
-template <typename T1>
-int offset_of(T1 SimpleOptions::*member) {
-  return static_cast<int>(
-      reinterpret_cast<uintptr_t>(
-          std::addressof(dummy_simple_options.*member)) -
-      reinterpret_cast<uintptr_t>(std::addressof(dummy_simple_options)));
-}
-
 static std::unordered_map<std::string, OptionTypeInfo> simple_option_info = {
 #ifndef ROCKSDB_LITE
     {"bool",
-     {offset_of(&SimpleOptions::b), OptionType::kBoolean,
+     {offsetof(struct SimpleOptions, b), OptionType::kBoolean,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"unique",
      OptionTypeInfo::AsCustomUniquePtr<TestCustomizable>(
-         offset_of(&SimpleOptions::cu), OptionVerificationType::kNormal,
+         offsetof(struct SimpleOptions, cu), OptionVerificationType::kNormal,
          OptionTypeFlags::kAllowNull)},
     {"shared",
      OptionTypeInfo::AsCustomSharedPtr<TestCustomizable>(
-         offset_of(&SimpleOptions::cs), OptionVerificationType::kNormal,
+         offsetof(struct SimpleOptions, cs), OptionVerificationType::kNormal,
          OptionTypeFlags::kAllowNull)},
     {"pointer",
      OptionTypeInfo::AsCustomRawPtr<TestCustomizable>(
-         offset_of(&SimpleOptions::cp), OptionVerificationType::kNormal,
+         offsetof(struct SimpleOptions, cp), OptionVerificationType::kNormal,
          OptionTypeFlags::kAllowNull)},
 #endif  // ROCKSDB_LITE
 };
@@ -498,6 +489,55 @@ TEST_F(CustomizableTest, BadOptionTest) {
   ASSERT_NOK(
       c1->ConfigureFromString(config_options_, "shared.id=A;A.string=b}"));
   ASSERT_OK(c1->ConfigureFromString(ignore, "shared.id=A;A.string=s}"));
+}
+
+TEST_F(CustomizableTest, FailingFactoryTest) {
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  std::unique_ptr<Configurable> c1(new SimpleConfigurable());
+  ConfigOptions ignore = config_options_;
+
+  Status s;
+  ignore.registry->AddLibrary("failing")->AddFactory<TestCustomizable>(
+      "failing",
+      [](const std::string& /*uri*/,
+         std::unique_ptr<TestCustomizable>* /*guard */, std::string* errmsg) {
+        *errmsg = "Bad Factory";
+        return nullptr;
+      });
+
+  // If we are ignoring unknown and unsupported options, will see
+  // different errors for failing versus missing
+  ignore.ignore_unknown_options = false;
+  ignore.ignore_unsupported_options = false;
+  s = c1->ConfigureFromString(ignore, "shared.id=failing");
+  ASSERT_TRUE(s.IsInvalidArgument());
+  s = c1->ConfigureFromString(ignore, "unique.id=failing");
+  ASSERT_TRUE(s.IsInvalidArgument());
+  s = c1->ConfigureFromString(ignore, "shared.id=missing");
+  ASSERT_TRUE(s.IsNotSupported());
+  s = c1->ConfigureFromString(ignore, "unique.id=missing");
+  ASSERT_TRUE(s.IsNotSupported());
+
+  // If we are ignoring unsupported options, will see
+  // errors for failing but not missing
+  ignore.ignore_unknown_options = false;
+  ignore.ignore_unsupported_options = true;
+  s = c1->ConfigureFromString(ignore, "shared.id=failing");
+  ASSERT_TRUE(s.IsInvalidArgument());
+  s = c1->ConfigureFromString(ignore, "unique.id=failing");
+  ASSERT_TRUE(s.IsInvalidArgument());
+
+  ASSERT_OK(c1->ConfigureFromString(ignore, "shared.id=missing"));
+  ASSERT_OK(c1->ConfigureFromString(ignore, "unique.id=missing"));
+
+  // If we are ignoring unknown options, will see no errors
+  // for failing or missing
+  ignore.ignore_unknown_options = true;
+  ignore.ignore_unsupported_options = false;
+  ASSERT_OK(c1->ConfigureFromString(ignore, "shared.id=failing"));
+  ASSERT_OK(c1->ConfigureFromString(ignore, "unique.id=failing"));
+  ASSERT_OK(c1->ConfigureFromString(ignore, "shared.id=missing"));
+  ASSERT_OK(c1->ConfigureFromString(ignore, "unique.id=missing"));
 }
 
 // Tests that different IDs lead to different objects

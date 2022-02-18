@@ -47,6 +47,45 @@ class DBMergeOperandTest : public DBTestBase {
       : DBTestBase("db_merge_operand_test", /*env_do_fsync=*/true) {}
 };
 
+TEST_F(DBMergeOperandTest, MergeOperandReadAfterFreeBug) {
+  // There was a bug of reading merge operands after they are mistakely freed
+  // in DB::GetMergeOperands, which is surfaced by cache full.
+  // See PR#9507 for more.
+  Options options;
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.env = env_;
+  BlockBasedTableOptions table_options;
+
+  // Small cache to simulate cache full
+  table_options.block_cache = NewLRUCache(1);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  Reopen(options);
+  int num_records = 4;
+  int number_of_operands = 0;
+  std::vector<PinnableSlice> values(num_records);
+  GetMergeOperandsOptions merge_operands_info;
+  merge_operands_info.expected_max_number_of_operands = num_records;
+
+  ASSERT_OK(Merge("k1", "v1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k1", "v2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k1", "v3"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k1", "v4"));
+
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k1", values.data(), &merge_operands_info,
+                                  &number_of_operands));
+  ASSERT_EQ(number_of_operands, 4);
+  ASSERT_EQ(values[0].ToString(), "v1");
+  ASSERT_EQ(values[1].ToString(), "v2");
+  ASSERT_EQ(values[2].ToString(), "v3");
+  ASSERT_EQ(values[3].ToString(), "v4");
+}
+
 TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   Options options;
   options.create_if_missing = true;

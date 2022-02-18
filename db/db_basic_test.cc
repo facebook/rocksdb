@@ -51,6 +51,24 @@ TEST_F(DBBasicTest, OpenWhenOpen) {
   delete db2;
 }
 
+TEST_F(DBBasicTest, EnableDirectIOWithZeroBuf) {
+  if (!IsDirectIOSupported()) {
+    ROCKSDB_GTEST_BYPASS("Direct IO not supported");
+    return;
+  }
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.use_direct_io_for_flush_and_compaction = true;
+  options.writable_file_max_buffer_size = 0;
+  ASSERT_TRUE(TryReopen(options).IsInvalidArgument());
+
+  options.writable_file_max_buffer_size = 1024;
+  Reopen(options);
+  const std::unordered_map<std::string, std::string> new_db_opts = {
+      {"writable_file_max_buffer_size", "0"}};
+  ASSERT_TRUE(db_->SetDBOptions(new_db_opts).IsInvalidArgument());
+}
+
 TEST_F(DBBasicTest, UniqueSession) {
   Options options = CurrentOptions();
   std::string sid1, sid2, sid3, sid4;
@@ -1938,8 +1956,9 @@ TEST_F(DBBasicTest, MultiGetStats) {
   int total_keys = 2000;
   std::vector<std::string> keys_str(total_keys);
   std::vector<Slice> keys(total_keys);
-  std::vector<PinnableSlice> values(total_keys);
-  std::vector<Status> s(total_keys);
+  static size_t kMultiGetBatchSize = 100;
+  std::vector<PinnableSlice> values(kMultiGetBatchSize);
+  std::vector<Status> s(kMultiGetBatchSize);
   ReadOptions read_opts;
 
   Random rnd(309);
@@ -1976,15 +1995,16 @@ TEST_F(DBBasicTest, MultiGetStats) {
     }
   }
   ASSERT_OK(Flush(1));
+  MoveFilesToLevel(1, 1);
   Close();
 
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_OK(options.statistics->Reset());
 
-  db_->MultiGet(read_opts, handles_[1], total_keys, keys.data(), values.data(),
-                s.data(), false);
+  db_->MultiGet(read_opts, handles_[1], kMultiGetBatchSize, &keys[1250],
+                values.data(), s.data(), false);
 
-  ASSERT_EQ(values.size(), total_keys);
+  ASSERT_EQ(values.size(), kMultiGetBatchSize);
   HistogramData hist_data_blocks;
   HistogramData hist_index_and_filter_blocks;
   HistogramData hist_sst;
@@ -1996,16 +2016,16 @@ TEST_F(DBBasicTest, MultiGetStats) {
   options.statistics->histogramData(NUM_SST_READ_PER_LEVEL, &hist_sst);
 
   // Maximum number of blocks read from a file system in a level.
-  ASSERT_GT(hist_data_blocks.max, 0);
+  ASSERT_EQ(hist_data_blocks.max, 32);
   ASSERT_GT(hist_index_and_filter_blocks.max, 0);
   // Maximum number of sst files read from file system in a level.
-  ASSERT_GT(hist_sst.max, 0);
+  ASSERT_EQ(hist_sst.max, 2);
 
   // Minimun number of blocks read in a level.
-  ASSERT_EQ(hist_data_blocks.min, 3);
+  ASSERT_EQ(hist_data_blocks.min, 4);
   ASSERT_GT(hist_index_and_filter_blocks.min, 0);
   // Minimun number of sst files read in a level.
-  ASSERT_GT(hist_sst.max, 0);
+  ASSERT_EQ(hist_sst.min, 1);
 }
 
 // Test class for batched MultiGet with prefix extractor

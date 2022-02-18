@@ -439,15 +439,13 @@ class BlockBasedTable : public TableReader {
                            BlockCacheLookupContext* lookup_context,
                            std::unique_ptr<IndexReader>* index_reader);
 
-  bool FullFilterKeyMayMatch(const ReadOptions& read_options,
-                             FilterBlockReader* filter, const Slice& user_key,
+  bool FullFilterKeyMayMatch(FilterBlockReader* filter, const Slice& user_key,
                              const bool no_io,
                              const SliceTransform* prefix_extractor,
                              GetContext* get_context,
                              BlockCacheLookupContext* lookup_context) const;
 
-  void FullFilterKeysMayMatch(const ReadOptions& read_options,
-                              FilterBlockReader* filter, MultiGetRange* range,
+  void FullFilterKeysMayMatch(FilterBlockReader* filter, MultiGetRange* range,
                               const bool no_io,
                               const SliceTransform* prefix_extractor,
                               BlockCacheLookupContext* lookup_context) const;
@@ -505,8 +503,8 @@ class BlockBasedTable : public TableReader {
   void DumpKeyValue(const Slice& key, const Slice& value,
                     std::ostream& out_stream);
 
-  // Returns true if prefix_extractor is compatible with that used in building
-  // the table file.
+  // Returns false if prefix_extractor exists and is compatible with that used
+  // in building the table file, otherwise true.
   bool PrefixExtractorChanged(const SliceTransform* prefix_extractor) const;
 
   // A cumulative data block file read in MultiGet lower than this size will
