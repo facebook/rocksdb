@@ -47,30 +47,28 @@ struct KeyMaker {
 };
 
 // benchmark arguments:
-// 0. filter mode
+// 0. filter impl (like filter_bench -impl)
 // 1. filter config bits_per_key
 // 2. average data key length
 // 3. data entry number
 static void CustomArguments(benchmark::internal::Benchmark *b) {
-  for (int filter_mode :
-       {BloomFilterPolicy::kLegacyBloom, BloomFilterPolicy::kFastLocalBloom,
-        BloomFilterPolicy::kStandard128Ribbon}) {
+  for (int filter_impl : {0, 2, 3}) {
     for (int bits_per_key : {10, 20}) {
       for (int key_len_avg : {10, 100}) {
         for (int64_t entry_num : {1 << 10, 1 << 20}) {
-          b->Args({filter_mode, bits_per_key, key_len_avg, entry_num});
+          b->Args({filter_impl, bits_per_key, key_len_avg, entry_num});
         }
       }
     }
   }
-  b->ArgNames({"filter_mode", "bits_per_key", "key_len_avg", "entry_num"});
+  b->ArgNames({"filter_impl", "bits_per_key", "key_len_avg", "entry_num"});
 }
 
 static void FilterBuild(benchmark::State &state) {
   // setup data
-  auto filter = new BloomFilterPolicy(
-      static_cast<double>(state.range(1)),
-      static_cast<BloomFilterPolicy::Mode>(state.range(0)));
+  auto filter = BloomLikeFilterPolicy::Create(
+      BloomLikeFilterPolicy::GetAllFixedImpls().at(state.range(0)),
+      static_cast<double>(state.range(1)));
   auto tester = new mock::MockBlockBasedTableTester(filter);
   KeyMaker km(state.range(2));
   std::unique_ptr<const char[]> owner;
@@ -91,9 +89,9 @@ BENCHMARK(FilterBuild)->Apply(CustomArguments);
 
 static void FilterQueryPositive(benchmark::State &state) {
   // setup data
-  auto filter = new BloomFilterPolicy(
-      static_cast<double>(state.range(1)),
-      static_cast<BloomFilterPolicy::Mode>(state.range(0)));
+  auto filter = BloomLikeFilterPolicy::Create(
+      BloomLikeFilterPolicy::GetAllFixedImpls().at(state.range(0)),
+      static_cast<double>(state.range(1)));
   auto tester = new mock::MockBlockBasedTableTester(filter);
   KeyMaker km(state.range(2));
   std::unique_ptr<const char[]> owner;
@@ -119,9 +117,9 @@ BENCHMARK(FilterQueryPositive)->Apply(CustomArguments);
 
 static void FilterQueryNegative(benchmark::State &state) {
   // setup data
-  auto filter = new BloomFilterPolicy(
-      static_cast<double>(state.range(1)),
-      static_cast<BloomFilterPolicy::Mode>(state.range(0)));
+  auto filter = BloomLikeFilterPolicy::Create(
+      BloomLikeFilterPolicy::GetAllFixedImpls().at(state.range(0)),
+      static_cast<double>(state.range(1)));
   auto tester = new mock::MockBlockBasedTableTester(filter);
   KeyMaker km(state.range(2));
   std::unique_ptr<const char[]> owner;

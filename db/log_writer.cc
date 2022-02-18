@@ -19,12 +19,14 @@ namespace ROCKSDB_NAMESPACE {
 namespace log {
 
 Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
-               bool recycle_log_files, bool manual_flush)
+               bool recycle_log_files, bool manual_flush,
+               CompressionType compression_type)
     : dest_(std::move(dest)),
       block_offset_(0),
       log_number_(log_number),
       recycle_log_files_(recycle_log_files),
-      manual_flush_(manual_flush) {
+      manual_flush_(manual_flush),
+      compression_type_(compression_type) {
   for (int i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
     type_crc_[i] = crc32c::Value(&t, 1);
@@ -112,6 +114,31 @@ IOStatus Writer::AddRecord(const Slice& slice) {
   return s;
 }
 
+IOStatus Writer::AddCompressionTypeRecord() {
+  // Should be the first record
+  assert(block_offset_ == 0);
+
+  if (compression_type_ == kNoCompression) {
+    // No need to add a record
+    return IOStatus::OK();
+  }
+
+  CompressionTypeRecord record(compression_type_);
+  std::string encode;
+  record.EncodeTo(&encode);
+  IOStatus s =
+      EmitPhysicalRecord(kSetCompressionType, encode.data(), encode.size());
+  if (s.ok()) {
+    if (!manual_flush_) {
+      s = dest_->Flush();
+    }
+  } else {
+    // Disable compression if the record could not be added.
+    compression_type_ = kNoCompression;
+  }
+  return s;
+}
+
 bool Writer::TEST_BufferIsEmpty() { return dest_->TEST_BufferIsEmpty(); }
 
 IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
@@ -126,7 +153,7 @@ IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
   buf[6] = static_cast<char>(t);
 
   uint32_t crc = type_crc_[t];
-  if (t < kRecyclableFullType) {
+  if (t < kRecyclableFullType || t == kSetCompressionType) {
     // Legacy record format
     assert(block_offset_ + kHeaderSize + n <= kBlockSize);
     header_size = kHeaderSize;

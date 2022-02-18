@@ -363,6 +363,42 @@ struct CompactionFileInfo {
   uint64_t oldest_blob_file_number;
 };
 
+struct SubcompactionJobInfo {
+  ~SubcompactionJobInfo() { status.PermitUncheckedError(); }
+  // the id of the column family where the compaction happened.
+  uint32_t cf_id;
+  // the name of the column family where the compaction happened.
+  std::string cf_name;
+  // the status indicating whether the compaction was successful or not.
+  Status status;
+  // the id of the thread that completed this compaction job.
+  uint64_t thread_id;
+  // the job id, which is unique in the same thread.
+  int job_id;
+
+  // sub-compaction job id, which is only unique within the same compaction, so
+  // use both 'job_id' and 'subcompaction_job_id' to identify a subcompaction
+  // within an instance.
+  // For non subcompaction job, it's set to -1.
+  int subcompaction_job_id;
+  // the smallest input level of the compaction.
+  int base_input_level;
+  // the output level of the compaction.
+  int output_level;
+
+  // Reason to run the compaction
+  CompactionReason compaction_reason;
+
+  // Compression algorithm used for output files
+  CompressionType compression;
+
+  // Statistics and other additional details on the compaction
+  CompactionJobStats stats;
+
+  // Compression algorithm used for blob output files.
+  CompressionType blob_compression_type;
+};
+
 struct CompactionJobInfo {
   ~CompactionJobInfo() { status.PermitUncheckedError(); }
   // the id of the column family where the compaction happened.
@@ -375,6 +411,7 @@ struct CompactionJobInfo {
   uint64_t thread_id;
   // the job id, which is unique in the same thread.
   int job_id;
+
   // the smallest input level of the compaction.
   int base_input_level;
   // the output level of the compaction.
@@ -578,6 +615,43 @@ class EventListener : public Customizable {
   //  outside of this function.
   virtual void OnCompactionCompleted(DB* /*db*/,
                                      const CompactionJobInfo& /*ci*/) {}
+
+  // A callback function to RocksDB which will be called before a sub-compaction
+  // begins. If a compaction is split to 2 sub-compactions, it will trigger one
+  // `OnCompactionBegin()` first, then two `OnSubcompactionBegin()`.
+  // If compaction is not split, it will still trigger one
+  // `OnSubcompactionBegin()`, as internally, compaction is always handled by
+  // sub-compaction. The default implementation is a no-op.
+  //
+  // Note that this function must be implemented in a way such that
+  // it should not run for an extended period of time before the function
+  // returns.  Otherwise, RocksDB may be blocked.
+  //
+  // @param ci a reference to a CompactionJobInfo struct, it contains a
+  //  `sub_job_id` which is only unique within the specified compaction (which
+  //  can be identified by `job_id`). 'ci' is released after this function is
+  //  returned, and must be copied if it's needed outside this function.
+  //  Note: `table_properties` is not set for sub-compaction, the information
+  //  could be got from `OnCompactionBegin()`.
+  virtual void OnSubcompactionBegin(const SubcompactionJobInfo& /*si*/) {}
+
+  // A callback function to RocksDB which will be called whenever a
+  // sub-compaction completed. The same as `OnSubcompactionBegin()`, if a
+  // compaction is split to 2 sub-compactions, it will be triggered twice. If
+  // a compaction is not split, it will still be triggered once.
+  // The default implementation is a no-op.
+  //
+  // Note that this function must be implemented in a way such that
+  // it should not run for an extended period of time before the function
+  // returns.  Otherwise, RocksDB may be blocked.
+  //
+  // @param ci a reference to a CompactionJobInfo struct, it contains a
+  //  `sub_job_id` which is only unique within the specified compaction (which
+  //  can be identified by `job_id`). 'ci' is released after this function is
+  //  returned, and must be copied if it's needed outside this function.
+  //  Note: `table_properties` is not set for sub-compaction, the information
+  //  could be got from `OnCompactionCompleted()`.
+  virtual void OnSubcompactionCompleted(const SubcompactionJobInfo& /*si*/) {}
 
   // A callback function for RocksDB which will be called whenever
   // a SST file is created.  Different from OnCompactionCompleted and

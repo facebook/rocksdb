@@ -1442,6 +1442,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "db_rate_limiter_test",
+        "db/db_rate_limiter_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
         "db_secondary_test",
         "db/db_secondary_test.cc",
         "parallel",

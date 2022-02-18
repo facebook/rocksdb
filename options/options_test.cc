@@ -882,7 +882,6 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
       dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
   EXPECT_EQ(bfp->GetMillibitsPerKey(), 4567);
   EXPECT_EQ(bfp->GetWholeBitsPerKey(), 5);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kAutoBloom);
   // Verify that only the lower 32bits are stored in
   // new_opt.read_amp_bytes_per_bit.
   EXPECT_EQ(1U, new_opt.read_amp_bytes_per_bit);
@@ -936,7 +935,6 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
   EXPECT_EQ(bfp->GetMillibitsPerKey(), 4000);
   EXPECT_EQ(bfp->GetWholeBitsPerKey(), 4);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kAutoBloom);
 
   // use_block_based_builder=true now ignored in public API (same as false)
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
@@ -944,82 +942,67 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
   EXPECT_EQ(bfp->GetMillibitsPerKey(), 4000);
   EXPECT_EQ(bfp->GetWholeBitsPerKey(), 4);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kAutoBloom);
 
   // Back door way of enabling deprecated block-based Bloom
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt,
       "filter_policy=rocksdb.internal.DeprecatedBlockBasedBloomFilter:4",
       &new_opt));
-  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
-  EXPECT_EQ(bfp->GetWholeBitsPerKey(), 4);  // Only whole bits used
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kDeprecatedBlock);
+  auto builtin =
+      dynamic_cast<const BuiltinFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(builtin->GetId(),
+            "rocksdb.internal.DeprecatedBlockBasedBloomFilter:4");
 
   // Test configuring using other internal names
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt,
       "filter_policy=rocksdb.internal.LegacyBloomFilter:3", &new_opt));
-  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
-  EXPECT_EQ(bfp->GetWholeBitsPerKey(), 3);  // Only whole bits used
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kLegacyBloom);
+  builtin =
+      dynamic_cast<const BuiltinFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(builtin->GetId(), "rocksdb.internal.LegacyBloomFilter:3");
 
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt,
       "filter_policy=rocksdb.internal.FastLocalBloomFilter:1.234", &new_opt));
-  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
-  EXPECT_EQ(bfp->GetMillibitsPerKey(), 1234);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kFastLocalBloom);
+  builtin =
+      dynamic_cast<const BuiltinFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(builtin->GetId(), "rocksdb.internal.FastLocalBloomFilter:1.234");
 
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt,
       "filter_policy=rocksdb.internal.Standard128RibbonFilter:1.234",
       &new_opt));
-  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
-  EXPECT_EQ(bfp->GetMillibitsPerKey(), 1234);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
+  builtin =
+      dynamic_cast<const BuiltinFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(builtin->GetId(), "rocksdb.internal.Standard128RibbonFilter:1.234");
 
   // Ribbon filter policy (no Bloom hybrid)
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt, "filter_policy=ribbonfilter:5.678:-1;",
       &new_opt));
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
-  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
-  EXPECT_EQ(bfp->GetMillibitsPerKey(), 5678);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
+  auto rfp =
+      dynamic_cast<const RibbonFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(rfp->GetMillibitsPerKey(), 5678);
+  EXPECT_EQ(rfp->GetBloomBeforeLevel(), -1);
 
   // Ribbon filter policy (default Bloom hybrid)
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt, "filter_policy=ribbonfilter:6.789;",
       &new_opt));
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
-  auto ltfp = dynamic_cast<const LevelThresholdFilterPolicy*>(
-      new_opt.filter_policy.get());
-  EXPECT_EQ(ltfp->TEST_GetStartingLevelForB(), 0);
-
-  bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyA());
-  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kFastLocalBloom);
-
-  bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyB());
-  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
+  rfp = dynamic_cast<const RibbonFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(rfp->GetMillibitsPerKey(), 6789);
+  EXPECT_EQ(rfp->GetBloomBeforeLevel(), 0);
 
   // Ribbon filter policy (custom Bloom hybrid)
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt, "filter_policy=ribbonfilter:6.789:5;",
       &new_opt));
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
-  ltfp = dynamic_cast<const LevelThresholdFilterPolicy*>(
-      new_opt.filter_policy.get());
-  EXPECT_EQ(ltfp->TEST_GetStartingLevelForB(), 5);
-
-  bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyA());
-  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kFastLocalBloom);
-
-  bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyB());
-  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
+  rfp = dynamic_cast<const RibbonFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(rfp->GetMillibitsPerKey(), 6789);
+  EXPECT_EQ(rfp->GetBloomBeforeLevel(), 5);
 
   // Check block cache options are overwritten when specified
   // in new format as a struct.
@@ -2877,7 +2860,6 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
   bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
   EXPECT_EQ(bfp->GetMillibitsPerKey(), 4000);
   EXPECT_EQ(bfp->GetWholeBitsPerKey(), 4);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kAutoBloom);
 
   // Check block cache options are overwritten when specified
   // in new format as a struct.
