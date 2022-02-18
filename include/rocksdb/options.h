@@ -65,6 +65,10 @@ using FileTypeSet = SmallEnumSet<FileType, FileType::kBlobFile>;
 struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // The function recovers options to a previous version. Only 4.6 or later
   // versions are supported.
+  // NOT MAINTAINED: This function has not been and is not maintained.
+  // DEPRECATED: This function might be removed in a future release.
+  // In general, defaults are changed to suit broad interests. Opting
+  // out of a change on upgrade should be deliberate and considered.
   ColumnFamilyOptions* OldDefaults(int rocksdb_major_version = 4,
                                    int rocksdb_minor_version = 6);
 
@@ -427,6 +431,10 @@ class CompactionService : public Customizable {
 
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
+  // NOT MAINTAINED: This function has not been and is not maintained.
+  // DEPRECATED: This function might be removed in a future release.
+  // In general, defaults are changed to suit broad interests. Opting
+  // out of a change on upgrade should be deliberate and considered.
   DBOptions* OldDefaults(int rocksdb_major_version = 4,
                          int rocksdb_minor_version = 6);
 
