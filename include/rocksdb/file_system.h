@@ -730,43 +730,36 @@ class FSSequentialFile {
   // SequentialFileWrapper too.
 };
 
-// A read IO request structure for use in MultiRead
+// A read IO request structure for use in MultiRead and asynchronous Read APIs.
 struct FSReadRequest {
-  // File offset in bytes
+  // Input parameter that represents the file offset in bytes.
   uint64_t offset;
 
-  // Length to read in bytes. `result` only returns fewer bytes if end of file
-  // is hit (or `status` is not OK).
+  // Input parameter that represents the length to read in bytes. `result` only
+  // returns fewer bytes if end of file is hit (or `status` is not OK).
   size_t len;
 
   // A buffer that MultiRead()  can optionally place data in. It can
   // ignore this and allocate its own buffer.
-  // The lifecycle of scratch will be until IO is completed. In case of
-  // asynchronous reads, it will be maintained until callback has been called.
-  // Scratch is allocated in RocksDB and will be passed to underlying
-  // FileSystem.
+  // The lifecycle of scratch will be until IO is completed.
+  //
+  // In case of asynchronous reads, its an output parameter and it will be
+  // maintained until callback has been called. Scratch is allocated by RocksDB
+  // and will be passed to underlying FileSystem.
   char* scratch;
 
   // Output parameter set by MultiRead() to point to the data buffer, and
   // the number of valid bytes
-  Slice result;
-
-  // Status of read
-  IOStatus status;
-};
-
-// A read IO response structure for use by asynchronously Read APIs.
-struct FSReadResponse {
-  // File offset in bytes
-  uint64_t offset;
-
-  // Output parameter set by Async Read APIs to point to the data buffer, and
+  //
+  // In case of asynchronous reads, this output parameter is set by Async Read
+  // APIs to point to the data buffer, and
   // the number of valid bytes.
-  // Slice result should point to scratch of FSReadRequest i.e the data should
+  // Slice result should point to scratch i.e the data should
   // always be read into scratch.
   Slice result;
 
-  // Status of read.
+  // Output parameter set by underlying FileSystem that represents status of
+  // read request.
   IOStatus status;
 };
 
@@ -868,7 +861,7 @@ class FSRandomAccessFile {
   //
   // When the read request is completed, callback function specified in cb
   // should be called with arguments cb_arg and the result populated in
-  // FSReadResponse.
+  // FSReadRequest with result and status fileds updated by FileSystem.
   // cb_arg should be used by the callback to track the original request
   // submitted.
   //
@@ -876,21 +869,18 @@ class FSRandomAccessFile {
   // underlying FileSystem to store the context in order to distinguish the read
   // requests at their side.
   //
-  // req contains the request offset and size, but the result and status fields
-  // should be ignored. Instead, they should be passed in the FSReadResponse
-  // structure to the callback.
+  // req contains the request offset and size passed as input parameter of read
+  // request and result and status fields are output parameter set by underlying
+  // FileSystem. The data should always be read into scratch field.
   //
   // Default implementation is to read the data synchronously.
   virtual IOStatus ReadAsync(
-      FSReadRequest* req, const IOOptions& opts,
-      std::function<void(const FSReadResponse&, void*)> cb, void* cb_arg,
+      FSReadRequest& req, const IOOptions& opts,
+      std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
       IOHandle* /*io_handle*/, IODebugContext* dbg) {
-    assert(req != nullptr);
-    FSReadResponse resp;
-    resp.offset = req->offset;
-    resp.status =
-        Read(req->offset, req->len, opts, &(resp.result), req->scratch, dbg);
-    cb(resp, cb_arg);
+    req.status =
+        Read(req.offset, req.len, opts, &(req.result), req.scratch, dbg);
+    cb(req, cb_arg);
     return IOStatus::OK();
   }
 
@@ -1565,8 +1555,8 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
   IOStatus InvalidateCache(size_t offset, size_t length) override {
     return target_->InvalidateCache(offset, length);
   }
-  IOStatus ReadAsync(FSReadRequest* req, const IOOptions& opts,
-                     std::function<void(const FSReadResponse&, void*)> cb,
+  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                     std::function<void(const FSReadRequest&, void*)> cb,
                      void* cb_arg, IOHandle* io_handle,
                      IODebugContext* dbg) override {
     return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, dbg);
