@@ -218,7 +218,6 @@ def generate_targets(repo_path, deps_map):
                 TARGETS.add_fancy_bench_config(config_dict['name']+"_slow",config_dict['benchmarks'], True, config_dict['expected_runtime'])
 
     except (FileNotFoundError, KeyError):
-        print(ColorString.warning("Failed to process bench config jsons"))
         pass
 
     TARGETS.add_test_header()
