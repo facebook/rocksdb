@@ -1910,10 +1910,6 @@ static int RegisterBuiltinFilterPolicies(ObjectLibrary& library,
           .AddSuffix(":false"),
       [](const std::string& uri, std::unique_ptr<const FilterPolicy>* guard,
          std::string* /* errmsg */) {
-        // NOTE: This case previously configured the deprecated block-based
-        // filter, but old ways of configuring that now map to full filter. We
-        // defer to the corresponding API to ensure consistency in case that
-        // change is reverted.
         guard->reset(NewBuiltinFilterPolicyWithBits<BloomFilterPolicy>(uri));
         return guard->get();
       });
@@ -1925,6 +1921,10 @@ static int RegisterBuiltinFilterPolicies(ObjectLibrary& library,
          std::string* /* errmsg */) {
         const std::vector<std::string> vals = StringSplit(uri, ':');
         double bits_per_key = ParseDouble(vals[1]);
+        // NOTE: This case previously configured the deprecated block-based
+        // filter, but old ways of configuring that now map to full filter. We
+        // defer to the corresponding API to ensure consistency in case that
+        // change is reverted.
         guard->reset(NewBloomFilterPolicy(bits_per_key, true));
         return guard->get();
       });
