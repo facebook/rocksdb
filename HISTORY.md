@@ -52,13 +52,14 @@
     cache_index_and_filter_blocks=1 or partition_filters=1).
     * bits_per_key >= 0.5 and < 1.0 is still rounded up to 1.0 (for 62% FP
     rate)
+  * Remove class definitions for FilterBitsBuilder and FilterBitsReader from
+    public API, so these can evolve more easily as implementation details.
+    Custom FilterPolicy can still decide what kind of built-in filter to use
+    under what conditions.
   * Also removed deprecated functions
-    * FilterBitsBuilder::CalculateNumEntry()
     * FilterPolicy::GetFilterBitsBuilder()
     * NewExperimentalRibbonFilterPolicy()
   * Remove default implementations of
-    * FilterBitsBuilder::EstimateEntriesAdded()
-    * FilterBitsBuilder::ApproximateNumEntries()
     * FilterPolicy::GetBuilderWithContext()
 * Remove default implementation of Name() from FileSystemWrapper.
 * Rename `SizeApproximationOptions.include_memtabtles` to `SizeApproximationOptions.include_memtables`.
