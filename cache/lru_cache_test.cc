@@ -432,8 +432,9 @@ class LRUSecondaryCacheTest : public LRUCacheTest {
 
   static Cache::CacheItemHelper helper_fail_;
 
-  Cache::CreateCallback test_item_creator =
-      [&](void* buf, size_t size, void** out_obj, size_t* charge) -> Status {
+  Cache::CreateCallback test_item_creator = [&](const void* buf, size_t size,
+                                                void** out_obj,
+                                                size_t* charge) -> Status {
     if (fail_create_) {
       return Status::NotSupported();
     }

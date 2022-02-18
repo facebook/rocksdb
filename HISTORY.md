@@ -32,6 +32,7 @@
 * Remove DBOptions::preserved_deletes and DB::SetPreserveDeletesSequenceNumber().
 * Remove deprecated API AdvancedColumnFamilyOptions::rate_limit_delay_max_milliseconds.
 * Removed timestamp from WriteOptions. Accordingly, added to DB APIs Put, Delete, SingleDelete, etc. accepting an additional argument 'timestamp'. Added Put, Delete, SingleDelete, etc to WriteBatch accepting an additional argument 'timestamp'. Removed WriteBatch::AssignTimestamps(vector<Slice>) API. Renamed WriteBatch::AssignTimestamp() to WriteBatch::UpdateTimestamps() with clarified comments.
+* Changed type of cache buffer passed to `Cache::CreateCallback` from `void*` to `const void*`.
 * Significant updates to FilterPolicy-related APIs and configuration:
   * Remove public API support for deprecated, inefficient block-based filter (use_block_based_builder=true).
     * Old code and configuration strings that would enable it now quietly enable full filters instead, though any built-in FilterPolicy can still read block-based filters. This includes changing the longstanding default behavior of the Java API.
