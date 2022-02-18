@@ -42,7 +42,7 @@ class WritableFileWriter {
       const FileOperationInfo::FinishTimePoint& finish_ts,
       const IOStatus& io_status) {
     FileOperationInfo info(FileOperationType::kWrite, file_name_, start_ts,
-                           finish_ts, io_status);
+                           finish_ts, io_status, temperature_);
     info.offset = offset;
     info.length = length;
 
@@ -56,7 +56,7 @@ class WritableFileWriter {
       const FileOperationInfo::FinishTimePoint& finish_ts,
       const IOStatus& io_status) {
     FileOperationInfo info(FileOperationType::kFlush, file_name_, start_ts,
-                           finish_ts, io_status);
+                           finish_ts, io_status, temperature_);
 
     for (auto& listener : listeners_) {
       listener->OnFileFlushFinish(info);
@@ -68,7 +68,8 @@ class WritableFileWriter {
       const FileOperationInfo::FinishTimePoint& finish_ts,
       const IOStatus& io_status,
       FileOperationType type = FileOperationType::kSync) {
-    FileOperationInfo info(type, file_name_, start_ts, finish_ts, io_status);
+    FileOperationInfo info(type, file_name_, start_ts, finish_ts, io_status,
+                           temperature_);
 
     for (auto& listener : listeners_) {
       listener->OnFileSyncFinish(info);
@@ -81,7 +82,7 @@ class WritableFileWriter {
       const FileOperationInfo::FinishTimePoint& finish_ts,
       const IOStatus& io_status) {
     FileOperationInfo info(FileOperationType::kRangeSync, file_name_, start_ts,
-                           finish_ts, io_status);
+                           finish_ts, io_status, temperature_);
     info.offset = offset;
     info.length = length;
 
@@ -95,7 +96,7 @@ class WritableFileWriter {
       const FileOperationInfo::FinishTimePoint& finish_ts,
       const IOStatus& io_status) {
     FileOperationInfo info(FileOperationType::kTruncate, file_name_, start_ts,
-                           finish_ts, io_status);
+                           finish_ts, io_status, temperature_);
 
     for (auto& listener : listeners_) {
       listener->OnFileTruncateFinish(info);
@@ -107,7 +108,7 @@ class WritableFileWriter {
       const FileOperationInfo::FinishTimePoint& finish_ts,
       const IOStatus& io_status) {
     FileOperationInfo info(FileOperationType::kClose, file_name_, start_ts,
-                           finish_ts, io_status);
+                           finish_ts, io_status, temperature_);
 
     for (auto& listener : listeners_) {
       listener->OnFileCloseFinish(info);
@@ -159,6 +160,7 @@ class WritableFileWriter {
   bool perform_data_verification_;
   uint32_t buffered_data_crc32c_checksum_;
   bool buffered_data_with_checksum_;
+  Temperature temperature_;
 
  public:
   WritableFileWriter(
@@ -189,7 +191,8 @@ class WritableFileWriter {
         checksum_finalized_(false),
         perform_data_verification_(perform_data_verification),
         buffered_data_crc32c_checksum_(0),
-        buffered_data_with_checksum_(buffered_data_with_checksum) {
+        buffered_data_with_checksum_(buffered_data_with_checksum),
+        temperature_(options.temperature) {
     assert(!use_direct_io() || max_buffer_size_ > 0);
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));

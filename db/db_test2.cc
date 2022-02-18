@@ -6500,10 +6500,66 @@ TEST_P(RenameCurrentTest, Compaction) {
 }
 
 TEST_F(DBTest2, BottommostTemperature) {
+  class TestListener : public EventListener {
+   public:
+    void OnFileReadFinish(const FileOperationInfo& info) override {
+      UpdateFileTemperature(info);
+    }
+
+    void OnFileWriteFinish(const FileOperationInfo& info) override {
+      UpdateFileTemperature(info);
+    }
+
+    void OnFileFlushFinish(const FileOperationInfo& info) override {
+      UpdateFileTemperature(info);
+    }
+
+    void OnFileSyncFinish(const FileOperationInfo& info) override {
+      UpdateFileTemperature(info);
+    }
+
+    void OnFileCloseFinish(const FileOperationInfo& info) override {
+      UpdateFileTemperature(info);
+    }
+
+    bool ShouldBeNotifiedOnFileIO() override { return true; }
+
+    std::unordered_map<uint64_t, Temperature> file_temperatures;
+
+   private:
+    void UpdateFileTemperature(const FileOperationInfo& info) {
+      auto filename = GetFileName(info.path);
+      uint64_t number;
+      FileType type;
+      ASSERT_TRUE(ParseFileName(filename, &number, &type));
+      if (type == kTableFile) {
+        MutexLock l(&mutex_);
+        auto ret = file_temperatures.insert({number, info.temperature});
+        if (!ret.second) {
+          // the same file temperature should always be the same for all events
+          ASSERT_TRUE(ret.first->second == info.temperature);
+        }
+      }
+    }
+
+    std::string GetFileName(const std::string& fname) {
+      auto filename = fname.substr(fname.find_last_of(kFilePathSeparator) + 1);
+      // workaround only for Windows that the file path could contain both
+      // Windows FilePathSeparator and '/'
+      filename = filename.substr(filename.find_last_of('/') + 1);
+      return filename;
+    }
+
+    port::Mutex mutex_;
+  };
+
+  auto* listener = new TestListener();
+
   Options options = CurrentOptions();
   options.bottommost_temperature = Temperature::kWarm;
   options.level0_file_num_compaction_trigger = 2;
   options.statistics = CreateDBStatistics();
+  options.listeners.emplace_back(listener);
   Reopen(options);
 
   auto size = GetSstSizeHelper(Temperature::kUnknown);
@@ -6527,7 +6583,13 @@ TEST_F(DBTest2, BottommostTemperature) {
   ColumnFamilyMetaData metadata;
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(1, metadata.file_count);
-  ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
+  SstFileMetaData meta = metadata.levels[1].files[0];
+  ASSERT_EQ(Temperature::kWarm, meta.temperature);
+  uint64_t number;
+  FileType type;
+  ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
+  ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
+
   size = GetSstSizeHelper(Temperature::kUnknown);
   ASSERT_EQ(size, 0);
   size = GetSstSizeHelper(Temperature::kWarm);
@@ -6574,7 +6636,16 @@ TEST_F(DBTest2, BottommostTemperature) {
 
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
-  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  meta = metadata.levels[0].files[0];
+  ASSERT_EQ(Temperature::kUnknown, meta.temperature);
+  ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
+  ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
+
+  meta = metadata.levels[1].files[0];
+  ASSERT_EQ(Temperature::kWarm, meta.temperature);
+  ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
+  ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
+
   size = GetSstSizeHelper(Temperature::kUnknown);
   ASSERT_GT(size, 0);
   size = GetSstSizeHelper(Temperature::kWarm);
@@ -6584,8 +6655,15 @@ TEST_F(DBTest2, BottommostTemperature) {
   Reopen(options);
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
-  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
-  ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
+  meta = metadata.levels[0].files[0];
+  ASSERT_EQ(Temperature::kUnknown, meta.temperature);
+  ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
+  ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
+
+  meta = metadata.levels[1].files[0];
+  ASSERT_EQ(Temperature::kWarm, meta.temperature);
+  ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
+  ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
   size = GetSstSizeHelper(Temperature::kUnknown);
   ASSERT_GT(size, 0);
   size = GetSstSizeHelper(Temperature::kWarm);
@@ -6605,8 +6683,15 @@ TEST_F(DBTest2, BottommostTemperature) {
   Reopen(options);
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
-  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
-  ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
+  meta = metadata.levels[0].files[0];
+  ASSERT_EQ(Temperature::kUnknown, meta.temperature);
+  ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
+  ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
+
+  meta = metadata.levels[1].files[0];
+  ASSERT_EQ(Temperature::kWarm, meta.temperature);
+  ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
+  ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
 }
 
 TEST_F(DBTest2, BottommostTemperatureUniversal) {
