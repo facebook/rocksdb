@@ -23,8 +23,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-inline void RecordStats(Statistics* stats, Temperature file_temperature,
-                        bool is_last_level, size_t size) {
+inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
+                          bool is_last_level, size_t size) {
   IOSTATS_ADD(bytes_read, size);
   // record for last/non-last level
   if (is_last_level) {
@@ -231,7 +231,7 @@ IOStatus RandomAccessFileReader::Read(
       }
       *result = Slice(res_scratch, io_s.ok() ? pos : 0);
     }
-    RecordStats(stats_, file_temperature_, is_last_level_, result->size());
+    RecordIOStats(stats_, file_temperature_, is_last_level_, result->size());
     SetPerfLevel(prev_perf_level);
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
@@ -404,8 +404,8 @@ IOStatus RandomAccessFileReader::MultiRead(
       }
 
 #endif  // ROCKSDB_LITE
-      RecordStats(stats_, file_temperature_, is_last_level_,
-                  read_reqs[i].result.size());
+      RecordIOStats(stats_, file_temperature_, is_last_level_,
+                    read_reqs[i].result.size());
     }
     SetPerfLevel(prev_perf_level);
   }
