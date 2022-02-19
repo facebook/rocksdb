@@ -1670,11 +1670,13 @@ class DB {
 // Overloaded operators for enum class SizeApproximationFlags.
 inline DB::SizeApproximationFlags operator&(DB::SizeApproximationFlags lhs,
                                             DB::SizeApproximationFlags rhs) {
-  return static_cast<DB::SizeApproximationFlags>((uint8_t)lhs & (uint8_t)rhs);
+  return static_cast<DB::SizeApproximationFlags>(static_cast<uint8_t> lhs &
+                                                 static_cast<uint8_t> rhs);
 }
 inline DB::SizeApproximationFlags operator|(DB::SizeApproximationFlags lhs,
                                             DB::SizeApproximationFlags rhs) {
-  return static_cast<DB::SizeApproximationFlags>((uint8_t)lhs | (uint8_t)rhs);
+  return static_cast<DB::SizeApproximationFlags>(static_cast<uint8_t> lhs |
+                                                 static_cast<uint8_t> rhs);
 }
 
 inline Status DB::GetApproximateSizes(ColumnFamilyHandle* column_family,
