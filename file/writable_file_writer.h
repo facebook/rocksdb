@@ -234,15 +234,18 @@ class WritableFileWriter {
 
   // When this Append API is called, if the crc32c_checksum is not provided, we
   // will calculate the checksum internally.
-  IOStatus Append(const Slice& data, uint32_t crc32c_checksum = 0);
+  IOStatus Append(const Slice& data, uint32_t crc32c_checksum = 0,
+                  Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
 
-  IOStatus Pad(const size_t pad_bytes);
+  IOStatus Pad(const size_t pad_bytes,
+               Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
 
-  IOStatus Flush();
+  IOStatus Flush(Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
 
-  IOStatus Close();
+  IOStatus Close(Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
 
-  IOStatus Sync(bool use_fsync);
+  IOStatus Sync(bool use_fsync,
+                Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
 
   // Sync only the data that was already Flush()ed. Safe to call concurrently
   // with Append() and Flush(). If !writable_file_->IsSyncThreadSafe(),
@@ -271,15 +274,33 @@ class WritableFileWriter {
   const char* GetFileChecksumFuncName() const;
 
  private:
+  static Env::IOPriority DecideRateLimiterPriority(
+      Env::IOPriority file_level_io_priority,
+      Env::IOPriority operation_level_rate_limiter_priority);
   // Used when os buffering is OFF and we are writing
   // DMA such as in Direct I/O mode
 #ifndef ROCKSDB_LITE
-  IOStatus WriteDirect();
-  IOStatus WriteDirectWithChecksum();
+  // If rate_limiter_priority != Env::IO_TOTAL,
+  // it will be used as the prioriy (instead of FSWritableFile::io_priority_)
+  // for write rate limiting
+  IOStatus WriteDirect(Env::IOPriority rate_limiter_priority);
+  // If rate_limiter_priority != Env::IO_TOTAL,
+  // it will be used as the prioriy (instead of FSWritableFile::io_priority_)
+  // for write rate limiting
+  IOStatus WriteDirectWithChecksum(Env::IOPriority rate_limiter_priority);
 #endif  // !ROCKSDB_LITE
   // Normal write
-  IOStatus WriteBuffered(const char* data, size_t size);
-  IOStatus WriteBufferedWithChecksum(const char* data, size_t size);
+  //
+  // If rate_limiter_priority != Env::IO_TOTAL,
+  // it will be used as the prioriy (instead of FSWritableFile::io_priority_)
+  // for write rate limiting
+  IOStatus WriteBuffered(const char* data, size_t size,
+                         Env::IOPriority rate_limiter_priority);
+  // If rate_limiter_priority != Env::IO_TOTAL,
+  // it will be used as the prioriy (instead of FSWritableFile::io_priority_)
+  // for write rate limiting
+  IOStatus WriteBufferedWithChecksum(const char* data, size_t size,
+                                     Env::IOPriority rate_limiter_priority);
   IOStatus RangeSync(uint64_t offset, uint64_t nbytes);
   IOStatus SyncInternal(bool use_fsync);
 };

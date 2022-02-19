@@ -253,6 +253,87 @@ TEST_P(DBRateLimiterOnReadTest, VerifyFileChecksums) {
 
 #endif  // !defined(ROCKSDB_LITE)
 
+class DBRateLimiterOnWriteTest : public DBTestBase,
+                                 public ::testing::WithParamInterface<
+                                     bool /* disable_auto_compactions */> {
+ public:
+  DBRateLimiterOnWriteTest()
+      : DBTestBase("db_rate_limiter_on_write_test", /*env_do_fsync=*/false) {}
+
+  void Init() {
+    options_ = GetOptions();
+    Reopen(options_);
+    for (int i = 0; i < kNumFiles; ++i) {
+      for (int j = 0; j < kNumKeysPerFile; ++j) {
+        ASSERT_OK(Put(Key(j), DummyString(1)));
+      }
+      Flush();
+    }
+  }
+
+  Options GetOptions() {
+    Options options = CurrentOptions();
+    options.rate_limiter.reset(NewGenericRateLimiter(
+        1 << 20 /* rate_bytes_per_sec */, 100 * 1000 /* refill_period_us */,
+        10 /* fairness */, RateLimiter::Mode::kWritesOnly));
+    options.table_factory.reset(
+        NewBlockBasedTableFactory(BlockBasedTableOptions()));
+    options.disable_auto_compactions = GetParam();
+    if (!options.disable_auto_compactions) {
+      options.level0_file_num_compaction_trigger = 1;
+    }
+    return options;
+  }
+
+ protected:
+  inline const static int64_t kNumFiles = 3;
+  inline const static int64_t kNumKeysPerFile = 1;
+  Options options_;
+};
+
+INSTANTIATE_TEST_CASE_P(DBRateLimiterOnWriteTest, DBRateLimiterOnWriteTest,
+                        ::testing::Values(false, true));
+
+TEST_P(DBRateLimiterOnWriteTest, Flush) {
+  Init();
+  // Init() is setup in a way such that we flush per file
+  EXPECT_EQ(options_.rate_limiter->GetTotalRequests(Env::IO_HIGH), kNumFiles);
+  if (options_.disable_auto_compactions) {
+    EXPECT_EQ(options_.rate_limiter->GetTotalRequests(Env::IO_HIGH),
+              options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL));
+  }
+}
+
+TEST_P(DBRateLimiterOnWriteTest, Compact) {
+  Init();
+  std::int64_t flush_rate_limiter_request =
+      options_.rate_limiter->GetTotalRequests(Env::IO_HIGH);
+  // Init() is setup in a way such that we flush per file
+  ASSERT_EQ(flush_rate_limiter_request, kNumFiles);
+
+  if (options_.disable_auto_compactions) {
+    EXPECT_EQ(options_.rate_limiter->GetTotalRequests(Env::IO_LOW), 0);
+  } else {
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+    std::int64_t compaction_rate_limiter_request =
+        options_.rate_limiter->GetTotalRequests(Env::IO_LOW);
+    EXPECT_GT(compaction_rate_limiter_request, 0);
+
+    // To verify we rate-limit compaction write at the correct priority
+    // `Env::IO_LOW`
+    EXPECT_EQ(flush_rate_limiter_request,
+              options_.rate_limiter->GetTotalRequests(Env::IO_HIGH));
+
+    // Init() is setup in a way such that we compact `kNumFiles -
+    // options_.level0_file_num_compaction_trigger` times
+    EXPECT_EQ(compaction_rate_limiter_request,
+              kNumFiles - options_.level0_file_num_compaction_trigger);
+    EXPECT_EQ(compaction_rate_limiter_request + flush_rate_limiter_request,
+              options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL));
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
