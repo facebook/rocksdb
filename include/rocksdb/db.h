@@ -1114,7 +1114,7 @@ class DB {
 
   // Flags for DB::GetSizeApproximation that specify whether memtable
   // stats should be included, or file stats approximation or both
-  enum SizeApproximationFlags : uint8_t {
+  enum class SizeApproximationFlags : uint8_t {
     NONE = 0,
     INCLUDE_MEMTABLES = 1 << 0,
     INCLUDE_FILES = 1 << 1
@@ -1138,17 +1138,13 @@ class DB {
   virtual Status GetApproximateSizes(ColumnFamilyHandle* column_family,
                                      const Range* ranges, int n,
                                      uint64_t* sizes,
-                                     uint8_t include_flags = INCLUDE_FILES) {
-    SizeApproximationOptions options;
-    options.include_memtables =
-        (include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) != 0;
-    options.include_files =
-        (include_flags & SizeApproximationFlags::INCLUDE_FILES) != 0;
-    return GetApproximateSizes(options, column_family, ranges, n, sizes);
-  }
-  virtual Status GetApproximateSizes(const Range* ranges, int n,
-                                     uint64_t* sizes,
-                                     uint8_t include_flags = INCLUDE_FILES) {
+                                     SizeApproximationFlags include_flags =
+                                         SizeApproximationFlags::INCLUDE_FILES);
+
+  virtual Status GetApproximateSizes(
+      const Range* ranges, int n, uint64_t* sizes,
+      SizeApproximationFlags include_flags =
+          SizeApproximationFlags::INCLUDE_FILES) {
     return GetApproximateSizes(DefaultColumnFamily(), ranges, n, sizes,
                                include_flags);
   }
@@ -1670,6 +1666,32 @@ class DB {
   }
 #endif  // !ROCKSDB_LITE
 };
+
+// Overloaded operators for enum class SizeApproximationFlags.
+inline DB::SizeApproximationFlags operator&(DB::SizeApproximationFlags lhs,
+                                            DB::SizeApproximationFlags rhs) {
+  return static_cast<DB::SizeApproximationFlags>(static_cast<uint8_t>(lhs) &
+                                                 static_cast<uint8_t>(rhs));
+}
+inline DB::SizeApproximationFlags operator|(DB::SizeApproximationFlags lhs,
+                                            DB::SizeApproximationFlags rhs) {
+  return static_cast<DB::SizeApproximationFlags>(static_cast<uint8_t>(lhs) |
+                                                 static_cast<uint8_t>(rhs));
+}
+
+inline Status DB::GetApproximateSizes(ColumnFamilyHandle* column_family,
+                                      const Range* ranges, int n,
+                                      uint64_t* sizes,
+                                      SizeApproximationFlags include_flags) {
+  SizeApproximationOptions options;
+  options.include_memtables =
+      ((include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) !=
+       SizeApproximationFlags::NONE);
+  options.include_files =
+      ((include_flags & SizeApproximationFlags::INCLUDE_FILES) !=
+       SizeApproximationFlags::NONE);
+  return GetApproximateSizes(options, column_family, ranges, n, sizes);
+}
 
 // Destroy the contents of the specified database.
 // Be very careful using this method.
