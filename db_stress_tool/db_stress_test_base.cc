@@ -485,6 +485,9 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
   if (FLAGS_sync) {
     write_opts.sync = true;
   }
+  if (FLAGS_rate_limit_auto_wal_flush) {
+    write_opts.rate_limiter_priority = Env::IO_USER;
+  }
   char value[100];
   int cf_idx = 0;
   Status s;
@@ -640,6 +643,9 @@ void StressTest::OperateDb(ThreadState* thread) {
   read_opts.rate_limiter_priority =
       FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
   WriteOptions write_opts;
+  if (FLAGS_rate_limit_auto_wal_flush) {
+    write_opts.rate_limiter_priority = Env::IO_USER;
+  }
   auto shared = thread->shared;
   char value[100];
   std::string from_db;

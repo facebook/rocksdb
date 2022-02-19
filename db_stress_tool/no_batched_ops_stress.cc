@@ -271,6 +271,9 @@ class NonBatchedOpsStressTest : public StressTest {
     Transaction* txn = nullptr;
     if (use_txn) {
       WriteOptions wo;
+      if (FLAGS_rate_limit_auto_wal_flush) {
+        wo.rate_limiter_priority = Env::IO_USER;
+      }
       Status s = NewTxn(wo, &txn);
       if (!s.ok()) {
         fprintf(stderr, "NewTxn: %s\n", s.ToString().c_str());

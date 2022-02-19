@@ -176,6 +176,7 @@ DECLARE_int32(range_deletion_width);
 DECLARE_uint64(rate_limiter_bytes_per_sec);
 DECLARE_bool(rate_limit_bg_reads);
 DECLARE_bool(rate_limit_user_ops);
+DECLARE_bool(rate_limit_auto_wal_flush);
 DECLARE_uint64(sst_file_manager_bytes_per_sec);
 DECLARE_uint64(sst_file_manager_bytes_per_truncate);
 DECLARE_bool(use_txn);

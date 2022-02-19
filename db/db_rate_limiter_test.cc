@@ -3,10 +3,13 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <gtest/gtest.h>
+
 #include <cstdint>
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/db.h"
 #include "test_util/testharness.h"
 #include "util/file_checksum_helper.h"
 
@@ -289,46 +292,136 @@ class DBRateLimiterOnWriteTest : public DBTestBase {
     return file_per_level_string;
   }
   inline const static int64_t kNumFiles = 3;
-  inline const static int64_t kNumKeysPerFile = 1;
   inline const static std::string kStartKey = "a";
   inline const static std::string kEndKey = "b";
   Options options_;
 };
 
 TEST_F(DBRateLimiterOnWriteTest, Flush) {
+  std::int64_t prev_total_request = 0;
+
   Init();
-  std::int64_t exepcted_flush_request = kNumFiles;
+
   std::int64_t actual_flush_request =
-      options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL);
-  EXPECT_EQ(exepcted_flush_request, actual_flush_request);
+      options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL) -
+      prev_total_request;
+  std::int64_t exepcted_flush_request = kNumFiles;
+  EXPECT_EQ(actual_flush_request, exepcted_flush_request);
   EXPECT_EQ(actual_flush_request,
             options_.rate_limiter->GetTotalRequests(Env::IO_HIGH));
 }
 
 TEST_F(DBRateLimiterOnWriteTest, Compact) {
   Init();
-  std::int64_t prev_total_request =
-      options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL);
 
   // files_per_level_pre_compaction: 1,1,...,1 (in total kNumFiles levels)
+#ifndef ROCKSDB_LITE
   std::string files_per_level_pre_compaction =
       CreateSimpleFilesPerLevelString("1", "1");
   ASSERT_EQ(files_per_level_pre_compaction, FilesPerLevel(0 /* cf */));
+#endif  // !ROCKSDB_LITE
+
+  std::int64_t prev_total_request =
+      options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL);
+  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_LOW));
 
   Compact(kStartKey, kEndKey);
 
-  // files_per_level_post_compaction: 0,0,...,1 (in total kNumFiles levels)
-  std::string files_per_level_post_compaction =
-      CreateSimpleFilesPerLevelString("0", "1");
-  ASSERT_EQ(files_per_level_post_compaction, FilesPerLevel(0 /* cf */));
-
-  std::int64_t exepcted_compaction_request = kNumFiles - 1;
   std::int64_t actual_compaction_request =
       options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL) -
       prev_total_request;
-  EXPECT_EQ(exepcted_compaction_request, actual_compaction_request);
+
+  // files_per_level_post_compaction: 0,0,...,1 (in total kNumFiles levels)
+#ifndef ROCKSDB_LITE
+  std::string files_per_level_post_compaction =
+      CreateSimpleFilesPerLevelString("0", "1");
+  ASSERT_EQ(files_per_level_post_compaction, FilesPerLevel(0 /* cf */));
+#endif  // !ROCKSDB_LITE
+
+  std::int64_t exepcted_compaction_request = kNumFiles - 1;
+  EXPECT_EQ(actual_compaction_request, exepcted_compaction_request);
   EXPECT_EQ(actual_compaction_request,
             options_.rate_limiter->GetTotalRequests(Env::IO_LOW));
+}
+
+class DBRateLimiterOnWriteWALTest
+    : public DBRateLimiterOnWriteTest,
+      public ::testing::WithParamInterface<
+          std::tuple<bool /* manual_wal_flush */, bool /* disable_wal */,
+                     bool /* rate-limit auto wal flush */>> {
+ public:
+  static std::string GetTestNameSuffix(
+      ::testing::TestParamInfo<std::tuple<bool, bool, bool>> info) {
+    std::ostringstream oss;
+    if (std::get<0>(info.param)) {
+      oss << "ManualWALFlush";
+    } else {
+      oss << "AutoWALFlush";
+    }
+    if (std::get<1>(info.param)) {
+      oss << "_DisableWAL";
+    } else {
+      oss << "_EnableWAL";
+    }
+    if (std::get<2>(info.param)) {
+      oss << "_RateLimitAutoWALFlush";
+    } else {
+      oss << "_NoRateLimitAutoWALFlush";
+    }
+    return oss.str();
+  }
+
+  explicit DBRateLimiterOnWriteWALTest()
+      : manual_wal_flush_(std::get<0>(GetParam())),
+        disable_wal_(std::get<1>(GetParam())),
+        rate_limit_auto_wal_flush_(std::get<2>(GetParam())) {}
+
+  void Init() {
+    options_ = GetOptions();
+    options_.manual_wal_flush = manual_wal_flush_;
+    Reopen(options_);
+  }
+
+  WriteOptions GetWriteOptions() {
+    WriteOptions write_options;
+    write_options.disableWAL = disable_wal_;
+    write_options.rate_limiter_priority =
+        rate_limit_auto_wal_flush_ ? Env::IO_USER : Env::IO_TOTAL;
+    return write_options;
+  }
+
+ protected:
+  bool manual_wal_flush_;
+  bool disable_wal_;
+  bool rate_limit_auto_wal_flush_;
+};
+
+INSTANTIATE_TEST_CASE_P(DBRateLimiterOnWriteWALTest,
+                        DBRateLimiterOnWriteWALTest,
+                        ::testing::Values(std::make_tuple(false, true, true),
+                                          std::make_tuple(false, false, false),
+                                          std::make_tuple(false, false, true),
+                                          std::make_tuple(true, false, true)),
+                        DBRateLimiterOnWriteWALTest::GetTestNameSuffix);
+
+TEST_P(DBRateLimiterOnWriteWALTest, AutoWalFlush) {
+  Init();
+
+  std::int64_t prev_total_request =
+      options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL);
+  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
+
+  ASSERT_OK(Put("foo", "v1", GetWriteOptions()));
+
+  std::int64_t actual_auto_wal_flush_request =
+      options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL) -
+      prev_total_request;
+  std::int64_t expected_auto_wal_flush_request =
+      (!manual_wal_flush_ && !disable_wal_ && rate_limit_auto_wal_flush_) ? 1
+                                                                          : 0;
+  EXPECT_EQ(actual_auto_wal_flush_request, expected_auto_wal_flush_request);
+  EXPECT_EQ(actual_auto_wal_flush_request,
+            options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 }  // namespace ROCKSDB_NAMESPACE
 

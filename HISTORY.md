@@ -13,6 +13,7 @@
 ### Public API changes
 * Remove BlockBasedTableOptions.hash_index_allow_collision which already takes no effect.
 * `options.compression_per_level` is dynamically changeable with `SetOptions()`.
+* Added `WriteOptions::rate_limiter_priority`. When set to something other than `Env::IO_TOTAL`, the internal rate limiter (`DBOptions::rate_limiter`) will be charged at the specified priority for automatic WAL flush (`Options::manual_wal_flush` == false) associated with the API to which the `WriteOptions` was provided.
 
 ### Bug Fixes
 * Fix a race condition when cancel manual compaction with `DisableManualCompaction`. Also DB close can cancel the manual compaction thread.
