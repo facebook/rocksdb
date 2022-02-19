@@ -7,13 +7,13 @@
 
 #ifndef ROCKSDB_LITE  // Lite does not support C API
 
-#include "rocksdb/c.h"
-
 #include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+
+#include "rocksdb/c.h"
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -90,10 +90,8 @@ static void CheckEqual(const char* expected, const char* v, size_t n) {
     // ok
     return;
   } else {
-    fprintf(stderr, "%s: expected '%s', got '%s'\n",
-            phase,
-            (expected ? expected : "(null)"),
-            (v ? v : "(null)"));
+    fprintf(stderr, "%s: expected '%s', got '%s'\n", phase,
+            (expected ? expected : "(null)"), (v ? v : "(null)"));
     abort();
   }
 }
@@ -990,7 +988,7 @@ int main(int argc, char** argv) {
     CheckGet(db, roptions, "foo", NULL);
     rocksdb_release_snapshot(db, snap);
   }
-  StartPhase("snapshot_with_inplace");
+  StartPhase("snapshot_with_memtable_inplace_update");
   {
     rocksdb_close(db);
     const rocksdb_snapshot_t* snap = NULL;
