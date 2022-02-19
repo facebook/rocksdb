@@ -242,7 +242,9 @@ inline bool IOStatus::operator!=(const IOStatus& rhs) const {
 }
 
 inline IOStatus status_to_io_status(Status&& status) {
-  IOStatus io_s = *(static_cast<IOStatus*>(&status));
+  IOStatus io_s;
+  Status& s = io_s;
+  s = std::move(status);
   return io_s;
 }
 
