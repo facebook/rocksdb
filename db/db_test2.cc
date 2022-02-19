@@ -6849,7 +6849,6 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_GT(size, 0);
 }
 
-
 TEST_F(DBTest2, LastLevelStatistics) {
   Options options = CurrentOptions();
   options.bottommost_temperature = Temperature::kWarm;
