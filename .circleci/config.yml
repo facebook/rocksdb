@@ -404,17 +404,6 @@ jobs:
       - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j16 all
       - post-steps
 
-  # This job is only to make sure the microbench tests are able to run, the benchmark result is not meaningful as the CI host is changing.
-  build-linux-microbench:
-    machine:
-      image: ubuntu-2004:202111-02
-    resource_class: xlarge
-    steps:
-      - pre-steps
-      - install-benchmark
-      - run: DEBUG_LEVEL=0 make microbench
-      - post-steps
-
   build-windows:
     executor: windows-2xlarge
     parameters:
@@ -858,9 +847,6 @@ workflows:
   build-linux-arm:
     jobs:
       - build-linux-arm
-  build-microbench:
-    jobs:
-      - build-linux-microbench
   build-fuzzers:
     jobs:
       - build-fuzzers
