@@ -6,22 +6,38 @@
 
 #pragma once
 
-#ifdef MEMKIND
-
-#include <memkind.h>
 #include "rocksdb/memory_allocator.h"
+#include "utilities/memory_allocators.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
-class MemkindKmemAllocator : public MemoryAllocator {
+class MemkindKmemAllocator : public BaseMemoryAllocator {
  public:
-  const char* Name() const override { return "MemkindKmemAllocator"; };
+  static const char* kClassName() { return "MemkindKmemAllocator"; }
+  const char* Name() const override { return kClassName(); }
+  static bool IsSupported() {
+    std::string unused;
+    return IsSupported(&unused);
+  }
+
+  static bool IsSupported(std::string* msg) {
+#ifdef MEMKIND
+    (void)msg;
+    return true;
+#else
+    *msg = "Not compiled with MemKind";
+    return false;
+#endif
+  }
+  Status PrepareOptions(const ConfigOptions& options) override;
+
+#ifdef MEMKIND
   void* Allocate(size_t size) override;
   void Deallocate(void* p) override;
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
   size_t UsableSize(void* p, size_t /*allocation_size*/) const override;
 #endif
+#endif  // MEMKIND
 };
 
-}  // namespace rocksdb
-#endif  // MEMKIND
+}  // namespace ROCKSDB_NAMESPACE

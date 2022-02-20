@@ -13,7 +13,6 @@
 #include <string>
 #include <vector>
 
-#include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "port/malloc.h"
 #include "rocksdb/iterator.h"
@@ -35,6 +34,7 @@ template <class TValue>
 class BlockIter;
 class DataBlockIter;
 class IndexBlockIter;
+class MetaBlockIter;
 class BlockPrefixIndex;
 
 // BlockReadAmpBitmap is a bitmap that map the ROCKSDB_NAMESPACE::Block data
@@ -193,6 +193,21 @@ class Block {
                                  Statistics* stats = nullptr,
                                  bool block_contents_pinned = false);
 
+  // Returns an MetaBlockIter for iterating over blocks containing metadata
+  // (like Properties blocks).  Unlike data blocks, the keys for these blocks
+  // do not contain sequence numbers, do not use a user-define comparator, and
+  // do not track read amplification/statistics.  Additionally, MetaBlocks will
+  // not assert if the block is formatted improperly.
+  //
+  // If `block_contents_pinned` is true, the caller will guarantee that when
+  // the cleanup functions are transferred from the iterator to other
+  // classes, e.g. PinnableSlice, the pointer to the bytes will still be
+  // valid. Either the iterator holds cache handle or ownership of some resource
+  // and release them in a release function, or caller is sure that the data
+  // will not go away (for example, it's from mmapped file which will not be
+  // closed).
+  MetaBlockIter* NewMetaIterator(bool block_contents_pinned = false);
+
   // raw_ucmp is a raw (i.e., not wrapped by `UserComparatorWrapper`) user key
   // comparator.
   //
@@ -270,10 +285,9 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
   // Makes Valid() return false, status() return `s`, and Seek()/Prev()/etc do
   // nothing. Calls cleanup functions.
-  void InvalidateBase(Status s) {
+  virtual void Invalidate(const Status& s) {
     // Assert that the BlockIter is never deleted while Pinning is Enabled.
-    assert(!pinned_iters_mgr_ ||
-           (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
+    assert(!pinned_iters_mgr_ || !pinned_iters_mgr_->PinningEnabled());
 
     data_ = nullptr;
     current_ = restarts_;
@@ -385,7 +399,11 @@ class BlockIter : public InternalIteratorBase<TValue> {
   virtual void SeekImpl(const Slice& target) = 0;
   virtual void SeekForPrevImpl(const Slice& target) = 0;
   virtual void NextImpl() = 0;
+
   virtual void PrevImpl() = 0;
+
+  template <typename DecodeEntryFunc>
+  inline bool ParseNextKey(bool* is_shared);
 
   InternalKeyComparator icmp() {
     return InternalKeyComparator(raw_ucmp_, false /* named */);
@@ -520,24 +538,8 @@ class DataBlockIter final : public BlockIter<Slice> {
     return res;
   }
 
-  // Try to advance to the next entry in the block. If there is data corruption
-  // or error, report it to the caller instead of aborting the process. May
-  // incur higher CPU overhead because we need to perform check on every entry.
-  void NextOrReport() {
-    NextOrReportImpl();
-    UpdateKey();
-  }
-
-  // Try to seek to the first entry in the block. If there is data corruption
-  // or error, report it to caller instead of aborting the process. May incur
-  // higher CPU overhead because we need to perform check on every entry.
-  void SeekToFirstOrReport() {
-    SeekToFirstOrReportImpl();
-    UpdateKey();
-  }
-
-  void Invalidate(Status s) {
-    InvalidateBase(s);
+  void Invalidate(const Status& s) override {
+    BlockIter::Invalidate(s);
     // Clear prev entries cache.
     prev_entries_keys_buff_.clear();
     prev_entries_.clear();
@@ -545,12 +547,14 @@ class DataBlockIter final : public BlockIter<Slice> {
   }
 
  protected:
-  virtual void SeekToFirstImpl() override;
-  virtual void SeekToLastImpl() override;
-  virtual void SeekImpl(const Slice& target) override;
-  virtual void SeekForPrevImpl(const Slice& target) override;
-  virtual void NextImpl() override;
-  virtual void PrevImpl() override;
+  friend Block;
+  inline bool ParseNextDataKey(bool* is_shared);
+  void SeekToFirstImpl() override;
+  void SeekToLastImpl() override;
+  void SeekImpl(const Slice& target) override;
+  void SeekForPrevImpl(const Slice& target) override;
+  void NextImpl() override;
+  void PrevImpl() override;
 
  private:
   // read-amp bitmap
@@ -583,12 +587,38 @@ class DataBlockIter final : public BlockIter<Slice> {
 
   DataBlockHashIndex* data_block_hash_index_;
 
-  template <typename DecodeEntryFunc>
-  inline bool ParseNextDataKey(const char* limit = nullptr);
-
   bool SeekForGetImpl(const Slice& target);
-  void NextOrReportImpl();
-  void SeekToFirstOrReportImpl();
+};
+
+// Iterator over MetaBlocks.  MetaBlocks are similar to Data Blocks and
+// are used to store Properties associated with table.
+// Meta blocks always store user keys (no sequence number) and always
+// use the BytewiseComparator.  Additionally, MetaBlock accesses are
+// not recorded in the Statistics or for Read-Amplification.
+class MetaBlockIter final : public BlockIter<Slice> {
+ public:
+  MetaBlockIter() : BlockIter() { raw_key_.SetIsUserKey(true); }
+  void Initialize(const char* data, uint32_t restarts, uint32_t num_restarts,
+                  bool block_contents_pinned) {
+    // Initializes the iterator with a BytewiseComparator and
+    // the raw key being a user key.
+    InitializeBase(BytewiseComparator(), data, restarts, num_restarts,
+                   kDisableGlobalSequenceNumber, block_contents_pinned);
+    raw_key_.SetIsUserKey(true);
+  }
+
+  Slice value() const override {
+    assert(Valid());
+    return value_;
+  }
+
+ protected:
+  void SeekToFirstImpl() override;
+  void SeekToLastImpl() override;
+  void SeekImpl(const Slice& target) override;
+  void SeekForPrevImpl(const Slice& target) override;
+  void NextImpl() override;
+  void PrevImpl() override;
 };
 
 class IndexBlockIter final : public BlockIter<IndexValue> {
@@ -635,8 +665,6 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
       return entry;
     }
   }
-
-  void Invalidate(Status s) { InvalidateBase(s); }
 
   bool IsValuePinned() const override {
     return global_seqno_state_ != nullptr ? false : BlockIter::IsValuePinned();
@@ -714,7 +742,7 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
 
   // When value_delta_encoded_ is enabled it decodes the value which is assumed
   // to be BlockHandle and put it to decoded_value_
-  inline void DecodeCurrentValue(uint32_t shared);
+  inline void DecodeCurrentValue(bool is_shared);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

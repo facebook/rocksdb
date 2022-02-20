@@ -12,6 +12,9 @@
 #include <thread>
 
 #include "env/composite_env_wrapper.h"
+#include "env/emulated_clock.h"
+#include "env/mock_env.h"
+#include "env/unique_id_gen.h"
 #include "logging/env_logger.h"
 #include "memory/arena.h"
 #include "options/db_options.h"
@@ -19,18 +22,51 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/options.h"
 #include "rocksdb/system_clock.h"
+#include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/autovector.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
+#ifndef ROCKSDB_LITE
+static int RegisterBuiltinEnvs(ObjectLibrary& library,
+                               const std::string& /*arg*/) {
+  library.AddFactory<Env>(MockEnv::kClassName(), [](const std::string& /*uri*/,
+                                                    std::unique_ptr<Env>* guard,
+                                                    std::string* /* errmsg */) {
+    guard->reset(MockEnv::Create(Env::Default()));
+    return guard->get();
+  });
+  library.AddFactory<Env>(
+      CompositeEnvWrapper::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new CompositeEnvWrapper(Env::Default()));
+        return guard->get();
+      });
+  size_t num_types;
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+#endif  // ROCKSDB_LITE
+
+static void RegisterSystemEnvs() {
+#ifndef ROCKSDB_LITE
+  static std::once_flag loaded;
+  std::call_once(loaded, [&]() {
+    RegisterBuiltinEnvs(*(ObjectLibrary::Default().get()), "");
+  });
+#endif  // ROCKSDB_LITE
+}
+
 class LegacySystemClock : public SystemClock {
  private:
   Env* env_;
 
  public:
   explicit LegacySystemClock(Env* env) : env_(env) {}
-  const char* Name() const override { return "Legacy System Clock"; }
+  const char* Name() const override { return "LegacySystemClock"; }
 
   // Returns the number of micro-seconds since some fixed point in time.
   // It is often used as system time such as in GenericRateLimiter
@@ -61,6 +97,16 @@ class LegacySystemClock : public SystemClock {
   std::string TimeToString(uint64_t time) override {
     return env_->TimeToString(time);
   }
+
+#ifndef ROCKSDB_LITE
+  std::string SerializeOptions(const ConfigOptions& /*config_options*/,
+                               const std::string& /*prefix*/) const override {
+    // We do not want the LegacySystemClock to appear in the serialized output.
+    // This clock is an internal class for those who do not implement one and
+    // would be part of the Env.  As such, do not serialize it here.
+    return "";
+  }
+#endif  // ROCKSDB_LITE
 };
 
 class LegacySequentialFileWrapper : public FSSequentialFile {
@@ -319,7 +365,8 @@ class LegacyFileSystemWrapper : public FileSystem {
   explicit LegacyFileSystemWrapper(Env* t) : target_(t) {}
   ~LegacyFileSystemWrapper() override {}
 
-  const char* Name() const override { return "Legacy File System"; }
+  static const char* kClassName() { return "LegacyFileSystem"; }
+  const char* Name() const override { return kClassName(); }
 
   // Return the target to which this Env forwards all calls
   Env* target() const { return target_; }
@@ -555,6 +602,15 @@ class LegacyFileSystemWrapper : public FileSystem {
     return status_to_io_status(target_->IsDirectory(path, is_dir));
   }
 
+#ifndef ROCKSDB_LITE
+  std::string SerializeOptions(const ConfigOptions& /*config_options*/,
+                               const std::string& /*prefix*/) const override {
+    // We do not want the LegacyFileSystem to appear in the serialized output.
+    // This clock is an internal class for those who do not implement one and
+    // would be part of the Env.  As such, do not serialize it here.
+    return "";
+  }
+#endif  // ROCKSDB_LITE
  private:
   Env* target_;
 };
@@ -588,19 +644,19 @@ Status Env::LoadEnv(const std::string& value, Env** result) {
 
 Status Env::CreateFromString(const ConfigOptions& config_options,
                              const std::string& value, Env** result) {
-  Env* env = *result;
-  Status s;
-#ifndef ROCKSDB_LITE
-  (void)config_options;
-  s = ObjectRegistry::NewInstance()->NewStaticObject<Env>(value, &env);
-#else
-  (void)config_options;
-  s = Status::NotSupported("Cannot load environment in LITE mode", value);
-#endif
-  if (s.ok()) {
-    *result = env;
+  Env* base = Env::Default();
+  if (value.empty() || base->IsInstanceOf(value)) {
+    *result = base;
+    return Status::OK();
+  } else {
+    RegisterSystemEnvs();
+    Env* env = *result;
+    Status s = LoadStaticObject<Env>(config_options, value, nullptr, &env);
+    if (s.ok()) {
+      *result = env;
+    }
+    return s;
   }
-  return s;
 }
 
 Status Env::LoadEnv(const std::string& value, Env** result,
@@ -612,37 +668,42 @@ Status Env::CreateFromString(const ConfigOptions& config_options,
                              const std::string& value, Env** result,
                              std::shared_ptr<Env>* guard) {
   assert(result);
-  if (value.empty()) {
-    *result = Env::Default();
-    return Status::OK();
-  }
-  Status s;
-#ifndef ROCKSDB_LITE
-  Env* env = nullptr;
-  std::unique_ptr<Env> uniq_guard;
-  std::string err_msg;
   assert(guard != nullptr);
-  (void)config_options;
-  env = ObjectRegistry::NewInstance()->NewObject<Env>(value, &uniq_guard,
-                                                      &err_msg);
-  if (!env) {
-    s = Status::NotSupported(std::string("Cannot load ") + Env::Type() + ": " +
-                             value);
-    env = Env::Default();
+  std::unique_ptr<Env> uniq;
+
+  Env* env = *result;
+  std::string id;
+  std::unordered_map<std::string, std::string> opt_map;
+
+  Status status =
+      Customizable::GetOptionsMap(config_options, env, value, &id, &opt_map);
+  if (!status.ok()) {  // GetOptionsMap failed
+    return status;
   }
-  if (s.ok() && uniq_guard) {
-    guard->reset(uniq_guard.release());
-    *result = guard->get();
+  Env* base = Env::Default();
+  if (id.empty() || base->IsInstanceOf(id)) {
+    env = base;
+    status = Status::OK();
   } else {
+    RegisterSystemEnvs();
+#ifndef ROCKSDB_LITE
+    // First, try to load the Env as a unique object.
+    status = config_options.registry->NewObject<Env>(id, &env, &uniq);
+#else
+    status =
+        Status::NotSupported("Cannot load environment in LITE mode", value);
+#endif
+  }
+  if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
+    status = Status::OK();
+  } else if (status.ok()) {
+    status = Customizable::ConfigureNewObject(config_options, env, opt_map);
+  }
+  if (status.ok()) {
+    guard->reset(uniq.release());
     *result = env;
   }
-#else
-  (void)config_options;
-  (void)result;
-  (void)guard;
-  s = Status::NotSupported("Cannot load environment in LITE mode", value);
-#endif
-  return s;
+  return status;
 }
 
 Status Env::CreateFromUri(const ConfigOptions& config_options,
@@ -728,13 +789,53 @@ Status Env::GetChildrenFileAttributes(const std::string& dir,
 }
 
 Status Env::GetHostNameString(std::string* result) {
-  std::array<char, kMaxHostNameLen> hostname_buf;
+  std::array<char, kMaxHostNameLen> hostname_buf{};
   Status s = GetHostName(hostname_buf.data(), hostname_buf.size());
   if (s.ok()) {
     hostname_buf[hostname_buf.size() - 1] = '\0';
     result->assign(hostname_buf.data());
   }
   return s;
+}
+
+std::string Env::GenerateUniqueId() {
+  std::string result;
+  bool success = port::GenerateRfcUuid(&result);
+  if (!success) {
+    // Fall back on our own way of generating a unique ID and adapt it to
+    // RFC 4122 variant 1 version 4 (a random ID).
+    // https://en.wikipedia.org/wiki/Universally_unique_identifier
+    // We already tried GenerateRfcUuid so no need to try it again in
+    // GenerateRawUniqueId
+    constexpr bool exclude_port_uuid = true;
+    uint64_t upper, lower;
+    GenerateRawUniqueId(&upper, &lower, exclude_port_uuid);
+
+    // Set 4-bit version to 4
+    upper = (upper & (~uint64_t{0xf000})) | 0x4000;
+    // Set unary-encoded variant to 1 (0b10)
+    lower = (lower & (~(uint64_t{3} << 62))) | (uint64_t{2} << 62);
+
+    // Use 36 character format of RFC 4122
+    result.resize(36U);
+    char* buf = &result[0];
+    PutBaseChars<16>(&buf, 8, upper >> 32, /*!uppercase*/ false);
+    *(buf++) = '-';
+    PutBaseChars<16>(&buf, 4, upper >> 16, /*!uppercase*/ false);
+    *(buf++) = '-';
+    PutBaseChars<16>(&buf, 4, upper, /*!uppercase*/ false);
+    *(buf++) = '-';
+    PutBaseChars<16>(&buf, 4, lower >> 48, /*!uppercase*/ false);
+    *(buf++) = '-';
+    PutBaseChars<16>(&buf, 12, lower, /*!uppercase*/ false);
+    assert(buf == &result[36]);
+
+    // Verify variant 1 version 4
+    assert(result[14] == '4');
+    assert(result[19] == '8' || result[19] == '9' || result[19] == 'a' ||
+           result[19] == 'b');
+  }
+  return result;
 }
 
 SequentialFile::~SequentialFile() {
@@ -983,8 +1084,64 @@ Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
   return ReadFileToString(fs.get(), fname, data);
 }
 
+namespace {
+static std::unordered_map<std::string, OptionTypeInfo> env_wrapper_type_info = {
+#ifndef ROCKSDB_LITE
+    {"target",
+     {0, OptionType::kCustomizable, OptionVerificationType::kByName,
+      OptionTypeFlags::kDontSerialize | OptionTypeFlags::kRawPointer,
+      [](const ConfigOptions& opts, const std::string& /*name*/,
+         const std::string& value, void* addr) {
+        EnvWrapper::Target* target = static_cast<EnvWrapper::Target*>(addr);
+        return Env::CreateFromString(opts, value, &(target->env),
+                                     &(target->guard));
+      },
+      nullptr, nullptr}},
+#endif  // ROCKSDB_LITE
+};
+}  // namespace
+
+EnvWrapper::EnvWrapper(Env* t) : target_(t) {
+  RegisterOptions("", &target_, &env_wrapper_type_info);
+}
+
+EnvWrapper::EnvWrapper(std::unique_ptr<Env>&& t) : target_(std::move(t)) {
+  RegisterOptions("", &target_, &env_wrapper_type_info);
+}
+
+EnvWrapper::EnvWrapper(const std::shared_ptr<Env>& t) : target_(t) {
+  RegisterOptions("", &target_, &env_wrapper_type_info);
+}
+
 EnvWrapper::~EnvWrapper() {
 }
+
+Status EnvWrapper::PrepareOptions(const ConfigOptions& options) {
+  target_.Prepare();
+  return Env::PrepareOptions(options);
+}
+
+#ifndef ROCKSDB_LITE
+std::string EnvWrapper::SerializeOptions(const ConfigOptions& config_options,
+                                         const std::string& header) const {
+  auto parent = Env::SerializeOptions(config_options, "");
+  if (config_options.IsShallow() || target_.env == nullptr ||
+      target_.env == Env::Default()) {
+    return parent;
+  } else {
+    std::string result = header;
+    if (!StartsWith(parent, OptionTypeInfo::kIdPropName())) {
+      result.append(OptionTypeInfo::kIdPropName()).append("=");
+    }
+    result.append(parent);
+    if (!EndsWith(result, config_options.delimiter)) {
+      result.append(config_options.delimiter);
+    }
+    result.append("target=").append(target_.env->ToString(config_options));
+    return result;
+  }
+}
+#endif  // ROCKSDB_LITE
 
 namespace {  // anonymous namespace
 
@@ -1085,5 +1242,82 @@ const std::shared_ptr<FileSystem>& Env::GetFileSystem() const {
 
 const std::shared_ptr<SystemClock>& Env::GetSystemClock() const {
   return system_clock_;
+}
+namespace {
+static std::unordered_map<std::string, OptionTypeInfo> sc_wrapper_type_info = {
+#ifndef ROCKSDB_LITE
+    {"target",
+     OptionTypeInfo::AsCustomSharedPtr<SystemClock>(
+         0, OptionVerificationType::kByName, OptionTypeFlags::kDontSerialize)},
+#endif  // ROCKSDB_LITE
+};
+
+}  // namespace
+SystemClockWrapper::SystemClockWrapper(const std::shared_ptr<SystemClock>& t)
+    : target_(t) {
+  RegisterOptions("", &target_, &sc_wrapper_type_info);
+}
+
+Status SystemClockWrapper::PrepareOptions(const ConfigOptions& options) {
+  if (target_ == nullptr) {
+    target_ = SystemClock::Default();
+  }
+  return SystemClock::PrepareOptions(options);
+}
+
+#ifndef ROCKSDB_LITE
+std::string SystemClockWrapper::SerializeOptions(
+    const ConfigOptions& config_options, const std::string& header) const {
+  auto parent = SystemClock::SerializeOptions(config_options, "");
+  if (config_options.IsShallow() || target_ == nullptr ||
+      target_->IsInstanceOf(SystemClock::kDefaultName())) {
+    return parent;
+  } else {
+    std::string result = header;
+    if (!StartsWith(parent, OptionTypeInfo::kIdPropName())) {
+      result.append(OptionTypeInfo::kIdPropName()).append("=");
+    }
+    result.append(parent);
+    if (!EndsWith(result, config_options.delimiter)) {
+      result.append(config_options.delimiter);
+    }
+    result.append("target=").append(target_->ToString(config_options));
+    return result;
+  }
+}
+#endif  // ROCKSDB_LITE
+
+#ifndef ROCKSDB_LITE
+static int RegisterBuiltinSystemClocks(ObjectLibrary& library,
+                                       const std::string& /*arg*/) {
+  library.AddFactory<SystemClock>(
+      EmulatedSystemClock::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<SystemClock>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new EmulatedSystemClock(SystemClock::Default()));
+        return guard->get();
+      });
+  size_t num_types;
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+#endif  // ROCKSDB_LITE
+
+Status SystemClock::CreateFromString(const ConfigOptions& config_options,
+                                     const std::string& value,
+                                     std::shared_ptr<SystemClock>* result) {
+  auto clock = SystemClock::Default();
+  if (clock->IsInstanceOf(value)) {
+    *result = clock;
+    return Status::OK();
+  } else {
+#ifndef ROCKSDB_LITE
+    static std::once_flag once;
+    std::call_once(once, [&]() {
+      RegisterBuiltinSystemClocks(*(ObjectLibrary::Default().get()), "");
+    });
+#endif  // ROCKSDB_LITE
+    return LoadSharedObject<SystemClock>(config_options, value, nullptr,
+                                         result);
+  }
 }
 }  // namespace ROCKSDB_NAMESPACE

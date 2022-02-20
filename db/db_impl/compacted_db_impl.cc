@@ -8,6 +8,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
+#include "logging/logging.h"
 #include "table/get_context.h"
 #include "util/cast_util.h"
 
@@ -39,6 +40,11 @@ size_t CompactedDBImpl::FindFile(const Slice& key) {
 
 Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
                             const Slice& key, PinnableSlice* value) {
+  assert(user_comparator_);
+  if (options.timestamp || user_comparator_->timestamp_size()) {
+    // TODO: support timestamp
+    return Status::NotSupported();
+  }
   GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, key, value, nullptr, nullptr,
                          nullptr, true, nullptr, nullptr);
@@ -57,6 +63,11 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
 std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>&,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
+  assert(user_comparator_);
+  if (user_comparator_->timestamp_size() || options.timestamp) {
+    // TODO: support timestamp
+    return std::vector<Status>(keys.size(), Status::NotSupported());
+  }
   autovector<TableReader*, 16> reader_list;
   for (const auto& key : keys) {
     const FdWithKeyRange& f = files_.files[FindFile(key)];
@@ -68,6 +79,7 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
       reader_list.push_back(f.fd.table_reader);
     }
   }
+
   std::vector<Status> statuses(keys.size(), Status::NotFound());
   values->resize(keys.size());
   int idx = 0;

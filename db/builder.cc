@@ -15,7 +15,6 @@
 
 #include "db/blob/blob_file_builder.h"
 #include "db/compaction/compaction_iterator.h"
-#include "db/dbformat.h"
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
@@ -65,7 +64,8 @@ Status BuildTable(
     SequenceNumber earliest_write_conflict_snapshot,
     SnapshotChecker* snapshot_checker, bool paranoid_file_checks,
     InternalStats* internal_stats, IOStatus* io_status,
-    const std::shared_ptr<IOTracer>& io_tracer, EventLogger* event_logger,
+    const std::shared_ptr<IOTracer>& io_tracer,
+    BlobFileCreationReason blob_creation_reason, EventLogger* event_logger,
     int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
     const std::string* full_history_ts_low,
@@ -178,12 +178,12 @@ Status BuildTable(
 
     std::unique_ptr<BlobFileBuilder> blob_file_builder(
         (mutable_cf_options.enable_blob_files && blob_file_additions)
-            ? new BlobFileBuilder(versions, fs, &ioptions, &mutable_cf_options,
-                                  &file_options, job_id,
-                                  tboptions.column_family_id,
-                                  tboptions.column_family_name, io_priority,
-                                  write_hint, io_tracer, blob_callback,
-                                  &blob_file_paths, blob_file_additions)
+            ? new BlobFileBuilder(
+                  versions, fs, &ioptions, &mutable_cf_options, &file_options,
+                  job_id, tboptions.column_family_id,
+                  tboptions.column_family_name, io_priority, write_hint,
+                  io_tracer, blob_callback, blob_creation_reason,
+                  &blob_file_paths, blob_file_additions)
             : nullptr);
 
     CompactionIterator c_iter(
@@ -204,6 +204,8 @@ Status BuildTable(
       const Slice& value = c_iter.value();
       const ParsedInternalKey& ikey = c_iter.ikey();
       // Generate a rolling 64-bit hash of the key and values
+      // Note :
+      // Here "key" integrates 'sequence_number'+'kType'+'user key'.
       s = output_validator.Add(key, value);
       if (!s.ok()) {
         break;
@@ -309,7 +311,7 @@ Status BuildTable(
       if (s.ok()) {
         s = blob_file_builder->Finish();
       } else {
-        blob_file_builder->Abandon();
+        blob_file_builder->Abandon(s);
       }
       blob_file_builder.reset();
     }
@@ -326,8 +328,8 @@ Status BuildTable(
       ReadOptions read_options;
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           read_options, file_options, tboptions.internal_comparator, *meta,
-          nullptr /* range_del_agg */,
-          mutable_cf_options.prefix_extractor.get(), nullptr,
+          nullptr /* range_del_agg */, mutable_cf_options.prefix_extractor,
+          nullptr,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
           TableReaderCaller::kFlush, /*arena=*/nullptr,
@@ -378,14 +380,19 @@ Status BuildTable(
     }
   }
 
+  Status status_for_listener = s;
   if (meta->fd.GetFileSize() == 0) {
     fname = "(nil)";
+    if (s.ok()) {
+      status_for_listener = Status::Aborted("Empty SST file not kept");
+    }
   }
   // Output to event logger and fire events.
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger, ioptions.listeners, dbname, tboptions.column_family_name,
       fname, job_id, meta->fd, meta->oldest_blob_file_number, tp,
-      tboptions.reason, s, file_checksum, file_checksum_func_name);
+      tboptions.reason, status_for_listener, file_checksum,
+      file_checksum_func_name);
 
   return s;
 }

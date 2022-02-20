@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "rocksdb/rocksdb_namespace.h"
+
 namespace ROCKSDB_NAMESPACE {
 // A list of callers for a table reader. It is used to trace the caller that
 // accesses on a block. This is only used for block cache tracing and analysis.

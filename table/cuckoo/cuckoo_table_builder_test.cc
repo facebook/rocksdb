@@ -14,6 +14,7 @@
 
 #include "file/random_access_file_reader.h"
 #include "file/writable_file_writer.h"
+#include "rocksdb/db.h"
 #include "rocksdb/file_system.h"
 #include "table/meta_blocks.h"
 #include "test_util/testharness.h"
@@ -67,10 +68,9 @@ class CuckooBuilderTest : public testing::Test {
     ImmutableOptions ioptions(options);
 
     // Assert Table Properties.
-    TableProperties* props = nullptr;
+    std::unique_ptr<TableProperties> props;
     ASSERT_OK(ReadTableProperties(file_reader.get(), read_file_size,
-                                  kCuckooTableMagicNumber, ioptions,
-                                  &props, true /* compression_type_missing */));
+                                  kCuckooTableMagicNumber, ioptions, &props));
     // Check unused bucket.
     std::string unused_key = props->user_collected_properties[
       CuckooTablePropertyNames::kEmptyKey];
@@ -107,7 +107,6 @@ class CuckooBuilderTest : public testing::Test {
     ASSERT_EQ(props->raw_key_size, keys.size()*props->fixed_key_len);
     ASSERT_EQ(props->column_family_id, 0);
     ASSERT_EQ(props->column_family_name, kDefaultColumnFamilyName);
-    delete props;
 
     // Check contents of the bucket.
     std::vector<bool> keys_found(keys.size(), false);
@@ -115,7 +114,8 @@ class CuckooBuilderTest : public testing::Test {
     for (uint32_t i = 0; i + 1 < table_size + cuckoo_block_size; ++i) {
       Slice read_slice;
       ASSERT_OK(file_reader->Read(IOOptions(), i * bucket_size, bucket_size,
-                                  &read_slice, nullptr, nullptr));
+                                  &read_slice, nullptr, nullptr,
+                                  Env::IO_TOTAL /* rate_limiter_priority */));
       size_t key_idx =
           std::find(expected_locations.begin(), expected_locations.end(), i) -
           expected_locations.begin();

@@ -5,8 +5,10 @@
 
 #pragma once
 #include <string>
+
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/slice.h"
+#include "utilities/cassandra/cassandra_options.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace cassandra {
@@ -25,18 +27,31 @@ namespace cassandra {
 class CassandraCompactionFilter : public CompactionFilter {
 public:
  explicit CassandraCompactionFilter(bool purge_ttl_on_expiration,
-                                    int32_t gc_grace_period_in_seconds)
-     : purge_ttl_on_expiration_(purge_ttl_on_expiration),
-       gc_grace_period_in_seconds_(gc_grace_period_in_seconds) {}
+                                    int32_t gc_grace_period_in_seconds);
+ static const char* kClassName() { return "CassandraCompactionFilter"; }
+ const char* Name() const override { return kClassName(); }
 
- const char* Name() const override;
  virtual Decision FilterV2(int level, const Slice& key, ValueType value_type,
                            const Slice& existing_value, std::string* new_value,
                            std::string* skip_until) const override;
 
 private:
-  bool purge_ttl_on_expiration_;
-  int32_t gc_grace_period_in_seconds_;
+ CassandraOptions options_;
+};
+
+class CassandraCompactionFilterFactory : public CompactionFilterFactory {
+ public:
+  explicit CassandraCompactionFilterFactory(bool purge_ttl_on_expiration,
+                                            int32_t gc_grace_period_in_seconds);
+  ~CassandraCompactionFilterFactory() override {}
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& context) override;
+  static const char* kClassName() { return "CassandraCompactionFilterFactory"; }
+  const char* Name() const override { return kClassName(); }
+
+ private:
+  CassandraOptions options_;
 };
 }  // namespace cassandra
 }  // namespace ROCKSDB_NAMESPACE

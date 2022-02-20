@@ -42,7 +42,7 @@ class WritableFileWriter {
       const FileOperationInfo::FinishTimePoint& finish_ts,
       const IOStatus& io_status) {
     FileOperationInfo info(FileOperationType::kWrite, file_name_, start_ts,
-                           finish_ts, io_status);
+                           finish_ts, io_status, temperature_);
     info.offset = offset;
     info.length = length;
 
@@ -56,7 +56,7 @@ class WritableFileWriter {
       const FileOperationInfo::FinishTimePoint& finish_ts,
       const IOStatus& io_status) {
     FileOperationInfo info(FileOperationType::kFlush, file_name_, start_ts,
-                           finish_ts, io_status);
+                           finish_ts, io_status, temperature_);
 
     for (auto& listener : listeners_) {
       listener->OnFileFlushFinish(info);
@@ -68,7 +68,8 @@ class WritableFileWriter {
       const FileOperationInfo::FinishTimePoint& finish_ts,
       const IOStatus& io_status,
       FileOperationType type = FileOperationType::kSync) {
-    FileOperationInfo info(type, file_name_, start_ts, finish_ts, io_status);
+    FileOperationInfo info(type, file_name_, start_ts, finish_ts, io_status,
+                           temperature_);
 
     for (auto& listener : listeners_) {
       listener->OnFileSyncFinish(info);
@@ -81,7 +82,7 @@ class WritableFileWriter {
       const FileOperationInfo::FinishTimePoint& finish_ts,
       const IOStatus& io_status) {
     FileOperationInfo info(FileOperationType::kRangeSync, file_name_, start_ts,
-                           finish_ts, io_status);
+                           finish_ts, io_status, temperature_);
     info.offset = offset;
     info.length = length;
 
@@ -95,7 +96,7 @@ class WritableFileWriter {
       const FileOperationInfo::FinishTimePoint& finish_ts,
       const IOStatus& io_status) {
     FileOperationInfo info(FileOperationType::kTruncate, file_name_, start_ts,
-                           finish_ts, io_status);
+                           finish_ts, io_status, temperature_);
 
     for (auto& listener : listeners_) {
       listener->OnFileTruncateFinish(info);
@@ -107,12 +108,25 @@ class WritableFileWriter {
       const FileOperationInfo::FinishTimePoint& finish_ts,
       const IOStatus& io_status) {
     FileOperationInfo info(FileOperationType::kClose, file_name_, start_ts,
-                           finish_ts, io_status);
+                           finish_ts, io_status, temperature_);
 
     for (auto& listener : listeners_) {
       listener->OnFileCloseFinish(info);
     }
     info.status.PermitUncheckedError();
+  }
+
+  void NotifyOnIOError(const IOStatus& io_status, FileOperationType operation,
+                       const std::string& file_path, size_t length = 0,
+                       uint64_t offset = 0) {
+    if (listeners_.empty()) {
+      return;
+    }
+    IOErrorInfo io_error_info(io_status, operation, file_path, length, offset);
+    for (auto& listener : listeners_) {
+      listener->OnIOError(io_error_info);
+    }
+    io_error_info.io_status.PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
 
@@ -146,6 +160,7 @@ class WritableFileWriter {
   bool perform_data_verification_;
   uint32_t buffered_data_crc32c_checksum_;
   bool buffered_data_with_checksum_;
+  Temperature temperature_;
 
  public:
   WritableFileWriter(
@@ -176,7 +191,9 @@ class WritableFileWriter {
         checksum_finalized_(false),
         perform_data_verification_(perform_data_verification),
         buffered_data_crc32c_checksum_(0),
-        buffered_data_with_checksum_(buffered_data_with_checksum) {
+        buffered_data_with_checksum_(buffered_data_with_checksum),
+        temperature_(options.temperature) {
+    assert(!use_direct_io() || max_buffer_size_ > 0);
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
@@ -200,10 +217,10 @@ class WritableFileWriter {
     }
   }
 
-  static Status Create(const std::shared_ptr<FileSystem>& fs,
-                       const std::string& fname, const FileOptions& file_opts,
-                       std::unique_ptr<WritableFileWriter>* writer,
-                       IODebugContext* dbg);
+  static IOStatus Create(const std::shared_ptr<FileSystem>& fs,
+                         const std::string& fname, const FileOptions& file_opts,
+                         std::unique_ptr<WritableFileWriter>* writer,
+                         IODebugContext* dbg);
   WritableFileWriter(const WritableFileWriter&) = delete;
 
   WritableFileWriter& operator=(const WritableFileWriter&) = delete;

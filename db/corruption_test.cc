@@ -39,11 +39,35 @@
 namespace ROCKSDB_NAMESPACE {
 
 static constexpr int kValueSize = 1000;
+namespace {
+// A wrapper that allows injection of errors.
+class ErrorEnv : public EnvWrapper {
+ public:
+  bool writable_file_error_;
+  int num_writable_file_errors_;
 
+  explicit ErrorEnv(Env* _target)
+      : EnvWrapper(_target),
+        writable_file_error_(false),
+        num_writable_file_errors_(0) {}
+  const char* Name() const override { return "ErrorEnv"; }
+
+  virtual Status NewWritableFile(const std::string& fname,
+                                 std::unique_ptr<WritableFile>* result,
+                                 const EnvOptions& soptions) override {
+    result->reset();
+    if (writable_file_error_) {
+      ++num_writable_file_errors_;
+      return Status::IOError(fname, "fake error");
+    }
+    return target()->NewWritableFile(fname, result, soptions);
+  }
+};
+}  // namespace
 class CorruptionTest : public testing::Test {
  public:
   std::shared_ptr<Env> env_guard_;
-  test::ErrorEnv* env_;
+  ErrorEnv* env_;
   std::string dbname_;
   std::shared_ptr<Cache> tiny_cache_;
   Options options_;
@@ -58,7 +82,7 @@ class CorruptionTest : public testing::Test {
     EXPECT_OK(
         test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
     EXPECT_NE(base_env, nullptr);
-    env_ = new test::ErrorEnv(base_env);
+    env_ = new ErrorEnv(base_env);
     options_.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
     options_.env = env_;
     dbname_ = test::PerThreadDBPath(env_, "corruption_test");
@@ -544,9 +568,9 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
       fs->GetFileSize(filename, file_opts.io_options, &file_size, nullptr));
 
   BlockHandle range_del_handle;
-  ASSERT_OK(FindMetaBlock(
+  ASSERT_OK(FindMetaBlockInFile(
       file_reader.get(), file_size, kBlockBasedTableMagicNumber,
-      ImmutableOptions(options_), kRangeDelBlock, &range_del_handle));
+      ImmutableOptions(options_), kRangeDelBlockName, &range_del_handle));
 
   ASSERT_OK(TryReopen());
   ASSERT_OK(test::CorruptFile(env_, filename,
@@ -889,14 +913,6 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
-}
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

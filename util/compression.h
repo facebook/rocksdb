@@ -514,6 +514,26 @@ inline bool ZSTDNotFinal_Supported() {
 #endif
 }
 
+inline bool ZSTD_Streaming_Supported() {
+#ifdef ZSTD
+  return ZSTD_versionNumber() >= 10300;
+#else
+  return false;
+#endif
+}
+
+inline bool StreamingCompressionTypeSupported(
+    CompressionType compression_type) {
+  switch (compression_type) {
+    case kNoCompression:
+      return true;
+    case kZSTD:
+      return ZSTD_Streaming_Supported();
+    default:
+      return false;
+  }
+}
+
 inline bool CompressionTypeSupported(CompressionType compression_type) {
   switch (compression_type) {
     case kNoCompression:
@@ -1136,7 +1156,11 @@ inline CacheAllocationPtr LZ4_Uncompress(const UncompressionInfo& info,
     if (input_length < 8) {
       return nullptr;
     }
-    memcpy(&output_len, input_data, sizeof(output_len));
+    if (port::kLittleEndian) {
+      memcpy(&output_len, input_data, sizeof(output_len));
+    } else {
+      memcpy(&output_len, input_data + 4, sizeof(output_len));
+    }
     input_length -= 8;
     input_data += 8;
   }
@@ -1224,8 +1248,10 @@ inline bool LZ4HC_Compress(const CompressionInfo& info,
   const char* compression_dict_data =
       compression_dict.size() > 0 ? compression_dict.data() : nullptr;
   size_t compression_dict_size = compression_dict.size();
-  LZ4_loadDictHC(stream, compression_dict_data,
-                 static_cast<int>(compression_dict_size));
+  if (compression_dict_data != nullptr) {
+    LZ4_loadDictHC(stream, compression_dict_data,
+                  static_cast<int>(compression_dict_size));
+  }
 
 #if LZ4_VERSION_NUMBER >= 10700  // r129+
   outlen =
@@ -1528,5 +1554,43 @@ inline CacheAllocationPtr UncompressData(
       return CacheAllocationPtr();
   }
 }
+
+// Records the compression type for subsequent WAL records.
+class CompressionTypeRecord {
+ public:
+  explicit CompressionTypeRecord(CompressionType compression_type)
+      : compression_type_(compression_type) {}
+
+  CompressionType GetCompressionType() const { return compression_type_; }
+
+  inline void EncodeTo(std::string* dst) const {
+    assert(dst != nullptr);
+    PutFixed32(dst, compression_type_);
+  }
+
+  inline Status DecodeFrom(Slice* src) {
+    constexpr char class_name[] = "CompressionTypeRecord";
+
+    uint32_t val;
+    if (!GetFixed32(src, &val)) {
+      return Status::Corruption(class_name,
+                                "Error decoding WAL compression type");
+    }
+    CompressionType compression_type = static_cast<CompressionType>(val);
+    if (!StreamingCompressionTypeSupported(compression_type)) {
+      return Status::Corruption(class_name,
+                                "WAL compression type not supported");
+    }
+    compression_type_ = compression_type;
+    return Status::OK();
+  }
+
+  inline std::string DebugString() const {
+    return "compression_type: " + CompressionTypeToString(compression_type_);
+  }
+
+ private:
+  CompressionType compression_type_;
+};
 
 }  // namespace ROCKSDB_NAMESPACE

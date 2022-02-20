@@ -170,6 +170,10 @@ class Cache {
   // The SizeCallback takes a void* pointer to the object and returns the size
   // of the persistable data. It can be used by the secondary cache to allocate
   // memory if needed.
+  //
+  // RocksDB callbacks are NOT exception-safe. A callback completing with an
+  // exception can lead to undefined behavior in RocksDB, including data loss,
+  // unreported corruption, deadlocks, and more.
   using SizeCallback = size_t (*)(void* obj);
 
   // The SaveToCallback takes a void* object pointer and saves the persistable
@@ -202,10 +206,7 @@ class Cache {
   // takes in a buffer from the NVM cache and constructs an object using
   // it. The callback doesn't have ownership of the buffer and should
   // copy the contents into its own buffer.
-  // typedef std::function<Status(void* buf, size_t size, void** out_obj,
-  //                             size_t* charge)>
-  //    CreateCallback;
-  using CreateCallback = std::function<Status(void* buf, size_t size,
+  using CreateCallback = std::function<Status(const void* buf, size_t size,
                                               void** out_obj, size_t* charge)>;
 
   Cache(std::shared_ptr<MemoryAllocator> allocator = nullptr)

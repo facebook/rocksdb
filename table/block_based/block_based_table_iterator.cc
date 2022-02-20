@@ -235,7 +235,6 @@ void BlockBasedTableIterator::InitDataBlock() {
     block_prefetcher_.PrefetchIfNeeded(rep, data_block_handle,
                                        read_options_.readahead_size,
                                        is_for_compaction);
-
     Status s;
     table_->NewDataBlockIterator<DataBlockIter>(
         read_options_, data_block_handle, &block_iter_, BlockType::kData,

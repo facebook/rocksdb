@@ -13,6 +13,9 @@
 #include <cstdint>
 #include <cstdio>
 
+#include "monitoring/perf_context_imp.h"
+#include "monitoring/statistics.h"
+#include "port/lang.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -358,7 +361,10 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
       if (handle == nullptr) {
         LRU_Insert(e);
       } else {
-        e->Ref();
+        // If caller already holds a ref, no need to take one here
+        if (!e->HasRefs()) {
+          e->Ref();
+        }
         *handle = reinterpret_cast<Cache::Handle*>(e);
       }
     }
@@ -396,22 +402,17 @@ void LRUCacheShard::Promote(LRUHandle* e) {
   if (e->value) {
     Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(e);
     Status s = InsertItem(e, &handle, /*free_handle_on_fail=*/false);
-    if (s.ok()) {
-      // InsertItem would have taken a reference on the item, so decrement it
-      // here as we expect the caller to already hold a reference
-      e->Unref();
-    } else {
+    if (!s.ok()) {
       // Item is in memory, but not accounted against the cache capacity.
       // When the handle is released, the item should get deleted
       assert(!e->InCache());
     }
   } else {
     // Since the secondary cache lookup failed, mark the item as not in cache
-    // and charge the cache only for metadata usage, i.e handle, key etc
+    // Don't charge the cache as its only metadata that'll shortly be released
     MutexLock l(&mutex_);
     e->charge = 0;
     e->SetInCache(false);
-    usage_ += e->CalcTotalCharge(metadata_charge_policy_);
   }
 }
 
@@ -419,7 +420,7 @@ Cache::Handle* LRUCacheShard::Lookup(
     const Slice& key, uint32_t hash,
     const ShardedCache::CacheItemHelper* helper,
     const ShardedCache::CreateCallback& create_cb, Cache::Priority priority,
-    bool wait) {
+    bool wait, Statistics* stats) {
   LRUHandle* e = nullptr;
   {
     MutexLock l(&mutex_);
@@ -472,11 +473,18 @@ Cache::Handle* LRUCacheShard::Lookup(
           e->Unref();
           e->Free();
           e = nullptr;
+        } else {
+          PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
+          RecordTick(stats, SECONDARY_CACHE_HITS);
         }
       } else {
         // If wait is false, we always return a handle and let the caller
         // release the handle after checking for success or failure
         e->SetIncomplete(true);
+        // This may be slightly inaccurate, if the lookup eventually fails.
+        // But the probability is very low.
+        PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
+        RecordTick(stats, SECONDARY_CACHE_HITS);
       }
     }
   }
@@ -522,7 +530,12 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool force_erase) {
         last_reference = false;
       }
     }
-    if (last_reference) {
+    // If it was the last reference, and the entry is either not secondary
+    // cache compatible (i.e a dummy entry for accounting), or is secondary
+    // cache compatible and has a non-null value, then decrement the cache
+    // usage. If value is null in the latter case, taht means the lookup
+    // failed and we didn't charge the cache.
+    if (last_reference && (!e->IsSecondaryCacheCompatible() || e->value)) {
       size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
       assert(usage_ >= total_charge);
       usage_ -= total_charge;
@@ -553,6 +566,9 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
     e->SetSecondaryCacheCompatible(true);
     e->info_.helper = helper;
   } else {
+#ifdef __SANITIZE_THREAD__
+    e->is_secondary_cache_compatible_for_tsan = false;
+#endif  // __SANITIZE_THREAD__
     e->info_.deleter = deleter;
   }
   e->charge = charge;
@@ -689,11 +705,11 @@ uint32_t LRUCache::GetHash(Handle* handle) const {
 }
 
 void LRUCache::DisownData() {
-// Do not drop data if compile with ASAN to suppress leak warning.
-#ifndef MUST_FREE_HEAP_ALLOCATIONS
-  shards_ = nullptr;
-  num_shards_ = 0;
-#endif
+  // Leak data only if that won't generate an ASAN/valgrind warning
+  if (!kMustFreeHeapAllocations) {
+    shards_ = nullptr;
+    num_shards_ = 0;
+  }
 }
 
 size_t LRUCache::TEST_GetLRUSize() {

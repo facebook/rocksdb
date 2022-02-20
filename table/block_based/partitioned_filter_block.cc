@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "file/random_access_file_reader.h"
+#include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/malloc.h"
 #include "port/port.h"
@@ -59,7 +60,9 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
   }
 }
 
-PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {}
+PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {
+  partitioned_filters_construction_status_.PermitUncheckedError();
+}
 
 void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
     const Slice* next_key) {
@@ -72,7 +75,6 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
   if (!p_index_builder_->ShouldCutFilterBlock()) {
     return;
   }
-  filter_gc.push_back(std::unique_ptr<const char[]>(nullptr));
 
   // Add the prefix of the next key before finishing the partition without
   // updating last_prefix_str_. This hack, fixes a bug with format_verison=3
@@ -87,9 +89,19 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
   }
 
   total_added_in_built_ += filter_bits_builder_->EstimateEntriesAdded();
-  Slice filter = filter_bits_builder_->Finish(&filter_gc.back());
+  std::unique_ptr<const char[]> filter_data;
+  Status filter_construction_status = Status::OK();
+  Slice filter =
+      filter_bits_builder_->Finish(&filter_data, &filter_construction_status);
+  if (filter_construction_status.ok()) {
+    filter_construction_status = filter_bits_builder_->MaybePostVerify(filter);
+  }
   std::string& index_key = p_index_builder_->GetPartitionKey();
-  filters.push_back({index_key, filter});
+  filters.push_back({index_key, std::move(filter_data), filter});
+  if (!filter_construction_status.ok() &&
+      partitioned_filters_construction_status_.ok()) {
+    partitioned_filters_construction_status_ = filter_construction_status;
+  }
   keys_added_to_partition_ = 0;
   Reset();
 }
@@ -109,10 +121,10 @@ size_t PartitionedFilterBlockBuilder::EstimateEntriesAdded() {
 }
 
 Slice PartitionedFilterBlockBuilder::Finish(
-    const BlockHandle& last_partition_block_handle, Status* status) {
+    const BlockHandle& last_partition_block_handle, Status* status,
+    std::unique_ptr<const char[]>* filter_data) {
   if (finishing_filters == true) {
     // Record the handle of the last written filter block in the index
-    FilterEntry& last_entry = filters.front();
     std::string handle_encoding;
     last_partition_block_handle.EncodeTo(&handle_encoding);
     std::string handle_delta_encoding;
@@ -121,21 +133,27 @@ Slice PartitionedFilterBlockBuilder::Finish(
         last_partition_block_handle.size() - last_encoded_handle_.size());
     last_encoded_handle_ = last_partition_block_handle;
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
-    index_on_filter_block_builder_.Add(last_entry.key, handle_encoding,
+    index_on_filter_block_builder_.Add(last_filter_entry_key, handle_encoding,
                                        &handle_delta_encoding_slice);
     if (!p_index_builder_->seperator_is_key_plus_seq()) {
       index_on_filter_block_builder_without_seq_.Add(
-          ExtractUserKey(last_entry.key), handle_encoding,
+          ExtractUserKey(last_filter_entry_key), handle_encoding,
           &handle_delta_encoding_slice);
     }
-    filters.pop_front();
   } else {
     MaybeCutAFilterBlock(nullptr);
   }
+
+  if (!partitioned_filters_construction_status_.ok()) {
+    *status = partitioned_filters_construction_status_;
+    return Slice();
+  }
+
   // If there is no filter partition left, then return the index on filter
   // partitions
   if (UNLIKELY(filters.empty())) {
     *status = Status::OK();
+    last_filter_data.reset();
     if (finishing_filters) {
       // Simplest to just add them all at the end
       total_added_in_built_ = 0;
@@ -153,7 +171,15 @@ Slice PartitionedFilterBlockBuilder::Finish(
     // indicate we expect more calls to Finish
     *status = Status::Incomplete();
     finishing_filters = true;
-    return filters.front().filter;
+
+    last_filter_entry_key = filters.front().key;
+    Slice filter = filters.front().filter;
+    last_filter_data = std::move(filters.front().filter_data);
+    if (filter_data != nullptr) {
+      *filter_data = std::move(last_filter_data);
+    }
+    filters.pop_front();
+    return filter;
   }
 }
 
@@ -466,7 +492,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   // Read the last block's offset
   biter.SeekToLast();
   handle = biter.value().handle;
-  uint64_t last_off = handle.offset() + handle.size() + kBlockTrailerSize;
+  uint64_t last_off =
+      handle.offset() + handle.size() + BlockBasedTable::kBlockTrailerSize;
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
   rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer,
@@ -476,7 +503,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   s = rep->file->PrepareIOOptions(ro, opts);
   if (s.ok()) {
     s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
-                                  static_cast<size_t>(prefetch_len));
+                                  static_cast<size_t>(prefetch_len),
+                                  ro.rate_limiter_priority);
   }
   if (!s.ok()) {
     return s;

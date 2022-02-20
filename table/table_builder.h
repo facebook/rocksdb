@@ -30,16 +30,16 @@ class Status;
 
 struct TableReaderOptions {
   // @param skip_filters Disables loading/accessing the filter block
-  TableReaderOptions(const ImmutableOptions& _ioptions,
-                     const SliceTransform* _prefix_extractor,
-                     const EnvOptions& _env_options,
-                     const InternalKeyComparator& _internal_comparator,
-                     bool _skip_filters = false, bool _immortal = false,
-                     bool _force_direct_prefetch = false, int _level = -1,
-                     BlockCacheTracer* const _block_cache_tracer = nullptr,
-                     size_t _max_file_size_for_l0_meta_pin = 0,
-                     const std::string& _cur_db_session_id = "",
-                     uint64_t _cur_file_num = 0)
+  TableReaderOptions(
+      const ImmutableOptions& _ioptions,
+      const std::shared_ptr<const SliceTransform>& _prefix_extractor,
+      const EnvOptions& _env_options,
+      const InternalKeyComparator& _internal_comparator,
+      bool _skip_filters = false, bool _immortal = false,
+      bool _force_direct_prefetch = false, int _level = -1,
+      BlockCacheTracer* const _block_cache_tracer = nullptr,
+      size_t _max_file_size_for_l0_meta_pin = 0,
+      const std::string& _cur_db_session_id = "", uint64_t _cur_file_num = 0)
       : TableReaderOptions(
             _ioptions, _prefix_extractor, _env_options, _internal_comparator,
             _skip_filters, _immortal, _force_direct_prefetch, _level,
@@ -48,17 +48,16 @@ struct TableReaderOptions {
   }
 
   // @param skip_filters Disables loading/accessing the filter block
-  TableReaderOptions(const ImmutableOptions& _ioptions,
-                     const SliceTransform* _prefix_extractor,
-                     const EnvOptions& _env_options,
-                     const InternalKeyComparator& _internal_comparator,
-                     bool _skip_filters, bool _immortal,
-                     bool _force_direct_prefetch, int _level,
-                     SequenceNumber _largest_seqno,
-                     BlockCacheTracer* const _block_cache_tracer,
-                     size_t _max_file_size_for_l0_meta_pin,
-                     const std::string& _cur_db_session_id,
-                     uint64_t _cur_file_num)
+  TableReaderOptions(
+      const ImmutableOptions& _ioptions,
+      const std::shared_ptr<const SliceTransform>& _prefix_extractor,
+      const EnvOptions& _env_options,
+      const InternalKeyComparator& _internal_comparator, bool _skip_filters,
+      bool _immortal, bool _force_direct_prefetch, int _level,
+      SequenceNumber _largest_seqno,
+      BlockCacheTracer* const _block_cache_tracer,
+      size_t _max_file_size_for_l0_meta_pin,
+      const std::string& _cur_db_session_id, uint64_t _cur_file_num)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
@@ -74,7 +73,7 @@ struct TableReaderOptions {
         cur_file_num(_cur_file_num) {}
 
   const ImmutableOptions& ioptions;
-  const SliceTransform* prefix_extractor;
+  const std::shared_ptr<const SliceTransform>& prefix_extractor;
   const EnvOptions& env_options;
   const InternalKeyComparator& internal_comparator;
   // This is only used for BlockBasedTable (reader)
@@ -104,7 +103,7 @@ struct TableBuilderOptions {
   TableBuilderOptions(
       const ImmutableOptions& _ioptions, const MutableCFOptions& _moptions,
       const InternalKeyComparator& _internal_comparator,
-      const IntTblPropCollectorFactoryRange& _int_tbl_prop_collector_factories,
+      const IntTblPropCollectorFactories* _int_tbl_prop_collector_factories,
       CompressionType _compression_type,
       const CompressionOptions& _compression_opts, uint32_t _column_family_id,
       const std::string& _column_family_name, int _level,
@@ -133,33 +132,10 @@ struct TableBuilderOptions {
         reason(_reason),
         cur_file_num(_cur_file_num) {}
 
-  TableBuilderOptions(
-      const ImmutableOptions& _ioptions, const MutableCFOptions& _moptions,
-      const InternalKeyComparator& _internal_comparator,
-      const IntTblPropCollectorFactories* _int_tbl_prop_collector_factories,
-      CompressionType _compression_type,
-      const CompressionOptions& _compression_opts, uint32_t _column_family_id,
-      const std::string& _column_family_name, int _level,
-      bool _is_bottommost = false,
-      TableFileCreationReason _reason = TableFileCreationReason::kMisc,
-      const uint64_t _creation_time = 0, const int64_t _oldest_key_time = 0,
-      const uint64_t _file_creation_time = 0, const std::string& _db_id = "",
-      const std::string& _db_session_id = "",
-      const uint64_t _target_file_size = 0, const uint64_t _cur_file_num = 0)
-      : TableBuilderOptions(_ioptions, _moptions, _internal_comparator,
-                            IntTblPropCollectorFactoryRange(
-                                _int_tbl_prop_collector_factories->begin(),
-                                _int_tbl_prop_collector_factories->end()),
-                            _compression_type, _compression_opts,
-                            _column_family_id, _column_family_name, _level,
-                            _is_bottommost, _reason, _creation_time,
-                            _oldest_key_time, _file_creation_time, _db_id,
-                            _db_session_id, _target_file_size, _cur_file_num) {}
-
   const ImmutableOptions& ioptions;
   const MutableCFOptions& moptions;
   const InternalKeyComparator& internal_comparator;
-  const IntTblPropCollectorFactoryRange int_tbl_prop_collector_factories;
+  const IntTblPropCollectorFactories* int_tbl_prop_collector_factories;
   const CompressionType compression_type;
   const CompressionOptions& compression_opts;
   const uint32_t column_family_id;

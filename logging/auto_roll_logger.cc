@@ -296,12 +296,19 @@ Status CreateLoggerFromOptions(const std::string& dbname,
   }
 #endif  // !ROCKSDB_LITE
   // Open a log file in the same directory as the db
-  env->RenameFile(
-         fname, OldInfoLogFileName(dbname, clock->NowMicros(), db_absolute_path,
-                                   options.db_log_dir))
-      .PermitUncheckedError();
-  s = env->NewLogger(fname, logger);
-  if (logger->get() != nullptr) {
+  s = env->FileExists(fname);
+  if (s.ok()) {
+    s = env->RenameFile(
+        fname, OldInfoLogFileName(dbname, clock->NowMicros(), db_absolute_path,
+                                  options.db_log_dir));
+  } else if (s.IsNotFound()) {
+    // "LOG" is not required to exist since this could be a new DB.
+    s = Status::OK();
+  }
+  if (s.ok()) {
+    s = env->NewLogger(fname, logger);
+  }
+  if (s.ok() && logger->get() != nullptr) {
     (*logger)->SetInfoLogLevel(options.info_log_level);
   }
   return s;

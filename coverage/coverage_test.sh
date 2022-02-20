@@ -24,7 +24,7 @@ mkdir -p $COVERAGE_DIR
 
 # Find all gcno files to generate the coverage report
 
-PYTHON=${1:-`which python`}
+PYTHON=${1:-`which python3`}
 echo -e "Using $PYTHON"
 GCNO_FILES=`find $ROOT -name "*.gcno"`
 $GCOV --preserve-paths --relative-only --no-output $GCNO_FILES 2>/dev/null |

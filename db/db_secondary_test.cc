@@ -10,7 +10,9 @@
 #include "db/db_impl/db_impl_secondary.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
+#include "test_util/testutil.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -19,7 +21,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBSecondaryTest : public DBTestBase {
  public:
   DBSecondaryTest()
-      : DBTestBase("/db_secondary_test", /*env_do_fsync=*/true),
+      : DBTestBase("db_secondary_test", /*env_do_fsync=*/true),
         secondary_path_(),
         handles_secondary_(),
         db_secondary_(nullptr) {
@@ -112,6 +114,18 @@ void DBSecondaryTest::CheckFileTypeCounts(const std::string& dir,
   ASSERT_EQ(expected_log, log_cnt);
   ASSERT_EQ(expected_sst, sst_cnt);
   ASSERT_EQ(expected_manifest, manifest_cnt);
+}
+
+TEST_F(DBSecondaryTest, NonExistingDb) {
+  Destroy(last_options_);
+
+  Options options = GetDefaultOptions();
+  options.env = env_;
+  options.max_open_files = -1;
+  const std::string dbname = "/doesnt/exist";
+  Status s =
+      DB::OpenAsSecondary(options, dbname, secondary_path_, &db_secondary_);
+  ASSERT_TRUE(s.IsIOError());
 }
 
 TEST_F(DBSecondaryTest, ReopenAsSecondary) {
@@ -412,6 +426,9 @@ namespace {
 class TraceFileEnv : public EnvWrapper {
  public:
   explicit TraceFileEnv(Env* _target) : EnvWrapper(_target) {}
+  static const char* kClassName() { return "TraceFileEnv"; }
+  const char* Name() const override { return kClassName(); }
+
   Status NewRandomAccessFile(const std::string& f,
                              std::unique_ptr<RandomAccessFile>* r,
                              const EnvOptions& env_options) override {
@@ -547,6 +564,84 @@ TEST_F(DBSecondaryTest, OpenAsSecondaryWALTailing) {
   verify_db_func("new_foo_value_1", "new_bar_value");
 }
 
+TEST_F(DBSecondaryTest, SecondaryTailingBug_ISSUE_8467) {
+  Options options;
+  options.env = env_;
+  Reopen(options);
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("foo", "foo_value" + std::to_string(i)));
+    ASSERT_OK(Put("bar", "bar_value" + std::to_string(i)));
+  }
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondary(options1);
+
+  const auto verify_db = [&](const std::string& foo_val,
+                             const std::string& bar_val) {
+    std::string value;
+    ReadOptions ropts;
+    Status s = db_secondary_->Get(ropts, "foo", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(foo_val, value);
+
+    s = db_secondary_->Get(ropts, "bar", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(bar_val, value);
+  };
+
+  for (int i = 0; i < 2; ++i) {
+    ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+    verify_db("foo_value2", "bar_value2");
+  }
+}
+
+TEST_F(DBSecondaryTest, RefreshIterator) {
+  Options options;
+  options.env = env_;
+  Reopen(options);
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  OpenSecondary(options1);
+
+  std::unique_ptr<Iterator> it(db_secondary_->NewIterator(ReadOptions()));
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("foo", "foo_value" + std::to_string(i)));
+
+    ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+    if (0 == i) {
+      it->Seek("foo");
+      ASSERT_FALSE(it->Valid());
+      ASSERT_OK(it->status());
+
+      ASSERT_OK(it->Refresh());
+
+      it->Seek("foo");
+      ASSERT_OK(it->status());
+      ASSERT_TRUE(it->Valid());
+      ASSERT_EQ("foo", it->key());
+      ASSERT_EQ("foo_value0", it->value());
+    } else {
+      it->Seek("foo");
+      ASSERT_TRUE(it->Valid());
+      ASSERT_EQ("foo", it->key());
+      ASSERT_EQ("foo_value" + std::to_string(i - 1), it->value());
+      ASSERT_OK(it->status());
+
+      ASSERT_OK(it->Refresh());
+
+      it->Seek("foo");
+      ASSERT_OK(it->status());
+      ASSERT_TRUE(it->Valid());
+      ASSERT_EQ("foo", it->key());
+      ASSERT_EQ("foo_value" + std::to_string(i), it->value());
+    }
+  }
+}
+
 TEST_F(DBSecondaryTest, OpenWithNonExistColumnFamily) {
   Options options;
   options.env = env_;
@@ -598,17 +693,19 @@ TEST_F(DBSecondaryTest, SwitchToNewManifestDuringOpen) {
   SyncPoint::GetInstance()->LoadDependency(
       {{"ReactiveVersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:0",
         "VersionSet::ProcessManifestWrites:BeforeNewManifest"},
-       {"VersionSet::ProcessManifestWrites:AfterNewManifest",
+       {"DBImpl::Open:AfterDeleteFiles",
         "ReactiveVersionSet::MaybeSwitchManifest:AfterGetCurrentManifestPath:"
         "1"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  // Make sure db calls RecoverLogFiles so as to trigger a manifest write,
-  // which causes the db to switch to a new MANIFEST upon start.
   port::Thread ro_db_thread([&]() {
     Options options1;
     options1.env = env_;
     options1.max_open_files = -1;
+    Status s = TryOpenSecondary(options1);
+    ASSERT_TRUE(s.IsTryAgain());
+
+    // Try again
     OpenSecondary(options1);
     CloseSecondary();
   });
@@ -757,12 +854,14 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
   Options options;
   options.env = env_;
   options.level0_file_num_compaction_trigger = 4;
-  Reopen(options);
+  const std::string cf1_name("test_cf");
+  CreateAndReopenWithCF({cf1_name}, options);
 
   Options options1;
   options1.env = env_;
   options1.max_open_files = -1;
-  OpenSecondary(options1);
+  OpenSecondaryWithColumnFamilies({kDefaultColumnFamilyName, cf1_name},
+                                  options1);
 
   const int kNumFiles = options.level0_file_num_compaction_trigger - 1;
   // Keep it smaller than 10 so that key0, key1, ..., key9 are sorted as 0, 1,
@@ -796,11 +895,11 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
   // restart primary, performs full compaction, close again, restart again so
   // that next time secondary tries to catch up with primary, the secondary
   // will skip the MANIFEST in middle.
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name}, options);
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name}, options);
   ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
@@ -811,12 +910,14 @@ TEST_F(DBSecondaryTest, SwitchManifestTwice) {
   Options options;
   options.env = env_;
   options.disable_auto_compactions = true;
-  Reopen(options);
+  const std::string cf1_name("test_cf");
+  CreateAndReopenWithCF({cf1_name}, options);
 
   Options options1;
   options1.env = env_;
   options1.max_open_files = -1;
-  OpenSecondary(options1);
+  OpenSecondaryWithColumnFamilies({kDefaultColumnFamilyName, cf1_name},
+                                  options1);
 
   ASSERT_OK(Put("0", "value0"));
   ASSERT_OK(Flush());
@@ -827,9 +928,9 @@ TEST_F(DBSecondaryTest, SwitchManifestTwice) {
   ASSERT_OK(db_secondary_->Get(ropts, "0", &value));
   ASSERT_EQ("value0", value);
 
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name}, options);
   ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
-  Reopen(options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, cf1_name}, options);
   ASSERT_OK(Put("0", "value1"));
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
 
@@ -844,7 +945,7 @@ TEST_F(DBSecondaryTest, DISABLED_SwitchWAL) {
   options.max_write_buffer_number = 4;
   options.min_write_buffer_number_to_merge = 2;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
   Reopen(options);
 
   Options options1;
@@ -899,7 +1000,7 @@ TEST_F(DBSecondaryTest, DISABLED_SwitchWALMultiColumnFamilies) {
   options.max_write_buffer_number = 4;
   options.min_write_buffer_number_to_merge = 2;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
   CreateAndReopenWithCF({kCFName1}, options);
 
   Options options1;
@@ -963,7 +1064,7 @@ TEST_F(DBSecondaryTest, CatchUpAfterFlush) {
   options.max_write_buffer_number = 4;
   options.min_write_buffer_number_to_merge = 2;
   options.memtable_factory.reset(
-      new SpecialSkipListFactory(kNumKeysPerMemtable));
+      test::NewSpecialSkipListFactory(kNumKeysPerMemtable));
   Reopen(options);
 
   Options options1;
@@ -1115,6 +1216,39 @@ TEST_F(DBSecondaryTest, InconsistencyDuringCatchUp) {
   Status s = db_secondary_->TryCatchUpWithPrimary();
   ASSERT_TRUE(s.IsCorruption());
 }
+
+TEST_F(DBSecondaryTest, OpenWithTransactionDB) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+
+  // Destroy the DB to recreate as a TransactionDB.
+  Close();
+  Destroy(options, true);
+
+  // Create a TransactionDB.
+  TransactionDB* txn_db = nullptr;
+  TransactionDBOptions txn_db_opts;
+  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
+  ASSERT_NE(txn_db, nullptr);
+  db_ = txn_db;
+
+  std::vector<std::string> cfs = {"new_CF"};
+  CreateColumnFamilies(cfs, options);
+  ASSERT_EQ(handles_.size(), 1);
+
+  WriteOptions wopts;
+  TransactionOptions txn_opts;
+  Transaction* txn1 = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  ASSERT_NE(txn1, nullptr);
+  ASSERT_OK(txn1->Put(handles_[0], "k1", "v1"));
+  ASSERT_OK(txn1->Commit());
+  delete txn1;
+
+  options = CurrentOptions();
+  options.max_open_files = -1;
+  ASSERT_OK(TryOpenSecondary(options));
+}
+
 #endif  //! ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

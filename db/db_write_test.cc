@@ -24,7 +24,7 @@ namespace ROCKSDB_NAMESPACE {
 // Test variations of WriteImpl.
 class DBWriteTest : public DBTestBase, public testing::WithParamInterface<int> {
  public:
-  DBWriteTest() : DBTestBase("/db_write_test", /*env_do_fsync=*/true) {}
+  DBWriteTest() : DBTestBase("db_write_test", /*env_do_fsync=*/true) {}
 
   Options GetOptions() { return DBTestBase::GetOptions(GetParam()); }
 
@@ -461,5 +461,6 @@ INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

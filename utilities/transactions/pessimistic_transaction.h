@@ -44,7 +44,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
   PessimisticTransaction(const PessimisticTransaction&) = delete;
   void operator=(const PessimisticTransaction&) = delete;
 
-  virtual ~PessimisticTransaction();
+  ~PessimisticTransaction() override;
 
   void Reinitialize(TransactionDB* txn_db, const WriteOptions& write_options,
                     const TransactionOptions& txn_options);
@@ -158,6 +158,14 @@ class PessimisticTransaction : public TransactionBaseImpl {
   // microseconds according to Env->NowMicros())
   uint64_t expiration_time_;
 
+  // Timestamp used by the transaction to perform all GetForUpdate.
+  // Use this timestamp for conflict checking.
+  // read_timestamp_ == kMaxTxnTimestamp means this transaction has not
+  // performed any GetForUpdate. It is possible that the transaction has
+  // performed blind writes or Get, though.
+  TxnTimestamp read_timestamp_{kMaxTxnTimestamp};
+  TxnTimestamp commit_timestamp_{kMaxTxnTimestamp};
+
  private:
   friend class TransactionTest_ValidateSnapshotTest_Test;
   // Used to create unique ids for transactions.
@@ -213,7 +221,10 @@ class WriteCommittedTxn : public PessimisticTransaction {
   WriteCommittedTxn(const WriteCommittedTxn&) = delete;
   void operator=(const WriteCommittedTxn&) = delete;
 
-  virtual ~WriteCommittedTxn() {}
+  ~WriteCommittedTxn() override {}
+
+  Status SetReadTimestampForValidation(TxnTimestamp ts) override;
+  Status SetCommitTimestamp(TxnTimestamp ts) override;
 
  private:
   Status PrepareInternal() override;

@@ -25,7 +25,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class WritableFileWriterTest : public testing::Test {};
 
-const uint32_t kMb = 1 << 20;
+constexpr uint32_t kMb = static_cast<uint32_t>(1) << 20;
 
 TEST_F(WritableFileWriterTest, RangeSync) {
   class FakeWF : public FSWritableFile {
@@ -234,10 +234,24 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
   }
 }
 
+TEST_F(WritableFileWriterTest, BufferWithZeroCapacityDirectIO) {
+  EnvOptions env_opts;
+  env_opts.use_direct_writes = true;
+  env_opts.writable_file_max_buffer_size = 0;
+  {
+    std::unique_ptr<WritableFileWriter> writer;
+    const Status s =
+        WritableFileWriter::Create(FileSystem::Default(), /*fname=*/"dont_care",
+                                   FileOptions(env_opts), &writer,
+                                   /*dbg=*/nullptr);
+    ASSERT_TRUE(s.IsInvalidArgument());
+  }
+}
+
 class DBWritableFileWriterTest : public DBTestBase {
  public:
   DBWritableFileWriterTest()
-      : DBTestBase("/db_secondary_cache_test", /*env_do_fsync=*/true) {
+      : DBTestBase("db_secondary_cache_test", /*env_do_fsync=*/true) {
     fault_fs_.reset(new FaultInjectionTestFS(env_->GetFileSystem()));
     fault_env_.reset(new CompositeEnvWrapper(env_, fault_fs_));
   }
@@ -251,7 +265,7 @@ TEST_F(DBWritableFileWriterTest, AppendWithChecksum) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   DestroyAndReopen(options);
-  std::string fname = this->dbname_ + "/test_file";
+  std::string fname = dbname_ + "/test_file";
   std::unique_ptr<FSWritableFile> writable_file_ptr;
   ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options, &writable_file_ptr,
                                        /*dbg*/ nullptr));
@@ -291,7 +305,7 @@ TEST_F(DBWritableFileWriterTest, AppendVerifyNoChecksum) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   DestroyAndReopen(options);
-  std::string fname = this->dbname_ + "/test_file";
+  std::string fname = dbname_ + "/test_file";
   std::unique_ptr<FSWritableFile> writable_file_ptr;
   ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options, &writable_file_ptr,
                                        /*dbg*/ nullptr));
@@ -334,7 +348,7 @@ TEST_F(DBWritableFileWriterTest, AppendWithChecksumRateLimiter) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   DestroyAndReopen(options);
-  std::string fname = this->dbname_ + "/test_file";
+  std::string fname = dbname_ + "/test_file";
   std::unique_ptr<FSWritableFile> writable_file_ptr;
   ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options, &writable_file_ptr,
                                        /*dbg*/ nullptr));
@@ -376,7 +390,7 @@ TEST_F(DBWritableFileWriterTest, AppendWithChecksumRateLimiter) {
   FileOptions file_options1 = FileOptions();
   file_options1.rate_limiter =
       NewGenericRateLimiter(static_cast<int64_t>(0.5 * raw_rate));
-  fname = this->dbname_ + "/test_file_1";
+  fname = dbname_ + "/test_file_1";
   std::unique_ptr<FSWritableFile> writable_file_ptr1;
   ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options1,
                                        &writable_file_ptr1,
@@ -691,7 +705,7 @@ std::string GenerateLine(int n) {
 TEST(LineFileReaderTest, LineFileReaderTest) {
   const int nlines = 1000;
 
-  std::unique_ptr<MockEnv> mem_env(new MockEnv(Env::Default()));
+  std::unique_ptr<Env> mem_env(MockEnv::Create(Env::Default()));
   std::shared_ptr<FileSystem> fs = mem_env->GetFileSystem();
   // Create an input file
   {
@@ -772,6 +786,121 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   }
 }
 
+#ifndef ROCKSDB_LITE
+class IOErrorEventListener : public EventListener {
+ public:
+  IOErrorEventListener() { notify_error_.store(0); }
+
+  void OnIOError(const IOErrorInfo& io_error_info) override {
+    notify_error_++;
+    EXPECT_FALSE(io_error_info.file_path.empty());
+    EXPECT_FALSE(io_error_info.io_status.ok());
+  }
+
+  size_t NotifyErrorCount() { return notify_error_; }
+
+  bool ShouldBeNotifiedOnFileIO() override { return true; }
+
+ private:
+  std::atomic<size_t> notify_error_;
+};
+
+TEST_F(DBWritableFileWriterTest, IOErrorNotification) {
+  class FakeWF : public FSWritableFile {
+   public:
+    explicit FakeWF() : io_error_(false) {
+      file_append_errors_.store(0);
+      file_flush_errors_.store(0);
+    }
+
+    using FSWritableFile::Append;
+    IOStatus Append(const Slice& /*data*/, const IOOptions& /*options*/,
+                    IODebugContext* /*dbg*/) override {
+      if (io_error_) {
+        file_append_errors_++;
+        return IOStatus::IOError("Fake IO error");
+      }
+      return IOStatus::OK();
+    }
+
+    using FSWritableFile::PositionedAppend;
+    IOStatus PositionedAppend(const Slice& /*data*/, uint64_t,
+                              const IOOptions& /*options*/,
+                              IODebugContext* /*dbg*/) override {
+      if (io_error_) {
+        return IOStatus::IOError("Fake IO error");
+      }
+      return IOStatus::OK();
+    }
+    IOStatus Close(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Flush(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      if (io_error_) {
+        file_flush_errors_++;
+        return IOStatus::IOError("Fake IO error");
+      }
+      return IOStatus::OK();
+    }
+    IOStatus Sync(const IOOptions& /*options*/,
+                  IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+
+    void SetIOError(bool val) { io_error_ = val; }
+
+    void CheckCounters(int file_append_errors, int file_flush_errors) {
+      ASSERT_EQ(file_append_errors, file_append_errors_);
+      ASSERT_EQ(file_flush_errors_, file_flush_errors);
+    }
+
+   protected:
+    bool io_error_;
+    std::atomic<size_t> file_append_errors_;
+    std::atomic<size_t> file_flush_errors_;
+  };
+
+  FileOptions file_options = FileOptions();
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  IOErrorEventListener* listener = new IOErrorEventListener();
+  options.listeners.emplace_back(listener);
+
+  DestroyAndReopen(options);
+  ImmutableOptions ioptions(options);
+
+  std::string fname = dbname_ + "/test_file";
+  std::unique_ptr<FakeWF> writable_file_ptr(new FakeWF);
+
+  std::unique_ptr<WritableFileWriter> file_writer;
+  writable_file_ptr->SetIOError(true);
+
+  file_writer.reset(new WritableFileWriter(
+      std::move(writable_file_ptr), fname, file_options,
+      SystemClock::Default().get(), nullptr, ioptions.stats, ioptions.listeners,
+      ioptions.file_checksum_gen_factory.get(), true, true));
+
+  FakeWF* fwf = static_cast<FakeWF*>(file_writer->writable_file());
+
+  fwf->SetIOError(true);
+  ASSERT_NOK(file_writer->Append(std::string(2 * kMb, 'a')));
+  fwf->CheckCounters(1, 0);
+  ASSERT_EQ(listener->NotifyErrorCount(), 1);
+
+  fwf->SetIOError(true);
+  ASSERT_NOK(file_writer->Flush());
+  fwf->CheckCounters(1, 1);
+  ASSERT_EQ(listener->NotifyErrorCount(), 2);
+
+  /* No error generation */
+  fwf->SetIOError(false);
+  ASSERT_OK(file_writer->Append(std::string(2 * kMb, 'b')));
+  ASSERT_EQ(listener->NotifyErrorCount(), 2);
+  fwf->CheckCounters(1, 1);
+}
+#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

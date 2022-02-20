@@ -10,6 +10,8 @@
 #include "rocksdb/cache.h"
 
 #include "cache/lru_cache.h"
+#include "rocksdb/secondary_cache.h"
+#include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"
 
@@ -33,6 +35,13 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
 };
 #endif  // ROCKSDB_LITE
+
+Status SecondaryCache::CreateFromString(
+    const ConfigOptions& config_options, const std::string& value,
+    std::shared_ptr<SecondaryCache>* result) {
+  return LoadSharedObject<SecondaryCache>(config_options, value, nullptr,
+                                          result);
+}
 
 Status Cache::CreateFromString(const ConfigOptions& config_options,
                                const std::string& value,

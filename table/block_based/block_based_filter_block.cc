@@ -8,12 +8,14 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "table/block_based/block_based_filter_block.h"
+
 #include <algorithm>
 
 #include "db/dbformat.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
@@ -62,15 +64,13 @@ static const size_t kFilterBase = 1 << kFilterBaseLg;
 
 BlockBasedFilterBlockBuilder::BlockBasedFilterBlockBuilder(
     const SliceTransform* prefix_extractor,
-    const BlockBasedTableOptions& table_opt)
-    : policy_(table_opt.filter_policy.get()),
-      prefix_extractor_(prefix_extractor),
+    const BlockBasedTableOptions& table_opt, int bits_per_key)
+    : prefix_extractor_(prefix_extractor),
       whole_key_filtering_(table_opt.whole_key_filtering),
+      bits_per_key_(bits_per_key),
       prev_prefix_start_(0),
       prev_prefix_size_(0),
-      total_added_in_built_(0) {
-  assert(policy_);
-}
+      total_added_in_built_(0) {}
 
 void BlockBasedFilterBlockBuilder::StartBlock(uint64_t block_offset) {
   uint64_t filter_index = (block_offset / kFilterBase);
@@ -117,9 +117,10 @@ inline void BlockBasedFilterBlockBuilder::AddPrefix(const Slice& key) {
   }
 }
 
-Slice BlockBasedFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
-                                           Status* status) {
-  // In this impl we ignore BlockHandle
+Slice BlockBasedFilterBlockBuilder::Finish(
+    const BlockHandle& /*tmp*/, Status* status,
+    std::unique_ptr<const char[]>* /* filter_data */) {
+  // In this impl we ignore BlockHandle and filter_data
   *status = Status::OK();
 
   if (!start_.empty()) {
@@ -157,8 +158,9 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
 
   // Generate filter for current set of keys and append to result_.
   filter_offsets_.push_back(static_cast<uint32_t>(result_.size()));
-  policy_->CreateFilter(&tmp_entries_[0], static_cast<int>(num_entries),
-                        &result_);
+  DeprecatedBlockBasedBloomFilterPolicy::CreateFilter(
+      tmp_entries_.data(), static_cast<int>(num_entries), bits_per_key_,
+      &result_);
 
   tmp_entries_.clear();
   entries_.clear();
@@ -257,6 +259,7 @@ bool BlockBasedFilterBlockReader::MayMatch(
   const Status s =
       GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
   if (!s.ok()) {
+    IGNORE_STATUS_IF_ERROR(s);
     return true;
   }
 
@@ -280,9 +283,9 @@ bool BlockBasedFilterBlockReader::MayMatch(
 
       assert(table());
       assert(table()->get_rep());
-      const FilterPolicy* const policy = table()->get_rep()->filter_policy;
 
-      const bool may_match = policy->KeyMayMatch(entry, filter);
+      const bool may_match =
+          DeprecatedBlockBasedBloomFilterPolicy::KeyMayMatch(entry, filter);
       if (may_match) {
         PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
         return true;
@@ -315,6 +318,7 @@ std::string BlockBasedFilterBlockReader::ToString() const {
       GetOrReadFilterBlock(false /* no_io */, nullptr /* get_context */,
                            nullptr /* lookup_context */, &filter_block);
   if (!s.ok()) {
+    IGNORE_STATUS_IF_ERROR(s);
     return std::string("Unable to retrieve filter block");
   }
 

@@ -36,6 +36,9 @@ struct ImmutableDBOptions {
   bool use_fsync;
   std::vector<DbPath> db_paths;
   std::string db_log_dir;
+  // The wal_dir option from the file.  To determine the
+  // directory in use, the GetWalDir or IsWalDirSameAsDBPath
+  // methods should be used instead of accessing this variable directly.
   std::string wal_dir;
   size_t max_log_file_size;
   size_t log_file_time_to_roll;
@@ -54,10 +57,10 @@ struct ImmutableDBOptions {
   bool allow_fallocate;
   bool is_fd_close_on_exec;
   bool advise_random_on_open;
+  double experimental_mempurge_threshold;
   size_t db_write_buffer_size;
   std::shared_ptr<WriteBufferManager> write_buffer_manager;
   DBOptions::AccessHint access_hint_on_compaction_start;
-  bool new_table_reader_for_compaction_inputs;
   size_t random_access_max_buffer_size;
   bool use_adaptive_mutex;
   std::vector<std::shared_ptr<EventListener>> listeners;
@@ -80,9 +83,9 @@ struct ImmutableDBOptions {
   bool dump_malloc_stats;
   bool avoid_flush_during_recovery;
   bool allow_ingest_behind;
-  bool preserve_deletes;
   bool two_write_queues;
   bool manual_wal_flush;
+  CompressionType wal_compression;
   bool atomic_flush;
   bool avoid_unnecessary_blocking_io;
   bool persist_stats_to_disk;
@@ -95,24 +98,28 @@ struct ImmutableDBOptions {
   bool allow_data_in_errors;
   std::string db_host_id;
   FileTypeSet checksum_handoff_file_types;
+  CacheTier lowest_used_cache_tier;
   // Convenience/Helper objects that are not part of the base DBOptions
   std::shared_ptr<FileSystem> fs;
   SystemClock* clock;
   Statistics* stats;
   Logger* logger;
   std::shared_ptr<CompactionService> compaction_service;
+
+  bool IsWalDirSameAsDBPath() const;
+  bool IsWalDirSameAsDBPath(const std::string& path) const;
+  const std::string& GetWalDir() const;
+  const std::string& GetWalDir(const std::string& path) const;
 };
 
 struct MutableDBOptions {
   static const char* kName() { return "MutableDBOptions"; }
   MutableDBOptions();
-  explicit MutableDBOptions(const MutableDBOptions& options) = default;
   explicit MutableDBOptions(const DBOptions& options);
 
   void Dump(Logger* log) const;
 
   int max_background_jobs;
-  int base_background_compactions;
   int max_background_compactions;
   uint32_t max_subcompactions;
   bool avoid_flush_during_shutdown;
@@ -140,6 +147,9 @@ Status GetMutableDBOptionsFromStrings(
     const MutableDBOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
     MutableDBOptions* new_options);
+
+bool MutableDBOptionsAreEqual(const MutableDBOptions& this_options,
+                              const MutableDBOptions& that_options);
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

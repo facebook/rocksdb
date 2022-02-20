@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -43,10 +44,16 @@ class Logger;
 //
 // Refer to rocksdb-merge wiki for more details and example implementations.
 //
-class MergeOperator {
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
+class MergeOperator : public Customizable {
  public:
   virtual ~MergeOperator() {}
   static const char* Type() { return "MergeOperator"; }
+  static Status CreateFromString(const ConfigOptions& opts,
+                                 const std::string& id,
+                                 std::shared_ptr<MergeOperator>* result);
 
   // Gives the client a way to express the read -> modify -> write semantics
   // key:      (IN)    The key that's associated with this merge operation.
@@ -198,7 +205,7 @@ class MergeOperator {
   // TODO: the name is currently not stored persistently and thus
   //       no checking is enforced. Client is responsible for providing
   //       consistent MergeOperator between DB opens.
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
 
   // Determines whether the PartialMerge can be called with just a single
   // merge operand.

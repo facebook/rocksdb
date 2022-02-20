@@ -31,6 +31,7 @@
 #endif
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/slice.h"
 #include "test_util/sync_point.h"
 #include "util/autovector.h"
@@ -557,7 +558,7 @@ PosixRandomAccessFile::PosixRandomAccessFile(
 #endif
 {
   assert(!options.use_direct_reads || !options.use_mmap_reads);
-  assert(!options.use_mmap_reads || sizeof(void*) < 8);
+  assert(!options.use_mmap_reads);
 }
 
 PosixRandomAccessFile::~PosixRandomAccessFile() { close(fd_); }
@@ -644,6 +645,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
 
   autovector<WrappedReadRequest, 32> req_wraps;
   autovector<WrappedReadRequest*, 4> incomplete_rq_list;
+  std::unordered_set<WrappedReadRequest*> wrap_cache;
 
   for (size_t i = 0; i < num_reqs; i++) {
     req_wraps.emplace_back(&reqs[i]);
@@ -676,6 +678,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
           sqe, fd_, &rep_to_submit->iov, 1,
           rep_to_submit->req->offset + rep_to_submit->finished_len);
       io_uring_sqe_set_data(sqe, rep_to_submit);
+      wrap_cache.emplace(rep_to_submit);
     }
     incomplete_rq_list.clear();
 
@@ -724,6 +727,22 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       }
 
       req_wrap = static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
+      // Reset cqe data to catch any stray reuse of it
+      static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
+      // Check that we got a valid unique cqe data
+      auto wrap_check = wrap_cache.find(req_wrap);
+      if (wrap_check == wrap_cache.end()) {
+        fprintf(stderr,
+                "PosixRandomAccessFile::MultiRead: "
+                "Bad cqe data from IO uring - %p\n",
+                req_wrap);
+        port::PrintStack();
+        ios = IOStatus::IOError("io_uring_cqe_get_data() returned " +
+                                ToString((uint64_t)req_wrap));
+        continue;
+      }
+      wrap_cache.erase(wrap_check);
+
       FSReadRequest* req = req_wrap->req;
       if (cqe->res < 0) {
         req->result = Slice(req->scratch, 0);
@@ -769,6 +788,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       }
       io_uring_cqe_seen(iu, cqe);
     }
+    wrap_cache.clear();
   }
   return ios;
 #else
@@ -1088,9 +1108,15 @@ IOStatus PosixMmapFile::Flush(const IOOptions& /*opts*/,
 
 IOStatus PosixMmapFile::Sync(const IOOptions& /*opts*/,
                              IODebugContext* /*dbg*/) {
+#ifdef HAVE_FULLFSYNC
+  if (::fcntl(fd_, F_FULLFSYNC) < 0) {
+    return IOError("while fcntl(F_FULLSYNC) mmapped file", filename_, errno);
+  }
+#else   // HAVE_FULLFSYNC
   if (fdatasync(fd_) < 0) {
     return IOError("While fdatasync mmapped file", filename_, errno);
   }
+#endif  // HAVE_FULLFSYNC
 
   return Msync();
 }
@@ -1100,9 +1126,15 @@ IOStatus PosixMmapFile::Sync(const IOOptions& /*opts*/,
  */
 IOStatus PosixMmapFile::Fsync(const IOOptions& /*opts*/,
                               IODebugContext* /*dbg*/) {
+#ifdef HAVE_FULLFSYNC
+  if (::fcntl(fd_, F_FULLFSYNC) < 0) {
+    return IOError("While fcntl(F_FULLSYNC) on mmaped file", filename_, errno);
+  }
+#else   // HAVE_FULLFSYNC
   if (fsync(fd_) < 0) {
     return IOError("While fsync mmaped file", filename_, errno);
   }
+#endif  // HAVE_FULLFSYNC
 
   return Msync();
 }
@@ -1300,17 +1332,29 @@ IOStatus PosixWritableFile::Flush(const IOOptions& /*opts*/,
 
 IOStatus PosixWritableFile::Sync(const IOOptions& /*opts*/,
                                  IODebugContext* /*dbg*/) {
+#ifdef HAVE_FULLFSYNC
+  if (::fcntl(fd_, F_FULLFSYNC) < 0) {
+    return IOError("while fcntl(F_FULLFSYNC)", filename_, errno);
+  }
+#else   // HAVE_FULLFSYNC
   if (fdatasync(fd_) < 0) {
     return IOError("While fdatasync", filename_, errno);
   }
+#endif  // HAVE_FULLFSYNC
   return IOStatus::OK();
 }
 
 IOStatus PosixWritableFile::Fsync(const IOOptions& /*opts*/,
                                   IODebugContext* /*dbg*/) {
+#ifdef HAVE_FULLFSYNC
+  if (::fcntl(fd_, F_FULLFSYNC) < 0) {
+    return IOError("while fcntl(F_FULLFSYNC)", filename_, errno);
+  }
+#else   // HAVE_FULLFSYNC
   if (fsync(fd_) < 0) {
     return IOError("While fsync", filename_, errno);
   }
+#endif  // HAVE_FULLFSYNC
   return IOStatus::OK();
 }
 
@@ -1483,17 +1527,29 @@ IOStatus PosixRandomRWFile::Flush(const IOOptions& /*opts*/,
 
 IOStatus PosixRandomRWFile::Sync(const IOOptions& /*opts*/,
                                  IODebugContext* /*dbg*/) {
+#ifdef HAVE_FULLFSYNC
+  if (::fcntl(fd_, F_FULLFSYNC) < 0) {
+    return IOError("while fcntl(F_FULLFSYNC) random rw file", filename_, errno);
+  }
+#else   // HAVE_FULLFSYNC
   if (fdatasync(fd_) < 0) {
     return IOError("While fdatasync random read/write file", filename_, errno);
   }
+#endif  // HAVE_FULLFSYNC
   return IOStatus::OK();
 }
 
 IOStatus PosixRandomRWFile::Fsync(const IOOptions& /*opts*/,
                                   IODebugContext* /*dbg*/) {
+#ifdef HAVE_FULLFSYNC
+  if (::fcntl(fd_, F_FULLFSYNC) < 0) {
+    return IOError("While fcntl(F_FULLSYNC) random rw file", filename_, errno);
+  }
+#else   // HAVE_FULLFSYNC
   if (fsync(fd_) < 0) {
     return IOError("While fsync random read/write file", filename_, errno);
   }
+#endif  // HAVE_FULLFSYNC
   return IOStatus::OK();
 }
 
@@ -1514,17 +1570,71 @@ PosixMemoryMappedFileBuffer::~PosixMemoryMappedFileBuffer() {
 /*
  * PosixDirectory
  */
+#if !defined(BTRFS_SUPER_MAGIC)
+// The magic number for BTRFS is fixed, if it's not defined, define it here
+#define BTRFS_SUPER_MAGIC 0x9123683E
+#endif
+PosixDirectory::PosixDirectory(int fd) : fd_(fd) {
+  is_btrfs_ = false;
+#ifdef OS_LINUX
+  struct statfs buf;
+  int ret = fstatfs(fd, &buf);
+  is_btrfs_ = (ret == 0 && buf.f_type == static_cast<decltype(buf.f_type)>(
+                                             BTRFS_SUPER_MAGIC));
+#endif
+}
 
 PosixDirectory::~PosixDirectory() { close(fd_); }
 
-IOStatus PosixDirectory::Fsync(const IOOptions& /*opts*/,
-                               IODebugContext* /*dbg*/) {
+IOStatus PosixDirectory::Fsync(const IOOptions& opts, IODebugContext* dbg) {
+  return FsyncWithDirOptions(opts, dbg, DirFsyncOptions());
+}
+
+IOStatus PosixDirectory::FsyncWithDirOptions(
+    const IOOptions& /*opts*/, IODebugContext* /*dbg*/,
+    const DirFsyncOptions& dir_fsync_options) {
+  IOStatus s = IOStatus::OK();
 #ifndef OS_AIX
-  if (fsync(fd_) == -1) {
-    return IOError("While fsync", "a directory", errno);
+  if (is_btrfs_) {
+    // skip dir fsync for new file creation, which is not needed for btrfs
+    if (dir_fsync_options.reason == DirFsyncOptions::kNewFileSynced) {
+      return s;
+    }
+    // skip dir fsync for renaming file, only need to sync new file
+    if (dir_fsync_options.reason == DirFsyncOptions::kFileRenamed) {
+      std::string new_name = dir_fsync_options.renamed_new_name;
+      assert(!new_name.empty());
+      int fd;
+      do {
+        IOSTATS_TIMER_GUARD(open_nanos);
+        fd = open(new_name.c_str(), O_RDONLY);
+      } while (fd < 0 && errno == EINTR);
+      if (fd < 0) {
+        s = IOError("While open renaming file", new_name, errno);
+      } else if (fsync(fd) < 0) {
+        s = IOError("While fsync renaming file", new_name, errno);
+      }
+      if (close(fd) < 0) {
+        s = IOError("While closing file after fsync", new_name, errno);
+      }
+      return s;
+    }
+    // fallback to dir-fsync for kDefault, kDirRenamed and kFileDeleted
   }
-#endif
-  return IOStatus::OK();
+#ifdef HAVE_FULLFSYNC
+  // btrfs is a Linux file system, while currently F_FULLFSYNC is available on
+  // Mac OS.
+  assert(!is_btrfs_);
+  if (::fcntl(fd_, F_FULLFSYNC) < 0) {
+    return IOError("while fcntl(F_FULLFSYNC)", "a directory", errno);
+  }
+#else   // HAVE_FULLFSYNC
+  if (fsync(fd_) == -1) {
+    s = IOError("While fsync", "a directory", errno);
+  }
+#endif  // HAVE_FULLFSYNC
+#endif  // OS_AIX
+  return s;
 }
 }  // namespace ROCKSDB_NAMESPACE
 #endif

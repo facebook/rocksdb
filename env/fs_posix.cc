@@ -73,6 +73,8 @@
 #define EXT4_SUPER_MAGIC 0xEF53
 #endif
 
+extern "C" bool RocksDbIOUringEnable() __attribute__((__weak__));
+
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
@@ -107,8 +109,18 @@ static int LockOrUnlock(int fd, bool lock) {
 
 class PosixFileLock : public FileLock {
  public:
-  int fd_;
+  int fd_ = /*invalid*/ -1;
   std::string filename;
+
+  void Clear() {
+    fd_ = -1;
+    filename.clear();
+  }
+
+  virtual ~PosixFileLock() override {
+    // Check for destruction without UnlockFile
+    assert(fd_ == -1);
+  }
 };
 
 int cloexec_flags(int flags, const EnvOptions* options) {
@@ -129,7 +141,9 @@ class PosixFileSystem : public FileSystem {
  public:
   PosixFileSystem();
 
-  const char* Name() const override { return "Posix File System"; }
+  static const char* kClassName() { return "PosixFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kDefaultName(); }
 
   ~PosixFileSystem() override {}
 
@@ -224,7 +238,7 @@ class PosixFileSystem : public FileSystem {
     }
     SetFD_CLOEXEC(fd, &options);
 
-    if (options.use_mmap_reads && sizeof(void*) >= 8) {
+    if (options.use_mmap_reads) {
       // Use of mmap for random reads has been removed because it
       // kills performance when storage is fast.
       // Use mmap when virtual address-space is plentiful.
@@ -257,7 +271,7 @@ class PosixFileSystem : public FileSystem {
           options
 #if defined(ROCKSDB_IOURING_PRESENT)
           ,
-          thread_local_io_urings_.get()
+          !IsIOUringEnabled() ? nullptr : thread_local_io_urings_.get()
 #endif
               ));
     }
@@ -606,7 +620,8 @@ class PosixFileSystem : public FileSystem {
         return IOStatus::NotFound();
       default:
         assert(err == EIO || err == ENOMEM);
-        return IOStatus::IOError("Unexpected error(" + ToString(err) +
+        return IOStatus::IOError("Unexpected error(" +
+                                 ROCKSDB_NAMESPACE::ToString(err) +
                                  ") accessing file `" + fname + "' ");
     }
   }
@@ -807,11 +822,12 @@ class PosixFileSystem : public FileSystem {
       errno = ENOLCK;
       // Note that the thread ID printed is the same one as the one in
       // posix logger, but posix logger prints it hex format.
-      return IOError("lock hold by current process, acquire time " +
-                         ToString(prev_info.acquire_time) +
-                         " acquiring thread " +
-                         ToString(prev_info.acquiring_thread),
-                     fname, errno);
+      return IOError(
+          "lock hold by current process, acquire time " +
+              ROCKSDB_NAMESPACE::ToString(prev_info.acquire_time) +
+              " acquiring thread " +
+              ROCKSDB_NAMESPACE::ToString(prev_info.acquiring_thread),
+          fname, errno);
     }
 
     IOStatus result = IOStatus::OK();
@@ -825,9 +841,6 @@ class PosixFileSystem : public FileSystem {
     if (fd < 0) {
       result = IOError("while open a file for lock", fname, errno);
     } else if (LockOrUnlock(fd, true) == -1) {
-      // if there is an error in locking, then remove the pathname from
-      // lockedfiles
-      locked_files.erase(fname);
       result = IOError("While lock file", fname, errno);
       close(fd);
     } else {
@@ -836,6 +849,12 @@ class PosixFileSystem : public FileSystem {
       my_lock->fd_ = fd;
       my_lock->filename = fname;
       *lock = my_lock;
+    }
+    if (!result.ok()) {
+      // If there is an error in locking, then remove the pathname from
+      // locked_files. (If we got this far, it did not exist in locked_files
+      // before this call.)
+      locked_files.erase(fname);
     }
 
     mutex_locked_files.Unlock();
@@ -856,6 +875,7 @@ class PosixFileSystem : public FileSystem {
       result = IOError("unlock", my_lock->filename, errno);
     }
     close(my_lock->fd_);
+    my_lock->Clear();
     delete my_lock;
     mutex_locked_files.Unlock();
     return result;
@@ -1011,6 +1031,16 @@ class PosixFileSystem : public FileSystem {
 #endif
   }
 
+#ifdef ROCKSDB_IOURING_PRESENT
+  bool IsIOUringEnabled() {
+    if (RocksDbIOUringEnable && RocksDbIOUringEnable()) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+#endif  // ROCKSDB_IOURING_PRESENT
+
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance
   std::unique_ptr<ThreadLocalPtr> thread_local_io_urings_;
@@ -1094,8 +1124,8 @@ std::shared_ptr<FileSystem> FileSystem::Default() {
 
 #ifndef ROCKSDB_LITE
 static FactoryFunc<FileSystem> posix_filesystem_reg =
-    ObjectLibrary::Default()->Register<FileSystem>(
-        "posix://.*",
+    ObjectLibrary::Default()->AddFactory<FileSystem>(
+        ObjectLibrary::PatternEntry("posix").AddSeparator("://", false),
         [](const std::string& /* uri */, std::unique_ptr<FileSystem>* f,
            std::string* /* errmsg */) {
           f->reset(new PosixFileSystem());

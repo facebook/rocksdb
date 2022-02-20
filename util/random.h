@@ -9,6 +9,7 @@
 
 #pragma once
 #include <stdint.h>
+
 #include <algorithm>
 #include <random>
 
@@ -59,6 +60,8 @@ class Random {
     }
     return seed_;
   }
+
+  uint64_t Next64() { return (uint64_t{Next()} << 32) | Next(); }
 
   // Returns a uniformly distributed value in the range [0..n-1]
   // REQUIRES: n > 0

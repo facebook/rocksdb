@@ -25,7 +25,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBErrorHandlingFSTest : public DBTestBase {
  public:
   DBErrorHandlingFSTest()
-      : DBTestBase("/db_error_handling_fs_test", /*env_do_fsync=*/true) {
+      : DBTestBase("db_error_handling_fs_test", /*env_do_fsync=*/true) {
     fault_fs_.reset(new FaultInjectionTestFS(env_->GetFileSystem()));
     fault_env_.reset(new CompositeEnvWrapper(env_, fault_fs_));
   }
@@ -66,6 +66,7 @@ class ErrorHandlerFSListener : public EventListener {
   ~ErrorHandlerFSListener() {
     file_creation_error_.PermitUncheckedError();
     bg_error_.PermitUncheckedError();
+    new_bg_error_.PermitUncheckedError();
   }
 
   void OnTableFileCreationStarted(
@@ -89,11 +90,11 @@ class ErrorHandlerFSListener : public EventListener {
     }
   }
 
-  void OnErrorRecoveryCompleted(Status old_bg_error) override {
+  void OnErrorRecoveryEnd(const BackgroundErrorRecoveryInfo& info) override {
     InstrumentedMutexLock l(&mutex_);
     recovery_complete_ = true;
     cv_.SignalAll();
-    old_bg_error.PermitUncheckedError();
+    new_bg_error_ = info.new_bg_error;
   }
 
   bool WaitForRecovery(uint64_t /*abs_time_us*/) {
@@ -138,6 +139,8 @@ class ErrorHandlerFSListener : public EventListener {
     file_creation_error_ = io_s;
   }
 
+  Status new_bg_error() { return new_bg_error_; }
+
  private:
   InstrumentedMutex mutex_;
   InstrumentedCondVar cv_;
@@ -148,6 +151,7 @@ class ErrorHandlerFSListener : public EventListener {
   int file_count_;
   IOStatus file_creation_error_;
   Status bg_error_;
+  Status new_bg_error_;
   FaultInjectionTestFS* fault_fs_;
 };
 
@@ -487,6 +491,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWALAtomicWriteRetryableError) {
   Destroy(options);
 }
 
+// The flush error is injected before we finish the table build
 TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError1) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
@@ -542,6 +547,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError1) {
   Destroy(options);
 }
 
+// The retryable IO error is injected before we sync table
 TEST_F(DBErrorHandlingFSTest, FLushWriteNoWALRetryableError2) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
@@ -585,6 +591,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteNoWALRetryableError2) {
   Destroy(options);
 }
 
+// The retryable IO error is injected before we close the table file
 TEST_F(DBErrorHandlingFSTest, FLushWriteNoWALRetryableError3) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
@@ -1576,11 +1583,11 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
     std::string prop;
     ASSERT_EQ(listener[i]->WaitForRecovery(5000000), true);
     ASSERT_OK(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true));
-    EXPECT_TRUE(db[i]->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(0), &prop));
+    EXPECT_TRUE(
+        db[i]->GetProperty("rocksdb.num-files-at-level" + ToString(0), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 0);
-    EXPECT_TRUE(db[i]->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(1), &prop));
+    EXPECT_TRUE(
+        db[i]->GetProperty("rocksdb.num-files-at-level" + ToString(1), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 1);
   }
 
@@ -1713,11 +1720,11 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
     if (i == 1) {
       ASSERT_OK(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true));
     }
-    EXPECT_TRUE(db[i]->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(0), &prop));
+    EXPECT_TRUE(
+        db[i]->GetProperty("rocksdb.num-files-at-level" + ToString(0), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 0);
-    EXPECT_TRUE(db[i]->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(1), &prop));
+    EXPECT_TRUE(
+        db[i]->GetProperty("rocksdb.num-files-at-level" + ToString(1), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 1);
   }
 
@@ -1874,6 +1881,8 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableErrorAutoRecover2) {
   Destroy(options);
 }
 
+// Auto resume fromt the flush retryable IO error. Activate the FS before the
+// first resume. Resume is successful
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover1) {
   // Activate the FS before the first resume
   std::shared_ptr<ErrorHandlerFSListener> listener(
@@ -1914,6 +1923,8 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover1) {
   Destroy(options);
 }
 
+// Auto resume fromt the flush retryable IO error and set the retry limit count.
+// Never activate the FS and auto resume should fail at the end
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover2) {
   // Fail all the resume and let user to resume
   std::shared_ptr<ErrorHandlerFSListener> listener(
@@ -1963,6 +1974,8 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAutoRecover2) {
   Destroy(options);
 }
 
+// Auto resume fromt the flush retryable IO error and set the retry limit count.
+// Fail the first resume and let the second resume be successful.
 TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableErrorAutoRecover) {
   // Fail the first resume and let the second resume be successful
   std::shared_ptr<ErrorHandlerFSListener> listener(
@@ -2417,6 +2430,42 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover2) {
     }
   }
   Close();
+}
+
+// Fail auto resume from a flush retryable error and verify that
+// OnErrorRecoveryEnd listener callback is called
+TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAbortRecovery) {
+  // Activate the FS before the first resume
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 100000;  // 0.1 second
+  Status s;
+
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  ASSERT_OK(Put(Key(1), "val1"));
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeFinishBuildTable",
+      [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+  ASSERT_EQ(listener->WaitForRecovery(5000000), true);
+  ASSERT_EQ(listener->new_bg_error(), Status::Aborted());
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs_->SetFilesystemActive(true);
+
+  Destroy(options);
 }
 
 class DBErrorHandlingFencingTest : public DBErrorHandlingFSTest,

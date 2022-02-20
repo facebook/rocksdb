@@ -95,8 +95,12 @@ class TransactionTestBase : public ::testing::Test {
     // seems to be a bug in btrfs that the makes readdir return recently
     // unlink-ed files. By using the default fs we simply ignore errors resulted
     // from attempting to delete such files in DestroyDB.
-    options.env = Env::Default();
-    EXPECT_OK(DestroyDB(dbname, options));
+    if (getenv("KEEP_DB") == nullptr) {
+      options.env = Env::Default();
+      EXPECT_OK(DestroyDB(dbname, options));
+    } else {
+      fprintf(stdout, "db is still in %s\n", dbname.c_str());
+    }
     delete env;
   }
 
@@ -169,12 +173,11 @@ class TransactionTestBase : public ::testing::Test {
     StackableDB* stackable_db = new StackableDB(root_db);
     if (s.ok()) {
       assert(root_db != nullptr);
+      // If WrapStackableDB() returns non-ok, then stackable_db is already
+      // deleted within WrapStackableDB().
       s = TransactionDB::WrapStackableDB(stackable_db, txn_db_options,
                                          compaction_enabled_cf_indices,
                                          *handles, &db);
-    }
-    if (!s.ok()) {
-      delete stackable_db;
     }
     return s;
   }

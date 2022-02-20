@@ -5,21 +5,22 @@
 
 #pragma once
 
+#include <deque>
 #include <list>
 #include <string>
 #include <unordered_map>
 
-#include "db/dbformat.h"
-#include "index_builder.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "table/block_based/block.h"
 #include "table/block_based/filter_block_reader_common.h"
 #include "table/block_based/full_filter_block.h"
+#include "table/block_based/index_builder.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
+class InternalKeyComparator;
 
 class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
  public:
@@ -36,8 +37,26 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   void Add(const Slice& key) override;
   size_t EstimateEntriesAdded() override;
 
-  virtual Slice Finish(const BlockHandle& last_partition_block_handle,
-                       Status* status) override;
+  virtual Slice Finish(
+      const BlockHandle& last_partition_block_handle, Status* status,
+      std::unique_ptr<const char[]>* filter_data = nullptr) override;
+
+  virtual void ResetFilterBitsBuilder() override {
+    // Previously constructed partitioned filters by
+    // this to-be-reset FiterBitsBuilder can also be
+    // cleared
+    filters.clear();
+    FullFilterBlockBuilder::ResetFilterBitsBuilder();
+  }
+
+  // For PartitionFilter, optional post-verifing the filter is done
+  // as part of PartitionFilterBlockBuilder::Finish
+  // to avoid implementation complexity of doing it elsewhere.
+  // Therefore we are skipping it in here.
+  virtual Status MaybePostVerifyFilter(
+      const Slice& /* filter_content */) override {
+    return Status::OK();
+  }
 
  private:
   // Filter data
@@ -46,11 +65,20 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
       index_on_filter_block_builder_without_seq_;  // same for user keys
   struct FilterEntry {
     std::string key;
+    std::unique_ptr<const char[]> filter_data;
     Slice filter;
   };
-  std::list<FilterEntry> filters;  // list of partitioned indexes and their keys
+  std::deque<FilterEntry> filters;  // list of partitioned filters and keys used
+                                    // in building the index
+
+  // Set to the first non-okay status if any of the filter
+  // partitions experiences construction error.
+  // If partitioned_filters_construction_status_ is non-okay,
+  // then the whole partitioned filters should not be used.
+  Status partitioned_filters_construction_status_;
+  std::string last_filter_entry_key;
+  std::unique_ptr<const char[]> last_filter_data;
   std::unique_ptr<IndexBuilder> value;
-  std::vector<std::unique_ptr<const char[]>> filter_gc;
   bool finishing_filters =
       false;  // true if Finish is called once but not complete yet.
   // The policy of when cut a filter block and Finish it
@@ -142,6 +170,8 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
   bool index_value_is_full() const;
 
  protected:
+  // For partition blocks pinned in cache. Can be a subset of blocks
+  // in case some fail insertion on attempt to pin.
   std::unordered_map<uint64_t, CachableEntry<ParsedFullFilterBlock>>
       filter_map_;
 };

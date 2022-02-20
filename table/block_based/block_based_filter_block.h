@@ -15,6 +15,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -23,6 +24,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "table/block_based/filter_block_reader_common.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "table/format.h"
 #include "util/hash.h"
 
@@ -37,7 +39,8 @@ namespace ROCKSDB_NAMESPACE {
 class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
  public:
   BlockBasedFilterBlockBuilder(const SliceTransform* prefix_extractor,
-                               const BlockBasedTableOptions& table_opt);
+                               const BlockBasedTableOptions& table_opt,
+                               int bits_per_key);
   // No copying allowed
   BlockBasedFilterBlockBuilder(const BlockBasedFilterBlockBuilder&) = delete;
   void operator=(const BlockBasedFilterBlockBuilder&) = delete;
@@ -49,7 +52,9 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
     return start_.empty() && filter_offsets_.empty();
   }
   virtual size_t EstimateEntriesAdded() override;
-  virtual Slice Finish(const BlockHandle& tmp, Status* status) override;
+  virtual Slice Finish(
+      const BlockHandle& tmp, Status* status,
+      std::unique_ptr<const char[]>* filter_data = nullptr) override;
   using FilterBlockBuilder::Finish;
 
  private:
@@ -60,9 +65,9 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
   // important: all of these might point to invalid addresses
   // at the time of destruction of this filter block. destructor
   // should NOT dereference them.
-  const FilterPolicy* policy_;
   const SliceTransform* prefix_extractor_;
   bool whole_key_filtering_;
+  int bits_per_key_;
 
   size_t prev_prefix_start_;        // the position of the last appended prefix
                                     // to "entries_".
