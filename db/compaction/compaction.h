@@ -387,6 +387,7 @@ class Compaction {
   // Is this compaction requested by the client?
   const bool is_manual_compaction_;
 
+  // The data with timestamp > trim_ts_ will be removed
   const std::string trim_ts_;
 
   // True if we can do trivial move in Universal multi level
