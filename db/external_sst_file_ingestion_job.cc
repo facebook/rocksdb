@@ -777,7 +777,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
         const std::vector<FileMetaData*>& level_files =
             vstorage->LevelFiles(lvl);
         const SequenceNumber level_largest_seqno =
-            (*max_element(level_files.begin(), level_files.end(),
+            (*std::max_element(level_files.begin(), level_files.end(),
                           [](FileMetaData* f1, FileMetaData* f2) {
                             return f1->fd.largest_seqno < f2->fd.largest_seqno;
                           }))
