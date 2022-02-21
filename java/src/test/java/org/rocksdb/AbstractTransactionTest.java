@@ -22,6 +22,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 public abstract class AbstractTransactionTest {
 
+  protected static final String EXPECTED_EXCEPTION =
+      "Expected an exception for put after getForUpdate from conflicting transactions";
+
   static final byte[] TXN_TEST_COLUMN_FAMILY = "txn_test_cf"
       .getBytes();
 

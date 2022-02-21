@@ -72,8 +72,7 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
         }
       }
 
-      fail("Expected an exception for put after getForUpdate from conflicting" +
-          "transactions");
+      fail(EXPECTED_EXCEPTION);
     }
   }
 
@@ -109,8 +108,7 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
         }
       }
 
-      fail("Expected an exception for put after getForUpdate from conflicting" +
-          "transactions");
+      fail(EXPECTED_EXCEPTION);
     }
   }
 
@@ -153,8 +151,7 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
         }
       }
 
-      fail("Expected an exception for put after getForUpdate from conflicting" +
-          "transactions");
+      fail(EXPECTED_EXCEPTION);
     }
   }
 
@@ -196,8 +193,7 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
         }
       }
 
-      fail("Expected an exception for put after getForUpdate from conflicting"
-          + "transactions");
+      fail(EXPECTED_EXCEPTION);
     }
   }
 
@@ -237,8 +233,7 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
         }
       }
 
-      fail("Expected an exception for put after getForUpdate from conflicting" +
-          "transactions");
+      fail(EXPECTED_EXCEPTION);
     }
   }
 
@@ -276,8 +271,7 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
         }
       }
 
-      fail("Expected an exception for put after getForUpdate from conflicting"
-          + "transactions");
+      fail(EXPECTED_EXCEPTION);
     }
   }
 
@@ -407,7 +401,7 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
     private final OptimisticTransactionOptions optimisticTxnOptions;
     private final OptimisticTransactionDB optimisticTxnDb;
 
-    public OptimisticTransactionDBContainer(
+    private OptimisticTransactionDBContainer(
         final OptimisticTransactionOptions optimisticTxnOptions,
         final WriteOptions writeOptions,
         final List<ColumnFamilyHandle> columnFamilyHandles,

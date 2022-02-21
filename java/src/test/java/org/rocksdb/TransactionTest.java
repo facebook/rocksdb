@@ -17,10 +17,6 @@ import static org.assertj.core.api.Assertions.fail;
 
 public class TransactionTest extends AbstractTransactionTest {
 
-  private static final String EXPECTED_EXCEPTION =
-      "Expected an exception for put after getForUpdate from conflicting transactions";
-
-
   @Test
   public void getForUpdate_cf_conflict() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
