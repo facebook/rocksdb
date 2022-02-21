@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <windows.h>
+#include <winioctl.h>
 
 #include <algorithm>
 #include <ctime>
