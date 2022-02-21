@@ -1547,7 +1547,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
 
 // TODO: Implement the trimming in flush code path.
 // TODO: Perform trimming before inserting into memtable during recovery.
-// TODO: Pick files whose GetFullHistoryTsLow > trim_ts and compress it.
+// TODO: Pick files with max_timestamp > trim_ts and compress it.
 Status DB::OpenAndTrimHistory(
     const DBOptions& db_options, const std::string& dbname,
     const std::vector<ColumnFamilyDescriptor>& column_families,
