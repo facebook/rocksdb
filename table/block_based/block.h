@@ -390,12 +390,6 @@ class BlockIter : public InternalIteratorBase<TValue> {
   template <typename DecodeEntryFunc>
   inline bool ParseNextKey(bool* is_shared);
 
-  // InternalKeyComparator icmp() {
-  //   return InternalKeyComparator(raw_ucmp_, false /* named */);
-  // }
-
-  // UserComparatorWrapper ucmp() { return UserComparatorWrapper(raw_ucmp_); }
-
   void InitializeBase(const Comparator* raw_ucmp, const char* data,
                       uint32_t restarts, uint32_t num_restarts,
                       SequenceNumber global_seqno, bool block_contents_pinned) {
