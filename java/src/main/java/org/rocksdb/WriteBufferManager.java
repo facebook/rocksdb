@@ -40,11 +40,11 @@ public class WriteBufferManager extends RocksObject {
     return allowStall_;
   }
 
-  private native static long newWriteBufferManager(
+  private static native long newWriteBufferManager(
       final long bufferSizeBytes, final long cacheHandle, final boolean allowStall);
 
   @Override
   protected native void disposeInternal(final long handle);
 
-  private boolean allowStall_;
+  private final boolean allowStall_;
 }

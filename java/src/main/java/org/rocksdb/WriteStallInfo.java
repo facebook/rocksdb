@@ -5,6 +5,7 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
 import java.util.Objects;
 
 public class WriteStallInfo {
@@ -37,6 +38,7 @@ public class WriteStallInfo {
    *
    * @return the current state.
    */
+  @SuppressWarnings("unused")
   public WriteStallCondition getCurrentCondition() {
     return currentCondition;
   }
@@ -46,17 +48,18 @@ public class WriteStallInfo {
    *
    * @return the previous state.
    */
+  @SuppressWarnings("unused")
   public WriteStallCondition getPreviousCondition() {
     return previousCondition;
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(final Object o) {
     if (this == o)
       return true;
     if (o == null || getClass() != o.getClass())
       return false;
-    WriteStallInfo that = (WriteStallInfo) o;
+    final WriteStallInfo that = (WriteStallInfo) o;
     return Objects.equals(columnFamilyName, that.columnFamilyName)
         && currentCondition == that.currentCondition && previousCondition == that.previousCondition;
   }
@@ -68,8 +71,6 @@ public class WriteStallInfo {
 
   @Override
   public String toString() {
-    return "WriteStallInfo{"
-        + "columnFamilyName='" + columnFamilyName + '\'' + ", currentCondition=" + currentCondition
-        + ", previousCondition=" + previousCondition + '}';
+    return MessageFormat.format("WriteStallInfo'{'columnFamilyName=''{0}'', currentCondition={1}, previousCondition={2}'}'", columnFamilyName, currentCondition, previousCondition);
   }
 }

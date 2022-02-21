@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
+
 public enum WriteStallCondition {
   NORMAL((byte) 0x0),
   DELAYED((byte) 0x1),
@@ -21,6 +23,7 @@ public enum WriteStallCondition {
    *
    * @return the internal representation
    */
+  @SuppressWarnings("unused")
   byte getValue() {
     return value;
   }
@@ -33,12 +36,12 @@ public enum WriteStallCondition {
    * @throws IllegalArgumentException if the value is unknown.
    */
   static WriteStallCondition fromValue(final byte value) {
-    for (final WriteStallCondition writeStallCondition : WriteStallCondition.values()) {
+    for (final WriteStallCondition writeStallCondition : values()) {
       if (writeStallCondition.value == value) {
         return writeStallCondition;
       }
     }
 
-    throw new IllegalArgumentException("Illegal value provided for WriteStallCondition: " + value);
+    throw new IllegalArgumentException(MessageFormat.format("Illegal value provided for WriteStallCondition: {0}", value));
   }
 }

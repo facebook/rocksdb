@@ -34,7 +34,7 @@ public class WriteOptions extends RocksObject {
    *
    * @param other The ColumnFamilyOptions to copy.
    */
-  public WriteOptions(WriteOptions other) {
+  public WriteOptions(final WriteOptions other) {
     super(copyWriteOptions(other.nativeHandle_));
   }
 
@@ -128,6 +128,7 @@ public class WriteOptions extends RocksObject {
    *     which don't exist
    * @return the instance of the current WriteOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public WriteOptions setIgnoreMissingColumnFamilies(
       final boolean ignoreMissingColumnFamilies) {
     setIgnoreMissingColumnFamilies(nativeHandle_, ignoreMissingColumnFamilies);
@@ -154,6 +155,7 @@ public class WriteOptions extends RocksObject {
    * @param noSlowdown true to fail write requests if we need to wait or sleep
    * @return the instance of the current WriteOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public WriteOptions setNoSlowdown(final boolean noSlowdown) {
     setNoSlowdown(nativeHandle_, noSlowdown);
     return this;
@@ -229,13 +231,14 @@ public class WriteOptions extends RocksObject {
    *     of each memtable as hints in concurrent write.
    * @return the instance of the current WriteOptions.
    */
+  @SuppressWarnings("UnusedReturnValue")
   public WriteOptions setMemtableInsertHintPerBatch(final boolean memtableInsertHintPerBatch) {
     setMemtableInsertHintPerBatch(nativeHandle_, memtableInsertHintPerBatch);
     return this;
   }
 
-  private native static long newWriteOptions();
-  private native static long copyWriteOptions(long handle);
+  private static native long newWriteOptions();
+  private static native long copyWriteOptions(long handle);
   @Override protected final native void disposeInternal(final long handle);
 
   private native void setSync(long handle, boolean flag);
