@@ -16,14 +16,13 @@ import java.util.Random;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.fail;
 
 /**
  * Base class of {@link TransactionTest} and {@link OptimisticTransactionTest}
  */
 public abstract class AbstractTransactionTest {
 
-  protected final static byte[] TXN_TEST_COLUMN_FAMILY = "txn_test_cf"
+  static final byte[] TXN_TEST_COLUMN_FAMILY = "txn_test_cf"
       .getBytes();
 
   protected static final Random rand = PlatformRandomHelper.
@@ -36,7 +35,7 @@ public abstract class AbstractTransactionTest {
       throws RocksDBException;
 
   @Test
-  public void setSnapshot() throws RocksDBException {
+  public final void setSnapshot() throws RocksDBException {
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
       txn.setSnapshot();
@@ -44,7 +43,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void setSnapshotOnNextOperation() throws RocksDBException {
+  public final void setSnapshotOnNextOperation() throws RocksDBException {
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
       txn.setSnapshotOnNextOperation();
@@ -53,7 +52,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void setSnapshotOnNextOperation_transactionNotifier() throws RocksDBException {
+  public final void setSnapshotOnNextOperation_transactionNotifier() throws RocksDBException {
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
 
@@ -70,7 +69,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void getSnapshot() throws RocksDBException {
+  public final void getSnapshot() throws RocksDBException {
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
       txn.setSnapshot();
@@ -80,7 +79,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void getSnapshot_null() throws RocksDBException {
+  public final void getSnapshot_null() throws RocksDBException {
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
       final Snapshot snapshot = txn.getSnapshot();
@@ -89,7 +88,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void clearSnapshot() throws RocksDBException {
+  public final void clearSnapshot() throws RocksDBException {
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
       txn.setSnapshot();
@@ -98,7 +97,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void clearSnapshot_none() throws RocksDBException {
+  public final void clearSnapshot_none() throws RocksDBException {
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
       txn.clearSnapshot();
@@ -106,9 +105,9 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void commit() throws RocksDBException {
-    final byte k1[] = "rollback-key1".getBytes(UTF_8);
-    final byte v1[] = "rollback-value1".getBytes(UTF_8);
+  public final void commit() throws RocksDBException {
+    final byte[] k1 = "rollback-key1".getBytes(UTF_8);
+    final byte[] v1 = "rollback-value1".getBytes(UTF_8);
     try(final DBContainer dbContainer = startDb()) {
       try(final Transaction txn = dbContainer.beginTransaction()) {
         txn.put(k1, v1);
@@ -123,9 +122,9 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void rollback() throws RocksDBException {
-    final byte k1[] = "rollback-key1".getBytes(UTF_8);
-    final byte v1[] = "rollback-value1".getBytes(UTF_8);
+  public final void rollback() throws RocksDBException {
+    final byte[] k1 = "rollback-key1".getBytes(UTF_8);
+    final byte[] v1 = "rollback-value1".getBytes(UTF_8);
     try(final DBContainer dbContainer = startDb()) {
       try(final Transaction txn = dbContainer.beginTransaction()) {
         txn.put(k1, v1);
@@ -140,11 +139,11 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void savePoint() throws RocksDBException {
-    final byte k1[] = "savePoint-key1".getBytes(UTF_8);
-    final byte v1[] = "savePoint-value1".getBytes(UTF_8);
-    final byte k2[] = "savePoint-key2".getBytes(UTF_8);
-    final byte v2[] = "savePoint-value2".getBytes(UTF_8);
+  public final void savePoint() throws RocksDBException {
+    final byte[] k1 = "savePoint-key1".getBytes(UTF_8);
+    final byte[] v1 = "savePoint-value1".getBytes(UTF_8);
+    final byte[] k2 = "savePoint-key2".getBytes(UTF_8);
+    final byte[] v2 = "savePoint-value2".getBytes(UTF_8);
 
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions()) {
@@ -178,9 +177,9 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void getPut_cf() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
+  public final void getPut_cf() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
         final Transaction txn = dbContainer.beginTransaction()) {
@@ -192,9 +191,9 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void getPut() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
+  public final void getPut() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
         final Transaction txn = dbContainer.beginTransaction()) {
@@ -205,9 +204,13 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void multiGetPut_cf() throws RocksDBException {
-    final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
-    final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
+  public final void multiGetPut_cf() throws RocksDBException {
+    final byte[][] keys = new byte[][] {
+        "key1".getBytes(UTF_8),
+        "key2".getBytes(UTF_8)};
+    final byte[][] values = new byte[][] {
+        "value1".getBytes(UTF_8),
+        "value2".getBytes(UTF_8)};
 
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
@@ -248,7 +251,6 @@ public abstract class AbstractTransactionTest {
   public void multiGetPut() throws RocksDBException {
     final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
     final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
-
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
         final Transaction txn = dbContainer.beginTransaction()) {
@@ -278,9 +280,9 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void getForUpdate_cf() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
+  public final void getForUpdate_cf() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
         final Transaction txn = dbContainer.beginTransaction()) {
@@ -292,9 +294,9 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void getForUpdate() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
+  public final void getForUpdate() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
         final Transaction txn = dbContainer.beginTransaction()) {
@@ -305,11 +307,11 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void multiGetForUpdate_cf() throws RocksDBException {
-    final byte keys[][] = new byte[][] {
+  public final void multiGetForUpdate_cf() throws RocksDBException {
+    final byte[][] keys = new byte[][] {
         "key1".getBytes(UTF_8),
         "key2".getBytes(UTF_8)};
-    final byte values[][] = new byte[][] {
+    final byte[][] values = new byte[][] {
         "value1".getBytes(UTF_8),
         "value2".getBytes(UTF_8)};
 
@@ -330,11 +332,11 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void multiGetForUpdate() throws RocksDBException {
-    final byte keys[][] = new byte[][]{
+  public final void multiGetForUpdate() throws RocksDBException {
+    final byte[][] keys = new byte[][]{
         "key1".getBytes(UTF_8),
         "key2".getBytes(UTF_8)};
-    final byte values[][] = new byte[][]{
+    final byte[][] values = new byte[][]{
         "value1".getBytes(UTF_8),
         "value2".getBytes(UTF_8)};
 
@@ -350,7 +352,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void getIterator() throws RocksDBException {
+  public final void getIterator() throws RocksDBException {
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
         final Transaction txn = dbContainer.beginTransaction()) {
@@ -370,7 +372,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void getIterator_cf() throws RocksDBException {
+  public final void getIterator_cf() throws RocksDBException {
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
         final Transaction txn = dbContainer.beginTransaction()) {
@@ -391,7 +393,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void merge_cf() throws RocksDBException {
+  public final void merge_cf() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
 
@@ -403,7 +405,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void merge() throws RocksDBException {
+  public final void merge() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
 
@@ -415,7 +417,7 @@ public abstract class AbstractTransactionTest {
 
 
   @Test
-  public void delete_cf() throws RocksDBException {
+  public final void delete_cf() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
 
@@ -432,7 +434,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void delete() throws RocksDBException {
+  public final void delete() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
 
@@ -448,11 +450,11 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void delete_parts_cf() throws RocksDBException {
-    final byte keyParts[][] = new byte[][] {
+  public final void delete_parts_cf() throws RocksDBException {
+    final byte[][] keyParts = new byte[][] {
         "ke".getBytes(UTF_8),
         "y1".getBytes(UTF_8)};
-    final byte valueParts[][] = new byte[][] {
+    final byte[][] valueParts = new byte[][] {
         "val".getBytes(UTF_8),
         "ue1".getBytes(UTF_8)};
     final byte[] key = concat(keyParts);
@@ -473,11 +475,11 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void delete_parts() throws RocksDBException {
-    final byte keyParts[][] = new byte[][] {
+  public final void delete_parts() throws RocksDBException {
+    final byte[][] keyParts = new byte[][] {
         "ke".getBytes(UTF_8),
         "y1".getBytes(UTF_8)};
-    final byte valueParts[][] = new byte[][] {
+    final byte[][] valueParts = new byte[][] {
         "val".getBytes(UTF_8),
         "ue1".getBytes(UTF_8)};
     final byte[] key = concat(keyParts);
@@ -498,9 +500,9 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void getPutUntracked_cf() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
+  public final void getPutUntracked_cf() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
         final Transaction txn = dbContainer.beginTransaction()) {
@@ -512,9 +514,9 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void getPutUntracked() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
+  public final void getPutUntracked() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
         final Transaction txn = dbContainer.beginTransaction()) {
@@ -526,11 +528,11 @@ public abstract class AbstractTransactionTest {
 
   @Deprecated
   @Test
-  public void multiGetPutUntracked_cf() throws RocksDBException {
-    final byte keys[][] = new byte[][] {
+  public final void multiGetPutUntracked_cf() throws RocksDBException {
+    final byte[][] keys = new byte[][] {
         "key1".getBytes(UTF_8),
         "key2".getBytes(UTF_8)};
-    final byte values[][] = new byte[][] {
+    final byte[][] values = new byte[][] {
         "value1".getBytes(UTF_8),
         "value2".getBytes(UTF_8)};
 
@@ -571,9 +573,13 @@ public abstract class AbstractTransactionTest {
 
   @Deprecated
   @Test
-  public void multiGetPutUntracked() throws RocksDBException {
-    final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
-    final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
+  public final void multiGetPutUntracked() throws RocksDBException {
+    final byte[][] keys = new byte[][] {
+        "key1".getBytes(UTF_8),
+        "key2".getBytes(UTF_8)};
+    final byte[][] values = new byte[][] {
+        "value1".getBytes(UTF_8),
+        "value2".getBytes(UTF_8)};
 
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
@@ -602,7 +608,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void mergeUntracked_cf() throws RocksDBException {
+  public final void mergeUntracked_cf() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
 
@@ -614,7 +620,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void mergeUntracked() throws RocksDBException {
+  public final void mergeUntracked() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
 
@@ -625,7 +631,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void deleteUntracked_cf() throws RocksDBException {
+  public final void deleteUntracked_cf() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
 
@@ -642,7 +648,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void deleteUntracked() throws RocksDBException {
+  public final void deleteUntracked() throws RocksDBException {
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
 
@@ -658,11 +664,11 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void deleteUntracked_parts_cf() throws RocksDBException {
-    final byte keyParts[][] = new byte[][] {
+  public final void deleteUntracked_parts_cf() throws RocksDBException {
+    final byte[][] keyParts = new byte[][] {
         "ke".getBytes(UTF_8),
         "y1".getBytes(UTF_8)};
-    final byte valueParts[][] = new byte[][] {
+    final byte[][] valueParts = new byte[][] {
         "val".getBytes(UTF_8),
         "ue1".getBytes(UTF_8)};
     final byte[] key = concat(keyParts);
@@ -681,11 +687,11 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void deleteUntracked_parts() throws RocksDBException {
-    final byte keyParts[][] = new byte[][] {
+  public final void deleteUntracked_parts() throws RocksDBException {
+    final byte[][] keyParts = new byte[][] {
         "ke".getBytes(UTF_8),
         "y1".getBytes(UTF_8)};
-    final byte valueParts[][] = new byte[][] {
+    final byte[][] valueParts = new byte[][] {
         "val".getBytes(UTF_8),
         "ue1".getBytes(UTF_8)};
     final byte[] key = concat(keyParts);
@@ -703,7 +709,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void putLogData() throws RocksDBException {
+  public final void putLogData() throws RocksDBException {
     final byte[] blob = "blobby".getBytes(UTF_8);
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
@@ -712,7 +718,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void enabledDisableIndexing() throws RocksDBException {
+  public final void enabledDisableIndexing() throws RocksDBException {
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
       txn.disableIndexing();
@@ -723,13 +729,13 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void numKeys() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
-    final byte k2[] = "key2".getBytes(UTF_8);
-    final byte v2[] = "value2".getBytes(UTF_8);
-    final byte k3[] = "key3".getBytes(UTF_8);
-    final byte v3[] = "value3".getBytes(UTF_8);
+  public final void numKeys() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    final byte[] k2 = "key2".getBytes(UTF_8);
+    final byte[] v2 = "value2".getBytes(UTF_8);
+    final byte[] k3 = "key3".getBytes(UTF_8);
+    final byte[] v3 = "value3".getBytes(UTF_8);
 
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
@@ -739,30 +745,30 @@ public abstract class AbstractTransactionTest {
       txn.merge(k3, v3);
       txn.delete(testCf, k2);
 
-      assertThat(txn.getNumKeys()).isEqualTo(3);
-      assertThat(txn.getNumPuts()).isEqualTo(2);
-      assertThat(txn.getNumMerges()).isEqualTo(1);
-      assertThat(txn.getNumDeletes()).isEqualTo(1);
+      assertThat(txn.getNumKeys()).isEqualTo(3L);
+      assertThat(txn.getNumPuts()).isEqualTo(2L);
+      assertThat(txn.getNumMerges()).isEqualTo(1L);
+      assertThat(txn.getNumDeletes()).isEqualTo(1L);
     }
   }
 
   @Test
-  public void elapsedTime() throws RocksDBException, InterruptedException {
+  public final void elapsedTime() throws Exception {
     final long preStartTxnTime = System.currentTimeMillis();
     try (final DBContainer dbContainer = startDb();
          final Transaction txn = dbContainer.beginTransaction()) {
-      Thread.sleep(2);
+      Thread.sleep(2L);
 
       final long txnElapsedTime = txn.getElapsedTime();
       assertThat(txnElapsedTime).isLessThan(System.currentTimeMillis() - preStartTxnTime);
-      assertThat(txnElapsedTime).isGreaterThan(0);
+      assertThat(txnElapsedTime).isGreaterThan(0L);
     }
   }
 
   @Test
-  public void getWriteBatch() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
+  public final void getWriteBatch() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
 
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
@@ -777,17 +783,17 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void setLockTimeout() throws RocksDBException {
+  public final void setLockTimeout() throws RocksDBException {
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
-      txn.setLockTimeout(1000);
+      txn.setLockTimeout(1000L);
     }
   }
 
   @Test
-  public void writeOptions() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
+  public final void writeOptions() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
 
     try(final DBContainer dbContainer = startDb();
         final WriteOptions writeOptions = new WriteOptions()
@@ -797,7 +803,7 @@ public abstract class AbstractTransactionTest {
 
       txn.put(k1, v1);
 
-      WriteOptions txnWriteOptions = txn.getWriteOptions();
+      final WriteOptions txnWriteOptions = txn.getWriteOptions();
       assertThat(txnWriteOptions).isNotNull();
       assertThat(txnWriteOptions.isOwningHandle()).isFalse();
       assertThat(txnWriteOptions).isNotSameAs(writeOptions);
@@ -805,19 +811,19 @@ public abstract class AbstractTransactionTest {
       assertThat(txnWriteOptions.sync()).isTrue();
 
       txn.setWriteOptions(txnWriteOptions.setSync(false));
-      txnWriteOptions = txn.getWriteOptions();
-      assertThat(txnWriteOptions).isNotNull();
-      assertThat(txnWriteOptions.isOwningHandle()).isFalse();
-      assertThat(txnWriteOptions).isNotSameAs(writeOptions);
-      assertThat(txnWriteOptions.disableWAL()).isTrue();
-      assertThat(txnWriteOptions.sync()).isFalse();
+      final WriteOptions readBackWriteOptions = txn.getWriteOptions();
+      assertThat(readBackWriteOptions).isNotNull();
+      assertThat(readBackWriteOptions.isOwningHandle()).isFalse();
+      assertThat(readBackWriteOptions).isNotSameAs(writeOptions);
+      assertThat(readBackWriteOptions.disableWAL()).isTrue();
+      assertThat(readBackWriteOptions.sync()).isFalse();
     }
   }
 
   @Test
-  public void undoGetForUpdate_cf() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
+  public final void undoGetForUpdate_cf() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
         final Transaction txn = dbContainer.beginTransaction()) {
@@ -830,9 +836,9 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void undoGetForUpdate() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
+  public final void undoGetForUpdate() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
         final Transaction txn = dbContainer.beginTransaction()) {
@@ -844,13 +850,13 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void rebuildFromWriteBatch() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
-    final byte k2[] = "key2".getBytes(UTF_8);
-    final byte v2[] = "value2".getBytes(UTF_8);
-    final byte k3[] = "key3".getBytes(UTF_8);
-    final byte v3[] = "value3".getBytes(UTF_8);
+  public final void rebuildFromWriteBatch() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    final byte[] k2 = "key2".getBytes(UTF_8);
+    final byte[] v2 = "value2".getBytes(UTF_8);
+    final byte[] k3 = "key3".getBytes(UTF_8);
+    final byte[] v3 = "value3".getBytes(UTF_8);
 
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions();
@@ -859,7 +865,7 @@ public abstract class AbstractTransactionTest {
       txn.put(k1, v1);
 
       assertThat(txn.get(readOptions, k1)).isEqualTo(v1);
-      assertThat(txn.getNumKeys()).isEqualTo(1);
+      assertThat(txn.getNumKeys()).isEqualTo(1L);
 
       try(final WriteBatch writeBatch = new WriteBatch()) {
         writeBatch.put(k2, v2);
@@ -869,15 +875,15 @@ public abstract class AbstractTransactionTest {
         assertThat(txn.get(readOptions, k1)).isEqualTo(v1);
         assertThat(txn.get(readOptions, k2)).isEqualTo(v2);
         assertThat(txn.get(readOptions, k3)).isEqualTo(v3);
-        assertThat(txn.getNumKeys()).isEqualTo(3);
+        assertThat(txn.getNumKeys()).isEqualTo(3L);
       }
     }
   }
 
   @Test
-  public void getCommitTimeWriteBatch() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
+  public final void getCommitTimeWriteBatch() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
 
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
@@ -892,10 +898,10 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
-  public void logNumber() throws RocksDBException {
+  public final void logNumber() throws RocksDBException {
     try(final DBContainer dbContainer = startDb();
         final Transaction txn = dbContainer.beginTransaction()) {
-      assertThat(txn.getLogNumber()).isEqualTo(0);
+      assertThat(txn.getLogNumber()).isEqualTo(0L);
       final long logNumber = rand.nextLong();
       txn.setLogNumber(logNumber);
       assertThat(txn.getLogNumber()).isEqualTo(logNumber);
@@ -921,29 +927,32 @@ public abstract class AbstractTransactionTest {
 
   private static class TestTransactionNotifier
       extends AbstractTransactionNotifier {
-    private final List<Snapshot> createdSnapshots = new ArrayList<>();
+    private final List<Snapshot> createdSnapshots = new ArrayList<>(1);
+
+    TestTransactionNotifier() {
+    }
 
     @Override
-    public void snapshotCreated(final Snapshot newSnapshot) {
+    public final void snapshotCreated(final Snapshot newSnapshot) {
       createdSnapshots.add(newSnapshot);
     }
 
-    public List<Snapshot> getCreatedSnapshots() {
+    final List<Snapshot> getCreatedSnapshots() {
       return createdSnapshots;
     }
   }
 
-  protected static abstract class DBContainer
+   protected abstract static class DBContainer
       implements AutoCloseable {
     protected final WriteOptions writeOptions;
     protected final List<ColumnFamilyHandle> columnFamilyHandles;
     protected final ColumnFamilyOptions columnFamilyOptions;
     protected final DBOptions options;
 
-    public DBContainer(final WriteOptions writeOptions,
-        final List<ColumnFamilyHandle> columnFamilyHandles,
-        final ColumnFamilyOptions columnFamilyOptions,
-        final DBOptions options) {
+    DBContainer(final WriteOptions writeOptions,
+                final List<ColumnFamilyHandle> columnFamilyHandles,
+                final ColumnFamilyOptions columnFamilyOptions,
+                final DBOptions options) {
       this.writeOptions = writeOptions;
       this.columnFamilyHandles = columnFamilyHandles;
       this.columnFamilyOptions = columnFamilyOptions;
@@ -955,7 +964,7 @@ public abstract class AbstractTransactionTest {
     public abstract Transaction beginTransaction(
         final WriteOptions writeOptions);
 
-    public ColumnFamilyHandle getTestColumnFamily() {
+    final ColumnFamilyHandle getTestColumnFamily() {
       return columnFamilyHandles.get(1);
     }
 
