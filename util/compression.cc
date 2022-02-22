@@ -44,8 +44,10 @@ StreamingUncompress* StreamingUncompress::create(
   }
 }
 
-int ZSTDStreamingCompress::compress(const char* input, size_t input_size,
-                                    char* output, size_t* output_size) {
+int ZSTDStreamingCompress::compress(const char* input /*unused*/,
+                                    size_t input_size /*unused*/,
+                                    char* output /*unused*/,
+                                    size_t* output_size) {
   assert(input != nullptr && output != nullptr && input_size > 0 &&
          output_size != nullptr);
   *output_size = 0;
@@ -81,8 +83,10 @@ void ZSTDStreamingCompress::reset() {
 #endif
 }
 
-int ZSTDStreamingUncompress::uncompress(const char* input, size_t input_size,
-                                        char* output, size_t* output_size) {
+int ZSTDStreamingUncompress::uncompress(const char* input /*unused*/,
+                                        size_t input_size /*unused*/,
+                                        char* output /*unused*/,
+                                        size_t* output_size) {
   assert(input != nullptr && output != nullptr && input_size > 0 &&
          output_size != nullptr);
   *output_size = 0;
@@ -98,7 +102,7 @@ int ZSTDStreamingUncompress::uncompress(const char* input, size_t input_size,
     return -1;
   }
   *output_size = output_buffer.pos;
-  return input_buffer_.size - input_buffer_.pos;
+  return (int)(input_buffer_.size - input_buffer_.pos);
 #else
   return -1;
 #endif
