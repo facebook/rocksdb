@@ -276,6 +276,26 @@ JAVA_ARGS ?=
 
 JAVAC_ARGS ?=
 
+# Read plugin configuration
+PLUGIN_PATH = ../plugin
+ROCKSDB_PLUGIN_MKS = $(foreach plugin, $(ROCKSDB_PLUGINS), $(PLUGIN_PATH)/$(plugin)/*.mk)
+include $(ROCKSDB_PLUGIN_MKS)
+
+# Add paths to Java sources in plugins
+ROCKSDB_PLUGIN_JAVA_ROOTS = $(foreach plugin, $(ROCKSDB_PLUGINS), $(PLUGIN_PATH)/$(plugin)/java)
+PLUGIN_SOURCES = $(foreach root, $(ROCKSDB_PLUGIN_JAVA_ROOTS), $(foreach pkg, org/rocksdb/util org/rocksdb, $(root)/$(MAIN_SRC)/$(pkg)/*.java))
+CORE_SOURCES = $(foreach pkg, org/rocksdb/util org/rocksdb, $(MAIN_SRC)/$(pkg)/*.java)
+SOURCES = $(wildcard $(CORE_SOURCES) $(PLUGIN_SOURCES))
+PLUGIN_TEST_SOURCES = $(foreach root, $(ROCKSDB_PLUGIN_JAVA_ROOTS), $(foreach pkg, org/rocksdb/test org/rocksdb/util org/rocksdb, $(root)/$(TEST_SRC)/$(pkg)/*.java))
+CORE_TEST_SOURCES = $(foreach pkg, org/rocksdb/test org/rocksdb/util org/rocksdb, $(TEST_SRC)/$(pkg)/*.java)
+TEST_SOURCES = $(wildcard $(CORE_TEST_SOURCES) $(PLUGIN_TEST_SOURCES))
+
+# Configure the plugin tests and java classes
+ROCKSDB_PLUGIN_NATIVE_JAVA_CLASSES = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach class, $($(plugin)_NATIVE_JAVA_CLASSES), $(class)))
+NATIVE_JAVA_CLASSES = $(NATIVE_JAVA_CLASSES) $(ROCKSDB_PLUGIN_NATIVE_JAVA_CLASSES)
+ROCKSDB_PLUGIN_JAVA_TESTS = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach testclass, $($(plugin)_JAVA_TESTS), $(testclass)))
+ALL_JAVA_TESTS = $(JAVA_TESTS) $(ROCKSDB_PLUGIN_JAVA_TESTS)
+
 # When debugging add -Xcheck:jni to the java args
 ifneq ($(DEBUG_LEVEL),0)
 	JAVA_ARGS += -ea -Xcheck:jni
@@ -312,9 +332,7 @@ javalib: java java_test javadocs
 
 java: java-version
 	$(AM_V_GEN)mkdir -p $(MAIN_CLASSES)
-	$(AM_V_at)$(JAVAC_CMD) $(JAVAC_ARGS) -h $(NATIVE_INCLUDE) -d $(MAIN_CLASSES)\
-		$(MAIN_SRC)/org/rocksdb/util/*.java\
-		$(MAIN_SRC)/org/rocksdb/*.java
+	$(AM_V_at) $(JAVAC_CMD) $(JAVAC_ARGS) -h $(NATIVE_INCLUDE) -d $(MAIN_CLASSES) $(SOURCES)
 	$(AM_V_at)@cp ../HISTORY.md ./HISTORY-CPP.md
 	$(AM_V_at)@rm -f ./HISTORY-CPP.md
 
@@ -415,15 +433,16 @@ resolve_test_deps: $(JAVA_JUNIT_JAR_PATH) $(JAVA_HAMCREST_JAR_PATH) $(JAVA_MOCKI
 
 java_test: java resolve_test_deps
 	$(AM_V_GEN)mkdir -p $(TEST_CLASSES)
-	$(AM_V_at)$(JAVAC_CMD) $(JAVAC_ARGS) -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -h $(NATIVE_INCLUDE) -d $(TEST_CLASSES)\
-		$(TEST_SRC)/org/rocksdb/test/*.java\
-		$(TEST_SRC)/org/rocksdb/util/*.java\
-		$(TEST_SRC)/org/rocksdb/*.java
+	$(AM_V_at) $(JAVAC_CMD) $(JAVAC_ARGS) -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -h $(NATIVE_INCLUDE) -d $(TEST_CLASSES)\
+		$(TEST_SOURCES)
 
 test: java java_test run_test
 
 run_test:
-	$(JAVA_CMD) $(JAVA_ARGS) -Djava.library.path=target -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH):target/*" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
+	$(JAVA_CMD) $(JAVA_ARGS) -Djava.library.path=target -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH):target/*" org.rocksdb.test.RocksJunitRunner $(ALL_JAVA_TESTS)
+
+run_plugin_test:
+	$(JAVA_CMD) $(JAVA_ARGS) -Djava.library.path=target -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH):target/*" org.rocksdb.test.RocksJunitRunner $(ROCKSDB_PLUGIN_JAVA_TESTS)
 
 db_bench: java
 	$(AM_V_GEN)mkdir -p $(BENCHMARK_MAIN_CLASSES)

@@ -28,7 +28,7 @@
 #include <vector>
 
 #include "rocksdb/advanced_options.h"
-#include "rocksdb/memory_allocator.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
@@ -85,9 +85,10 @@ struct FilterBuildingContext {
 // defer to other built-in policies (see NewBloomFilterPolicy and
 // NewRibbonFilterPolicy) based on the context provided to
 // GetBuilderWithContext.
-class FilterPolicy {
+class FilterPolicy : public Customizable {
  public:
   virtual ~FilterPolicy();
+  static const char* Type() { return "FilterPolicy"; }
 
   // Creates a new FilterPolicy based on the input value string and returns the
   // result The value might be an ID, and ID with properties, or an old-style
@@ -100,12 +101,6 @@ class FilterPolicy {
   static Status CreateFromString(const ConfigOptions& config_options,
                                  const std::string& value,
                                  std::shared_ptr<const FilterPolicy>* result);
-
-  // Return the name of this policy.  Note that if the filter encoding
-  // changes in an incompatible way, the name returned by this method
-  // must be changed.  Otherwise, old incompatible filters may be
-  // passed to methods of this type.
-  virtual const char* Name() const = 0;
 
   // Return a new FilterBitsBuilder for constructing full or partitioned
   // filter blocks, or return nullptr to indicate "no filter". Custom
