@@ -4,13 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.assertj.core.api.AbstractObjectAssert;
 import org.assertj.core.api.ObjectAssert;
 import org.junit.ClassRule;
@@ -20,6 +13,22 @@ import org.junit.rules.TemporaryFolder;
 import org.rocksdb.AbstractEventListener.EnabledEventCallback;
 import org.rocksdb.test.TestableEventListener;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@SuppressWarnings("AnonymousInnerClassMayBeStatic")
 public class EventListenerTest {
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
@@ -29,7 +38,7 @@ public class EventListenerTest {
 
   public static final Random rand = PlatformRandomHelper.getPlatformSpecificRandomFactory();
 
-  void flushDb(final AbstractEventListener el, final AtomicBoolean wasCbCalled)
+  private void flushDb(final AbstractEventListener el, final AtomicBoolean wasCbCalled)
       throws RocksDBException {
     try (final Options opt =
              new Options().setCreateIfMissing(true).setListeners(Collections.singletonList(el));
@@ -71,7 +80,7 @@ public class EventListenerTest {
     flushDb(onFlushBeginListener, wasCbCalled);
   }
 
-  void deleteTableFile(final AbstractEventListener el, final AtomicBoolean wasCbCalled)
+  private void deleteTableFile(final AbstractEventListener el, final AtomicBoolean wasCbCalled)
       throws RocksDBException {
     try (final Options opt =
              new Options().setCreateIfMissing(true).setListeners(Collections.singletonList(el));
@@ -102,7 +111,7 @@ public class EventListenerTest {
     deleteTableFile(onTableFileDeletedListener, wasCbCalled);
   }
 
-  void compactRange(final AbstractEventListener el, final AtomicBoolean wasCbCalled)
+  private void compactRange(final AbstractEventListener el, final AtomicBoolean wasCbCalled)
       throws RocksDBException {
     try (final Options opt =
              new Options().setCreateIfMissing(true).setListeners(Collections.singletonList(el));
@@ -172,7 +181,7 @@ public class EventListenerTest {
     flushDb(onTableFileCreationStartedListener, wasCbCalled);
   }
 
-  void deleteColumnFamilyHandle(final AbstractEventListener el, final AtomicBoolean wasCbCalled)
+  private void deleteColumnFamilyHandle(final AbstractEventListener el, final AtomicBoolean wasCbCalled)
       throws RocksDBException {
     try (final Options opt =
              new Options().setCreateIfMissing(true).setListeners(Collections.singletonList(el));
@@ -181,7 +190,7 @@ public class EventListenerTest {
       final byte[] value = new byte[24];
       rand.nextBytes(value);
       db.put("testKey".getBytes(), value);
-      ColumnFamilyHandle columnFamilyHandle = db.getDefaultColumnFamily();
+      final ColumnFamilyHandle columnFamilyHandle = db.getDefaultColumnFamily();
       columnFamilyHandle.close();
       assertThat(wasCbCalled.get()).isTrue();
     }
@@ -202,7 +211,7 @@ public class EventListenerTest {
     deleteColumnFamilyHandle(onColumnFamilyHandleDeletionStartedListener, wasCbCalled);
   }
 
-  void ingestExternalFile(final AbstractEventListener el, final AtomicBoolean wasCbCalled)
+  private void ingestExternalFile(final AbstractEventListener el, final AtomicBoolean wasCbCalled)
       throws RocksDBException {
     try (final Options opt =
              new Options().setCreateIfMissing(true).setListeners(Collections.singletonList(el));
@@ -351,21 +360,10 @@ public class EventListenerTest {
       }
 
       @Override
-      public void onColumnFamilyHandleDeletionStarted(final ColumnFamilyHandle columnFamilyHandle) {
-        super.onColumnFamilyHandleDeletionStarted(columnFamilyHandle);
-      }
-
-      @Override
       public void onExternalFileIngested(
           final RocksDB db, final ExternalFileIngestionInfo externalFileIngestionInfo) {
         super.onExternalFileIngested(db, externalFileIngestionInfo);
         assertThat(externalFileIngestionInfo).isEqualTo(externalFileIngestionInfoTestData);
-      }
-
-      @Override
-      public void onBackgroundError(
-          final BackgroundErrorReason backgroundErrorReason, final Status backgroundError) {
-        super.onBackgroundError(backgroundErrorReason, backgroundError);
       }
 
       @Override
@@ -473,9 +471,10 @@ public class EventListenerTest {
     assertEventsCalled(capturingTestableEventListener, EnumSet.copyOf(Arrays.asList(expected)));
   }
 
+  @SuppressWarnings("ProhibitedExceptionThrown")
   private static void assertNoCallbackErrors(
       final CapturingTestableEventListener capturingTestableEventListener) {
-    for (AssertionError error : capturingTestableEventListener.capturedAssertionErrors) {
+    for (final AssertionError error : capturingTestableEventListener.capturedAssertionErrors) {
       throw new Error("An assertion failed in callback", error);
     }
   }
@@ -538,6 +537,7 @@ public class EventListenerTest {
    * Members are volatile as they may be written
    * and read by different threads.
    */
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private static class ListenerEvents {
     volatile boolean flushCompleted;
     volatile boolean flushBegin;
@@ -565,16 +565,16 @@ public class EventListenerTest {
 
   private static class CapturingObjectAssert<T> extends ObjectAssert<T> {
     private final List<AssertionError> assertionErrors;
-    public CapturingObjectAssert(T t, List<AssertionError> assertionErrors) {
+    private CapturingObjectAssert(final T t, final List<AssertionError> assertionErrors) {
       super(t);
       this.assertionErrors = assertionErrors;
     }
 
     @Override
-    public ObjectAssert<T> isEqualTo(Object other) {
+    public ObjectAssert<T> isEqualTo(final Object other) {
       try {
         return super.isEqualTo(other);
-      } catch (AssertionError error) {
+      } catch (final AssertionError error) {
         assertionErrors.add(error);
         throw error;
       }
@@ -584,7 +584,7 @@ public class EventListenerTest {
     public ObjectAssert<T> isNotNull() {
       try {
         return super.isNotNull();
-      } catch (AssertionError error) {
+      } catch (final AssertionError error) {
         assertionErrors.add(error);
         throw error;
       }
@@ -596,13 +596,13 @@ public class EventListenerTest {
 
     final List<AssertionError> capturedAssertionErrors = new ArrayList<>();
 
-    protected <T> AbstractObjectAssert<?, T> assertThat(T actual) {
-      return new CapturingObjectAssert<T>(actual, capturedAssertionErrors);
+    protected <T> AbstractObjectAssert<?, T> assertThat(final T actual) {
+      return new CapturingObjectAssert<>(actual, capturedAssertionErrors);
     }
 
-    public CapturingTestableEventListener() {}
+    private CapturingTestableEventListener() {}
 
-    public CapturingTestableEventListener(final EnabledEventCallback... enabledEventCallbacks) {
+    private CapturingTestableEventListener(final EnabledEventCallback... enabledEventCallbacks) {
       super(enabledEventCallbacks);
     }
 

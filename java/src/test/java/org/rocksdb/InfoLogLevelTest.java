@@ -22,17 +22,21 @@ public class InfoLogLevelTest {
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
+  @SuppressWarnings("MultipleExceptionsDeclaredOnTestMethod")
   @Test
   public void testInfoLogLevel() throws RocksDBException,
       IOException {
     try (final RocksDB db =
              RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       db.put("key".getBytes(), "value".getBytes());
-      db.flush(new FlushOptions().setWaitForFlush(true));
-      assertThat(getLogContentsWithoutHeader()).isNotEmpty();
+      try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+        db.flush(flushOptions);
+        assertThat(getLogContentsWithoutHeader()).isNotEmpty();
+      }
     }
   }
 
+  @SuppressWarnings("MultipleExceptionsDeclaredOnTestMethod")
   @Test
   public void testFatalLogLevel() throws RocksDBException,
       IOException {
@@ -50,6 +54,7 @@ public class InfoLogLevelTest {
     }
   }
 
+  @SuppressWarnings("MultipleExceptionsDeclaredOnTestMethod")
   @Test
   public void testFatalLogLevelWithDBOptions()
       throws RocksDBException, IOException {
@@ -87,7 +92,7 @@ public class InfoLogLevelTest {
    * @throws IOException if file is not found.
    */
   private String getLogContentsWithoutHeader() throws IOException {
-    final String separator = Environment.isWindows() ?
+    @SuppressWarnings("AccessOfSystemProperties") final String separator = Environment.isWindows() ?
         "\n" : System.getProperty("line.separator");
     final String[] lines = new String(readAllBytes(get(
         dbFolder.getRoot().getAbsolutePath() + "/LOG"))).split(separator);
@@ -95,12 +100,13 @@ public class InfoLogLevelTest {
     int first_non_header = lines.length;
     // Identify the last line of the header
     for (int i = lines.length - 1; i >= 0; --i) {
-      if (lines[i].indexOf("DB pointer") >= 0) {
+      if (lines[i].contains("DB pointer")) {
         first_non_header = i + 1;
+        //noinspection BreakStatement
         break;
       }
     }
-    StringBuilder builder = new StringBuilder();
+    final StringBuilder builder = new StringBuilder();
     for (int i = first_non_header; i < lines.length; ++i) {
       builder.append(lines[i]).append(separator);
     }
