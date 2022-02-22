@@ -6,12 +6,12 @@
 
 package org.rocksdb;
 
-import static org.junit.Assert.assertEquals;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class ConcurrentTaskLimiterTest {
   @ClassRule
@@ -29,24 +29,24 @@ public class ConcurrentTaskLimiterTest {
 
   @Test
   public void name() {
-    assertEquals(NAME, concurrentTaskLimiter.name());
+    assertThat(concurrentTaskLimiter.name()).isEqualTo(NAME);
   }
 
   @Test
   public void outstandingTask() {
-    assertEquals(0, concurrentTaskLimiter.outstandingTask());
+    assertThat(concurrentTaskLimiter.outstandingTask()).isEqualTo(0);
   }
 
   @Test
   public void setMaxOutstandingTask() {
-    assertEquals(concurrentTaskLimiter, concurrentTaskLimiter.setMaxOutstandingTask(4));
-    assertEquals(0, concurrentTaskLimiter.outstandingTask());
+    assertThat(concurrentTaskLimiter.setMaxOutstandingTask(4)).isEqualTo(concurrentTaskLimiter);
+    assertThat(concurrentTaskLimiter.outstandingTask()).isEqualTo(0);
   }
 
   @Test
   public void resetMaxOutstandingTask() {
-    assertEquals(concurrentTaskLimiter, concurrentTaskLimiter.resetMaxOutstandingTask());
-    assertEquals(0, concurrentTaskLimiter.outstandingTask());
+    assertThat(concurrentTaskLimiter.resetMaxOutstandingTask()).isEqualTo(concurrentTaskLimiter);
+    assertThat(concurrentTaskLimiter.outstandingTask()).isEqualTo(0);
   }
 
   @After

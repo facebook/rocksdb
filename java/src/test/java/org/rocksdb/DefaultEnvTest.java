@@ -26,7 +26,7 @@ public class DefaultEnvTest {
 
   @Test
   public void backgroundThreads() {
-    try (final Env defaultEnv = RocksEnv.getDefault()) {
+    try (final Env defaultEnv = Env.getDefault()) {
       defaultEnv.setBackgroundThreads(5, Priority.BOTTOM);
       assertThat(defaultEnv.getBackgroundThreads(Priority.BOTTOM)).isEqualTo(5);
 
@@ -43,7 +43,7 @@ public class DefaultEnvTest {
 
   @Test
   public void threadPoolQueueLen() {
-    try (final Env defaultEnv = RocksEnv.getDefault()) {
+    try (final Env defaultEnv = Env.getDefault()) {
       assertThat(defaultEnv.getThreadPoolQueueLen(Priority.BOTTOM)).isEqualTo(0);
       assertThat(defaultEnv.getThreadPoolQueueLen(Priority.LOW)).isEqualTo(0);
       assertThat(defaultEnv.getThreadPoolQueueLen(Priority.HIGH)).isEqualTo(0);
@@ -52,7 +52,7 @@ public class DefaultEnvTest {
 
   @Test
   public void incBackgroundThreadsIfNeeded() {
-    try (final Env defaultEnv = RocksEnv.getDefault()) {
+    try (final Env defaultEnv = Env.getDefault()) {
       defaultEnv.incBackgroundThreadsIfNeeded(20, Priority.BOTTOM);
       assertThat(defaultEnv.getBackgroundThreads(Priority.BOTTOM)).isGreaterThanOrEqualTo(20);
 
@@ -66,7 +66,7 @@ public class DefaultEnvTest {
 
   @Test
   public void lowerThreadPoolIOPriority() {
-    try (final Env defaultEnv = RocksEnv.getDefault()) {
+    try (final Env defaultEnv = Env.getDefault()) {
       defaultEnv.lowerThreadPoolIOPriority(Priority.BOTTOM);
 
       defaultEnv.lowerThreadPoolIOPriority(Priority.LOW);
@@ -77,7 +77,7 @@ public class DefaultEnvTest {
 
   @Test
   public void lowerThreadPoolCPUPriority() {
-    try (final Env defaultEnv = RocksEnv.getDefault()) {
+    try (final Env defaultEnv = Env.getDefault()) {
       defaultEnv.lowerThreadPoolCPUPriority(Priority.BOTTOM);
 
       defaultEnv.lowerThreadPoolCPUPriority(Priority.LOW);
@@ -88,7 +88,7 @@ public class DefaultEnvTest {
 
   @Test
   public void threadList() throws RocksDBException {
-    try (final Env defaultEnv = RocksEnv.getDefault()) {
+    try (final Env defaultEnv = Env.getDefault()) {
       final Collection<ThreadStatus> threadList = defaultEnv.getThreadList();
       assertThat(threadList.size()).isGreaterThan(0);
     }
@@ -96,13 +96,13 @@ public class DefaultEnvTest {
 
   @Test
   public void threadList_integration() throws RocksDBException {
-    try (final Env env = RocksEnv.getDefault();
-        final Options opt = new Options()
+    try (final Env env = Env.getDefault();
+         final Options opt = new Options()
             .setCreateIfMissing(true)
             .setCreateMissingColumnFamilies(true)
             .setEnv(env)) {
       // open database
-      try (final RocksDB db = RocksDB.open(opt,
+      try (final RocksDB ignored = RocksDB.open(opt,
           dbFolder.getRoot().getAbsolutePath())) {
 
         final List<ThreadStatus> threadList = env.getThreadList();
