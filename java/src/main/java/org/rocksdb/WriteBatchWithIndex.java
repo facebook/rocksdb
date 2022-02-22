@@ -231,6 +231,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * @throws RocksDBException if the batch does not have enough data to resolve
    * Merge operations, MergeInProgress status may be returned.
    */
+  @SuppressWarnings("RedundantThrows")
   public byte[] getFromBatch(final DBOptions options, final byte[] key)
       throws RocksDBException {
     return getFromBatch(nativeHandle_, options.nativeHandle_, key, key.length);

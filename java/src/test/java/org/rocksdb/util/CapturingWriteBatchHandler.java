@@ -50,23 +50,23 @@ public class CapturingWriteBatchHandler extends WriteBatch.Handler {
 
   @Override
   public void delete(final int columnFamilyId, final byte[] key) {
-    events.add(new Event(Action.DELETE, columnFamilyId, key, (byte[])null));
+    events.add(new Event(Action.DELETE, columnFamilyId, key, null));
   }
 
   @Override
   public void delete(final byte[] key) {
-    events.add(new Event(Action.DELETE, key, (byte[])null));
+    events.add(new Event(Action.DELETE, key, null));
   }
 
   @Override
   public void singleDelete(final int columnFamilyId, final byte[] key) {
     events.add(new Event(Action.SINGLE_DELETE,
-        columnFamilyId, key, (byte[])null));
+        columnFamilyId, key, null));
   }
 
   @Override
   public void singleDelete(final byte[] key) {
-    events.add(new Event(Action.SINGLE_DELETE, key, (byte[])null));
+    events.add(new Event(Action.SINGLE_DELETE, key, null));
   }
 
   @Override
@@ -83,7 +83,7 @@ public class CapturingWriteBatchHandler extends WriteBatch.Handler {
 
   @Override
   public void logData(final byte[] blob) {
-    events.add(new Event(Action.LOG, (byte[])null, blob));
+    events.add(new Event(Action.LOG, null, blob));
   }
 
   @Override
@@ -92,36 +92,42 @@ public class CapturingWriteBatchHandler extends WriteBatch.Handler {
     events.add(new Event(Action.PUT_BLOB_INDEX, key, value));
   }
 
+  @SuppressWarnings("RedundantThrows")
   @Override
   public void markBeginPrepare() throws RocksDBException {
-    events.add(new Event(Action.MARK_BEGIN_PREPARE, (byte[])null,
-        (byte[])null));
+    events.add(new Event(Action.MARK_BEGIN_PREPARE, null,
+        null));
   }
 
+  @SuppressWarnings("RedundantThrows")
   @Override
   public void markEndPrepare(final byte[] xid) throws RocksDBException {
-    events.add(new Event(Action.MARK_END_PREPARE, (byte[])null,
-        (byte[])null));
+    events.add(new Event(Action.MARK_END_PREPARE, null,
+        null));
   }
 
+  @SuppressWarnings("RedundantThrows")
   @Override
   public void markNoop(final boolean emptyBatch) throws RocksDBException {
-    events.add(new Event(Action.MARK_NOOP, (byte[])null, (byte[])null));
+    events.add(new Event(Action.MARK_NOOP, null, null));
   }
 
+  @SuppressWarnings("RedundantThrows")
   @Override
   public void markRollback(final byte[] xid) throws RocksDBException {
-    events.add(new Event(Action.MARK_ROLLBACK, (byte[])null, (byte[])null));
+    events.add(new Event(Action.MARK_ROLLBACK, null, null));
   }
 
+  @SuppressWarnings("RedundantThrows")
   @Override
   public void markCommit(final byte[] xid) throws RocksDBException {
-    events.add(new Event(Action.MARK_COMMIT, (byte[])null, (byte[])null));
+    events.add(new Event(Action.MARK_COMMIT, null, null));
   }
 
+  @SuppressWarnings("RedundantThrows")
   @Override
   public void markCommitWithTimestamp(final byte[] xid, final byte[] ts) throws RocksDBException {
-    events.add(new Event(Action.MARK_COMMIT_WITH_TIMESTAMP, (byte[]) null, (byte[]) null));
+    events.add(new Event(Action.MARK_COMMIT_WITH_TIMESTAMP, null, null));
   }
 
   public static class Event {
@@ -151,12 +157,10 @@ public class CapturingWriteBatchHandler extends WriteBatch.Handler {
         return false;
       }
       final Event event = (Event) o;
-      return columnFamilyId == event.columnFamilyId &&
-          action == event.action &&
-          ((key == null && event.key == null)
-              || Arrays.equals(key, event.key)) &&
-          ((value == null && event.value == null)
-              || Arrays.equals(value, event.value));
+      if (columnFamilyId == event.columnFamilyId) if (action == event.action) if ((key == null && event.key == null)
+          || Arrays.equals(key, event.key)) return (value == null && event.value == null)
+          || Arrays.equals(value, event.value);
+      return false;
     }
 
     @Override

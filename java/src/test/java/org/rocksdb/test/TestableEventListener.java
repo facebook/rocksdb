@@ -7,7 +7,7 @@ package org.rocksdb.test;
 import org.rocksdb.AbstractEventListener;
 
 public class TestableEventListener extends AbstractEventListener {
-  public TestableEventListener() {
+  protected TestableEventListener() {
     super();
   }
 

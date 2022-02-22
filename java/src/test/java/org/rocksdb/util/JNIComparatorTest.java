@@ -14,11 +14,19 @@ import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameter;
 import org.junit.runners.Parameterized.Parameters;
-import org.rocksdb.*;
+import org.rocksdb.AbstractComparator;
+import org.rocksdb.BuiltinComparator;
+import org.rocksdb.ComparatorOptions;
+import org.rocksdb.Options;
+import org.rocksdb.RocksDB;
+import org.rocksdb.RocksDBException;
+import org.rocksdb.RocksIterator;
+import org.rocksdb.RocksNativeLibraryResource;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.file.*;
+import java.nio.file.FileSystems;
+import java.nio.file.Path;
 import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,12 +44,15 @@ public class JNIComparatorTest {
     });
   }
 
-  @Parameter(0)
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
+  @Parameter
   public String name;
 
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   @Parameter(1)
   public BuiltinComparator builtinComparator;
 
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   @Parameter(2)
   public boolean useDirectBuffer;
 
@@ -55,6 +66,7 @@ public class JNIComparatorTest {
   private static final int MIN = Short.MIN_VALUE - 1;
   private static final int MAX = Short.MAX_VALUE + 1;
 
+  @SuppressWarnings("MultipleExceptionsDeclaredOnTestMethod")
   @Test
   public void java_comparator_equals_cpp_comparator() throws RocksDBException, IOException {
     final int[] javaKeys;
@@ -77,8 +89,8 @@ public class JNIComparatorTest {
     assertThat(javaKeys).isEqualTo(cppKeys);
   }
 
-  private void storeWithJavaComparator(final Path dir,
-      final AbstractComparator comparator) throws RocksDBException {
+  private static void storeWithJavaComparator(final Path dir,
+                                              final AbstractComparator comparator) throws RocksDBException {
     final ByteBuffer buf = ByteBuffer.allocate(4);
     try (final Options options = new Options()
              .setCreateIfMissing(true)
@@ -96,8 +108,8 @@ public class JNIComparatorTest {
     }
   }
 
-  private void storeWithCppComparator(final Path dir,
-      final BuiltinComparator builtinComparator) throws RocksDBException {
+  private static void storeWithCppComparator(final Path dir,
+                                             final BuiltinComparator builtinComparator) throws RocksDBException {
     try (final Options options = new Options()
              .setCreateIfMissing(true)
              .setComparator(builtinComparator);
@@ -116,8 +128,8 @@ public class JNIComparatorTest {
     }
   }
 
-  private int[] readAllWithJavaComparator(final Path dir,
-      final AbstractComparator comparator) throws RocksDBException {
+  private static int[] readAllWithJavaComparator(final Path dir,
+                                                 final AbstractComparator comparator) throws RocksDBException {
     try (final Options options = new Options()
         .setCreateIfMissing(true)
         .setComparator(comparator);
@@ -128,7 +140,7 @@ public class JNIComparatorTest {
         it.seekToFirst();
 
         final ByteBuffer buf = ByteBuffer.allocate(4);
-        final int[] keys = new int[MAX - MIN];
+        @SuppressWarnings("CheckForOutOfMemoryOnLargeArrayAllocation") final int[] keys = new int[MAX - MIN];
         int idx = 0;
         while (it.isValid()) {
           buf.put(it.key());
@@ -147,8 +159,8 @@ public class JNIComparatorTest {
     }
   }
 
-  private int[] readAllWithCppComparator(final Path dir,
-      final BuiltinComparator comparator) throws RocksDBException {
+  private static int[] readAllWithCppComparator(final Path dir,
+                                                final BuiltinComparator comparator) throws RocksDBException {
     try (final Options options = new Options()
         .setCreateIfMissing(true)
         .setComparator(comparator);
@@ -159,6 +171,7 @@ public class JNIComparatorTest {
         it.seekToFirst();
 
         final ByteBuffer buf = ByteBuffer.allocate(4);
+        //noinspection CheckForOutOfMemoryOnLargeArrayAllocation
         final int[] keys = new int[MAX - MIN];
         int idx = 0;
         while (it.isValid()) {

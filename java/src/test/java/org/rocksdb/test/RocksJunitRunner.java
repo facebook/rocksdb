@@ -11,7 +11,6 @@ import org.junit.runner.Description;
 import org.junit.runner.JUnitCore;
 import org.junit.runner.Result;
 import org.junit.runner.notification.Failure;
-import org.rocksdb.RocksDB;
 
 import java.io.PrintStream;
 import java.text.DecimalFormat;
@@ -33,18 +32,25 @@ public class RocksJunitRunner {
    */
   static class RocksJunitListener extends TextListener {
 
-    private final static NumberFormat secsFormat =
+    private static final NumberFormat secsFormat =
         new DecimalFormat("###,###.###");
 
     private final PrintStream writer;
 
+    @SuppressWarnings("RedundantFieldInitialization")
     private String currentClassName = null;
+    @SuppressWarnings("RedundantFieldInitialization")
     private String currentMethodName = null;
+    @SuppressWarnings("RedundantFieldInitialization")
     private Status currentStatus = null;
-    private long currentTestsStartTime;
+    private long currentTestsStartTime = System.currentTimeMillis();
+    @SuppressWarnings("RedundantFieldInitialization")
     private int currentTestsCount = 0;
+    @SuppressWarnings("RedundantFieldInitialization")
     private int currentTestsIgnoredCount = 0;
+    @SuppressWarnings("RedundantFieldInitialization")
     private int currentTestsFailureCount = 0;
+    @SuppressWarnings("RedundantFieldInitialization")
     private int currentTestsErrorCount = 0;
 
     enum Status {
@@ -59,11 +65,11 @@ public class RocksJunitRunner {
      *
      * @param system JUnitSystem
      */
-    public RocksJunitListener(final JUnitSystem system) {
+    RocksJunitListener(final JUnitSystem system) {
       this(system.out());
     }
 
-    public RocksJunitListener(final PrintStream writer) {
+    RocksJunitListener(final PrintStream writer) {
       super(writer);
       this.writer = writer;
     }
@@ -74,18 +80,22 @@ public class RocksJunitRunner {
 
     }
 
+    private void changeCurrentTestClass(final Description description) {
+      writer.format("%nRunning: %s%n", description.getClassName());
+      currentClassName = description.getClassName();
+    }
+
+    @SuppressWarnings("CallToSuspiciousStringMethod")
     @Override
     public void testStarted(final Description description) {
-      if(currentClassName == null
-          || !currentClassName.equals(description.getClassName())) {
-        if(currentClassName !=  null) {
-          printTestsSummary();
-        } else {
-          currentTestsStartTime = System.currentTimeMillis();
-        }
-        writer.format("%nRunning: %s%n", description.getClassName());
-        currentClassName = description.getClassName();
+      if (currentClassName == null) {
+        currentTestsStartTime = System.currentTimeMillis();
+        changeCurrentTestClass(description);
+      } else if (!currentClassName.equals(description.getClassName())) {
+        printTestsSummary();
+        changeCurrentTestClass(description);
       }
+
       currentMethodName = description.getMethodName();
       currentStatus = OK;
       currentTestsCount++;
@@ -108,6 +118,7 @@ public class RocksJunitRunner {
       currentTestsStartTime = System.currentTimeMillis();
     }
 
+    @SuppressWarnings("AccessToNonThreadSafeStaticField")
     private static String formatSecs(final double milliseconds) {
       final double seconds = milliseconds / 1000;
       return secsFormat.format(seconds);
@@ -147,6 +158,8 @@ public class RocksJunitRunner {
     }
   }
 
+  private static final Class<?>[] EMPTY_CLASS_ARRAY = new Class<?>[0];
+
   /**
    * Main method to execute tests
    *
@@ -161,7 +174,7 @@ public class RocksJunitRunner {
       for (final String arg : args) {
         classes.add(Class.forName(arg));
       }
-      final Class[] clazzes = classes.toArray(new Class[classes.size()]);
+      final Class<?>[] clazzes = classes.toArray(EMPTY_CLASS_ARRAY);
       final Result result = runner.run(clazzes);
       if(!result.wasSuccessful()) {
         System.exit(-1);

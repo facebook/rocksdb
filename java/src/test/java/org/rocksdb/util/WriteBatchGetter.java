@@ -8,8 +8,11 @@ import java.util.Arrays;
 
 public class WriteBatchGetter extends WriteBatch.Handler {
 
+  @SuppressWarnings("unused")
   private int columnFamilyId = -1;
+
   private final byte[] key;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
   private byte[] value;
 
   public WriteBatchGetter(final byte[] key) {
@@ -85,17 +88,17 @@ public class WriteBatchGetter extends WriteBatch.Handler {
   @Override
   public void deleteRange(final int columnFamilyId, final byte[] beginKey,
                           final byte[] endKey) {
-    throw new UnsupportedOperationException();
+    throw new UnsupportedOperationException("deleteRange not implemented");
   }
 
   @Override
   public void deleteRange(final byte[] beginKey, final byte[] endKey) {
-    throw new UnsupportedOperationException();
+    throw new UnsupportedOperationException("deleteRange not implemented");
   }
 
   @Override
   public void logData(final byte[] blob) {
-    throw new UnsupportedOperationException();
+    throw new UnsupportedOperationException("logData not implemented");
   }
 
   @Override
@@ -107,33 +110,39 @@ public class WriteBatchGetter extends WriteBatch.Handler {
     }
   }
 
+  @SuppressWarnings("RedundantThrows")
   @Override
   public void markBeginPrepare() throws RocksDBException {
-    throw new UnsupportedOperationException();
+    throw new UnsupportedOperationException("markBeginPrepare not implemented");
   }
 
+  @SuppressWarnings("RedundantThrows")
   @Override
   public void markEndPrepare(final byte[] xid) throws RocksDBException {
-    throw new UnsupportedOperationException();
+    throw new UnsupportedOperationException("markEndPrepare not implemented");
   }
 
+  @SuppressWarnings("RedundantThrows")
   @Override
   public void markNoop(final boolean emptyBatch) throws RocksDBException {
-    throw new UnsupportedOperationException();
+    throw new UnsupportedOperationException("markNoop not implemented");
   }
 
+  @SuppressWarnings("RedundantThrows")
   @Override
   public void markRollback(final byte[] xid) throws RocksDBException {
-    throw new UnsupportedOperationException();
+    throw new UnsupportedOperationException("markRollback not implemented");
   }
 
+  @SuppressWarnings("RedundantThrows")
   @Override
   public void markCommit(final byte[] xid) throws RocksDBException {
-    throw new UnsupportedOperationException();
+    throw new UnsupportedOperationException("markCommit not implemented");
   }
 
+  @SuppressWarnings("RedundantThrows")
   @Override
   public void markCommitWithTimestamp(final byte[] xid, final byte[] ts) throws RocksDBException {
-    throw new UnsupportedOperationException();
+    throw new UnsupportedOperationException("markCommitWithTimestamp not implemented");
   }
 }

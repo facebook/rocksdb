@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class SizeUnitTest {
 
-  public static final long COMPUTATION_UNIT = 1024L;
+  private static final long COMPUTATION_UNIT = 1024L;
 
   @Test
   public void sizeUnit() {

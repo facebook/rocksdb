@@ -5,13 +5,13 @@
 
 package org.rocksdb.util;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-
-import java.nio.ByteBuffer;
-import java.util.Random;
 import org.rocksdb.CompactionPriority;
 import org.rocksdb.Options;
 import org.rocksdb.WALRecoveryMode;
+
+import java.nio.ByteBuffer;
+import java.security.SecureRandom;
+import java.util.Random;
 
 /**
  * General test utilities.
@@ -34,7 +34,8 @@ public class TestUtil {
    *
    * @return the options
    */
-  public static Options defaultOptions() {
+  @SuppressWarnings("resource")
+  private static Options defaultOptions() {
       return new Options()
           .setWriteBufferSize(4090 * 4096)
           .setTargetFileSizeBase(2 * 1024 * 1024)
@@ -44,7 +45,7 @@ public class TestUtil {
           .setCompactionPriority(CompactionPriority.ByCompensatedSize);
   }
 
-  private static final Random random = new Random();
+  private static final Random random = new SecureRandom();
 
   /**
    * Generate a random string of bytes.
