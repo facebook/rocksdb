@@ -3158,6 +3158,7 @@ Status BlockBasedTable::CreateIndexReader(
 uint64_t BlockBasedTable::ApproximateDataOffsetOf(
     const InternalIteratorBase<IndexValue>& index_iter,
     uint64_t data_size) const {
+  assert(index_iter.status().ok());
   if (index_iter.Valid()) {
     BlockHandle handle = index_iter.value().handle;
     return handle.offset();
@@ -3200,8 +3201,16 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
   }
 
   index_iter->Seek(key);
+  uint64_t offset;
+  if (index_iter->status().ok()) {
+    offset = ApproximateDataOffsetOf(*index_iter, data_size);
+  } else {
+    // Split in half to avoid skewing one way or another,
+    // since we don't know whether we're operating on lower bound or
+    // upper bound.
+    return rep_->file_size / 2;
+  }
 
-  uint64_t offset = ApproximateDataOffsetOf(*index_iter, data_size);
   // Pro-rate file metadata (incl filters) size-proportionally across data
   // blocks.
   double size_ratio =
@@ -3217,7 +3226,9 @@ uint64_t BlockBasedTable::ApproximateSize(const Slice& start, const Slice& end,
   uint64_t data_size = GetApproximateDataSize();
   if (UNLIKELY(data_size == 0)) {
     // Hmm. Assume whole file is involved, since we have lower and upper
-    // bound.
+    // bound. This likely skews the estimate if we consider that this function
+    // is typically called with `[start, end]` fully contained in the file's
+    // key-range.
     return rep_->file_size;
   }
 
@@ -3235,9 +3246,24 @@ uint64_t BlockBasedTable::ApproximateSize(const Slice& start, const Slice& end,
   }
 
   index_iter->Seek(start);
-  uint64_t start_offset = ApproximateDataOffsetOf(*index_iter, data_size);
+  uint64_t start_offset;
+  if (index_iter->status().ok()) {
+    start_offset = ApproximateDataOffsetOf(*index_iter, data_size);
+  } else {
+    // Assume file is involved from the start. This likely skews the estimate
+    // but is consistent with the above error handling.
+    start_offset = 0;
+  }
+
   index_iter->Seek(end);
-  uint64_t end_offset = ApproximateDataOffsetOf(*index_iter, data_size);
+  uint64_t end_offset;
+  if (index_iter->status().ok()) {
+    end_offset = ApproximateDataOffsetOf(*index_iter, data_size);
+  } else {
+    // Assume file is involved until the end. This likely skews the estimate
+    // but is consistent with the above error handling.
+    end_offset = data_size;
+  }
 
   assert(end_offset >= start_offset);
   // Pro-rate file metadata (incl filters) size-proportionally across data
