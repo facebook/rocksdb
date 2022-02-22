@@ -1574,6 +1574,9 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
   flush_opts.wait = false;
   ASSERT_OK(db_->Flush(flush_opts));
   t1.join();
+  // Unlike `Flush()`, `Close()` will wait on background flush threads to fully
+  // finish their work including notifying event listeners.
+  Close();
   ASSERT_TRUE(listener->completed1);
   ASSERT_TRUE(listener->completed2);
   SyncPoint::GetInstance()->DisableProcessing();
