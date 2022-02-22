@@ -247,21 +247,25 @@ before_script:
 script:
   - date; ${CXX} --version
   - if [ `command -v ccache` ]; then ccache -C; fi
+  - export MK_PARALLEL=4;
+    if [[ "$TRAVIS_CPU_ARCH" == s390x ]]; then
+      export MK_PARALLEL=2;
+    fi
   - case $TEST_GROUP in
     platform_dependent)
-      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=only make -j4 all_but_some_tests check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=only make -j$MK_PARALLEL all_but_some_tests check_some
       ;;
     1)
-      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_END=backupable_db_test make -j4 check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_END=backupable_db_test make -j$MK_PARALLEL check_some
       ;;
     2)
-      OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" LIB_MODE=shared V=1 make -j4 tools && OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=backupable_db_test ROCKSDBTESTS_END=db_universal_compaction_test make -j4 check_some
+      OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" LIB_MODE=shared V=1 make -j$MK_PARALLEL tools && OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=backupable_db_test ROCKSDBTESTS_END=db_universal_compaction_test make -j$MK_PARALLEL check_some
       ;;
     3)
-      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=db_universal_compaction_test ROCKSDBTESTS_END=table_properties_collector_test make -j4 check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=db_universal_compaction_test ROCKSDBTESTS_END=table_properties_collector_test make -j$MK_PARALLEL check_some
       ;;
     4)
-      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=table_properties_collector_test make -j4 check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=table_properties_collector_test make -j$MK_PARALLEL check_some
       ;;
     esac
   - case $JOB_NAME in
@@ -269,10 +273,10 @@ script:
       OPT=-DTRAVIS LIB_MODE=shared V=1 make rocksdbjava jtest
       ;;
     lite_build)
-      OPT='-DTRAVIS -DROCKSDB_LITE' LIB_MODE=shared V=1 make -j4 all
+      OPT='-DTRAVIS -DROCKSDB_LITE' LIB_MODE=shared V=1 make -j$MK_PARALLEL all
       ;;
     examples)
-      OPT=-DTRAVIS LIB_MODE=shared V=1 make -j4 static_lib && cd examples && make -j4
+      OPT=-DTRAVIS LIB_MODE=shared V=1 make -j$MK_PARALLEL static_lib && cd examples && make -j$MK_PARALLEL
       ;;
     cmake-mingw)
       sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix;
@@ -285,10 +289,10 @@ script:
           ;;
       esac
 
-      mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DWITH_TESTS=0 -DWITH_GFLAGS=0 -DWITH_BENCHMARK_TOOLS=0 -DWITH_TOOLS=0 -DWITH_CORE_TOOLS=1 .. && make -j4 && cd  .. && rm -rf build && mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release $OPT && make -j4 rocksdb rocksdbjni
+      mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DWITH_TESTS=0 -DWITH_GFLAGS=0 -DWITH_BENCHMARK_TOOLS=0 -DWITH_TOOLS=0 -DWITH_CORE_TOOLS=1 .. && make -j$MK_PARALLEL && cd  .. && rm -rf build && mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release $OPT && make -j$MK_PARALLEL rocksdb rocksdbjni
       ;;
     status_checked)
-      OPT=-DTRAVIS LIB_MODE=shared V=1 ASSERT_STATUS_CHECKED=1 make -j4 check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ASSERT_STATUS_CHECKED=1 make -j$MK_PARALLEL check_some
       ;;
     esac
 notifications:
