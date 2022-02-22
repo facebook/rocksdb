@@ -1674,7 +1674,11 @@ class ZSTDStreamingCompress final : public StreamingCompress {
     input_buffer_ = {nullptr, 0, 0};
 #endif
   }
-  ~ZSTDStreamingCompress() override { ZSTD_freeCCtx(cctx_); }
+  ~ZSTDStreamingCompress() override {
+#ifdef ZSTD_STREAMING
+    ZSTD_freeCCtx(cctx_);
+#endif
+  }
   int compress(const char* input, size_t input_size, char* output,
                size_t* output_size) override;
   void reset() override;
@@ -1694,7 +1698,11 @@ class ZSTDStreamingUncompress final : public StreamingUncompress {
     assert(dctx_ != nullptr);
 #endif
   }
-  ~ZSTDStreamingUncompress() override { ZSTD_freeDCtx(dctx_); }
+  ~ZSTDStreamingUncompress() override {
+#ifdef ZSTD_STREAMING
+    ZSTD_freeDCtx(dctx_);
+#endif
+  }
   int uncompress(const char* input, size_t input_size, char* output,
                  size_t* output_size) override;
   void reset() override;
