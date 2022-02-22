@@ -585,7 +585,6 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
     s = Status::Busy();
     return s;
   } else if (!s.IsNotFound()) {
-    assert(!empty_value.empty());
     return s;
   }
 
@@ -727,7 +726,9 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
     Record record;
     s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
     if (!s.ok()) {
-      VerificationAbort(thread->shared, "Cannot decode secondary key", s);
+      fprintf(stderr, "Cannot decode secondary key: %s\n",
+              s.ToString().c_str());
+      assert(false);
       break;
     }
     // At this point, record.b is not known yet, thus we need to access
@@ -749,11 +750,17 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
       VerificationAbort(thread->shared, "pk should exist, but does not", s);
       break;
     }
-    assert(s.ok());
+    if (!s.ok()) {
+      fprintf(stderr, "%s\n", s.ToString().c_str());
+      assert(false);
+      break;
+    }
     auto result = Record::DecodePrimaryIndexValue(value);
     s = std::get<0>(result);
     if (!s.ok()) {
-      VerificationAbort(thread->shared, "Cannot decode primary index value", s);
+      fprintf(stderr, "Cannot decode primary index value: %s\n",
+              s.ToString().c_str());
+      assert(false);
       break;
     }
     uint32_t b = std::get<1>(result);
@@ -763,7 +770,8 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
       oss << "c in primary index does not match secondary index: " << c
           << " != " << old_c;
       s = Status::Corruption();
-      VerificationAbort(thread->shared, oss.str(), s);
+      fprintf(stderr, "%s\n", oss.str().c_str());
+      assert(false);
       break;
     }
     Record new_rec(record.a_value(), b, new_c);
@@ -861,6 +869,10 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
   }
   auto result = Record::DecodePrimaryIndexValue(value);
   if (!std::get<0>(result).ok()) {
+    s = std::get<0>(result);
+    fprintf(stderr, "Cannot decode primary index value: %s\n",
+            s.ToString().c_str());
+    assert(false);
     return s;
   }
   uint32_t b = std::get<1>(result) + b_delta;
@@ -1043,7 +1055,11 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
       Record record;
       Status s = record.DecodePrimaryIndexEntry(it->key(), it->value());
-      assert(s.ok());
+      if (!s.ok()) {
+        VerificationAbort(thread->shared, "Cannot decode primary index entry",
+                          s);
+        return;
+      }
       ++primary_index_entries_count;
     }
   }
@@ -1368,7 +1384,11 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
       Record record;
       Status s = record.DecodePrimaryIndexEntry(it->key(), it->value());
-      assert(s.ok());
+      if (!s.ok()) {
+        fprintf(stderr, "Cannot decode primary index entry: %s\n",
+                s.ToString().c_str());
+        assert(false);
+      }
       uint32_t a = record.a_value();
       assert(a >= lb_a);
       assert(a < ub_a);
