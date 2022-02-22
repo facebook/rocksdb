@@ -155,7 +155,8 @@ public class WriteBatchTest {
       batch.putLogData("blob2".getBytes(UTF_8));
       batch.merge("foo".getBytes(UTF_8), "bar".getBytes(UTF_8));
       assertThat(batch.count()).isEqualTo(5);
-      assertThat(new String(getContents(batch), UTF_8)).isEqualTo(new StringBuilder().append("Merge(foo, bar)@4").append("Put(k1, v1)@0").append("Delete(k2)@3").append("Put(k2, v2)@1").append("Put(k3, v3)@2").toString());
+      assertThat(new String(getContents(batch, true), UTF_8)).isEqualTo(
+          new StringBuilder().append("Merge(foo, bar)@4").append("Put(k1, v1)@0").append("Delete(k2)@3").append("Put(k2, v2)@1").append("Put(k3, v3)@2").toString());
     }
   }
 
@@ -472,8 +473,13 @@ public class WriteBatchTest {
   }
 
   @SuppressWarnings("WeakerAccess")
+  static byte[] getContents(final WriteBatch wb, @SuppressWarnings("SameParameterValue") final boolean mergeOperatorSupported) {
+    return getContents(wb.nativeHandle_, mergeOperatorSupported);
+  }
+
+  @SuppressWarnings("WeakerAccess")
   static byte[] getContents(final WriteBatch wb) {
-    return getContents(wb.nativeHandle_);
+    return getContents(wb.nativeHandle_, false);
   }
 
   @SuppressWarnings({"WeakerAccess", "ReturnOfNull"})
@@ -489,7 +495,7 @@ public class WriteBatchTest {
     }
   }
 
-  private static native byte[] getContents(final long writeBatchHandle);
+  private static native byte[] getContents(final long writeBatchHandle, final boolean mergeOperatorSupported);
 }
 
 /**
