@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### New Features
+* Allow WriteBatchWithIndex to index a WriteBatch that includes keys with user-defined timestamps. The index itself does not have timestamp.
+
 ## 7.0.0 (02/20/2022)
 ### Bug Fixes
 * Fixed a major bug in which batched MultiGet could return old values for keys deleted by DeleteRange when memtable Bloom filter is enabled (memtable_prefix_bloom_size_ratio > 0). (The fix includes a substantial MultiGet performance improvement in the unusual case of both memtable_whole_key_filtering and prefix_extractor.)

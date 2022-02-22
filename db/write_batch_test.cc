@@ -1009,6 +1009,29 @@ TEST_F(WriteBatchTest, UpdateTimestamps) {
       {4, cf4.GetComparator()},
       {5, cf5.GetComparator()}};
 
+  static constexpr size_t timestamp_size = sizeof(uint64_t);
+
+  {
+    WriteBatch wb1, wb2, wb3, wb4, wb5, wb6, wb7;
+    ASSERT_OK(wb1.Put(&cf0, "key", "value"));
+    ASSERT_FALSE(WriteBatchInternal::HasKeyWithTimestamp(wb1));
+    ASSERT_OK(wb2.Put(&cf4, "key", "value"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb2));
+    ASSERT_OK(wb3.Put(&cf4, "key", /*ts=*/std::string(timestamp_size, '\xfe'),
+                      "value"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb3));
+    ASSERT_OK(wb4.Delete(&cf4, "key",
+                         /*ts=*/std::string(timestamp_size, '\xfe')));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb4));
+    ASSERT_OK(wb5.Delete(&cf4, "key"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb5));
+    ASSERT_OK(wb6.SingleDelete(&cf4, "key"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb6));
+    ASSERT_OK(wb7.SingleDelete(&cf4, "key",
+                               /*ts=*/std::string(timestamp_size, '\xfe')));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb7));
+  }
+
   WriteBatch batch;
   // Write to the batch. We will assign timestamps later.
   for (const auto& key_str : key_strs) {
@@ -1017,7 +1040,6 @@ TEST_F(WriteBatchTest, UpdateTimestamps) {
     ASSERT_OK(batch.Put(&cf5, key_str, "value"));
   }
 
-  static constexpr size_t timestamp_size = sizeof(uint64_t);
   const auto checker1 = [](uint32_t cf) {
     if (cf == 4 || cf == 5) {
       return timestamp_size;
