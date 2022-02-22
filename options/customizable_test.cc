@@ -1687,10 +1687,11 @@ class LoadCustomizableTest : public testing::Test {
   }
 
   template <typename T, typename U>
-  Status TestExpectedBuiltins(const std::string& mock,
-                              const std::unordered_set<std::string>& expected,
-                              std::shared_ptr<U>* object,
-                              std::vector<std::string>* failed) {
+  Status TestExpectedBuiltins(
+      const std::string& mock, const std::unordered_set<std::string>& expected,
+      std::shared_ptr<U>* object, std::vector<std::string>* failed,
+      const std::function<std::vector<std::string>(const std::string&)>& alt =
+          nullptr) {
     std::unordered_set<std::string> factories = expected;
     Status s = T::CreateFromString(config_options_, mock, object);
     EXPECT_NOK(s);
@@ -1703,8 +1704,15 @@ class LoadCustomizableTest : public testing::Test {
     int created = 0;
     for (const auto& name : factories) {
       created++;
-
       s = T::CreateFromString(config_options_, name, object);
+      if (!s.ok() && alt != nullptr) {
+        for (const auto& alt_name : alt(name)) {
+          s = T::CreateFromString(config_options_, alt_name, object);
+          if (s.ok()) {
+            break;
+          }
+        }
+      }
       if (!s.ok()) {
         result = s;
         failed->push_back(name);
@@ -1721,6 +1729,14 @@ class LoadCustomizableTest : public testing::Test {
         if (factories.find(name) == factories.end()) {
           created++;
           s = T::CreateFromString(config_options_, name, object);
+          if (!s.ok() && alt != nullptr) {
+            for (const auto& alt_name : alt(name)) {
+              s = T::CreateFromString(config_options_, alt_name, object);
+              if (s.ok()) {
+                break;
+              }
+            }
+          }
           if (!s.ok()) {
             failed->push_back(name);
             if (result.ok()) {
@@ -1921,20 +1937,11 @@ TEST_F(LoadCustomizableTest, LoadSliceTransformFactoryTest) {
   std::unordered_set<std::string> expected = {"rocksdb.Noop", "fixed",
                                               "rocksdb.FixedPrefix", "capped",
                                               "rocksdb.CappedPrefix"};
-  Status s = TestExpectedBuiltins<SliceTransform>("Mock", expected, &result,
-                                                  &failures);
-  if (!s.ok()) {
-    for (const auto& f : failures) {
-      s = SliceTransform::CreateFromString(config_options_, f + ":22", &result);
-      if (!s.ok()) {
-        s = SliceTransform::CreateFromString(config_options_, f + ".22",
-                                             &result);
-      }
-      ASSERT_OK(s);
-      ASSERT_NE(result.get(), nullptr);
-      ASSERT_TRUE(result->IsInstanceOf(f));
-    }
-  }
+  ASSERT_OK(TestExpectedBuiltins<SliceTransform>(
+      "Mock", expected, &result, &failures, [](const std::string& name) {
+        std::vector<std::string> names = {name + ":22", name + ".22"};
+        return names;
+      }));
   ASSERT_OK(SliceTransform::CreateFromString(
       config_options_, "rocksdb.FixedPrefix.22", &result));
   ASSERT_NE(result.get(), nullptr);
@@ -2172,17 +2179,52 @@ TEST_F(LoadCustomizableTest, LoadRateLimiterTest) {
 }
 
 TEST_F(LoadCustomizableTest, LoadFilterPolicyTest) {
-  std::shared_ptr<TableFactory> table;
-  std::shared_ptr<const FilterPolicy> result;
-  ASSERT_NOK(FilterPolicy::CreateFromString(
-      config_options_, MockFilterPolicy::kClassName(), &result));
+  const std::string kAutoBloom = BloomFilterPolicy::kClassName();
+  const std::string kAutoRibbon = RibbonFilterPolicy::kClassName();
 
-  ASSERT_OK(FilterPolicy::CreateFromString(config_options_, "", &result));
-  ASSERT_EQ(result, nullptr);
+  std::shared_ptr<const FilterPolicy> result;
+  std::vector<std::string> failures;
+  std::unordered_set<std::string> expected = {
+      ReadOnlyBuiltinFilterPolicy::kClassName(),
+  };
+
+#ifndef ROCKSDB_LITE
+  expected.insert({
+      kAutoBloom,
+      BloomFilterPolicy::kNickName(),
+      kAutoRibbon,
+      RibbonFilterPolicy::kNickName(),
+  });
+#endif  // ROCKSDB_LITE
+  ASSERT_OK(TestExpectedBuiltins<const FilterPolicy>(
+      "Mock", expected, &result, &failures, [](const std::string& name) {
+        std::vector<std::string> names = {name + ":1.234"};
+        return names;
+      }));
+#ifndef ROCKSDB_LITE
   ASSERT_OK(FilterPolicy::CreateFromString(
-      config_options_, ReadOnlyBuiltinFilterPolicy::kClassName(), &result));
-  ASSERT_NE(result, nullptr);
-  ASSERT_STREQ(result->Name(), ReadOnlyBuiltinFilterPolicy::kClassName());
+      config_options_, kAutoBloom + ":1.234:false", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(kAutoBloom));
+  ASSERT_OK(FilterPolicy::CreateFromString(
+      config_options_, kAutoBloom + ":1.234:false", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(kAutoBloom));
+  ASSERT_OK(FilterPolicy::CreateFromString(config_options_,
+                                           kAutoRibbon + ":1.234:-1", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(kAutoRibbon));
+  ASSERT_OK(FilterPolicy::CreateFromString(config_options_,
+                                           kAutoRibbon + ":1.234:56", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(kAutoRibbon));
+#endif  // ROCKSDB_LITE
+
+  if (RegisterTests("Test")) {
+    ExpectCreateShared<FilterPolicy>(MockFilterPolicy::kClassName(), &result);
+  }
+
+  std::shared_ptr<TableFactory> table;
 
 #ifndef ROCKSDB_LITE
   std::string table_opts = "id=BlockBasedTable; filter_policy=";
@@ -2204,19 +2246,9 @@ TEST_F(LoadCustomizableTest, LoadFilterPolicyTest) {
       config_options_, table_opts + MockFilterPolicy::kClassName(), &table));
   bbto = table->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(bbto, nullptr);
-  ASSERT_EQ(bbto->filter_policy.get(), nullptr);
-  if (RegisterTests("Test")) {
-    ASSERT_OK(FilterPolicy::CreateFromString(
-        config_options_, MockFilterPolicy::kClassName(), &result));
-    ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), MockFilterPolicy::kClassName());
-    ASSERT_OK(TableFactory::CreateFromString(
-        config_options_, table_opts + MockFilterPolicy::kClassName(), &table));
-    bbto = table->GetOptions<BlockBasedTableOptions>();
-    ASSERT_NE(bbto, nullptr);
-    ASSERT_NE(bbto->filter_policy.get(), nullptr);
-    ASSERT_STREQ(bbto->filter_policy->Name(), MockFilterPolicy::kClassName());
-  }
+  ASSERT_NE(bbto->filter_policy.get(), nullptr);
+  ASSERT_TRUE(
+      bbto->filter_policy->IsInstanceOf(MockFilterPolicy::kClassName()));
 #endif  // ROCKSDB_LITE
 }
 
