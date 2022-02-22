@@ -1594,12 +1594,6 @@ class CompressionTypeRecord {
   CompressionType compression_type_;
 };
 
-enum StreamingCompressState {
-  RESET,
-  IN_PROGRESS,
-  END,
-};
-
 class StreamingCompress {
  public:
   StreamingCompress(CompressionType compression_type,

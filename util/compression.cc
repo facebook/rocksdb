@@ -11,9 +11,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-StreamingCompress* StreamingCompress::create(
-    CompressionType compression_type, const CompressionOptions& opts,
-    uint32_t compress_format_version, size_t max_output_len) {
+StreamingCompress* StreamingCompress::create(CompressionType compression_type,
+                                             const CompressionOptions& opts,
+                                             uint32_t compress_format_version,
+                                             size_t max_output_len) {
   switch (compression_type) {
     case kZSTD: {
       if (!ZSTD_Streaming_Supported()) {
@@ -43,9 +44,8 @@ StreamingUncompress* StreamingUncompress::create(
   }
 }
 
-int ZSTDStreamingCompress::compress(const char* input,
-                                              size_t input_size, char* output,
-                                              size_t* output_size) {
+int ZSTDStreamingCompress::compress(const char* input, size_t input_size,
+                                    char* output, size_t* output_size) {
   assert(input != nullptr && output != nullptr && input_size > 0 &&
          output_size != nullptr);
   *output_size = 0;
@@ -61,8 +61,8 @@ int ZSTDStreamingCompress::compress(const char* input,
     // Same input, not fully compressed.
   }
   ZSTD_outBuffer output_buffer = {output, max_output_len_, 0};
-  const size_t remaining = ZSTD_compressStream2(
-      cctx_, &output_buffer, &input_buffer_, ZSTD_e_flush);
+  const size_t remaining =
+      ZSTD_compressStream2(cctx_, &output_buffer, &input_buffer_, ZSTD_e_flush);
   if (ZSTD_isError(remaining)) {
     // Failure
     reset();
@@ -81,9 +81,8 @@ void ZSTDStreamingCompress::reset() {
 #endif
 }
 
-int ZSTDStreamingUncompress::uncompress(const char* input,
-                                                size_t input_size, char* output,
-                                                size_t* output_size) {
+int ZSTDStreamingUncompress::uncompress(const char* input, size_t input_size,
+                                        char* output, size_t* output_size) {
   assert(input != nullptr && output != nullptr && input_size > 0 &&
          output_size != nullptr);
   *output_size = 0;
