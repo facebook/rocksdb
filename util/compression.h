@@ -49,6 +49,7 @@
 #include <zstd.h>
 #if ZSTD_VERSION_NUMBER >= 10103  // v1.1.3+
 #include <zdict.h>
+#define ZSTD_STREAMING
 #endif  // ZSTD_VERSION_NUMBER >= 10103
 namespace ROCKSDB_NAMESPACE {
 // Need this for the context allocation override
@@ -1591,6 +1592,124 @@ class CompressionTypeRecord {
 
  private:
   CompressionType compression_type_;
+};
+
+enum StreamingCompressState {
+  RESET,
+  IN_PROGRESS,
+  END,
+};
+
+class StreamingCompress {
+ public:
+  StreamingCompress(CompressionType compression_type,
+                    const CompressionOptions& opts,
+                    uint32_t compress_format_version, size_t max_output_len)
+      : compression_type_(compression_type),
+        opts_(opts),
+        compress_format_version_(compress_format_version),
+        max_output_len_(max_output_len) {}
+  virtual ~StreamingCompress() = default;
+  // compress should be called repeatedly with the same input till the method
+  // returns 0
+  // Parameters:
+  // input - buffer to compress
+  // input_size - size of input buffer
+  // output - compressed buffer allocated by caller, should be at least
+  // max_output_len
+  // output_size - size of the output buffer
+  // Returns -1 for errors, the remaining size of the input buffer that needs to
+  // be compressed
+  virtual int compress(const char* input, size_t input_size, char* output,
+                       size_t* output_size) = 0;
+  // static method to create object of a class inherited from StreamingCompress
+  // based on the actual compression type.
+  static StreamingCompress* create(CompressionType compression_type,
+                                   const CompressionOptions& opts,
+                                   uint32_t compress_format_version,
+                                   size_t max_output_len);
+  virtual void reset() = 0;
+
+ protected:
+  const CompressionType compression_type_;
+  const CompressionOptions opts_;
+  const uint32_t compress_format_version_;
+  const size_t max_output_len_;
+};
+
+class StreamingUncompress {
+ public:
+  StreamingUncompress(CompressionType compression_type,
+                      uint32_t compress_format_version, size_t max_output_len)
+      : compression_type_(compression_type),
+        compress_format_version_(compress_format_version),
+        max_output_len_(max_output_len) {}
+  virtual ~StreamingUncompress() = default;
+  // uncompress should be called again with the same input if output_size is
+  // equal to max_output_len or with the next input fragment.
+  // Parameters:
+  // input - buffer to uncompress
+  // input_size - size of input buffer
+  // output - compressed buffer allocated by caller, should be at least
+  // max_output_len
+  // output_size - size of the output buffer
+  // Returns -1 for errors, remaining input to be processed otherwise.
+  virtual int uncompress(const char* input, size_t input_size, char* output,
+                         size_t* output_size) = 0;
+  static StreamingUncompress* create(CompressionType compression_type,
+                                     uint32_t compress_format_version,
+                                     size_t max_output_len);
+  virtual void reset() = 0;
+
+ protected:
+  CompressionType compression_type_;
+  uint32_t compress_format_version_;
+  size_t max_output_len_;
+};
+
+class ZSTDStreamingCompress final : public StreamingCompress {
+ public:
+  explicit ZSTDStreamingCompress(const CompressionOptions& opts,
+                                 uint32_t compress_format_version,
+                                 size_t max_output_len)
+      : StreamingCompress(kZSTD, opts, compress_format_version,
+                          max_output_len) {
+#ifdef ZSTD_STREAMING
+    cctx_ = ZSTD_createCCtx();
+    assert(cctx_ != nullptr);
+    input_buffer_ = {nullptr, 0, 0};
+#endif
+  }
+  ~ZSTDStreamingCompress() override { ZSTD_freeCCtx(cctx_); }
+  int compress(const char* input, size_t input_size, char* output,
+               size_t* output_size) override;
+  void reset() override;
+#ifdef ZSTD_STREAMING
+  ZSTD_CCtx* cctx_;
+  ZSTD_inBuffer input_buffer_;
+#endif
+};
+
+class ZSTDStreamingUncompress final : public StreamingUncompress {
+ public:
+  explicit ZSTDStreamingUncompress(uint32_t compress_format_version,
+                                   size_t max_output_len)
+      : StreamingUncompress(kZSTD, compress_format_version, max_output_len) {
+#ifdef ZSTD_STREAMING
+    dctx_ = ZSTD_createDCtx();
+    assert(dctx_ != nullptr);
+#endif
+  }
+  ~ZSTDStreamingUncompress() override { ZSTD_freeDCtx(dctx_); }
+  int uncompress(const char* input, size_t input_size, char* output,
+                 size_t* output_size) override;
+  void reset() override;
+
+ private:
+#ifdef ZSTD_STREAMING
+  ZSTD_DCtx* dctx_;
+  ZSTD_inBuffer input_buffer_;
+#endif
 };
 
 }  // namespace ROCKSDB_NAMESPACE
