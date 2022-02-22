@@ -44,14 +44,15 @@ StreamingUncompress* StreamingUncompress::create(
   }
 }
 
-int ZSTDStreamingCompress::compress(const char* input /*unused*/,
-                                    size_t input_size /*unused*/,
-                                    char* output /*unused*/,
-                                    size_t* output_size) {
+int ZSTDStreamingCompress::compress(const char* input, size_t input_size,
+                                    char* output, size_t* output_size) {
   assert(input != nullptr && output != nullptr && input_size > 0 &&
          output_size != nullptr);
   *output_size = 0;
 #ifndef ZSTD_STREAMING
+  (void)input;
+  (void)input_size;
+  (void)output;
   return -1;
 #else
   if (input_buffer_.src == nullptr || input_buffer_.src != input) {
@@ -83,10 +84,8 @@ void ZSTDStreamingCompress::reset() {
 #endif
 }
 
-int ZSTDStreamingUncompress::uncompress(const char* input /*unused*/,
-                                        size_t input_size /*unused*/,
-                                        char* output /*unused*/,
-                                        size_t* output_size) {
+int ZSTDStreamingUncompress::uncompress(const char* input, size_t input_size,
+                                        char* output, size_t* output_size) {
   assert(input != nullptr && output != nullptr && input_size > 0 &&
          output_size != nullptr);
   *output_size = 0;
@@ -104,6 +103,9 @@ int ZSTDStreamingUncompress::uncompress(const char* input /*unused*/,
   *output_size = output_buffer.pos;
   return (int)(input_buffer_.size - input_buffer_.pos);
 #else
+  (void)input;
+  (void)input_size;
+  (void)output;
   return -1;
 #endif
 }
