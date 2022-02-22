@@ -925,6 +925,10 @@ class StreamingCompressionTest
 TEST_P(StreamingCompressionTest, Basic) {
   size_t input_size = std::get<0>(GetParam());
   CompressionType compression_type = std::get<1>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
   CompressionOptions opts;
   constexpr uint32_t compression_format_version = 2;
   StreamingCompress* compress = StreamingCompress::create(
