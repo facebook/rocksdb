@@ -5,11 +5,14 @@
 //
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ ROCKSDB_NAMESPACE::WriteBatch methods testing from Java side.
+//
+// There is some "opportunistically" cut'n'paste code here,
+// (TestPutOperator)
+//
 #include "rocksdb/write_batch.h"
 
 #include <memory>
 
-#include "db/db_test_util.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "include/org_rocksdb_WriteBatch.h"
@@ -22,10 +25,35 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
 #include "rocksdb/write_buffer_manager.h"
+#include "rocksdb/merge_operator.h"
 #include "rocksjni/portal.h"
 #include "table/scoped_arena_iterator.h"
 #include "test_util/testharness.h"
 #include "util/string_util.h"
+
+// Cut'n'paste of code from the db/db_test_util.h
+// Which is too convoluted to include with successful compilation.
+// A test merge operator mimics put but also fails if one of merge operands is
+// "corrupted".
+class TestPutOperator : public ROCKSDB_NAMESPACE::MergeOperator {
+ public:
+  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+                           MergeOperationOutput* merge_out) const override {
+    if (merge_in.existing_value != nullptr &&
+        *(merge_in.existing_value) == "corrupted") {
+      return false;
+    }
+    for (auto value : merge_in.operand_list) {
+      if (value == "corrupted") {
+        return false;
+      }
+    }
+    merge_out->existing_operand = merge_in.operand_list.back();
+    return true;
+  }
+
+  virtual const char* Name() const override { return "TestPutOperator"; }
+};
 
 /*
  * Class:     org_rocksdb_WriteBatchTest
@@ -48,7 +76,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   ROCKSDB_NAMESPACE::Options options;
   ROCKSDB_NAMESPACE::WriteBufferManager wb(options.db_write_buffer_size);
   if (merge_operator_supported) {
-    options.merge_operator.reset(new ROCKSDB_NAMESPACE::TestPutOperator());
+    options.merge_operator.reset(new TestPutOperator());
   }
   options.memtable_factory = factory;
   ROCKSDB_NAMESPACE::MemTable* mem = new ROCKSDB_NAMESPACE::MemTable(
