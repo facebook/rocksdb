@@ -9,12 +9,12 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class DBRateLimiterTest
+class DBRateLimiterOnReadTest
     : public DBTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool, bool>> {
  public:
-  DBRateLimiterTest()
-      : DBTestBase("db_rate_limiter_test", /*env_do_fsync=*/false),
+  DBRateLimiterOnReadTest()
+      : DBTestBase("db_rate_limiter_on_read_test", /*env_do_fsync=*/false),
         use_direct_io_(std::get<0>(GetParam())),
         use_block_cache_(std::get<1>(GetParam())),
         use_readahead_(std::get<2>(GetParam())) {}
@@ -89,20 +89,20 @@ std::string GetTestNameSuffix(
 }
 
 #ifndef ROCKSDB_LITE
-INSTANTIATE_TEST_CASE_P(DBRateLimiterTest, DBRateLimiterTest,
+INSTANTIATE_TEST_CASE_P(DBRateLimiterOnReadTest, DBRateLimiterOnReadTest,
                         ::testing::Combine(::testing::Bool(), ::testing::Bool(),
                                            ::testing::Bool()),
                         GetTestNameSuffix);
 #else   // ROCKSDB_LITE
 // Cannot use direct I/O in lite mode.
-INSTANTIATE_TEST_CASE_P(DBRateLimiterTest, DBRateLimiterTest,
+INSTANTIATE_TEST_CASE_P(DBRateLimiterOnReadTest, DBRateLimiterOnReadTest,
                         ::testing::Combine(::testing::Values(false),
                                            ::testing::Bool(),
                                            ::testing::Bool()),
                         GetTestNameSuffix);
 #endif  // ROCKSDB_LITE
 
-TEST_P(DBRateLimiterTest, Get) {
+TEST_P(DBRateLimiterOnReadTest, Get) {
   if (use_direct_io_ && !IsDirectIOSupported()) {
     return;
   }
@@ -130,7 +130,7 @@ TEST_P(DBRateLimiterTest, Get) {
   }
 }
 
-TEST_P(DBRateLimiterTest, NewMultiGet) {
+TEST_P(DBRateLimiterOnReadTest, NewMultiGet) {
   // The new void-returning `MultiGet()` APIs use `MultiRead()`, which does not
   // yet support rate limiting.
   if (use_direct_io_ && !IsDirectIOSupported()) {
@@ -161,7 +161,7 @@ TEST_P(DBRateLimiterTest, NewMultiGet) {
   ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 
-TEST_P(DBRateLimiterTest, OldMultiGet) {
+TEST_P(DBRateLimiterOnReadTest, OldMultiGet) {
   // The old `vector<Status>`-returning `MultiGet()` APIs use `Read()`, which
   // supports rate limiting.
   if (use_direct_io_ && !IsDirectIOSupported()) {
@@ -193,7 +193,7 @@ TEST_P(DBRateLimiterTest, OldMultiGet) {
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 
-TEST_P(DBRateLimiterTest, Iterator) {
+TEST_P(DBRateLimiterOnReadTest, Iterator) {
   if (use_direct_io_ && !IsDirectIOSupported()) {
     return;
   }
@@ -223,7 +223,7 @@ TEST_P(DBRateLimiterTest, Iterator) {
 
 #if !defined(ROCKSDB_LITE)
 
-TEST_P(DBRateLimiterTest, VerifyChecksum) {
+TEST_P(DBRateLimiterOnReadTest, VerifyChecksum) {
   if (use_direct_io_ && !IsDirectIOSupported()) {
     return;
   }
@@ -237,7 +237,7 @@ TEST_P(DBRateLimiterTest, VerifyChecksum) {
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 
-TEST_P(DBRateLimiterTest, VerifyFileChecksums) {
+TEST_P(DBRateLimiterOnReadTest, VerifyFileChecksums) {
   if (use_direct_io_ && !IsDirectIOSupported()) {
     return;
   }
