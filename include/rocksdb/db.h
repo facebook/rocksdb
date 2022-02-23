@@ -274,7 +274,8 @@ class DB {
       const std::string& input, std::string* output,
       const CompactionServiceOptionsOverride& override_options);
 
-  // Open DB and trim data to specified timestamp.
+  // Experimental and subject to change
+  // Open DB and trim data newer than specified timestamp.
   // The trim_ts specified the user-defined timestamp trim bound.
   // This API should only be used at timestamp enabled column families recovery.
   // If some input column families do not support timestamp, nothing will
@@ -284,7 +285,7 @@ class DB {
       const DBOptions& db_options, const std::string& dbname,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-      const std::string trim_ts);
+      std::string trim_ts);
 
   virtual Status Resume() { return Status::NotSupported(); }
 

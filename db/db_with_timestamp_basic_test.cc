@@ -712,20 +712,24 @@ TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
   DestroyAndReopen(options);
+  auto check_value_by_ts = [](DB* db, Slice key, std::string readTs,
+                              Status status, std::string checkValue) {
+    ReadOptions ropts;
+    Slice ts = readTs;
+    ropts.timestamp = &ts;
+    std::string value;
+    Status s = db->Get(ropts, key, &value);
+    ASSERT_TRUE(s == status);
+    if (s.ok()) {
+      ASSERT_EQ(checkValue, value);
+    }
+  };
   // Construct data of different versions with different ts
-  WriteOptions wopts;
-  std::string ts_str = Timestamp(2, 0);
-  Slice ts = ts_str;
-  ASSERT_OK(db_->Put(wopts, "k1", ts, "v1"));
-  ts_str = Timestamp(4, 0);
-  ts = ts_str;
-  ASSERT_OK(db_->Put(wopts, "k1", ts, "v2"));
-  ts_str = Timestamp(5, 0);
-  ts = ts_str;
-  ASSERT_OK(db_->Delete(wopts, "k1", ts));
-  ts_str = Timestamp(6, 0);
-  ts = ts_str;
-  ASSERT_OK(db_->Put(wopts, "k1", ts, "v3"));
+  ASSERT_OK(db_->Put(WriteOptions(), "k1", Timestamp(2, 0), "v1"));
+  ASSERT_OK(db_->Put(WriteOptions(), "k1", Timestamp(4, 0), "v2"));
+  ASSERT_OK(db_->Delete(WriteOptions(), "k1", Timestamp(5, 0)));
+  ASSERT_OK(db_->Put(WriteOptions(), "k1", Timestamp(6, 0), "v3"));
+  check_value_by_ts(db_, "k1", Timestamp(7, 0), Status::OK(), "v3");
   ASSERT_OK(Flush());
   Close();
 
@@ -734,28 +738,41 @@ TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
   column_families.push_back(
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
   DBOptions db_options(options);
-  // Trim data whose version is newer than Timestamp(3, 0), which means
-  // only (k1, v1) should survive after call DB::OpenAndTrimHistory.
-  ts_str = Timestamp(3, 0);
-  ASSERT_OK(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
-                                   &handles_, &db_, ts_str));
-  ReadOptions ropts;
-  ts_str = Timestamp(2, 0);
-  ts = ts_str;
-  ropts.timestamp = &ts;
-  std::string value;
-  Status s = db_->Get(ropts, "k1", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ("v1", value);
 
-  ts_str = Timestamp(7, 0);
-  ts = ts_str;
-  ropts.timestamp = &ts;
-  s = db_->Get(ropts, "k1", &value);
-  ASSERT_OK(s);
-  // read with ts=7 should only see (k1, v1)
-  ASSERT_EQ("v1", value);
+  // Trim data whose version > Timestamp(5, 0), read(k1, ts(7)) <- NOT_FOUND.
+  ASSERT_OK(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
+                                   &handles_, &db_, Timestamp(5, 0)));
+  check_value_by_ts(db_, "k1", Timestamp(7, 0), Status::NotFound(), "");
   Close();
+
+  // Trim data whose timestamp > Timestamp(4, 0), read(k1, ts(7)) <- v2
+  ASSERT_OK(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
+                                   &handles_, &db_, Timestamp(4, 0)));
+  check_value_by_ts(db_, "k1", Timestamp(7, 0), Status::OK(), "v2");
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, OpenAndTrimHistoryInvalidOptionTest) {
+  Destroy(last_options_);
+
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+
+  ColumnFamilyOptions cf_options(options);
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  DBOptions db_options(options);
+
+  // OpenAndTrimHistory should not work with avoid_flush_during_recovery
+  db_options.avoid_flush_during_recovery = true;
+  ASSERT_TRUE(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
+                                     &handles_, &db_, Timestamp(0, 0))
+                  .IsInvalidArgument());
 }
 
 #ifndef ROCKSDB_LITE

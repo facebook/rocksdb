@@ -1,7 +1,9 @@
-// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -25,7 +27,7 @@ class HistoryTrimmingIterator : public InternalIterator {
       return true;
     }
     Slice current_ts = ExtractTimestampFromKey(key(), cmp_->timestamp_size());
-    return cmp_->CompareTimestamp(current_ts, Slice(filter_ts_)) < 0;
+    return cmp_->CompareTimestamp(current_ts, Slice(filter_ts_)) <= 0;
   }
 
   bool Valid() const override { return input_->Valid(); }
