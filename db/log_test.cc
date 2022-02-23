@@ -935,44 +935,35 @@ TEST_P(StreamingCompressionTest, Basic) {
       compression_type, opts, compression_format_version, kBlockSize);
   StreamingUncompress* uncompress = StreamingUncompress::create(
       compression_type, compression_format_version, kBlockSize);
-  ASSERT_NE(compress, nullptr);
   MemoryAllocator* allocator = new DefaultMemoryAllocator();
-  ASSERT_NE(allocator, nullptr);
   std::string input_buffer = BigString("abc", input_size);
   std::vector<std::string> compressed_buffers;
   size_t remaining;
-  int i = 0;
   // Call compress till the entire input is consumed
   do {
     char* output_buffer = (char*)allocator->Allocate(kBlockSize);
     size_t output_size;
-    ASSERT_NE(allocator, nullptr);
     remaining = compress->compress(input_buffer.c_str(), input_size,
                                    output_buffer, &output_size);
-    ASSERT_TRUE(output_size > 0) << " i: " << i << " remaining: " << remaining
-                                 << " output_size: " << output_size;
     if (output_size > 0) {
       std::string compressed_buffer;
       compressed_buffer.assign(output_buffer, output_size);
       compressed_buffers.emplace_back(std::move(compressed_buffer));
     }
     allocator->Deallocate((void*)output_buffer);
-    i++;
   } while (remaining > 0);
   std::string uncompressed_buffer = "";
   int ret_val;
   size_t output_size;
   char* uncompressed_output_buffer = (char*)allocator->Allocate(kBlockSize);
   // Uncompress the fragments and concatenate them.
-  for (int j = 0; j < (int)compressed_buffers.size(); j++) {
+  for (int i = 0; i < (int)compressed_buffers.size(); i++) {
     // Call uncompress till either the entire input is consumed or the output
     // buffer size is equal to the allocated output buffer size.
     do {
       ret_val = uncompress->uncompress(
-          compressed_buffers[0].c_str(), compressed_buffers[0].size(),
+          compressed_buffers[i].c_str(), compressed_buffers[i].size(),
           uncompressed_output_buffer, &output_size);
-      ASSERT_TRUE(ret_val >= 0)
-          << "ret_val: " << ret_val << " output_size: " << output_size;
       if (output_size > 0) {
         std::string uncompressed_fragment;
         uncompressed_fragment.assign(uncompressed_output_buffer, output_size);
@@ -981,6 +972,10 @@ TEST_P(StreamingCompressionTest, Basic) {
     } while (ret_val > 0 || output_size == kBlockSize);
   }
   allocator->Deallocate((void*)uncompressed_output_buffer);
+  delete allocator;
+  delete compress;
+  delete uncompress;
+  // The final return value from uncompress() should be 0.
   ASSERT_EQ(ret_val, 0);
   ASSERT_EQ(input_buffer, uncompressed_buffer);
 }

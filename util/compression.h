@@ -1696,6 +1696,7 @@ class ZSTDStreamingUncompress final : public StreamingUncompress {
 #ifdef ZSTD_STREAMING
     dctx_ = ZSTD_createDCtx();
     assert(dctx_ != nullptr);
+    input_buffer_ = {nullptr, 0, 0};
 #endif
   }
   ~ZSTDStreamingUncompress() override {
