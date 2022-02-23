@@ -206,6 +206,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/ReusedSynchronisationType.java
   src/main/java/org/rocksdb/RocksCallbackObject.java
   src/main/java/org/rocksdb/RocksDBException.java
+  src/main/java/org/rocksdb/RocksDBRuntimeException.java
   src/main/java/org/rocksdb/RocksDB.java
   src/main/java/org/rocksdb/RocksEnv.java
   src/main/java/org/rocksdb/RocksIteratorInterface.java
