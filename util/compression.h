@@ -1594,6 +1594,12 @@ class CompressionTypeRecord {
   CompressionType compression_type_;
 };
 
+// Base class to implement compression for a stream of buffers.
+// Instantiate an implementation of the class using Create() with the
+// compression type and use Compress() repeatedly.
+// The output buffer needs to be at least max_output_len.
+// Call Reset() in between frame boundaries or in case of an error.
+// NOTE: This class is not thread safe.
 class StreamingCompress {
  public:
   StreamingCompress(CompressionType compression_type,
@@ -1614,15 +1620,15 @@ class StreamingCompress {
   // output_size - size of the output buffer
   // Returns -1 for errors, the remaining size of the input buffer that needs to
   // be compressed
-  virtual int compress(const char* input, size_t input_size, char* output,
+  virtual int Compress(const char* input, size_t input_size, char* output,
                        size_t* output_size) = 0;
   // static method to create object of a class inherited from StreamingCompress
   // based on the actual compression type.
-  static StreamingCompress* create(CompressionType compression_type,
+  static StreamingCompress* Create(CompressionType compression_type,
                                    const CompressionOptions& opts,
                                    uint32_t compress_format_version,
                                    size_t max_output_len);
-  virtual void reset() = 0;
+  virtual void Reset() = 0;
 
  protected:
   const CompressionType compression_type_;
@@ -1631,6 +1637,12 @@ class StreamingCompress {
   const size_t max_output_len_;
 };
 
+// Base class to uncompress a stream of compressed buffers.
+// Instantiate an implementation of the class using Create() with the
+// compression type and use Uncompress() repeatedly.
+// The output buffer needs to be at least max_output_len.
+// Call Reset() in between frame boundaries or in case of an error.
+// NOTE: This class is not thread safe.
 class StreamingUncompress {
  public:
   StreamingUncompress(CompressionType compression_type,
@@ -1644,16 +1656,16 @@ class StreamingUncompress {
   // Parameters:
   // input - buffer to uncompress
   // input_size - size of input buffer
-  // output - compressed buffer allocated by caller, should be at least
+  // output - uncompressed buffer allocated by caller, should be at least
   // max_output_len
   // output_size - size of the output buffer
   // Returns -1 for errors, remaining input to be processed otherwise.
-  virtual int uncompress(const char* input, size_t input_size, char* output,
+  virtual int Uncompress(const char* input, size_t input_size, char* output,
                          size_t* output_size) = 0;
-  static StreamingUncompress* create(CompressionType compression_type,
+  static StreamingUncompress* Create(CompressionType compression_type,
                                      uint32_t compress_format_version,
                                      size_t max_output_len);
-  virtual void reset() = 0;
+  virtual void Reset() = 0;
 
  protected:
   CompressionType compression_type_;
@@ -1671,7 +1683,7 @@ class ZSTDStreamingCompress final : public StreamingCompress {
 #ifdef ZSTD_STREAMING
     cctx_ = ZSTD_createCCtx();
     assert(cctx_ != nullptr);
-    input_buffer_ = {nullptr, 0, 0};
+    input_buffer_ = {/*src=*/nullptr, /*size=*/0, /*pos=*/0};
 #endif
   }
   ~ZSTDStreamingCompress() override {
@@ -1679,9 +1691,9 @@ class ZSTDStreamingCompress final : public StreamingCompress {
     ZSTD_freeCCtx(cctx_);
 #endif
   }
-  int compress(const char* input, size_t input_size, char* output,
+  int Compress(const char* input, size_t input_size, char* output,
                size_t* output_size) override;
-  void reset() override;
+  void Reset() override;
 #ifdef ZSTD_STREAMING
   ZSTD_CCtx* cctx_;
   ZSTD_inBuffer input_buffer_;
@@ -1696,7 +1708,7 @@ class ZSTDStreamingUncompress final : public StreamingUncompress {
 #ifdef ZSTD_STREAMING
     dctx_ = ZSTD_createDCtx();
     assert(dctx_ != nullptr);
-    input_buffer_ = {nullptr, 0, 0};
+    input_buffer_ = {/*src=*/nullptr, /*size=*/0, /*pos=*/0};
 #endif
   }
   ~ZSTDStreamingUncompress() override {
@@ -1704,9 +1716,9 @@ class ZSTDStreamingUncompress final : public StreamingUncompress {
     ZSTD_freeDCtx(dctx_);
 #endif
   }
-  int uncompress(const char* input, size_t input_size, char* output,
+  int Uncompress(const char* input, size_t input_size, char* output,
                  size_t* output_size) override;
-  void reset() override;
+  void Reset() override;
 
  private:
 #ifdef ZSTD_STREAMING

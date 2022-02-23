@@ -1,17 +1,13 @@
-// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2022-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-//
-// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
-//
+
 #include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-StreamingCompress* StreamingCompress::create(CompressionType compression_type,
+StreamingCompress* StreamingCompress::Create(CompressionType compression_type,
                                              const CompressionOptions& opts,
                                              uint32_t compress_format_version,
                                              size_t max_output_len) {
@@ -28,7 +24,7 @@ StreamingCompress* StreamingCompress::create(CompressionType compression_type,
   }
 }
 
-StreamingUncompress* StreamingUncompress::create(
+StreamingUncompress* StreamingUncompress::Create(
     CompressionType compression_type, uint32_t compress_format_version,
     size_t max_output_len) {
   switch (compression_type) {
@@ -44,7 +40,7 @@ StreamingUncompress* StreamingUncompress::create(
   }
 }
 
-int ZSTDStreamingCompress::compress(const char* input, size_t input_size,
+int ZSTDStreamingCompress::Compress(const char* input, size_t input_size,
                                     char* output, size_t* output_size) {
   assert(input != nullptr && output != nullptr && input_size > 0 &&
          output_size != nullptr);
@@ -59,16 +55,16 @@ int ZSTDStreamingCompress::compress(const char* input, size_t input_size,
     // New input
     // Catch errors where the previous input was not fully decompressed.
     assert(input_buffer_.pos == input_buffer_.size);
-    input_buffer_ = {input, input_size, 0};
+    input_buffer_ = {input, input_size, /*pos=*/0};
   } else if (input_buffer_.src == input) {
     // Same input, not fully compressed.
   }
-  ZSTD_outBuffer output_buffer = {output, max_output_len_, 0};
+  ZSTD_outBuffer output_buffer = {output, max_output_len_, /*pos=*/0};
   const size_t remaining =
       ZSTD_compressStream2(cctx_, &output_buffer, &input_buffer_, ZSTD_e_flush);
   if (ZSTD_isError(remaining)) {
     // Failure
-    reset();
+    Reset();
     return -1;
   }
   // Success
@@ -77,14 +73,14 @@ int ZSTDStreamingCompress::compress(const char* input, size_t input_size,
 #endif
 }
 
-void ZSTDStreamingCompress::reset() {
+void ZSTDStreamingCompress::Reset() {
 #ifdef ZSTD_STREAMING
   ZSTD_CCtx_reset(cctx_, ZSTD_ResetDirective::ZSTD_reset_session_only);
-  input_buffer_ = {nullptr, 0, 0};
+  input_buffer_ = {/*src=*/nullptr, /*size=*/0, /*pos=*/0};
 #endif
 }
 
-int ZSTDStreamingUncompress::uncompress(const char* input, size_t input_size,
+int ZSTDStreamingUncompress::Uncompress(const char* input, size_t input_size,
                                         char* output, size_t* output_size) {
   assert(input != nullptr && output != nullptr && input_size > 0 &&
          output_size != nullptr);
@@ -92,12 +88,12 @@ int ZSTDStreamingUncompress::uncompress(const char* input, size_t input_size,
 #ifdef ZSTD_STREAMING
   if (input_buffer_.src != input) {
     // New input
-    input_buffer_ = {input, input_size, 0};
+    input_buffer_ = {input, input_size, /*pos=*/0};
   }
-  ZSTD_outBuffer output_buffer = {output, max_output_len_, 0};
+  ZSTD_outBuffer output_buffer = {output, max_output_len_, /*pos=*/0};
   size_t ret = ZSTD_decompressStream(dctx_, &output_buffer, &input_buffer_);
   if (ZSTD_isError(ret)) {
-    reset();
+    Reset();
     return -1;
   }
   *output_size = output_buffer.pos;
@@ -110,10 +106,10 @@ int ZSTDStreamingUncompress::uncompress(const char* input, size_t input_size,
 #endif
 }
 
-void ZSTDStreamingUncompress::reset() {
+void ZSTDStreamingUncompress::Reset() {
 #ifdef ZSTD_STREAMING
   ZSTD_DCtx_reset(dctx_, ZSTD_ResetDirective::ZSTD_reset_session_only);
-  input_buffer_ = {nullptr, 0, 0};
+  input_buffer_ = {/*src=*/nullptr, /*size=*/0, /*pos=*/0};
 #endif
 }
 

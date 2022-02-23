@@ -931,9 +931,9 @@ TEST_P(StreamingCompressionTest, Basic) {
   }
   CompressionOptions opts;
   constexpr uint32_t compression_format_version = 2;
-  StreamingCompress* compress = StreamingCompress::create(
+  StreamingCompress* compress = StreamingCompress::Create(
       compression_type, opts, compression_format_version, kBlockSize);
-  StreamingUncompress* uncompress = StreamingUncompress::create(
+  StreamingUncompress* uncompress = StreamingUncompress::Create(
       compression_type, compression_format_version, kBlockSize);
   MemoryAllocator* allocator = new DefaultMemoryAllocator();
   std::string input_buffer = BigString("abc", input_size);
@@ -943,7 +943,7 @@ TEST_P(StreamingCompressionTest, Basic) {
   do {
     char* output_buffer = (char*)allocator->Allocate(kBlockSize);
     size_t output_size;
-    remaining = compress->compress(input_buffer.c_str(), input_size,
+    remaining = compress->Compress(input_buffer.c_str(), input_size,
                                    output_buffer, &output_size);
     if (output_size > 0) {
       std::string compressed_buffer;
@@ -961,7 +961,7 @@ TEST_P(StreamingCompressionTest, Basic) {
     // Call uncompress till either the entire input is consumed or the output
     // buffer size is equal to the allocated output buffer size.
     do {
-      ret_val = uncompress->uncompress(
+      ret_val = uncompress->Uncompress(
           compressed_buffers[i].c_str(), compressed_buffers[i].size(),
           uncompressed_output_buffer, &output_size);
       if (output_size > 0) {
