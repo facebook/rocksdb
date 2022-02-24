@@ -583,7 +583,7 @@ bool LDBCommand::ParseCompressionTypeOption(
     LDBCommandExecuteResult& exec_state) {
   auto itr = option_map_.find(option);
   if (itr != option_map_.end()) {
-    std::string comp = itr->second;
+    const std::string& comp = itr->second;
     if (comp == "no") {
       value = kNoCompression;
       return true;
