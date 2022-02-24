@@ -340,6 +340,19 @@ class LDBTestCase(unittest.TestCase):
         self.assertFalse(self.dumpDb(
             "--db=%s --create_if_missing" % origDbPath, dumpFilePath))
 
+        # Dump and load with BlobDB enabled
+        blobParams = " ".join(["--enable_blob_files", "--min_blob_size=1024",
+                                "--blob_file_size=2097152"])
+        dumpFilePath = os.path.join(self.TMP_DIR, "dump9")
+        loadedDbPath = os.path.join(self.TMP_DIR, "loaded_from_dump9")
+        self.assertTrue(self.dumpDb(
+            "--db=%s %s" % (origDbPath, blobParams), dumpFilePath))
+        self.assertTrue(self.loadDb(
+            "--db=%s %s --create_if_missing" % (loadedDbPath, blobParams),
+            dumpFilePath))
+        self.assertRunOKFull("scan --db=%s" % loadedDbPath,
+                "x1 : y1\nx2 : y2\nx3 : y3\nx4 : y4")
+
     def testIDumpBasics(self):
         print("Running testIDumpBasics...")
         self.assertRunOK("put a val --create_if_missing", "OK")

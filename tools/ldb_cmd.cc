@@ -82,6 +82,11 @@ const std::string LDBCommand::ARG_WRITE_BUFFER_SIZE = "write_buffer_size";
 const std::string LDBCommand::ARG_FILE_SIZE = "file_size";
 const std::string LDBCommand::ARG_CREATE_IF_MISSING = "create_if_missing";
 const std::string LDBCommand::ARG_NO_VALUE = "no_value";
+const std::string LDBCommand::ARG_ENABLE_BLOB_FILES = "enable_blob_files";
+const std::string LDBCommand::ARG_MIN_BLOB_SIZE = "min_blob_size";
+const std::string LDBCommand::ARG_BLOB_FILE_SIZE = "blob_file_size";
+const std::string LDBCommand::ARG_BLOB_COMPRESSION_TYPE =
+    "blob_compression_type";
 
 const char* LDBCommand::DELIM = " ==> ";
 
@@ -383,6 +388,7 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   try_load_options_ = IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS);
   force_consistency_checks_ =
       !IsFlagPresent(flags, ARG_DISABLE_CONSISTENCY_CHECKS);
+  enable_blob_files_ = IsFlagPresent(flags, ARG_ENABLE_BLOB_FILES);
   config_options_.ignore_unknown_options =
       IsFlagPresent(flags, ARG_IGNORE_UNKNOWN_OPTIONS);
 }
@@ -508,6 +514,10 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_FIX_PREFIX_LEN,
                                   ARG_TRY_LOAD_OPTIONS,
                                   ARG_DISABLE_CONSISTENCY_CHECKS,
+                                  ARG_ENABLE_BLOB_FILES,
+                                  ARG_MIN_BLOB_SIZE,
+                                  ARG_BLOB_FILE_SIZE,
+                                  ARG_BLOB_COMPRESSION_TYPE,
                                   ARG_IGNORE_UNKNOWN_OPTIONS,
                                   ARG_CF_NAME};
   ret.insert(ret.end(), options.begin(), options.end());
@@ -614,6 +624,30 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
     cf_opts->table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
 
+  cf_opts->enable_blob_files = enable_blob_files_;
+
+  int min_blob_size;
+  if (ParseIntOption(option_map_, ARG_MIN_BLOB_SIZE, min_blob_size,
+                     exec_state_)) {
+    if (min_blob_size > 0) {
+      cf_opts->min_blob_size = min_blob_size;
+    } else {
+      exec_state_ =
+          LDBCommandExecuteResult::Failed(ARG_MIN_BLOB_SIZE + " must be > 0.");
+    }
+  }
+
+  int blob_file_size;
+  if (ParseIntOption(option_map_, ARG_BLOB_FILE_SIZE, blob_file_size,
+                     exec_state_)) {
+    if (blob_file_size > 0) {
+      cf_opts->blob_file_size = blob_file_size;
+    } else {
+      exec_state_ =
+          LDBCommandExecuteResult::Failed(ARG_BLOB_FILE_SIZE + " must be > 0.");
+    }
+  }
+
   auto itr = option_map_.find(ARG_AUTO_COMPACTION);
   if (itr != option_map_.end()) {
     cf_opts->disable_auto_compactions = !StringToBool(itr->second);
@@ -642,6 +676,32 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
       // Unknown compression.
       exec_state_ =
           LDBCommandExecuteResult::Failed("Unknown compression level: " + comp);
+    }
+  }
+
+  itr = option_map_.find(ARG_BLOB_COMPRESSION_TYPE);
+  if (itr != option_map_.end()) {
+    std::string comp = itr->second;
+    if (comp == "no") {
+      cf_opts->blob_compression_type = kNoCompression;
+    } else if (comp == "snappy") {
+      cf_opts->blob_compression_type = kSnappyCompression;
+    } else if (comp == "zlib") {
+      cf_opts->blob_compression_type = kZlibCompression;
+    } else if (comp == "bzip2") {
+      cf_opts->blob_compression_type = kBZip2Compression;
+    } else if (comp == "lz4") {
+      cf_opts->blob_compression_type = kLZ4Compression;
+    } else if (comp == "lz4hc") {
+      cf_opts->blob_compression_type = kLZ4HCCompression;
+    } else if (comp == "xpress") {
+      cf_opts->blob_compression_type = kXpressCompression;
+    } else if (comp == "zstd") {
+      cf_opts->blob_compression_type = kZSTD;
+    } else {
+      // Unknown compression.
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Unknown blob compression level: " + comp);
     }
   }
 
