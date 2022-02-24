@@ -414,18 +414,22 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     // during previous error handling.
     if (file_deletion_disabled) {
       // Always return ok
-      Status enable_file_deletion_s = EnableFileDeletions(/*force=*/true);
-      if (!enable_file_deletion_s.ok()) {
+      s = EnableFileDeletions(/*force=*/true);
+      assert(s.ok());
+      if (!s.ok()) {
         ROCKS_LOG_INFO(
             immutable_db_options_.info_log,
             "DB resume requested but could not enable file deletions [%s]",
-            enable_file_deletion_s.ToString().c_str());
+            s.ToString().c_str());
       }
     }
   }
 
   mutex_.Lock();
   if (s.ok()) {
+    // This will notify and unblock threads waiting for error recovery to
+    // finish. Those previouly waiting threads can now proceed, which may
+    // include closing the db.
     s = error_handler_.ClearBGError();
   } else {
     // NOTE: this is needed to pass ASSERT_STATUS_CHECKED
@@ -433,13 +437,14 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     // See https://github.com/facebook/rocksdb/pull/7715#issuecomment-754947952
     error_handler_.GetRecoveryError().PermitUncheckedError();
   }
-  mutex_.Unlock();
 
   if (s.ok()) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
+  } else {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Failed to resume DB [%s]",
+                   s.ToString().c_str());
   }
 
-  mutex_.Lock();
   // Check for shutdown again before scheduling further compactions,
   // since we released and re-acquired the lock above
   if (shutdown_initiated_) {
