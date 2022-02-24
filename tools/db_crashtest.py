@@ -378,7 +378,9 @@ multiops_wc_txn_params = {
 multiops_wp_txn_params = {
     "txn_write_policy": 1,
     "wp_snapshot_cache_bits": 1,
-    "wp_commit_cache_bits": lambda: random.choice([0, 10]),
+    # try small wp_commit_cache_bits, e.g. 0 once we explore storing full
+    # commit sequence numbers in commit cache
+    "wp_commit_cache_bits": 10,
     # pipeline write is not currnetly compatible with WritePrepared txns
     "enable_pipelined_write": 0,
     # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
