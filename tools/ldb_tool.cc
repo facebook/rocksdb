@@ -69,7 +69,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
              "=<int,e.g.:4194304>\n");
   ret.append("  --" + LDBCommand::ARG_FILE_SIZE + "=<int,e.g.:2097152>\n");
   ret.append("  --" + LDBCommand::ARG_ENABLE_BLOB_FILES +
-             " : Set it to true to enable key-value separation\n");
+             " : Enable key-value separation using BlobDB\n");
   ret.append("  --" + LDBCommand::ARG_MIN_BLOB_SIZE + "=<int,e.g.:2097152>\n");
   ret.append("  --" + LDBCommand::ARG_BLOB_FILE_SIZE + "=<int,e.g.:2097152>\n");
   ret.append("  --" + LDBCommand::ARG_BLOB_COMPRESSION_TYPE +
