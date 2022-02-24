@@ -540,9 +540,11 @@ Status DBImpl::CloseHelper() {
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
   CancelAllBackgroundWork(false);
   mutex_.Lock();
-  env_->UnSchedule(this, Env::Priority::BOTTOM);
-  env_->UnSchedule(this, Env::Priority::LOW);
-  env_->UnSchedule(this, Env::Priority::HIGH);
+  for (uint8_t i = 0; i < static_cast<uint8_t>(TaskType::kCount); i++) {
+    env_->UnSchedule(GetTaskTag(i), Env::Priority::BOTTOM);
+    env_->UnSchedule(GetTaskTag(i), Env::Priority::LOW);
+    env_->UnSchedule(GetTaskTag(i), Env::Priority::HIGH);
+  }
   Status ret = Status::OK();
 
   // Wait for background work to finish

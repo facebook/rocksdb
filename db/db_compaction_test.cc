@@ -6951,7 +6951,7 @@ TEST_F(DBCompactionTest, DisableManualCompactionThreadQueueFullDBClose) {
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::RunManualCompaction:Scheduled",
-        "DBCompactionTest::DisableManualCompactionThreadQueueFull:"
+        "DBCompactionTest::DisableManualCompactionThreadQueueFullDBClose:"
         "PreDisableManualCompaction"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -6979,7 +6979,7 @@ TEST_F(DBCompactionTest, DisableManualCompactionThreadQueueFullDBClose) {
   });
 
   TEST_SYNC_POINT(
-      "DBCompactionTest::DisableManualCompactionThreadQueueFull:"
+      "DBCompactionTest::DisableManualCompactionThreadQueueFullDBClose:"
       "PreDisableManualCompaction");
 
   // Generate more files to trigger auto compaction which is scheduled after
