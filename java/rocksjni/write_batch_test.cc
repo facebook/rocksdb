@@ -31,8 +31,11 @@
 #include "test_util/testharness.h"
 #include "util/string_util.h"
 
-// Cut'n'paste of code from the db/db_test_util.h
-// Which is too convoluted to include with successful compilation.
+// Copy of TestPutOperator class (thankfully small) from the db/db_test_util.h
+// A pragmatic choice because pulling in the header brought in
+// lots more code that had compilation issues (unused paths) in the
+// usage we made of it.
+//
 // A test merge operator mimics put but also fails if one of merge operands is
 // "corrupted".
 class TestPutOperator : public ROCKSDB_NAMESPACE::MergeOperator {
