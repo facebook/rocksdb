@@ -225,6 +225,10 @@ DEFINE_int32(
     "Number of keys between restart points "
     "for delta encoding of keys in index block.");
 
+DEFINE_bool(disable_auto_compactions,
+            ROCKSDB_NAMESPACE::Options().disable_auto_compactions,
+            "If true, RocksDB internally will not trigger compactions.");
+
 DEFINE_int32(max_background_compactions,
              ROCKSDB_NAMESPACE::Options().max_background_compactions,
              "The maximum number of concurrent background compactions "

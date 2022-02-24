@@ -2341,6 +2341,7 @@ void StressTest::Open() {
     options_.memtable_prefix_bloom_size_ratio =
         FLAGS_memtable_prefix_bloom_size_ratio;
     options_.memtable_whole_key_filtering = FLAGS_memtable_whole_key_filtering;
+    options_.disable_auto_compactions = FLAGS_disable_auto_compactions;
     options_.max_background_compactions = FLAGS_max_background_compactions;
     options_.max_background_flushes = FLAGS_max_background_flushes;
     options_.compaction_style =
