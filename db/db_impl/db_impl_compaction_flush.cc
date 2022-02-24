@@ -1886,7 +1886,8 @@ Status DBImpl::RunManualCompaction(
         manual.status =
             Status::Incomplete(Status::SubCode::kManualCompactionPaused);
         assert(thread_pool_priority != Env::Priority::TOTAL);
-        env_->UnSchedule(GetTaskTag(TaskType::kManualCompaction), thread_pool_priority);
+        env_->UnSchedule(GetTaskTag(TaskType::kManualCompaction),
+                         thread_pool_priority);
         break;
       }
       if (scheduled && manual.incomplete == true) {
@@ -1915,14 +1916,16 @@ Status DBImpl::RunManualCompaction(
           env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
         bg_bottom_compaction_scheduled_++;
         ca->compaction_pri_ = Env::Priority::BOTTOM;
-        env_->Schedule(
-            &DBImpl::BGWorkBottomCompaction, ca, Env::Priority::BOTTOM, GetTaskTag(TaskType::kManualCompaction),
-            &DBImpl::UnscheduleCompactionCallback);
+        env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca,
+                       Env::Priority::BOTTOM,
+                       GetTaskTag(TaskType::kManualCompaction),
+                       &DBImpl::UnscheduleCompactionCallback);
         thread_pool_priority = Env::Priority::BOTTOM;
       } else {
         bg_compaction_scheduled_++;
         ca->compaction_pri_ = Env::Priority::LOW;
-        env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, GetTaskTag(TaskType::kManualCompaction),
+        env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW,
+                       GetTaskTag(TaskType::kManualCompaction),
                        &DBImpl::UnscheduleCompactionCallback);
         thread_pool_priority = Env::Priority::LOW;
       }
