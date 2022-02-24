@@ -214,6 +214,7 @@ LIB_SOURCES =                                                   \
   util/coding.cc                                                \
   util/compaction_job_stats_impl.cc                             \
   util/comparator.cc                                            \
+  util/compression.cc                                           \
   util/compression_context_cache.cc                             \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
