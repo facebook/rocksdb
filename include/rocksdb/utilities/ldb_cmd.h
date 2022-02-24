@@ -242,6 +242,11 @@ class LDBCommand {
   bool ParseStringOption(const std::map<std::string, std::string>& options,
                          const std::string& option, std::string* value);
 
+  bool ParseCompressionTypeOption(
+      const std::map<std::string, std::string>& options,
+      const std::string& option, CompressionType& value,
+      LDBCommandExecuteResult& exec_state);
+
   /**
    * Returns the value of the specified option as a boolean.
    * default_val is used if the option is not found in options.

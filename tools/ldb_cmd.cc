@@ -572,6 +572,51 @@ bool LDBCommand::ParseStringOption(
   return false;
 }
 
+/**
+ * Parses the specified compression type and fills in the value.
+ * Returns true if the compression type is found.
+ * Returns false otherwise.
+ */
+bool LDBCommand::ParseCompressionTypeOption(
+    const std::map<std::string, std::string>& /*options*/,
+    const std::string& option, CompressionType& value,
+    LDBCommandExecuteResult& exec_state) {
+  auto itr = option_map_.find(option);
+  if (itr != option_map_.end()) {
+    std::string comp = itr->second;
+    if (comp == "no") {
+      value = kNoCompression;
+      return true;
+    } else if (comp == "snappy") {
+      value = kSnappyCompression;
+      return true;
+    } else if (comp == "zlib") {
+      value = kZlibCompression;
+      return true;
+    } else if (comp == "bzip2") {
+      value = kBZip2Compression;
+      return true;
+    } else if (comp == "lz4") {
+      value = kLZ4Compression;
+      return true;
+    } else if (comp == "lz4hc") {
+      value = kLZ4HCCompression;
+      return true;
+    } else if (comp == "xpress") {
+      value = kXpressCompression;
+      return true;
+    } else if (comp == "zstd") {
+      value = kZSTD;
+      return true;
+    } else {
+      // Unknown compression.
+      exec_state = LDBCommandExecuteResult::Failed(
+          "Unknown compression algorithm: " + comp);
+    }
+  }
+  return false;
+}
+
 void LDBCommand::OverrideBaseOptions() {
   options_.create_if_missing = false;
 
@@ -653,56 +698,16 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
     cf_opts->disable_auto_compactions = !StringToBool(itr->second);
   }
 
-  itr = option_map_.find(ARG_COMPRESSION_TYPE);
-  if (itr != option_map_.end()) {
-    std::string comp = itr->second;
-    if (comp == "no") {
-      cf_opts->compression = kNoCompression;
-    } else if (comp == "snappy") {
-      cf_opts->compression = kSnappyCompression;
-    } else if (comp == "zlib") {
-      cf_opts->compression = kZlibCompression;
-    } else if (comp == "bzip2") {
-      cf_opts->compression = kBZip2Compression;
-    } else if (comp == "lz4") {
-      cf_opts->compression = kLZ4Compression;
-    } else if (comp == "lz4hc") {
-      cf_opts->compression = kLZ4HCCompression;
-    } else if (comp == "xpress") {
-      cf_opts->compression = kXpressCompression;
-    } else if (comp == "zstd") {
-      cf_opts->compression = kZSTD;
-    } else {
-      // Unknown compression.
-      exec_state_ =
-          LDBCommandExecuteResult::Failed("Unknown compression level: " + comp);
-    }
+  CompressionType compression_type_;
+  if (ParseCompressionTypeOption(option_map_, ARG_COMPRESSION_TYPE,
+                                 compression_type_, exec_state_)) {
+    cf_opts->compression = compression_type_;
   }
 
-  itr = option_map_.find(ARG_BLOB_COMPRESSION_TYPE);
-  if (itr != option_map_.end()) {
-    std::string comp = itr->second;
-    if (comp == "no") {
-      cf_opts->blob_compression_type = kNoCompression;
-    } else if (comp == "snappy") {
-      cf_opts->blob_compression_type = kSnappyCompression;
-    } else if (comp == "zlib") {
-      cf_opts->blob_compression_type = kZlibCompression;
-    } else if (comp == "bzip2") {
-      cf_opts->blob_compression_type = kBZip2Compression;
-    } else if (comp == "lz4") {
-      cf_opts->blob_compression_type = kLZ4Compression;
-    } else if (comp == "lz4hc") {
-      cf_opts->blob_compression_type = kLZ4HCCompression;
-    } else if (comp == "xpress") {
-      cf_opts->blob_compression_type = kXpressCompression;
-    } else if (comp == "zstd") {
-      cf_opts->blob_compression_type = kZSTD;
-    } else {
-      // Unknown compression.
-      exec_state_ = LDBCommandExecuteResult::Failed(
-          "Unknown blob compression level: " + comp);
-    }
+  CompressionType blob_compression_type_;
+  if (ParseCompressionTypeOption(option_map_, ARG_BLOB_COMPRESSION_TYPE,
+                                 blob_compression_type_, exec_state_)) {
+    cf_opts->blob_compression_type = blob_compression_type_;
   }
 
   int compression_max_dict_bytes;
