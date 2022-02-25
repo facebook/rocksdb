@@ -165,6 +165,32 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunFAIL("batchput k1")
         self.assertRunFAIL("batchput k1 v1 k2")
 
+    def testBlobBatchPut(self):
+        print("Running testBlobBatchPut...")
+
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("batchput x1 y1 --create_if_missing --enable_blob_files", "OK")
+        self.assertRunOK("scan", "x1 : y1")
+        self.assertRunOK("batchput --enable_blob_files x2 y2 x3 y3 \"x4 abc\" \"y4 xyz\"", "OK")
+        self.assertRunOK("scan", "x1 : y1\nx2 : y2\nx3 : y3\nx4 abc : y4 xyz")
+
+        blob_files = self.getBlobFiles(dbPath)
+        self.assertTrue(len(blob_files) >= 1)
+
+    def testBlobPut(self):
+        print("Running testBlobPut...")
+
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("put --create_if_missing --enable_blob_files x1 y1", "OK")
+        self.assertRunOK("get x1", "y1")
+        self.assertRunOK("put --enable_blob_files x2 y2", "OK")
+        self.assertRunOK("get x1", "y1")
+        self.assertRunOK("get x2", "y2")
+        self.assertRunFAIL("get x3")
+
+        blob_files = self.getBlobFiles(dbPath)
+        self.assertTrue(len(blob_files) >= 1)
+
     def testCountDelimDump(self):
         print("Running testCountDelimDump...")
         self.assertRunOK("batchput x.1 x1 --create_if_missing", "OK")

@@ -87,6 +87,14 @@ const std::string LDBCommand::ARG_MIN_BLOB_SIZE = "min_blob_size";
 const std::string LDBCommand::ARG_BLOB_FILE_SIZE = "blob_file_size";
 const std::string LDBCommand::ARG_BLOB_COMPRESSION_TYPE =
     "blob_compression_type";
+const std::string LDBCommand::ARG_ENABLE_BLOB_GARBAGE_COLLECTION =
+    "enable_blob_garbage_collection";
+const std::string LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF =
+    "blob_garbage_collection_age_cutoff";
+const std::string LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD =
+    "blob_garbage_collection_force_threshold";
+const std::string LDBCommand::ARG_BLOB_COMPACTION_READAHEAD_SIZE =
+    "blob_compaction_readahead_size";
 
 const char* LDBCommand::DELIM = " ==> ";
 
@@ -389,6 +397,8 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   force_consistency_checks_ =
       !IsFlagPresent(flags, ARG_DISABLE_CONSISTENCY_CHECKS);
   enable_blob_files_ = IsFlagPresent(flags, ARG_ENABLE_BLOB_FILES);
+  enable_blob_garbage_collection_ =
+      IsFlagPresent(flags, ARG_ENABLE_BLOB_GARBAGE_COLLECTION);
   config_options_.ignore_unknown_options =
       IsFlagPresent(flags, ARG_IGNORE_UNKNOWN_OPTIONS);
 }
@@ -518,10 +528,46 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_MIN_BLOB_SIZE,
                                   ARG_BLOB_FILE_SIZE,
                                   ARG_BLOB_COMPRESSION_TYPE,
+                                  ARG_ENABLE_BLOB_GARBAGE_COLLECTION,
+                                  ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF,
+                                  ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD,
+                                  ARG_BLOB_COMPACTION_READAHEAD_SIZE,
                                   ARG_IGNORE_UNKNOWN_OPTIONS,
                                   ARG_CF_NAME};
   ret.insert(ret.end(), options.begin(), options.end());
   return ret;
+}
+
+/**
+ * Parses the specific double option and fills in the value.
+ * Returns true if the option is found.
+ * Returns false if the option is not found or if there is an error parsing the
+ * value.  If there is an error, the specified exec_state is also
+ * updated.
+ */
+bool LDBCommand::ParseDoubleOption(
+    const std::map<std::string, std::string>& /*options*/,
+    const std::string& option, double& value,
+    LDBCommandExecuteResult& exec_state) {
+  std::map<std::string, std::string>::const_iterator itr =
+      option_map_.find(option);
+  if (itr != option_map_.end()) {
+    try {
+#if defined(CYGWIN)
+      value = std::strtod(itr->second.c_str(), 0);
+#else
+      value = std::stod(itr->second);
+#endif
+      return true;
+    } catch (const std::invalid_argument&) {
+      exec_state =
+          LDBCommandExecuteResult::Failed(option + " has an invalid value.");
+    } catch (const std::out_of_range&) {
+      exec_state = LDBCommandExecuteResult::Failed(
+          option + " has a value out-of-range.");
+    }
+  }
+  return false;
 }
 
 /**
@@ -690,6 +736,47 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
     } else {
       exec_state_ =
           LDBCommandExecuteResult::Failed(ARG_BLOB_FILE_SIZE + " must be > 0.");
+    }
+  }
+
+  cf_opts->enable_blob_garbage_collection = enable_blob_garbage_collection_;
+
+  double blob_garbage_collection_age_cutoff;
+  if (ParseDoubleOption(option_map_, ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF,
+                        blob_garbage_collection_age_cutoff, exec_state_)) {
+    if (blob_garbage_collection_age_cutoff >= 0 &&
+        blob_garbage_collection_age_cutoff <= 1) {
+      cf_opts->blob_garbage_collection_age_cutoff =
+          blob_garbage_collection_age_cutoff;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF + " must be >= 0 and <= 1.");
+    }
+  }
+
+  double blob_garbage_collection_force_threshold;
+  if (ParseDoubleOption(option_map_,
+                        ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD,
+                        blob_garbage_collection_force_threshold, exec_state_)) {
+    if (blob_garbage_collection_force_threshold >= 0 &&
+        blob_garbage_collection_force_threshold <= 1) {
+      cf_opts->blob_garbage_collection_force_threshold =
+          blob_garbage_collection_force_threshold;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD +
+          " must be >= 0 and <= 1.");
+    }
+  }
+
+  int blob_compaction_readahead_size;
+  if (ParseIntOption(option_map_, ARG_BLOB_COMPACTION_READAHEAD_SIZE,
+                     blob_compaction_readahead_size, exec_state_)) {
+    if (blob_compaction_readahead_size > 0) {
+      cf_opts->blob_compaction_readahead_size = blob_compaction_readahead_size;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          ARG_BLOB_COMPACTION_READAHEAD_SIZE + " must be > 0.");
     }
   }
 

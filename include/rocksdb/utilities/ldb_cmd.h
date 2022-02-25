@@ -65,6 +65,10 @@ class LDBCommand {
   static const std::string ARG_MIN_BLOB_SIZE;
   static const std::string ARG_BLOB_FILE_SIZE;
   static const std::string ARG_BLOB_COMPRESSION_TYPE;
+  static const std::string ARG_ENABLE_BLOB_GARBAGE_COLLECTION;
+  static const std::string ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF;
+  static const std::string ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD;
+  static const std::string ARG_BLOB_COMPACTION_READAHEAD_SIZE;
 
   struct ParsedParams {
     std::string cmd;
@@ -179,6 +183,8 @@ class LDBCommand {
 
   bool enable_blob_files_;
 
+  bool enable_blob_garbage_collection_;
+
   bool create_if_missing_;
 
   /**
@@ -238,6 +244,10 @@ class LDBCommand {
   bool ParseIntOption(const std::map<std::string, std::string>& options,
                       const std::string& option, int& value,
                       LDBCommandExecuteResult& exec_state);
+
+  bool ParseDoubleOption(const std::map<std::string, std::string>& options,
+                         const std::string& option, double& value,
+                         LDBCommandExecuteResult& exec_state);
 
   bool ParseStringOption(const std::map<std::string, std::string>& options,
                          const std::string& option, std::string* value);
