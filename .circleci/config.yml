@@ -77,7 +77,8 @@ commands:
       - install-gflags
       - run:
           name: "Linux build for benchmarks"
-          command: make V=1 J=8 -j8 check
+          command: #sized for the resource-class rocksdb-benchmark-sys1
+            make V=1 J=8 -j8 release
 
   perform-benchmarks:
     steps:
@@ -781,7 +782,7 @@ jobs:
           command: cd fuzz && make sst_file_writer_fuzzer db_fuzzer db_map_fuzzer
       - post-steps
 
-  benchmark-linux:
+  benchmark-linux: #use a private Circle CI runner (resource_class) to run the job
     machine: true
     resource_class: facebook/rocksdb-benchmark-sys1
     steps:
