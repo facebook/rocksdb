@@ -400,14 +400,6 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
 
   JobContext job_context(0);
   FindObsoleteFiles(&job_context, true);
-  if (s.ok()) {
-    s = error_handler_.ClearBGError();
-  } else {
-    // NOTE: this is needed to pass ASSERT_STATUS_CHECKED
-    // in the DBSSTTest.DBWithMaxSpaceAllowedRandomized test.
-    // See https://github.com/facebook/rocksdb/pull/7715#issuecomment-754947952
-    error_handler_.GetRecoveryError().PermitUncheckedError();
-  }
   mutex_.Unlock();
 
   job_context.manifest_file_number = 1;
@@ -428,11 +420,31 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
             immutable_db_options_.info_log,
             "DB resume requested but could not enable file deletions [%s]",
             s.ToString().c_str());
+        assert(false);
       }
     }
-    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
   }
+
   mutex_.Lock();
+  if (s.ok()) {
+    // This will notify and unblock threads waiting for error recovery to
+    // finish. Those previouly waiting threads can now proceed, which may
+    // include closing the db.
+    s = error_handler_.ClearBGError();
+  } else {
+    // NOTE: this is needed to pass ASSERT_STATUS_CHECKED
+    // in the DBSSTTest.DBWithMaxSpaceAllowedRandomized test.
+    // See https://github.com/facebook/rocksdb/pull/7715#issuecomment-754947952
+    error_handler_.GetRecoveryError().PermitUncheckedError();
+  }
+
+  if (s.ok()) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
+  } else {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Failed to resume DB [%s]",
+                   s.ToString().c_str());
+  }
+
   // Check for shutdown again before scheduling further compactions,
   // since we released and re-acquired the lock above
   if (shutdown_initiated_) {
