@@ -756,6 +756,20 @@ jobs:
           command: cd fuzz && make sst_file_writer_fuzzer db_fuzzer db_map_fuzzer
       - post-steps
 
+  benchmark-linux:
+    machine: true
+    resource_class: facebook/rocksdb-benchmark-sys1
+    steps:
+      - run: hostname
+      - run: uname -ap
+
+  benchmark-linux2:
+    machine: true
+    resource_class: facebook/rocksdb-benchmark-sys-ec2-1
+    steps:
+      - run: hostname
+      - run: uname -ap
+
 workflows:
   version: 2
   build-linux:
@@ -864,6 +878,10 @@ workflows:
   build-fuzzers:
     jobs:
       - build-fuzzers
+  benchmark-linux:
+    jobs:
+      - benchmark-linux
+      - benchmark-linux2
   nightly:
     triggers:
       - schedule:
