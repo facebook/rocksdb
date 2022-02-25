@@ -763,13 +763,6 @@ jobs:
       - run: hostname
       - run: uname -ap
 
-  benchmark-linux2:
-    machine: true
-    resource_class: facebook/rocksdb-benchmark-sys-ec2-1
-    steps:
-      - run: hostname
-      - run: uname -ap
-
 workflows:
   version: 2
   build-linux:
