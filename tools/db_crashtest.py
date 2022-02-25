@@ -367,7 +367,15 @@ multiops_txn_default_params = {
     "verify_db_one_in": 1000,
     "continuous_verification_interval": 1000,
     "delay_snapshot_read_one_in": 3,
-    "write_buffer_size": 1024,
+    # 65536 is the smallest possible value for write_buffer_size. Smaller
+    # values will be sanitized to 65536 during db open. SetOptions currently
+    # does not sanitize options, but very small write_buffer_size may cause
+    # assertion failure in
+    # https://github.com/facebook/rocksdb/blob/7.0.fb/db/memtable.cc#L117.
+    "write_buffer_size": 65536,
+    # flush more frequently to generate more files, thus trigger more
+    # compactions.
+    "flush_one_in": 1000,
     "key_spaces_path": setup_multiops_txn_key_spaces_file(),
 }
 
