@@ -551,12 +551,21 @@ bool LDBCommand::ParseDoubleOption(
     LDBCommandExecuteResult& exec_state) {
   auto itr = option_map_.find(option);
   if (itr != option_map_.end()) {
-    try {
 #if defined(CYGWIN)
-      value = std::strtod(itr->second.c_str(), 0);
+    char* str_end = nullptr;
+    value = std::strtod(itr->second.c_str(), &str_end);
+    if (str_end == itr->second.c_str()) {
+      exec_state =
+          LDBCommandExecuteResult::Failed(option + " has an invalid value.");
+    } else if (errno == ERANGE) {
+      exec_state = LDBCommandExecuteResult::Failed(
+          option + " has a value out-of-range.");
+    } else {
+      return true;
+    }
 #else
+    try {
       value = std::stod(itr->second);
-#endif
       return true;
     } catch (const std::invalid_argument&) {
       exec_state =
@@ -565,6 +574,7 @@ bool LDBCommand::ParseDoubleOption(
       exec_state = LDBCommandExecuteResult::Failed(
           option + " has a value out-of-range.");
     }
+#endif
   }
   return false;
 }
@@ -582,12 +592,21 @@ bool LDBCommand::ParseIntOption(
     LDBCommandExecuteResult& exec_state) {
   auto itr = option_map_.find(option);
   if (itr != option_map_.end()) {
-    try {
 #if defined(CYGWIN)
-      value = strtol(itr->second.c_str(), 0, 10);
+    char* str_end = nullptr;
+    value = strtol(itr->second.c_str(), &str_end, 10);
+    if (str_end == itr->second.c_str()) {
+      exec_state =
+          LDBCommandExecuteResult::Failed(option + " has an invalid value.");
+    } else if (errno == ERANGE) {
+      exec_state = LDBCommandExecuteResult::Failed(
+          option + " has a value out-of-range.");
+    } else {
+      return true;
+    }
 #else
+    try {
       value = std::stoi(itr->second);
-#endif
       return true;
     } catch (const std::invalid_argument&) {
       exec_state =
@@ -596,6 +615,7 @@ bool LDBCommand::ParseIntOption(
       exec_state = LDBCommandExecuteResult::Failed(
           option + " has a value out-of-range.");
     }
+#endif
   }
   return false;
 }

@@ -374,10 +374,7 @@ class LDBTestCase(unittest.TestCase):
         self.assertTrue(self.dumpDb(
             "--db=%s" % (origDbPath), dumpFilePath))
         self.assertTrue(self.loadDb(
-            "--db=%s %s --create_if_missing" % (loadedDbPath, blobParams),
-            dumpFilePath))
-        self.assertTrue(self.loadDb(
-            "--db=%s %s" % (loadedDbPath, blobParams),
+            "--db=%s %s --create_if_missing --disable_wal" % (loadedDbPath, blobParams),
             dumpFilePath))
         self.assertRunOKFull("scan --db=%s" % loadedDbPath,
                 "x1 : y1\nx2 : y2\nx3 : y3\nx4 : y4")
