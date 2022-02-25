@@ -372,7 +372,7 @@ class LDBTestCase(unittest.TestCase):
         dumpFilePath = os.path.join(self.TMP_DIR, "dump9")
         loadedDbPath = os.path.join(self.TMP_DIR, "loaded_from_dump9")
         self.assertTrue(self.dumpDb(
-            "--db=%s %s" % (origDbPath, blobParams), dumpFilePath))
+            "--db=%s" % (origDbPath), dumpFilePath))
         self.assertTrue(self.loadDb(
             "--db=%s %s --create_if_missing" % (loadedDbPath, blobParams),
             dumpFilePath))

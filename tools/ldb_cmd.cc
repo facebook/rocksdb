@@ -361,7 +361,7 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
       option_map_(options),
       flags_(flags),
       valid_cmd_line_options_(valid_cmd_line_options) {
-  std::map<std::string, std::string>::const_iterator itr = options.find(ARG_DB);
+  auto itr = options.find(ARG_DB);
   if (itr != options.end()) {
     db_path_ = itr->second;
   }
@@ -549,8 +549,7 @@ bool LDBCommand::ParseDoubleOption(
     const std::map<std::string, std::string>& /*options*/,
     const std::string& option, double& value,
     LDBCommandExecuteResult& exec_state) {
-  std::map<std::string, std::string>::const_iterator itr =
-      option_map_.find(option);
+  auto itr = option_map_.find(option);
   if (itr != option_map_.end()) {
     try {
 #if defined(CYGWIN)
@@ -581,8 +580,7 @@ bool LDBCommand::ParseIntOption(
     const std::map<std::string, std::string>& /*options*/,
     const std::string& option, int& value,
     LDBCommandExecuteResult& exec_state) {
-  std::map<std::string, std::string>::const_iterator itr =
-      option_map_.find(option);
+  auto itr = option_map_.find(option);
   if (itr != option_map_.end()) {
     try {
 #if defined(CYGWIN)
@@ -720,11 +718,11 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
   int min_blob_size;
   if (ParseIntOption(option_map_, ARG_MIN_BLOB_SIZE, min_blob_size,
                      exec_state_)) {
-    if (min_blob_size > 0) {
+    if (min_blob_size >= 0) {
       cf_opts->min_blob_size = min_blob_size;
     } else {
       exec_state_ =
-          LDBCommandExecuteResult::Failed(ARG_MIN_BLOB_SIZE + " must be > 0.");
+          LDBCommandExecuteResult::Failed(ARG_MIN_BLOB_SIZE + " must be >= 0.");
     }
   }
 
@@ -785,16 +783,16 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
     cf_opts->disable_auto_compactions = !StringToBool(itr->second);
   }
 
-  CompressionType compression_type_;
+  CompressionType compression_type;
   if (ParseCompressionTypeOption(option_map_, ARG_COMPRESSION_TYPE,
-                                 compression_type_, exec_state_)) {
-    cf_opts->compression = compression_type_;
+                                 compression_type, exec_state_)) {
+    cf_opts->compression = compression_type;
   }
 
-  CompressionType blob_compression_type_;
+  CompressionType blob_compression_type;
   if (ParseCompressionTypeOption(option_map_, ARG_BLOB_COMPRESSION_TYPE,
-                                 blob_compression_type_, exec_state_)) {
-    cf_opts->blob_compression_type = blob_compression_type_;
+                                 blob_compression_type, exec_state_)) {
+    cf_opts->blob_compression_type = blob_compression_type;
   }
 
   int compression_max_dict_bytes;
@@ -945,9 +943,7 @@ bool LDBCommand::ParseKeyValue(const std::string& line, std::string* key,
  * appropriate error msg to stderr.
  */
 bool LDBCommand::ValidateCmdLineOptions() {
-  for (std::map<std::string, std::string>::const_iterator itr =
-           option_map_.begin();
-       itr != option_map_.end(); ++itr) {
+  for (auto itr = option_map_.begin(); itr != option_map_.end(); ++itr) {
     if (std::find(valid_cmd_line_options_.begin(),
                   valid_cmd_line_options_.end(),
                   itr->first) == valid_cmd_line_options_.end()) {
@@ -1036,7 +1032,7 @@ bool LDBCommand::IsValueHex(const std::map<std::string, std::string>& options,
 bool LDBCommand::ParseBooleanOption(
     const std::map<std::string, std::string>& options,
     const std::string& option, bool default_val) {
-  std::map<std::string, std::string>::const_iterator itr = options.find(option);
+  auto itr = options.find(option);
   if (itr != options.end()) {
     std::string option_val = itr->second;
     return StringToBool(itr->second);
@@ -1066,8 +1062,7 @@ CompactorCommand::CompactorCommand(
                                       ARG_VALUE_HEX, ARG_TTL})),
       null_from_(true),
       null_to_(true) {
-  std::map<std::string, std::string>::const_iterator itr =
-      options.find(ARG_FROM);
+  auto itr = options.find(ARG_FROM);
   if (itr != options.end()) {
     null_from_ = false;
     from_ = itr->second;
@@ -1274,8 +1269,7 @@ ManifestDumpCommand::ManifestDumpCommand(
   verbose_ = IsFlagPresent(flags, ARG_VERBOSE);
   json_ = IsFlagPresent(flags, ARG_JSON);
 
-  std::map<std::string, std::string>::const_iterator itr =
-      options.find(ARG_PATH);
+  auto itr = options.find(ARG_PATH);
   if (itr != options.end()) {
     path_ = itr->second;
     if (path_.empty()) {
@@ -1416,8 +1410,7 @@ FileChecksumDumpCommand::FileChecksumDumpCommand(
     : LDBCommand(options, flags, false,
                  BuildCmdLineOptions({ARG_PATH, ARG_HEX})),
       path_("") {
-  std::map<std::string, std::string>::const_iterator itr =
-      options.find(ARG_PATH);
+  auto itr = options.find(ARG_PATH);
   if (itr != options.end()) {
     path_ = itr->second;
     if (path_.empty()) {
@@ -1692,8 +1685,7 @@ InternalDumpCommand::InternalDumpCommand(
   has_to_ = ParseStringOption(options, ARG_TO, &to_);
 
   ParseIntOption(options, ARG_MAX_KEYS, max_keys_, exec_state_);
-  std::map<std::string, std::string>::const_iterator itr =
-      options.find(ARG_COUNT_DELIM);
+  auto itr = options.find(ARG_COUNT_DELIM);
   if (itr != options.end()) {
     delim_ = itr->second;
     count_delim_ = true;
@@ -1828,8 +1820,7 @@ DBDumperCommand::DBDumperCommand(
       count_only_(false),
       count_delim_(false),
       print_stats_(false) {
-  std::map<std::string, std::string>::const_iterator itr =
-      options.find(ARG_FROM);
+  auto itr = options.find(ARG_FROM);
   if (itr != options.end()) {
     null_from_ = false;
     from_ = itr->second;
@@ -2594,8 +2585,7 @@ WALDumperCommand::WALDumperCommand(
       is_write_committed_(false) {
   wal_file_.clear();
 
-  std::map<std::string, std::string>::const_iterator itr =
-      options.find(ARG_WAL_FILE);
+  auto itr = options.find(ARG_WAL_FILE);
   if (itr != options.end()) {
     wal_file_ = itr->second;
   }
@@ -2814,8 +2804,7 @@ ScanCommand::ScanCommand(const std::vector<std::string>& /*params*/,
       end_key_specified_(false),
       max_keys_scanned_(-1),
       no_value_(false) {
-  std::map<std::string, std::string>::const_iterator itr =
-      options.find(ARG_FROM);
+  auto itr = options.find(ARG_FROM);
   if (itr != options.end()) {
     start_key_ = itr->second;
     if (is_key_hex_) {
@@ -3902,8 +3891,7 @@ ListFileRangeDeletesCommand::ListFileRangeDeletesCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, true, BuildCmdLineOptions({ARG_MAX_KEYS})) {
-  std::map<std::string, std::string>::const_iterator itr =
-      options.find(ARG_MAX_KEYS);
+  auto itr = options.find(ARG_MAX_KEYS);
   if (itr != options.end()) {
     try {
 #if defined(CYGWIN)
