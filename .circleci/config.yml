@@ -74,7 +74,6 @@ commands:
   build-for-benchmarks:
     steps:
       - pre-steps
-      - install-gflags
       - run:
           name: "Linux build for benchmarks"
           command: #sized for the resource-class rocksdb-benchmark-sys1
