@@ -760,6 +760,19 @@ jobs:
     machine: true
     resource_class: facebook/rocksdb-benchmark-sys1
     steps:
+      - run:
+          name: "Set Java Environment"
+          command: |
+            echo "JAVA_HOME=${JAVA_HOME}"
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
+            which java && java -version
+            which javac && javac -version
+      - run:
+          name: "benchmark-runner"
+          command: |
+            echo "PATH=${PATH}"
+            which java && java -version
+            which javac && javac -version
       - run: hostname
       - run: uname -ap
 
