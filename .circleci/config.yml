@@ -71,6 +71,31 @@ commands:
           destination: test_logs
           when: on_fail
 
+  build-for-benchmarks:
+    steps:
+      - pre-steps
+      - install-gflags
+      - run:
+          name: "Linux build for benchmarks"
+          command: make V=1 J=8 -j8 check
+
+  perform-benchmarks:
+    steps:
+      - run:
+          name: "Run basic benchmark"
+          command: ./tools/benchmark.sh fillseq_enable_wal
+          environment:
+            DB_DIR: /tmp/rocksdb-benchmark-datadir
+            WAL_DIR: /tmp/rocksdb-benchmark-waldir
+            OUTPUT_DIR: /tmp/benchmark-results
+            NUM_KEYS: 1000000
+
+  post-benchmarks:
+    steps:
+      - store_artifacts: # store the benchmark output
+          path: /tmp/benchmark-results
+          destination: benchmark-results
+
   install-clang-10:
     steps:
       - run:
@@ -760,21 +785,9 @@ jobs:
     machine: true
     resource_class: facebook/rocksdb-benchmark-sys1
     steps:
-      - run:
-          name: "Set Java Environment"
-          command: |
-            echo "JAVA_HOME=${JAVA_HOME}"
-            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
-            which java && java -version
-            which javac && javac -version
-      - run:
-          name: "benchmark-runner"
-          command: |
-            echo "PATH=${PATH}"
-            which java && java -version
-            which javac && javac -version
-      - run: hostname
-      - run: uname -ap
+      - build-for-benchmarks
+      - perform-benchmarks
+      - post-benchmarks
 
 workflows:
   version: 2
