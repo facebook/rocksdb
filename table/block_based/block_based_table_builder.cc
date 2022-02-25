@@ -82,7 +82,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
   } else {
     // Check for backdoor deprecated block-based bloom config
     size_t starting_est = filter_bits_builder->EstimateEntriesAdded();
-    constexpr auto kSecretStart = BloomFilterPolicy::kSecretBitsPerKeyStart;
+    constexpr auto kSecretStart =
+        DeprecatedBlockBasedBloomFilterPolicy::kSecretBitsPerKeyStart;
     if (starting_est >= kSecretStart && starting_est < kSecretStart + 100) {
       int bits_per_key = static_cast<int>(starting_est - kSecretStart);
       delete filter_bits_builder;

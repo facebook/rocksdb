@@ -784,8 +784,7 @@ size_t DBImpl::EstimateInMemoryStatsHistorySize() const {
   size_t size_per_slice =
       sizeof(uint64_t) + sizeof(std::map<std::string, uint64_t>);
   // non-empty map, stats_history_.begin() guaranteed to exist
-  std::map<std::string, uint64_t> sample_slice(stats_history_.begin()->second);
-  for (const auto& pairs : sample_slice) {
+  for (const auto& pairs : stats_history_.begin()->second) {
     size_per_slice +=
         pairs.first.capacity() + sizeof(pairs.first) + sizeof(pairs.second);
   }
@@ -1881,11 +1880,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       return s;
     }
   }
+  PinnedIteratorsManager pinned_iters_mgr;
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(
         read_options, lkey, get_impl_options.value, timestamp, &s,
-        &merge_context, &max_covering_tombstone_seq,
+        &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
         get_impl_options.get_value ? get_impl_options.value_found : nullptr,
         nullptr, nullptr,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
@@ -2077,11 +2077,13 @@ std::vector<Status> DBImpl::MultiGet(
     if (!done) {
       PinnableSlice pinnable_val;
       PERF_TIMER_GUARD(get_from_output_files_time);
-      super_version->current->Get(
-          read_options, lkey, &pinnable_val, timestamp, &s, &merge_context,
-          &max_covering_tombstone_seq, /*value_found=*/nullptr,
-          /*key_exists=*/nullptr,
-          /*seq=*/nullptr, read_callback);
+      PinnedIteratorsManager pinned_iters_mgr;
+      super_version->current->Get(read_options, lkey, &pinnable_val, timestamp,
+                                  &s, &merge_context,
+                                  &max_covering_tombstone_seq,
+                                  &pinned_iters_mgr, /*value_found=*/nullptr,
+                                  /*key_exists=*/nullptr,
+                                  /*seq=*/nullptr, read_callback);
       value->assign(pinnable_val.data(), pinnable_val.size());
       RecordTick(stats_, MEMTABLE_MISS);
     }
@@ -4574,10 +4576,12 @@ Status DBImpl::GetLatestSequenceForKey(
   // SST files if cache_only=true?
   if (!cache_only) {
     // Check tables
+    PinnedIteratorsManager pinned_iters_mgr;
     sv->current->Get(read_options, lkey, /*value=*/nullptr, timestamp, &s,
                      &merge_context, &max_covering_tombstone_seq,
-                     nullptr /* value_found */, found_record_for_key, seq,
-                     nullptr /*read_callback*/, is_blob_index);
+                     &pinned_iters_mgr, nullptr /* value_found */,
+                     found_record_for_key, seq, nullptr /*read_callback*/,
+                     is_blob_index);
 
     if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
       // unexpected error reading SST files
@@ -5108,10 +5112,11 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
 
     if (s.ok() && use_file_checksum) {
       const auto& blob_files = vstorage->GetBlobFiles();
-      for (const auto& pair : blob_files) {
-        const uint64_t blob_file_number = pair.first;
-        const auto& meta = pair.second;
+      for (const auto& meta : blob_files) {
         assert(meta);
+
+        const uint64_t blob_file_number = meta->GetBlobFileNumber();
+
         const std::string blob_file_name = BlobFileName(
             cfd->ioptions()->cf_paths.front().path, blob_file_number);
         s = VerifyFullFileChecksum(meta->GetChecksumValue(),
@@ -5170,7 +5175,8 @@ Status DBImpl::VerifyFullFileChecksum(const std::string& file_checksum_expected,
       fs_.get(), fname, immutable_db_options_.file_checksum_gen_factory.get(),
       func_name_expected, &file_checksum, &func_name,
       read_options.readahead_size, immutable_db_options_.allow_mmap_reads,
-      io_tracer_, immutable_db_options_.rate_limiter.get());
+      io_tracer_, immutable_db_options_.rate_limiter.get(),
+      read_options.rate_limiter_priority);
   if (s.ok()) {
     assert(func_name_expected == func_name);
     if (file_checksum != file_checksum_expected) {

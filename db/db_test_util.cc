@@ -1143,7 +1143,8 @@ std::vector<uint64_t> DBTestBase::GetBlobFileNumbers() {
   result.reserve(blob_files.size());
 
   for (const auto& blob_file : blob_files) {
-    result.emplace_back(blob_file.first);
+    assert(blob_file);
+    result.emplace_back(blob_file->GetBlobFileNumber());
   }
 
   return result;

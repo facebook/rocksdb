@@ -367,12 +367,6 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
   delete[] new_options_ptr;
 }
 
-template <typename T1, typename T2>
-inline int offset_of(T1 T2::*member) {
-  static T2 obj;
-  return int(size_t(&(obj.*member)) - size_t(&obj));
-}
-
 // If the test fails, likely a new option is added to ColumnFamilyOptions
 // but it cannot be set through GetColumnFamilyOptionsFromString(), or the
 // test is not updated accordingly.
@@ -386,36 +380,39 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // options in the excluded set need to appear in the same order as in
   // ColumnFamilyOptions.
   const OffsetGap kColumnFamilyOptionsExcluded = {
-      {offset_of(&ColumnFamilyOptions::inplace_callback),
+      {offsetof(struct ColumnFamilyOptions, inplace_callback),
        sizeof(UpdateStatus(*)(char*, uint32_t*, Slice, std::string*))},
-      {offset_of(
-           &ColumnFamilyOptions::memtable_insert_with_hint_prefix_extractor),
+      {offsetof(struct ColumnFamilyOptions,
+                memtable_insert_with_hint_prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
-      {offset_of(&ColumnFamilyOptions::compression_per_level),
+      {offsetof(struct ColumnFamilyOptions, compression_per_level),
        sizeof(std::vector<CompressionType>)},
-      {offset_of(
-           &ColumnFamilyOptions::max_bytes_for_level_multiplier_additional),
+      {offsetof(struct ColumnFamilyOptions,
+                max_bytes_for_level_multiplier_additional),
        sizeof(std::vector<int>)},
-      {offset_of(&ColumnFamilyOptions::memtable_factory),
+      {offsetof(struct ColumnFamilyOptions, memtable_factory),
        sizeof(std::shared_ptr<MemTableRepFactory>)},
-      {offset_of(&ColumnFamilyOptions::table_properties_collector_factories),
+      {offsetof(struct ColumnFamilyOptions,
+                table_properties_collector_factories),
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
-      {offset_of(&ColumnFamilyOptions::comparator), sizeof(Comparator*)},
-      {offset_of(&ColumnFamilyOptions::merge_operator),
+      {offsetof(struct ColumnFamilyOptions, comparator), sizeof(Comparator*)},
+      {offsetof(struct ColumnFamilyOptions, merge_operator),
        sizeof(std::shared_ptr<MergeOperator>)},
-      {offset_of(&ColumnFamilyOptions::compaction_filter),
+      {offsetof(struct ColumnFamilyOptions, compaction_filter),
        sizeof(const CompactionFilter*)},
-      {offset_of(&ColumnFamilyOptions::compaction_filter_factory),
+      {offsetof(struct ColumnFamilyOptions, compaction_filter_factory),
        sizeof(std::shared_ptr<CompactionFilterFactory>)},
-      {offset_of(&ColumnFamilyOptions::prefix_extractor),
+      {offsetof(struct ColumnFamilyOptions, prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
-      {offset_of(&ColumnFamilyOptions::snap_refresh_nanos), sizeof(uint64_t)},
-      {offset_of(&ColumnFamilyOptions::table_factory),
+      {offsetof(struct ColumnFamilyOptions, snap_refresh_nanos),
+       sizeof(uint64_t)},
+      {offsetof(struct ColumnFamilyOptions, table_factory),
        sizeof(std::shared_ptr<TableFactory>)},
-      {offset_of(&ColumnFamilyOptions::cf_paths), sizeof(std::vector<DbPath>)},
-      {offset_of(&ColumnFamilyOptions::compaction_thread_limiter),
+      {offsetof(struct ColumnFamilyOptions, cf_paths),
+       sizeof(std::vector<DbPath>)},
+      {offsetof(struct ColumnFamilyOptions, compaction_thread_limiter),
        sizeof(std::shared_ptr<ConcurrentTaskLimiter>)},
-      {offset_of(&ColumnFamilyOptions::sst_partitioner_factory),
+      {offsetof(struct ColumnFamilyOptions, sst_partitioner_factory),
        sizeof(std::shared_ptr<SstPartitionerFactory>)},
   };
 
@@ -538,11 +535,12 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // Test copying to mutabable and immutable options and copy back the mutable
   // part.
   const OffsetGap kMutableCFOptionsExcluded = {
-      {offset_of(&MutableCFOptions::prefix_extractor),
+      {offsetof(struct MutableCFOptions, prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
-      {offset_of(&MutableCFOptions::max_bytes_for_level_multiplier_additional),
+      {offsetof(struct MutableCFOptions,
+                max_bytes_for_level_multiplier_additional),
        sizeof(std::vector<int>)},
-      {offset_of(&MutableCFOptions::max_file_size),
+      {offsetof(struct MutableCFOptions, max_file_size),
        sizeof(std::vector<uint64_t>)},
   };
 

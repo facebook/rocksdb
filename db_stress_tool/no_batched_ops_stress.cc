@@ -21,6 +21,8 @@ class NonBatchedOpsStressTest : public StressTest {
   virtual ~NonBatchedOpsStressTest() {}
 
   void VerifyDb(ThreadState* thread) const override {
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions options(FLAGS_verify_checksum, true);
     std::string ts_str;
     Slice ts;
