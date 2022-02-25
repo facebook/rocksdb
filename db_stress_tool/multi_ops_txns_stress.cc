@@ -1023,6 +1023,14 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
   assert(snapshot);
   ManagedSnapshot snapshot_guard(db_, snapshot);
 
+  std::ostringstream oss;
+  oss << "[snap=" << snapshot->GetSequenceNumber() << ",";
+
+  auto* dbimpl = static_cast_with_check<DBImpl>(db_->GetRootDB());
+  assert(dbimpl);
+
+  oss << " last_published=" << dbimpl->GetLastPublishedSequence() << "] ";
+
   if (FLAGS_delay_snapshot_read_one_in > 0 &&
       thread->rand.OneIn(FLAGS_delay_snapshot_read_one_in)) {
     uint64_t delay_ms = thread->rand.Uniform(100) + 1;
@@ -1056,11 +1064,33 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       Record record;
       Status s = record.DecodePrimaryIndexEntry(it->key(), it->value());
       if (!s.ok()) {
-        VerificationAbort(thread->shared, "Cannot decode primary index entry",
-                          s);
+        oss << "Cannot decode primary index entry " << it->key().ToString(true)
+            << "=>" << it->value().ToString(true);
+        VerificationAbort(thread->shared, oss.str(), s);
+        assert(false);
         return;
       }
       ++primary_index_entries_count;
+
+      // Search secondary index.
+      uint32_t a = record.a_value();
+      uint32_t c = record.c_value();
+      char sk_buf[12];
+      EncodeFixed32(sk_buf, Record::kSecondaryIndexId);
+      std::reverse(sk_buf, sk_buf + sizeof(uint32_t));
+      EncodeFixed32(sk_buf + sizeof(uint32_t), c);
+      std::reverse(sk_buf + sizeof(uint32_t), sk_buf + 2 * sizeof(uint32_t));
+      EncodeFixed32(sk_buf + 2 * sizeof(uint32_t), a);
+      std::reverse(sk_buf + 2 * sizeof(uint32_t), sk_buf + sizeof(sk_buf));
+      Slice sk(sk_buf, sizeof(sk_buf));
+      std::string value;
+      s = db_->Get(ropts, sk, &value);
+      if (!s.ok()) {
+        oss << "Cannot find secondary index entry " << sk.ToString(true);
+        VerificationAbort(thread->shared, oss.str(), s);
+        assert(false);
+        return;
+      }
     }
   }
 
@@ -1084,8 +1114,9 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       Record record;
       Status s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
       if (!s.ok()) {
-        VerificationAbort(thread->shared, "Cannot decode secondary index entry",
-                          s);
+        oss << "Cannot decode secondary index entry";
+        VerificationAbort(thread->shared, oss.str(), s);
+        assert(false);
         return;
       }
       // After decoding secondary index entry, we know a and c. Crc is verified
@@ -1096,36 +1127,39 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       std::string value;
       s = db_->Get(ropts, pk, &value);
       if (!s.ok()) {
-        std::ostringstream oss;
         oss << "Error searching pk " << Slice(pk).ToString(true) << ". "
             << s.ToString();
         VerificationAbort(thread->shared, oss.str(), s);
+        assert(false);
         return;
       }
       auto result = Record::DecodePrimaryIndexValue(value);
       s = std::get<0>(result);
       if (!s.ok()) {
-        std::ostringstream oss;
         oss << "Error decoding primary index value "
             << Slice(value).ToString(true) << ". " << s.ToString();
         VerificationAbort(thread->shared, oss.str(), s);
+        assert(false);
+        return;
       }
       uint32_t c_in_primary = std::get<2>(result);
       if (c_in_primary != record.c_value()) {
-        std::ostringstream oss;
         oss << "Pk/sk mismatch. pk: (c=" << c_in_primary
             << "), sk: (c=" << record.c_value() << ")";
         VerificationAbort(thread->shared, oss.str(), s);
+        assert(false);
+        return;
       }
     }
   }
 
   if (secondary_index_entries_count != primary_index_entries_count) {
-    std::ostringstream oss;
     oss << "Pk/sk mismatch: primary index has " << primary_index_entries_count
         << " entries. Secondary index has " << secondary_index_entries_count
         << " entries.";
     VerificationAbort(thread->shared, oss.str(), Status::OK());
+    assert(false);
+    return;
   }
 }
 
