@@ -415,12 +415,12 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     if (file_deletion_disabled) {
       // Always return ok
       s = EnableFileDeletions(/*force=*/true);
-      assert(s.ok());
       if (!s.ok()) {
         ROCKS_LOG_INFO(
             immutable_db_options_.info_log,
             "DB resume requested but could not enable file deletions [%s]",
             s.ToString().c_str());
+        assert(false);
       }
     }
   }

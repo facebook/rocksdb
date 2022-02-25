@@ -4,7 +4,7 @@
 * Allow WriteBatchWithIndex to index a WriteBatch that includes keys with user-defined timestamps. The index itself does not have timestamp.
 
 ### Bug Fixes
-* Fixed a data race on `VersionSet` in `DBImpl::ResumeImpl()`
+* * Fixed a data race on `versions_` between `DBImpl::ResumeImpl()` and threads waiting for recovery to complete (#9496)
 
 ## 7.0.0 (02/20/2022)
 ### Bug Fixes
