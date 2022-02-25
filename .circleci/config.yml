@@ -874,7 +874,6 @@ workflows:
   benchmark-linux:
     jobs:
       - benchmark-linux
-      - benchmark-linux2
   nightly:
     triggers:
       - schedule:
