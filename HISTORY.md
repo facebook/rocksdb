@@ -2,6 +2,7 @@
 ## Unreleased
 ### New Features
 * Allow WriteBatchWithIndex to index a WriteBatch that includes keys with user-defined timestamps. The index itself does not have timestamp.
+* Added BlobDB options to `ldb`
 
 ### Bug Fixes
 * * Fixed a data race on `versions_` between `DBImpl::ResumeImpl()` and threads waiting for recovery to complete (#9496)
