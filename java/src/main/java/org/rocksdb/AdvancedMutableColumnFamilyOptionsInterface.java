@@ -733,6 +733,27 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    */
   double blobGarbageCollectionForceThreshold();
 
+  /**
+   * Set compaction readahead for blob files.
+   *
+   * Default: 0
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param blobCompactionReadaheadSize the compaction readahead for blob files
+   *
+   * @return the reference to the current options.
+   */
+  T setBlobCompactionReadaheadSize(final long blobCompactionReadaheadSize);
+
+  /**
+   * Get compaction readahead for blob files.
+   *
+   * @return the current compaction readahead for blob files
+   */
+  long blobCompactionReadaheadSize();
+
   //
   // END options for blobs (integrated BlobDB)
   //

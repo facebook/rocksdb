@@ -796,6 +796,14 @@ public enum TickerType {
     WARM_FILE_READ_COUNT((byte) -0x28),
     COLD_FILE_READ_COUNT((byte) -0x29),
 
+    /**
+     * (non-)last level read statistics
+     */
+    LAST_LEVEL_READ_BYTES((byte) -0x2A),
+    LAST_LEVEL_READ_COUNT((byte) -0x2B),
+    NON_LAST_LEVEL_READ_BYTES((byte) -0x2C),
+    NON_LAST_LEVEL_READ_COUNT((byte) -0x2D),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;

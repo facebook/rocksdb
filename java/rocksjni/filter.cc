@@ -21,13 +21,12 @@
  * Method:    createBloomFilter
  * Signature: (DZ)J
  */
-jlong Java_org_rocksdb_BloomFilter_createNewBloomFilter(
-    JNIEnv* /*env*/, jclass /*jcls*/, jdouble bits_per_key,
-    jboolean use_block_base_builder) {
+jlong Java_org_rocksdb_BloomFilter_createNewBloomFilter(JNIEnv* /*env*/,
+                                                        jclass /*jcls*/,
+                                                        jdouble bits_per_key) {
   auto* sptr_filter =
       new std::shared_ptr<const ROCKSDB_NAMESPACE::FilterPolicy>(
-          ROCKSDB_NAMESPACE::NewBloomFilterPolicy(bits_per_key,
-                                                  use_block_base_builder));
+          ROCKSDB_NAMESPACE::NewBloomFilterPolicy(bits_per_key));
   return reinterpret_cast<jlong>(sptr_filter);
 }
 

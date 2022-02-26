@@ -269,9 +269,9 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
 
   // Populate a tempfile and then rename it to atomically create "<seqno>.state"
   // with contents from "LATEST.state"
-  Status s =
-      CopyFile(FileSystem::Default(), latest_file_path, state_file_temp_path,
-               0 /* size */, false /* use_fsync */);
+  Status s = CopyFile(FileSystem::Default(), latest_file_path,
+                      state_file_temp_path, 0 /* size */, false /* use_fsync */,
+                      nullptr /* io_tracer */, Temperature::kUnknown);
   if (s.ok()) {
     s = FileSystem::Default()->RenameFile(state_file_temp_path, state_file_path,
                                           IOOptions(), nullptr /* dbg */);
@@ -381,8 +381,10 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
   // object, but it's convenient and works to share state with the
   // `TraceRecord::Handler`.
 
-  Status PutCF(uint32_t column_family_id, const Slice& key,
+  Status PutCF(uint32_t column_family_id, const Slice& key_with_ts,
                const Slice& value) override {
+    Slice key =
+        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
     uint64_t key_id;
     if (!GetIntVal(key.ToString(), &key_id)) {
       return Status::Corruption("unable to parse key", key.ToString());
@@ -395,7 +397,10 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     return Status::OK();
   }
 
-  Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
+  Status DeleteCF(uint32_t column_family_id,
+                  const Slice& key_with_ts) override {
+    Slice key =
+        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
     uint64_t key_id;
     if (!GetIntVal(key.ToString(), &key_id)) {
       return Status::Corruption("unable to parse key", key.ToString());
@@ -407,12 +412,18 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     return Status::OK();
   }
 
-  Status SingleDeleteCF(uint32_t column_family_id, const Slice& key) override {
-    return DeleteCF(column_family_id, key);
+  Status SingleDeleteCF(uint32_t column_family_id,
+                        const Slice& key_with_ts) override {
+    return DeleteCF(column_family_id, key_with_ts);
   }
 
-  Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
-                       const Slice& end_key) override {
+  Status DeleteRangeCF(uint32_t column_family_id,
+                       const Slice& begin_key_with_ts,
+                       const Slice& end_key_with_ts) override {
+    Slice begin_key =
+        StripTimestampFromUserKey(begin_key_with_ts, FLAGS_user_timestamp_size);
+    Slice end_key =
+        StripTimestampFromUserKey(end_key_with_ts, FLAGS_user_timestamp_size);
     uint64_t begin_key_id, end_key_id;
     if (!GetIntVal(begin_key.ToString(), &begin_key_id)) {
       return Status::Corruption("unable to parse begin key",
@@ -428,8 +439,10 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     return Status::OK();
   }
 
-  Status MergeCF(uint32_t column_family_id, const Slice& key,
+  Status MergeCF(uint32_t column_family_id, const Slice& key_with_ts,
                  const Slice& value) override {
+    Slice key =
+        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
     return PutCF(column_family_id, key, value);
   }
 
@@ -468,7 +481,8 @@ Status FileExpectedStateManager::Restore(DB* db) {
     // "LATEST.state". Start off by creating a tempfile so we can later make the
     // new "LATEST.state" appear atomically using `RenameFile()`.
     s = CopyFile(FileSystem::Default(), state_file_path, latest_file_temp_path,
-                 0 /* size */, false /* use_fsync */);
+                 0 /* size */, false /* use_fsync */, nullptr /* io_tracer */,
+                 Temperature::kUnknown);
   }
 
   {

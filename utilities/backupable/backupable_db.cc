@@ -552,6 +552,7 @@ class BackupEngineImpl {
                             const EnvOptions& src_env_options, bool sync,
                             RateLimiter* rate_limiter,
                             std::function<void()> progress_callback,
+                            const Temperature src_temperature,
                             uint64_t* bytes_toward_next_callback,
                             uint64_t* size, std::string* checksum_hex);
 
@@ -559,7 +560,8 @@ class BackupEngineImpl {
                                       const std::shared_ptr<FileSystem>& src_fs,
                                       const EnvOptions& src_env_options,
                                       uint64_t size_limit,
-                                      std::string* checksum_hex) const;
+                                      std::string* checksum_hex,
+                                      const Temperature src_temperature) const;
 
   // Obtain db_id and db_session_id from the table properties of file_path
   Status GetFileDbIdentities(Env* src_env, const EnvOptions& src_env_options,
@@ -605,6 +607,7 @@ class BackupEngineImpl {
     std::string src_checksum_hex;
     std::string db_id;
     std::string db_session_id;
+    Temperature src_temperature;
 
     CopyOrCreateWorkItem()
         : src_path(""),
@@ -620,7 +623,8 @@ class BackupEngineImpl {
           src_checksum_func_name(kUnknownFileChecksumFuncName),
           src_checksum_hex(""),
           db_id(""),
-          db_session_id("") {}
+          db_session_id(""),
+          src_temperature(Temperature::kUnknown) {}
 
     CopyOrCreateWorkItem(const CopyOrCreateWorkItem&) = delete;
     CopyOrCreateWorkItem& operator=(const CopyOrCreateWorkItem&) = delete;
@@ -646,6 +650,7 @@ class BackupEngineImpl {
       src_checksum_hex = std::move(o.src_checksum_hex);
       db_id = std::move(o.db_id);
       db_session_id = std::move(o.db_session_id);
+      src_temperature = o.src_temperature;
       return *this;
     }
 
@@ -657,7 +662,8 @@ class BackupEngineImpl {
         const std::string& _src_checksum_func_name =
             kUnknownFileChecksumFuncName,
         const std::string& _src_checksum_hex = "",
-        const std::string& _db_id = "", const std::string& _db_session_id = "")
+        const std::string& _db_id = "", const std::string& _db_session_id = "",
+        const Temperature _src_temperature = Temperature::kUnknown)
         : src_path(std::move(_src_path)),
           dst_path(std::move(_dst_path)),
           contents(std::move(_contents)),
@@ -672,7 +678,8 @@ class BackupEngineImpl {
           src_checksum_func_name(_src_checksum_func_name),
           src_checksum_hex(_src_checksum_hex),
           db_id(_db_id),
-          db_session_id(_db_session_id) {}
+          db_session_id(_db_session_id),
+          src_temperature(_src_temperature) {}
   };
 
   struct BackupAfterCopyOrCreateWorkItem {
@@ -780,7 +787,8 @@ class BackupEngineImpl {
       std::function<void()> progress_callback = []() {},
       const std::string& contents = std::string(),
       const std::string& src_checksum_func_name = kUnknownFileChecksumFuncName,
-      const std::string& src_checksum_str = kUnknownFileChecksum);
+      const std::string& src_checksum_str = kUnknownFileChecksum,
+      const Temperature src_temperature = Temperature::kUnknown);
 
   // backup state data
   BackupID latest_backup_id_;
@@ -1194,8 +1202,8 @@ IOStatus BackupEngineImpl::Initialize() {
             work_item.src_path, work_item.dst_path, work_item.contents,
             work_item.size_limit, work_item.src_env, work_item.dst_env,
             work_item.src_env_options, work_item.sync, work_item.rate_limiter,
-            work_item.progress_callback, &bytes_toward_next_callback,
-            &result.size, &result.checksum_hex);
+            work_item.progress_callback, work_item.src_temperature,
+            &bytes_toward_next_callback, &result.size, &result.checksum_hex);
 
         RecordTick(work_item.stats, BACKUP_READ_BYTES,
                    IOSTATS(bytes_read) - prev_bytes_read);
@@ -1238,7 +1246,6 @@ IOStatus BackupEngineImpl::Initialize() {
     });
   }
   ROCKS_LOG_INFO(options_.info_log, "Initialized BackupEngine");
-
   return IOStatus::OK();
 }
 
@@ -1344,7 +1351,8 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
         [&](const std::string& src_dirname, const std::string& fname,
             uint64_t size_limit_bytes, FileType type,
             const std::string& checksum_func_name,
-            const std::string& checksum_val) {
+            const std::string& checksum_val,
+            const Temperature src_temperature) {
           if (type == kWalFile && !options_.backup_log_files) {
             return IOStatus::OK();
           }
@@ -1390,7 +1398,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
                 options_.share_files_with_checksum &&
                     (type == kTableFile || type == kBlobFile),
                 options.progress_callback, "" /* contents */,
-                checksum_func_name, checksum_val);
+                checksum_func_name, checksum_val, src_temperature);
           }
           return io_st;
         } /* copy_file_cb */,
@@ -1933,9 +1941,9 @@ IOStatus BackupEngineImpl::VerifyBackup(BackupID backup_id,
       std::string checksum_hex;
       ROCKS_LOG_INFO(options_.info_log, "Verifying %s checksum...\n",
                      abs_path.c_str());
-      IOStatus io_s =
-          ReadFileAndComputeChecksum(abs_path, backup_fs_, EnvOptions(),
-                                     0 /* size_limit */, &checksum_hex);
+      IOStatus io_s = ReadFileAndComputeChecksum(
+          abs_path, backup_fs_, EnvOptions(), 0 /* size_limit */, &checksum_hex,
+          Temperature::kUnknown);
       if (!io_s.ok()) {
         return io_s;
       } else if (file_info->checksum_hex != checksum_hex) {
@@ -1954,7 +1962,7 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     const std::string& src, const std::string& dst, const std::string& contents,
     uint64_t size_limit, Env* src_env, Env* dst_env,
     const EnvOptions& src_env_options, bool sync, RateLimiter* rate_limiter,
-    std::function<void()> progress_callback,
+    std::function<void()> progress_callback, const Temperature src_temperature,
     uint64_t* bytes_toward_next_callback, uint64_t* size,
     std::string* checksum_hex) {
   assert(src.empty() != contents.empty());
@@ -1977,8 +1985,10 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
   io_s = dst_env->GetFileSystem()->NewWritableFile(dst, dst_file_options,
                                                    &dst_file, nullptr);
   if (io_s.ok() && !src.empty()) {
-    io_s = src_env->GetFileSystem()->NewSequentialFile(
-        src, FileOptions(src_env_options), &src_file, nullptr);
+    auto src_file_options = FileOptions(src_env_options);
+    src_file_options.temperature = src_temperature;
+    io_s = src_env->GetFileSystem()->NewSequentialFile(src, src_file_options,
+                                                       &src_file, nullptr);
   }
   if (!io_s.ok()) {
     return io_s;
@@ -2074,7 +2084,7 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
     Statistics* stats, uint64_t size_limit, bool shared_checksum,
     std::function<void()> progress_callback, const std::string& contents,
     const std::string& src_checksum_func_name,
-    const std::string& src_checksum_str) {
+    const std::string& src_checksum_str, const Temperature src_temperature) {
   assert(contents.empty() != src_dir.empty());
 
   std::string src_path = src_dir + "/" + fname;
@@ -2121,7 +2131,8 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
     // the shared_checksum directory.
     if (checksum_hex.empty() && db_session_id.empty()) {
       IOStatus io_s = ReadFileAndComputeChecksum(
-          src_path, db_fs_, src_env_options, size_limit, &checksum_hex);
+          src_path, db_fs_, src_env_options, size_limit, &checksum_hex,
+          src_temperature);
       if (!io_s.ok()) {
         return io_s;
       }
@@ -2240,7 +2251,8 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
           // BackupMeta::AddFile.
         } else {
           IOStatus io_s = ReadFileAndComputeChecksum(
-              src_path, db_fs_, src_env_options, size_limit, &checksum_hex);
+              src_path, db_fs_, src_env_options, size_limit, &checksum_hex,
+              src_temperature);
           if (!io_s.ok()) {
             return io_s;
           }
@@ -2269,7 +2281,7 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
         src_dir.empty() ? "" : src_path, *copy_dest_path, contents, db_env_,
         backup_env_, src_env_options, options_.sync, rate_limiter, size_limit,
         stats, progress_callback, src_checksum_func_name, checksum_hex, db_id,
-        db_session_id);
+        db_session_id, src_temperature);
     BackupAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(), shared, need_to_copy,
         backup_env_, temp_dest_path, final_dest_path, dst_relative);
@@ -2295,7 +2307,7 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
 IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
     const std::string& src, const std::shared_ptr<FileSystem>& src_fs,
     const EnvOptions& src_env_options, uint64_t size_limit,
-    std::string* checksum_hex) const {
+    std::string* checksum_hex, const Temperature src_temperature) const {
   if (checksum_hex == nullptr) {
     return status_to_io_status(Status::Aborted("Checksum pointer is null"));
   }
@@ -2305,8 +2317,10 @@ IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
   }
 
   std::unique_ptr<SequentialFileReader> src_reader;
-  IOStatus io_s = SequentialFileReader::Create(
-      src_fs, src, FileOptions(src_env_options), &src_reader, nullptr);
+  auto file_options = FileOptions(src_env_options);
+  file_options.temperature = src_temperature;
+  IOStatus io_s = SequentialFileReader::Create(src_fs, src, file_options,
+                                               &src_reader, nullptr);
   if (!io_s.ok()) {
     return io_s;
   }

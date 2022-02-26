@@ -465,15 +465,6 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void newTableReaderForCompactionInputs() {
-    try(final DBOptions opt = new DBOptions()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setNewTableReaderForCompactionInputs(boolValue);
-      assertThat(opt.newTableReaderForCompactionInputs()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void compactionReadaheadSize() {
     try(final DBOptions opt = new DBOptions()) {
       final long longValue = rand.nextLong();

@@ -133,7 +133,25 @@ bool PessimisticTransaction::IsExpired() const {
 WriteCommittedTxn::WriteCommittedTxn(TransactionDB* txn_db,
                                      const WriteOptions& write_options,
                                      const TransactionOptions& txn_options)
-    : PessimisticTransaction(txn_db, write_options, txn_options){};
+    : PessimisticTransaction(txn_db, write_options, txn_options) {}
+
+Status WriteCommittedTxn::SetReadTimestampForValidation(TxnTimestamp ts) {
+  if (read_timestamp_ < kMaxTxnTimestamp && ts < read_timestamp_) {
+    return Status::InvalidArgument(
+        "Cannot decrease read timestamp for validation");
+  }
+  read_timestamp_ = ts;
+  return Status::OK();
+}
+
+Status WriteCommittedTxn::SetCommitTimestamp(TxnTimestamp ts) {
+  if (read_timestamp_ < kMaxTxnTimestamp && ts <= read_timestamp_) {
+    return Status::InvalidArgument(
+        "Cannot commit at timestamp smaller than or equal to read timestamp");
+  }
+  commit_timestamp_ = ts;
+  return Status::OK();
+}
 
 Status PessimisticTransaction::CommitBatch(WriteBatch* batch) {
   std::unique_ptr<LockTracker> keys_to_unlock(lock_tracker_factory_.Create());
@@ -585,6 +603,13 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
     s = txn_db_impl_->TryLock(this, cfh_id, key_str, exclusive);
   }
 
+  const ColumnFamilyHandle* const cfh =
+      column_family ? column_family : db_impl_->DefaultColumnFamily();
+  assert(cfh);
+  const Comparator* const ucmp = cfh->GetComparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+
   SetSnapshotIfNeeded();
 
   // Even though we do not care about doing conflict checking for this write,
@@ -592,10 +617,11 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   // some other write.  However, we do not need to check if there have been
   // any writes since this transaction's snapshot.
   // TODO(agiardullo): could optimize by supporting shared txn locks in the
-  // future
+  // future.
   SequenceNumber tracked_at_seq =
       status.locked ? status.seq : kMaxSequenceNumber;
-  if (!do_validate || snapshot_ == nullptr) {
+  if (!do_validate || (snapshot_ == nullptr &&
+                       (0 == ts_sz || kMaxTxnTimestamp == read_timestamp_))) {
     if (assume_tracked && !previously_locked &&
         tracked_locks_->IsPointLockSupported()) {
       s = Status::InvalidArgument(
@@ -603,8 +629,7 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
     }
     // Need to remember the earliest sequence number that we know that this
     // key has not been modified after.  This is useful if this same
-    // transaction
-    // later tries to lock this key again.
+    // transaction later tries to lock this key again.
     if (tracked_at_seq == kMaxSequenceNumber) {
       // Since we haven't checked a snapshot, we only know this key has not
       // been modified since after we locked it.
@@ -615,24 +640,21 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
       // lock, which would be an unusual sequence.
       tracked_at_seq = db_->GetLatestSequenceNumber();
     }
-  } else {
+  } else if (s.ok()) {
     // If a snapshot is set, we need to make sure the key hasn't been modified
     // since the snapshot.  This must be done after we locked the key.
     // If we already have validated an earilier snapshot it must has been
     // reflected in tracked_at_seq and ValidateSnapshot will return OK.
-    if (s.ok()) {
-      s = ValidateSnapshot(column_family, key, &tracked_at_seq);
+    s = ValidateSnapshot(column_family, key, &tracked_at_seq);
 
-      if (!s.ok()) {
-        // Failed to validate key
-        // Unlock key we just locked
-        if (lock_upgrade) {
-          s = txn_db_impl_->TryLock(this, cfh_id, key_str,
-                                    false /* exclusive */);
-          assert(s.ok());
-        } else if (!previously_locked) {
-          txn_db_impl_->UnLock(this, cfh_id, key.ToString());
-        }
+    if (!s.ok()) {
+      // Failed to validate key
+      // Unlock key we just locked
+      if (lock_upgrade) {
+        s = txn_db_impl_->TryLock(this, cfh_id, key_str, false /* exclusive */);
+        assert(s.ok());
+      } else if (!previously_locked) {
+        txn_db_impl_->UnLock(this, cfh_id, key.ToString());
       }
     }
   }
@@ -691,15 +713,21 @@ Status PessimisticTransaction::GetRangeLock(ColumnFamilyHandle* column_family,
 Status PessimisticTransaction::ValidateSnapshot(
     ColumnFamilyHandle* column_family, const Slice& key,
     SequenceNumber* tracked_at_seq) {
-  assert(snapshot_);
+  assert(snapshot_ || read_timestamp_ < kMaxTxnTimestamp);
 
-  SequenceNumber snap_seq = snapshot_->GetSequenceNumber();
-  if (*tracked_at_seq <= snap_seq) {
-    // If the key has been previous validated (or locked) at a sequence number
-    // earlier than the current snapshot's sequence number, we already know it
-    // has not been modified aftter snap_seq either.
-    return Status::OK();
+  SequenceNumber snap_seq = 0;
+  if (snapshot_) {
+    snap_seq = snapshot_->GetSequenceNumber();
+    if (*tracked_at_seq <= snap_seq) {
+      // If the key has been previous validated (or locked) at a sequence number
+      // earlier than the current snapshot's sequence number, we already know it
+      // has not been modified aftter snap_seq either.
+      return Status::OK();
+    }
+  } else {
+    snap_seq = db_impl_->GetLatestSequenceNumber();
   }
+
   // Otherwise we have either
   // 1: tracked_at_seq == kMaxSequenceNumber, i.e., first time tracking the key
   // 2: snap_seq < tracked_at_seq: last time we lock the key was via
@@ -711,9 +739,19 @@ Status PessimisticTransaction::ValidateSnapshot(
   ColumnFamilyHandle* cfh =
       column_family ? column_family : db_impl_->DefaultColumnFamily();
 
-  // TODO (yanqin): support conflict checking based on timestamp.
+  assert(cfh);
+  const Comparator* const ucmp = cfh->GetComparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+  std::string ts_buf;
+  if (ts_sz > 0 && read_timestamp_ < kMaxTxnTimestamp) {
+    assert(ts_sz == sizeof(read_timestamp_));
+    PutFixed64(&ts_buf, read_timestamp_);
+  }
+
   return TransactionUtil::CheckKeyForConflicts(
-      db_impl_, cfh, key.ToString(), snap_seq, nullptr, false /* cache_only */);
+      db_impl_, cfh, key.ToString(), snap_seq, ts_sz == 0 ? nullptr : &ts_buf,
+      false /* cache_only */);
 }
 
 bool PessimisticTransaction::TryStealingLocks() {

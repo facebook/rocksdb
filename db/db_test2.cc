@@ -21,6 +21,7 @@
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/trace_record.h"
 #include "rocksdb/trace_record_result.h"
+#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/replayer.h"
 #include "rocksdb/wal_filter.h"
 #include "test_util/testutil.h"
@@ -409,6 +410,9 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[2]));
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[3]));
+    // Ensure background work is fully finished including listener callbacks
+    // before accessing listener state.
+    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   };
 
   // Create some data and flush "default" and "nikitich" so that they
@@ -587,6 +591,11 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[2]));
     ASSERT_OK(static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable());
+    // Ensure background work is fully finished including listener callbacks
+    // before accessing listener state.
+    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+    ASSERT_OK(
+        static_cast_with_check<DBImpl>(db2)->TEST_WaitForBackgroundWork());
   };
 
   // Trigger a flush on cf2
@@ -3937,69 +3946,74 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
   const int kBytesPerKey = 1024;
   const int kNumL0Files = 4;
 
-  for (auto use_direct_io : {false, true}) {
-    if (use_direct_io && !IsDirectIOSupported()) {
-      continue;
-    }
-    Options options = CurrentOptions();
-    options.compression = kNoCompression;
-    options.level0_file_num_compaction_trigger = kNumL0Files;
-    options.memtable_factory.reset(
-        test::NewSpecialSkipListFactory(kNumKeysPerFile));
-    options.new_table_reader_for_compaction_inputs = true;
-    // takes roughly one second, split into 100 x 10ms intervals. Each interval
-    // permits 5.12KB, which is smaller than the block size, so this test
-    // exercises the code for chunking reads.
-    options.rate_limiter.reset(NewGenericRateLimiter(
-        static_cast<int64_t>(kNumL0Files * kNumKeysPerFile *
-                             kBytesPerKey) /* rate_bytes_per_sec */,
-        10 * 1000 /* refill_period_us */, 10 /* fairness */,
-        RateLimiter::Mode::kReadsOnly));
-    options.use_direct_reads = options.use_direct_io_for_flush_and_compaction =
-        use_direct_io;
-    BlockBasedTableOptions bbto;
-    bbto.block_size = 16384;
-    bbto.no_block_cache = true;
-    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    DestroyAndReopen(options);
-
-    for (int i = 0; i < kNumL0Files; ++i) {
-      for (int j = 0; j <= kNumKeysPerFile; ++j) {
-        ASSERT_OK(Put(Key(j), DummyString(kBytesPerKey)));
+  for (int compaction_readahead_size : {0, 32 << 10}) {
+    for (auto use_direct_io : {false, true}) {
+      if (use_direct_io && !IsDirectIOSupported()) {
+        continue;
       }
-      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-      if (i + 1 < kNumL0Files) {
-        ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
+      Options options = CurrentOptions();
+      options.compaction_readahead_size = compaction_readahead_size;
+      options.compression = kNoCompression;
+      options.level0_file_num_compaction_trigger = kNumL0Files;
+      options.memtable_factory.reset(
+          test::NewSpecialSkipListFactory(kNumKeysPerFile));
+      // takes roughly one second, split into 100 x 10ms intervals. Each
+      // interval permits 5.12KB, which is smaller than the block size, so this
+      // test exercises the code for chunking reads.
+      options.rate_limiter.reset(NewGenericRateLimiter(
+          static_cast<int64_t>(kNumL0Files * kNumKeysPerFile *
+                               kBytesPerKey) /* rate_bytes_per_sec */,
+          10 * 1000 /* refill_period_us */, 10 /* fairness */,
+          RateLimiter::Mode::kReadsOnly));
+      options.use_direct_reads =
+          options.use_direct_io_for_flush_and_compaction = use_direct_io;
+      BlockBasedTableOptions bbto;
+      bbto.block_size = 16384;
+      bbto.no_block_cache = true;
+      options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+      DestroyAndReopen(options);
+
+      for (int i = 0; i < kNumL0Files; ++i) {
+        for (int j = 0; j <= kNumKeysPerFile; ++j) {
+          ASSERT_OK(Put(Key(j), DummyString(kBytesPerKey)));
+        }
+        ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+        if (i + 1 < kNumL0Files) {
+          ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
+        }
       }
-    }
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-    ASSERT_EQ(0, NumTableFilesAtLevel(0));
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+      ASSERT_EQ(0, NumTableFilesAtLevel(0));
 
-    ASSERT_EQ(0, options.rate_limiter->GetTotalBytesThrough(Env::IO_HIGH));
-    // should be slightly above 512KB due to non-data blocks read. Arbitrarily
-    // chose 1MB as the upper bound on the total bytes read.
-    size_t rate_limited_bytes =
-        options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW);
-    // Include the explicit prefetch of the footer in direct I/O case.
-    size_t direct_io_extra = use_direct_io ? 512 * 1024 : 0;
-    ASSERT_GE(
-        rate_limited_bytes,
-        static_cast<size_t>(kNumKeysPerFile * kBytesPerKey * kNumL0Files));
-    ASSERT_LT(
-        rate_limited_bytes,
-        static_cast<size_t>(2 * kNumKeysPerFile * kBytesPerKey * kNumL0Files +
-                            direct_io_extra));
+      // should be slightly above 512KB due to non-data blocks read. Arbitrarily
+      // chose 1MB as the upper bound on the total bytes read.
+      size_t rate_limited_bytes =
+          options.rate_limiter->GetTotalBytesThrough(Env::IO_TOTAL);
+      // There must be no charges at non-`IO_LOW` priorities.
+      ASSERT_EQ(rate_limited_bytes,
+                static_cast<size_t>(
+                    options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW)));
+      // Include the explicit prefetch of the footer in direct I/O case.
+      size_t direct_io_extra = use_direct_io ? 512 * 1024 : 0;
+      ASSERT_GE(
+          rate_limited_bytes,
+          static_cast<size_t>(kNumKeysPerFile * kBytesPerKey * kNumL0Files));
+      ASSERT_LT(
+          rate_limited_bytes,
+          static_cast<size_t>(2 * kNumKeysPerFile * kBytesPerKey * kNumL0Files +
+                              direct_io_extra));
 
-    Iterator* iter = db_->NewIterator(ReadOptions());
-    ASSERT_OK(iter->status());
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      ASSERT_EQ(iter->value().ToString(), DummyString(kBytesPerKey));
+      Iterator* iter = db_->NewIterator(ReadOptions());
+      ASSERT_OK(iter->status());
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        ASSERT_EQ(iter->value().ToString(), DummyString(kBytesPerKey));
+      }
+      delete iter;
+      // bytes read for user iterator shouldn't count against the rate limit.
+      ASSERT_EQ(rate_limited_bytes,
+                static_cast<size_t>(
+                    options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW)));
     }
-    delete iter;
-    // bytes read for user iterator shouldn't count against the rate limit.
-    ASSERT_EQ(rate_limited_bytes,
-              static_cast<size_t>(
-                  options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW)));
   }
 }
 #endif  // ROCKSDB_LITE
@@ -6495,10 +6509,66 @@ TEST_P(RenameCurrentTest, Compaction) {
 }
 
 TEST_F(DBTest2, BottommostTemperature) {
+  class TestListener : public EventListener {
+   public:
+    void OnFileReadFinish(const FileOperationInfo& info) override {
+      UpdateFileTemperature(info);
+    }
+
+    void OnFileWriteFinish(const FileOperationInfo& info) override {
+      UpdateFileTemperature(info);
+    }
+
+    void OnFileFlushFinish(const FileOperationInfo& info) override {
+      UpdateFileTemperature(info);
+    }
+
+    void OnFileSyncFinish(const FileOperationInfo& info) override {
+      UpdateFileTemperature(info);
+    }
+
+    void OnFileCloseFinish(const FileOperationInfo& info) override {
+      UpdateFileTemperature(info);
+    }
+
+    bool ShouldBeNotifiedOnFileIO() override { return true; }
+
+    std::unordered_map<uint64_t, Temperature> file_temperatures;
+
+   private:
+    void UpdateFileTemperature(const FileOperationInfo& info) {
+      auto filename = GetFileName(info.path);
+      uint64_t number;
+      FileType type;
+      ASSERT_TRUE(ParseFileName(filename, &number, &type));
+      if (type == kTableFile) {
+        MutexLock l(&mutex_);
+        auto ret = file_temperatures.insert({number, info.temperature});
+        if (!ret.second) {
+          // the same file temperature should always be the same for all events
+          ASSERT_TRUE(ret.first->second == info.temperature);
+        }
+      }
+    }
+
+    std::string GetFileName(const std::string& fname) {
+      auto filename = fname.substr(fname.find_last_of(kFilePathSeparator) + 1);
+      // workaround only for Windows that the file path could contain both
+      // Windows FilePathSeparator and '/'
+      filename = filename.substr(filename.find_last_of('/') + 1);
+      return filename;
+    }
+
+    port::Mutex mutex_;
+  };
+
+  auto* listener = new TestListener();
+
   Options options = CurrentOptions();
   options.bottommost_temperature = Temperature::kWarm;
   options.level0_file_num_compaction_trigger = 2;
   options.statistics = CreateDBStatistics();
+  options.listeners.emplace_back(listener);
   Reopen(options);
 
   auto size = GetSstSizeHelper(Temperature::kUnknown);
@@ -6522,7 +6592,13 @@ TEST_F(DBTest2, BottommostTemperature) {
   ColumnFamilyMetaData metadata;
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(1, metadata.file_count);
-  ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
+  SstFileMetaData meta = metadata.levels[1].files[0];
+  ASSERT_EQ(Temperature::kWarm, meta.temperature);
+  uint64_t number;
+  FileType type;
+  ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
+  ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
+
   size = GetSstSizeHelper(Temperature::kUnknown);
   ASSERT_EQ(size, 0);
   size = GetSstSizeHelper(Temperature::kWarm);
@@ -6569,7 +6645,16 @@ TEST_F(DBTest2, BottommostTemperature) {
 
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
-  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
+  meta = metadata.levels[0].files[0];
+  ASSERT_EQ(Temperature::kUnknown, meta.temperature);
+  ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
+  ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
+
+  meta = metadata.levels[1].files[0];
+  ASSERT_EQ(Temperature::kWarm, meta.temperature);
+  ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
+  ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
+
   size = GetSstSizeHelper(Temperature::kUnknown);
   ASSERT_GT(size, 0);
   size = GetSstSizeHelper(Temperature::kWarm);
@@ -6579,8 +6664,15 @@ TEST_F(DBTest2, BottommostTemperature) {
   Reopen(options);
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
-  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
-  ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
+  meta = metadata.levels[0].files[0];
+  ASSERT_EQ(Temperature::kUnknown, meta.temperature);
+  ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
+  ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
+
+  meta = metadata.levels[1].files[0];
+  ASSERT_EQ(Temperature::kWarm, meta.temperature);
+  ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
+  ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
   size = GetSstSizeHelper(Temperature::kUnknown);
   ASSERT_GT(size, 0);
   size = GetSstSizeHelper(Temperature::kWarm);
@@ -6600,8 +6692,15 @@ TEST_F(DBTest2, BottommostTemperature) {
   Reopen(options);
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(2, metadata.file_count);
-  ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
-  ASSERT_EQ(Temperature::kWarm, metadata.levels[1].files[0].temperature);
+  meta = metadata.levels[0].files[0];
+  ASSERT_EQ(Temperature::kUnknown, meta.temperature);
+  ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
+  ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
+
+  meta = metadata.levels[1].files[0];
+  ASSERT_EQ(Temperature::kWarm, meta.temperature);
+  ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
+  ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
 }
 
 TEST_F(DBTest2, BottommostTemperatureUniversal) {
@@ -6757,6 +6856,230 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   size = GetSstSizeHelper(Temperature::kCold);
   ASSERT_GT(size, 0);
 }
+
+TEST_F(DBTest2, LastLevelStatistics) {
+  Options options = CurrentOptions();
+  options.bottommost_temperature = Temperature::kWarm;
+  options.level0_file_num_compaction_trigger = 2;
+  options.level_compaction_dynamic_level_bytes = true;
+  options.statistics = CreateDBStatistics();
+  Reopen(options);
+
+  // generate 1 sst on level 0
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("bar", Get("bar"));
+
+  ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES), 0);
+  ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES), 0);
+  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT), 0);
+
+  // 2nd flush to trigger compaction
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("bar", Get("bar"));
+
+  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES),
+            options.statistics->getTickerCount(WARM_FILE_READ_BYTES));
+  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
+            options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
+
+  auto pre_bytes =
+      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES);
+  auto pre_count =
+      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+
+  // 3rd flush to generate 1 sst on level 0
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("bar", Get("bar"));
+
+  ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_BYTES),
+            pre_bytes);
+  ASSERT_GT(options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT),
+            pre_count);
+  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_BYTES),
+            options.statistics->getTickerCount(WARM_FILE_READ_BYTES));
+  ASSERT_EQ(options.statistics->getTickerCount(LAST_LEVEL_READ_COUNT),
+            options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
+}
+
+class FileTemperatureTestFS : public FileSystemWrapper {
+ public:
+  explicit FileTemperatureTestFS(SpecialEnv* env)
+      : FileSystemWrapper(env->GetFileSystem()) {}
+
+  static const char* kClassName() { return "TestFileSystem"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewSequentialFile(const std::string& fname, const FileOptions& opts,
+                             std::unique_ptr<FSSequentialFile>* result,
+                             IODebugContext* dbg) override {
+    auto filename = GetFileName(fname);
+    uint64_t number;
+    FileType type;
+    auto r = ParseFileName(filename, &number, &type);
+    assert(r);
+    if (type == kTableFile) {
+      auto emplaced =
+          requested_sst_file_temperatures_.emplace(number, opts.temperature);
+      assert(emplaced.second);  // assume no duplication
+    }
+    return target()->NewSequentialFile(fname, opts, result, dbg);
+  }
+
+  IOStatus LinkFile(const std::string& s, const std::string& t,
+                    const IOOptions& options, IODebugContext* dbg) override {
+    auto filename = GetFileName(s);
+    uint64_t number;
+    FileType type;
+    auto r = ParseFileName(filename, &number, &type);
+    assert(r);
+    // return not supported to force checkpoint copy the file instead of just
+    // link
+    if (type == kTableFile) {
+      return IOStatus::NotSupported();
+    }
+    return target()->LinkFile(s, t, options, dbg);
+  }
+
+  const std::map<uint64_t, Temperature>& RequestedSstFileTemperatures() {
+    return requested_sst_file_temperatures_;
+  }
+
+  void ClearRequestedFileTemperatures() {
+    requested_sst_file_temperatures_.clear();
+  }
+
+ private:
+  std::map<uint64_t, Temperature> requested_sst_file_temperatures_;
+
+  std::string GetFileName(const std::string& fname) {
+    auto filename = fname.substr(fname.find_last_of(kFilePathSeparator) + 1);
+    // workaround only for Windows that the file path could contain both Windows
+    // FilePathSeparator and '/'
+    filename = filename.substr(filename.find_last_of('/') + 1);
+    return filename;
+  }
+};
+
+TEST_F(DBTest2, BackupFileTemperature) {
+  std::shared_ptr<FileTemperatureTestFS> test_fs =
+      std::make_shared<FileTemperatureTestFS>(env_);
+  std::unique_ptr<Env> backup_env(new CompositeEnvWrapper(env_, test_fs));
+  Options options = CurrentOptions();
+  options.bottommost_temperature = Temperature::kWarm;
+  options.level0_file_num_compaction_trigger = 2;
+  Reopen(options);
+
+  // generate a bottommost file and a non-bottommost file
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  auto size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
+
+  std::map<uint64_t, Temperature> temperatures;
+  std::vector<LiveFileStorageInfo> infos;
+  ASSERT_OK(
+      dbfull()->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(), &infos));
+  for (auto info : infos) {
+    temperatures.emplace(info.file_number, info.temperature);
+  }
+
+  std::unique_ptr<BackupEngine> backup_engine;
+  {
+    BackupEngine* backup_engine_raw_ptr;
+    auto backup_options = BackupEngineOptions(
+        dbname_ + kFilePathSeparator + "tempbk", backup_env.get());
+    ASSERT_OK(BackupEngine::Open(backup_env.get(), backup_options,
+                                 &backup_engine_raw_ptr));
+    backup_engine.reset(backup_engine_raw_ptr);
+  }
+  ASSERT_OK(backup_engine->CreateNewBackup(db_));
+
+  // checking src file src_temperature hints: 2 sst files: 1 sst is kWarm,
+  // another is kUnknown
+  auto file_temperatures = test_fs->RequestedSstFileTemperatures();
+  ASSERT_EQ(file_temperatures.size(), 2);
+  bool has_only_one_warm_sst = false;
+  for (const auto& file_temperature : file_temperatures) {
+    ASSERT_EQ(temperatures.at(file_temperature.first), file_temperature.second);
+    if (file_temperature.second == Temperature::kWarm) {
+      ASSERT_FALSE(has_only_one_warm_sst);
+      has_only_one_warm_sst = true;
+    }
+  }
+  ASSERT_TRUE(has_only_one_warm_sst);
+  Close();
+}
+
+TEST_F(DBTest2, CheckpointFileTemperature) {
+  std::shared_ptr<FileTemperatureTestFS> test_fs =
+      std::make_shared<FileTemperatureTestFS>(env_);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, test_fs));
+  Options options = CurrentOptions();
+  options.bottommost_temperature = Temperature::kWarm;
+  options.level0_file_num_compaction_trigger = 2;
+  options.env = env.get();
+  Reopen(options);
+
+  // generate a bottommost file and a non-bottommost file
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("bar", "bar"));
+  ASSERT_OK(Flush());
+  auto size = GetSstSizeHelper(Temperature::kWarm);
+  ASSERT_GT(size, 0);
+
+  std::map<uint64_t, Temperature> temperatures;
+  std::vector<LiveFileStorageInfo> infos;
+  ASSERT_OK(
+      dbfull()->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(), &infos));
+  for (auto info : infos) {
+    temperatures.emplace(info.file_number, info.temperature);
+  }
+
+  test_fs->ClearRequestedFileTemperatures();
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(
+      checkpoint->CreateCheckpoint(dbname_ + kFilePathSeparator + "tempcp"));
+
+  // checking src file src_temperature hints: 2 sst files: 1 sst is kWarm,
+  // another is kUnknown
+  auto file_temperatures = test_fs->RequestedSstFileTemperatures();
+  ASSERT_EQ(file_temperatures.size(), 2);
+  bool has_only_one_warm_sst = false;
+  for (const auto& file_temperature : file_temperatures) {
+    ASSERT_EQ(temperatures.at(file_temperature.first), file_temperature.second);
+    if (file_temperature.second == Temperature::kWarm) {
+      ASSERT_FALSE(has_only_one_warm_sst);
+      has_only_one_warm_sst = true;
+    }
+  }
+  ASSERT_TRUE(has_only_one_warm_sst);
+  delete checkpoint;
+  Close();
+}
 #endif  // ROCKSDB_LITE
 
 // WAL recovery mode is WALRecoveryMode::kPointInTimeRecovery.
@@ -6837,7 +7160,7 @@ TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   options.max_write_buffer_size_to_maintain = 64 << 10;
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
-  options.comparator = test::ComparatorWithU64Ts();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
   options.statistics = CreateDBStatistics();
 
   Reopen(options);

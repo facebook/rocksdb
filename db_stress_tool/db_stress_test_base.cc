@@ -19,6 +19,7 @@
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "test_util/testutil.h"
 #include "util/cast_util.h"
 #include "utilities/backupable/backupable_db_impl.h"
 #include "utilities/fault_injection_fs.h"
@@ -348,6 +349,8 @@ bool StressTest::VerifySecondaries() {
       fprintf(stderr, "Secondary failed to catch up with primary\n");
       return false;
     }
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions ropts;
     ropts.total_order_seek = true;
     // Verify only the default column family since the primary may have
@@ -396,6 +399,8 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
   if (cf->GetName() != snap_state.cf_at_name) {
     return s;
   }
+  // This `ReadOptions` is for validation purposes. Ignore
+  // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
   ReadOptions ropt;
   ropt.snapshot = snap_state.snapshot;
   Slice ts;
@@ -632,6 +637,8 @@ Status StressTest::RollbackTxn(Transaction* txn) {
 
 void StressTest::OperateDb(ThreadState* thread) {
   ReadOptions read_opts(FLAGS_verify_checksum, true);
+  read_opts.rate_limiter_priority =
+      FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
   WriteOptions write_opts;
   auto shared = thread->shared;
   char value[100];
@@ -1132,6 +1139,8 @@ Status StressTest::TestIterate(ThreadState* thread,
     // to bounds, prefix extractor or reseeking. Sometimes we are comparing
     // iterators with the same set-up, and it doesn't hurt to check them
     // to be equal.
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions cmp_ro;
     cmp_ro.timestamp = readoptionscopy.timestamp;
     cmp_ro.snapshot = snapshot;
@@ -1572,6 +1581,8 @@ Status StressTest::TestBackupRestore(
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     std::string restored_value;
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions read_opts;
     std::string ts_str;
     Slice ts;
@@ -1942,6 +1953,8 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
                                      const std::string& keystr, uint64_t i) {
   Slice key = keystr;
   ColumnFamilyHandle* column_family = column_families_[rand_column_family];
+  // This `ReadOptions` is for validation purposes. Ignore
+  // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
   ReadOptions ropt;
 #ifndef ROCKSDB_LITE
   auto db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
@@ -2095,6 +2108,8 @@ uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
                                   const Slice& end_key) {
   const std::string kCrcCalculatorSepearator = ";";
   uint32_t crc = 0;
+  // This `ReadOptions` is for validation purposes. Ignore
+  // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
   ReadOptions ro;
   ro.snapshot = snapshot;
   ro.total_order_seek = true;
@@ -2405,9 +2420,6 @@ void StressTest::Open() {
         10 /* fairness */,
         FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
                                   : RateLimiter::Mode::kWritesOnly));
-    if (FLAGS_rate_limit_bg_reads) {
-      options_.new_table_reader_for_compaction_inputs = true;
-    }
   }
   if (FLAGS_sst_file_manager_bytes_per_sec > 0 ||
       FLAGS_sst_file_manager_bytes_per_truncate > 0) {
@@ -2854,7 +2866,7 @@ void StressTest::Reopen(ThreadState* thread) {
 
 void StressTest::CheckAndSetOptionsForUserTimestamp() {
   assert(FLAGS_user_timestamp_size > 0);
-  const Comparator* const cmp = test::ComparatorWithU64Ts();
+  const Comparator* const cmp = test::BytewiseComparatorWithU64TsWrapper();
   assert(cmp);
   if (FLAGS_user_timestamp_size != cmp->timestamp_size()) {
     fprintf(stderr,

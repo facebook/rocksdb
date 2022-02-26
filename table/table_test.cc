@@ -32,6 +32,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
@@ -51,6 +52,7 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/flush_block_policy.h"
 #include "table/block_fetcher.h"
 #include "table/format.h"
@@ -1317,7 +1319,7 @@ class FileChecksumTestHelper {
     uint64_t offset = 0;
     Status s;
     s = file_reader_->Read(IOOptions(), offset, 2048, &result, scratch.get(),
-                           nullptr, false);
+                           nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
     if (!s.ok()) {
       return s;
     }
@@ -1325,7 +1327,8 @@ class FileChecksumTestHelper {
       file_checksum_generator->Update(scratch.get(), result.size());
       offset += static_cast<uint64_t>(result.size());
       s = file_reader_->Read(IOOptions(), offset, 2048, &result, scratch.get(),
-                             nullptr, false);
+                             nullptr,
+                             Env::IO_TOTAL /* rate_limiter_priority */);
       if (!s.ok()) {
         return s;
       }
@@ -1869,7 +1872,7 @@ TEST_P(BlockBasedTableTest, FilterPolicyNameProperties) {
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
   auto& props = *c.GetTableReader()->GetTableProperties();
-  ASSERT_EQ("rocksdb.BuiltinBloomFilter", props.filter_policy_name);
+  ASSERT_EQ(table_options.filter_policy->Name(), props.filter_policy_name);
   c.ResetTableReader();
 }
 
@@ -2982,7 +2985,7 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   options.create_if_missing = true;
   table_options.block_cache = NewLRUCache(1024 * 1024, 0);
   table_options.cache_index_and_filter_blocks = true;
-  table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   SetupTracingTest(&c);
   std::vector<std::string> keys;
@@ -3021,14 +3024,14 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   // Then we should have three records for one index, one filter, and one data
   // block access.
   record.get_id = 1;
-  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.block_type = TraceType::kBlockTraceFilterBlock;
   record.caller = TableReaderCaller::kUserGet;
   record.get_from_user_specified_snapshot = Boolean::kFalse;
   record.referenced_key = encoded_key;
   record.referenced_key_exist_in_block = Boolean::kTrue;
   record.is_cache_hit = Boolean::kTrue;
   expected_records.push_back(record);
-  record.block_type = TraceType::kBlockTraceFilterBlock;
+  record.block_type = TraceType::kBlockTraceIndexBlock;
   expected_records.push_back(record);
   record.is_cache_hit = Boolean::kFalse;
   record.block_type = TraceType::kBlockTraceDataBlock;
@@ -3036,12 +3039,12 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   // The second get should all observe cache hits.
   record.is_cache_hit = Boolean::kTrue;
   record.get_id = 2;
-  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.block_type = TraceType::kBlockTraceFilterBlock;
   record.caller = TableReaderCaller::kUserGet;
   record.get_from_user_specified_snapshot = Boolean::kFalse;
   record.referenced_key = encoded_key;
   expected_records.push_back(record);
-  record.block_type = TraceType::kBlockTraceFilterBlock;
+  record.block_type = TraceType::kBlockTraceIndexBlock;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceDataBlock;
   expected_records.push_back(record);
@@ -3487,9 +3490,11 @@ TEST_P(BlockBasedTableTest, InvalidOptions) {
 }
 
 TEST_P(BlockBasedTableTest, BlockReadCountTest) {
-  // bloom_filter_type = 0 -- block-based filter
-  // bloom_filter_type = 0 -- full filter
-  for (int bloom_filter_type = 0; bloom_filter_type < 2; ++bloom_filter_type) {
+  // bloom_filter_type = 0 -- block-based filter (not available in public API)
+  // bloom_filter_type = 1 -- full filter using use_block_based_builder=false
+  // bloom_filter_type = 2 -- full filter using use_block_based_builder=true
+  //                          because of API change to hide block-based filter
+  for (int bloom_filter_type = 0; bloom_filter_type <= 2; ++bloom_filter_type) {
     for (int index_and_filter_in_cache = 0; index_and_filter_in_cache < 2;
          ++index_and_filter_in_cache) {
       Options options;
@@ -3498,8 +3503,22 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
       table_options.block_cache = NewLRUCache(1, 0);
       table_options.cache_index_and_filter_blocks = index_and_filter_in_cache;
-      table_options.filter_policy.reset(
-          NewBloomFilterPolicy(10, bloom_filter_type == 0));
+      if (bloom_filter_type == 0) {
+#ifndef ROCKSDB_LITE
+        // Use back-door way of enabling obsolete block-based Bloom
+        ASSERT_OK(FilterPolicy::CreateFromString(
+            ConfigOptions(),
+            "rocksdb.internal.DeprecatedBlockBasedBloomFilter:10",
+            &table_options.filter_policy));
+#else
+        // Skip this case in LITE build
+        continue;
+#endif
+      } else {
+        // Public API
+        table_options.filter_policy.reset(
+            NewBloomFilterPolicy(10, bloom_filter_type == 2));
+      }
       options.table_factory.reset(new BlockBasedTableFactory(table_options));
       std::vector<std::string> keys;
       stl_wrappers::KVMap kvmap;
@@ -4983,13 +5002,16 @@ TEST_F(BBTTailPrefetchTest, FilePrefetchBufferMinOffset) {
   IOOptions opts;
   buffer.TryReadFromCache(opts, nullptr /* reader */, 500 /* offset */,
                           10 /* n */, nullptr /* result */,
-                          nullptr /* status */);
+                          nullptr /* status */,
+                          Env::IO_TOTAL /* rate_limiter_priority */);
   buffer.TryReadFromCache(opts, nullptr /* reader */, 480 /* offset */,
                           10 /* n */, nullptr /* result */,
-                          nullptr /* status */);
+                          nullptr /* status */,
+                          Env::IO_TOTAL /* rate_limiter_priority */);
   buffer.TryReadFromCache(opts, nullptr /* reader */, 490 /* offset */,
                           10 /* n */, nullptr /* result */,
-                          nullptr /* status */);
+                          nullptr /* status */,
+                          Env::IO_TOTAL /* rate_limiter_priority */);
   ASSERT_EQ(480, buffer.min_offset_read());
 }
 

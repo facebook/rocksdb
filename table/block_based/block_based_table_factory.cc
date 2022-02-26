@@ -314,44 +314,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"filter_policy",
-         {offsetof(struct BlockBasedTableOptions, filter_policy),
-          OptionType::kUnknown, OptionVerificationType::kByNameAllowFromNull,
-          OptionTypeFlags::kNone,
-          // Parses the Filter policy
-          [](const ConfigOptions& opts, const std::string&,
-             const std::string& value, void* addr) {
-            auto* policy =
-                static_cast<std::shared_ptr<const FilterPolicy>*>(addr);
-            return FilterPolicy::CreateFromString(opts, value, policy);
-          },
-          // Converts the FilterPolicy to its string representation
-          [](const ConfigOptions&, const std::string&, const void* addr,
-             std::string* value) {
-            const auto* policy =
-                static_cast<const std::shared_ptr<const FilterPolicy>*>(addr);
-            if (policy->get()) {
-              *value = (*policy)->Name();
-            } else {
-              *value = kNullptrString;
-            }
-            return Status::OK();
-          },
-          // Compares two FilterPolicy objects for equality
-          [](const ConfigOptions&, const std::string&, const void* addr1,
-             const void* addr2, std::string*) {
-            const auto* policy1 =
-                static_cast<const std::shared_ptr<const FilterPolicy>*>(addr1)
-                    ->get();
-            const auto* policy2 =
-                static_cast<const std::shared_ptr<FilterPolicy>*>(addr2)->get();
-            if (policy1 == policy2) {
-              return true;
-            } else if (policy1 != nullptr && policy2 != nullptr) {
-              return (strcmp(policy1->Name(), policy2->Name()) == 0);
-            } else {
-              return false;
-            }
-          }}},
+         OptionTypeInfo::AsCustomSharedPtr<const FilterPolicy>(
+             offsetof(struct BlockBasedTableOptions, filter_policy),
+             OptionVerificationType::kByNameAllowFromNull,
+             OptionTypeFlags::kNone)},
         {"whole_key_filtering",
          {offsetof(struct BlockBasedTableOptions, whole_key_filtering),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -913,6 +879,8 @@ Status GetBlockBasedTableOptionsFromString(
   config_options.input_strings_escaped = false;
   config_options.ignore_unknown_options = false;
   config_options.invoke_prepare_options = false;
+  config_options.ignore_unsupported_options = false;
+
   return GetBlockBasedTableOptionsFromString(config_options, table_options,
                                              opts_str, new_table_options);
 }

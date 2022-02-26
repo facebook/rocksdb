@@ -107,7 +107,8 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
     uint64_t prefetch_off = file_size - prefetch_size;
     IOOptions opts;
     s = prefetch_buffer.Prefetch(opts, file_.get(), prefetch_off,
-                                 static_cast<size_t>(prefetch_size));
+                                 static_cast<size_t>(prefetch_size),
+                                 Env::IO_TOTAL /* rate_limiter_priority */);
 
     s = ReadFooterFromFile(opts, file_.get(), &prefetch_buffer, file_size,
                            &footer);
@@ -125,7 +126,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
                               nullptr);
       file_.reset(new RandomAccessFileReader(std::move(file), file_path));
     }
-    options_.comparator = &internal_comparator_;
+
     // For old sst format, ReadTableProperties might fail but file can be read
     if (ReadTableProperties(magic_number, file_.get(), file_size,
                             (magic_number == kBlockBasedTableMagicNumber)
@@ -133,9 +134,24 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
                                 : nullptr)
             .ok()) {
       s = SetTableOptionsByMagicNumber(magic_number);
+      if (s.ok()) {
+        if (table_properties_ && !table_properties_->comparator_name.empty()) {
+          ConfigOptions config_options;
+          const Comparator* user_comparator = nullptr;
+          s = Comparator::CreateFromString(config_options,
+                                           table_properties_->comparator_name,
+                                           &user_comparator);
+          if (s.ok()) {
+            assert(user_comparator);
+            internal_comparator_ =
+                InternalKeyComparator(user_comparator, /*named=*/true);
+          }
+        }
+      }
     } else {
       s = SetOldTableOptions();
     }
+    options_.comparator = internal_comparator_.user_comparator();
   }
 
   if (s.ok()) {

@@ -123,8 +123,6 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.write_buffer_manager = immutable_db_options.write_buffer_manager;
   options.access_hint_on_compaction_start =
       immutable_db_options.access_hint_on_compaction_start;
-  options.new_table_reader_for_compaction_inputs =
-      immutable_db_options.new_table_reader_for_compaction_inputs;
   options.compaction_readahead_size =
       mutable_db_options.compaction_readahead_size;
   options.random_access_max_buffer_size =
@@ -514,12 +512,6 @@ bool SerializeSingleOptionHelper(const void* opt_address,
           compression_type_string_map,
           *(static_cast<const CompressionType*>(opt_address)), value);
       break;
-    case OptionType::kFilterPolicy: {
-      const auto* ptr =
-          static_cast<const std::shared_ptr<FilterPolicy>*>(opt_address);
-      *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
-      break;
-    }
     case OptionType::kChecksumType:
       return SerializeEnum<ChecksumType>(
           checksum_type_string_map,

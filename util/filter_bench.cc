@@ -31,6 +31,7 @@ int main() {
 #include "util/random.h"
 #include "util/stderr_logger.h"
 #include "util/stop_watch.h"
+#include "util/string_util.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
@@ -140,6 +141,7 @@ using ROCKSDB_NAMESPACE::Arena;
 using ROCKSDB_NAMESPACE::BlockContents;
 using ROCKSDB_NAMESPACE::BloomFilterPolicy;
 using ROCKSDB_NAMESPACE::BloomHash;
+using ROCKSDB_NAMESPACE::BloomLikeFilterPolicy;
 using ROCKSDB_NAMESPACE::BuiltinFilterBitsBuilder;
 using ROCKSDB_NAMESPACE::CachableEntry;
 using ROCKSDB_NAMESPACE::Cache;
@@ -147,6 +149,7 @@ using ROCKSDB_NAMESPACE::EncodeFixed32;
 using ROCKSDB_NAMESPACE::FastRange32;
 using ROCKSDB_NAMESPACE::FilterBitsReader;
 using ROCKSDB_NAMESPACE::FilterBuildingContext;
+using ROCKSDB_NAMESPACE::FilterPolicy;
 using ROCKSDB_NAMESPACE::FullFilterBlockReader;
 using ROCKSDB_NAMESPACE::GetSliceHash;
 using ROCKSDB_NAMESPACE::GetSliceHash64;
@@ -287,6 +290,16 @@ static uint32_t DryRunHash64(Slice &s) {
   return Lower32of64(GetSliceHash64(s));
 }
 
+const std::shared_ptr<const FilterPolicy> &GetPolicy() {
+  static std::shared_ptr<const FilterPolicy> policy;
+  if (!policy) {
+    policy = BloomLikeFilterPolicy::Create(
+        BloomLikeFilterPolicy::GetAllFixedImpls().at(FLAGS_impl),
+        FLAGS_bits_per_key);
+  }
+  return policy;
+}
+
 struct FilterBench : public MockBlockBasedTableTester {
   std::vector<KeyMaker> kms_;
   std::vector<FilterInfo> infos_;
@@ -297,9 +310,7 @@ struct FilterBench : public MockBlockBasedTableTester {
   StderrLogger stderr_logger_;
 
   FilterBench()
-      : MockBlockBasedTableTester(new BloomFilterPolicy(
-            FLAGS_bits_per_key,
-            static_cast<BloomFilterPolicy::Mode>(FLAGS_impl))),
+      : MockBlockBasedTableTester(GetPolicy()),
         random_(FLAGS_seed),
         m_queries_(0) {
     for (uint32_t i = 0; i < FLAGS_batch_size; ++i) {

@@ -215,7 +215,7 @@ class SstFileReaderTimestampTest : public testing::Test {
 
     options_.env = env;
 
-    options_.comparator = test::ComparatorWithU64Ts();
+    options_.comparator = test::BytewiseComparatorWithU64TsWrapper();
 
     sst_name_ = test::PerThreadDBPath("sst_file_ts");
   }
