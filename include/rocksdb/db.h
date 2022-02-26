@@ -279,8 +279,8 @@ class DB {
   // The trim_ts specified the user-defined timestamp trim bound.
   // This API should only be used at timestamp enabled column families recovery.
   // If some input column families do not support timestamp, nothing will
-  // be happened to it. The data with timestamp > trim_ts
-  // will be removed after using this API.
+  // be happened to them. The data with timestamp > trim_ts
+  // will be removed after this API returns successfully.
   static Status OpenAndTrimHistory(
       const DBOptions& db_options, const std::string& dbname,
       const std::vector<ColumnFamilyDescriptor>& column_families,
