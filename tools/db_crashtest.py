@@ -393,6 +393,10 @@ multiops_wp_txn_params = {
     "enable_pipelined_write": 0,
     # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
     "checkpoint_one_in": 0,
+    # TODO: re-enable two-write-queues
+    "two_write_queues": 0,
+    # TODO: re-enable true case
+    "use_only_the_last_commit_time_batch_for_recovery": 0,
 }
 
 def finalize_and_sanitize(src_params):
