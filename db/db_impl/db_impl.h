@@ -1187,7 +1187,10 @@ class DBImpl : public DB {
   // WriteToWAL need different synchronization: log_empty_, alive_log_files_,
   // logs_, logfile_number_. Refer to the definition of each variable below for
   // more description.
-  mutable InstrumentedMutex mutex_;
+  //
+  // `mutex_` can be a hot lock in some workloads, so it deserves dedicated
+  // cachelines.
+  mutable CacheAlignedInstrumentedMutex mutex_;
 
   ColumnFamilyHandleImpl* default_cf_handle_;
   InternalStats* default_cf_internal_stats_;
