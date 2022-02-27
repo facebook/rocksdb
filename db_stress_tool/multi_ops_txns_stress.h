@@ -281,11 +281,11 @@ class MultiOpsTxnsStressTest : public StressTest {
   }
 
  protected:
+  using KeySet = std::set<uint32_t>;
   class KeyGenerator {
    public:
     explicit KeyGenerator(uint32_t s, uint32_t low, uint32_t high,
-                          std::unordered_set<uint32_t>&& existing_uniq,
-                          std::unordered_set<uint32_t>&& non_existing_uniq)
+                          KeySet&& existing_uniq, KeySet&& non_existing_uniq)
         : rand_(s),
           low_(low),
           high_(high),
@@ -315,8 +315,8 @@ class MultiOpsTxnsStressTest : public StressTest {
     uint32_t low_ = 0;
     uint32_t high_ = 0;
     std::vector<uint32_t> existing_{};
-    std::unordered_set<uint32_t> existing_uniq_{};
-    std::unordered_set<uint32_t> non_existing_uniq_{};
+    KeySet existing_uniq_{};
+    KeySet non_existing_uniq_{};
     bool initialized_ = false;
   };
 
