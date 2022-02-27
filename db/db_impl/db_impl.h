@@ -1190,10 +1190,7 @@ class DBImpl : public DB {
   //
   // `mutex_` can be a hot lock in some workloads, so it deserves dedicated
   // cachelines.
-  ALIGN_AS(CACHE_LINE_SIZE) mutable InstrumentedMutex mutex_;
-  char padding[(CACHE_LINE_SIZE -
-                (sizeof(InstrumentedMutex) % CACHE_LINE_SIZE)) %
-               CACHE_LINE_SIZE] ROCKSDB_FIELD_UNUSED;
+  mutable CacheAlignedInstrumentedMutex mutex_;
 
   ColumnFamilyHandleImpl* default_cf_handle_;
   InternalStats* default_cf_internal_stats_;
