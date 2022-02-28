@@ -173,65 +173,73 @@ TEST_F(FileNameTest, Construction) {
 
 TEST_F(FileNameTest, NormalizePath) {
 
-  std::string separator(1, kFilePathSeparator);
-  std::stringstream given, toNormalize;
-  std::string noeLeadingSlash, twoChars1, twoChars2,slashOnly, uncOnly;
-
-
-  given << separator << separator << "SERVER" << separator << "fileName";
-  toNormalize << separator << "pathel" << separator << "pathel_1";
-
-  std::string expected = given.str();
-
-  ASSERT_EQ(expected, NormalizePath(given.str()));
-
-  expected = toNormalize.str();
-
-  ASSERT_EQ(expected, NormalizePath(toNormalize.str()));
-
   // No leading slash
-  toNormalize << "folder" << separator << "fileName.ext";
-  given << "folder" << separator << "filename.ext";
+  const std::string sep = std::string(1,kFilePathSeparator);
+  
+  std::string expected = "FOLDER" + sep + "filename.ext"; 
+  std::string given = "FOLDER" + sep + "filename.ext";
 
-  expected = given.str();
 
-  ASSERT_EQ(expected, NormalizePath(toNormalize.str()));
+  ASSERT_EQ(expected, NormalizePath(given));
 
   // Two chars /a
-  toNormalize  << separator << "fileName.ext";
-  given << separator << "filename.ext";
 
-  expected = given.str();
-
-  ASSERT_EQ(expected, NormalizePath(toNormalize.str()));
+  expected = sep + "a";
+  given = expected;
+  ASSERT_EQ(expected, NormalizePath(given));
 
   // Two chars a/
-  toNormalize <<  "fileName.ext" << separator;
-  given <<  "filename.ext" << separator;
-  expected = given.str();
-  ASSERT_EQ(expected, NormalizePath(toNormalize.str()));
+  expected = "a" + sep;
+  given = expected;
+  ASSERT_EQ(expected, NormalizePath(given));
 
+    // Server only
+  expected = sep + sep + "a";
+  given = expected;
+  ASSERT_EQ(expected, NormalizePath(given));
+
+
+    // Two slashes after character
+  expected = "a" + sep;
+  given    = "a" + sep + sep;
+  ASSERT_EQ(expected, NormalizePath(given));
 
   // slash only   /
-  toNormalize << separator;
-  given << separator;
-  expected = given.str();
-
-  ASSERT_EQ(expected, NormalizePath(toNormalize.str()));
+  expected = sep;
+  given    = expected;
+  ASSERT_EQ(expected, NormalizePath(given));
 
   // UNC only   //
-  toNormalize << separator << separator;
-  given << separator << separator;
-  expected = given.str();
-  ASSERT_EQ(expected, NormalizePath(toNormalize.str()));
+  expected = sep ;
+  given    = sep+sep;
+
+  ASSERT_EQ(expected, NormalizePath(given));
+
+   // 3 slashesy   //
+  expected = sep + sep;
+  given    = sep + sep + sep;
+  ASSERT_EQ(expected, NormalizePath(given));
+
+     // 3 slashes   //
+  expected = sep + sep + "a"+sep;
+  given    = sep + sep + sep + "a" + sep;
+  ASSERT_EQ(expected, NormalizePath(given));
+
 
   // 2 separators in the middle 
-  toNormalize << "dir" << separator << separator  << "dir";
-  given << "dir" << separator << "dir";
-  expected = given.str();
-  ASSERT_EQ(expected, NormalizePath(toNormalize.str()));
+  expected = "a" + sep + "b";
+  given    = "a" + sep + sep + "b";
+  ASSERT_EQ(expected, NormalizePath(given));
+
+  // UNC with duplicate slashes
+  expected = sep + sep + "SERVER" + sep + "a" + sep + "b" + sep + "c";
+  given    = sep + sep + "SERVER" + sep + "a" + sep + sep + "b" + sep + "c";
+  ASSERT_EQ( expected, NormalizePath(given));
+
 
 }
+
+
 
 }  // namespace ROCKSDB_NAMESPACE
 
