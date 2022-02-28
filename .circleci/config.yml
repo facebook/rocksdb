@@ -794,120 +794,120 @@ workflows:
   build-linux:
     jobs:
       - build-linux
-  build-linux-cmake:
-    jobs:
-      - build-linux-cmake
-      - build-linux-cmake-ubuntu-20
-  build-linux-encrypted-env:
-    jobs:
-      - build-linux-encrypted-env
-  build-linux-shared_lib-alt_namespace-status_checked:
-    jobs:
-      - build-linux-shared_lib-alt_namespace-status_checked
-  build-linux-lite:
-    jobs:
-      - build-linux-lite
-  build-linux-release:
-    jobs:
-      - build-linux-release
-  build-linux-release-rtti:
-    jobs:
-      - build-linux-release-rtti
-  build-linux-lite-release:
-    jobs:
-      - build-linux-lite-release
-  build-linux-clang10-asan:
-    jobs:
-      - build-linux-clang10-asan
-  build-linux-clang10-mini-tsan:
-    jobs:
-      - build-linux-clang10-mini-tsan
-  build-linux-clang10-ubsan:
-    jobs:
-      - build-linux-clang10-ubsan
-  build-linux-clang10-clang-analyze:
-    jobs:
-      - build-linux-clang10-clang-analyze
-  build-linux-unity-and-headers:
-    jobs:
-      - build-linux-unity-and-headers
-  build-windows-vs2019:
-    jobs:
-      - build-windows:
-          name: "build-windows-vs2019"
-  build-windows-vs2019-cxx20:
-    jobs:
-      - build-windows:
-          name: "build-windows-vs2019-cxx20"
-          extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
-  build-windows-vs2017:
-    jobs:
-      - build-windows:
-          name: "build-windows-vs2017"
-          vs_year: "2017"
-          cmake_generator: "Visual Studio 15 Win64"
-  build-java:
-    jobs:
-      - build-linux-java
-      - build-linux-java-static
-      - build-macos-java
-      - build-macos-java-static
-      - build-macos-java-static-universal
-  build-examples:
-    jobs:
-      - build-examples
-  build-linux-non-shm:
-    jobs:
-      - build-linux-non-shm:
-          start_test: ""
-          end_test: "db_options_test" # make sure unique in src.mk
-      - build-linux-non-shm:
-          start_test: "db_options_test" # make sure unique in src.mk
-          end_test: "filename_test" # make sure unique in src.mk
-      - build-linux-non-shm:
-          start_test: "filename_test" # make sure unique in src.mk
-          end_test: "statistics_test" # make sure unique in src.mk
-      - build-linux-non-shm:
-          start_test: "statistics_test" # make sure unique in src.mk
-          end_test: ""
-  build-linux-compilers-no_test_run:
-    jobs:
-      - build-linux-clang-no_test_run
-      - build-linux-clang-13-no_test_run
-      - build-linux-gcc-7
-      - build-linux-gcc-8-no_test_run
-      - build-linux-gcc-10-cxx20-no_test_run
-      - build-linux-gcc-11-no_test_run
-      - build-linux-arm-cmake-no_test_run
-  build-macos:
-    jobs:
-      - build-macos
-  build-macos-cmake:
-    jobs:
-      - build-macos-cmake
-  build-cmake-mingw:
-    jobs:
-      - build-cmake-mingw
-  build-linux-arm:
-    jobs:
-      - build-linux-arm
-  build-microbench:
-    jobs:
-      - build-linux-microbench
-  build-fuzzers:
-    jobs:
-      - build-fuzzers
+  # build-linux-cmake:
+  #   jobs:
+  #     - build-linux-cmake
+  #     - build-linux-cmake-ubuntu-20
+  # build-linux-encrypted-env:
+  #   jobs:
+  #     - build-linux-encrypted-env
+  # build-linux-shared_lib-alt_namespace-status_checked:
+  #   jobs:
+  #     - build-linux-shared_lib-alt_namespace-status_checked
+  # build-linux-lite:
+  #   jobs:
+  #     - build-linux-lite
+  # build-linux-release:
+  #   jobs:
+  #     - build-linux-release
+  # build-linux-release-rtti:
+  #   jobs:
+  #     - build-linux-release-rtti
+  # build-linux-lite-release:
+  #   jobs:
+  #     - build-linux-lite-release
+  # build-linux-clang10-asan:
+  #   jobs:
+  #     - build-linux-clang10-asan
+  # build-linux-clang10-mini-tsan:
+  #   jobs:
+  #     - build-linux-clang10-mini-tsan
+  # build-linux-clang10-ubsan:
+  #   jobs:
+  #     - build-linux-clang10-ubsan
+  # build-linux-clang10-clang-analyze:
+  #   jobs:
+  #     - build-linux-clang10-clang-analyze
+  # build-linux-unity-and-headers:
+  #   jobs:
+  #     - build-linux-unity-and-headers
+  # build-windows-vs2019:
+  #   jobs:
+  #     - build-windows:
+  #         name: "build-windows-vs2019"
+  # build-windows-vs2019-cxx20:
+  #   jobs:
+  #     - build-windows:
+  #         name: "build-windows-vs2019-cxx20"
+  #         extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
+  # build-windows-vs2017:
+  #   jobs:
+  #     - build-windows:
+  #         name: "build-windows-vs2017"
+  #         vs_year: "2017"
+  #         cmake_generator: "Visual Studio 15 Win64"
+  # build-java:
+  #   jobs:
+  #     - build-linux-java
+  #     - build-linux-java-static
+  #     - build-macos-java
+  #     - build-macos-java-static
+  #     - build-macos-java-static-universal
+  # build-examples:
+  #   jobs:
+  #     - build-examples
+  # build-linux-non-shm:
+  #   jobs:
+  #     - build-linux-non-shm:
+  #         start_test: ""
+  #         end_test: "db_options_test" # make sure unique in src.mk
+  #     - build-linux-non-shm:
+  #         start_test: "db_options_test" # make sure unique in src.mk
+  #         end_test: "filename_test" # make sure unique in src.mk
+  #     - build-linux-non-shm:
+  #         start_test: "filename_test" # make sure unique in src.mk
+  #         end_test: "statistics_test" # make sure unique in src.mk
+  #     - build-linux-non-shm:
+  #         start_test: "statistics_test" # make sure unique in src.mk
+  #         end_test: ""
+  # build-linux-compilers-no_test_run:
+  #   jobs:
+  #     - build-linux-clang-no_test_run
+  #     - build-linux-clang-13-no_test_run
+  #     - build-linux-gcc-7
+  #     - build-linux-gcc-8-no_test_run
+  #     - build-linux-gcc-10-cxx20-no_test_run
+  #     - build-linux-gcc-11-no_test_run
+  #     - build-linux-arm-cmake-no_test_run
+  # build-macos:
+  #   jobs:
+  #     - build-macos
+  # build-macos-cmake:
+  #   jobs:
+  #     - build-macos-cmake
+  # build-cmake-mingw:
+  #   jobs:
+  #     - build-cmake-mingw
+  # build-linux-arm:
+  #   jobs:
+  #     - build-linux-arm
+  # build-microbench:
+  #   jobs:
+  #     - build-linux-microbench
+  # build-fuzzers:
+  #   jobs:
+  #     - build-fuzzers
   benchmark-linux:
     jobs:
       - benchmark-linux
-  nightly:
-    triggers:
-      - schedule:
-          cron: "0 0 * * *"
-          filters:
-            branches:
-              only:
-                - main
-    jobs:
-      - build-format-compatible
-      - build-linux-arm-test-full
+  # nightly:
+  #   triggers:
+  #     - schedule:
+  #         cron: "0 0 * * *"
+  #         filters:
+  #           branches:
+  #             only:
+  #               - main
+  #   jobs:
+  #     - build-format-compatible
+  #     - build-linux-arm-test-full
