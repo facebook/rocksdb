@@ -9,8 +9,6 @@
 
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
-#include "rocksdb/utilities/backupable_db.h"
-
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -34,7 +32,9 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
+#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/options_util.h"
+#include "rocksdb/utilities/stackable_db.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -49,11 +49,11 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
-using ShareFilesNaming = BackupableDBOptions::ShareFilesNaming;
+using ShareFilesNaming = BackupEngineOptions::ShareFilesNaming;
 const auto kLegacyCrc32cAndFileSize =
-    BackupableDBOptions::kLegacyCrc32cAndFileSize;
-const auto kUseDbSessionId = BackupableDBOptions::kUseDbSessionId;
-const auto kFlagIncludeFileSize = BackupableDBOptions::kFlagIncludeFileSize;
+    BackupEngineOptions::kLegacyCrc32cAndFileSize;
+const auto kUseDbSessionId = BackupEngineOptions::kUseDbSessionId;
+const auto kFlagIncludeFileSize = BackupEngineOptions::kFlagIncludeFileSize;
 const auto kNamingDefault = kUseDbSessionId | kFlagIncludeFileSize;
 
 class DummyDB : public StackableDB {
@@ -671,7 +671,7 @@ class BackupEngineTest : public testing::Test {
 #endif  // ROCKSDB_MODIFY_NPHASH
 
     // set up backup db options
-    backupable_options_.reset(new BackupableDBOptions(
+    backupable_options_.reset(new BackupEngineOptions(
         backupdir_, test_backup_env_.get(), /*share_table_files*/ true,
         logger_.get(), kUseSync));
 
@@ -987,7 +987,7 @@ class BackupEngineTest : public testing::Test {
   Options options_;
 
  protected:
-  std::unique_ptr<BackupableDBOptions> backupable_options_;
+  std::unique_ptr<BackupEngineOptions> backupable_options_;
 };  // BackupEngineTest
 
 void AppendPath(const std::string& path, std::vector<std::string>& v) {
@@ -3465,7 +3465,7 @@ TEST_F(BackupEngineTest, Concurrency) {
   Options db_opts = options_;
   db_opts.wal_dir = "";
   db_opts.create_if_missing = false;
-  BackupableDBOptions be_opts = *backupable_options_;
+  BackupEngineOptions be_opts = *backupable_options_;
   be_opts.destroy_old_data = false;
 
   std::mt19937 rng{std::random_device()()};

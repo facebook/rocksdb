@@ -84,9 +84,9 @@ struct ImmutableDBOptions {
   bool dump_malloc_stats;
   bool avoid_flush_during_recovery;
   bool allow_ingest_behind;
-  bool preserve_deletes;
   bool two_write_queues;
   bool manual_wal_flush;
+  CompressionType wal_compression;
   bool atomic_flush;
   bool avoid_unnecessary_blocking_io;
   bool persist_stats_to_disk;
@@ -121,7 +121,6 @@ struct MutableDBOptions {
   void Dump(Logger* log) const;
 
   int max_background_jobs;
-  int base_background_compactions;
   int max_background_compactions;
   uint32_t max_subcompactions;
   bool avoid_flush_during_shutdown;

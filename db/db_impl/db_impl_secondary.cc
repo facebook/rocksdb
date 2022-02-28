@@ -339,6 +339,14 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
+  assert(column_family);
+  const Comparator* ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() || read_options.timestamp) {
+    // TODO: support timestamp
+    return Status::NotSupported();
+  }
+
   auto cfh = static_cast<ColumnFamilyHandleImpl*>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
   if (tracer_) {
@@ -404,6 +412,15 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
     return NewErrorIterator(Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators."));
   }
+
+  assert(column_family);
+  const Comparator* ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() || read_options.timestamp) {
+    // TODO: support timestamp
+    return NewErrorIterator(Status::NotSupported());
+  }
+
   Iterator* result = nullptr;
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
@@ -459,6 +476,20 @@ Status DBImplSecondary::NewIterators(
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (iterators == nullptr) {
     return Status::InvalidArgument("iterators not allowed to be nullptr");
+  }
+  if (read_options.timestamp) {
+    // TODO: support timestamp
+    return Status::NotSupported();
+  } else {
+    for (auto* cf : column_families) {
+      assert(cf);
+      const Comparator* ucmp = cf->GetComparator();
+      assert(ucmp);
+      if (ucmp->timestamp_size()) {
+        // TODO: support timestamp
+        return Status::NotSupported();
+      }
+    }
   }
   iterators->clear();
   iterators->reserve(column_families.size());

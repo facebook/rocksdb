@@ -97,6 +97,21 @@ class RangeLockManagerHandle : public LockManagerHandle {
   using RangeLockStatus =
       std::unordered_multimap<ColumnFamilyId, RangeLockInfo>;
 
+  // Lock Escalation barrier check function.
+  // It is called for a couple of endpoints A and B, such that A < B.
+  // If escalation_barrier_check_func(A, B)==true, then there's a lock
+  // escalation barrier between A and B, and lock escalation is not allowed
+  // to bridge the gap between A and B.
+  //
+  // The function may be called from any thread that acquires or releases
+  // locks. It should not throw exceptions. There is currently no way to return
+  // an error.
+  using EscalationBarrierFunc =
+      std::function<bool(const Endpoint& a, const Endpoint& b)>;
+
+  // Set the user-provided barrier check function
+  virtual void SetEscalationBarrierFunc(EscalationBarrierFunc func) = 0;
+
   virtual RangeLockStatus GetRangeLockStatusData() = 0;
 
   class Counters {
@@ -356,6 +371,7 @@ class TransactionDB : public StackableDB {
   // used and `skip_concurrency_control` must be set. When using either
   // WRITE_PREPARED or WRITE_UNPREPARED , `skip_duplicate_key_check` must
   // additionally be set.
+  using StackableDB::DeleteRange;
   virtual Status DeleteRange(const WriteOptions&, ColumnFamilyHandle*,
                              const Slice&, const Slice&) override {
     return Status::NotSupported();
