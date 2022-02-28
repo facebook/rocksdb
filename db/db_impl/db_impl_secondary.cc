@@ -32,8 +32,9 @@ DBImplSecondary::~DBImplSecondary() {}
 
 Status DBImplSecondary::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    bool /*readonly*/, bool /*error_if_wal_file_exists*/,
-    bool /*error_if_data_exists_in_wals*/, uint64_t*) {
+    RecoveryVersionEdits* /*recovery_version_edits*/, bool /*readonly*/,
+    bool /*error_if_wal_file_exists*/, bool /*error_if_data_exists_in_wals*/,
+    uint64_t*) {
   mutex_.AssertHeld();
 
   JobContext job_context(0);
@@ -672,7 +673,7 @@ Status DB::OpenAsSecondary(
   impl->wal_in_db_path_ = impl->immutable_db_options_.IsWalDirSameAsDBPath();
 
   impl->mutex_.Lock();
-  s = impl->Recover(column_families, true, false, false);
+  s = impl->Recover(column_families, nullptr, true, false, false);
   if (s.ok()) {
     for (auto cf : column_families) {
       auto cfd =

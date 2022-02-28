@@ -245,8 +245,8 @@ Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
   SuperVersionContext sv_context(/* create_superversion */ true);
   DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
   impl->mutex_.Lock();
-  Status s = impl->Recover(column_families, true /* read only */,
-                           error_if_wal_file_exists);
+  Status s = impl->Recover(column_families, nullptr /*RecoveryVersionEdits*/,
+                           true /* read only */, error_if_wal_file_exists);
   if (s.ok()) {
     // set column family handles
     for (auto cf : column_families) {

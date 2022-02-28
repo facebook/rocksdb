@@ -863,7 +863,8 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
   return min_log_number_to_keep;
 }
 
-Status DBImpl::SetDBId(bool read_only) {
+Status DBImpl::SetDBId(bool read_only,
+                       RecoveryVersionEdits* recovery_version_edits) {
   Status s;
   // Happens when immutable_db_options_.write_dbid_to_manifest is set to true
   // the very first time.
@@ -892,12 +893,19 @@ Status DBImpl::SetDBId(bool read_only) {
     if (immutable_db_options_.write_dbid_to_manifest && s.ok()) {
       VersionEdit edit;
       edit.SetDBId(db_id_);
-      Options options;
-      MutableCFOptions mutable_cf_options(options);
       versions_->db_id_ = db_id_;
-      s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                                 mutable_cf_options, &edit, &mutex_, nullptr,
-                                 /* new_descriptor_log */ false);
+      if (recovery_version_edits == nullptr) {
+        // In case of ReadOnly DB, recovery_version_edits is nullptr.
+        Options options;
+        MutableCFOptions mutable_cf_options(options);
+        s = versions_->LogAndApply(
+            versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options,
+            &edit, &mutex_, nullptr,
+            /* new_descriptor_log */ false);
+      } else {
+        recovery_version_edits->UpdateVersionEdits(
+            versions_->GetColumnFamilySet()->GetDefault(), edit);
+      }
     }
   } else if (!read_only) {
     s = SetIdentityFile(env_, dbname_, db_id_);
@@ -905,7 +913,8 @@ Status DBImpl::SetDBId(bool read_only) {
   return s;
 }
 
-Status DBImpl::DeleteUnreferencedSstFiles() {
+Status DBImpl::DeleteUnreferencedSstFiles(
+    RecoveryVersionEdits* recovery_version_edits) {
   mutex_.AssertHeld();
   std::vector<std::string> paths;
   paths.push_back(NormalizePath(dbname_ + std::string(1, kFilePathSeparator)));
@@ -961,13 +970,17 @@ Status DBImpl::DeleteUnreferencedSstFiles() {
   assert(versions_->GetColumnFamilySet());
   ColumnFamilyData* default_cfd = versions_->GetColumnFamilySet()->GetDefault();
   assert(default_cfd);
-  s = versions_->LogAndApply(
-      default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
-      directories_.GetDbDir(), /*new_descriptor_log*/ false);
-  if (!s.ok()) {
-    return s;
+  if (recovery_version_edits == nullptr) {
+    // In case of ReadOnly DB, recovery_version_edits is nullptr.
+    s = versions_->LogAndApply(
+        default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
+        directories_.GetDbDir(), /*new_descriptor_log*/ false);
+    if (!s.ok()) {
+      return s;
+    }
+  } else {
+    recovery_version_edits->UpdateVersionEdits(default_cfd, edit);
   }
-
   mutex_.Unlock();
   for (const auto& fname : files_to_delete) {
     s = env_->DeleteFile(fname);

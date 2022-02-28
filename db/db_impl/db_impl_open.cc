@@ -397,7 +397,8 @@ IOStatus Directories::SetDirectories(FileSystem* fs, const std::string& dbname,
 }
 
 Status DBImpl::Recover(
-    const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    RecoveryVersionEdits* recovery_version_edits, bool read_only,
     bool error_if_wal_file_exists, bool error_if_data_exists_in_wals,
     uint64_t* recovered_seq) {
   mutex_.AssertHeld();
@@ -518,9 +519,10 @@ Status DBImpl::Recover(
   if (!s.ok()) {
     return s;
   }
-  s = SetDBId(read_only);
+
+  s = SetDBId(read_only, recovery_version_edits);
   if (s.ok() && !read_only) {
-    s = DeleteUnreferencedSstFiles();
+    s = DeleteUnreferencedSstFiles(recovery_version_edits);
   }
 
   if (immutable_db_options_.paranoid_checks && s.ok()) {
@@ -608,7 +610,9 @@ Status DBImpl::Recover(
       WalNumber max_wal_number =
           versions_->GetWalSet().GetWals().rbegin()->first;
       edit.DeleteWalsBefore(max_wal_number + 1);
-      s = versions_->LogAndApplyToDefaultColumnFamily(&edit, &mutex_);
+      assert(recovery_version_edits != nullptr);
+      recovery_version_edits->UpdateVersionEdits(
+          versions_->GetColumnFamilySet()->GetDefault(), edit);
     }
     if (!s.ok()) {
       return s;
@@ -644,8 +648,8 @@ Status DBImpl::Recover(
       std::sort(wals.begin(), wals.end());
 
       bool corrupted_wal_found = false;
-      s = RecoverLogFiles(wals, &next_sequence, read_only,
-                          &corrupted_wal_found);
+      s = RecoverLogFiles(wals, &next_sequence, read_only, &corrupted_wal_found,
+                          recovery_version_edits);
       if (corrupted_wal_found && recovered_seq != nullptr) {
         *recovered_seq = next_sequence;
       }
@@ -805,10 +809,18 @@ Status DBImpl::InitPersistStatsColumnFamily() {
   return s;
 }
 
+Status DBImpl::LogAndApply(RecoveryVersionEdits* recovery_version_edits) {
+  return versions_->LogAndApply(
+      recovery_version_edits->cfds, recovery_version_edits->mutable_cf_opts,
+      recovery_version_edits->edit_lists, &mutex_, directories_.GetDbDir(),
+      /*new_descriptor_log=*/true);
+}
+
 // REQUIRES: wal_numbers are sorted in ascending order
 Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
                                SequenceNumber* next_sequence, bool read_only,
-                               bool* corrupted_wal_found) {
+                               bool* corrupted_wal_found,
+                               RecoveryVersionEdits* recovery_version_edits) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
@@ -833,6 +845,7 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
     edit.SetColumnFamily(cfd->GetID());
     version_edits.insert({cfd->GetID(), edit});
   }
+
   int job_id = next_job_id_.fetch_add(1);
   {
     auto stream = event_logger_.Log();
@@ -1273,35 +1286,26 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
         truncate_last_log = false;
       }
 
-      autovector<ColumnFamilyData*> cfds;
-      autovector<const MutableCFOptions*> cf_opts;
-      autovector<autovector<VersionEdit*>> edit_lists;
+      assert(recovery_version_edits != nullptr);
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
-        cfds.push_back(cfd);
-        cf_opts.push_back(cfd->GetLatestMutableCFOptions());
         auto iter = version_edits.find(cfd->GetID());
         assert(iter != version_edits.end());
-        edit_lists.push_back({&iter->second});
+        recovery_version_edits->UpdateVersionEdits(cfd, iter->second);
       }
 
-      std::unique_ptr<VersionEdit> wal_deletion;
       if (flushed) {
-        wal_deletion = std::make_unique<VersionEdit>();
+        VersionEdit wal_deletion;
         if (immutable_db_options_.track_and_verify_wals_in_manifest) {
-          wal_deletion->DeleteWalsBefore(max_wal_number + 1);
+          wal_deletion.DeleteWalsBefore(max_wal_number + 1);
         }
         if (!allow_2pc()) {
           // In non-2pc mode, flushing the memtables of the column families
           // means we can advance min_log_number_to_keep.
-          wal_deletion->SetMinLogNumberToKeep(max_wal_number + 1);
+          wal_deletion.SetMinLogNumberToKeep(max_wal_number + 1);
         }
-        edit_lists.back().push_back(wal_deletion.get());
+        recovery_version_edits->UpdateVersionEdits(
+            versions_->GetColumnFamilySet()->GetDefault(), wal_deletion);
       }
-
-      // write MANIFEST with update
-      status = versions_->LogAndApply(cfds, cf_opts, edit_lists, &mutex_,
-                                      directories_.GetDbDir(),
-                                      /*new_descriptor_log=*/true);
     }
   }
 
@@ -1785,9 +1789,14 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   impl->wal_in_db_path_ = impl->immutable_db_options_.IsWalDirSameAsDBPath();
 
   impl->mutex_.Lock();
+
+  RecoveryVersionEdits recovery_version_edits;
+
   // Handles create_if_missing, error_if_exists
   uint64_t recovered_seq(kMaxSequenceNumber);
-  s = impl->Recover(column_families, false, false, false, &recovered_seq);
+  s = impl->Recover(column_families, &recovery_version_edits, false, false,
+                    false, &recovered_seq);
+
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     log::Writer* new_log = nullptr;
@@ -1830,6 +1839,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           }
         }
       }
+    }
+    if (s.ok()) {
+      s = impl->LogAndApply(&recovery_version_edits);
     }
     if (s.ok()) {
       SuperVersionContext sv_context(/* create_superversion */ true);
