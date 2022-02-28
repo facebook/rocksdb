@@ -12,223 +12,35 @@ rocksdb_target_header_template = \
 # only be validated by Facebook employees.
 #
 # @noautodeps @nocodemods
+load("//rocks/buckifier:defs.bzl", "cpp_library_wrapper","rocks_cpp_library_wrapper","cpp_binary_wrapper","cpp_unittest_wrapper","fancy_bench_wrapper","add_c_test_wrapper")
 
-load("@fbcode_macros//build_defs:auto_headers.bzl", "AutoHeaders")
-load("@fbcode_macros//build_defs:cpp_library.bzl", "cpp_library")
-load(":defs.bzl", "test_binary")
-
-REPO_PATH = package_name() + "/"
-
-ROCKSDB_COMPILER_FLAGS_0 = [
-    "-fno-builtin-memcmp",
-    # Allow offsetof to work on non-standard layout types. Some compiler could
-    # completely reject our usage of offsetof, but we will solve that when it
-    # happens.
-    "-Wno-invalid-offsetof",
-    # Added missing flags from output of build_detect_platform
-    "-Wnarrowing",
-    "-DROCKSDB_NO_DYNAMIC_EXTENSION",
-]
-
-ROCKSDB_EXTERNAL_DEPS = [
-    ("bzip2", None, "bz2"),
-    ("snappy", None, "snappy"),
-    ("zlib", None, "z"),
-    ("gflags", None, "gflags"),
-    ("lz4", None, "lz4"),
-    ("zstd", None, "zstd"),
-]
-
-ROCKSDB_OS_DEPS_0 = [
-    (
-        "linux",
-        [
-            "third-party//numa:numa",
-            "third-party//liburing:uring",
-            "third-party//tbb:tbb",
-        ],
-    ),
-    (
-        "macos",
-        ["third-party//tbb:tbb"],
-    ),
-]
-
-ROCKSDB_OS_PREPROCESSOR_FLAGS_0 = [
-    (
-        "linux",
-        [
-            "-DOS_LINUX",
-            "-DROCKSDB_FALLOCATE_PRESENT",
-            "-DROCKSDB_MALLOC_USABLE_SIZE",
-            "-DROCKSDB_PTHREAD_ADAPTIVE_MUTEX",
-            "-DROCKSDB_RANGESYNC_PRESENT",
-            "-DROCKSDB_SCHED_GETCPU_PRESENT",
-            "-DROCKSDB_IOURING_PRESENT",
-            "-DHAVE_SSE42",
-            "-DLIBURING",
-            "-DNUMA",
-            "-DROCKSDB_PLATFORM_POSIX",
-            "-DROCKSDB_LIB_IO_POSIX",
-            "-DTBB",
-        ],
-    ),
-    (
-        "macos",
-        [
-            "-DOS_MACOSX",
-            "-DROCKSDB_PLATFORM_POSIX",
-            "-DROCKSDB_LIB_IO_POSIX",
-            "-DTBB",
-        ],
-    ),
-    (
-        "windows",
-        [
-            "-DOS_WIN",
-            "-DWIN32",
-            "-D_MBCS",
-            "-DWIN64",
-            "-DNOMINMAX",
-        ],
-    ),
-]
-
-ROCKSDB_PREPROCESSOR_FLAGS = [
-    "-DROCKSDB_SUPPORT_THREAD_LOCAL",
-
-    # Flags to enable libs we include
-    "-DSNAPPY",
-    "-DZLIB",
-    "-DBZIP2",
-    "-DLZ4",
-    "-DZSTD",
-    "-DZSTD_STATIC_LINKING_ONLY",
-    "-DGFLAGS=gflags",
-
-    # Added missing flags from output of build_detect_platform
-    "-DROCKSDB_BACKTRACE",
-]
-
-# Directories with files for #include
-ROCKSDB_INCLUDE_PATHS = [
-    "",
-    "include",
-]
-
-ROCKSDB_ARCH_PREPROCESSOR_FLAGS = {{
-    "x86_64": [
-        "-DHAVE_PCLMUL",
-    ],
-}}
-
-build_mode = read_config("fbcode", "build_mode")
-
-is_opt_mode = build_mode.startswith("opt")
-
-# -DNDEBUG is added by default in opt mode in fbcode. But adding it twice
-# doesn't harm and avoid forgetting to add it.
-ROCKSDB_COMPILER_FLAGS = ROCKSDB_COMPILER_FLAGS_0 + (["-DNDEBUG"] if is_opt_mode else [])
-
-sanitizer = read_config("fbcode", "sanitizer")
-
-# Do not enable jemalloc if sanitizer presents. RocksDB will further detect
-# whether the binary is linked with jemalloc at runtime.
-ROCKSDB_OS_PREPROCESSOR_FLAGS = ROCKSDB_OS_PREPROCESSOR_FLAGS_0 + ([(
-    "linux",
-    ["-DROCKSDB_JEMALLOC"],
-)] if sanitizer == "" else [])
-
-ROCKSDB_OS_DEPS = ROCKSDB_OS_DEPS_0 + ([(
-    "linux",
-    ["third-party//jemalloc:headers"],
-)] if sanitizer == "" else [])
-
-ROCKSDB_LIB_DEPS = [
-    ":rocksdb_lib",
-    ":rocksdb_test_lib",
-] if not is_opt_mode else [":rocksdb_lib"]
 """
 
 
 library_template = """
-cpp_library(
-    name = "{name}",
-    srcs = [{srcs}],
-    {headers_attr_prefix}headers = {headers},
-    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
-    link_whole = {link_whole},
-    os_deps = ROCKSDB_OS_DEPS,
-    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    exported_deps = [{deps}],
-    exported_external_deps = ROCKSDB_EXTERNAL_DEPS{extra_external_deps},
-)
+cpp_library_wrapper(name="{name}", srcs=[{srcs}], deps=[{deps}], headers={headers}, link_whole={link_whole}, extra_test_libs={extra_test_libs})
 """
 
 rocksdb_library_template = """
-cpp_library(
-    name = "{name}",
-    srcs = [{srcs}],
-    {headers_attr_prefix}headers = {headers},
-    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
-    os_deps = ROCKSDB_OS_DEPS,
-    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    exported_deps = ROCKSDB_LIB_DEPS,
-    exported_external_deps = ROCKSDB_EXTERNAL_DEPS,
-)
+rocks_cpp_library_wrapper(name="{name}", srcs=[{srcs}], headers={headers})
+
 """
+
+
 
 binary_template = """
-cpp_binary(
-    name = "{name}",
-    srcs = [{srcs}],
-    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    include_paths = ROCKSDB_INCLUDE_PATHS,
-    deps = [{deps}],
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
-)
-"""
-
-test_cfg_template = """    [
-        "%s",
-        "%s",
-        "%s",
-        %s,
-        %s,
-    ],
+cpp_binary_wrapper(name="{name}", srcs=[{srcs}], deps=[{deps}], extra_preprocessor_flags=[{extra_preprocessor_flags}], extra_bench_libs={extra_bench_libs})
 """
 
 unittests_template = """
-# [test_name, test_src, test_type, extra_deps, extra_compiler_flags]
-ROCKS_TESTS = [
-{tests}]
+cpp_unittest_wrapper(name="{test_name}",
+            srcs=["{test_cc}"],
+            deps={deps},
+            extra_compiler_flags={extra_compiler_flags})
 
-# Generate a test rule for each entry in ROCKS_TESTS
-# Do not build the tests in opt mode, since SyncPoint and other test code
-# will not be included.
-[
-    cpp_unittest(
-        name = test_name,
-        srcs = [test_cc],
-        arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-        compiler_flags = ROCKSDB_COMPILER_FLAGS + extra_compiler_flags,
-        include_paths = ROCKSDB_INCLUDE_PATHS,
-        os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-        preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-        deps = [":rocksdb_test_lib"] + extra_deps,
-        external_deps = ROCKSDB_EXTERNAL_DEPS + [
-            ("googletest", None, "gtest"),
-        ],
-    )
-    for test_name, test_cc, parallelism, extra_deps, extra_compiler_flags in ROCKS_TESTS
-    if not is_opt_mode
-]
+"""
+
+fancy_bench_template = """
+fancy_bench_wrapper(suite_name="{name}", binary_to_bench_to_metric_list_map={bench_config}, slow={slow}, expected_runtime={expected_runtime})
+
 """

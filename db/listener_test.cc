@@ -340,6 +340,9 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
   for (int i = 1; i < 8; ++i) {
     ASSERT_OK(Flush(i));
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    // Ensure background work is fully finished including listener callbacks
+    // before accessing listener state.
+    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
     ASSERT_EQ(listener->flushed_dbs_.size(), i);
     ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
   }
@@ -462,6 +465,13 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
     }
   }
 
+  for (int d = 0; d < kNumDBs; ++d) {
+    // Ensure background work is fully finished including listener callbacks
+    // before accessing listener state.
+    ASSERT_OK(
+        static_cast_with_check<DBImpl>(dbs[d])->TEST_WaitForBackgroundWork());
+  }
+
   for (auto* listener : listeners) {
     int pos = 0;
     for (size_t c = 0; c < cf_names.size(); ++c) {
@@ -523,10 +533,10 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
     ASSERT_OK(db_->Flush(fo, handles_[1]));
     db_->GetColumnFamilyMetaData(handles_[1], &cf_meta);
   }
-  ASSERT_GE(listener->slowdown_count, kSlowdownTrigger * 9);
-  // We don't want the listener executing during DBTestBase::Close() due to
-  // race on handles_.
+  // Ensure background work is fully finished including listener callbacks
+  // before accessing listener state.
   ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+  ASSERT_GE(listener->slowdown_count, kSlowdownTrigger * 9);
 }
 
 class TestCompactionReasonListener : public EventListener {

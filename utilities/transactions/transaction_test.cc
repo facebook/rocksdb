@@ -148,6 +148,78 @@ TEST_P(TransactionTest, SuccessTest) {
   delete txn;
 }
 
+TEST_P(TransactionTest, SwitchMemtableDuringPrepareAndCommit_WC) {
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
+
+  if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
+    ROCKSDB_GTEST_BYPASS("Test applies to write-committed only");
+    return;
+  }
+
+  ASSERT_OK(db->Put(WriteOptions(), "key0", "value"));
+
+  TransactionOptions txn_opts;
+  txn_opts.use_only_the_last_commit_time_batch_for_recovery = true;
+  Transaction* txn = db->BeginTransaction(WriteOptions(), txn_opts);
+  assert(txn);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table", [&](void* arg) {
+        // db mutex not held.
+        auto* mems = reinterpret_cast<autovector<MemTable*>*>(arg);
+        assert(mems);
+        ASSERT_EQ(1, mems->size());
+        auto* ctwb = txn->GetCommitTimeWriteBatch();
+        ASSERT_OK(ctwb->Put("gtid", "123"));
+        ASSERT_OK(txn->Commit());
+        delete txn;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(txn->Put("key1", "value"));
+  ASSERT_OK(txn->SetName("txn1"));
+
+  ASSERT_OK(txn->Prepare());
+
+  auto dbimpl = static_cast_with_check<DBImpl>(db->GetRootDB());
+  ASSERT_OK(dbimpl->TEST_SwitchMemtable(nullptr));
+  ASSERT_OK(dbimpl->TEST_FlushMemTable(
+      /*wait=*/false, /*allow_write_stall=*/true, /*cfh=*/nullptr));
+
+  ASSERT_OK(dbimpl->TEST_WaitForFlushMemTable());
+
+  {
+    std::string value;
+    ASSERT_OK(db->Get(ReadOptions(), "key1", &value));
+    ASSERT_EQ("value", value);
+  }
+
+  delete db;
+  db = nullptr;
+  Status s;
+  if (use_stackable_db_ == false) {
+    s = TransactionDB::Open(options, txn_db_options, dbname, &db);
+  } else {
+    s = OpenWithStackableDB();
+  }
+  ASSERT_OK(s);
+  assert(db);
+
+  {
+    std::string value;
+    ASSERT_OK(db->Get(ReadOptions(), "gtid", &value));
+    ASSERT_EQ("123", value);
+
+    ASSERT_OK(db->Get(ReadOptions(), "key1", &value));
+    ASSERT_EQ("value", value);
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 // The test clarifies the contract of do_validate and assume_tracked
 // in GetForUpdate and Put/Merge/Delete
 TEST_P(TransactionTest, AssumeExclusiveTracked) {

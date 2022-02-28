@@ -15,6 +15,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
@@ -157,9 +158,9 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
 
   // Generate filter for current set of keys and append to result_.
   filter_offsets_.push_back(static_cast<uint32_t>(result_.size()));
-  BloomFilterPolicy::CreateFilter(tmp_entries_.data(),
-                                  static_cast<int>(num_entries), bits_per_key_,
-                                  &result_);
+  DeprecatedBlockBasedBloomFilterPolicy::CreateFilter(
+      tmp_entries_.data(), static_cast<int>(num_entries), bits_per_key_,
+      &result_);
 
   tmp_entries_.clear();
   entries_.clear();
@@ -283,7 +284,8 @@ bool BlockBasedFilterBlockReader::MayMatch(
       assert(table());
       assert(table()->get_rep());
 
-      const bool may_match = BloomFilterPolicy::KeyMayMatch(entry, filter);
+      const bool may_match =
+          DeprecatedBlockBasedBloomFilterPolicy::KeyMayMatch(entry, filter);
       if (may_match) {
         PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
         return true;

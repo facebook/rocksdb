@@ -1319,7 +1319,7 @@ class FileChecksumTestHelper {
     uint64_t offset = 0;
     Status s;
     s = file_reader_->Read(IOOptions(), offset, 2048, &result, scratch.get(),
-                           nullptr, false);
+                           nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
     if (!s.ok()) {
       return s;
     }
@@ -1327,7 +1327,8 @@ class FileChecksumTestHelper {
       file_checksum_generator->Update(scratch.get(), result.size());
       offset += static_cast<uint64_t>(result.size());
       s = file_reader_->Read(IOOptions(), offset, 2048, &result, scratch.get(),
-                             nullptr, false);
+                             nullptr,
+                             Env::IO_TOTAL /* rate_limiter_priority */);
       if (!s.ok()) {
         return s;
       }
@@ -1871,7 +1872,7 @@ TEST_P(BlockBasedTableTest, FilterPolicyNameProperties) {
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
   auto& props = *c.GetTableReader()->GetTableProperties();
-  ASSERT_EQ("rocksdb.BuiltinBloomFilter", props.filter_policy_name);
+  ASSERT_EQ(table_options.filter_policy->Name(), props.filter_policy_name);
   c.ResetTableReader();
 }
 
@@ -5001,13 +5002,16 @@ TEST_F(BBTTailPrefetchTest, FilePrefetchBufferMinOffset) {
   IOOptions opts;
   buffer.TryReadFromCache(opts, nullptr /* reader */, 500 /* offset */,
                           10 /* n */, nullptr /* result */,
-                          nullptr /* status */);
+                          nullptr /* status */,
+                          Env::IO_TOTAL /* rate_limiter_priority */);
   buffer.TryReadFromCache(opts, nullptr /* reader */, 480 /* offset */,
                           10 /* n */, nullptr /* result */,
-                          nullptr /* status */);
+                          nullptr /* status */,
+                          Env::IO_TOTAL /* rate_limiter_priority */);
   buffer.TryReadFromCache(opts, nullptr /* reader */, 490 /* offset */,
                           10 /* n */, nullptr /* result */,
-                          nullptr /* status */);
+                          nullptr /* status */,
+                          Env::IO_TOTAL /* rate_limiter_priority */);
   ASSERT_EQ(480, buffer.min_offset_read());
 }
 

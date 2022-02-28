@@ -510,8 +510,9 @@ class CacheBench {
       timer.Start();
       Slice key = gen.GetRand(thread->rnd, max_key_, max_log_);
       uint64_t random_op = thread->rnd.Next();
-      Cache::CreateCallback create_cb =
-          [](void* buf, size_t size, void** out_obj, size_t* charge) -> Status {
+      Cache::CreateCallback create_cb = [](const void* buf, size_t size,
+                                           void** out_obj,
+                                           size_t* charge) -> Status {
         *out_obj = reinterpret_cast<void*>(new char[size]);
         memcpy(*out_obj, buf, size);
         *charge = size;

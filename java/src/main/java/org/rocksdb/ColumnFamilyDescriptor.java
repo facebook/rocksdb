@@ -50,37 +50,12 @@ public class ColumnFamilyDescriptor {
   }
 
   /**
-   * Retrieve name of column family.
-   *
-   * @return column family name.
-   * @since 3.10.0
-   *
-   * @deprecated Use {@link #getName()} instead.
-   */
-  @Deprecated
-  public byte[] columnFamilyName() {
-    return getName();
-  }
-
-  /**
    * Retrieve assigned options instance.
    *
    * @return Options instance assigned to this instance.
    */
   public ColumnFamilyOptions getOptions() {
     return columnFamilyOptions_;
-  }
-
-  /**
-   * Retrieve assigned options instance.
-   *
-   * @return Options instance assigned to this instance.
-   *
-   * @deprecated Use {@link #getOptions()} instead.
-   */
-  @Deprecated
-  public ColumnFamilyOptions columnFamilyOptions() {
-    return getOptions();
   }
 
   @Override
