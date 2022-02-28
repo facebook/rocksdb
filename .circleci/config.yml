@@ -88,7 +88,7 @@ commands:
             DB_DIR: /tmp/rocksdb-benchmark-datadir
             WAL_DIR: /tmp/rocksdb-benchmark-waldir
             OUTPUT_DIR: /tmp/benchmark-results
-            NUM_KEYS: 1000000
+            NUM_KEYS: 10000000
 
   post-benchmarks:
     steps:
