@@ -381,6 +381,12 @@ multiops_txn_default_params = {
 
 multiops_wc_txn_params = {
     "txn_write_policy": 0,
+    # TODO re-enable pipelined write. Not well tested atm
+    "enable_pipelined_write": 0,
+    # TODO: re-enable two-write-queues
+    "two_write_queues": 0,
+    # TODO: re-enable true case
+    "use_only_the_last_commit_time_batch_for_recovery": 0,
 }
 
 multiops_wp_txn_params = {
