@@ -747,7 +747,10 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
       break;
     } else if (s.IsNotFound()) {
       // We can also fail verification here.
-      VerificationAbort(thread->shared, "pk should exist, but does not", s);
+      std::ostringstream oss;
+      oss << "pk should exist: " << Slice(pk).ToString(true);
+      fprintf(stderr, "%s\n", oss.str().c_str());
+      assert(false);
       break;
     }
     if (!s.ok()) {
