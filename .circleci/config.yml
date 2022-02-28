@@ -77,7 +77,7 @@ commands:
       - run:
           name: "Linux build for benchmarks"
           command: #sized for the resource-class rocksdb-benchmark-sys1
-            CC=clang CXX=clang++ USE_CLANG=1 make V=1 J=8 -j8 release
+            make V=1 J=8 -j8 release
 
   perform-benchmarks:
     steps:
