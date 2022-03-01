@@ -2010,7 +2010,7 @@ TEST_F(DBFlushTest, TombstoneVisibleInSnapshot) {
     ~SimpleTestFlushListener() override {}
 
     void OnFlushBegin(DB* db, const FlushJobInfo& info) override {
-      ASSERT_EQ(0, info.cf_id);
+      ASSERT_EQ(static_cast<uint32_t>(0), info.cf_id);
 
       ASSERT_OK(db->Delete(WriteOptions(), "foo"));
       snapshot_ = db->GetSnapshot();
