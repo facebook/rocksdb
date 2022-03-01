@@ -7,12 +7,15 @@
 // ROCKSDB_NAMESPACE::Options.
 
 #include "rocksdb/table.h"
+
 #include <jni.h>
+
 #include "include/org_rocksdb_BlockBasedTableConfig.h"
 #include "include/org_rocksdb_PlainTableConfig.h"
 #include "portal.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 
 /*
  * Class:     org_rocksdb_PlainTableConfig
@@ -35,7 +38,7 @@ jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
       static_cast<ROCKSDB_NAMESPACE::EncodingType>(jencoding_type);
   options.full_scan_mode = jfull_scan_mode;
   options.store_index_in_file = jstore_index_in_file;
-  return reinterpret_cast<jlong>(
+  return GET_CPLUSPLUS_POINTER(
       ROCKSDB_NAMESPACE::NewPlainTableFactory(options));
 }
 
@@ -150,6 +153,6 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
       ROCKSDB_NAMESPACE::IndexShorteningModeJni::toCppIndexShorteningMode(
           jindex_shortening);
 
-  return reinterpret_cast<jlong>(
+  return GET_CPLUSPLUS_POINTER(
       ROCKSDB_NAMESPACE::NewBlockBasedTableFactory(options));
 }
