@@ -320,7 +320,7 @@ static void DBPutArguments(benchmark::internal::Benchmark* b) {
       {"comp_style", "max_data", "per_key_size", "enable_statistics", "wal"});
 }
 
-static const uint64_t DBPutNum = 10l << 10;
+static const uint64_t DBPutNum = 20l << 10;
 BENCHMARK(DBPut)->Threads(1)->Iterations(DBPutNum)->Apply(DBPutArguments);
 BENCHMARK(DBPut)->Threads(8)->Iterations(DBPutNum / 8)->Apply(DBPutArguments);
 
