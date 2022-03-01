@@ -10,6 +10,7 @@
 #include "db/log_reader.h"
 
 #include <stdio.h>
+
 #include "file/sequence_file_reader.h"
 #include "port/lang.h"
 #include "rocksdb/env.h"
@@ -41,10 +42,18 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       recycled_(false),
       first_record_read_(false),
       compression_type_(kNoCompression),
-      compression_type_record_read_(false) {}
+      compression_type_record_read_(false),
+      uncompress_(nullptr),
+      uncompressed_buffer_(nullptr) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
+  if (uncompress_) {
+    delete uncompress_;
+  }
+  if (uncompressed_buffer_) {
+    delete[] uncompressed_buffer_;
+  }
 }
 
 // For kAbsoluteConsistency, on clean shutdown we don't expect any error
@@ -58,6 +67,9 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
                         WALRecoveryMode wal_recovery_mode) {
   scratch->clear();
   record->clear();
+  if (uncompress_) {
+    uncompress_->Reset();
+  }
   bool in_fragmented_record = false;
   // Record offset of the logical record that we're reading
   // 0 is a dummy value to make compilers happy
@@ -235,8 +247,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           ReportCorruption(fragment.size(),
                            "could not decode SetCompressionType record");
         } else {
-          compression_type_ = compression_record.GetCompressionType();
-          compression_type_record_read_ = true;
+          InitCompression(compression_record);
         }
         break;
       }
@@ -450,9 +461,40 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
 
     buffer_.remove_prefix(header_size + length);
 
-    *result = Slice(header + header_size, length);
-    return type;
+    if (uncompress_ && type != kSetCompressionType) {
+      // Uncompress compressed records
+      std::string uncompressed_buffer = "";
+      size_t uncompressed_size = 0;
+      int remaining = 0;
+      do {
+        remaining =
+            uncompress_->Uncompress(header + header_size, length,
+                                    uncompressed_buffer_, &uncompressed_size);
+        if (uncompressed_size > 0) {
+          std::string uncompressed_fragment;
+          uncompressed_fragment.assign(uncompressed_buffer_, uncompressed_size);
+          uncompressed_buffer += uncompressed_fragment;
+        }
+      } while (remaining > 0 || uncompressed_size == kBlockSize);
+      *result = Slice(uncompressed_buffer);
+      return type;
+    } else {
+      *result = Slice(header + header_size, length);
+      return type;
+    }
   }
+}
+
+// Initialize uncompress related fields
+void Reader::InitCompression(const CompressionTypeRecord& compression_record) {
+  compression_type_ = compression_record.GetCompressionType();
+  compression_type_record_read_ = true;
+  constexpr uint32_t compression_format_version = 2;
+  uncompress_ = StreamingUncompress::Create(
+      compression_type_, compression_format_version, kBlockSize);
+  assert(uncompress_ != nullptr);
+  uncompressed_buffer_ = new char[kBlockSize];
+  assert(uncompressed_buffer_ != nullptr);
 }
 
 bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
@@ -461,6 +503,9 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
   assert(scratch != nullptr);
   record->clear();
   scratch->clear();
+  if (uncompress_) {
+    uncompress_->Reset();
+  }
 
   uint64_t prospective_record_offset = 0;
   uint64_t physical_record_offset = end_of_buffer_offset_ - buffer_.size();
@@ -562,7 +607,7 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
           ReportCorruption(fragment.size(),
                            "could not decode SetCompressionType record");
         } else {
-          compression_type_ = compression_record.GetCompressionType();
+          InitCompression(compression_record);
         }
         break;
       }
@@ -700,9 +745,29 @@ bool FragmentBufferedReader::TryReadFragment(
 
   buffer_.remove_prefix(header_size + length);
 
-  *fragment = Slice(header + header_size, length);
-  *fragment_type_or_err = type;
-  return true;
+  if (uncompress_ && type != kSetCompressionType) {
+    // Uncompress compressed records
+    std::string uncompressed_buffer = "";
+    size_t uncompressed_size = 0;
+    int remaining = 0;
+    do {
+      remaining =
+          uncompress_->Uncompress(header + header_size, length,
+                                  uncompressed_buffer_, &uncompressed_size);
+      if (uncompressed_size > 0) {
+        std::string uncompressed_fragment;
+        uncompressed_fragment.assign(uncompressed_buffer_, uncompressed_size);
+        uncompressed_buffer += uncompressed_fragment;
+      }
+    } while (remaining > 0 || uncompressed_size == kBlockSize);
+    *fragment = Slice(uncompressed_buffer);
+    *fragment_type_or_err = type;
+    return true;
+  } else {
+    *fragment = Slice(header + header_size, length);
+    *fragment_type_or_err = type;
+    return true;
+  }
 }
 
 }  // namespace log

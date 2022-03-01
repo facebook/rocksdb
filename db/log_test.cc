@@ -913,6 +913,42 @@ TEST_P(CompressionLogTest, Empty) {
   ASSERT_EQ("EOF", Read());
 }
 
+TEST_P(CompressionLogTest, ReadWrite) {
+  ASSERT_OK(SetupTestEnv());
+  Write("foo");
+  Write("bar");
+  Write("");
+  Write("xxxx");
+  ASSERT_EQ("foo", Read());
+  ASSERT_EQ("bar", Read());
+  ASSERT_EQ("", Read());
+  ASSERT_EQ("xxxx", Read());
+  ASSERT_EQ("EOF", Read());
+  ASSERT_EQ("EOF", Read());  // Make sure reads at eof work
+}
+
+TEST_P(CompressionLogTest, ManyBlocks) {
+  ASSERT_OK(SetupTestEnv());
+  for (int i = 0; i < 100000; i++) {
+    Write(NumberString(i));
+  }
+  for (int i = 0; i < 100000; i++) {
+    ASSERT_EQ(NumberString(i), Read());
+  }
+  ASSERT_EQ("EOF", Read());
+}
+
+TEST_P(CompressionLogTest, Fragmentation) {
+  ASSERT_OK(SetupTestEnv());
+  Write("small");
+  Write(BigString("medium", 50000));
+  Write(BigString("large", 100000));
+  ASSERT_EQ("small", Read());
+  ASSERT_EQ(BigString("medium", 50000), Read());
+  ASSERT_EQ(BigString("large", 100000), Read());
+  ASSERT_EQ("EOF", Read());
+}
+
 INSTANTIATE_TEST_CASE_P(
     Compression, CompressionLogTest,
     ::testing::Combine(::testing::Values(0, 1), ::testing::Bool(),
@@ -942,34 +978,34 @@ TEST_P(StreamingCompressionTest, Basic) {
   // Call compress till the entire input is consumed
   do {
     char* output_buffer = (char*)allocator->Allocate(kBlockSize);
-    size_t output_size;
+    size_t output_pos;
     remaining = compress->Compress(input_buffer.c_str(), input_size,
-                                   output_buffer, &output_size);
-    if (output_size > 0) {
+                                   output_buffer, &output_pos);
+    if (output_pos > 0) {
       std::string compressed_buffer;
-      compressed_buffer.assign(output_buffer, output_size);
+      compressed_buffer.assign(output_buffer, output_pos);
       compressed_buffers.emplace_back(std::move(compressed_buffer));
     }
     allocator->Deallocate((void*)output_buffer);
   } while (remaining > 0);
   std::string uncompressed_buffer = "";
   int ret_val = 0;
-  size_t output_size;
+  size_t output_pos;
   char* uncompressed_output_buffer = (char*)allocator->Allocate(kBlockSize);
   // Uncompress the fragments and concatenate them.
   for (int i = 0; i < (int)compressed_buffers.size(); i++) {
     // Call uncompress till either the entire input is consumed or the output
     // buffer size is equal to the allocated output buffer size.
     do {
-      ret_val = uncompress->Uncompress(
-          compressed_buffers[i].c_str(), compressed_buffers[i].size(),
-          uncompressed_output_buffer, &output_size);
-      if (output_size > 0) {
+      ret_val = uncompress->Uncompress(compressed_buffers[i].c_str(),
+                                       compressed_buffers[i].size(),
+                                       uncompressed_output_buffer, &output_pos);
+      if (output_pos > 0) {
         std::string uncompressed_fragment;
-        uncompressed_fragment.assign(uncompressed_output_buffer, output_size);
+        uncompressed_fragment.assign(uncompressed_output_buffer, output_pos);
         uncompressed_buffer += uncompressed_fragment;
       }
-    } while (ret_val > 0 || output_size == kBlockSize);
+    } while (ret_val > 0 || output_pos == kBlockSize);
   }
   allocator->Deallocate((void*)uncompressed_output_buffer);
   delete allocator;

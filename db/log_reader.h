@@ -136,6 +136,9 @@ class Reader {
   CompressionType compression_type_;
   // Track whether the compression type record has been read or not.
   bool compression_type_record_read_;
+  StreamingUncompress* uncompress_;
+  // Reusable uncompressed output buffer
+  char* uncompressed_buffer_;
 
   // Extend record types with the following special values
   enum {
@@ -167,6 +170,8 @@ class Reader {
   // buffer_ must be updated to remove the dropped bytes prior to invocation.
   void ReportCorruption(size_t bytes, const char* reason);
   void ReportDrop(size_t bytes, const Status& reason);
+
+  void InitCompression(const CompressionTypeRecord& compression_record);
 };
 
 class FragmentBufferedReader : public Reader {

@@ -16,6 +16,7 @@
 #include "rocksdb/io_status.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -114,6 +115,9 @@ class Writer {
 
   // Compression Type
   CompressionType compression_type_;
+  StreamingCompress* compress_;
+  // Reusable compressed output buffer
+  char* compressed_buffer_;
 };
 
 }  // namespace log
