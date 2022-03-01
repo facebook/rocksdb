@@ -85,6 +85,7 @@ commands:
           name: "Run basic benchmark, small"
           command: ./tools/benchmark.sh fillseq_enable_wal
           environment:
+            LD_LIBRARY_PATH: /usr/local/lib
             DB_DIR: /tmp/rocksdb-benchmark-datadir
             WAL_DIR: /tmp/rocksdb-benchmark-waldir
             OUTPUT_DIR: /tmp/benchmark-results
@@ -93,6 +94,7 @@ commands:
           name: "Run basic benchmark again, but bigger"
           command: ./tools/benchmark.sh fillseq_enable_wal
           environment:
+            LD_LIBRARY_PATH: /usr/local/lib
             DB_DIR: /tmp/rocksdb-benchmark-datadir
             WAL_DIR: /tmp/rocksdb-benchmark-waldir
             OUTPUT_DIR: /tmp/benchmark-results
