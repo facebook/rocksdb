@@ -232,7 +232,7 @@ script:
   - if [ `command -v ccache` ]; then ccache -C; fi
   - export MK_PARALLEL=4;
     if [[ "$TRAVIS_CPU_ARCH" == s390x ]]; then
-      export MK_PARALLEL=2;
+      export MK_PARALLEL=1;
     fi
   - case $TEST_GROUP in
     platform_dependent)
