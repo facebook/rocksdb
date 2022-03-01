@@ -5,7 +5,8 @@
 * Added BlobDB options to `ldb`
 
 ### Bug Fixes
-* * Fixed a data race on `versions_` between `DBImpl::ResumeImpl()` and threads waiting for recovery to complete (#9496)
+* Fixed a data race on `versions_` between `DBImpl::ResumeImpl()` and threads waiting for recovery to complete (#9496)
+* Fixed a bug due to db mutex release causing incorrect result returned for snapshot read.
 
 ### Public API changes
 * Remove BlockBasedTableOptions.hash_index_allow_collision which already takes no effect.
