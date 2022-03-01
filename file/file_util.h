@@ -20,6 +20,11 @@ namespace ROCKSDB_NAMESPACE {
 // use_fsync maps to options.use_fsync, which determines the way that
 // the file is synced after copying.
 extern IOStatus CopyFile(FileSystem* fs, const std::string& source,
+                         std::unique_ptr<WritableFileWriter>& dest_writer,
+                         uint64_t size, bool use_fsync,
+                         const std::shared_ptr<IOTracer>& io_tracer,
+                         const Temperature temperature);
+extern IOStatus CopyFile(FileSystem* fs, const std::string& source,
                          const std::string& destination, uint64_t size,
                          bool use_fsync,
                          const std::shared_ptr<IOTracer>& io_tracer,
