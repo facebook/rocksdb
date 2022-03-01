@@ -444,6 +444,10 @@ class WriteBatch : public WriteBatchBase {
   // timestamps to desired values.
   bool needs_in_place_update_ts_ = false;
 
+  // True if the write batch contains at least one key from a column family
+  // that enables user-defined timestamp.
+  bool has_key_with_ts_ = false;
+
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
 };

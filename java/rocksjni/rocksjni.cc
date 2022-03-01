@@ -2725,9 +2725,22 @@ jlongArray Java_org_rocksdb_RocksDB_getApproximateSizes(
   }
 
   auto sizes = std::unique_ptr<uint64_t[]>(new uint64_t[range_count]);
+
+  ROCKSDB_NAMESPACE::DB::SizeApproximationFlags include_flags =
+      ROCKSDB_NAMESPACE::DB::SizeApproximationFlags::NONE;
+  if (jinclude_flags & 1) {
+    include_flags =
+        ROCKSDB_NAMESPACE::DB::SizeApproximationFlags::INCLUDE_MEMTABLES;
+  }
+  if (jinclude_flags & 2) {
+    include_flags =
+        (include_flags |
+         ROCKSDB_NAMESPACE::DB::SizeApproximationFlags::INCLUDE_FILES);
+  }
+
   db->GetApproximateSizes(cf_handle, ranges.get(),
-      static_cast<int>(range_count), sizes.get(),
-      static_cast<uint8_t>(jinclude_flags));
+                          static_cast<int>(range_count), sizes.get(),
+                          include_flags);
 
   // release LongArrayElements
   env->ReleaseLongArrayElements(jrange_slice_handles, jranges, JNI_ABORT);

@@ -33,14 +33,15 @@ std::shared_ptr<const FilterPolicy> Create(double bits_per_key,
                                            const std::string& name) {
   return BloomLikeFilterPolicy::Create(name, bits_per_key);
 }
-const std::string kLegacyBloom = test::LegacyBloomFilterPolicy::kName();
+const std::string kLegacyBloom = test::LegacyBloomFilterPolicy::kClassName();
 const std::string kDeprecatedBlock =
-    DeprecatedBlockBasedBloomFilterPolicy::kName();
-const std::string kFastLocalBloom = test::FastLocalBloomFilterPolicy::kName();
+    DeprecatedBlockBasedBloomFilterPolicy::kClassName();
+const std::string kFastLocalBloom =
+    test::FastLocalBloomFilterPolicy::kClassName();
 const std::string kStandard128Ribbon =
-    test::Standard128RibbonFilterPolicy::kName();
-const std::string kAutoBloom = BloomFilterPolicy::kName();
-const std::string kAutoRibbon = RibbonFilterPolicy::kName();
+    test::Standard128RibbonFilterPolicy::kClassName();
+const std::string kAutoBloom = BloomFilterPolicy::kClassName();
+const std::string kAutoRibbon = RibbonFilterPolicy::kClassName();
 }  // namespace
 
 // DB tests related to bloom filter.
@@ -593,10 +594,9 @@ class AlwaysTrueBitsBuilder : public FilterBitsBuilder {
   size_t ApproximateNumEntries(size_t) override { return SIZE_MAX; }
 };
 
-class AlwaysTrueFilterPolicy : public BloomLikeFilterPolicy {
+class AlwaysTrueFilterPolicy : public ReadOnlyBuiltinFilterPolicy {
  public:
-  explicit AlwaysTrueFilterPolicy(bool skip)
-      : BloomLikeFilterPolicy(/* ignored */ 10), skip_(skip) {}
+  explicit AlwaysTrueFilterPolicy(bool skip) : skip_(skip) {}
 
   FilterBitsBuilder* GetBuilderWithContext(
       const FilterBuildingContext&) const override {
@@ -605,10 +605,6 @@ class AlwaysTrueFilterPolicy : public BloomLikeFilterPolicy {
     } else {
       return new AlwaysTrueBitsBuilder();
     }
-  }
-
-  std::string GetId() const override {
-    return "rocksdb.test.AlwaysTrueFilterPolicy";
   }
 
  private:
@@ -1606,11 +1602,11 @@ class TestingContextCustomFilterPolicy
     test_report_ +=
         OptionsHelper::compaction_style_to_string[context.compaction_style];
     test_report_ += ",n=";
-    test_report_ += ToString(context.num_levels);
+    test_report_ += ROCKSDB_NAMESPACE::ToString(context.num_levels);
     test_report_ += ",l=";
-    test_report_ += ToString(context.level_at_creation);
+    test_report_ += ROCKSDB_NAMESPACE::ToString(context.level_at_creation);
     test_report_ += ",b=";
-    test_report_ += ToString(int{context.is_bottommost});
+    test_report_ += ROCKSDB_NAMESPACE::ToString(int{context.is_bottommost});
     test_report_ += ",r=";
     test_report_ += table_file_creation_reason_to_string[context.reason];
     test_report_ += "\n";

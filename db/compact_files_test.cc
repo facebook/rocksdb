@@ -138,6 +138,9 @@ TEST_F(CompactFilesTest, MultipleLevel) {
     collector->ClearFlushedFiles();
     ASSERT_OK(db->Put(WriteOptions(), ToString(i), ""));
     ASSERT_OK(db->Flush(FlushOptions()));
+    // Ensure background work is fully finished including listener callbacks
+    // before accessing listener state.
+    ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForBackgroundWork());
     auto l0_files = collector->GetFlushedFiles();
     ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files, i));
 
@@ -296,6 +299,9 @@ TEST_F(CompactFilesTest, CapturingPendingFiles) {
     ASSERT_OK(db->Flush(FlushOptions()));
   }
 
+  // Ensure background work is fully finished including listener callbacks
+  // before accessing listener state.
+  ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForBackgroundWork());
   auto l0_files = collector->GetFlushedFiles();
   EXPECT_EQ(5, l0_files.size());
 
@@ -414,6 +420,9 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
     ASSERT_OK(db->Put(WriteOptions(), "key", "val"));
     ASSERT_OK(db->Flush(FlushOptions()));
 
+    // Ensure background work is fully finished including listener callbacks
+    // before accessing listener state.
+    ASSERT_OK(static_cast_with_check<DBImpl>(db)->TEST_WaitForBackgroundWork());
     auto l0_files = collector->GetFlushedFiles();
     ASSERT_EQ(1, l0_files.size());
 
