@@ -632,7 +632,7 @@ if test "0$PORTABLE" -eq 0; then
     COMMON_FLAGS="$COMMON_FLAGS"
   elif test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
     if echo 'int main() {}' | $CXX $PLATFORM_CXXFLAGS -x c++ \
-      -fsyntax-only -march=native - -o /dev/null 2>/dev/null; then
+      -march=native - -o /dev/null 2>/dev/null; then
       COMMON_FLAGS="$COMMON_FLAGS -march=native "
     else
       COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
