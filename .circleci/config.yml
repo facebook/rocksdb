@@ -82,7 +82,15 @@ commands:
   perform-benchmarks:
     steps:
       - run:
-          name: "Run basic benchmark"
+          name: "Run basic benchmark, small"
+          command: ./tools/benchmark.sh fillseq_enable_wal
+          environment:
+            DB_DIR: /tmp/rocksdb-benchmark-datadir
+            WAL_DIR: /tmp/rocksdb-benchmark-waldir
+            OUTPUT_DIR: /tmp/benchmark-results
+            NUM_KEYS: 1000000
+      - run:
+          name: "Run basic benchmark again, but bigger"
           command: ./tools/benchmark.sh fillseq_enable_wal
           environment:
             DB_DIR: /tmp/rocksdb-benchmark-datadir
