@@ -258,8 +258,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                            offsetof(struct BlockBasedTableOptions, index_type),
                            &block_base_table_index_type_string_map)},
         {"hash_index_allow_collision",
-         {offsetof(struct BlockBasedTableOptions, hash_index_allow_collision),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"data_block_index_type",
          OptionTypeInfo::Enum<BlockBasedTableOptions::DataBlockIndexType>(
@@ -705,9 +704,6 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  data_block_hash_table_util_ratio: %lf\n",
            table_options_.data_block_hash_table_util_ratio);
-  ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  hash_index_allow_collision: %d\n",
-           table_options_.hash_index_allow_collision);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  checksum: %d\n", table_options_.checksum);
   ret.append(buffer);

@@ -2163,7 +2163,6 @@ class BloomStatsTestWithParam
       options_.table_factory.reset(NewPlainTableFactory(table_options));
     } else {
       BlockBasedTableOptions table_options;
-      table_options.hash_index_allow_collision = false;
       if (partition_filters_) {
         assert(bfp_impl_ != kDeprecatedBlock);
         table_options.partition_filters = partition_filters_;

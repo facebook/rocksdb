@@ -227,9 +227,8 @@ struct BlockBasedTableOptions {
   // kDataBlockBinaryAndHash.
   double data_block_hash_table_util_ratio = 0.75;
 
-  // This option is now deprecated. No matter what value it is set to,
-  // it will behave as if hash_index_allow_collision=true.
-  bool hash_index_allow_collision = true;
+  // Option hash_index_allow_collision is now deleted.
+  // It will behave as if hash_index_allow_collision=true.
 
   // Use the specified checksum type. Newly created table files will be
   // protected with this checksum type. Old table files will still be readable,
