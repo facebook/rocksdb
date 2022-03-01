@@ -3114,7 +3114,9 @@ TEST_F(EnvTest, CreateCompositeEnv) {
 class ReadAsyncFS;
 
 struct MockIOHandle {
-  bool create_io_error = false;
+  std::function<void(const FSReadRequest&, void*)> cb;
+  void* cb_arg;
+  bool create_io_error;
 };
 
 // ReadAsyncFS and ReadAsyncRandomAccessFile mocks the FS doing asynchronous
@@ -3156,11 +3158,20 @@ class ReadAsyncFS : public FileSystemWrapper {
     return s;
   }
 
-  IOStatus Poll(std::vector<void*>& /*io_handles*/,
+  IOStatus Poll(std::vector<void*>& io_handles,
                 size_t /*min_completions*/) override {
     // Wait for the threads completion.
     for (auto& t : workers) {
       t.join();
+    }
+
+    for (size_t i = 0; i < io_handles.size(); i++) {
+      MockIOHandle* handle = static_cast<MockIOHandle*>(io_handles[i]);
+      if (handle->create_io_error) {
+        FSReadRequest req;
+        req.status = IOStatus::IOError();
+        handle->cb(req, handle->cb_arg);
+      }
     }
     return IOStatus::OK();
   }
@@ -3180,23 +3191,26 @@ IOStatus ReadAsyncRandomAccessFile::ReadAsync(
 
   // Allocate and populate io_handle.
   MockIOHandle* mock_handle = new MockIOHandle();
+  bool create_io_error = false;
   if (counter % 2) {
-    mock_handle->create_io_error = true;
+    create_io_error = true;
   }
+  mock_handle->create_io_error = create_io_error;
+  mock_handle->cb = cb;
+  mock_handle->cb_arg = cb_arg;
   *io_handle = static_cast<void*>(mock_handle);
   counter++;
 
   // Submit read request asynchronously.
-  std::function<void()> submit_request = [&req, &opts, cb, cb_arg, io_handle,
-                                          del_fn, dbg, this]() {
-    if ((static_cast<MockIOHandle*>(*io_handle))->create_io_error) {
-      req.status = IOStatus::IOError();
-    } else {
-      target()->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, dbg);
-    }
-  };
+  std::function<void(FSReadRequest)> submit_request =
+      [&opts, cb, cb_arg, io_handle, del_fn, dbg, create_io_error,
+       this](FSReadRequest _req) {
+        if (!create_io_error) {
+          target()->ReadAsync(_req, opts, cb, cb_arg, io_handle, del_fn, dbg);
+        }
+      };
 
-  fs_.workers.emplace_back(submit_request);
+  fs_.workers.emplace_back(submit_request, req);
   return IOStatus::OK();
 }
 
@@ -3258,12 +3272,9 @@ TEST_F(TestAsyncRead, ReadAsync) {
         [&](const FSReadRequest& req, void* cb_arg) {
           assert(cb_arg != nullptr);
           size_t i = *(reinterpret_cast<size_t*>(cb_arg));
-          auto buf = NewAligned(kSectorSize * 8, static_cast<char>(i + 1));
-          Slice expected_data(buf.get(), kSectorSize);
-
-          ASSERT_EQ(req.offset, i * kSectorSize);
-          ASSERT_OK(req.status);
-          ASSERT_EQ(expected_data.ToString(), req.result.ToString());
+          reqs[i].offset = req.offset;
+          reqs[i].result = req.result;
+          reqs[i].status = req.status;
         };
 
     // Submit asynchronous read requests.
@@ -3274,7 +3285,7 @@ TEST_F(TestAsyncRead, ReadAsync) {
     }
 
     // Poll for the submitted requests.
-    fs->Poll(io_handles, 0);
+    fs->Poll(io_handles, kNumSectors);
 
     // Check the status of read requests.
     for (size_t i = 0; i < kNumSectors; i++) {

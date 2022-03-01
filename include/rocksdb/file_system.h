@@ -647,9 +647,11 @@ class FileSystem : public Customizable {
 
   // EXPERIMENTAL
   // Poll for completion of read IO requests. The Poll() method should call the
-  // callback functions to indicate completion of read requests. If Poll is not
-  // supported it means callee should be informed of IO completions via the
-  // callback on another thread.
+  // callback functions to indicate completion of read requests.
+  // Underlying FS is required to support Poll API. Poll implementation should
+  // ensure that the callback gets called at IO completion, and return only
+  // after the callback has been called.
+  //
   //
   // Default implementation is to return IOStatus::OK.
 
@@ -868,10 +870,10 @@ class FSRandomAccessFile {
   // This API should also populate io_handle which should be used by
   // underlying FileSystem to store the context in order to distinguish the read
   // requests at their side and provide the custom deletion function in del_fn.
-  // The void pointer should exist until IO is completed and RocksDB/caller
-  // calls the Poll API to get the results or callback is made.
-  //  Its RocksDB/callers duty to maintain the lifecycle of the io_handle and
-  //  delete it after use.
+  // RocksDB guarantees that the del_fn for io_handle will be called after
+  // receiving the callback. Furthermore, RocksDB guarantees that if it calls
+  // the Poll API for this io_handle, del_fn will be called after the Poll
+  // returns. RocksDB is responsible for managing the lifetime of io_handle.
   //
   // req contains the request offset and size passed as input parameter of read
   // request and result and status fields are output parameter set by underlying
