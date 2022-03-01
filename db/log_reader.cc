@@ -476,7 +476,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
           uncompressed_buffer += uncompressed_fragment;
         }
       } while (remaining > 0 || uncompressed_size == kBlockSize);
-      *result = Slice(uncompressed_buffer);
+      *result = Slice(std::move(uncompressed_buffer));
       return type;
     } else {
       *result = Slice(header + header_size, length);
@@ -760,7 +760,7 @@ bool FragmentBufferedReader::TryReadFragment(
         uncompressed_buffer += uncompressed_fragment;
       }
     } while (remaining > 0 || uncompressed_size == kBlockSize);
-    *fragment = Slice(uncompressed_buffer);
+    *fragment = Slice(std::move(uncompressed_buffer));
     *fragment_type_or_err = type;
     return true;
   } else {

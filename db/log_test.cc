@@ -914,6 +914,11 @@ TEST_P(CompressionLogTest, Empty) {
 }
 
 TEST_P(CompressionLogTest, ReadWrite) {
+  CompressionType compression_type = std::get<2>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
   ASSERT_OK(SetupTestEnv());
   Write("foo");
   Write("bar");
@@ -928,6 +933,11 @@ TEST_P(CompressionLogTest, ReadWrite) {
 }
 
 TEST_P(CompressionLogTest, ManyBlocks) {
+  CompressionType compression_type = std::get<2>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
   ASSERT_OK(SetupTestEnv());
   for (int i = 0; i < 100000; i++) {
     Write(NumberString(i));
@@ -939,6 +949,11 @@ TEST_P(CompressionLogTest, ManyBlocks) {
 }
 
 TEST_P(CompressionLogTest, Fragmentation) {
+  CompressionType compression_type = std::get<2>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
   ASSERT_OK(SetupTestEnv());
   Write("small");
   Write(BigString("medium", 50000));
