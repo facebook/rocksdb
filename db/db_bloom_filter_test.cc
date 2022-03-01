@@ -1540,6 +1540,93 @@ TEST_P(DBFilterConstructionCorruptionTestWithParam, DetectCorruption) {
       "TamperFilter");
 }
 
+// RocksDB lite does not support dynamic options
+#ifndef ROCKSDB_LITE
+TEST_P(DBFilterConstructionCorruptionTestWithParam,
+       DynamicallyTurnOnAndOffDetectConstructCorruption) {
+  Options options = CurrentOptions();
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  // We intend to turn on
+  // table_options.detect_filter_construct_corruption dynamically
+  // therefore we override this test parmater's value
+  table_options.detect_filter_construct_corruption = false;
+
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.create_if_missing = true;
+
+  int num_key = static_cast<int>(GetNumKey());
+  Status s;
+
+  DestroyAndReopen(options);
+
+  // Case 1: !table_options.detect_filter_construct_corruption
+  for (int i = 0; i < num_key; i++) {
+    ASSERT_OK(Put(Key(i), Key(i)));
+  }
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "XXPH3FilterBitsBuilder::Finish::TamperHashEntries", [&](void* arg) {
+        std::deque<uint64_t>* hash_entries_to_corrupt =
+            (std::deque<uint64_t>*)arg;
+        assert(!hash_entries_to_corrupt->empty());
+        *(hash_entries_to_corrupt->begin()) =
+            *(hash_entries_to_corrupt->begin()) ^ uint64_t { 1 };
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  s = Flush();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearCallBack(
+      "XXPH3FilterBitsBuilder::Finish::"
+      "TamperHashEntries");
+
+  ASSERT_FALSE(table_options.detect_filter_construct_corruption);
+  EXPECT_TRUE(s.ok());
+
+  // Case 2: dynamically turn on
+  // table_options.detect_filter_construct_corruption
+  ASSERT_OK(db_->SetOptions({{"block_based_table_factory",
+                              "{detect_filter_construct_corruption=true;}"}}));
+
+  for (int i = 0; i < num_key; i++) {
+    ASSERT_OK(Put(Key(i), Key(i)));
+  }
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "XXPH3FilterBitsBuilder::Finish::TamperHashEntries", [&](void* arg) {
+        std::deque<uint64_t>* hash_entries_to_corrupt =
+            (std::deque<uint64_t>*)arg;
+        assert(!hash_entries_to_corrupt->empty());
+        *(hash_entries_to_corrupt->begin()) =
+            *(hash_entries_to_corrupt->begin()) ^ uint64_t { 1 };
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  s = Flush();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearCallBack(
+      "XXPH3FilterBitsBuilder::Finish::"
+      "TamperHashEntries");
+
+  auto updated_table_options =
+      db_->GetOptions().table_factory->GetOptions<BlockBasedTableOptions>();
+  EXPECT_TRUE(updated_table_options->detect_filter_construct_corruption);
+  EXPECT_TRUE(s.IsCorruption());
+  EXPECT_TRUE(s.ToString().find("Filter's hash entries checksum mismatched") !=
+              std::string::npos);
+
+  // Case 3: dynamically turn off
+  // table_options.detect_filter_construct_corruption
+  ASSERT_OK(db_->SetOptions({{"block_based_table_factory",
+                              "{detect_filter_construct_corruption=false;}"}}));
+  updated_table_options =
+      db_->GetOptions().table_factory->GetOptions<BlockBasedTableOptions>();
+  EXPECT_FALSE(updated_table_options->detect_filter_construct_corruption);
+}
+#endif  // ROCKSDB_LITE
+
 namespace {
 // NOTE: This class is referenced by HISTORY.md as a model for a wrapper
 // FilterPolicy selecting among configurations based on context.
