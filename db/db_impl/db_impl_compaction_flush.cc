@@ -192,11 +192,6 @@ Status DBImpl::FlushMemTableToOutputFile(
       &blob_callback_);
   FileMetaData file_meta;
 
-#ifndef ROCKSDB_LITE
-  // may temporarily unlock and lock the mutex.
-  NotifyOnFlushBegin(cfd, &file_meta, mutable_cf_options, job_context->job_id);
-#endif  // ROCKSDB_LITE
-
   Status s;
   bool need_cancel = false;
   IOStatus log_io_s = IOStatus::OK();
@@ -221,6 +216,12 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
   TEST_SYNC_POINT_CALLBACK(
       "DBImpl::FlushMemTableToOutputFile:AfterPickMemtables", &flush_job);
+
+#ifndef ROCKSDB_LITE
+  // may temporarily unlock and lock the mutex.
+  NotifyOnFlushBegin(cfd, &file_meta, mutable_cf_options, job_context->job_id);
+#endif  // ROCKSDB_LITE
+
   bool switched_to_mempurge = false;
   // Within flush_job.Run, rocksdb may call event listener to notify
   // file creation and deletion.
