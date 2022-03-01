@@ -904,6 +904,11 @@ class CompressionLogTest : public LogTest {
 };
 
 TEST_P(CompressionLogTest, Empty) {
+  CompressionType compression_type = std::get<2>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
   ASSERT_OK(SetupTestEnv());
   const bool compression_enabled =
       std::get<2>(GetParam()) == kNoCompression ? false : true;
