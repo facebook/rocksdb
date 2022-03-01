@@ -43,10 +43,6 @@ env:
   - JOB_NAME=cmake-gcc9 # 3-5 minutes
   - JOB_NAME=cmake-gcc9-c++20 # 3-5 minutes
   - JOB_NAME=cmake-mingw # 3 minutes
-  - JOB_NAME=status_checked1
-  - JOB_NAME=status_checked2
-  - JOB_NAME=status_checked3
-  - JOB_NAME=status_checked4
 
 matrix:
   exclude:
@@ -189,18 +185,6 @@ matrix:
     os: linux
     arch: s390x
     env: JOB_NAME=cmake-gcc9-c++20
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os : linux
-    arch: arm64
-    env: JOB_NAME=status_checked
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os: linux
-    arch: ppc64le
-    env: JOB_NAME=status_checked
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os: linux
-    arch: s390x
-    env: JOB_NAME=status_checked
 
 install:
   -  CC=gcc-7 && CXX=g++-7
@@ -289,18 +273,6 @@ script:
       esac
 
       mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DWITH_TESTS=0 -DWITH_GFLAGS=0 -DWITH_BENCHMARK_TOOLS=0 -DWITH_TOOLS=0 -DWITH_CORE_TOOLS=1 .. && make -j$MK_PARALLEL && cd  .. && rm -rf build && mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release $OPT && make -j$MK_PARALLEL rocksdb rocksdbjni
-      ;;
-    status_checked1)
-      OPT=-DTRAVIS LIB_MODE=shared V=1 ASSERT_STATUS_CHECKED=1 ROCKSDBTESTS_END=backupable_db_test make -j$MK_PARALLEL check_some
-      ;;
-    status_checked2)
-      OPT=-DTRAVIS LIB_MODE=shared V=1 ASSERT_STATUS_CHECKED=1 ROCKSDBTESTS_START=backupable_db_test ROCKSDBTESTS_END=db_universal_compaction_test make -j$MK_PARALLEL check_some
-      ;;
-    status_checked3)
-      OPT=-DTRAVIS LIB_MODE=shared V=1 ASSERT_STATUS_CHECKED=1 ROCKSDBTESTS_START=db_universal_compaction_test ROCKSDBTESTS_END=table_properties_collector_test make -j$MK_PARALLEL check_some
-      ;;
-    status_checked4)
-      OPT=-DTRAVIS LIB_MODE=shared V=1 ASSERT_STATUS_CHECKED=1 ROCKSDBTESTS_START=table_properties_collector_test make -j$MK_PARALLEL check_some
       ;;
     esac
 notifications:
