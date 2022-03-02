@@ -827,7 +827,7 @@ workflows:
       - build-macos-java-static-universal
   build-examples:
     jobs:
-      - build-examples-and-microbench
+      - build-examples
   build-linux-compilers-no_test_run:
     jobs:
       - build-linux-clang-no_test_run
