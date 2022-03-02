@@ -463,7 +463,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
 
     if (uncompress_ && type != kSetCompressionType) {
       // Uncompress compressed records
-      std::string uncompressed_buffer = "";
+      uncompressed_record_.clear();
       size_t uncompressed_size = 0;
       int remaining = 0;
       do {
@@ -471,12 +471,10 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
             uncompress_->Uncompress(header + header_size, length,
                                     uncompressed_buffer_, &uncompressed_size);
         if (uncompressed_size > 0) {
-          std::string uncompressed_fragment;
-          uncompressed_fragment.assign(uncompressed_buffer_, uncompressed_size);
-          uncompressed_buffer += uncompressed_fragment;
+          uncompressed_record_.append(uncompressed_buffer_, uncompressed_size);
         }
       } while (remaining > 0 || uncompressed_size == kBlockSize);
-      *result = Slice(std::move(uncompressed_buffer));
+      *result = Slice(uncompressed_record_);
       return type;
     } else {
       *result = Slice(header + header_size, length);
@@ -747,7 +745,7 @@ bool FragmentBufferedReader::TryReadFragment(
 
   if (uncompress_ && type != kSetCompressionType) {
     // Uncompress compressed records
-    std::string uncompressed_buffer = "";
+    uncompressed_record_.clear();
     size_t uncompressed_size = 0;
     int remaining = 0;
     do {
@@ -755,12 +753,10 @@ bool FragmentBufferedReader::TryReadFragment(
           uncompress_->Uncompress(header + header_size, length,
                                   uncompressed_buffer_, &uncompressed_size);
       if (uncompressed_size > 0) {
-        std::string uncompressed_fragment;
-        uncompressed_fragment.assign(uncompressed_buffer_, uncompressed_size);
-        uncompressed_buffer += uncompressed_fragment;
+        uncompressed_record_.append(uncompressed_buffer_, uncompressed_size);
       }
     } while (remaining > 0 || uncompressed_size == kBlockSize);
-    *fragment = Slice(std::move(uncompressed_buffer));
+    *fragment = Slice(std::move(uncompressed_record_));
     *fragment_type_or_err = type;
     return true;
   } else {

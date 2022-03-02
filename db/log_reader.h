@@ -139,6 +139,8 @@ class Reader {
   StreamingUncompress* uncompress_;
   // Reusable uncompressed output buffer
   char* uncompressed_buffer_;
+  // Reusable uncompressed record
+  std::string uncompressed_record_;
 
   // Extend record types with the following special values
   enum {
