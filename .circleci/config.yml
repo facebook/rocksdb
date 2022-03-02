@@ -99,6 +99,8 @@ commands:
             WAL_DIR: /tmp/rocksdb-benchmark-waldir
             OUTPUT_DIR: /tmp/benchmark-results
             NUM_KEYS: 10000000
+      - store_artifacts: # store the benchmark output
+          path: /tmp/benchmark-results
 
   post-benchmarks:
     steps:
@@ -796,7 +798,7 @@ jobs:
     steps:
       - build-for-benchmarks
       - perform-benchmarks
-      - post-benchmarks
+      # - post-benchmarks
 
 workflows:
   version: 2
