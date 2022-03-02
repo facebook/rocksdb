@@ -849,9 +849,6 @@ workflows:
   build-linux-arm:
     jobs:
       - build-linux-arm
-  build-microbench:
-    jobs:
-      - build-linux-microbench
   build-fuzzers:
     jobs:
       - build-fuzzers
