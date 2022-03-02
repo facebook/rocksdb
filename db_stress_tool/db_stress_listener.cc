@@ -38,6 +38,8 @@ UniqueIdVerifier::UniqueIdVerifier(const std::string& db_name, Env* env)
     exit(1);
   }
 
+  // Avoid relying on ReopenWritableFile which is not supported by all
+  // file systems. Create a new file and copy the old file contents to it.
   std::string tmp_path = path_ + ".tmp";
   st = fs->FileExists(tmp_path, opts, /*dbg*/ nullptr);
   if (st.IsNotFound()) {
