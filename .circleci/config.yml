@@ -785,10 +785,10 @@ workflows:
       - build-linux-clang10-asan
   build-linux-clang10-mini-tsan:
     jobs:
-      - build-linux-clang10-mini-tsan
+      - build-linux-clang10-mini-tsan:
           start_test: ""
           end_test: "write_batch_test"  # find the test list in src.mk
-      - build-linux-clang10-mini-tsan
+      - build-linux-clang10-mini-tsan:
           start_test: "write_batch_test"
           end_test: ""
   build-linux-non-shm:
