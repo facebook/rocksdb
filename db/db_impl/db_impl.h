@@ -1539,7 +1539,6 @@ class DBImpl : public DB {
     ManualCompactionState* manual_compaction_state;  // nullptr if non-manual
     // task limiter token is requested during compaction picking.
     std::unique_ptr<TaskLimiterToken> task_token;
-    bool is_canceled = false;
   };
 
   struct CompactionArg {
@@ -1732,6 +1731,25 @@ class DBImpl : public DB {
       switch_cv_.wait(guard,
                       [&] { return pending_memtable_writes_.load() == 0; });
     }
+  }
+
+  // TaskType is used to identify tasks in thread-pool, currently only
+  // differentiate manual compaction, which could be unscheduled from the
+  // thread-pool.
+  enum class TaskType : uint8_t {
+    kDefault = 0,
+    kManualCompaction = 1,
+    kCount = 2,
+  };
+
+  // Task tag is used to identity tasks in thread-pool, which is
+  // dbImpl obj address + type
+  inline void* GetTaskTag(TaskType type) {
+    return GetTaskTag(static_cast<uint8_t>(type));
+  }
+
+  inline void* GetTaskTag(uint8_t type) {
+    return static_cast<uint8_t*>(static_cast<void*>(this)) + type;
   }
 
   // REQUIRES: mutex locked and in write thread.
