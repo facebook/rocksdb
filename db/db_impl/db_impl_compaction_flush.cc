@@ -1939,7 +1939,8 @@ Status DBImpl::RunManualCompaction(
   assert(HasPendingManualCompaction());
   RemoveManualCompaction(&manual);
   // if the manual job is unscheduled, try schedule other jobs in case there's
-  // other pending jobs.
+  // any unscheduled compaction job which was blocked by exclusive manual
+  // compaction.
   if (manual.status.IsIncomplete() &&
       manual.status.subcode() == Status::SubCode::kManualCompactionPaused) {
     MaybeScheduleFlushOrCompaction();
