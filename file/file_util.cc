@@ -20,14 +20,12 @@ namespace ROCKSDB_NAMESPACE {
 IOStatus CopyFile(FileSystem* fs, const std::string& source,
                   std::unique_ptr<WritableFileWriter>& dest_writer,
                   uint64_t size, bool use_fsync,
-                  const std::shared_ptr<IOTracer>& io_tracer,
-                  const Temperature temperature) {
+                  const std::shared_ptr<IOTracer>& io_tracer) {
   FileOptions soptions;
   IOStatus io_s;
   std::unique_ptr<SequentialFileReader> src_reader;
 
   {
-    soptions.temperature = temperature;
     std::unique_ptr<FSSequentialFile> srcfile;
     io_s = fs->NewSequentialFile(source, soptions, &srcfile, nullptr);
     if (!io_s.ok()) {
@@ -68,25 +66,24 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
 IOStatus CopyFile(FileSystem* fs, const std::string& source,
                   const std::string& destination, uint64_t size, bool use_fsync,
                   const std::shared_ptr<IOTracer>& io_tracer,
-                  const Temperature temperature) {
+                  const Temperature dest_temperature) {
   FileOptions options;
   IOStatus io_s;
   std::unique_ptr<WritableFileWriter> dest_writer;
 
   {
-    options.temperature = temperature;
+    options.temperature = dest_temperature;
     std::unique_ptr<FSWritableFile> destfile;
     io_s = fs->NewWritableFile(destination, options, &destfile, nullptr);
     if (!io_s.ok()) {
       return io_s;
     }
 
-    dest_writer.reset(
-        new WritableFileWriter(std::move(destfile), destination, options));
+    dest_writer.reset(new WritableFileWriter(std::move(destfile), destination,
+                                             FileOptions()));
   }
 
-  return CopyFile(fs, source, dest_writer, size, use_fsync, io_tracer,
-                  temperature);
+  return CopyFile(fs, source, dest_writer, size, use_fsync, io_tracer);
 }
 
 // Utility function to create a file with the provided contents

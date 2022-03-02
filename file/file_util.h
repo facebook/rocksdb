@@ -22,21 +22,20 @@ namespace ROCKSDB_NAMESPACE {
 extern IOStatus CopyFile(FileSystem* fs, const std::string& source,
                          std::unique_ptr<WritableFileWriter>& dest_writer,
                          uint64_t size, bool use_fsync,
-                         const std::shared_ptr<IOTracer>& io_tracer,
-                         const Temperature temperature);
+                         const std::shared_ptr<IOTracer>& io_tracer);
 extern IOStatus CopyFile(FileSystem* fs, const std::string& source,
                          const std::string& destination, uint64_t size,
                          bool use_fsync,
                          const std::shared_ptr<IOTracer>& io_tracer,
-                         const Temperature temperature);
+                         const Temperature dest_temperature);
 inline IOStatus CopyFile(const std::shared_ptr<FileSystem>& fs,
                          const std::string& source,
                          const std::string& destination, uint64_t size,
                          bool use_fsync,
                          const std::shared_ptr<IOTracer>& io_tracer,
-                         const Temperature temperature) {
+                         const Temperature dest_temperature) {
   return CopyFile(fs.get(), source, destination, size, use_fsync, io_tracer,
-                  temperature);
+                  dest_temperature);
 }
 extern IOStatus CreateFile(FileSystem* fs, const std::string& destination,
                            const std::string& contents, bool use_fsync);
