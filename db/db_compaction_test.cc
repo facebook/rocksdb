@@ -6943,7 +6943,7 @@ TEST_F(DBCompactionTest, DisableManualCompactionThreadQueueFullDBClose) {
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::RunManualCompaction:Scheduled",
-        "DBCompactionTest::DisableManualCompactionThreadQueueFull:"
+        "DBCompactionTest::DisableManualCompactionThreadQueueFullDBClose:"
         "PreDisableManualCompaction"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -6971,7 +6971,7 @@ TEST_F(DBCompactionTest, DisableManualCompactionThreadQueueFullDBClose) {
   });
 
   TEST_SYNC_POINT(
-      "DBCompactionTest::DisableManualCompactionThreadQueueFull:"
+      "DBCompactionTest::DisableManualCompactionThreadQueueFullDBClose:"
       "PreDisableManualCompaction");
 
   // Generate more files to trigger auto compaction which is scheduled after
@@ -6993,6 +6993,63 @@ TEST_F(DBCompactionTest, DisableManualCompactionThreadQueueFullDBClose) {
   // And an auto-triggered compaction is also in the queue.
   auto s = db_->Close();
   ASSERT_OK(s);
+
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
+}
+
+TEST_F(DBCompactionTest, DBCloseWithManualCompaction) {
+  const int kNumL0Files = 4;
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::RunManualCompaction:Scheduled",
+        "DBCompactionTest::DisableManualCompactionThreadQueueFullDBClose:"
+        "PreDisableManualCompaction"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  Reopen(options);
+
+  // Block compaction queue
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+
+  // generate files, but avoid trigger auto compaction
+  for (int i = 0; i < kNumL0Files / 2; i++) {
+    ASSERT_OK(Put(Key(1), "value1"));
+    ASSERT_OK(Put(Key(2), "value2"));
+    ASSERT_OK(Flush());
+  }
+
+  port::Thread compact_thread([&]() {
+    CompactRangeOptions cro;
+    cro.exclusive_manual_compaction = true;
+    auto s = db_->CompactRange(cro, nullptr, nullptr);
+    ASSERT_TRUE(s.IsIncomplete());
+  });
+
+  TEST_SYNC_POINT(
+      "DBCompactionTest::DisableManualCompactionThreadQueueFullDBClose:"
+      "PreDisableManualCompaction");
+
+  // Generate more files to trigger auto compaction which is scheduled after
+  // manual compaction. Has to generate 4 more files because existing files are
+  // pending compaction
+  for (int i = 0; i < kNumL0Files; i++) {
+    ASSERT_OK(Put(Key(1), "value1"));
+    ASSERT_OK(Put(Key(2), "value2"));
+    ASSERT_OK(Flush());
+  }
+  ASSERT_EQ(ToString(kNumL0Files + (kNumL0Files / 2)), FilesPerLevel(0));
+
+  // Close DB with manual compaction and auto triggered compaction in the queue.
+  auto s = db_->Close();
+  ASSERT_OK(s);
+
+  // manual compaction thread should return with Incomplete().
+  compact_thread.join();
 
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
