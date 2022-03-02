@@ -815,6 +815,8 @@ test_libs: $(TEST_LIBS)
 benchmarks: $(BENCHMARKS)
 
 microbench: $(MICROBENCHS)
+
+run_microbench: $(MICROBENCHS)
 	for t in $(MICROBENCHS); do echo "===== Running benchmark $$t (`date`)"; ./$$t || exit 1; done;
 
 dbg: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
