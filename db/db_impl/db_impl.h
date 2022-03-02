@@ -2230,7 +2230,7 @@ class DBImpl : public DB {
 
   // Number of times FindObsoleteFiles has found deletable files and the
   // corresponding call to PurgeObsoleteFiles has not yet finished.
-  int pending_purge_obsolete_files_;
+  std::atomic<int> pending_purge_obsolete_files_;
 
   // last time when DeleteObsoleteFiles with full scan was executed. Originally
   // initialized with startup time.

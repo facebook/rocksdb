@@ -250,7 +250,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
 
   // logs_ is empty when called during recovery, in which case there can't yet
   // be any tracked obsolete logs
-  InstrumentedMutexLock l(&log_write_mutex_);
+  log_write_mutex_.Lock();
   if (!alive_log_files_.empty() && !logs_.empty()) {
     uint64_t min_log_number = job_context->log_number;
     size_t num_alive_log_files = alive_log_files_.size();
@@ -278,6 +278,9 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       // number < MinLogNumber().
       assert(alive_log_files_.size());
     }
+    log_write_mutex_.Unlock();
+    mutex_.Unlock();
+    log_write_mutex_.Lock();
     while (!logs_.empty() && logs_.front().number < min_log_number) {
       auto& log = logs_.front();
       if (log.getting_synced) {
@@ -295,12 +298,14 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   // We're just cleaning up for DB::Write().
   assert(job_context->logs_to_free.empty());
   job_context->logs_to_free = logs_to_free_;
-  job_context->log_recycle_files.assign(log_recycle_files_.begin(),
-                                        log_recycle_files_.end());
   if (job_context->HaveSomethingToDelete()) {
     ++pending_purge_obsolete_files_;
   }
   logs_to_free_.clear();
+  log_write_mutex_.Unlock();
+  mutex_.Lock();
+  job_context->log_recycle_files.assign(log_recycle_files_.begin(),
+                                        log_recycle_files_.end());
 }
 
 namespace {
