@@ -104,7 +104,6 @@ commands:
     steps:
       - store_artifacts: # store the benchmark output
           path: /tmp/benchmark-results
-          destination: benchmark-results
 
   install-clang-10:
     steps:
