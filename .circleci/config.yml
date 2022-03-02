@@ -86,24 +86,24 @@ commands:
           command: ./tools/benchmark.sh fillseq_enable_wal
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
-            DB_DIR: /tmp/rocksdb-benchmark-datadir
-            WAL_DIR: /tmp/rocksdb-benchmark-waldir
-            OUTPUT_DIR: /tmp/benchmark-results
+            DB_DIR: tmp/rocksdb-benchmark-datadir
+            WAL_DIR: tmp/rocksdb-benchmark-waldir
+            OUTPUT_DIR: tmp/benchmark-results
             NUM_KEYS: 1000000
       - run:
           name: "Run basic benchmark, large(r)"
           command: ./tools/benchmark.sh fillseq_enable_wal
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
-            DB_DIR: /tmp/rocksdb-benchmark-datadir
-            WAL_DIR: /tmp/rocksdb-benchmark-waldir
-            OUTPUT_DIR: /tmp/benchmark-results
+            DB_DIR: tmp/rocksdb-benchmark-datadir
+            WAL_DIR: tmp/rocksdb-benchmark-waldir
+            OUTPUT_DIR: tmp/benchmark-results
             NUM_KEYS: 10000000
 
   post-benchmarks:
     steps:
       - store_artifacts: # store the benchmark output
-          path: /tmp/benchmark-results
+          path: tmp/benchmark-results
 
   install-clang-10:
     steps:
