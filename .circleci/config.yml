@@ -91,7 +91,7 @@ commands:
             OUTPUT_DIR: /tmp/benchmark-results
             NUM_KEYS: 1000000
       - run:
-          name: "Run basic benchmark again, but bigger"
+          name: "Run basic benchmark, large(r)"
           command: ./tools/benchmark.sh fillseq_enable_wal
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
