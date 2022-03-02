@@ -291,6 +291,7 @@ jobs:
     machine:
       image: ubuntu-2004:202111-02
     resource_class: 2xlarge
+    # find test list by `make list_all_tests`
     parameters:
       start_test:
         default: ""
@@ -302,6 +303,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-clang-10
+      - install-gtest-parallel
       - run:
           name: "Build unit tests"
           command: |
@@ -388,7 +390,7 @@ jobs:
     steps:
       - pre-steps
       - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-8 g++-8 libgflags-dev
-      - run: CC=gcc-8 CXX=g++-8 V=1 make -j16 all microbench
+      - run: CC=gcc-8 CXX=g++-8 V=1 make -j16 all
       - post-steps
 
   build-linux-gcc-10-cxx20-no_test_run:
@@ -398,7 +400,7 @@ jobs:
     steps:
       - pre-steps
       - run: sudo apt-get update -y && sudo apt-get install gcc-10 g++-10 libgflags-dev
-      - run: CC=gcc-10 CXX=g++-10 V=1 SKIP_LINK=1 ROCKSDB_CXX_STANDARD=c++20 make -j16 all microbench # Linking broken because libgflags compiled with newer ABI
+      - run: CC=gcc-10 CXX=g++-10 V=1 SKIP_LINK=1 ROCKSDB_CXX_STANDARD=c++20 make -j16 all # Linking broken because libgflags compiled with newer ABI
       - post-steps
 
   build-linux-gcc-11-no_test_run:
@@ -407,6 +409,7 @@ jobs:
     resource_class: xlarge
     steps:
       - pre-steps
+      - install-benchmark
       - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-11 g++-11 libgflags-dev
       - run: CC=gcc-11 CXX=g++-11 V=1 SKIP_LINK=1 make -j16 all microbench # Linking broken because libgflags compiled with newer ABI
       - post-steps
@@ -418,6 +421,7 @@ jobs:
     steps:
       - pre-steps
       - install-clang-13
+      - install-benchmark
       - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j16 all microbench
       - post-steps
 
@@ -490,7 +494,7 @@ jobs:
           command: |
             mkdir build
             cd build
-            ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 << parameters.extra_cmake_opt >> ..
+            ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 -DWITH_BENCHMARK=1 << parameters.extra_cmake_opt >> ..
             cd ..
             echo "Building with VS version: ${CMAKE_GENERATOR}"
             msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
@@ -787,9 +791,9 @@ workflows:
     jobs:
       - build-linux-clang10-mini-tsan:
           start_test: ""
-          end_test: "write_batch_test"  # find the test list in src.mk
+          end_test: "env_test"
       - build-linux-clang10-mini-tsan:
-          start_test: "write_batch_test"
+          start_test: "env_test"
           end_test: ""
   build-linux-non-shm:
     jobs:
