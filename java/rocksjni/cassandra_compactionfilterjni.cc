@@ -6,6 +6,7 @@
 #include <jni.h>
 
 #include "include/org_rocksdb_CassandraCompactionFilter.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "utilities/cassandra/cassandra_compaction_filter.h"
 
 /*
@@ -20,5 +21,5 @@ jlong Java_org_rocksdb_CassandraCompactionFilter_createNewCassandraCompactionFil
       new ROCKSDB_NAMESPACE::cassandra::CassandraCompactionFilter(
           purge_ttl_on_expiration, gc_grace_period_in_seconds);
   // set the native handle to our native compaction filter
-  return reinterpret_cast<jlong>(compaction_filter);
+  return GET_CPLUSPLUS_POINTER(compaction_filter);
 }

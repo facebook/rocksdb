@@ -2016,7 +2016,7 @@ TEST_P(BlockBasedTableTest, PrefetchTest) {
 
 TEST_P(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-  for (int i = 0; i <= 5; ++i) {
+  for (int i = 0; i <= 4; ++i) {
     Options options;
     // Make each key/value an individual block
     table_options.block_size = 64;
@@ -2033,25 +2033,18 @@ TEST_P(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
       options.prefix_extractor.reset(NewFixedPrefixTransform(4));
       break;
     case 2:
-      // Hash search index with hash_index_allow_collision
-      table_options.index_type = BlockBasedTableOptions::kHashSearch;
-      table_options.hash_index_allow_collision = true;
-      options.table_factory.reset(new BlockBasedTableFactory(table_options));
-      options.prefix_extractor.reset(NewFixedPrefixTransform(4));
-      break;
-    case 3:
       // Hash search index with filter policy
       table_options.index_type = BlockBasedTableOptions::kHashSearch;
       table_options.filter_policy.reset(NewBloomFilterPolicy(10));
       options.table_factory.reset(new BlockBasedTableFactory(table_options));
       options.prefix_extractor.reset(NewFixedPrefixTransform(4));
       break;
-    case 4:
+    case 3:
       // Two-level index
       table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
       options.table_factory.reset(new BlockBasedTableFactory(table_options));
       break;
-    case 5:
+    case 4:
       // Binary search with first key
       table_options.index_type =
           BlockBasedTableOptions::kBinarySearchWithFirstKey;

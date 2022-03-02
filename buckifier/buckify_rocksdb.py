@@ -210,14 +210,34 @@ def generate_targets(repo_path, deps_map):
         with open(f"{repo_path}/buckifier/bench.json") as json_file:
             fast_fancy_bench_config_list = json.load(json_file)
             for config_dict in fast_fancy_bench_config_list:
-                TARGETS.add_fancy_bench_config(config_dict['name'],config_dict['benchmarks'], False, config_dict['expected_runtime'])
+                clean_benchmarks = {}
+                benchmarks = config_dict['benchmarks']
+                for binary, benchmark_dict in benchmarks.items():
+                    clean_benchmarks[binary] = {}
+                    for benchmark, overloaded_metric_list in benchmark_dict.items():
+                        clean_benchmarks[binary][benchmark] = []
+                        for metric in overloaded_metric_list:
+                            if not isinstance(metric, dict):
+                                clean_benchmarks[binary][benchmark].append(metric)
+                TARGETS.add_fancy_bench_config(config_dict['name'], clean_benchmarks, False, config_dict['expected_runtime_one_iter'], config_dict['sl_iterations'], config_dict['regression_threshold'])
 
         with open(f"{repo_path}/buckifier/bench-slow.json") as json_file:
             slow_fancy_bench_config_list = json.load(json_file)
             for config_dict in slow_fancy_bench_config_list:
-                TARGETS.add_fancy_bench_config(config_dict['name']+"_slow",config_dict['benchmarks'], True, config_dict['expected_runtime'])
-
-    except (FileNotFoundError, KeyError):
+                clean_benchmarks = {}
+                benchmarks = config_dict['benchmarks']
+                for binary, benchmark_dict in benchmarks.items():
+                    clean_benchmarks[binary] = {}
+                    for benchmark, overloaded_metric_list in benchmark_dict.items():
+                        clean_benchmarks[binary][benchmark] = []
+                        for metric in overloaded_metric_list:
+                            if not isinstance(metric, dict):
+                                clean_benchmarks[binary][benchmark].append(metric)
+            for config_dict in slow_fancy_bench_config_list:
+                TARGETS.add_fancy_bench_config(config_dict['name']+"_slow", clean_benchmarks, True, config_dict['expected_runtime_one_iter'], config_dict['sl_iterations'], config_dict['regression_threshold'])
+    # it is better servicelab experiments break
+    # than rocksdb github ci
+    except Exception:
         pass
 
     TARGETS.add_test_header()

@@ -410,6 +410,9 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[2]));
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[3]));
+    // Ensure background work is fully finished including listener callbacks
+    // before accessing listener state.
+    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   };
 
   // Create some data and flush "default" and "nikitich" so that they
@@ -588,6 +591,11 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[2]));
     ASSERT_OK(static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable());
+    // Ensure background work is fully finished including listener callbacks
+    // before accessing listener state.
+    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+    ASSERT_OK(
+        static_cast_with_check<DBImpl>(db2)->TEST_WaitForBackgroundWork());
   };
 
   // Trigger a flush on cf2
@@ -6990,13 +6998,17 @@ TEST_F(DBTest2, BackupFileTemperature) {
   for (auto info : infos) {
     temperatures.emplace(info.file_number, info.temperature);
   }
-  BackupEngine* backup_engine;
-  auto backup_options = BackupEngineOptions(
-      dbname_ + kFilePathSeparator + "tempbk", backup_env.get());
-  auto s = BackupEngine::Open(backup_env.get(), backup_options, &backup_engine);
-  ASSERT_OK(s);
-  s = backup_engine->CreateNewBackup(db_);
-  ASSERT_OK(s);
+
+  std::unique_ptr<BackupEngine> backup_engine;
+  {
+    BackupEngine* backup_engine_raw_ptr;
+    auto backup_options = BackupEngineOptions(
+        dbname_ + kFilePathSeparator + "tempbk", backup_env.get());
+    ASSERT_OK(BackupEngine::Open(backup_env.get(), backup_options,
+                                 &backup_engine_raw_ptr));
+    backup_engine.reset(backup_engine_raw_ptr);
+  }
+  ASSERT_OK(backup_engine->CreateNewBackup(db_));
 
   // checking src file src_temperature hints: 2 sst files: 1 sst is kWarm,
   // another is kUnknown

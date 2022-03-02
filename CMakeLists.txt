@@ -627,6 +627,7 @@ set(SOURCES
         cache/cache_reservation_manager.cc
         cache/clock_cache.cc
         cache/lru_cache.cc
+        cache/lru_secondary_cache.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_fetcher.cc
@@ -829,6 +830,7 @@ set(SOURCES
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
+        util/compression.cc
         util/compression_context_cache.cc
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
@@ -1154,6 +1156,7 @@ if(WITH_TESTS)
         cache/cache_reservation_manager_test.cc
         cache/cache_test.cc
         cache/lru_cache_test.cc
+        cache/lru_secondary_cache_test.cc
         db/blob/blob_counting_iterator_test.cc
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc

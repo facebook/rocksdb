@@ -320,7 +320,7 @@ static void DBPutArguments(benchmark::internal::Benchmark* b) {
       {"comp_style", "max_data", "per_key_size", "enable_statistics", "wal"});
 }
 
-static const uint64_t DBPutNum = 10l << 10;
+static const uint64_t DBPutNum = 409600l;
 BENCHMARK(DBPut)->Threads(1)->Iterations(DBPutNum)->Apply(DBPutArguments);
 BENCHMARK(DBPut)->Threads(8)->Iterations(DBPutNum / 8)->Apply(DBPutArguments);
 
@@ -445,7 +445,7 @@ static void ManualCompactionArguments(benchmark::internal::Benchmark* b) {
   b->ArgNames({"comp_style", "max_data", "per_key_size", "enable_statistics"});
 }
 
-BENCHMARK(ManualCompaction)->Iterations(1)->Apply(ManualCompactionArguments);
+BENCHMARK(ManualCompaction)->Iterations(10)->Apply(ManualCompactionArguments);
 
 static void ManualFlush(benchmark::State& state) {
   uint64_t key_num = state.range(0);
@@ -516,7 +516,7 @@ static void ManualFlushArguments(benchmark::internal::Benchmark* b) {
   b->ArgNames({"key_num", "per_key_size"});
 }
 
-BENCHMARK(ManualFlush)->Iterations(1)->Apply(ManualFlushArguments);
+BENCHMARK(ManualFlush)->Iterations(100)->Apply(ManualFlushArguments);
 
 static void DBGet(benchmark::State& state) {
   auto compaction_style = static_cast<CompactionStyle>(state.range(0));
