@@ -171,19 +171,42 @@ jobs:
       - increase-max-open-files-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
-      - run: ulimit -S -n 1048576 && OPT=-DCIRCLECI make V=1 J=32 -j32 check
+      - run: ulimit -S -n 1048576 && OPT=-DCIRCLECI make V=1 J=32 -j32 all
       - post-steps
 
   build-macos-cmake:
     macos:
       xcode: 12.5.1
     resource_class: large
+    parameters:
+      run_even_tests:
+        description: run even or odd tests, used to split tests to 2 groups
+        type: boolean
+        default: true
     steps:
       - increase-max-open-files-on-macos
       - install-cmake-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
-      - run: ulimit -S -n 1048576 && (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j32 && ctest -j10)
+      - run:
+          name: "cmake generate project file"
+          command: ulimit -S -n 1048576 && mkdir build && cd build && cmake -DWITH_GFLAGS=1 ..
+      - run:
+          name: "Build tests"
+          command: cd build && make V=1 -j32
+      - when:
+          condition: << parameters.run_even_tests >>
+          steps:
+            - run:
+                name: "Run even tests"
+                command: cd build && ctest -j32 0,,2
+      - when:
+          condition:
+            not: << parameters.run_even_tests >>
+          steps:
+            - run:
+                name: "Run odd tests"
+                command: cd build && ctest -j32 1,,2
       - post-steps
 
   build-linux:
@@ -232,15 +255,15 @@ jobs:
   build-linux-release-rtti:
     machine:
       image: ubuntu-2004:202111-02
-    resource_class: large
+    resource_class: xlarge
     steps:
       - checkout # check out the code in the project directory
       - run: make clean
-      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j8 static_lib tools db_bench
+      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
       - run: make clean
-      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j8 static_lib tools db_bench
+      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
       - run: ./db_stress --version # ensure with gflags
 
   build-linux-lite:
@@ -494,7 +517,7 @@ jobs:
           command: |
             mkdir build
             cd build
-            ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 -DWITH_BENCHMARK=1 << parameters.extra_cmake_opt >> ..
+            ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 << parameters.extra_cmake_opt >> ..
             cd ..
             echo "Building with VS version: ${CMAKE_GENERATOR}"
             msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
@@ -552,7 +575,7 @@ jobs:
   build-macos-java:
     macos:
       xcode: 12.5.1
-    resource_class: medium
+    resource_class: large
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
       ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc causes java 8 crash
@@ -570,16 +593,16 @@ jobs:
             which javac && javac -version
       - run:
           name: "Build RocksDBJava Shared Library"
-          command: make V=1 J=8 -j8 rocksdbjava
+          command: make V=1 J=16 -j16 rocksdbjava
       - run:
           name: "Test RocksDBJava"
-          command: make V=1 J=8 -j8 jtest
+          command: make V=1 J=16 -j16 jtest
       - post-steps
 
   build-macos-java-static:
     macos:
       xcode: 12.5.1
-    resource_class: medium
+    resource_class: large
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
     steps:
@@ -597,13 +620,13 @@ jobs:
             which javac && javac -version
       - run:
           name: "Build RocksDBJava x86 and ARM Static Libraries"
-          command: make V=1 J=8 -j8 rocksdbjavastaticosx
+          command: make V=1 J=16 -j16 rocksdbjavastaticosx
       - post-steps
 
   build-macos-java-static-universal:
     macos:
       xcode: 12.5.1
-    resource_class: medium
+    resource_class: large
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
     steps:
@@ -621,7 +644,7 @@ jobs:
             which javac && javac -version
       - run:
           name: "Build RocksDBJava Universal Binary Static Library"
-          command: make V=1 J=8 -j8 rocksdbjavastaticosx_ub
+          command: make V=1 J=16 -j16 rocksdbjavastaticosx_ub
       - post-steps
 
   build-examples:
@@ -664,10 +687,12 @@ jobs:
     machine:
       image: ubuntu-2004:202111-02
     resource_class: 2xlarge
+    environment:
+      TEST_TMPDIR: /tmp/rocksdb_test_tmp
     steps:
       - pre-steps
       - install-gflags
-      - run: TEST_TMPDIR=/tmp/rocksdb_test_tmp make V=1 -j32 check
+      - run: make V=1 -j32 check
       - post-steps
 
   build-linux-arm-test-full:
@@ -844,9 +869,10 @@ workflows:
   build-macos:
     jobs:
       - build-macos
-  build-macos-cmake:
-    jobs:
       - build-macos-cmake
+        run_even_tests: true
+      - build-macos-cmake
+        run_even_tests: false
   build-cmake-mingw:
     jobs:
       - build-cmake-mingw
