@@ -698,7 +698,6 @@ class FileTemperatureTestFS : public FileSystemWrapper {
   IOStatus NewSequentialFile(const std::string& fname, const FileOptions& opts,
                              std::unique_ptr<FSSequentialFile>* result,
                              IODebugContext* dbg) override {
-    fprintf(stderr, "Open2 %s with %d\n", fname.c_str(), (int)opts.temperature);
     auto filename = GetFileName(fname);
     uint64_t number;
     FileType type;

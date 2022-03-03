@@ -4034,18 +4034,25 @@ TEST_F(BackupEngineTest, FileTemperatures) {
   ASSERT_OK(dbi->TEST_WaitForCompact());
   ASSERT_OK(db_->Put(WriteOptions(), "e", "val"));
   ASSERT_OK(db_->Flush(FlushOptions()));
-  // auto size = GetSstSizeHelper(Temperature::kWarm);
-  // ASSERT_GT(size, 0);
 
   std::map<uint64_t, Temperature> manifest_temps;
+  std::map<Temperature, int> manifest_temp_counts;
   std::vector<LiveFileStorageInfo> infos;
   ASSERT_OK(
       db_->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(), &infos));
   for (auto info : infos) {
-    fprintf(stderr, "%d %d\n", (int)info.file_number, (int)info.temperature);
-    manifest_temps.emplace(info.file_number, info.temperature);
+    if (info.file_type == kTableFile) {
+      manifest_temps.emplace(info.file_number, info.temperature);
+      manifest_temp_counts[info.temperature]++;
+    }
   }
 
+  // Verify expected manifest temperatures
+  ASSERT_EQ(manifest_temp_counts.size(), 2);
+  ASSERT_EQ(manifest_temp_counts[Temperature::kWarm], 1);
+  ASSERT_EQ(manifest_temp_counts[Temperature::kUnknown], 1);
+
+  // Sample requested temperatures in opening files for backup
   my_db_fs->ClearRequestedFileTemperatures();
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
 
@@ -4055,8 +4062,6 @@ TEST_F(BackupEngineTest, FileTemperatures) {
   ASSERT_EQ(requested_temps.size(), 2);
   bool has_only_one_warm_sst = false;
   for (const auto& requested_temp : requested_temps) {
-    fprintf(stderr, "req: %d %d\n", (int)requested_temp.first,
-            (int)requested_temp.second);
     ASSERT_EQ(manifest_temps.at(requested_temp.first), requested_temp.second);
     if (requested_temp.second == Temperature::kWarm) {
       ASSERT_FALSE(has_only_one_warm_sst);
