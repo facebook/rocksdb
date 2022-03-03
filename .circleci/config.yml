@@ -869,10 +869,10 @@ workflows:
   build-macos:
     jobs:
       - build-macos
-      - build-macos-cmake
-        run_even_tests: true
-      - build-macos-cmake
-        run_even_tests: false
+      - build-macos-cmake:
+          run_even_tests: true
+      - build-macos-cmake:
+          run_even_tests: false
   build-cmake-mingw:
     jobs:
       - build-cmake-mingw
