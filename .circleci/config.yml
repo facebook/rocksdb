@@ -199,14 +199,14 @@ jobs:
           steps:
             - run:
                 name: "Run even tests"
-                command: cd build && ctest -j32 0,,2
+                command: cd build && ctest -j32 -I 0,,2
       - when:
           condition:
             not: << parameters.run_even_tests >>
           steps:
             - run:
                 name: "Run odd tests"
-                command: cd build && ctest -j32 1,,2
+                command: cd build && ctest -j32 -I 1,,2
       - post-steps
 
   build-linux:
@@ -520,7 +520,7 @@ jobs:
             ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 << parameters.extra_cmake_opt >> ..
             cd ..
             echo "Building with VS version: ${CMAKE_GENERATOR}"
-            msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
+            msbuild.exe build/rocksdb.sln -maxCpuCount:64 -property:Configuration=Debug -property:Platform=x64
       - run:
           name: "Test RocksDB"
           shell: powershell.exe
