@@ -13,7 +13,7 @@ class DBRateLimiterOnReadTest
     : public DBTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool, bool>> {
  public:
-  DBRateLimiterOnReadTest()
+  explicit DBRateLimiterOnReadTest()
       : DBTestBase("db_rate_limiter_on_read_test", /*env_do_fsync=*/false),
         use_direct_io_(std::get<0>(GetParam())),
         use_block_cache_(std::get<1>(GetParam())),
