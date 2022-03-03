@@ -383,10 +383,6 @@ multiops_wc_txn_params = {
     "txn_write_policy": 0,
     # TODO re-enable pipelined write. Not well tested atm
     "enable_pipelined_write": 0,
-    # TODO: re-enable two-write-queues
-    "two_write_queues": 0,
-    # TODO: re-enable true case
-    "use_only_the_last_commit_time_batch_for_recovery": 0,
 }
 
 multiops_wp_txn_params = {
@@ -489,6 +485,8 @@ def finalize_and_sanitize(src_params):
     if (dest_params.get("prefix_size") == -1 and
         dest_params.get("memtable_whole_key_filtering") == 0):
         dest_params["memtable_prefix_bloom_size_ratio"] = 0
+    if dest_params.get("two_write_queues") == 1:
+        dest_params["enable_pipelined_write"] = 0
     return dest_params
 
 def gen_cmd_params(args):
