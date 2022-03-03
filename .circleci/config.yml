@@ -179,10 +179,10 @@ jobs:
       xcode: 12.5.1
     resource_class: large
     parameters:
-      run_even_tests:
-        description: run even or odd tests, used to split tests to 2 groups
-        type: boolean
-        default: true
+      start_test_num:
+        description: either 0, 1 to split tests to 2 groups
+        type: string
+        default: "0"
     steps:
       - increase-max-open-files-on-macos
       - install-cmake-on-macos
@@ -194,19 +194,9 @@ jobs:
       - run:
           name: "Build tests"
           command: cd build && make V=1 -j32
-      - when:
-          condition: << parameters.run_even_tests >>
-          steps:
-            - run:
-                name: "Run even tests"
-                command: cd build && ctest -j32 0,,2
-      - when:
-          condition:
-            not: << parameters.run_even_tests >>
-          steps:
-            - run:
-                name: "Run odd tests"
-                command: cd build && ctest -j32 1,,2
+      - run:
+          name: "Run tests"
+          command: cd build && ctest -j32 <<parameters.start_test_num>>,,2
       - post-steps
 
   build-linux:
@@ -870,9 +860,9 @@ workflows:
     jobs:
       - build-macos
       - build-macos-cmake
-        run_even_tests: true
+        start_test_num: "0"
       - build-macos-cmake
-        run_even_tests: false
+        start_test_num: "1"
   build-cmake-mingw:
     jobs:
       - build-cmake-mingw
