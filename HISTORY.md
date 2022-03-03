@@ -6,7 +6,7 @@
 
 ### Bug Fixes
 * Fixed a data race on `versions_` between `DBImpl::ResumeImpl()` and threads waiting for recovery to complete (#9496)
-* Fixed a bug due to db mutex release causing incorrect result returned for snapshot read.
+* Fixed a bug caused by race among flush, incoming writes and taking snapshots. Queries to snapshots created with these race condition can return incorrect result, e.g. resurfacing deleted data.
 
 ### Public API changes
 * Remove BlockBasedTableOptions.hash_index_allow_collision which already takes no effect.
