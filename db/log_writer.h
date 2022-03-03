@@ -117,7 +117,7 @@ class Writer {
   CompressionType compression_type_;
   StreamingCompress* compress_;
   // Reusable compressed output buffer
-  char* compressed_buffer_;
+  std::unique_ptr<char[]> compressed_buffer_;
 };
 
 }  // namespace log

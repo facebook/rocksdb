@@ -1025,7 +1025,7 @@ TEST_P(StreamingCompressionTest, Basic) {
         uncompressed_fragment.assign(uncompressed_output_buffer, output_pos);
         uncompressed_buffer += uncompressed_fragment;
       }
-    } while (ret_val > 0 || output_pos == kBlockSize);
+    } while (ret_val > 0);
   }
   allocator->Deallocate((void*)uncompressed_output_buffer);
   delete allocator;

@@ -138,7 +138,7 @@ class Reader {
   bool compression_type_record_read_;
   StreamingUncompress* uncompress_;
   // Reusable uncompressed output buffer
-  char* uncompressed_buffer_;
+  std::unique_ptr<char[]> uncompressed_buffer_;
   // Reusable uncompressed record
   std::string uncompressed_record_;
 

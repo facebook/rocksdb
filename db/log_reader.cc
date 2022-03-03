@@ -43,16 +43,12 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       first_record_read_(false),
       compression_type_(kNoCompression),
       compression_type_record_read_(false),
-      uncompress_(nullptr),
-      uncompressed_buffer_(nullptr) {}
+      uncompress_(nullptr) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
   if (uncompress_) {
     delete uncompress_;
-  }
-  if (uncompressed_buffer_) {
-    delete[] uncompressed_buffer_;
   }
 }
 
@@ -467,13 +463,18 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
       size_t uncompressed_size = 0;
       int remaining = 0;
       do {
-        remaining =
-            uncompress_->Uncompress(header + header_size, length,
-                                    uncompressed_buffer_, &uncompressed_size);
-        if (uncompressed_size > 0) {
-          uncompressed_record_.append(uncompressed_buffer_, uncompressed_size);
+        remaining = uncompress_->Uncompress(header + header_size, length,
+                                            uncompressed_buffer_.get(),
+                                            &uncompressed_size);
+        if (remaining < 0) {
+          buffer_.clear();
+          return kBadRecord;
         }
-      } while (remaining > 0 || uncompressed_size == kBlockSize);
+        if (uncompressed_size > 0) {
+          uncompressed_record_.append(uncompressed_buffer_.get(),
+                                      uncompressed_size);
+        }
+      } while (remaining > 0);
       *result = Slice(uncompressed_record_);
       return type;
     } else {
@@ -491,8 +492,8 @@ void Reader::InitCompression(const CompressionTypeRecord& compression_record) {
   uncompress_ = StreamingUncompress::Create(
       compression_type_, compression_format_version, kBlockSize);
   assert(uncompress_ != nullptr);
-  uncompressed_buffer_ = new char[kBlockSize];
-  assert(uncompressed_buffer_ != nullptr);
+  uncompressed_buffer_ = std::unique_ptr<char[]>(new char[kBlockSize]);
+  assert(uncompressed_buffer_);
 }
 
 bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
@@ -749,11 +750,17 @@ bool FragmentBufferedReader::TryReadFragment(
     size_t uncompressed_size = 0;
     int remaining = 0;
     do {
-      remaining =
-          uncompress_->Uncompress(header + header_size, length,
-                                  uncompressed_buffer_, &uncompressed_size);
+      remaining = uncompress_->Uncompress(header + header_size, length,
+                                          uncompressed_buffer_.get(),
+                                          &uncompressed_size);
+      if (remaining < 0) {
+        buffer_.clear();
+        *fragment_type_or_err = kBadRecord;
+        return true;
+      }
       if (uncompressed_size > 0) {
-        uncompressed_record_.append(uncompressed_buffer_, uncompressed_size);
+        uncompressed_record_.append(uncompressed_buffer_.get(),
+                                    uncompressed_size);
       }
     } while (remaining > 0 || uncompressed_size == kBlockSize);
     *fragment = Slice(std::move(uncompressed_record_));

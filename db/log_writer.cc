@@ -28,8 +28,7 @@ Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
       recycle_log_files_(recycle_log_files),
       manual_flush_(manual_flush),
       compression_type_(compression_type),
-      compress_(nullptr),
-      compressed_buffer_(nullptr) {
+      compress_(nullptr) {
   for (int i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
     type_crc_[i] = crc32c::Value(&t, 1);
@@ -42,9 +41,6 @@ Writer::~Writer() {
   }
   if (compress_) {
     delete compress_;
-  }
-  if (compressed_buffer_) {
-    delete[] compressed_buffer_;
   }
 }
 
@@ -101,10 +97,13 @@ IOStatus Writer::AddRecord(const Slice& slice) {
 
     const size_t avail = kBlockSize - block_offset_ - header_size;
 
-    // Compress the record
+    // Compress the record if compression is enabled.
+    // Compress() is called at least once (compress_start=true) and after the
+    // previous generated compressed chunk is written out as one or more
+    // physical records (left=0).
     if (compress_ && (compress_start || left == 0)) {
       compress_remaining = compress_->Compress(slice.data(), slice.size(),
-                                               compressed_buffer_, &left);
+                                               compressed_buffer_.get(), &left);
 
       if (compress_remaining < 0) {
         // Set failure status
@@ -118,7 +117,7 @@ IOStatus Writer::AddRecord(const Slice& slice) {
         }
       }
       compress_start = false;
-      ptr = compressed_buffer_;
+      ptr = compressed_buffer_.get();
     }
 
     const size_t fragment_length = (left < avail) ? left : avail;
@@ -177,8 +176,9 @@ IOStatus Writer::AddCompressionTypeRecord() {
                                           compression_format_version,
                                           max_output_buffer_len);
     assert(compress_ != nullptr);
-    compressed_buffer_ = new char[max_output_buffer_len];
-    assert(compressed_buffer_ != nullptr);
+    compressed_buffer_ =
+        std::unique_ptr<char[]>(new char[max_output_buffer_len]);
+    assert(compressed_buffer_);
   } else {
     // Disable compression if the record could not be added.
     compression_type_ = kNoCompression;
