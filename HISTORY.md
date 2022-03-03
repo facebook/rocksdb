@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 7.0.1 (03/02/2022)
 ### Bug Fixes
 * Fix a race condition when cancel manual compaction with `DisableManualCompaction`. Also DB close can cancel the manual compaction thread.
 * Fixed a data race on `versions_` between `DBImpl::ResumeImpl()` and threads waiting for recovery to complete (#9496)
