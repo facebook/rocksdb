@@ -793,6 +793,7 @@ Status DBImpl::StartPeriodicWorkScheduler() {
       this, mutable_db_options_.stats_dump_period_sec,
       mutable_db_options_.stats_persist_period_sec);
 #endif  // !ROCKSDB_LITE
+  return Status::OK();
 }
 
 // esitmate the total size of stats_history_

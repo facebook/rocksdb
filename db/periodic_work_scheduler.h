@@ -31,7 +31,7 @@ class PeriodicWorkScheduler {
   PeriodicWorkScheduler& operator=(PeriodicWorkScheduler&&) = delete;
 
   Status Register(DBImpl* dbi, unsigned int stats_dump_period_sec,
-                unsigned int stats_persist_period_sec);
+                  unsigned int stats_persist_period_sec);
 
   void Unregister(DBImpl* dbi);
 

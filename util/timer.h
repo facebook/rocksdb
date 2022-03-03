@@ -56,10 +56,8 @@ class Timer {
   // the function takes 1000us to run. If it starts at time [now]us, then it
   // finishes at [now]+1000us, 2nd run starting time will be at [now]+3000us.
   // repeat_every_us == 0 means do not repeat.
-  bool Add(std::function<void()> fn,
-           const std::string& fn_name,
-           uint64_t start_after_us,
-           uint64_t repeat_every_us) {
+  bool Add(std::function<void()> fn, const std::string& fn_name,
+           uint64_t start_after_us, uint64_t repeat_every_us) {
     InstrumentedMutexLock l(&mutex_);
     std::unique_ptr<FunctionInfo> fn_info(new FunctionInfo(
         std::move(fn), fn_name, clock_->NowMicros() + start_after_us,
@@ -67,7 +65,8 @@ class Timer {
     // the new task start time should never before the current task executing
     // time, as the executing task can only be running if it's next_run_time_us
     // is due (<= clock_->NowMicros()).
-    assert(!executing_task_ || fn_info->next_run_time_us >= heap_.top()->next_run_time_us);
+    assert(!executing_task_ ||
+           fn_info->next_run_time_us >= heap_.top()->next_run_time_us);
     auto it = map_.find(fn_name);
     if (it == map_.end()) {
       heap_.push(fn_info.get());
