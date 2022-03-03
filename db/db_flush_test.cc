@@ -676,6 +676,7 @@ class TestFlushListener : public EventListener {
   ~TestFlushListener() override {
     prev_fc_info_.status.PermitUncheckedError();  // Ignore the status
   }
+
   void OnTableFileCreated(const TableFileCreationInfo& info) override {
     // remember the info for later checking the FlushJobInfo.
     prev_fc_info_ = info;
@@ -2002,6 +2003,61 @@ TEST_P(DBFlushTestBlobError, FlushError) {
 }
 
 #ifndef ROCKSDB_LITE
+TEST_F(DBFlushTest, TombstoneVisibleInSnapshot) {
+  class SimpleTestFlushListener : public EventListener {
+   public:
+    explicit SimpleTestFlushListener(DBFlushTest* _test) : test_(_test) {}
+    ~SimpleTestFlushListener() override {}
+
+    void OnFlushBegin(DB* db, const FlushJobInfo& info) override {
+      ASSERT_EQ(static_cast<uint32_t>(0), info.cf_id);
+
+      ASSERT_OK(db->Delete(WriteOptions(), "foo"));
+      snapshot_ = db->GetSnapshot();
+      ASSERT_OK(db->Put(WriteOptions(), "foo", "value"));
+
+      auto* dbimpl = static_cast_with_check<DBImpl>(db);
+      assert(dbimpl);
+
+      ColumnFamilyHandle* cfh = db->DefaultColumnFamily();
+      auto* cfhi = static_cast_with_check<ColumnFamilyHandleImpl>(cfh);
+      assert(cfhi);
+      ASSERT_OK(dbimpl->TEST_SwitchMemtable(cfhi->cfd()));
+    }
+
+    DBFlushTest* test_ = nullptr;
+    const Snapshot* snapshot_ = nullptr;
+  };
+
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  auto* listener = new SimpleTestFlushListener(this);
+  options.listeners.emplace_back(listener);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", "value0"));
+
+  ManagedSnapshot snapshot_guard(db_);
+
+  ColumnFamilyHandle* default_cf = db_->DefaultColumnFamily();
+  ASSERT_OK(db_->Flush(FlushOptions(), default_cf));
+
+  const Snapshot* snapshot = listener->snapshot_;
+  assert(snapshot);
+
+  ReadOptions read_opts;
+  read_opts.snapshot = snapshot;
+
+  // Using snapshot should not see "foo".
+  {
+    std::string value;
+    Status s = db_->Get(read_opts, "foo", &value);
+    ASSERT_TRUE(s.IsNotFound());
+  }
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
 TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
