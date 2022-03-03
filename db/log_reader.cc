@@ -474,7 +474,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
           uncompressed_record_.append(uncompressed_buffer_.get(),
                                       uncompressed_size);
         }
-      } while (remaining > 0);
+      } while (remaining > 0 || uncompressed_size == kBlockSize);
       *result = Slice(uncompressed_record_);
       return type;
     } else {
