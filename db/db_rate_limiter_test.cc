@@ -3,8 +3,11 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <cstdint>
+
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "test_util/testharness.h"
 #include "util/file_checksum_helper.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -253,6 +256,80 @@ TEST_P(DBRateLimiterOnReadTest, VerifyFileChecksums) {
 
 #endif  // !defined(ROCKSDB_LITE)
 
+class DBRateLimiterOnWriteTest : public DBTestBase {
+ public:
+  explicit DBRateLimiterOnWriteTest()
+      : DBTestBase("db_rate_limiter_on_write_test", /*env_do_fsync=*/false) {}
+
+  void Init() {
+    options_ = GetOptions();
+    ASSERT_OK(TryReopenWithColumnFamilies({"default"}, options_));
+    MakeTables(kNumFiles /* n  */, kStartKey, kEndKey, 0 /* cf */);
+  }
+
+  Options GetOptions() {
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    options.rate_limiter.reset(NewGenericRateLimiter(
+        1 << 20 /* rate_bytes_per_sec */, 100 * 1000 /* refill_period_us */,
+        10 /* fairness */, RateLimiter::Mode::kWritesOnly));
+    options.table_factory.reset(
+        NewBlockBasedTableFactory(BlockBasedTableOptions()));
+    return options;
+  }
+
+ protected:
+  static std::string CreateSimpleFilesPerLevelString(
+      std::string non_last_level_file_num, std::string last_level_file_num) {
+    std::string file_per_level_string = "";
+    for (int i = 0; i < kNumFiles - 1; ++i) {
+      file_per_level_string.append(non_last_level_file_num + ",");
+    }
+    file_per_level_string.append(last_level_file_num);
+    return file_per_level_string;
+  }
+  inline const static int64_t kNumFiles = 3;
+  inline const static int64_t kNumKeysPerFile = 1;
+  inline const static std::string kStartKey = "a";
+  inline const static std::string kEndKey = "b";
+  Options options_;
+};
+
+TEST_F(DBRateLimiterOnWriteTest, Flush) {
+  Init();
+  std::int64_t exepcted_flush_request = kNumFiles;
+  std::int64_t actual_flush_request =
+      options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL);
+  EXPECT_EQ(exepcted_flush_request, actual_flush_request);
+  EXPECT_EQ(actual_flush_request,
+            options_.rate_limiter->GetTotalRequests(Env::IO_HIGH));
+}
+
+TEST_F(DBRateLimiterOnWriteTest, Compact) {
+  Init();
+  std::int64_t prev_total_request =
+      options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL);
+
+  // files_per_level_pre_compaction: 1,1,...,1 (in total kNumFiles levels)
+  std::string files_per_level_pre_compaction =
+      CreateSimpleFilesPerLevelString("1", "1");
+  ASSERT_EQ(files_per_level_pre_compaction, FilesPerLevel(0 /* cf */));
+
+  Compact(kStartKey, kEndKey);
+
+  // files_per_level_post_compaction: 0,0,...,1 (in total kNumFiles levels)
+  std::string files_per_level_post_compaction =
+      CreateSimpleFilesPerLevelString("0", "1");
+  ASSERT_EQ(files_per_level_post_compaction, FilesPerLevel(0 /* cf */));
+
+  std::int64_t exepcted_compaction_request = kNumFiles - 1;
+  std::int64_t actual_compaction_request =
+      options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL) -
+      prev_total_request;
+  EXPECT_EQ(exepcted_compaction_request, actual_compaction_request);
+  EXPECT_EQ(actual_compaction_request,
+            options_.rate_limiter->GetTotalRequests(Env::IO_LOW));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
