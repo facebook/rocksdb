@@ -87,7 +87,6 @@ commands:
       - run:
           name: Install Clang 13
           command: |
-            wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
             echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-13 main" | sudo tee -a /etc/apt/sources.list
             echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-13 main" | sudo tee -a /etc/apt/sources.list
             echo "APT::Acquire::Retries \"10\";" | sudo tee -a /etc/apt/apt.conf.d/80-retries # llvm.org unreliable
@@ -199,14 +198,14 @@ jobs:
           steps:
             - run:
                 name: "Run even tests"
-                command: cd build && ctest -j32 -I 0,,2
+                command: ulimit -S -n 1048576 && cd build && ctest -j32 -I 0,,2
       - when:
           condition:
             not: << parameters.run_even_tests >>
           steps:
             - run:
                 name: "Run odd tests"
-                command: cd build && ctest -j32 -I 1,,2
+                command: ulimit -S -n 1048576 && cd build && ctest -j32 -I 1,,2
       - post-steps
 
   build-linux:
@@ -242,13 +241,13 @@ jobs:
   build-linux-release:
     machine:
       image: ubuntu-2004:202111-02
-    resource_class: large
+    resource_class: 2xlarge
     steps:
       - checkout # check out the code in the project directory
-      - run: make V=1 -j8 release
+      - run: make V=1 -j32 release
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - install-gflags
-      - run: make V=1 -j8 release
+      - run: make V=1 -j32 release
       - run: ./db_stress --version # ensure with gflags
       - post-steps
 
@@ -269,11 +268,11 @@ jobs:
   build-linux-lite:
     machine:
       image: ubuntu-2004:202111-02
-    resource_class: 2xlarge
+    resource_class: large
     steps:
       - pre-steps
       - install-gflags
-      - run: LITE=1 make V=1 J=32 -j32 check
+      - run: LITE=1 make V=1 J=8 -j8 check
       - post-steps
 
   build-linux-lite-release:
@@ -663,7 +662,7 @@ jobs:
   build-cmake-mingw:
     machine:
       image: ubuntu-2004:202111-02
-    resource_class: 2xlarge
+    resource_class: large
     steps:
       - pre-steps
       - install-gflags
@@ -820,9 +819,6 @@ workflows:
       - build-linux-clang10-mini-tsan:
           start_test: "env_test"
           end_test: ""
-  build-linux-non-shm:
-    jobs:
-      - build-linux-non-shm
   build-linux-clang10-ubsan:
     jobs:
       - build-linux-clang10-ubsan
