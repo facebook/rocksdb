@@ -325,7 +325,7 @@ IOStatus RemapFileSystem::GetAbsolutePath(const std::string& db_path,
                                           const IOOptions& options,
                                           std::string* output_path,
                                           IODebugContext* dbg) {
-  auto status_and_enc_path = EncodePath(db_path);
+  auto status_and_enc_path = EncodePathWithNewBasename(db_path);
   if (!status_and_enc_path.first.ok()) {
     return status_and_enc_path.first;
   }

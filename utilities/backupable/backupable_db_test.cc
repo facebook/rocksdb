@@ -710,10 +710,7 @@ class BackupEngineTest : public testing::Test {
     // Create logger
     DBOptions logger_options;
     logger_options.env = db_chroot_env_.get();
-    // TODO: This should really be an EXPECT_OK, but this CreateLogger fails
-    // regularly in some environments with "no such directory"
-    CreateLoggerFromOptions(dbname_, logger_options, &logger_)
-        .PermitUncheckedError();
+    ASSERT_OK(CreateLoggerFromOptions(dbname_, logger_options, &logger_));
   }
 
   DB* OpenDB() {
