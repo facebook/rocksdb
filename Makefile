@@ -815,6 +815,8 @@ test_libs: $(TEST_LIBS)
 benchmarks: $(BENCHMARKS)
 
 microbench: $(MICROBENCHS)
+
+run_microbench: $(MICROBENCHS)
 	for t in $(MICROBENCHS); do echo "===== Running benchmark $$t (`date`)"; ./$$t || exit 1; done;
 
 dbg: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
@@ -2515,6 +2517,9 @@ endif
 
 build_subset_tests: $(ROCKSDBTESTS_SUBSET)
 	$(AM_V_GEN)if [ -n "$${ROCKSDBTESTS_SUBSET_TESTS_TO_FILE}" ]; then echo "$(ROCKSDBTESTS_SUBSET)" > "$${ROCKSDBTESTS_SUBSET_TESTS_TO_FILE}"; else echo "$(ROCKSDBTESTS_SUBSET)"; fi
+
+list_all_tests:
+	echo "$(ROCKSDBTESTS_SUBSET)"
 
 # Remove the rules for which dependencies should not be generated and see if any are left.
 #If so, include the dependencies; if not, do not include the dependency files
