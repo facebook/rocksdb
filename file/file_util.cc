@@ -18,23 +18,18 @@ namespace ROCKSDB_NAMESPACE {
 
 // Utility function to copy a file up to a specified length
 IOStatus CopyFile(FileSystem* fs, const std::string& source,
-                  const std::string& destination, uint64_t size, bool use_fsync,
+                  std::unique_ptr<WritableFileWriter>& dest_writer,
+                  uint64_t size, bool use_fsync,
                   const std::shared_ptr<IOTracer>& io_tracer,
                   const Temperature temperature) {
   FileOptions soptions;
   IOStatus io_s;
   std::unique_ptr<SequentialFileReader> src_reader;
-  std::unique_ptr<WritableFileWriter> dest_writer;
 
   {
     soptions.temperature = temperature;
     std::unique_ptr<FSSequentialFile> srcfile;
     io_s = fs->NewSequentialFile(source, soptions, &srcfile, nullptr);
-    if (!io_s.ok()) {
-      return io_s;
-    }
-    std::unique_ptr<FSWritableFile> destfile;
-    io_s = fs->NewWritableFile(destination, soptions, &destfile, nullptr);
     if (!io_s.ok()) {
       return io_s;
     }
@@ -48,8 +43,6 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
     }
     src_reader.reset(
         new SequentialFileReader(std::move(srcfile), source, io_tracer));
-    dest_writer.reset(
-        new WritableFileWriter(std::move(destfile), destination, soptions));
   }
 
   char buffer[4096];
@@ -70,6 +63,30 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
     size -= slice.size();
   }
   return dest_writer->Sync(use_fsync);
+}
+
+IOStatus CopyFile(FileSystem* fs, const std::string& source,
+                  const std::string& destination, uint64_t size, bool use_fsync,
+                  const std::shared_ptr<IOTracer>& io_tracer,
+                  const Temperature temperature) {
+  FileOptions options;
+  IOStatus io_s;
+  std::unique_ptr<WritableFileWriter> dest_writer;
+
+  {
+    options.temperature = temperature;
+    std::unique_ptr<FSWritableFile> destfile;
+    io_s = fs->NewWritableFile(destination, options, &destfile, nullptr);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+
+    dest_writer.reset(
+        new WritableFileWriter(std::move(destfile), destination, options));
+  }
+
+  return CopyFile(fs, source, dest_writer, size, use_fsync, io_tracer,
+                  temperature);
 }
 
 // Utility function to create a file with the provided contents
