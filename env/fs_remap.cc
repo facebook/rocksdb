@@ -115,8 +115,9 @@ IOStatus RemapFileSystem::NewDirectory(const std::string& dir,
    public:
     RemapFSDirectory(RemapFileSystem* fs, std::unique_ptr<FSDirectory>&& t)
         : FSDirectoryWrapper(std::move(t)), fs_(fs) {}
-    IOStatus FsyncWithDirOptions(const IOOptions& options, IODebugContext* dbg,
-                                 const DirFsyncOptions& dir_fsync_options) {
+    IOStatus FsyncWithDirOptions(
+        const IOOptions& options, IODebugContext* dbg,
+        const DirFsyncOptions& dir_fsync_options) override {
       if (dir_fsync_options.renamed_new_name.empty()) {
         return FSDirectoryWrapper::FsyncWithDirOptions(options, dbg,
                                                        dir_fsync_options);
