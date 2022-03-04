@@ -769,6 +769,7 @@ class BackupEngineTest : public testing::Test {
 
   void OpenBackupEngine(bool destroy_old_data = false) {
     engine_options_->destroy_old_data = destroy_old_data;
+    engine_options_->info_log = logger_.get();
     BackupEngine* backup_engine;
     ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *engine_options_,
                                  &backup_engine));
