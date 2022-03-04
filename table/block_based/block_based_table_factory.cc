@@ -325,7 +325,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions,
                    detect_filter_construct_corruption),
           OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
+          OptionTypeFlags::kMutable}},
         {"reserve_table_builder_memory",
          {offsetof(struct BlockBasedTableOptions, reserve_table_builder_memory),
           OptionType::kBoolean, OptionVerificationType::kNormal,

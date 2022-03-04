@@ -371,6 +371,10 @@ struct BlockBasedTableOptions {
   // useful in detecting software bugs or CPU+memory malfunction.
   // Turning on this feature increases filter construction time by 30%.
   //
+  // This parameter can be changed dynamically by
+  // DB::SetOptions({{"block_based_table_factory",
+  //                  "{detect_filter_construct_corruption=true;}"}});
+  //
   // TODO: optimize this performance
   bool detect_filter_construct_corruption = false;
 
