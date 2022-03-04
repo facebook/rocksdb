@@ -1442,6 +1442,11 @@ Status StressTest::TestBackupRestore(
       }
     }
   }
+  if (thread->rand.OneIn(2)) {
+    backup_opts.schema_version = 1;
+  } else {
+    backup_opts.schema_version = 2;
+  }
   BackupEngine* backup_engine = nullptr;
   std::string from = "a backup/restore operation";
   Status s = BackupEngine::Open(db_stress_env, backup_opts, &backup_engine);
@@ -1449,11 +1454,11 @@ Status StressTest::TestBackupRestore(
     from = "BackupEngine::Open";
   }
   if (s.ok()) {
-    if (thread->rand.OneIn(2)) {
-      TEST_FutureSchemaVersion2Options test_opts;
+    if (backup_opts.schema_version >= 2 && thread->rand.OneIn(2)) {
+      TEST_BackupMetaSchemaOptions test_opts;
       test_opts.crc32c_checksums = thread->rand.OneIn(2) == 0;
       test_opts.file_sizes = thread->rand.OneIn(2) == 0;
-      TEST_EnableWriteFutureSchemaVersion2(backup_engine, test_opts);
+      TEST_SetBackupMetaSchemaOptions(backup_engine, test_opts);
     }
     CreateBackupOptions create_opts;
     if (FLAGS_disable_wal) {

@@ -321,6 +321,12 @@ std::map<CompactionStopStyle, std::string>
         {kCompactionStopStyleSimilarSize, "kCompactionStopStyleSimilarSize"},
         {kCompactionStopStyleTotalSize, "kCompactionStopStyleTotalSize"}};
 
+std::map<Temperature, std::string> OptionsHelper::temperature_to_string = {
+    {Temperature::kUnknown, "kUnknown"},
+    {Temperature::kHot, "kHot"},
+    {Temperature::kWarm, "kWarm"},
+    {Temperature::kCold, "kCold"}};
+
 std::unordered_map<std::string, ChecksumType>
     OptionsHelper::checksum_type_string_map = {{"kNoChecksum", kNoChecksum},
                                                {"kCRC32c", kCRC32c},
