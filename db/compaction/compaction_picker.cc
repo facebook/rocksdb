@@ -118,17 +118,19 @@ CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
   }
   // If the user has specified a different compression level for each level,
   // then pick the compression for that level.
-  if (!ioptions.compression_per_level.empty()) {
+  if (!mutable_cf_options.compression_per_level.empty()) {
     assert(level == 0 || level >= base_level);
     int idx = (level == 0) ? 0 : level - base_level + 1;
 
-    const int n = static_cast<int>(ioptions.compression_per_level.size()) - 1;
+    const int n =
+        static_cast<int>(mutable_cf_options.compression_per_level.size()) - 1;
     // It is possible for level_ to be -1; in that case, we use level
     // 0's compression.  This occurs mostly in backwards compatibility
     // situations when the builder doesn't know what level the file
     // belongs to.  Likewise, if level is beyond the end of the
     // specified compression levels, use the last value.
-    return ioptions.compression_per_level[std::max(0, std::min(idx, n))];
+    return mutable_cf_options
+        .compression_per_level[std::max(0, std::min(idx, n))];
   } else {
     return mutable_cf_options.compression;
   }

@@ -126,9 +126,9 @@ CompressionType GetCompressionFlush(
     } else {
       return kNoCompression;
     }
-  } else if (!ioptions.compression_per_level.empty()) {
+  } else if (!mutable_cf_options.compression_per_level.empty()) {
     // For leveled compress when min_level_to_compress != 0.
-    return ioptions.compression_per_level[0];
+    return mutable_cf_options.compression_per_level[0];
   } else {
     return mutable_cf_options.compression;
   }
