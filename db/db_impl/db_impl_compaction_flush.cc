@@ -1915,14 +1915,15 @@ Status DBImpl::RunManualCompaction(
       assert(!exclusive || !manual_conflict);
       // Running either this or some other manual compaction
       bg_cv_.Wait();
-      if (manual_compaction_paused_ > 0 && !manual.done &&
-          !manual.in_progress) {
+      if (manual_compaction_paused_ > 0) {
         manual.done = true;
         manual.status =
             Status::Incomplete(Status::SubCode::kManualCompactionPaused);
-        assert(thread_pool_priority != Env::Priority::TOTAL);
-        env_->UnSchedule(GetTaskTag(TaskType::kManualCompaction),
-                         thread_pool_priority);
+        if (scheduled) {
+          assert(thread_pool_priority != Env::Priority::TOTAL);
+          env_->UnSchedule(GetTaskTag(TaskType::kManualCompaction),
+                           thread_pool_priority);
+        }
         break;
       }
       if (scheduled && manual.incomplete == true) {
