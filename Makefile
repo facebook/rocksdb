@@ -2119,7 +2119,9 @@ CURL_SSL_OPTS ?= --tlsv1
 ifeq ($(PLATFORM), OS_MACOSX)
 ifeq (,$(findstring librocksdbjni-osx,$(ROCKSDBJNILIB)))
 ifeq ($(MACHINE),arm64)
-	ROCKSDBJNILIB = librocksdbjni-osx-aarch64.jnilib
+	ROCKSDBJNILIB = librocksdbjni-osx-arm64.jnilib
+else ifeq ($(MACHINE),x86_64)
+	ROCKSDBJNILIB = librocksdbjni-osx-x86_64.jnilib
 else
 	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
 endif
@@ -2253,12 +2255,9 @@ endif
 	$(MAKE) rocksdbjava_jar
 
 rocksdbjavastaticosx: rocksdbjavastaticosx_archs
-	mv java/target/librocksdbjni-osx-x86_64.jnilib java/target/librocksdbjni-osx.jnilib
-	mv java/target/librocksdbjni-osx-arm64.jnilib java/target/librocksdbjni-osx-aarch64.jnilib
 
 rocksdbjavastaticosx_ub: rocksdbjavastaticosx_archs
-	lipo -create -output ./java/target/$(ROCKSDBJNILIB) java/target/librocksdbjni-osx-x86_64.jnilib java/target/librocksdbjni-osx-arm64.jnilib
-	$(MAKE) rocksdbjava_jar
+	cd java/target; lipo -create -output librocksdbjni-osx.jnilib librocksdbjni-osx-x86_64.jnilib librocksdbjni-osx-arm64.jnilib
 
 rocksdbjavastaticosx_archs:
 	$(MAKE) rocksdbjavastaticosx_arch_x86_64
