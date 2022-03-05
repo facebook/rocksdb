@@ -2255,9 +2255,17 @@ endif
 	$(MAKE) rocksdbjava_jar
 
 rocksdbjavastaticosx: rocksdbjavastaticosx_archs
+	cd java; $(JAR_CMD)  -cf target/$(ROCKSDB_JAR) HISTORY*.md
+	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR) librocksdbjni-osx-x86_64.jnilib librocksdbjni-osx-arm64.jnilib
+	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
+	openssl sha1 java/target/$(ROCKSDB_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAR).sha1
 
 rocksdbjavastaticosx_ub: rocksdbjavastaticosx_archs
 	cd java/target; lipo -create -output librocksdbjni-osx.jnilib librocksdbjni-osx-x86_64.jnilib librocksdbjni-osx-arm64.jnilib
+	cd java; $(JAR_CMD)  -cf target/$(ROCKSDB_JAR) HISTORY*.md
+	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR) librocksdbjni-osx.jnilib
+	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
+	openssl sha1 java/target/$(ROCKSDB_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAR).sha1
 
 rocksdbjavastaticosx_archs:
 	$(MAKE) rocksdbjavastaticosx_arch_x86_64
