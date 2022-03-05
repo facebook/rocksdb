@@ -18,9 +18,11 @@ public class NativeLibraryLoader {
 
   private static final String sharedLibraryName = Environment.getSharedLibraryName("rocksdb");
   private static final String jniLibraryName = Environment.getJniLibraryName("rocksdb");
-  private static final /* @Nullable */ String fallbackJniLibraryName = Environment.getFallbackJniLibraryName("rocksdb");
+  private static final /* @Nullable */ String fallbackJniLibraryName =
+      Environment.getFallbackJniLibraryName("rocksdb");
   private static final String jniLibraryFileName = Environment.getJniLibraryFileName("rocksdb");
-  private static final /* @Nullable */ String fallbackJniLibraryFileName = Environment.getFallbackJniLibraryFileName("rocksdb");
+  private static final /* @Nullable */ String fallbackJniLibraryFileName =
+      Environment.getFallbackJniLibraryFileName("rocksdb");
   private static final String tempFilePrefix = "librocksdbjni";
   private static final String tempFileSuffix = Environment.getJniLibraryExtension();
 
@@ -51,18 +53,18 @@ public class NativeLibraryLoader {
    */
   public synchronized void loadLibrary(final String tmpDir) throws IOException {
     try {
-        // try dynamic library
-        System.loadLibrary(sharedLibraryName);
-        return;
-    } catch(final UnsatisfiedLinkError ule) {
-        // ignore - try from static library
+      // try dynamic library
+      System.loadLibrary(sharedLibraryName);
+      return;
+    } catch (final UnsatisfiedLinkError ule) {
+      // ignore - try from static library
     }
 
     try {
       // try static library
       System.loadLibrary(jniLibraryName);
       return;
-    } catch(final UnsatisfiedLinkError ule) {
+    } catch (final UnsatisfiedLinkError ule) {
       // ignore - then try static library fallback or from jar
     }
 
@@ -71,7 +73,7 @@ public class NativeLibraryLoader {
         // try static library fallback
         System.loadLibrary(fallbackJniLibraryName);
         return;
-      } catch(final UnsatisfiedLinkError ule) {
+      } catch (final UnsatisfiedLinkError ule) {
         // ignore - then try from jar
       }
     }
@@ -104,7 +106,6 @@ public class NativeLibraryLoader {
 
   File loadLibraryFromJarToTemp(final String tmpDir)
           throws IOException {
-
     InputStream is = null;
     try {
       // attempt to look up the static library in the jar file
@@ -133,16 +134,15 @@ public class NativeLibraryLoader {
         final File parentDir = new File(tmpDir);
         if (!parentDir.exists()) {
           throw new RuntimeException(
-                  "Directory: " + parentDir.getAbsolutePath() + " does not exist!");
+              "Directory: " + parentDir.getAbsolutePath() + " does not exist!");
         }
         temp = new File(parentDir, libraryFileName);
         if (temp.exists() && !temp.delete()) {
-          throw new RuntimeException("File: " + temp.getAbsolutePath()
-                  + " already exists and cannot be removed.");
+          throw new RuntimeException(
+              "File: " + temp.getAbsolutePath() + " already exists and cannot be removed.");
         }
         if (!temp.createNewFile()) {
-          throw new RuntimeException("File: " + temp.getAbsolutePath()
-                  + " could not be created.");
+          throw new RuntimeException("File: " + temp.getAbsolutePath() + " could not be created.");
         }
       }
       if (!temp.exists()) {
