@@ -67,6 +67,9 @@ class FilePrefetchBuffer {
         prev_len_(0),
         num_file_reads_(kMinNumFileReadsToStartAutoReadahead + 1) {}
 
+  void Calculate(size_t alignment, uint64_t offset, size_t roundup_len,
+                 size_t& chunk_len);
+
   // Load data into the buffer from a file.
   // reader                : the file reader.
   // offset                : the file offset to start reading from.
@@ -114,16 +117,6 @@ class FilePrefetchBuffer {
     prev_len_ = len;
   }
 
-  bool IsBlockSequential(const size_t& offset) {
-    return (prev_len_ == 0 || (prev_offset_ + prev_len_ == offset));
-  }
-
-  // Called in case of implicit auto prefetching.
-  void ResetValues() {
-    num_file_reads_ = 1;
-    readahead_size_ = kInitAutoReadaheadSize;
-  }
-
   void GetReadaheadState(ReadaheadFileInfo::ReadaheadInfo* readahead_info) {
     readahead_info->readahead_size = readahead_size_;
     readahead_info->num_file_reads = num_file_reads_;
@@ -152,7 +145,33 @@ class FilePrefetchBuffer {
     }
   }
 
+  bool IsEligibleForPrefetch(uint64_t offset, size_t n) {
+    // Prefetch only if this read is sequential otherwise reset readahead_size_
+    // to initial value.
+    if (!IsBlockSequential(offset)) {
+      UpdateReadPattern(offset, n);
+      ResetValues();
+      return false;
+    }
+    num_file_reads_++;
+    if (num_file_reads_ <= kMinNumFileReadsToStartAutoReadahead) {
+      UpdateReadPattern(offset, n);
+      return false;
+    }
+    return true;
+  }
+
  private:
+  bool IsBlockSequential(const size_t& offset) {
+    return (prev_len_ == 0 || (prev_offset_ + prev_len_ == offset));
+  }
+
+  // Called in case of implicit auto prefetching.
+  void ResetValues() {
+    num_file_reads_ = 1;
+    readahead_size_ = kInitAutoReadaheadSize;
+  }
+
   AlignedBuffer buffer_;
   uint64_t buffer_offset_;
   size_t readahead_size_;
