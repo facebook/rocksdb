@@ -594,6 +594,9 @@ Status ConfigurableHelper::SerializeOptions(const ConfigOptions& config_options,
             // <prefix><opt_name>=<value><delimiter>
             result->append(prefix + opt_name + "=" + value +
                            config_options.delimiter);
+          } else if(value.empty()){
+            result->append(prefix + opt_name + "=" +
+                           config_options.delimiter);
           }
         }
       }
