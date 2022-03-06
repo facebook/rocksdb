@@ -3163,7 +3163,7 @@ public class RocksDB extends RocksObject {
    * Note this doesn't reset {@link Options#statistics()} as it is not
    * owned by DB.
    *
-   * @throws RocksDBException if an error occurs whilst reseting the stats
+   * @throws RocksDBException if an error occurs whilst resetting the stats
    */
   public void resetStats() throws RocksDBException {
     resetStats(nativeHandle_);
