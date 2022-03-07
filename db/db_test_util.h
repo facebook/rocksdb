@@ -687,6 +687,50 @@ class SpecialEnv : public EnvWrapper {
 };
 
 #ifndef ROCKSDB_LITE
+class FileTemperatureTestFS : public FileSystemWrapper {
+ public:
+  explicit FileTemperatureTestFS(const std::shared_ptr<FileSystem>& fs)
+      : FileSystemWrapper(fs) {}
+
+  static const char* kClassName() { return "FileTemperatureTestFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewSequentialFile(const std::string& fname, const FileOptions& opts,
+                             std::unique_ptr<FSSequentialFile>* result,
+                             IODebugContext* dbg) override {
+    auto filename = GetFileName(fname);
+    uint64_t number;
+    FileType type;
+    auto r = ParseFileName(filename, &number, &type);
+    assert(r);
+    if (type == kTableFile) {
+      auto emplaced =
+          requested_sst_file_temperatures_.emplace(number, opts.temperature);
+      assert(emplaced.second);  // assume no duplication
+    }
+    return target()->NewSequentialFile(fname, opts, result, dbg);
+  }
+
+  const std::map<uint64_t, Temperature>& RequestedSstFileTemperatures() {
+    return requested_sst_file_temperatures_;
+  }
+
+  void ClearRequestedFileTemperatures() {
+    requested_sst_file_temperatures_.clear();
+  }
+
+ protected:
+  std::map<uint64_t, Temperature> requested_sst_file_temperatures_;
+
+  std::string GetFileName(const std::string& fname) {
+    auto filename = fname.substr(fname.find_last_of(kFilePathSeparator) + 1);
+    // workaround only for Windows that the file path could contain both Windows
+    // FilePathSeparator and '/'
+    filename = filename.substr(filename.find_last_of('/') + 1);
+    return filename;
+  }
+};
+
 class OnFileDeletionListener : public EventListener {
  public:
   OnFileDeletionListener() : matched_count_(0), expected_file_name_("") {}

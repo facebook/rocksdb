@@ -33,14 +33,15 @@ std::shared_ptr<const FilterPolicy> Create(double bits_per_key,
                                            const std::string& name) {
   return BloomLikeFilterPolicy::Create(name, bits_per_key);
 }
-const std::string kLegacyBloom = test::LegacyBloomFilterPolicy::kName();
+const std::string kLegacyBloom = test::LegacyBloomFilterPolicy::kClassName();
 const std::string kDeprecatedBlock =
-    DeprecatedBlockBasedBloomFilterPolicy::kName();
-const std::string kFastLocalBloom = test::FastLocalBloomFilterPolicy::kName();
+    DeprecatedBlockBasedBloomFilterPolicy::kClassName();
+const std::string kFastLocalBloom =
+    test::FastLocalBloomFilterPolicy::kClassName();
 const std::string kStandard128Ribbon =
-    test::Standard128RibbonFilterPolicy::kName();
-const std::string kAutoBloom = BloomFilterPolicy::kName();
-const std::string kAutoRibbon = RibbonFilterPolicy::kName();
+    test::Standard128RibbonFilterPolicy::kClassName();
+const std::string kAutoBloom = BloomFilterPolicy::kClassName();
+const std::string kAutoRibbon = RibbonFilterPolicy::kClassName();
 }  // namespace
 
 // DB tests related to bloom filter.
@@ -593,10 +594,9 @@ class AlwaysTrueBitsBuilder : public FilterBitsBuilder {
   size_t ApproximateNumEntries(size_t) override { return SIZE_MAX; }
 };
 
-class AlwaysTrueFilterPolicy : public BloomLikeFilterPolicy {
+class AlwaysTrueFilterPolicy : public ReadOnlyBuiltinFilterPolicy {
  public:
-  explicit AlwaysTrueFilterPolicy(bool skip)
-      : BloomLikeFilterPolicy(/* ignored */ 10), skip_(skip) {}
+  explicit AlwaysTrueFilterPolicy(bool skip) : skip_(skip) {}
 
   FilterBitsBuilder* GetBuilderWithContext(
       const FilterBuildingContext&) const override {
@@ -605,10 +605,6 @@ class AlwaysTrueFilterPolicy : public BloomLikeFilterPolicy {
     } else {
       return new AlwaysTrueBitsBuilder();
     }
-  }
-
-  std::string GetId() const override {
-    return "rocksdb.test.AlwaysTrueFilterPolicy";
   }
 
  private:
@@ -1544,6 +1540,93 @@ TEST_P(DBFilterConstructionCorruptionTestWithParam, DetectCorruption) {
       "TamperFilter");
 }
 
+// RocksDB lite does not support dynamic options
+#ifndef ROCKSDB_LITE
+TEST_P(DBFilterConstructionCorruptionTestWithParam,
+       DynamicallyTurnOnAndOffDetectConstructCorruption) {
+  Options options = CurrentOptions();
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  // We intend to turn on
+  // table_options.detect_filter_construct_corruption dynamically
+  // therefore we override this test parmater's value
+  table_options.detect_filter_construct_corruption = false;
+
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.create_if_missing = true;
+
+  int num_key = static_cast<int>(GetNumKey());
+  Status s;
+
+  DestroyAndReopen(options);
+
+  // Case 1: !table_options.detect_filter_construct_corruption
+  for (int i = 0; i < num_key; i++) {
+    ASSERT_OK(Put(Key(i), Key(i)));
+  }
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "XXPH3FilterBitsBuilder::Finish::TamperHashEntries", [&](void* arg) {
+        std::deque<uint64_t>* hash_entries_to_corrupt =
+            (std::deque<uint64_t>*)arg;
+        assert(!hash_entries_to_corrupt->empty());
+        *(hash_entries_to_corrupt->begin()) =
+            *(hash_entries_to_corrupt->begin()) ^ uint64_t { 1 };
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  s = Flush();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearCallBack(
+      "XXPH3FilterBitsBuilder::Finish::"
+      "TamperHashEntries");
+
+  ASSERT_FALSE(table_options.detect_filter_construct_corruption);
+  EXPECT_TRUE(s.ok());
+
+  // Case 2: dynamically turn on
+  // table_options.detect_filter_construct_corruption
+  ASSERT_OK(db_->SetOptions({{"block_based_table_factory",
+                              "{detect_filter_construct_corruption=true;}"}}));
+
+  for (int i = 0; i < num_key; i++) {
+    ASSERT_OK(Put(Key(i), Key(i)));
+  }
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "XXPH3FilterBitsBuilder::Finish::TamperHashEntries", [&](void* arg) {
+        std::deque<uint64_t>* hash_entries_to_corrupt =
+            (std::deque<uint64_t>*)arg;
+        assert(!hash_entries_to_corrupt->empty());
+        *(hash_entries_to_corrupt->begin()) =
+            *(hash_entries_to_corrupt->begin()) ^ uint64_t { 1 };
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  s = Flush();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearCallBack(
+      "XXPH3FilterBitsBuilder::Finish::"
+      "TamperHashEntries");
+
+  auto updated_table_options =
+      db_->GetOptions().table_factory->GetOptions<BlockBasedTableOptions>();
+  EXPECT_TRUE(updated_table_options->detect_filter_construct_corruption);
+  EXPECT_TRUE(s.IsCorruption());
+  EXPECT_TRUE(s.ToString().find("Filter's hash entries checksum mismatched") !=
+              std::string::npos);
+
+  // Case 3: dynamically turn off
+  // table_options.detect_filter_construct_corruption
+  ASSERT_OK(db_->SetOptions({{"block_based_table_factory",
+                              "{detect_filter_construct_corruption=false;}"}}));
+  updated_table_options =
+      db_->GetOptions().table_factory->GetOptions<BlockBasedTableOptions>();
+  EXPECT_FALSE(updated_table_options->detect_filter_construct_corruption);
+}
+#endif  // ROCKSDB_LITE
+
 namespace {
 // NOTE: This class is referenced by HISTORY.md as a model for a wrapper
 // FilterPolicy selecting among configurations based on context.
@@ -1606,11 +1689,11 @@ class TestingContextCustomFilterPolicy
     test_report_ +=
         OptionsHelper::compaction_style_to_string[context.compaction_style];
     test_report_ += ",n=";
-    test_report_ += ToString(context.num_levels);
+    test_report_ += ROCKSDB_NAMESPACE::ToString(context.num_levels);
     test_report_ += ",l=";
-    test_report_ += ToString(context.level_at_creation);
+    test_report_ += ROCKSDB_NAMESPACE::ToString(context.level_at_creation);
     test_report_ += ",b=";
-    test_report_ += ToString(int{context.is_bottommost});
+    test_report_ += ROCKSDB_NAMESPACE::ToString(int{context.is_bottommost});
     test_report_ += ",r=";
     test_report_ += table_file_creation_reason_to_string[context.reason];
     test_report_ += "\n";
@@ -2167,7 +2250,6 @@ class BloomStatsTestWithParam
       options_.table_factory.reset(NewPlainTableFactory(table_options));
     } else {
       BlockBasedTableOptions table_options;
-      table_options.hash_index_allow_collision = false;
       if (partition_filters_) {
         assert(bfp_impl_ != kDeprecatedBlock);
         table_options.partition_filters = partition_filters_;

@@ -87,7 +87,6 @@ commands:
       - run:
           name: Install Clang 13
           command: |
-            wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
             echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-13 main" | sudo tee -a /etc/apt/sources.list
             echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-13 main" | sudo tee -a /etc/apt/sources.list
             echo "APT::Acquire::Retries \"10\";" | sudo tee -a /etc/apt/apt.conf.d/80-retries # llvm.org unreliable
@@ -171,19 +170,42 @@ jobs:
       - increase-max-open-files-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
-      - run: ulimit -S -n 1048576 && OPT=-DCIRCLECI make V=1 J=32 -j32 check
+      - run: ulimit -S -n 1048576 && OPT=-DCIRCLECI make V=1 J=32 -j32 all
       - post-steps
 
   build-macos-cmake:
     macos:
       xcode: 12.5.1
     resource_class: large
+    parameters:
+      run_even_tests:
+        description: run even or odd tests, used to split tests to 2 groups
+        type: boolean
+        default: true
     steps:
       - increase-max-open-files-on-macos
       - install-cmake-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
-      - run: ulimit -S -n 1048576 && (mkdir build && cd build && cmake -DWITH_GFLAGS=1 .. && make V=1 -j32 && ctest -j10)
+      - run:
+          name: "cmake generate project file"
+          command: ulimit -S -n 1048576 && mkdir build && cd build && cmake -DWITH_GFLAGS=1 ..
+      - run:
+          name: "Build tests"
+          command: cd build && make V=1 -j32
+      - when:
+          condition: << parameters.run_even_tests >>
+          steps:
+            - run:
+                name: "Run even tests"
+                command: ulimit -S -n 1048576 && cd build && ctest -j32 -I 0,,2
+      - when:
+          condition:
+            not: << parameters.run_even_tests >>
+          steps:
+            - run:
+                name: "Run odd tests"
+                command: ulimit -S -n 1048576 && cd build && ctest -j32 -I 1,,2
       - post-steps
 
   build-linux:
@@ -219,38 +241,38 @@ jobs:
   build-linux-release:
     machine:
       image: ubuntu-2004:202111-02
-    resource_class: large
+    resource_class: 2xlarge
     steps:
       - checkout # check out the code in the project directory
-      - run: make V=1 -j8 release
+      - run: make V=1 -j32 release
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - install-gflags
-      - run: make V=1 -j8 release
+      - run: make V=1 -j32 release
       - run: ./db_stress --version # ensure with gflags
       - post-steps
 
   build-linux-release-rtti:
     machine:
       image: ubuntu-2004:202111-02
-    resource_class: large
+    resource_class: xlarge
     steps:
       - checkout # check out the code in the project directory
       - run: make clean
-      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j8 static_lib tools db_bench
+      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
       - run: make clean
-      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j8 static_lib tools db_bench
+      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
       - run: ./db_stress --version # ensure with gflags
 
   build-linux-lite:
     machine:
       image: ubuntu-2004:202111-02
-    resource_class: 2xlarge
+    resource_class: large
     steps:
       - pre-steps
       - install-gflags
-      - run: LITE=1 make V=1 J=32 -j32 check
+      - run: LITE=1 make V=1 J=8 -j8 check
       - post-steps
 
   build-linux-lite-release:
@@ -291,11 +313,30 @@ jobs:
     machine:
       image: ubuntu-2004:202111-02
     resource_class: 2xlarge
+    # find test list by `make list_all_tests`
+    parameters:
+      start_test:
+        default: ""
+        type: string
+      end_test:
+        default: ""
+        type: string
     steps:
       - pre-steps
       - install-gflags
       - install-clang-10
-      - run: COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check # aligned new doesn't work for reason we haven't figured out.
+      - install-gtest-parallel
+      - run:
+          name: "Build unit tests"
+          command: |
+            echo "env: $(env)"
+            ROCKSDBTESTS_START=<<parameters.start_test>> ROCKSDBTESTS_END=<<parameters.end_test>> ROCKSDBTESTS_SUBSET_TESTS_TO_FILE=/tmp/test_list COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 --output-sync=target build_subset_tests
+      - run:
+          name: "Run unit tests in parallel"
+          command: |
+            sed -i 's/[[:space:]]*$//; s/ / \.\//g; s/.*/.\/&/' /tmp/test_list
+            cat /tmp/test_list
+            gtest-parallel $(</tmp/test_list) --output_dir=/tmp | cat  # pipe to cat to continuously output status on circleci UI. Otherwise, no status will be printed while the job is running.
       - post-steps
 
   build-linux-clang10-ubsan:
@@ -367,11 +408,11 @@ jobs:
   build-linux-gcc-8-no_test_run:
     machine:
       image: ubuntu-2004:202111-02
-    resource_class: large
+    resource_class: xlarge
     steps:
       - pre-steps
       - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-8 g++-8 libgflags-dev
-      - run: CC=gcc-8 CXX=g++-8 V=1 make -j8 all
+      - run: CC=gcc-8 CXX=g++-8 V=1 make -j16 all
       - post-steps
 
   build-linux-gcc-10-cxx20-no_test_run:
@@ -390,8 +431,9 @@ jobs:
     resource_class: xlarge
     steps:
       - pre-steps
+      - install-benchmark
       - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-11 g++-11 libgflags-dev
-      - run: CC=gcc-11 CXX=g++-11 V=1 SKIP_LINK=1 make -j16 all # Linking broken because libgflags compiled with newer ABI
+      - run: CC=gcc-11 CXX=g++-11 V=1 SKIP_LINK=1 make -j16 all microbench # Linking broken because libgflags compiled with newer ABI
       - post-steps
 
   build-linux-clang-13-no_test_run:
@@ -401,18 +443,19 @@ jobs:
     steps:
       - pre-steps
       - install-clang-13
-      - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j16 all
+      - install-benchmark
+      - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j16 all microbench
       - post-steps
 
   # This job is only to make sure the microbench tests are able to run, the benchmark result is not meaningful as the CI host is changing.
-  build-linux-microbench:
+  build-linux-run-microbench:
     machine:
       image: ubuntu-2004:202111-02
-    resource_class: xlarge
+    resource_class: 2xlarge
     steps:
       - pre-steps
       - install-benchmark
-      - run: DEBUG_LEVEL=0 make microbench
+      - run: DEBUG_LEVEL=0 make -j32 run_microbench
       - post-steps
 
   build-windows:
@@ -476,7 +519,7 @@ jobs:
             ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 << parameters.extra_cmake_opt >> ..
             cd ..
             echo "Building with VS version: ${CMAKE_GENERATOR}"
-            msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
+            msbuild.exe build/rocksdb.sln -maxCpuCount:64 -property:Configuration=Debug -property:Platform=x64
       - run:
           name: "Test RocksDB"
           shell: powershell.exe
@@ -531,7 +574,7 @@ jobs:
   build-macos-java:
     macos:
       xcode: 12.5.1
-    resource_class: medium
+    resource_class: large
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
       ROCKSDB_DISABLE_JEMALLOC: 1 # jemalloc causes java 8 crash
@@ -549,16 +592,16 @@ jobs:
             which javac && javac -version
       - run:
           name: "Build RocksDBJava Shared Library"
-          command: make V=1 J=8 -j8 rocksdbjava
+          command: make V=1 J=16 -j16 rocksdbjava
       - run:
           name: "Test RocksDBJava"
-          command: make V=1 J=8 -j8 jtest
+          command: make V=1 J=16 -j16 jtest
       - post-steps
 
   build-macos-java-static:
     macos:
       xcode: 12.5.1
-    resource_class: medium
+    resource_class: large
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
     steps:
@@ -576,13 +619,13 @@ jobs:
             which javac && javac -version
       - run:
           name: "Build RocksDBJava x86 and ARM Static Libraries"
-          command: make V=1 J=8 -j8 rocksdbjavastaticosx
+          command: make V=1 J=16 -j16 rocksdbjavastaticosx
       - post-steps
 
   build-macos-java-static-universal:
     macos:
       xcode: 12.5.1
-    resource_class: medium
+    resource_class: large
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
     steps:
@@ -600,7 +643,7 @@ jobs:
             which javac && javac -version
       - run:
           name: "Build RocksDBJava Universal Binary Static Library"
-          command: make V=1 J=8 -j8 rocksdbjavastaticosx_ub
+          command: make V=1 J=16 -j16 rocksdbjavastaticosx_ub
       - post-steps
 
   build-examples:
@@ -619,7 +662,7 @@ jobs:
   build-cmake-mingw:
     machine:
       image: ubuntu-2004:202111-02
-    resource_class: 2xlarge
+    resource_class: large
     steps:
       - pre-steps
       - install-gflags
@@ -643,30 +686,12 @@ jobs:
     machine:
       image: ubuntu-2004:202111-02
     resource_class: 2xlarge
-    parameters:
-      start_test:
-        default: ""
-        type: string
-      end_test:
-        default: ""
-        type: string
+    environment:
+      TEST_TMPDIR: /tmp/rocksdb_test_tmp
     steps:
       - pre-steps
       - install-gflags
-      - install-gtest-parallel
-      - run:
-          name: "Build unit tests"
-          command: |
-            echo "env: $(env)"
-            echo "** done env"
-            ROCKSDBTESTS_START=<<parameters.start_test>> ROCKSDBTESTS_END=<<parameters.end_test>> ROCKSDBTESTS_SUBSET_TESTS_TO_FILE=/tmp/test_list make V=1 -j32 --output-sync=target build_subset_tests
-      - run:
-          name: "Run unit tests in parallel"
-          command: |
-            sed -i 's/[[:space:]]*$//; s/ / \.\//g; s/.*/.\/&/' /tmp/test_list
-            cat /tmp/test_list
-            export TEST_TMPDIR=/tmp/rocksdb_test_tmp
-            gtest-parallel $(</tmp/test_list) --output_dir=/tmp | cat  # pipe to cat to continuously output status on circleci UI. Otherwise, no status will be printed while the job is running.
+      - run: make V=1 -j32 check
       - post-steps
 
   build-linux-arm-test-full:
@@ -788,7 +813,12 @@ workflows:
       - build-linux-clang10-asan
   build-linux-clang10-mini-tsan:
     jobs:
-      - build-linux-clang10-mini-tsan
+      - build-linux-clang10-mini-tsan:
+          start_test: ""
+          end_test: "env_test"
+      - build-linux-clang10-mini-tsan:
+          start_test: "env_test"
+          end_test: ""
   build-linux-clang10-ubsan:
     jobs:
       - build-linux-clang10-ubsan
@@ -823,20 +853,6 @@ workflows:
   build-examples:
     jobs:
       - build-examples
-  build-linux-non-shm:
-    jobs:
-      - build-linux-non-shm:
-          start_test: ""
-          end_test: "db_options_test" # make sure unique in src.mk
-      - build-linux-non-shm:
-          start_test: "db_options_test" # make sure unique in src.mk
-          end_test: "filename_test" # make sure unique in src.mk
-      - build-linux-non-shm:
-          start_test: "filename_test" # make sure unique in src.mk
-          end_test: "statistics_test" # make sure unique in src.mk
-      - build-linux-non-shm:
-          start_test: "statistics_test" # make sure unique in src.mk
-          end_test: ""
   build-linux-compilers-no_test_run:
     jobs:
       - build-linux-clang-no_test_run
@@ -849,18 +865,16 @@ workflows:
   build-macos:
     jobs:
       - build-macos
-  build-macos-cmake:
-    jobs:
-      - build-macos-cmake
+      - build-macos-cmake:
+          run_even_tests: true
+      - build-macos-cmake:
+          run_even_tests: false
   build-cmake-mingw:
     jobs:
       - build-cmake-mingw
   build-linux-arm:
     jobs:
       - build-linux-arm
-  build-microbench:
-    jobs:
-      - build-linux-microbench
   build-fuzzers:
     jobs:
       - build-fuzzers
@@ -875,3 +889,5 @@ workflows:
     jobs:
       - build-format-compatible
       - build-linux-arm-test-full
+      - build-linux-run-microbench
+      - build-linux-non-shm
