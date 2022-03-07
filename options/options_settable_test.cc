@@ -540,7 +540,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
                 max_bytes_for_level_multiplier_additional),
        sizeof(std::vector<int>)},
       {offsetof(struct MutableCFOptions, compression_per_level),
-      sizeof(std::vector<CompressionType>)},
+       sizeof(std::vector<CompressionType>)},
       {offsetof(struct MutableCFOptions, max_file_size),
        sizeof(std::vector<uint64_t>)},
   };
