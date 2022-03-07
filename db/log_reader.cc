@@ -457,7 +457,10 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
 
     buffer_.remove_prefix(header_size + length);
 
-    if (uncompress_ && type != kSetCompressionType) {
+    if (!uncompress_ || type == kSetCompressionType) {
+      *result = Slice(header + header_size, length);
+      return type;
+    } else {
       // Uncompress compressed records
       uncompressed_record_.clear();
       size_t uncompressed_size = 0;
@@ -476,9 +479,6 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
         }
       } while (remaining > 0 || uncompressed_size == kBlockSize);
       *result = Slice(uncompressed_record_);
-      return type;
-    } else {
-      *result = Slice(header + header_size, length);
       return type;
     }
   }
@@ -744,7 +744,11 @@ bool FragmentBufferedReader::TryReadFragment(
 
   buffer_.remove_prefix(header_size + length);
 
-  if (uncompress_ && type != kSetCompressionType) {
+  if (!uncompress_ || type == kSetCompressionType) {
+    *fragment = Slice(header + header_size, length);
+    *fragment_type_or_err = type;
+    return true;
+  } else {
     // Uncompress compressed records
     uncompressed_record_.clear();
     size_t uncompressed_size = 0;
@@ -764,10 +768,6 @@ bool FragmentBufferedReader::TryReadFragment(
       }
     } while (remaining > 0 || uncompressed_size == kBlockSize);
     *fragment = Slice(std::move(uncompressed_record_));
-    *fragment_type_or_err = type;
-    return true;
-  } else {
-    *fragment = Slice(header + header_size, length);
     *fragment_type_or_err = type;
     return true;
   }
