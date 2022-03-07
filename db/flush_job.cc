@@ -170,8 +170,20 @@ void FlushJob::PickMemTable() {
   db_mutex_->AssertHeld();
   assert(!pick_memtable_called);
   pick_memtable_called = true;
+
+  // Maximum "NextLogNumber" of the memtables to flush.
+  // When mempurge feature is turned off, this variable is useless
+  // because the memtables are implicitly sorted by increasing order of creation
+  // time. Therefore mems_->back()->GetNextLogNumber() is already equal to
+  // max_next_log_number. However when Mempurge is on, the memtables are no
+  // longer sorted by increasing order of creation time. Therefore this variable
+  // becomes necessary because mems_->back()->GetNextLogNumber() is no longer
+  // necessarily equal to max_next_log_number.
+  uint64_t max_next_log_number = 0;
+
   // Save the contents of the earliest memtable as a new Table
-  cfd_->imm()->PickMemtablesToFlush(max_memtable_id_, &mems_);
+  cfd_->imm()->PickMemtablesToFlush(max_memtable_id_, &mems_,
+                                    &max_next_log_number);
   if (mems_.empty()) {
     return;
   }
@@ -183,10 +195,14 @@ void FlushJob::PickMemTable() {
   // this flush.
   MemTable* m = mems_[0];
   edit_ = m->GetEdits();
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 " Flush: pick memtable: %" PRIu64
+                 " to write edits. (*edit_=%p)",
+                 m->GetID(), edit_);
   edit_->SetPrevLogNumber(0);
   // SetLogNumber(log_num) indicates logs with number smaller than log_num
   // will no longer be picked up for recovery.
-  edit_->SetLogNumber(mems_.back()->GetNextLogNumber());
+  edit_->SetLogNumber(max_next_log_number);
   edit_->SetColumnFamily(cfd_->GetID());
 
   // path 0 for level 0 file.
@@ -261,7 +277,6 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
     base_->Unref();
     s = Status::OK();
   } else {
-    // This will release and re-acquire the mutex.
     s = WriteLevel0Table();
   }
 
@@ -279,10 +294,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
     TEST_SYNC_POINT("FlushJob::InstallResults");
     // Replace immutable memtable with the generated Table
     IOStatus tmp_io_s;
-    ROCKS_LOG_INFO(db_options_.info_log,
-                "Flush memtables start : tid %" PRIu64 " mempurge: %s",
-                std::hash<std::thread::id>{}(std::this_thread::get_id()),
-                mempurge_s.ok() ? "on" : "off");
+
     s = cfd_->imm()->TryInstallMemtableFlushResults(
         cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
         meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
@@ -290,10 +302,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
         !(mempurge_s.ok()) /* write_edit : true if no mempurge happened (or if aborted),
                               but 'false' if mempurge successful: no new min log number
                               or new level 0 file path to write to manifest. */);
-    ROCKS_LOG_INFO(db_options_.info_log,
-                "Flush memtables over! : tid %" PRIu64 " mempurge: %s",
-                std::hash<std::thread::id>{}(std::this_thread::get_id()),
-                mempurge_s.ok() ? "on" : "off");
+
     if (!tmp_io_s.ok()) {
       io_status_ = tmp_io_s;
     }
@@ -577,6 +586,7 @@ Status FlushJob::MemPurge() {
         uint64_t new_mem_id = mems_[0]->GetID();
 
         new_mem->SetID(new_mem_id);
+        new_mem->SetNextLogNumber(mems_[0]->GetNextLogNumber());
 
         // This addition will not trigger another flush, because
         // we do not call SchedulePendingFlush().
