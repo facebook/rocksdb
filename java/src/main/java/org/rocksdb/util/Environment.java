@@ -110,8 +110,14 @@ public class Environment {
         return String.format("%sjni-linux%s%s", name, arch, getLibcPostfix());
       }
     } else if (isMac()) {
-      if (isAarch64()) {
-        return String.format("%sjni-osx-%s", name, ARCH);
+      if (is64Bit()) {
+        final String arch;
+        if (isAarch64()) {
+          arch = "arm64";
+        } else {
+          arch = "x86_64";
+        }
+        return String.format("%sjni-osx-%s", name, arch);
       } else {
         return String.format("%sjni-osx", name);
       }
@@ -131,8 +137,23 @@ public class Environment {
     throw new UnsupportedOperationException(String.format("Cannot determine JNI library name for ARCH='%s' OS='%s' name='%s'", ARCH, OS, name));
   }
 
+  public static /*@Nullable*/ String getFallbackJniLibraryName(final String name) {
+    if (isMac() && is64Bit()) {
+      return String.format("%sjni-osx", name);
+    }
+    return null;
+  }
+
   public static String getJniLibraryFileName(final String name) {
     return appendLibOsSuffix("lib" + getJniLibraryName(name), false);
+  }
+
+  public static /*@Nullable*/ String getFallbackJniLibraryFileName(final String name) {
+    final String fallbackJniLibraryName = getFallbackJniLibraryName(name);
+    if (fallbackJniLibraryName == null) {
+      return null;
+    }
+    return appendLibOsSuffix("lib" + fallbackJniLibraryName, false);
   }
 
   private static String appendLibOsSuffix(final String libraryFileName, final boolean shared) {
