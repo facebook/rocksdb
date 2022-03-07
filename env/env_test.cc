@@ -3203,10 +3203,11 @@ IOStatus ReadAsyncRandomAccessFile::ReadAsync(
 
   // Submit read request asynchronously.
   std::function<void(FSReadRequest)> submit_request =
-      [&opts, cb, cb_arg, io_handle, del_fn, dbg, create_io_error,
-       this](FSReadRequest _req) {
+      [&opts, cb, cb_arg, dbg, create_io_error, this](FSReadRequest _req) {
         if (!create_io_error) {
-          target()->ReadAsync(_req, opts, cb, cb_arg, io_handle, del_fn, dbg);
+          _req.status = target()->Read(_req.offset, _req.len, opts,
+                                       &(_req.result), _req.scratch, dbg);
+          cb(_req, cb_arg);
         }
       };
 
