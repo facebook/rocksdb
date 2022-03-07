@@ -106,6 +106,9 @@ commands:
       - store_artifacts: # store the benchmark output
           path: /tmp/benchmark-results
           destination: test_logs
+      - run:
+          name: Output logs as MIME
+          command: ./build_tools/benchmark_logs.py --logdirectory /tmp/benchmark-results
 
   install-clang-10:
     steps:
