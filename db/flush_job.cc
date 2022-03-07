@@ -195,10 +195,6 @@ void FlushJob::PickMemTable() {
   // this flush.
   MemTable* m = mems_[0];
   edit_ = m->GetEdits();
-  ROCKS_LOG_INFO(db_options_.info_log,
-                 " Flush: pick memtable: %" PRIu64
-                 " to write edits. (*edit_=%p)",
-                 m->GetID(), edit_);
   edit_->SetPrevLogNumber(0);
   // SetLogNumber(log_num) indicates logs with number smaller than log_num
   // will no longer be picked up for recovery.
@@ -277,6 +273,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
     base_->Unref();
     s = Status::OK();
   } else {
+    // This will release and re-acquire the mutex.
     s = WriteLevel0Table();
   }
 
@@ -294,7 +291,6 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
     TEST_SYNC_POINT("FlushJob::InstallResults");
     // Replace immutable memtable with the generated Table
     IOStatus tmp_io_s;
-
     s = cfd_->imm()->TryInstallMemtableFlushResults(
         cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
         meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
@@ -302,7 +298,6 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
         !(mempurge_s.ok()) /* write_edit : true if no mempurge happened (or if aborted),
                               but 'false' if mempurge successful: no new min log number
                               or new level 0 file path to write to manifest. */);
-
     if (!tmp_io_s.ok()) {
       io_status_ = tmp_io_s;
     }

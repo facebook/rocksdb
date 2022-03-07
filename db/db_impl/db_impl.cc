@@ -587,8 +587,6 @@ Status DBImpl::CloseHelper() {
               "Atomic flush memtables failed upon closing (mempurge).");
         }
       } else {
-        ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                         "Flush memtables with mempurge on. Let's see what happens.");
         flush_ret =
             FlushMemTable(cf, FlushOptions(), FlushReason::kManualFlush);
         if (!flush_ret.ok()) {
