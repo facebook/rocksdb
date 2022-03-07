@@ -69,7 +69,8 @@ commands:
       - store_artifacts: # on fail, store Test Logs for diagnosing the issue
           path: t.tar.gz
           destination: test_logs
-          when: on_fail
+          # AP - testing
+          # when: on_fail
 
   build-for-benchmarks:
     steps:
@@ -229,6 +230,14 @@ jobs:
       - pre-steps
       - install-gflags
       - run: make V=1 J=32 -j32 check
+      - post-steps
+
+  build-linux-runner:
+    machine: true
+    resource_class: facebook/rocksdb-benchmark-sys1
+    steps:
+      - pre-steps
+      - run: make V=1 J=8 -j8 check
       - post-steps
 
   build-linux-encrypted-env:
@@ -907,6 +916,9 @@ workflows:
   # build-fuzzers:
   #   jobs:
   #     - build-fuzzers
+  build-linux-runner:
+    jobs:
+      - build-linux-runner
   benchmark-linux:
     jobs:
       - benchmark-linux
