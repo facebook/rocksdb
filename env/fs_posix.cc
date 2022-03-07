@@ -753,8 +753,10 @@ class PosixFileSystem : public FileSystem {
                     const IOOptions& /*opts*/,
                     IODebugContext* /*dbg*/) override {
     if (link(src.c_str(), target.c_str()) != 0) {
-      if (errno == EXDEV) {
-        return IOStatus::NotSupported("No cross FS links allowed");
+      if (errno == EXDEV || errno == ENOTSUP) {
+        return IOStatus::NotSupported(errno == EXDEV
+                                          ? "No cross FS links allowed"
+                                          : "Links not supported by FS");
       }
       return IOError("while link file to " + target, src, errno);
     }
