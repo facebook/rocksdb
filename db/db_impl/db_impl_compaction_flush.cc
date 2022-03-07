@@ -387,9 +387,9 @@ Status DBImpl::FlushMemTablesToOutputFiles(
   SuperVersionContext* superversion_context =
       bg_flush_arg.superversion_context_;
   Status s = FlushMemTableToOutputFile(
-      cfd, mutable_cf_options_copy, made_progress, job_context, superversion_context,
-      snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
-      log_buffer, thread_pri);
+      cfd, mutable_cf_options_copy, made_progress, job_context,
+      superversion_context, snapshot_seqs, earliest_write_conflict_snapshot,
+      snapshot_checker, log_buffer, thread_pri);
   return s;
 }
 
