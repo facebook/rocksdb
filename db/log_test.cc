@@ -17,6 +17,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/random.h"
+#include "utilities/memory_allocators.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace log {
@@ -917,6 +918,73 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(::testing::Values(0, 1), ::testing::Bool(),
                        ::testing::Values(CompressionType::kNoCompression,
                                          CompressionType::kZSTD)));
+
+class StreamingCompressionTest
+    : public ::testing::TestWithParam<std::tuple<int, CompressionType>> {};
+
+TEST_P(StreamingCompressionTest, Basic) {
+  size_t input_size = std::get<0>(GetParam());
+  CompressionType compression_type = std::get<1>(GetParam());
+  if (!StreamingCompressionTypeSupported(compression_type)) {
+    ROCKSDB_GTEST_SKIP("Test requires support for compression type");
+    return;
+  }
+  CompressionOptions opts;
+  constexpr uint32_t compression_format_version = 2;
+  StreamingCompress* compress = StreamingCompress::Create(
+      compression_type, opts, compression_format_version, kBlockSize);
+  StreamingUncompress* uncompress = StreamingUncompress::Create(
+      compression_type, compression_format_version, kBlockSize);
+  MemoryAllocator* allocator = new DefaultMemoryAllocator();
+  std::string input_buffer = BigString("abc", input_size);
+  std::vector<std::string> compressed_buffers;
+  size_t remaining;
+  // Call compress till the entire input is consumed
+  do {
+    char* output_buffer = (char*)allocator->Allocate(kBlockSize);
+    size_t output_size;
+    remaining = compress->Compress(input_buffer.c_str(), input_size,
+                                   output_buffer, &output_size);
+    if (output_size > 0) {
+      std::string compressed_buffer;
+      compressed_buffer.assign(output_buffer, output_size);
+      compressed_buffers.emplace_back(std::move(compressed_buffer));
+    }
+    allocator->Deallocate((void*)output_buffer);
+  } while (remaining > 0);
+  std::string uncompressed_buffer = "";
+  int ret_val = 0;
+  size_t output_size;
+  char* uncompressed_output_buffer = (char*)allocator->Allocate(kBlockSize);
+  // Uncompress the fragments and concatenate them.
+  for (int i = 0; i < (int)compressed_buffers.size(); i++) {
+    // Call uncompress till either the entire input is consumed or the output
+    // buffer size is equal to the allocated output buffer size.
+    do {
+      ret_val = uncompress->Uncompress(
+          compressed_buffers[i].c_str(), compressed_buffers[i].size(),
+          uncompressed_output_buffer, &output_size);
+      if (output_size > 0) {
+        std::string uncompressed_fragment;
+        uncompressed_fragment.assign(uncompressed_output_buffer, output_size);
+        uncompressed_buffer += uncompressed_fragment;
+      }
+    } while (ret_val > 0 || output_size == kBlockSize);
+  }
+  allocator->Deallocate((void*)uncompressed_output_buffer);
+  delete allocator;
+  delete compress;
+  delete uncompress;
+  // The final return value from uncompress() should be 0.
+  ASSERT_EQ(ret_val, 0);
+  ASSERT_EQ(input_buffer, uncompressed_buffer);
+}
+
+INSTANTIATE_TEST_CASE_P(
+    StreamingCompression, StreamingCompressionTest,
+    ::testing::Combine(::testing::Values(10, 100, 1000, kBlockSize,
+                                         kBlockSize * 2),
+                       ::testing::Values(CompressionType::kZSTD)));
 
 }  // namespace log
 }  // namespace ROCKSDB_NAMESPACE

@@ -872,9 +872,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_data_block_index
     rocksdb_block_based_table_options_t*, int);  // uses one of the above enums
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_data_block_hash_ratio(
     rocksdb_block_based_table_options_t* options, double v);
-extern ROCKSDB_LIBRARY_API void
-rocksdb_block_based_options_set_hash_index_allow_collision(
-    rocksdb_block_based_table_options_t*, unsigned char);
+// rocksdb_block_based_options_set_hash_index_allow_collision()
+// is removed since BlockBasedTableOptions.hash_index_allow_collision()
+// is removed
 extern ROCKSDB_LIBRARY_API void
 rocksdb_block_based_options_set_cache_index_and_filter_blocks(
     rocksdb_block_based_table_options_t*, unsigned char);

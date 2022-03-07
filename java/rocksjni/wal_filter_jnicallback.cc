@@ -7,6 +7,8 @@
 // ROCKSDB_NAMESPACE::WalFilter.
 
 #include "rocksjni/wal_filter_jnicallback.h"
+
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -109,13 +111,11 @@ void WalFilterJniCallback::ColumnFamilyLogNumberMap(
     return  WalFilter::WalProcessingOption::kCorruptedRecord;
   }
 
-  jshort jlog_record_found_result = env->CallShortMethod(m_jcallback_obj,
-      m_log_record_found_proxy_mid,
-      static_cast<jlong>(log_number),
-      jlog_file_name,
-      reinterpret_cast<jlong>(&batch),
-      reinterpret_cast<jlong>(new_batch));
-  
+  jshort jlog_record_found_result = env->CallShortMethod(
+      m_jcallback_obj, m_log_record_found_proxy_mid,
+      static_cast<jlong>(log_number), jlog_file_name,
+      GET_CPLUSPLUS_POINTER(&batch), GET_CPLUSPLUS_POINTER(new_batch));
+
   env->DeleteLocalRef(jlog_file_name);
 
   if (env->ExceptionCheck()) {

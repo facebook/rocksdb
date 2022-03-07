@@ -627,6 +627,7 @@ set(SOURCES
         cache/cache_reservation_manager.cc
         cache/clock_cache.cc
         cache/lru_cache.cc
+        cache/lru_secondary_cache.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_fetcher.cc
@@ -829,6 +830,7 @@ set(SOURCES
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
+        util/compression.cc
         util/compression_context_cache.cc
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
@@ -1154,6 +1156,7 @@ if(WITH_TESTS)
         cache/cache_reservation_manager_test.cc
         cache/cache_test.cc
         cache/lru_cache_test.cc
+        cache/lru_secondary_cache_test.cc
         db/blob/blob_counting_iterator_test.cc
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc
@@ -1182,6 +1185,7 @@ if(WITH_TESTS)
         db/db_compaction_filter_test.cc
         db/db_compaction_test.cc
         db/db_dynamic_level_test.cc
+        db/db_encryption_test.cc
         db/db_flush_test.cc
         db/db_inplace_update_test.cc
         db/db_io_failure_test.cc
@@ -1208,6 +1212,7 @@ if(WITH_TESTS)
         db/db_universal_compaction_test.cc
         db/db_wal_test.cc
         db/db_with_timestamp_compaction_test.cc
+        db/db_write_buffer_manager_test.cc
         db/db_write_test.cc
         db/dbformat_test.cc
         db/deletefile_test.cc
@@ -1219,6 +1224,7 @@ if(WITH_TESTS)
         db/file_indexer_test.cc
         db/filename_test.cc
         db/flush_job_test.cc
+        db/import_column_family_test.cc
         db/listener_test.cc
         db/log_test.cc
         db/manual_compaction_test.cc
@@ -1314,6 +1320,7 @@ if(WITH_TESTS)
         utilities/cassandra/cassandra_row_merge_test.cc
         utilities/cassandra/cassandra_serialize_test.cc
         utilities/checkpoint/checkpoint_test.cc
+        utilities/env_timed_test.cc
         utilities/memory/memory_test.cc
         utilities/merge_operators/string_append/stringappend_test.cc
         utilities/object_registry_test.cc
@@ -1331,6 +1338,7 @@ if(WITH_TESTS)
         utilities/transactions/write_unprepared_transaction_test.cc
         utilities/transactions/lock/range/range_locking_test.cc
         utilities/ttl/ttl_test.cc
+        utilities/util_merge_operators_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
     )
   endif()

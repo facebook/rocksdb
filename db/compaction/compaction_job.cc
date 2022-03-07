@@ -2268,9 +2268,8 @@ Status CompactionJob::OpenCompactionOutputFile(
   const auto& listeners =
       sub_compact->compaction->immutable_options()->listeners;
   sub_compact->outfile.reset(new WritableFileWriter(
-      std::move(writable_file), fname, file_options_, db_options_.clock,
-      io_tracer_, db_options_.stats, listeners,
-      db_options_.file_checksum_gen_factory.get(),
+      std::move(writable_file), fname, fo_copy, db_options_.clock, io_tracer_,
+      db_options_.stats, listeners, db_options_.file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kTableFile), false));
 
   TableBuilderOptions tboptions(

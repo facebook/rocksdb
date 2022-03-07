@@ -239,8 +239,18 @@ include $(ROCKSDB_PLUGIN_MKS)
 ROCKSDB_PLUGIN_SOURCES = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach source, $($(plugin)_SOURCES), plugin/$(plugin)/$(source)))
 ROCKSDB_PLUGIN_HEADERS = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach header, $($(plugin)_HEADERS), plugin/$(plugin)/$(header)))
 ROCKSDB_PLUGIN_PKGCONFIG_REQUIRES = $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_PKGCONFIG_REQUIRES))
-PLATFORM_LDFLAGS += $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_LDFLAGS))
 CXXFLAGS += $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_CXXFLAGS))
+
+# Patch up the link flags for JNI from the plugins
+ROCKSDB_PLUGIN_LDFLAGS = $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_LDFLAGS))
+PLATFORM_LDFLAGS += $(ROCKSDB_PLUGIN_LDFLAGS)
+JAVA_LDFLAGS += $(ROCKSDB_PLUGIN_LDFLAGS)
+JAVA_STATIC_LDFLAGS += $(ROCKSDB_PLUGIN_LDFLAGS)
+
+# Patch up the list of java native sources with files from the plugins
+ROCKSDB_PLUGIN_JNI_NATIVE_SOURCES = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach source, $($(plugin)_JNI_NATIVE_SOURCES), plugin/$(plugin)/$(source)))
+ALL_JNI_NATIVE_SOURCES = $(JNI_NATIVE_SOURCES) $(ROCKSDB_PLUGIN_JNI_NATIVE_SOURCES)
+ROCKSDB_PLUGIN_JNI_CXX_INCLUDEFLAGS = $(foreach plugin, $(ROCKSDB_PLUGINS), -I./plugin/$(plugin))
 
 ifneq ($(strip $(ROCKSDB_PLUGIN_PKGCONFIG_REQUIRES)),)
 LDFLAGS := $(LDFLAGS) $(shell pkg-config --libs $(ROCKSDB_PLUGIN_PKGCONFIG_REQUIRES))
@@ -805,6 +815,8 @@ test_libs: $(TEST_LIBS)
 benchmarks: $(BENCHMARKS)
 
 microbench: $(MICROBENCHS)
+
+run_microbench: $(MICROBENCHS)
 	for t in $(MICROBENCHS); do echo "===== Running benchmark $$t (`date`)"; ./$$t || exit 1; done;
 
 dbg: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
@@ -1887,6 +1899,9 @@ statistics_test: $(OBJ_DIR)/monitoring/statistics_test.o $(TEST_LIBRARY) $(LIBRA
 stats_history_test: $(OBJ_DIR)/monitoring/stats_history_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+lru_secondary_cache_test: $(OBJ_DIR)/cache/lru_secondary_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 lru_cache_test: $(OBJ_DIR)/cache/lru_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -2272,7 +2287,7 @@ rocksdbjavastatic_javalib:
 	cd java; SHA256_CMD='$(SHA256_CMD)' $(MAKE) javalib
 	rm -f java/target/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
-	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
+	  -o ./java/target/$(ROCKSDBJNILIB) $(ALL_JNI_NATIVE_SOURCES) \
 	  $(LIB_OBJECTS) $(COVERAGEFLAGS) \
 	  $(JAVA_COMPRESSIONS) $(JAVA_STATIC_LDFLAGS)
 	cd java/target;if [ "$(DEBUG_LEVEL)" == "0" ]; then \
@@ -2381,7 +2396,7 @@ ifeq ($(JAVA_HOME),)
 endif
 	$(AM_V_GEN)cd java; SHA256_CMD='$(SHA256_CMD)' $(MAKE) javalib;
 	$(AM_V_at)rm -f ./java/target/$(ROCKSDBJNILIB)
-	$(AM_V_at)$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIB_OBJECTS) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
+	$(AM_V_at)$(CXX) $(CXXFLAGS) -I./java/. -I./java/rocksjni $(JAVA_INCLUDE) $(ROCKSDB_PLUGIN_JNI_CXX_INCLUDEFLAGS) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(ALL_JNI_NATIVE_SOURCES) $(LIB_OBJECTS) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
 	$(AM_V_at)cd java; $(JAR_CMD) -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	$(AM_V_at)cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
 	$(AM_V_at)cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
@@ -2502,6 +2517,9 @@ endif
 
 build_subset_tests: $(ROCKSDBTESTS_SUBSET)
 	$(AM_V_GEN)if [ -n "$${ROCKSDBTESTS_SUBSET_TESTS_TO_FILE}" ]; then echo "$(ROCKSDBTESTS_SUBSET)" > "$${ROCKSDBTESTS_SUBSET_TESTS_TO_FILE}"; else echo "$(ROCKSDBTESTS_SUBSET)"; fi
+
+list_all_tests:
+	echo "$(ROCKSDBTESTS_SUBSET)"
 
 # Remove the rules for which dependencies should not be generated and see if any are left.
 #If so, include the dependencies; if not, do not include the dependency files
