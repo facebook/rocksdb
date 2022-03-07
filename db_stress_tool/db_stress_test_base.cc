@@ -1744,6 +1744,8 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   if (s.ok()) {
     Options options(options_);
     options.listeners.clear();
+    // Avoid race condition in trash handling after delete checkpoint_db
+    options.sst_file_manager.reset();
     std::vector<ColumnFamilyDescriptor> cf_descs;
     // TODO(ajkr): `column_family_names_` is not safe to access here when
     // `clear_column_family_one_in != 0`. But we can't easily switch to
