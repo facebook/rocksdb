@@ -64,11 +64,11 @@ std::unique_ptr<Configurable> CFOptionsAsConfigurable(
 std::unique_ptr<Configurable> CFOptionsAsConfigurable(
     const ColumnFamilyOptions& opts,
     const std::unordered_map<std::string, std::string>* opt_map = nullptr);
+#endif  // !ROCKSDB_LITE
 
 extern Status StringToMap(
     const std::string& opts_str,
     std::unordered_map<std::string, std::string>* opts_map);
-#endif  // !ROCKSDB_LITE
 
 struct OptionsHelper {
   static const std::string kCFOptionsName /*= "ColumnFamilyOptions"*/;

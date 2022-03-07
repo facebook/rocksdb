@@ -211,23 +211,18 @@ Status Configurable::ConfigureFromString(const ConfigOptions& config_options,
                                          const std::string& opts_str) {
   Status s;
   if (!opts_str.empty()) {
-#ifndef ROCKSDB_LITE
-    if (opts_str.find(';') != std::string::npos ||
-        opts_str.find('=') != std::string::npos) {
+    if (opts_str.find_first_of(";=") != std::string::npos) {
       std::unordered_map<std::string, std::string> opt_map;
       s = StringToMap(opts_str, &opt_map);
       if (s.ok()) {
         s = ConfigureFromMap(config_options, opt_map, nullptr);
       }
     } else {
-#endif  // ROCKSDB_LITE
       s = ParseStringOptions(config_options, opts_str);
       if (s.ok() && config_options.invoke_prepare_options) {
         s = PrepareOptions(config_options);
       }
-#ifndef ROCKSDB_LITE
     }
-#endif  // ROCKSDB_LITE
   } else if (config_options.invoke_prepare_options) {
     s = PrepareOptions(config_options);
   } else {
@@ -236,7 +231,6 @@ Status Configurable::ConfigureFromString(const ConfigOptions& config_options,
   return s;
 }
 
-#ifndef ROCKSDB_LITE
 /**
  * Sets the value of the named property to the input value, returning OK on
  * succcess.
@@ -244,10 +238,21 @@ Status Configurable::ConfigureFromString(const ConfigOptions& config_options,
 Status Configurable::ConfigureOption(const ConfigOptions& config_options,
                                      const std::string& name,
                                      const std::string& value) {
+#ifndef ROCKSDB_LITE
   return ConfigurableHelper::ConfigureSingleOption(config_options, *this, name,
                                                    value);
+#else
+  (void)value;
+  if (config_options.ignore_unknown_options) {
+    return Status::OK();
+  } else {
+    return Status::NotSupported("ConfigureOption not supported in LITE mode ",
+                                name);
+  }
+#endif  // ROCKSDB_LITE
 }
 
+#ifndef ROCKSDB_LITE
 /**
  * Looks for the named option amongst the options for this type and sets
  * the value for it to be the input value.
@@ -297,9 +302,19 @@ Status ConfigurableHelper::ConfigureOptions(
       }
     }
 #else
-    (void)configurable;
-    if (!config_options.ignore_unknown_options) {
-      s = Status::NotSupported("ConfigureFromMap not supported in LITE mode");
+    for (auto opt_it = remaining.begin(); opt_it != remaining.end();) {
+      Status st = configurable.ConfigureOption(config_options, opt_it->first,
+                                               opt_it->second);
+      if (st.ok()) {
+        opt_it = remaining.erase(opt_it);
+      } else {
+        ++opt_it;
+        if (s.ok() || s.IsNotSupported()) {
+          s = st;
+        } else if (!st.IsNotSupported() || !st.IsNotFound()) {
+          s = st;
+        }
+      }
     }
 #endif  // ROCKSDB_LITE
   }
@@ -519,6 +534,19 @@ Status Configurable::GetOptionString(const ConfigOptions& config_options,
 #endif  // ROCKSDB_LITE
 }
 
+Status Configurable::GetOption(const ConfigOptions& config_options,
+                               const std::string& name,
+                               std::string* value) const {
+#ifndef ROCKSDB_LITE
+  return ConfigurableHelper::GetOption(config_options, *this,
+                                       GetOptionName(name), value);
+#else
+  (void)config_options;
+  *value = "";
+  return Status::NotFound("Cannot find option: ", name);
+#endif  // ROCKSDB_LITE
+}
+
 #ifndef ROCKSDB_LITE
 std::string Configurable::ToString(const ConfigOptions& config_options,
                                    const std::string& prefix) const {
@@ -539,12 +567,6 @@ std::string Configurable::SerializeOptions(const ConfigOptions& config_options,
   return result;
 }
 
-Status Configurable::GetOption(const ConfigOptions& config_options,
-                               const std::string& name,
-                               std::string* value) const {
-  return ConfigurableHelper::GetOption(config_options, *this,
-                                       GetOptionName(name), value);
-}
 
 Status ConfigurableHelper::GetOption(const ConfigOptions& config_options,
                                      const Configurable& configurable,

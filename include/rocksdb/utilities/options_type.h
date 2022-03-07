@@ -144,6 +144,7 @@ bool SerializeEnum(const std::unordered_map<std::string, T>& type_map,
   return false;
 }
 
+#ifndef ROCKSDB_LITE
 template <typename T>
 Status ParseVector(const ConfigOptions& config_options,
                    const OptionTypeInfo& elem_info, char separator,
@@ -195,11 +196,13 @@ using SerializeFunc = std::function<Status(
 using EqualsFunc = std::function<bool(
     const ConfigOptions& /*opts*/, const std::string& /*name*/,
     const void* /*addr1*/, const void* /*addr2*/, std::string* mismatch)>;
+#endif  // ROCKSDB_LITE
 
 // A struct for storing constant option information such as option name,
 // option type, and offset.
 class OptionTypeInfo {
  public:
+#ifndef ROCKSDB_LITE
   // A simple "normal", non-mutable Type "type" at offset
   OptionTypeInfo(int offset, OptionType type)
       : offset_(offset),
@@ -784,6 +787,7 @@ class OptionTypeInfo {
   //          (e.g. "{a={b=c;}" ) -- missing closing brace
   // @return InvalidArgument if an expected delimiter is not found
   //        e.g. "{a=b}c=d;" -- missing delimiter before "c"
+#endif  // ROCSDB_LITE
   static Status NextToken(const std::string& opts, char delimiter, size_t start,
                           size_t* end, std::string* token);
 
@@ -791,6 +795,7 @@ class OptionTypeInfo {
   constexpr static const char* kIdPropSuffix() { return ".id"; }
 
  private:
+#ifndef ROCKSDB_LITE
   int offset_;
 
   // The optional function to convert a string to its representation
@@ -805,8 +810,10 @@ class OptionTypeInfo {
   OptionType type_;
   OptionVerificationType verification_;
   OptionTypeFlags flags_;
+#endif  // ROCKSDB_LITE
 };
 
+#ifndef ROCKSDB_LITE
 // Parses the input value into elements of the result vector.  This method
 // will break the input value into the individual tokens (based on the
 // separator), where each of those tokens will be parsed based on the rules of
@@ -943,4 +950,5 @@ bool VectorsAreEqual(const ConfigOptions& config_options,
     return true;
   }
 }
+#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

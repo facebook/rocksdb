@@ -43,6 +43,49 @@ ConfigOptions::ConfigOptions(const DBOptions& db_opts) : env(db_opts.env) {
 #endif
 }
 
+Status StringToMap(const std::string& opts_str,
+                   std::unordered_map<std::string, std::string>* opts_map) {
+  assert(opts_map);
+  // Example:
+  //   opts_str = "write_buffer_size=1024;max_write_buffer_number=2;"
+  //              "nested_opt={opt1=1;opt2=2};max_bytes_for_level_base=100"
+  size_t pos = 0;
+  std::string opts = trim(opts_str);
+  // If the input string starts and ends with "{...}", strip off the brackets
+  while (opts.size() > 2 && opts[0] == '{' && opts[opts.size() - 1] == '}') {
+    opts = trim(opts.substr(1, opts.size() - 2));
+  }
+
+  while (pos < opts.size()) {
+    size_t eq_pos = opts.find_first_of("={};", pos);
+    if (eq_pos == std::string::npos) {
+      return Status::InvalidArgument("Mismatched key value pair, '=' expected");
+    } else if (opts[eq_pos] != '=') {
+      return Status::InvalidArgument("Unexpected char in key");
+    }
+
+    std::string key = trim(opts.substr(pos, eq_pos - pos));
+    if (key.empty()) {
+      return Status::InvalidArgument("Empty key found");
+    }
+
+    std::string value;
+    Status s = OptionTypeInfo::NextToken(opts, ';', eq_pos + 1, &pos, &value);
+    if (!s.ok()) {
+      return s;
+    } else {
+      (*opts_map)[key] = value;
+      if (pos == std::string::npos) {
+        break;
+      } else {
+        pos++;
+      }
+    }
+  }
+
+  return Status::OK();
+}
+
 Status ValidateOptions(const DBOptions& db_opts,
                        const ColumnFamilyOptions& cf_opts) {
   Status s;
@@ -552,51 +595,6 @@ Status ConfigureFromMap(
   return s;
 }
 
-
-Status StringToMap(const std::string& opts_str,
-                   std::unordered_map<std::string, std::string>* opts_map) {
-  assert(opts_map);
-  // Example:
-  //   opts_str = "write_buffer_size=1024;max_write_buffer_number=2;"
-  //              "nested_opt={opt1=1;opt2=2};max_bytes_for_level_base=100"
-  size_t pos = 0;
-  std::string opts = trim(opts_str);
-  // If the input string starts and ends with "{...}", strip off the brackets
-  while (opts.size() > 2 && opts[0] == '{' && opts[opts.size() - 1] == '}') {
-    opts = trim(opts.substr(1, opts.size() - 2));
-  }
-
-  while (pos < opts.size()) {
-    size_t eq_pos = opts.find_first_of("={};", pos);
-    if (eq_pos == std::string::npos) {
-      return Status::InvalidArgument("Mismatched key value pair, '=' expected");
-    } else if (opts[eq_pos] != '=') {
-      return Status::InvalidArgument("Unexpected char in key");
-    }
-
-    std::string key = trim(opts.substr(pos, eq_pos - pos));
-    if (key.empty()) {
-      return Status::InvalidArgument("Empty key found");
-    }
-
-    std::string value;
-    Status s = OptionTypeInfo::NextToken(opts, ';', eq_pos + 1, &pos, &value);
-    if (!s.ok()) {
-      return s;
-    } else {
-      (*opts_map)[key] = value;
-      if (pos == std::string::npos) {
-        break;
-      } else {
-        pos++;
-      }
-    }
-  }
-
-  return Status::OK();
-}
-
-
 Status GetStringFromDBOptions(std::string* opt_string,
                               const DBOptions& db_options,
                               const std::string& delimiter) {
@@ -831,6 +829,7 @@ std::unordered_map<std::string, Temperature>
         {"kHot", Temperature::kHot},
         {"kWarm", Temperature::kWarm},
         {"kCold", Temperature::kCold}};
+#endif  // ROCKSDB_LITE
 
 Status OptionTypeInfo::NextToken(const std::string& opts, char delimiter,
                                  size_t pos, size_t* end, std::string* token) {
@@ -885,6 +884,7 @@ Status OptionTypeInfo::NextToken(const std::string& opts, char delimiter,
   return Status::OK();
 }
 
+#ifndef ROCKSDB_LITE
 Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
                              const std::string& opt_name,
                              const std::string& value, void* opt_ptr) const {

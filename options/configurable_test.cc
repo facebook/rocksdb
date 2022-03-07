@@ -89,7 +89,28 @@ class SimpleConfigurable : public TestConfigurable<Configurable> {
       RegisterOptions(name_ + "Pointer", &pointer_, &pointer_option_info);
     }
   }
+#ifdef ROCKSDB_LITE
+  Status ConfigureOption(const ConfigOptions& options, const std::string& name,
+                         const std::string& value) override {
+    if (name == "int") {
+      options_.i = ParseInt(value);
+      return Status::OK();
+    } else {
+      return TestConfigurable::ConfigureOption(options, name, value);
+    }
+  }
 
+  Status GetOption(const ConfigOptions& options, const std::string& name,
+                   std::string* value) const override {
+    if (name == "int") {
+      *value = ROCKSDB_NAMESPACE::ToString(options_.i);
+      return Status::OK();
+    } else {
+      return TestConfigurable::GetOption(options, name, value);
+    }
+  }
+
+#endif  // ROCKSDB_LITE
 };  // End class SimpleConfigurable
 
 using ConfigTestFactoryFunc = std::function<Configurable*()>;
@@ -113,13 +134,16 @@ TEST_F(ConfigurableTest, ConfigureFromMapTest) {
   auto* opts = configurable->GetOptions<TestOptions>("simple");
   ASSERT_OK(configurable->ConfigureFromMap(config_options_, {}));
   ASSERT_NE(opts, nullptr);
-#ifndef ROCKSDB_LITE
   std::unordered_map<std::string, std::string> options_map = {
       {"int", "1"}, {"bool", "true"}, {"string", "string"}};
-  ASSERT_OK(configurable->ConfigureFromMap(config_options_, options_map));
+  Status st = configurable->ConfigureFromMap(config_options_, options_map);
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(st);
   ASSERT_EQ(opts->i, 1);
   ASSERT_EQ(opts->b, true);
   ASSERT_EQ(opts->s, "string");
+#else
+  ASSERT_TRUE(st.IsNotSupported());
 #endif
 }
 
@@ -128,16 +152,18 @@ TEST_F(ConfigurableTest, ConfigureFromStringTest) {
   auto* opts = configurable->GetOptions<TestOptions>("simple");
   ASSERT_OK(configurable->ConfigureFromString(config_options_, ""));
   ASSERT_NE(opts, nullptr);
-#ifndef ROCKSDB_LITE  // GetOptionsFromMap is not supported in ROCKSDB_LITE
-  ASSERT_OK(configurable->ConfigureFromString(config_options_,
-                                              "int=1;bool=true;string=s"));
+  Status st = configurable->ConfigureFromString(config_options_,
+                                                "int=1;bool=true;string=s");
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(st);
   ASSERT_EQ(opts->i, 1);
   ASSERT_EQ(opts->b, true);
   ASSERT_EQ(opts->s, "s");
+#else
+  ASSERT_TRUE(st.IsNotSupported());
 #endif
 }
 
-#ifndef ROCKSDB_LITE  // GetOptionsFromMap is not supported in ROCKSDB_LITE
 TEST_F(ConfigurableTest, ConfigureIgnoreTest) {
   std::unique_ptr<Configurable> configurable(SimpleConfigurable::Create());
   std::unordered_map<std::string, std::string> options_map = {{"unused", "u"}};
@@ -149,6 +175,7 @@ TEST_F(ConfigurableTest, ConfigureIgnoreTest) {
   ASSERT_OK(configurable->ConfigureFromString(ignore, "unused=u"));
 }
 
+#ifndef ROCKSDB_LITE  // GetOptionsFromMap is not supported in ROCKSDB_LITE
 TEST_F(ConfigurableTest, ConfigureNestedOptionsTest) {
   std::unique_ptr<Configurable> base, copy;
   std::string opt_str;
@@ -164,12 +191,13 @@ TEST_F(ConfigurableTest, ConfigureNestedOptionsTest) {
   ASSERT_OK(copy->ConfigureFromString(config_options_, opt_str));
   ASSERT_TRUE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
 }
+#endif  // ROCKSDB_LITE
 
 TEST_F(ConfigurableTest, GetOptionsTest) {
   std::unique_ptr<Configurable> simple;
-
   simple.reset(
       SimpleConfigurable::Create("simple", TestConfigMode::kAllOptMode));
+#ifndef ROCKSDB_LITE  // LITE mode does not support the x.y options
   int i = 11;
   for (auto opt : {"", "shared.", "unique.", "pointer."}) {
     std::string value;
@@ -183,15 +211,25 @@ TEST_F(ConfigurableTest, GetOptionsTest) {
                                       expected));
     ASSERT_OK(simple->GetOption(config_options_, opt_name + "string", &value));
     ASSERT_EQ(expected, value);
-
     ASSERT_NOK(
         simple->ConfigureOption(config_options_, opt_name + "bad", expected));
     ASSERT_NOK(simple->GetOption(config_options_, "bad option", &value));
     ASSERT_TRUE(value.empty());
     i += 11;
   }
+#endif  // ROCKSDB_LITE
+  {
+    std::string value;
+    ASSERT_OK(simple->ConfigureOption(config_options_, "int", "42"));
+    ASSERT_OK(simple->GetOption(config_options_, "int", &value));
+    ASSERT_EQ("42", value);
+    ASSERT_NOK(simple->ConfigureOption(config_options_, "bad", "bad"));
+    ASSERT_NOK(simple->GetOption(config_options_, "bad", &value));
+    ASSERT_TRUE(value.empty());
+  }
 }
 
+#ifndef ROCKSDB_LITE  // Reset and invalid format not handled by this test
 TEST_F(ConfigurableTest, ConfigureBadOptionsTest) {
   std::unique_ptr<Configurable> configurable(SimpleConfigurable::Create());
   auto* opts = configurable->GetOptions<TestOptions>("simple");
@@ -204,6 +242,7 @@ TEST_F(ConfigurableTest, ConfigureBadOptionsTest) {
       configurable->ConfigureFromString(config_options_, "int=33;unused=u"));
   ASSERT_EQ(opts->i, 42);
 }
+#endif  // ROCKSDB_LITE
 
 TEST_F(ConfigurableTest, InvalidOptionTest) {
   std::unique_ptr<Configurable> configurable(SimpleConfigurable::Create());
@@ -216,6 +255,7 @@ TEST_F(ConfigurableTest, InvalidOptionTest) {
       configurable->ConfigureOption(config_options_, "bad-option", "bad"));
 }
 
+#ifndef ROCKSDB_LITE
 static std::unordered_map<std::string, OptionTypeInfo> validated_option_info = {
 #ifndef ROCKSDB_LITE
     {"validated",

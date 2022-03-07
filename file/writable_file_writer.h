@@ -207,6 +207,7 @@ class WritableFileWriter {
                   });
 #else  // !ROCKSDB_LITE
     (void)listeners;
+    (void)temperature_;
 #endif
     if (file_checksum_gen_factory != nullptr) {
       FileChecksumGenContext checksum_gen_context;

@@ -121,7 +121,6 @@ class Configurable {
       const std::unordered_map<std::string, std::string>& opt_map,
       std::unordered_map<std::string, std::string>* unused);
 
-#ifndef ROCKSDB_LITE
   // Updates the named option to the input value, returning OK if successful.
   // Note that ConfigureOption does not cause PrepareOptions to be invoked.
   // @param config_options Controls how the name/value is processed.
@@ -133,9 +132,9 @@ class Configurable {
   //       not know how to convert the value.  This can happen if, for example,
   //       there is some nested Configurable that cannot be created.
   // @return InvalidArgument If the value cannot be successfully  parsed.
-  Status ConfigureOption(const ConfigOptions& config_options,
-                         const std::string& name, const std::string& value);
-#endif  // ROCKSDB_LITE
+  virtual Status ConfigureOption(const ConfigOptions& config_options,
+                                 const std::string& name,
+                                 const std::string& value);
 
   // Configures the options for this class based on the input parameters.
   // On successful completion, the object is updated with the settings from
@@ -190,6 +189,7 @@ class Configurable {
   // @return OK on success.
   Status GetOptionNames(const ConfigOptions& config_options,
                         std::unordered_set<std::string>* result) const;
+#endif  // ROCKSDB_LITE
 
   // Returns the value of the option associated with the input name
   // This method is the functional inverse of ConfigureOption
@@ -202,7 +202,6 @@ class Configurable {
   //      its value cannot be serialized.
   virtual Status GetOption(const ConfigOptions& config_options,
                            const std::string& name, std::string* value) const;
-#endif  // ROCKSDB_LITE
 
   // Checks to see if this Configurable is equivalent to other.
   // This method assumes that the two objects are of the same class.
