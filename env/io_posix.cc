@@ -938,6 +938,11 @@ IOStatus PosixRandomAccessFile::ReadAsync(
   }
   return io_s;
 #else
+  (void)req;
+  (void)cb;
+  (void)cb_arg;
+  (void)io_handle;
+  (void)del_fn;
   return IOStatus::NotSupported("ReadAsync");
 #endif
 }

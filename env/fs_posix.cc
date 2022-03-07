@@ -1143,6 +1143,8 @@ class PosixFileSystem : public FileSystem {
     }
     return io_s;
 #else
+    (void)io_handles;
+    (void)min_completions;
     return IOStatus::NotSupported("Poll");
 #endif
   }
