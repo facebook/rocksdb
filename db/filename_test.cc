@@ -172,7 +172,6 @@ TEST_F(FileNameTest, Construction) {
 }
 
 TEST_F(FileNameTest, NormalizePath) {
-
   // No leading slash
   const std::string sep = std::string(1, kFilePathSeparator);
 
@@ -192,12 +191,10 @@ TEST_F(FileNameTest, NormalizePath) {
   given = expected;
   ASSERT_EQ(expected, NormalizePath(given));
 
-
   // Server only
   expected = sep + sep + "a";
   given = expected;
   ASSERT_EQ(expected, NormalizePath(given));
-
 
   // Two slashes after character
   expected = "a" + sep;
@@ -236,8 +233,6 @@ TEST_F(FileNameTest, NormalizePath) {
   given = sep + sep + "SERVER" + sep + "a" + sep + sep + "b" + sep + "c";
   ASSERT_EQ(expected, NormalizePath(given));
 }
-
-
 
 }  // namespace ROCKSDB_NAMESPACE
 
