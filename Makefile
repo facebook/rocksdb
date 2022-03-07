@@ -329,8 +329,8 @@ ifneq ($(MACHINE), arm64)
 # linking with jemalloc (as it won't be arm64-compatible) and remove some other options
 # set during platform detection
 DISABLE_JEMALLOC=1
-PLATFORM_CFLAGS := $(filter-out -march=native -DHAVE_SSE42, $(PLATFORM_CFLAGS))
-PLATFORM_CXXFLAGS := $(filter-out -march=native -DHAVE_SSE42, $(PLATFORM_CXXFLAGS))
+PLATFORM_CFLAGS := $(filter-out -march=native -DHAVE_SSE42 -DHAVE_AVX2, $(PLATFORM_CFLAGS))
+PLATFORM_CXXFLAGS := $(filter-out -march=native -DHAVE_SSE42 -DHAVE_AVX2, $(PLATFORM_CXXFLAGS))
 endif
 endif
 endif
@@ -2121,7 +2121,9 @@ CURL_SSL_OPTS ?= --tlsv1
 ifeq ($(PLATFORM), OS_MACOSX)
 ifeq (,$(findstring librocksdbjni-osx,$(ROCKSDBJNILIB)))
 ifeq ($(MACHINE),arm64)
-	ROCKSDBJNILIB = librocksdbjni-osx-aarch64.jnilib
+	ROCKSDBJNILIB = librocksdbjni-osx-arm64.jnilib
+else ifeq ($(MACHINE),x86_64)
+	ROCKSDBJNILIB = librocksdbjni-osx-x86_64.jnilib
 else
 	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
 endif
@@ -2252,15 +2254,20 @@ endif
 	$(MAKE) rocksdbjavastatic_deps
 	$(MAKE) rocksdbjavastatic_libobjects
 	$(MAKE) rocksdbjavastatic_javalib
-	$(MAKE) rocksdbjavastatic_jar
+	$(MAKE) rocksdbjava_jar
 
 rocksdbjavastaticosx: rocksdbjavastaticosx_archs
-	mv java/target/librocksdbjni-osx-x86_64.jnilib java/target/librocksdbjni-osx.jnilib
-	mv java/target/librocksdbjni-osx-arm64.jnilib java/target/librocksdbjni-osx-aarch64.jnilib
+	cd java; $(JAR_CMD)  -cf target/$(ROCKSDB_JAR) HISTORY*.md
+	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR) librocksdbjni-osx-x86_64.jnilib librocksdbjni-osx-arm64.jnilib
+	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
+	openssl sha1 java/target/$(ROCKSDB_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAR).sha1
 
 rocksdbjavastaticosx_ub: rocksdbjavastaticosx_archs
-	lipo -create -output ./java/target/$(ROCKSDBJNILIB) java/target/librocksdbjni-osx-x86_64.jnilib java/target/librocksdbjni-osx-arm64.jnilib
-	$(MAKE) rocksdbjavastatic_jar
+	cd java/target; lipo -create -output librocksdbjni-osx.jnilib librocksdbjni-osx-x86_64.jnilib librocksdbjni-osx-arm64.jnilib
+	cd java; $(JAR_CMD)  -cf target/$(ROCKSDB_JAR) HISTORY*.md
+	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR) librocksdbjni-osx.jnilib
+	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
+	openssl sha1 java/target/$(ROCKSDB_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAR).sha1
 
 rocksdbjavastaticosx_archs:
 	$(MAKE) rocksdbjavastaticosx_arch_x86_64
@@ -2294,28 +2301,32 @@ rocksdbjavastatic_javalib:
 		strip $(STRIPFLAGS) $(ROCKSDBJNILIB); \
 	fi
 
-rocksdbjavastatic_jar:
+rocksdbjava_jar:
 	cd java; $(JAR_CMD)  -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
 	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
-	cd java/target/apidocs; $(JAR_CMD) -cf ../$(ROCKSDB_JAVADOCS_JAR) *
-	cd java/src/main/java; $(JAR_CMD) -cf ../../../target/$(ROCKSDB_SOURCES_JAR) org
 	openssl sha1 java/target/$(ROCKSDB_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAR).sha1
+
+rocksdbjava_javadocs_jar:
+	cd java/target/apidocs; $(JAR_CMD) -cf ../$(ROCKSDB_JAVADOCS_JAR) *
 	openssl sha1 java/target/$(ROCKSDB_JAVADOCS_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAVADOCS_JAR).sha1
+
+rocksdbjava_sources_jar:
+	cd java/src/main/java; $(JAR_CMD) -cf ../../../target/$(ROCKSDB_SOURCES_JAR) org
 	openssl sha1 java/target/$(ROCKSDB_SOURCES_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_SOURCES_JAR).sha1
 
 rocksdbjavastatic_deps: $(JAVA_COMPRESSIONS)
 
 rocksdbjavastatic_libobjects: $(LIB_OBJECTS)
 
-rocksdbjavastaticrelease: rocksdbjavastaticosx
+rocksdbjavastaticrelease: rocksdbjavastaticosx rocksdbjava_javadocs_jar rocksdbjava_sources_jar
 	cd java/crossbuild && (vagrant destroy -f || true) && vagrant up linux32 && vagrant halt linux32 && vagrant up linux64 && vagrant halt linux64 && vagrant up linux64-musl && vagrant halt linux64-musl
 	cd java; $(JAR_CMD) -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
 	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
 	openssl sha1 java/target/$(ROCKSDB_JAR_ALL) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAR_ALL).sha1
 
-rocksdbjavastaticreleasedocker: rocksdbjavastaticosx rocksdbjavastaticdockerx86 rocksdbjavastaticdockerx86_64 rocksdbjavastaticdockerx86musl rocksdbjavastaticdockerx86_64musl
+rocksdbjavastaticreleasedocker: rocksdbjavastaticosx rocksdbjavastaticdockerx86 rocksdbjavastaticdockerx86_64 rocksdbjavastaticdockerx86musl rocksdbjavastaticdockerx86_64musl rocksdbjava_javadocs_jar rocksdbjava_sources_jar
 	cd java; $(JAR_CMD) -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
 	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
