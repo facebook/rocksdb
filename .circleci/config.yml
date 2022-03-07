@@ -237,7 +237,11 @@ jobs:
     resource_class: facebook/rocksdb-benchmark-sys1
     steps:
       - pre-steps
-      - run: make V=1 J=8 -j8 check
+      - run:
+          name: "Checked Linux build (Runner)"
+          command: make V=1 J=8 -j8 check
+          environment:
+            LD_LIBRARY_PATH: /usr/local/lib
       - post-steps
 
   build-linux-encrypted-env:
