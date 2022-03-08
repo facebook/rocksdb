@@ -75,8 +75,7 @@ IOStatus Writer::AddRecord(const Slice& slice,
         assert(header_size <= 11);
         s = dest_->Append(Slice("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
                                 static_cast<size_t>(leftover)),
-                          0 /* crc32c_checksum */, rate_limiter_priority,
-                          true /* op_override_file_priority */);
+                          0 /* crc32c_checksum */, rate_limiter_priority);
         if (!s.ok()) {
           break;
         }
@@ -110,8 +109,7 @@ IOStatus Writer::AddRecord(const Slice& slice,
 
   if (s.ok()) {
     if (!manual_flush_) {
-      s = dest_->Flush(rate_limiter_priority,
-                       true /* op_override_file_priority */);
+      s = dest_->Flush(rate_limiter_priority);
     }
   }
 
@@ -186,11 +184,9 @@ IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n,
 
   // Write the header and the payload
   IOStatus s = dest_->Append(Slice(buf, header_size), 0 /* crc32c_checksum */,
-                             rate_limiter_priority,
-                             true /* op_override_file_priority */);
+                             rate_limiter_priority);
   if (s.ok()) {
-    s = dest_->Append(Slice(ptr, n), payload_crc, rate_limiter_priority,
-                      true /* op_override_file_priority */);
+    s = dest_->Append(Slice(ptr, n), payload_crc, rate_limiter_priority);
   }
   block_offset_ += header_size + n;
   return s;

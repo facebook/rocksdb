@@ -6,10 +6,12 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <string>
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
+#include "rocksdb/env.h"
 #include "test_util/testharness.h"
 #include "util/file_checksum_helper.h"
 
@@ -267,7 +269,12 @@ class DBRateLimiterOnWriteTest : public DBTestBase {
   void Init() {
     options_ = GetOptions();
     ASSERT_OK(TryReopenWithColumnFamilies({"default"}, options_));
-    MakeTables(kNumFiles /* n  */, kStartKey, kEndKey, 0 /* cf */);
+    Random rnd(301);
+    for (int i = 0; i < kNumFiles; i++) {
+      ASSERT_OK(Put(0, kStartKey, rnd.RandomString(2)));
+      ASSERT_OK(Put(0, kEndKey, rnd.RandomString(2)));
+      ASSERT_OK(Flush(0));
+    }
   }
 
   Options GetOptions() {
@@ -282,15 +289,6 @@ class DBRateLimiterOnWriteTest : public DBTestBase {
   }
 
  protected:
-  static std::string CreateSimpleFilesPerLevelString(
-      std::string non_last_level_file_num, std::string last_level_file_num) {
-    std::string file_per_level_string = "";
-    for (int i = 0; i < kNumFiles - 1; ++i) {
-      file_per_level_string.append(non_last_level_file_num + ",");
-    }
-    file_per_level_string.append(last_level_file_num);
-    return file_per_level_string;
-  }
   inline const static int64_t kNumFiles = 3;
   inline const static std::string kStartKey = "a";
   inline const static std::string kEndKey = "b";
@@ -314,10 +312,10 @@ TEST_F(DBRateLimiterOnWriteTest, Flush) {
 TEST_F(DBRateLimiterOnWriteTest, Compact) {
   Init();
 
-  // files_per_level_pre_compaction: 1,1,...,1 (in total kNumFiles levels)
+  // Pre-comaction:
+  // level-0 : `kNumFiles` SST files overlapping on [kStartKey, kEndKey]
 #ifndef ROCKSDB_LITE
-  std::string files_per_level_pre_compaction =
-      CreateSimpleFilesPerLevelString("1", "1");
+  std::string files_per_level_pre_compaction = std::to_string(kNumFiles);
   ASSERT_EQ(files_per_level_pre_compaction, FilesPerLevel(0 /* cf */));
 #endif  // !ROCKSDB_LITE
 
@@ -331,14 +329,15 @@ TEST_F(DBRateLimiterOnWriteTest, Compact) {
       options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL) -
       prev_total_request;
 
-  // files_per_level_post_compaction: 0,0,...,1 (in total kNumFiles levels)
+  // Post-comaction:
+  // level-0 : 0 SST file
+  // level-1 : 1 SST file
 #ifndef ROCKSDB_LITE
-  std::string files_per_level_post_compaction =
-      CreateSimpleFilesPerLevelString("0", "1");
+  std::string files_per_level_post_compaction = "0,1";
   ASSERT_EQ(files_per_level_post_compaction, FilesPerLevel(0 /* cf */));
 #endif  // !ROCKSDB_LITE
 
-  std::int64_t exepcted_compaction_request = kNumFiles - 1;
+  std::int64_t exepcted_compaction_request = 1;
   EXPECT_EQ(actual_compaction_request, exepcted_compaction_request);
   EXPECT_EQ(actual_compaction_request,
             options_.rate_limiter->GetTotalRequests(Env::IO_LOW));
@@ -346,35 +345,38 @@ TEST_F(DBRateLimiterOnWriteTest, Compact) {
 
 class DBRateLimiterOnWriteWALTest
     : public DBRateLimiterOnWriteTest,
-      public ::testing::WithParamInterface<
-          std::tuple<bool /* manual_wal_flush */, bool /* disable_wal */,
-                     bool /* rate-limit auto wal flush */>> {
+      public ::testing::WithParamInterface<std::tuple<
+          bool /* WriteOptions::disableWal */,
+          bool /* Options::manual_wal_flush */,
+          Env::IOPriority /* WriteOptions::rate_limiter_priority */>> {
  public:
   static std::string GetTestNameSuffix(
-      ::testing::TestParamInfo<std::tuple<bool, bool, bool>> info) {
+      ::testing::TestParamInfo<std::tuple<bool, bool, Env::IOPriority>> info) {
     std::ostringstream oss;
     if (std::get<0>(info.param)) {
-      oss << "ManualWALFlush";
+      oss << "DisableWAL";
     } else {
-      oss << "AutoWALFlush";
+      oss << "EnableWAL";
     }
     if (std::get<1>(info.param)) {
-      oss << "_DisableWAL";
+      oss << "_ManualWALFlush";
     } else {
-      oss << "_EnableWAL";
+      oss << "_AutoWALFlush";
     }
-    if (std::get<2>(info.param)) {
+    if (std::get<2>(info.param) == Env::IO_USER) {
       oss << "_RateLimitAutoWALFlush";
-    } else {
+    } else if (std::get<2>(info.param) == Env::IO_TOTAL) {
       oss << "_NoRateLimitAutoWALFlush";
+    } else {
+      oss << "_RateLimitAutoWALFlushWithIncorrectPriority";
     }
     return oss.str();
   }
 
   explicit DBRateLimiterOnWriteWALTest()
-      : manual_wal_flush_(std::get<0>(GetParam())),
-        disable_wal_(std::get<1>(GetParam())),
-        rate_limit_auto_wal_flush_(std::get<2>(GetParam())) {}
+      : disable_wal_(std::get<0>(GetParam())),
+        manual_wal_flush_(std::get<1>(GetParam())),
+        rate_limiter_priority_(std::get<2>(GetParam())) {}
 
   void Init() {
     options_ = GetOptions();
@@ -385,40 +387,52 @@ class DBRateLimiterOnWriteWALTest
   WriteOptions GetWriteOptions() {
     WriteOptions write_options;
     write_options.disableWAL = disable_wal_;
-    write_options.rate_limiter_priority =
-        rate_limit_auto_wal_flush_ ? Env::IO_USER : Env::IO_TOTAL;
+    write_options.rate_limiter_priority = rate_limiter_priority_;
     return write_options;
   }
 
  protected:
-  bool manual_wal_flush_;
   bool disable_wal_;
-  bool rate_limit_auto_wal_flush_;
+  bool manual_wal_flush_;
+  Env::IOPriority rate_limiter_priority_;
 };
 
-INSTANTIATE_TEST_CASE_P(DBRateLimiterOnWriteWALTest,
-                        DBRateLimiterOnWriteWALTest,
-                        ::testing::Values(std::make_tuple(false, true, true),
-                                          std::make_tuple(false, false, false),
-                                          std::make_tuple(false, false, true),
-                                          std::make_tuple(true, false, true)),
-                        DBRateLimiterOnWriteWALTest::GetTestNameSuffix);
+INSTANTIATE_TEST_CASE_P(
+    DBRateLimiterOnWriteWALTest, DBRateLimiterOnWriteWALTest,
+    ::testing::Values(std::make_tuple(false, false, Env::IO_TOTAL),
+                      std::make_tuple(false, false, Env::IO_USER),
+                      std::make_tuple(false, false, Env::IO_HIGH),
+                      std::make_tuple(false, true, Env::IO_USER),
+                      std::make_tuple(true, false, Env::IO_USER)),
+    DBRateLimiterOnWriteWALTest::GetTestNameSuffix);
 
 TEST_P(DBRateLimiterOnWriteWALTest, AutoWalFlush) {
   Init();
+
+  const bool no_rate_limit_auto_wal_flush =
+      (rate_limiter_priority_ == Env::IO_TOTAL);
+  const bool valid_arg = (rate_limiter_priority_ == Env::IO_USER &&
+                          !disable_wal_ && !manual_wal_flush_);
 
   std::int64_t prev_total_request =
       options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL);
   ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 
-  ASSERT_OK(Put("foo", "v1", GetWriteOptions()));
+  Status s = Put("foo", "v1", GetWriteOptions());
+
+  if (no_rate_limit_auto_wal_flush || valid_arg) {
+    EXPECT_TRUE(s.ok());
+  } else {
+    EXPECT_TRUE(s.IsInvalidArgument());
+    EXPECT_TRUE(s.ToString().find("WriteOptions::rate_limiter_priority") !=
+                std::string::npos);
+  }
 
   std::int64_t actual_auto_wal_flush_request =
       options_.rate_limiter->GetTotalRequests(Env::IO_TOTAL) -
       prev_total_request;
-  std::int64_t expected_auto_wal_flush_request =
-      (!manual_wal_flush_ && !disable_wal_ && rate_limit_auto_wal_flush_) ? 1
-                                                                          : 0;
+  std::int64_t expected_auto_wal_flush_request = valid_arg ? 1 : 0;
+
   EXPECT_EQ(actual_auto_wal_flush_request, expected_auto_wal_flush_request);
   EXPECT_EQ(actual_auto_wal_flush_request,
             options_.rate_limiter->GetTotalRequests(Env::IO_USER));
