@@ -6120,6 +6120,12 @@ cpp_unittest_wrapper(name="write_callback_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="write_committed_transaction_ts_test",
+            srcs=["utilities/transactions/write_committed_transaction_ts_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="write_controller_test",
             srcs=["db/write_controller_test.cc"],
             deps=[":rocksdb_test_lib"],
