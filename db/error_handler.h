@@ -53,9 +53,6 @@ class ErrorHandler {
 
    const Status& SetBGError(const Status& bg_err, BackgroundErrorReason reason);
 
-   const Status& SetBGError(const IOStatus& bg_io_err,
-                            BackgroundErrorReason reason);
-
    Status GetBGError() const { return bg_error_; }
 
    Status GetRecoveryError() const { return recovery_error_; }
@@ -112,6 +109,8 @@ class ErrorHandler {
     // The pointer of DB statistics.
     std::shared_ptr<Statistics> bg_error_stats_;
 
+    const Status& HandleKnownErrors(const Status& bg_err,
+                                    BackgroundErrorReason reason);
     Status OverrideNoSpaceError(const Status& bg_error, bool* auto_recovery);
     void RecoverFromNoSpace();
     const Status& StartRecoverFromRetryableBGIOError(const IOStatus& io_error);
