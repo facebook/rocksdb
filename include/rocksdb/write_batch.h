@@ -213,6 +213,9 @@ class WriteBatch : public WriteBatchBase {
   // Otherwise returns Status::OK().
   Status PopSavePoint() override;
 
+  // Append a batch to the end.
+  Status Append(const WriteBatch* batch, const bool WAL_only = false);
+
   // Support for iterating over the contents of a batch.
   class Handler {
    public:

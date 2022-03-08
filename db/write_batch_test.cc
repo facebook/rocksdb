@@ -178,7 +178,7 @@ TEST_F(WriteBatchTest, Corruption) {
             PrintContents(&batch));
 }
 
-TEST_F(WriteBatchTest, Append) {
+TEST_F(WriteBatchTest, InternalAppend) {
   WriteBatch b1, b2;
   WriteBatchInternal::SetSequence(&b1, 200);
   WriteBatchInternal::SetSequence(&b2, 300);
@@ -212,6 +212,57 @@ TEST_F(WriteBatchTest, Append) {
   b2.MarkWalTerminationPoint();
   ASSERT_OK(b2.Put("e", "ee"));
   ASSERT_OK(WriteBatchInternal::Append(&b1, &b2, /*wal only*/ true));
+  ASSERT_EQ(
+      "Put(a, va)@200"
+      "Put(b, vb)@202"
+      "Put(b, vb)@201"
+      "Put(c, cc)@204"
+      "Put(d, dd)@205"
+      "Delete(foo)@203",
+      PrintContents(&b1));
+  ASSERT_EQ(6u, b1.Count());
+  ASSERT_EQ(
+      "Put(c, cc)@0"
+      "Put(d, dd)@1"
+      "Put(e, ee)@2",
+      PrintContents(&b2));
+  ASSERT_EQ(3u, b2.Count());
+}
+
+TEST_F(WriteBatchTest, Append) {
+  WriteBatch b1, b2;
+  WriteBatchInternal::SetSequence(&b1, 200);
+  WriteBatchInternal::SetSequence(&b2, 300);
+  ASSERT_OK(b1.Append(&b2));
+  ASSERT_EQ("",
+            PrintContents(&b1));
+  ASSERT_EQ(0u, b1.Count());
+  ASSERT_OK(b2.Put("a", "va"));
+  ASSERT_OK(b1.Append(&b2));
+  ASSERT_EQ("Put(a, va)@200",
+            PrintContents(&b1));
+  ASSERT_EQ(1u, b1.Count());
+  b2.Clear();
+  ASSERT_OK(b2.Put("b", "vb"));
+  ASSERT_OK(b1.Append(&b2));
+  ASSERT_EQ("Put(a, va)@200"
+            "Put(b, vb)@201",
+            PrintContents(&b1));
+  ASSERT_EQ(2u, b1.Count());
+  ASSERT_OK(b2.Delete("foo"));
+  ASSERT_OK(b1.Append(&b2));
+  ASSERT_EQ("Put(a, va)@200"
+            "Put(b, vb)@202"
+            "Put(b, vb)@201"
+            "Delete(foo)@203",
+            PrintContents(&b1));
+  ASSERT_EQ(4u, b1.Count());
+  b2.Clear();
+  ASSERT_OK(b2.Put("c", "cc"));
+  ASSERT_OK(b2.Put("d", "dd"));
+  b2.MarkWalTerminationPoint();
+  ASSERT_OK(b2.Put("e", "ee"));
+  ASSERT_OK(b1.Append(&b2, /*wal only*/ true));
   ASSERT_EQ(
       "Put(a, va)@200"
       "Put(b, vb)@202"

@@ -1493,6 +1493,11 @@ Status WriteBatch::UpdateTimestamps(
   return s;
 }
 
+Status WriteBatch::Append(const WriteBatch* batch,
+                            const bool WAL_only) {
+  return WriteBatchInternal::Append(this, batch, WAL_only);
+}
+
 class MemTableInserter : public WriteBatch::Handler {
 
   SequenceNumber sequence_;
