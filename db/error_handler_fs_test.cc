@@ -2484,10 +2484,10 @@ TEST_F(DBErrorHandlingFSTest, FlushReadError) {
   ASSERT_OK(Put(Key(0), "val"));
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:BeforeOutputValidation", [&](void*) {
-        IOStatus s = IOStatus::IOError();
-        s.SetRetryable(true);
-        s.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
-        fault_fs_->SetFilesystemActive(false, s);
+        IOStatus st = IOStatus::IOError();
+        st.SetRetryable(true);
+        st.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+        fault_fs_->SetFilesystemActive(false, st);
       });
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:BeforeDeleteFile",
@@ -2527,7 +2527,6 @@ TEST_F(DBErrorHandlingFSTest, AtomicFlushReadError) {
   Status s;
 
   listener->EnableAutoRecovery(false);
-  DestroyAndReopen(options);
   options.atomic_flush = true;
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -2535,10 +2534,10 @@ TEST_F(DBErrorHandlingFSTest, AtomicFlushReadError) {
   ASSERT_OK(Put(1, Key(0), "val"));
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:BeforeOutputValidation", [&](void*) {
-        IOStatus s = IOStatus::IOError();
-        s.SetRetryable(true);
-        s.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
-        fault_fs_->SetFilesystemActive(false, s);
+        IOStatus st = IOStatus::IOError();
+        st.SetRetryable(true);
+        st.SetScope(IOStatus::IOErrorScope::kIOErrorScopeFile);
+        fault_fs_->SetFilesystemActive(false, st);
       });
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:BeforeDeleteFile",
@@ -2578,15 +2577,14 @@ TEST_F(DBErrorHandlingFSTest, AtomicFlushNoSpaceError) {
   Status s;
 
   listener->EnableAutoRecovery(true);
-  DestroyAndReopen(options);
   options.atomic_flush = true;
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(0, Key(0), "val"));
   ASSERT_OK(Put(1, Key(0), "val"));
   SyncPoint::GetInstance()->SetCallBack("BuildTable:create_file", [&](void*) {
-    IOStatus s = IOStatus::NoSpace();
-    fault_fs_->SetFilesystemActive(false, s);
+    IOStatus st = IOStatus::NoSpace();
+    fault_fs_->SetFilesystemActive(false, st);
   });
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:BeforeDeleteFile",
