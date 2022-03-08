@@ -55,9 +55,10 @@ struct Posix_IOHandle {
   struct io_uring* iu;
   std::function<void(const FSReadRequest&, void*)> cb;
   void* cb_arg;
-  FSReadRequest* req;
-  int fd;
+  uint64_t offset;
+  size_t len;
   size_t finished_len = 0;
+  char* scratch;
   bool is_finished = false;
 };
 #endif

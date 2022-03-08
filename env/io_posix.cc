@@ -913,19 +913,19 @@ IOStatus PosixRandomAccessFile::ReadAsync(
 
   // Initialize Posix_IOHandle.
   posix_handle->iu = iu;
-  posix_handle->req = &req;
-  posix_handle->iov.iov_base = posix_handle->req->scratch;
-  posix_handle->iov.iov_len = posix_handle->req->len;
+  posix_handle->iov.iov_base = posix_handle->scratch;
+  posix_handle->iov.iov_len = posix_handle->len;
   posix_handle->cb = cb;
   posix_handle->cb_arg = cb_arg;
-  posix_handle->fd = fd_;
+  posix_handle->offset = req.offset;
+  posix_handle->len = req.len;
+  posix_handle->scratch = req.scratch;
 
   // Step 3: io_uring_sqe_set_data
   struct io_uring_sqe* sqe;
   sqe = io_uring_get_sqe(iu);
 
-  io_uring_prep_readv(sqe, fd_, &posix_handle->iov, 1,
-                      posix_handle->req->offset);
+  io_uring_prep_readv(sqe, fd_, &posix_handle->iov, 1, posix_handle->offset);
 
   io_uring_sqe_set_data(sqe, posix_handle);
 

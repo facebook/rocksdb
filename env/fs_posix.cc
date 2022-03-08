@@ -1088,10 +1088,10 @@ class PosixFileSystem : public FileSystem {
         }
 
         // Step 3: Populate the request.
+        assert(cqe != nullptr);
         Posix_IOHandle* posix_handle =
             static_cast<Posix_IOHandle*>(io_uring_cqe_get_data(cqe));
-
-        assert(posix_handle->iu != iu);
+        assert(posix_handle->iu == iu);
         if (posix_handle->iu != iu) {
           return IOStatus::IOError("");
         }
@@ -1099,8 +1099,8 @@ class PosixFileSystem : public FileSystem {
         static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
 
         FSReadRequest req;
-        req.scratch = posix_handle->req->scratch;
-        req.offset = posix_handle->req->offset;
+        req.scratch = posix_handle->scratch;
+        req.offset = posix_handle->offset;
 
         if (cqe->res < 0) {
           // Request failed.
@@ -1132,10 +1132,7 @@ class PosixFileSystem : public FileSystem {
           posix_handle->cb(req, posix_handle->cb_arg);
         }
 
-        Posix_IOHandle* expected_handle =
-            static_cast<Posix_IOHandle*>(io_handles[i]);
-        if (expected_handle->req->offset == posix_handle->req->offset &&
-            expected_handle->fd == posix_handle->fd) {
+        if (static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
           count++;
           break;
         }
