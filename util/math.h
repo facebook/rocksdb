@@ -126,21 +126,21 @@ inline int BitsSetToOne(T v) {
     constexpr auto mm = 8 * sizeof(uint32_t) - 1;
     // The bit mask is to neutralize sign extension on small signed types
     constexpr uint32_t m = (uint32_t{1} << ((8 * sizeof(T)) & mm)) - 1;
-#if defined(_M_X64) || defined(_M_IX86)
+#if defined(HAVE_SSE42) && (defined(_M_X64) || defined(_M_IX86))
     return static_cast<int>(__popcnt(static_cast<uint32_t>(v) & m));
 #else
     return static_cast<int>(detail::BitsSetToOneFallback(v) & m);
 #endif
   } else if (sizeof(T) == sizeof(uint32_t)) {
-#if defined(_M_X64) || defined(_M_IX86)
+#if defined(HAVE_SSE42) && (defined(_M_X64) || defined(_M_IX86))
     return static_cast<int>(__popcnt(static_cast<uint32_t>(v)));
 #else
     return detail::BitsSetToOneFallback(static_cast<uint32_t>(v));
 #endif
   } else {
-#ifdef _M_X64
+#if defined(HAVE_SSE42) && defined(_M_X64)
     return static_cast<int>(__popcnt64(static_cast<uint64_t>(v)));
-#elif defined(_M_IX86)
+#elif defined(HAVE_SSE42) && defined(_M_IX86)
     return static_cast<int>(
         __popcnt(static_cast<uint32_t>(static_cast<uint64_t>(v) >> 32) +
                  __popcnt(static_cast<uint32_t>(v))));
