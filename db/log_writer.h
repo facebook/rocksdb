@@ -13,6 +13,7 @@
 
 #include "db/log_format.h"
 #include "rocksdb/compression_type.h"
+#include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -81,7 +82,8 @@ class Writer {
 
   ~Writer();
 
-  IOStatus AddRecord(const Slice& slice);
+  IOStatus AddRecord(const Slice& slice,
+                     Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
   IOStatus AddCompressionTypeRecord();
 
   WritableFileWriter* file() { return dest_.get(); }
@@ -106,7 +108,9 @@ class Writer {
   // record type stored in the header.
   uint32_t type_crc_[kMaxRecordType + 1];
 
-  IOStatus EmitPhysicalRecord(RecordType type, const char* ptr, size_t length);
+  IOStatus EmitPhysicalRecord(
+      RecordType type, const char* ptr, size_t length,
+      Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
 
   // If true, it does not flush after each write. Instead it relies on the upper
   // layer to manually does the flush by calling ::WriteBuffer()

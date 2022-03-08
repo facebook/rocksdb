@@ -234,11 +234,13 @@ class WritableFileWriter {
 
   // When this Append API is called, if the crc32c_checksum is not provided, we
   // will calculate the checksum internally.
-  IOStatus Append(const Slice& data, uint32_t crc32c_checksum = 0);
+  IOStatus Append(const Slice& data, uint32_t crc32c_checksum = 0,
+                  Env::IOPriority op_rate_limiter_priority = Env::IO_TOTAL);
 
-  IOStatus Pad(const size_t pad_bytes);
+  IOStatus Pad(const size_t pad_bytes,
+               Env::IOPriority op_rate_limiter_priority = Env::IO_TOTAL);
 
-  IOStatus Flush();
+  IOStatus Flush(Env::IOPriority op_rate_limiter_priority = Env::IO_TOTAL);
 
   IOStatus Close();
 
@@ -271,15 +273,21 @@ class WritableFileWriter {
   const char* GetFileChecksumFuncName() const;
 
  private:
+  static Env::IOPriority DecideRateLimiterPriority(
+      Env::IOPriority writable_file_io_priority,
+      Env::IOPriority op_rate_limiter_priority);
+
   // Used when os buffering is OFF and we are writing
   // DMA such as in Direct I/O mode
 #ifndef ROCKSDB_LITE
-  IOStatus WriteDirect();
-  IOStatus WriteDirectWithChecksum();
+  IOStatus WriteDirect(Env::IOPriority op_rate_limiter_priority);
+  IOStatus WriteDirectWithChecksum(Env::IOPriority op_rate_limiter_priority);
 #endif  // !ROCKSDB_LITE
-  // Normal write
-  IOStatus WriteBuffered(const char* data, size_t size);
-  IOStatus WriteBufferedWithChecksum(const char* data, size_t size);
+  // Normal write.
+  IOStatus WriteBuffered(const char* data, size_t size,
+                         Env::IOPriority op_rate_limiter_priority);
+  IOStatus WriteBufferedWithChecksum(const char* data, size_t size,
+                                     Env::IOPriority op_rate_limiter_priority);
   IOStatus RangeSync(uint64_t offset, uint64_t nbytes);
   IOStatus SyncInternal(bool use_fsync);
 };

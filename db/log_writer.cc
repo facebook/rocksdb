@@ -50,7 +50,8 @@ IOStatus Writer::Close() {
   return s;
 }
 
-IOStatus Writer::AddRecord(const Slice& slice) {
+IOStatus Writer::AddRecord(const Slice& slice,
+                           Env::IOPriority rate_limiter_priority) {
   const char* ptr = slice.data();
   size_t left = slice.size();
 
@@ -73,7 +74,8 @@ IOStatus Writer::AddRecord(const Slice& slice) {
         // kRecyclableHeaderSize being <= 11)
         assert(header_size <= 11);
         s = dest_->Append(Slice("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
-                                static_cast<size_t>(leftover)));
+                                static_cast<size_t>(leftover)),
+                          0 /* crc32c_checksum */, rate_limiter_priority);
         if (!s.ok()) {
           break;
         }
@@ -99,7 +101,7 @@ IOStatus Writer::AddRecord(const Slice& slice) {
       type = recycle_log_files_ ? kRecyclableMiddleType : kMiddleType;
     }
 
-    s = EmitPhysicalRecord(type, ptr, fragment_length);
+    s = EmitPhysicalRecord(type, ptr, fragment_length, rate_limiter_priority);
     ptr += fragment_length;
     left -= fragment_length;
     begin = false;
@@ -107,7 +109,7 @@ IOStatus Writer::AddRecord(const Slice& slice) {
 
   if (s.ok()) {
     if (!manual_flush_) {
-      s = dest_->Flush();
+      s = dest_->Flush(rate_limiter_priority);
     }
   }
 
@@ -141,7 +143,8 @@ IOStatus Writer::AddCompressionTypeRecord() {
 
 bool Writer::TEST_BufferIsEmpty() { return dest_->TEST_BufferIsEmpty(); }
 
-IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
+IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n,
+                                    Env::IOPriority rate_limiter_priority) {
   assert(n <= 0xffff);  // Must fit in two bytes
 
   size_t header_size;
@@ -180,9 +183,10 @@ IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
   EncodeFixed32(buf, crc);
 
   // Write the header and the payload
-  IOStatus s = dest_->Append(Slice(buf, header_size));
+  IOStatus s = dest_->Append(Slice(buf, header_size), 0 /* crc32c_checksum */,
+                             rate_limiter_priority);
   if (s.ok()) {
-    s = dest_->Append(Slice(ptr, n), payload_crc);
+    s = dest_->Append(Slice(ptr, n), payload_crc, rate_limiter_priority);
   }
   block_offset_ += header_size + n;
   return s;

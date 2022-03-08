@@ -1769,8 +1769,12 @@ class DBImpl : public DB {
                          WriteBatch* tmp_batch, size_t* write_with_wal,
                          WriteBatch** to_be_cached_state);
 
+  // rate_limiter_priority is used to charge `DBOptions::rate_limiter`
+  // for automatic WAL flush (`Options::manual_wal_flush` == false)
+  // associated with this WriteToWAL
   IOStatus WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
-                      uint64_t* log_used, uint64_t* log_size);
+                      uint64_t* log_used, uint64_t* log_size,
+                      Env::IOPriority rate_limiter_priority);
 
   IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
                       log::Writer* log_writer, uint64_t* log_used,

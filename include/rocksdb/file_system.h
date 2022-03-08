@@ -1031,6 +1031,17 @@ class FSWritableFile {
     write_hint_ = hint;
   }
 
+  /*
+   * If rate limiting is enabled, change the file-granularity priority used in
+   * rate-limiting writes.
+   *
+   * In the presence of finer-granularity priority such as
+   * `WriteOptions::rate_limiter_priority`, this file-granularity priority may
+   * be overridden by a non-Env::IO_TOTAL finer-granularity priority and used as
+   * a fallback for Env::IO_TOTAL finer-granularity priority.
+   *
+   * If rate limiting is not enabled, this call has no effect.
+   */
   virtual void SetIOPriority(Env::IOPriority pri) { io_priority_ = pri; }
 
   virtual Env::IOPriority GetIOPriority() { return io_priority_; }
