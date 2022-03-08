@@ -162,7 +162,7 @@ commands:
             echo "export PKG_CONFIG_PATH=/usr/local/OFF/:~/libprotobuf-mutator/build/external.protobuf/lib/pkgconfig/" >> $BASH_ENV
             echo "export PROTOC_BIN=~/libprotobuf-mutator/build/external.protobuf/bin/protoc" >> $BASH_ENV
 
-build-for-benchmarks:
+  build-for-benchmarks:
     steps:
       - pre-steps
       - run:
@@ -170,7 +170,7 @@ build-for-benchmarks:
           command: #sized for the resource-class rocksdb-benchmark-sys1
             make V=1 J=8 -j8 release
 
-perform-benchmarks:
+  perform-benchmarks:
     steps:
       - run:
           name: "Run basic benchmark, small"
@@ -191,7 +191,7 @@ perform-benchmarks:
             OUTPUT_DIR: /tmp/benchmark-results
             NUM_KEYS: 10000000
 
-post-benchmarks:
+  post-benchmarks:
     steps:
       - store_artifacts: # store the benchmark output
           path: /tmp/benchmark-results
