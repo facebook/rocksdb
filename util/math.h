@@ -92,7 +92,6 @@ inline int CountTrailingZeroBits(T v) {
 #endif
 }
 
-#if defined(_MSC_VER) && !defined(_M_X64)
 namespace detail {
 template <typename T>
 int BitsSetToOneFallback(T v) {
@@ -113,7 +112,6 @@ int BitsSetToOneFallback(T v) {
 }
 
 }  // namespace detail
-#endif
 
 // Number of bits set to 1. Also known as "population count".
 template <typename T>
