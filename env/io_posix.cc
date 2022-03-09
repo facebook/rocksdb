@@ -744,47 +744,31 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       wrap_cache.erase(wrap_check);
 
       FSReadRequest* req = req_wrap->req;
-      if (cqe->res < 0) {
-        req->result = Slice(req->scratch, 0);
-        req->status = IOError("Req failed", filename_, cqe->res);
-      } else {
-        size_t bytes_read = static_cast<size_t>(cqe->res);
-        TEST_SYNC_POINT_CALLBACK(
-            "PosixRandomAccessFile::MultiRead:io_uring_result", &bytes_read);
-        if (bytes_read == req_wrap->iov.iov_len) {
-          req->result = Slice(req->scratch, req->len);
+      UpdateResult(cqe, filename_, req->len, req_wrap->iov.iov_len,
+                   false /*async_read*/, req_wrap->finished_len, req);
+      int32_t res = cqe->res;
+      if (res == 0) {
+        /// cqe->res == 0 can means EOF, or can mean partial results. See
+        // comment
+        // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
+        // Fall back to pread in this case.
+        if (use_direct_io() && !IsSectorAligned(req_wrap->finished_len,
+                                                GetRequiredBufferAlignment())) {
+          // Bytes reads don't fill sectors. Should only happen at the end
+          // of the file.
+          req->result = Slice(req->scratch, req_wrap->finished_len);
           req->status = IOStatus::OK();
-        } else if (bytes_read == 0) {
-          // cqe->res == 0 can means EOF, or can mean partial results. See
-          // comment
-          // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
-          // Fall back to pread in this case.
-          if (use_direct_io() &&
-              !IsSectorAligned(req_wrap->finished_len,
-                               GetRequiredBufferAlignment())) {
-            // Bytes reads don't fill sectors. Should only happen at the end
-            // of the file.
-            req->result = Slice(req->scratch, req_wrap->finished_len);
-            req->status = IOStatus::OK();
-          } else {
-            Slice tmp_slice;
-            req->status =
-                Read(req->offset + req_wrap->finished_len,
-                     req->len - req_wrap->finished_len, options, &tmp_slice,
-                     req->scratch + req_wrap->finished_len, dbg);
-            req->result =
-                Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
-          }
-        } else if (bytes_read < req_wrap->iov.iov_len) {
-          assert(bytes_read > 0);
-          assert(bytes_read + req_wrap->finished_len < req->len);
-          req_wrap->finished_len += bytes_read;
-          incomplete_rq_list.push_back(req_wrap);
         } else {
-          req->result = Slice(req->scratch, 0);
-          req->status = IOError("Req returned more bytes than requested",
-                                filename_, cqe->res);
+          Slice tmp_slice;
+          req->status =
+              Read(req->offset + req_wrap->finished_len,
+                   req->len - req_wrap->finished_len, options, &tmp_slice,
+                   req->scratch + req_wrap->finished_len, dbg);
+          req->result =
+              Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
         }
+      } else if (res > 0 && res < static_cast<int32_t>(req_wrap->iov.iov_len)) {
+        incomplete_rq_list.push_back(req_wrap);
       }
       io_uring_cqe_seen(iu, cqe);
     }

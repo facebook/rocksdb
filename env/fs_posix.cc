@@ -1101,36 +1101,14 @@ class PosixFileSystem : public FileSystem {
         FSReadRequest req;
         req.scratch = posix_handle->scratch;
         req.offset = posix_handle->offset;
-
-        if (cqe->res < 0) {
-          // Request failed.
-          req.result = Slice(req.scratch, 0);
-          req.status = IOStatus::IOError("Req failed");
-        } else {
-          size_t bytes_read = static_cast<size_t>(cqe->res);
-          if (bytes_read == posix_handle->iov.iov_len) {
-            // Request successfull.
-            req.result = Slice(req.scratch, req.len);
-            req.status = IOStatus::OK();
-          } else if (bytes_read == 0) {
-            // No  bytes read.
-            req.result = Slice(req.scratch, 0);
-            req.status = IOStatus::IOError("No bytes read");
-          } else if (bytes_read < posix_handle->iov.iov_len) {
-            // EOF, or partial results.
-            assert(bytes_read + posix_handle->finished_len < req.len);
-            req.result = Slice(req.scratch, posix_handle->finished_len);
-            req.status = IOStatus::OK();
-          } else {
-            // More bytes than requested.
-            req.result = Slice(req.scratch, 0);
-            req.status =
-                IOStatus::IOError("Req returned more bytes than requested");
-          }
-          posix_handle->is_finished = true;
-          io_uring_cqe_seen(iu, cqe);
-          posix_handle->cb(req, posix_handle->cb_arg);
-        }
+        req.len = posix_handle->len;
+        size_t finished_len = 0;
+        UpdateResult(cqe, "", req.len, posix_handle->iov.iov_len,
+                     true /*async_read*/, finished_len, &req);
+        posix_handle->is_finished = true;
+        io_uring_cqe_seen(iu, cqe);
+        posix_handle->cb(req, posix_handle->cb_arg);
+        (void)finished_len;
 
         if (static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
           count++;

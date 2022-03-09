@@ -13,14 +13,17 @@
 #include <sys/uio.h>
 #endif
 #include <unistd.h>
+
 #include <atomic>
 #include <functional>
 #include <map>
 #include <string>
+
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/io_status.h"
+#include "test_util/sync_point.h"
 #include "util/mutexlock.h"
 #include "util/thread_local.h"
 
@@ -57,10 +60,44 @@ struct Posix_IOHandle {
   void* cb_arg;
   uint64_t offset;
   size_t len;
-  size_t finished_len = 0;
   char* scratch;
   bool is_finished = false;
 };
+
+inline void UpdateResult(struct io_uring_cqe* cqe, const std::string& file_name,
+                         size_t len, size_t iov_len, bool async_read,
+                         size_t& finished_len, FSReadRequest* req) {
+  if (cqe->res < 0) {
+    req->result = Slice(req->scratch, 0);
+    req->status = IOError("Req failed", file_name, cqe->res);
+  } else {
+    size_t bytes_read = static_cast<size_t>(cqe->res);
+    TEST_SYNC_POINT_CALLBACK("UpdateResults::io_uring_result", &bytes_read);
+    if (bytes_read == iov_len) {
+      req->result = Slice(req->scratch, req->len);
+      req->status = IOStatus::OK();
+    } else if (bytes_read == 0) {
+      if (async_read) {
+        // No  bytes read.
+        req->result = Slice(req->scratch, 0);
+        req->status = IOStatus::IOError("No bytes read");
+      }
+    } else if (bytes_read < iov_len) {
+      assert(bytes_read > 0);
+      if (async_read) {
+        req->result = Slice(req->scratch, bytes_read);
+        req->status = IOStatus::OK();
+      } else {
+        assert(bytes_read + finished_len < len);
+        finished_len += bytes_read;
+      }
+    } else {
+      req->result = Slice(req->scratch, 0);
+      req->status = IOError("Req returned more bytes than requested", file_name,
+                            cqe->res);
+    }
+  }
+}
 #endif
 
 #ifdef OS_LINUX
