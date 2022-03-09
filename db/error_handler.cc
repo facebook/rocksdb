@@ -738,14 +738,14 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         Status old_bg_error = bg_error_;
         bg_error_ = Status::OK();
         bg_error_.PermitUncheckedError();
-        EventHelpers::NotifyOnErrorRecoveryEnd(
-            db_options_.listeners, old_bg_error, bg_error_, db_mutex_);
         if (bg_error_stats_ != nullptr) {
           RecordTick(bg_error_stats_.get(),
                      ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT);
           RecordInHistogram(bg_error_stats_.get(),
                             ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
         }
+        EventHelpers::NotifyOnErrorRecoveryEnd(
+            db_options_.listeners, old_bg_error, bg_error_, db_mutex_);
         recovery_in_prog_ = false;
         if (soft_error_no_bg_work_) {
           soft_error_no_bg_work_ = false;
