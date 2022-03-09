@@ -6921,8 +6921,10 @@ TEST_F(DBCompactionTest, DisableMultiManualCompaction) {
   port::Thread compact_thread1([&]() {
     CompactRangeOptions cro;
     cro.exclusive_manual_compaction = false;
-    Slice b = Key(0);
-    Slice e = Key(3);
+    std::string begin_str = Key(0);
+    std::string end_str = Key(3);
+    Slice b = begin_str;
+    Slice e = end_str;
     auto s = db_->CompactRange(cro, &b, &e);
     ASSERT_TRUE(s.IsIncomplete());
   });
@@ -6930,8 +6932,10 @@ TEST_F(DBCompactionTest, DisableMultiManualCompaction) {
   port::Thread compact_thread2([&]() {
     CompactRangeOptions cro;
     cro.exclusive_manual_compaction = false;
-    Slice b = Key(4);
-    Slice e = Key(7);
+    std::string begin_str = Key(4);
+    std::string end_str = Key(7);
+    Slice b = begin_str;
+    Slice e = end_str;
     auto s = db_->CompactRange(cro, &b, &e);
     ASSERT_TRUE(s.IsIncomplete());
   });
