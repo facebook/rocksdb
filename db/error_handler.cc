@@ -486,6 +486,10 @@ const Status& ErrorHandler::SetBGError(const Status& bg_status,
     if (bg_error_stats_ != nullptr) {
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
     }
+    // HandleKnownErrors() will use recovery_error_, so ignore
+    // recovery_io_error_.
+    // TODO: Do some refactoring and use only one recovery_error_
+    recovery_io_error_.PermitUncheckedError();
     return HandleKnownErrors(new_bg_io_err, reason);
   }
 }
