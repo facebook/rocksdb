@@ -1516,19 +1516,31 @@ class DBImpl : public DB {
 
   // Information for a manual compaction
   struct ManualCompactionState {
+    ManualCompactionState(ColumnFamilyData* _cfd, int _input_level,
+                          int _output_level, uint32_t _output_path_id,
+                          bool _exclusive, bool _disallow_trivial_move,
+                          std::atomic<bool>* _canceled)
+        : cfd(_cfd),
+          input_level(_input_level),
+          output_level(_output_level),
+          output_path_id(_output_path_id),
+          exclusive(_exclusive),
+          disallow_trivial_move(_disallow_trivial_move),
+          canceled(_canceled) {}
+
     ColumnFamilyData* cfd;
     int input_level;
     int output_level;
     uint32_t output_path_id;
     Status status;
-    bool done;
-    bool in_progress;             // compaction request being processed?
-    bool incomplete;              // only part of requested range compacted
-    bool exclusive;               // current behavior of only one manual
-    bool disallow_trivial_move;   // Force actual compaction to run
-    const InternalKey* begin;     // nullptr means beginning of key range
-    const InternalKey* end;       // nullptr means end of key range
-    InternalKey* manual_end;      // how far we are compacting
+    bool done = false;
+    bool in_progress = false;    // compaction request being processed?
+    bool incomplete = false;     // only part of requested range compacted
+    bool exclusive;              // current behavior of only one manual
+    bool disallow_trivial_move;  // Force actual compaction to run
+    const InternalKey* begin = nullptr;  // nullptr means beginning of key range
+    const InternalKey* end = nullptr;    // nullptr means end of key range
+    InternalKey* manual_end = nullptr;   // how far we are compacting
     InternalKey tmp_storage;      // Used to keep track of compaction progress
     InternalKey tmp_storage1;     // Used to keep track of compaction progress
     std::atomic<bool>* canceled;  // Compaction canceled by the user?
@@ -1538,7 +1550,8 @@ class DBImpl : public DB {
     Compaction* compaction;
     // caller retains ownership of `manual_compaction_state` as it is reused
     // across background compactions.
-    ManualCompactionState* manual_compaction_state;  // nullptr if non-manual
+    std::shared_ptr<ManualCompactionState>
+        manual_compaction_state;  // nullptr if non-manual
     // task limiter token is requested during compaction picking.
     std::unique_ptr<TaskLimiterToken> task_token;
   };

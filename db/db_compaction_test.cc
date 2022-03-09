@@ -6889,6 +6889,67 @@ TEST_F(DBCompactionTest, FIFOWarm) {
   Destroy(options);
 }
 
+TEST_F(DBCompactionTest, DisableMultiManualCompaction) {
+  const int kNumL0Files = 10;
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  Reopen(options);
+
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), "value"));
+    if (i % 2) {
+      ASSERT_OK(Flush());
+    }
+  }
+  MoveFilesToLevel(2);
+
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), "value"));
+    if (i % 2) {
+      ASSERT_OK(Flush());
+    }
+  }
+  MoveFilesToLevel(1);
+
+  // Block compaction queue
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+
+  port::Thread compact_thread1([&]() {
+    CompactRangeOptions cro;
+    cro.exclusive_manual_compaction = false;
+    Slice b = Key(0);
+    Slice e = Key(3);
+    auto s = db_->CompactRange(cro, &b, &e);
+    ASSERT_TRUE(s.IsIncomplete());
+  });
+
+  port::Thread compact_thread2([&]() {
+    CompactRangeOptions cro;
+    cro.exclusive_manual_compaction = false;
+    Slice b = Key(4);
+    Slice e = Key(7);
+    auto s = db_->CompactRange(cro, &b, &e);
+    ASSERT_TRUE(s.IsIncomplete());
+  });
+
+  db_->DisableManualCompaction();
+
+  compact_thread1.join();
+  compact_thread2.join();
+
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+}
+
+TEST_F(DBCompactionTest, DisableJustStartedManualCompaction) {
+  const int kNumL0Files = 4;
+
+}
+
 TEST_F(DBCompactionTest, DisableManualCompactionThreadQueueFull) {
   const int kNumL0Files = 4;
 
