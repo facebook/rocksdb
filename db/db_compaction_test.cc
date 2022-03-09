@@ -6896,6 +6896,7 @@ TEST_F(DBCompactionTest, DisableMultiManualCompaction) {
   options.level0_file_num_compaction_trigger = kNumL0Files;
   Reopen(options);
 
+  // Generate 2 levels of file to make sure the manual compaction is not skipped
   for (int i = 0; i < 10; i++) {
     ASSERT_OK(Put(Key(i), "value"));
     if (i % 2) {
@@ -6935,6 +6936,8 @@ TEST_F(DBCompactionTest, DisableMultiManualCompaction) {
     ASSERT_TRUE(s.IsIncomplete());
   });
 
+  // Disable manual compaction should cancel both manual compactions and both
+  // compaction should return incomplete.
   db_->DisableManualCompaction();
 
   compact_thread1.join();
@@ -6948,6 +6951,44 @@ TEST_F(DBCompactionTest, DisableMultiManualCompaction) {
 TEST_F(DBCompactionTest, DisableJustStartedManualCompaction) {
   const int kNumL0Files = 4;
 
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  Reopen(options);
+
+  // generate files, but avoid trigger auto compaction
+  for (int i = 0; i < kNumL0Files / 2; i++) {
+    ASSERT_OK(Put(Key(1), "value1"));
+    ASSERT_OK(Put(Key(2), "value2"));
+    ASSERT_OK(Flush());
+  }
+
+  // make sure the manual compaction background is started but not yet set the
+  // status to in_progress, then cancel the manual compaction, which should not
+  // result in segfault
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkCompaction",
+        "DBCompactionTest::DisableJustStartedManualCompaction:"
+        "PreDisableManualCompaction"},
+       {"DBCompactionTest::DisableJustStartedManualCompaction:"
+        "ManualCompactionReturn",
+        "BackgroundCallCompaction:0"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread compact_thread([&]() {
+    CompactRangeOptions cro;
+    cro.exclusive_manual_compaction = true;
+    auto s = db_->CompactRange(cro, nullptr, nullptr);
+    ASSERT_TRUE(s.IsIncomplete());
+    TEST_SYNC_POINT(
+        "DBCompactionTest::DisableJustStartedManualCompaction:"
+        "ManualCompactionReturn");
+  });
+  TEST_SYNC_POINT(
+      "DBCompactionTest::DisableJustStartedManualCompaction:"
+      "PreDisableManualCompaction");
+  db_->DisableManualCompaction();
+
+  compact_thread.join();
 }
 
 TEST_F(DBCompactionTest, DisableManualCompactionThreadQueueFull) {
