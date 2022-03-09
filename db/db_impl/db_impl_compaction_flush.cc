@@ -3032,9 +3032,10 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     LogBuffer* log_buffer,
                                     PrepickedCompaction* prepicked_compaction,
                                     Env::Priority thread_pri) {
-  auto manual_compaction = prepicked_compaction == nullptr
-                               ? nullptr
-                               : prepicked_compaction->manual_compaction_state;
+  std::shared_ptr<ManualCompactionState> manual_compaction =
+      prepicked_compaction == nullptr
+          ? nullptr
+          : prepicked_compaction->manual_compaction_state;
   *made_progress = false;
   mutex_.AssertHeld();
   TEST_SYNC_POINT("DBImpl::BackgroundCompaction:Start");
@@ -3075,6 +3076,10 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   if (!status.ok()) {
     if (is_manual) {
       manual_compaction->status = status;
+      manual_compaction->status
+          .PermitUncheckedError();  // the manual compaction thread may exit
+                                    // first, which won't be able to check the
+                                    // status
       manual_compaction->done = true;
       manual_compaction->in_progress = false;
       manual_compaction = nullptr;
