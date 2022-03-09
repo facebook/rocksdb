@@ -367,9 +367,8 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
       }
       m->flush_in_progress_ = true;  // flushing will start very soon
       if (max_next_log_number) {
-        *max_next_log_number = m->GetNextLogNumber() > *max_next_log_number
-                                   ? m->GetNextLogNumber()
-                                   : *max_next_log_number;
+        *max_next_log_number =
+            std::max(m->GetNextLogNumber(), *max_next_log_number);
       }
       ret->push_back(m);
     }
