@@ -1866,6 +1866,9 @@ point_lock_manager_test: utilities/transactions/lock/point/point_lock_manager_te
 transaction_test: $(OBJ_DIR)/utilities/transactions/transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+write_committed_transaction_ts_test: $(OBJ_DIR)/utilities/transactions/write_committed_transaction_ts_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 write_prepared_transaction_test: $(OBJ_DIR)/utilities/transactions/write_prepared_transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
