@@ -830,6 +830,8 @@ Status FlushJob::WriteLevel0Table() {
     size_t total_memory_usage = 0;
     // Used for testing:
     uint64_t mems_size = mems_.size();
+    (void)mems_size;  // avoids unused variable error when
+                      // TEST_SYNC_POINT_CALLBACK not used.
     TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:num_memtables",
                              &mems_size);
     for (MemTable* m : mems_) {
