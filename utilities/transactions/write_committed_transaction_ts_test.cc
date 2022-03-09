@@ -263,6 +263,7 @@ TEST_P(WriteCommittedTxnWithTsTest, TransactionDbLevelApi) {
   PutFixed64(&ts_str, 100);
   Slice value = value_str;
 
+  assert(db);
   ASSERT_TRUE(
       db->Put(WriteOptions(), handles_[1], "foo", "bar").IsNotSupported());
   ASSERT_TRUE(db->Delete(WriteOptions(), handles_[1], "foo").IsNotSupported());
