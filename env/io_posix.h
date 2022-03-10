@@ -78,9 +78,9 @@ inline void UpdateResult(struct io_uring_cqe* cqe, const std::string& file_name,
       req->status = IOStatus::OK();
     } else if (bytes_read == 0) {
       if (async_read) {
-        // No  bytes read.
+        // No  bytes read. It can means EOF.
         req->result = Slice(req->scratch, 0);
-        req->status = IOStatus::IOError("No bytes read");
+        req->status = IOStatus::OK();
       }
     } else if (bytes_read < iov_len) {
       assert(bytes_read > 0);
@@ -261,6 +261,7 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
   virtual size_t GetRequiredBufferAlignment() const override {
     return logical_sector_size_;
   }
+  // EXPERIMENTAL
   virtual IOStatus ReadAsync(
       FSReadRequest& req, const IOOptions& opts,
       std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,

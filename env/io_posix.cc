@@ -860,7 +860,6 @@ IOStatus PosixRandomAccessFile::ReadAsync(
     FSReadRequest& req, const IOOptions& /*opts*/,
     std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
-  IOStatus io_s;
   if (use_direct_io()) {
     assert(IsSectorAligned(req.offset, GetRequiredBufferAlignment()));
     assert(IsSectorAligned(req.len, GetRequiredBufferAlignment()));
@@ -920,7 +919,7 @@ IOStatus PosixRandomAccessFile::ReadAsync(
     return IOStatus::IOError("io_uring_submit() requested but returned " +
                              ToString(ret));
   }
-  return io_s;
+  return IOStatus::OK();
 #else
   (void)req;
   (void)cb;

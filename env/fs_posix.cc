@@ -1043,20 +1043,18 @@ class PosixFileSystem : public FileSystem {
   }
 #endif  // ROCKSDB_IOURING_PRESENT
 
+  // EXPERIMENTAL
+  //
+  // TODO akankshamahajan: Update Poll API to take into account min_completions
+  // and returns if number of handles in io_handles (any order) completed is
+  // equal to atleast min_completions.
   virtual IOStatus Poll(std::vector<void*>& io_handles,
-                        size_t min_completions) override {
-    IOStatus io_s;
+                        size_t /*min_completions*/) override {
 #if defined(ROCKSDB_IOURING_PRESENT)
     // io_uring_queue_init.
     struct io_uring* iu = nullptr;
     if (thread_local_io_urings_) {
       iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
-      if (iu == nullptr) {
-        iu = CreateIOUring();
-        if (iu != nullptr) {
-          thread_local_io_urings_->Reset(iu);
-        }
-      }
     }
 
     // Init failed, platform doesn't support io_uring.
@@ -1064,11 +1062,9 @@ class PosixFileSystem : public FileSystem {
       return IOStatus::NotSupported("Poll");
     }
 
-    size_t count = 0;
-    for (size_t i = 0; i < io_handles.size() && count < min_completions; i++) {
+    for (size_t i = 0; i < io_handles.size(); i++) {
       // The request has been completed in earlier runs.
       if ((static_cast<Posix_IOHandle*>(io_handles[i]))->is_finished) {
-        count++;
         continue;
       }
       // Loop until IO for io_handles[i] is completed.
@@ -1077,14 +1073,9 @@ class PosixFileSystem : public FileSystem {
         struct io_uring_cqe* cqe = nullptr;
         ssize_t ret = io_uring_wait_cqe(iu, &cqe);
         if (ret) {
-          io_s = IOStatus::IOError("io_uring_wait_cqe() returns " +
-                                   ROCKSDB_NAMESPACE::ToString(ret));
-          if (cqe != nullptr) {
-            io_uring_cqe_seen(iu, cqe);
-          }
-          // TODO akankshamahajan: How to figure out if requested read for
-          // io_handles[i] showed error or it's some other request???
-          continue;
+          // abort as it shouldn't be in indeterminate state and there is no
+          // good way currently to handle this error.
+          abort();
         }
 
         // Step 3: Populate the request.
@@ -1111,15 +1102,13 @@ class PosixFileSystem : public FileSystem {
         (void)finished_len;
 
         if (static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
-          count++;
           break;
         }
       }
     }
-    return io_s;
+    return IOStatus::OK();
 #else
     (void)io_handles;
-    (void)min_completions;
     return IOStatus::NotSupported("Poll");
 #endif
   }

@@ -651,7 +651,8 @@ class FileSystem : public Customizable {
   // Underlying FS is required to support Poll API. Poll implementation should
   // ensure that the callback gets called at IO completion, and return only
   // after the callback has been called.
-  //
+  // If Poll returns partial results for any reads, its caller reponsibility to
+  // call Read or ReadAsync in order to get the remaining bytes.
   //
   // Default implementation is to return IOStatus::OK.
 
