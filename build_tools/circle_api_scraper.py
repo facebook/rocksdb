@@ -8,6 +8,7 @@
 In order to finally yield the output of benchmark tests.
 '''
 
+from ast import Dict
 from collections import namedtuple
 from keyword import iskeyword
 import sys
@@ -49,10 +50,11 @@ def api_v2_find_job() -> int:
     # to get job number https://circleci.com/api/v2/workflow/bcd4d608-a777-4db0-9d6e-5d54c2bb79d0/job
 
 
-NEXT_CALL_RANGE = 5
-
-
 class CircleAPIV2:
+
+    workflow_call_range = 20
+    pipeline_call_range = 5
+    job_call_range = 5
 
     def __init__(self, user_id: str, vcs: str, username: str, project: str) -> None:
         '''Configure with a CircleCI user id, and a slug (roughly, the project, e.g. github/facebook/rocksdb)
@@ -72,7 +74,7 @@ class CircleAPIV2:
         '''
         params = {}
         result = []
-        for i in range(NEXT_CALL_RANGE):
+        for i in range(CircleAPIV2.workflow_call_range):
             workflows_call = requests.get(
                 f"{self.service}/pipeline/{pipeline_id}/workflow", auth=self.auth, params=params)
             workflows_call.raise_for_status()
@@ -87,7 +89,7 @@ class CircleAPIV2:
     def get_pipeline_ids(self, filter: Callable) -> List[str]:
         params = {}
         result = []
-        for i in range(NEXT_CALL_RANGE):
+        for i in range(CircleAPIV2.pipeline_call_range):
             pipelines_call = requests.get(
                 f"{self.service}/project/{self.slug}/pipeline", auth=self.auth, params=params)
             pipelines_call.raise_for_status()
@@ -103,7 +105,7 @@ class CircleAPIV2:
     def get_jobs(self, workflow_id: str) -> List[int]:
         params = {}
         result = []
-        for i in range(NEXT_CALL_RANGE):
+        for i in range(CircleAPIV2.job_call_range):
             jobs_call = requests.get(
                 f"{self.service}/workflow/{workflow_id}/job", auth=self.auth, params=params)
             jobs_call.raise_for_status()
@@ -172,8 +174,39 @@ class CircleAPIV1:
         return self.get_log_action_output_url(job_number, "Output logs as MIME")
 
 
+class CircleLogReader:
+    '''User level methods for telling us about particular logs'''
+
+    def __init__(self, config_dict: Dict) -> List[str]:
+
+        config = TupleObject.mapper(config_dict)
+        self.config = config
+        self.api_v1 = CircleAPIV1(
+            config.user_id, config.vcs, config.username, config.project)
+        self.api_v2 = CircleAPIV2(
+            config.user_id, config.vcs, config.username, config.project)
+
+    def get_log_urls(self):
+        pipeline_ids = self.api_v2.get_pipeline_ids(filter=is_my_pull_request)
+        workflows = flatten([self.api_v2.get_workflow_items(
+            pipeline_id, filter=is_benchmark_linux) for pipeline_id in pipeline_ids])
+        jobs = flatten([self.api_v2.get_jobs(workflow_id)
+                       for workflow_id in workflows])
+        urls = [self.api_v1.get_log_mime_url(
+            job_number=job_id) for job_id in jobs]
+
+        return urls
+
+
 def main():
     # track down the job number
+    reader = CircleLogReader(
+        {'user_id': 'e7d4aab13e143360f95e258be0a89b5c8e256773',
+         'vcs': 'github',
+         'username': 'facebook',
+         'project': 'rocksdb'})
+    urls = reader.get_log_urls()
+
     api_v1 = CircleAPIV1(user_id="e7d4aab13e143360f95e258be0a89b5c8e256773",
                          vcs="github", username="facebook", project="rocksdb")
     api_v2 = CircleAPIV2(user_id="e7d4aab13e143360f95e258be0a89b5c8e256773",
