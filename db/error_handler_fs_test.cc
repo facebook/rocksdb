@@ -2470,7 +2470,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableErrorAbortRecovery) {
 
 TEST_F(DBErrorHandlingFSTest, FlushReadError) {
   std::shared_ptr<ErrorHandlerFSListener> listener =
-    std::make_shared<ErrorHandlerFSListener>();
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -2518,7 +2518,7 @@ TEST_F(DBErrorHandlingFSTest, FlushReadError) {
 
 TEST_F(DBErrorHandlingFSTest, AtomicFlushReadError) {
   std::shared_ptr<ErrorHandlerFSListener> listener =
-    std::make_shared<ErrorHandlerFSListener>();
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -2568,7 +2568,7 @@ TEST_F(DBErrorHandlingFSTest, AtomicFlushReadError) {
 
 TEST_F(DBErrorHandlingFSTest, AtomicFlushNoSpaceError) {
   std::shared_ptr<ErrorHandlerFSListener> listener =
-    std::make_shared<ErrorHandlerFSListener>();
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
@@ -2615,7 +2615,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionReadRetryableErrorAutoRecover) {
   // the test will hit the CompactionJob::FinishCompactionOutputFile1 sync
   // point.
   std::shared_ptr<ErrorHandlerFSListener> listener =
-    std::make_shared<ErrorHandlerFSListener>();
+      std::make_shared<ErrorHandlerFSListener>();
   Options options = GetDefaultOptions();
   options.env = fault_env_.get();
   options.create_if_missing = true;
