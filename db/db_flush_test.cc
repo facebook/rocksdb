@@ -1439,8 +1439,8 @@ TEST_F(DBFlushTest, MemPurgeCorrectLogNumberAndSSTFileCreation) {
   const std::string NOT_FOUND = "NOT_FOUND";
 
   Random rnd(117);
-  const uint64_t NUM_REPEAT_MEMPURGE = 100;
-  const uint64_t NUM_REPEAT_FLUSH = 500;
+  const uint64_t NUM_REPEAT_OVERWRITES = 100;
+  const uint64_t NUM_RAND_INSERTS = 500;
   const uint64_t RAND_VALUES_LENGTH = 10240;
 
   std::string key, value;
@@ -1454,7 +1454,7 @@ TEST_F(DBFlushTest, MemPurgeCorrectLogNumberAndSSTFileCreation) {
 
   // Insertion of of K-V pairs, multiple times.
   // Trigger at least one mempurge and no SST file creation.
-  for (size_t i = 0; i < NUM_REPEAT_MEMPURGE; i++) {
+  for (size_t i = 0; i < NUM_REPEAT_OVERWRITES; i++) {
     // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
     for (uint64_t k = 5; k < values.size(); k++) {
       values[k] = rnd.RandomString(RAND_VALUES_LENGTH);
@@ -1474,7 +1474,7 @@ TEST_F(DBFlushTest, MemPurgeCorrectLogNumberAndSSTFileCreation) {
   EXPECT_EQ(sst_count.load(), expected_sst_count);
 
   // Trigger an SST file creation and no mempurge.
-  for (size_t i = 0; i < NUM_REPEAT_FLUSH; i++) {
+  for (size_t i = 0; i < NUM_RAND_INSERTS; i++) {
     key = rnd.RandomString(RAND_VALUES_LENGTH);
     // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
     value = rnd.RandomString(RAND_VALUES_LENGTH);
