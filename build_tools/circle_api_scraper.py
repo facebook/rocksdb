@@ -9,6 +9,7 @@ In order to finally yield the output of benchmark tests.
 '''
 
 from collections import namedtuple
+from keyword import iskeyword
 import sys
 from typing import Callable, List, Mapping
 import circleci.api
@@ -17,18 +18,20 @@ import requests
 
 class TupleObject:
 
-    def mapper(mapping):
+    def mapper(input_mapping):
         '''
         Convert mappings to namedtuples recursively.
         https://gist.github.com/hangtwenty/5960435
         '''
-        if isinstance(mapping, Mapping):
-            for key, value in list(mapping.items()):
-                mapping[key] = TupleObject.mapper(value)
+        if isinstance(input_mapping, Mapping):
+            mapping = {}
+            for key, value in list(input_mapping.items()):
+                if not iskeyword(key):
+                    mapping[key] = TupleObject.mapper(value)
             return namedtuple(TupleObject.__name__, mapping.keys())(*mapping.values())
-        elif isinstance(mapping, list):
-            return [TupleObject.mapper(item) for item in mapping]
-        return mapping
+        elif isinstance(input_mapping, list):
+            return [TupleObject.mapper(item) for item in input_mapping]
+        return input_mapping
 
 
 def api_v2_find_job() -> int:
@@ -153,11 +156,12 @@ class CircleAPIV1:
 
         dict = self.api.get_build_info(username=self.username,
                                        project=self.project, build_num=job_number)
-        for step in dict['steps']:
-            for action in step['actions']:
-                if action['has_output'] and action['name'] == action_name:
+        info = TupleObject.mapper(dict)
+        for step in info.steps:
+            for action in step.actions:
+                if action.has_output and action.name == action_name:
                     # found the special action whose content we want
-                    return action['output_url']
+                    return action.output_url
         return None
 
     def get_log_mime_url(self, job_number: int) -> str:
