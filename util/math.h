@@ -92,23 +92,25 @@ inline int CountTrailingZeroBits(T v) {
 #endif
 }
 
+// Not all MSVC compile settings will use `BitsSetToOneFallback()`. We include
+// the following code at coarse granularity for simpler macros. It's important
+// to exclude at least so our non-MSVC unit test coverage tool doesn't see it.
+#ifdef _MSC_VER
+
 namespace detail {
+
 template <typename T>
 int BitsSetToOneFallback(T v) {
   const int kBits = static_cast<int>(sizeof(T)) * 8;
   static_assert((kBits & (kBits - 1)) == 0, "must be power of two bits");
   // we static_cast these bit patterns in order to truncate them to the correct
   // size. Warning C4309 dislikes this technique, so disable it here.
-#ifdef _MSC_VER
 #pragma warning(disable : 4309)
-#endif  // _MSC_VER
   v = static_cast<T>(v - ((v >> 1) & static_cast<T>(0x5555555555555555ull)));
   v = static_cast<T>((v & static_cast<T>(0x3333333333333333ull)) +
                      ((v >> 2) & static_cast<T>(0x3333333333333333ull)));
   v = static_cast<T>((v + (v >> 4)) & static_cast<T>(0x0F0F0F0F0F0F0F0Full));
-#ifdef _MSC_VER
 #pragma warning(default : 4309)
-#endif  // _MSC_VER
   for (int shift_bits = 8; shift_bits < kBits; shift_bits <<= 1) {
     v += static_cast<T>(v >> shift_bits);
   }
@@ -118,6 +120,8 @@ int BitsSetToOneFallback(T v) {
 }
 
 }  // namespace detail
+
+#endif  // _MSC_VER
 
 // Number of bits set to 1. Also known as "population count".
 template <typename T>
