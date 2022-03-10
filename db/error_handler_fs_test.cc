@@ -2508,8 +2508,8 @@ TEST_F(DBErrorHandlingFSTest, FlushReadError) {
                    ERROR_HANDLER_AUTORESUME_COUNT));
   ASSERT_LE(0, options.statistics->getAndResetTickerCount(
                    ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT));
-  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
-                   ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT));
+  s = dbfull()->TEST_GetBGError();
+  ASSERT_OK(s);
 
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));
@@ -2558,8 +2558,8 @@ TEST_F(DBErrorHandlingFSTest, AtomicFlushReadError) {
                    ERROR_HANDLER_AUTORESUME_COUNT));
   ASSERT_LE(0, options.statistics->getAndResetTickerCount(
                    ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT));
-  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
-                   ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT));
+  s = dbfull()->TEST_GetBGError();
+  ASSERT_OK(s);
 
   TryReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_EQ("val", Get(Key(0)));
@@ -2599,6 +2599,8 @@ TEST_F(DBErrorHandlingFSTest, AtomicFlushNoSpaceError) {
                    ERROR_HANDLER_BG_ERROR_COUNT));
   ASSERT_LE(1, options.statistics->getAndResetTickerCount(
                    ERROR_HANDLER_BG_IO_ERROR_COUNT));
+  s = dbfull()->TEST_GetBGError();
+  ASSERT_OK(s);
 
   TryReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_EQ("val", Get(Key(0)));
