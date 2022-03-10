@@ -8,10 +8,27 @@
 In order to finally yield the output of benchmark tests.
 '''
 
+from collections import namedtuple
 import sys
-from typing import Callable, List
+from typing import Callable, List, Mapping
 import circleci.api
 import requests
+
+
+class TupleObject:
+
+    def mapper(mapping):
+        '''
+        Convert mappings to namedtuples recursively.
+        https://gist.github.com/hangtwenty/5960435
+        '''
+        if isinstance(mapping, Mapping):
+            for key, value in list(mapping.items()):
+                mapping[key] = TupleObject.mapper(value)
+            return namedtuple(TupleObject.__name__, mapping.keys())(*mapping.values())
+        elif isinstance(mapping, list):
+            return [TupleObject.mapper(item) for item in mapping]
+        return mapping
 
 
 def api_v2_find_job() -> int:
@@ -53,30 +70,30 @@ class CircleAPIV2:
         params = {}
         result = []
         for i in range(NEXT_CALL_RANGE):
-            workflows = requests.get(
+            workflows_call = requests.get(
                 f"{self.service}/pipeline/{pipeline_id}/workflow", auth=self.auth, params=params)
-            workflows.raise_for_status()
-            json = workflows.json()
-            result = result + [item['id']
-                               for item in json['items'] if filter(item)]
-            if json['next_page_token'] == None:
+            workflows_call.raise_for_status()
+            workflows = TupleObject.mapper(workflows_call.json())
+            result = result + [item.id
+                               for item in workflows.items if filter(item)]
+            if workflows.next_page_token == None:
                 break
-            params = {'page-token': json['next_page_token']}
+            params = {'page-token': workflows.next_page_token}
         return result
 
     def get_pipeline_ids(self, filter: Callable) -> List[str]:
         params = {}
         result = []
         for i in range(NEXT_CALL_RANGE):
-            pipelines = requests.get(
+            pipelines_call = requests.get(
                 f"{self.service}/project/{self.slug}/pipeline", auth=self.auth, params=params)
-            pipelines.raise_for_status()
-            json = pipelines.json()
-            result = result + [item['id']
-                               for item in json['items'] if filter(item)]
-            if json['next_page_token'] == None:
+            pipelines_call.raise_for_status()
+            pipelines = TupleObject.mapper(pipelines_call.json())
+            result = result + [item.id
+                               for item in pipelines.items if filter(item)]
+            if pipelines.next_page_token == None:
                 break
-            params = {'page-token': json['next_page_token']}
+            params = {'page-token': pipelines.next_page_token}
 
         return result
 
@@ -84,15 +101,15 @@ class CircleAPIV2:
         params = {}
         result = []
         for i in range(NEXT_CALL_RANGE):
-            jobs = requests.get(
+            jobs_call = requests.get(
                 f"{self.service}/workflow/{workflow_id}/job", auth=self.auth, params=params)
-            jobs.raise_for_status()
-            json = jobs.json()
-            result = result + [item['job_number']
-                               for item in json['items']]
-            if json['next_page_token'] == None:
+            jobs_call.raise_for_status()
+            jobs = TupleObject.mapper(jobs_call.json())
+            result = result + [item.job_number
+                               for item in jobs.items]
+            if jobs.next_page_token == None:
                 break
-            params = {'page-token': json['next_page_token']}
+            params = {'page-token': jobs.next_page_token}
 
         return result
 
@@ -100,20 +117,28 @@ class CircleAPIV2:
 def is_my_pull_request(pipeline):
     '''TODO AP'''
     try:
-        return pipeline['vcs']['branch'] == "pull/9676"
+        return pipeline.vcs.branch == "pull/9676"
     except KeyError:
         return False
 
 
 def is_benchmark_linux(step):
-    return step['name'] == "benchmark-linux"
+    return step.name == "benchmark-linux"
 
 
 def always_true(x):
     return True
 
 
+def flatten(ll):
+    return [item for l in ll for item in l]
+
+
 class CircleAPIV1:
+    '''
+    Class to do some things tht still onlly appear possible through the legacy V1 CircleCI API
+    '''
+
     def __init__(self, user_id: str, vcs: str, username: str, project: str) -> None:
         '''Configure with a CircleCI user id, and the vcs, username, project, e.g. github, facebook, rocksdb
         '''
@@ -143,20 +168,14 @@ class CircleAPIV1:
         return self.get_log_action_output_url(job_number, "Output logs as MIME")
 
 
-def flatten(ll):
-    return [item for l in ll for item in l]
-
-
 def main():
     # track down the job number
     api_v1 = CircleAPIV1(user_id="e7d4aab13e143360f95e258be0a89b5c8e256773",
                          vcs="github", username="facebook", project="rocksdb")
     api_v2 = CircleAPIV2(user_id="e7d4aab13e143360f95e258be0a89b5c8e256773",
                          vcs="github", username="facebook", project="rocksdb")
-    #job_number = api_v2_find_job()
-    # job number can be got from the v2 API
-    # api_v1_get_log_mime_url(job_number=317985)
-    log_mime_url = api_v1.get_log_mime_url(job_number=317985)
+    # TODO AP
+    #log_mime_url = api_v1.get_log_mime_url(job_number=317985)
     pipeline_ids = api_v2.get_pipeline_ids(filter=is_my_pull_request)
     workflows = flatten([api_v2.get_workflow_items(
         pipeline_id, filter=is_benchmark_linux) for pipeline_id in pipeline_ids])
