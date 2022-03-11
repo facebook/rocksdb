@@ -2297,11 +2297,6 @@ void rocksdb_block_based_options_set_data_block_hash_ratio(
   options->rep.data_block_hash_table_util_ratio = v;
 }
 
-void rocksdb_block_based_options_set_hash_index_allow_collision(
-    rocksdb_block_based_table_options_t* options, unsigned char v) {
-  options->rep.hash_index_allow_collision = v;
-}
-
 void rocksdb_block_based_options_set_cache_index_and_filter_blocks(
     rocksdb_block_based_table_options_t* options, unsigned char v) {
   options->rep.cache_index_and_filter_blocks = v;

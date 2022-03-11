@@ -6421,12 +6421,18 @@ TEST_P(TransactionTest, OpenAndEnableU64Timestamp) {
   cf_opts.comparator = test::BytewiseComparatorWithU64TsWrapper();
   {
     ColumnFamilyHandle* cfh = nullptr;
-    ASSERT_TRUE(
-        db->CreateColumnFamily(cf_opts, test_cf_name, &cfh).IsNotSupported());
+    const Status s = db->CreateColumnFamily(cf_opts, test_cf_name, &cfh);
+    if (txn_db_options.write_policy == WRITE_COMMITTED) {
+      ASSERT_OK(s);
+      delete cfh;
+    } else {
+      ASSERT_TRUE(s.IsNotSupported());
+      assert(!cfh);
+    }
   }
 
   // Bypass transaction db layer.
-  {
+  if (txn_db_options.write_policy != WRITE_COMMITTED) {
     DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
     assert(db_impl);
     ColumnFamilyHandle* cfh = nullptr;
@@ -6439,7 +6445,15 @@ TEST_P(TransactionTest, OpenAndEnableU64Timestamp) {
     cf_descs.emplace_back(kDefaultColumnFamilyName, options);
     cf_descs.emplace_back(test_cf_name, cf_opts);
     std::vector<ColumnFamilyHandle*> handles;
-    ASSERT_TRUE(ReOpenNoDelete(cf_descs, &handles).IsNotSupported());
+    const Status s = ReOpenNoDelete(cf_descs, &handles);
+    if (txn_db_options.write_policy == WRITE_COMMITTED) {
+      ASSERT_OK(s);
+      for (auto* h : handles) {
+        delete h;
+      }
+    } else {
+      ASSERT_TRUE(s.IsNotSupported());
+    }
   }
 }
 

@@ -21,7 +21,6 @@
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/trace_record.h"
 #include "rocksdb/trace_record_result.h"
-#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/replayer.h"
 #include "rocksdb/wal_filter.h"
 #include "test_util/testutil.h"
@@ -6909,126 +6908,18 @@ TEST_F(DBTest2, LastLevelStatistics) {
             options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
 }
 
-class FileTemperatureTestFS : public FileSystemWrapper {
- public:
-  explicit FileTemperatureTestFS(SpecialEnv* env)
-      : FileSystemWrapper(env->GetFileSystem()) {}
+TEST_F(DBTest2, CheckpointFileTemperature) {
+  class NoLinkTestFS : public FileTemperatureTestFS {
+    using FileTemperatureTestFS::FileTemperatureTestFS;
 
-  static const char* kClassName() { return "TestFileSystem"; }
-  const char* Name() const override { return kClassName(); }
-
-  IOStatus NewSequentialFile(const std::string& fname, const FileOptions& opts,
-                             std::unique_ptr<FSSequentialFile>* result,
-                             IODebugContext* dbg) override {
-    auto filename = GetFileName(fname);
-    uint64_t number;
-    FileType type;
-    auto r = ParseFileName(filename, &number, &type);
-    assert(r);
-    if (type == kTableFile) {
-      auto emplaced =
-          requested_sst_file_temperatures_.emplace(number, opts.temperature);
-      assert(emplaced.second);  // assume no duplication
-    }
-    return target()->NewSequentialFile(fname, opts, result, dbg);
-  }
-
-  IOStatus LinkFile(const std::string& s, const std::string& t,
-                    const IOOptions& options, IODebugContext* dbg) override {
-    auto filename = GetFileName(s);
-    uint64_t number;
-    FileType type;
-    auto r = ParseFileName(filename, &number, &type);
-    assert(r);
-    // return not supported to force checkpoint copy the file instead of just
-    // link
-    if (type == kTableFile) {
+    IOStatus LinkFile(const std::string&, const std::string&, const IOOptions&,
+                      IODebugContext*) override {
+      // return not supported to force checkpoint copy the file instead of just
+      // link
       return IOStatus::NotSupported();
     }
-    return target()->LinkFile(s, t, options, dbg);
-  }
-
-  const std::map<uint64_t, Temperature>& RequestedSstFileTemperatures() {
-    return requested_sst_file_temperatures_;
-  }
-
-  void ClearRequestedFileTemperatures() {
-    requested_sst_file_temperatures_.clear();
-  }
-
- private:
-  std::map<uint64_t, Temperature> requested_sst_file_temperatures_;
-
-  std::string GetFileName(const std::string& fname) {
-    auto filename = fname.substr(fname.find_last_of(kFilePathSeparator) + 1);
-    // workaround only for Windows that the file path could contain both Windows
-    // FilePathSeparator and '/'
-    filename = filename.substr(filename.find_last_of('/') + 1);
-    return filename;
-  }
-};
-
-TEST_F(DBTest2, BackupFileTemperature) {
-  std::shared_ptr<FileTemperatureTestFS> test_fs =
-      std::make_shared<FileTemperatureTestFS>(env_);
-  std::unique_ptr<Env> backup_env(new CompositeEnvWrapper(env_, test_fs));
-  Options options = CurrentOptions();
-  options.bottommost_temperature = Temperature::kWarm;
-  options.level0_file_num_compaction_trigger = 2;
-  Reopen(options);
-
-  // generate a bottommost file and a non-bottommost file
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(Put("bar", "bar"));
-  ASSERT_OK(Flush());
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(Put("bar", "bar"));
-  ASSERT_OK(Flush());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(Put("bar", "bar"));
-  ASSERT_OK(Flush());
-  auto size = GetSstSizeHelper(Temperature::kWarm);
-  ASSERT_GT(size, 0);
-
-  std::map<uint64_t, Temperature> temperatures;
-  std::vector<LiveFileStorageInfo> infos;
-  ASSERT_OK(
-      dbfull()->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(), &infos));
-  for (auto info : infos) {
-    temperatures.emplace(info.file_number, info.temperature);
-  }
-
-  std::unique_ptr<BackupEngine> backup_engine;
-  {
-    BackupEngine* backup_engine_raw_ptr;
-    auto backup_options = BackupEngineOptions(
-        dbname_ + kFilePathSeparator + "tempbk", backup_env.get());
-    ASSERT_OK(BackupEngine::Open(backup_env.get(), backup_options,
-                                 &backup_engine_raw_ptr));
-    backup_engine.reset(backup_engine_raw_ptr);
-  }
-  ASSERT_OK(backup_engine->CreateNewBackup(db_));
-
-  // checking src file src_temperature hints: 2 sst files: 1 sst is kWarm,
-  // another is kUnknown
-  auto file_temperatures = test_fs->RequestedSstFileTemperatures();
-  ASSERT_EQ(file_temperatures.size(), 2);
-  bool has_only_one_warm_sst = false;
-  for (const auto& file_temperature : file_temperatures) {
-    ASSERT_EQ(temperatures.at(file_temperature.first), file_temperature.second);
-    if (file_temperature.second == Temperature::kWarm) {
-      ASSERT_FALSE(has_only_one_warm_sst);
-      has_only_one_warm_sst = true;
-    }
-  }
-  ASSERT_TRUE(has_only_one_warm_sst);
-  Close();
-}
-
-TEST_F(DBTest2, CheckpointFileTemperature) {
-  std::shared_ptr<FileTemperatureTestFS> test_fs =
-      std::make_shared<FileTemperatureTestFS>(env_);
+  };
+  auto test_fs = std::make_shared<NoLinkTestFS>(env_->GetFileSystem());
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, test_fs));
   Options options = CurrentOptions();
   options.bottommost_temperature = Temperature::kWarm;

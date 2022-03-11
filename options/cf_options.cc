@@ -441,6 +441,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, bottommost_compression),
           OptionType::kCompressionType, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"compression_per_level",
+         OptionTypeInfo::Vector<CompressionType>(
+             offsetof(struct MutableCFOptions, compression_per_level),
+             OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+             {0, OptionType::kCompressionType})},
         {kOptNameCompOpts,
          OptionTypeInfo::Struct(
              kOptNameCompOpts, &compression_options_type_info,
@@ -548,11 +553,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"rate_limit_delay_max_milliseconds",
          {0, OptionType::kUInt, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
-        {"compression_per_level",
-         OptionTypeInfo::Vector<CompressionType>(
-             offsetof(struct ImmutableCFOptions, compression_per_level),
-             OptionVerificationType::kNormal, OptionTypeFlags::kNone,
-             {0, OptionType::kCompressionType})},
         {"comparator",
          OptionTypeInfo::AsCustomRawPtr<const Comparator>(
              offsetof(struct ImmutableCFOptions, user_comparator),
@@ -849,7 +849,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       table_properties_collector_factories(
           cf_options.table_properties_collector_factories),
       bloom_locality(cf_options.bloom_locality),
-      compression_per_level(cf_options.compression_per_level),
       level_compaction_dynamic_level_bytes(
           cf_options.level_compaction_dynamic_level_bytes),
       num_levels(cf_options.num_levels),

@@ -36,6 +36,7 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
 #include "rocksjni/comparatorjnicallback.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/event_listener_jnicallback.h"
 #include "rocksjni/loggerjnicallback.h"
 #include "rocksjni/table_filter_jnicallback.h"
@@ -120,7 +121,8 @@ template<class PTR, class DERIVED> class NativeRocksMutableObject
       return true;  // signal exception
     }
 
-    env->CallVoidMethod(jobj, mid, reinterpret_cast<jlong>(ptr), java_owns_handle);
+    env->CallVoidMethod(jobj, mid, GET_CPLUSPLUS_POINTER(ptr),
+                        java_owns_handle);
     if(env->ExceptionCheck()) {
       return true;  // signal exception
     }
@@ -2243,9 +2245,9 @@ class JniUtil {
         jboolean *has_exception) {
       const jsize len = static_cast<jsize>(pointers.size());
       std::unique_ptr<jlong[]> results(new jlong[len]);
-      std::transform(pointers.begin(), pointers.end(), results.get(), [](T* pointer) -> jlong {
-        return reinterpret_cast<jlong>(pointer);
-      });
+      std::transform(
+          pointers.begin(), pointers.end(), results.get(),
+          [](T* pointer) -> jlong { return GET_CPLUSPLUS_POINTER(pointer); });
 
       jlongArray jpointers = env->NewLongArray(len);
       if (jpointers == nullptr) {
@@ -2785,7 +2787,7 @@ class ColumnFamilyOptionsJni
       return nullptr;
     }
 
-    jobject jcfd = env->NewObject(jclazz, mid, reinterpret_cast<jlong>(cfo));
+    jobject jcfd = env->NewObject(jclazz, mid, GET_CPLUSPLUS_POINTER(cfo));
     if (env->ExceptionCheck()) {
       return nullptr;
     }
@@ -2871,7 +2873,7 @@ class WriteBatchJni
       return nullptr;
     }
 
-    jobject jwb = env->NewObject(jclazz, mid, reinterpret_cast<jlong>(wb));
+    jobject jwb = env->NewObject(jclazz, mid, GET_CPLUSPLUS_POINTER(wb));
     if (env->ExceptionCheck()) {
       return nullptr;
     }
@@ -3496,7 +3498,7 @@ class ColumnFamilyHandleJni
     assert(jclazz != nullptr);
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
-    return env->NewObject(jclazz, ctor, reinterpret_cast<jlong>(info));
+    return env->NewObject(jclazz, ctor, GET_CPLUSPLUS_POINTER(info));
   }
 
   static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
@@ -8327,7 +8329,7 @@ class CompactionJobInfoJni : public JavaClass {
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
     return env->NewObject(jclazz, ctor,
-                          reinterpret_cast<jlong>(compaction_job_info));
+                          GET_CPLUSPLUS_POINTER(compaction_job_info));
   }
 
   static jclass getJClass(JNIEnv* env) {

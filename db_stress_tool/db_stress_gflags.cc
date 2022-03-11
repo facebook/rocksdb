@@ -550,6 +550,12 @@ DEFINE_bool(rate_limit_user_ops, false,
             "When true use Env::IO_USER priority level to charge internal rate "
             "limiter for reads associated with user operations.");
 
+DEFINE_bool(rate_limit_auto_wal_flush, false,
+            "When true use Env::IO_USER priority level to charge internal rate "
+            "limiter for automatic WAL flush (`Options::manual_wal_flush` == "
+            "false) after the user "
+            "write operation.");
+
 DEFINE_uint64(sst_file_manager_bytes_per_sec, 0,
               "Set `Options::sst_file_manager` to delete at this rate. By "
               "default the deletion rate is unbounded.");

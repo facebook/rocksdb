@@ -687,7 +687,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   Status s;
   if (out_handle != nullptr) {
     if (handle == nullptr) {
-      s = Status::Incomplete("Insert failed due to LRU cache being full.");
+      s = Status::Incomplete("Insert failed due to CLOCK cache being full.");
     } else {
       *out_handle = reinterpret_cast<Cache::Handle*>(handle);
     }
