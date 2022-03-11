@@ -45,12 +45,9 @@ Status WideColumnSerialization::Serialize(const ColumnDescs& column_descs,
 Status WideColumnSerialization::DeserializeOne(Slice* input,
                                                const Slice& column_name,
                                                ColumnDesc* column_desc) {
-  assert(input);
-  assert(column_desc);
-
   ColumnDescs all_column_descs;
 
-  const Status s = DeserializeAll(input, &all_column_descs);
+  const Status s = DeserializeIndex(input, &all_column_descs);
   if (!s.ok()) {
     return s;
   }
@@ -70,7 +67,12 @@ Status WideColumnSerialization::DeserializeOne(Slice* input,
 }
 
 Status WideColumnSerialization::DeserializeAll(Slice* input,
-                                            ColumnDescs* column_descs) {
+                                               ColumnDescs* column_descs) {
+  return DeserializeIndex(input, column_descs);
+}
+
+Status WideColumnSerialization::DeserializeIndex(Slice* input,
+                                                 ColumnDescs* column_descs) {
   assert(input);
   assert(column_descs);
 

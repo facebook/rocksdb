@@ -25,6 +25,9 @@ class WideColumnSerialization {
   static Status DeserializeOne(Slice* input, const Slice& column_name,
                                ColumnDesc* column_desc);
   static Status DeserializeAll(Slice* input, ColumnDescs* column_descs);
+
+ private:
+  static Status DeserializeIndex(Slice* input, ColumnDescs* column_descs);
 };
 
 }  // namespace ROCKSDB_NAMESPACE
