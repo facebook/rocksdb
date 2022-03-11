@@ -2030,7 +2030,7 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
   std::unique_ptr<SequentialFileReader> src_reader;
   std::unique_ptr<char[]> buf;
   if (!src.empty()) {
-    // Return back actual current temperature
+    // Return back current temperature in FileSystem
     *src_temperature = src_file->GetTemperature();
 
     src_reader.reset(new SequentialFileReader(std::move(src_file), src));

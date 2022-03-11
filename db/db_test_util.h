@@ -740,26 +740,26 @@ class FileTemperatureTestFS : public FileSystemWrapper {
       MutexLock lock(&mu_);
       fprintf(stderr, "Write %d -> temp %d\n", (int)number,
               (int)opts.temperature);
-      actual_sst_file_temperatures_[number] = opts.temperature;
+      current_sst_file_temperatures_[number] = opts.temperature;
     }
     return target()->NewWritableFile(fname, opts, result, dbg);
   }
 
-  void CopyActualSstFileTemperatures(std::map<uint64_t, Temperature>* out) {
+  void CopyCurrentSstFileTemperatures(std::map<uint64_t, Temperature>* out) {
     MutexLock lock(&mu_);
-    *out = actual_sst_file_temperatures_;
+    *out = current_sst_file_temperatures_;
   }
 
   void OverrideSstFileTemperature(uint64_t number, Temperature temp) {
     MutexLock lock(&mu_);
-    actual_sst_file_temperatures_[number] = temp;
+    current_sst_file_temperatures_[number] = temp;
   }
 
  protected:
   port::Mutex mu_;
   std::vector<std::pair<uint64_t, Temperature>>
       requested_sst_file_temperatures_;
-  std::map<uint64_t, Temperature> actual_sst_file_temperatures_;
+  std::map<uint64_t, Temperature> current_sst_file_temperatures_;
 
   std::string GetFileName(const std::string& fname) {
     auto filename = fname.substr(fname.find_last_of(kFilePathSeparator) + 1);
@@ -780,7 +780,7 @@ class FileTemperatureTestFS : public FileSystemWrapper {
 
       Temperature GetTemperature() const override {
         MutexLock lock(&fs_->mu_);
-        return fs_->actual_sst_file_temperatures_[number_];
+        return fs_->current_sst_file_temperatures_[number_];
       }
 
      private:

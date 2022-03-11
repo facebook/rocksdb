@@ -4066,10 +4066,10 @@ TEST_F(BackupEngineTest, FileTemperatures) {
   ASSERT_EQ(manifest_temp_counts[Temperature::kUnknown], 1);
 
   // Verify manifest temperatures match FS temperatures
-  std::map<uint64_t, Temperature> actual_temps;
-  my_db_fs->CopyActualSstFileTemperatures(&actual_temps);
+  std::map<uint64_t, Temperature> current_temps;
+  my_db_fs->CopyCurrentSstFileTemperatures(&current_temps);
   for (const auto& manifest_temp : manifest_temps) {
-    ASSERT_EQ(actual_temps[manifest_temp.first], manifest_temp.second);
+    ASSERT_EQ(current_temps[manifest_temp.first], manifest_temp.second);
   }
 
   // Try a few different things
@@ -4078,10 +4078,10 @@ TEST_F(BackupEngineTest, FileTemperatures) {
     std::map<uint64_t, Temperature> expected_temps = manifest_temps;
 
     if (i >= 2) {
-      // For iterations 2 & 3, override actual temperature of one file
+      // For iterations 2 & 3, override current temperature of one file
       // and vary which temperature is authoritative (current or manifest).
-      // For iterations 4 & 5, override actual temperature of both files
-      // but make sure an actual temperate always takes precedence over
+      // For iterations 4 & 5, override current temperature of both files
+      // but make sure an current temperate always takes precedence over
       // unknown regardless of current_temperatures_override_manifest setting.
       bool use_current = ((i % 2) == 1);
       engine_options_->current_temperatures_override_manifest = use_current;
@@ -4117,7 +4117,7 @@ TEST_F(BackupEngineTest, FileTemperatures) {
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
 
     // Verify requested temperatures against manifest temperatures (before
-    // backup finds out actual current temperatures)
+    // backup finds out current temperatures in FileSystem)
     std::vector<std::pair<uint64_t, Temperature>> requested_temps;
     my_db_fs->PopRequestedSstFileTemperatures(&requested_temps);
     // Two requests
@@ -4147,11 +4147,11 @@ TEST_F(BackupEngineTest, FileTemperatures) {
 
     // Verify restored FS temperatures match expectation
     // (FileTemperatureTestFS doesn't distinguish directories when reporting
-    // actual temperatures, just whatever SST was written or overridden last
+    // current temperatures, just whatever SST was written or overridden last
     // with that file number.)
-    my_db_fs->CopyActualSstFileTemperatures(&actual_temps);
+    my_db_fs->CopyCurrentSstFileTemperatures(&current_temps);
     for (const auto& expected_temp : expected_temps) {
-      ASSERT_EQ(actual_temps[expected_temp.first], expected_temp.second);
+      ASSERT_EQ(current_temps[expected_temp.first], expected_temp.second);
     }
 
     // Delete backup to force next backup to copy files
