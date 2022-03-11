@@ -1256,7 +1256,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
     // Random Read
     Random rnd(301 + attempt);
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "PosixRandomAccessFile::MultiRead:io_uring_result", [&](void* arg) {
+        "UpdateResults:io_uring_result", [&](void* arg) {
           if (attempt > 0) {
             // No failure in the first attempt.
             size_t& bytes_read = *static_cast<size_t*>(arg);
@@ -1326,7 +1326,7 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
     const int num_reads = rnd.Uniform(512) + 1;
 
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "PosixRandomAccessFile::MultiRead:io_uring_result", [&](void* arg) {
+        "UpdateResults:io_uring_result", [&](void* arg) {
           if (attempt > 5) {
             // Improve partial result rates in second half of the run to
             // cover the case of repeated partial results.
@@ -3203,10 +3203,11 @@ IOStatus ReadAsyncRandomAccessFile::ReadAsync(
 
   // Submit read request asynchronously.
   std::function<void(FSReadRequest)> submit_request =
-      [&opts, cb, cb_arg, io_handle, del_fn, dbg, create_io_error,
-       this](FSReadRequest _req) {
+      [&opts, cb, cb_arg, dbg, create_io_error, this](FSReadRequest _req) {
         if (!create_io_error) {
-          target()->ReadAsync(_req, opts, cb, cb_arg, io_handle, del_fn, dbg);
+          _req.status = target()->Read(_req.offset, _req.len, opts,
+                                       &(_req.result), _req.scratch, dbg);
+          cb(_req, cb_arg);
         }
       };
 
