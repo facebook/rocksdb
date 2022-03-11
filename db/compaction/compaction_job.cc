@@ -1365,10 +1365,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<InternalIterator> raw_input(
       versions_->MakeInputIterator(read_options, sub_compact->compaction,
                                    &range_del_agg, file_options_for_read_));
-  if (cfd->user_comparator()->timestamp_size() > 0 && !trim_ts_.empty()) {
-    raw_input.reset(new HistoryTrimmingIterator(
-        std::move(raw_input), cfd->user_comparator(), trim_ts_));
-  }
   InternalIterator* input = raw_input.get();
 
   IterKey start_ikey;
@@ -1387,19 +1383,28 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   std::unique_ptr<InternalIterator> clip;
   if (start || end) {
-    clip.reset(new ClippingIterator(
+    clip = std::make_unique<ClippingIterator>(
         raw_input.get(), start ? &start_slice : nullptr,
-        end ? &end_slice : nullptr, &cfd->internal_comparator()));
+        end ? &end_slice : nullptr, &cfd->internal_comparator());
     input = clip.get();
   }
 
   std::unique_ptr<InternalIterator> blob_counter;
 
   if (sub_compact->compaction->DoesInputReferenceBlobFiles()) {
-    sub_compact->blob_garbage_meter.reset(new BlobGarbageMeter);
-    blob_counter.reset(
-        new BlobCountingIterator(input, sub_compact->blob_garbage_meter.get()));
+    sub_compact->blob_garbage_meter = std::make_unique<BlobGarbageMeter>();
+    blob_counter = std::make_unique<BlobCountingIterator>(
+        input, sub_compact->blob_garbage_meter.get());
     input = blob_counter.get();
+  }
+
+  std::unique_ptr<InternalIterator> trim_history_iter;
+  if (cfd->user_comparator()->timestamp_size() > 0 && !trim_ts_.empty()) {
+    trim_history_iter = std::make_unique<HistoryTrimmingIterator>(
+        std::move(raw_input), cfd->user_comparator(), trim_ts_);
+    input = trim_history_iter.get();
+    // raw_input has been moved.
+    assert(!raw_input);
   }
 
   input->SeekToFirst();
