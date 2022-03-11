@@ -42,6 +42,33 @@ Status WideColumnSerialization::Serialize(const ColumnDescs& column_descs,
   return Status::OK();
 }
 
+Status WideColumnSerialization::DeserializeOne(Slice* input,
+                                               const Slice& column_name,
+                                               ColumnDesc* column_desc) {
+  assert(input);
+  assert(column_desc);
+
+  ColumnDescs all_column_descs;
+
+  const Status s = DeserializeAll(input, &all_column_descs);
+  if (!s.ok()) {
+    return s;
+  }
+
+  auto it = std::lower_bound(all_column_descs.cbegin(), all_column_descs.cend(),
+                             column_name,
+                             [](const ColumnDesc& lhs, const Slice& rhs) {
+                               return lhs.first.compare(rhs) < 0;
+                             });
+  if (it == all_column_descs.end() || it->first != column_name) {
+    return Status::NotFound("Column not found");
+  }
+
+  *column_desc = *it;
+
+  return Status::OK();
+}
+
 Status WideColumnSerialization::DeserializeAll(Slice* input,
                                             ColumnDescs* column_descs) {
   assert(input);
@@ -72,6 +99,10 @@ Status WideColumnSerialization::DeserializeAll(Slice* input,
     uint32_t value_size = 0;
     if (!GetFixed32(input, &value_size)) {
       return Status::Corruption("Error decoding column value size");
+    }
+
+    if (pos + name_size + value_size > orig_input.size()) {
+      return Status::Corruption("Invalid column name/value size");
     }
 
     Slice column_name(orig_input.data() + pos, name_size);

@@ -22,7 +22,9 @@ class WideColumnSerialization {
   using ColumnDescs = std::vector<ColumnDesc>;
 
   static Status Serialize(const ColumnDescs& column_descs, std::string* output);
-  static Status Deserialize(Slice* input, ColumnDescs* column_descs);
+  static Status DeserializeOne(Slice* input, const Slice& column_name,
+                               ColumnDesc* column_desc);
+  static Status DeserializeAll(Slice* input, ColumnDescs* column_descs);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

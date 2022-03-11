@@ -16,11 +16,42 @@ TEST(WideColumnSerializationTest, Serialize) {
 
   ASSERT_OK(WideColumnSerialization::Serialize(column_descs, &output));
 
-  Slice input(output);
-  WideColumnSerialization::ColumnDescs deserialized_descs;
+  {
+    Slice input(output);
+    WideColumnSerialization::ColumnDescs deserialized_descs;
 
-  ASSERT_OK(WideColumnSerialization::Deserialize(&input, &deserialized_descs));
-  ASSERT_EQ(column_descs, deserialized_descs);
+    ASSERT_OK(
+        WideColumnSerialization::DeserializeAll(&input, &deserialized_descs));
+    ASSERT_EQ(column_descs, deserialized_descs);
+  }
+
+  {
+    Slice input(output);
+    WideColumnSerialization::ColumnDesc deserialized_desc;
+
+    ASSERT_OK(WideColumnSerialization::DeserializeOne(&input, "foo",
+                                                      &deserialized_desc));
+    ASSERT_EQ(deserialized_desc,
+              WideColumnSerialization::ColumnDesc("foo", "bar"));
+  }
+
+  {
+    Slice input(output);
+    WideColumnSerialization::ColumnDesc deserialized_desc;
+
+    ASSERT_OK(WideColumnSerialization::DeserializeOne(&input, "hello",
+                                                      &deserialized_desc));
+    ASSERT_EQ(deserialized_desc,
+              WideColumnSerialization::ColumnDesc("hello", "world"));
+  }
+
+  {
+    Slice input(output);
+    WideColumnSerialization::ColumnDesc deserialized_desc;
+
+    ASSERT_NOK(WideColumnSerialization::DeserializeOne(&input, "snafu",
+                                                       &deserialized_desc));
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
