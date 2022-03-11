@@ -16,9 +16,9 @@ namespace ROCKSDB_NAMESPACE {
 
 class HistoryTrimmingIterator : public InternalIterator {
  public:
-  explicit HistoryTrimmingIterator(std::unique_ptr<InternalIterator>&& input,
+  explicit HistoryTrimmingIterator(InternalIterator* input,
                                    const Comparator* cmp, const std::string& ts)
-      : input_(std::move(input)), filter_ts_(ts), cmp_(cmp) {
+      : input_(input), filter_ts_(ts), cmp_(cmp) {
     assert(cmp_->timestamp_size() > 0 && !ts.empty());
   }
 
@@ -83,7 +83,7 @@ class HistoryTrimmingIterator : public InternalIterator {
   bool IsValuePinned() const override { return input_->IsValuePinned(); }
 
  private:
-  std::unique_ptr<InternalIterator> input_;
+  InternalIterator* input_;
   const std::string filter_ts_;
   const Comparator* const cmp_;
 };
