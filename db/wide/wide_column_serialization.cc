@@ -23,19 +23,16 @@ Status WideColumnSerialization::Serialize(const ColumnDescs& column_descs,
 
   uint32_t pos = sizeof(uint16_t) + column_descs.size() * 3 * sizeof(uint32_t);
 
-  for (const auto& column_desc : column_descs) {
+  for (const auto& [column_name, column_value] : column_descs) {
     PutFixed32(output, pos);
-    PutFixed32(output, column_desc.first.size());
-    PutFixed32(output, column_desc.second.size());
+    PutFixed32(output, column_name.size());
+    PutFixed32(output, column_value.size());
 
-    pos += column_desc.first.size() + column_desc.second.size();
+    pos += column_name.size() + column_value.size();
   }
 
-  for (const auto& column_desc : column_descs) {
-    const auto& column_name = column_desc.first;
+  for (const auto& [column_name, column_value] : column_descs) {
     output->append(column_name.data(), column_name.size());
-
-    const auto& column_value = column_desc.second;
     output->append(column_value.data(), column_value.size());
   }
 
