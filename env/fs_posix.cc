@@ -1043,6 +1043,76 @@ class PosixFileSystem : public FileSystem {
   }
 #endif  // ROCKSDB_IOURING_PRESENT
 
+  // EXPERIMENTAL
+  //
+  // TODO akankshamahajan: Update Poll API to take into account min_completions
+  // and returns if number of handles in io_handles (any order) completed is
+  // equal to atleast min_completions.
+  virtual IOStatus Poll(std::vector<void*>& io_handles,
+                        size_t /*min_completions*/) override {
+#if defined(ROCKSDB_IOURING_PRESENT)
+    // io_uring_queue_init.
+    struct io_uring* iu = nullptr;
+    if (thread_local_io_urings_) {
+      iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
+    }
+
+    // Init failed, platform doesn't support io_uring.
+    if (iu == nullptr) {
+      return IOStatus::NotSupported("Poll");
+    }
+
+    for (size_t i = 0; i < io_handles.size(); i++) {
+      // The request has been completed in earlier runs.
+      if ((static_cast<Posix_IOHandle*>(io_handles[i]))->is_finished) {
+        continue;
+      }
+      // Loop until IO for io_handles[i] is completed.
+      while (true) {
+        // io_uring_wait_cqe.
+        struct io_uring_cqe* cqe = nullptr;
+        ssize_t ret = io_uring_wait_cqe(iu, &cqe);
+        if (ret) {
+          // abort as it shouldn't be in indeterminate state and there is no
+          // good way currently to handle this error.
+          abort();
+        }
+
+        // Step 3: Populate the request.
+        assert(cqe != nullptr);
+        Posix_IOHandle* posix_handle =
+            static_cast<Posix_IOHandle*>(io_uring_cqe_get_data(cqe));
+        assert(posix_handle->iu == iu);
+        if (posix_handle->iu != iu) {
+          return IOStatus::IOError("");
+        }
+        // Reset cqe data to catch any stray reuse of it
+        static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
+
+        FSReadRequest req;
+        req.scratch = posix_handle->scratch;
+        req.offset = posix_handle->offset;
+        req.len = posix_handle->len;
+        size_t finished_len = 0;
+        UpdateResult(cqe, "", req.len, posix_handle->iov.iov_len,
+                     true /*async_read*/, finished_len, &req);
+        posix_handle->is_finished = true;
+        io_uring_cqe_seen(iu, cqe);
+        posix_handle->cb(req, posix_handle->cb_arg);
+        (void)finished_len;
+
+        if (static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
+          break;
+        }
+      }
+    }
+    return IOStatus::OK();
+#else
+    (void)io_handles;
+    return IOStatus::NotSupported("Poll");
+#endif
+  }
+
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance
   std::unique_ptr<ThreadLocalPtr> thread_local_io_urings_;
