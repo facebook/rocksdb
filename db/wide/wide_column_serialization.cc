@@ -21,14 +21,14 @@ Status WideColumnSerialization::Serialize(const ColumnDescs& column_descs,
 
   PutFixed16(output, column_descs.size());
 
-  uint32_t pos = sizeof(uint16_t) + column_descs.size() * 2 * sizeof(uint32_t);
+  uint32_t pos = sizeof(uint16_t) + column_descs.size() * 3 * sizeof(uint32_t);
 
   for (const auto& column_desc : column_descs) {
     PutFixed32(output, pos);
-    pos += column_desc.first.size();
+    PutFixed32(output, column_desc.first.size());
+    PutFixed32(output, column_desc.second.size());
 
-    PutFixed32(output, pos);
-    pos += column_desc.second.size();
+    pos += column_desc.first.size() + column_desc.second.size();
   }
 
   for (const auto& column_desc : column_descs) {
@@ -42,7 +42,7 @@ Status WideColumnSerialization::Serialize(const ColumnDescs& column_descs,
   return Status::OK();
 }
 
-Status WideColumnSerialization::Deserialize(Slice* input,
+Status WideColumnSerialization::DeserializeAll(Slice* input,
                                             ColumnDescs* column_descs) {
   assert(input);
   assert(column_descs);
@@ -58,41 +58,26 @@ Status WideColumnSerialization::Deserialize(Slice* input,
     return Status::OK();
   }
 
-  uint32_t name_pos = 0;
-  if (!GetFixed32(input, &name_pos)) {
-    return Status::Corruption("Error decoding column name position");
-  }
-
   for (uint16_t i = 0; i < num_columns; ++i) {
-    uint32_t value_pos = 0;
-    if (!GetFixed32(input, &value_pos)) {
-      return Status::Corruption("Error decoding column value position");
+    uint32_t pos = 0;
+    if (!GetFixed32(input, &pos)) {
+      return Status::Corruption("Error decoding column position");
     }
 
-    if (value_pos < name_pos) {
-      return Status::Corruption("Invalid name/value position");
+    uint32_t name_size = 0;
+    if (!GetFixed32(input, &name_size)) {
+      return Status::Corruption("Error decoding column name size");
     }
 
-    uint32_t next_name_pos = 0;
-    if (i < num_columns - 1) {
-      if (!GetFixed32(input, &next_name_pos)) {
-        return Status::Corruption("Error decoding column name position");
-      }
-    } else {
-      next_name_pos = orig_input.size();
+    uint32_t value_size = 0;
+    if (!GetFixed32(input, &value_size)) {
+      return Status::Corruption("Error decoding column value size");
     }
 
-    if (next_name_pos < value_pos) {
-      return Status::Corruption("Invalid name/value position");
-    }
-
-    Slice column_name(orig_input.data() + name_pos, value_pos - name_pos);
-    Slice column_value(orig_input.data() + value_pos,
-                       next_name_pos - value_pos);
+    Slice column_name(orig_input.data() + pos, name_size);
+    Slice column_value(orig_input.data() + pos + name_size, value_size);
 
     column_descs->emplace_back(column_name, column_value);
-
-    name_pos = next_name_pos;
   }
 
   return Status::OK();

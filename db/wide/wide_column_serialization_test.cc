@@ -20,11 +20,7 @@ TEST(WideColumnSerializationTest, Serialize) {
   WideColumnSerialization::ColumnDescs deserialized_descs;
 
   ASSERT_OK(WideColumnSerialization::Deserialize(&input, &deserialized_descs));
-
-  ASSERT_TRUE(false) << deserialized_descs[0].first.ToString() << ':'
-                     << deserialized_descs[0].second.ToString() << ' '
-                     << deserialized_descs[1].first.ToString() << ':'
-                     << deserialized_descs[1].second.ToString();
+  ASSERT_EQ(column_descs, deserialized_descs);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
