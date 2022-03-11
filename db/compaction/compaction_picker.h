@@ -304,8 +304,7 @@ bool FindIntraL0Compaction(
     CompactionInputFiles* comp_inputs,
     SequenceNumber earliest_mem_seqno = kMaxSequenceNumber);
 
-CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
-                                   const VersionStorageInfo* vstorage,
+CompressionType GetCompressionType(const VersionStorageInfo* vstorage,
                                    const MutableCFOptions& mutable_cf_options,
                                    int level, int base_level,
                                    const bool enable_compression = true);

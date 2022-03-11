@@ -277,9 +277,9 @@ Compaction::~Compaction() {
 
 bool Compaction::InputCompressionMatchesOutput() const {
   int base_level = input_vstorage_->base_level();
-  bool matches = (GetCompressionType(immutable_options_, input_vstorage_,
-                                     mutable_cf_options_, start_level_,
-                                     base_level) == output_compression_);
+  bool matches =
+      (GetCompressionType(input_vstorage_, mutable_cf_options_, start_level_,
+                          base_level) == output_compression_);
   if (matches) {
     TEST_SYNC_POINT("Compaction::InputCompressionMatchesOutput:Matches");
     return true;

@@ -1374,6 +1374,140 @@ TEST_F(DBFlushTest, DISABLED_MemPurgeWALSupport) {
   } while (ChangeWalOptions());
 }
 
+TEST_F(DBFlushTest, MemPurgeCorrectLogNumberAndSSTFileCreation) {
+  // Before our bug fix, we noticed that when 2 memtables were
+  // being flushed (with one memtable being the output of a
+  // previous MemPurge and one memtable being a newly-sealed memtable),
+  // the SST file created was not properly added to the DB version
+  // (via the VersionEdit obj), leading to data loss (the SST file
+  // was later being purged as an obsolete file).
+  // Therefore, we reproduce this scenario to test our fix.
+  Options options = CurrentOptions();
+
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+
+  // Enforce size of a single MemTable to 1MB (64MB = 1048576 bytes).
+  options.write_buffer_size = 1 << 20;
+  // Activate the MemPurge prototype.
+  options.experimental_mempurge_threshold = 1.0;
+
+  // Force to have more than one memtable to trigger a flush.
+  // For some reason this option does not seem to be enforced,
+  // so the following test is designed to make sure that we
+  // are testing the correct test case.
+  options.min_write_buffer_number_to_merge = 3;
+  options.max_write_buffer_number = 5;
+  options.max_write_buffer_size_to_maintain = 2 * (options.write_buffer_size);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(TryReopen(options));
+
+  std::atomic<uint32_t> mempurge_count{0};
+  std::atomic<uint32_t> sst_count{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:MemPurgeSuccessful",
+      [&](void* /*arg*/) { mempurge_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:SSTFileCreated", [&](void* /*arg*/) { sst_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Dummy variable used for the following callback function.
+  uint64_t ZERO = 0;
+  // We will first execute mempurge operations exclusively.
+  // Therefore, when the first flush is triggered, we want to make
+  // sure there is at least 2 memtables being flushed: one output
+  // from a previous mempurge, and one newly sealed memtable.
+  // This is when we observed in the past that some SST files created
+  // were not properly added to the DB version (via the VersionEdit obj).
+  std::atomic<uint64_t> num_memtable_at_first_flush(0);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table:num_memtables", [&](void* arg) {
+        uint64_t* mems_size = reinterpret_cast<uint64_t*>(arg);
+        // atomic_compare_exchange_strong sometimes updates the value
+        // of ZERO (the "expected" object), so we make sure ZERO is indeed...
+        // zero.
+        ZERO = 0;
+        std::atomic_compare_exchange_strong(&num_memtable_at_first_flush, &ZERO,
+                                            *mems_size);
+      });
+
+  const std::vector<std::string> KEYS = {
+      "ThisIsKey1", "ThisIsKey2", "ThisIsKey3", "ThisIsKey4", "ThisIsKey5",
+      "ThisIsKey6", "ThisIsKey7", "ThisIsKey8", "ThisIsKey9"};
+  const std::string NOT_FOUND = "NOT_FOUND";
+
+  Random rnd(117);
+  const uint64_t NUM_REPEAT_OVERWRITES = 100;
+  const uint64_t NUM_RAND_INSERTS = 500;
+  const uint64_t RAND_VALUES_LENGTH = 10240;
+
+  std::string key, value;
+  std::vector<std::string> values(9, "");
+
+  // Keys used to check that no SST file disappeared.
+  for (uint64_t k = 0; k < 5; k++) {
+    values[k] = rnd.RandomString(RAND_VALUES_LENGTH);
+    ASSERT_OK(Put(KEYS[k], values[k]));
+  }
+
+  // Insertion of of K-V pairs, multiple times.
+  // Trigger at least one mempurge and no SST file creation.
+  for (size_t i = 0; i < NUM_REPEAT_OVERWRITES; i++) {
+    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    for (uint64_t k = 5; k < values.size(); k++) {
+      values[k] = rnd.RandomString(RAND_VALUES_LENGTH);
+      ASSERT_OK(Put(KEYS[k], values[k]));
+    }
+    // Check database consistency.
+    for (uint64_t k = 0; k < values.size(); k++) {
+      ASSERT_EQ(Get(KEYS[k]), values[k]);
+    }
+  }
+
+  // Check that there was at least one mempurge
+  uint32_t expected_min_mempurge_count = 1;
+  // Check that there was no SST files created during flush.
+  uint32_t expected_sst_count = 0;
+  EXPECT_GE(mempurge_count.load(), expected_min_mempurge_count);
+  EXPECT_EQ(sst_count.load(), expected_sst_count);
+
+  // Trigger an SST file creation and no mempurge.
+  for (size_t i = 0; i < NUM_RAND_INSERTS; i++) {
+    key = rnd.RandomString(RAND_VALUES_LENGTH);
+    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    value = rnd.RandomString(RAND_VALUES_LENGTH);
+    ASSERT_OK(Put(key, value));
+    // Check database consistency.
+    for (uint64_t k = 0; k < values.size(); k++) {
+      ASSERT_EQ(Get(KEYS[k]), values[k]);
+    }
+    ASSERT_EQ(Get(key), value);
+  }
+
+  // Check that there was at least one SST files created during flush.
+  expected_sst_count = 1;
+  EXPECT_GE(sst_count.load(), expected_sst_count);
+
+  // Oddly enough, num_memtable_at_first_flush is not enforced to be
+  // equal to min_write_buffer_number_to_merge. So by asserting that
+  // the first SST file creation comes from one output memtable
+  // from a previous mempurge, and one newly sealed memtable. This
+  // is the scenario where we observed that some SST files created
+  // were not properly added to the DB version before our bug fix.
+  ASSERT_GE(num_memtable_at_first_flush.load(), 2);
+
+  // Check that no data was lost after SST file creation.
+  for (uint64_t k = 0; k < values.size(); k++) {
+    ASSERT_EQ(Get(KEYS[k]), values[k]);
+  }
+  // Extra check of database consistency.
+  ASSERT_EQ(Get(key), value);
+
+  Close();
+}
+
 TEST_P(DBFlushDirectIOTest, DirectIO) {
   Options options;
   options.create_if_missing = true;

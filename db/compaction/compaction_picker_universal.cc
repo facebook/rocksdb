@@ -746,19 +746,19 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
   } else {
     compaction_reason = CompactionReason::kUniversalSortedRunNum;
   }
-  return new Compaction(
-      vstorage_, ioptions_, mutable_cf_options_, mutable_db_options_,
-      std::move(inputs), output_level,
-      MaxFileSizeForLevel(mutable_cf_options_, output_level,
-                          kCompactionStyleUniversal),
-      GetMaxOverlappingBytes(), path_id,
-      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_, start_level,
-                         1, enable_compression),
-      GetCompressionOptions(mutable_cf_options_, vstorage_, start_level,
-                            enable_compression),
-      Temperature::kUnknown,
-      /* max_subcompactions */ 0, grandparents, /* is manual */ false, score_,
-      false /* deletion_compaction */, compaction_reason);
+  return new Compaction(vstorage_, ioptions_, mutable_cf_options_,
+                        mutable_db_options_, std::move(inputs), output_level,
+                        MaxFileSizeForLevel(mutable_cf_options_, output_level,
+                                            kCompactionStyleUniversal),
+                        GetMaxOverlappingBytes(), path_id,
+                        GetCompressionType(vstorage_, mutable_cf_options_,
+                                           start_level, 1, enable_compression),
+                        GetCompressionOptions(mutable_cf_options_, vstorage_,
+                                              start_level, enable_compression),
+                        Temperature::kUnknown,
+                        /* max_subcompactions */ 0, grandparents,
+                        /* is manual */ false, score_,
+                        false /* deletion_compaction */, compaction_reason);
 }
 
 // Look at overall size amplification. If size amplification
@@ -1076,8 +1076,8 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
       MaxFileSizeForLevel(mutable_cf_options_, output_level,
                           kCompactionStyleUniversal),
       GetMaxOverlappingBytes(), path_id,
-      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
-                         output_level, 1, true /* enable_compression */),
+      GetCompressionType(vstorage_, mutable_cf_options_, output_level, 1,
+                         true /* enable_compression */),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level,
                             true /* enable_compression */),
       Temperature::kUnknown,
@@ -1220,8 +1220,7 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       MaxFileSizeForLevel(mutable_cf_options_, output_level,
                           kCompactionStyleUniversal),
       /* max_grandparent_overlap_bytes */ GetMaxOverlappingBytes(), path_id,
-      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
-                         output_level, 1),
+      GetCompressionType(vstorage_, mutable_cf_options_, output_level, 1),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level),
       Temperature::kUnknown,
       /* max_subcompactions */ 0, grandparents, /* is manual */ false, score_,
@@ -1294,8 +1293,8 @@ Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
       MaxFileSizeForLevel(mutable_cf_options_, output_level,
                           kCompactionStyleUniversal),
       GetMaxOverlappingBytes(), path_id,
-      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
-                         output_level, 1, true /* enable_compression */),
+      GetCompressionType(vstorage_, mutable_cf_options_, output_level, 1,
+                         true /* enable_compression */),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level,
                             true /* enable_compression */),
       Temperature::kUnknown,

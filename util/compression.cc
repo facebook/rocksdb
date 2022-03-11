@@ -41,10 +41,13 @@ StreamingUncompress* StreamingUncompress::Create(
 }
 
 int ZSTDStreamingCompress::Compress(const char* input, size_t input_size,
-                                    char* output, size_t* output_size) {
-  assert(input != nullptr && output != nullptr && input_size > 0 &&
-         output_size != nullptr);
-  *output_size = 0;
+                                    char* output, size_t* output_pos) {
+  assert(input != nullptr && output != nullptr && output_pos != nullptr);
+  *output_pos = 0;
+  // Don't need to compress an empty input
+  if (input_size == 0) {
+    return 0;
+  }
 #ifndef ZSTD_STREAMING
   (void)input;
   (void)input_size;
@@ -61,15 +64,15 @@ int ZSTDStreamingCompress::Compress(const char* input, size_t input_size,
   }
   ZSTD_outBuffer output_buffer = {output, max_output_len_, /*pos=*/0};
   const size_t remaining =
-      ZSTD_compressStream2(cctx_, &output_buffer, &input_buffer_, ZSTD_e_flush);
+      ZSTD_compressStream2(cctx_, &output_buffer, &input_buffer_, ZSTD_e_end);
   if (ZSTD_isError(remaining)) {
     // Failure
     Reset();
     return -1;
   }
   // Success
-  *output_size = output_buffer.pos;
-  return (int)(input_buffer_.size - input_buffer_.pos);
+  *output_pos = output_buffer.pos;
+  return (int)remaining;
 #endif
 }
 
@@ -81,10 +84,13 @@ void ZSTDStreamingCompress::Reset() {
 }
 
 int ZSTDStreamingUncompress::Uncompress(const char* input, size_t input_size,
-                                        char* output, size_t* output_size) {
-  assert(input != nullptr && output != nullptr && input_size > 0 &&
-         output_size != nullptr);
-  *output_size = 0;
+                                        char* output, size_t* output_pos) {
+  assert(input != nullptr && output != nullptr && output_pos != nullptr);
+  *output_pos = 0;
+  // Don't need to uncompress an empty input
+  if (input_size == 0) {
+    return 0;
+  }
 #ifdef ZSTD_STREAMING
   if (input_buffer_.src != input) {
     // New input
@@ -96,7 +102,7 @@ int ZSTDStreamingUncompress::Uncompress(const char* input, size_t input_size,
     Reset();
     return -1;
   }
-  *output_size = output_buffer.pos;
+  *output_pos = output_buffer.pos;
   return (int)(input_buffer_.size - input_buffer_.pos);
 #else
   (void)input;

@@ -170,8 +170,20 @@ void FlushJob::PickMemTable() {
   db_mutex_->AssertHeld();
   assert(!pick_memtable_called);
   pick_memtable_called = true;
+
+  // Maximum "NextLogNumber" of the memtables to flush.
+  // When mempurge feature is turned off, this variable is useless
+  // because the memtables are implicitly sorted by increasing order of creation
+  // time. Therefore mems_->back()->GetNextLogNumber() is already equal to
+  // max_next_log_number. However when Mempurge is on, the memtables are no
+  // longer sorted by increasing order of creation time. Therefore this variable
+  // becomes necessary because mems_->back()->GetNextLogNumber() is no longer
+  // necessarily equal to max_next_log_number.
+  uint64_t max_next_log_number = 0;
+
   // Save the contents of the earliest memtable as a new Table
-  cfd_->imm()->PickMemtablesToFlush(max_memtable_id_, &mems_);
+  cfd_->imm()->PickMemtablesToFlush(max_memtable_id_, &mems_,
+                                    &max_next_log_number);
   if (mems_.empty()) {
     return;
   }
@@ -186,7 +198,7 @@ void FlushJob::PickMemTable() {
   edit_->SetPrevLogNumber(0);
   // SetLogNumber(log_num) indicates logs with number smaller than log_num
   // will no longer be picked up for recovery.
-  edit_->SetLogNumber(mems_.back()->GetNextLogNumber());
+  edit_->SetLogNumber(max_next_log_number);
   edit_->SetColumnFamily(cfd_->GetID());
 
   // path 0 for level 0 file.
@@ -569,6 +581,7 @@ Status FlushJob::MemPurge() {
         uint64_t new_mem_id = mems_[0]->GetID();
 
         new_mem->SetID(new_mem_id);
+        new_mem->SetNextLogNumber(mems_[0]->GetNextLogNumber());
 
         // This addition will not trigger another flush, because
         // we do not call SchedulePendingFlush().
@@ -815,6 +828,12 @@ Status FlushJob::WriteLevel0Table() {
     uint64_t total_num_entries = 0, total_num_deletes = 0;
     uint64_t total_data_size = 0;
     size_t total_memory_usage = 0;
+    // Used for testing:
+    uint64_t mems_size = mems_.size();
+    (void)mems_size;  // avoids unused variable error when
+                      // TEST_SYNC_POINT_CALLBACK not used.
+    TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:num_memtables",
+                             &mems_size);
     for (MemTable* m : mems_) {
       ROCKS_LOG_INFO(
           db_options_.info_log,

@@ -382,13 +382,14 @@ Status DBImpl::FlushMemTablesToOutputFiles(
                      &earliest_write_conflict_snapshot, &snapshot_checker);
   const auto& bg_flush_arg = bg_flush_args[0];
   ColumnFamilyData* cfd = bg_flush_arg.cfd_;
-  MutableCFOptions mutable_cf_options = *cfd->GetLatestMutableCFOptions();
+  // intentional infrequent copy for each flush
+  MutableCFOptions mutable_cf_options_copy = *cfd->GetLatestMutableCFOptions();
   SuperVersionContext* superversion_context =
       bg_flush_arg.superversion_context_;
   Status s = FlushMemTableToOutputFile(
-      cfd, mutable_cf_options, made_progress, job_context, superversion_context,
-      snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
-      log_buffer, thread_pri);
+      cfd, mutable_cf_options_copy, made_progress, job_context,
+      superversion_context, snapshot_seqs, earliest_write_conflict_snapshot,
+      snapshot_checker, log_buffer, thread_pri);
   return s;
 }
 

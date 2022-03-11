@@ -25,6 +25,7 @@
 #include "util/string_util.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 #include "utilities/transactions/transaction_util.h"
+#include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -135,6 +136,274 @@ WriteCommittedTxn::WriteCommittedTxn(TransactionDB* txn_db,
                                      const TransactionOptions& txn_options)
     : PessimisticTransaction(txn_db, write_options, txn_options) {}
 
+Status WriteCommittedTxn::GetForUpdate(const ReadOptions& read_options,
+                                       ColumnFamilyHandle* column_family,
+                                       const Slice& key, std::string* value,
+                                       bool exclusive, const bool do_validate) {
+  return GetForUpdateImpl(read_options, column_family, key, value, exclusive,
+                          do_validate);
+}
+
+Status WriteCommittedTxn::GetForUpdate(const ReadOptions& read_options,
+                                       ColumnFamilyHandle* column_family,
+                                       const Slice& key,
+                                       PinnableSlice* pinnable_val,
+                                       bool exclusive, const bool do_validate) {
+  return GetForUpdateImpl(read_options, column_family, key, pinnable_val,
+                          exclusive, do_validate);
+}
+
+template <typename TValue>
+inline Status WriteCommittedTxn::GetForUpdateImpl(
+    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    const Slice& key, TValue* value, bool exclusive, const bool do_validate) {
+  column_family =
+      column_family ? column_family : db_impl_->DefaultColumnFamily();
+  assert(column_family);
+  if (!read_options.timestamp) {
+    const Comparator* const ucmp = column_family->GetComparator();
+    assert(ucmp);
+    size_t ts_sz = ucmp->timestamp_size();
+    if (0 == ts_sz) {
+      return TransactionBaseImpl::GetForUpdate(read_options, column_family, key,
+                                               value, exclusive, do_validate);
+    }
+  } else {
+    Status s = db_impl_->FailIfTsSizesMismatch(column_family,
+                                               *(read_options.timestamp));
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (!do_validate) {
+    return Status::InvalidArgument(
+        "If do_validate is false then GetForUpdate with read_timestamp is not "
+        "defined.");
+  } else if (kMaxTxnTimestamp == read_timestamp_) {
+    return Status::InvalidArgument("read_timestamp must be set for validation");
+  }
+
+  if (!read_options.timestamp) {
+    ReadOptions read_opts_copy = read_options;
+    char ts_buf[sizeof(kMaxTxnTimestamp)];
+    EncodeFixed64(ts_buf, read_timestamp_);
+    Slice ts(ts_buf, sizeof(ts_buf));
+    read_opts_copy.timestamp = &ts;
+    return TransactionBaseImpl::GetForUpdate(read_opts_copy, column_family, key,
+                                             value, exclusive, do_validate);
+  }
+  assert(read_options.timestamp);
+  const char* const ts_buf = read_options.timestamp->data();
+  assert(read_options.timestamp->size() == sizeof(kMaxTxnTimestamp));
+  TxnTimestamp ts = DecodeFixed64(ts_buf);
+  if (ts != read_timestamp_) {
+    return Status::InvalidArgument("Must read from the same read_timestamp");
+  }
+  return TransactionBaseImpl::GetForUpdate(read_options, column_family, key,
+                                           value, exclusive, do_validate);
+}
+
+Status WriteCommittedTxn::Put(ColumnFamilyHandle* column_family,
+                              const Slice& key, const Slice& value,
+                              const bool assume_tracked) {
+  const bool do_validate = !assume_tracked;
+  return Operate(column_family, key, do_validate, assume_tracked,
+                 [column_family, &key, &value, this]() {
+                   Status s =
+                       GetBatchForWrite()->Put(column_family, key, value);
+                   if (s.ok()) {
+                     ++num_puts_;
+                   }
+                   return s;
+                 });
+}
+
+Status WriteCommittedTxn::Put(ColumnFamilyHandle* column_family,
+                              const SliceParts& key, const SliceParts& value,
+                              const bool assume_tracked) {
+  const bool do_validate = !assume_tracked;
+  return Operate(column_family, key, do_validate, assume_tracked,
+                 [column_family, &key, &value, this]() {
+                   Status s =
+                       GetBatchForWrite()->Put(column_family, key, value);
+                   if (s.ok()) {
+                     ++num_puts_;
+                   }
+                   return s;
+                 });
+}
+
+Status WriteCommittedTxn::PutUntracked(ColumnFamilyHandle* column_family,
+                                       const Slice& key, const Slice& value) {
+  return Operate(
+      column_family, key, /*do_validate=*/false,
+      /*assume_tracked=*/false, [column_family, &key, &value, this]() {
+        Status s = GetBatchForWrite()->Put(column_family, key, value);
+        if (s.ok()) {
+          ++num_puts_;
+        }
+        return s;
+      });
+}
+
+Status WriteCommittedTxn::PutUntracked(ColumnFamilyHandle* column_family,
+                                       const SliceParts& key,
+                                       const SliceParts& value) {
+  return Operate(
+      column_family, key, /*do_validate=*/false,
+      /*assume_tracked=*/false, [column_family, &key, &value, this]() {
+        Status s = GetBatchForWrite()->Put(column_family, key, value);
+        if (s.ok()) {
+          ++num_puts_;
+        }
+        return s;
+      });
+}
+
+Status WriteCommittedTxn::Delete(ColumnFamilyHandle* column_family,
+                                 const Slice& key, const bool assume_tracked) {
+  const bool do_validate = !assume_tracked;
+  return Operate(column_family, key, do_validate, assume_tracked,
+                 [column_family, &key, this]() {
+                   Status s = GetBatchForWrite()->Delete(column_family, key);
+                   if (s.ok()) {
+                     ++num_deletes_;
+                   }
+                   return s;
+                 });
+}
+
+Status WriteCommittedTxn::Delete(ColumnFamilyHandle* column_family,
+                                 const SliceParts& key,
+                                 const bool assume_tracked) {
+  const bool do_validate = !assume_tracked;
+  return Operate(column_family, key, do_validate, assume_tracked,
+                 [column_family, &key, this]() {
+                   Status s = GetBatchForWrite()->Delete(column_family, key);
+                   if (s.ok()) {
+                     ++num_deletes_;
+                   }
+                   return s;
+                 });
+}
+
+Status WriteCommittedTxn::DeleteUntracked(ColumnFamilyHandle* column_family,
+                                          const Slice& key) {
+  return Operate(column_family, key, /*do_validate=*/false,
+                 /*assume_tracked=*/false, [column_family, &key, this]() {
+                   Status s = GetBatchForWrite()->Delete(column_family, key);
+                   if (s.ok()) {
+                     ++num_deletes_;
+                   }
+                   return s;
+                 });
+}
+
+Status WriteCommittedTxn::DeleteUntracked(ColumnFamilyHandle* column_family,
+                                          const SliceParts& key) {
+  return Operate(column_family, key, /*do_validate=*/false,
+                 /*assume_tracked=*/false, [column_family, &key, this]() {
+                   Status s = GetBatchForWrite()->Delete(column_family, key);
+                   if (s.ok()) {
+                     ++num_deletes_;
+                   }
+                   return s;
+                 });
+}
+
+Status WriteCommittedTxn::SingleDelete(ColumnFamilyHandle* column_family,
+                                       const Slice& key,
+                                       const bool assume_tracked) {
+  const bool do_validate = !assume_tracked;
+  return Operate(column_family, key, do_validate, assume_tracked,
+                 [column_family, &key, this]() {
+                   Status s =
+                       GetBatchForWrite()->SingleDelete(column_family, key);
+                   if (s.ok()) {
+                     ++num_deletes_;
+                   }
+                   return s;
+                 });
+}
+
+Status WriteCommittedTxn::SingleDelete(ColumnFamilyHandle* column_family,
+                                       const SliceParts& key,
+                                       const bool assume_tracked) {
+  const bool do_validate = !assume_tracked;
+  return Operate(column_family, key, do_validate, assume_tracked,
+                 [column_family, &key, this]() {
+                   Status s =
+                       GetBatchForWrite()->SingleDelete(column_family, key);
+                   if (s.ok()) {
+                     ++num_deletes_;
+                   }
+                   return s;
+                 });
+}
+
+Status WriteCommittedTxn::SingleDeleteUntracked(
+    ColumnFamilyHandle* column_family, const Slice& key) {
+  return Operate(column_family, key, /*do_validate=*/false,
+                 /*assume_tracked=*/false, [column_family, &key, this]() {
+                   Status s =
+                       GetBatchForWrite()->SingleDelete(column_family, key);
+                   if (s.ok()) {
+                     ++num_deletes_;
+                   }
+                   return s;
+                 });
+}
+
+Status WriteCommittedTxn::Merge(ColumnFamilyHandle* column_family,
+                                const Slice& key, const Slice& value,
+                                const bool assume_tracked) {
+  const bool do_validate = !assume_tracked;
+  return Operate(column_family, key, do_validate, assume_tracked,
+                 [column_family, &key, &value, this]() {
+                   Status s =
+                       GetBatchForWrite()->Merge(column_family, key, value);
+                   if (s.ok()) {
+                     ++num_merges_;
+                   }
+                   return s;
+                 });
+}
+
+template <typename TKey, typename TOperation>
+Status WriteCommittedTxn::Operate(ColumnFamilyHandle* column_family,
+                                  const TKey& key, const bool do_validate,
+                                  const bool assume_tracked,
+                                  TOperation&& operation) {
+  Status s;
+  if constexpr (std::is_same_v<Slice, TKey>) {
+    s = TryLock(column_family, key, /*read_only=*/false, /*exclusive=*/true,
+                do_validate, assume_tracked);
+  } else if constexpr (std::is_same_v<SliceParts, TKey>) {
+    std::string key_buf;
+    Slice contiguous_key(key, &key_buf);
+    s = TryLock(column_family, contiguous_key, /*read_only=*/false,
+                /*exclusive=*/true, do_validate, assume_tracked);
+  }
+  if (!s.ok()) {
+    return s;
+  }
+  column_family =
+      column_family ? column_family : db_impl_->DefaultColumnFamily();
+  assert(column_family);
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+  if (ts_sz > 0) {
+    assert(ts_sz == sizeof(TxnTimestamp));
+    if (!IndexingEnabled()) {
+      cfs_with_ts_tracked_when_indexing_disabled_.insert(
+          column_family->GetID());
+    }
+  }
+  return operation();
+}
+
 Status WriteCommittedTxn::SetReadTimestampForValidation(TxnTimestamp ts) {
   if (read_timestamp_ < kMaxTxnTimestamp && ts < read_timestamp_) {
     return Status::InvalidArgument(
@@ -154,6 +423,17 @@ Status WriteCommittedTxn::SetCommitTimestamp(TxnTimestamp ts) {
 }
 
 Status PessimisticTransaction::CommitBatch(WriteBatch* batch) {
+  if (batch && WriteBatchInternal::HasKeyWithTimestamp(*batch)) {
+    // CommitBatch() needs to lock the keys in the batch.
+    // However, the application also needs to specify the timestamp for the
+    // keys in batch before calling this API.
+    // This means timestamp order may violate the order of locking, thus
+    // violate the sequence number order for the same user key.
+    // Therefore, we disallow this operation for now.
+    return Status::NotSupported(
+        "Batch to commit includes timestamp assigned before locking");
+  }
+
   std::unique_ptr<LockTracker> keys_to_unlock(lock_tracker_factory_.Create());
   Status s = LockBatch(batch, keys_to_unlock.get());
 
@@ -369,9 +649,41 @@ Status PessimisticTransaction::Commit() {
 }
 
 Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
+  WriteBatchWithIndex* wbwi = GetWriteBatch();
+  assert(wbwi);
+  WriteBatch* wb = wbwi->GetWriteBatch();
+  assert(wb);
+
+  const bool needs_ts = WriteBatchInternal::HasKeyWithTimestamp(*wb);
+  if (needs_ts && commit_timestamp_ == kMaxTxnTimestamp) {
+    return Status::InvalidArgument("Must assign a commit timestamp");
+  }
+
+  if (needs_ts) {
+    assert(commit_timestamp_ != kMaxTxnTimestamp);
+    char commit_ts_buf[sizeof(kMaxTxnTimestamp)];
+    EncodeFixed64(commit_ts_buf, commit_timestamp_);
+    Slice commit_ts(commit_ts_buf, sizeof(commit_ts_buf));
+
+    Status s =
+        wb->UpdateTimestamps(commit_ts, [wbwi, this](uint32_t cf) -> size_t {
+          auto cf_iter = cfs_with_ts_tracked_when_indexing_disabled_.find(cf);
+          if (cf_iter != cfs_with_ts_tracked_when_indexing_disabled_.end()) {
+            return sizeof(kMaxTxnTimestamp);
+          }
+          const Comparator* ucmp =
+              WriteBatchWithIndexInternal::GetUserComparator(*wbwi, cf);
+          return ucmp ? ucmp->timestamp_size()
+                      : std::numeric_limits<uint64_t>::max();
+        });
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
   uint64_t seq_used = kMaxSequenceNumber;
   auto s =
-      db_impl_->WriteImpl(write_options_, GetWriteBatch()->GetWriteBatch(),
+      db_impl_->WriteImpl(write_options_, wb,
                           /*callback*/ nullptr, /*log_used*/ nullptr,
                           /*log_ref*/ 0, /*disable_memtable*/ false, &seq_used);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
@@ -394,11 +706,46 @@ Status WriteCommittedTxn::CommitBatchInternal(WriteBatch* batch, size_t) {
 }
 
 Status WriteCommittedTxn::CommitInternal() {
+  WriteBatchWithIndex* wbwi = GetWriteBatch();
+  assert(wbwi);
+  WriteBatch* wb = wbwi->GetWriteBatch();
+  assert(wb);
+
+  const bool needs_ts = WriteBatchInternal::HasKeyWithTimestamp(*wb);
+  if (needs_ts && commit_timestamp_ == kMaxTxnTimestamp) {
+    return Status::InvalidArgument("Must assign a commit timestamp");
+  }
   // We take the commit-time batch and append the Commit marker.
   // The Memtable will ignore the Commit marker in non-recovery mode
   WriteBatch* working_batch = GetCommitTimeWriteBatch();
-  auto s = WriteBatchInternal::MarkCommit(working_batch, name_);
-  assert(s.ok());
+
+  Status s;
+  if (!needs_ts) {
+    s = WriteBatchInternal::MarkCommit(working_batch, name_);
+  } else {
+    assert(commit_timestamp_ != kMaxTxnTimestamp);
+    char commit_ts_buf[sizeof(kMaxTxnTimestamp)];
+    EncodeFixed64(commit_ts_buf, commit_timestamp_);
+    Slice commit_ts(commit_ts_buf, sizeof(commit_ts_buf));
+    s = WriteBatchInternal::MarkCommitWithTimestamp(working_batch, name_,
+                                                    commit_ts);
+    if (s.ok()) {
+      s = wb->UpdateTimestamps(commit_ts, [wbwi, this](uint32_t cf) -> size_t {
+        if (cfs_with_ts_tracked_when_indexing_disabled_.find(cf) !=
+            cfs_with_ts_tracked_when_indexing_disabled_.end()) {
+          return sizeof(kMaxTxnTimestamp);
+        }
+        const Comparator* ucmp =
+            WriteBatchWithIndexInternal::GetUserComparator(*wbwi, cf);
+        return ucmp ? ucmp->timestamp_size()
+                    : std::numeric_limits<uint64_t>::max();
+      });
+    }
+  }
+
+  if (!s.ok()) {
+    return s;
+  }
 
   // any operations appended to this working_batch will be ignored from WAL
   working_batch->MarkWalTerminationPoint();
@@ -406,8 +753,7 @@ Status WriteCommittedTxn::CommitInternal() {
   // insert prepared batch into Memtable only skipping WAL.
   // Memtable will ignore BeginPrepare/EndPrepare markers
   // in non recovery mode and simply insert the values
-  s = WriteBatchInternal::Append(working_batch,
-                                 GetWriteBatch()->GetWriteBatch());
+  s = WriteBatchInternal::Append(working_batch, wb);
   assert(s.ok());
 
   uint64_t seq_used = kMaxSequenceNumber;
@@ -489,6 +835,10 @@ Status PessimisticTransaction::RollbackToSavePoint() {
 // On success, caller should unlock keys_to_unlock
 Status PessimisticTransaction::LockBatch(WriteBatch* batch,
                                          LockTracker* keys_to_unlock) {
+  if (!batch) {
+    return Status::InvalidArgument("batch is nullptr");
+  }
+
   class Handler : public WriteBatch::Handler {
    public:
     // Sorted map of column_family_id to sorted set of keys.
