@@ -285,6 +285,7 @@ Status DBImpl::FlushMemTableToOutputFile(
     assert(storage_info);
 
     VersionStorageInfo::LevelSummaryStorage tmp;
+    fprintf(stdout, "JJJ4\n");
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
                      column_family_name.c_str(),
                      storage_info->LevelSummary(&tmp));
@@ -730,6 +731,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       assert(storage_info);
 
       VersionStorageInfo::LevelSummaryStorage tmp;
+      fprintf(stdout, "JJJ3\n");
       ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
                        column_family_name.c_str(),
                        storage_info->LevelSummary(&tmp));
