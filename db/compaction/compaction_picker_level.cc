@@ -348,7 +348,8 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level_),
       Temperature::kUnknown,
       /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
-      start_level_score_, false /* deletion_compaction */, compaction_reason_);
+      /* trim_ts */ "", start_level_score_, false /* deletion_compaction */,
+      compaction_reason_);
 
   // If it's level 0 compaction, make sure we don't execute any other level 0
   // compactions in parallel

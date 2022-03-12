@@ -1546,6 +1546,72 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                       !kSeqPerBatch, kBatchPerTxn);
 }
 
+// TODO: Implement the trimming in flush code path.
+// TODO: Perform trimming before inserting into memtable during recovery.
+// TODO: Pick files with max_timestamp > trim_ts by each file's timestamp meta
+// info, and handle only these files to reduce io.
+Status DB::OpenAndTrimHistory(
+    const DBOptions& db_options, const std::string& dbname,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+    std::string trim_ts) {
+  assert(dbptr != nullptr);
+  assert(handles != nullptr);
+  auto validate_options = [&db_options] {
+    if (db_options.avoid_flush_during_recovery) {
+      return Status::InvalidArgument(
+          "avoid_flush_during_recovery incompatible with "
+          "OpenAndTrimHistory");
+    }
+    return Status::OK();
+  };
+  auto s = validate_options();
+  if (!s.ok()) {
+    return s;
+  }
+
+  DB* db = nullptr;
+  s = DB::Open(db_options, dbname, column_families, handles, &db);
+  if (!s.ok()) {
+    return s;
+  }
+  assert(db);
+  CompactRangeOptions options;
+  options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForceOptimized;
+  auto db_impl = static_cast_with_check<DBImpl>(db);
+  for (auto handle : *handles) {
+    assert(handle != nullptr);
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(handle);
+    auto cfd = cfh->cfd();
+    assert(cfd != nullptr);
+    // Only compact column families with timestamp enabled
+    if (cfd->user_comparator() != nullptr &&
+        cfd->user_comparator()->timestamp_size() > 0) {
+      s = db_impl->CompactRangeInternal(options, handle, nullptr, nullptr,
+                                        trim_ts);
+      if (!s.ok()) {
+        break;
+      }
+    }
+  }
+  auto clean_op = [&handles, &db] {
+    for (auto handle : *handles) {
+      auto temp_s = db->DestroyColumnFamilyHandle(handle);
+      assert(temp_s.ok());
+    }
+    handles->clear();
+    delete db;
+  };
+  if (!s.ok()) {
+    clean_op();
+    return s;
+  }
+
+  *dbptr = db;
+  return s;
+}
+
 IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                            size_t preallocate_block_size,
                            log::Writer** new_log) {

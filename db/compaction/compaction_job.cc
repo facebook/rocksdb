@@ -31,6 +31,7 @@
 #include "db/dbformat.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
+#include "db/history_trimming_iterator.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 #include "db/memtable.h"
@@ -429,7 +430,8 @@ CompactionJob::CompactionJob(
     const std::atomic<int>* manual_compaction_paused,
     const std::atomic<bool>* manual_compaction_canceled,
     const std::string& db_id, const std::string& db_session_id,
-    std::string full_history_ts_low, BlobFileCompletionCallback* blob_callback)
+    std::string full_history_ts_low, std::string trim_ts,
+    BlobFileCompletionCallback* blob_callback)
     : compact_(new CompactionState(compaction)),
       compaction_stats_(compaction->compaction_reason(), 1),
       db_options_(db_options),
@@ -468,6 +470,7 @@ CompactionJob::CompactionJob(
       measure_io_stats_(measure_io_stats),
       thread_pri_(thread_pri),
       full_history_ts_low_(std::move(full_history_ts_low)),
+      trim_ts_(std::move(trim_ts)),
       blob_callback_(blob_callback) {
   assert(compaction_job_stats_ != nullptr);
   assert(log_buffer_ != nullptr);
@@ -1380,19 +1383,26 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   std::unique_ptr<InternalIterator> clip;
   if (start || end) {
-    clip.reset(new ClippingIterator(
+    clip = std::make_unique<ClippingIterator>(
         raw_input.get(), start ? &start_slice : nullptr,
-        end ? &end_slice : nullptr, &cfd->internal_comparator()));
+        end ? &end_slice : nullptr, &cfd->internal_comparator());
     input = clip.get();
   }
 
   std::unique_ptr<InternalIterator> blob_counter;
 
   if (sub_compact->compaction->DoesInputReferenceBlobFiles()) {
-    sub_compact->blob_garbage_meter.reset(new BlobGarbageMeter);
-    blob_counter.reset(
-        new BlobCountingIterator(input, sub_compact->blob_garbage_meter.get()));
+    sub_compact->blob_garbage_meter = std::make_unique<BlobGarbageMeter>();
+    blob_counter = std::make_unique<BlobCountingIterator>(
+        input, sub_compact->blob_garbage_meter.get());
     input = blob_counter.get();
+  }
+
+  std::unique_ptr<InternalIterator> trim_history_iter;
+  if (cfd->user_comparator()->timestamp_size() > 0 && !trim_ts_.empty()) {
+    trim_history_iter = std::make_unique<HistoryTrimmingIterator>(
+        input, cfd->user_comparator(), trim_ts_);
+    input = trim_history_iter.get();
   }
 
   input->SeekToFirst();

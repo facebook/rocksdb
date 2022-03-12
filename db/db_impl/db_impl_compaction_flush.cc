@@ -927,7 +927,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   size_t ts_sz = ucmp->timestamp_size();
   if (ts_sz == 0) {
     return CompactRangeInternal(options, column_family, begin_without_ts,
-                                end_without_ts);
+                                end_without_ts, "" /*trim_ts*/);
   }
 
   std::string begin_str;
@@ -949,7 +949,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   Slice* end_with_ts = end_without_ts ? &end : nullptr;
 
   return CompactRangeInternal(options, column_family, begin_with_ts,
-                              end_with_ts);
+                              end_with_ts, "" /*trim_ts*/);
 }
 
 Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
@@ -995,7 +995,8 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
 
 Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
                                     ColumnFamilyHandle* column_family,
-                                    const Slice* begin, const Slice* end) {
+                                    const Slice* begin, const Slice* end,
+                                    const std::string& trim_ts) {
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
 
@@ -1066,7 +1067,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             final_output_level, options, begin, end, exclusive,
-                            false, port::kMaxUint64);
+                            false, port::kMaxUint64, trim_ts);
   } else {
     int first_overlapped_level = kInvalidLevel;
     int max_overlapped_level = kInvalidLevel;
@@ -1152,9 +1153,13 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
             disallow_trivial_move = true;
           }
         }
+        // trim_ts need real compaction to remove latest record
+        if (!trim_ts.empty()) {
+          disallow_trivial_move = true;
+        }
         s = RunManualCompaction(cfd, level, output_level, options, begin, end,
                                 exclusive, disallow_trivial_move,
-                                max_file_num_to_ignore);
+                                max_file_num_to_ignore, trim_ts);
         if (!s.ok()) {
           break;
         }
@@ -1393,7 +1398,8 @@ Status DBImpl::CompactFilesImpl(
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       &compaction_job_stats, Env::Priority::USER, io_tracer_,
       &manual_compaction_paused_, nullptr, db_id_, db_session_id_,
-      c->column_family_data()->GetFullHistoryTsLow(), &blob_callback_);
+      c->column_family_data()->GetFullHistoryTsLow(), c->trim_ts(),
+      &blob_callback_);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -1782,7 +1788,7 @@ Status DBImpl::RunManualCompaction(
     ColumnFamilyData* cfd, int input_level, int output_level,
     const CompactRangeOptions& compact_range_options, const Slice* begin,
     const Slice* end, bool exclusive, bool disallow_trivial_move,
-    uint64_t max_file_num_to_ignore) {
+    uint64_t max_file_num_to_ignore, const std::string& trim_ts) {
   assert(input_level == ColumnFamilyData::kCompactAllLevels ||
          input_level >= 0);
 
@@ -1900,7 +1906,7 @@ Status DBImpl::RunManualCompaction(
                *manual.cfd->GetLatestMutableCFOptions(), mutable_db_options_,
                manual.input_level, manual.output_level, compact_range_options,
                manual.begin, manual.end, &manual.manual_end, &manual_conflict,
-               max_file_num_to_ignore)) == nullptr &&
+               max_file_num_to_ignore, trim_ts)) == nullptr &&
           manual_conflict))) {
       // exclusive manual compactions should not see a conflict during
       // CompactRange
@@ -3382,7 +3388,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         is_manual ? &manual_compaction_paused_ : nullptr,
         is_manual ? manual_compaction->canceled : nullptr, db_id_,
         db_session_id_, c->column_family_data()->GetFullHistoryTsLow(),
-        &blob_callback_);
+        c->trim_ts(), &blob_callback_);
     compaction_job.Prepare();
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
