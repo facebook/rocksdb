@@ -142,7 +142,7 @@ class Timer {
 
   bool HasPendingTask() const {
     InstrumentedMutexLock l(&mutex_);
-    for (const auto &fn_info : map_) {
+    for (const auto& fn_info : map_) {
       if (fn_info.second->IsValid()) {
         return true;
       }
@@ -179,7 +179,7 @@ class Timer {
   size_t TEST_GetPendingTaskNum() const {
     InstrumentedMutexLock l(&mutex_);
     size_t ret = 0;
-    for (const auto &fn_info : map_) {
+    for (const auto& fn_info : map_) {
       if (fn_info.second->IsValid()) {
         ret++;
       }
