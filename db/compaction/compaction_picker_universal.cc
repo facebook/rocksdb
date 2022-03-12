@@ -372,6 +372,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
   const int kLevel0 = 0;
   score_ = vstorage_->CompactionScore(kLevel0);
   sorted_runs_ = CalculateSortedRuns(*vstorage_);
+  fprintf(stdout, "JJJ1\n");
 
   if (sorted_runs_.size() == 0 ||
       (vstorage_->FilesMarkedForPeriodicCompaction().empty() &&

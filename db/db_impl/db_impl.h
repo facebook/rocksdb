@@ -1866,7 +1866,7 @@ class DBImpl : public DB {
                               LogBuffer* log_buffer);
 
   // Schedule background tasks
-  void StartPeriodicWorkScheduler();
+  Status StartPeriodicWorkScheduler();
 
   void PrintStatistics();
 

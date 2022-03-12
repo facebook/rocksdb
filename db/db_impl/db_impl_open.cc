@@ -1889,8 +1889,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                    persist_options_status.ToString().c_str());
   }
   if (s.ok()) {
-    impl->StartPeriodicWorkScheduler();
-  } else {
+    s = impl->StartPeriodicWorkScheduler();
+  }
+  if (!s.ok()) {
     for (auto* h : *handles) {
       delete h;
     }

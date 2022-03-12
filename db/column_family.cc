@@ -989,6 +989,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
           GetL0ThresholdSpeedupCompaction(
               mutable_cf_options.level0_file_num_compaction_trigger,
               mutable_cf_options.level0_slowdown_writes_trigger)) {
+        fprintf(stdout, "JJJ2\n");
         write_controller_token_ =
             write_controller->GetCompactionPressureToken();
         ROCKS_LOG_INFO(

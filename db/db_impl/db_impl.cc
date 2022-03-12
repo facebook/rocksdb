@@ -770,7 +770,7 @@ void DBImpl::PrintStatistics() {
   }
 }
 
-void DBImpl::StartPeriodicWorkScheduler() {
+Status DBImpl::StartPeriodicWorkScheduler() {
 #ifndef ROCKSDB_LITE
 
 #ifndef NDEBUG
@@ -780,7 +780,7 @@ void DBImpl::StartPeriodicWorkScheduler() {
       "DBImpl::StartPeriodicWorkScheduler:DisableScheduler",
       &disable_scheduler);
   if (disable_scheduler) {
-    return;
+    return Status::OK();
   }
 #endif  // !NDEBUG
 
@@ -791,10 +791,11 @@ void DBImpl::StartPeriodicWorkScheduler() {
                              &periodic_work_scheduler_);
   }
 
-  periodic_work_scheduler_->Register(
+  return periodic_work_scheduler_->Register(
       this, mutable_db_options_.stats_dump_period_sec,
       mutable_db_options_.stats_persist_period_sec);
 #endif  // !ROCKSDB_LITE
+  return Status::OK();
 }
 
 // esitmate the total size of stats_history_
@@ -1228,7 +1229,7 @@ Status DBImpl::SetDBOptions(
               mutable_db_options_.stats_persist_period_sec) {
         mutex_.Unlock();
         periodic_work_scheduler_->Unregister(this);
-        periodic_work_scheduler_->Register(
+        s = periodic_work_scheduler_->Register(
             this, new_options.stats_dump_period_sec,
             new_options.stats_persist_period_sec);
         mutex_.Lock();
