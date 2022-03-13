@@ -2,6 +2,7 @@
 ## Unreleased
 ### Bug Fixes
 * Fixed a bug caused by race among flush, incoming writes and taking snapshots. Queries to snapshots created with these race condition can return incorrect result, e.g. resurfacing deleted data.
+* Fixed a bug that DisableManualCompaction may assert when disable an unscheduled manual compaction.
 * Fix a race condition when cancel manual compaction with `DisableManualCompaction`. Also DB close can cancel the manual compaction thread.
 * Fixed a data race on `versions_` between `DBImpl::ResumeImpl()` and threads waiting for recovery to complete (#9496)
 * Fixed a read-after-free bug in `DB::GetMergeOperands()`.
