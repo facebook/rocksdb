@@ -65,7 +65,7 @@ struct Posix_IOHandle {
 };
 
 inline void UpdateResult(struct io_uring_cqe* cqe, const std::string& file_name,
-                         ROCKSDB_MAYBE_UNUSED size_t len, size_t iov_len, bool async_read,
+                         size_t len, size_t iov_len, bool async_read,
                          size_t& finished_len, FSReadRequest* req) {
   if (cqe->res < 0) {
     req->result = Slice(req->scratch, 0);
