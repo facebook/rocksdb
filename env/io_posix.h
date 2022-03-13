@@ -97,6 +97,9 @@ inline void UpdateResult(struct io_uring_cqe* cqe, const std::string& file_name,
                             cqe->res);
     }
   }
+#ifdef NDEBUG
+  (void)len;
+#endif
 }
 #endif
 
