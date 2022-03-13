@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## Unreleased
+* Fixed a bug that DisableManualCompaction may assert when disable an unscheduled manual compaction.
+
 ## 7.0.1 (03/02/2022)
 ### Bug Fixes
 * Fix a race condition when cancel manual compaction with `DisableManualCompaction`. Also DB close can cancel the manual compaction thread.
