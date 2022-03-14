@@ -318,6 +318,7 @@ Status DBImpl::FlushMemTableToOutputFile(
         error_handler_.SetBGError(s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
+      assert(s == log_io_s);
       Status new_bg_error = s;
       error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
     }
@@ -633,7 +634,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       }
       atomic_flush_install_cv_.Wait();
 
-      resuming_from_bg_err = error_handler_.IsDBStopped();
+      resuming_from_bg_err =
+          error_handler_.IsDBStopped() ||
+          (cfds[0]->GetFlushReason() == FlushReason::kErrorRecovery ||
+           cfds[0]->GetFlushReason() == FlushReason::kErrorRecoveryRetryFlush);
     }
 
     if (!resuming_from_bg_err) {
@@ -777,6 +781,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         error_handler_.SetBGError(s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
+      assert(s == log_io_s);
       Status new_bg_error = s;
       error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
     }

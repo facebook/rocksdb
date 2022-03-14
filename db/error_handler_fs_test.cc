@@ -2511,9 +2511,8 @@ TEST_F(DBErrorHandlingFSTest, FlushReadError) {
   s = dbfull()->TEST_GetBGError();
   ASSERT_OK(s);
 
-  Reopen(options);
+  Reopen(GetDefaultOptions());
   ASSERT_EQ("val", Get(Key(0)));
-  Destroy(options);
 }
 
 TEST_F(DBErrorHandlingFSTest, AtomicFlushReadError) {
@@ -2561,9 +2560,9 @@ TEST_F(DBErrorHandlingFSTest, AtomicFlushReadError) {
   s = dbfull()->TEST_GetBGError();
   ASSERT_OK(s);
 
-  TryReopenWithColumnFamilies({"default", "pikachu"}, options);
+  TryReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"},
+                              GetDefaultOptions());
   ASSERT_EQ("val", Get(Key(0)));
-  Destroy(options);
 }
 
 TEST_F(DBErrorHandlingFSTest, AtomicFlushNoSpaceError) {
@@ -2602,9 +2601,9 @@ TEST_F(DBErrorHandlingFSTest, AtomicFlushNoSpaceError) {
   s = dbfull()->TEST_GetBGError();
   ASSERT_OK(s);
 
-  TryReopenWithColumnFamilies({"default", "pikachu"}, options);
+  TryReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"},
+                              GetDefaultOptions());
   ASSERT_EQ("val", Get(Key(0)));
-  Destroy(options);
 }
 
 TEST_F(DBErrorHandlingFSTest, CompactionReadRetryableErrorAutoRecover) {
@@ -2669,7 +2668,8 @@ TEST_F(DBErrorHandlingFSTest, CompactionReadRetryableErrorAutoRecover) {
   TEST_SYNC_POINT("CompactionWriteRetryableErrorAutoRecover0");
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
-  Destroy(options);
+
+  Reopen(GetDefaultOptions());
 }
 
 class DBErrorHandlingFencingTest : public DBErrorHandlingFSTest,
