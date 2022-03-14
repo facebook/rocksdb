@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 7.0.2 (03/12/2022)
 * Fixed a bug that DisableManualCompaction may assert when disable an unscheduled manual compaction.
 
 ## 7.0.1 (03/02/2022)
