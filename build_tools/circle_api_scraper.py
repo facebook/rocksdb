@@ -10,11 +10,13 @@ In order to finally yield the output of benchmark tests.
 
 from ast import Dict
 from collections import namedtuple
+import datetime
 from keyword import iskeyword
 import sys
 from typing import Callable, List, Mapping
 import circleci.api
 import requests
+from dateutil import parser
 
 
 class TupleObject:
@@ -33,21 +35,6 @@ class TupleObject:
         elif isinstance(input_mapping, list):
             return [TupleObject.mapper(item) for item in input_mapping]
         return input_mapping
-
-
-def api_v2_find_job() -> int:
-    '''Track down the job
-    TODO (AP) see insomnia logs for the path to the latest (or multiple) pipelines / workflows / benchmarks
-    '''
-    # Start by listing the pipelines
-    # https://circleci.com/api/v2/project/github/facebook/rocksdb/pipeline
-    # We get back a list of items
-    # We have selected the item with "id": "e9841441-5892-4ddb-8aa8-feb9696ce923"
-    # trigger.actor.login == "alanpaxton" && vcs.branch == "pull/9676"
-    # to get the workflows https://circleci.com/api/v2/pipeline/e9841441-5892-4ddb-8aa8-feb9696ce923/workflow
-    # This contains items, one of which has "name": "benchmark-linux"
-    # We use the id of that workflow item "id": "bcd4d608-a777-4db0-9d6e-5d54c2bb79d0"
-    # to get job number https://circleci.com/api/v2/workflow/bcd4d608-a777-4db0-9d6e-5d54c2bb79d0/job
 
 
 class CircleAPIV2:
@@ -118,21 +105,28 @@ class CircleAPIV2:
 
         return result
 
-
-def is_my_pull_request(pipeline):
-    '''TODO AP'''
-    try:
-        return pipeline.vcs.branch == "pull/9676"
-    except KeyError:
-        return False
+    def get_job_info(self, job_id: int) -> object:
+        job_info_call = requests.get(
+            f"{self.service}/project/{self.slug}/job/{job_id}", auth=self.auth)
+        job_info_call.raise_for_status()
+        return TupleObject.mapper(job_info_call.json())
 
 
-def is_benchmark_linux(step):
-    return step.name == "benchmark-linux"
+class Predicates:
+    def is_my_pull_request(pipeline):
+        try:
+            return pipeline.vcs.branch == "pull/9676"
+        except AttributeError:
+            return False
 
+    def is_benchmark_linux(step):
+        try:
+            return step.name == "benchmark-linux"
+        except AttributeError:
+            return False
 
-def always_true(x):
-    return True
+    def always_true(x):
+        return True
 
 
 def flatten(ll):
@@ -174,10 +168,25 @@ class CircleAPIV1:
         return self.get_log_action_output_url(job_number, "Output logs as MIME")
 
 
+class BenchmarkResult:
+    def __init__(self, job_info: TupleObject, output_url: str):
+        self.job_info = job_info
+        self.output_url = output_url
+
+    def time_sort_key(self):
+        '''Look at the job info retrieved from CircleCI to establish sort order'''
+        dt = parser.isoparse(self.job_info.started_at)
+        ticks = dt.timestamp()
+        return ticks
+
+    def fetch(self):
+        '''Go and get the output URL and parse it'''
+        pass
+
 class CircleLogReader:
     '''User level methods for telling us about particular logs'''
 
-    def __init__(self, config_dict: Dict) -> List[str]:
+    def __init__(self, config_dict: Dict) -> List:
 
         config = TupleObject.mapper(config_dict)
         self.config = config
@@ -186,16 +195,23 @@ class CircleLogReader:
         self.api_v2 = CircleAPIV2(
             config.user_id, config.vcs, config.username, config.project)
 
-    def get_log_urls(self):
-        pipeline_ids = self.api_v2.get_pipeline_ids(filter=is_my_pull_request)
+    def get_log_urls(self) -> List[BenchmarkResult]:
+        pipeline_ids = self.api_v2.get_pipeline_ids(
+            filter=Predicates.is_my_pull_request)
         workflows = flatten([self.api_v2.get_workflow_items(
-            pipeline_id, filter=is_benchmark_linux) for pipeline_id in pipeline_ids])
+            pipeline_id, filter=Predicates.is_benchmark_linux) for pipeline_id in pipeline_ids])
         jobs = flatten([self.api_v2.get_jobs(workflow_id)
                        for workflow_id in workflows])
+
         urls = [self.api_v1.get_log_mime_url(
             job_number=job_id) for job_id in jobs]
+        job_infos = [self.api_v2.get_job_info(
+            job_id=job_id) for job_id in jobs]
 
-        return urls
+        results = [BenchmarkResult(job_info, output_url) for(
+            job_info, output_url) in zip(job_infos, urls)]
+        results = sorted(results, key=BenchmarkResult.time_sort_key)
+        return results
 
 
 def main():
@@ -206,18 +222,6 @@ def main():
          'username': 'facebook',
          'project': 'rocksdb'})
     urls = reader.get_log_urls()
-
-    api_v1 = CircleAPIV1(user_id="e7d4aab13e143360f95e258be0a89b5c8e256773",
-                         vcs="github", username="facebook", project="rocksdb")
-    api_v2 = CircleAPIV2(user_id="e7d4aab13e143360f95e258be0a89b5c8e256773",
-                         vcs="github", username="facebook", project="rocksdb")
-    # TODO AP
-    #log_mime_url = api_v1.get_log_mime_url(job_number=317985)
-    pipeline_ids = api_v2.get_pipeline_ids(filter=is_my_pull_request)
-    workflows = flatten([api_v2.get_workflow_items(
-        pipeline_id, filter=is_benchmark_linux) for pipeline_id in pipeline_ids])
-    jobs = flatten([api_v2.get_jobs(workflow_id) for workflow_id in workflows])
-    urls = [api_v1.get_log_mime_url(job_number=job_id) for job_id in jobs]
 
     return 0
 
