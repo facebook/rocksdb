@@ -10,7 +10,8 @@ In order to finally yield the output of benchmark tests.
 
 from ast import Dict
 from collections import namedtuple
-import datetime
+import csv
+import email
 from keyword import iskeyword
 import sys
 from typing import Callable, List, Mapping
@@ -168,7 +169,25 @@ class CircleAPIV1:
         return self.get_log_action_output_url(job_number, "Output logs as MIME")
 
 
+class BenchmarkResultException(Exception):
+    def __init__(self, message, content):
+        super().__init__(self, message)
+        self.content = content
+
+
 class BenchmarkResult:
+
+    '''The result of a benchmark run
+    which is made up a known set of files
+    stored as a multipart MIME message
+    at a known URL.
+
+    Processing the result involves fetching the url, parsing the MIME, parsing the known file(s)
+    and generating the internal table(s) we want from those files (e.g. .tsv files)
+    '''
+
+    report_file = 'report.tsv'
+
     def __init__(self, job_info: TupleObject, output_url: str):
         self.job_info = job_info
         self.output_url = output_url
@@ -180,8 +199,64 @@ class BenchmarkResult:
         return ticks
 
     def fetch(self):
-        '''Go and get the output URL and parse it'''
-        pass
+        '''
+        Go and get the output URL
+        Interpret it as a multipart MIME message with some attachments
+        Build a table (self.files) of these attachments -
+        - decoded and indexed by the filename
+        '''
+        self.files = {}
+        message_call = requests.get(f"{self.output_url}")
+        message_call.raise_for_status()
+        messages = message_call.json()
+        if not isinstance(messages, list):
+            self.exception = BenchmarkResultException(
+                'Output of benchmark is not a list of messages', message_call.text)
+            return self
+        for item in messages:
+            message_str = item['message']
+            if message_str is None:
+                self.exception = BenchmarkResultException(
+                    'Item in benchmark output does not have messgae key', item)
+                return self
+            message = email.message_from_string(message_str)
+            if (message.is_multipart()):
+                # parse a multipart message
+                for part in message.walk():
+                    if part.get_content_disposition() == 'attachment':
+                        bytes = part.get_payload(decode=True)
+                        charset = part.get_content_charset('iso-8859-1')
+                        decoded = bytes.decode(charset, 'replace')
+                        self.files[part.get_filename()] = (
+                            part._headers, decoded)
+            else:
+                self.exception = BenchmarkResultException(
+                    'Message in output of benchmark is not a multipart message', message_str)
+        return self
+
+    def parse_report(self):
+        for (filename, (headers, decoded)) in self.files.items():
+            if filename == BenchmarkResult.report_file:
+                table = [
+                    row for row in csv.reader(decoded.split('\n'), delimiter='\t')]
+                row_tables = []
+                header = table[0]
+                for row in table[1:]:
+                    row_table = {}
+                    for (key, value) in zip(header, row):
+                        row_table[key] = value
+                    row_tables.append(row_table)
+                self.report = row_tables
+
+        return self
+
+    def log_result(self):
+        for file in self.files.keys():
+            print(file)
+            (headers, content) = self.files[file]
+            print(headers)
+            print(content)
+
 
 class CircleLogReader:
     '''User level methods for telling us about particular logs'''
@@ -222,6 +297,10 @@ def main():
          'username': 'facebook',
          'project': 'rocksdb'})
     urls = reader.get_log_urls()
+    results = [result.fetch().parse_report() for result in urls]
+    # Each object with a successful parse will have a .report field
+    for result in results:
+        result.log_result()
 
     return 0
 
