@@ -4282,9 +4282,10 @@ void Java_org_rocksdb_ColumnFamilyOptions_setSstPartitionerFactory(
     JNIEnv*, jobject, jlong jhandle, jlong factory_handle) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
-  auto* factory = reinterpret_cast<ROCKSDB_NAMESPACE::SstPartitionerFactory*>(
+  auto factory = reinterpret_cast<
+      std::shared_ptr<ROCKSDB_NAMESPACE::SstPartitionerFactory>*>(
       factory_handle);
-  options->sst_partitioner_factory.reset(factory);
+  options->sst_partitioner_factory = *factory;
 }
 
 /*
