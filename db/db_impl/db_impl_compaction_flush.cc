@@ -404,6 +404,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   for (const auto cfd : cfds) {
     assert(cfd->imm()->NumNotFlushed() != 0);
     assert(cfd->imm()->IsFlushPending());
+    assert(cfd->GetFlushReason() == cfds[0]->GetFlushReason());
   }
 #endif /* !NDEBUG */
 
