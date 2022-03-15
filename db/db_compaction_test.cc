@@ -6999,9 +6999,11 @@ TEST_F(DBCompactionTest, DisableInProgressManualCompaction) {
   Reopen(options);
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::BackgroundCompaction:Start",
+      {{"DBImpl::BackgroundCompaction:InProgress",
         "DBCompactionTest::DisableInProgressManualCompaction:"
-        "PreDisableManualCompaction"}});
+        "PreDisableManualCompaction"},
+       {"DBImpl::RunManualCompaction:Unscheduled",
+        "CompactionJob::Run():Start"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
   // generate files, but avoid trigger auto compaction

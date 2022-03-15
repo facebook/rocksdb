@@ -3096,6 +3096,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     manual_compaction->in_progress = true;
   }
 
+  TEST_SYNC_POINT("DBImpl::BackgroundCompaction:InProgress");
+
   std::unique_ptr<TaskLimiterToken> task_token;
 
   // InternalKey manual_end_storage;
