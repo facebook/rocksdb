@@ -168,6 +168,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->pending_manifest_file_number =
       versions_->pending_manifest_file_number();
   job_context->log_number = MinLogNumberToKeep();
+  fprintf(stdout, "y7jin findob log_number=%d\n", (int)job_context->log_number);
   job_context->prev_log_number = versions_->prev_log_number();
 
   versions_->AddLiveFiles(&job_context->sst_live, &job_context->blob_live);
@@ -224,7 +225,6 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
 
     // Add log files in wal_dir
-
     if (!immutable_db_options_.IsWalDirSameAsDBPath(dbname_)) {
       std::vector<std::string> log_files;
       Status s = env_->GetChildren(immutable_db_options_.wal_dir, &log_files);
@@ -234,6 +234,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
             log_file, immutable_db_options_.wal_dir);
       }
     }
+
     // Add info log files in db_log_dir
     if (!immutable_db_options_.db_log_dir.empty() &&
         immutable_db_options_.db_log_dir != dbname_) {
@@ -807,6 +808,7 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
 
   uint64_t min_log_number_to_keep =
       PrecomputeMinLogNumberToKeepNon2PC(vset, cfd_to_flush, edit_list);
+  fprintf(stdout, "y7jin precompute cfd%d min_wal_no2pc=%d\n", (int)cfd_to_flush.GetID(), (int)min_log_number_to_keep);
 
   // if are 2pc we must consider logs containing prepared
   // sections of outstanding transactions.
@@ -819,6 +821,7 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
   // should find more optimal solution
   auto min_log_in_prep_heap =
       prep_tracker->FindMinLogContainingOutstandingPrep();
+  fprintf(stdout, "y7jin precompute cfd%d min_wal_prep=%d\n", (int)cfd_to_flush.GetID(), (int)min_log_in_prep_heap);
 
   if (min_log_in_prep_heap != 0 &&
       min_log_in_prep_heap < min_log_number_to_keep) {
@@ -832,6 +835,8 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
       min_log_refed_by_mem < min_log_number_to_keep) {
     min_log_number_to_keep = min_log_refed_by_mem;
   }
+  fprintf(stdout, "y7jin precompute cfd%d min_wal=%d min_log_refed_by_mem=%d\n", (int)cfd_to_flush.GetID(), (int)min_log_number_to_keep, (int)min_log_refed_by_mem);
+  fprintf(stdout, "y7jin precompute cfd%d return min_wal=%d\n", (int)cfd_to_flush.GetID(), (int)min_log_number_to_keep);
   return min_log_number_to_keep;
 }
 
