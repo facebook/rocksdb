@@ -6965,8 +6965,7 @@ TEST_F(DBCompactionTest, DisableJustStartedManualCompaction) {
       {{"DBImpl::BGWorkCompaction",
         "DBCompactionTest::DisableJustStartedManualCompaction:"
         "PreDisableManualCompaction"},
-       {"DBCompactionTest::DisableJustStartedManualCompaction:"
-        "ManualCompactionReturn",
+       {"DBImpl::RunManualCompaction:Unscheduled",
         "BackgroundCallCompaction:0"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -6975,12 +6974,46 @@ TEST_F(DBCompactionTest, DisableJustStartedManualCompaction) {
     cro.exclusive_manual_compaction = true;
     auto s = db_->CompactRange(cro, nullptr, nullptr);
     ASSERT_TRUE(s.IsIncomplete());
-    TEST_SYNC_POINT(
-        "DBCompactionTest::DisableJustStartedManualCompaction:"
-        "ManualCompactionReturn");
   });
   TEST_SYNC_POINT(
       "DBCompactionTest::DisableJustStartedManualCompaction:"
+      "PreDisableManualCompaction");
+  db_->DisableManualCompaction();
+
+  compact_thread.join();
+}
+
+TEST_F(DBCompactionTest, DisableInProgressManualCompaction) {
+  const int kNumL0Files = 4;
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  Reopen(options);
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCompaction:InProgress",
+        "DBCompactionTest::DisableInProgressManualCompaction:"
+        "PreDisableManualCompaction"},
+       {"DBImpl::RunManualCompaction:Unscheduled",
+        "CompactionJob::Run():Start"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // generate files, but avoid trigger auto compaction
+  for (int i = 0; i < kNumL0Files / 2; i++) {
+    ASSERT_OK(Put(Key(1), "value1"));
+    ASSERT_OK(Put(Key(2), "value2"));
+    ASSERT_OK(Flush());
+  }
+
+  port::Thread compact_thread([&]() {
+    CompactRangeOptions cro;
+    cro.exclusive_manual_compaction = true;
+    auto s = db_->CompactRange(cro, nullptr, nullptr);
+    ASSERT_TRUE(s.IsIncomplete());
+  });
+
+  TEST_SYNC_POINT(
+      "DBCompactionTest::DisableInProgressManualCompaction:"
       "PreDisableManualCompaction");
   db_->DisableManualCompaction();
 
