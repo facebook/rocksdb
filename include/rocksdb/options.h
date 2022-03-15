@@ -1659,13 +1659,29 @@ struct WriteOptions {
   // Default: false
   bool memtable_insert_hint_per_batch;
 
+  // For writes associated with this option, charge the internal rate
+  // limiter (see `DBOptions::rate_limiter`) at the specified priority. The
+  // special value `Env::IO_TOTAL` disables charging the rate limiter.
+  //
+  // Currently the support covers automatic WAL flushes, which happen during
+  // live updates (`Put()`, `Write()`, `Delete()`, etc.)
+  // when `WriteOptions::disableWAL == false`
+  // and `DBOptions::manual_wal_flush == false`.
+  //
+  // Only `Env::IO_USER` and `Env::IO_TOTAL` are allowed
+  // due to implementation constraints.
+  //
+  // Default: `Env::IO_TOTAL`
+  Env::IOPriority rate_limiter_priority;
+
   WriteOptions()
       : sync(false),
         disableWAL(false),
         ignore_missing_column_families(false),
         no_slowdown(false),
         low_pri(false),
-        memtable_insert_hint_per_batch(false) {}
+        memtable_insert_hint_per_batch(false),
+        rate_limiter_priority(Env::IO_TOTAL) {}
 };
 
 // Options that control flush operations

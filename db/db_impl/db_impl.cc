@@ -119,18 +119,16 @@ CompressionType GetCompressionFlush(
   // Compressing memtable flushes might not help unless the sequential load
   // optimization is used for leveled compaction. Otherwise the CPU and
   // latency overhead is not offset by saving much space.
-  if (ioptions.compaction_style == kCompactionStyleUniversal) {
-    if (mutable_cf_options.compaction_options_universal
-            .compression_size_percent < 0) {
-      return mutable_cf_options.compression;
-    } else {
-      return kNoCompression;
-    }
-  } else if (!ioptions.compression_per_level.empty()) {
-    // For leveled compress when min_level_to_compress != 0.
-    return ioptions.compression_per_level[0];
-  } else {
+  if (ioptions.compaction_style == kCompactionStyleUniversal &&
+      mutable_cf_options.compaction_options_universal
+              .compression_size_percent >= 0) {
+    return kNoCompression;
+  }
+  if (mutable_cf_options.compression_per_level.empty()) {
     return mutable_cf_options.compression;
+  } else {
+    // For leveled compress when min_level_to_compress != 0.
+    return mutable_cf_options.compression_per_level[0];
   }
 }
 
@@ -400,14 +398,6 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
 
   JobContext job_context(0);
   FindObsoleteFiles(&job_context, true);
-  if (s.ok()) {
-    s = error_handler_.ClearBGError();
-  } else {
-    // NOTE: this is needed to pass ASSERT_STATUS_CHECKED
-    // in the DBSSTTest.DBWithMaxSpaceAllowedRandomized test.
-    // See https://github.com/facebook/rocksdb/pull/7715#issuecomment-754947952
-    error_handler_.GetRecoveryError().PermitUncheckedError();
-  }
   mutex_.Unlock();
 
   job_context.manifest_file_number = 1;
@@ -428,11 +418,31 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
             immutable_db_options_.info_log,
             "DB resume requested but could not enable file deletions [%s]",
             s.ToString().c_str());
+        assert(false);
       }
     }
-    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
   }
+
   mutex_.Lock();
+  if (s.ok()) {
+    // This will notify and unblock threads waiting for error recovery to
+    // finish. Those previouly waiting threads can now proceed, which may
+    // include closing the db.
+    s = error_handler_.ClearBGError();
+  } else {
+    // NOTE: this is needed to pass ASSERT_STATUS_CHECKED
+    // in the DBSSTTest.DBWithMaxSpaceAllowedRandomized test.
+    // See https://github.com/facebook/rocksdb/pull/7715#issuecomment-754947952
+    error_handler_.GetRecoveryError().PermitUncheckedError();
+  }
+
+  if (s.ok()) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
+  } else {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Failed to resume DB [%s]",
+                   s.ToString().c_str());
+  }
+
   // Check for shutdown again before scheduling further compactions,
   // since we released and re-acquired the lock above
   if (shutdown_initiated_) {
@@ -527,10 +537,19 @@ Status DBImpl::CloseHelper() {
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
   CancelAllBackgroundWork(false);
+
+  // Cancel manual compaction if there's any
+  if (HasPendingManualCompaction()) {
+    DisableManualCompaction();
+  }
   mutex_.Lock();
-  env_->UnSchedule(this, Env::Priority::BOTTOM);
-  env_->UnSchedule(this, Env::Priority::LOW);
-  env_->UnSchedule(this, Env::Priority::HIGH);
+  // Unschedule all tasks for this DB
+  for (uint8_t i = 0; i < static_cast<uint8_t>(TaskType::kCount); i++) {
+    env_->UnSchedule(GetTaskTag(i), Env::Priority::BOTTOM);
+    env_->UnSchedule(GetTaskTag(i), Env::Priority::LOW);
+    env_->UnSchedule(GetTaskTag(i), Env::Priority::HIGH);
+  }
+
   Status ret = Status::OK();
 
   // Wait for background work to finish
@@ -749,7 +768,7 @@ void DBImpl::PrintStatistics() {
   }
 }
 
-void DBImpl::StartPeriodicWorkScheduler() {
+Status DBImpl::StartPeriodicWorkScheduler() {
 #ifndef ROCKSDB_LITE
 
 #ifndef NDEBUG
@@ -759,7 +778,7 @@ void DBImpl::StartPeriodicWorkScheduler() {
       "DBImpl::StartPeriodicWorkScheduler:DisableScheduler",
       &disable_scheduler);
   if (disable_scheduler) {
-    return;
+    return Status::OK();
   }
 #endif  // !NDEBUG
 
@@ -770,10 +789,11 @@ void DBImpl::StartPeriodicWorkScheduler() {
                              &periodic_work_scheduler_);
   }
 
-  periodic_work_scheduler_->Register(
+  return periodic_work_scheduler_->Register(
       this, mutable_db_options_.stats_dump_period_sec,
       mutable_db_options_.stats_persist_period_sec);
 #endif  // !ROCKSDB_LITE
+  return Status::OK();
 }
 
 // esitmate the total size of stats_history_
@@ -1207,7 +1227,7 @@ Status DBImpl::SetDBOptions(
               mutable_db_options_.stats_persist_period_sec) {
         mutex_.Unlock();
         periodic_work_scheduler_->Unregister(this);
-        periodic_work_scheduler_->Register(
+        s = periodic_work_scheduler_->Register(
             this, new_options.stats_dump_period_sec,
             new_options.stats_persist_period_sec);
         mutex_.Lock();

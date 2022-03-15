@@ -6,6 +6,7 @@ LIB_SOURCES =                                                   \
   cache/cache_reservation_manager.cc                            \
   cache/clock_cache.cc                                          \
   cache/lru_cache.cc                                            \
+  cache/lru_secondary_cache.cc                                  \
   cache/sharded_cache.cc                                        \
   db/arena_wrapped_db_iter.cc                                   \
   db/blob/blob_fetcher.cc                                       \
@@ -213,6 +214,7 @@ LIB_SOURCES =                                                   \
   util/coding.cc                                                \
   util/compaction_job_stats_impl.cc                             \
   util/comparator.cc                                            \
+  util/compression.cc                                           \
   util/compression_context_cache.cc                             \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
@@ -398,8 +400,9 @@ BENCH_MAIN_SOURCES =                                                    \
 
 TEST_MAIN_SOURCES =                                                     \
   cache/cache_test.cc                                                   \
-  cache/cache_reservation_manager_test.cc                                               \
+  cache/cache_reservation_manager_test.cc                               \
   cache/lru_cache_test.cc                                               \
+  cache/lru_secondary_cache_test.cc                                     \
   db/blob/blob_counting_iterator_test.cc                                \
   db/blob/blob_file_addition_test.cc                                    \
   db/blob/blob_file_builder_test.cc                                     \
@@ -581,6 +584,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/transactions/lock/point/point_lock_manager_test.cc          \
   utilities/transactions/write_prepared_transaction_test.cc             \
   utilities/transactions/write_unprepared_transaction_test.cc           \
+  utilities/transactions/write_committed_transaction_ts_test.cc         \
   utilities/ttl/ttl_test.cc                                             \
   utilities/util_merge_operators_test.cc                                \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \

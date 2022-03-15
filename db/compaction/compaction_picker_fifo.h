@@ -32,7 +32,7 @@ class FIFOCompactionPicker : public CompactionPicker {
       const CompactRangeOptions& compact_range_options,
       const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end, bool* manual_conflict,
-      uint64_t max_file_num_to_ignore) override;
+      uint64_t max_file_num_to_ignore, const std::string& trim_ts) override;
 
   // The maximum allowed output level.  Always returns 0.
   virtual int MaxOutputLevel() const override { return 0; }

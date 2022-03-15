@@ -92,12 +92,14 @@ add_c_test_wrapper()
         # will not be included.
 """)
 
-    def add_fancy_bench_config(self, name, bench_config, slow, expected_runtime):
+    def add_fancy_bench_config(self, name, bench_config, slow, expected_runtime, sl_iterations, regression_threshold):
         self.targets_file.write(targets_cfg.fancy_bench_template.format(
                     name=name,
                     bench_config=pprint.pformat(bench_config),
                     slow=slow,
                     expected_runtime=expected_runtime,
+                    sl_iterations=sl_iterations,
+                    regression_threshold=regression_threshold
                     ).encode("utf-8"))
 
     def register_test(self,
