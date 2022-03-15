@@ -15,6 +15,7 @@
 * Fixed a bug that DB flush uses `options.compression` even `options.compression_per_level` is set.
 * Fixed a bug that DisableManualCompaction may assert when disable an unscheduled manual compaction.
 * Fixed a potential timer crash when open close DB concurrently.
+* Fixed a race condition for `alive_log_files_` in non-two-write-queues mode. The race is between the write_thread_ in WriteToWAL() and another thread executing `FindObsoleteFiles()`. The race condition will be caught if `__glibcxx_requires_nonempty` is enabled.
 
 ### Public API changes
 * Remove BlockBasedTableOptions.hash_index_allow_collision which already takes no effect.
