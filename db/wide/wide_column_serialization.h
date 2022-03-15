@@ -11,6 +11,7 @@
 
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -18,16 +19,14 @@ class Slice;
 
 class WideColumnSerialization {
  public:
-  using ColumnDesc = std::pair<Slice, Slice>;
-  using ColumnDescs = std::vector<ColumnDesc>;
-
-  static Status Serialize(const ColumnDescs& column_descs, std::string* output);
+  static Status Serialize(const WideColumnDescs& column_descs,
+                          std::string* output);
   static Status DeserializeOne(Slice* input, const Slice& column_name,
-                               ColumnDesc* column_desc);
-  static Status DeserializeAll(Slice* input, ColumnDescs* column_descs);
+                               WideColumnDesc* column_desc);
+  static Status DeserializeAll(Slice* input, WideColumnDescs* column_descs);
 
  private:
-  static Status DeserializeIndex(Slice* input, ColumnDescs* column_descs);
+  static Status DeserializeIndex(Slice* input, WideColumnDescs* column_descs);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

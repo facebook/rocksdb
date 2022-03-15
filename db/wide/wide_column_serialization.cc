@@ -15,7 +15,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-Status WideColumnSerialization::Serialize(const ColumnDescs& column_descs,
+Status WideColumnSerialization::Serialize(const WideColumnDescs& column_descs,
                                           std::string* output) {
   assert(output);
 
@@ -41,8 +41,8 @@ Status WideColumnSerialization::Serialize(const ColumnDescs& column_descs,
 
 Status WideColumnSerialization::DeserializeOne(Slice* input,
                                                const Slice& column_name,
-                                               ColumnDesc* column_desc) {
-  ColumnDescs all_column_descs;
+                                               WideColumnDesc* column_desc) {
+  WideColumnDescs all_column_descs;
 
   const Status s = DeserializeIndex(input, &all_column_descs);
   if (!s.ok()) {
@@ -51,7 +51,7 @@ Status WideColumnSerialization::DeserializeOne(Slice* input,
 
   auto it = std::lower_bound(all_column_descs.cbegin(), all_column_descs.cend(),
                              column_name,
-                             [](const ColumnDesc& lhs, const Slice& rhs) {
+                             [](const WideColumnDesc& lhs, const Slice& rhs) {
                                return lhs.first.compare(rhs) < 0;
                              });
   if (it == all_column_descs.end() || it->first != column_name) {
@@ -64,12 +64,12 @@ Status WideColumnSerialization::DeserializeOne(Slice* input,
 }
 
 Status WideColumnSerialization::DeserializeAll(Slice* input,
-                                               ColumnDescs* column_descs) {
+                                               WideColumnDescs* column_descs) {
   return DeserializeIndex(input, column_descs);
 }
 
-Status WideColumnSerialization::DeserializeIndex(Slice* input,
-                                                 ColumnDescs* column_descs) {
+Status WideColumnSerialization::DeserializeIndex(
+    Slice* input, WideColumnDescs* column_descs) {
   assert(input);
   assert(column_descs);
 

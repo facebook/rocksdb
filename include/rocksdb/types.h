@@ -5,7 +5,9 @@
 
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
+#include <vector>
+
 #include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -60,5 +62,9 @@ enum EntryType {
   kEntryDeleteWithTimestamp,
   kEntryOther,
 };
+
+// Wide columns
+using WideColumnDesc = std::pair<Slice, Slice>;
+using WideColumnDescs = std::vector<WideColumnDesc>;
 
 }  // namespace ROCKSDB_NAMESPACE

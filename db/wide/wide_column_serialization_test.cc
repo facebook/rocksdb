@@ -10,15 +10,14 @@
 namespace ROCKSDB_NAMESPACE {
 
 TEST(WideColumnSerializationTest, Serialize) {
-  WideColumnSerialization::ColumnDescs column_descs{{"foo", "bar"},
-                                                    {"hello", "world"}};
+  WideColumnDescs column_descs{{"foo", "bar"}, {"hello", "world"}};
   std::string output;
 
   ASSERT_OK(WideColumnSerialization::Serialize(column_descs, &output));
 
   {
     Slice input(output);
-    WideColumnSerialization::ColumnDescs deserialized_descs;
+    WideColumnDescs deserialized_descs;
 
     ASSERT_OK(
         WideColumnSerialization::DeserializeAll(&input, &deserialized_descs));
@@ -27,27 +26,25 @@ TEST(WideColumnSerializationTest, Serialize) {
 
   {
     Slice input(output);
-    WideColumnSerialization::ColumnDesc deserialized_desc;
+    WideColumnDesc deserialized_desc;
 
     ASSERT_OK(WideColumnSerialization::DeserializeOne(&input, "foo",
                                                       &deserialized_desc));
-    ASSERT_EQ(deserialized_desc,
-              WideColumnSerialization::ColumnDesc("foo", "bar"));
+    ASSERT_EQ(deserialized_desc, WideColumnDesc("foo", "bar"));
   }
 
   {
     Slice input(output);
-    WideColumnSerialization::ColumnDesc deserialized_desc;
+    WideColumnDesc deserialized_desc;
 
     ASSERT_OK(WideColumnSerialization::DeserializeOne(&input, "hello",
                                                       &deserialized_desc));
-    ASSERT_EQ(deserialized_desc,
-              WideColumnSerialization::ColumnDesc("hello", "world"));
+    ASSERT_EQ(deserialized_desc, WideColumnDesc("hello", "world"));
   }
 
   {
     Slice input(output);
-    WideColumnSerialization::ColumnDesc deserialized_desc;
+    WideColumnDesc deserialized_desc;
 
     ASSERT_NOK(WideColumnSerialization::DeserializeOne(&input, "snafu",
                                                        &deserialized_desc));
