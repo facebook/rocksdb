@@ -499,7 +499,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
         min_wal_number_to_keep = PrecomputeMinLogNumberToKeep2PC(
             vset, *cfd, edit_list, memtables_to_flush, prep_tracker);
 
-        // We piggyback the information of  earliest log file to keep in the
+        // We piggyback the information of earliest log file to keep in the
         // manifest entry for the last file flushed.
         edit_list.back()->SetMinLogNumberToKeep(min_wal_number_to_keep);
       }
