@@ -1141,11 +1141,11 @@ CTREncryptionProvider::CTREncryptionProvider(
 
 bool CTREncryptionProvider::IsInstanceOf(const std::string& name) const {
   // Special case for test purposes.
-  //  if (name == "1://test" && cipher_ != nullptr) {
-  //  return cipher_->IsInstanceOf(ROT13BlockCipher::kClassName());
-  //} else {
-  return EncryptionProvider::IsInstanceOf(name);
-  //}
+  if (name == "1://test" && cipher_ != nullptr) {
+    return cipher_->IsInstanceOf(ROT13BlockCipher::kClassName());
+  } else {
+    return EncryptionProvider::IsInstanceOf(name);
+  }
 }
 
 // GetPrefixLength returns the length of the prefix that is added to every file
