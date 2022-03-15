@@ -407,7 +407,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
     autovector<MemTable*>* to_delete, FSDirectory* db_directory,
     LogBuffer* log_buffer,
     std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info,
-    IOStatus* io_s, bool write_edits) {
+    bool write_edits) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
@@ -529,7 +529,6 @@ Status MemTableList::TryInstallMemtableFlushResults(
                               db_directory, /*new_descriptor_log=*/false,
                               /*column_family_options=*/nullptr,
                               manifest_write_cb);
-        *io_s = vset->io_status();
       } else {
         // If write_edit is false (e.g: successful mempurge),
         // then remove old memtables, wake up manifest write queue threads,
@@ -545,7 +544,6 @@ Status MemTableList::TryInstallMemtableFlushResults(
         // TODO(bjlemaire): explain full reason WakeUpWaitingManifestWriters
         // needed or investigate more.
         vset->WakeUpWaitingManifestWriters();
-        *io_s = IOStatus::OK();
       }
     }
   }

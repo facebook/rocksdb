@@ -263,11 +263,6 @@ Status DBImpl::FlushMemTableToOutputFile(
   if (!s.ok() && need_cancel) {
     flush_job.Cancel();
   }
-  IOStatus io_s = IOStatus::OK();
-  io_s = flush_job.io_status();
-  if (s.ok()) {
-    s = io_s;
-  }
 
   if (s.ok()) {
     InstallSuperVersionAndScheduleWork(cfd, superversion_context,
@@ -303,9 +298,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
-    if (!io_s.ok() && !io_s.IsShutdownInProgress() &&
-        !io_s.IsColumnFamilyDropped()) {
-      assert(log_io_s.ok());
+    if (log_io_s.ok()) {
       // Error while writing to MANIFEST.
       // In fact, versions_->io_status() can also be the result of renaming
       // CURRENT file. With current code, it's just difficult to tell. So just
@@ -316,24 +309,19 @@ Status DBImpl::FlushMemTableToOutputFile(
         // error), all the Manifest write will be map to soft error.
         // TODO: kManifestWriteNoWAL and kFlushNoWAL are misleading. Refactor is
         // needed.
-        error_handler_.SetBGError(io_s,
+        error_handler_.SetBGError(s,
                                   BackgroundErrorReason::kManifestWriteNoWAL);
       } else {
         // If WAL sync is successful (either WAL size is 0 or there is no IO
         // error), all the other SST file write errors will be set as
         // kFlushNoWAL.
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
+        error_handler_.SetBGError(s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
-      if (log_io_s.ok()) {
-        Status new_bg_error = s;
-        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
-      }
+      assert(s == log_io_s);
+      Status new_bg_error = s;
+      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
     }
-  } else {
-    // If we got here, then we decided not to care about the i_os status (either
-    // from never needing it or ignoring the flush job status
-    io_s.PermitUncheckedError();
   }
   // If flush ran smoothly and no mempurge happened
   // install new SST file path.
@@ -416,6 +404,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   for (const auto cfd : cfds) {
     assert(cfd->imm()->NumNotFlushed() != 0);
     assert(cfd->imm()->IsFlushPending());
+    assert(cfd->GetFlushReason() == cfds[0]->GetFlushReason());
   }
 #endif /* !NDEBUG */
 
@@ -502,12 +491,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // exec_status stores the execution status of flush_jobs as
   // <bool /* executed */, Status /* status code */>
   autovector<std::pair<bool, Status>> exec_status;
-  autovector<IOStatus> io_status;
   std::vector<bool> pick_status;
   for (int i = 0; i != num_cfs; ++i) {
     // Initially all jobs are not executed, with status OK.
     exec_status.emplace_back(false, Status::OK());
-    io_status.emplace_back(IOStatus::OK());
     pick_status.push_back(false);
   }
 
@@ -527,7 +514,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
           jobs[i]->Run(&logs_with_prep_tracker_, &file_meta[i],
                        &(switched_to_mempurge.at(i)));
       exec_status[i].first = true;
-      io_status[i] = jobs[i]->io_status();
     }
     if (num_cfs > 1) {
       TEST_SYNC_POINT(
@@ -541,7 +527,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         &logs_with_prep_tracker_, file_meta.data() /* &file_meta[0] */,
         switched_to_mempurge.empty() ? nullptr : &(switched_to_mempurge.at(0)));
     exec_status[0].first = true;
-    io_status[0] = jobs[0]->io_status();
 
     Status error_status;
     for (const auto& e : exec_status) {
@@ -558,21 +543,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     }
 
     s = error_status.ok() ? s : error_status;
-  }
-
-  IOStatus io_s = IOStatus::OK();
-  if (io_s.ok()) {
-    IOStatus io_error = IOStatus::OK();
-    for (int i = 0; i != static_cast<int>(io_status.size()); i++) {
-      if (!io_status[i].ok() && !io_status[i].IsShutdownInProgress() &&
-          !io_status[i].IsColumnFamilyDropped()) {
-        io_error = io_status[i];
-      }
-    }
-    io_s = io_error;
-    if (s.ok() && !io_s.ok()) {
-      s = io_s;
-    }
   }
 
   if (s.IsColumnFamilyDropped()) {
@@ -647,7 +617,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       return std::make_pair(Status::OK(), !ready);
     };
 
-    bool resuming_from_bg_err = error_handler_.IsDBStopped();
+    bool resuming_from_bg_err =
+        error_handler_.IsDBStopped() ||
+        (cfds[0]->GetFlushReason() == FlushReason::kErrorRecovery ||
+         cfds[0]->GetFlushReason() == FlushReason::kErrorRecoveryRetryFlush);
     while ((!resuming_from_bg_err || error_handler_.GetRecoveryError().ok())) {
       std::pair<Status, bool> res = wait_to_install_func();
 
@@ -662,7 +635,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       }
       atomic_flush_install_cv_.Wait();
 
-      resuming_from_bg_err = error_handler_.IsDBStopped();
+      resuming_from_bg_err =
+          error_handler_.IsDBStopped() ||
+          (cfds[0]->GetFlushReason() == FlushReason::kErrorRecovery ||
+           cfds[0]->GetFlushReason() == FlushReason::kErrorRecoveryRetryFlush);
     }
 
     if (!resuming_from_bg_err) {
@@ -786,8 +762,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // Need to undo atomic flush if something went wrong, i.e. s is not OK and
   // it is not because of CF drop.
   if (!s.ok() && !s.IsColumnFamilyDropped()) {
-    if (!io_s.ok() && !io_s.IsColumnFamilyDropped()) {
-      assert(log_io_s.ok());
+    if (log_io_s.ok()) {
       // Error while writing to MANIFEST.
       // In fact, versions_->io_status() can also be the result of renaming
       // CURRENT file. With current code, it's just difficult to tell. So just
@@ -798,19 +773,18 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         // error), all the Manifest write will be map to soft error.
         // TODO: kManifestWriteNoWAL and kFlushNoWAL are misleading. Refactor
         // is needed.
-        error_handler_.SetBGError(io_s,
+        error_handler_.SetBGError(s,
                                   BackgroundErrorReason::kManifestWriteNoWAL);
       } else {
         // If WAL sync is successful (either WAL size is 0 or there is no IO
         // error), all the other SST file write errors will be set as
         // kFlushNoWAL.
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
+        error_handler_.SetBGError(s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
-      if (log_io_s.ok()) {
-        Status new_bg_error = s;
-        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
-      }
+      assert(s == log_io_s);
+      Status new_bg_error = s;
+      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
     }
   }
 
