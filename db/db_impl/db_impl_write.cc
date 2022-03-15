@@ -1183,10 +1183,6 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
     assert(with_log_mutex);
   }
 
-#ifdef NDEBUG
-  (void)with_log_mutex;
-#endif
-
   Slice log_entry = WriteBatchInternal::Contents(&merged_batch);
   *log_size = log_entry.size();
   // When two_write_queues_ WriteToWAL has to be protected from concurretn calls
@@ -1214,13 +1210,15 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   if (with_db_mutex || with_log_mutex) {
 #endif  // __has_feature(thread_sanitizer)
 #endif  // defined(__has_feature)
-    assert(alive_log_files_tail_ != alive_log_files_.rend());
     assert(alive_log_files_tail_ == alive_log_files_.rbegin());
 #if defined(__has_feature)
 #if __has_feature(thread_sanitizer)
   }
 #endif  // __has_feature(thread_sanitizer)
 #endif  // defined(__has_feature)
+  if (with_db_mutex || with_log_mutex) {
+    assert(alive_log_files_tail_ != alive_log_files_.rend());
+  }
   LogFileNumberSize& last_alive_log = *alive_log_files_tail_;
   last_alive_log.AddSize(*log_size);
   log_empty_ = false;
