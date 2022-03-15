@@ -1147,8 +1147,22 @@ WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
 // write thread. Otherwise this must be called holding log_write_mutex_.
 IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
                             log::Writer* log_writer, uint64_t* log_used,
-                            uint64_t* log_size) {
+                            uint64_t* log_size,
+                            bool with_db_mutex, bool with_log_mutex) {
   assert(log_size != nullptr);
+
+  // Assert mutex explicitly.
+  if (with_db_mutex) {
+    mutex_.AssertHeld();
+  } else if (two_write_queues_) {
+    log_write_mutex_.AssertHeld();
+    assert(with_log_mutex);
+  }
+
+#ifdef NDEBUG
+  (void)with_log_mutex;
+#endif
+
   Slice log_entry = WriteBatchInternal::Contents(&merged_batch);
   *log_size = log_entry.size();
   // When two_write_queues_ WriteToWAL has to be protected from concurretn calls
@@ -1171,9 +1185,20 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
     *log_used = logfile_number_;
   }
   total_log_size_ += log_entry.size();
-  // TODO(myabandeh): it might be unsafe to access alive_log_files_.back() here
-  // since alive_log_files_ might be modified concurrently
-  alive_log_files_.back().AddSize(log_entry.size());
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+  if (with_db_mutex || with_log_mutex) {
+#endif  // __has_feature(thread_sanitizer)
+#endif  // defined(__has_feature)
+    assert(alive_log_files_tail_ != alive_log_files_.rend());
+    assert(alive_log_files_tail_ == alive_log_files_.rbegin());
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+  }
+#endif  // __has_feature(thread_sanitizer)
+#endif  // defined(__has_feature)
+  LogFileNumberSize& last_alive_log = *alive_log_files_tail_;
+  last_alive_log.AddSize(*log_size);
   log_empty_ = false;
   return io_s;
 }
@@ -1183,6 +1208,7 @@ IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
                             bool need_log_sync, bool need_log_dir_sync,
                             SequenceNumber sequence) {
   IOStatus io_s;
+  assert(!two_write_queues_);
   assert(!write_group.leader->disable_wal);
   // Same holds for all in the batch group
   size_t write_with_wal = 0;
@@ -1270,6 +1296,7 @@ IOStatus DBImpl::ConcurrentWriteToWAL(
     SequenceNumber* last_sequence, size_t seq_inc) {
   IOStatus io_s;
 
+  assert(two_write_queues_ || immutable_db_options_.unordered_write);
   assert(!write_group.leader->disable_wal);
   // Same holds for all in the batch group
   WriteBatch tmp_batch;
@@ -1294,7 +1321,8 @@ IOStatus DBImpl::ConcurrentWriteToWAL(
 
   log::Writer* log_writer = logs_.back().writer;
   uint64_t log_size;
-  io_s = WriteToWAL(*merged_batch, log_writer, log_used, &log_size);
+  io_s = WriteToWAL(*merged_batch, log_writer, log_used, &log_size,
+                    /*with_db_mutex=*/false, /*with_log_mutex=*/true);
   if (to_be_cached_state) {
     cached_recoverable_state_ = *to_be_cached_state;
     cached_recoverable_state_empty_ = false;
@@ -1948,6 +1976,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       log_dir_synced_ = false;
       logs_.emplace_back(logfile_number_, new_log);
       alive_log_files_.push_back(LogFileNumberSize(logfile_number_));
+      alive_log_files_tail_ = alive_log_files_.rbegin();
     }
     log_write_mutex_.Unlock();
   }

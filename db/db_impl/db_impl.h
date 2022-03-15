@@ -1782,7 +1782,8 @@ class DBImpl : public DB {
                          WriteBatch** to_be_cached_state);
 
   IOStatus WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
-                      uint64_t* log_used, uint64_t* log_size);
+                      uint64_t* log_used, uint64_t* log_size,
+                      bool with_db_mutex = false, bool with_log_mutex = false);
 
   IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
                       log::Writer* log_writer, uint64_t* log_used,
@@ -2108,12 +2109,15 @@ class DBImpl : public DB {
   bool persistent_stats_cfd_exists_ = true;
 
   // Without two_write_queues, read and writes to alive_log_files_ are
-  // protected by mutex_. However since back() is never popped, and push_back()
-  // is done only from write_thread_, the same thread can access the item
-  // reffered by back() without mutex_. With two_write_queues_, writes
+  // protected by mutex_. With two_write_queues_, writes
   // are protected by locking both mutex_ and log_write_mutex_, and reads must
   // be under either mutex_ or log_write_mutex_.
   std::deque<LogFileNumberSize> alive_log_files_;
+  // Caching the result of `alive_log_files_.back()` so that we do not have to
+  // call `alive_log_files_.back()` in the write thread (WriteToWAL()) which
+  // requires locking db mutex if log_mutex_ is not already held in
+  // two-write-queues mode.
+  std::deque<LogFileNumberSize>::reverse_iterator alive_log_files_tail_;
   // Log files that aren't fully synced, and the current log file.
   // Synchronization:
   //  - push_back() is done from write_thread_ with locked mutex_ and
