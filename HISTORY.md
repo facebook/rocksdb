@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Fixed a bug that `Iterator::Refresh()` reads stale keys after DeleteRange() performed.
+
 ## 7.0.2 (03/12/2022)
 * Fixed a bug that DisableManualCompaction may assert when disable an unscheduled manual compaction.
 
