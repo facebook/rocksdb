@@ -1377,8 +1377,27 @@ memtablerep_bench: $(OBJ_DIR)/memtable/memtablerep_bench.o $(LIBRARY)
 filter_bench: $(OBJ_DIR)/util/filter_bench.o $(LIBRARY)
 	$(AM_LINK)
 
+ifeq ($(BUILD_DB_STRESS_WITH_BUCK),1)
+# Keep Makefile interface to launching crash tests, but with option to build
+# db_stress with buck (Meta-internal only)
+BUCK_MODE=dbgo
+ifdef COMPILE_WITH_UBSAN
+BUCK_MODE=$(BUCK_MODE)-ubsan
+endif
+ifdef COMPILE_WITH_ASAN
+BUCK_MODE=$(BUCK_MODE)-asan
+endif
+ifdef COMPILE_WITH_TSAN
+BUCK_MODE=$(BUCK_MODE)-tsan
+endif
+db_stress:
+	buck build @mode/$(BUCK_MODE) //rocks/tools:rocks_db_stress
+	ln -svf `buck root`/`buck targets @mode/$(BUCK_MODE) --show-output //rocks/tools:rocks_db_stress | cut -d' ' -f2` db_stress
+	./db_stress --version
+else
 db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
+endif
 
 write_stress: $(OBJ_DIR)/tools/write_stress.o $(LIBRARY)
 	$(AM_LINK)
