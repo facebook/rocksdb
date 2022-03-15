@@ -516,6 +516,10 @@ Status MemTableList::TryInstallMemtableFlushResults(
           wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
           edit_list.push_back(wal_deletion.get());
         }
+        TEST_SYNC_POINT_CALLBACK(
+            "MemTableList::TryInstallMemtableFlushResults:"
+            "AfterComputeMinWalToKeep",
+            nullptr);
       }
 
       const auto manifest_write_cb = [this, cfd, batch_count, log_buffer,

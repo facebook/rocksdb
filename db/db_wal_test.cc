@@ -1491,6 +1491,74 @@ TEST_F(DBWALTest, kPointInTimeRecoveryCFConsistency) {
   ASSERT_NOK(TryReopenWithColumnFamilies({"default", "one", "two"}, options));
 }
 
+TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.track_and_verify_wals_in_manifest = true;
+  // The following make sure there are two bg flush threads.
+  options.max_background_jobs = 8;
+
+  const std::string cf1_name("cf1");
+  CreateAndReopenWithCF({cf1_name}, options);
+  assert(handles_.size() == 2);
+
+  {
+    dbfull()->TEST_LockMutex();
+    ASSERT_LE(2, dbfull()->GetBGJobLimits().max_flushes);
+    dbfull()->TEST_UnlockMutex();
+  }
+
+  ASSERT_OK(dbfull()->PauseBackgroundWork());
+
+  ASSERT_OK(db_->Put(WriteOptions(), handles_[1], "foo", "value"));
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", "value"));
+
+  ASSERT_OK(dbfull()->TEST_FlushMemTable(false, true, handles_[1]));
+
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", "value"));
+  ASSERT_OK(dbfull()->TEST_FlushMemTable(false, true, handles_[0]));
+
+  bool called = false;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "MemTableList::TryInstallMemtableFlushResults:AfterComputeMinWalToKeep",
+      [&](void* /*arg*/) {
+        dbfull()->mutex()->AssertHeld();
+        if (!called) {
+          called = true;
+          SyncPoint::GetInstance()->LoadDependency({
+              {"VersionSet::LogAndApply:WriteManifestStart",
+               "DBWALTest::RaceInstallFlushResultsWithWalObsoletion:BgFlush2"},
+              {"DBWALTest::RaceInstallFlushResultsWithWalObsoletion:BgFlush2",
+               "VersionSet::LogAndApply:WriteManifest"},
+          });
+        } else {
+          TEST_SYNC_POINT(
+              "DBWALTest::RaceInstallFlushResultsWithWalObsoletion:BgFlush2");
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(dbfull()->ContinueBackgroundWork());
+
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[0]));
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
+
+  ASSERT_TRUE(called);
+
+  Close();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  DB* db1 = nullptr;
+  Status s = DB::OpenForReadOnly(options, dbname_, &db1);
+  ASSERT_OK(s);
+  assert(db1);
+  delete db1;
+}
+
 // Test scope:
 // - We expect to open data store under all circumstances
 // - We expect only data upto the point where the first error was encountered
