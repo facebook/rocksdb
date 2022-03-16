@@ -202,8 +202,9 @@ class FilePrefetchBuffer {
               uint64_t chunk_len, uint64_t rounddown_start, uint32_t index);
 
   Status ReadAsync(const IOOptions& opts, RandomAccessFileReader* reader,
-                   uint64_t read_len, uint64_t chunk_len,
-                   uint64_t rounddown_start, uint32_t index);
+                   Env::IOPriority rate_limiter_priority, uint64_t read_len,
+                   uint64_t chunk_len, uint64_t rounddown_start,
+                   uint32_t index);
 
   void CopyDataToBuffer(uint64_t alignment, uint64_t& offset, size_t& length,
                         uint32_t src);

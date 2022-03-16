@@ -97,6 +97,7 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
 
 Status FilePrefetchBuffer::ReadAsync(const IOOptions& opts,
                                      RandomAccessFileReader* reader,
+                                     Env::IOPriority rate_limiter_priority,
                                      uint64_t read_len, uint64_t chunk_len,
                                      uint64_t rounddown_start, uint32_t index) {
   // Reset io_handle.
@@ -117,7 +118,7 @@ Status FilePrefetchBuffer::ReadAsync(const IOOptions& opts,
   req.scratch = bufs_[index].buffer_.BufferStart() + chunk_len;
 
   Status s = reader->ReadAsync(req, opts, fp, nullptr /*cb_arg*/, &io_handle_,
-                               &del_fn_);
+                               &del_fn_, rate_limiter_priority);
   if (s.ok()) {
     async_read_in_progress_ = true;
   }
@@ -327,7 +328,8 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
                           false /*refit_tail*/, chunk_len2);
     uint64_t read_len2 = static_cast<size_t>(roundup_len2 - chunk_len2);
 
-    ReadAsync(opts, reader, read_len2, chunk_len2, rounddown_start2, second)
+    ReadAsync(opts, reader, rate_limiter_priority, read_len2, chunk_len2,
+              rounddown_start2, second)
         .PermitUncheckedError();
 
     // Update the buffer offset.
