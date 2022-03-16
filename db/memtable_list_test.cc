@@ -124,7 +124,7 @@ class MemTableListTest : public testing::Test {
     std::list<std::unique_ptr<FlushJobInfo>> flush_jobs_info;
     Status s = list->TryInstallMemtableFlushResults(
         cfd, mutable_cf_options, m, &dummy_prep_tracker, &versions, &mutex,
-        file_num, to_delete, nullptr, &log_buffer, &flush_jobs_info, &io_s);
+        file_num, to_delete, nullptr, &log_buffer, &flush_jobs_info);
     EXPECT_OK(io_s);
     return s;
   }

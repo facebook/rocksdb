@@ -14,7 +14,7 @@
 #        cd build
 # 3. Run cmake to generate project files for Windows, add more options to enable required third-party libraries.
 #    See thirdparty.inc for more information.
-#        sample command: cmake -G "Visual Studio 15 Win64" -DCMAKE_BUILD_TYPE=Release -DWITH_GFLAGS=1 -DWITH_SNAPPY=1 -DWITH_JEMALLOC=1 -DWITH_JNI=1 ..
+#        sample command: cmake -G "Visual Studio 16 2019" -DCMAKE_BUILD_TYPE=Release -DWITH_GFLAGS=1 -DWITH_SNAPPY=1 -DWITH_JEMALLOC=1 -DWITH_JNI=1 ..
 # 4. Then build the project in debug mode (you may want to add /m[:<N>] flag to run msbuild in <N> parallel threads
 #                                          or simply /m to use all avail cores)
 #        msbuild rocksdb.sln
@@ -27,7 +27,7 @@
 #
 # Linux:
 #
-# 1. Install a recent toolchain such as devtoolset-3 if you're on a older distro. C++11 required.
+# 1. Install a recent toolchain if you're on a older distro. C++17 required (GCC >= 7, Clang >= 5)
 # 2. mkdir build; cd build
 # 3. cmake ..
 # 4. make -j
@@ -92,7 +92,7 @@ else()
 endif()
 
 if( NOT DEFINED CMAKE_CXX_STANDARD )
-  set(CMAKE_CXX_STANDARD 11)
+  set(CMAKE_CXX_STANDARD 17)
 endif()
 
 include(CMakeDependentOption)
@@ -219,7 +219,7 @@ if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W4 /wd4127 /wd4800 /wd4996 /wd4351 /wd4100 /wd4204 /wd4324")
 else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall -pthread")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing -Wno-invalid-offsetof")
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wstrict-prototypes")
   endif()
@@ -321,7 +321,8 @@ if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
 endif()
 
-CHECK_CXX_SOURCE_COMPILES("
+if (NOT PORTABLE OR FORCE_SSE42)
+  CHECK_CXX_SOURCE_COMPILES("
 #include <cstdint>
 #include <nmmintrin.h>
 #include <wmmintrin.h>
@@ -333,16 +334,17 @@ int main() {
   auto d = _mm_cvtsi128_si64(c);
 }
 " HAVE_SSE42)
-if(HAVE_SSE42)
-  add_definitions(-DHAVE_SSE42)
-  add_definitions(-DHAVE_PCLMUL)
-elseif(FORCE_SSE42)
-  message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
+  if(HAVE_SSE42)
+    add_definitions(-DHAVE_SSE42)
+    add_definitions(-DHAVE_PCLMUL)
+  elseif(FORCE_SSE42)
+    message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
+  endif()
 endif()
 
 # Check if -latomic is required or not
 if (NOT MSVC)
-  set(CMAKE_REQUIRED_FLAGS "--std=c++11")
+  set(CMAKE_REQUIRED_FLAGS "--std=c++17")
   CHECK_CXX_SOURCE_COMPILES("
 #include <atomic>
 std::atomic<uint64_t> x(0);
@@ -369,18 +371,8 @@ endif()
 # Reset the required flags
 set(CMAKE_REQUIRED_FLAGS ${OLD_CMAKE_REQUIRED_FLAGS})
 
-CHECK_CXX_SOURCE_COMPILES("
-#if defined(_MSC_VER) && !defined(__thread)
-#define __thread __declspec(thread)
-#endif
-int main() {
-  static __thread int tls;
-  (void)tls;
-}
-" HAVE_THREAD_LOCAL)
-if(HAVE_THREAD_LOCAL)
-  add_definitions(-DROCKSDB_SUPPORT_THREAD_LOCAL)
-endif()
+# thread_local is part of C++11 and later (TODO: clean up this define)
+add_definitions(-DROCKSDB_SUPPORT_THREAD_LOCAL)
 
 option(WITH_IOSTATS_CONTEXT "Enable IO stats context" ON)
 if (NOT WITH_IOSTATS_CONTEXT)
@@ -413,7 +405,7 @@ endif()
 
 option(WITH_TSAN "build with TSAN" OFF)
 if(WITH_TSAN)
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=thread -pie")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=thread -Wl,-pie")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread -fPIC")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=thread -fPIC")
   if(WITH_JEMALLOC)
@@ -637,6 +629,7 @@ set(SOURCES
         cache/cache_reservation_manager.cc
         cache/clock_cache.cc
         cache/lru_cache.cc
+        cache/lru_secondary_cache.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_fetcher.cc
@@ -719,7 +712,6 @@ set(SOURCES
         env/env.cc
         env/env_chroot.cc
         env/env_encryption.cc
-        env/env_hdfs.cc
         env/file_system.cc
         env/file_system_tracer.cc
         env/fs_remap.cc
@@ -840,6 +832,7 @@ set(SOURCES
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
+        util/compression.cc
         util/compression_context_cache.cc
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
@@ -849,7 +842,6 @@ set(SOURCES
         util/random.cc
         util/rate_limiter.cc
         util/ribbon_config.cc
-        util/regex.cc
         util/slice.cc
         util/file_checksum_helper.cc
         util/status.cc
@@ -872,6 +864,7 @@ set(SOURCES
         utilities/checkpoint/checkpoint_impl.cc
         utilities/compaction_filters.cc
         utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc
+        utilities/counted_fs.cc
         utilities/debug.cc
         utilities/env_mirror.cc
         utilities/env_timed.cc
@@ -1019,12 +1012,6 @@ set(ROCKSDB_SHARED_LIB rocksdb-shared${ARTIFACT_SUFFIX})
 
 option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
 
-option(WITH_LIBRADOS "Build with librados" OFF)
-if(WITH_LIBRADOS)
-  list(APPEND SOURCES
-    utilities/env_librados.cc)
-  list(APPEND THIRDPARTY_LIBS rados)
-endif()
 
 if(WIN32)
   set(SYSTEM_LIBS ${SYSTEM_LIBS} shlwapi.lib rpcrt4.lib)
@@ -1171,6 +1158,7 @@ if(WITH_TESTS)
         cache/cache_reservation_manager_test.cc
         cache/cache_test.cc
         cache/lru_cache_test.cc
+        cache/lru_secondary_cache_test.cc
         db/blob/blob_counting_iterator_test.cc
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc
@@ -1199,6 +1187,7 @@ if(WITH_TESTS)
         db/db_compaction_filter_test.cc
         db/db_compaction_test.cc
         db/db_dynamic_level_test.cc
+        db/db_encryption_test.cc
         db/db_flush_test.cc
         db/db_inplace_update_test.cc
         db/db_io_failure_test.cc
@@ -1213,6 +1202,7 @@ if(WITH_TESTS)
         db/db_options_test.cc
         db/db_properties_test.cc
         db/db_range_del_test.cc
+        db/db_rate_limiter_test.cc
         db/db_secondary_test.cc
         db/db_sst_test.cc
         db/db_statistics_test.cc
@@ -1224,6 +1214,7 @@ if(WITH_TESTS)
         db/db_universal_compaction_test.cc
         db/db_wal_test.cc
         db/db_with_timestamp_compaction_test.cc
+        db/db_write_buffer_manager_test.cc
         db/db_write_test.cc
         db/dbformat_test.cc
         db/deletefile_test.cc
@@ -1235,6 +1226,7 @@ if(WITH_TESTS)
         db/file_indexer_test.cc
         db/filename_test.cc
         db/flush_job_test.cc
+        db/import_column_family_test.cc
         db/listener_test.cc
         db/log_test.cc
         db/manual_compaction_test.cc
@@ -1330,6 +1322,7 @@ if(WITH_TESTS)
         utilities/cassandra/cassandra_row_merge_test.cc
         utilities/cassandra/cassandra_serialize_test.cc
         utilities/checkpoint/checkpoint_test.cc
+        utilities/env_timed_test.cc
         utilities/memory/memory_test.cc
         utilities/merge_operators/string_append/stringappend_test.cc
         utilities/object_registry_test.cc
@@ -1343,15 +1336,14 @@ if(WITH_TESTS)
         utilities/transactions/optimistic_transaction_test.cc
         utilities/transactions/transaction_test.cc
         utilities/transactions/lock/point/point_lock_manager_test.cc
+        utilities/transactions/write_committed_transaction_ts_test.cc
         utilities/transactions/write_prepared_transaction_test.cc
         utilities/transactions/write_unprepared_transaction_test.cc
         utilities/transactions/lock/range/range_locking_test.cc
         utilities/ttl/ttl_test.cc
+        utilities/util_merge_operators_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
     )
-  endif()
-  if(WITH_LIBRADOS)
-    list(APPEND TESTS utilities/env_librados_test.cc)
   endif()
 
   if(WITH_FOLLY_DISTRIBUTED_MUTEX)
@@ -1391,10 +1383,6 @@ if(WITH_TESTS)
       if(NOT "${exename}" MATCHES "db_sanity_test")
         gtest_discover_tests(${exename} DISCOVERY_TIMEOUT 120)
         add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
-      endif()
-      if("${exename}" MATCHES "env_librados_test")
-        # env_librados_test.cc uses librados directly
-        target_link_libraries(${exename}${ARTIFACT_SUFFIX} rados)
       endif()
   endforeach(sourcefile ${TESTS})
 

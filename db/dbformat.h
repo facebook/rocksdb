@@ -191,19 +191,27 @@ inline Slice ExtractUserKey(const Slice& internal_key) {
 
 inline Slice ExtractUserKeyAndStripTimestamp(const Slice& internal_key,
                                              size_t ts_sz) {
-  assert(internal_key.size() >= kNumInternalBytes + ts_sz);
-  return Slice(internal_key.data(),
-               internal_key.size() - kNumInternalBytes - ts_sz);
+  Slice ret = internal_key;
+  ret.remove_suffix(kNumInternalBytes + ts_sz);
+  return ret;
 }
 
 inline Slice StripTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
-  assert(user_key.size() >= ts_sz);
-  return Slice(user_key.data(), user_key.size() - ts_sz);
+  Slice ret = user_key;
+  ret.remove_suffix(ts_sz);
+  return ret;
 }
 
 inline Slice ExtractTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
   assert(user_key.size() >= ts_sz);
   return Slice(user_key.data() + user_key.size() - ts_sz, ts_sz);
+}
+
+inline Slice ExtractTimestampFromKey(const Slice& internal_key, size_t ts_sz) {
+  const size_t key_size = internal_key.size();
+  assert(key_size >= kNumInternalBytes + ts_sz);
+  return Slice(internal_key.data() + key_size - ts_sz - kNumInternalBytes,
+               ts_sz);
 }
 
 inline uint64_t ExtractInternalKeyFooter(const Slice& internal_key) {

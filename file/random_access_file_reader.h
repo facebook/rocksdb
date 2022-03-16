@@ -53,7 +53,7 @@ class RandomAccessFileReader {
       const FileOperationInfo::FinishTimePoint& finish_ts,
       const Status& status) const {
     FileOperationInfo info(FileOperationType::kRead, file_name_, start_ts,
-                           finish_ts, status);
+                           finish_ts, status, file_temperature_);
     info.offset = offset;
     info.length = length;
 
@@ -89,7 +89,8 @@ class RandomAccessFileReader {
   HistogramImpl* file_read_hist_;
   RateLimiter* rate_limiter_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
-  Temperature file_temperature_;
+  const Temperature file_temperature_;
+  const bool is_last_level_;
 
  public:
   explicit RandomAccessFileReader(
@@ -100,7 +101,8 @@ class RandomAccessFileReader {
       HistogramImpl* file_read_hist = nullptr,
       RateLimiter* rate_limiter = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
-      Temperature file_temperature = Temperature::kUnknown)
+      Temperature file_temperature = Temperature::kUnknown,
+      bool is_last_level = false)
       : file_(std::move(raf), io_tracer, _file_name),
         file_name_(std::move(_file_name)),
         clock_(clock),
@@ -109,7 +111,8 @@ class RandomAccessFileReader {
         file_read_hist_(file_read_hist),
         rate_limiter_(rate_limiter),
         listeners_(),
-        file_temperature_(file_temperature) {
+        file_temperature_(file_temperature),
+        is_last_level_(is_last_level) {
 #ifndef ROCKSDB_LITE
     std::for_each(listeners.begin(), listeners.end(),
                   [this](const std::shared_ptr<EventListener>& e) {
@@ -139,17 +142,26 @@ class RandomAccessFileReader {
   // 2. Otherwise, scratch is not used and can be null, the aligned_buf owns
   // the internally allocated buffer on return, and the result refers to a
   // region in aligned_buf.
+  //
+  // `rate_limiter_priority` is used to charge the internal rate limiter when
+  // enabled. The special value `Env::IO_TOTAL` makes this operation bypass the
+  // rate limiter.
   IOStatus Read(const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
                 char* scratch, AlignedBuf* aligned_buf,
-                bool for_compaction = false) const;
+                Env::IOPriority rate_limiter_priority) const;
 
   // REQUIRES:
   // num_reqs > 0, reqs do not overlap, and offsets in reqs are increasing.
   // In non-direct IO mode, aligned_buf should be null;
   // In direct IO mode, aligned_buf stores the aligned buffer allocated inside
   // MultiRead, the result Slices in reqs refer to aligned_buf.
+  //
+  // `rate_limiter_priority` will be used to charge the internal rate limiter.
+  // It is not yet supported so the client must provide the special value
+  // `Env::IO_TOTAL` to bypass the rate limiter.
   IOStatus MultiRead(const IOOptions& opts, FSReadRequest* reqs,
-                     size_t num_reqs, AlignedBuf* aligned_buf) const;
+                     size_t num_reqs, AlignedBuf* aligned_buf,
+                     Env::IOPriority rate_limiter_priority) const;
 
   IOStatus Prefetch(uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n, IOOptions(), nullptr);

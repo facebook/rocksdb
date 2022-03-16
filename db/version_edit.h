@@ -396,7 +396,6 @@ class VersionEdit {
   const DeletedFiles& GetDeletedFiles() const { return deleted_files_; }
 
   // Add the specified table file at the specified level.
-  // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
   // REQUIRES: "smallest" and "largest" are smallest and largest keys in file
   // REQUIRES: "oldest_blob_file_number" is the number of the oldest blob file
   // referred to by this file if any, kInvalidBlobFileNumber otherwise.

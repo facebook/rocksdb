@@ -142,10 +142,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     result.compaction_readahead_size = 1024 * 1024 * 2;
   }
 
-  if (result.compaction_readahead_size > 0 || result.use_direct_reads) {
-    result.new_table_reader_for_compaction_inputs = true;
-  }
-
   // Force flush on DB open if 2PC is enabled, since with 2PC we have no
   // guarantee that consecutive log files have consecutive sequence id, which
   // make recovery complicated.
@@ -194,17 +190,17 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
   }
 #endif  // !ROCKSDB_LITE
 
+  // Supported wal compression types
+  if (!StreamingCompressionTypeSupported(result.wal_compression)) {
+    result.wal_compression = kNoCompression;
+    ROCKS_LOG_WARN(result.info_log,
+                   "wal_compression is disabled since only zstd is supported");
+  }
+
   if (!result.paranoid_checks) {
     result.skip_checking_sst_file_sizes_on_db_open = true;
     ROCKS_LOG_INFO(result.info_log,
                    "file size check will be skipped during open.");
-  }
-
-  if (result.preserve_deletes) {
-    ROCKS_LOG_WARN(
-        result.info_log,
-        "preserve_deletes is deprecated, will be removed in a future release. "
-        "Please try using user-defined timestamp instead.");
   }
 
   return result;
@@ -284,6 +280,12 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
   if (db_options.atomic_flush && db_options.best_efforts_recovery) {
     return Status::InvalidArgument(
         "atomic_flush is currently incompatible with best-efforts recovery");
+  }
+
+  if (db_options.use_direct_io_for_flush_and_compaction &&
+      0 == db_options.writable_file_max_buffer_size) {
+    return Status::InvalidArgument(
+        "writes in direct IO require writable_file_max_buffer_size > 0");
   }
 
   return Status::OK();
@@ -1362,6 +1364,7 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
     total_log_size_ += log.size;
     alive_log_files_.push_back(log);
   }
+  alive_log_files_tail_ = alive_log_files_.rbegin();
   if (two_write_queues_) {
     log_write_mutex_.Unlock();
   }
@@ -1371,6 +1374,12 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
 Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                                            MemTable* mem, VersionEdit* edit) {
   mutex_.AssertHeld();
+  assert(cfd);
+  assert(cfd->imm());
+  // The immutable memtable list must be empty.
+  assert(std::numeric_limits<uint64_t>::max() ==
+         cfd->imm()->GetEarliestMemTableID());
+
   const uint64_t start_micros = immutable_db_options_.clock->NowMicros();
 
   FileMetaData meta;
@@ -1538,6 +1547,72 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                       !kSeqPerBatch, kBatchPerTxn);
 }
 
+// TODO: Implement the trimming in flush code path.
+// TODO: Perform trimming before inserting into memtable during recovery.
+// TODO: Pick files with max_timestamp > trim_ts by each file's timestamp meta
+// info, and handle only these files to reduce io.
+Status DB::OpenAndTrimHistory(
+    const DBOptions& db_options, const std::string& dbname,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+    std::string trim_ts) {
+  assert(dbptr != nullptr);
+  assert(handles != nullptr);
+  auto validate_options = [&db_options] {
+    if (db_options.avoid_flush_during_recovery) {
+      return Status::InvalidArgument(
+          "avoid_flush_during_recovery incompatible with "
+          "OpenAndTrimHistory");
+    }
+    return Status::OK();
+  };
+  auto s = validate_options();
+  if (!s.ok()) {
+    return s;
+  }
+
+  DB* db = nullptr;
+  s = DB::Open(db_options, dbname, column_families, handles, &db);
+  if (!s.ok()) {
+    return s;
+  }
+  assert(db);
+  CompactRangeOptions options;
+  options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForceOptimized;
+  auto db_impl = static_cast_with_check<DBImpl>(db);
+  for (auto handle : *handles) {
+    assert(handle != nullptr);
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(handle);
+    auto cfd = cfh->cfd();
+    assert(cfd != nullptr);
+    // Only compact column families with timestamp enabled
+    if (cfd->user_comparator() != nullptr &&
+        cfd->user_comparator()->timestamp_size() > 0) {
+      s = db_impl->CompactRangeInternal(options, handle, nullptr, nullptr,
+                                        trim_ts);
+      if (!s.ok()) {
+        break;
+      }
+    }
+  }
+  auto clean_op = [&handles, &db] {
+    for (auto handle : *handles) {
+      auto temp_s = db->DestroyColumnFamilyHandle(handle);
+      assert(temp_s.ok());
+    }
+    handles->clear();
+    delete db;
+  };
+  if (!s.ok()) {
+    clean_op();
+    return s;
+  }
+
+  *dbptr = db;
+  return s;
+}
+
 IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                            size_t preallocate_block_size,
                            log::Writer** new_log) {
@@ -1577,7 +1652,9 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
         tmp_set.Contains(FileType::kWalFile)));
     *new_log = new log::Writer(std::move(file_writer), log_file_num,
                                immutable_db_options_.recycle_log_file_num > 0,
-                               immutable_db_options_.manual_wal_flush);
+                               immutable_db_options_.manual_wal_flush,
+                               immutable_db_options_.wal_compression);
+    io_s = (*new_log)->AddCompressionTypeRecord();
   }
   return io_s;
 }
@@ -1699,6 +1776,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       }
       impl->alive_log_files_.push_back(
           DBImpl::LogFileNumberSize(impl->logfile_number_));
+      impl->alive_log_files_tail_ = impl->alive_log_files_.rbegin();
       if (impl->two_write_queues_) {
         impl->log_write_mutex_.Unlock();
       }
@@ -1719,7 +1797,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         WriteOptions write_options;
         uint64_t log_used, log_size;
         log::Writer* log_writer = impl->logs_.back().writer;
-        s = impl->WriteToWAL(empty_batch, log_writer, &log_used, &log_size);
+        s = impl->WriteToWAL(empty_batch, log_writer, &log_used, &log_size,
+                             Env::IO_TOTAL, /*with_db_mutex==*/true);
         if (s.ok()) {
           // Need to fsync, otherwise it might get lost after a power reset.
           s = impl->FlushWAL(false);
@@ -1879,8 +1958,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                    persist_options_status.ToString().c_str());
   }
   if (s.ok()) {
-    impl->StartPeriodicWorkScheduler();
-  } else {
+    s = impl->StartPeriodicWorkScheduler();
+  }
+  if (!s.ok()) {
     for (auto* h : *handles) {
       delete h;
     }

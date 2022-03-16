@@ -21,85 +21,63 @@ LIBGCC_LIBS=" -L $LIBGCC_BASE/lib"
 GLIBC_INCLUDE="$GLIBC_BASE/include"
 GLIBC_LIBS=" -L $GLIBC_BASE/lib"
 
+if test -z $PIC_BUILD; then
+  MAYBE_PIC=
+else
+  MAYBE_PIC=_pic
+fi
+
 # snappy
 SNAPPY_INCLUDE=" -I $SNAPPY_BASE/include/"
-if test -z $PIC_BUILD; then
-  SNAPPY_LIBS=" $SNAPPY_BASE/lib/libsnappy.a"
-else
-  SNAPPY_LIBS=" $SNAPPY_BASE/lib/libsnappy_pic.a"
-fi
+SNAPPY_LIBS=" $SNAPPY_BASE/lib/libsnappy${MAYBE_PIC}.a"
 CFLAGS+=" -DSNAPPY"
 
-if test -z $PIC_BUILD; then
-  # location of zlib headers and libraries
-  ZLIB_INCLUDE=" -I $ZLIB_BASE/include/"
-  ZLIB_LIBS=" $ZLIB_BASE/lib/libz.a"
-  CFLAGS+=" -DZLIB"
+# location of zlib headers and libraries
+ZLIB_INCLUDE=" -I $ZLIB_BASE/include/"
+ZLIB_LIBS=" $ZLIB_BASE/lib/libz${MAYBE_PIC}.a"
+CFLAGS+=" -DZLIB"
 
-  # location of bzip headers and libraries
-  BZIP_INCLUDE=" -I $BZIP2_BASE/include/"
-  BZIP_LIBS=" $BZIP2_BASE/lib/libbz2.a"
-  CFLAGS+=" -DBZIP2"
+# location of bzip headers and libraries
+BZIP_INCLUDE=" -I $BZIP2_BASE/include/"
+BZIP_LIBS=" $BZIP2_BASE/lib/libbz2${MAYBE_PIC}.a"
+CFLAGS+=" -DBZIP2"
 
-  LZ4_INCLUDE=" -I $LZ4_BASE/include/"
-  LZ4_LIBS=" $LZ4_BASE/lib/liblz4.a"
-  CFLAGS+=" -DLZ4"
-fi
+LZ4_INCLUDE=" -I $LZ4_BASE/include/"
+LZ4_LIBS=" $LZ4_BASE/lib/liblz4${MAYBE_PIC}.a"
+CFLAGS+=" -DLZ4"
 
 ZSTD_INCLUDE=" -I $ZSTD_BASE/include/"
-if test -z $PIC_BUILD; then
-  ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd.a"
-else
-  ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd_pic.a"
-fi
+ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd${MAYBE_PIC}.a"
 CFLAGS+=" -DZSTD"
 
 # location of gflags headers and libraries
 GFLAGS_INCLUDE=" -I $GFLAGS_BASE/include/"
-if test -z $PIC_BUILD; then
-  GFLAGS_LIBS=" $GFLAGS_BASE/lib/libgflags.a"
-else
-  GFLAGS_LIBS=" $GFLAGS_BASE/lib/libgflags_pic.a"
-fi
+GFLAGS_LIBS=" $GFLAGS_BASE/lib/libgflags${MAYBE_PIC}.a"
 CFLAGS+=" -DGFLAGS=gflags"
 
 BENCHMARK_INCLUDE=" -I $BENCHMARK_BASE/include/"
-if test -z $PIC_BUILD; then
-  BENCHMARK_LIBS=" $BENCHMARK_BASE/lib/libbenchmark.a"
-else
-  BENCHMARK_LIBS=" $BENCHMARK_BASE/lib/libbenchmark_pic.a"
-fi
+BENCHMARK_LIBS=" $BENCHMARK_BASE/lib/libbenchmark${MAYBE_PIC}.a"
 
 # location of jemalloc
 JEMALLOC_INCLUDE=" -I $JEMALLOC_BASE/include/"
-JEMALLOC_LIB=" $JEMALLOC_BASE/lib/libjemalloc.a"
+JEMALLOC_LIB=" $JEMALLOC_BASE/lib/libjemalloc${MAYBE_PIC}.a"
 
-if test -z $PIC_BUILD; then
-  # location of numa
-  NUMA_INCLUDE=" -I $NUMA_BASE/include/"
-  NUMA_LIB=" $NUMA_BASE/lib/libnuma.a"
-  CFLAGS+=" -DNUMA"
+# location of numa
+NUMA_INCLUDE=" -I $NUMA_BASE/include/"
+NUMA_LIB=" $NUMA_BASE/lib/libnuma${MAYBE_PIC}.a"
+CFLAGS+=" -DNUMA"
 
-  # location of libunwind
-  LIBUNWIND="$LIBUNWIND_BASE/lib/libunwind.a"
-fi
+# location of libunwind
+LIBUNWIND="$LIBUNWIND_BASE/lib/libunwind${MAYBE_PIC}.a"
 
 # location of TBB
 TBB_INCLUDE=" -isystem $TBB_BASE/include/"
-if test -z $PIC_BUILD; then
-  TBB_LIBS="$TBB_BASE/lib/libtbb.a"
-else
-  TBB_LIBS="$TBB_BASE/lib/libtbb_pic.a"
-fi
+TBB_LIBS="$TBB_BASE/lib/libtbb${MAYBE_PIC}.a"
 CFLAGS+=" -DTBB"
 
 # location of LIBURING
 LIBURING_INCLUDE=" -isystem $LIBURING_BASE/include/"
-if test -z $PIC_BUILD; then
-  LIBURING_LIBS="$LIBURING_BASE/lib/liburing.a"
-else
-  LIBURING_LIBS="$LIBURING_BASE/lib/liburing_pic.a"
-fi
+LIBURING_LIBS="$LIBURING_BASE/lib/liburing${MAYBE_PIC}.a"
 CFLAGS+=" -DLIBURING"
 
 test "$USE_SSE" || USE_SSE=1

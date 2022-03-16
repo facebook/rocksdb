@@ -31,6 +31,8 @@ class WriteBatchBase {
   virtual Status Put(ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value) = 0;
   virtual Status Put(const Slice& key, const Slice& value) = 0;
+  virtual Status Put(ColumnFamilyHandle* column_family, const Slice& key,
+                     const Slice& ts, const Slice& value) = 0;
 
   // Variant of Put() that gathers output like writev(2).  The key and value
   // that will be written to the database are concatenations of arrays of
@@ -44,6 +46,8 @@ class WriteBatchBase {
   virtual Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& value) = 0;
   virtual Status Merge(const Slice& key, const Slice& value) = 0;
+  virtual Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
+                       const Slice& ts, const Slice& value) = 0;
 
   // variant that takes SliceParts
   virtual Status Merge(ColumnFamilyHandle* column_family, const SliceParts& key,
@@ -54,6 +58,8 @@ class WriteBatchBase {
   virtual Status Delete(ColumnFamilyHandle* column_family,
                         const Slice& key) = 0;
   virtual Status Delete(const Slice& key) = 0;
+  virtual Status Delete(ColumnFamilyHandle* column_family, const Slice& key,
+                        const Slice& ts) = 0;
 
   // variant that takes SliceParts
   virtual Status Delete(ColumnFamilyHandle* column_family,
@@ -65,6 +71,8 @@ class WriteBatchBase {
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
                               const Slice& key) = 0;
   virtual Status SingleDelete(const Slice& key) = 0;
+  virtual Status SingleDelete(ColumnFamilyHandle* column_family,
+                              const Slice& key, const Slice& ts) = 0;
 
   // variant that takes SliceParts
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
@@ -76,6 +84,9 @@ class WriteBatchBase {
   virtual Status DeleteRange(ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key) = 0;
   virtual Status DeleteRange(const Slice& begin_key, const Slice& end_key) = 0;
+  virtual Status DeleteRange(ColumnFamilyHandle* column_family,
+                             const Slice& begin_key, const Slice& end_key,
+                             const Slice& ts) = 0;
 
   // variant that takes SliceParts
   virtual Status DeleteRange(ColumnFamilyHandle* column_family,

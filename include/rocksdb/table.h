@@ -227,9 +227,8 @@ struct BlockBasedTableOptions {
   // kDataBlockBinaryAndHash.
   double data_block_hash_table_util_ratio = 0.75;
 
-  // This option is now deprecated. No matter what value it is set to,
-  // it will behave as if hash_index_allow_collision=true.
-  bool hash_index_allow_collision = true;
+  // Option hash_index_allow_collision is now deleted.
+  // It will behave as if hash_index_allow_collision=true.
 
   // Use the specified checksum type. Newly created table files will be
   // protected with this checksum type. Old table files will still be readable,
@@ -293,16 +292,16 @@ struct BlockBasedTableOptions {
   // the memory, if block cache available.
   //
   // Charged memory usage includes:
-  // 1. (new) Bloom Filter and Ribbon Filter construction
+  // 1. Bloom Filter (format_version >= 5) and Ribbon Filter construction
   // 2. More to come...
   //
   // Note:
-  // 1. (new) Bloom Filter and Ribbon Filter construction
+  // 1. Bloom Filter (format_version >= 5) and Ribbon Filter construction
   //
   // If additional temporary memory of Ribbon Filter uses up too much memory
   // relative to the avaible space left in the block cache
   // at some point (i.e, causing a cache full when strict_capacity_limit =
-  // true), construction will fall back to (new) Bloom Filter.
+  // true), construction will fall back to Bloom Filter.
   //
   // Default: false
   bool reserve_table_builder_memory = false;
@@ -364,6 +363,20 @@ struct BlockBasedTableOptions {
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.
   bool whole_key_filtering = true;
+
+  // If true, detect corruption during Bloom Filter (format_version >= 5)
+  // and Ribbon Filter construction.
+  //
+  // This is an extra check that is only
+  // useful in detecting software bugs or CPU+memory malfunction.
+  // Turning on this feature increases filter construction time by 30%.
+  //
+  // This parameter can be changed dynamically by
+  // DB::SetOptions({{"block_based_table_factory",
+  //                  "{detect_filter_construct_corruption=true;}"}});
+  //
+  // TODO: optimize this performance
+  bool detect_filter_construct_corruption = false;
 
   // Verify that decompressing the compressed block gives back the input. This
   // is a verification mode that we use to detect bugs in compression

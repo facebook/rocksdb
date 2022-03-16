@@ -338,7 +338,8 @@ bool MemTableList::IsFlushPending() const {
 
 // Returns the memtables that need to be flushed.
 void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
-                                        autovector<MemTable*>* ret) {
+                                        autovector<MemTable*>* ret,
+                                        uint64_t* max_next_log_number) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_PICK_MEMTABLES_TO_FLUSH);
   const auto& memlist = current_->memlist_;
@@ -349,8 +350,7 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
   // iterating through the memlist starting at the end, the vector<MemTable*>
   // ret is filled with memtables already sorted in increasing MemTable ID.
   // However, when the mempurge feature is activated, new memtables with older
-  // IDs will be added to the memlist. Therefore we std::sort(ret) at the end to
-  // return a vector of memtables sorted by increasing memtable ID.
+  // IDs will be added to the memlist.
   for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
     MemTable* m = *it;
     if (!atomic_flush && m->atomic_flush_seqno_ != kMaxSequenceNumber) {
@@ -366,21 +366,16 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
         imm_flush_needed.store(false, std::memory_order_release);
       }
       m->flush_in_progress_ = true;  // flushing will start very soon
+      if (max_next_log_number) {
+        *max_next_log_number =
+            std::max(m->GetNextLogNumber(), *max_next_log_number);
+      }
       ret->push_back(m);
     }
   }
   if (!atomic_flush || num_flush_not_started_ == 0) {
     flush_requested_ = false;  // start-flush request is complete
   }
-
-  // Sort the list of memtables by increasing memtable ID.
-  // This is useful when the mempurge feature is activated
-  // and the memtables are not guaranteed to be sorted in
-  // the memlist vector.
-  std::sort(ret->begin(), ret->end(),
-            [](const MemTable* m1, const MemTable* m2) -> bool {
-              return m1->GetID() < m2->GetID();
-            });
 }
 
 void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
@@ -412,7 +407,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
     autovector<MemTable*>* to_delete, FSDirectory* db_directory,
     LogBuffer* log_buffer,
     std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info,
-    IOStatus* io_s, bool write_edits) {
+    bool write_edits) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
@@ -534,7 +529,6 @@ Status MemTableList::TryInstallMemtableFlushResults(
                               db_directory, /*new_descriptor_log=*/false,
                               /*column_family_options=*/nullptr,
                               manifest_write_cb);
-        *io_s = vset->io_status();
       } else {
         // If write_edit is false (e.g: successful mempurge),
         // then remove old memtables, wake up manifest write queue threads,
@@ -550,7 +544,6 @@ Status MemTableList::TryInstallMemtableFlushResults(
         // TODO(bjlemaire): explain full reason WakeUpWaitingManifestWriters
         // needed or investigate more.
         vset->WakeUpWaitingManifestWriters();
-        *io_s = IOStatus::OK();
       }
     }
   }

@@ -687,12 +687,8 @@ Status Env::CreateFromString(const ConfigOptions& config_options,
   } else {
     RegisterSystemEnvs();
 #ifndef ROCKSDB_LITE
-    std::string errmsg;
-    env = config_options.registry->NewObject<Env>(id, &uniq, &errmsg);
-    if (!env) {
-      status = Status::NotSupported(
-          std::string("Cannot load environment[") + id + "]: ", errmsg);
-    }
+    // First, try to load the Env as a unique object.
+    status = config_options.registry->NewObject<Env>(id, &env, &uniq);
 #else
     status =
         Status::NotSupported("Cannot load environment in LITE mode", value);

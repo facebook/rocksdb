@@ -51,6 +51,14 @@ class InstrumentedMutex {
   int stats_code_;
 };
 
+class ALIGN_AS(CACHE_LINE_SIZE) CacheAlignedInstrumentedMutex
+    : public InstrumentedMutex {
+  using InstrumentedMutex::InstrumentedMutex;
+  char padding[(CACHE_LINE_SIZE - sizeof(InstrumentedMutex) % CACHE_LINE_SIZE) %
+               CACHE_LINE_SIZE] ROCKSDB_FIELD_UNUSED;
+};
+static_assert(sizeof(CacheAlignedInstrumentedMutex) % CACHE_LINE_SIZE == 0);
+
 // RAII wrapper for InstrumentedMutex
 class InstrumentedMutexLock {
  public:

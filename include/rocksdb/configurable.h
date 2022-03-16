@@ -388,6 +388,9 @@ class Configurable {
       const std::string& name, void* opt_ptr,
       const std::unordered_map<std::string, OptionTypeInfo>* opt_map);
 
+  // Returns true if there are registered options for this Configurable object
+  inline bool HasRegisteredOptions() const { return !options_.empty(); }
+
  private:
   // Contains the collection of options (name, opt_ptr, opt_map) associated with
   // this object. This collection is typically set in the constructor of the
