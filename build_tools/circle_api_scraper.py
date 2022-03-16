@@ -8,11 +8,14 @@
 In order to finally yield the output of benchmark tests.
 '''
 
+import argparse
 from ast import Dict
 from collections import namedtuple
 import csv
 import email
+import pickle
 from keyword import iskeyword
+import struct
 import sys
 from typing import Callable, List, Mapping
 import circleci.api
@@ -41,7 +44,7 @@ class TupleObject:
 class CircleAPIV2:
 
     workflow_call_range = 20
-    pipeline_call_range = 5
+    pipeline_call_range = 20
     job_call_range = 5
 
     def __init__(self, user_id: str, vcs: str, username: str, project: str) -> None:
@@ -289,8 +292,12 @@ class CircleLogReader:
         return results
 
 
-def main():
-    # track down the job number
+def fetch_and_pickle_results(filename: str):
+    '''Track down the job number
+    Drill into the contents to find benchmark logs
+    Interpret the results
+    Pickle the final report object
+    '''
     reader = CircleLogReader(
         {'user_id': 'e7d4aab13e143360f95e258be0a89b5c8e256773',
          'vcs': 'github',
@@ -301,8 +308,48 @@ def main():
     # Each object with a successful parse will have a .report field
     for result in results:
         result.log_result()
+    reports = [(int(parser.isoparse(result.job_info.started_at).timestamp()), result.report) for result in results if hasattr(
+        result, 'report')]
+    file = open(filename, 'wb')
+    pickle.dump(reports, file)
+    file.close()
 
     return 0
+
+
+def push_pickle_to_graphite(filename: str):
+    file = open(filename, 'rb')
+    reports = pickle.load(file)
+
+    # Careful not to use too modern a protocol for Graphite
+    payload = pickle.dumps(reports, file, protocol=2)
+    header = struct.pack("!L", len(payload))
+    graphite_message = header + payload
+
+    # Now send to Graphite's pickle port (2004 by default)
+    pass
+
+
+def main():
+    '''Fetch and parse benchmark results from CircleCI
+    Save to a pickle file
+    Upload to Graphite port
+    '''
+
+    parser = argparse.ArgumentParser(
+        description='CircleCI benchmark scraper.')
+
+    # --save <picklefile> in
+    parser.add_argument('--action', choices=['fetch', 'push', 'all'], default='all',
+                        help='File in which to save pickled report')
+    parser.add_argument('--picklefile', default='reports.pickle')
+
+    args = parser.parse_args()
+    if (args.action == 'all' or args.action == 'fetch'):
+        fetch_and_pickle_results(args.picklefile)
+    if (args.action == 'all' or args.action == 'push'):
+        push_pickle_to_graphite(args.picklefile)
+
 
 
 if __name__ == '__main__':
