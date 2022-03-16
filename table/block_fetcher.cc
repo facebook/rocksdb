@@ -72,7 +72,8 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
     if (io_s.ok() &&
         prefetch_buffer_->TryReadFromCache(
             opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
-            &io_s, read_options_.rate_limiter_priority, for_compaction_)) {
+            &io_s, read_options_.rate_limiter_priority, for_compaction_,
+            ioptions_.fs.get())) {
       ProcessTrailerIfPresent();
       if (!io_status_.ok()) {
         return true;

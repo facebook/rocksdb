@@ -1474,7 +1474,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
           // prefetching. It should also take in account blocks read from cache.
           prefetch_buffer->UpdateReadPattern(handle.offset(),
                                              BlockSizeWithTrailer(handle),
-                                             ro.adaptive_readahead);
+                                             true /*decrease_readahead_size*/);
         }
       }
     }

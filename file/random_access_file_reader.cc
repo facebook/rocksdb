@@ -424,4 +424,12 @@ IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
     return PrepareIOFromReadOptions(ro, SystemClock::Default().get(), opts);
   }
 }
+
+IOStatus RandomAccessFileReader::ReadAsync(
+    FSReadRequest& req, const IOOptions& opts,
+    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    void** io_handle, IOHandleDeleter* del_fn) {
+  return file_->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn,
+                          nullptr /*dbg*/);
+}
 }  // namespace ROCKSDB_NAMESPACE
