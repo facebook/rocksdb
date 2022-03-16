@@ -458,6 +458,17 @@ jobs:
       - run: DEBUG_LEVEL=0 make -j32 run_microbench
       - post-steps
 
+  build-linux-mini-crashtest:
+    machine:
+      image: ubuntu-2004:202111-02
+    resource_class: large
+    steps:
+      - pre-steps
+      - install-gflags
+      - install-compression-libs
+      - run: make V=1 -j8 CRASH_TEST_EXT_ARGS=--duration=960 blackbox_crash_test_with_atomic_flush
+      - post-steps
+
   build-windows:
     executor: windows-2xlarge
     parameters:
@@ -828,6 +839,9 @@ workflows:
   build-linux-unity-and-headers:
     jobs:
       - build-linux-unity-and-headers
+  build-linux-mini-crashtest:
+    jobs:
+      - build-linux-mini-crashtest
   build-windows-vs2019:
     jobs:
       - build-windows:
