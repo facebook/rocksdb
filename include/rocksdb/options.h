@@ -1599,7 +1599,7 @@ struct ReadOptions {
   Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
 
   // TODO akanksha: Add details.
-  bool async_prefetch;
+  bool async_io;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);

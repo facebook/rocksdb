@@ -498,7 +498,7 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
   rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer,
                                 false /* Implicit autoreadahead */,
-                                false /*async_prefetch*/);
+                                false /*async_io*/);
 
   IOOptions opts;
   s = rep->file->PrepareIOOptions(ro, opts);
