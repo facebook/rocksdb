@@ -26,9 +26,7 @@ uint64_t DBImpl::MinLogNumberToKeep() {
   if (allow_2pc()) {
     return versions_->min_log_number_to_keep_2pc();
   } else {
-    return immutable_db_options_.track_and_verify_wals_in_manifest
-               ? versions_->GetWalSet().GetMinWalNumberToKeep()
-               : versions_->MinLogNumberWithUnflushedData();
+    return versions_->MinLogNumberWithUnflushedData();
   }
 }
 
