@@ -8,11 +8,7 @@
 
 BASH_EXISTS := $(shell which bash)
 SHELL := $(shell which bash)
-# Default to python3. Some distros like CentOS 8 do not have `python`.
-ifeq ($(origin PYTHON), undefined)
-	PYTHON := $(shell which python3 || which python || echo python3)
-endif
-export PYTHON
+include python.mk
 
 CLEAN_FILES = # deliberately empty, so we can append below.
 CFLAGS += ${EXTRA_CFLAGS}
@@ -1031,65 +1027,7 @@ check_some: $(ROCKSDBTESTS_SUBSET)
 ldb_tests: ldb
 	$(PYTHON) tools/ldb_test.py
 
-crash_test:
-# Do not parallelize
-	$(MAKE) whitebox_crash_test
-	$(MAKE) blackbox_crash_test
-
-crash_test_with_atomic_flush:
-# Do not parallelize
-	$(MAKE) whitebox_crash_test_with_atomic_flush
-	$(MAKE) blackbox_crash_test_with_atomic_flush
-
-crash_test_with_txn:
-# Do not parallelize
-	$(MAKE) whitebox_crash_test_with_txn
-	$(MAKE) blackbox_crash_test_with_txn
-
-crash_test_with_best_efforts_recovery: blackbox_crash_test_with_best_efforts_recovery
-
-crash_test_with_ts:
-# Do not parallelize
-	$(MAKE) whitebox_crash_test_with_ts
-	$(MAKE) blackbox_crash_test_with_ts
-
-blackbox_crash_test: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
-	$(PYTHON) -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
-
-blackbox_crash_test_with_atomic_flush: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --cf_consistency blackbox $(CRASH_TEST_EXT_ARGS)
-
-blackbox_crash_test_with_txn: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --txn blackbox $(CRASH_TEST_EXT_ARGS)
-
-blackbox_crash_test_with_best_efforts_recovery: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --test_best_efforts_recovery blackbox $(CRASH_TEST_EXT_ARGS)
-
-blackbox_crash_test_with_ts: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --enable_ts blackbox $(CRASH_TEST_EXT_ARGS)
-
-ifeq ($(CRASH_TEST_KILL_ODD),)
-  CRASH_TEST_KILL_ODD=888887
-endif
-
-whitebox_crash_test: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --simple whitebox --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
-	$(PYTHON) -u tools/db_crashtest.py whitebox  --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
-
-whitebox_crash_test_with_atomic_flush: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --cf_consistency whitebox  --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
-
-whitebox_crash_test_with_txn: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --txn whitebox --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
-
-whitebox_crash_test_with_ts: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --enable_ts whitebox --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
+include crash_test.mk
 
 asan_check: clean
 	COMPILE_WITH_ASAN=1 $(MAKE) check -j32
