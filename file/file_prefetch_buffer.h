@@ -117,7 +117,13 @@ class FilePrefetchBuffer {
   bool TryReadFromCache(const IOOptions& opts, RandomAccessFileReader* reader,
                         uint64_t offset, size_t n, Slice* result, Status* s,
                         Env::IOPriority rate_limiter_priority,
-                        bool for_compaction = false, FileSystem* fs = nullptr);
+                        bool for_compaction = false);
+
+  bool TryReadFromCacheAsync(const IOOptions& opts,
+                             RandomAccessFileReader* reader, uint64_t offset,
+                             size_t n, Slice* result, Status* status,
+                             Env::IOPriority rate_limiter_priority,
+                             bool for_compaction /* = false */, FileSystem* fs);
 
   // The minimum `offset` ever passed to TryReadFromCache(). This will nly be
   // tracked if track_min_offset = true.
@@ -188,8 +194,8 @@ class FilePrefetchBuffer {
   // Calculates roundoff offset and length to be prefetched based on alignment
   // and data present in buffer_.
   void CalculateOffsetAndLen(size_t alignment, uint64_t offset,
-                             size_t roundup_len, uint64_t& chunk_len,
-                             size_t index);
+                             size_t roundup_len, size_t index, bool refit_tail,
+                             uint64_t& chunk_len);
 
   Status Read(const IOOptions& opts, RandomAccessFileReader* reader,
               Env::IOPriority rate_limiter_priority, uint64_t read_len,
