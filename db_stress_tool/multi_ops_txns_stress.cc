@@ -18,6 +18,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// The description of A and C can be found in multi_ops_txns_stress.h
 DEFINE_int32(lb_a, 0, "(Inclusive) lower bound of A");
 DEFINE_int32(ub_a, 1000, "(Exclusive) upper bound of A");
 DEFINE_int32(lb_c, 0, "(Inclusive) lower bound of C");
@@ -44,7 +45,7 @@ DEFINE_int32(delay_snapshot_read_one_in, 0,
 // location, and this file will be used by future runs until a new db is
 // created.
 //
-// Create a fresh new dataabse (-destroy_db_initially=1 or there is no database
+// Create a fresh new database (-destroy_db_initially=1 or there is no database
 // in the location specified by -db). See PreloadDb().
 //
 // Use an existing, non-empty database. See ScanExistingDb().
