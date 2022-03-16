@@ -116,7 +116,6 @@ Status FilePrefetchBuffer::ReadAsync(const IOOptions& opts,
   req.offset = rounddown_start + chunk_len;
   req.result = result;
   req.scratch = bufs_[index].buffer_.BufferStart() + chunk_len;
-
   Status s = reader->ReadAsync(req, opts, fp, nullptr /*cb_arg*/, &io_handle_,
                                &del_fn_, rate_limiter_priority);
   if (s.ok()) {
@@ -132,7 +131,6 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
   if (!enable_ || reader == nullptr) {
     return Status::OK();
   }
-
   TEST_SYNC_POINT("FilePrefetchBuffer::Prefetch:Start");
 
   if (offset + n <= bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) {
@@ -283,6 +281,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
 
     // Move data from curr_ buffer to third.
     CopyDataToBuffer(alignment, offset, length, curr_);
+
     if (length == 0) {
       // Requested data has been copied and curr_ still has unconsumed data.
       return s;
@@ -295,7 +294,6 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     CopyDataToBuffer(alignment, offset, length, second);
     // swap the buffers.
     curr_ = curr_ ^ 1;
-    second = curr_ ^ 1;
     prefetch_size -= length;
   }
 
@@ -310,19 +308,30 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   assert(roundup_len1 >= alignment);
   assert(roundup_len1 % alignment == 0);
   uint64_t chunk_len1 = 0;
-  CalculateOffsetAndLen(alignment, offset, roundup_len1, curr_,
-                        false /*refit_tail*/, chunk_len1);
-  uint64_t read_len1 = static_cast<size_t>(roundup_len1 - chunk_len1);
+  uint64_t read_len1 = 0;
 
+  // For length == 0, skip the synchronous prefetching. read_len1 will be 0.
+  if (length > 0) {
+    CalculateOffsetAndLen(alignment, offset, roundup_len1, curr_,
+                          false /*refit_tail*/, chunk_len1);
+    read_len1 = static_cast<size_t>(roundup_len1 - chunk_len1);
+  }
   {
     // offset and size alignment for second buffer for asynchronous
     // prefetching
     uint64_t rounddown_start2 = roundup_end1;
     uint64_t roundup_end2 =
         Roundup(rounddown_start2 + readahead_size, alignment);
+
+    // For length == 0, do the asynchronous prefetching in curr_, instead of
+    // synchronous prefetching of remaining prefetch_size.
+    if (length == 0) {
+      rounddown_start2 =
+          bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize();
+      roundup_end2 = Roundup(rounddown_start2 + prefetch_size, alignment);
+    }
+
     uint64_t roundup_len2 = roundup_end2 - rounddown_start2;
-    assert(roundup_len2 >= alignment);
-    assert(roundup_len2 % alignment == 0);
     uint64_t chunk_len2 = 0;
     CalculateOffsetAndLen(alignment, rounddown_start2, roundup_len2, second,
                           false /*refit_tail*/, chunk_len2);
