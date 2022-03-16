@@ -71,7 +71,7 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
     IOStatus io_s = file_->PrepareIOOptions(read_options_, opts);
     if (io_s.ok()) {
       bool read_from_prefetch_buffer = false;
-      if (read_options_.adaptive_readahead) {
+      if (read_options_.async_prefetch) {
         read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCacheAsync(
             opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
             &io_s, read_options_.rate_limiter_priority, for_compaction_,

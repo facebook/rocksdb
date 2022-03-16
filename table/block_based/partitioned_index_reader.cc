@@ -81,6 +81,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     ro.deadline = read_options.deadline;
     ro.io_timeout = read_options.io_timeout;
     ro.adaptive_readahead = read_options.adaptive_readahead;
+    ro.async_prefetch = read_options.async_prefetch;
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
     std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter(
@@ -153,7 +154,7 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
   rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer,
                                 false /*Implicit auto readahead*/,
-                                false /*is_adaptive_readahead*/);
+                                false /*async_prefetch*/);
   IOOptions opts;
   {
     Status s = rep->file->PrepareIOOptions(ro, opts);

@@ -763,6 +763,8 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
     ReadOptions ro;
     if (is_adaptive_readahead) {
       ro.adaptive_readahead = true;
+      // TODO akanksha: Remove after adding new units.
+      ro.async_prefetch = true;
     }
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     int num_keys = 0;
@@ -858,6 +860,8 @@ TEST_P(PrefetchTest2, NonSequentialReads) {
     // Iterate until prefetch is done.
     ReadOptions ro;
     ro.adaptive_readahead = true;
+    // TODO akanksha: Remove after adding new units.
+    ro.async_prefetch = true;
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     iter->SeekToFirst();
     while (iter->Valid() && buff_prefetch_count == 0) {
@@ -944,6 +948,8 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
   SyncPoint::GetInstance()->EnableProcessing();
   ReadOptions ro;
   ro.adaptive_readahead = true;
+  // TODO akanksha: Remove after adding new units.
+  ro.async_prefetch = true;
   {
     /*
      * Reseek keys from sequential Data Blocks within same partitioned

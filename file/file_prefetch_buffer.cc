@@ -446,7 +446,7 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
             return false;
           }
         }
-        if (implicit_auto_readahead_ && is_adaptive_readahead_) {
+        if (implicit_auto_readahead_ && async_prefetch_) {
           // Prefetch n + readahead_size_/2 synchronously as remaining
           // readahead_size_/2 will be prefetched asynchronously.
           s = PrefetchAsync(opts, reader, fs, offset, n, readahead_size_ / 2,

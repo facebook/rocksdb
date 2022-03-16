@@ -1598,6 +1598,9 @@ struct ReadOptions {
   // Default: `Env::IO_TOTAL`.
   Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
 
+  // TODO akanksha: Add details.
+  bool async_prefetch;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };

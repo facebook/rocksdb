@@ -15,11 +15,11 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
                                        const BlockHandle& handle,
                                        size_t readahead_size,
                                        bool is_for_compaction,
-                                       bool is_adaptive_readahead) {
+                                       bool async_prefetch) {
   if (is_for_compaction) {
     rep->CreateFilePrefetchBufferIfNotExists(
         compaction_readahead_size_, compaction_readahead_size_,
-        &prefetch_buffer_, false, is_adaptive_readahead);
+        &prefetch_buffer_, false, async_prefetch);
     return;
   }
 
@@ -27,7 +27,7 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
   if (readahead_size > 0) {
     rep->CreateFilePrefetchBufferIfNotExists(readahead_size, readahead_size,
                                              &prefetch_buffer_, false,
-                                             is_adaptive_readahead);
+                                             async_prefetch);
     return;
   }
 
@@ -73,7 +73,7 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
   if (rep->file->use_direct_io()) {
     rep->CreateFilePrefetchBufferIfNotExists(
         initial_auto_readahead_size_, max_auto_readahead_size,
-        &prefetch_buffer_, true, is_adaptive_readahead);
+        &prefetch_buffer_, true, async_prefetch);
     return;
   }
 
@@ -90,7 +90,7 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
   if (s.IsNotSupported()) {
     rep->CreateFilePrefetchBufferIfNotExists(
         initial_auto_readahead_size_, max_auto_readahead_size,
-        &prefetch_buffer_, true, is_adaptive_readahead);
+        &prefetch_buffer_, true, async_prefetch);
     return;
   }
 

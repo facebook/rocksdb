@@ -62,7 +62,7 @@ class FilePrefetchBuffer {
   FilePrefetchBuffer(size_t readahead_size = 0, size_t max_readahead_size = 0,
                      bool enable = true, bool track_min_offset = false,
                      bool implicit_auto_readahead = false,
-                     bool is_adaptive_readahead = false)
+                     bool async_prefetch = false)
       : curr_(0),
         readahead_size_(readahead_size),
         max_readahead_size_(max_readahead_size),
@@ -76,7 +76,7 @@ class FilePrefetchBuffer {
         io_handle_(nullptr),
         del_fn_(nullptr),
         async_read_in_progress_(false),
-        is_adaptive_readahead_(is_adaptive_readahead) {
+        async_prefetch_(async_prefetch) {
     bufs_.resize(3);
   }
 
@@ -132,7 +132,7 @@ class FilePrefetchBuffer {
   // Called in case of implicit auto prefetching.
   void UpdateReadPattern(const uint64_t& offset, const size_t& len,
                          bool decrease_readaheadsize) {
-    if (is_adaptive_readahead_ && decrease_readaheadsize) {
+    if (decrease_readaheadsize) {
       // Since this block was eligible for prefetch but it was found in
       // cache, so check and decrease the readahead_size by 8KB (default)
       // if eligible.
@@ -247,6 +247,6 @@ class FilePrefetchBuffer {
   void* io_handle_;
   IOHandleDeleter del_fn_;
   bool async_read_in_progress_;
-  bool is_adaptive_readahead_;
+  bool async_prefetch_;
 };
 }  // namespace ROCKSDB_NAMESPACE
