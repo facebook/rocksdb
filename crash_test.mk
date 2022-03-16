@@ -7,7 +7,7 @@ include python.mk
 CRASHTEST_PY=$(PYTHON) -u tools/db_crashtest.py --stress_cmd=$(DB_STRESS_CMD)
 
 .PHONY: crash_test crash_test_with_atomic_flush crash_test_with_txn \
-    crash_test_with_best_efforts_recovery crash_test_with_ts \
+	crash_test_with_best_efforts_recovery crash_test_with_ts \
 	blackbox_crash_test blackbox_crash_test_with_atomic_flush \
 	blackbox_crash_test_with_txn blackbox_crash_test_with_ts \
 	blackbox_crash_test_with_best_efforts_recovery \
