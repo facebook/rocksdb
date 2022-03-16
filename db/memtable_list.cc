@@ -516,7 +516,6 @@ Status MemTableList::TryInstallMemtableFlushResults(
           wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
           edit_list.push_back(wal_deletion.get());
         }
-        fprintf(stdout, "y7jin cfd%d log%d min_wal=%d walset.min_wal=%d\n", (int)cfd->GetID(), (int)cfd->GetLogNumber(), (int)min_wal_number_to_keep, (int)vset->GetWalSet().GetMinWalNumberToKeep());
         TEST_SYNC_POINT_CALLBACK(
             "MemTableList::TryInstallMemtableFlushResults:"
             "AfterComputeMinWalToKeep",
