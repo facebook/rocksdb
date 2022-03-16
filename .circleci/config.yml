@@ -466,7 +466,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-compression-libs
-      - run: make V=1 -j8 CRASH_TEST_EXT_ARGS=--duration=1440 blackbox_crash_test
+      - run: make V=1 -j8 CRASH_TEST_EXT_ARGS=--duration=960 blackbox_crash_test_with_atomic_flush
       - post-steps
 
   build-windows:
