@@ -58,10 +58,10 @@ blackbox_crash_test_with_best_efforts_recovery: $(DB_STRESS_CMD)
 blackbox_crash_test_with_ts: $(DB_STRESS_CMD)
 	$(CRASHTEST_PY) --enable_ts blackbox $(CRASH_TEST_EXT_ARGS)
 
-blackbox_crash_test_with_multiops_wc_txn: db_stress
+blackbox_crash_test_with_multiops_wc_txn: $(DB_STRESS_CMD)
 	$(PYTHON) -u tools/db_crashtest.py --test_multiops_txn --write_policy write_committed blackbox $(CRASH_TEST_EXT_ARGS)
 
-blackbox_crash_test_with_multiops_wp_txn: db_stress
+blackbox_crash_test_with_multiops_wp_txn: $(DB_STRESS_CMD)
 	$(PYTHON) -u tools/db_crashtest.py --test_multiops_txn --write_policy write_prepared blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
