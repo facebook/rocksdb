@@ -396,6 +396,8 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
         version_edit_params_.max_column_family_);
     version_set_->MarkMinLogNumberToKeep2PC(
         version_edit_params_.min_log_number_to_keep_);
+    version_set_->MarkMinLogNumberToKeepNon2PC(
+        version_edit_params_.min_log_number_to_keep_);
     version_set_->MarkFileNumberUsed(version_edit_params_.prev_log_number_);
     version_set_->MarkFileNumberUsed(version_edit_params_.log_number_);
     for (auto* cfd : *(version_set_->GetColumnFamilySet())) {
@@ -970,12 +972,13 @@ void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
   fprintf(stdout,
           "next_file_number %" PRIu64 " last_sequence %" PRIu64
           "  prev_log_number %" PRIu64 " max_column_family %" PRIu32
-          " min_log_number_to_keep "
-          "%" PRIu64 "\n",
+          " min_log_number_to_keep_2pc "
+          "%" PRIu64 ", min_log_number_to_keep_non_2pc %" PRIu64 "\n",
           version_set_->current_next_file_number(),
           version_set_->LastSequence(), version_set_->prev_log_number(),
           version_set_->column_family_set_->GetMaxColumnFamily(),
-          version_set_->min_log_number_to_keep_2pc());
+          version_set_->min_log_number_to_keep_2pc(),
+          version_set_->min_log_number_to_keep_non_2pc());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

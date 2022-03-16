@@ -26,7 +26,7 @@ uint64_t DBImpl::MinLogNumberToKeep() {
   if (allow_2pc()) {
     return versions_->min_log_number_to_keep_2pc();
   } else {
-    return versions_->MinLogNumberWithUnflushedData();
+    return versions_->min_log_number_to_keep_non_2pc();
   }
 }
 

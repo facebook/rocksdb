@@ -1135,6 +1135,10 @@ class VersionSet {
     return min_log_number_to_keep_2pc_.load();
   }
 
+  uint64_t min_log_number_to_keep_non_2pc() const {
+    return min_log_number_to_keep_non_2pc_.load();
+  }
+
   // Allocate and return a new file number
   uint64_t NewFileNumber() { return next_file_number_.fetch_add(1); }
 
@@ -1191,18 +1195,12 @@ class VersionSet {
   // REQUIRED: this is only called during single-threaded recovery or repair, or
   // from ::LogAndApply where the global mutex is held.
   void MarkMinLogNumberToKeep2PC(uint64_t number);
+  void MarkMinLogNumberToKeepNon2PC(uint64_t number);
 
   // Return the log file number for the log file that is currently
   // being compacted, or zero if there is no such log file.
   uint64_t prev_log_number() const { return prev_log_number_; }
 
-  // Returns the minimum log number which still has data not flushed to any SST
-  // file.
-  // In non-2PC mode, all the log numbers smaller than this number can be safely
-  // deleted.
-  uint64_t MinLogNumberWithUnflushedData() const {
-    return PreComputeMinLogNumberWithUnflushedData(nullptr);
-  }
   // Returns the minimum log number which still has data not flushed to any SST
   // file.
   // Empty column families' log number is considered to be
@@ -1405,6 +1403,7 @@ class VersionSet {
   // and is qualified for being deleted in 2PC mode. In non-2PC mode, this
   // number is ignored.
   std::atomic<uint64_t> min_log_number_to_keep_2pc_ = {0};
+  std::atomic<uint64_t> min_log_number_to_keep_non_2pc_ = {0};
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
   uint64_t options_file_size_;

@@ -3424,6 +3424,7 @@ TEST_F(VersionSetTestMissingFiles, NoFileMissing) {
 }
 
 TEST_F(VersionSetTestMissingFiles, MinLogNumberToKeep2PC) {
+  db_options_.allow_2pc = true;
   NewDB();
 
   SstInfo sst(100, kDefaultColumnFamilyName, "a");
