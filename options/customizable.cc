@@ -105,11 +105,13 @@ Status Customizable::GetOptionsMap(
 #else
     if (status.ok() && customizable->IsInstanceOf(*id)) {
       // The new ID and the old ID match, so the objects are the same type.
-      // Try to get the existing options, ignoring any errors
+      // Try to get the existing modified options, ignoring any errors
       ConfigOptions embedded = config_options;
       embedded.delimiter = ";";
+      embedded.only_changed_options = true;
       std::string curr_opts;
-      if (customizable->GetOptionString(embedded, &curr_opts).ok()) {
+      if (customizable->GetOptionString(embedded, &curr_opts).ok() &&
+          !curr_opts.empty()) {
         std::unordered_map<std::string, std::string> curr_props;
         if (StringToMap(curr_opts, &curr_props).ok()) {
           props->insert(curr_props.begin(), curr_props.end());

@@ -19,13 +19,16 @@ namespace ROCKSDB_NAMESPACE {
 
 void Configurable::RegisterOptions(
     const std::string& name, void* opt_ptr,
-    const std::unordered_map<std::string, OptionTypeInfo>* type_map) {
+    const std::unordered_map<std::string, OptionTypeInfo>* type_map,
+    const void* ref_ptr) {
   RegisteredOptions opts;
   opts.name = name;
 #ifndef ROCKSDB_LITE
   opts.type_map = type_map;
+  opts.ref_ptr = ref_ptr;
 #else
   (void)type_map;
+  (void)ref_ptr;
 #endif  // ROCKSDB_LITE
   opts.opt_ptr = opt_ptr;
   options_.emplace_back(opts);
@@ -585,7 +588,21 @@ Status ConfigurableHelper::SerializeOptions(const ConfigOptions& config_options,
       for (const auto& map_iter : *(opt_iter.type_map)) {
         const auto& opt_name = map_iter.first;
         const auto& opt_info = map_iter.second;
-        if (opt_info.ShouldSerialize()) {
+        bool should_serialize = opt_info.ShouldSerialize();
+        if (should_serialize && config_options.only_changed_options &&
+            opt_iter.ref_ptr != nullptr) {
+          // This option should be serialized but there is a possiblity that it
+          // matches the default. If it is not Customizable, check to see if we
+          // really should serialize it
+          if (!opt_info.IsCustomizable()) {
+            std::string mismatch;
+            if (opt_info.AreEqual(config_options, opt_name, opt_iter.opt_ptr,
+                                  opt_iter.ref_ptr, &mismatch)) {
+              should_serialize = false;
+            }
+          }
+        }
+        if (should_serialize) {
           std::string value;
           Status s;
           if (!config_options.mutable_options_only) {
@@ -609,9 +626,22 @@ Status ConfigurableHelper::SerializeOptions(const ConfigOptions& config_options,
           if (!s.ok()) {
             return s;
           } else if (!value.empty()) {
-            // <prefix><opt_name>=<value><delimiter>
-            result->append(prefix + opt_name + "=" + value +
-                           config_options.delimiter);
+            if (opt_info.IsCustomizable() &&
+                config_options.only_changed_options &&
+                opt_iter.ref_ptr != nullptr) {
+              auto custom =
+                  opt_info.AsRawPointer<Customizable>(opt_iter.ref_ptr);
+              if ((custom != nullptr && value != custom->GetId()) ||
+                  (custom == nullptr && value != kNullptrString)) {
+                // <prefix><opt_name>=<value><delimiter>
+                result->append(prefix + opt_name + "=" + value +
+                               config_options.delimiter);
+              }
+            } else {
+              // <prefix><opt_name>=<value><delimiter>
+              result->append(prefix + opt_name + "=" + value +
+                             config_options.delimiter);
+            }
           }
         }
       }
@@ -740,6 +770,47 @@ bool ConfigurableHelper::AreEquivalent(const ConfigOptions& config_options,
   }
   return true;
 }
+
+bool ConfigurableHelper::GetMismatches(const ConfigOptions& config_options,
+                                       const Configurable& this_one,
+                                       const Configurable& that_one,
+                                       std::vector<std::string>* mismatches) {
+  assert(mismatches != nullptr);
+  mismatches->clear();
+  for (auto const& o : this_one.options_) {
+    std::string mismatch;
+    if (o.type_map != nullptr) {
+      const auto this_offset = this_one.GetOptionsPtr(o.name);
+      const auto that_offset = that_one.GetOptionsPtr(o.name);
+      if (this_offset != that_offset) {
+        assert(this_offset);
+        assert(that_offset);
+        for (const auto& map_iter : *(o.type_map)) {
+          const auto& opt_info = map_iter.second;
+          if (config_options.IsCheckEnabled(opt_info.GetSanityLevel())) {
+            if (!config_options.mutable_options_only) {
+              if (!this_one.OptionsAreEqual(config_options, opt_info,
+                                            map_iter.first, this_offset,
+                                            that_offset, &mismatch)) {
+                mismatches->push_back(map_iter.first);
+              }
+            } else if (opt_info.IsMutable()) {
+              ConfigOptions copy = config_options;
+              copy.mutable_options_only = false;
+              if (!this_one.OptionsAreEqual(copy, opt_info, map_iter.first,
+                                            this_offset, that_offset,
+                                            &mismatch)) {
+                mismatches->push_back(map_iter.first);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return !mismatches->empty();
+}
+
 #endif  // ROCKSDB_LITE
 
 Status Configurable::GetOptionsMap(

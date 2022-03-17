@@ -417,8 +417,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
 BlockBasedTableFactory::BlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options)
     : table_options_(_table_options) {
+  static BlockBasedTableOptions default_bbto;
   InitializeOptions();
-  RegisterOptions(&table_options_, &block_based_table_type_info);
+  RegisterOptions(&table_options_, &block_based_table_type_info, &default_bbto);
 }
 
 void BlockBasedTableFactory::InitializeOptions() {

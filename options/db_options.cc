@@ -548,7 +548,8 @@ class MutableDBConfigurable : public Configurable {
       const MutableDBOptions& mdb,
       const std::unordered_map<std::string, std::string>* map = nullptr)
       : mutable_(mdb), opt_map_(map) {
-    RegisterOptions(&mutable_, &db_mutable_options_type_info);
+    static MutableDBOptions default_mdb;
+    RegisterOptions(&mutable_, &db_mutable_options_type_info, &default_mdb);
   }
 
   bool OptionsAreEqual(const ConfigOptions& config_options,
@@ -610,7 +611,8 @@ class DBOptionsConfigurable : public MutableDBConfigurable {
       copy.env = Env::Default();
       immutable_ = ImmutableDBOptions(copy);
     }
-    RegisterOptions(&immutable_, &db_immutable_options_type_info);
+    static ImmutableDBOptions default_idb;
+    RegisterOptions(&immutable_, &db_immutable_options_type_info, &default_idb);
   }
 
  protected:

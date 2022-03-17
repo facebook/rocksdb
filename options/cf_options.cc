@@ -126,6 +126,8 @@ static Status ParseCompressionOptions(const std::string& value,
 const std::string kOptNameBMCompOpts = "bottommost_compression_opts";
 const std::string kOptNameCompOpts = "compression_opts";
 
+static ColumnFamilyOptions kDefaultCFOptions;
+
 // OptionTypeInfo map for CompressionOptions
 static std::unordered_map<std::string, OptionTypeInfo>
     compression_options_type_info = {
@@ -218,7 +220,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"report_bg_io_stats",
          {offsetof(struct MutableCFOptions, report_bg_io_stats),
           OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
+          OptionTypeFlags::kMutable, &kDefaultCFOptions.report_bg_io_stats}},
         {"disable_auto_compactions",
          {offsetof(struct MutableCFOptions, disable_auto_compactions),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -229,11 +231,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"check_flush_compaction_key_order",
          {offsetof(struct MutableCFOptions, check_flush_compaction_key_order),
           OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
+          OptionTypeFlags::kMutable,
+          &kDefaultCFOptions.check_flush_compaction_key_order}},
         {"paranoid_file_checks",
          {offsetof(struct MutableCFOptions, paranoid_file_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
+          OptionTypeFlags::kMutable, &kDefaultCFOptions.paranoid_file_checks}},
         {"verify_checksums_in_compaction",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
@@ -241,12 +244,14 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions,
                    soft_pending_compaction_bytes_limit),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
+          OptionTypeFlags::kMutable,
+          &kDefaultCFOptions.soft_pending_compaction_bytes_limit}},
         {"hard_pending_compaction_bytes_limit",
          {offsetof(struct MutableCFOptions,
                    hard_pending_compaction_bytes_limit),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
+          OptionTypeFlags::kMutable,
+          &kDefaultCFOptions.hard_pending_compaction_bytes_limit}},
         {"hard_rate_limit",
          {0, OptionType::kDouble, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
@@ -256,22 +261,25 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"max_compaction_bytes",
          {offsetof(struct MutableCFOptions, max_compaction_bytes),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
+          OptionTypeFlags::kMutable, &kDefaultCFOptions.max_compaction_bytes}},
         {"expanded_compaction_factor",
          {0, OptionType::kInt, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
         {"level0_file_num_compaction_trigger",
          {offsetof(struct MutableCFOptions, level0_file_num_compaction_trigger),
           OptionType::kInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
+          OptionTypeFlags::kMutable,
+          &kDefaultCFOptions.level0_file_num_compaction_trigger}},
         {"level0_slowdown_writes_trigger",
          {offsetof(struct MutableCFOptions, level0_slowdown_writes_trigger),
           OptionType::kInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
+          OptionTypeFlags::kMutable,
+          &kDefaultCFOptions.level0_slowdown_writes_trigger}},
         {"level0_stop_writes_trigger",
          {offsetof(struct MutableCFOptions, level0_stop_writes_trigger),
           OptionType::kInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
+          OptionTypeFlags::kMutable,
+          &kDefaultCFOptions.level0_stop_writes_trigger}},
         {"max_grandparent_overlap_factor",
          {0, OptionType::kInt, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
@@ -510,21 +518,18 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"inplace_update_support",
          {offsetof(struct ImmutableCFOptions, inplace_update_support),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
+          OptionType::kBoolean, &kDefaultCFOptions.inplace_update_support}},
         {"level_compaction_dynamic_level_bytes",
          {offsetof(struct ImmutableCFOptions,
                    level_compaction_dynamic_level_bytes),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
+          OptionType::kBoolean,
+          &kDefaultCFOptions.level_compaction_dynamic_level_bytes}},
         {"optimize_filters_for_hits",
          {offsetof(struct ImmutableCFOptions, optimize_filters_for_hits),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
+          OptionType::kBoolean, &kDefaultCFOptions.optimize_filters_for_hits}},
         {"force_consistency_checks",
          {offsetof(struct ImmutableCFOptions, force_consistency_checks),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
+          OptionType::kBoolean, &kDefaultCFOptions.force_consistency_checks}},
         // Need to keep this around to be able to read old OPTIONS files.
         {"max_mem_compaction_level",
          {0, OptionType::kInt, OptionVerificationType::kDeprecated,
@@ -532,17 +537,17 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"max_write_buffer_number_to_maintain",
          {offsetof(struct ImmutableCFOptions,
                    max_write_buffer_number_to_maintain),
-          OptionType::kInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone, 0}},
+          OptionType::kInt,
+          &kDefaultCFOptions.max_write_buffer_number_to_maintain}},
         {"max_write_buffer_size_to_maintain",
          {offsetof(struct ImmutableCFOptions,
                    max_write_buffer_size_to_maintain),
-          OptionType::kInt64T, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
+          OptionType::kInt64T,
+          &kDefaultCFOptions.max_write_buffer_size_to_maintain}},
         {"min_write_buffer_number_to_merge",
          {offsetof(struct ImmutableCFOptions, min_write_buffer_number_to_merge),
-          OptionType::kInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone, 0}},
+          OptionType::kInt,
+          &kDefaultCFOptions.min_write_buffer_number_to_merge}},
         {"num_levels",
          {offsetof(struct ImmutableCFOptions, num_levels), OptionType::kInt,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
@@ -728,7 +733,9 @@ class ConfigurableMutableCFOptions : public Configurable {
  public:
   explicit ConfigurableMutableCFOptions(const MutableCFOptions& mcf) {
     mutable_ = mcf;
-    RegisterOptions(&mutable_, &cf_mutable_options_type_info);
+    static MutableCFOptions default_mcf;
+
+    RegisterOptions(&mutable_, &cf_mutable_options_type_info, &default_mcf);
   }
 
  protected:
@@ -743,7 +750,8 @@ class ConfigurableCFOptions : public ConfigurableMutableCFOptions {
         immutable_(opts),
         cf_options_(opts),
         opt_map_(map) {
-    RegisterOptions(&immutable_, &cf_immutable_options_type_info);
+    static ImmutableCFOptions default_icf;
+    RegisterOptions(&immutable_, &cf_immutable_options_type_info, &default_icf);
   }
 
  protected:

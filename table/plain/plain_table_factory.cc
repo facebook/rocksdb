@@ -53,7 +53,8 @@ static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
 
 PlainTableFactory::PlainTableFactory(const PlainTableOptions& options)
     : table_options_(options) {
-  RegisterOptions(&table_options_, &plain_table_type_info);
+  static PlainTableOptions default_pto;
+  RegisterOptions(&table_options_, &plain_table_type_info, &default_pto);
 }
 
 Status PlainTableFactory::NewTableReader(

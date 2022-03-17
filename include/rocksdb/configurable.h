@@ -52,6 +52,7 @@ class Configurable {
 #ifndef ROCKSDB_LITE
     // The map of options being registered
     const std::unordered_map<std::string, OptionTypeInfo>* type_map;
+    const void* ref_ptr;
 #endif
   };
 
@@ -381,13 +382,14 @@ class Configurable {
   template <typename T>
   void RegisterOptions(
       T* opt_ptr,
-      const std::unordered_map<std::string, OptionTypeInfo>* opt_map) {
-    RegisterOptions(T::kName(), opt_ptr, opt_map);
+      const std::unordered_map<std::string, OptionTypeInfo>* opt_map,
+      const void* ref_ptr = nullptr) {
+    RegisterOptions(T::kName(), opt_ptr, opt_map, ref_ptr);
   }
   void RegisterOptions(
       const std::string& name, void* opt_ptr,
-      const std::unordered_map<std::string, OptionTypeInfo>* opt_map);
-
+      const std::unordered_map<std::string, OptionTypeInfo>* opt_map,
+      const void* ref_ptr = nullptr);
   // Returns true if there are registered options for this Configurable object
   inline bool HasRegisteredOptions() const { return !options_.empty(); }
 

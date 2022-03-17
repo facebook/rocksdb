@@ -75,6 +75,10 @@ struct ConfigOptions {
   // error (in the case of Configure).
   bool mutable_options_only = false;
 
+  // If true, serializes only options that either have no default or
+  // the value equals the default value.
+  bool only_changed_options = false;
+
   // The separator between options when converting to a string
   std::string delimiter = ";";
 
@@ -267,6 +271,10 @@ struct ConfigOptions {
 //     valid for this option.
 Status GetColumnFamilyOptionsFromMap(
     const ConfigOptions& config_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    ColumnFamilyOptions* new_options);
+Status GetColumnFamilyOptionsFromMap(
+    const ConfigOptions& config_options,
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     ColumnFamilyOptions* new_options);
@@ -425,6 +433,9 @@ Status GetPlainTableOptionsFromMap(
 // alternative signature may be deprecated in a future release. The equivalent
 // functionality can be achieved by setting the corresponding options in
 // the ConfigOptions parameter.
+Status GetColumnFamilyOptionsFromString(const ConfigOptions& config_options,
+                                        const std::string& opts_str,
+                                        ColumnFamilyOptions* new_options);
 Status GetColumnFamilyOptionsFromString(const ConfigOptions& config_options,
                                         const ColumnFamilyOptions& base_options,
                                         const std::string& opts_str,

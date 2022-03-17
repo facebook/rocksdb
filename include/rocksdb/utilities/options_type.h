@@ -200,25 +200,36 @@ using EqualsFunc = std::function<bool(
 // option type, and offset.
 class OptionTypeInfo {
  public:
+  static constexpr int kIntZero = 0;
+  static constexpr int kIntOne = 1;
+  static constexpr int64_t kInt64Zero = 0;
+  static constexpr int64_t kInt64One = 1;
+  static constexpr bool kFalse = false;
+  static constexpr bool kTrue = true;
+
   // A simple "normal", non-mutable Type "type" at offset
-  OptionTypeInfo(int offset, OptionType type)
+  OptionTypeInfo(int offset, OptionType type,
+                 const void* default_value = nullptr)
       : offset_(offset),
         parse_func_(nullptr),
         serialize_func_(nullptr),
         equals_func_(nullptr),
         type_(type),
         verification_(OptionVerificationType::kNormal),
-        flags_(OptionTypeFlags::kNone) {}
+        flags_(OptionTypeFlags::kNone),
+        default_value_(default_value) {}
 
   OptionTypeInfo(int offset, OptionType type,
-                 OptionVerificationType verification, OptionTypeFlags flags)
+                 OptionVerificationType verification, OptionTypeFlags flags,
+                 const void* default_value = nullptr)
       : offset_(offset),
         parse_func_(nullptr),
         serialize_func_(nullptr),
         equals_func_(nullptr),
         type_(type),
         verification_(verification),
-        flags_(flags) {}
+        flags_(flags),
+        default_value_(default_value) {}
 
   OptionTypeInfo(int offset, OptionType type,
                  OptionVerificationType verification, OptionTypeFlags flags,
@@ -229,7 +240,8 @@ class OptionTypeInfo {
         equals_func_(nullptr),
         type_(type),
         verification_(verification),
-        flags_(flags) {}
+        flags_(flags),
+        default_value_(nullptr) {}
 
   OptionTypeInfo(int offset, OptionType type,
                  OptionVerificationType verification, OptionTypeFlags flags,
@@ -242,7 +254,8 @@ class OptionTypeInfo {
         equals_func_(equals_func),
         type_(type),
         verification_(verification),
-        flags_(flags) {}
+        flags_(flags),
+        default_value_(nullptr) {}
 
   // Creates an OptionTypeInfo for an enum type.  Enums use an additional
   // map to convert the enums to/from their string representation.
@@ -513,6 +526,11 @@ class OptionTypeInfo {
           }
         },
         serialize_func, equals_func);
+  }
+
+  OptionTypeInfo& SetDefaultValue(const void* const v) {
+    default_value_ = v;
+    return *this;
   }
 
   bool IsEnabled(OptionTypeFlags otf) const { return (flags_ & otf) == otf; }
@@ -805,6 +823,7 @@ class OptionTypeInfo {
   OptionType type_;
   OptionVerificationType verification_;
   OptionTypeFlags flags_;
+  const void* default_value_;
 };
 
 // Parses the input value into elements of the result vector.  This method

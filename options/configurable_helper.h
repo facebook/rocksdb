@@ -159,6 +159,10 @@ class ConfigurableHelper {
                             const Configurable& this_one,
                             const Configurable& that_one,
                             std::string* mismatch);
+  static bool GetMismatches(const ConfigOptions& config_options,
+                            const Configurable& this_one,
+                            const Configurable& that_one,
+                            std::vector<std::string>* mismatches);
 
  private:
   // Looks for the option specified by name in the RegisteredOptions.
