@@ -5530,16 +5530,13 @@ Status VersionSet::WriteCurrentStateToManifest(
       uint64_t log_number = iter->second.log_number;
       edit.SetLogNumber(log_number);
 
-      uint64_t min_log = 0;
       if (cfd->GetID() == 0) {
         // min_log_number_to_keep is for the whole db, not for specific column family.
         // So it does not need to be set for every column family, just need to be set once.
         // Since default CF can never be dropped, we set the min_log to the default CF here.
-        if (db_options_->allow_2pc) {
-          min_log = min_log_number_to_keep_2pc();
-        } else {
-          min_log = min_log_number_to_keep_non_2pc();
-        }
+        uint64_t min_log = db_options_->allow_2pc
+                               ? min_log_number_to_keep_2pc()
+                               : min_log_number_to_keep_non_2pc();
         if (min_log != 0) {
           edit.SetMinLogNumberToKeep(min_log);
         }

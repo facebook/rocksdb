@@ -394,10 +394,15 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
   if (s->ok()) {
     version_set_->GetColumnFamilySet()->UpdateMaxColumnFamily(
         version_edit_params_.max_column_family_);
-    version_set_->MarkMinLogNumberToKeep2PC(
-        version_edit_params_.min_log_number_to_keep_);
-    version_set_->MarkMinLogNumberToKeepNon2PC(
-        version_edit_params_.min_log_number_to_keep_);
+    const ImmutableDBOptions* db_opts = version_set_->db_options();
+    assert(db_opts);
+    if (db_opts->allow_2pc) {
+      version_set_->MarkMinLogNumberToKeep2PC(
+          version_edit_params_.min_log_number_to_keep_);
+    } else {
+      version_set_->MarkMinLogNumberToKeepNon2PC(
+          version_edit_params_.min_log_number_to_keep_);
+    }
     version_set_->MarkFileNumberUsed(version_edit_params_.prev_log_number_);
     version_set_->MarkFileNumberUsed(version_edit_params_.log_number_);
     for (auto* cfd : *(version_set_->GetColumnFamilySet())) {

@@ -1203,6 +1203,14 @@ class VersionSet {
 
   // Returns the minimum log number which still has data not flushed to any SST
   // file.
+  // In non-2PC mode, all the log numbers smaller than this number can be safely
+  // deleted.
+  uint64_t MinLogNumberWithUnflushedData() const {
+    return PreComputeMinLogNumberWithUnflushedData(nullptr);
+  }
+
+  // Returns the minimum log number which still has data not flushed to any SST
+  // file.
   // Empty column families' log number is considered to be
   // new_log_number_for_empty_cf.
   uint64_t PreComputeMinLogNumberWithUnflushedData(
