@@ -178,6 +178,20 @@ class BenchmarkResultException(Exception):
         self.content = content
 
 
+class BenchmarkUtils:
+    def tsv_to_table(contents):
+        table = [
+            row for row in csv.reader(contents.split('\n'), delimiter='\t')]
+        row_tables = []
+        header = table[0]
+        for row in table[1:]:
+            row_table = {}
+            for (key, value) in zip(header, row):
+                row_table[key] = value
+            row_tables.append(row_table)
+        return row_tables
+
+
 class BenchmarkResult:
 
     '''The result of a benchmark run
@@ -240,17 +254,7 @@ class BenchmarkResult:
     def parse_report(self):
         for (filename, (headers, decoded)) in self.files.items():
             if filename == BenchmarkResult.report_file:
-                table = [
-                    row for row in csv.reader(decoded.split('\n'), delimiter='\t')]
-                row_tables = []
-                header = table[0]
-                for row in table[1:]:
-                    row_table = {}
-                    for (key, value) in zip(header, row):
-                        row_table[key] = value
-                    row_tables.append(row_table)
-                self.report = row_tables
-
+                self.report = BenchmarkUtils.tsv_to_table(decoded)
         return self
 
     def log_result(self):
@@ -292,11 +296,10 @@ class CircleLogReader:
         return results
 
 
-def fetch_and_pickle_results(filename: str):
+def fetch_results_from_circle():
     '''Track down the job number
     Drill into the contents to find benchmark logs
     Interpret the results
-    Pickle the final report object
     '''
     reader = CircleLogReader(
         {'user_id': 'e7d4aab13e143360f95e258be0a89b5c8e256773',
@@ -310,19 +313,32 @@ def fetch_and_pickle_results(filename: str):
         result.log_result()
     reports = [(int(parser.isoparse(result.job_info.started_at).timestamp()), result.report) for result in results if hasattr(
         result, 'report')]
+    return reports
+
+
+def save_reports_to_local(reports, filename: str):
     file = open(filename, 'wb')
     pickle.dump(reports, file)
     file.close()
 
-    return 0
 
-
-def push_pickle_to_graphite(filename: str):
+def load_reports_from_local(filename: str):
     file = open(filename, 'rb')
     reports = pickle.load(file)
+    return reports
 
+
+def load_reports_from_tsv(filename: str):
+    file = open(filename, 'r')
+    contents = ('').join(file.readlines())
+    file.close()
+    report = BenchmarkUtils.tsv_to_table(contents)
+    return report
+
+
+def push_pickle_to_graphite(reports):
     # Careful not to use too modern a protocol for Graphite
-    payload = pickle.dumps(reports, file, protocol=2)
+    payload = pickle.dumps(reports, protocol=2)
     header = struct.pack("!L", len(payload))
     graphite_message = header + payload
 
@@ -340,16 +356,28 @@ def main():
         description='CircleCI benchmark scraper.')
 
     # --save <picklefile> in
-    parser.add_argument('--action', choices=['fetch', 'push', 'all'], default='all',
+    parser.add_argument('--action', choices=['fetch', 'push', 'all', 'tsv'], default='tsv',
+                        help='Which action to perform')
+    parser.add_argument('--picklefile', default='reports.pickle',
                         help='File in which to save pickled report')
-    parser.add_argument('--picklefile', default='reports.pickle')
+    parser.add_argument('--tsvfile', default='build_tools/circle_api_scraper_input.txt',
+                        help='File from which to read tsv report')
 
     args = parser.parse_args()
-    if (args.action == 'all' or args.action == 'fetch'):
-        fetch_and_pickle_results(args.picklefile)
-    if (args.action == 'all' or args.action == 'push'):
-        push_pickle_to_graphite(args.picklefile)
-
+    if args.action == 'all':
+        reports = fetch_results_from_circle()
+        push_pickle_to_graphite(reports)
+        pass
+    elif args.action == 'fetch':
+        reports = fetch_results_from_circle()
+        save_reports_to_local(args.picklefile)
+        pass
+    elif args.action == 'push':
+        reports = load_reports_from_local(args.picklefile)
+        push_pickle_to_graphite(reports)
+    elif args.action == 'tsv':
+        reports = load_reports_from_tsv(args.tsvfile)
+        push_pickle_to_graphite(reports)
 
 
 if __name__ == '__main__':
