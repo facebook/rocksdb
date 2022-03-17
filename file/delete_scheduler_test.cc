@@ -430,8 +430,8 @@ TEST_F(DeleteSchedulerTest, BackgroundError) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-// 1- Create 10 dummy files
-// 2- Delete 10 dummy files using DeleteScheduler
+// 1- Create kTestFileNum dummy files
+// 2- Delete kTestFileNum dummy files using DeleteScheduler
 // 3- Wait for DeleteScheduler to delete all files in queue
 // 4- Make sure all files in trash directory were deleted
 // 5- Repeat previous steps 5 times
@@ -453,7 +453,7 @@ TEST_F(DeleteSchedulerTest, StartBGEmptyTrashMultipleTimes) {
 
   // Move files to trash, wait for empty trash, start again
   for (int run = 1; run <= 5; run++) {
-    // Generate 10 dummy files and move them to trash
+    // Generate kTestFileNum dummy files and move them to trash
     for (int i = 0; i < kTestFileNum; i++) {
       std::string file_name = "data_" + ToString(i) + ".data";
       ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile(file_name), ""));
