@@ -35,6 +35,7 @@
 #include "logging/logging.h"
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/statistics.h"
@@ -566,8 +567,8 @@ class BackupEngineImpl {
   // Obtain db_id and db_session_id from the table properties of file_path
   Status GetFileDbIdentities(Env* src_env, const EnvOptions& src_env_options,
                              const std::string& file_path,
-                             RateLimiter* rate_limiter, std::string* db_id,
-                             std::string* db_session_id);
+                             Temperature file_temp, RateLimiter* rate_limiter,
+                             std::string* db_id, std::string* db_session_id);
 
   struct CopyOrCreateResult {
     ~CopyOrCreateResult() {
@@ -2121,8 +2122,8 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
       // Prepare db_session_id to add to the file name
       // Ignore the returned status
       // In the failed cases, db_id and db_session_id will be empty
-      GetFileDbIdentities(db_env_, src_env_options, src_path, rate_limiter,
-                          &db_id, &db_session_id)
+      GetFileDbIdentities(db_env_, src_env_options, src_path, src_temperature,
+                          rate_limiter, &db_id, &db_session_id)
           .PermitUncheckedError();
     }
     // Calculate checksum if checksum and db session id are not available.
@@ -2356,17 +2357,15 @@ IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
   return io_s;
 }
 
-Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
-                                             const EnvOptions& src_env_options,
-                                             const std::string& file_path,
-                                             RateLimiter* rate_limiter,
-                                             std::string* db_id,
-                                             std::string* db_session_id) {
+Status BackupEngineImpl::GetFileDbIdentities(
+    Env* src_env, const EnvOptions& src_env_options,
+    const std::string& file_path, Temperature file_temp,
+    RateLimiter* rate_limiter, std::string* db_id, std::string* db_session_id) {
   assert(db_id != nullptr || db_session_id != nullptr);
 
   Options options;
   options.env = src_env;
-  SstFileDumper sst_reader(options, file_path,
+  SstFileDumper sst_reader(options, file_path, file_temp,
                            2 * 1024 * 1024
                            /* readahead_size */,
                            false /* verify_checksum */, false /* output_hex */,

@@ -4051,22 +4051,22 @@ TEST_F(BackupEngineTest, FileTemperatures) {
   ASSERT_EQ(manifest_temp_counts[Temperature::kUnknown], 1);
 
   // Sample requested temperatures in opening files for backup
-  my_db_fs->ClearRequestedFileTemperatures();
+  my_db_fs->PopRequestedSstFileTemperatures();
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
 
   // checking src file src_temperature hints: 2 sst files: 1 sst is kWarm,
   // another is kUnknown
-  auto requested_temps = my_db_fs->RequestedSstFileTemperatures();
-  ASSERT_EQ(requested_temps.size(), 2);
-  bool has_only_one_warm_sst = false;
+  std::vector<std::pair<uint64_t, Temperature>> requested_temps;
+  my_db_fs->PopRequestedSstFileTemperatures(&requested_temps);
+  uint64_t warm_file_num = 0;
   for (const auto& requested_temp : requested_temps) {
     ASSERT_EQ(manifest_temps.at(requested_temp.first), requested_temp.second);
     if (requested_temp.second == Temperature::kWarm) {
-      ASSERT_FALSE(has_only_one_warm_sst);
-      has_only_one_warm_sst = true;
+      ASSERT_TRUE(warm_file_num == 0 || warm_file_num == requested_temp.first);
+      warm_file_num = requested_temp.first;
     }
   }
-  ASSERT_TRUE(has_only_one_warm_sst);
+  ASSERT_GT(warm_file_num, 0);  // found
 }
 
 }  // anon namespace
