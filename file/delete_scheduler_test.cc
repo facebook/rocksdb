@@ -436,7 +436,7 @@ TEST_F(DeleteSchedulerTest, BackgroundError) {
 // 4- Make sure all files in trash directory were deleted
 // 5- Repeat previous steps 5 times
 TEST_F(DeleteSchedulerTest, StartBGEmptyTrashMultipleTimes) {
-  int bg_delete_file = 0;
+  std::atomic_int bg_delete_file = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteTrashFile:DeleteFile",
       [&](void* /*arg*/) { bg_delete_file++; });
@@ -444,6 +444,11 @@ TEST_F(DeleteSchedulerTest, StartBGEmptyTrashMultipleTimes) {
 
   rate_bytes_per_sec_ = 1024 * 1024;  // 1 MB / sec
   NewDeleteScheduler();
+
+  // If trash file is generated faster than deleting, delete_scheduler will
+  // delete it directly instead of waiting for background trash empty thread to
+  // clean it. Set the ratio higher to avoid that.
+  sst_file_mgr_->SetMaxTrashDBRatio(10);
 
   // Move files to trash, wait for empty trash, start again
   for (int run = 1; run <= 5; run++) {
