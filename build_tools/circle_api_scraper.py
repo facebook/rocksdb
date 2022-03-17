@@ -13,6 +13,7 @@ from ast import Dict
 from collections import namedtuple
 import csv
 import email
+import itertools
 import pickle
 from keyword import iskeyword
 import re
@@ -235,7 +236,10 @@ class ResultParser:
     def parse(self, lines):
         '''Parse something that iterates lines'''
         rows = [self.line(line) for line in lines]
-        records = [{k: v for (k, v) in zip(rows[0], row)} for row in rows[1:]]
+        header = rows[0]
+        width = len(header)
+        records = [{k: v for (k, v) in itertools.zip_longest(
+            header, row[:width])} for row in rows[1:]]
         return records
 
 class BenchmarkResult:
