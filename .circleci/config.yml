@@ -306,7 +306,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-clang-10
-      - run: COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check # aligned new doesn't work for reason we haven't figured out
+      - run: ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check # aligned new doesn't work for reason we haven't figured out
       - post-steps
 
   build-linux-clang10-mini-tsan:

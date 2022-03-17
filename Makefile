@@ -1032,31 +1032,31 @@ ldb_tests: ldb
 include crash_test.mk
 
 asan_check: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) check -j32
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) check -j32
 	$(MAKE) clean
 
 asan_crash_test: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test
 	$(MAKE) clean
 
 whitebox_asan_crash_test: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) whitebox_crash_test
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) whitebox_crash_test
 	$(MAKE) clean
 
 blackbox_asan_crash_test: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) blackbox_crash_test
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) blackbox_crash_test
 	$(MAKE) clean
 
 asan_crash_test_with_atomic_flush: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_atomic_flush
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_atomic_flush
 	$(MAKE) clean
 
 asan_crash_test_with_txn: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_txn
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_txn
 	$(MAKE) clean
 
 asan_crash_test_with_best_efforts_recovery: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_best_efforts_recovery
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_best_efforts_recovery
 	$(MAKE) clean
 
 ubsan_check: clean
