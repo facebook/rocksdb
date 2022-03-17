@@ -778,7 +778,8 @@ inline bool Zlib_Compress(const CompressionInfo& info,
   }
 
   // Get an upper bound on the compressed size.
-  size_t upper_bound = deflateBound(&_stream, length);
+  size_t upper_bound =
+      deflateBound(&_stream, static_cast<unsigned long>(length));
   output->resize(output_header_len + upper_bound);
 
   // Compress the input, and put compressed data in output.
