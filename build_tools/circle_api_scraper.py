@@ -17,6 +17,7 @@ import itertools
 import pickle
 from keyword import iskeyword
 import re
+import socket
 import struct
 import sys
 from typing import Callable, List, Mapping
@@ -43,6 +44,15 @@ class TupleObject:
         return input_mapping
 
 
+class Configuration:
+    graphite_server = 'localhost'
+    graphite_pickle_port = 2004
+    circle_user_id = 'e7d4aab13e143360f95e258be0a89b5c8e256773'
+    circle_vcs = 'github'
+    circle_username = 'facebook'
+    circle_project = 'rocksdb'
+    circle_ci_api = 'https://circleci.com/api/v2'
+
 class CircleAPIV2:
 
     workflow_call_range = 20
@@ -54,7 +64,7 @@ class CircleAPIV2:
             '''
         self.auth = (user_id, '')
         self.slug = f"{vcs}/{username}/{project}"
-        self.service = "https://circleci.com/api/v2"
+        self.service = Configuration.circle_ci_api
 
     def get_jobs(self) -> List[int]:
         '''TODO AP
@@ -181,18 +191,56 @@ class BenchmarkResultException(Exception):
 
 
 class BenchmarkUtils:
-    '''TODO AP handle \t and \w\w\w... - not really a TSV, but it's what we get'''
-    def tsv_to_table(contents):
-        table = [
-            row for row in csv.reader(contents, delimiter='\t')]
-        row_tables = []
-        header = table[0]
-        for row in table[1:]:
-            row_table = {}
-            for (key, value) in zip(header, row):
-                row_table[key] = value
-            row_tables.append(row_table)
-        return row_tables
+
+    expected_keys = ['ops_sec', 'mb_sec', 'total_size_gb', 'level0_size_gb', 'sum_gb', 'write_amplification',
+                     'write_mbps', 'usec_op', 'percentile_50', 'percentile_75',
+                     'percentile_99', 'percentile_99.9', 'percentile_99.99', 'uptime',
+                     'stall_time', 'stall_percent', 'test_name', 'test_date', 'rocksdb_version',
+                     'job_id', 'timestamp']
+
+    metric_keys = ['ops_sec', 'mb_sec', 'total_size_gb', 'level0_size_gb', 'sum_gb', 'write_amplification',
+                   'write_mbps', 'usec_op', 'percentile_50', 'percentile_75',
+                   'percentile_99', 'percentile_99.9', 'percentile_99.99', 'uptime',
+                   'stall_time', 'stall_percent']
+
+    def sanity_check(row):
+        if not 'test_name' in row:
+            return False
+        if row['test_name'] == '':
+            return False
+        if not 'test_date' in row:
+            return False
+        if not 'ops_sec' in row:
+            return False
+        try:
+            v = int(row['ops_sec'])
+        except (ValueError, TypeError):
+            return False
+        return True
+
+    def enhance(row):
+        (dt, fuzz) = parser.parse(row['test_date'], fuzzy_with_tokens=True)
+        row['timestamp'] = int(dt.timestamp())
+        return row
+
+    def graphite(row):
+        '''Convert a row (dictionary of values)
+        into the form of object that graphite likes to receive
+        ( <path>, (<timestamp>, <value>) )
+        '''
+        result = []
+        metric_path = 'rocksdb.benchmark'
+        for metric_key in BenchmarkUtils.expected_keys:
+            metric_id = metric_path + '.' + row['test_name'] + '.' + metric_key
+            metric_value = 0.0
+            try:
+                metric_value = float(row[metric_key])
+            except (ValueError, TypeError):
+                # metric doesn't have a float value
+                continue
+            metric = (metric_id, (row['timestamp'], float(row[metric_key])))
+            result.append(metric)
+        return result
 
 
 class ResultParser:
@@ -230,7 +278,6 @@ class ResultParser:
                 else:
                     raise BenchmarkResultException(
                         'Invalid TSV line', f"{l_in} at {l}")
-        print(row)
         return row
 
     def parse(self, lines):
@@ -304,7 +351,9 @@ class BenchmarkResult:
     def parse_report(self):
         for (filename, (headers, decoded)) in self.files.items():
             if filename == BenchmarkResult.report_file:
-                self.report = BenchmarkUtils.tsv_to_table(decoded.split('\n'))
+                parser = ResultParser()
+                report = parser.parse(decoded.split('\n'))
+                self.report = report
         return self
 
     def log_result(self):
@@ -352,16 +401,15 @@ def fetch_results_from_circle():
     Interpret the results
     '''
     reader = CircleLogReader(
-        {'user_id': 'e7d4aab13e143360f95e258be0a89b5c8e256773',
-         'vcs': 'github',
-         'username': 'facebook',
-         'project': 'rocksdb'})
+        {'user_id': Configuration.circle_user_id,
+         'username': Configuration.circle_username,
+         'project': Configuration.circle_project})
     urls = reader.get_log_urls()
     results = [result.fetch().parse_report() for result in urls]
     # Each object with a successful parse will have a .report field
     for result in results:
         result.log_result()
-    reports = [(int(parser.isoparse(result.job_info.started_at).timestamp()), result.report) for result in results if hasattr(
+    reports = [result.report for result in results if hasattr(
         result, 'report')]
     return reports
 
@@ -382,20 +430,34 @@ def load_reports_from_tsv(filename: str):
     file = open(filename, 'r')
     contents = file.readlines()
     file.close()
-    report = BenchmarkUtils.tsv_to_table(contents)
-    #return report
     parser = ResultParser()
-    report2 = parser.parse(contents)
-    return report2
+    report = parser.parse(contents)
+    return report
 
 def push_pickle_to_graphite(reports):
-    # Careful not to use too modern a protocol for Graphite
-    payload = pickle.dumps(reports, protocol=2)
+    sanitized = [[BenchmarkUtils.enhance(row)
+                 for row in rows if BenchmarkUtils.sanity_check(row)] for rows in reports]
+    graphite = [[BenchmarkUtils.graphite(row)
+                 for row in rows] for rows in sanitized]
+    # Careful not to use too modern a protocol for Graphite (it is Python2)
+    payload = pickle.dumps(graphite, protocol=2)
     header = struct.pack("!L", len(payload))
     graphite_message = header + payload
 
     # Now send to Graphite's pickle port (2004 by default)
-    pass
+    sock = socket.socket()
+    try:
+        sock.connect((Configuration.graphite_server,
+                     Configuration.graphite_pickle_port))
+    except socket.error:
+        raise SystemExit("Couldn't connect to %(server)s on port %(port)d, is Graphite running?" %
+                         {'server': Configuration.graphite_server, 'port': Configuration.graphite_pickle_port})
+
+    try:
+        ok = sock.sendall(graphite_message)
+    except socket.error:
+        raise SystemExit("Failed sending data to %(server)s on port %(port)d, is Graphite running?" %
+                         {'server': Configuration.graphite_server, 'port': Configuration.graphite_pickle_port})
 
 
 def main():
@@ -408,7 +470,7 @@ def main():
         description='CircleCI benchmark scraper.')
 
     # --save <picklefile> in
-    parser.add_argument('--action', choices=['fetch', 'push', 'all', 'tsv'], default='tsv',
+    parser.add_argument('--action', choices=['fetch', 'push', 'all', 'tsv'], default='push',
                         help='Which action to perform')
     parser.add_argument('--picklefile', default='reports.pickle',
                         help='File in which to save pickled report')
@@ -422,7 +484,7 @@ def main():
         pass
     elif args.action == 'fetch':
         reports = fetch_results_from_circle()
-        save_reports_to_local(args.picklefile)
+        save_reports_to_local(reports, args.picklefile)
         pass
     elif args.action == 'push':
         reports = load_reports_from_local(args.picklefile)
