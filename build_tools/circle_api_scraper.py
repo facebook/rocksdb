@@ -15,6 +15,7 @@ import csv
 import email
 import pickle
 from keyword import iskeyword
+import re
 import struct
 import sys
 from typing import Callable, List, Mapping
@@ -179,9 +180,10 @@ class BenchmarkResultException(Exception):
 
 
 class BenchmarkUtils:
+    '''TODO AP handle \t and \w\w\w... - not really a TSV, but it's what we get'''
     def tsv_to_table(contents):
         table = [
-            row for row in csv.reader(contents.split('\n'), delimiter='\t')]
+            row for row in csv.reader(contents, delimiter='\t')]
         row_tables = []
         header = table[0]
         for row in table[1:]:
@@ -191,6 +193,50 @@ class BenchmarkUtils:
             row_tables.append(row_table)
         return row_tables
 
+
+class ResultParser:
+    def __init__(self, field="(\w|[+-:.])+", intrafield="(\s)+", separator="\t"):
+        self.field = re.compile(field)
+        self.intra = re.compile(intrafield)
+        self.sep = re.compile(separator)
+
+    def line(self, l_in: str):
+        '''Parse a line into items
+        Being clever about separators
+        '''
+        l = l_in
+        row = []
+        while l != '':
+            match_item = self.field.match(l)
+            if match_item:
+                item = match_item.group(0)
+                row.append(item)
+                l = l[len(item):]
+            else:
+                match_intra = self.intra.match(l)
+                if match_intra:
+                    intra = match_intra.group(0)
+                    # Count the separators
+                    # If there are >1 then generate extra blank fields
+                    # White space with no true separators fakes up a single separator
+                    tabbed = self.sep.split(intra)
+                    sep_count = len(tabbed) - 1
+                    if sep_count == 0:
+                        sep_count = 1
+                    for i in range(sep_count-1):
+                        row.append('')
+                    l = l[len(intra):]
+                else:
+                    raise BenchmarkResultException(
+                        'Invalid TSV line', f"{l_in} at {l}")
+        print(row)
+        return row
+
+    def parse(self, lines):
+        '''Parse something that iterates lines'''
+        rows = [self.line(line) for line in lines]
+        records = [{k: v for (k, v) in zip(rows[0], row)} for row in rows[1:]]
+        return records
 
 class BenchmarkResult:
 
@@ -254,7 +300,7 @@ class BenchmarkResult:
     def parse_report(self):
         for (filename, (headers, decoded)) in self.files.items():
             if filename == BenchmarkResult.report_file:
-                self.report = BenchmarkUtils.tsv_to_table(decoded)
+                self.report = BenchmarkUtils.tsv_to_table(decoded.split('\n'))
         return self
 
     def log_result(self):
@@ -330,11 +376,13 @@ def load_reports_from_local(filename: str):
 
 def load_reports_from_tsv(filename: str):
     file = open(filename, 'r')
-    contents = ('').join(file.readlines())
+    contents = file.readlines()
     file.close()
     report = BenchmarkUtils.tsv_to_table(contents)
-    return report
-
+    #return report
+    parser = ResultParser()
+    report2 = parser.parse(contents)
+    return report2
 
 def push_pickle_to_graphite(reports):
     # Careful not to use too modern a protocol for Graphite
