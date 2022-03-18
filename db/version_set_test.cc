@@ -3436,12 +3436,12 @@ TEST_F(VersionSetTestMissingFiles, MinLogNumberToKeep2PC) {
   edit.AddFile(0, file_metas[0]);
   edit.SetMinLogNumberToKeep(kMinWalNumberToKeep2PC);
   ASSERT_OK(LogAndApplyToDefaultCF(edit));
-  ASSERT_EQ(versions_->min_log_number_to_keep_2pc(), kMinWalNumberToKeep2PC);
+  ASSERT_EQ(versions_->min_log_number_to_keep(), kMinWalNumberToKeep2PC);
 
   for (int i = 0; i < 3; i++) {
     CreateNewManifest();
     ReopenDB();
-    ASSERT_EQ(versions_->min_log_number_to_keep_2pc(), kMinWalNumberToKeep2PC);
+    ASSERT_EQ(versions_->min_log_number_to_keep(), kMinWalNumberToKeep2PC);
   }
 }
 
