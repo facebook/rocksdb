@@ -4042,6 +4042,8 @@ UpdateManifestCommand::UpdateManifestCommand(
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, false /* is_read_only */,
                  BuildCmdLineOptions({ARG_VERBOSE, ARG_UPDATE_TEMPERATURES})) {
+  verbose_ = IsFlagPresent(flags, ARG_VERBOSE) ||
+             ParseBooleanOption(options, ARG_VERBOSE, false);
   update_temperatures_ =
       IsFlagPresent(flags, ARG_UPDATE_TEMPERATURES) ||
       ParseBooleanOption(options, ARG_UPDATE_TEMPERATURES, false);
