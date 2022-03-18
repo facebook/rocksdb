@@ -93,9 +93,6 @@ class FlushJob {
   }
 #endif  // !ROCKSDB_LITE
 
-  // Return the IO status
-  IOStatus io_status() const { return io_status_; }
-
  private:
   void ReportStartedFlush();
   void ReportFlushInputSize(const autovector<MemTable*>& mems);
@@ -184,7 +181,6 @@ class FlushJob {
   Version* base_;
   bool pick_memtable_called;
   Env::Priority thread_pri_;
-  IOStatus io_status_;
 
   const std::shared_ptr<IOTracer> io_tracer_;
   SystemClock* clock_;

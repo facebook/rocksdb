@@ -263,11 +263,6 @@ Status DBImpl::FlushMemTableToOutputFile(
   if (!s.ok() && need_cancel) {
     flush_job.Cancel();
   }
-  IOStatus io_s = IOStatus::OK();
-  io_s = flush_job.io_status();
-  if (s.ok()) {
-    s = io_s;
-  }
 
   if (s.ok()) {
     InstallSuperVersionAndScheduleWork(cfd, superversion_context,
@@ -303,9 +298,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
-    if (!io_s.ok() && !io_s.IsShutdownInProgress() &&
-        !io_s.IsColumnFamilyDropped()) {
-      assert(log_io_s.ok());
+    if (log_io_s.ok()) {
       // Error while writing to MANIFEST.
       // In fact, versions_->io_status() can also be the result of renaming
       // CURRENT file. With current code, it's just difficult to tell. So just
@@ -316,24 +309,19 @@ Status DBImpl::FlushMemTableToOutputFile(
         // error), all the Manifest write will be map to soft error.
         // TODO: kManifestWriteNoWAL and kFlushNoWAL are misleading. Refactor is
         // needed.
-        error_handler_.SetBGError(io_s,
+        error_handler_.SetBGError(s,
                                   BackgroundErrorReason::kManifestWriteNoWAL);
       } else {
         // If WAL sync is successful (either WAL size is 0 or there is no IO
         // error), all the other SST file write errors will be set as
         // kFlushNoWAL.
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
+        error_handler_.SetBGError(s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
-      if (log_io_s.ok()) {
-        Status new_bg_error = s;
-        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
-      }
+      assert(s == log_io_s);
+      Status new_bg_error = s;
+      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
     }
-  } else {
-    // If we got here, then we decided not to care about the i_os status (either
-    // from never needing it or ignoring the flush job status
-    io_s.PermitUncheckedError();
   }
   // If flush ran smoothly and no mempurge happened
   // install new SST file path.
@@ -416,6 +404,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   for (const auto cfd : cfds) {
     assert(cfd->imm()->NumNotFlushed() != 0);
     assert(cfd->imm()->IsFlushPending());
+    assert(cfd->GetFlushReason() == cfds[0]->GetFlushReason());
   }
 #endif /* !NDEBUG */
 
@@ -502,12 +491,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // exec_status stores the execution status of flush_jobs as
   // <bool /* executed */, Status /* status code */>
   autovector<std::pair<bool, Status>> exec_status;
-  autovector<IOStatus> io_status;
   std::vector<bool> pick_status;
   for (int i = 0; i != num_cfs; ++i) {
     // Initially all jobs are not executed, with status OK.
     exec_status.emplace_back(false, Status::OK());
-    io_status.emplace_back(IOStatus::OK());
     pick_status.push_back(false);
   }
 
@@ -527,7 +514,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
           jobs[i]->Run(&logs_with_prep_tracker_, &file_meta[i],
                        &(switched_to_mempurge.at(i)));
       exec_status[i].first = true;
-      io_status[i] = jobs[i]->io_status();
     }
     if (num_cfs > 1) {
       TEST_SYNC_POINT(
@@ -541,7 +527,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         &logs_with_prep_tracker_, file_meta.data() /* &file_meta[0] */,
         switched_to_mempurge.empty() ? nullptr : &(switched_to_mempurge.at(0)));
     exec_status[0].first = true;
-    io_status[0] = jobs[0]->io_status();
 
     Status error_status;
     for (const auto& e : exec_status) {
@@ -558,21 +543,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     }
 
     s = error_status.ok() ? s : error_status;
-  }
-
-  IOStatus io_s = IOStatus::OK();
-  if (io_s.ok()) {
-    IOStatus io_error = IOStatus::OK();
-    for (int i = 0; i != static_cast<int>(io_status.size()); i++) {
-      if (!io_status[i].ok() && !io_status[i].IsShutdownInProgress() &&
-          !io_status[i].IsColumnFamilyDropped()) {
-        io_error = io_status[i];
-      }
-    }
-    io_s = io_error;
-    if (s.ok() && !io_s.ok()) {
-      s = io_s;
-    }
   }
 
   if (s.IsColumnFamilyDropped()) {
@@ -647,7 +617,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       return std::make_pair(Status::OK(), !ready);
     };
 
-    bool resuming_from_bg_err = error_handler_.IsDBStopped();
+    bool resuming_from_bg_err =
+        error_handler_.IsDBStopped() ||
+        (cfds[0]->GetFlushReason() == FlushReason::kErrorRecovery ||
+         cfds[0]->GetFlushReason() == FlushReason::kErrorRecoveryRetryFlush);
     while ((!resuming_from_bg_err || error_handler_.GetRecoveryError().ok())) {
       std::pair<Status, bool> res = wait_to_install_func();
 
@@ -662,7 +635,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       }
       atomic_flush_install_cv_.Wait();
 
-      resuming_from_bg_err = error_handler_.IsDBStopped();
+      resuming_from_bg_err =
+          error_handler_.IsDBStopped() ||
+          (cfds[0]->GetFlushReason() == FlushReason::kErrorRecovery ||
+           cfds[0]->GetFlushReason() == FlushReason::kErrorRecoveryRetryFlush);
     }
 
     if (!resuming_from_bg_err) {
@@ -786,8 +762,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // Need to undo atomic flush if something went wrong, i.e. s is not OK and
   // it is not because of CF drop.
   if (!s.ok() && !s.IsColumnFamilyDropped()) {
-    if (!io_s.ok() && !io_s.IsColumnFamilyDropped()) {
-      assert(log_io_s.ok());
+    if (log_io_s.ok()) {
       // Error while writing to MANIFEST.
       // In fact, versions_->io_status() can also be the result of renaming
       // CURRENT file. With current code, it's just difficult to tell. So just
@@ -798,19 +773,18 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         // error), all the Manifest write will be map to soft error.
         // TODO: kManifestWriteNoWAL and kFlushNoWAL are misleading. Refactor
         // is needed.
-        error_handler_.SetBGError(io_s,
+        error_handler_.SetBGError(s,
                                   BackgroundErrorReason::kManifestWriteNoWAL);
       } else {
         // If WAL sync is successful (either WAL size is 0 or there is no IO
         // error), all the other SST file write errors will be set as
         // kFlushNoWAL.
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
+        error_handler_.SetBGError(s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
-      if (log_io_s.ok()) {
-        Status new_bg_error = s;
-        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
-      }
+      assert(s == log_io_s);
+      Status new_bg_error = s;
+      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
     }
   }
 
@@ -927,7 +901,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   size_t ts_sz = ucmp->timestamp_size();
   if (ts_sz == 0) {
     return CompactRangeInternal(options, column_family, begin_without_ts,
-                                end_without_ts);
+                                end_without_ts, "" /*trim_ts*/);
   }
 
   std::string begin_str;
@@ -949,7 +923,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   Slice* end_with_ts = end_without_ts ? &end : nullptr;
 
   return CompactRangeInternal(options, column_family, begin_with_ts,
-                              end_with_ts);
+                              end_with_ts, "" /*trim_ts*/);
 }
 
 Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
@@ -995,7 +969,8 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
 
 Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
                                     ColumnFamilyHandle* column_family,
-                                    const Slice* begin, const Slice* end) {
+                                    const Slice* begin, const Slice* end,
+                                    const std::string& trim_ts) {
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
 
@@ -1066,7 +1041,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             final_output_level, options, begin, end, exclusive,
-                            false, port::kMaxUint64);
+                            false, port::kMaxUint64, trim_ts);
   } else {
     int first_overlapped_level = kInvalidLevel;
     int max_overlapped_level = kInvalidLevel;
@@ -1152,9 +1127,13 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
             disallow_trivial_move = true;
           }
         }
+        // trim_ts need real compaction to remove latest record
+        if (!trim_ts.empty()) {
+          disallow_trivial_move = true;
+        }
         s = RunManualCompaction(cfd, level, output_level, options, begin, end,
                                 exclusive, disallow_trivial_move,
-                                max_file_num_to_ignore);
+                                max_file_num_to_ignore, trim_ts);
         if (!s.ok()) {
           break;
         }
@@ -1393,7 +1372,8 @@ Status DBImpl::CompactFilesImpl(
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       &compaction_job_stats, Env::Priority::USER, io_tracer_,
       &manual_compaction_paused_, nullptr, db_id_, db_session_id_,
-      c->column_family_data()->GetFullHistoryTsLow(), &blob_callback_);
+      c->column_family_data()->GetFullHistoryTsLow(), c->trim_ts(),
+      &blob_callback_);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -1782,7 +1762,7 @@ Status DBImpl::RunManualCompaction(
     ColumnFamilyData* cfd, int input_level, int output_level,
     const CompactRangeOptions& compact_range_options, const Slice* begin,
     const Slice* end, bool exclusive, bool disallow_trivial_move,
-    uint64_t max_file_num_to_ignore) {
+    uint64_t max_file_num_to_ignore, const std::string& trim_ts) {
   assert(input_level == ColumnFamilyData::kCompactAllLevels ||
          input_level >= 0);
 
@@ -1790,19 +1770,13 @@ Status DBImpl::RunManualCompaction(
   CompactionArg* ca = nullptr;
 
   bool scheduled = false;
+  bool unscheduled = false;
   Env::Priority thread_pool_priority = Env::Priority::TOTAL;
   bool manual_conflict = false;
-  ManualCompactionState manual;
-  manual.cfd = cfd;
-  manual.input_level = input_level;
-  manual.output_level = output_level;
-  manual.output_path_id = compact_range_options.target_path_id;
-  manual.done = false;
-  manual.in_progress = false;
-  manual.incomplete = false;
-  manual.exclusive = exclusive;
-  manual.disallow_trivial_move = disallow_trivial_move;
-  manual.canceled = compact_range_options.canceled;
+
+  ManualCompactionState manual(
+      cfd, input_level, output_level, compact_range_options.target_path_id,
+      exclusive, disallow_trivial_move, compact_range_options.canceled);
   // For universal compaction, we enforce every manual compaction to compact
   // all files.
   if (begin == nullptr ||
@@ -1900,22 +1874,29 @@ Status DBImpl::RunManualCompaction(
                *manual.cfd->GetLatestMutableCFOptions(), mutable_db_options_,
                manual.input_level, manual.output_level, compact_range_options,
                manual.begin, manual.end, &manual.manual_end, &manual_conflict,
-               max_file_num_to_ignore)) == nullptr &&
+               max_file_num_to_ignore, trim_ts)) == nullptr &&
           manual_conflict))) {
       // exclusive manual compactions should not see a conflict during
       // CompactRange
       assert(!exclusive || !manual_conflict);
       // Running either this or some other manual compaction
       bg_cv_.Wait();
-      if (manual_compaction_paused_ > 0 && !manual.done &&
-          !manual.in_progress) {
-        manual.done = true;
-        manual.status =
-            Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+      if (manual_compaction_paused_ > 0 && scheduled && !unscheduled) {
         assert(thread_pool_priority != Env::Priority::TOTAL);
-        env_->UnSchedule(GetTaskTag(TaskType::kManualCompaction),
-                         thread_pool_priority);
-        break;
+        // unschedule all manual compactions
+        auto unscheduled_task_num = env_->UnSchedule(
+            GetTaskTag(TaskType::kManualCompaction), thread_pool_priority);
+        if (unscheduled_task_num > 0) {
+          ROCKS_LOG_INFO(
+              immutable_db_options_.info_log,
+              "[%s] Unscheduled %d number of manual compactions from the "
+              "thread-pool",
+              cfd->GetName().c_str(), unscheduled_task_num);
+          // it may unschedule other manual compactions, notify others.
+          bg_cv_.SignalAll();
+        }
+        unscheduled = true;
+        TEST_SYNC_POINT("DBImpl::RunManualCompaction:Unscheduled");
       }
       if (scheduled && manual.incomplete == true) {
         assert(!manual.in_progress);
@@ -2699,6 +2680,12 @@ void DBImpl::UnscheduleCompactionCallback(void* arg) {
   CompactionArg ca = *(ca_ptr);
   delete reinterpret_cast<CompactionArg*>(arg);
   if (ca.prepicked_compaction != nullptr) {
+    // if it's a manual compaction, set status to ManualCompactionPaused
+    if (ca.prepicked_compaction->manual_compaction_state) {
+      ca.prepicked_compaction->manual_compaction_state->done = true;
+      ca.prepicked_compaction->manual_compaction_state->status =
+          Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+    }
     if (ca.prepicked_compaction->compaction != nullptr) {
       ca.prepicked_compaction->compaction->ReleaseCompactionFiles(
           Status::Incomplete(Status::SubCode::kManualCompactionPaused));
@@ -3083,6 +3070,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     manual_compaction->in_progress = true;
   }
 
+  TEST_SYNC_POINT("DBImpl::BackgroundCompaction:InProgress");
+
   std::unique_ptr<TaskLimiterToken> task_token;
 
   // InternalKey manual_end_storage;
@@ -3382,7 +3371,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         is_manual ? &manual_compaction_paused_ : nullptr,
         is_manual ? manual_compaction->canceled : nullptr, db_id_,
         db_session_id_, c->column_family_data()->GetFullHistoryTsLow(),
-        &blob_callback_);
+        c->trim_ts(), &blob_callback_);
     compaction_job.Prepare();
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,

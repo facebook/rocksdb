@@ -82,7 +82,7 @@ class CompactionJob {
       const std::atomic<int>* manual_compaction_paused = nullptr,
       const std::atomic<bool>* manual_compaction_canceled = nullptr,
       const std::string& db_id = "", const std::string& db_session_id = "",
-      std::string full_history_ts_low = "",
+      std::string full_history_ts_low = "", std::string trim_ts = "",
       BlobFileCompletionCallback* blob_callback = nullptr);
 
   virtual ~CompactionJob();
@@ -226,6 +226,7 @@ class CompactionJob {
   std::vector<uint64_t> sizes_;
   Env::Priority thread_pri_;
   std::string full_history_ts_low_;
+  std::string trim_ts_;
   BlobFileCompletionCallback* blob_callback_;
 
   uint64_t GetCompactionId(SubcompactionState* sub_compact);

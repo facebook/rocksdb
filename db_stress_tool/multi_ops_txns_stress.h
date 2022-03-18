@@ -196,7 +196,7 @@ class MultiOpsTxnsStressTest : public StressTest {
 
   void FinishInitDb(SharedState*) override;
 
-  void ReopenAndPreloadDb(SharedState* shared);
+  void ReopenAndPreloadDbIfNeeded(SharedState* shared);
 
   bool IsStateTracked() const override { return false; }
 
@@ -262,10 +262,10 @@ class MultiOpsTxnsStressTest : public StressTest {
       const std::vector<int>& rand_column_families) override;
 
   Status PrimaryKeyUpdateTxn(ThreadState* thread, uint32_t old_a,
-                             uint32_t new_a);
+                             uint32_t old_a_pos, uint32_t new_a);
 
   Status SecondaryKeyUpdateTxn(ThreadState* thread, uint32_t old_c,
-                               uint32_t new_c);
+                               uint32_t old_c_pos, uint32_t new_c);
 
   Status UpdatePrimaryIndexValueTxn(ThreadState* thread, uint32_t a,
                                     uint32_t b_delta);
@@ -276,16 +276,88 @@ class MultiOpsTxnsStressTest : public StressTest {
 
   void VerifyDb(ThreadState* thread) const override;
 
- protected:
-  uint32_t ChooseA(ThreadState* thread);
+  void ContinuouslyVerifyDb(ThreadState* thread) const override {
+    VerifyDb(thread);
+  }
 
-  uint32_t GenerateNextA();
+ protected:
+  using KeySet = std::set<uint32_t>;
+  class KeyGenerator {
+   public:
+    explicit KeyGenerator(uint32_t s, uint32_t low, uint32_t high,
+                          KeySet&& existing_uniq, KeySet&& non_existing_uniq)
+        : rand_(s),
+          low_(low),
+          high_(high),
+          existing_uniq_(std::move(existing_uniq)),
+          non_existing_uniq_(std::move(non_existing_uniq)) {}
+    ~KeyGenerator() {
+      assert(!existing_uniq_.empty());
+      assert(!non_existing_uniq_.empty());
+    }
+    void FinishInit();
+
+    std::pair<uint32_t, uint32_t> ChooseExisting();
+    void Replace(uint32_t old_val, uint32_t old_pos, uint32_t new_val);
+    uint32_t Allocate();
+    void UndoAllocation(uint32_t new_val);
+
+    std::string ToString() const {
+      std::ostringstream oss;
+      oss << "[" << low_ << ", " << high_ << "): " << existing_.size()
+          << " elements, " << existing_uniq_.size() << " unique values, "
+          << non_existing_uniq_.size() << " unique non-existing values";
+      return oss.str();
+    }
+
+   private:
+    Random rand_;
+    uint32_t low_ = 0;
+    uint32_t high_ = 0;
+    std::vector<uint32_t> existing_{};
+    KeySet existing_uniq_{};
+    KeySet non_existing_uniq_{};
+    bool initialized_ = false;
+  };
+
+  // Return <a, pos>
+  std::pair<uint32_t, uint32_t> ChooseExistingA(ThreadState* thread);
+
+  uint32_t GenerateNextA(ThreadState* thread);
+
+  // Return <c, pos>
+  std::pair<uint32_t, uint32_t> ChooseExistingC(ThreadState* thread);
+
+  uint32_t GenerateNextC(ThreadState* thread);
+
+  std::vector<std::unique_ptr<KeyGenerator>> key_gen_for_a_;
+  std::vector<std::unique_ptr<KeyGenerator>> key_gen_for_c_;
 
  private:
-  void PreloadDb(SharedState* shared, size_t num_c);
+  struct KeySpaces {
+    uint32_t lb_a = 0;
+    uint32_t ub_a = 0;
+    uint32_t lb_c = 0;
+    uint32_t ub_c = 0;
 
-  // TODO (yanqin) encapsulate the selection of keys a separate class.
-  std::atomic<uint32_t> next_a_{0};
+    explicit KeySpaces() = default;
+    explicit KeySpaces(uint32_t _lb_a, uint32_t _ub_a, uint32_t _lb_c,
+                       uint32_t _ub_c)
+        : lb_a(_lb_a), ub_a(_ub_a), lb_c(_lb_c), ub_c(_ub_c) {}
+
+    std::string EncodeTo() const;
+    bool DecodeFrom(Slice data);
+  };
+
+  void PersistKeySpacesDesc(const std::string& key_spaces_path, uint32_t lb_a,
+                            uint32_t ub_a, uint32_t lb_c, uint32_t ub_c);
+
+  KeySpaces ReadKeySpacesDesc(const std::string& key_spaces_path);
+
+  void PreloadDb(SharedState* shared, int threads, uint32_t lb_a, uint32_t ub_a,
+                 uint32_t lb_c, uint32_t ub_c);
+
+  void ScanExistingDb(SharedState* shared, int threads);
 };
 
 class InvariantChecker {

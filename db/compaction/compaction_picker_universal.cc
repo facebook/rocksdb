@@ -757,7 +757,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
                                               start_level, enable_compression),
                         Temperature::kUnknown,
                         /* max_subcompactions */ 0, grandparents,
-                        /* is manual */ false, score_,
+                        /* is manual */ false, /* trim_ts */ "", score_,
                         false /* deletion_compaction */, compaction_reason);
 }
 
@@ -1082,7 +1082,7 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
                             true /* enable_compression */),
       Temperature::kUnknown,
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
-      score_, false /* deletion_compaction */,
+      /* trim_ts */ "", score_, false /* deletion_compaction */,
       CompactionReason::kUniversalSizeAmplification);
 }
 
@@ -1223,8 +1223,8 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       GetCompressionType(vstorage_, mutable_cf_options_, output_level, 1),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level),
       Temperature::kUnknown,
-      /* max_subcompactions */ 0, grandparents, /* is manual */ false, score_,
-      false /* deletion_compaction */,
+      /* max_subcompactions */ 0, grandparents, /* is manual */ false,
+      /* trim_ts */ "", score_, false /* deletion_compaction */,
       CompactionReason::kFilesMarkedForCompaction);
 }
 
@@ -1299,7 +1299,8 @@ Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
                             true /* enable_compression */),
       Temperature::kUnknown,
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
-      score_, false /* deletion_compaction */, compaction_reason);
+      /* trim_ts */ "", score_, false /* deletion_compaction */,
+      compaction_reason);
 }
 
 Compaction* UniversalCompactionBuilder::PickPeriodicCompaction() {

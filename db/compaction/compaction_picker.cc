@@ -571,7 +571,7 @@ Compaction* CompactionPicker::CompactRange(
     int input_level, int output_level,
     const CompactRangeOptions& compact_range_options, const InternalKey* begin,
     const InternalKey* end, InternalKey** compaction_end, bool* manual_conflict,
-    uint64_t max_file_num_to_ignore) {
+    uint64_t max_file_num_to_ignore, const std::string& trim_ts) {
   // CompactionPickerFIFO has its own implementation of compact range
   assert(ioptions_.compaction_style != kCompactionStyleFIFO);
 
@@ -640,8 +640,7 @@ Compaction* CompactionPicker::CompactRange(
         GetCompressionType(vstorage, mutable_cf_options, output_level, 1),
         GetCompressionOptions(mutable_cf_options, vstorage, output_level),
         Temperature::kUnknown, compact_range_options.max_subcompactions,
-        /* grandparents */ {},
-        /* is manual */ true);
+        /* grandparents */ {}, /* is manual */ true, trim_ts);
     RegisterCompaction(c);
     vstorage->ComputeCompactionScore(ioptions_, mutable_cf_options);
     return c;
@@ -820,7 +819,7 @@ Compaction* CompactionPicker::CompactRange(
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
       Temperature::kUnknown, compact_range_options.max_subcompactions,
       std::move(grandparents),
-      /* is manual compaction */ true);
+      /* is manual compaction */ true, trim_ts);
 
   TEST_SYNC_POINT_CALLBACK("CompactionPicker::CompactRange:Return", compaction);
   RegisterCompaction(compaction);

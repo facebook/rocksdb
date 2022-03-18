@@ -663,7 +663,8 @@ class DBImpl : public DB {
                              const CompactRangeOptions& compact_range_options,
                              const Slice* begin, const Slice* end,
                              bool exclusive, bool disallow_trivial_move,
-                             uint64_t max_file_num_to_ignore);
+                             uint64_t max_file_num_to_ignore,
+                             const std::string& trim_ts);
 
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).
@@ -1247,7 +1248,8 @@ class DBImpl : public DB {
 
   Status CompactRangeInternal(const CompactRangeOptions& options,
                               ColumnFamilyHandle* column_family,
-                              const Slice* begin, const Slice* end);
+                              const Slice* begin, const Slice* end,
+                              const std::string& trim_ts);
 
   // The following two functions can only be called when:
   // 1. WriteThread::Writer::EnterUnbatched() is used.
@@ -1514,19 +1516,31 @@ class DBImpl : public DB {
 
   // Information for a manual compaction
   struct ManualCompactionState {
+    ManualCompactionState(ColumnFamilyData* _cfd, int _input_level,
+                          int _output_level, uint32_t _output_path_id,
+                          bool _exclusive, bool _disallow_trivial_move,
+                          std::atomic<bool>* _canceled)
+        : cfd(_cfd),
+          input_level(_input_level),
+          output_level(_output_level),
+          output_path_id(_output_path_id),
+          exclusive(_exclusive),
+          disallow_trivial_move(_disallow_trivial_move),
+          canceled(_canceled) {}
+
     ColumnFamilyData* cfd;
     int input_level;
     int output_level;
     uint32_t output_path_id;
     Status status;
-    bool done;
-    bool in_progress;             // compaction request being processed?
-    bool incomplete;              // only part of requested range compacted
-    bool exclusive;               // current behavior of only one manual
-    bool disallow_trivial_move;   // Force actual compaction to run
-    const InternalKey* begin;     // nullptr means beginning of key range
-    const InternalKey* end;       // nullptr means end of key range
-    InternalKey* manual_end;      // how far we are compacting
+    bool done = false;
+    bool in_progress = false;    // compaction request being processed?
+    bool incomplete = false;     // only part of requested range compacted
+    bool exclusive;              // current behavior of only one manual
+    bool disallow_trivial_move;  // Force actual compaction to run
+    const InternalKey* begin = nullptr;  // nullptr means beginning of key range
+    const InternalKey* end = nullptr;    // nullptr means end of key range
+    InternalKey* manual_end = nullptr;   // how far we are compacting
     InternalKey tmp_storage;      // Used to keep track of compaction progress
     InternalKey tmp_storage1;     // Used to keep track of compaction progress
     std::atomic<bool>* canceled;  // Compaction canceled by the user?
@@ -1774,7 +1788,8 @@ class DBImpl : public DB {
   // associated with this WriteToWAL
   IOStatus WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
                       uint64_t* log_used, uint64_t* log_size,
-                      Env::IOPriority rate_limiter_priority);
+                      Env::IOPriority rate_limiter_priority,
+                      bool with_db_mutex = false, bool with_log_mutex = false);
 
   IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
                       log::Writer* log_writer, uint64_t* log_used,
@@ -1870,7 +1885,7 @@ class DBImpl : public DB {
                               LogBuffer* log_buffer);
 
   // Schedule background tasks
-  void StartPeriodicWorkScheduler();
+  Status StartPeriodicWorkScheduler();
 
   void PrintStatistics();
 
@@ -2100,12 +2115,15 @@ class DBImpl : public DB {
   bool persistent_stats_cfd_exists_ = true;
 
   // Without two_write_queues, read and writes to alive_log_files_ are
-  // protected by mutex_. However since back() is never popped, and push_back()
-  // is done only from write_thread_, the same thread can access the item
-  // reffered by back() without mutex_. With two_write_queues_, writes
+  // protected by mutex_. With two_write_queues_, writes
   // are protected by locking both mutex_ and log_write_mutex_, and reads must
   // be under either mutex_ or log_write_mutex_.
   std::deque<LogFileNumberSize> alive_log_files_;
+  // Caching the result of `alive_log_files_.back()` so that we do not have to
+  // call `alive_log_files_.back()` in the write thread (WriteToWAL()) which
+  // requires locking db mutex if log_mutex_ is not already held in
+  // two-write-queues mode.
+  std::deque<LogFileNumberSize>::reverse_iterator alive_log_files_tail_;
   // Log files that aren't fully synced, and the current log file.
   // Synchronization:
   //  - push_back() is done from write_thread_ with locked mutex_ and

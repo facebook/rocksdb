@@ -2307,6 +2307,7 @@ class MemTableInserter : public WriteBatch::Handler {
     assert(db_);
 
     if (recovering_log_number_ != 0) {
+      db_->mutex()->AssertHeld();
       // during recovery we rebuild a hollow transaction
       // from all encountered prepare sections of the wal
       if (db_->allow_2pc() == false) {
@@ -2337,6 +2338,7 @@ class MemTableInserter : public WriteBatch::Handler {
     assert((rebuilding_trx_ != nullptr) == (recovering_log_number_ != 0));
 
     if (recovering_log_number_ != 0) {
+      db_->mutex()->AssertHeld();
       assert(db_->allow_2pc());
       size_t batch_cnt =
           write_after_commit_
@@ -2357,6 +2359,9 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
   Status MarkNoop(bool empty_batch) override {
+    if (recovering_log_number_ != 0) {
+      db_->mutex()->AssertHeld();
+    }
     // A hack in pessimistic transaction could result into a noop at the start
     // of the write batch, that should be ignored.
     if (!empty_batch) {
