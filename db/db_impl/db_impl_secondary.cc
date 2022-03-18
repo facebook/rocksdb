@@ -711,8 +711,11 @@ Status DB::OpenAsSecondary(
 }
 
 Status DBImplSecondary::CompactWithoutInstallation(
-    ColumnFamilyHandle* cfh, const CompactionServiceInput& input,
-    CompactionServiceResult* result) {
+    const OpenAndCompactOptions& options, ColumnFamilyHandle* cfh,
+    const CompactionServiceInput& input, CompactionServiceResult* result) {
+  if (options.canceled && options.canceled->load(std::memory_order_acquire)) {
+    return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+  }
   InstrumentedMutexLock l(&mutex_);
   auto cfd = static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
   if (!cfd) {
@@ -774,7 +777,7 @@ Status DBImplSecondary::CompactWithoutInstallation(
       file_options_for_compaction_, versions_.get(), &shutting_down_,
       &log_buffer, output_dir.get(), stats_, &mutex_, &error_handler_,
       input.snapshots, table_cache_, &event_logger_, dbname_, io_tracer_,
-      db_id_, db_session_id_, secondary_path_, input, result);
+      options.canceled, db_id_, db_session_id_, secondary_path_, input, result);
 
   mutex_.Unlock();
   s = compaction_job.Run();
@@ -793,9 +796,13 @@ Status DBImplSecondary::CompactWithoutInstallation(
 }
 
 Status DB::OpenAndCompact(
-    const std::string& name, const std::string& output_directory,
-    const std::string& input, std::string* result,
+    const OpenAndCompactOptions& options, const std::string& name,
+    const std::string& output_directory, const std::string& input,
+    std::string* output,
     const CompactionServiceOptionsOverride& override_options) {
+  if (options.canceled && options.canceled->load(std::memory_order_acquire)) {
+    return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+  }
   CompactionServiceInput compaction_input;
   Status s = CompactionServiceInput::Read(input, &compaction_input);
   if (!s.ok()) {
@@ -849,10 +856,10 @@ Status DB::OpenAndCompact(
   CompactionServiceResult compaction_result;
   DBImplSecondary* db_secondary = static_cast_with_check<DBImplSecondary>(db);
   assert(handles.size() > 0);
-  s = db_secondary->CompactWithoutInstallation(handles[0], compaction_input,
-                                               &compaction_result);
+  s = db_secondary->CompactWithoutInstallation(
+      options, handles[0], compaction_input, &compaction_result);
 
-  Status serialization_status = compaction_result.Write(result);
+  Status serialization_status = compaction_result.Write(output);
 
   for (auto& handle : handles) {
     delete handle;
@@ -862,6 +869,14 @@ Status DB::OpenAndCompact(
     return serialization_status;
   }
   return s;
+}
+
+Status DB::OpenAndCompact(
+    const std::string& name, const std::string& output_directory,
+    const std::string& input, std::string* output,
+    const CompactionServiceOptionsOverride& override_options) {
+  return OpenAndCompact(OpenAndCompactOptions(), name, output_directory, input,
+                        output, override_options);
 }
 
 #else   // !ROCKSDB_LITE

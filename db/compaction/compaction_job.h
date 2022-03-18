@@ -343,6 +343,7 @@ class CompactionServiceCompactionJob : private CompactionJob {
       std::vector<SequenceNumber> existing_snapshots,
       std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
       const std::string& dbname, const std::shared_ptr<IOTracer>& io_tracer,
+      const std::atomic<bool>* manual_compaction_canceled,
       const std::string& db_id, const std::string& db_session_id,
       const std::string& output_path,
       const CompactionServiceInput& compaction_service_input,

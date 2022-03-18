@@ -1946,6 +1946,11 @@ struct CompactionServiceOptionsOverride {
   std::shared_ptr<Statistics> statistics = nullptr;
 };
 
+struct OpenAndCompactOptions {
+  // Allows cancellation of an in-progress compaction.
+  std::atomic<bool>* canceled = nullptr;
+};
+
 #ifndef ROCKSDB_LITE
 struct LiveFilesStorageInfoOptions {
   // Whether to populate FileStorageInfo::file_checksum* or leave blank
