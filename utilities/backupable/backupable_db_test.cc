@@ -27,6 +27,7 @@
 #include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/rate_limiter.h"
@@ -422,12 +423,12 @@ class TestFs : public FileSystemWrapper {
 
   // Keeps track of how many files of each type were successfully opened, and
   // out of those, how many were opened with direct I/O.
-  std::atomic<int> num_rand_readers_;
-  std::atomic<int> num_direct_rand_readers_;
-  std::atomic<int> num_seq_readers_;
-  std::atomic<int> num_direct_seq_readers_;
-  std::atomic<int> num_writers_;
-  std::atomic<int> num_direct_writers_;
+  std::atomic<int> num_rand_readers_{};
+  std::atomic<int> num_direct_rand_readers_{};
+  std::atomic<int> num_seq_readers_{};
+  std::atomic<int> num_direct_seq_readers_{};
+  std::atomic<int> num_writers_{};
+  std::atomic<int> num_direct_writers_{};
 };  // TestFs
 
 class FileManager : public EnvWrapper {
@@ -3278,27 +3279,32 @@ TEST_F(BackupEngineTest, MetadataTooLarge) {
   DestroyDB(dbname_, options_);
 }
 
-TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_SizeCorruption) {
-  OpenDBAndBackupEngine(true);
+TEST_F(BackupEngineTest, MetaSchemaVersion2_SizeCorruption) {
+  engine_options_->schema_version = 1;
+  OpenDBAndBackupEngine(/*destroy_old_data*/ true);
 
   // Backup 1: no future schema, no sizes, with checksums
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
 
+  CloseDBAndBackupEngine();
+  engine_options_->schema_version = 2;
+  OpenDBAndBackupEngine(/*destroy_old_data*/ false);
+
   // Backup 2: no checksums, no sizes
-  TEST_FutureSchemaVersion2Options test_opts;
+  TEST_BackupMetaSchemaOptions test_opts;
   test_opts.crc32c_checksums = false;
   test_opts.file_sizes = false;
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
 
   // Backup 3: no checksums, with sizes
   test_opts.file_sizes = true;
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
 
   // Backup 4: with checksums and sizes
   test_opts.crc32c_checksums = true;
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
 
   CloseDBAndBackupEngine();
@@ -3341,13 +3347,14 @@ TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_SizeCorruption) {
   CloseBackupEngine();
 }
 
-TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_NotSupported) {
-  TEST_FutureSchemaVersion2Options test_opts;
+TEST_F(BackupEngineTest, MetaSchemaVersion2_NotSupported) {
+  engine_options_->schema_version = 2;
+  TEST_BackupMetaSchemaOptions test_opts;
   std::string app_metadata = "abc\ndef";
 
   OpenDBAndBackupEngine(true);
   // Start with supported
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
 
@@ -3355,30 +3362,30 @@ TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_NotSupported) {
   // detected on attempt to restore.
   // Not supported versions
   test_opts.version = "3";
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
   test_opts.version = "23.45.67";
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
   test_opts.version = "2";
 
   // Non-ignorable fields
   test_opts.meta_fields["ni::blah"] = "123";
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
   test_opts.meta_fields.clear();
 
   test_opts.file_fields["ni::123"] = "xyz";
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
   test_opts.file_fields.clear();
 
   test_opts.footer_fields["ni::123"] = "xyz";
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
   test_opts.footer_fields.clear();
@@ -3393,8 +3400,9 @@ TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_NotSupported) {
   CloseBackupEngine();
 }
 
-TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_Restore) {
-  TEST_FutureSchemaVersion2Options test_opts;
+TEST_F(BackupEngineTest, MetaSchemaVersion2_Restore) {
+  engine_options_->schema_version = 2;
+  TEST_BackupMetaSchemaOptions test_opts;
   const int keys_iteration = 5000;
 
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
@@ -3403,7 +3411,7 @@ TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_Restore) {
   // based on shared files also in other backups with the metadata.
   test_opts.crc32c_checksums = false;
   test_opts.file_sizes = false;
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
   CloseDBAndBackupEngine();
 
@@ -3412,7 +3420,7 @@ TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_Restore) {
   OpenDBAndBackupEngine(false /* destroy_old_data */, false,
                         kShareWithChecksum);
   test_opts.file_sizes = true;
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
   CloseDBAndBackupEngine();
 
@@ -3423,7 +3431,7 @@ TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_Restore) {
   OpenDBAndBackupEngine(false /* destroy_old_data */, false,
                         kShareWithChecksum);
   test_opts.crc32c_checksums = true;
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
   CloseDBAndBackupEngine();
 
@@ -3451,7 +3459,7 @@ TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_Restore) {
   test_opts.file_fields["_7yyyyyyyyy"] = "111111111111";
   test_opts.footer_fields["Qwzn.tz89"] = "ASDF!!@# ##=\t ";
   test_opts.footer_fields["yes"] = "no!";
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
   CloseDBAndBackupEngine();
 
@@ -4009,6 +4017,10 @@ TEST_F(BackupEngineTest, IOStats) {
 
 TEST_F(BackupEngineTest, FileTemperatures) {
   CloseDBAndBackupEngine();
+
+  // Required for recording+restoring temperatures
+  engine_options_->schema_version = 2;
+
   // More file IO instrumentation
   auto my_db_fs = std::make_shared<FileTemperatureTestFS>(db_chroot_fs_);
   test_db_fs_ = std::make_shared<TestFs>(my_db_fs);
@@ -4021,7 +4033,7 @@ TEST_F(BackupEngineTest, FileTemperatures) {
   OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
                         kShareWithChecksum);
 
-  // generate a bottommost file and a non-bottommost file
+  // generate a bottommost file (combined from 2) and a non-bottommost file
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_.get());
   ASSERT_OK(db_->Put(WriteOptions(), "a", "val"));
   ASSERT_OK(db_->Put(WriteOptions(), "c", "val"));
@@ -4033,15 +4045,18 @@ TEST_F(BackupEngineTest, FileTemperatures) {
   ASSERT_OK(db_->Put(WriteOptions(), "e", "val"));
   ASSERT_OK(db_->Flush(FlushOptions()));
 
+  // Get temperatures from manifest
   std::map<uint64_t, Temperature> manifest_temps;
   std::map<Temperature, int> manifest_temp_counts;
-  std::vector<LiveFileStorageInfo> infos;
-  ASSERT_OK(
-      db_->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(), &infos));
-  for (auto info : infos) {
-    if (info.file_type == kTableFile) {
-      manifest_temps.emplace(info.file_number, info.temperature);
-      manifest_temp_counts[info.temperature]++;
+  {
+    std::vector<LiveFileStorageInfo> infos;
+    ASSERT_OK(
+        db_->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(), &infos));
+    for (auto info : infos) {
+      if (info.file_type == kTableFile) {
+        manifest_temps.emplace(info.file_number, info.temperature);
+        manifest_temp_counts[info.temperature]++;
+      }
     }
   }
 
@@ -4050,23 +4065,96 @@ TEST_F(BackupEngineTest, FileTemperatures) {
   ASSERT_EQ(manifest_temp_counts[Temperature::kWarm], 1);
   ASSERT_EQ(manifest_temp_counts[Temperature::kUnknown], 1);
 
-  // Sample requested temperatures in opening files for backup
-  my_db_fs->ClearRequestedFileTemperatures();
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
-
-  // checking src file src_temperature hints: 2 sst files: 1 sst is kWarm,
-  // another is kUnknown
-  auto requested_temps = my_db_fs->RequestedSstFileTemperatures();
-  ASSERT_EQ(requested_temps.size(), 2);
-  bool has_only_one_warm_sst = false;
-  for (const auto& requested_temp : requested_temps) {
-    ASSERT_EQ(manifest_temps.at(requested_temp.first), requested_temp.second);
-    if (requested_temp.second == Temperature::kWarm) {
-      ASSERT_FALSE(has_only_one_warm_sst);
-      has_only_one_warm_sst = true;
-    }
+  // Verify manifest temperatures match FS temperatures
+  std::map<uint64_t, Temperature> current_temps;
+  my_db_fs->CopyCurrentSstFileTemperatures(&current_temps);
+  for (const auto& manifest_temp : manifest_temps) {
+    ASSERT_EQ(current_temps[manifest_temp.first], manifest_temp.second);
   }
-  ASSERT_TRUE(has_only_one_warm_sst);
+
+  // Try a few different things
+  for (int i = 1; i <= 5; ++i) {
+    // Expected temperatures after restore are based on manifest temperatures
+    std::map<uint64_t, Temperature> expected_temps = manifest_temps;
+
+    if (i >= 2) {
+      // For iterations 2 & 3, override current temperature of one file
+      // and vary which temperature is authoritative (current or manifest).
+      // For iterations 4 & 5, override current temperature of both files
+      // but make sure an current temperate always takes precedence over
+      // unknown regardless of current_temperatures_override_manifest setting.
+      bool use_current = ((i % 2) == 1);
+      engine_options_->current_temperatures_override_manifest = use_current;
+      CloseBackupEngine();
+      OpenBackupEngine();
+      for (const auto& manifest_temp : manifest_temps) {
+        if (i <= 3) {
+          if (manifest_temp.second == Temperature::kWarm) {
+            my_db_fs->OverrideSstFileTemperature(manifest_temp.first,
+                                                 Temperature::kCold);
+            if (use_current) {
+              expected_temps[manifest_temp.first] = Temperature::kCold;
+            }
+          }
+        } else {
+          assert(i <= 5);
+          if (manifest_temp.second == Temperature::kWarm) {
+            my_db_fs->OverrideSstFileTemperature(manifest_temp.first,
+                                                 Temperature::kUnknown);
+          } else {
+            ASSERT_EQ(manifest_temp.second, Temperature::kUnknown);
+            my_db_fs->OverrideSstFileTemperature(manifest_temp.first,
+                                                 Temperature::kHot);
+            // regardless of use_current
+            expected_temps[manifest_temp.first] = Temperature::kHot;
+          }
+        }
+      }
+    }
+
+    // Sample requested temperatures in opening files for backup
+    my_db_fs->PopRequestedSstFileTemperatures();
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+
+    // Verify requested temperatures against manifest temperatures (before
+    // backup finds out current temperatures in FileSystem)
+    std::vector<std::pair<uint64_t, Temperature>> requested_temps;
+    my_db_fs->PopRequestedSstFileTemperatures(&requested_temps);
+    std::set<uint64_t> distinct_requests;
+    for (const auto& requested_temp : requested_temps) {
+      // Matching manifest temperatures
+      ASSERT_EQ(manifest_temps.at(requested_temp.first), requested_temp.second);
+      distinct_requests.insert(requested_temp.first);
+    }
+    // Two distinct requests
+    ASSERT_EQ(distinct_requests.size(), 2);
+
+    // Verify against backup info file details API
+    BackupInfo info;
+    ASSERT_OK(backup_engine_->GetLatestBackupInfo(
+        &info, /*include_file_details*/ true));
+    ASSERT_GT(info.file_details.size(), 2);
+    for (auto& e : info.file_details) {
+      ASSERT_EQ(expected_temps[e.file_number], e.temperature);
+    }
+
+    // Restore backup to another virtual (tiered) dir
+    const std::string restore_dir = "/restore" + ToString(i);
+    ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(
+        RestoreOptions(), restore_dir, restore_dir));
+
+    // Verify restored FS temperatures match expectation
+    // (FileTemperatureTestFS doesn't distinguish directories when reporting
+    // current temperatures, just whatever SST was written or overridden last
+    // with that file number.)
+    my_db_fs->CopyCurrentSstFileTemperatures(&current_temps);
+    for (const auto& expected_temp : expected_temps) {
+      ASSERT_EQ(current_temps[expected_temp.first], expected_temp.second);
+    }
+
+    // Delete backup to force next backup to copy files
+    ASSERT_OK(backup_engine_->PurgeOldBackups(0));
+  }
 }
 
 }  // anon namespace

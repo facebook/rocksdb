@@ -6949,7 +6949,7 @@ TEST_F(DBTest2, CheckpointFileTemperature) {
     temperatures.emplace(info.file_number, info.temperature);
   }
 
-  test_fs->ClearRequestedFileTemperatures();
+  test_fs->PopRequestedSstFileTemperatures();
   Checkpoint* checkpoint;
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
   ASSERT_OK(
@@ -6957,17 +6957,19 @@ TEST_F(DBTest2, CheckpointFileTemperature) {
 
   // checking src file src_temperature hints: 2 sst files: 1 sst is kWarm,
   // another is kUnknown
-  auto file_temperatures = test_fs->RequestedSstFileTemperatures();
-  ASSERT_EQ(file_temperatures.size(), 2);
-  bool has_only_one_warm_sst = false;
-  for (const auto& file_temperature : file_temperatures) {
-    ASSERT_EQ(temperatures.at(file_temperature.first), file_temperature.second);
-    if (file_temperature.second == Temperature::kWarm) {
-      ASSERT_FALSE(has_only_one_warm_sst);
-      has_only_one_warm_sst = true;
-    }
+  std::vector<std::pair<uint64_t, Temperature>> requested_temps;
+  test_fs->PopRequestedSstFileTemperatures(&requested_temps);
+  // Two requests
+  ASSERT_EQ(requested_temps.size(), 2);
+  std::set<uint64_t> distinct_requests;
+  for (const auto& requested_temp : requested_temps) {
+    // Matching manifest temperatures
+    ASSERT_EQ(temperatures.at(requested_temp.first), requested_temp.second);
+    distinct_requests.insert(requested_temp.first);
   }
-  ASSERT_TRUE(has_only_one_warm_sst);
+  // Each request to distinct file
+  ASSERT_EQ(distinct_requests.size(), requested_temps.size());
+
   delete checkpoint;
   Close();
 }
