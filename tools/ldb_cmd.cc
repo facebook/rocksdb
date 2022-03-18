@@ -21,11 +21,14 @@
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "db/log_reader.h"
+#include "db/version_util.h"
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/experimental.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/checkpoint.h"
@@ -301,6 +304,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
     return new UnsafeRemoveSstFileCommand(parsed_params.cmd_params,
                                           parsed_params.option_map,
                                           parsed_params.flags);
+  } else if (parsed_params.cmd == UpdateManifestCommand::Name()) {
+    return new UpdateManifestCommand(parsed_params.cmd_params,
+                                     parsed_params.option_map,
+                                     parsed_params.flags);
   }
   return nullptr;
 }
@@ -3985,49 +3992,27 @@ UnsafeRemoveSstFileCommand::UnsafeRemoveSstFileCommand(
 }
 
 void UnsafeRemoveSstFileCommand::DoCommand() {
-  // Instead of opening a `DB` and calling `DeleteFile()`, this implementation
-  // uses the underlying `VersionSet` API to read and modify the MANIFEST. This
-  // allows us to use the user's real options, while not having to worry about
-  // the DB persisting new SST files via flush/compaction or attempting to read/
-  // compact files which may fail, particularly for the file we intend to remove
-  // (the user may want to remove an already deleted file from MANIFEST).
   PrepareOptions();
 
-  if (options_.db_paths.empty()) {
-    // `VersionSet` expects options that have been through `SanitizeOptions()`,
-    // which would sanitize an empty `db_paths`.
-    options_.db_paths.emplace_back(db_path_, 0 /* target_size */);
+  OfflineManifestWriter w(options_, db_path_);
+  if (column_families_.empty()) {
+    column_families_.emplace_back(kDefaultColumnFamilyName, options_);
   }
-
-  WriteController wc(options_.delayed_write_rate);
-  WriteBufferManager wb(options_.db_write_buffer_size);
-  ImmutableDBOptions immutable_db_options(options_);
-  std::shared_ptr<Cache> tc(
-      NewLRUCache(1 << 20 /* capacity */, options_.table_cache_numshardbits));
-  EnvOptions sopt;
-  VersionSet versions(db_path_, &immutable_db_options, sopt, tc.get(), &wb, &wc,
-                      /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_session_id*/ "");
-  Status s = versions.Recover(column_families_);
+  Status s = w.Recover(column_families_);
 
   ColumnFamilyData* cfd = nullptr;
   int level = -1;
   if (s.ok()) {
     FileMetaData* metadata = nullptr;
-    s = versions.GetMetadataForFile(sst_file_number_, &level, &metadata, &cfd);
+    s = w.Versions().GetMetadataForFile(sst_file_number_, &level, &metadata,
+                                        &cfd);
   }
 
   if (s.ok()) {
     VersionEdit edit;
     edit.SetColumnFamily(cfd->GetID());
     edit.DeleteFile(level, sst_file_number_);
-    // Use `mutex` to imitate a locked DB mutex when calling `LogAndApply()`.
-    InstrumentedMutex mutex;
-    mutex.Lock();
-    s = versions.LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(), &edit,
-                             &mutex, nullptr /* db_directory */,
-                             false /* new_descriptor_log */);
-    mutex.Unlock();
+    s = w.LogAndApply(cfd, &edit);
   }
 
   if (!s.ok()) {
@@ -4035,6 +4020,60 @@ void UnsafeRemoveSstFileCommand::DoCommand() {
         "failed to unsafely remove SST file: " + s.ToString());
   } else {
     exec_state_ = LDBCommandExecuteResult::Succeed("unsafely removed SST file");
+  }
+}
+
+const std::string UpdateManifestCommand::ARG_VERBOSE = "verbose";
+const std::string UpdateManifestCommand::ARG_UPDATE_TEMPERATURES =
+    "update_temperatures";
+
+void UpdateManifestCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(UpdateManifestCommand::Name());
+  ret.append(" [--update_temperatures]");
+  ret.append("  ");
+  ret.append("    MUST NOT be used on a live DB.");
+  ret.append("\n");
+}
+
+UpdateManifestCommand::UpdateManifestCommand(
+    const std::vector<std::string>& /*params*/,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false /* is_read_only */,
+                 BuildCmdLineOptions({ARG_VERBOSE, ARG_UPDATE_TEMPERATURES})) {
+  verbose_ = IsFlagPresent(flags, ARG_VERBOSE) ||
+             ParseBooleanOption(options, ARG_VERBOSE, false);
+  update_temperatures_ =
+      IsFlagPresent(flags, ARG_UPDATE_TEMPERATURES) ||
+      ParseBooleanOption(options, ARG_UPDATE_TEMPERATURES, false);
+
+  if (!update_temperatures_) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "No action like --update_temperatures specified for update_manifest");
+  }
+}
+
+void UpdateManifestCommand::DoCommand() {
+  PrepareOptions();
+
+  auto level = verbose_ ? InfoLogLevel::INFO_LEVEL : InfoLogLevel::WARN_LEVEL;
+  options_.info_log.reset(new StderrLogger(level));
+
+  experimental::UpdateManifestForFilesStateOptions opts;
+  opts.update_temperatures = update_temperatures_;
+  if (column_families_.empty()) {
+    column_families_.emplace_back(kDefaultColumnFamilyName, options_);
+  }
+  Status s = experimental::UpdateManifestForFilesState(options_, db_path_,
+                                                       column_families_);
+
+  if (!s.ok()) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "failed to update manifest: " + s.ToString());
+  } else {
+    exec_state_ =
+        LDBCommandExecuteResult::Succeed("Manifest updates successful");
   }
 }
 

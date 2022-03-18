@@ -17,6 +17,7 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/experimental.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/trace_record.h"
@@ -6971,6 +6972,105 @@ TEST_F(DBTest2, CheckpointFileTemperature) {
   ASSERT_EQ(distinct_requests.size(), requested_temps.size());
 
   delete checkpoint;
+  Close();
+}
+
+TEST_F(DBTest2, FileTemperatureManifestFixup) {
+  auto test_fs = std::make_shared<FileTemperatureTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, test_fs));
+  Options options = CurrentOptions();
+  options.bottommost_temperature = Temperature::kWarm;
+  options.level0_file_num_compaction_trigger = 2;
+  options.env = env.get();
+  std::vector<std::string> cfs = {/*"default",*/ "test1", "test2"};
+  CreateAndReopenWithCF(cfs, options);
+  // Needed for later re-opens (weird)
+  cfs.insert(cfs.begin(), kDefaultColumnFamilyName);
+
+  // Generate a bottommost file in all CFs
+  for (int cf = 0; cf < 3; ++cf) {
+    ASSERT_OK(Put(cf, "a", "val"));
+    ASSERT_OK(Put(cf, "c", "val"));
+    ASSERT_OK(Flush(cf));
+    ASSERT_OK(Put(cf, "b", "val"));
+    ASSERT_OK(Put(cf, "d", "val"));
+    ASSERT_OK(Flush(cf));
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // verify
+  ASSERT_GT(GetSstSizeHelper(Temperature::kWarm), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kHot), 0);
+
+  // Generate a non-bottommost file in all CFs
+  for (int cf = 0; cf < 3; ++cf) {
+    ASSERT_OK(Put(cf, "e", "val"));
+    ASSERT_OK(Flush(cf));
+  }
+
+  // re-verify
+  ASSERT_GT(GetSstSizeHelper(Temperature::kWarm), 0);
+  // Not supported: ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kHot), 0);
+
+  // Now change FS temperature on bottommost file(s) to kCold
+  std::map<uint64_t, Temperature> current_temps;
+  test_fs->CopyCurrentSstFileTemperatures(&current_temps);
+  for (auto e : current_temps) {
+    if (e.second == Temperature::kWarm) {
+      test_fs->OverrideSstFileTemperature(e.first, Temperature::kCold);
+    }
+  }
+  // Metadata not yet updated
+  ASSERT_EQ(Get("a"), "val");
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+
+  // Update with Close and UpdateManifestForFilesState, but first save cf
+  // descriptors
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (size_t i = 0; i < handles_.size(); ++i) {
+    ColumnFamilyDescriptor cfdescriptor;
+    // GetDescriptor is not implemented for ROCKSDB_LITE
+    handles_[i]->GetDescriptor(&cfdescriptor).PermitUncheckedError();
+    column_families.push_back(cfdescriptor);
+  }
+  Close();
+  experimental::UpdateManifestForFilesStateOptions update_opts;
+  update_opts.update_temperatures = true;
+
+  ASSERT_OK(experimental::UpdateManifestForFilesState(
+      options, dbname_, column_families, update_opts));
+
+  // Re-open and re-verify after update
+  ReopenWithColumnFamilies(cfs, options);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  // Not supported: ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kWarm), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kHot), 0);
+
+  // Change kUnknown to kHot
+  test_fs->CopyCurrentSstFileTemperatures(&current_temps);
+  for (auto e : current_temps) {
+    if (e.second == Temperature::kUnknown) {
+      test_fs->OverrideSstFileTemperature(e.first, Temperature::kHot);
+    }
+  }
+
+  // Update with Close and UpdateManifestForFilesState
+  Close();
+  ASSERT_OK(experimental::UpdateManifestForFilesState(
+      options, dbname_, column_families, update_opts));
+
+  // Re-open and re-verify after update
+  ReopenWithColumnFamilies(cfs, options);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kWarm), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kHot), 0);
+
   Close();
 }
 #endif  // ROCKSDB_LITE
