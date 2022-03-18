@@ -3,6 +3,7 @@
 ### Bug Fixes
 * Fixed a race condition when disable and re-enable manual compaction.
 * Fixed a race condition for `alive_log_files_` in non-two-write-queues mode. The race is between the write_thread_ in WriteToWAL() and another thread executing `FindObsoleteFiles()`. The race condition will be caught if `__glibcxx_requires_nonempty` is enabled.
+* Fixed a race condition when mmaping a WritableFile on POSIX.
 
 ## 7.0.3 (03/23/2022)
 ### Bug Fixes
