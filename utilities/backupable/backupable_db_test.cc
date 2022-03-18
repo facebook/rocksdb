@@ -4120,16 +4120,14 @@ TEST_F(BackupEngineTest, FileTemperatures) {
     // backup finds out current temperatures in FileSystem)
     std::vector<std::pair<uint64_t, Temperature>> requested_temps;
     my_db_fs->PopRequestedSstFileTemperatures(&requested_temps);
-    // Two requests
-    ASSERT_EQ(requested_temps.size(), 2);
     std::set<uint64_t> distinct_requests;
     for (const auto& requested_temp : requested_temps) {
       // Matching manifest temperatures
       ASSERT_EQ(manifest_temps.at(requested_temp.first), requested_temp.second);
       distinct_requests.insert(requested_temp.first);
     }
-    // Each request to distinct file
-    ASSERT_EQ(distinct_requests.size(), requested_temps.size());
+    // Two distinct requests
+    ASSERT_EQ(distinct_requests.size(), 2);
 
     // Verify against backup info file details API
     BackupInfo info;

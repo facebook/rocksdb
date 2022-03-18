@@ -717,7 +717,24 @@ class FileTemperatureTestFS : public FileSystemWrapper {
     return s;
   }
 
-  // TODO: NewRandomFile etc.
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    IOStatus s = target()->NewRandomAccessFile(fname, opts, result, dbg);
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(GetFileName(fname), &number, &type) &&
+        type == kTableFile) {
+      MutexLock lock(&mu_);
+      requested_sst_file_temperatures_.emplace_back(number, opts.temperature);
+      if (s.ok()) {
+        *result = WrapWithTemperature<FSRandomAccessFileOwnerWrapper>(
+            number, std::move(*result));
+      }
+    }
+    return s;
+  }
 
   void PopRequestedSstFileTemperatures(
       std::vector<std::pair<uint64_t, Temperature>>* out = nullptr) {
@@ -738,8 +755,6 @@ class FileTemperatureTestFS : public FileSystemWrapper {
     if (ParseFileName(GetFileName(fname), &number, &type) &&
         type == kTableFile) {
       MutexLock lock(&mu_);
-      fprintf(stderr, "Write %d -> temp %d\n", (int)number,
-              (int)opts.temperature);
       current_sst_file_temperatures_[number] = opts.temperature;
     }
     return target()->NewWritableFile(fname, opts, result, dbg);

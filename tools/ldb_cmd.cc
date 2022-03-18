@@ -3471,7 +3471,8 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
   // no verification
   // TODO: add support for decoding blob indexes in ldb as well
   ROCKSDB_NAMESPACE::SstFileDumper dumper(
-      options, filename, 2 * 1024 * 1024 /* readahead_size */,
+      options, filename, Temperature::kUnknown,
+      2 * 1024 * 1024 /* readahead_size */,
       /* verify_checksum */ false, output_hex,
       /* decode_blob_index */ false);
   Status st = dumper.ReadSequential(true, std::numeric_limits<uint64_t>::max(),
