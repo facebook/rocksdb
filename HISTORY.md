@@ -30,6 +30,7 @@
 * Fixed a race condition when disable and re-enable manual compaction.
 * Fixed automatic error recovery failure in atomic flush.
 * Fixed a race condition when mmaping a WritableFile on POSIX.
+* Fixed a race condition when 2PC is disabled and WAL tracking in the MANIFEST is enabled. The race condition is between two background flush threads trying to install flush results, causing a WAL deletion not tracked in the MANIFEST. A future DB open may fail.
 
 ### Public API changes
 * Remove BlockBasedTableOptions.hash_index_allow_collision which already takes no effect.
