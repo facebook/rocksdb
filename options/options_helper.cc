@@ -725,6 +725,16 @@ Status GetColumnFamilyOptionsFromMap(
 
 Status GetColumnFamilyOptionsFromMap(
     const ConfigOptions& config_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    ColumnFamilyOptions* new_options) {
+  ConfigOptions copy = config_options;
+  copy.only_changed_options = true;
+  return GetColumnFamilyOptionsFromMap(copy, ColumnFamilyOptions(), opts_map,
+                                       new_options);
+}
+
+Status GetColumnFamilyOptionsFromMap(
+    const ConfigOptions& config_options,
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     ColumnFamilyOptions* new_options) {
@@ -769,6 +779,17 @@ Status GetColumnFamilyOptionsFromString(const ConfigOptions& config_options,
                                        new_options);
 }
 
+Status GetColumnFamilyOptionsFromString(const ConfigOptions& config_options,
+                                        const std::string& opts_str,
+                                        ColumnFamilyOptions* new_options) {
+  std::unordered_map<std::string, std::string> opts_map;
+  Status s = StringToMap(opts_str, &opts_map);
+  if (s.ok()) {
+    s = GetColumnFamilyOptionsFromMap(config_options, opts_map, new_options);
+  }
+  return s;
+}
+
 Status GetDBOptionsFromMap(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
@@ -779,6 +800,15 @@ Status GetDBOptionsFromMap(
   config_options.ignore_unknown_options = ignore_unknown_options;
   return GetDBOptionsFromMap(config_options, base_options, opts_map,
                              new_options);
+}
+
+Status GetDBOptionsFromMap(
+    const ConfigOptions& config_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    DBOptions* new_options) {
+  ConfigOptions copy = config_options;
+  copy.only_changed_options = true;
+  return GetDBOptionsFromMap(copy, DBOptions(), opts_map, new_options);
 }
 
 Status GetDBOptionsFromMap(
@@ -824,6 +854,17 @@ Status GetDBOptionsFromString(const ConfigOptions& config_options,
                              new_options);
 }
 
+Status GetDBOptionsFromString(const ConfigOptions& config_options,
+                              const std::string& opts_str,
+                              DBOptions* new_options) {
+  std::unordered_map<std::string, std::string> opts_map;
+  Status s = StringToMap(opts_str, &opts_map);
+  if (s.ok()) {
+    s = GetDBOptionsFromMap(config_options, opts_map, new_options);
+  }
+  return s;
+}
+
 Status GetOptionsFromString(const Options& base_options,
                             const std::string& opts_str, Options* new_options) {
   ConfigOptions config_options(base_options);
@@ -832,6 +873,13 @@ Status GetOptionsFromString(const Options& base_options,
 
   return GetOptionsFromString(config_options, base_options, opts_str,
                               new_options);
+}
+
+Status GetOptionsFromString(const ConfigOptions& config_options,
+                            const std::string& opts_str, Options* new_options) {
+  ConfigOptions copy = config_options;
+  copy.only_changed_options = true;
+  return GetOptionsFromString(copy, Options(), opts_str, new_options);
 }
 
 Status GetOptionsFromString(const ConfigOptions& config_options,

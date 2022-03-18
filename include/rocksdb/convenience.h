@@ -322,6 +322,10 @@ Status GetColumnFamilyOptionsFromMap(
 // @return Status::InvalidArgument means the one of the option values is not
 //     valid for this option.
 Status GetDBOptionsFromMap(
+    const ConfigOptions& cfg_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    DBOptions* new_options);
+Status GetDBOptionsFromMap(
     const ConfigOptions& cfg_options, const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     DBOptions* new_options);
@@ -445,6 +449,10 @@ Status GetColumnFamilyOptionsFromString(const ColumnFamilyOptions& base_options,
                                         ColumnFamilyOptions* new_options);
 
 Status GetDBOptionsFromString(const ConfigOptions& config_options,
+                              const std::string& opts_str,
+                              DBOptions* new_options);
+
+Status GetDBOptionsFromString(const ConfigOptions& config_options,
                               const DBOptions& base_options,
                               const std::string& opts_str,
                               DBOptions* new_options);
@@ -493,6 +501,8 @@ Status GetMemTableRepFactoryFromString(
     std::unique_ptr<MemTableRepFactory>* new_mem_factory);
 
 Status GetOptionsFromString(const Options& base_options,
+                            const std::string& opts_str, Options* new_options);
+Status GetOptionsFromString(const ConfigOptions& config_options,
                             const std::string& opts_str, Options* new_options);
 Status GetOptionsFromString(const ConfigOptions& config_options,
                             const Options& base_options,

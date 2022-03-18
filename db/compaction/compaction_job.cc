@@ -2608,8 +2608,7 @@ static std::unordered_map<std::string, OptionTypeInfo> cfd_type_info = {
       [](const ConfigOptions& opts, const std::string& /*name*/,
          const std::string& value, void* addr) {
         auto cf_options = static_cast<ColumnFamilyOptions*>(addr);
-        return GetColumnFamilyOptionsFromString(opts, ColumnFamilyOptions(),
-                                                value, cf_options);
+        return GetColumnFamilyOptionsFromString(opts, value, cf_options);
       },
       [](const ConfigOptions& opts, const std::string& /*name*/,
          const void* addr, std::string* value) {

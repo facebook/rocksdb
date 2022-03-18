@@ -425,7 +425,7 @@ Status RocksDBOptionsParser::EndSection(
     const std::unordered_map<std::string, std::string>& opt_map) {
   Status s;
   if (section == kOptionSectionDBOptions) {
-    s = GetDBOptionsFromMap(config_options, DBOptions(), opt_map, &db_opt_);
+    s = GetDBOptionsFromMap(config_options, opt_map, &db_opt_);
     if (!s.ok()) {
       return s;
     }
@@ -436,8 +436,8 @@ Status RocksDBOptionsParser::EndSection(
     assert(GetCFOptions(section_arg) == nullptr);
     cf_names_.emplace_back(section_arg);
     cf_opts_.emplace_back();
-    s = GetColumnFamilyOptionsFromMap(config_options, ColumnFamilyOptions(),
-                                      opt_map, &cf_opts_.back());
+    s = GetColumnFamilyOptionsFromMap(config_options, opt_map,
+                                      &cf_opts_.back());
     if (!s.ok()) {
       return s;
     }
