@@ -190,6 +190,28 @@ class ManifestDumpCommand : public LDBCommand {
   static const std::string ARG_PATH;
 };
 
+class UpdateManifestCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "update_manifest"; }
+
+  UpdateManifestCommand(const std::vector<std::string>& params,
+                        const std::map<std::string, std::string>& options,
+                        const std::vector<std::string>& flags);
+
+  static void Help(std::string& ret);
+  virtual void DoCommand() override;
+
+  virtual bool NoDBOpen() override { return true; }
+
+ private:
+  bool verbose_;
+  bool update_temperatures_;
+  // TODO future: checksum_func for populating checksums
+
+  static const std::string ARG_VERBOSE;
+  static const std::string ARG_UPDATE_TEMPERATURES;
+};
+
 class FileChecksumDumpCommand : public LDBCommand {
  public:
   static std::string Name() { return "file_checksum_dump"; }

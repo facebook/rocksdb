@@ -106,7 +106,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/AdvancedColumnFamilyOptionsInterface.java
   src/main/java/org/rocksdb/AdvancedMutableColumnFamilyOptionsInterface.java
   src/main/java/org/rocksdb/BackgroundErrorReason.java
-  src/main/java/org/rocksdb/BackupableDBOptions.java
+  src/main/java/org/rocksdb/BackupEngineOptions.java
   src/main/java/org/rocksdb/BackupEngine.java
   src/main/java/org/rocksdb/BackupInfo.java
   src/main/java/org/rocksdb/BlockBasedTableConfig.java
@@ -157,7 +157,6 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/FlushOptions.java
   src/main/java/org/rocksdb/HashLinkedListMemTableConfig.java
   src/main/java/org/rocksdb/HashSkipListMemTableConfig.java
-  src/main/java/org/rocksdb/HdfsEnv.java
   src/main/java/org/rocksdb/HistogramData.java
   src/main/java/org/rocksdb/HistogramType.java
   src/main/java/org/rocksdb/Holder.java
@@ -310,13 +309,17 @@ set(JAVA_TESTCLASSPATH ${JAVA_JUNIT_JAR} ${JAVA_HAMCR_JAR} ${JAVA_MOCKITO_JAR} $
 set(JNI_OUTPUT_DIR ${PROJECT_SOURCE_DIR}/java/include)
 file(MAKE_DIRECTORY ${JNI_OUTPUT_DIR})
 
+if(${Java_VERSION_MINOR} VERSION_LESS_EQUAL "7" AND ${Java_VERSION_MAJOR} STREQUAL "1")
+  message(FATAL_ERROR "Detected Java 7 or older (${Java_VERSION_STRING}), minimum required version in now Java 8")
+endif()
+
 if(${Java_VERSION_MAJOR} VERSION_GREATER_EQUAL "10" AND ${CMAKE_VERSION} VERSION_LESS "3.11.4")
   # Java 10 and newer don't have javah, but the alternative GENERATE_NATIVE_HEADERS requires CMake 3.11.4 or newer
   message(FATAL_ERROR "Detected Java 10 or newer (${Java_VERSION_STRING}), to build with CMake please upgrade CMake to 3.11.4 or newer")
 
-elseif(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7" AND ${Java_VERSION_MAJOR} STREQUAL "1"))
-  # Old CMake or Java 1.7 prepare the JAR...
-  message("Preparing Jar for Java 7")
+elseif(${CMAKE_VERSION} VERSION_LESS "3.11.4")
+  # Old CMake
+  message("Using an old CMAKE (${CMAKE_VERSION}) - JNI headers generated in separate step")
   add_jar(
       rocksdbjni_classes
       SOURCES
@@ -406,9 +409,9 @@ if(NOT EXISTS ${JAVA_ASSERTJ_JAR})
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_ASSERTJ_JAR})
 endif()
 
-if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7" AND ${Java_VERSION_MAJOR} STREQUAL "1"))
-  # Old CMake or Java 1.7 ONLY generate JNI headers, Java 1.8+ JNI is handled in add_jar step above
-  message("Preparing JNI headers for Java 7")
+if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
+  # Old CMake ONLY generate JNI headers, otherwise JNI is handled in add_jar step above
+  message("Preparing JNI headers for old CMake (${CMAKE_VERSION})")
   set(NATIVE_JAVA_CLASSES
           org.rocksdb.AbstractCompactionFilter
           org.rocksdb.AbstractCompactionFilterFactory
@@ -422,7 +425,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.AbstractTraceWriter
           org.rocksdb.AbstractTransactionNotifier
           org.rocksdb.AbstractWalFilter
-          org.rocksdb.BackupableDBOptions
+          org.rocksdb.BackupEngineOptions
           org.rocksdb.BackupEngine
           org.rocksdb.BlockBasedTableConfig
           org.rocksdb.BloomFilter
@@ -451,7 +454,6 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.FlushOptions
           org.rocksdb.HashLinkedListMemTableConfig
           org.rocksdb.HashSkipListMemTableConfig
-          org.rocksdb.HdfsEnv
           org.rocksdb.IngestExternalFileOptions
           org.rocksdb.Logger
           org.rocksdb.LRUCache

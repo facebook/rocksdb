@@ -30,12 +30,13 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
 #include "rocksjni/comparatorjnicallback.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/event_listener_jnicallback.h"
 #include "rocksjni/loggerjnicallback.h"
 #include "rocksjni/table_filter_jnicallback.h"
@@ -120,7 +121,8 @@ template<class PTR, class DERIVED> class NativeRocksMutableObject
       return true;  // signal exception
     }
 
-    env->CallVoidMethod(jobj, mid, reinterpret_cast<jlong>(ptr), java_owns_handle);
+    env->CallVoidMethod(jobj, mid, GET_CPLUSPLUS_POINTER(ptr),
+                        java_owns_handle);
     if(env->ExceptionCheck()) {
       return true;  // signal exception
     }
@@ -2243,9 +2245,9 @@ class JniUtil {
         jboolean *has_exception) {
       const jsize len = static_cast<jsize>(pointers.size());
       std::unique_ptr<jlong[]> results(new jlong[len]);
-      std::transform(pointers.begin(), pointers.end(), results.get(), [](T* pointer) -> jlong {
-        return reinterpret_cast<jlong>(pointer);
-      });
+      std::transform(
+          pointers.begin(), pointers.end(), results.get(),
+          [](T* pointer) -> jlong { return GET_CPLUSPLUS_POINTER(pointer); });
 
       jlongArray jpointers = env->NewLongArray(len);
       if (jpointers == nullptr) {
@@ -2785,7 +2787,7 @@ class ColumnFamilyOptionsJni
       return nullptr;
     }
 
-    jobject jcfd = env->NewObject(jclazz, mid, reinterpret_cast<jlong>(cfo));
+    jobject jcfd = env->NewObject(jclazz, mid, GET_CPLUSPLUS_POINTER(cfo));
     if (env->ExceptionCheck()) {
       return nullptr;
     }
@@ -2871,7 +2873,7 @@ class WriteBatchJni
       return nullptr;
     }
 
-    jobject jwb = env->NewObject(jclazz, mid, reinterpret_cast<jlong>(wb));
+    jobject jwb = env->NewObject(jclazz, mid, GET_CPLUSPLUS_POINTER(wb));
     if (env->ExceptionCheck()) {
       return nullptr;
     }
@@ -3409,13 +3411,13 @@ class HistogramDataJni : public JavaClass {
   }
 };
 
-// The portal class for org.rocksdb.BackupableDBOptions
-class BackupableDBOptionsJni
-    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::BackupableDBOptions*,
-                                BackupableDBOptionsJni> {
+// The portal class for org.rocksdb.BackupEngineOptions
+class BackupEngineOptionsJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::BackupEngineOptions*,
+                                BackupEngineOptionsJni> {
  public:
   /**
-   * Get the Java Class org.rocksdb.BackupableDBOptions
+   * Get the Java Class org.rocksdb.BackupEngineOptions
    *
    * @param env A pointer to the Java environment
    *
@@ -3425,7 +3427,7 @@ class BackupableDBOptionsJni
    */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/BackupableDBOptions");
+                                         "org/rocksdb/BackupEngineOptions");
   }
 };
 
@@ -3496,7 +3498,7 @@ class ColumnFamilyHandleJni
     assert(jclazz != nullptr);
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
-    return env->NewObject(jclazz, ctor, reinterpret_cast<jlong>(info));
+    return env->NewObject(jclazz, ctor, GET_CPLUSPLUS_POINTER(info));
   }
 
   static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
@@ -5045,6 +5047,14 @@ class TickerTypeJni {
         return -0x28;
       case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT:
         return -0x29;
+      case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_BYTES:
+        return -0x2A;
+      case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_COUNT:
+        return -0x2B;
+      case ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_BYTES:
+        return -0x2C;
+      case ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_COUNT:
+        return -0x2D;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5406,6 +5416,14 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT;
       case -0x29:
         return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT;
+      case -0x2A:
+        return ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_BYTES;
+      case -0x2B:
+        return ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_COUNT;
+      case -0x2C:
+        return ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_BYTES;
+      case -0x2D:
+        return ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_COUNT;
       case 0x5F:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -8311,7 +8329,7 @@ class CompactionJobInfoJni : public JavaClass {
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
     return env->NewObject(jclazz, ctor,
-                          reinterpret_cast<jlong>(compaction_job_info));
+                          GET_CPLUSPLUS_POINTER(compaction_job_info));
   }
 
   static jclass getJClass(JNIEnv* env) {

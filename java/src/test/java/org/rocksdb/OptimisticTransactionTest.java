@@ -19,9 +19,9 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
 
   @Test
   public void getForUpdate_cf_conflict() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
-    final byte v12[] = "value12".getBytes(UTF_8);
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    final byte[] v12 = "value12".getBytes(UTF_8);
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
@@ -57,9 +57,9 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
 
   @Test
   public void getForUpdate_conflict() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
-    final byte v12[] = "value12".getBytes(UTF_8);
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    final byte[] v12 = "value12".getBytes(UTF_8);
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions()) {
 
@@ -92,14 +92,11 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
     }
   }
 
+  @Deprecated
   @Test
   public void multiGetForUpdate_cf_conflict() throws RocksDBException {
-    final byte keys[][] = new byte[][] {
-        "key1".getBytes(UTF_8),
-        "key2".getBytes(UTF_8)};
-    final byte values[][] = new byte[][] {
-        "value1".getBytes(UTF_8),
-        "value2".getBytes(UTF_8)};
+    final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
+    final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
     final byte[] otherValue = "otherValue".getBytes(UTF_8);
 
     try(final DBContainer dbContainer = startDb();
@@ -140,13 +137,53 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
   }
 
   @Test
+  public void multiGetAsListForUpdate_cf_conflict() throws RocksDBException {
+    final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
+    final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
+    final byte[] otherValue = "otherValue".getBytes(UTF_8);
+
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions()) {
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      final List<ColumnFamilyHandle> cfList = Arrays.asList(testCf, testCf);
+
+      try (final Transaction txn = dbContainer.beginTransaction()) {
+        txn.put(testCf, keys[0], values[0]);
+        txn.put(testCf, keys[1], values[1]);
+        assertThat(txn.multiGetAsList(readOptions, cfList, Arrays.asList(keys)))
+            .containsExactly(values);
+        txn.commit();
+      }
+
+      try (final Transaction txn2 = dbContainer.beginTransaction()) {
+        try (final Transaction txn3 = dbContainer.beginTransaction()) {
+          assertThat(txn3.multiGetForUpdateAsList(readOptions, cfList, Arrays.asList(keys)))
+              .containsExactly(values);
+
+          // NOTE: txn2 updates k1, during txn3
+          txn2.put(testCf, keys[0], otherValue);
+          assertThat(txn2.get(testCf, readOptions, keys[0])).isEqualTo(otherValue);
+          txn2.commit();
+
+          try {
+            txn3.commit(); // should cause an exception!
+          } catch (final RocksDBException e) {
+            assertThat(e.getStatus().getCode()).isSameAs(Status.Code.Busy);
+            return;
+          }
+        }
+      }
+
+      fail("Expected an exception for put after getForUpdate from conflicting"
+          + "transactions");
+    }
+  }
+
+  @Deprecated
+  @Test
   public void multiGetForUpdate_conflict() throws RocksDBException {
-    final byte keys[][] = new byte[][] {
-        "key1".getBytes(UTF_8),
-        "key2".getBytes(UTF_8)};
-    final byte values[][] = new byte[][] {
-        "value1".getBytes(UTF_8),
-        "value2".getBytes(UTF_8)};
+    final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
+    final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
     final byte[] otherValue = "otherValue".getBytes(UTF_8);
 
     try(final DBContainer dbContainer = startDb();
@@ -184,10 +221,49 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
   }
 
   @Test
+  public void multiGetasListForUpdate_conflict() throws RocksDBException {
+    final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
+    final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
+    final byte[] otherValue = "otherValue".getBytes(UTF_8);
+
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions()) {
+      try (final Transaction txn = dbContainer.beginTransaction()) {
+        txn.put(keys[0], values[0]);
+        txn.put(keys[1], values[1]);
+        assertThat(txn.multiGetAsList(readOptions, Arrays.asList(keys))).containsExactly(values);
+        txn.commit();
+      }
+
+      try (final Transaction txn2 = dbContainer.beginTransaction()) {
+        try (final Transaction txn3 = dbContainer.beginTransaction()) {
+          assertThat(txn3.multiGetForUpdateAsList(readOptions, Arrays.asList(keys)))
+              .containsExactly(values);
+
+          // NOTE: txn2 updates k1, during txn3
+          txn2.put(keys[0], otherValue);
+          assertThat(txn2.get(readOptions, keys[0])).isEqualTo(otherValue);
+          txn2.commit();
+
+          try {
+            txn3.commit(); // should cause an exception!
+          } catch (final RocksDBException e) {
+            assertThat(e.getStatus().getCode()).isSameAs(Status.Code.Busy);
+            return;
+          }
+        }
+      }
+
+      fail("Expected an exception for put after getForUpdate from conflicting"
+          + "transactions");
+    }
+  }
+
+  @Test
   public void undoGetForUpdate_cf_conflict() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
-    final byte v12[] = "value12".getBytes(UTF_8);
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    final byte[] v12 = "value12".getBytes(UTF_8);
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
@@ -220,9 +296,9 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
 
   @Test
   public void undoGetForUpdate_conflict() throws RocksDBException {
-    final byte k1[] = "key1".getBytes(UTF_8);
-    final byte v1[] = "value1".getBytes(UTF_8);
-    final byte v12[] = "value12".getBytes(UTF_8);
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    final byte[] v12 = "value12".getBytes(UTF_8);
     try(final DBContainer dbContainer = startDb();
         final ReadOptions readOptions = new ReadOptions()) {
 
@@ -261,12 +337,10 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
 
       try {
         txn.setName(name);
+        fail("Optimistic transactions cannot be named.");
       } catch(final RocksDBException e) {
-         assertThat(e.getStatus().getCode() == Status.Code.InvalidArgument);
-        return;
+        assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.InvalidArgument);
       }
-
-      fail("Optimistic transactions cannot be named.");
     }
   }
 

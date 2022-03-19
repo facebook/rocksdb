@@ -7,17 +7,20 @@
 
 #include <memory>
 #include <string>
+
 #include "db/dbformat.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
+#include "rocksdb/advanced_options.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class SstFileDumper {
  public:
   explicit SstFileDumper(const Options& options, const std::string& file_name,
-                         size_t readahead_size, bool verify_checksum,
-                         bool output_hex, bool decode_blob_index,
+                         Temperature file_temp, size_t readahead_size,
+                         bool verify_checksum, bool output_hex,
+                         bool decode_blob_index,
                          const EnvOptions& soptions = EnvOptions(),
                          bool silent = false);
 
@@ -71,6 +74,7 @@ class SstFileDumper {
 
   std::string file_name_;
   uint64_t read_num_;
+  Temperature file_temp_;
   bool output_hex_;
   bool decode_blob_index_;
   EnvOptions soptions_;

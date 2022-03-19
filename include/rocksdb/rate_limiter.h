@@ -22,11 +22,10 @@ namespace ROCKSDB_NAMESPACE {
 class RateLimiter : public Customizable {
  public:
   enum class OpType {
-    // Limitation: we currently only invoke Request() with OpType::kRead for
-    // compactions when DBOptions::new_table_reader_for_compaction_inputs is set
     kRead,
     kWrite,
   };
+
   enum class Mode {
     kReadsOnly,
     kWritesOnly,

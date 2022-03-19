@@ -235,9 +235,9 @@ class MultiGetContext {
 
     bool empty() const { return RemainingMask() == 0; }
 
-    void SkipKey(const Iterator& iter) {
-      skip_mask_ |= uint64_t{1} << iter.index_;
-    }
+    void SkipIndex(size_t index) { skip_mask_ |= uint64_t{1} << index; }
+
+    void SkipKey(const Iterator& iter) { SkipIndex(iter.index_); }
 
     bool IsKeySkipped(const Iterator& iter) const {
       return skip_mask_ & (uint64_t{1} << iter.index_);

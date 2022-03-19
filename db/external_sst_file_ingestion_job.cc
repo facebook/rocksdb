@@ -151,8 +151,9 @@ Status ExternalSstFileIngestionJob::Prepare(
       TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:CopyFile",
                                nullptr);
       // CopyFile also sync the new file.
-      status = CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
-                        db_options_.use_fsync, io_tracer_);
+      status =
+          CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
+                   db_options_.use_fsync, io_tracer_, Temperature::kUnknown);
     }
     TEST_SYNC_POINT("ExternalSstFileIngestionJob::Prepare:FileAdded");
     if (!status.ok()) {
@@ -212,6 +213,8 @@ Status ExternalSstFileIngestionJob::Prepare(
         std::string generated_checksum;
         std::string generated_checksum_func_name;
         std::string requested_checksum_func_name;
+        // TODO: rate limit file reads for checksum calculation during file
+        // ingestion.
         IOStatus io_s = GenerateOneFileChecksum(
             fs_.get(), files_to_ingest_[i].internal_file_path,
             db_options_.file_checksum_gen_factory.get(),
@@ -219,7 +222,8 @@ Status ExternalSstFileIngestionJob::Prepare(
             &generated_checksum_func_name,
             ingestion_options_.verify_checksums_readahead_size,
             db_options_.allow_mmap_reads, io_tracer_,
-            db_options_.rate_limiter.get());
+            db_options_.rate_limiter.get(),
+            Env::IO_TOTAL /* rate_limiter_priority */);
         if (!io_s.ok()) {
           status = io_s;
           ROCKS_LOG_WARN(db_options_.info_log,
@@ -573,7 +577,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(
-          *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor.get(),
+          *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
           env_options_, cfd_->internal_comparator(),
           /*skip_filters*/ false, /*immortal*/ false,
           /*force_direct_prefetch*/ false, /*level*/ -1,
@@ -773,10 +777,11 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
         const std::vector<FileMetaData*>& level_files =
             vstorage->LevelFiles(lvl);
         const SequenceNumber level_largest_seqno =
-            (*max_element(level_files.begin(), level_files.end(),
-                          [](FileMetaData* f1, FileMetaData* f2) {
-                            return f1->fd.largest_seqno < f2->fd.largest_seqno;
-                          }))
+            (*std::max_element(level_files.begin(), level_files.end(),
+                               [](FileMetaData* f1, FileMetaData* f2) {
+                                 return f1->fd.largest_seqno <
+                                        f2->fd.largest_seqno;
+                               }))
                 ->fd.largest_seqno;
         // should only assign seqno to current level's largest seqno when
         // the file fits
@@ -907,12 +912,14 @@ IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
   std::string file_checksum;
   std::string file_checksum_func_name;
   std::string requested_checksum_func_name;
+  // TODO: rate limit file reads for checksum calculation during file ingestion.
   IOStatus io_s = GenerateOneFileChecksum(
       fs_.get(), file_to_ingest->internal_file_path,
       db_options_.file_checksum_gen_factory.get(), requested_checksum_func_name,
       &file_checksum, &file_checksum_func_name,
       ingestion_options_.verify_checksums_readahead_size,
-      db_options_.allow_mmap_reads, io_tracer_, db_options_.rate_limiter.get());
+      db_options_.allow_mmap_reads, io_tracer_, db_options_.rate_limiter.get(),
+      Env::IO_TOTAL /* rate_limiter_priority */);
   if (!io_s.ok()) {
     return io_s;
   }

@@ -16,6 +16,7 @@
 #include "util/file_checksum_helper.h"
 #include "util/xxhash.h"
 
+ROCKSDB_NAMESPACE::Env* db_stress_listener_env = nullptr;
 ROCKSDB_NAMESPACE::Env* db_stress_env = nullptr;
 #ifndef NDEBUG
 // If non-null, injects read error at a rate specified by the

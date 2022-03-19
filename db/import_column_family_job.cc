@@ -100,8 +100,9 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       }
     }
     if (!hardlink_files) {
-      status = CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
-                        db_options_.use_fsync, io_tracer_);
+      status =
+          CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
+                   db_options_.use_fsync, io_tracer_, Temperature::kUnknown);
     }
     if (!status.ok()) {
       break;
@@ -227,7 +228,7 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(
-          *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor.get(),
+          *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
           env_options_, cfd_->internal_comparator(),
           /*skip_filters*/ false, /*immortal*/ false,
           /*force_direct_prefetch*/ false, /*level*/ -1,

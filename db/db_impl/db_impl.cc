@@ -119,18 +119,16 @@ CompressionType GetCompressionFlush(
   // Compressing memtable flushes might not help unless the sequential load
   // optimization is used for leveled compaction. Otherwise the CPU and
   // latency overhead is not offset by saving much space.
-  if (ioptions.compaction_style == kCompactionStyleUniversal) {
-    if (mutable_cf_options.compaction_options_universal
-            .compression_size_percent < 0) {
-      return mutable_cf_options.compression;
-    } else {
-      return kNoCompression;
-    }
-  } else if (!ioptions.compression_per_level.empty()) {
-    // For leveled compress when min_level_to_compress != 0.
-    return ioptions.compression_per_level[0];
-  } else {
+  if (ioptions.compaction_style == kCompactionStyleUniversal &&
+      mutable_cf_options.compaction_options_universal
+              .compression_size_percent >= 0) {
+    return kNoCompression;
+  }
+  if (mutable_cf_options.compression_per_level.empty()) {
     return mutable_cf_options.compression;
+  } else {
+    // For leveled compress when min_level_to_compress != 0.
+    return mutable_cf_options.compression_per_level[0];
   }
 }
 
@@ -234,7 +232,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       use_custom_gc_(seq_per_batch),
       shutdown_initiated_(false),
       own_sfm_(options.sst_file_manager == nullptr),
-      preserve_deletes_(options.preserve_deletes),
       closed_(false),
       atomic_flush_install_cv_(&mutex_),
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
@@ -271,11 +268,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   immutable_db_options_.Dump(immutable_db_options_.info_log.get());
   mutable_db_options_.Dump(immutable_db_options_.info_log.get());
   DumpSupportInfo(immutable_db_options_.info_log.get());
-
-  // always open the DB with 0 here, which means if preserve_deletes_==true
-  // we won't drop any deletion markers until SetPreserveDeletesSequenceNumber()
-  // is called by client and this seqnum is advanced.
-  preserve_deletes_seqnum_.store(0);
 
   if (write_buffer_manager_) {
     wbm_stall_.reset(new WBMStallInterface());
@@ -406,14 +398,6 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
 
   JobContext job_context(0);
   FindObsoleteFiles(&job_context, true);
-  if (s.ok()) {
-    s = error_handler_.ClearBGError();
-  } else {
-    // NOTE: this is needed to pass ASSERT_STATUS_CHECKED
-    // in the DBSSTTest.DBWithMaxSpaceAllowedRandomized test.
-    // See https://github.com/facebook/rocksdb/pull/7715#issuecomment-754947952
-    error_handler_.GetRecoveryError().PermitUncheckedError();
-  }
   mutex_.Unlock();
 
   job_context.manifest_file_number = 1;
@@ -434,11 +418,31 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
             immutable_db_options_.info_log,
             "DB resume requested but could not enable file deletions [%s]",
             s.ToString().c_str());
+        assert(false);
       }
     }
-    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
   }
+
   mutex_.Lock();
+  if (s.ok()) {
+    // This will notify and unblock threads waiting for error recovery to
+    // finish. Those previouly waiting threads can now proceed, which may
+    // include closing the db.
+    s = error_handler_.ClearBGError();
+  } else {
+    // NOTE: this is needed to pass ASSERT_STATUS_CHECKED
+    // in the DBSSTTest.DBWithMaxSpaceAllowedRandomized test.
+    // See https://github.com/facebook/rocksdb/pull/7715#issuecomment-754947952
+    error_handler_.GetRecoveryError().PermitUncheckedError();
+  }
+
+  if (s.ok()) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
+  } else {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Failed to resume DB [%s]",
+                   s.ToString().c_str());
+  }
+
   // Check for shutdown again before scheduling further compactions,
   // since we released and re-acquired the lock above
   if (shutdown_initiated_) {
@@ -533,10 +537,19 @@ Status DBImpl::CloseHelper() {
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
   CancelAllBackgroundWork(false);
+
+  // Cancel manual compaction if there's any
+  if (HasPendingManualCompaction()) {
+    DisableManualCompaction();
+  }
   mutex_.Lock();
-  env_->UnSchedule(this, Env::Priority::BOTTOM);
-  env_->UnSchedule(this, Env::Priority::LOW);
-  env_->UnSchedule(this, Env::Priority::HIGH);
+  // Unschedule all tasks for this DB
+  for (uint8_t i = 0; i < static_cast<uint8_t>(TaskType::kCount); i++) {
+    env_->UnSchedule(GetTaskTag(i), Env::Priority::BOTTOM);
+    env_->UnSchedule(GetTaskTag(i), Env::Priority::LOW);
+    env_->UnSchedule(GetTaskTag(i), Env::Priority::HIGH);
+  }
+
   Status ret = Status::OK();
 
   // Wait for background work to finish
@@ -755,7 +768,7 @@ void DBImpl::PrintStatistics() {
   }
 }
 
-void DBImpl::StartPeriodicWorkScheduler() {
+Status DBImpl::StartPeriodicWorkScheduler() {
 #ifndef ROCKSDB_LITE
 
 #ifndef NDEBUG
@@ -765,7 +778,7 @@ void DBImpl::StartPeriodicWorkScheduler() {
       "DBImpl::StartPeriodicWorkScheduler:DisableScheduler",
       &disable_scheduler);
   if (disable_scheduler) {
-    return;
+    return Status::OK();
   }
 #endif  // !NDEBUG
 
@@ -776,10 +789,11 @@ void DBImpl::StartPeriodicWorkScheduler() {
                              &periodic_work_scheduler_);
   }
 
-  periodic_work_scheduler_->Register(
+  return periodic_work_scheduler_->Register(
       this, mutable_db_options_.stats_dump_period_sec,
       mutable_db_options_.stats_persist_period_sec);
 #endif  // !ROCKSDB_LITE
+  return Status::OK();
 }
 
 // esitmate the total size of stats_history_
@@ -790,8 +804,7 @@ size_t DBImpl::EstimateInMemoryStatsHistorySize() const {
   size_t size_per_slice =
       sizeof(uint64_t) + sizeof(std::map<std::string, uint64_t>);
   // non-empty map, stats_history_.begin() guaranteed to exist
-  std::map<std::string, uint64_t> sample_slice(stats_history_.begin()->second);
-  for (const auto& pairs : sample_slice) {
+  for (const auto& pairs : stats_history_.begin()->second) {
     size_per_slice +=
         pairs.first.capacity() + sizeof(pairs.first) + sizeof(pairs.second);
   }
@@ -1214,7 +1227,7 @@ Status DBImpl::SetDBOptions(
               mutable_db_options_.stats_persist_period_sec) {
         mutex_.Unlock();
         periodic_work_scheduler_->Unregister(this);
-        periodic_work_scheduler_->Register(
+        s = periodic_work_scheduler_->Register(
             this, new_options.stats_dump_period_sec,
             new_options.stats_persist_period_sec);
         mutex_.Lock();
@@ -1487,15 +1500,6 @@ void DBImpl::SetLastPublishedSequence(SequenceNumber seq) {
   versions_->SetLastPublishedSequence(seq);
 }
 
-bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
-  if (seqnum > preserve_deletes_seqnum_.load()) {
-    preserve_deletes_seqnum_.store(seqnum);
-    return true;
-  } else {
-    return false;
-  }
-}
-
 Status DBImpl::GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
                                    std::string* ts_low) {
   if (ts_low == nullptr) {
@@ -1745,19 +1749,21 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
          get_impl_options.merge_operands != nullptr);
 
   assert(get_impl_options.column_family);
-  const Comparator* ucmp = get_impl_options.column_family->GetComparator();
-  assert(ucmp);
-  size_t ts_sz = ucmp->timestamp_size();
-  GetWithTimestampReadCallback read_cb(0);  // Will call Refresh
 
-#ifndef NDEBUG
-  if (ts_sz > 0) {
-    assert(read_options.timestamp);
-    assert(read_options.timestamp->size() == ts_sz);
+  if (read_options.timestamp) {
+    const Status s = FailIfTsSizesMismatch(get_impl_options.column_family,
+                                           *(read_options.timestamp));
+    if (!s.ok()) {
+      return s;
+    }
   } else {
-    assert(!read_options.timestamp);
+    const Status s = FailIfCfHasTs(get_impl_options.column_family);
+    if (!s.ok()) {
+      return s;
+    }
   }
-#endif  // NDEBUG
+
+  GetWithTimestampReadCallback read_cb(0);  // Will call Refresh
 
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
   StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
@@ -1826,7 +1832,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   // only if t <= read_opts.timestamp and s <= snapshot.
   // HACK: temporarily overwrite input struct field but restore
   SaveAndRestore<ReadCallback*> restore_callback(&get_impl_options.callback);
-  if (ts_sz > 0) {
+  const Comparator* ucmp = get_impl_options.column_family->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() > 0) {
     assert(!get_impl_options
                 .callback);  // timestamp with callback is not supported
     read_cb.Refresh(snapshot);
@@ -1849,7 +1857,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   bool skip_memtable = (read_options.read_tier == kPersistedTier &&
                         has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
-  std::string* timestamp = ts_sz > 0 ? get_impl_options.timestamp : nullptr;
+  std::string* timestamp =
+      ucmp->timestamp_size() > 0 ? get_impl_options.timestamp : nullptr;
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
@@ -1891,11 +1900,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       return s;
     }
   }
+  PinnedIteratorsManager pinned_iters_mgr;
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(
         read_options, lkey, get_impl_options.value, timestamp, &s,
-        &merge_context, &max_covering_tombstone_seq,
+        &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
         get_impl_options.get_value ? get_impl_options.value_found : nullptr,
         nullptr, nullptr,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
@@ -1956,19 +1966,36 @@ std::vector<Status> DBImpl::MultiGet(
   StopWatch sw(immutable_db_options_.clock, stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
-#ifndef NDEBUG
-  for (const auto* cfh : column_family) {
-    assert(cfh);
-    const Comparator* const ucmp = cfh->GetComparator();
-    assert(ucmp);
-    if (ucmp->timestamp_size() > 0) {
-      assert(read_options.timestamp);
-      assert(ucmp->timestamp_size() == read_options.timestamp->size());
+  size_t num_keys = keys.size();
+  assert(column_family.size() == num_keys);
+  std::vector<Status> stat_list(num_keys);
+
+  bool should_fail = false;
+  for (size_t i = 0; i < num_keys; ++i) {
+    assert(column_family[i]);
+    if (read_options.timestamp) {
+      stat_list[i] =
+          FailIfTsSizesMismatch(column_family[i], *(read_options.timestamp));
+      if (!stat_list[i].ok()) {
+        should_fail = true;
+      }
     } else {
-      assert(!read_options.timestamp);
+      stat_list[i] = FailIfCfHasTs(column_family[i]);
+      if (!stat_list[i].ok()) {
+        should_fail = true;
+      }
     }
   }
-#endif  // NDEBUG
+
+  if (should_fail) {
+    for (auto& s : stat_list) {
+      if (s.ok()) {
+        s = Status::Incomplete(
+            "DB not queried due to invalid argument(s) in the same MultiGet");
+      }
+    }
+    return stat_list;
+  }
 
   if (tracer_) {
     // TODO: This mutex should be removed later, to improve performance when
@@ -2011,8 +2038,6 @@ std::vector<Status> DBImpl::MultiGet(
   MergeContext merge_context;
 
   // Note: this always resizes the values array
-  size_t num_keys = keys.size();
-  std::vector<Status> stat_list(num_keys);
   values->resize(num_keys);
   if (timestamps) {
     timestamps->resize(num_keys);
@@ -2072,11 +2097,13 @@ std::vector<Status> DBImpl::MultiGet(
     if (!done) {
       PinnableSlice pinnable_val;
       PERF_TIMER_GUARD(get_from_output_files_time);
-      super_version->current->Get(
-          read_options, lkey, &pinnable_val, timestamp, &s, &merge_context,
-          &max_covering_tombstone_seq, /*value_found=*/nullptr,
-          /*key_exists=*/nullptr,
-          /*seq=*/nullptr, read_callback);
+      PinnedIteratorsManager pinned_iters_mgr;
+      super_version->current->Get(read_options, lkey, &pinnable_val, timestamp,
+                                  &s, &merge_context,
+                                  &max_covering_tombstone_seq,
+                                  &pinned_iters_mgr, /*value_found=*/nullptr,
+                                  /*key_exists=*/nullptr,
+                                  /*seq=*/nullptr, read_callback);
       value->assign(pinnable_val.data(), pinnable_val.size());
       RecordTick(stats_, MEMTABLE_MISS);
     }
@@ -2277,20 +2304,31 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
     return;
   }
 
-#ifndef NDEBUG
+  bool should_fail = false;
   for (size_t i = 0; i < num_keys; ++i) {
     ColumnFamilyHandle* cfh = column_families[i];
     assert(cfh);
-    const Comparator* const ucmp = cfh->GetComparator();
-    assert(ucmp);
-    if (ucmp->timestamp_size() > 0) {
-      assert(read_options.timestamp);
-      assert(read_options.timestamp->size() == ucmp->timestamp_size());
+    if (read_options.timestamp) {
+      statuses[i] = FailIfTsSizesMismatch(cfh, *(read_options.timestamp));
+      if (!statuses[i].ok()) {
+        should_fail = true;
+      }
     } else {
-      assert(!read_options.timestamp);
+      statuses[i] = FailIfCfHasTs(cfh);
+      if (!statuses[i].ok()) {
+        should_fail = true;
+      }
     }
   }
-#endif  // NDEBUG
+  if (should_fail) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      if (statuses[i].ok()) {
+        statuses[i] = Status::Incomplete(
+            "DB not queried due to invalid argument(s) in the same MultiGet");
+      }
+    }
+    return;
+  }
 
   if (tracer_) {
     // TODO: This mutex should be removed later, to improve performance when
@@ -2917,22 +2955,22 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     return NewErrorIterator(Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators."));
   }
-  // if iterator wants internal keys, we can only proceed if
-  // we can guarantee the deletes haven't been processed yet
-  if (read_options.iter_start_seqnum > 0 &&
-      !iter_start_seqnum_deprecation_warned_.exchange(true)) {
-    ROCKS_LOG_WARN(
-        immutable_db_options_.info_log,
-        "iter_start_seqnum is deprecated, will be removed in a future release. "
-        "Please try using user-defined timestamp instead.");
+
+  assert(column_family);
+
+  if (read_options.timestamp) {
+    const Status s =
+        FailIfTsSizesMismatch(column_family, *(read_options.timestamp));
+    if (!s.ok()) {
+      return NewErrorIterator(s);
+    }
+  } else {
+    const Status s = FailIfCfHasTs(column_family);
+    if (!s.ok()) {
+      return NewErrorIterator(s);
+    }
   }
-  if (immutable_db_options_.preserve_deletes &&
-      read_options.iter_start_seqnum > 0 &&
-      read_options.iter_start_seqnum < preserve_deletes_seqnum_.load()) {
-    return NewErrorIterator(Status::InvalidArgument(
-        "Iterator requested internal keys which are too old and are not"
-        " guaranteed to be preserved, try larger iter_start_seqnum opt."));
-  }
+
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
   assert(cfd != nullptr);
@@ -3059,6 +3097,25 @@ Status DBImpl::NewIterators(
     return Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators.");
   }
+
+  if (read_options.timestamp) {
+    for (auto* cf : column_families) {
+      assert(cf);
+      const Status s = FailIfTsSizesMismatch(cf, *(read_options.timestamp));
+      if (!s.ok()) {
+        return s;
+      }
+    }
+  } else {
+    for (auto* cf : column_families) {
+      assert(cf);
+      const Status s = FailIfCfHasTs(cf);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+  }
+
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   iterators->clear();
   iterators->reserve(column_families.size());
@@ -3557,7 +3614,7 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
 Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
                                    ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes) {
-  if (!options.include_memtabtles && !options.include_files) {
+  if (!options.include_memtables && !options.include_files) {
     return Status::InvalidArgument("Invalid options");
   }
 
@@ -3595,7 +3652,7 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
           options, v, k1.Encode(), k2.Encode(), /*start_level=*/0,
           /*end_level=*/-1, TableReaderCaller::kUserApproximateSize);
     }
-    if (options.include_memtabtles) {
+    if (options.include_memtables) {
       sizes[i] += sv->mem->ApproximateStats(k1.Encode(), k2.Encode()).size;
       sizes[i] += sv->imm->ApproximateStats(k1.Encode(), k2.Encode()).size;
     }
@@ -4539,10 +4596,12 @@ Status DBImpl::GetLatestSequenceForKey(
   // SST files if cache_only=true?
   if (!cache_only) {
     // Check tables
+    PinnedIteratorsManager pinned_iters_mgr;
     sv->current->Get(read_options, lkey, /*value=*/nullptr, timestamp, &s,
                      &merge_context, &max_covering_tombstone_seq,
-                     nullptr /* value_found */, found_record_for_key, seq,
-                     nullptr /*read_callback*/, is_blob_index);
+                     &pinned_iters_mgr, nullptr /* value_found */,
+                     found_record_for_key, seq, nullptr /*read_callback*/,
+                     is_blob_index);
 
     if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
       // unexpected error reading SST files
@@ -5073,10 +5132,11 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
 
     if (s.ok() && use_file_checksum) {
       const auto& blob_files = vstorage->GetBlobFiles();
-      for (const auto& pair : blob_files) {
-        const uint64_t blob_file_number = pair.first;
-        const auto& meta = pair.second;
+      for (const auto& meta : blob_files) {
         assert(meta);
+
+        const uint64_t blob_file_number = meta->GetBlobFileNumber();
+
         const std::string blob_file_name = BlobFileName(
             cfd->ioptions()->cf_paths.front().path, blob_file_number);
         s = VerifyFullFileChecksum(meta->GetChecksumValue(),
@@ -5135,7 +5195,8 @@ Status DBImpl::VerifyFullFileChecksum(const std::string& file_checksum_expected,
       fs_.get(), fname, immutable_db_options_.file_checksum_gen_factory.get(),
       func_name_expected, &file_checksum, &func_name,
       read_options.readahead_size, immutable_db_options_.allow_mmap_reads,
-      io_tracer_, immutable_db_options_.rate_limiter.get());
+      io_tracer_, immutable_db_options_.rate_limiter.get(),
+      read_options.rate_limiter_priority);
   if (s.ok()) {
     assert(func_name_expected == func_name);
     if (file_checksum != file_checksum_expected) {

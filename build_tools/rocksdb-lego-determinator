@@ -110,8 +110,9 @@ CLANG="USE_CLANG=1"
 TSAN="COMPILE_WITH_TSAN=1"
 UBSAN="COMPILE_WITH_UBSAN=1"
 ASAN_CRASH="ASAN_OPTIONS=disable_coredump=0"
-TSAN_CRASH="CRASH_TEST_EXT_ARGS=\\\"--compression_type=zstd --log2_keys_per_lock=22\\\""
+TSAN_CRASH="TSAN_OPTIONS=disable_coredump=0 CRASH_TEST_EXT_ARGS=\\\"--compression_type=zstd --log2_keys_per_lock=22\\\""
 NON_TSAN_CRASH="CRASH_TEST_EXT_ARGS=--compression_type=zstd"
+UBSAN_CRASH="UBSAN_OPTIONS=disable_coredump=0"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
 HTTP_PROXY="https_proxy=http://fwdproxy.29.prn1:8080 http_proxy=http://fwdproxy.29.prn1:8080 ftp_proxy=http://fwdproxy.29.prn1:8080"
 SETUP_JAVA_ENV="export $HTTP_PROXY; export JAVA_HOME=/usr/local/jdk-8u60-64/; export PATH=\$JAVA_HOME/bin:\$PATH"
@@ -760,7 +761,7 @@ UBSAN_CRASH_TEST_COMMANDS="[
             {
                 \"name\":\"Build and run RocksDB debug ubsan_crash_test\",
                 \"timeout\": 86400,
-                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make $PARALLELISM ubsan_crash_test || $CONTRUN_NAME=ubsan_crash_test $TASK_CREATION_TOOL\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $UBSAN_CRASH $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make $PARALLELISM ubsan_crash_test || $CONTRUN_NAME=ubsan_crash_test $TASK_CREATION_TOOL\",
                 \"user\":\"root\",
                 $PARSER
             },
@@ -784,7 +785,7 @@ UBSAN_BLACKBOX_CRASH_TEST_COMMANDS="[
             {
                 \"name\":\"Build and run RocksDB debug blackbox ubsan_crash_test\",
                 \"timeout\": 86400,
-                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make $PARALLELISM blackbox_ubsan_crash_test || $CONTRUN_NAME=blackbox_ubsan_crash_test $TASK_CREATION_TOOL\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $UBSAN_CRASH $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make $PARALLELISM blackbox_ubsan_crash_test || $CONTRUN_NAME=blackbox_ubsan_crash_test $TASK_CREATION_TOOL\",
                 \"user\":\"root\",
                 $PARSER
             },
@@ -808,7 +809,7 @@ UBSAN_WHITEBOX_CRASH_TEST_COMMANDS="[
             {
                 \"name\":\"Build and run RocksDB debug whitebox ubsan_crash_test\",
                 \"timeout\": 86400,
-                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make $PARALLELISM whitebox_ubsan_crash_test || $CONTRUN_NAME=whitebox_ubsan_crash_test $TASK_CREATION_TOOL\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $UBSAN_CRASH $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make $PARALLELISM whitebox_ubsan_crash_test || $CONTRUN_NAME=whitebox_ubsan_crash_test $TASK_CREATION_TOOL\",
                 \"user\":\"root\",
                 $PARSER
             },
@@ -832,7 +833,7 @@ UBSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
             {
                 \"name\":\"Build and run RocksDB debug ubsan_crash_test_with_atomic_flush\",
                 \"timeout\": 86400,
-                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make $PARALLELISM ubsan_crash_test_with_atomic_flush || $CONTRUN_NAME=ubsan_crash_test_with_atomic_flush $TASK_CREATION_TOOL\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $UBSAN_CRASH $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make $PARALLELISM ubsan_crash_test_with_atomic_flush || $CONTRUN_NAME=ubsan_crash_test_with_atomic_flush $TASK_CREATION_TOOL\",
                 \"user\":\"root\",
                 $PARSER
             },
@@ -856,7 +857,7 @@ UBSAN_CRASH_TEST_WITH_TXN_COMMANDS="[
             {
                 \"name\":\"Build and run RocksDB debug ubsan_crash_test_with_txn\",
                 \"timeout\": 86400,
-                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make $PARALLELISM ubsan_crash_test_with_txn || $CONTRUN_NAME=ubsan_crash_test_with_txn $TASK_CREATION_TOOL\",
+                \"shell\":\"cd $WORKING_DIR; $SHM $DEBUG $UBSAN_CRASH $NON_TSAN_CRASH $CLANG $SKIP_FORMAT_CHECKS make $PARALLELISM ubsan_crash_test_with_txn || $CONTRUN_NAME=ubsan_crash_test_with_txn $TASK_CREATION_TOOL\",
                 \"user\":\"root\",
                 $PARSER
             },

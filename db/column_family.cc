@@ -1164,12 +1164,12 @@ Compaction* ColumnFamilyData::CompactRange(
     int output_level, const CompactRangeOptions& compact_range_options,
     const InternalKey* begin, const InternalKey* end,
     InternalKey** compaction_end, bool* conflict,
-    uint64_t max_file_num_to_ignore) {
+    uint64_t max_file_num_to_ignore, const std::string& trim_ts) {
   auto* result = compaction_picker_->CompactRange(
       GetName(), mutable_cf_options, mutable_db_options,
       current_->storage_info(), input_level, output_level,
       compact_range_options, begin, end, compaction_end, conflict,
-      max_file_num_to_ignore);
+      max_file_num_to_ignore, trim_ts);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }

@@ -12,11 +12,11 @@
 #include <string>
 #include <vector>
 
-#include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "table/block_based/filter_block_reader_common.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/parsed_full_filter_block.h"
 #include "util/hash.h"
 
@@ -61,6 +61,10 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
 
   virtual void ResetFilterBitsBuilder() override {
     filter_bits_builder_.reset();
+  }
+
+  virtual Status MaybePostVerifyFilter(const Slice& filter_content) override {
+    return filter_bits_builder_->MaybePostVerify(filter_content);
   }
 
  protected:

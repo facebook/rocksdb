@@ -30,6 +30,7 @@
 #include <cinttypes>
 #include <condition_variable>
 #include <cstddef>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -39,7 +40,6 @@
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
-#include "hdfs/env_hdfs.h"
 #include "monitoring/histogram.h"
 #include "monitoring/statistics.h"
 #include "options/cf_options.h"
@@ -77,6 +77,7 @@
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
+#include "util/file_checksum_helper.h"
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
@@ -84,6 +85,7 @@
 #include "util/string_util.h"
 #include "util/xxhash.h"
 #include "utilities/blob_db/blob_db.h"
+#include "utilities/counted_fs.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/bytesxor.h"
 #include "utilities/merge_operators/sortlist.h"
@@ -493,8 +495,6 @@ DEFINE_int32(max_background_compactions,
              "The maximum number of concurrent background compactions"
              " that can occur in parallel.");
 
-DEFINE_int32(base_background_compactions, -1, "DEPRECATED");
-
 DEFINE_uint64(subcompactions, 1,
               "Maximum number of subcompactions to divide L0-L1 compactions "
               "into.");
@@ -555,6 +555,38 @@ DEFINE_double(cache_high_pri_pool_ratio, 0.0,
 
 DEFINE_bool(use_clock_cache, false,
             "Replace default LRU block cache with clock cache.");
+
+DEFINE_bool(use_lru_secondary_cache, false,
+            "Use the LRUSecondaryCache as the secondary cache.");
+
+DEFINE_int64(lru_secondary_cache_size, 8 << 20,  // 8MB
+             "Number of bytes to use as a cache of data");
+
+DEFINE_int32(lru_secondary_cache_numshardbits, 6,
+             "Number of shards for the block cache"
+             " is 2 ** lru_secondary_cache_numshardbits."
+             " Negative means use default settings."
+             " This is applied only if FLAGS_cache_size is non-negative.");
+
+DEFINE_double(lru_secondary_cache_high_pri_pool_ratio, 0.0,
+              "Ratio of block cache reserve for high pri blocks. "
+              "If > 0.0, we also enable "
+              "cache_index_and_filter_blocks_with_high_priority.");
+
+DEFINE_string(lru_secondary_cache_compression_type, "lz4",
+              "The compression algorithm to use for large "
+              "values stored in LRUSecondaryCache.");
+static enum ROCKSDB_NAMESPACE::CompressionType
+    FLAGS_lru_secondary_cache_compression_type_e =
+        ROCKSDB_NAMESPACE::kLZ4Compression;
+
+DEFINE_uint32(
+    lru_secondary_cache_compress_format_version, 2,
+    "compress_format_version can have two values: "
+    "compress_format_version == 1 -- decompressed size is not included"
+    " in the block header."
+    "compress_format_version == 2 -- decompressed size is included"
+    " in the block header in varint32 format.");
 
 DEFINE_int64(simcache_size, -1,
              "Number of bytes to use as a simcache of "
@@ -663,9 +695,6 @@ DEFINE_int32(file_opening_threads,
              "If open_files is set to -1, this option set the number of "
              "threads that will be used to open files during DB::Open()");
 
-DEFINE_bool(new_table_reader_for_compaction_inputs, true,
-             "If true, uses a separate file handle for compaction inputs");
-
 DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
 
 DEFINE_int32(log_readahead_size, 0, "WAL and manifest readahead size");
@@ -689,6 +718,10 @@ DEFINE_bool(memtable_whole_key_filtering, false,
             "Try to use whole key bloom filter in memtables.");
 DEFINE_bool(memtable_use_huge_page, false,
             "Try to use huge page in memtables.");
+
+DEFINE_bool(whole_key_filtering,
+            ROCKSDB_NAMESPACE::BlockBasedTableOptions().whole_key_filtering,
+            "Use whole keys (in addition to prefixes) in SST bloom filter.");
 
 DEFINE_bool(use_existing_db, false, "If true, do not destroy the existing"
             " database.  If you set this flag and also specify a benchmark that"
@@ -761,6 +794,11 @@ DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
 
 DEFINE_bool(manual_wal_flush, false,
             "If true, buffer WAL until buffer is full or a manual FlushWAL().");
+
+DEFINE_string(wal_compression, "none",
+              "Algorithm to use for WAL compression. none to disable.");
+static enum ROCKSDB_NAMESPACE::CompressionType FLAGS_wal_compression_e =
+    ROCKSDB_NAMESPACE::kNoCompression;
 
 DEFINE_string(wal_dir, "", "If not empty, use the given dir for WAL");
 
@@ -1072,6 +1110,20 @@ DEFINE_bool(adaptive_readahead, false,
             "carry forward internal auto readahead size from one file to next "
             "file at each level during iteration");
 
+DEFINE_bool(rate_limit_user_ops, false,
+            "When true use Env::IO_USER priority level to charge internal rate "
+            "limiter for reads associated with user operations.");
+
+DEFINE_bool(file_checksum, false,
+            "When true use FileChecksumGenCrc32cFactory for "
+            "file_checksum_gen_factory.");
+
+DEFINE_bool(rate_limit_auto_wal_flush, false,
+            "When true use Env::IO_USER priority level to charge internal rate "
+            "limiter for automatic WAL flush (`Options::manual_wal_flush` == "
+            "false) after the user "
+            "write operation");
+
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);
@@ -1155,15 +1207,12 @@ DEFINE_int32(table_cache_numshardbits, 4, "");
 #ifndef ROCKSDB_LITE
 DEFINE_string(env_uri, "",
               "URI for registry Env lookup. Mutually exclusive"
-              " with --hdfs and --fs_uri");
+              " with --fs_uri");
 DEFINE_string(fs_uri, "",
               "URI for registry Filesystem lookup. Mutually exclusive"
-              " with --hdfs and --env_uri."
+              " with --env_uri."
               " Creates a default environment with the specified filesystem.");
 #endif  // ROCKSDB_LITE
-DEFINE_string(hdfs, "",
-              "Name of hdfs environment. Mutually exclusive with"
-              " --env_uri and --fs_uri");
 DEFINE_string(simulate_hybrid_fs_file, "",
               "File for Store Metadata for Simulate hybrid FS. Empty means "
               "disable the feature. Now, if it is set, "
@@ -1200,19 +1249,6 @@ DEFINE_int32(thread_status_per_interval, 0,
 
 DEFINE_int32(perf_level, ROCKSDB_NAMESPACE::PerfLevel::kDisable,
              "Level of perf collection");
-
-static bool ValidateRateLimit(const char* flagname, double value) {
-  const double EPSILON = 1e-10;
-  if ( value < -EPSILON ) {
-    fprintf(stderr, "Invalid value for --%s: %12.6f, must be >= 0.0\n",
-            flagname, value);
-    return false;
-  }
-  return true;
-}
-DEFINE_double(soft_rate_limit, 0.0, "DEPRECATED");
-
-DEFINE_double(hard_rate_limit, 0.0, "DEPRECATED");
 
 DEFINE_uint64(soft_pending_compaction_bytes_limit, 64ull * 1024 * 1024 * 1024,
               "Slowdown writes if pending compaction bytes exceed this number");
@@ -1257,10 +1293,6 @@ DEFINE_uint64(
 DEFINE_uint64(write_thread_slow_yield_usec, 3,
               "The threshold at which a slow yield is considered a signal that "
               "other processes or threads want the core.");
-
-DEFINE_int32(rate_limit_delay_max_milliseconds, 1000,
-             "When hard_rate_limit is set then this is the max time a put will"
-             " be stalled.");
 
 DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 
@@ -1532,12 +1564,6 @@ DEFINE_string(secondary_cache_uri, "",
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
 #endif  // ROCKSDB_LITE
 
-static const bool FLAGS_soft_rate_limit_dummy __attribute__((__unused__)) =
-    RegisterFlagValidator(&FLAGS_soft_rate_limit, &ValidateRateLimit);
-
-static const bool FLAGS_hard_rate_limit_dummy __attribute__((__unused__)) =
-    RegisterFlagValidator(&FLAGS_hard_rate_limit, &ValidateRateLimit);
-
 static const bool FLAGS_prefix_size_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
 
@@ -1587,192 +1613,6 @@ static Status CreateMemTableRepFactory(
   }
   return s;
 }
-
-struct ReportFileOpCounters {
-  std::atomic<int> open_counter_;
-  std::atomic<int> delete_counter_;
-  std::atomic<int> rename_counter_;
-  std::atomic<int> flush_counter_;
-  std::atomic<int> sync_counter_;
-  std::atomic<int> fsync_counter_;
-  std::atomic<int> close_counter_;
-  std::atomic<int> read_counter_;
-  std::atomic<int> append_counter_;
-  std::atomic<uint64_t> bytes_read_;
-  std::atomic<uint64_t> bytes_written_;
-};
-
-// A special Env to records and report file operations in db_bench
-class ReportFileOpEnv : public EnvWrapper {
- public:
-  explicit ReportFileOpEnv(Env* base) : EnvWrapper(base) { reset(); }
-  const char* Name() const override { return "ReportFileOpEnv"; }
-
-  void reset() {
-    counters_.open_counter_ = 0;
-    counters_.delete_counter_ = 0;
-    counters_.rename_counter_ = 0;
-    counters_.flush_counter_ = 0;
-    counters_.sync_counter_ = 0;
-    counters_.fsync_counter_ = 0;
-    counters_.close_counter_ = 0;
-    counters_.read_counter_ = 0;
-    counters_.append_counter_ = 0;
-    counters_.bytes_read_ = 0;
-    counters_.bytes_written_ = 0;
-  }
-
-  Status NewSequentialFile(const std::string& f,
-                           std::unique_ptr<SequentialFile>* r,
-                           const EnvOptions& soptions) override {
-    class CountingFile : public SequentialFile {
-     private:
-      std::unique_ptr<SequentialFile> target_;
-      ReportFileOpCounters* counters_;
-
-     public:
-      CountingFile(std::unique_ptr<SequentialFile>&& target,
-                   ReportFileOpCounters* counters)
-          : target_(std::move(target)), counters_(counters) {}
-
-      Status Read(size_t n, Slice* result, char* scratch) override {
-        counters_->read_counter_.fetch_add(1, std::memory_order_relaxed);
-        Status rv = target_->Read(n, result, scratch);
-        counters_->bytes_read_.fetch_add(result->size(),
-                                         std::memory_order_relaxed);
-        return rv;
-      }
-
-      Status Skip(uint64_t n) override { return target_->Skip(n); }
-    };
-
-    Status s = target()->NewSequentialFile(f, r, soptions);
-    if (s.ok()) {
-      counters()->open_counter_.fetch_add(1, std::memory_order_relaxed);
-      r->reset(new CountingFile(std::move(*r), counters()));
-    }
-    return s;
-  }
-
-  Status DeleteFile(const std::string& fname) override {
-    Status s = target()->DeleteFile(fname);
-    if (s.ok()) {
-      counters()->delete_counter_.fetch_add(1, std::memory_order_relaxed);
-    }
-    return s;
-  }
-
-  Status RenameFile(const std::string& s, const std::string& t) override {
-    Status st = target()->RenameFile(s, t);
-    if (st.ok()) {
-      counters()->rename_counter_.fetch_add(1, std::memory_order_relaxed);
-    }
-    return st;
-  }
-
-  Status NewRandomAccessFile(const std::string& f,
-                             std::unique_ptr<RandomAccessFile>* r,
-                             const EnvOptions& soptions) override {
-    class CountingFile : public RandomAccessFile {
-     private:
-      std::unique_ptr<RandomAccessFile> target_;
-      ReportFileOpCounters* counters_;
-
-     public:
-      CountingFile(std::unique_ptr<RandomAccessFile>&& target,
-                   ReportFileOpCounters* counters)
-          : target_(std::move(target)), counters_(counters) {}
-      Status Read(uint64_t offset, size_t n, Slice* result,
-                  char* scratch) const override {
-        counters_->read_counter_.fetch_add(1, std::memory_order_relaxed);
-        Status rv = target_->Read(offset, n, result, scratch);
-        counters_->bytes_read_.fetch_add(result->size(),
-                                         std::memory_order_relaxed);
-        return rv;
-      }
-    };
-
-    Status s = target()->NewRandomAccessFile(f, r, soptions);
-    if (s.ok()) {
-      counters()->open_counter_.fetch_add(1, std::memory_order_relaxed);
-      r->reset(new CountingFile(std::move(*r), counters()));
-    }
-    return s;
-  }
-
-  Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
-                         const EnvOptions& soptions) override {
-    class CountingFile : public WritableFile {
-     private:
-      std::unique_ptr<WritableFile> target_;
-      ReportFileOpCounters* counters_;
-
-     public:
-      CountingFile(std::unique_ptr<WritableFile>&& target,
-                   ReportFileOpCounters* counters)
-          : target_(std::move(target)), counters_(counters) {}
-
-      Status Append(const Slice& data) override {
-        counters_->append_counter_.fetch_add(1, std::memory_order_relaxed);
-        Status rv = target_->Append(data);
-        counters_->bytes_written_.fetch_add(data.size(),
-                                            std::memory_order_relaxed);
-        return rv;
-      }
-
-      Status Append(
-          const Slice& data,
-          const DataVerificationInfo& /* verification_info */) override {
-        return Append(data);
-      }
-
-      Status Truncate(uint64_t size) override {
-        return target_->Truncate(size);
-      }
-      Status Close() override {
-        Status s = target_->Close();
-        if (s.ok()) {
-          counters_->close_counter_.fetch_add(1, std::memory_order_relaxed);
-        }
-        return s;
-      }
-      Status Flush() override {
-        Status s = target_->Flush();
-        if (s.ok()) {
-          counters_->flush_counter_.fetch_add(1, std::memory_order_relaxed);
-        }
-        return s;
-      }
-      Status Sync() override {
-        Status s = target_->Sync();
-        if (s.ok()) {
-          counters_->sync_counter_.fetch_add(1, std::memory_order_relaxed);
-        }
-        return s;
-      }
-      Status Fsync() override {
-        Status s = target_->Fsync();
-        if (s.ok()) {
-          counters_->fsync_counter_.fetch_add(1, std::memory_order_relaxed);
-        }
-        return s;
-      }
-    };
-
-    Status s = target()->NewWritableFile(f, r, soptions);
-    if (s.ok()) {
-      counters()->open_counter_.fetch_add(1, std::memory_order_relaxed);
-      r->reset(new CountingFile(std::move(*r), counters()));
-    }
-    return s;
-  }
-
-  // getter
-  ReportFileOpCounters* counters() { return &counters_; }
-
- private:
-  ReportFileOpCounters counters_;
-};
 
 }  // namespace
 
@@ -2429,31 +2269,11 @@ class Stats {
       }
     }
     if (FLAGS_report_file_operations) {
-      ReportFileOpEnv* env = static_cast<ReportFileOpEnv*>(FLAGS_env);
-      ReportFileOpCounters* counters = env->counters();
-      fprintf(stdout, "Num files opened: %d\n",
-              counters->open_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num files deleted: %d\n",
-              counters->delete_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num files renamed: %d\n",
-              counters->rename_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Flush(): %d\n",
-              counters->flush_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Sync(): %d\n",
-              counters->sync_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Fsync(): %d\n",
-              counters->fsync_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Close(): %d\n",
-              counters->close_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Read(): %d\n",
-              counters->read_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num Append(): %d\n",
-              counters->append_counter_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num bytes read: %" PRIu64 "\n",
-              counters->bytes_read_.load(std::memory_order_relaxed));
-      fprintf(stdout, "Num bytes written: %" PRIu64 "\n",
-              counters->bytes_written_.load(std::memory_order_relaxed));
-      env->reset();
+      auto* counted_fs =
+          FLAGS_env->GetFileSystem()->CheckedCast<CountedFileSystem>();
+      assert(counted_fs);
+      fprintf(stdout, "%s", counted_fs->PrintCounters().c_str());
+      counted_fs->ResetCounters();
     }
     fflush(stdout);
   }
@@ -2645,6 +2465,7 @@ class Benchmark {
   int64_t writes_per_range_tombstone_;
   int64_t range_tombstone_width_;
   int64_t max_num_range_tombstones_;
+  ReadOptions read_options_;
   WriteOptions write_options_;
   Options open_options_;  // keep options around to properly destroy db later
 #ifndef ROCKSDB_LITE
@@ -3008,6 +2829,21 @@ class Benchmark {
         opts.secondary_cache = secondary_cache;
       }
 #endif  // ROCKSDB_LITE
+
+      if (FLAGS_use_lru_secondary_cache) {
+        LRUSecondaryCacheOptions secondary_cache_opts;
+        secondary_cache_opts.capacity = FLAGS_lru_secondary_cache_size;
+        secondary_cache_opts.num_shard_bits =
+            FLAGS_lru_secondary_cache_numshardbits;
+        secondary_cache_opts.high_pri_pool_ratio =
+            FLAGS_lru_secondary_cache_high_pri_pool_ratio;
+        secondary_cache_opts.compression_type =
+            FLAGS_lru_secondary_cache_compression_type_e;
+        secondary_cache_opts.compress_format_version =
+            FLAGS_lru_secondary_cache_compress_format_version;
+        opts.secondary_cache = NewLRUSecondaryCache(secondary_cache_opts);
+      }
+
       return NewLRUCache(opts);
     }
   }
@@ -3049,13 +2885,9 @@ class Benchmark {
     }
 
     if (report_file_operations_) {
-      if (!FLAGS_hdfs.empty()) {
-        fprintf(stderr,
-                "--hdfs and --report_file_operations cannot be enabled "
-                "at the same time");
-        exit(1);
-      }
-      FLAGS_env = new ReportFileOpEnv(FLAGS_env);
+      FLAGS_env = new CompositeEnvWrapper(
+          FLAGS_env,
+          std::make_shared<CountedFileSystem>(FLAGS_env->GetFileSystem()));
     }
 
     if (FLAGS_prefix_size > FLAGS_key_size) {
@@ -3274,6 +3106,16 @@ class Benchmark {
         write_options_.sync = true;
       }
       write_options_.disableWAL = FLAGS_disable_wal;
+      write_options_.rate_limiter_priority =
+          FLAGS_rate_limit_auto_wal_flush ? Env::IO_USER : Env::IO_TOTAL;
+      read_options_ = ReadOptions(FLAGS_verify_checksum, true);
+      read_options_.total_order_seek = FLAGS_total_order_seek;
+      read_options_.prefix_same_as_start = FLAGS_prefix_same_as_start;
+      read_options_.rate_limiter_priority =
+          FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+      read_options_.tailing = FLAGS_use_tailing_iterator;
+      read_options_.readahead_size = FLAGS_readahead_size;
+      read_options_.adaptive_readahead = FLAGS_adaptive_readahead;
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
       void (Benchmark::*post_process_method)() = nullptr;
@@ -3537,6 +3379,12 @@ class Benchmark {
 #endif  // ROCKSDB_LITE
       } else if (name == "getmergeoperands") {
         method = &Benchmark::GetMergeOperands;
+#ifndef ROCKSDB_LITE
+      } else if (name == "verifychecksum") {
+        method = &Benchmark::VerifyChecksum;
+      } else if (name == "verifyfilechecksums") {
+        method = &Benchmark::VerifyFileChecksums;
+#endif                             // ROCKSDB_LITE
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
         ErrorExit();
@@ -4007,6 +3855,7 @@ class Benchmark {
     options.use_direct_io_for_flush_and_compaction =
         FLAGS_use_direct_io_for_flush_and_compaction;
     options.manual_wal_flush = FLAGS_manual_wal_flush;
+    options.wal_compression = FLAGS_wal_compression_e;
 #ifndef ROCKSDB_LITE
     options.ttl = FLAGS_fifo_compaction_ttl;
     options.compaction_options_fifo = CompactionOptionsFIFO(
@@ -4038,8 +3887,6 @@ class Benchmark {
     }
     options.bloom_locality = FLAGS_bloom_locality;
     options.max_file_opening_threads = FLAGS_file_opening_threads;
-    options.new_table_reader_for_compaction_inputs =
-        FLAGS_new_table_reader_for_compaction_inputs;
     options.compaction_readahead_size = FLAGS_compaction_readahead_size;
     options.log_readahead_size = FLAGS_log_readahead_size;
     options.random_access_max_buffer_size = FLAGS_random_access_max_buffer_size;
@@ -4191,6 +4038,7 @@ class Benchmark {
       block_based_options.enable_index_compression =
           FLAGS_enable_index_compression;
       block_based_options.block_align = FLAGS_block_align;
+      block_based_options.whole_key_filtering = FLAGS_whole_key_filtering;
       BlockBasedTableOptions::PrepopulateBlockCache prepopulate_block_cache =
           block_based_options.prepopulate_block_cache;
       switch (FLAGS_prepopulate_block_cache) {
@@ -4293,8 +4141,6 @@ class Benchmark {
         options.compression_per_level[i] = FLAGS_compression_type_e;
       }
     }
-    options.soft_rate_limit = FLAGS_soft_rate_limit;
-    options.hard_rate_limit = FLAGS_hard_rate_limit;
     options.soft_pending_compaction_bytes_limit =
         FLAGS_soft_pending_compaction_bytes_limit;
     options.hard_pending_compaction_bytes_limit =
@@ -4312,8 +4158,6 @@ class Benchmark {
     options.unordered_write = FLAGS_unordered_write;
     options.write_thread_max_yield_usec = FLAGS_write_thread_max_yield_usec;
     options.write_thread_slow_yield_usec = FLAGS_write_thread_slow_yield_usec;
-    options.rate_limit_delay_max_milliseconds =
-      FLAGS_rate_limit_delay_max_milliseconds;
     options.table_cache_numshardbits = FLAGS_table_cache_numshardbits;
     options.max_compaction_bytes = FLAGS_max_compaction_bytes;
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
@@ -4378,7 +4222,7 @@ class Benchmark {
         fprintf(stderr, "Only 64 bits timestamps are supported.\n");
         exit(1);
       }
-      options.comparator = ROCKSDB_NAMESPACE::test::ComparatorWithU64Ts();
+      options.comparator = test::BytewiseComparatorWithU64TsWrapper();
     }
 
     // Integrated BlobDB
@@ -4445,12 +4289,22 @@ class Benchmark {
         table_options->filter_policy = BlockBasedTableOptions().filter_policy;
       } else if (FLAGS_bloom_bits == 0) {
         table_options->filter_policy.reset();
+      } else if (FLAGS_use_block_based_filter) {
+        // Use back-door way of enabling obsolete block-based Bloom
+        Status s = FilterPolicy::CreateFromString(
+            ConfigOptions(),
+            "rocksdb.internal.DeprecatedBlockBasedBloomFilter:" +
+                ROCKSDB_NAMESPACE::ToString(FLAGS_bloom_bits),
+            &table_options->filter_policy);
+        if (!s.ok()) {
+          fprintf(stderr, "failure creating obsolete block-based filter: %s\n",
+                  s.ToString().c_str());
+          exit(1);
+        }
       } else {
         table_options->filter_policy.reset(
-            FLAGS_use_ribbon_filter
-                ? NewRibbonFilterPolicy(FLAGS_bloom_bits)
-                : NewBloomFilterPolicy(FLAGS_bloom_bits,
-                                       FLAGS_use_block_based_filter));
+            FLAGS_use_ribbon_filter ? NewRibbonFilterPolicy(FLAGS_bloom_bits)
+                                    : NewBloomFilterPolicy(FLAGS_bloom_bits));
       }
     }
     if (FLAGS_row_cache_size) {
@@ -4475,13 +4329,6 @@ class Benchmark {
     }
 
     if (FLAGS_rate_limiter_bytes_per_sec > 0) {
-      if (FLAGS_rate_limit_bg_reads &&
-          !FLAGS_new_table_reader_for_compaction_inputs) {
-        fprintf(stderr,
-                "rate limit compaction reads must have "
-                "new_table_reader_for_compaction_inputs set\n");
-        exit(1);
-      }
       options.rate_limiter.reset(NewGenericRateLimiter(
           FLAGS_rate_limiter_bytes_per_sec, FLAGS_rate_limiter_refill_period_us,
           10 /* fairness */,
@@ -4491,6 +4338,11 @@ class Benchmark {
     }
 
     options.listeners.emplace_back(listener_);
+
+    if (FLAGS_file_checksum) {
+      options.file_checksum_gen_factory.reset(
+          new FileChecksumGenCrc32cFactory());
+    }
 
     if (FLAGS_num_multi_db <= 1) {
       OpenDb(options, FLAGS_db, &db_);
@@ -4516,7 +4368,7 @@ class Benchmark {
     if (FLAGS_use_existing_keys) {
       // Only work on single database
       assert(db_.db != nullptr);
-      ReadOptions read_opts;
+      ReadOptions read_opts;  // before read_options_ initialized
       read_opts.total_order_seek = true;
       Iterator* iter = db_.db->NewIterator(read_opts);
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -4814,7 +4666,7 @@ class Benchmark {
 
     RandomGenerator gen;
     WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
-                     user_timestamp_size_);
+                     /*protection_bytes_per_key=*/0, user_timestamp_size_);
     Status s;
     int64_t bytes = 0;
 
@@ -5142,7 +4994,8 @@ class Benchmark {
       }
       if (user_timestamp_size_ > 0) {
         Slice user_ts = mock_app_clock_->Allocate(ts_guard.get());
-        s = batch.AssignTimestamp(user_ts);
+        s = batch.UpdateTimestamps(
+            user_ts, [this](uint32_t) { return user_timestamp_size_; });
         if (!s.ok()) {
           fprintf(stderr, "assign timestamp to write batch: %s\n",
                   s.ToString().c_str());
@@ -5515,8 +5368,7 @@ class Benchmark {
   }
 
   void ReadSequential(ThreadState* thread, DB* db) {
-    ReadOptions options(FLAGS_verify_checksum, true);
-    options.tailing = FLAGS_use_tailing_iterator;
+    ReadOptions options = read_options_;
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
     if (user_timestamp_size_ > 0) {
@@ -5555,7 +5407,6 @@ class Benchmark {
     int64_t found = 0;
     int64_t bytes = 0;
     int64_t key_rand = 0;
-    ReadOptions options(FLAGS_verify_checksum, true);
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     PinnableSlice pinnable_val;
@@ -5570,11 +5421,11 @@ class Benchmark {
       read++;
       Status s;
       if (FLAGS_num_column_families > 1) {
-        s = db_with_cfh->db->Get(options, db_with_cfh->GetCfh(key_rand), key,
-                                 &pinnable_val);
+        s = db_with_cfh->db->Get(read_options_, db_with_cfh->GetCfh(key_rand),
+                                 key, &pinnable_val);
       } else {
         pinnable_val.Reset();
-        s = db_with_cfh->db->Get(options,
+        s = db_with_cfh->db->Get(read_options_,
                                  db_with_cfh->db->DefaultColumnFamily(), key,
                                  &pinnable_val);
       }
@@ -5620,9 +5471,7 @@ class Benchmark {
   }
 
   void ReadReverse(ThreadState* thread, DB* db) {
-    ReadOptions options(FLAGS_verify_checksum, true);
-    options.adaptive_readahead = FLAGS_adaptive_readahead;
-    Iterator* iter = db->NewIterator(options);
+    Iterator* iter = db->NewIterator(read_options_);
     int64_t i = 0;
     int64_t bytes = 0;
     for (iter->SeekToLast(); i < reads_ && iter->Valid(); iter->Prev()) {
@@ -5644,7 +5493,7 @@ class Benchmark {
     int64_t read = 0;
     int64_t found = 0;
     int64_t nonexist = 0;
-    ReadOptions options(FLAGS_verify_checksum, true);
+    ReadOptions options = read_options_;
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     std::string value;
@@ -5734,7 +5583,7 @@ class Benchmark {
     int64_t bytes = 0;
     int num_keys = 0;
     int64_t key_rand = 0;
-    ReadOptions options(FLAGS_verify_checksum, true);
+    ReadOptions options = read_options_;
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     PinnableSlice pinnable_val;
@@ -5820,7 +5669,7 @@ class Benchmark {
     int64_t bytes = 0;
     int64_t num_multireads = 0;
     int64_t found = 0;
-    ReadOptions options(FLAGS_verify_checksum, true);
+    ReadOptions options = read_options_;
     std::vector<Slice> keys;
     std::vector<std::unique_ptr<const char[]> > key_guards;
     std::vector<std::string> values(entries_per_batch_);
@@ -6202,7 +6051,6 @@ class Benchmark {
       value_max = FLAGS_mix_max_value_size;
     }
 
-    ReadOptions options(FLAGS_verify_checksum, true);
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     PinnableSlice pinnable_val;
@@ -6285,11 +6133,11 @@ class Benchmark {
         gets++;
         read++;
         if (FLAGS_num_column_families > 1) {
-          s = db_with_cfh->db->Get(options, db_with_cfh->GetCfh(key_rand), key,
-                                   &pinnable_val);
+          s = db_with_cfh->db->Get(read_options_, db_with_cfh->GetCfh(key_rand),
+                                   key, &pinnable_val);
         } else {
           pinnable_val.Reset();
-          s = db_with_cfh->db->Get(options,
+          s = db_with_cfh->db->Get(read_options_,
                                    db_with_cfh->db->DefaultColumnFamily(), key,
                                    &pinnable_val);
         }
@@ -6334,7 +6182,7 @@ class Benchmark {
         // Seek query
         if (db_with_cfh->db != nullptr) {
           Iterator* single_iter = nullptr;
-          single_iter = db_with_cfh->db->NewIterator(options);
+          single_iter = db_with_cfh->db->NewIterator(read_options_);
           if (single_iter != nullptr) {
             single_iter->Seek(key);
             seek++;
@@ -6377,7 +6225,7 @@ class Benchmark {
 
   void IteratorCreation(ThreadState* thread) {
     Duration duration(FLAGS_duration, reads_);
-    ReadOptions options(FLAGS_verify_checksum, true);
+    ReadOptions options = read_options_;
     std::unique_ptr<char[]> ts_guard;
     if (user_timestamp_size_ > 0) {
       ts_guard.reset(new char[user_timestamp_size_]);
@@ -6407,12 +6255,7 @@ class Benchmark {
     int64_t read = 0;
     int64_t found = 0;
     int64_t bytes = 0;
-    ReadOptions options(FLAGS_verify_checksum, true);
-    options.total_order_seek = FLAGS_total_order_seek;
-    options.prefix_same_as_start = FLAGS_prefix_same_as_start;
-    options.tailing = FLAGS_use_tailing_iterator;
-    options.readahead_size = FLAGS_readahead_size;
-    options.adaptive_readahead = FLAGS_adaptive_readahead;
+    ReadOptions options = read_options_;
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
     if (user_timestamp_size_ > 0) {
@@ -6542,7 +6385,7 @@ class Benchmark {
 
   void DoDelete(ThreadState* thread, bool seq) {
     WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
-                     user_timestamp_size_);
+                     /*protection_bytes_per_key=*/0, user_timestamp_size_);
     Duration duration(seq ? 0 : FLAGS_duration, deletes_);
     int64_t i = 0;
     std::unique_ptr<const char[]> key_guard;
@@ -6564,7 +6407,8 @@ class Benchmark {
       Status s;
       if (user_timestamp_size_ > 0) {
         ts = mock_app_clock_->Allocate(ts_guard.get());
-        s = batch.AssignTimestamp(ts);
+        s = batch.UpdateTimestamps(
+            ts, [this](uint32_t) { return user_timestamp_size_; });
         if (!s.ok()) {
           fprintf(stderr, "assign timestamp: %s\n", s.ToString().c_str());
           ErrorExit();
@@ -6658,17 +6502,17 @@ class Benchmark {
       Slice ts;
       if (user_timestamp_size_ > 0) {
         ts = mock_app_clock_->Allocate(ts_guard.get());
-        write_options_.timestamp = &ts;
       }
       if (write_merge == kWrite) {
-        s = db->Put(write_options_, key, val);
+        if (user_timestamp_size_ == 0) {
+          s = db->Put(write_options_, key, val);
+        } else {
+          s = db->Put(write_options_, key, ts, val);
+        }
       } else {
         s = db->Merge(write_options_, key, val);
       }
       // Restore write_options_
-      if (user_timestamp_size_ > 0) {
-        write_options_.timestamp = nullptr;
-      }
       written++;
 
       if (!s.ok()) {
@@ -6701,7 +6545,7 @@ class Benchmark {
       abort();
     }
     assert(db_.db != nullptr);
-    ReadOptions read_options;
+    ReadOptions read_options = read_options_;
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
     if (user_timestamp_size_ > 0) {
@@ -6709,7 +6553,6 @@ class Benchmark {
       ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
       read_options.timestamp = &ts;
     }
-    read_options.adaptive_readahead = FLAGS_adaptive_readahead;
     Iterator* iter = db_.db->NewIterator(read_options);
 
     fprintf(stderr, "num reads to do %" PRIu64 "\n", reads_);
@@ -6742,7 +6585,7 @@ class Benchmark {
     std::string keys[3];
 
     WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
-                     user_timestamp_size_);
+                     /*protection_bytes_per_key=*/0, user_timestamp_size_);
     Status s;
     for (int i = 0; i < 3; i++) {
       keys[i] = key.ToString() + suffixes[i];
@@ -6753,7 +6596,8 @@ class Benchmark {
     if (user_timestamp_size_ > 0) {
       ts_guard.reset(new char[user_timestamp_size_]);
       Slice ts = mock_app_clock_->Allocate(ts_guard.get());
-      s = batch.AssignTimestamp(ts);
+      s = batch.UpdateTimestamps(
+          ts, [this](uint32_t) { return user_timestamp_size_; });
       if (!s.ok()) {
         fprintf(stderr, "assign timestamp to batch: %s\n",
                 s.ToString().c_str());
@@ -6773,7 +6617,8 @@ class Benchmark {
     std::string suffixes[3] = {"1", "2", "0"};
     std::string keys[3];
 
-    WriteBatch batch(0, 0, user_timestamp_size_);
+    WriteBatch batch(0, 0, /*protection_bytes_per_key=*/0,
+                     user_timestamp_size_);
     Status s;
     for (int i = 0; i < 3; i++) {
       keys[i] = key.ToString() + suffixes[i];
@@ -6784,7 +6629,8 @@ class Benchmark {
     if (user_timestamp_size_ > 0) {
       ts_guard.reset(new char[user_timestamp_size_]);
       Slice ts = mock_app_clock_->Allocate(ts_guard.get());
-      s = batch.AssignTimestamp(ts);
+      s = batch.UpdateTimestamps(
+          ts, [this](uint32_t) { return user_timestamp_size_; });
       if (!s.ok()) {
         fprintf(stderr, "assign timestamp to batch: %s\n",
                 s.ToString().c_str());
@@ -6799,13 +6645,12 @@ class Benchmark {
   // Given a key K and value V, this gets values for K+"0", K+"1" and K+"2"
   // in the same snapshot, and verifies that all the values are identical.
   // ASSUMES that PutMany was used to put (K, V) into the DB.
-  Status GetMany(DB* db, const ReadOptions& readoptions, const Slice& key,
-                 std::string* value) {
+  Status GetMany(DB* db, const Slice& key, std::string* value) {
     std::string suffixes[3] = {"0", "1", "2"};
     std::string keys[3];
     Slice key_slices[3];
     std::string values[3];
-    ReadOptions readoptionscopy = readoptions;
+    ReadOptions readoptionscopy = read_options_;
 
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
@@ -6853,7 +6698,6 @@ class Benchmark {
   //     FLAGS_numdistinct distinct keys instead of FLAGS_num distinct keys.
   // (d) Does not have a MultiGet option.
   void RandomWithVerify(ThreadState* thread) {
-    ReadOptions options(FLAGS_verify_checksum, true);
     RandomGenerator gen;
     std::string value;
     int64_t found = 0;
@@ -6880,7 +6724,7 @@ class Benchmark {
           FLAGS_numdistinct, &key);
       if (get_weight > 0) {
         // do all the gets first
-        Status s = GetMany(db, options, key, &value);
+        Status s = GetMany(db, key, &value);
         if (!s.ok() && !s.IsNotFound()) {
           fprintf(stderr, "getmany error: %s\n", s.ToString().c_str());
           // we continue after error rather than exiting so that we can
@@ -6924,7 +6768,7 @@ class Benchmark {
   // This is different from ReadWhileWriting because it does not use
   // an extra thread.
   void ReadRandomWriteRandom(ThreadState* thread) {
-    ReadOptions options(FLAGS_verify_checksum, true);
+    ReadOptions options = read_options_;
     RandomGenerator gen;
     std::string value;
     int64_t found = 0;
@@ -6973,12 +6817,13 @@ class Benchmark {
       } else  if (put_weight > 0) {
         // then do all the corresponding number of puts
         // for all the gets we have done earlier
-        Slice ts;
+        Status s;
         if (user_timestamp_size_ > 0) {
-          ts = mock_app_clock_->Allocate(ts_guard.get());
-          write_options_.timestamp = &ts;
+          Slice ts = mock_app_clock_->Allocate(ts_guard.get());
+          s = db->Put(write_options_, key, ts, gen.Generate());
+        } else {
+          s = db->Put(write_options_, key, gen.Generate());
         }
-        Status s = db->Put(write_options_, key, gen.Generate());
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
           ErrorExit();
@@ -6998,7 +6843,7 @@ class Benchmark {
   //
   // Read-modify-write for random keys
   void UpdateRandom(ThreadState* thread) {
-    ReadOptions options(FLAGS_verify_checksum, true);
+    ReadOptions options = read_options_;
     RandomGenerator gen;
     std::string value;
     int64_t found = 0;
@@ -7039,11 +6884,13 @@ class Benchmark {
       }
 
       Slice val = gen.Generate();
+      Status s;
       if (user_timestamp_size_ > 0) {
         ts = mock_app_clock_->Allocate(ts_guard.get());
-        write_options_.timestamp = &ts;
+        s = db->Put(write_options_, key, ts, val);
+      } else {
+        s = db->Put(write_options_, key, val);
       }
-      Status s = db->Put(write_options_, key, val);
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
@@ -7063,7 +6910,7 @@ class Benchmark {
   // representing the existing value, we generate an array B of the same size,
   // then compute C = A^B as C[i]=A[i]^B[i], and store C
   void XORUpdateRandom(ThreadState* thread) {
-    ReadOptions options(FLAGS_verify_checksum, true);
+    ReadOptions options = read_options_;
     RandomGenerator gen;
     std::string existing_value;
     int64_t found = 0;
@@ -7106,12 +6953,13 @@ class Benchmark {
         xor_operator.XOR(nullptr, value, &new_value);
       }
 
+      Status s;
       if (user_timestamp_size_ > 0) {
         ts = mock_app_clock_->Allocate(ts_guard.get());
-        write_options_.timestamp = &ts;
+        s = db->Put(write_options_, key, ts, Slice(new_value));
+      } else {
+        s = db->Put(write_options_, key, Slice(new_value));
       }
-
-      Status s = db->Put(write_options_, key, Slice(new_value));
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         ErrorExit();
@@ -7128,7 +6976,7 @@ class Benchmark {
   // Each operation causes the key grow by value_size (simulating an append).
   // Generally used for benchmarking against merges of similar type
   void AppendRandom(ThreadState* thread) {
-    ReadOptions options(FLAGS_verify_checksum, true);
+    ReadOptions options = read_options_;
     RandomGenerator gen;
     std::string value;
     int64_t found = 0;
@@ -7172,13 +7020,14 @@ class Benchmark {
       }
       value.append(operand.data(), operand.size());
 
+      Status s;
       if (user_timestamp_size_ > 0) {
         ts = mock_app_clock_->Allocate(ts_guard.get());
-        write_options_.timestamp = &ts;
+        s = db->Put(write_options_, key, ts, value);
+      } else {
+        // Write back to the database
+        s = db->Put(write_options_, key, value);
       }
-
-      // Write back to the database
-      Status s = db->Put(write_options_, key, value);
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         ErrorExit();
@@ -7251,7 +7100,6 @@ class Benchmark {
   // As with MergeRandom, the merge operator to use should be defined by
   // FLAGS_merge_operator.
   void ReadRandomMergeRandom(ThreadState* thread) {
-    ReadOptions options(FLAGS_verify_checksum, true);
     RandomGenerator gen;
     std::string value;
     int64_t num_hits = 0;
@@ -7278,7 +7126,7 @@ class Benchmark {
         num_merges++;
         thread->stats.FinishedOps(nullptr, db, 1, kMerge);
       } else {
-        Status s = db->Get(options, key, &value);
+        Status s = db->Get(read_options_, key, &value);
         if (value.length() > max_length)
           max_length = value.length();
 
@@ -7309,8 +7157,7 @@ class Benchmark {
     thread->stats.Start(thread->tid);
 
     DB* db = SelectDB(thread);
-    ReadOptions read_opts(FLAGS_verify_checksum, true);
-    read_opts.adaptive_readahead = FLAGS_adaptive_readahead;
+    ReadOptions read_opts = read_options_;
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
     if (user_timestamp_size_ > 0) {
@@ -7437,6 +7284,35 @@ class Benchmark {
   }
 
 #ifndef ROCKSDB_LITE
+  void VerifyChecksum(ThreadState* thread) {
+    DB* db = SelectDB(thread);
+    ReadOptions ro;
+    ro.adaptive_readahead = FLAGS_adaptive_readahead;
+    ro.rate_limiter_priority =
+        FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+    ro.readahead_size = FLAGS_readahead_size;
+    Status s = db->VerifyChecksum(ro);
+    if (!s.ok()) {
+      fprintf(stderr, "VerifyChecksum() failed: %s\n", s.ToString().c_str());
+      exit(1);
+    }
+  }
+
+  void VerifyFileChecksums(ThreadState* thread) {
+    DB* db = SelectDB(thread);
+    ReadOptions ro;
+    ro.adaptive_readahead = FLAGS_adaptive_readahead;
+    ro.rate_limiter_priority =
+        FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+    ro.readahead_size = FLAGS_readahead_size;
+    Status s = db->VerifyFileChecksums(ro);
+    if (!s.ok()) {
+      fprintf(stderr, "VerifyFileChecksums() failed: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
+  }
+
   // This benchmark stress tests Transactions.  For a given --duration (or
   // total number of --writes, a Transaction will perform a read-modify-write
   // to increment the value of a key in each of N(--transaction-sets) sets of
@@ -7450,9 +7326,7 @@ class Benchmark {
   // RandomTransactionVerify() will then validate the correctness of the results
   // by checking if the sum of all keys in each set is the same.
   void RandomTransaction(ThreadState* thread) {
-    ReadOptions options(FLAGS_verify_checksum, true);
     Duration duration(FLAGS_duration, readwrites_);
-    ReadOptions read_options(FLAGS_verify_checksum, true);
     uint16_t num_prefix_ranges = static_cast<uint16_t>(FLAGS_transaction_sets);
     uint64_t transactions_done = 0;
 
@@ -7466,7 +7340,7 @@ class Benchmark {
     txn_options.set_snapshot = FLAGS_transaction_set_snapshot;
 
     RandomTransactionInserter inserter(&thread->rand, write_options_,
-                                       read_options, FLAGS_num,
+                                       read_options_, FLAGS_num,
                                        num_prefix_ranges);
 
     if (FLAGS_num_multi_db > 1) {
@@ -7558,12 +7432,12 @@ class Benchmark {
     DB* db = SelectDB(thread);
     for (int64_t i = 0; i < FLAGS_numdistinct; i++) {
       GenerateKeyFromInt(i * max_counter, FLAGS_num, &key);
-      Slice ts;
       if (user_timestamp_size_ > 0) {
-        ts = mock_app_clock_->Allocate(ts_guard.get());
-        write_options_.timestamp = &ts;
+        Slice ts = mock_app_clock_->Allocate(ts_guard.get());
+        s = db->Put(write_options_, key, ts, gen.Generate());
+      } else {
+        s = db->Put(write_options_, key, gen.Generate());
       }
-      s = db->Put(write_options_, key, gen.Generate());
       if (!s.ok()) {
         fprintf(stderr, "Operation failed: %s\n", s.ToString().c_str());
         exit(1);
@@ -7582,22 +7456,24 @@ class Benchmark {
                                 static_cast<int64_t>(0));
       GenerateKeyFromInt(key_id * max_counter + counters[key_id], FLAGS_num,
                          &key);
-      Slice ts;
       if (user_timestamp_size_ > 0) {
-        ts = mock_app_clock_->Allocate(ts_guard.get());
-        write_options_.timestamp = &ts;
+        Slice ts = mock_app_clock_->Allocate(ts_guard.get());
+        s = FLAGS_use_single_deletes ? db->SingleDelete(write_options_, key, ts)
+                                     : db->Delete(write_options_, key, ts);
+      } else {
+        s = FLAGS_use_single_deletes ? db->SingleDelete(write_options_, key)
+                                     : db->Delete(write_options_, key);
       }
-      s = FLAGS_use_single_deletes ? db->SingleDelete(write_options_, key)
-                                   : db->Delete(write_options_, key);
       if (s.ok()) {
         counters[key_id] = (counters[key_id] + 1) % max_counter;
         GenerateKeyFromInt(key_id * max_counter + counters[key_id], FLAGS_num,
                            &key);
         if (user_timestamp_size_ > 0) {
-          ts = mock_app_clock_->Allocate(ts_guard.get());
-          write_options_.timestamp = &ts;
+          Slice ts = mock_app_clock_->Allocate(ts_guard.get());
+          s = db->Put(write_options_, key, ts, Slice());
+        } else {
+          s = db->Put(write_options_, key, Slice());
         }
-        s = db->Put(write_options_, key, Slice());
       }
 
       if (!s.ok()) {
@@ -7617,7 +7493,6 @@ class Benchmark {
   }
 
   void TimeSeriesReadOrDelete(ThreadState* thread, bool do_deletion) {
-    ReadOptions options(FLAGS_verify_checksum, true);
     int64_t read = 0;
     int64_t found = 0;
     int64_t bytes = 0;
@@ -7625,7 +7500,7 @@ class Benchmark {
     Iterator* iter = nullptr;
     // Only work on single database
     assert(db_.db != nullptr);
-    iter = db_.db->NewIterator(options);
+    iter = db_.db->NewIterator(read_options_);
 
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
@@ -7641,7 +7516,7 @@ class Benchmark {
       }
       if (!FLAGS_use_tailing_iterator) {
         delete iter;
-        iter = db_.db->NewIterator(options);
+        iter = db_.db->NewIterator(read_options_);
       }
       // Pick a Iterator to use
 
@@ -8138,16 +8013,20 @@ int db_bench_tool(int argc, char** argv) {
   FLAGS_compression_type_e =
     StringToCompressionType(FLAGS_compression_type.c_str());
 
+  FLAGS_wal_compression_e =
+      StringToCompressionType(FLAGS_wal_compression.c_str());
+
+  FLAGS_lru_secondary_cache_compression_type_e = StringToCompressionType(
+      FLAGS_lru_secondary_cache_compression_type.c_str());
+
 #ifndef ROCKSDB_LITE
   // Stacked BlobDB
   FLAGS_blob_db_compression_type_e =
     StringToCompressionType(FLAGS_blob_db_compression_type.c_str());
 
-  int env_opts =
-      !FLAGS_hdfs.empty() + !FLAGS_env_uri.empty() + !FLAGS_fs_uri.empty();
+  int env_opts = !FLAGS_env_uri.empty() + !FLAGS_fs_uri.empty();
   if (env_opts > 1) {
-    fprintf(stderr,
-            "Error: --hdfs, --env_uri and --fs_uri are mutually exclusive\n");
+    fprintf(stderr, "Error: --env_uri and --fs_uri are mutually exclusive\n");
     exit(1);
   }
 
@@ -8169,16 +8048,16 @@ int db_bench_tool(int argc, char** argv) {
             /*is_full_fs_warm=*/FLAGS_simulate_hdd));
     FLAGS_env = composite_env.get();
   }
+
+  // Let -readonly imply -use_existing_db
+  FLAGS_use_existing_db |= FLAGS_readonly;
 #endif  // ROCKSDB_LITE
+
   if (FLAGS_use_existing_keys && !FLAGS_use_existing_db) {
     fprintf(stderr,
             "`-use_existing_db` must be true for `-use_existing_keys` to be "
             "settable\n");
     exit(1);
-  }
-
-  if (!FLAGS_hdfs.empty()) {
-    FLAGS_env = new ROCKSDB_NAMESPACE::HdfsEnv(FLAGS_hdfs);
   }
 
   if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NONE"))
