@@ -158,8 +158,8 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
 }
 
 // Copy data from src to third buffer.
-void FilePrefetchBuffer::CopyDataToBuffer(uint64_t alignment, uint64_t& offset,
-                                          size_t& length, uint32_t src) {
+void FilePrefetchBuffer::CopyDataToBuffer(uint32_t src, uint64_t& offset,
+                                          size_t& length) {
   if (length == 0) {
     return;
   }
@@ -182,19 +182,10 @@ void FilePrefetchBuffer::CopyDataToBuffer(uint64_t alignment, uint64_t& offset,
   offset += copy_len;
   length -= copy_len;
 
-  // Update the src offset and length
   // length > 0 indicates it has consumed all data from the src buffer and it
-  // still needs to read more.
+  // still needs to read more other buffer.
   if (length > 0) {
     bufs_[src].buffer_.Clear();
-  } else {
-    // Update src's offset based on aligment.
-    uint64_t new_offset =
-        Rounddown(static_cast<size_t>(offset) + length, alignment);
-    size_t new_size = bufs_[src].buffer_.CurrentSize() -
-                      static_cast<size_t>(new_offset - bufs_[src].offset_);
-    bufs_[src].buffer_.Size(new_size);
-    bufs_[src].offset_ = new_offset;
   }
 }
 
@@ -205,17 +196,18 @@ void FilePrefetchBuffer::CopyDataToBuffer(uint64_t alignment, uint64_t& offset,
 //
 // Scenarios for prefetching asynchronously:
 // Case1: If both buffers are empty, prefetch n bytes
-//        synchronusly in curr_
+//        synchronously in curr_
 //        and prefetch readahead_size_/2 async in second buffer.
 // Case2: If second buffer has partial or full data, make it current and
 //        prefetch readahead_size_/2 async in second buffer. In case of
-//        partial data, prefetch remaining bytes from size n synchronously.
+//        partial data, prefetch remaining bytes from size n synchronously to
+//        fulfill the requested bytes request.
 // Case3: If curr_ has partial data, prefetch remaining bytes from size n
-//        synchronously in curr_ and prefetch readahead_size_/2 bytes async in
-//        second buffer.
-// Case4: If data is in both buffers, copy required data from curr_ to third
-//        buffer. If all data in curr_ has been consumed, swap the buffers for
-//        further prefetching, otherwise skip the async prefetching.
+//        synchronously in curr_ to fulfill the requested bytes request and
+//        prefetch readahead_size_/2 bytes async in second buffer.
+// Case4: If data is in both buffers, copy requested data from curr_ and second
+//        buffer to third buffer. If all requested bytes have been copied, do
+//        the asynchronous prefetching in second buffer.
 Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
                                          RandomAccessFileReader* reader,
                                          FileSystem* fs, uint64_t offset,
@@ -235,9 +227,9 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     fs->Poll(handles, 1).PermitUncheckedError();
   }
 
-  Status s;
   // TODO akanksha: Update TEST_SYNC_POINT after new tests are added.
   TEST_SYNC_POINT("FilePrefetchBuffer::Prefetch:Start");
+  Status s;
   size_t prefetch_size = length + readahead_size;
 
   size_t alignment = reader->file()->GetRequiredBufferAlignment();
@@ -248,7 +240,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   // partial filled or full.
   if (bufs_[second].buffer_.CurrentSize() > 0 &&
       offset >= bufs_[second].offset_ &&
-      offset < bufs_[second].offset_ + bufs_[second].buffer_.CurrentSize()) {
+      offset <= bufs_[second].offset_ + bufs_[second].buffer_.CurrentSize()) {
     // Clear the curr_ as buffers have been swapped and curr_ contains the
     // outdated data.
     bufs_[curr_].buffer_.Clear();
@@ -280,18 +272,18 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     copy_to_third_buffer = true;
 
     // Move data from curr_ buffer to third.
-    CopyDataToBuffer(alignment, offset, length, curr_);
+    CopyDataToBuffer(curr_, offset, length);
 
     if (length == 0) {
       // Requested data has been copied and curr_ still has unconsumed data.
       return s;
     }
 
+    CopyDataToBuffer(second, offset, length);
     // Length == 0: All the requested data has been copied to third buffer. It
     // should go for only async prefetching.
     // Length > 0: More data needs to be consumed so it will continue async and
     // sync prefetching and copy the remaining data to third buffer in the end.
-    CopyDataToBuffer(alignment, offset, length, second);
     // swap the buffers.
     curr_ = curr_ ^ 1;
     prefetch_size -= length;
@@ -323,7 +315,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     uint64_t roundup_end2 =
         Roundup(rounddown_start2 + readahead_size, alignment);
 
-    // For length == 0, do the asynchronous prefetching in curr_, instead of
+    // For length == 0, do the asynchronous prefetching in second instead of
     // synchronous prefetching of remaining prefetch_size.
     if (length == 0) {
       rounddown_start2 =
@@ -335,14 +327,14 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     uint64_t chunk_len2 = 0;
     CalculateOffsetAndLen(alignment, rounddown_start2, roundup_len2, second,
                           false /*refit_tail*/, chunk_len2);
+
+    // Update the buffer offset.
+    bufs_[second].offset_ = rounddown_start2;
     uint64_t read_len2 = static_cast<size_t>(roundup_len2 - chunk_len2);
 
     ReadAsync(opts, reader, rate_limiter_priority, read_len2, chunk_len2,
               rounddown_start2, second)
         .PermitUncheckedError();
-
-    // Update the buffer offset.
-    bufs_[second].offset_ = rounddown_start2;
   }
 
   if (read_len1 > 0) {
@@ -355,7 +347,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
 
   // Copy remaining requested bytes to third_buffer.
   if (copy_to_third_buffer && length > 0) {
-    CopyDataToBuffer(alignment, offset, length, curr_);
+    CopyDataToBuffer(curr_, offset, length);
   }
   return s;
 }

@@ -54,6 +54,9 @@ class FilePrefetchBuffer {
   //   it. Used for adaptable readahead of the file footer/metadata.
   // implicit_auto_readahead : Readahead is enabled implicitly by rocksdb after
   //   doing sequential scans for two times.
+  // async_io : When async_io is enabled, if it's implicit_auto_readahead, it
+  //   prefetches data asynchronously in second buffer while curr_ is being
+  //   consumed.
   //
   // Automatic readhead is enabled for a file if readahead_size
   // and max_readahead_size are passed in.
@@ -77,6 +80,9 @@ class FilePrefetchBuffer {
         del_fn_(nullptr),
         async_read_in_progress_(false),
         async_io_(async_io) {
+    // If async_io_ is enabled, data is asynchronously filled in second buffer
+    // while curr_ is being consumed. If data is overlapping in two buffers,
+    // data is copied to third buffer to return continuous buffer.
     bufs_.resize(3);
   }
 
@@ -192,7 +198,8 @@ class FilePrefetchBuffer {
 
  private:
   // Calculates roundoff offset and length to be prefetched based on alignment
-  // and data present in buffer_.
+  // and data present in buffer_. It also allocates new buffer or refit tail if
+  // required.
   void CalculateOffsetAndLen(size_t alignment, uint64_t offset,
                              size_t roundup_len, size_t index, bool refit_tail,
                              uint64_t& chunk_len);
@@ -206,8 +213,8 @@ class FilePrefetchBuffer {
                    uint64_t chunk_len, uint64_t rounddown_start,
                    uint32_t index);
 
-  void CopyDataToBuffer(uint64_t alignment, uint64_t& offset, size_t& length,
-                        uint32_t src);
+  // Copy the data from src to third buffer.
+  void CopyDataToBuffer(uint32_t src, uint64_t& offset, size_t& length);
 
   bool IsBlockSequential(const size_t& offset) {
     return (prev_len_ == 0 || (prev_offset_ + prev_len_ == offset));
