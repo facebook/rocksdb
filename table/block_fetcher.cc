@@ -69,17 +69,28 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
   if (prefetch_buffer_ != nullptr) {
     IOOptions opts;
     IOStatus io_s = file_->PrepareIOOptions(read_options_, opts);
-    if (io_s.ok() &&
-        prefetch_buffer_->TryReadFromCache(
+    if (io_s.ok()) {
+      bool read_from_prefetch_buffer = false;
+      if (read_options_.async_io) {
+        read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCacheAsync(
             opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
-            &io_s, read_options_.rate_limiter_priority, for_compaction_)) {
-      ProcessTrailerIfPresent();
-      if (!io_status_.ok()) {
-        return true;
+            &io_s, read_options_.rate_limiter_priority, for_compaction_,
+            ioptions_.fs.get());
+      } else {
+        read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCache(
+            opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
+            &io_s, read_options_.rate_limiter_priority, for_compaction_);
       }
-      got_from_prefetch_buffer_ = true;
-      used_buf_ = const_cast<char*>(slice_.data());
-    } else if (!io_s.ok()) {
+      if (read_from_prefetch_buffer) {
+        ProcessTrailerIfPresent();
+        if (!io_status_.ok()) {
+          return true;
+        }
+        got_from_prefetch_buffer_ = true;
+        used_buf_ = const_cast<char*>(slice_.data());
+      }
+    }
+    if (!io_s.ok()) {
       io_status_ = io_s;
       return true;
     }
