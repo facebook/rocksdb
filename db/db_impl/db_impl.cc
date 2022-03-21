@@ -3207,6 +3207,12 @@ bool CfdListContains(const CfdList& list, ColumnFamilyData* cfd) {
 }  //  namespace
 
 void DBImpl::ReleaseSnapshot(const Snapshot* s) {
+  if (s == nullptr) {
+    // DBImpl::GetSnapshot() can return nullptr when snapshot
+    // not supported by specifying the condition:
+    // inplace_update_support enabled.
+    return;
+  }
   const SnapshotImpl* casted_s = reinterpret_cast<const SnapshotImpl*>(s);
   {
     InstrumentedMutexLock l(&mutex_);
