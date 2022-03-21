@@ -200,7 +200,7 @@ commands:
           name: Output logs as MIME
           command: ./build_tools/benchmark_logs.py --logdirectory /tmp/benchmark-results
       - run:
-          name: Send report to Grafana
+          name: Send benchmark report to Grafana
           command: ./build_tools/circle_api_scraper.py --action tsv --tsvfile /tmp/benchmark-results/report.tsv
 
 executors:
