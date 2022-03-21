@@ -519,8 +519,8 @@ def main():
                         help='File in which to save pickled report')
     parser.add_argument('--tsvfile', default='build_tools/circle_api_scraper_input.txt',
                         help='File from which to read tsv report')
-    parser.add_argument('--testvalues', default=True,
-                         help='Timeshift and test. prefix values')
+    parser.add_argument('--testvalues', default=False,
+                        help='Use as test values; apply a timeshift and preprend "test." to the keys')
 
     args = parser.parse_args()
     if args.action == 'all':
