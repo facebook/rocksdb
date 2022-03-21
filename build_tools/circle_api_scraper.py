@@ -16,11 +16,11 @@ import email
 import itertools
 import pickle
 from keyword import iskeyword
+import random
 import re
 import socket
 import struct
 import sys
-import time
 from typing import Callable, List, Mapping
 import circleci.api
 import requests
@@ -244,7 +244,7 @@ class BenchmarkUtils:
             result.append(metric)
         return result
 
-    def test_graphite(rows, metric_prefix='test.'):
+    def test_graphite(rows, metric_prefix='test.', repeat=10, step_secs=900):
         '''Modify the output of graphite
         Stick a test. in front of the name
         Change times to shift range of samples up to just before now()
@@ -256,10 +256,14 @@ class BenchmarkUtils:
                 max_ts = timestamp
         delta = int(datetime.datetime.now().timestamp() - max_ts)
         rows2 = []
+        random.seed()
         for row in rows:
             (metric_id, (timestamp, metric_value)) = row
-            rows2.append((metric_prefix + metric_id,
-                         (timestamp + delta, metric_value)))
+            for i in range(repeat):
+                shoogled_value = int(random.randrange(
+                    int(metric_value/2), int(3*metric_value/2+1)))
+                rows2.append((metric_prefix + metric_id,
+                              (timestamp + delta + (i + 1 - repeat)*step_secs, shoogled_value)))
         return rows2
 
 
@@ -515,7 +519,7 @@ def main():
                         help='File in which to save pickled report')
     parser.add_argument('--tsvfile', default='build_tools/circle_api_scraper_input.txt',
                         help='File from which to read tsv report')
-    parser.add_argument('--testvalues', default=False,
+    parser.add_argument('--testvalues', default=True,
                          help='Timeshift and test. prefix values')
 
     args = parser.parse_args()
