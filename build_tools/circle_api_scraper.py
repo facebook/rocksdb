@@ -28,7 +28,7 @@ from dateutil import parser
 
 
 class Configuration:
-    graphite_server = 'localhost'
+    graphite_server = 'cherry.evolvedbinary.com'
     graphite_pickle_port = 2004
     circle_user_id = 'e7d4aab13e143360f95e258be0a89b5c8e256773'  # rotate those tokens !!
     circle_vcs = 'github'
@@ -515,7 +515,7 @@ def main():
                         help='File in which to save pickled report')
     parser.add_argument('--tsvfile', default='build_tools/circle_api_scraper_input.txt',
                         help='File from which to read tsv report')
-    parser.add_arguments('--testvalues', default=False,
+    parser.add_argument('--testvalues', default=False,
                          help='Timeshift and test. prefix values')
 
     args = parser.parse_args()
