@@ -459,7 +459,7 @@ def push_pickle_to_graphite(reports):
 class Configuration:
     graphite_server = 'localhost'
     graphite_pickle_port = 2004
-    circle_user_id = 'e7d4aab13e143360f95e258be0a89b5c8e256773'  # rotate those tokens
+    circle_user_id = 'e7d4aab13e143360f95e258be0a89b5c8e256773'  # rotate those tokens !!
     circle_vcs = 'github'
     circle_username = 'facebook'
     circle_project = 'rocksdb'
@@ -476,7 +476,14 @@ def main():
         description='CircleCI benchmark scraper.')
 
     # --fetch from the CircleCI API into --picklefile <PICKLE-FILE>
+    # this takes time because we plough through the CircleCI API
     # --push contents of --picklefile <PICKLE-FILE> to grafana/graphite
+    # this is to avoid the cost of --fetch while debugging
+    # --all fetch and push, missing out the intermediate picke file
+    # demonstrate end-to-end function
+    # --tsv
+    # push results presented as a TSV file (slightly different proposed format)
+    # this is how we get used "inline" on the test machine when running benchmarks
     #
     parser.add_argument('--action', choices=['fetch', 'push', 'all', 'tsv'], default='push',
                         help='Which action to perform')
