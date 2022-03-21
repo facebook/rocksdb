@@ -22,6 +22,7 @@
 * Fixed a race condition when disable and re-enable manual compaction.
 * Fixed automatic error recovery failure in atomic flush.
 * Fixed a race condition when mmaping a WritableFile on POSIX.
+* Fixed a bug that `rocksdb.read.block.compaction.micros` cannot track compaction stats (#9722).
 
 ### Public API changes
 * Remove BlockBasedTableOptions.hash_index_allow_collision which already takes no effect.
