@@ -11,6 +11,7 @@ In order to finally yield the output of benchmark tests.
 import argparse
 from ast import Dict
 from collections import namedtuple
+import datetime
 import email
 import itertools
 import pickle
@@ -24,6 +25,17 @@ from typing import Callable, List, Mapping
 import circleci.api
 import requests
 from dateutil import parser
+
+
+class Configuration:
+    graphite_server = 'localhost'
+    graphite_pickle_port = 2004
+    circle_user_id = 'e7d4aab13e143360f95e258be0a89b5c8e256773'  # rotate those tokens !!
+    circle_vcs = 'github'
+    circle_username = 'facebook'
+    circle_project = 'rocksdb'
+    circle_ci_api = 'https://circleci.com/api/v2'
+    graphite_name_prefix = 'rocksdb.benchmark'
 
 
 class TupleObject:
@@ -210,17 +222,16 @@ class BenchmarkUtils:
         return True
 
     def enhance(row):
-        (dt, fuzz) = parser.parse(row['test_date'], fuzzy_with_tokens=True)
+        (dt, _) = parser.parse(row['test_date'], fuzzy_with_tokens=True)
         row['timestamp'] = int(dt.timestamp())
         return row
 
-    def graphite(row):
+    def graphite(row, metric_path=Configuration.graphite_name_prefix):
         '''Convert a row (dictionary of values)
         into the form of object that graphite likes to receive
         ( <path>, (<timestamp>, <value>) )
         '''
         result = []
-        metric_path = 'rocksdb.benchmark'
         for metric_key in BenchmarkUtils.expected_keys:
             metric_id = metric_path + '.' + row['test_name'] + '.' + metric_key
             metric_value = 0.0
@@ -229,9 +240,27 @@ class BenchmarkUtils:
             except (ValueError, TypeError):
                 # metric doesn't have a float value
                 continue
-            metric = (metric_id, (row['timestamp'], float(row[metric_key])))
+            metric = (metric_id, (row['timestamp'], metric_value))
             result.append(metric)
         return result
+
+    def test_graphite(rows, metric_prefix='test.'):
+        '''Modify the output of graphite
+        Stick a test. in front of the name
+        Change times to shift range of samples up to just before now()
+        '''
+        max_ts = None
+        for row in rows:
+            (_, (timestamp, _)) = row
+            if max_ts == None or timestamp > max_ts:
+                max_ts = timestamp
+        delta = int(datetime.datetime.now().timestamp() - max_ts)
+        rows2 = []
+        for row in rows:
+            (metric_id, (timestamp, metric_value)) = row
+            rows2.append((metric_prefix + metric_id,
+                         (timestamp + delta, metric_value)))
+        return rows2
 
 
 class ResultParser:
@@ -427,14 +456,19 @@ def load_reports_from_tsv(filename: str):
     return report
 
 
-def push_pickle_to_graphite(reports):
+def push_pickle_to_graphite(reports, test_values: bool):
     sanitized = [[BenchmarkUtils.enhance(row)
                  for row in rows if BenchmarkUtils.sanity_check(row)] for rows in reports]
     graphite = []
     for rows in sanitized:
         for row in rows:
-            for point in BenchmarkUtils.graphite(row):
+            for point in BenchmarkUtils.graphite(row, Configuration.graphite_name_prefix):
                 graphite.append(point)
+
+    # Do this if we are asked to create a recent record of test. data points
+    if test_values:
+        graphite = BenchmarkUtils.test_graphite(graphite)
+
     # Careful not to use too modern a protocol for Graphite (it is Python2)
     payload = pickle.dumps(graphite, protocol=1)
     header = struct.pack("!L", len(payload))
@@ -456,16 +490,6 @@ def push_pickle_to_graphite(reports):
                          {'server': Configuration.graphite_server, 'port': Configuration.graphite_pickle_port})
 
 
-class Configuration:
-    graphite_server = 'localhost'
-    graphite_pickle_port = 2004
-    circle_user_id = 'e7d4aab13e143360f95e258be0a89b5c8e256773'  # rotate those tokens !!
-    circle_vcs = 'github'
-    circle_username = 'facebook'
-    circle_project = 'rocksdb'
-    circle_ci_api = 'https://circleci.com/api/v2'
-
-
 def main():
     '''Fetch and parse benchmark results from CircleCI
     Save to a pickle file
@@ -485,12 +509,14 @@ def main():
     # push results presented as a TSV file (slightly different proposed format)
     # this is how we get used "inline" on the test machine when running benchmarks
     #
-    parser.add_argument('--action', choices=['fetch', 'push', 'all', 'tsv'], default='push',
+    parser.add_argument('--action', choices=['fetch', 'push', 'all', 'tsv'], default='tsv',
                         help='Which action to perform')
     parser.add_argument('--picklefile', default='reports.pickle',
                         help='File in which to save pickled report')
     parser.add_argument('--tsvfile', default='build_tools/circle_api_scraper_input.txt',
                         help='File from which to read tsv report')
+    parser.add_arguments('--testvalues', default=False,
+                         help='Timeshift and test. prefix values')
 
     args = parser.parse_args()
     if args.action == 'all':
@@ -503,10 +529,10 @@ def main():
         pass
     elif args.action == 'push':
         reports = load_reports_from_local(args.picklefile)
-        push_pickle_to_graphite(reports)
+        push_pickle_to_graphite(reports, args.testvalues)
     elif args.action == 'tsv':
-        reports = load_reports_from_tsv(args.tsvfile)
-        push_pickle_to_graphite(reports)
+        reports = [load_reports_from_tsv(args.tsvfile)]
+        push_pickle_to_graphite(reports, args.testvalues)
 
 
 if __name__ == '__main__':
