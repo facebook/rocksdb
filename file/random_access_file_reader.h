@@ -174,5 +174,10 @@ class RandomAccessFileReader {
   bool use_direct_io() const { return file_->use_direct_io(); }
 
   IOStatus PrepareIOOptions(const ReadOptions& ro, IOOptions& opts);
+
+  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                     std::function<void(const FSReadRequest&, void*)> cb,
+                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                     Env::IOPriority rate_limiter_priority);
 };
 }  // namespace ROCKSDB_NAMESPACE
