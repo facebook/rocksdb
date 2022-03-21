@@ -8,11 +8,7 @@
 
 BASH_EXISTS := $(shell which bash)
 SHELL := $(shell which bash)
-# Default to python3. Some distros like CentOS 8 do not have `python`.
-ifeq ($(origin PYTHON), undefined)
-	PYTHON := $(shell which python3 || which python || echo python3)
-endif
-export PYTHON
+include python.mk
 
 CLEAN_FILES = # deliberately empty, so we can append below.
 CFLAGS += ${EXTRA_CFLAGS}
@@ -793,7 +789,9 @@ endif  # PLATFORM_SHARED_EXT
 	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
 	blackbox_crash_test_with_txn whitebox_crash_test_with_txn \
 	blackbox_crash_test_with_best_efforts_recovery \
-	blackbox_crash_test_with_ts whitebox_crash_test_with_ts
+	blackbox_crash_test_with_ts whitebox_crash_test_with_ts \
+	blackbox_crash_test_with_multiops_wc_txn \
+	blackbox_crash_test_with_multiops_wp_txn
 
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
@@ -911,7 +909,7 @@ gen_parallel_tests:
 # 107.816 PASS t/DBTest.EncodeDecompressedBlockSizeTest
 #
 slow_test_regexp = \
-	^.*SnapshotConcurrentAccessTest.*$$|^.*SeqAdvanceConcurrentTest.*$$|^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
+	^.*MySQLStyleTransactionTest.*$$|^.*SnapshotConcurrentAccessTest.*$$|^.*SeqAdvanceConcurrentTest.*$$|^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
 prioritize_long_running_tests =						\
   perl -pe 's,($(slow_test_regexp)),100 $$1,'				\
     | sort -k1,1gr							\
@@ -1031,92 +1029,34 @@ check_some: $(ROCKSDBTESTS_SUBSET)
 ldb_tests: ldb
 	$(PYTHON) tools/ldb_test.py
 
-crash_test:
-# Do not parallelize
-	$(MAKE) whitebox_crash_test
-	$(MAKE) blackbox_crash_test
-
-crash_test_with_atomic_flush:
-# Do not parallelize
-	$(MAKE) whitebox_crash_test_with_atomic_flush
-	$(MAKE) blackbox_crash_test_with_atomic_flush
-
-crash_test_with_txn:
-# Do not parallelize
-	$(MAKE) whitebox_crash_test_with_txn
-	$(MAKE) blackbox_crash_test_with_txn
-
-crash_test_with_best_efforts_recovery: blackbox_crash_test_with_best_efforts_recovery
-
-crash_test_with_ts:
-# Do not parallelize
-	$(MAKE) whitebox_crash_test_with_ts
-	$(MAKE) blackbox_crash_test_with_ts
-
-blackbox_crash_test: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
-	$(PYTHON) -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
-
-blackbox_crash_test_with_atomic_flush: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --cf_consistency blackbox $(CRASH_TEST_EXT_ARGS)
-
-blackbox_crash_test_with_txn: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --txn blackbox $(CRASH_TEST_EXT_ARGS)
-
-blackbox_crash_test_with_best_efforts_recovery: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --test_best_efforts_recovery blackbox $(CRASH_TEST_EXT_ARGS)
-
-blackbox_crash_test_with_ts: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --enable_ts blackbox $(CRASH_TEST_EXT_ARGS)
-
-ifeq ($(CRASH_TEST_KILL_ODD),)
-  CRASH_TEST_KILL_ODD=888887
-endif
-
-whitebox_crash_test: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --simple whitebox --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
-	$(PYTHON) -u tools/db_crashtest.py whitebox  --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
-
-whitebox_crash_test_with_atomic_flush: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --cf_consistency whitebox  --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
-
-whitebox_crash_test_with_txn: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --txn whitebox --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
-
-whitebox_crash_test_with_ts: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --enable_ts whitebox --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
+include crash_test.mk
 
 asan_check: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) check -j32
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) check -j32
 	$(MAKE) clean
 
 asan_crash_test: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test
 	$(MAKE) clean
 
 whitebox_asan_crash_test: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) whitebox_crash_test
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) whitebox_crash_test
 	$(MAKE) clean
 
 blackbox_asan_crash_test: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) blackbox_crash_test
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) blackbox_crash_test
 	$(MAKE) clean
 
 asan_crash_test_with_atomic_flush: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_atomic_flush
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_atomic_flush
 	$(MAKE) clean
 
 asan_crash_test_with_txn: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_txn
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_txn
 	$(MAKE) clean
 
 asan_crash_test_with_best_efforts_recovery: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_best_efforts_recovery
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_best_efforts_recovery
 	$(MAKE) clean
 
 ubsan_check: clean

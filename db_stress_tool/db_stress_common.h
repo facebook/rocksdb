@@ -115,6 +115,7 @@ DECLARE_int32(level0_stop_writes_trigger);
 DECLARE_int32(block_size);
 DECLARE_int32(format_version);
 DECLARE_int32(index_block_restart_interval);
+DECLARE_bool(disable_auto_compactions);
 DECLARE_int32(max_background_compactions);
 DECLARE_int32(num_bottom_pri_threads);
 DECLARE_int32(compaction_thread_pool_adjust_interval);
@@ -273,6 +274,13 @@ DECLARE_string(secondary_cache_uri);
 DECLARE_int32(secondary_cache_fault_one_in);
 
 DECLARE_int32(prepopulate_block_cache);
+
+DECLARE_bool(two_write_queues);
+#ifndef ROCKSDB_LITE
+DECLARE_bool(use_only_the_last_commit_time_batch_for_recovery);
+DECLARE_uint64(wp_snapshot_cache_bits);
+DECLARE_uint64(wp_commit_cache_bits);
+#endif  // !ROCKSDB_LITE
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;

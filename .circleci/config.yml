@@ -306,7 +306,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-clang-10
-      - run: COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check # aligned new doesn't work for reason we haven't figured out
+      - run: ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check # aligned new doesn't work for reason we haven't figured out
       - post-steps
 
   build-linux-clang10-mini-tsan:
@@ -456,6 +456,17 @@ jobs:
       - pre-steps
       - install-benchmark
       - run: DEBUG_LEVEL=0 make -j32 run_microbench
+      - post-steps
+
+  build-linux-mini-crashtest:
+    machine:
+      image: ubuntu-2004:202111-02
+    resource_class: large
+    steps:
+      - pre-steps
+      - install-gflags
+      - install-compression-libs
+      - run: make V=1 -j8 CRASH_TEST_EXT_ARGS=--duration=960 blackbox_crash_test_with_atomic_flush
       - post-steps
 
   build-windows:
@@ -828,6 +839,9 @@ workflows:
   build-linux-unity-and-headers:
     jobs:
       - build-linux-unity-and-headers
+  build-linux-mini-crashtest:
+    jobs:
+      - build-linux-mini-crashtest
   build-windows-vs2019:
     jobs:
       - build-windows:

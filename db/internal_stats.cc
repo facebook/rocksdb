@@ -519,7 +519,7 @@ const std::unordered_map<std::string, DBPropertyInfo>
          {false, nullptr, &InternalStats::HandleLiveSstFilesSize, nullptr,
           nullptr}},
         {DB::Properties::kLiveSstFilesSizeAtTemperature,
-         {true, &InternalStats::HandleLiveSstFilesSizeAtTemperature, nullptr,
+         {false, &InternalStats::HandleLiveSstFilesSizeAtTemperature, nullptr,
           nullptr, nullptr}},
         {DB::Properties::kEstimatePendingCompactionBytes,
          {false, nullptr, &InternalStats::HandleEstimatePendingCompactionBytes,

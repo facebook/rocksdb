@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cinttypes>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <thread>
@@ -23,12 +24,15 @@
 
 #include "db/db_impl/db_impl.h"
 #include "file/filename.h"
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/sst_file_writer.h"
@@ -698,29 +702,79 @@ class FileTemperatureTestFS : public FileSystemWrapper {
   IOStatus NewSequentialFile(const std::string& fname, const FileOptions& opts,
                              std::unique_ptr<FSSequentialFile>* result,
                              IODebugContext* dbg) override {
-    auto filename = GetFileName(fname);
+    IOStatus s = target()->NewSequentialFile(fname, opts, result, dbg);
     uint64_t number;
     FileType type;
-    auto r = ParseFileName(filename, &number, &type);
-    assert(r);
-    if (type == kTableFile) {
-      auto emplaced =
-          requested_sst_file_temperatures_.emplace(number, opts.temperature);
-      assert(emplaced.second);  // assume no duplication
+    if (ParseFileName(GetFileName(fname), &number, &type) &&
+        type == kTableFile) {
+      MutexLock lock(&mu_);
+      requested_sst_file_temperatures_.emplace_back(number, opts.temperature);
+      if (s.ok()) {
+        *result = WrapWithTemperature<FSSequentialFileOwnerWrapper>(
+            number, std::move(*result));
+      }
     }
-    return target()->NewSequentialFile(fname, opts, result, dbg);
+    return s;
   }
 
-  const std::map<uint64_t, Temperature>& RequestedSstFileTemperatures() {
-    return requested_sst_file_temperatures_;
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    IOStatus s = target()->NewRandomAccessFile(fname, opts, result, dbg);
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(GetFileName(fname), &number, &type) &&
+        type == kTableFile) {
+      MutexLock lock(&mu_);
+      requested_sst_file_temperatures_.emplace_back(number, opts.temperature);
+      if (s.ok()) {
+        *result = WrapWithTemperature<FSRandomAccessFileOwnerWrapper>(
+            number, std::move(*result));
+      }
+    }
+    return s;
   }
 
-  void ClearRequestedFileTemperatures() {
-    requested_sst_file_temperatures_.clear();
+  void PopRequestedSstFileTemperatures(
+      std::vector<std::pair<uint64_t, Temperature>>* out = nullptr) {
+    MutexLock lock(&mu_);
+    if (out) {
+      *out = std::move(requested_sst_file_temperatures_);
+      assert(requested_sst_file_temperatures_.empty());
+    } else {
+      requested_sst_file_temperatures_.clear();
+    }
+  }
+
+  IOStatus NewWritableFile(const std::string& fname, const FileOptions& opts,
+                           std::unique_ptr<FSWritableFile>* result,
+                           IODebugContext* dbg) override {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(GetFileName(fname), &number, &type) &&
+        type == kTableFile) {
+      MutexLock lock(&mu_);
+      current_sst_file_temperatures_[number] = opts.temperature;
+    }
+    return target()->NewWritableFile(fname, opts, result, dbg);
+  }
+
+  void CopyCurrentSstFileTemperatures(std::map<uint64_t, Temperature>* out) {
+    MutexLock lock(&mu_);
+    *out = current_sst_file_temperatures_;
+  }
+
+  void OverrideSstFileTemperature(uint64_t number, Temperature temp) {
+    MutexLock lock(&mu_);
+    current_sst_file_temperatures_[number] = temp;
   }
 
  protected:
-  std::map<uint64_t, Temperature> requested_sst_file_temperatures_;
+  port::Mutex mu_;
+  std::vector<std::pair<uint64_t, Temperature>>
+      requested_sst_file_temperatures_;
+  std::map<uint64_t, Temperature> current_sst_file_temperatures_;
 
   std::string GetFileName(const std::string& fname) {
     auto filename = fname.substr(fname.find_last_of(kFilePathSeparator) + 1);
@@ -728,6 +782,27 @@ class FileTemperatureTestFS : public FileSystemWrapper {
     // FilePathSeparator and '/'
     filename = filename.substr(filename.find_last_of('/') + 1);
     return filename;
+  }
+
+  template <class FileOwnerWrapperT, /*inferred*/ class FileT>
+  std::unique_ptr<FileT> WrapWithTemperature(uint64_t number,
+                                             std::unique_ptr<FileT>&& t) {
+    class FileWithTemp : public FileOwnerWrapperT {
+     public:
+      FileWithTemp(FileTemperatureTestFS* fs, uint64_t number,
+                   std::unique_ptr<FileT>&& t)
+          : FileOwnerWrapperT(std::move(t)), fs_(fs), number_(number) {}
+
+      Temperature GetTemperature() const override {
+        MutexLock lock(&fs_->mu_);
+        return fs_->current_sst_file_temperatures_[number_];
+      }
+
+     private:
+      FileTemperatureTestFS* fs_;
+      uint64_t number_;
+    };
+    return std::make_unique<FileWithTemp>(this, number, std::move(t));
   }
 };
 

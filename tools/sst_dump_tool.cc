@@ -398,9 +398,9 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       filename = std::string(dir_or_file) + "/" + filename;
     }
 
-    ROCKSDB_NAMESPACE::SstFileDumper dumper(options, filename, readahead_size,
-                                            verify_checksum, output_hex,
-                                            decode_blob_index);
+    ROCKSDB_NAMESPACE::SstFileDumper dumper(
+        options, filename, Temperature::kUnknown, readahead_size,
+        verify_checksum, output_hex, decode_blob_index);
     // Not a valid SST
     if (!dumper.getStatus().ok()) {
       fprintf(stderr, "%s: %s\n", filename.c_str(),
