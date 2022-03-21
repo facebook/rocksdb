@@ -7,12 +7,13 @@
 
 #ifndef ROCKSDB_LITE  // Lite does not support C API
 
-#include "rocksdb/c.h"
-
+#include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+
+#include "rocksdb/c.h"
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -89,10 +90,8 @@ static void CheckEqual(const char* expected, const char* v, size_t n) {
     // ok
     return;
   } else {
-    fprintf(stderr, "%s: expected '%s', got '%s'\n",
-            phase,
-            (expected ? expected : "(null)"),
-            (v ? v : "(null"));
+    fprintf(stderr, "%s: expected '%s', got '%s'\n", phase,
+            (expected ? expected : "(null)"), (v ? v : "(null)"));
     abort();
   }
 }
@@ -1019,7 +1018,36 @@ int main(int argc, char** argv) {
     CheckGet(db, roptions, "foo", NULL);
     rocksdb_release_snapshot(db, snap);
   }
-
+  StartPhase("snapshot_with_memtable_inplace_update");
+  {
+    rocksdb_close(db);
+    const rocksdb_snapshot_t* snap = NULL;
+    const char* s_key = "foo_snap";
+    const char* value1 = "hello_s1";
+    const char* value2 = "hello_s2";
+    rocksdb_options_set_allow_concurrent_memtable_write(options, 0);
+    rocksdb_options_set_inplace_update_support(options, 1);
+    rocksdb_options_set_error_if_exists(options, 0);
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+    rocksdb_put(db, woptions, s_key, 8, value1, 8, &err);
+    snap = rocksdb_create_snapshot(db);
+    assert(snap != NULL);
+    rocksdb_put(db, woptions, s_key, 8, value2, 8, &err);
+    CheckNoError(err);
+    rocksdb_readoptions_set_snapshot(roptions, snap);
+    CheckGet(db, roptions, "foo", NULL);
+    // snapshot syntax is invalid, because of inplace update supported is set
+    CheckGet(db, roptions, s_key, value2);
+    // restore the data and options
+    rocksdb_delete(db, woptions, s_key, 8, &err);
+    CheckGet(db, roptions, s_key, NULL);
+    rocksdb_release_snapshot(db, snap);
+    rocksdb_readoptions_set_snapshot(roptions, NULL);
+    rocksdb_options_set_inplace_update_support(options, 0);
+    rocksdb_options_set_allow_concurrent_memtable_write(options, 1);
+    rocksdb_options_set_error_if_exists(options, 1);
+  }
   StartPhase("repair");
   {
     // If we do not compact here, then the lazy deletion of
