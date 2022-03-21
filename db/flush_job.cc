@@ -354,7 +354,7 @@ Status FlushJob::MemPurge() {
 
   // Measure purging time.
   const uint64_t start_micros = clock_->NowMicros();
-  const uint64_t start_cpu_micros = clock_->CPUNanos() / 1000;
+  const uint64_t start_cpu_micros = clock_->CPUMicros();
 
   MemTable* new_mem = nullptr;
   // For performance/log investigation purposes:
@@ -606,7 +606,7 @@ Status FlushJob::MemPurge() {
     TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeUnsuccessful");
   }
   const uint64_t micros = clock_->NowMicros() - start_micros;
-  const uint64_t cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
+  const uint64_t cpu_micros = clock_->CPUMicros() - start_cpu_micros;
   ROCKS_LOG_INFO(db_options_.info_log,
                  "[%s] [JOB %d] Mempurge lasted %" PRIu64
                  " microseconds, and %" PRIu64
@@ -792,7 +792,7 @@ Status FlushJob::WriteLevel0Table() {
       ThreadStatus::STAGE_FLUSH_WRITE_L0);
   db_mutex_->AssertHeld();
   const uint64_t start_micros = clock_->NowMicros();
-  const uint64_t start_cpu_micros = clock_->CPUNanos() / 1000;
+  const uint64_t start_cpu_micros = clock_->CPUMicros();
   Status s;
 
   std::vector<BlobFileAddition> blob_file_additions;
@@ -979,7 +979,7 @@ Status FlushJob::WriteLevel0Table() {
   // Note that here we treat flush as level 0 compaction in internal stats
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
   const uint64_t micros = clock_->NowMicros() - start_micros;
-  const uint64_t cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
+  const uint64_t cpu_micros = clock_->CPUMicros() - start_cpu_micros;
   stats.micros = micros;
   stats.cpu_micros = cpu_micros;
 

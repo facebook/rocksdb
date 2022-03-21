@@ -1312,7 +1312,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 #endif  // !ROCKSDB_LITE
 
-  uint64_t prev_cpu_micros = db_options_.clock->CPUNanos() / 1000;
+  uint64_t prev_cpu_micros = db_options_.clock->CPUMicros();
 
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
 
@@ -1659,7 +1659,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   sub_compact->compaction_job_stats.cpu_micros =
-      db_options_.clock->CPUNanos() / 1000 - prev_cpu_micros;
+      db_options_.clock->CPUMicros() - prev_cpu_micros;
 
   if (measure_io_stats_) {
     sub_compact->compaction_job_stats.file_write_nanos +=
