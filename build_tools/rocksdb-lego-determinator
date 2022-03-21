@@ -106,10 +106,11 @@ SHM="TEST_TMPDIR=/dev/shm/rocksdb"
 NON_SHM="TMPD=/tmp/rocksdb_test_tmp"
 GCC_481="ROCKSDB_FBCODE_BUILD_WITH_481=1"
 ASAN="COMPILE_WITH_ASAN=1"
+ASAN_TEST_OPTIONS="ASAN_OPTIONS=detect_stack_use_after_return=1"
 CLANG="USE_CLANG=1"
 TSAN="COMPILE_WITH_TSAN=1"
 UBSAN="COMPILE_WITH_UBSAN=1"
-ASAN_CRASH="ASAN_OPTIONS=disable_coredump=0"
+ASAN_CRASH="ASAN_OPTIONS=disable_coredump=0:detect_stack_use_after_return=1"
 TSAN_CRASH="TSAN_OPTIONS=disable_coredump=0 CRASH_TEST_EXT_ARGS=\\\"--compression_type=zstd --log2_keys_per_lock=22\\\""
 NON_TSAN_CRASH="CRASH_TEST_EXT_ARGS=--compression_type=zstd"
 UBSAN_CRASH="UBSAN_OPTIONS=disable_coredump=0"
@@ -597,7 +598,7 @@ ASAN_TEST_COMMANDS="[
             $CLEANUP_ENV,
             {
                 \"name\":\"Test RocksDB debug under ASAN\",
-\"shell\":\"cd $WORKING_DIR; set -o pipefail && $SHM $ASAN $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM asan_check || $CONTRUN_NAME=asan_check $TASK_CREATION_TOOL\",
+\"shell\":\"cd $WORKING_DIR; set -o pipefail && $SHM $ASAN $ASAN_TEST_OPTIONS $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM asan_check || $CONTRUN_NAME=asan_check $TASK_CREATION_TOOL\",
                 \"user\":\"root\",
                 $PARSER
             }
