@@ -11,7 +11,6 @@ In order to finally yield the output of benchmark tests.
 import argparse
 from ast import Dict
 from collections import namedtuple
-import csv
 import email
 import itertools
 import pickle
@@ -20,6 +19,7 @@ import re
 import socket
 import struct
 import sys
+import time
 from typing import Callable, List, Mapping
 import circleci.api
 import requests
@@ -43,15 +43,6 @@ class TupleObject:
             return [TupleObject.mapper(item) for item in input_mapping]
         return input_mapping
 
-
-class Configuration:
-    graphite_server = 'localhost'
-    graphite_pickle_port = 2004
-    circle_user_id = 'e7d4aab13e143360f95e258be0a89b5c8e256773'
-    circle_vcs = 'github'
-    circle_username = 'facebook'
-    circle_project = 'rocksdb'
-    circle_ci_api = 'https://circleci.com/api/v2'
 
 class CircleAPIV2:
 
@@ -289,6 +280,7 @@ class ResultParser:
             header, row[:width])} for row in rows[1:]]
         return records
 
+
 class BenchmarkResult:
 
     '''The result of a benchmark run
@@ -434,13 +426,17 @@ def load_reports_from_tsv(filename: str):
     report = parser.parse(contents)
     return report
 
+
 def push_pickle_to_graphite(reports):
     sanitized = [[BenchmarkUtils.enhance(row)
                  for row in rows if BenchmarkUtils.sanity_check(row)] for rows in reports]
-    graphite = [[BenchmarkUtils.graphite(row)
-                 for row in rows] for rows in sanitized]
+    graphite = []
+    for rows in sanitized:
+        for row in rows:
+            for point in BenchmarkUtils.graphite(row):
+                graphite.append(point)
     # Careful not to use too modern a protocol for Graphite (it is Python2)
-    payload = pickle.dumps(graphite, protocol=2)
+    payload = pickle.dumps(graphite, protocol=1)
     header = struct.pack("!L", len(payload))
     graphite_message = header + payload
 
@@ -460,6 +456,16 @@ def push_pickle_to_graphite(reports):
                          {'server': Configuration.graphite_server, 'port': Configuration.graphite_pickle_port})
 
 
+class Configuration:
+    graphite_server = 'localhost'
+    graphite_pickle_port = 2004
+    circle_user_id = 'e7d4aab13e143360f95e258be0a89b5c8e256773'  # rotate those tokens
+    circle_vcs = 'github'
+    circle_username = 'facebook'
+    circle_project = 'rocksdb'
+    circle_ci_api = 'https://circleci.com/api/v2'
+
+
 def main():
     '''Fetch and parse benchmark results from CircleCI
     Save to a pickle file
@@ -469,7 +475,9 @@ def main():
     parser = argparse.ArgumentParser(
         description='CircleCI benchmark scraper.')
 
-    # --save <picklefile> in
+    # --fetch from the CircleCI API into --picklefile <PICKLE-FILE>
+    # --push contents of --picklefile <PICKLE-FILE> to grafana/graphite
+    #
     parser.add_argument('--action', choices=['fetch', 'push', 'all', 'tsv'], default='push',
                         help='Which action to perform')
     parser.add_argument('--picklefile', default='reports.pickle',
