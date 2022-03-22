@@ -374,7 +374,7 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
   // Free the entries here outside of mutex for performance reasons
   for (auto entry : last_reference_list) {
     if (secondary_cache_ && entry->IsSecondaryCacheCompatible() &&
-        !entry->IsPromoted()) {
+        /*!entry->IsPromoted()*/) {
       secondary_cache_->Insert(entry->key(), entry->value, entry->info_.helper)
           .PermitUncheckedError();
     }
