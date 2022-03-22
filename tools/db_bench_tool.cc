@@ -4769,6 +4769,9 @@ class Benchmark {
 
     int64_t stage = 0;
     int64_t num_written = 0;
+    int64_t next_seq_db_at = num_ops;
+    size_t id = 0;
+
     while ((num_per_key_gen != 0) && !duration.Done(entries_per_batch_)) {
       if (duration.GetStage() != stage) {
         stage = duration.GetStage();
@@ -4781,8 +4784,25 @@ class Benchmark {
         }
       }
 
-      size_t id = thread->rand.Next() % num_key_gens;
+      if (write_mode != SEQUENTIAL) {
+        id = thread->rand.Next() % num_key_gens;
+      } else {
+        // When doing a sequential load with multiple databases, load them in
+        // order rather than all at the same time to avoid:
+        // 1) long delays between flushing memtables
+        // 2) flushing memtables for all of them at the same point in time
+        // 3) not putting the same number of keys in each database
+        if (num_written >= next_seq_db_at) {
+          next_seq_db_at += num_ops;
+          id++;
+          if (id >= num_key_gens) {
+            fprintf(stderr, "Logic error. Filled all databases\n");
+            ErrorExit();
+          }
+        }
+      }
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(id);
+
       batch.Clear();
       int64_t batch_bytes = 0;
 
