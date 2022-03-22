@@ -894,8 +894,8 @@ class CacheWrapper : public Cache {
   bool Ref(Handle* handle) override { return target_->Ref(handle); }
 
   using Cache::Release;
-  bool Release(Handle* handle, bool force_erase = false) override {
-    return target_->Release(handle, force_erase);
+  bool Release(Handle* handle, bool erase_if_last_ref = false) override {
+    return target_->Release(handle, erase_if_last_ref);
   }
 
   void* Value(Handle* handle) override { return target_->Value(handle); }

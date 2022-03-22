@@ -919,7 +919,7 @@ class FilterConstructResPeakTrackingCache : public CacheWrapper {
   }
 
   using Cache::Release;
-  bool Release(Handle* handle, bool force_erase = false) override {
+  bool Release(Handle* handle, bool erase_if_last_ref = false) override {
     auto deleter = GetDeleter(handle);
     if (deleter == kNoopDeleterForFilterConstruction) {
       if (!last_peak_tracked_) {
@@ -929,7 +929,7 @@ class FilterConstructResPeakTrackingCache : public CacheWrapper {
       }
       cur_cache_res_ -= GetCharge(handle);
     }
-    bool is_successful = target_->Release(handle, force_erase);
+    bool is_successful = target_->Release(handle, erase_if_last_ref);
     return is_successful;
   }
 
