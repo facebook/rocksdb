@@ -25,8 +25,9 @@ from typing import Callable, List, Mapping
 import circleci.api
 import requests
 from dateutil import parser
+import logging
 
-
+logging.basicConfig(level=logging.DEBUG)
 class Configuration:
     graphite_server = 'cherry.evolvedbinary.com'
     graphite_pickle_port = 2004
@@ -472,6 +473,8 @@ def push_pickle_to_graphite(reports, test_values: bool):
     # Do this if we are asked to create a recent record of test. data points
     if test_values:
         graphite = BenchmarkUtils.test_graphite(graphite)
+
+    logging.debug(f"upload to graphite: {graphite}")
 
     # Careful not to use too modern a protocol for Graphite (it is Python2)
     payload = pickle.dumps(graphite, protocol=1)
