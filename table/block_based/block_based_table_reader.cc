@@ -119,7 +119,7 @@ Status ReadBlockFromFile(
 void ReleaseCachedEntry(void* arg, void* h) {
   Cache* cache = reinterpret_cast<Cache*>(arg);
   Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
-  cache->Release(handle, false /* force_erase */);
+  cache->Release(handle, false /* erase_if_last_ref */);
 }
 
 // For hash based index, return false if table_properties->prefix_extractor_name
