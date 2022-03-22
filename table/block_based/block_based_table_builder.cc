@@ -1680,7 +1680,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     PropertyBlockBuilder property_block_builder;
     rep_->props.filter_policy_name =
         rep_->table_options.filter_policy != nullptr
-            ? rep_->table_options.filter_policy->CompatibilityName()
+            ? rep_->table_options.filter_policy->Name()
             : "";
     rep_->props.index_size =
         rep_->index_builder->IndexSize() + kBlockTrailerSize;
