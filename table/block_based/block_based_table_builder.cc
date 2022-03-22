@@ -1605,7 +1605,7 @@ void BlockBasedTableBuilder::WriteFilterBlock(
                 ? BlockBasedTable::kPartitionedFilterBlockPrefix
                 : BlockBasedTable::kFullFilterBlockPrefix;
     }
-    key.append(rep_->table_options.filter_policy->Name());
+    key.append(rep_->table_options.filter_policy->CompatibilityName());
     meta_index_builder->Add(key, filter_block_handle);
   }
 }
@@ -1680,7 +1680,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     PropertyBlockBuilder property_block_builder;
     rep_->props.filter_policy_name =
         rep_->table_options.filter_policy != nullptr
-            ? rep_->table_options.filter_policy->Name()
+            ? rep_->table_options.filter_policy->CompatibilityName()
             : "";
     rep_->props.index_size =
         rep_->index_builder->IndexSize() + kBlockTrailerSize;

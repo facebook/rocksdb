@@ -1638,9 +1638,15 @@ class LevelAndStyleCustomFilterPolicy : public FilterPolicy {
         policy_l0_other_(NewBloomFilterPolicy(bpk_l0_other)),
         policy_otherwise_(NewBloomFilterPolicy(bpk_otherwise)) {}
 
+  const char* Name() const override {
+    return "LevelAndStyleCustomFilterPolicy";
+  }
+
   // OK to use built-in policy name because we are deferring to a
   // built-in builder. We aren't changing the serialized format.
-  const char* Name() const override { return policy_fifo_->Name(); }
+  const char* CompatibilityName() const override {
+    return policy_fifo_->CompatibilityName();
+  }
 
   FilterBitsBuilder* GetBuilderWithContext(
       const FilterBuildingContext& context) const override {

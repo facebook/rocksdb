@@ -90,6 +90,15 @@ class FilterPolicy : public Customizable {
   virtual ~FilterPolicy();
   static const char* Type() { return "FilterPolicy"; }
 
+  // The name used for identifying whether a filter on disk is readable
+  // by this FilterPolicy. This e.g. allows BloomFilterPolcy and
+  // RibbonFilterPolicy to have distinct Customizable names but able to
+  // read each others filters. Filter policies not based on built-in
+  // implementations may return Name(), but this is pure virtual so that
+  // wrappers around built-in policies are prompted to defer to
+  // CompatibilityName() of the wrapped policy.
+  virtual const char* CompatibilityName() const = 0;
+
   // Creates a new FilterPolicy based on the input value string and returns the
   // result The value might be an ID, and ID with properties, or an old-style
   // policy string.
