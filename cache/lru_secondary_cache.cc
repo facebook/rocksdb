@@ -81,7 +81,7 @@ std::unique_ptr<SecondaryCacheResultHandle> LRUSecondaryCache::Lookup(
   }
 
   handle.reset(new LRUSecondaryCacheResultHandle(value, charge));
-  cache_->Release(lru_handle);
+  cache_->Release(lru_handle, /* erase_if_last_ref */ true);
   return handle;
 }
 
