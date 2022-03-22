@@ -474,7 +474,7 @@ def push_pickle_to_graphite(reports, test_values: bool):
     if test_values:
         graphite = BenchmarkUtils.test_graphite(graphite)
 
-    logging.debug(f"upload to graphite: {graphite}")
+    logging.debug(f"upload {len(graphite)} to graphite: {graphite}")
 
     # Careful not to use too modern a protocol for Graphite (it is Python2)
     payload = pickle.dumps(graphite, protocol=1)
