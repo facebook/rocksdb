@@ -119,7 +119,7 @@ Status ReadBlockFromFile(
 void ReleaseCachedEntry(void* arg, void* h) {
   Cache* cache = reinterpret_cast<Cache*>(arg);
   Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
-  cache->Release(handle, false /* force_erase */);
+  cache->Release(handle, false /* erase_if_last_ref */);
 }
 
 // For hash based index, return false if table_properties->prefix_extractor_name
@@ -1472,9 +1472,9 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
           // Update the block details so that PrefetchBuffer can use the read
           // pattern to determine if reads are sequential or not for
           // prefetching. It should also take in account blocks read from cache.
-          prefetch_buffer->UpdateReadPattern(handle.offset(),
-                                             BlockSizeWithTrailer(handle),
-                                             ro.adaptive_readahead);
+          prefetch_buffer->UpdateReadPattern(
+              handle.offset(), BlockSizeWithTrailer(handle),
+              ro.adaptive_readahead /*decrease_readahead_size*/);
         }
       }
     }

@@ -1357,19 +1357,23 @@ DEFINE_double(key_dist_b, 0.0,
 DEFINE_double(value_theta, 0.0,
               "The parameter 'theta' of Generized Pareto Distribution "
               "f(x)=(1/sigma)*(1+k*(x-theta)/sigma)^-(1/k+1)");
-DEFINE_double(value_k, 0.0,
+// Use reasonable defaults based on the mixgraph paper
+DEFINE_double(value_k, 0.2615,
               "The parameter 'k' of Generized Pareto Distribution "
               "f(x)=(1/sigma)*(1+k*(x-theta)/sigma)^-(1/k+1)");
-DEFINE_double(value_sigma, 0.0,
+// Use reasonable defaults based on the mixgraph paper
+DEFINE_double(value_sigma, 25.45,
               "The parameter 'theta' of Generized Pareto Distribution "
               "f(x)=(1/sigma)*(1+k*(x-theta)/sigma)^-(1/k+1)");
 DEFINE_double(iter_theta, 0.0,
               "The parameter 'theta' of Generized Pareto Distribution "
               "f(x)=(1/sigma)*(1+k*(x-theta)/sigma)^-(1/k+1)");
-DEFINE_double(iter_k, 0.0,
+// Use reasonable defaults based on the mixgraph paper
+DEFINE_double(iter_k, 2.517,
               "The parameter 'k' of Generized Pareto Distribution "
               "f(x)=(1/sigma)*(1+k*(x-theta)/sigma)^-(1/k+1)");
-DEFINE_double(iter_sigma, 0.0,
+// Use reasonable defaults based on the mixgraph paper
+DEFINE_double(iter_sigma, 14.236,
               "The parameter 'sigma' of Generized Pareto Distribution "
               "f(x)=(1/sigma)*(1+k*(x-theta)/sigma)^-(1/k+1)");
 DEFINE_double(mix_get_ratio, 1.0,
@@ -4771,6 +4775,9 @@ class Benchmark {
 
     int64_t stage = 0;
     int64_t num_written = 0;
+    int64_t next_seq_db_at = num_ops;
+    size_t id = 0;
+
     while ((num_per_key_gen != 0) && !duration.Done(entries_per_batch_)) {
       if (duration.GetStage() != stage) {
         stage = duration.GetStage();
@@ -4783,8 +4790,25 @@ class Benchmark {
         }
       }
 
-      size_t id = thread->rand.Next() % num_key_gens;
+      if (write_mode != SEQUENTIAL) {
+        id = thread->rand.Next() % num_key_gens;
+      } else {
+        // When doing a sequential load with multiple databases, load them in
+        // order rather than all at the same time to avoid:
+        // 1) long delays between flushing memtables
+        // 2) flushing memtables for all of them at the same point in time
+        // 3) not putting the same number of keys in each database
+        if (num_written >= next_seq_db_at) {
+          next_seq_db_at += num_ops;
+          id++;
+          if (id >= num_key_gens) {
+            fprintf(stderr, "Logic error. Filled all databases\n");
+            ErrorExit();
+          }
+        }
+      }
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(id);
+
       batch.Clear();
       int64_t batch_bytes = 0;
 
@@ -6032,13 +6056,14 @@ class Benchmark {
   // needs to decide the ratio between Get, Put, Iterator queries before
   // starting the benchmark.
   void MixGraph(ThreadState* thread) {
-    int64_t read = 0;  // including single gets and Next of iterators
     int64_t gets = 0;
     int64_t puts = 0;
-    int64_t found = 0;
+    int64_t get_found = 0;
     int64_t seek = 0;
     int64_t seek_found = 0;
     int64_t bytes = 0;
+    double total_scan_length = 0;
+    double total_val_size = 0;
     const int64_t default_value_max = 1 * 1024 * 1024;
     int64_t value_max = default_value_max;
     int64_t scan_len_max = FLAGS_mix_max_scan_len;
@@ -6137,7 +6162,6 @@ class Benchmark {
       if (query_type == 0) {
         // the Get query
         gets++;
-        read++;
         if (FLAGS_num_column_families > 1) {
           s = db_with_cfh->db->Get(read_options_, db_with_cfh->GetCfh(key_rand),
                                    key, &pinnable_val);
@@ -6149,14 +6173,14 @@ class Benchmark {
         }
 
         if (s.ok()) {
-          found++;
+          get_found++;
           bytes += key.size() + pinnable_val.size();
         } else if (!s.IsNotFound()) {
           fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
           abort();
         }
 
-        if (thread->shared->read_rate_limiter && read % 100 == 0) {
+        if (thread->shared->read_rate_limiter && (gets + seek) % 100 == 0) {
           thread->shared->read_rate_limiter->Request(100, Env::IO_HIGH,
                                                      nullptr /*stats*/);
         }
@@ -6166,11 +6190,13 @@ class Benchmark {
         puts++;
         int64_t val_size = ParetoCdfInversion(
             u, FLAGS_value_theta, FLAGS_value_k, FLAGS_value_sigma);
-        if (val_size < 0) {
+        if (val_size < 10) {
           val_size = 10;
         } else if (val_size > value_max) {
           val_size = val_size % value_max;
         }
+        total_val_size += val_size;
+
         s = db_with_cfh->db->Put(
             write_options_, key,
             gen.Generate(static_cast<unsigned int>(val_size)));
@@ -6192,7 +6218,6 @@ class Benchmark {
           if (single_iter != nullptr) {
             single_iter->Seek(key);
             seek++;
-            read++;
             if (single_iter->Valid() && single_iter->key().compare(key) == 0) {
               seek_found++;
             }
@@ -6207,6 +6232,7 @@ class Benchmark {
               bytes += single_iter->key().size() + single_iter->value().size();
               single_iter->Next();
               assert(single_iter->status().ok());
+              total_scan_length++;
             }
           }
           delete single_iter;
@@ -6216,9 +6242,12 @@ class Benchmark {
     }
     char msg[256];
     snprintf(msg, sizeof(msg),
-             "( Gets:%" PRIu64 " Puts:%" PRIu64 " Seek:%" PRIu64 " of %" PRIu64
-             " in %" PRIu64 " found)\n",
-             gets, puts, seek, found, read);
+             "( Gets:%" PRIu64 " Puts:%" PRIu64 " Seek:%" PRIu64
+             ", reads %" PRIu64 " in %" PRIu64
+             " found, "
+             "avg size: %.1f value, %.1f scan)\n",
+             gets, puts, seek, get_found + seek_found, gets + seek,
+             total_val_size / puts, total_scan_length / seek);
 
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
