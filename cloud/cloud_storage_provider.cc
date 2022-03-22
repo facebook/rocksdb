@@ -317,12 +317,9 @@ Status CloudStorageProviderImpl::GetCloudObject(
   // Check if our local file is the same as promised
   uint64_t local_size{0};
   s = localenv->GetFileSize(tmp_destination, &local_size);
-  if (!s.ok()) {
-    return s;
-  }
-  if (local_size != remote_size) {
+  if (!s.ok() || local_size != remote_size) {
     localenv->DeleteFile(tmp_destination);
-    s = Status::IOError("Partial download of a file " + local_destination);
+    s = Status::IOError("File download failed: " + local_destination);
     Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
         "[%s] GetCloudObject %s/%s local size %" PRIu64
         " != cloud size "
