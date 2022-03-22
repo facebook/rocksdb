@@ -10,7 +10,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-struct TEST_FutureSchemaVersion2Options {
+struct TEST_BackupMetaSchemaOptions {
   std::string version = "2";
   bool crc32c_checksums = false;
   bool file_sizes = true;
@@ -21,9 +21,9 @@ struct TEST_FutureSchemaVersion2Options {
 
 // Modifies the BackupEngine(Impl) to write backup meta files using the
 // unpublished schema version 2, for the life of this object (not backup_dir).
-// TEST_FutureSchemaVersion2Options offers some customization for testing.
-void TEST_EnableWriteFutureSchemaVersion2(
-    BackupEngine *engine, const TEST_FutureSchemaVersion2Options &options);
+// TEST_BackupMetaSchemaOptions offers some customization for testing.
+void TEST_SetBackupMetaSchemaOptions(
+    BackupEngine *engine, const TEST_BackupMetaSchemaOptions &options);
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE
