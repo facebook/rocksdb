@@ -911,8 +911,10 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       if (strcmp(name, BuiltinFilterPolicy::kCompatibilityName()) == 0) {
         // This code is only here to deal with a hiccup in early 7.0.x where
         // there was an unintentional name change in the SST files metadata.
-        // It should be OK to remove this in the future and just have the
-        // 'else' code.
+        // It should be OK to remove this in the future (late 2022) and just
+        // have the 'else' code.
+        // NOTE: the test:: names below are likely not needed but included
+        // out of caution
         static const std::unordered_set<std::string> kBuiltinNameAndAliases = {
             BuiltinFilterPolicy::kCompatibilityName(),
             test::LegacyBloomFilterPolicy::kClassName(),
