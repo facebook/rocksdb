@@ -2211,7 +2211,13 @@ class Stats {
               }
             } else if (db) {
               if (db->GetProperty("rocksdb.stats", &stats)) {
-                fprintf(stderr, "%s\n", stats.c_str());
+                fprintf(stderr, "%s", stats.c_str());
+              }
+              if (db->GetProperty("rocksdb.num-running-compactions", &stats)) {
+                fprintf(stderr, "num-running-compactions: %s\n", stats.c_str());
+              }
+              if (db->GetProperty("rocksdb.num-running-flushes", &stats)) {
+                fprintf(stderr, "num-running-flushes: %s\n\n", stats.c_str());
               }
               if (FLAGS_show_table_properties) {
                 for (int level = 0; level < FLAGS_num_levels; ++level) {
