@@ -507,6 +507,9 @@ struct DBOptions {
   // - Reads associated with a `ReadOptions` can be charged at
   //   `ReadOptions::rate_limiter_priority` (see that option's API doc for usage
   //   and limitations).
+  // - Writes associated with a `WriteOptions` can be charged at
+  //   `WriteOptions::rate_limiter_priority` (see that option's API doc for
+  //   usage and limitations).
   //
   // Rate limiting is disabled if nullptr. If rate limiter is enabled,
   // bytes_per_sync is set to 1MB by default.
