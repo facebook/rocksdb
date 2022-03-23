@@ -916,7 +916,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
         // It should be OK to remove this in the future (late 2022) and just
         // have the 'else' code.
         // NOTE: the test:: names below are likely not needed but included
-        // out of caution
+        // out of caution.
         static const std::unordered_set<std::string> kBuiltinNameAndAliases = {
             BuiltinFilterPolicy::kCompatibilityName(),
             test::LegacyBloomFilterPolicy::kClassName(),
