@@ -12,6 +12,7 @@
 #include <array>
 #include <limits>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -50,6 +51,7 @@
 #include "table/block_based/block_prefix_index.h"
 #include "table/block_based/block_type.h"
 #include "table/block_based/filter_block.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/hash_index_reader.h"
 #include "table/block_based/partitioned_filter_block.h"
@@ -897,33 +899,59 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     const BlockBasedTableOptions& table_options, const int level,
     size_t file_size, size_t max_file_size_for_l0_meta_pin,
     BlockCacheLookupContext* lookup_context) {
-  Status s;
-
   // Find filter handle and filter type
   if (rep_->filter_policy) {
-    for (auto filter_type :
-         {Rep::FilterType::kFullFilter, Rep::FilterType::kPartitionedFilter,
-          Rep::FilterType::kBlockFilter}) {
-      std::string prefix;
-      switch (filter_type) {
-        case Rep::FilterType::kFullFilter:
-          prefix = kFullFilterBlockPrefix;
+    auto name = rep_->filter_policy->CompatibilityName();
+    bool builtin_compatible =
+        strcmp(name, BuiltinFilterPolicy::kCompatibilityName()) == 0;
+
+    for (const auto& [filter_type, prefix] :
+         {std::make_pair(Rep::FilterType::kFullFilter, kFullFilterBlockPrefix),
+          std::make_pair(Rep::FilterType::kPartitionedFilter,
+                         kPartitionedFilterBlockPrefix),
+          std::make_pair(Rep::FilterType::kBlockFilter, kFilterBlockPrefix)}) {
+      if (builtin_compatible) {
+        // This code is only here to deal with a hiccup in early 7.0.x where
+        // there was an unintentional name change in the SST files metadata.
+        // It should be OK to remove this in the future (late 2022) and just
+        // have the 'else' code.
+        // NOTE: the test:: names below are likely not needed but included
+        // out of caution
+        static const std::unordered_set<std::string> kBuiltinNameAndAliases = {
+            BuiltinFilterPolicy::kCompatibilityName(),
+            test::LegacyBloomFilterPolicy::kClassName(),
+            test::FastLocalBloomFilterPolicy::kClassName(),
+            test::Standard128RibbonFilterPolicy::kClassName(),
+            DeprecatedBlockBasedBloomFilterPolicy::kClassName(),
+            BloomFilterPolicy::kClassName(),
+            RibbonFilterPolicy::kClassName(),
+        };
+
+        // For efficiency, do a prefix seek and see if the first match is
+        // good.
+        meta_iter->Seek(prefix);
+        if (meta_iter->status().ok() && meta_iter->Valid()) {
+          Slice key = meta_iter->key();
+          if (key.starts_with(prefix)) {
+            key.remove_prefix(prefix.size());
+            if (kBuiltinNameAndAliases.find(key.ToString()) !=
+                kBuiltinNameAndAliases.end()) {
+              Slice v = meta_iter->value();
+              Status s = rep_->filter_handle.DecodeFrom(&v);
+              if (s.ok()) {
+                rep_->filter_type = filter_type;
+                break;
+              }
+            }
+          }
+        }
+      } else {
+        std::string filter_block_key = prefix + name;
+        if (FindMetaBlock(meta_iter, filter_block_key, &rep_->filter_handle)
+                .ok()) {
+          rep_->filter_type = filter_type;
           break;
-        case Rep::FilterType::kPartitionedFilter:
-          prefix = kPartitionedFilterBlockPrefix;
-          break;
-        case Rep::FilterType::kBlockFilter:
-          prefix = kFilterBlockPrefix;
-          break;
-        default:
-          assert(0);
-      }
-      std::string filter_block_key = prefix;
-      filter_block_key.append(rep_->filter_policy->Name());
-      if (FindMetaBlock(meta_iter, filter_block_key, &rep_->filter_handle)
-              .ok()) {
-        rep_->filter_type = filter_type;
-        break;
+        }
       }
     }
   }
@@ -932,8 +960,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
          rep_->index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
 
   // Find compression dictionary handle
-  s = FindOptionalMetaBlock(meta_iter, kCompressionDictBlockName,
-                            &rep_->compression_dict_handle);
+  Status s = FindOptionalMetaBlock(meta_iter, kCompressionDictBlockName,
+                                   &rep_->compression_dict_handle);
   if (!s.ok()) {
     return s;
   }

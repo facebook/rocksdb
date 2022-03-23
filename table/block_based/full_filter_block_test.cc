@@ -84,6 +84,7 @@ class TestFilterBitsReader : public FilterBitsReader {
 class TestHashFilter : public FilterPolicy {
  public:
   const char* Name() const override { return "TestHashFilter"; }
+  const char* CompatibilityName() const override { return Name(); }
 
   FilterBitsBuilder* GetBuilderWithContext(
       const FilterBuildingContext&) const override {

@@ -1487,6 +1487,7 @@ class MockFilterPolicy : public FilterPolicy {
  public:
   static const char* kClassName() { return "MockFilterPolicy"; }
   const char* Name() const override { return kClassName(); }
+  const char* CompatibilityName() const override { return Name(); }
   FilterBitsBuilder* GetBuilderWithContext(
       const FilterBuildingContext&) const override {
     return nullptr;
