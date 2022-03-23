@@ -437,6 +437,7 @@ def fetch_results_from_circle():
         result.log_result()
     reports = [result.report for result in results if hasattr(
         result, 'report')]
+    logging.debug(f"Fetched from CircleCI reports: {reports}")
     return reports
 
 
@@ -449,6 +450,7 @@ def save_reports_to_local(reports, filename: str):
 def load_reports_from_local(filename: str):
     file = open(filename, 'rb')
     reports = pickle.load(file)
+    logging.debug(f"Loaded pickled reports: {reports}")
     return reports
 
 
@@ -458,6 +460,7 @@ def load_reports_from_tsv(filename: str):
     file.close()
     parser = ResultParser()
     report = parser.parse(contents)
+    logging.debug(f"Loaded TSV Report: {report}")
     return report
 
 
