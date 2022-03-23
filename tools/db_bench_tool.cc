@@ -1124,6 +1124,10 @@ DEFINE_bool(rate_limit_auto_wal_flush, false,
             "false) after the user "
             "write operation");
 
+DEFINE_bool(async_io, false,
+            "When set true, RocksDB does asynchronous reads for internal auto "
+            "readahead prefetching.");
+
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);
@@ -1144,9 +1148,10 @@ static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     return ROCKSDB_NAMESPACE::kXpressCompression;
   else if (!strcasecmp(ctype, "zstd"))
     return ROCKSDB_NAMESPACE::kZSTD;
-
-  fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
-  return ROCKSDB_NAMESPACE::kSnappyCompression;  // default value
+  else {
+    fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
+    exit(1);
+  }
 }
 
 static std::string ColumnFamilyName(size_t i) {
@@ -2207,7 +2212,13 @@ class Stats {
               }
             } else if (db) {
               if (db->GetProperty("rocksdb.stats", &stats)) {
-                fprintf(stderr, "%s\n", stats.c_str());
+                fprintf(stderr, "%s", stats.c_str());
+              }
+              if (db->GetProperty("rocksdb.num-running-compactions", &stats)) {
+                fprintf(stderr, "num-running-compactions: %s\n", stats.c_str());
+              }
+              if (db->GetProperty("rocksdb.num-running-flushes", &stats)) {
+                fprintf(stderr, "num-running-flushes: %s\n\n", stats.c_str());
               }
               if (FLAGS_show_table_properties) {
                 for (int level = 0; level < FLAGS_num_levels; ++level) {
@@ -3122,6 +3133,7 @@ class Benchmark {
       read_options_.tailing = FLAGS_use_tailing_iterator;
       read_options_.readahead_size = FLAGS_readahead_size;
       read_options_.adaptive_readahead = FLAGS_adaptive_readahead;
+      read_options_.async_io = FLAGS_async_io;
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
       void (Benchmark::*post_process_method)() = nullptr;
@@ -5405,6 +5417,8 @@ class Benchmark {
     }
 
     options.adaptive_readahead = FLAGS_adaptive_readahead;
+    options.async_io = FLAGS_async_io;
+
     Iterator* iter = db->NewIterator(options);
     int64_t i = 0;
     int64_t bytes = 0;
@@ -7320,6 +7334,7 @@ class Benchmark {
     DB* db = SelectDB(thread);
     ReadOptions ro;
     ro.adaptive_readahead = FLAGS_adaptive_readahead;
+    ro.async_io = FLAGS_async_io;
     ro.rate_limiter_priority =
         FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
     ro.readahead_size = FLAGS_readahead_size;
@@ -7334,6 +7349,7 @@ class Benchmark {
     DB* db = SelectDB(thread);
     ReadOptions ro;
     ro.adaptive_readahead = FLAGS_adaptive_readahead;
+    ro.async_io = FLAGS_async_io;
     ro.rate_limiter_priority =
         FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
     ro.readahead_size = FLAGS_readahead_size;

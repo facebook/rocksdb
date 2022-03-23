@@ -5126,9 +5126,6 @@ Status VersionSet::TryRecoverFromOneManifest(
 Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
                                       const std::string& dbname,
                                       FileSystem* fs) {
-  // these are just for performance reasons, not correctness,
-  // so we're fine using the defaults
-  FileOptions soptions;
   // Read "CURRENT" file, which contains a pointer to the current manifest file
   std::string manifest_path;
   uint64_t manifest_file_number;
@@ -5137,16 +5134,24 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
   if (!s.ok()) {
     return s;
   }
+  return ListColumnFamiliesFromManifest(manifest_path, fs, column_families);
+}
 
+Status VersionSet::ListColumnFamiliesFromManifest(
+    const std::string& manifest_path, FileSystem* fs,
+    std::vector<std::string>* column_families) {
   std::unique_ptr<SequentialFileReader> file_reader;
+  Status s;
   {
     std::unique_ptr<FSSequentialFile> file;
-    s = fs->NewSequentialFile(manifest_path, soptions, &file, nullptr);
+    // these are just for performance reasons, not correctness,
+    // so we're fine using the defaults
+    s = fs->NewSequentialFile(manifest_path, FileOptions(), &file, nullptr);
     if (!s.ok()) {
       return s;
-  }
-  file_reader.reset(new SequentialFileReader(std::move(file), manifest_path,
-                                             nullptr /*IOTracer*/));
+    }
+    file_reader = std::make_unique<SequentialFileReader>(
+        std::move(file), manifest_path, /*io_tracer=*/nullptr);
   }
 
   VersionSet::LogReporter reporter;
@@ -5336,9 +5341,16 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
 
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
                                 bool verbose, bool hex, bool json) {
+  assert(options.env);
+  std::vector<std::string> column_families;
+  Status s = ListColumnFamiliesFromManifest(
+      dscname, options.env->GetFileSystem().get(), &column_families);
+  if (!s.ok()) {
+    return s;
+  }
+
   // Open the specified manifest file.
   std::unique_ptr<SequentialFileReader> file_reader;
-  Status s;
   {
     std::unique_ptr<FSSequentialFile> file;
     const std::shared_ptr<FileSystem>& fs = options.env->GetFileSystem();
@@ -5349,14 +5361,16 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     if (!s.ok()) {
       return s;
     }
-    file_reader.reset(new SequentialFileReader(
-        std::move(file), dscname, db_options_->log_readahead_size, io_tracer_));
+    file_reader = std::make_unique<SequentialFileReader>(
+        std::move(file), dscname, db_options_->log_readahead_size, io_tracer_);
   }
 
-  std::vector<ColumnFamilyDescriptor> column_families(
-      1, ColumnFamilyDescriptor(kDefaultColumnFamilyName, options));
-  DumpManifestHandler handler(column_families, this, io_tracer_, verbose, hex,
-                              json);
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  for (const auto& cf : column_families) {
+    cf_descs.emplace_back(cf, options);
+  }
+
+  DumpManifestHandler handler(cf_descs, this, io_tracer_, verbose, hex, json);
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;
