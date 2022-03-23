@@ -526,6 +526,7 @@ def main():
                         help='Use as test values; apply a timeshift and preprend "test." to the keys')
 
     args = parser.parse_args()
+    logging.debug(f"Arguments: {args}")
     if args.action == 'all':
         reports = fetch_results_from_circle()
         push_pickle_to_graphite(reports)
