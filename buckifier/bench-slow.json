@@ -272,7 +272,6 @@
                 ],
                 "ManualFlush/key_num:65536/per_key_size:1024/iterations:100": [
                     "real_time",
-                    "cpu_time",
                     "db_size",
                     "flush_write_bytes",
                     "flush_time",
@@ -689,7 +688,6 @@
                 ],
                 "ManualFlush/key_num:65536/per_key_size:256/iterations:100": [
                     "real_time",
-                    "cpu_time",
                     "db_size",
                     "flush_write_bytes",
                     "flush_time",
@@ -1802,7 +1800,6 @@
                 ],
                 "ManualFlush/key_num:8192/per_key_size:1024/iterations:100": [
                     "real_time",
-                    "cpu_time",
                     "db_size",
                     "flush_write_bytes",
                     "flush_time",
@@ -2141,7 +2138,6 @@
                 ],
                 "ManualFlush/key_num:8192/per_key_size:256/iterations:100": [
                     "real_time",
-                    "cpu_time",
                     "db_size",
                     "flush_write_bytes",
                     "flush_time",
@@ -2536,7 +2532,6 @@
                 ],
                 "ManualFlush/key_num:1024/per_key_size:1024/iterations:100": [
                     "real_time",
-                    "cpu_time",
                     "db_size",
                     "flush_write_bytes",
                     "flush_time",
@@ -2863,7 +2858,6 @@
                 ],
                 "ManualFlush/key_num:1024/per_key_size:256/iterations:100": [
                     "real_time",
-                    "cpu_time",
                     "db_size",
                     "flush_write_bytes",
                     "flush_time",
