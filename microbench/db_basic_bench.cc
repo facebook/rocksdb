@@ -293,9 +293,9 @@ static void DBPut(benchmark::State& state) {
     if (enable_statistics) {
       HistogramData histogram_data;
       options.statistics->histogramData(DB_WRITE, &histogram_data);
-      state.counters["put_mean"] = histogram_data.average;
-      state.counters["put_p95"] = histogram_data.percentile95;
-      state.counters["put_p99"] = histogram_data.percentile99;
+      state.counters["put_mean"] = histogram_data.average * std::milli::den;
+      state.counters["put_p95"] = histogram_data.percentile95 * std::milli::den;
+      state.counters["put_p99"] = histogram_data.percentile99 * std::milli::den;
     }
 
     TeardownDB(state, db, options, kg);
@@ -599,9 +599,9 @@ static void DBGet(benchmark::State& state) {
     if (enable_statistics) {
       HistogramData histogram_data;
       options.statistics->histogramData(DB_GET, &histogram_data);
-      state.counters["get_mean"] = histogram_data.average;
-      state.counters["get_p95"] = histogram_data.percentile95;
-      state.counters["get_p99"] = histogram_data.percentile99;
+      state.counters["get_mean"] = histogram_data.average * std::milli::den;
+      state.counters["get_p95"] = histogram_data.percentile95 * std::milli::den;
+      state.counters["get_p99"] = histogram_data.percentile99 * std::milli::den;
     }
 
     TeardownDB(state, db, options, kg);
