@@ -902,13 +902,15 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   // Find filter handle and filter type
   if (rep_->filter_policy) {
     auto name = rep_->filter_policy->CompatibilityName();
+    bool builtin_compatible =
+        strcmp(name, BuiltinFilterPolicy::kCompatibilityName()) == 0;
 
     for (const auto& [filter_type, prefix] :
          {std::make_pair(Rep::FilterType::kFullFilter, kFullFilterBlockPrefix),
           std::make_pair(Rep::FilterType::kPartitionedFilter,
                          kPartitionedFilterBlockPrefix),
           std::make_pair(Rep::FilterType::kBlockFilter, kFilterBlockPrefix)}) {
-      if (strcmp(name, BuiltinFilterPolicy::kCompatibilityName()) == 0) {
+      if (builtin_compatible) {
         // This code is only here to deal with a hiccup in early 7.0.x where
         // there was an unintentional name change in the SST files metadata.
         // It should be OK to remove this in the future (late 2022) and just
