@@ -178,13 +178,16 @@ Status Configurable::ConfigureOptions(
     ConfigOptions copy = config_options;
     copy.invoke_prepare_options = false;
 #ifndef ROCKSDB_LITE
-    if (!config_options.ignore_unknown_options) {
+    if (!config_options.ignore_unknown_options && config_options.restore_on_error) {
       // If we are not ignoring unused, get the defaults in case we need to
       // reset
       copy.depth = ConfigOptions::kDepthDetailed;
       copy.delimiter = "; ";
       GetOptionString(copy, &curr_opts).PermitUncheckedError();
     }
+    // Since we now have a copy of all of the options (including for sub-objects),
+    // Embedded classes do not need to do a restore.
+    copy.restore_on_error = false;
 #endif  // ROCKSDB_LITE
 
     s = ConfigurableHelper::ConfigureOptions(copy, *this, opts_map, unused);
@@ -196,6 +199,7 @@ Status Configurable::ConfigureOptions(
   if (!s.ok() && !curr_opts.empty()) {
     ConfigOptions reset = config_options;
     reset.ignore_unknown_options = true;
+    reset.restore_on_error = false;
     reset.invoke_prepare_options = true;
     reset.ignore_unsupported_options = true;
     // There are some options to reset from this current error
