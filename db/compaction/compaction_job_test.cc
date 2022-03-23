@@ -355,9 +355,9 @@ class CompactionJobTestBase : public testing::Test {
         0, &compaction, db_options_, mutable_db_options_, env_options_,
         versions_.get(), &shutting_down_, &log_buffer, nullptr, nullptr,
         nullptr, nullptr, &mutex_, &error_handler_, snapshots,
-        earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
-        &event_logger, false, false, dbname_, &compaction_job_stats_,
-        Env::Priority::USER, nullptr /* IOTracer */,
+        earliest_write_conflict_snapshot, snapshot_checker, nullptr,
+        table_cache_, &event_logger, false, false, dbname_,
+        &compaction_job_stats_, Env::Priority::USER, nullptr /* IOTracer */,
         /*manual_compaction_paused=*/nullptr,
         /*manual_compaction_canceled=*/nullptr, /*db_id=*/"",
         /*db_session_id=*/"", full_history_ts_low_);

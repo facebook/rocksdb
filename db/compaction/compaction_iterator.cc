@@ -24,8 +24,8 @@ CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    const SnapshotChecker* snapshot_checker, Env* env,
-    bool report_detailed_time, bool expect_valid_internal_key,
+    SequenceNumber job_snapshot, const SnapshotChecker* snapshot_checker,
+    Env* env, bool report_detailed_time, bool expect_valid_internal_key,
     CompactionRangeDelAggregator* range_del_agg,
     BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
     const Compaction* compaction, const CompactionFilter* compaction_filter,
@@ -36,7 +36,7 @@ CompactionIterator::CompactionIterator(
     const std::string* full_history_ts_low)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
-          earliest_write_conflict_snapshot, snapshot_checker, env,
+          earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
           report_detailed_time, expect_valid_internal_key, range_del_agg,
           blob_file_builder, allow_data_in_errors,
           std::unique_ptr<CompactionProxy>(
@@ -48,8 +48,8 @@ CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber /*last_sequence*/, std::vector<SequenceNumber>* snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    const SnapshotChecker* snapshot_checker, Env* env,
-    bool report_detailed_time, bool expect_valid_internal_key,
+    SequenceNumber job_snapshot, const SnapshotChecker* snapshot_checker,
+    Env* env, bool report_detailed_time, bool expect_valid_internal_key,
     CompactionRangeDelAggregator* range_del_agg,
     BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
     std::unique_ptr<CompactionProxy> compaction,
@@ -65,6 +65,7 @@ CompactionIterator::CompactionIterator(
       merge_helper_(merge_helper),
       snapshots_(snapshots),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
+      job_snapshot_(job_snapshot),
       snapshot_checker_(snapshot_checker),
       env_(env),
       clock_(env_->GetSystemClock().get()),
@@ -1057,7 +1058,7 @@ void CompactionIterator::PrepareOutput() {
     if (valid_ && compaction_ != nullptr &&
         !compaction_->allow_ingest_behind() && bottommost_level_ &&
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
-        ikey_.type != kTypeMerge) {
+        ikey_.type != kTypeMerge && current_key_committed_) {
       assert(ikey_.type != kTypeDeletion);
       assert(ikey_.type != kTypeSingleDeletion ||
              (timestamp_size_ || full_history_ts_low_));
