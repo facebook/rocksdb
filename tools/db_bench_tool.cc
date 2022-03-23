@@ -1148,9 +1148,10 @@ static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     return ROCKSDB_NAMESPACE::kXpressCompression;
   else if (!strcasecmp(ctype, "zstd"))
     return ROCKSDB_NAMESPACE::kZSTD;
-
-  fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
-  return ROCKSDB_NAMESPACE::kSnappyCompression;  // default value
+  else {
+    fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
+    exit(1);
+  }
 }
 
 static std::string ColumnFamilyName(size_t i) {
