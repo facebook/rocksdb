@@ -1090,6 +1090,9 @@ class VersionSet {
   // column_families.
   static Status ListColumnFamilies(std::vector<std::string>* column_families,
                                    const std::string& dbname, FileSystem* fs);
+  static Status ListColumnFamiliesFromManifest(
+      const std::string& manifest_path, FileSystem* fs,
+      std::vector<std::string>* column_families);
 
 #ifndef ROCKSDB_LITE
   // Try to reduce the number of levels. This call is valid when
