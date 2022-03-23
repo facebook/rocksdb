@@ -1521,11 +1521,28 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
   bool called = false;
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+  // This callback will be called when the first bg flush thread reaches the
+  // point before entering the MANIFEST write queue after flushing the SST
+  // file.
+  // The purpose of the sync points here is to ensure both bg flush threads
+  // finish computing `min_wal_number_to_keep` before any of them updates the
+  // `log_number` for the column family that's being flushed.
   SyncPoint::GetInstance()->SetCallBack(
       "MemTableList::TryInstallMemtableFlushResults:AfterComputeMinWalToKeep",
       [&](void* /*arg*/) {
         dbfull()->mutex()->AssertHeld();
         if (!called) {
+          // We are the first bg flush thread in the MANIFEST write queue.
+          // We set up the dependency between sync points for two threads that
+          // will be executing the same code.
+          // For the interleaving of events, see
+          // https://github.com/facebook/rocksdb/pull/9715.
+          // bg flush thread1 will release the db mutex while in the MANIFEST
+          // write queue. In the meantime, bg flush thread2 locks db mutex and
+          // computes the min_wal_number_to_keep (before thread1 writes to
+          // MANIFEST thus before cf1->log_number is updated). Bg thread2 joins
+          // the MANIFEST write queue afterwards and bg flush thread1 proceeds
+          // with writing to MANIFEST.
           called = true;
           SyncPoint::GetInstance()->LoadDependency({
               {"VersionSet::LogAndApply:WriteManifestStart",
@@ -1534,6 +1551,8 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
                "VersionSet::LogAndApply:WriteManifest"},
           });
         } else {
+          // The other bg flush thread has already been in the MANIFEST write
+          // queue, and we are after.
           TEST_SYNC_POINT(
               "DBWALTest::RaceInstallFlushResultsWithWalObsoletion:BgFlush2");
         }
