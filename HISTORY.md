@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.29.4 (03/22/2022)
 ### Bug Fixes
 * Fixed a bug caused by race among flush, incoming writes and taking snapshots. Queries to snapshots created with these race condition can return incorrect result, e.g. resurfacing deleted data.
 * Fixed a bug that DisableManualCompaction may assert when disable an unscheduled manual compaction.
