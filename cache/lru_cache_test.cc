@@ -353,7 +353,7 @@ class TestSecondaryCache : public SecondaryCache {
 
     size_t Size() override { return Value() ? size_ : 0; }
 
-    bool IsErasedFromSecondaryCache() override { return false; };
+    bool IsErasedFromSecondaryCache() override { return false; }
 
     void SetReady() { is_ready_ = true; }
 
