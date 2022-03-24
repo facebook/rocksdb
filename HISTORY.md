@@ -2,6 +2,7 @@
 ## Unreleased
 ### Bug Fixes
 * Fixed a race condition when 2PC is disabled and WAL tracking in the MANIFEST is enabled. The race condition is between two background flush threads trying to install flush results, causing a WAL deletion not tracked in the MANIFEST. A future DB open may fail.
+* Fixed a bug that `rocksdb.read.block.compaction.micros` cannot track compaction stats (#9722).
 
 ## 7.1.0 (03/23/2022)
 ### New Features
@@ -26,7 +27,6 @@
 * Fixed a race condition when disable and re-enable manual compaction.
 * Fixed automatic error recovery failure in atomic flush.
 * Fixed a race condition when mmaping a WritableFile on POSIX.
-* Fixed a bug that `rocksdb.read.block.compaction.micros` cannot track compaction stats (#9722).
 
 ### Public API changes
 * Added pure virtual FilterPolicy::CompatibilityName(), which is needed for fixing major performance bug involving FilterPolicy naming in SST metadata without affecting Customizable aspect of FilterPolicy. This change only affects those with their own custom or wrapper FilterPolicy classes.
