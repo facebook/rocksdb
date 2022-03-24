@@ -1,8 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Bug Fixes
-* Fixed a heap use-after-free race with DropColumnFamily.
 * Fixed a race condition when 2PC is disabled and WAL tracking in the MANIFEST is enabled. The race condition is between two background flush threads trying to install flush results, causing a WAL deletion not tracked in the MANIFEST. A future DB open may fail.
+* Fixed a heap use-after-free race with DropColumnFamily.
 
 ## 7.1.0 (03/23/2022)
 ### New Features
