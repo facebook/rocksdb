@@ -45,17 +45,15 @@ Status DBImpl::FlushForGetLiveFiles() {
     }
     mutex_.Lock();
   } else {
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
+    for (auto cfd : versions_->GetRefedColumnFamilySet()) {
       if (cfd->IsDropped()) {
         continue;
       }
-      cfd->Ref();
       mutex_.Unlock();
       status = FlushMemTable(cfd, FlushOptions(), FlushReason::kGetLiveFiles);
       TEST_SYNC_POINT("DBImpl::GetLiveFiles:1");
       TEST_SYNC_POINT("DBImpl::GetLiveFiles:2");
       mutex_.Lock();
-      cfd->UnrefAndTryDelete();
       if (!status.ok() && !status.IsColumnFamilyDropped()) {
         break;
       } else if (status.IsColumnFamilyDropped()) {
@@ -63,7 +61,6 @@ Status DBImpl::FlushForGetLiveFiles() {
       }
     }
   }
-  versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   return status;
 }
 
