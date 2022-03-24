@@ -329,16 +329,15 @@ class Cache {
   /**
    * Release a mapping returned by a previous Lookup(). A released entry might
    * still  remain in cache in case it is later looked up by others. If
-   * force_erase is set then it also erase it from the cache if there is no
-   * other reference to  it. Erasing it should call the deleter function that
-   * was provided when the
-   * entry was inserted.
+   * erase_if_last_ref is set then it also erase it from the cache if there is
+   * no other reference to  it. Erasing it should call the deleter function that
+   * was provided when the entry was inserted.
    *
    * Returns true if the entry was also erased.
    */
   // REQUIRES: handle must not have been released yet.
   // REQUIRES: handle must have been returned by a method on *this.
-  virtual bool Release(Handle* handle, bool force_erase = false) = 0;
+  virtual bool Release(Handle* handle, bool erase_if_last_ref = false) = 0;
 
   // Return the value encapsulated in a handle returned by a
   // successful Lookup().
@@ -517,8 +516,9 @@ class Cache {
   // parameter specifies whether the data was actually used or not,
   // which may be used by the cache implementation to decide whether
   // to consider it as a hit for retention purposes.
-  virtual bool Release(Handle* handle, bool /*useful*/, bool force_erase) {
-    return Release(handle, force_erase);
+  virtual bool Release(Handle* handle, bool /*useful*/,
+                       bool erase_if_last_ref) {
+    return Release(handle, erase_if_last_ref);
   }
 
   // Determines if the handle returned by Lookup() has a valid value yet. The

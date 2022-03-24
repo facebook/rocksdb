@@ -135,6 +135,9 @@ class BuiltinFilterPolicy : public FilterPolicy {
   FilterBitsReader* GetFilterBitsReader(const Slice& contents) const override;
   static const char* kClassName();
   bool IsInstanceOf(const std::string& id) const override;
+  // All variants of BuiltinFilterPolicy can read each others filters.
+  const char* CompatibilityName() const override;
+  static const char* kCompatibilityName();
 
  public:  // new
   // An internal function for the implementation of
