@@ -62,23 +62,21 @@ public class BlockBasedTableConfigTest {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     assertThat(IndexType.values().length).isEqualTo(4);
     blockBasedTableConfig.setIndexType(IndexType.kHashSearch);
-    assertThat(blockBasedTableConfig.indexType()).isEqualTo(
-        IndexType.kHashSearch);
+    assertThat(blockBasedTableConfig.indexType()).isEqualTo(IndexType.kHashSearch);
     assertThat(IndexType.valueOf("kBinarySearch")).isNotNull();
     blockBasedTableConfig.setIndexType(IndexType.valueOf("kBinarySearch"));
-    assertThat(blockBasedTableConfig.indexType()).isEqualTo(
-        IndexType.kBinarySearch);
+    assertThat(blockBasedTableConfig.indexType()).isEqualTo(IndexType.kBinarySearch);
   }
 
   @Test
   public void dataBlockIndexType() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     blockBasedTableConfig.setDataBlockIndexType(DataBlockIndexType.kDataBlockBinaryAndHash);
-    assertThat(blockBasedTableConfig.dataBlockIndexType()).isEqualTo(
-        DataBlockIndexType.kDataBlockBinaryAndHash);
+    assertThat(blockBasedTableConfig.dataBlockIndexType())
+        .isEqualTo(DataBlockIndexType.kDataBlockBinaryAndHash);
     blockBasedTableConfig.setDataBlockIndexType(DataBlockIndexType.kDataBlockBinarySearch);
-    assertThat(blockBasedTableConfig.dataBlockIndexType()).isEqualTo(
-        DataBlockIndexType.kDataBlockBinarySearch);
+    assertThat(blockBasedTableConfig.dataBlockIndexType())
+        .isEqualTo(DataBlockIndexType.kDataBlockBinarySearch);
   }
 
   @Test
