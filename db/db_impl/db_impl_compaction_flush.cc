@@ -2992,8 +2992,6 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       bg_bottom_compaction_scheduled_--;
     }
 
-    versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
-
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
 
