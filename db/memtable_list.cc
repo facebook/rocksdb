@@ -494,8 +494,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
     // TODO(myabandeh): Not sure how batch_count could be 0 here.
     if (batch_count > 0) {
       uint64_t min_wal_number_to_keep = 0;
+      assert(edit_list.size() > 0);
       if (vset->db_options()->allow_2pc) {
-        assert(edit_list.size() > 0);
         // Note that if mempurge is successful, the edit_list will
         // not be applicable (contains info of new min_log number to keep,
         // and level 0 file path of SST file created during normal flush,
@@ -504,23 +504,26 @@ Status MemTableList::TryInstallMemtableFlushResults(
         min_wal_number_to_keep = PrecomputeMinLogNumberToKeep2PC(
             vset, *cfd, edit_list, memtables_to_flush, prep_tracker);
 
-        // We piggyback the information of  earliest log file to keep in the
+        // We piggyback the information of earliest log file to keep in the
         // manifest entry for the last file flushed.
-        edit_list.back()->SetMinLogNumberToKeep(min_wal_number_to_keep);
+      } else {
+        min_wal_number_to_keep =
+            PrecomputeMinLogNumberToKeepNon2PC(vset, *cfd, edit_list);
       }
+      edit_list.back()->SetMinLogNumberToKeep(min_wal_number_to_keep);
 
       std::unique_ptr<VersionEdit> wal_deletion;
       if (vset->db_options()->track_and_verify_wals_in_manifest) {
-        if (!vset->db_options()->allow_2pc) {
-          min_wal_number_to_keep =
-              PrecomputeMinLogNumberToKeepNon2PC(vset, *cfd, edit_list);
-        }
         if (min_wal_number_to_keep >
             vset->GetWalSet().GetMinWalNumberToKeep()) {
           wal_deletion.reset(new VersionEdit);
           wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
           edit_list.push_back(wal_deletion.get());
         }
+        TEST_SYNC_POINT_CALLBACK(
+            "MemTableList::TryInstallMemtableFlushResults:"
+            "AfterComputeMinWalToKeep",
+            nullptr);
       }
 
       const auto manifest_write_cb = [this, cfd, batch_count, log_buffer,
@@ -805,15 +808,14 @@ Status InstallMemtableAtomicFlushResults(
   if (vset->db_options()->allow_2pc) {
     min_wal_number_to_keep = PrecomputeMinLogNumberToKeep2PC(
         vset, cfds, edit_lists, mems_list, prep_tracker);
-    edit_lists.back().back()->SetMinLogNumberToKeep(min_wal_number_to_keep);
+  } else {
+    min_wal_number_to_keep =
+        PrecomputeMinLogNumberToKeepNon2PC(vset, cfds, edit_lists);
   }
+  edit_lists.back().back()->SetMinLogNumberToKeep(min_wal_number_to_keep);
 
   std::unique_ptr<VersionEdit> wal_deletion;
   if (vset->db_options()->track_and_verify_wals_in_manifest) {
-    if (!vset->db_options()->allow_2pc) {
-      min_wal_number_to_keep =
-          PrecomputeMinLogNumberToKeepNon2PC(vset, cfds, edit_lists);
-    }
     if (min_wal_number_to_keep > vset->GetWalSet().GetMinWalNumberToKeep()) {
       wal_deletion.reset(new VersionEdit);
       wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
