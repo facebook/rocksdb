@@ -804,6 +804,9 @@ public enum TickerType {
     NON_LAST_LEVEL_READ_BYTES((byte) -0x2C),
     NON_LAST_LEVEL_READ_COUNT((byte) -0x2D),
 
+    NUM_SYNC_READS((byte) -0x2E),
+    NUM_ASYNC_READS((byte) -0x2F),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;

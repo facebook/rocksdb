@@ -431,6 +431,13 @@ enum Tickers : uint32_t {
   NON_LAST_LEVEL_READ_BYTES,
   NON_LAST_LEVEL_READ_COUNT,
 
+  // # of synchronous read calls made
+  // Currently enabled in RocksDB prefetcher
+  NUM_SYNC_READS,
+  // # of asynchronous read calls made
+  // Currently enabled in RocksDB prefetcher
+  NUM_ASYNC_READS,
+
   TICKER_ENUM_MAX
 };
 

@@ -226,6 +226,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {LAST_LEVEL_READ_COUNT, "rocksdb.last.level.read.count"},
     {NON_LAST_LEVEL_READ_BYTES, "rocksdb.non.last.level.read.bytes"},
     {NON_LAST_LEVEL_READ_COUNT, "rocksdb.non.last.level.read.count"},
+    {NUM_SYNC_READS, "rocksdb.num.sync.reads"},
+    {NUM_ASYNC_READS, "rocksdb.num.async.reads"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

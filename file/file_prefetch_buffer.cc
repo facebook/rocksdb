@@ -86,6 +86,7 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
                                 uint64_t read_len, uint64_t chunk_len,
                                 uint64_t rounddown_start, uint32_t index) {
   Slice result;
+  RecordTick(statistics_, NUM_SYNC_READS);
   Status s = reader->Read(opts, rounddown_start + chunk_len, read_len, &result,
                           bufs_[index].buffer_.BufferStart() + chunk_len,
                           nullptr, rate_limiter_priority);
@@ -118,6 +119,7 @@ Status FilePrefetchBuffer::ReadAsync(const IOOptions& opts,
     del_fn_ = nullptr;
   }
 
+  RecordTick(statistics_, NUM_ASYNC_READS);
   // callback for async read request.
   auto fp = std::bind(&FilePrefetchBuffer::PrefetchAsyncCallback, this,
                       std::placeholders::_1, std::placeholders::_2);
