@@ -293,9 +293,9 @@ static void DBPut(benchmark::State& state) {
     if (enable_statistics) {
       HistogramData histogram_data;
       options.statistics->histogramData(DB_WRITE, &histogram_data);
-      state.counters["put_mean"] = histogram_data.average;
-      state.counters["put_p95"] = histogram_data.percentile95;
-      state.counters["put_p99"] = histogram_data.percentile99;
+      state.counters["put_mean"] = histogram_data.average * std::milli::den;
+      state.counters["put_p95"] = histogram_data.percentile95 * std::milli::den;
+      state.counters["put_p99"] = histogram_data.percentile99 * std::milli::den;
     }
 
     TeardownDB(state, db, options, kg);
@@ -445,7 +445,7 @@ static void ManualCompactionArguments(benchmark::internal::Benchmark* b) {
   b->ArgNames({"comp_style", "max_data", "per_key_size", "enable_statistics"});
 }
 
-BENCHMARK(ManualCompaction)->Iterations(10)->Apply(ManualCompactionArguments);
+BENCHMARK(ManualCompaction)->Iterations(1)->Apply(ManualCompactionArguments);
 
 static void ManualFlush(benchmark::State& state) {
   uint64_t key_num = state.range(0);
@@ -516,7 +516,7 @@ static void ManualFlushArguments(benchmark::internal::Benchmark* b) {
   b->ArgNames({"key_num", "per_key_size"});
 }
 
-BENCHMARK(ManualFlush)->Iterations(100)->Apply(ManualFlushArguments);
+BENCHMARK(ManualFlush)->Iterations(1)->Apply(ManualFlushArguments);
 
 static void DBGet(benchmark::State& state) {
   auto compaction_style = static_cast<CompactionStyle>(state.range(0));
@@ -599,9 +599,9 @@ static void DBGet(benchmark::State& state) {
     if (enable_statistics) {
       HistogramData histogram_data;
       options.statistics->histogramData(DB_GET, &histogram_data);
-      state.counters["get_mean"] = histogram_data.average;
-      state.counters["get_p95"] = histogram_data.percentile95;
-      state.counters["get_p99"] = histogram_data.percentile99;
+      state.counters["get_mean"] = histogram_data.average * std::milli::den;
+      state.counters["get_p95"] = histogram_data.percentile95 * std::milli::den;
+      state.counters["get_p99"] = histogram_data.percentile99 * std::milli::den;
     }
 
     TeardownDB(state, db, options, kg);

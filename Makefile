@@ -1216,7 +1216,7 @@ clean-rocks:
 	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
 	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm -f {} \;
 
-clean-rocksjava:
+clean-rocksjava: clean-rocks
 	rm -rf jl jls
 	cd java && $(MAKE) clean
 

@@ -1330,6 +1330,12 @@ case $1 in
   stress_crash_with_ts)
     echo $STRESS_CRASH_TEST_WITH_TS_COMMANDS
     ;;
+  stress_crash_with_multiops_wc_txn)
+    echo $STRESS_CRASH_TEST_WITH_MULTIOPS_WC_TXN_COMMANDS
+    ;;
+  stress_crash_with_multiops_wp_txn)
+    echo $STRESS_CRASH_TEST_WITH_MULTIOPS_WP_TXN_COMMANDS
+    ;;
   write_stress)
     echo $WRITE_STRESS_COMMANDS
     ;;
