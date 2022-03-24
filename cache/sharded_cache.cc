@@ -104,14 +104,15 @@ bool ShardedCache::Ref(Handle* handle) {
   return GetShard(Shard(hash))->Ref(handle);
 }
 
-bool ShardedCache::Release(Handle* handle, bool force_erase) {
+bool ShardedCache::Release(Handle* handle, bool erase_if_last_ref) {
   uint32_t hash = GetHash(handle);
-  return GetShard(Shard(hash))->Release(handle, force_erase);
+  return GetShard(Shard(hash))->Release(handle, erase_if_last_ref);
 }
 
-bool ShardedCache::Release(Handle* handle, bool useful, bool force_erase) {
+bool ShardedCache::Release(Handle* handle, bool useful,
+                           bool erase_if_last_ref) {
   uint32_t hash = GetHash(handle);
-  return GetShard(Shard(hash))->Release(handle, useful, force_erase);
+  return GetShard(Shard(hash))->Release(handle, useful, erase_if_last_ref);
 }
 
 void ShardedCache::Erase(const Slice& key) {

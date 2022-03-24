@@ -642,11 +642,12 @@ class ColumnFamilySet {
    public:
     explicit iterator(ColumnFamilyData* cfd)
         : current_(cfd) {}
+    // NOTE: minimum operators for for-loop iteration
     iterator& operator++() {
       current_ = current_->next_;
       return *this;
     }
-    bool operator!=(const iterator& other) {
+    bool operator!=(const iterator& other) const {
       return this->current_ != other.current_;
     }
     ColumnFamilyData* operator*() { return current_; }
@@ -733,7 +734,7 @@ class ColumnFamilySet {
 // Unref).
 class RefedColumnFamilySet {
  public:
-  RefedColumnFamilySet(ColumnFamilySet* cfs) : wrapped_(cfs) {}
+  explicit RefedColumnFamilySet(ColumnFamilySet* cfs) : wrapped_(cfs) {}
 
   class iterator {
    public:
@@ -751,6 +752,7 @@ class RefedColumnFamilySet {
         cfd->UnrefAndTryDelete();
       }
     }
+    // NOTE: minimum operators for for-loop iteration
     inline iterator& operator++() {
       ColumnFamilyData* old = *wrapped_;
       ++wrapped_;
@@ -759,7 +761,7 @@ class RefedColumnFamilySet {
       MaybeRef(*wrapped_);
       return *this;
     }
-    inline bool operator!=(const iterator& other) {
+    inline bool operator!=(const iterator& other) const {
       return this->wrapped_ != other.wrapped_;
     }
     inline ColumnFamilyData* operator*() { return *wrapped_; }

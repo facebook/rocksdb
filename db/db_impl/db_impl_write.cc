@@ -129,7 +129,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          PreReleaseCallback* pre_release_callback) {
   assert(!seq_per_batch_ || batch_cnt != 0);
   if (my_batch == nullptr) {
-    return Status::Corruption("Batch is nullptr!");
+    return Status::InvalidArgument("Batch is nullptr!");
   } else if (!disable_memtable &&
              WriteBatchInternal::TimestampsUpdateNeeded(*my_batch)) {
     // If writing to memtable, then we require the caller to set/update the

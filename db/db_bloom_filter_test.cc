@@ -919,7 +919,7 @@ class FilterConstructResPeakTrackingCache : public CacheWrapper {
   }
 
   using Cache::Release;
-  bool Release(Handle* handle, bool force_erase = false) override {
+  bool Release(Handle* handle, bool erase_if_last_ref = false) override {
     auto deleter = GetDeleter(handle);
     if (deleter == kNoopDeleterForFilterConstruction) {
       if (!last_peak_tracked_) {
@@ -929,7 +929,7 @@ class FilterConstructResPeakTrackingCache : public CacheWrapper {
       }
       cur_cache_res_ -= GetCharge(handle);
     }
-    bool is_successful = target_->Release(handle, force_erase);
+    bool is_successful = target_->Release(handle, erase_if_last_ref);
     return is_successful;
   }
 
@@ -1638,9 +1638,15 @@ class LevelAndStyleCustomFilterPolicy : public FilterPolicy {
         policy_l0_other_(NewBloomFilterPolicy(bpk_l0_other)),
         policy_otherwise_(NewBloomFilterPolicy(bpk_otherwise)) {}
 
+  const char* Name() const override {
+    return "LevelAndStyleCustomFilterPolicy";
+  }
+
   // OK to use built-in policy name because we are deferring to a
   // built-in builder. We aren't changing the serialized format.
-  const char* Name() const override { return policy_fifo_->Name(); }
+  const char* CompatibilityName() const override {
+    return policy_fifo_->CompatibilityName();
+  }
 
   FilterBitsBuilder* GetBuilderWithContext(
       const FilterBuildingContext& context) const override {

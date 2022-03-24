@@ -326,14 +326,14 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
                   nullptr);
   }
   virtual bool Release(Cache::Handle* handle, bool /*useful*/,
-                       bool force_erase) override {
-    return Release(handle, force_erase);
+                       bool erase_if_last_ref) override {
+    return Release(handle, erase_if_last_ref);
   }
   virtual bool IsReady(Cache::Handle* /*handle*/) override;
   virtual void Wait(Cache::Handle* /*handle*/) override {}
   virtual bool Ref(Cache::Handle* handle) override;
   virtual bool Release(Cache::Handle* handle,
-                       bool force_erase = false) override;
+                       bool erase_if_last_ref = false) override;
   virtual void Erase(const Slice& key, uint32_t hash) override;
 
   // Although in some platforms the update of size_t is atomic, to make sure
