@@ -40,8 +40,10 @@ LRUSecondaryCache::LRUSecondaryCache(
 LRUSecondaryCache::~LRUSecondaryCache() { cache_.reset(); }
 
 std::unique_ptr<SecondaryCacheResultHandle> LRUSecondaryCache::Lookup(
-    const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/) {
+    const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
+    bool& is_in_sec_cache) {
   std::unique_ptr<SecondaryCacheResultHandle> handle;
+  is_in_sec_cache = false;
   Cache::Handle* lru_handle = cache_->Lookup(key);
   if (lru_handle == nullptr) {
     return handle;
@@ -81,8 +83,7 @@ std::unique_ptr<SecondaryCacheResultHandle> LRUSecondaryCache::Lookup(
   }
 
   cache_->Release(lru_handle, /* erase_if_last_ref */ true);
-  handle.reset(
-      new LRUSecondaryCacheResultHandle(value, charge, /* is_erased */ true));
+  handle.reset(new LRUSecondaryCacheResultHandle(value, charge));
 
   return handle;
 }

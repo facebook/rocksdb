@@ -107,11 +107,12 @@ class LRUSecondaryCacheTest : public testing::Test {
         ROCKSDB_GTEST_BYPASS("JEMALLOC not supported");
       }
     }
-    std::shared_ptr<SecondaryCache> cache = NewLRUSecondaryCache(opts);
+    std::shared_ptr<SecondaryCache> sec_cache = NewLRUSecondaryCache(opts);
 
+    bool is_in_sec_cache{true};
     // Lookup an non-existent key.
     std::unique_ptr<SecondaryCacheResultHandle> handle0 =
-        cache->Lookup("k0", test_item_creator, true);
+        sec_cache->Lookup("k0", test_item_creator, true, is_in_sec_cache);
     ASSERT_EQ(handle0, nullptr);
 
     Random rnd(301);
@@ -119,10 +120,12 @@ class LRUSecondaryCacheTest : public testing::Test {
     std::string str1;
     test::CompressibleString(&rnd, 0.25, 1000, &str1);
     TestItem item1(str1.data(), str1.length());
-    ASSERT_OK(cache->Insert("k1", &item1, &LRUSecondaryCacheTest::helper_));
+    ASSERT_OK(sec_cache->Insert("k1", &item1, &LRUSecondaryCacheTest::helper_));
+
     std::unique_ptr<SecondaryCacheResultHandle> handle1 =
-        cache->Lookup("k1", test_item_creator, true);
+        sec_cache->Lookup("k1", test_item_creator, true, is_in_sec_cache);
     ASSERT_NE(handle1, nullptr);
+    ASSERT_FALSE(is_in_sec_cache);
     std::unique_ptr<TestItem> val1 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle1->Value()));
     ASSERT_NE(val1, nullptr);
@@ -130,16 +133,16 @@ class LRUSecondaryCacheTest : public testing::Test {
 
     // Lookup the first item again.
     std::unique_ptr<SecondaryCacheResultHandle> handle1_1 =
-        cache->Lookup("k1", test_item_creator, true);
+        sec_cache->Lookup("k1", test_item_creator, true, is_in_sec_cache);
     ASSERT_EQ(handle1_1, nullptr);
 
     // Insert and Lookup the second item.
     std::string str2;
     test::CompressibleString(&rnd, 0.5, 1000, &str2);
     TestItem item2(str2.data(), str2.length());
-    ASSERT_OK(cache->Insert("k2", &item2, &LRUSecondaryCacheTest::helper_));
+    ASSERT_OK(sec_cache->Insert("k2", &item2, &LRUSecondaryCacheTest::helper_));
     std::unique_ptr<SecondaryCacheResultHandle> handle2 =
-        cache->Lookup("k2", test_item_creator, true);
+        sec_cache->Lookup("k2", test_item_creator, true, is_in_sec_cache);
     ASSERT_NE(handle2, nullptr);
     std::unique_ptr<TestItem> val2 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2->Value()));
@@ -148,9 +151,9 @@ class LRUSecondaryCacheTest : public testing::Test {
 
     std::vector<SecondaryCacheResultHandle*> handles = {handle1.get(),
                                                         handle2.get()};
-    cache->WaitAll(handles);
+    sec_cache->WaitAll(handles);
 
-    cache.reset();
+    sec_cache.reset();
   }
 
   void FailsTest(bool sec_cache_is_compressed) {
@@ -167,25 +170,26 @@ class LRUSecondaryCacheTest : public testing::Test {
     secondary_cache_opts.capacity = 1100;
     secondary_cache_opts.num_shard_bits = 0;
     secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
-    std::shared_ptr<SecondaryCache> cache =
+    std::shared_ptr<SecondaryCache> sec_cache =
         NewLRUSecondaryCache(secondary_cache_opts);
 
     // Insert and Lookup the first item.
     Random rnd(301);
     std::string str1(rnd.RandomString(1000));
     TestItem item1(str1.data(), str1.length());
-    ASSERT_OK(cache->Insert("k1", &item1, &LRUSecondaryCacheTest::helper_));
+    ASSERT_OK(sec_cache->Insert("k1", &item1, &LRUSecondaryCacheTest::helper_));
 
     // Insert and Lookup the second item.
     std::string str2(rnd.RandomString(200));
     TestItem item2(str2.data(), str2.length());
     // k1 is evicted.
-    ASSERT_OK(cache->Insert("k2", &item2, &LRUSecondaryCacheTest::helper_));
+    ASSERT_OK(sec_cache->Insert("k2", &item2, &LRUSecondaryCacheTest::helper_));
+    bool is_in_sec_cache{false};
     std::unique_ptr<SecondaryCacheResultHandle> handle1_1 =
-        cache->Lookup("k1", test_item_creator, true);
+        sec_cache->Lookup("k1", test_item_creator, true, is_in_sec_cache);
     ASSERT_EQ(handle1_1, nullptr);
     std::unique_ptr<SecondaryCacheResultHandle> handle2 =
-        cache->Lookup("k2", test_item_creator, true);
+        sec_cache->Lookup("k2", test_item_creator, true, is_in_sec_cache);
     ASSERT_NE(handle2, nullptr);
     std::unique_ptr<TestItem> val2 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2->Value()));
@@ -195,16 +199,16 @@ class LRUSecondaryCacheTest : public testing::Test {
     // Create Fails.
     SetFailCreate(true);
     std::unique_ptr<SecondaryCacheResultHandle> handle2_1 =
-        cache->Lookup("k2", test_item_creator, true);
+        sec_cache->Lookup("k2", test_item_creator, true, is_in_sec_cache);
     ASSERT_EQ(handle2_1, nullptr);
 
     // Save Fails.
     std::string str3 = rnd.RandomString(10);
     TestItem item3(str3.data(), str3.length());
     ASSERT_NOK(
-        cache->Insert("k3", &item3, &LRUSecondaryCacheTest::helper_fail_));
+        sec_cache->Insert("k3", &item3, &LRUSecondaryCacheTest::helper_fail_));
 
-    cache.reset();
+    sec_cache.reset();
   }
 
   void BasicIntegrationTest(bool sec_cache_is_compressed) {

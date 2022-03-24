@@ -18,8 +18,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class LRUSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
  public:
-  LRUSecondaryCacheResultHandle(void* value, size_t size, bool is_erased)
-      : value_(value), size_(size), is_erased_(is_erased) {}
+  LRUSecondaryCacheResultHandle(void* value, size_t size)
+      : value_(value), size_(size) {}
   virtual ~LRUSecondaryCacheResultHandle() override = default;
 
   LRUSecondaryCacheResultHandle(const LRUSecondaryCacheResultHandle&) = delete;
@@ -34,12 +34,9 @@ class LRUSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
 
   size_t Size() override { return size_; }
 
-  bool IsErasedFromSecondaryCache() override { return is_erased_; };
-
  private:
   void* value_;
   size_t size_;
-  bool is_erased_;
 };
 
 // The LRUSecondaryCache is a concrete implementation of
@@ -71,8 +68,8 @@ class LRUSecondaryCache : public SecondaryCache {
                 const Cache::CacheItemHelper* helper) override;
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
-      const Slice& key, const Cache::CreateCallback& create_cb,
-      bool /*wait*/) override;
+      const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
+      bool& is_in_sec_cache) override;
 
   void Erase(const Slice& key) override;
 
