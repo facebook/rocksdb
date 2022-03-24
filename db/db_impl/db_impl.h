@@ -1281,6 +1281,11 @@ class DBImpl : public DB {
       ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job);
 
   Status FlushForGetLiveFiles();
+
+  // This helper function is shared by both primary and secondary instances.
+  Status GetLiveFilesStorageInfoHelper(const LiveFilesStorageInfoOptions& opts,
+                                       std::vector<LiveFileStorageInfo>* files,
+                                       bool is_primary_db = true);
 #endif  // !ROCKSDB_LITE
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;
@@ -1388,11 +1393,6 @@ class DBImpl : public DB {
   Status FailIfCfHasTs(const ColumnFamilyHandle* column_family) const;
   Status FailIfTsSizesMismatch(const ColumnFamilyHandle* column_family,
                                const Slice& ts) const;
-
-  // This helper function is shared by both primary and secondary instances.
-  Status GetLiveFilesStorageInfoHelper(const LiveFilesStorageInfoOptions& opts,
-                                       std::vector<LiveFileStorageInfo>* files,
-                                       bool is_primary_db = true);
 
  private:
   friend class DB;
