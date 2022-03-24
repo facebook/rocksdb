@@ -37,7 +37,6 @@ class SecondaryCacheResultHandle {
 
   // Return the size of value
   virtual size_t Size() = 0;
-
 };
 
 // SecondaryCache

@@ -182,8 +182,8 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
     // filter blocks
     Status s = table()->MaybeReadBlockAndLoadToCache(
         prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
-        /*wait=*/true, &block, BlockType::kIndex, /*get_context=*/nullptr,
-        &lookup_context, /*contents=*/nullptr);
+        /*wait=*/true, /*for_compaction=*/false, &block, BlockType::kIndex,
+        /*get_context=*/nullptr, &lookup_context, /*contents=*/nullptr);
 
     if (!s.ok()) {
       return s;
