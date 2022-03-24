@@ -17,7 +17,6 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "table/block_based/block_based_table_reader.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -73,6 +72,8 @@ template Status CacheReservationManager::UpdateCacheReservation<
 template Status CacheReservationManager::UpdateCacheReservation<
     CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
     std::size_t new_mem_used);
+template Status CacheReservationManager::UpdateCacheReservation<
+    CacheEntryRole::kBlockBasedTableReader>(std::size_t new_mem_used);
 // For cache reservation manager unit tests
 template Status CacheReservationManager::UpdateCacheReservation<
     CacheEntryRole::kMisc>(std::size_t new_mem_used);
@@ -161,6 +162,8 @@ Cache::DeleterFn CacheReservationManager::TEST_GetNoopDeleterForRole() {
 
 template Cache::DeleterFn CacheReservationManager::TEST_GetNoopDeleterForRole<
     CacheEntryRole::kFilterConstruction>();
+template Cache::DeleterFn CacheReservationManager::TEST_GetNoopDeleterForRole<
+    CacheEntryRole::kBlockBasedTableReader>();
 
 template <CacheEntryRole R>
 CacheReservationHandle<R>::CacheReservationHandle(

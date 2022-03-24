@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <memory>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -79,6 +80,11 @@ extern const std::string kHashIndexPrefixesBlock;
 extern const std::string kHashIndexPrefixesMetadataBlock;
 
 BlockBasedTable::~BlockBasedTable() {
+  std::size_t mem_usage = ApproximateMemoryUsage();
+  if (rep_->table_reader_mem_allocator) {
+    rep_->table_reader_mem_allocator
+        ->Deallocate<CacheEntryRole::kBlockBasedTableReader>(mem_usage);
+  }
   delete rep_;
 }
 
@@ -552,6 +558,8 @@ Status BlockBasedTable::Open(
     const InternalKeyComparator& internal_comparator,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table_reader,
+    std::shared_ptr<CacheCapacityBasedMemoryAllocator>
+        table_reader_mem_allocator,
     const std::shared_ptr<const SliceTransform>& prefix_extractor,
     const bool prefetch_index_and_filter_in_cache, const bool skip_filters,
     const int level, const bool immortal_table,
@@ -715,10 +723,23 @@ Status BlockBasedTable::Open(
       tail_prefetch_stats->RecordEffectiveSize(
           static_cast<size_t>(file_size) - prefetch_buffer->min_offset_read());
     }
-
-    *table_reader = std::move(new_table);
   }
 
+  if (s.ok() && table_reader_mem_allocator) {
+    rep->table_reader_mem_allocator = table_reader_mem_allocator;
+    std::size_t mem_usage = new_table->ApproximateMemoryUsage();
+    rep->table_reader_mem_allocator
+        ->Allocate<CacheEntryRole::kBlockBasedTableReader>(mem_usage, &s);
+    if (s.IsMemoryLimit()) {
+      s = Status::MemoryLimit(
+          "Can't allocate BlockBasedTableReader due to memory limit based on "
+          "cache capacity for memory allocation");
+    }
+  }
+
+  if (s.ok()) {
+    *table_reader = std::move(new_table);
+  }
   return s;
 }
 
@@ -1108,6 +1129,9 @@ std::shared_ptr<const TableProperties> BlockBasedTable::GetTableProperties()
 
 size_t BlockBasedTable::ApproximateMemoryUsage() const {
   size_t usage = 0;
+  if (rep_) {
+    usage += rep_->ApproximateMemoryUsage();
+  }
   if (rep_->filter) {
     usage += rep_->filter->ApproximateMemoryUsage();
   }
@@ -1116,6 +1140,9 @@ size_t BlockBasedTable::ApproximateMemoryUsage() const {
   }
   if (rep_->uncompression_dict_reader) {
     usage += rep_->uncompression_dict_reader->ApproximateMemoryUsage();
+  }
+  if (rep_->table_properties) {
+    usage += rep_->table_properties->ApproximateMemoryUsage();
   }
   return usage;
 }

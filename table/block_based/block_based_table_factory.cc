@@ -330,6 +330,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions, reserve_table_builder_memory),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"reserve_table_reader_memory",
+         {offsetof(struct BlockBasedTableOptions, reserve_table_reader_memory),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"skip_table_builder_flush",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
@@ -419,6 +423,12 @@ BlockBasedTableFactory::BlockBasedTableFactory(
     : table_options_(_table_options) {
   InitializeOptions();
   RegisterOptions(&table_options_, &block_based_table_type_info);
+
+  if (table_options_.reserve_table_reader_memory &&
+      table_options_.no_block_cache == false) {
+    table_reader_mem_allocator_.reset(
+        new CacheCapacityBasedMemoryAllocator(table_options_.block_cache));
+  }
 }
 
 void BlockBasedTableFactory::InitializeOptions() {
@@ -582,10 +592,10 @@ Status BlockBasedTableFactory::NewTableReader(
   return BlockBasedTable::Open(
       ro, table_reader_options.ioptions, table_reader_options.env_options,
       table_options_, table_reader_options.internal_comparator, std::move(file),
-      file_size, table_reader, table_reader_options.prefix_extractor,
-      prefetch_index_and_filter_in_cache, table_reader_options.skip_filters,
-      table_reader_options.level, table_reader_options.immortal,
-      table_reader_options.largest_seqno,
+      file_size, table_reader, table_reader_mem_allocator_,
+      table_reader_options.prefix_extractor, prefetch_index_and_filter_in_cache,
+      table_reader_options.skip_filters, table_reader_options.level,
+      table_reader_options.immortal, table_reader_options.largest_seqno,
       table_reader_options.force_direct_prefetch, &tail_prefetch_stats_,
       table_reader_options.block_cache_tracer,
       table_reader_options.max_file_size_for_l0_meta_pin,

@@ -213,6 +213,14 @@ TableProperties::GetAggregatablePropertiesAsMap() const {
   return rv;
 }
 
+std::size_t TableProperties::ApproximateMemoryUsage() const {
+  return approx_mem_usage_;
+}
+
+void TableProperties::IncreaseApproximateMemoryUsage(std::size_t delta) {
+  approx_mem_usage_ += delta;
+}
+
 const std::string TablePropertiesNames::kDbId = "rocksdb.creating.db.identity";
 const std::string TablePropertiesNames::kDbSessionId =
     "rocksdb.creating.session.identity";

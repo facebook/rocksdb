@@ -301,6 +301,13 @@ struct TableProperties {
   // between tables. Keys match field names in this class instead
   // of using full property names.
   std::map<std::string, uint64_t> GetAggregatablePropertiesAsMap() const;
+
+  std::size_t ApproximateMemoryUsage() const;
+
+  void IncreaseApproximateMemoryUsage(std::size_t delta);
+
+ private:
+  std::size_t approx_mem_usage_ = 0;
 };
 
 // Extra properties

@@ -16,10 +16,10 @@
 #include <vector>
 
 #include "cache/cache_entry_roles.h"
+#include "cache/cache_key.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "table/block_based/block_based_table_reader.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -45,6 +45,8 @@ class CacheReservationManager
   //                         This is for saving some future dummy entry
   //                         insertion when memory usage increases are likely to
   //                         happen in the near future.
+  //
+  // REQUIRED: cache is not nullptr
   explicit CacheReservationManager(std::shared_ptr<Cache> cache,
                                    bool delayed_decrease = false);
 
