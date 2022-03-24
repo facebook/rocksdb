@@ -60,6 +60,8 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
 
     size_t Size() override;
 
+    bool IsErasedFromSecondaryCache() override { return false; };
+
     static void WaitAll(FaultInjectionSecondaryCache* cache,
                         std::vector<SecondaryCacheResultHandle*> handles);
 

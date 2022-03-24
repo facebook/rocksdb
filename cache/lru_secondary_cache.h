@@ -18,8 +18,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class LRUSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
  public:
-  LRUSecondaryCacheResultHandle(void* value, size_t size)
-      : value_(value), size_(size) {}
+  LRUSecondaryCacheResultHandle(void* value, size_t size, bool is_erased)
+      : value_(value), size_(size), is_erased_(is_erased) {}
   virtual ~LRUSecondaryCacheResultHandle() override = default;
 
   LRUSecondaryCacheResultHandle(const LRUSecondaryCacheResultHandle&) = delete;
@@ -34,9 +34,12 @@ class LRUSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
 
   size_t Size() override { return size_; }
 
+  bool IsErasedFromSecondaryCache() override { return is_erased_; };
+
  private:
   void* value_;
   size_t size_;
+  bool is_erased_;
 };
 
 // The LRUSecondaryCache is a concrete implementation of
