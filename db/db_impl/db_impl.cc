@@ -375,15 +375,12 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
       s = AtomicFlushMemTables(cfds, flush_opts, context.flush_reason);
       mutex_.Lock();
     } else {
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
+      for (auto cfd : versions_->GetRefedColumnFamilySet()) {
         if (cfd->IsDropped()) {
           continue;
         }
-        cfd->Ref();
-        mutex_.Unlock();
+        InstrumentedMutexUnlock u(&mutex_);
         s = FlushMemTable(cfd, flush_opts, context.flush_reason);
-        mutex_.Lock();
-        cfd->UnrefAndTryDelete();
         if (!s.ok()) {
           break;
         }
@@ -495,18 +492,14 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
       s.PermitUncheckedError();  //**TODO: What to do on error?
       mutex_.Lock();
     } else {
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
+      for (auto cfd : versions_->GetRefedColumnFamilySet()) {
         if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
-          cfd->Ref();
-          mutex_.Unlock();
+          InstrumentedMutexUnlock u(&mutex_);
           Status s = FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
           s.PermitUncheckedError();  //**TODO: What to do on error?
-          mutex_.Lock();
-          cfd->UnrefAndTryDelete();
         }
       }
     }
-    versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   }
 
   shutting_down_.store(true, std::memory_order_release);
@@ -969,18 +962,13 @@ void DBImpl::DumpStats() {
   TEST_SYNC_POINT("DBImpl::DumpStats:StartRunning");
   {
     InstrumentedMutexLock l(&mutex_);
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
+    for (auto cfd : versions_->GetRefedColumnFamilySet()) {
       if (cfd->initialized()) {
         // Release DB mutex for gathering cache entry stats. Pass over all
         // column families for this first so that other stats are dumped
         // near-atomically.
-        // Get a ref before unlocking
-        cfd->Ref();
-        {
-          InstrumentedMutexUnlock u(&mutex_);
-          cfd->internal_stats()->CollectCacheEntryStats(/*foreground=*/false);
-        }
-        cfd->UnrefAndTryDelete();
+        InstrumentedMutexUnlock u(&mutex_);
+        cfd->internal_stats()->CollectCacheEntryStats(/*foreground=*/false);
       }
     }
 
@@ -3490,15 +3478,13 @@ bool DBImpl::GetAggregatedIntProperty(const Slice& property,
     // Needs mutex to protect the list of column families.
     InstrumentedMutexLock l(&mutex_);
     uint64_t value;
-    for (auto* cfd : *versions_->GetColumnFamilySet()) {
+    for (auto* cfd : versions_->GetRefedColumnFamilySet()) {
       if (!cfd->initialized()) {
         continue;
       }
-      cfd->Ref();
       ret = GetIntPropertyInternal(cfd, *property_info, true, &value);
       // GetIntPropertyInternal may release db mutex and re-acquire it.
       mutex_.AssertHeld();
-      cfd->UnrefAndTryDelete();
       if (ret) {
         sum += value;
       } else {
@@ -5089,6 +5075,7 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
     }
   }
 
+  // TODO: simplify using GetRefedColumnFamilySet?
   std::vector<ColumnFamilyData*> cfd_list;
   {
     InstrumentedMutexLock l(&mutex_);
