@@ -1841,15 +1841,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       }
     }
     if (s.ok()) {
-      s = impl->LogAndApply(&recovery_version_edits);
-    }
-    if (s.ok()) {
-      SuperVersionContext sv_context(/* create_superversion */ true);
-      for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
-        impl->InstallSuperVersionAndScheduleWork(
-            cfd, &sv_context, *cfd->GetLatestMutableCFOptions());
-      }
-      sv_context.Clean();
       if (impl->two_write_queues_) {
         impl->log_write_mutex_.Lock();
       }
@@ -1888,6 +1879,18 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         }
       }
     }
+  }
+  if (s.ok()) {
+    s = impl->LogAndApply(&recovery_version_edits);
+  }
+
+  if (s.ok()) {
+    SuperVersionContext sv_context(/* create_superversion */ true);
+    for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
+      impl->InstallSuperVersionAndScheduleWork(
+          cfd, &sv_context, *cfd->GetLatestMutableCFOptions());
+    }
+    sv_context.Clean();
   }
   if (s.ok() && impl->immutable_db_options_.persist_stats_to_disk) {
     // try to read format version
