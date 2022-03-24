@@ -6539,6 +6539,8 @@ class ChecksumTypeJni {
         return 0x2;
       case ROCKSDB_NAMESPACE::ChecksumType::kxxHash64:
         return 0x3;
+      case ROCKSDB_NAMESPACE::ChecksumType::kXXH3:
+        return 0x4;
       default:
         return 0x7F;  // undefined
     }
