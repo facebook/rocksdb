@@ -450,7 +450,7 @@ def save_reports_to_local(reports, filename: str):
 def load_reports_from_local(filename: str):
     file = open(filename, 'rb')
     reports = pickle.load(file)
-    logging.debug(f"Loaded pickled reports: {reports}")
+    logging.debug(f"Loaded local pickled reports: {reports}")
     return reports
 
 
