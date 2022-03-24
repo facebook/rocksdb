@@ -554,9 +554,6 @@ jobs:
             which java && java -version
             which javac && javac -version
       - run:
-          name: "Build RocksDBJava Shared Library"
-          command: make V=1 J=8 -j8 rocksdbjava
-      - run:
           name: "Test RocksDBJava"
           command: make V=1 J=8 -j8 jtest
       - post-steps
@@ -601,9 +598,6 @@ jobs:
             echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
             which java && java -version
             which javac && javac -version
-      - run:
-          name: "Build RocksDBJava Shared Library"
-          command: make V=1 J=16 -j16 rocksdbjava
       - run:
           name: "Test RocksDBJava"
           command: make V=1 J=16 -j16 jtest
