@@ -37,6 +37,9 @@ class SecondaryCacheResultHandle {
 
   // Return the size of value
   virtual size_t Size() = 0;
+
+  // Returns whether the handle is erased in the secondary cache.
+  virtual bool IsErasedFromSecondaryCache() = 0;
 };
 
 // SecondaryCache

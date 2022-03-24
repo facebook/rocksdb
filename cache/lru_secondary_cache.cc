@@ -69,19 +69,21 @@ std::unique_ptr<SecondaryCacheResultHandle> LRUSecondaryCache::Lookup(
         cache_options_.memory_allocator.get());
 
     if (!uncompressed) {
-      cache_->Release(lru_handle, true);
+      cache_->Release(lru_handle, /* erase_if_last_ref */ true);
       return handle;
     }
     s = create_cb(uncompressed.get(), uncompressed_size, &value, &charge);
   }
 
   if (!s.ok()) {
-    cache_->Release(lru_handle, true);
+    cache_->Release(lru_handle, /* erase_if_last_ref */ true);
     return handle;
   }
 
-  handle.reset(new LRUSecondaryCacheResultHandle(value, charge));
   cache_->Release(lru_handle, /* erase_if_last_ref */ true);
+  handle.reset(
+      new LRUSecondaryCacheResultHandle(value, charge, /* is_erased */ true));
+
   return handle;
 }
 
