@@ -452,7 +452,8 @@ class LRUCacheSecondaryCacheTest : public LRUCacheTest {
 };
 
 Cache::CacheItemHelper LRUCacheSecondaryCacheTest::helper_(
-    LRUCacheSecondaryCacheTest::SizeCallback, LRUCacheSecondaryCacheTest::SaveToCallback,
+    LRUCacheSecondaryCacheTest::SizeCallback,
+    LRUCacheSecondaryCacheTest::SaveToCallback,
     LRUCacheSecondaryCacheTest::DeletionCallback);
 
 Cache::CacheItemHelper LRUCacheSecondaryCacheTest::helper_fail_(
@@ -483,14 +484,14 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
   get_perf_context()->Reset();
   Cache::Handle* handle;
   handle =
-      cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_, test_item_creator,
-                    Cache::Priority::LOW, true, stats.get());
+      cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_,
+                    test_item_creator, Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   // This lookup should promote k1 and demote k2
   handle =
-      cache->Lookup("k1", &LRUCacheSecondaryCacheTest::helper_, test_item_creator,
-                    Cache::Priority::LOW, true, stats.get());
+      cache->Lookup("k1", &LRUCacheSecondaryCacheTest::helper_,
+                    test_item_creator, Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   ASSERT_EQ(secondary_cache->num_inserts(), 2u);
@@ -517,8 +518,8 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicFailTest) {
   auto item1 = std::make_unique<TestItem>(str1.data(), str1.length());
   ASSERT_TRUE(cache->Insert("k1", item1.get(), nullptr, str1.length())
                   .IsInvalidArgument());
-  ASSERT_OK(cache->Insert("k1", item1.get(), &LRUCacheSecondaryCacheTest::helper_,
-                          str1.length()));
+  ASSERT_OK(cache->Insert("k1", item1.get(),
+                          &LRUCacheSecondaryCacheTest::helper_, str1.length()));
   item1.release();  // Appease clang-analyze "potential memory leak"
 
   Cache::Handle* handle;
@@ -544,13 +545,13 @@ TEST_F(LRUCacheSecondaryCacheTest, SaveFailTest) {
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert("k1", item1, &LRUCacheSecondaryCacheTest::helper_fail_,
-                          str1.length()));
+  ASSERT_OK(cache->Insert(
+      "k1", item1, &LRUCacheSecondaryCacheTest::helper_fail_, str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_OK(cache->Insert("k2", item2, &LRUCacheSecondaryCacheTest::helper_fail_,
-                          str2.length()));
+  ASSERT_OK(cache->Insert(
+      "k2", item2, &LRUCacheSecondaryCacheTest::helper_fail_, str2.length()));
 
   Cache::Handle* handle;
   handle = cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_fail_,
@@ -1064,7 +1065,8 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
     values.emplace_back(str);
     TestItem* item = new TestItem(str.data(), str.length());
     ASSERT_OK(cache->Insert("k" + std::to_string(i), item,
-                            &LRUCacheSecondaryCacheTest::helper_, str.length()));
+                            &LRUCacheSecondaryCacheTest::helper_,
+                            str.length()));
   }
   // Force all entries to be evicted to the secondary cache
   cache->SetCapacity(0);
@@ -1077,9 +1079,9 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
        {"k5", TestSecondaryCache::ResultType::FAIL}});
   std::vector<Cache::Handle*> results;
   for (int i = 0; i < 6; ++i) {
-    results.emplace_back(
-        cache->Lookup("k" + std::to_string(i), &LRUCacheSecondaryCacheTest::helper_,
-                      test_item_creator, Cache::Priority::LOW, false));
+    results.emplace_back(cache->Lookup(
+        "k" + std::to_string(i), &LRUCacheSecondaryCacheTest::helper_,
+        test_item_creator, Cache::Priority::LOW, false));
   }
   cache->WaitAll(results);
   for (int i = 0; i < 6; ++i) {
