@@ -3,6 +3,10 @@
 ### Bug Fixes
 * Fixed a race condition when 2PC is disabled and WAL tracking in the MANIFEST is enabled. The race condition is between two background flush threads trying to install flush results, causing a WAL deletion not tracked in the MANIFEST. A future DB open may fail.
 
+### New Features
+* Support Mingw when using the Makefile.
+* Support more cross-compilation scenarios when using the Makefile.
+
 ## 7.1.0 (03/23/2022)
 ### New Features
 * Allow WriteBatchWithIndex to index a WriteBatch that includes keys with user-defined timestamps. The index itself does not have timestamp.

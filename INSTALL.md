@@ -27,6 +27,22 @@ CPU supports it. To print a warning if your CPU does not support SSE4.2, build w
 to build a portable binary, add `PORTABLE=1` before your make commands, like this:
 `PORTABLE=1 make static_lib`.
 
+* When cross-compiling, you may want to disable dependency and CPU feature
+  autodetection. You do that by setting `CROSS_COMPILE=true`:
+
+```sh
+# Target macOS on Apple M1, from a Linux host, using https://github.com/tpoechtrager/osxcross
+make -j $(nproc) \
+	CROSS_COMPILE=true \
+	PORTABLE=1 \
+	DISABLE_WARNING_AS_ERROR=1 \
+	TARGET_OS=Darwin \
+	TARGET_ARCHITECTURE=arm64 \
+	CXX=oa64-clang++ \
+	AR=arm64-apple-darwin20.4-ar \
+	static_lib
+```
+
 ## Dependencies
 
 * You can link RocksDB with following compression libraries:

@@ -118,16 +118,19 @@ OPT += -momit-leaf-frame-pointer
 endif
 endif
 
-ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
-CXXFLAGS += -DHAS_ALTIVEC
-CFLAGS += -DHAS_ALTIVEC
-HAS_ALTIVEC=1
-endif
+# A cross-compiler can support PPC, even though that's not our target.
+ifneq ($(CROSS_COMPILE), true)
+  ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
+    CXXFLAGS += -DHAS_ALTIVEC
+    CFLAGS += -DHAS_ALTIVEC
+    HAS_ALTIVEC=1
+  endif
 
-ifeq (,$(shell $(CXX) -fsyntax-only -mcpu=power8 -xc /dev/null 2>&1))
-CXXFLAGS += -DHAVE_POWER8
-CFLAGS +=  -DHAVE_POWER8
-HAVE_POWER8=1
+  ifeq (,$(shell $(CXX) -fsyntax-only -mcpu=power8 -xc /dev/null 2>&1))
+    CXXFLAGS += -DHAVE_POWER8
+    CFLAGS +=  -DHAVE_POWER8
+    HAVE_POWER8=1
+  endif
 endif
 
 # if we're compiling for shared libraries, add the shared flags
@@ -136,34 +139,31 @@ CXXFLAGS += $(PLATFORM_SHARED_CFLAGS) -DROCKSDB_DLL
 CFLAGS +=  $(PLATFORM_SHARED_CFLAGS) -DROCKSDB_DLL
 endif
 
-# if we're compiling for release, compile without debug code (-DNDEBUG)
-ifeq ($(DEBUG_LEVEL),0)
-OPT += -DNDEBUG
+ifeq ($(DEBUG_LEVEL),0) # release build
+  # if we're compiling for release, compile without debug code (-DNDEBUG)
+  OPT += -DNDEBUG
+  USE_RTTI := 0
+else # debug build
+  USE_RTTI := 1
 
-ifneq ($(USE_RTTI), 1)
-	CXXFLAGS += -fno-rtti
-else
-	CXXFLAGS += -DROCKSDB_USE_RTTI
-endif
-else
-ifneq ($(USE_RTTI), 0)
-	CXXFLAGS += -DROCKSDB_USE_RTTI
-else
-	CXXFLAGS += -fno-rtti
-endif
+  ifdef ASSERT_STATUS_CHECKED
+    # For ASC, turn off constructor elision, preventing the case where a constructor returned
+    # by a method may pass the ASC check if the status is checked in the inner method.  Forcing
+    # the copy constructor to be invoked disables the optimization and will cause the calling method
+    # to check the status in order to prevent an error from being raised.
+    PLATFORM_CXXFLAGS += -fno-elide-constructors
+    ifeq ($(filter -DROCKSDB_ASSERT_STATUS_CHECKED,$(OPT)),)
+      OPT += -DROCKSDB_ASSERT_STATUS_CHECKED
+    endif
+  endif
 
-ifdef ASSERT_STATUS_CHECKED
-# For ASC, turn off constructor elision, preventing the case where a constructor returned
-# by a method may pass the ASC check if the status is checked in the inner method.  Forcing
-# the copy constructor to be invoked disables the optimization and will cause the calling method
-# to check the status in order to prevent an error from being raised.
-PLATFORM_CXXFLAGS += -fno-elide-constructors
-ifeq ($(filter -DROCKSDB_ASSERT_STATUS_CHECKED,$(OPT)),)
-	OPT += -DROCKSDB_ASSERT_STATUS_CHECKED
-endif
-endif
+  $(warning Warning: Compiling in debug mode. Don't use the resulting binary in production)
+endif # DEBUG_LEVEL
 
-$(warning Warning: Compiling in debug mode. Don't use the resulting binary in production)
+ifeq ($(USE_RTTI), 0)
+  CXXFLAGS += -fno-rtti
+else
+  CXXFLAGS += -DROCKSDB_USE_RTTI
 endif
 
 # `USE_LTO=1` enables link-time optimizations. Among other things, this enables
@@ -217,12 +217,18 @@ AM_SHARE = $(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$@ -L. $(patsubst lib%.
 # Export some common variables that might have been passed as Make variables
 # instead of environment variables.
 dummy := $(shell (export ROCKSDB_ROOT="$(CURDIR)"; \
-                  export CXXFLAGS="$(EXTRA_CXXFLAGS)"; \
-                  export LDFLAGS="$(EXTRA_LDFLAGS)"; \
+                  export CC="$(CC)"; \
+                  export CXX="$(CXX)"; \
+                  export AR="$(AR)"; \
+                  export CFLAGS="$(CFLAGS)"; \
+                  export CXXFLAGS="$(CXXFLAGS)"; \
                   export COMPILE_WITH_ASAN="$(COMPILE_WITH_ASAN)"; \
                   export COMPILE_WITH_TSAN="$(COMPILE_WITH_TSAN)"; \
                   export COMPILE_WITH_UBSAN="$(COMPILE_WITH_UBSAN)"; \
                   export PORTABLE="$(PORTABLE)"; \
+                  export CROSS_COMPILE="$(CROSS_COMPILE)"; \
+                  export TARGET_OS="$(TARGET_OS)"; \
+                  export TARGET_ARCHITECTURE="$(TARGET_ARCHITECTURE)"; \
                   export ROCKSDB_NO_FBCODE="$(ROCKSDB_NO_FBCODE)"; \
                   export USE_CLANG="$(USE_CLANG)"; \
                   export LIB_MODE="$(LIB_MODE)"; \
@@ -504,6 +510,11 @@ ifeq ($(NO_THREEWAY_CRC32C), 1)
 	CXXFLAGS += -DNO_THREEWAY_CRC32C
 endif
 
+# The original CFLAGS and CXXFLAGS have already been included in
+# PLATFORM_CCFLAGS and PLATFORM_CXXFLAGS, but we can't avoid the duplication
+# here because more parameters have been appended in the mean time.
+# TODO: move all the new flags to PLATFORM_* after "make_config.mk" is
+# included, so we can := instead of += here.
 CFLAGS += $(C_WARNING_FLAGS) $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers
 
