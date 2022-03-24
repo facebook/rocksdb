@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+
 ## 7.1.0 (03/23/2022)
 ### New Features
 * Allow WriteBatchWithIndex to index a WriteBatch that includes keys with user-defined timestamps. The index itself does not have timestamp.
