@@ -123,11 +123,15 @@ class LRUSecondaryCacheTest : public testing::Test {
     std::unique_ptr<SecondaryCacheResultHandle> handle1 =
         cache->Lookup("k1", test_item_creator, true);
     ASSERT_NE(handle1, nullptr);
-    // delete reinterpret_cast<TestItem*>(handle1->Value());
     std::unique_ptr<TestItem> val1 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle1->Value()));
     ASSERT_NE(val1, nullptr);
     ASSERT_EQ(memcmp(val1->Buf(), item1.Buf(), item1.Size()), 0);
+
+    // Lookup the first item again.
+    std::unique_ptr<SecondaryCacheResultHandle> handle1_1 =
+        cache->Lookup("k1", test_item_creator, true);
+    ASSERT_EQ(handle1_1, nullptr);
 
     // Insert and Lookup the second item.
     std::string str2;
@@ -142,22 +146,9 @@ class LRUSecondaryCacheTest : public testing::Test {
     ASSERT_NE(val2, nullptr);
     ASSERT_EQ(memcmp(val2->Buf(), item2.Buf(), item2.Size()), 0);
 
-    // Lookup the first item again to make sure it is still in the cache.
-    // std::unique_ptr<SecondaryCacheResultHandle> handle1_1 =
-    //     cache->Lookup("k1", test_item_creator, true);
-    // ASSERT_NE(handle1_1, nullptr);
-    // std::unique_ptr<TestItem> val1_1 =
-    //     std::unique_ptr<TestItem>(static_cast<TestItem*>(handle1_1->Value()));
-    // ASSERT_NE(val1_1, nullptr);
-    // ASSERT_EQ(memcmp(val1_1->Buf(), item1.Buf(), item1.Size()), 0);
-
     std::vector<SecondaryCacheResultHandle*> handles = {handle1.get(),
                                                         handle2.get()};
     cache->WaitAll(handles);
-
-    // cache->Erase("k1");
-    // handle1 = cache->Lookup("k1", test_item_creator, true);
-    // ASSERT_EQ(handle1, nullptr);
 
     cache.reset();
   }
@@ -184,13 +175,6 @@ class LRUSecondaryCacheTest : public testing::Test {
     std::string str1(rnd.RandomString(1000));
     TestItem item1(str1.data(), str1.length());
     ASSERT_OK(cache->Insert("k1", &item1, &LRUSecondaryCacheTest::helper_));
-    std::unique_ptr<SecondaryCacheResultHandle> handle1 =
-        cache->Lookup("k1", test_item_creator, true);
-    ASSERT_NE(handle1, nullptr);
-    std::unique_ptr<TestItem> val1 =
-        std::unique_ptr<TestItem>(static_cast<TestItem*>(handle1->Value()));
-    ASSERT_NE(val1, nullptr);
-    ASSERT_EQ(memcmp(val1->Buf(), item1.Buf(), item1.Size()), 0);
 
     // Insert and Lookup the second item.
     std::string str2(rnd.RandomString(200));
@@ -284,9 +268,8 @@ class LRUSecondaryCacheTest : public testing::Test {
                       Cache::Priority::LOW, true, stats.get());
     ASSERT_EQ(handle, nullptr);
 
-    // This Lookup should promote k1 and demote k3, so k2 is evicted from the
-    // secondary cache. The lru cache contains k1 and secondary cache contains
-    // k3. item1 was Free(), so it cannot be compared against the item1.
+    // This Lookup should promote k1 and erase k1 from the secondary cache,
+    // then k3 is demoted. So k2 and k3 are in the secondary cache.
     handle =
         cache->Lookup("k1", &LRUSecondaryCacheTest::helper_, test_item_creator,
                       Cache::Priority::LOW, true, stats.get());
@@ -299,7 +282,8 @@ class LRUSecondaryCacheTest : public testing::Test {
     handle =
         cache->Lookup("k2", &LRUSecondaryCacheTest::helper_, test_item_creator,
                       Cache::Priority::LOW, true, stats.get());
-    ASSERT_EQ(handle, nullptr);
+    ASSERT_NE(handle, nullptr);
+    cache->Release(handle);
 
     cache.reset();
     secondary_cache.reset();
@@ -494,23 +478,24 @@ class LRUSecondaryCacheTest : public testing::Test {
     ASSERT_OK(cache->Insert("k2", item2, &LRUSecondaryCacheTest::helper_,
                             str2.length()));
 
-    Cache::Handle* handle;
-    handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
-                           test_item_creator, Cache::Priority::LOW, true);
-    ASSERT_NE(handle, nullptr);
-    // k1 promotion should fail due to the block cache being at capacity,
-    // but the lookup should still succeed
     Cache::Handle* handle2;
-    handle2 = cache->Lookup("k1", &LRUSecondaryCacheTest::helper_,
+    handle2 = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
                             test_item_creator, Cache::Priority::LOW, true);
     ASSERT_NE(handle2, nullptr);
-    // Since k1 didn't get inserted, k2 should still be in cache
-    cache->Release(handle);
     cache->Release(handle2);
-    handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
-                           test_item_creator, Cache::Priority::LOW, true);
-    ASSERT_NE(handle, nullptr);
-    cache->Release(handle);
+    // k1 promotion should fail due to the block cache being at capacity,
+    // but the lookup should still succeed
+    Cache::Handle* handle1;
+    handle1 = cache->Lookup("k1", &LRUSecondaryCacheTest::helper_,
+                            test_item_creator, Cache::Priority::LOW, true);
+    ASSERT_NE(handle1, nullptr);
+    cache->Release(handle1);
+
+    // Since k1 didn't get inserted, k2 should still be in cache
+    handle2 = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
+                            test_item_creator, Cache::Priority::LOW, true);
+    ASSERT_NE(handle2, nullptr);
+    cache->Release(handle2);
 
     cache.reset();
     secondary_cache.reset();
