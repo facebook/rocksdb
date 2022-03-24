@@ -1113,6 +1113,16 @@ Status CloudEnvImpl::NeedsReinitialization(const std::string& local_dir,
     return st.IsNotFound() ? Status::OK() : st;
   }
 
+  // Check if CLOUDMANIFEST file exists
+  st = env->FileExists(CloudManifestFile(local_dir));
+  if (!st.ok()) {
+    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+        "[cloud_env_impl] NeedsReinitialization: "
+        "failed to find CLOUDMANIFEST file %s: %s",
+        CloudManifestFile(local_dir).c_str(), st.ToString().c_str());
+    return st.IsNotFound() ? Status::OK() : st;
+  }
+
   if (cloud_env_options.skip_dbid_verification) {
     *do_reinit = false;
     return Status::OK();
@@ -1347,16 +1357,7 @@ Status CloudEnvImpl::ResyncDir(const std::string& local_dir) {
         local_dir.c_str(), src_bucket.c_str(), dest_bucket.c_str());
     return Status::InvalidArgument();
   }
-  // If ephemeral_resync_on_open is false, then we want to keep all local
-  // data intact.
-  if (!cloud_env_options.ephemeral_resync_on_open) {
-    return Status::OK();
-  }
-
-  // Copy the src cloud manifest to local dir. This essentially means that
-  // the local db is resycned with the src cloud bucket. All new files will be
-  // pulled in as needed when we open the db.
-  return FetchCloudManifest(local_dir, true);
+  return Status::OK();
 }
 
 //
@@ -1422,14 +1423,25 @@ Status CloudEnvImpl::GetCloudDbid(const std::string& local_dir,
   return Status::OK();
 }
 
-Status CloudEnvImpl::MaybeMigrateManifestFile(const std::string& local_dbname) {
+Status CloudEnvImpl::MigrateFromPureRocksDB(const std::string& local_dbname) {
+  std::unique_ptr<CloudManifest> manifest;
+  CloudManifest::CreateForEmptyDatabase("", &manifest);
+  auto st = writeCloudManifest(manifest.get(), CloudManifestFile(local_dbname));
+  if (!st.ok()) {
+    return st;
+  }
+  st = LoadLocalCloudManifest(local_dbname);
+  if (!st.ok()) {
+    return st;
+  }
+
   std::string manifest_filename;
   Env* local_env = GetBaseEnv();
-  auto st = local_env->FileExists(CurrentFileName(local_dbname));
+  st = local_env->FileExists(CurrentFileName(local_dbname));
   if (st.IsNotFound()) {
     // No need to migrate
     Log(InfoLogLevel::INFO_LEVEL, info_log_,
-        "[cloud_env_impl] MaybeMigrateManifestFile: No need to migrate %s",
+        "[cloud_env_impl] MigrateFromPureRocksDB: No need to migrate %s",
         CurrentFileName(local_dbname).c_str());
     return Status::OK();
   }
@@ -1446,26 +1458,28 @@ Status CloudEnvImpl::MaybeMigrateManifestFile(const std::string& local_dbname) {
   // MANIFEST-00001 instead of MANIFEST. If we don't do the rename we'll
   // download MANIFEST file from the cloud, which might not be what we want do
   // to (especially for databases which don't have a destination bucket
-  // specified). This piece of code can be removed post-migration.
+  // specified).
   manifest_filename = local_dbname + "/" + rtrim_if(manifest_filename, '\n');
   if (local_env->FileExists(manifest_filename).IsNotFound()) {
     // manifest doesn't exist, shrug
     Log(InfoLogLevel::INFO_LEVEL, info_log_,
-        "[cloud_env_impl] MaybeMigrateManifestFile: Manifest %s does not exist",
+        "[cloud_env_impl] MigrateFromPureRocksDB: Manifest %s does not exist",
         manifest_filename.c_str());
     return Status::OK();
   }
-  return local_env->RenameFile(manifest_filename, local_dbname + "/MANIFEST");
+  st = local_env->RenameFile(manifest_filename, local_dbname + "/MANIFEST");
+  if (!st.ok()) {
+    return st;
+  }
+
+  return RollNewEpoch(local_dbname);
 }
 
 Status CloudEnvImpl::PreloadCloudManifest(const std::string& local_dbname) {
   Env* local_env = GetBaseEnv();
   local_env->CreateDirIfMissing(local_dbname);
-  Status st = MaybeMigrateManifestFile(local_dbname);
-  if (st.ok()) {
-    // Init cloud manifest
-    st = FetchCloudManifest(local_dbname, false);
-  }
+  // Init cloud manifest
+  auto st = FetchCloudManifest(local_dbname);
   if (st.ok()) {
     // Inits CloudEnvImpl::cloud_manifest_, which will enable us to read files
     // from the cloud
@@ -1476,24 +1490,49 @@ Status CloudEnvImpl::PreloadCloudManifest(const std::string& local_dbname) {
 
 Status CloudEnvImpl::LoadCloudManifest(const std::string& local_dbname,
                                        bool read_only) {
-  Status st = MaybeMigrateManifestFile(local_dbname);
-  if (st.ok()) {
-    // Init cloud manifest
-    st = FetchCloudManifest(local_dbname, false);
-  }
+  // Init cloud manifest
+  auto st = FetchCloudManifest(local_dbname);
   if (st.ok()) {
     // Inits CloudEnvImpl::cloud_manifest_, which will enable us to read files
     // from the cloud
     st = LoadLocalCloudManifest(local_dbname);
   }
   if (st.ok()) {
-    // Rolls the new epoch in CLOUDMANIFEST
+    // Rolls the new epoch in CLOUDMANIFEST (only for existing databases)
     st = RollNewEpoch(local_dbname);
+    if (st.IsNotFound()) {
+      st = Status::Corruption(
+          "CLOUDMANIFEST points to MANIFEST that doesn't exist");
+    }
   }
   if (!st.ok()) {
+    cloud_manifest_.reset();
     return st;
   }
-  
+
+  if (FileExists(CurrentFileName(local_dbname)).IsNotFound()) {
+    // Create dummy CURRENT file to point to the dummy manifest (cloud env
+    // will remap the filename appropriately, this is just to fool the
+    // underyling RocksDB)
+    std::unique_ptr<WritableFile> destfile;
+    st =
+        NewWritableFile(CurrentFileName(local_dbname), &destfile, EnvOptions());
+    if (!st.ok()) {
+      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+          "Unable to create local CURRENT file to %s %s",
+          CurrentFileName(local_dbname).c_str(), st.ToString().c_str());
+      return st;
+    }
+    Log(InfoLogLevel::INFO_LEVEL, info_log_, "Creating a dummy CURRENT file.");
+    st = destfile->Append(Slice("MANIFEST-000001\n"));
+    if (!st.ok()) {
+      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+          "Unable to write local CURRENT file to %s %s",
+          CurrentFileName(local_dbname).c_str(), st.ToString().c_str());
+      return st;
+    }
+  }
+
   // Do the cleanup, but don't fail if the cleanup fails.
   if (!read_only) {
     st = DeleteInvisibleFiles(local_dbname);
@@ -1513,8 +1552,6 @@ Status CloudEnvImpl::LoadCloudManifest(const std::string& local_dbname,
 Status CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
                                        const std::string& local_name,
                                        bool read_only) {
-  EnvOptions soptions;
-
   // acquire the local env
   Env* env = GetBaseEnv();
   if (!read_only) {
@@ -1663,41 +1700,19 @@ Status CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
     }
   }
 
-  // create dummy CURRENT file to point to the dummy manifest (cloud env will
-  // remap the filename appropriately, this is just to fool the underyling
-  // RocksDB)
-  {
-    std::unique_ptr<WritableFile> destfile;
-    st = env->NewWritableFile(CurrentFileName(local_name), &destfile, soptions);
-    if (!st.ok()) {
-      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[cloud_env_impl] Unable to create local CURRENT file to %s %s",
-          local_name.c_str(), st.ToString().c_str());
-      return st;
-    }
-    Log(InfoLogLevel::INFO_LEVEL, info_log_,
-        "[cloud_env_impl] SanitizeDirectory creating dummy CURRENT file");
-    std::string manifestfile =
-        "MANIFEST-000001\n";  // CURRENT file needs a newline
-    st = destfile->Append(Slice(manifestfile));
-    if (!st.ok()) {
-      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[cloud_env_impl] Unable to write local CURRENT file to %s %s",
-          local_name.c_str(), st.ToString().c_str());
-      return st;
-    }
-  }
-  return st;
+  return Status::OK();
 }
 
-Status CloudEnvImpl::FetchCloudManifest(const std::string& local_dbname,
-                                        bool force) {
+Status CloudEnvImpl::FetchCloudManifest(const std::string& local_dbname) {
   std::string cloudmanifest = CloudManifestFile(local_dbname);
-  if (!SrcMatchesDest() && !force &&
+  // If this is an ephemeral replica and resync_on_open is false and we have a
+  // local cloud manifest, do nothing.
+  if (!SrcMatchesDest() && !cloud_env_options.ephemeral_resync_on_open &&
       GetBaseEnv()->FileExists(cloudmanifest).ok()) {
     // nothing to do here, we have our cloud manifest
     Log(InfoLogLevel::INFO_LEVEL, info_log_,
-        "[cloud_env_impl] FetchCloudManifest: Nothing to do %s exists",
+        "[cloud_env_impl] FetchCloudManifest: Nothing to do, %s exists and "
+        "resync_on_open is false",
         cloudmanifest.c_str());
     return Status::OK();
   }
@@ -1746,16 +1761,22 @@ Status CloudEnvImpl::FetchCloudManifest(const std::string& local_dbname,
     }
   }
   Log(InfoLogLevel::INFO_LEVEL, info_log_,
-      "[cloud_env_impl] FetchCloudManifest: Creating new"
-      " cloud manifest for %s",
-      local_dbname.c_str());
-
-  // No cloud manifest, create an empty one
-  std::unique_ptr<CloudManifest> manifest;
-  CloudManifest::CreateForEmptyDatabase("", &manifest);
-  return writeCloudManifest(manifest.get(), cloudmanifest);
+      "[cloud_env_impl] FetchCloudManifest: No cloud manifest");
+  return Status::NotFound();
 }
 
+Status CloudEnvImpl::CreateCloudManifest(const std::string& local_dbname) {
+  // No cloud manifest, create an empty one
+  std::unique_ptr<CloudManifest> manifest;
+  CloudManifest::CreateForEmptyDatabase(generateNewEpochId(), &manifest);
+  auto st = writeCloudManifest(manifest.get(), CloudManifestFile(local_dbname));
+  if (st.ok()) {
+    st = LoadLocalCloudManifest(local_dbname);
+  }
+  return st;
+}
+
+// REQ: This is an existing database.
 Status CloudEnvImpl::RollNewEpoch(const std::string& local_dbname) {
   auto oldEpoch = GetCloudManifest()->GetCurrentEpoch().ToString();
   // Find next file number. We use dummy MANIFEST filename, which should get
@@ -1765,11 +1786,7 @@ Status CloudEnvImpl::RollNewEpoch(const std::string& local_dbname) {
   uint64_t maxFileNumber;
   auto st = ManifestReader::GetMaxFileNumberFromManifest(
       this, local_dbname + "/MANIFEST-000001", &maxFileNumber);
-  if (st.IsNotFound()) {
-    // This is a new database!
-    maxFileNumber = 0;
-    st = Status::OK();
-  } else if (!st.ok()) {
+  if (!st.ok()) {
     // uh oh
     return st;
   }
@@ -1777,19 +1794,20 @@ Status CloudEnvImpl::RollNewEpoch(const std::string& local_dbname) {
   auto newEpoch = generateNewEpochId();
   GetCloudManifest()->AddEpoch(maxFileNumber, newEpoch);
   GetCloudManifest()->Finalize();
-  if (maxFileNumber > 0) {
-    // Meaning, this is not a new database and we should have
-    // ManifestFileWithEpoch(local_dbname, oldEpoch) locally.
-    // In that case, we have to move our old manifest to the new filename.
-    // However, we don't move here, we copy. If we moved and crashed immediately
-    // after (before writing CLOUDMANIFEST), we'd corrupt our database. The old
-    // MANIFEST file will be cleaned up in DeleteInvisibleFiles().
-    const auto& fs = GetBaseEnv()->GetFileSystem();
-    st = CopyFile(fs.get(), ManifestFileWithEpoch(local_dbname, oldEpoch),
-                  ManifestFileWithEpoch(local_dbname, newEpoch), 0, true);
-    if (!st.ok()) {
-      return st;
-    }
+  Log(InfoLogLevel::INFO_LEVEL, info_log_,
+      "Rolling new CLOUDMANIFEST from file number %lu, renaming MANIFEST-%s to "
+      "MANIFEST-%s",
+      maxFileNumber, oldEpoch.c_str(), newEpoch.c_str());
+  // ManifestFileWithEpoch(local_dbname, oldEpoch) should exist locally.
+  // We have to move our old manifest to the new filename.
+  // However, we don't move here, we copy. If we moved and crashed immediately
+  // after (before writing CLOUDMANIFEST), we'd corrupt our database. The old
+  // MANIFEST file will be cleaned up in DeleteInvisibleFiles().
+  const auto& fs = GetBaseEnv()->GetFileSystem();
+  st = CopyFile(fs.get(), ManifestFileWithEpoch(local_dbname, oldEpoch),
+                ManifestFileWithEpoch(local_dbname, newEpoch), 0, true);
+  if (!st.ok()) {
+    return st;
   }
   st = writeCloudManifest(GetCloudManifest(), CloudManifestFile(local_dbname));
   if (!st.ok()) {
@@ -1799,15 +1817,11 @@ Status CloudEnvImpl::RollNewEpoch(const std::string& local_dbname) {
   // and removing epochs that don't contain any live files.
 
   if (HasDestBucket()) {
-    // upload new manifest, only if we have it (i.e. this is not a new
-    // database, indicated by maxFileNumber)
-    if (maxFileNumber > 0) {
-      st = GetStorageProvider()->PutCloudObject(
-          ManifestFileWithEpoch(local_dbname, newEpoch), GetDestBucketName(),
-          ManifestFileWithEpoch(GetDestObjectPath(), newEpoch));
-      if (!st.ok()) {
+    st = GetStorageProvider()->PutCloudObject(
+            ManifestFileWithEpoch(local_dbname, newEpoch), GetDestBucketName(),
+            ManifestFileWithEpoch(GetDestObjectPath(), newEpoch));
+    if (!st.ok()) {
         return st;
-      }
     }
     // upload new cloud manifest
     st = GetStorageProvider()->PutCloudObject(

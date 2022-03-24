@@ -558,7 +558,7 @@ Status S3StorageProvider::EmptyBucket(const std::string& bucket_name,
 
   // Delete all objects from bucket
   for (const auto& path : results) {
-    st = DeleteCloudObject(bucket_name, path);
+    st = DeleteCloudObject(bucket_name, object_path + "/" + path);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
           "[s3] EmptyBucket Unable to delete %s in bucket %s %s", path.c_str(),

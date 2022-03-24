@@ -442,6 +442,9 @@ class CloudEnv : public Env, public Configurable {
   // Returns the underlying env
   Env* GetBaseEnv() { return base_env_; }
   virtual Status PreloadCloudManifest(const std::string& local_dbname) = 0;
+  // This method will mgirate the database that is using pure RocksDB into
+  // RocksDB-Cloud. Call this before opening the database with RocksDB-Cloud.
+  virtual Status MigrateFromPureRocksDB(const std::string& local_dbname) = 0;
 
   // Reads a file from the cloud
   virtual Status NewSequentialFileCloud(const std::string& bucket_prefix,

@@ -120,6 +120,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
         local_dbname);  // MJR: TODO: Move into sanitize
   }
 
+  bool new_db = false;
   // If cloud manifest is already loaded, this means the directory has been
   // sanitized (possibly by the call to ListColumnFamilies())
   if (cenv->GetCloudManifest() == nullptr) {
@@ -128,10 +129,26 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     if (st.ok()) {
       st = cenv->LoadCloudManifest(local_dbname, read_only);
     }
+    if (st.IsNotFound()) {
+      Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+          "CLOUDMANIFEST not found in the cloud, assuming this is a new "
+          "database");
+      new_db = true;
+      st = Status::OK();
+    } else if (!st.ok()) {
+      return st;
+    }
+  }
+  if (new_db) {
+    if (read_only) {
+      return Status::NotFound("CLOUDMANIFEST not found and read_only is set.");
+    }
+    st = cenv->CreateCloudManifest(local_dbname);
     if (!st.ok()) {
       return st;
     }
   }
+
   // If a persistent cache path is specified, then we set it in the options.
   if (!persistent_cache_path.empty() && persistent_cache_size_gb) {
     // Get existing options. If the persistent cache is already set, then do
@@ -168,6 +185,15 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
                              &db);
   } else {
     st = DB::Open(options, local_dbname, column_families, handles, &db);
+  }
+
+  if (new_db && st.ok() && cenv->HasDestBucket()) {
+    // This is a new database, upload the CLOUDMANIFEST after all MANIFEST file
+    // was already uploaded. It is at this point we consider the database
+    // committed in the cloud.
+    st = cenv->GetStorageProvider()->PutCloudObject(
+        CloudManifestFile(local_dbname), cenv->GetDestBucketName(),
+        CloudManifestFile(cenv->GetDestObjectPath()));
   }
 
   // now that the database is opened, all file sizes have been verified and we

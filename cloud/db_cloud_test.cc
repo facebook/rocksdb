@@ -41,6 +41,8 @@ class CloudTest : public testing::Test {
     cloud_env_options_.TEST_Initialize("dbcloudtest.", dbname_);
 
     options_.create_if_missing = true;
+    options_.stats_dump_period_sec = 0;
+    options_.stats_persist_period_sec = 0;
     persistent_cache_path_ = "";
     persistent_cache_size_gb_ = 0;
     db_ = nullptr;
@@ -524,7 +526,7 @@ TEST_F(CloudTest, ColumnFamilies) {
 //
 // Create and read from a clone.
 //
-TEST_F(CloudTest, TrueClone) {
+TEST_F(CloudTest, DISABLED_TrueClone) {
   std::string master_dbid;
   std::string newdb1_dbid;
   std::string newdb2_dbid;
@@ -687,6 +689,9 @@ TEST_F(CloudTest, KeepLocalFiles) {
 
     CloseDB();
     ValidateCloudLiveFilesSrcSize();
+    aenv_->GetStorageProvider()->EmptyBucket(aenv_->GetSrcBucketName(),
+                                             dbname_);
+    DestroyDir(dbname_);
   }
 }
 
@@ -1168,10 +1173,16 @@ TEST_F(CloudTest, MigrateFromPureRocksDB) {
       ASSERT_OK(db->Flush(FlushOptions()));
     }
   }
+
+  CreateCloudEnv();
+  ASSERT_OK(aenv_->MigrateFromPureRocksDB(dbname_));
+
   // Now open RocksDB cloud
   // TODO(dhruba) Figure out how to make this work without skipping dbid
   // verification
   cloud_env_options_.skip_dbid_verification = true;
+  cloud_env_options_.keep_local_sst_files = true;
+  cloud_env_options_.validate_filesize = false;
   OpenDB();
   for (int i = 5; i < 10; ++i) {
     auto key = "key" + ToString(i);
@@ -1722,7 +1733,6 @@ TEST_F(CloudTest, FileCacheOnDemand) {
   bool strict_capacity_limit = false;
   double high_pri_pool_ratio = 0;
 
-  uint64_t onesize = 884;  // size of an sst file with one key-value
   std::shared_ptr<Cache> cache =
       NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
                   high_pri_pool_ratio, nullptr, kDefaultToAdaptiveMutex,
@@ -1750,7 +1760,6 @@ TEST_F(CloudTest, FileCacheOnDemand) {
 
   // verify that there are only twp entries in the cache
   EXPECT_EQ(cimpl->FileCacheGetNumItems(), 2);
-  EXPECT_EQ(cimpl->FileCacheGetCharge(), 2 * onesize);
   EXPECT_EQ(cimpl->FileCacheGetCharge(), cache->GetUsage());
 
   // Theere should be only two local sst files.

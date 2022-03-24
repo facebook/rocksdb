@@ -168,17 +168,10 @@ Status CloudManifest::WriteToLog(std::unique_ptr<WritableFileWriter> log) {
 
 void CloudManifest::AddEpoch(uint64_t startFileNumber, std::string epochId) {
   assert(!finalized_);
-  if (startFileNumber == 0) {
-    // meaning, we didn't write any files under currentEpoch_ (most likely
-    // because the database is empty). Instead of storing the past epoch, just
-    // set the currentEpoch_
-    assert(pastEpochs_.empty());
-  } else {
-    assert(pastEpochs_.empty() || pastEpochs_.back().first <= startFileNumber);
-    if (pastEpochs_.empty() || pastEpochs_.back().first < startFileNumber) {
+  assert(pastEpochs_.empty() || pastEpochs_.back().first <= startFileNumber);
+  if (pastEpochs_.empty() || pastEpochs_.back().first < startFileNumber) {
       pastEpochs_.emplace_back(startFileNumber, std::move(currentEpoch_));
-    }  // Else current epoch hasn't written any files, I can just ignore it
-  }
+  }  // Else current epoch hasn't written any files, I can just ignore it
   currentEpoch_ = std::move(epochId);
 }
 

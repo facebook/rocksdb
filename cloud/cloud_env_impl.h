@@ -175,7 +175,8 @@ class CloudEnvImpl : public CloudEnv {
                           std::vector<std::string>* dbids);
   Status extractParents(const std::string& bucket_name_prefix,
                         const DbidList& dbid_list, DbidParents* parents);
-  virtual Status PreloadCloudManifest(const std::string& local_dbname) override;
+  Status PreloadCloudManifest(const std::string& local_dbname) override;
+  Status MigrateFromPureRocksDB(const std::string& local_dbname) override;
 
   // Load CLOUDMANIFEST if exists in local disk to current env.
   Status LoadLocalCloudManifest(const std::string& dbname);
@@ -184,6 +185,8 @@ class CloudEnvImpl : public CloudEnv {
   static Status LoadLocalCloudManifest(
       const std::string& dbname, Env* base_env,
       std::unique_ptr<CloudManifest>* cloud_manifest);
+
+  Status CreateCloudManifest(const std::string& local_dbname);
 
   // Transfers the filename from RocksDB's domain to the physical domain, based
   // on information stored in CLOUDMANIFEST.
@@ -317,8 +320,7 @@ class CloudEnvImpl : public CloudEnv {
   Status CreateNewIdentityFile(const std::string& dbid,
                                const std::string& local_name);
 
-  Status MaybeMigrateManifestFile(const std::string& local_dbname);
-  Status FetchCloudManifest(const std::string& local_dbname, bool force);
+  Status FetchCloudManifest(const std::string& local_dbname);
 
   Status RollNewEpoch(const std::string& local_dbname);
 
