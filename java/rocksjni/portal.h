@@ -2127,7 +2127,7 @@ class JniUtil {
         std::function<ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice)> op,
         JNIEnv* env, jobject /*jobj*/, jbyteArray jkey, jint jkey_len) {
       jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-      if(env->ExceptionCheck()) {
+      if (env->ExceptionCheck()) {
         // exception thrown: OutOfMemoryError
         return nullptr;
       }
@@ -2137,12 +2137,43 @@ class JniUtil {
 
       auto status = op(key_slice);
 
-      if(key != nullptr) {
+      if (key != nullptr) {
         env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
       }
 
       return std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
           new ROCKSDB_NAMESPACE::Status(status));
+    }
+
+    /*
+     * Helper for operations on a key which is a region of an array
+     * Used to extract the common code from seek/seekForPrev.
+     * Possible that it can be generalised from that.
+     *
+     * We use GetByteArrayRegion to copy the key region of the whole array into
+     * a char[] We suspect this is not much slower than GetByteArrayElements,
+     * which probably copies anyway.
+     */
+    static void k_op_region(std::function<void(ROCKSDB_NAMESPACE::Slice&)> op,
+                            JNIEnv* env, jbyteArray jkey, jint jkey_off,
+                            jint jkey_len) {
+      const std::unique_ptr<char[]> key(new char[jkey_len]);
+      if (key == nullptr) {
+        jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
+        env->ThrowNew(oom_class,
+                      "Memory allocation failed in RocksDB JNI function");
+        return;
+      }
+      env->GetByteArrayRegion(jkey, jkey_off, jkey_len,
+                              reinterpret_cast<jbyte*>(key.get()));
+      if (env->ExceptionCheck()) {
+        // exception thrown: OutOfMemoryError
+        return;
+      }
+
+      ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key.get()),
+                                         jkey_len);
+      op(key_slice);
     }
 
     /*
