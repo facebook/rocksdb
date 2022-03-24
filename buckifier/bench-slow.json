@@ -270,7 +270,7 @@
                         "est_runtime": 2764.891509
                     }
                 ],
-                "ManualFlush/key_num:65536/per_key_size:1024/iterations:100": [
+                "ManualFlush/key_num:65536/per_key_size:1024/iterations:1": [
                     "real_time",
                     "db_size",
                     "flush_write_bytes",
@@ -686,7 +686,7 @@
                         "est_runtime": 3977.653591
                     }
                 ],
-                "ManualFlush/key_num:65536/per_key_size:256/iterations:100": [
+                "ManualFlush/key_num:65536/per_key_size:256/iterations:1": [
                     "real_time",
                     "db_size",
                     "flush_write_bytes",
@@ -1798,7 +1798,7 @@
                         "est_runtime": 3751.327826
                     }
                 ],
-                "ManualFlush/key_num:8192/per_key_size:1024/iterations:100": [
+                "ManualFlush/key_num:8192/per_key_size:1024/iterations:1": [
                     "real_time",
                     "db_size",
                     "flush_write_bytes",
@@ -2136,7 +2136,7 @@
                         "est_runtime": 3624.747853
                     }
                 ],
-                "ManualFlush/key_num:8192/per_key_size:256/iterations:100": [
+                "ManualFlush/key_num:8192/per_key_size:256/iterations:1": [
                     "real_time",
                     "db_size",
                     "flush_write_bytes",
@@ -2530,7 +2530,7 @@
                         "est_runtime": 3350.108415
                     }
                 ],
-                "ManualFlush/key_num:1024/per_key_size:1024/iterations:100": [
+                "ManualFlush/key_num:1024/per_key_size:1024/iterations:1": [
                     "real_time",
                     "db_size",
                     "flush_write_bytes",
@@ -2856,7 +2856,7 @@
                         "est_runtime": 3769.100313
                     }
                 ],
-                "ManualFlush/key_num:1024/per_key_size:256/iterations:100": [
+                "ManualFlush/key_num:1024/per_key_size:256/iterations:1": [
                     "real_time",
                     "db_size",
                     "flush_write_bytes",
