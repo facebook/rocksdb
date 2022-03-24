@@ -6,6 +6,7 @@
 * Fixed a race condition when mmaping a WritableFile on POSIX.
 * Fixed a race condition when 2PC is disabled and WAL tracking in the MANIFEST is enabled. The race condition is between two background flush threads trying to install flush results, causing a WAL deletion not tracked in the MANIFEST. A future DB open may fail.
 * Fixed a heap use-after-free race with DropColumnFamily.
+* Fixed a bug that `rocksdb.read.block.compaction.micros` cannot track compaction stats (#9722).
 
 ## 7.0.3 (03/23/2022)
 ### Bug Fixes

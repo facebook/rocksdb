@@ -519,8 +519,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
     // filter blocks
     s = table()->MaybeReadBlockAndLoadToCache(
         prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
-        /* wait */ true, &block, BlockType::kFilter, nullptr /* get_context */,
-        &lookup_context, nullptr /* contents */);
+        /* wait */ true, /* for_compaction */ false, &block, BlockType::kFilter,
+        nullptr /* get_context */, &lookup_context, nullptr /* contents */);
     if (!s.ok()) {
       return s;
     }

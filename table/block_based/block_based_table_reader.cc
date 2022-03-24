@@ -1467,9 +1467,10 @@ template <typename TBlocklike>
 Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
-    const bool wait, CachableEntry<TBlocklike>* block_entry,
-    BlockType block_type, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context, BlockContents* contents) const {
+    const bool wait, const bool for_compaction,
+    CachableEntry<TBlocklike>* block_entry, BlockType block_type,
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
+    BlockContents* contents) const {
   assert(block_entry != nullptr);
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   Cache* block_cache = rep_->table_options.block_cache.get();
@@ -1522,7 +1523,9 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
       CompressionType raw_block_comp_type;
       BlockContents raw_block_contents;
       if (!contents) {
-        StopWatch sw(rep_->ioptions.clock, statistics, READ_BLOCK_GET_MICROS);
+        Histograms histogram = for_compaction ? READ_BLOCK_COMPACTION_MICROS
+                                              : READ_BLOCK_GET_MICROS;
+        StopWatch sw(rep_->ioptions.clock, statistics, histogram);
         BlockFetcher block_fetcher(
             rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle,
             &raw_block_contents, rep_->ioptions, do_uncompress,
@@ -1880,8 +1883,9 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         // avoid looking up the block cache
         s = MaybeReadBlockAndLoadToCache(
             nullptr, options, handle, uncompression_dict, /*wait=*/true,
-            block_entry, BlockType::kData, mget_iter->get_context,
-            &lookup_data_block_context, &raw_block_contents);
+            /*for_compaction=*/false, block_entry, BlockType::kData,
+            mget_iter->get_context, &lookup_data_block_context,
+            &raw_block_contents);
 
         // block_entry value could be null if no block cache is present, i.e
         // BlockBasedTableOptions::no_block_cache is true and no compressed
@@ -1935,7 +1939,7 @@ Status BlockBasedTable::RetrieveBlock(
   if (use_cache) {
     s = MaybeReadBlockAndLoadToCache(
         prefetch_buffer, ro, handle, uncompression_dict, wait_for_cache,
-        block_entry, block_type, get_context, lookup_context,
+        for_compaction, block_entry, block_type, get_context, lookup_context,
         /*contents=*/nullptr);
 
     if (!s.ok()) {
@@ -1964,8 +1968,9 @@ Status BlockBasedTable::RetrieveBlock(
   std::unique_ptr<TBlocklike> block;
 
   {
-    StopWatch sw(rep_->ioptions.clock, rep_->ioptions.stats,
-                 READ_BLOCK_GET_MICROS);
+    Histograms histogram =
+        for_compaction ? READ_BLOCK_COMPACTION_MICROS : READ_BLOCK_GET_MICROS;
+    StopWatch sw(rep_->ioptions.clock, rep_->ioptions.stats, histogram);
     s = ReadBlockFromFile(
         rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle, &block,
         rep_->ioptions, do_uncompress, maybe_compressed, block_type,
