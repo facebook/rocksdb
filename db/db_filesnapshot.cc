@@ -169,6 +169,12 @@ Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {
 Status DBImpl::GetLiveFilesStorageInfo(
     const LiveFilesStorageInfoOptions& opts,
     std::vector<LiveFileStorageInfo>* files) {
+  return GetLiveFilesStorageInfoHelper(opts, files, /* is_primary_db */ true);
+}
+
+Status DBImpl::GetLiveFilesStorageInfoHelper(
+    const LiveFilesStorageInfoOptions& opts,
+    std::vector<LiveFileStorageInfo>* files, bool is_primary_db) {
   // To avoid returning partial results, only move to ouput on success
   assert(files);
   files->clear();
@@ -207,7 +213,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
   // This is a modified version of GetLiveFiles, to get access to more
   // metadata.
   mutex_.Lock();
-  if (flush_memtable) {
+  if (is_primary_db && flush_memtable) {
     Status status = FlushForGetLiveFiles();
     if (!status.ok()) {
       mutex_.Unlock();
@@ -352,7 +358,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
 
-  if (s.ok()) {
+  if (is_primary_db && s.ok()) {
     s = FlushWAL(false /* sync */);
   }
 

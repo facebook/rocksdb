@@ -620,6 +620,12 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   return s;
 }
 
+Status DBImplSecondary::GetLiveFilesStorageInfo(
+    const LiveFilesStorageInfoOptions& opts,
+    std::vector<LiveFileStorageInfo>* files) {
+  return GetLiveFilesStorageInfoHelper(opts, files, /* is_primary_db */ false);
+}
+
 Status DB::OpenAsSecondary(const Options& options, const std::string& dbname,
                            const std::string& secondary_path, DB** dbptr) {
   *dbptr = nullptr;

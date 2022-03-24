@@ -1389,6 +1389,11 @@ class DBImpl : public DB {
   Status FailIfTsSizesMismatch(const ColumnFamilyHandle* column_family,
                                const Slice& ts) const;
 
+  // This helper function is shared by both primary and secondary instances.
+  Status GetLiveFilesStorageInfoHelper(
+      const LiveFilesStorageInfoOptions& opts,
+      std::vector<LiveFileStorageInfo>* files, bool is_primary_db = true);
+
  private:
   friend class DB;
   friend class ErrorHandler;
