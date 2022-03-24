@@ -1199,7 +1199,8 @@ class VersionSet {
   // Returns the minimum log number which still has data not flushed to any SST
   // file.
   // In non-2PC mode, all the log numbers smaller than this number can be safely
-  // deleted.
+  // deleted, although we still use `min_log_number_to_keep_` to determine when
+  // to delete a WAL file.
   uint64_t MinLogNumberWithUnflushedData() const {
     return PreComputeMinLogNumberWithUnflushedData(nullptr);
   }

@@ -867,6 +867,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
   uint64_t corrupted_wal_number = kMaxSequenceNumber;
   uint64_t min_wal_number = MinLogNumberToKeep();
   if (!allow_2pc()) {
+    // In non-2pc mode, we skip WALs that do not back unflushed data.
     min_wal_number =
         std::max(min_wal_number, versions_->MinLogNumberWithUnflushedData());
   }
@@ -1280,6 +1281,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
           wal_deletion->DeleteWalsBefore(max_wal_number + 1);
         }
         if (!allow_2pc()) {
+          // In non-2pc mode, flushing the memtables of the column families
+          // means we can advance min_log_number_to_keep.
           wal_deletion->SetMinLogNumberToKeep(max_wal_number + 1);
         }
         edit_lists.back().push_back(wal_deletion.get());
@@ -1364,6 +1367,8 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
       versions_->MinLogNumberWithUnflushedData();
   for (auto wal_number : wal_numbers) {
     if (!allow_2pc() && wal_number < min_wal_with_unflushed_data) {
+      // In non-2pc mode, the WAL files not backing unflushed data are not
+      // alive, thus should not be added to the alive_log_files_.
       continue;
     }
     // We preallocate space for wals, but then after a crash and restart, those
