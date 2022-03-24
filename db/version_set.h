@@ -1131,8 +1131,8 @@ class VersionSet {
 
   uint64_t current_next_file_number() const { return next_file_number_.load(); }
 
-  uint64_t min_log_number_to_keep_2pc() const {
-    return min_log_number_to_keep_2pc_.load();
+  uint64_t min_log_number_to_keep() const {
+    return min_log_number_to_keep_.load();
   }
 
   // Allocate and return a new file number
@@ -1190,7 +1190,7 @@ class VersionSet {
   // Mark the specified log number as deleted
   // REQUIRED: this is only called during single-threaded recovery or repair, or
   // from ::LogAndApply where the global mutex is held.
-  void MarkMinLogNumberToKeep2PC(uint64_t number);
+  void MarkMinLogNumberToKeep(uint64_t number);
 
   // Return the log file number for the log file that is currently
   // being compacted, or zero if there is no such log file.
@@ -1199,10 +1199,12 @@ class VersionSet {
   // Returns the minimum log number which still has data not flushed to any SST
   // file.
   // In non-2PC mode, all the log numbers smaller than this number can be safely
-  // deleted.
+  // deleted, although we still use `min_log_number_to_keep_` to determine when
+  // to delete a WAL file.
   uint64_t MinLogNumberWithUnflushedData() const {
     return PreComputeMinLogNumberWithUnflushedData(nullptr);
   }
+
   // Returns the minimum log number which still has data not flushed to any SST
   // file.
   // Empty column families' log number is considered to be
@@ -1402,9 +1404,8 @@ class VersionSet {
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
   // Any WAL number smaller than this should be ignored during recovery,
-  // and is qualified for being deleted in 2PC mode. In non-2PC mode, this
-  // number is ignored.
-  std::atomic<uint64_t> min_log_number_to_keep_2pc_ = {0};
+  // and is qualified for being deleted.
+  std::atomic<uint64_t> min_log_number_to_keep_ = {0};
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
   uint64_t options_file_size_;
