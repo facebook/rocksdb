@@ -83,7 +83,12 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   }
 
   cache_->Release(lru_handle, /* erase_if_last_ref */ true);
+<<<<<<< HEAD:cache/compressed_secondary_cache.cc
   handle.reset(new CompressedSecondaryCacheResultHandle(value, charge));
+=======
+  handle.reset(
+      new LRUSecondaryCacheResultHandle(value, charge, /* is_erased */ true));
+>>>>>>> fa8f04035 (Prevent double caching):cache/lru_secondary_cache.cc
 
   return handle;
 }
