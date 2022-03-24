@@ -5,18 +5,19 @@
 
 #include "rocksdb/sst_file_writer.h"
 
-#include <vector>
 #include <memory>
+#include <vector>
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
+#include "db/output_validator.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/sst_file_reader.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/sync_point.h"
-#include "db/output_validator.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -37,6 +38,7 @@ struct SstFileWriter::Rep {
       : env_options(_env_options),
         ioptions(options),
         mutable_cf_options(options),
+        options(options),
         io_priority(_io_priority),
         internal_comparator(_user_comparator),
         cfh(_cfh),
@@ -49,6 +51,7 @@ struct SstFileWriter::Rep {
   EnvOptions env_options;
   ImmutableOptions ioptions;
   MutableCFOptions mutable_cf_options;
+  Options options;
   Env::IOPriority io_priority;
   InternalKeyComparator internal_comparator;
   ExternalSstFileInfo file_info;
@@ -56,7 +59,6 @@ struct SstFileWriter::Rep {
   std::string column_family_name;
   ColumnFamilyHandle* cfh;
   std::unique_ptr<OutputValidator> kv_validator;
-  std::unique_ptr<OutputValidator> tombstone_validator;
   // If true, We will give the OS a hint that this file pages is not needed
   // every time we write 1MB to the file.
   bool invalidate_page_cache;
@@ -75,15 +77,7 @@ struct SstFileWriter::Rep {
 
     if (file_info.num_entries == 0) {
       file_info.smallest_key.assign(user_key.data(), user_key.size());
-    } else {
-      if (internal_comparator.user_comparator()->Compare(
-              user_key, file_info.largest_key) <= 0) {
-        // Make sure that keys are added in order
-        return Status::InvalidArgument(
-            "Keys must be added in strict ascending order.");
-      }
     }
-
     assert(value_type == kTypeValue || value_type == kTypeMerge ||
            value_type == kTypeDeletion ||
            value_type == kTypeDeletionWithTimestamp);
@@ -169,12 +163,6 @@ struct SstFileWriter::Rep {
 
     auto ikey_and_end_key = tombstone.Serialize();
     builder->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
-
-    Status s = tombstone_validator->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
-    if(!s.ok()){
-      return s;
-    }
-
     // update file info
     file_info.num_range_del_entries++;
     file_info.file_size = builder->FileSize();
@@ -245,8 +233,8 @@ Status SstFileWriter::Open(const std::string& file_path) {
   }
 
   sst_file->SetIOPriority(r->io_priority);
-  r->kv_validator = std::unique_ptr<OutputValidator>(new OutputValidator(r->internal_comparator, true, true));
-  r->tombstone_validator = std::unique_ptr<OutputValidator>(new OutputValidator(r->internal_comparator, true, true));
+  r->kv_validator = std::unique_ptr<OutputValidator>(
+      new OutputValidator(r->internal_comparator, true, true));
 
   CompressionType compression_type;
   CompressionOptions compression_opts;

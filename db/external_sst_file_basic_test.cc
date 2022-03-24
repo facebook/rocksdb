@@ -351,7 +351,7 @@ TEST_F(ExternalSSTFileBasicTest, BasicWithFileChecksumCrc32c) {
   DestroyAndRecreateExternalSSTFilesDir();
 }
 
-TEST_F(ExternalSSTFileBasicTest, KeyValueAndRangeTombstoneOrdering) {
+TEST_F(ExternalSSTFileBasicTest, KeyValueOrdering) {
   Options options = CurrentOptions();
   SstFileWriter sst_file_writer(EnvOptions(), options);
 
@@ -361,10 +361,6 @@ TEST_F(ExternalSSTFileBasicTest, KeyValueAndRangeTombstoneOrdering) {
   ASSERT_OK(sst_file_writer.Put(Key(1000), Key(1000) + "_val"));
   ASSERT_OK(sst_file_writer.Put(Key(1001), Key(1001) + "_val"));
   ASSERT_NOK(sst_file_writer.Put(Key(1000), Key(1000) + "_val"));
-
-  ASSERT_OK(sst_file_writer.DeleteRange(Key(1000), Key(1000) + "_val"));
-  ASSERT_OK(sst_file_writer.DeleteRange(Key(1001), Key(1001) + "_val"));
-  ASSERT_NOK(sst_file_writer.DeleteRange(Key(1000), Key(1000) + "_val"));
 }
 
 TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
