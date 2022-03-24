@@ -2474,6 +2474,7 @@ class Benchmark {
   int key_size_;
   int user_timestamp_size_;
   int prefix_size_;
+  int total_thread_count_;
   int64_t keys_per_prefix_;
   int64_t entries_per_batch_;
   int64_t writes_before_delete_range_;
@@ -2872,6 +2873,7 @@ class Benchmark {
         key_size_(FLAGS_key_size),
         user_timestamp_size_(FLAGS_user_timestamp_size),
         prefix_size_(FLAGS_prefix_size),
+        total_thread_count_(0),
         keys_per_prefix_(FLAGS_keys_per_prefix),
         entries_per_batch_(1),
         reads_(FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads),
@@ -3655,7 +3657,8 @@ class Benchmark {
       arg[i].bm = this;
       arg[i].method = method;
       arg[i].shared = &shared;
-      arg[i].thread = new ThreadState(i);
+      total_thread_count_++;
+      arg[i].thread = new ThreadState(total_thread_count_);
       arg[i].thread->stats.SetReporterAgent(reporter_agent.get());
       arg[i].thread->shared = &shared;
       FLAGS_env->StartThread(ThreadBody, &arg[i]);
