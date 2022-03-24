@@ -197,7 +197,8 @@ public class OptionsUtilTest {
             .setMaxBytesForLevelBase(53 * 1024 * 1024)
             .setLevel0FileNumCompactionTrigger(3)
             .setLevel0SlowdownWritesTrigger(51)
-            .setBottommostCompressionType(CompressionType.ZSTD_COMPRESSION);
+            // Java builds for CI checks include ZLIB
+            .setBottommostCompressionType(CompressionType.ZLIB_COMPRESSION);
 
     // Create a database with a new column family
     try (final RocksDB db = RocksDB.open(options, dbPath)) {
@@ -271,7 +272,8 @@ public class OptionsUtilTest {
             .setMaxBytesForLevelBase(53 * 1024 * 1024)
             .setLevel0FileNumCompactionTrigger(3)
             .setLevel0SlowdownWritesTrigger(51)
-            .setBottommostCompressionType(CompressionType.ZSTD_COMPRESSION);
+            // Java builds for CI checks include ZLIB
+            .setBottommostCompressionType(CompressionType.ZLIB_COMPRESSION);
 
     final BlockBasedTableConfig altCFTableConfig = new BlockBasedTableConfig();
     altCFTableConfig.setCacheIndexAndFilterBlocks(true);

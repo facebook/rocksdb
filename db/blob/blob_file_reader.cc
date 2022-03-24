@@ -50,12 +50,11 @@ Status BlobFileReader::Create(
 
   Statistics* const statistics = immutable_options.stats;
 
-  CompressionType compression_type = kNoCompression;
+  std::shared_ptr<Compressor> compressor;
 
   {
-    const Status s =
-        ReadHeader(file_reader.get(), read_options, column_family_id,
-                   statistics, &compression_type);
+    const Status s = ReadHeader(file_reader.get(), read_options,
+                                column_family_id, statistics, &compressor);
     if (!s.ok()) {
       return s;
     }
@@ -70,7 +69,7 @@ Status BlobFileReader::Create(
   }
 
   blob_file_reader->reset(
-      new BlobFileReader(std::move(file_reader), file_size, compression_type,
+      new BlobFileReader(std::move(file_reader), file_size, compressor,
                          immutable_options.clock, statistics));
 
   return Status::OK();
@@ -140,9 +139,9 @@ Status BlobFileReader::ReadHeader(const RandomAccessFileReader* file_reader,
                                   const ReadOptions& read_options,
                                   uint32_t column_family_id,
                                   Statistics* statistics,
-                                  CompressionType* compression_type) {
+                                  std::shared_ptr<Compressor>* compressor) {
   assert(file_reader);
-  assert(compression_type);
+  assert(compressor);
 
   Slice header_slice;
   Buffer buf;
@@ -184,7 +183,7 @@ Status BlobFileReader::ReadHeader(const RandomAccessFileReader* file_reader,
     return Status::Corruption("Column family ID mismatch");
   }
 
-  *compression_type = header.compression;
+  *compressor = BuiltinCompressor::GetCompressor(header.compression);
 
   return Status::OK();
 }
@@ -281,11 +280,11 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
 
 BlobFileReader::BlobFileReader(
     std::unique_ptr<RandomAccessFileReader>&& file_reader, uint64_t file_size,
-    CompressionType compression_type, SystemClock* clock,
+    const std::shared_ptr<Compressor>& compressor, SystemClock* clock,
     Statistics* statistics)
     : file_reader_(std::move(file_reader)),
       file_size_(file_size),
-      compression_type_(compression_type),
+      compressor_(compressor),
       clock_(clock),
       statistics_(statistics) {
   assert(file_reader_);
@@ -295,7 +294,7 @@ BlobFileReader::~BlobFileReader() = default;
 
 Status BlobFileReader::GetBlob(
     const ReadOptions& read_options, const Slice& user_key, uint64_t offset,
-    uint64_t value_size, CompressionType compression_type,
+    uint64_t value_size, const std::shared_ptr<Compressor>& compressor,
     FilePrefetchBuffer* prefetch_buffer, MemoryAllocator* allocator,
     std::unique_ptr<BlobContents>* result, uint64_t* bytes_read) const {
   assert(result);
@@ -306,7 +305,7 @@ Status BlobFileReader::GetBlob(
     return Status::Corruption("Invalid blob offset");
   }
 
-  if (compression_type != compression_type_) {
+  if (compressor->GetCompressionType() != compressor_->GetCompressionType()) {
     return Status::Corruption("Compression type mismatch when reading blob");
   }
 
@@ -374,7 +373,7 @@ Status BlobFileReader::GetBlob(
 
   {
     const Status s = UncompressBlobIfNeeded(
-        value_slice, compression_type, allocator, clock_, statistics_, result);
+        value_slice, compressor.get(), allocator, clock_, statistics_, result);
     if (!s.ok()) {
       return s;
     }
@@ -420,7 +419,8 @@ void BlobFileReader::MultiGetBlob(
       *req->status = Status::Corruption("Invalid blob offset");
       continue;
     }
-    if (req->compression != compression_type_) {
+    if (req->compressor->GetCompressionType() !=
+        compressor_->GetCompressionType()) {
       *req->status =
           Status::Corruption("Compression type mismatch when reading a blob");
       continue;
@@ -522,7 +522,7 @@ void BlobFileReader::MultiGetBlob(
     // Uncompress blob if needed
     Slice value_slice(record_slice.data() + adjustments[i], req->len);
     *req->status =
-        UncompressBlobIfNeeded(value_slice, compression_type_, allocator,
+        UncompressBlobIfNeeded(value_slice, compressor_.get(), allocator,
                                clock_, statistics_, &blob_reqs[i].second);
     if (req->status->ok()) {
       total_bytes += record_slice.size();
@@ -579,32 +579,30 @@ Status BlobFileReader::VerifyBlob(const Slice& record_slice,
 }
 
 Status BlobFileReader::UncompressBlobIfNeeded(
-    const Slice& value_slice, CompressionType compression_type,
+    const Slice& value_slice, Compressor* compressor,
     MemoryAllocator* allocator, SystemClock* clock, Statistics* statistics,
     std::unique_ptr<BlobContents>* result) {
+  assert(compressor);
   assert(result);
 
-  if (compression_type == kNoCompression) {
+  if (compressor->GetCompressionType() == kNoCompression) {
     BlobContentsCreator::Create(result, nullptr, value_slice, kNoCompression,
                                 allocator);
     return Status::OK();
   }
 
-  UncompressionContext context(compression_type);
-  UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
-                         compression_type);
-
   size_t uncompressed_size = 0;
   constexpr uint32_t compression_format_version = 2;
+  UncompressionInfo info(UncompressionDict::GetEmptyDict(),
+                         compression_format_version, allocator);
 
   CacheAllocationPtr output;
 
   {
     PERF_TIMER_GUARD(blob_decompress_time);
     StopWatch stop_watch(clock, statistics, BLOB_DB_DECOMPRESSION_MICROS);
-    output = UncompressData(info, value_slice.data(), value_slice.size(),
-                            &uncompressed_size, compression_format_version,
-                            allocator);
+    output = info.UncompressData(compressor, value_slice.data(),
+                                 value_slice.size(), &uncompressed_size);
   }
 
   TEST_SYNC_POINT_CALLBACK(

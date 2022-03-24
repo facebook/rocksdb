@@ -88,8 +88,8 @@ class Compaction {
              const MutableDBOptions& mutable_db_options,
              std::vector<CompactionInputFiles> inputs, int output_level,
              uint64_t target_file_size, uint64_t max_compaction_bytes,
-             uint32_t output_path_id, CompressionType compression,
-             CompressionOptions compression_opts,
+             uint32_t output_path_id,
+             const std::shared_ptr<Compressor>& compressor,
              Temperature output_temperature, uint32_t max_subcompactions,
              std::vector<FileMetaData*> grandparents,
              std::optional<SequenceNumber> earliest_snapshot,
@@ -201,11 +201,8 @@ class Compaction {
   uint64_t target_output_file_size() const { return target_output_file_size_; }
 
   // What compression for output
-  CompressionType output_compression() const { return output_compression_; }
-
-  // What compression options for output
-  const CompressionOptions& output_compression_opts() const {
-    return output_compression_opts_;
+  const std::shared_ptr<Compressor>& output_compressor() const {
+    return output_compressor_;
   }
 
   // Whether need to write output file to second DB path.
@@ -521,8 +518,7 @@ class Compaction {
   Arena arena_;  // Arena used to allocate space for file_levels_
 
   const uint32_t output_path_id_;
-  CompressionType output_compression_;
-  CompressionOptions output_compression_opts_;
+  std::shared_ptr<Compressor> output_compressor_;
   Temperature output_temperature_;
   // If true, then the compaction can be done by simply deleting input files.
   const bool deletion_compaction_;

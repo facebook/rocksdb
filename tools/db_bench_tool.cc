@@ -2826,12 +2826,9 @@ class Benchmark {
     return true;
   }
 
-  inline bool CompressSlice(const CompressionInfo& compression_info,
+  inline bool CompressSlice(Compressor* compressor, const CompressionInfo& info,
                             const Slice& input, std::string* compressed) {
-    constexpr uint32_t compress_format_version = 2;
-
-    return CompressData(input, compression_info, compress_format_version,
-                        compressed);
+    return info.CompressData(compressor, input, compressed);
   }
 
   void PrintHeader(const Options& options) {
@@ -2911,12 +2908,11 @@ class Benchmark {
       const int len = FLAGS_block_size;
       std::string input_str(len, 'y');
       std::string compressed;
-      CompressionOptions opts;
-      CompressionContext context(FLAGS_compression_type_e, opts);
-      CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                           FLAGS_compression_type_e,
-                           FLAGS_sample_for_compression);
-      bool result = CompressSlice(info, Slice(input_str), &compressed);
+      std::shared_ptr<Compressor> compressor =
+          BuiltinCompressor::GetCompressor(FLAGS_compression_type_e);
+      CompressionInfo info(FLAGS_sample_for_compression);
+      bool result =
+          info.CompressData(compressor.get(), Slice(input_str), &compressed);
 
       if (!result) {
         fprintf(stdout, "WARNING: %s compression is not enabled\n",
@@ -4127,24 +4123,24 @@ class Benchmark {
     Slice input = gen.Generate(FLAGS_block_size);
     int64_t bytes = 0;
     int64_t produced = 0;
-    bool ok = true;
+    Status s;
     std::string compressed;
     CompressionOptions opts;
     opts.level = FLAGS_compression_level;
-    CompressionContext context(FLAGS_compression_type_e, opts);
-    CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                         FLAGS_compression_type_e,
-                         FLAGS_sample_for_compression);
+    std::shared_ptr<Compressor> compressor =
+        BuiltinCompressor::GetCompressor(FLAGS_compression_type_e, opts);
+    auto raw_compressor = compressor.get();
+    CompressionInfo info(FLAGS_sample_for_compression);
     // Compress 1G
-    while (ok && bytes < int64_t(1) << 30) {
+    while (s.ok() && bytes < int64_t(1) << 30) {
       compressed.clear();
-      ok = CompressSlice(info, input, &compressed);
+      s = raw_compressor->Compress(info, input, &compressed);
       produced += compressed.size();
       bytes += input.size();
       thread->stats.FinishedOps(nullptr, nullptr, 1, kCompress);
     }
 
-    if (!ok) {
+    if (!s.ok()) {
       thread->stats.AddMessage("(compression failure)");
     } else {
       char buf[340];
@@ -4162,25 +4158,19 @@ class Benchmark {
 
     CompressionOptions compression_opts;
     compression_opts.level = FLAGS_compression_level;
-    CompressionContext compression_ctx(FLAGS_compression_type_e,
-                                       compression_opts);
-    CompressionInfo compression_info(
-        compression_opts, compression_ctx, CompressionDict::GetEmptyDict(),
-        FLAGS_compression_type_e, FLAGS_sample_for_compression);
-    UncompressionContext uncompression_ctx(FLAGS_compression_type_e);
-    UncompressionInfo uncompression_info(uncompression_ctx,
-                                         UncompressionDict::GetEmptyDict(),
-                                         FLAGS_compression_type_e);
+    std::shared_ptr<Compressor> compressor = BuiltinCompressor::GetCompressor(
+        FLAGS_compression_type_e, compression_opts);
+    CompressionInfo compression_info(FLAGS_sample_for_compression);
+    UncompressionInfo uncompression_info;
 
-    bool ok = CompressSlice(compression_info, input, &compressed);
+    bool ok =
+        compression_info.CompressData(compressor.get(), input, &compressed);
     int64_t bytes = 0;
     size_t uncompressed_size = 0;
     while (ok && bytes < 1024 * 1048576) {
-      constexpr uint32_t compress_format_version = 2;
-
-      CacheAllocationPtr uncompressed = UncompressData(
-          uncompression_info, compressed.data(), compressed.size(),
-          &uncompressed_size, compress_format_version);
+      CacheAllocationPtr uncompressed = uncompression_info.UncompressData(
+          compressor.get(), compressed.data(), compressed.size(),
+          &uncompressed_size);
 
       ok = uncompressed.get() != nullptr;
       bytes += input.size();

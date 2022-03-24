@@ -387,11 +387,18 @@ IOStatus BlockFetcher::ReadBlockContents() {
   if (do_uncompress_ && compression_type_ != kNoCompression) {
     PERF_TIMER_GUARD(block_decompress_time);
     // compressed page, uncompress, update cache
-    UncompressionContext context(compression_type_);
-    UncompressionInfo info(context, uncompression_dict_, compression_type_);
+    Compressor* compressor = table_compressor_;
+    if (table_compressor_ == nullptr ||
+        table_compressor_->GetCompressionType() != compression_type_) {
+      compressor_ = BuiltinCompressor::GetCompressor(compression_type_);
+      compressor = compressor_.get();
+    }
+    UncompressionInfo info(
+        uncompression_dict_,
+        GetCompressFormatForVersion(footer_.format_version()),
+        memory_allocator_);
     io_status_ = status_to_io_status(UncompressSerializedBlock(
-        info, slice_.data(), block_size_, contents_, footer_.format_version(),
-        ioptions_, memory_allocator_));
+        compressor, info, slice_.data(), block_size_, contents_, ioptions_));
 #ifndef NDEBUG
     num_heap_buf_memcpy_++;
 #endif
@@ -444,12 +451,19 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
         if (do_uncompress_ && compression_type_ != kNoCompression) {
           PERF_TIMER_GUARD(block_decompress_time);
           // compressed page, uncompress, update cache
-          UncompressionContext context(compression_type_);
-          UncompressionInfo info(context, uncompression_dict_,
-                                 compression_type_);
-          io_status_ = status_to_io_status(UncompressSerializedBlock(
-              info, slice_.data(), block_size_, contents_,
-              footer_.format_version(), ioptions_, memory_allocator_));
+          Compressor* compressor = table_compressor_;
+          if (table_compressor_ == nullptr ||
+              table_compressor_->GetCompressionType() != compression_type_) {
+            compressor_ = BuiltinCompressor::GetCompressor(compression_type_);
+            compressor = compressor_.get();
+          }
+          UncompressionInfo info(
+              uncompression_dict_,
+              GetCompressFormatForVersion(footer_.format_version()),
+              memory_allocator_);
+          io_status_ = status_to_io_status(
+              UncompressSerializedBlock(compressor, info, slice_.data(),
+                                        block_size_, contents_, ioptions_));
 #ifndef NDEBUG
           num_heap_buf_memcpy_++;
 #endif

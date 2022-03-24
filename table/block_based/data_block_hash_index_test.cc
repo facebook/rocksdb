@@ -558,8 +558,7 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   builder.reset(moptions.table_factory->NewTableBuilder(
       TableBuilderOptions(
           ioptions, moptions, read_options, write_options, internal_comparator,
-          &internal_tbl_prop_coll_factories, options.compression,
-          CompressionOptions(),
+          &internal_tbl_prop_coll_factories, moptions.compressor,
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
           column_family_name, level_, kUnknownNewestKeyTime),
       file_writer.get()));

@@ -14,6 +14,7 @@
 #include "table/block_based/block_type.h"
 #include "table/format.h"
 #include "table/persistent_cache_options.h"
+#include "util/compressor.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -50,7 +51,7 @@ class BlockFetcher {
                const PersistentCacheOptions& cache_options /* ref retained */,
                MemoryAllocator* memory_allocator = nullptr,
                MemoryAllocator* memory_allocator_compressed = nullptr,
-               bool for_compaction = false)
+               bool for_compaction = false, Compressor* compressor = nullptr)
       : file_(file),
         prefetch_buffer_(prefetch_buffer),
         footer_(footer),
@@ -67,7 +68,8 @@ class BlockFetcher {
         cache_options_(cache_options),
         memory_allocator_(memory_allocator),
         memory_allocator_compressed_(memory_allocator_compressed),
-        for_compaction_(for_compaction) {
+        for_compaction_(for_compaction),
+        table_compressor_(compressor) {
     io_status_.PermitUncheckedError();  // TODO(AR) can we improve on this?
     if (CheckFSFeatureSupport(ioptions_.fs.get(), FSSupportedOps::kFSBuffer)) {
       use_fs_scratch_ = true;
@@ -133,11 +135,18 @@ class BlockFetcher {
   CacheAllocationPtr compressed_buf_;
   char stack_buf_[kDefaultStackBufferSize];
   bool got_from_prefetch_buffer_ = false;
-  CompressionType compression_type_;
   bool for_compaction_ = false;
   bool use_fs_scratch_ = false;
   bool retry_corrupt_read_ = false;
   FSAllocationPtr fs_buf_;
+  // Compression type used for the block
+  CompressionType compression_type_;
+  // If the compressor used for the block is different from the one used for the
+  // table, we need to hold a reference to the corresponding compressor while
+  // it's in use
+  std::shared_ptr<Compressor> compressor_ = nullptr;
+  // Compressor used for the table. It may not be the one used for the block.
+  Compressor* table_compressor_;
 
   // return true if found
   bool TryGetUncompressBlockFromPersistentCache();

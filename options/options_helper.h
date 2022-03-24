@@ -25,10 +25,6 @@ struct MutableDBOptions;
 struct MutableCFOptions;
 struct Options;
 
-std::vector<CompressionType> GetSupportedCompressions();
-
-std::vector<CompressionType> GetSupportedDictCompressions();
-
 std::vector<ChecksumType> GetSupportedChecksums();
 
 inline bool IsSupportedChecksumType(ChecksumType type) {

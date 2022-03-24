@@ -386,31 +386,6 @@ std::unordered_map<std::string, CompressionType>
         {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
         {"kDisableCompressionOption", kDisableCompressionOption}};
 
-std::vector<CompressionType> GetSupportedCompressions() {
-  // std::set internally to deduplicate potential name aliases
-  std::set<CompressionType> supported_compressions;
-  for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
-    CompressionType t = comp_to_name.second;
-    if (t != kDisableCompressionOption && CompressionTypeSupported(t)) {
-      supported_compressions.insert(t);
-    }
-  }
-  return std::vector<CompressionType>(supported_compressions.begin(),
-                                      supported_compressions.end());
-}
-
-std::vector<CompressionType> GetSupportedDictCompressions() {
-  std::set<CompressionType> dict_compression_types;
-  for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
-    CompressionType t = comp_to_name.second;
-    if (t != kDisableCompressionOption && DictCompressionTypeSupported(t)) {
-      dict_compression_types.insert(t);
-    }
-  }
-  return std::vector<CompressionType>(dict_compression_types.begin(),
-                                      dict_compression_types.end());
-}
-
 std::vector<ChecksumType> GetSupportedChecksums() {
   std::set<ChecksumType> checksum_types;
   for (const auto& e : OptionsHelper::checksum_type_string_map) {

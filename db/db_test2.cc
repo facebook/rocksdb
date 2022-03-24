@@ -28,6 +28,7 @@
 #include "rocksdb/utilities/replayer.h"
 #include "rocksdb/wal_filter.h"
 #include "test_util/testutil.h"
+#include "util/compressor.h"
 #include "util/defer.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
@@ -1406,21 +1407,25 @@ TEST_F(DBTest2, PresetCompressionDictLocality) {
 
 class PresetCompressionDictTest
     : public DBTestBase,
-      public testing::WithParamInterface<std::tuple<CompressionType, bool>> {
+      public testing::WithParamInterface<std::tuple<std::string, bool>> {
  public:
   PresetCompressionDictTest()
       : DBTestBase("db_test2", false /* env_do_fsync */),
-        compression_type_(std::get<0>(GetParam())),
-        bottommost_(std::get<1>(GetParam())) {}
+        compression_name_(std::get<0>(GetParam())),
+        bottommost_(std::get<1>(GetParam())) {
+    EXPECT_TRUE(
+        BuiltinCompressor::StringToType(compression_name_, &compression_type_));
+  }
 
  protected:
-  const CompressionType compression_type_;
+  const std::string compression_name_;
+  CompressionType compression_type_;
   const bool bottommost_;
 };
 
 INSTANTIATE_TEST_CASE_P(
     DBTest2, PresetCompressionDictTest,
-    ::testing::Combine(::testing::ValuesIn(GetSupportedDictCompressions()),
+    ::testing::Combine(::testing::ValuesIn(Compressor::GetDictSupported()),
                        ::testing::Bool()));
 
 TEST_P(PresetCompressionDictTest, Flush) {
@@ -1668,16 +1673,19 @@ enum CompressionFailureType {
 
 class CompressionFailuresTest
     : public DBTest2,
-      public testing::WithParamInterface<std::tuple<
-          CompressionFailureType, CompressionType, uint32_t, uint32_t>> {
+      public testing::WithParamInterface<
+          std::tuple<CompressionFailureType, std::string, uint32_t, uint32_t>> {
  public:
   CompressionFailuresTest() {
-    std::tie(compression_failure_type_, compression_type_,
+    std::tie(compression_failure_type_, compression_name_,
              compression_max_dict_bytes_, compression_parallel_threads_) =
         GetParam();
+    EXPECT_TRUE(
+        BuiltinCompressor::StringToType(compression_name_, &compression_type_));
   }
 
   CompressionFailureType compression_failure_type_ = kTestCompressionFail;
+  std::string compression_name_;
   CompressionType compression_type_ = kNoCompression;
   uint32_t compression_max_dict_bytes_ = 0;
   uint32_t compression_parallel_threads_ = 0;
@@ -1688,7 +1696,7 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(::testing::Values(kTestCompressionFail,
                                          kTestDecompressionFail,
                                          kTestDecompressionCorruption),
-                       ::testing::ValuesIn(GetSupportedCompressions()),
+                       ::testing::ValuesIn(Compressor::GetSupported()),
                        ::testing::Values(0, 10), ::testing::Values(1, 4)));
 
 TEST_P(CompressionFailuresTest, CompressionFailures) {

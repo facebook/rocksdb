@@ -24,12 +24,12 @@
 #include "rocksdb/table.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
-#include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class BlockBuilder;
 class BlockHandle;
+class Compressor;
 class WritableFile;
 struct BlockBasedTableOptions;
 
@@ -174,15 +174,12 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   // Get blocks from mem-table walking thread, compress them and
   // pass them to the write thread. Used in parallel compression mode only
-  void BGWorkCompression(const CompressionContext& compression_ctx,
-                         UncompressionContext* verify_ctx);
+  void BGWorkCompression();
 
   // Given uncompressed block content, try to compress it and return result and
   // compression type
   void CompressAndVerifyBlock(const Slice& uncompressed_block_data,
                               bool is_data_block,
-                              const CompressionContext& compression_ctx,
-                              UncompressionContext* verify_ctx,
                               std::string* compressed_output,
                               Slice* result_block_contents,
                               CompressionType* result_compression_type,
@@ -199,8 +196,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   void StopParallelCompression();
 };
 
-Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
-                    CompressionType* type, uint32_t format_version,
+Slice CompressBlock(Compressor* compressor, const Slice& uncompressed_data,
+                    const CompressionInfo& info, CompressionType* type,
                     bool do_sample, std::string* compressed_output,
                     std::string* sampled_output_fast,
                     std::string* sampled_output_slow);

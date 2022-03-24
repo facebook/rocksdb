@@ -44,7 +44,6 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/cast_util.h"
-#include "util/compression.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"

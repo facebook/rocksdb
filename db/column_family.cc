@@ -111,24 +111,30 @@ void GetInternalTblPropCollFactory(
 }
 
 Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
-  if (!cf_options.compression_per_level.empty()) {
-    for (size_t level = 0; level < cf_options.compression_per_level.size();
-         ++level) {
-      if (!CompressionTypeSupported(cf_options.compression_per_level[level])) {
-        return Status::InvalidArgument(
-            "Compression type " +
-            CompressionTypeToString(cf_options.compression_per_level[level]) +
-            " is not linked with the binary.");
+  MutableCFOptions moptions(cf_options);
+  ImmutableCFOptions ioptions(cf_options);
+  if (moptions.compressor && !moptions.compressor->Supported()) {
+    return Status::InvalidArgument("Compression type " +
+                                   moptions.compressor->GetId() +
+                                   " is not linked with the binary.");
+  } else if (moptions.bottommost_compressor &&
+             !moptions.bottommost_compressor->Supported()) {
+    return Status::InvalidArgument("Compression type " +
+                                   moptions.bottommost_compressor->GetId() +
+                                   " is not linked with the binary.");
+  } else if (!moptions.compressor_per_level.empty()) {
+    for (const auto& compressor : moptions.compressor_per_level) {
+      if (compressor == nullptr) {
+        return Status::InvalidArgument("Compression type is invalid.");
+      } else if (!compressor->Supported()) {
+        return Status::InvalidArgument("Compression type " +
+                                       compressor->GetId() +
+                                       " is not linked with the binary.");
       }
     }
-  } else {
-    if (!CompressionTypeSupported(cf_options.compression)) {
-      return Status::InvalidArgument(
-          "Compression type " +
-          CompressionTypeToString(cf_options.compression) +
-          " is not linked with the binary.");
-    }
   }
+
+  // TODO: Move this into ValidateOptions
   if (cf_options.compression_opts.zstd_max_train_bytes > 0) {
     if (cf_options.compression_opts.use_zstd_dict_trainer) {
       if (!ZSTD_TrainDictionarySupported()) {
@@ -147,16 +153,11 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
           "should be nonzero if we're using zstd's dictionary generator.");
     }
   }
-
-  if (!CompressionTypeSupported(cf_options.blob_compression_type)) {
-    std::ostringstream oss;
-    oss << "The specified blob compression type "
-        << CompressionTypeToString(cf_options.blob_compression_type)
-        << " is not available.";
-
-    return Status::InvalidArgument(oss.str());
+  if (moptions.blob_compressor && !moptions.blob_compressor->Supported()) {
+    return Status::InvalidArgument("Blob compression type " +
+                                   moptions.blob_compressor->GetId() +
+                                   " is not linked with the binary.");
   }
-
   return Status::OK();
 }
 

@@ -44,6 +44,7 @@
 #include "options/configurable_helper.h"
 #include "options/options_helper.h"
 #include "port/port.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
@@ -929,8 +930,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options,
       stats.bytes_written_blob / kMB, read_write_amp, write_amp,
       status.ToString().c_str(), stats.num_input_records,
       stats.num_dropped_records,
-      CompressionTypeToString(compact_->compaction->output_compression())
-          .c_str());
+      compact_->compaction->output_compressor()->GetId().c_str());
 
   const auto& blob_files = vstorage->GetBlobFiles();
   if (!blob_files.empty()) {
@@ -975,7 +975,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options,
          << "num_output_records" << stats.num_output_records
          << "num_subcompactions" << compact_->sub_compact_states.size()
          << "output_compression"
-         << CompressionTypeToString(compact_->compaction->output_compression());
+         << compact_->compaction->output_compressor()->GetId();
 
   stream << "num_single_delete_mismatches"
          << compaction_job_stats_->num_single_del_mismatch;
@@ -1969,8 +1969,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
       read_options, write_options, cfd->internal_comparator(),
       cfd->internal_tbl_prop_coll_factories(),
-      sub_compact->compaction->output_compression(),
-      sub_compact->compaction->output_compression_opts(), cfd->GetID(),
+      sub_compact->compaction->output_compressor(), cfd->GetID(),
       cfd->GetName(), sub_compact->compaction->output_level(), newest_key_time,
       bottommost_level_, TableFileCreationReason::kCompaction,
       0 /* oldest_key_time */, current_time, db_id_, db_session_id_,

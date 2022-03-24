@@ -26,6 +26,7 @@ int main() {
 #include "test_util/testutil.h"
 #include "tools/block_cache_analyzer/block_cache_trace_analyzer.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 

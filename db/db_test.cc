@@ -5302,7 +5302,8 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
         Compaction* compaction = static_cast<Compaction*>(arg);
         if (compaction->output_level() == 4) {
-          ASSERT_TRUE(compaction->output_compression() == kLZ4Compression);
+          ASSERT_EQ(compaction->output_compressor()->GetCompressionType(),
+                    kLZ4Compression);
           num_lz4.fetch_add(1);
         }
       });
@@ -5344,10 +5345,12 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
         Compaction* compaction = static_cast<Compaction*>(arg);
         if (compaction->output_level() == 4 && compaction->start_level() == 3) {
-          ASSERT_TRUE(compaction->output_compression() == kZlibCompression);
+          ASSERT_EQ(compaction->output_compressor()->GetCompressionType(),
+                    kZlibCompression);
           num_zlib.fetch_add(1);
         } else {
-          ASSERT_TRUE(compaction->output_compression() == kLZ4Compression);
+          ASSERT_EQ(compaction->output_compressor()->GetCompressionType(),
+                    kLZ4Compression);
           num_lz4.fetch_add(1);
         }
       });

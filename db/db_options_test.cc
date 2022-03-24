@@ -1412,8 +1412,9 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
         Compaction* c = static_cast<Compaction*>(arg);
-        compression_used = c->output_compression();
-        compression_opt_used = c->output_compression_opts();
+        compression_used = c->output_compressor()->GetCompressionType();
+        compression_opt_used =
+            *(c->output_compressor()->GetOptions<CompressionOptions>());
         compacted = true;
       });
   SyncPoint::GetInstance()->EnableProcessing();
@@ -1445,7 +1446,8 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_TRUE(compacted);
   ASSERT_EQ(CompressionType::kSnappyCompression, compression_used);
-  ASSERT_EQ(6, compression_opt_used.level);
+  // Snappy compressor does not define level option. Default is returned.
+  ASSERT_EQ(32767, compression_opt_used.level);
   // Right now parallel_level is not yet allowed to be changed.
 
   SyncPoint::GetInstance()->DisableProcessing();
@@ -1471,14 +1473,14 @@ TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
   options.bottommost_compression_opts.enabled = true;
   Reopen(options);
 
-  CompressionType compression_used = CompressionType::kDisableCompressionOption;
-  CompressionOptions compression_opt_used;
+  std::string compression_used;
+  const std::string lz4 =
+      BuiltinCompressor::TypeToString(CompressionType::kLZ4Compression);
   bool compacted = false;
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionPicker::RegisterCompaction:Registered", [&](void* arg) {
         Compaction* c = static_cast<Compaction*>(arg);
-        compression_used = c->output_compression();
-        compression_opt_used = c->output_compression_opts();
+        compression_used = c->output_compressor()->GetId();
         compacted = true;
       });
   SyncPoint::GetInstance()->EnableProcessing();
@@ -1490,15 +1492,12 @@ TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
     ASSERT_OK(Flush());
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-
   ASSERT_TRUE(compacted);
-  ASSERT_EQ(CompressionType::kLZ4Compression, compression_used);
-  ASSERT_EQ(kBottommostCompressionLevel, compression_opt_used.level);
+  ASSERT_EQ(lz4, compression_used);
 
   // Second, verify for manual compaction.
   compacted = false;
   compression_used = CompressionType::kDisableCompressionOption;
-  compression_opt_used = CompressionOptions();
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
@@ -1507,8 +1506,7 @@ TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
   ASSERT_TRUE(compacted);
-  ASSERT_EQ(CompressionType::kLZ4Compression, compression_used);
-  ASSERT_EQ(kBottommostCompressionLevel, compression_opt_used.level);
+  ASSERT_EQ(lz4, compression_used);
 }
 
 TEST_F(DBOptionsTest, FIFOTemperatureAgeThresholdValidation) {

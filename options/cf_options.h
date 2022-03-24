@@ -11,9 +11,9 @@
 #include "db/dbformat.h"
 #include "options/db_options.h"
 #include "rocksdb/options.h"
-#include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
+class Compressor;
 
 // ImmutableCFOptions is a data struct used by RocksDB internal. It contains a
 // subset of Options that should not be changed during the entire lifetime
@@ -103,133 +103,8 @@ struct ImmutableOptions : public ImmutableDBOptions, public ImmutableCFOptions {
 
 struct MutableCFOptions {
   static const char* kName() { return "MutableCFOptions"; }
-  explicit MutableCFOptions(const ColumnFamilyOptions& options)
-      : write_buffer_size(options.write_buffer_size),
-        max_write_buffer_number(options.max_write_buffer_number),
-        arena_block_size(options.arena_block_size),
-        memtable_prefix_bloom_size_ratio(
-            options.memtable_prefix_bloom_size_ratio),
-        memtable_whole_key_filtering(options.memtable_whole_key_filtering),
-        memtable_huge_page_size(options.memtable_huge_page_size),
-        max_successive_merges(options.max_successive_merges),
-        strict_max_successive_merges(options.strict_max_successive_merges),
-        inplace_update_num_locks(options.inplace_update_num_locks),
-        prefix_extractor(options.prefix_extractor),
-        experimental_mempurge_threshold(
-            options.experimental_mempurge_threshold),
-        disable_auto_compactions(options.disable_auto_compactions),
-        table_factory(options.table_factory),
-        soft_pending_compaction_bytes_limit(
-            options.soft_pending_compaction_bytes_limit),
-        hard_pending_compaction_bytes_limit(
-            options.hard_pending_compaction_bytes_limit),
-        level0_file_num_compaction_trigger(
-            options.level0_file_num_compaction_trigger),
-        level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
-        level0_stop_writes_trigger(options.level0_stop_writes_trigger),
-        max_compaction_bytes(options.max_compaction_bytes),
-        target_file_size_base(options.target_file_size_base),
-        target_file_size_multiplier(options.target_file_size_multiplier),
-        max_bytes_for_level_base(options.max_bytes_for_level_base),
-        max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
-        ttl(options.ttl),
-        periodic_compaction_seconds(options.periodic_compaction_seconds),
-        max_bytes_for_level_multiplier_additional(
-            options.max_bytes_for_level_multiplier_additional),
-        compaction_options_fifo(options.compaction_options_fifo),
-        compaction_options_universal(options.compaction_options_universal),
-        preclude_last_level_data_seconds(
-            options.preclude_last_level_data_seconds),
-        preserve_internal_time_seconds(options.preserve_internal_time_seconds),
-        enable_blob_files(options.enable_blob_files),
-        min_blob_size(options.min_blob_size),
-        blob_file_size(options.blob_file_size),
-        blob_compression_type(options.blob_compression_type),
-        enable_blob_garbage_collection(options.enable_blob_garbage_collection),
-        blob_garbage_collection_age_cutoff(
-            options.blob_garbage_collection_age_cutoff),
-        blob_garbage_collection_force_threshold(
-            options.blob_garbage_collection_force_threshold),
-        blob_compaction_readahead_size(options.blob_compaction_readahead_size),
-        blob_file_starting_level(options.blob_file_starting_level),
-        prepopulate_blob_cache(options.prepopulate_blob_cache),
-        max_sequential_skip_in_iterations(
-            options.max_sequential_skip_in_iterations),
-        paranoid_file_checks(options.paranoid_file_checks),
-        report_bg_io_stats(options.report_bg_io_stats),
-        compression(options.compression),
-        bottommost_compression(options.bottommost_compression),
-        compression_opts(options.compression_opts),
-        bottommost_compression_opts(options.bottommost_compression_opts),
-        last_level_temperature(options.last_level_temperature),
-        default_write_temperature(options.default_write_temperature),
-        memtable_protection_bytes_per_key(
-            options.memtable_protection_bytes_per_key),
-        block_protection_bytes_per_key(options.block_protection_bytes_per_key),
-        paranoid_memory_checks(options.paranoid_memory_checks),
-        sample_for_compression(
-            options.sample_for_compression),  // TODO: is 0 fine here?
-        compression_per_level(options.compression_per_level),
-        memtable_max_range_deletions(options.memtable_max_range_deletions),
-        bottommost_file_compaction_delay(
-            options.bottommost_file_compaction_delay),
-        uncache_aggressiveness(options.uncache_aggressiveness) {
-    RefreshDerivedOptions(options.num_levels, options.compaction_style);
-  }
-
-  MutableCFOptions()
-      : write_buffer_size(0),
-        max_write_buffer_number(0),
-        arena_block_size(0),
-        memtable_prefix_bloom_size_ratio(0),
-        memtable_whole_key_filtering(false),
-        memtable_huge_page_size(0),
-        max_successive_merges(0),
-        strict_max_successive_merges(false),
-        inplace_update_num_locks(0),
-        prefix_extractor(nullptr),
-        experimental_mempurge_threshold(0.0),
-        disable_auto_compactions(false),
-        soft_pending_compaction_bytes_limit(0),
-        hard_pending_compaction_bytes_limit(0),
-        level0_file_num_compaction_trigger(0),
-        level0_slowdown_writes_trigger(0),
-        level0_stop_writes_trigger(0),
-        max_compaction_bytes(0),
-        target_file_size_base(0),
-        target_file_size_multiplier(0),
-        max_bytes_for_level_base(0),
-        max_bytes_for_level_multiplier(0),
-        ttl(0),
-        periodic_compaction_seconds(0),
-        compaction_options_fifo(),
-        preclude_last_level_data_seconds(0),
-        preserve_internal_time_seconds(0),
-        enable_blob_files(false),
-        min_blob_size(0),
-        blob_file_size(0),
-        blob_compression_type(kNoCompression),
-        enable_blob_garbage_collection(false),
-        blob_garbage_collection_age_cutoff(0.0),
-        blob_garbage_collection_force_threshold(0.0),
-        blob_compaction_readahead_size(0),
-        blob_file_starting_level(0),
-        prepopulate_blob_cache(PrepopulateBlobCache::kDisable),
-        max_sequential_skip_in_iterations(0),
-        paranoid_file_checks(false),
-        report_bg_io_stats(false),
-        compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
-        bottommost_compression(kDisableCompressionOption),
-        last_level_temperature(Temperature::kUnknown),
-        default_write_temperature(Temperature::kUnknown),
-        memtable_protection_bytes_per_key(0),
-        block_protection_bytes_per_key(0),
-        paranoid_memory_checks(false),
-        sample_for_compression(0),
-        memtable_max_range_deletions(0),
-        bottommost_file_compaction_delay(0),
-        uncache_aggressiveness(0) {}
-
+  MutableCFOptions();
+  explicit MutableCFOptions(const ColumnFamilyOptions& options);
   explicit MutableCFOptions(const Options& options);
 
   // Must be called after any change to MutableCFOptions
@@ -306,6 +181,7 @@ struct MutableCFOptions {
   uint64_t min_blob_size;
   uint64_t blob_file_size;
   CompressionType blob_compression_type;
+  std::shared_ptr<Compressor> blob_compressor;
   bool enable_blob_garbage_collection;
   double blob_garbage_collection_age_cutoff;
   double blob_garbage_collection_force_threshold;
@@ -318,7 +194,9 @@ struct MutableCFOptions {
   bool paranoid_file_checks;
   bool report_bg_io_stats;
   CompressionType compression;
+  std::shared_ptr<Compressor> compressor;
   CompressionType bottommost_compression;
+  std::shared_ptr<Compressor> bottommost_compressor;
   CompressionOptions compression_opts;
   CompressionOptions bottommost_compression_opts;
   Temperature last_level_temperature;
@@ -329,6 +207,7 @@ struct MutableCFOptions {
 
   uint64_t sample_for_compression;
   std::vector<CompressionType> compression_per_level;
+  std::vector<std::shared_ptr<Compressor> > compressor_per_level;
   uint32_t memtable_max_range_deletions;
   uint32_t bottommost_file_compaction_delay;
   uint32_t uncache_aggressiveness;

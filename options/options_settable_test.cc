@@ -718,6 +718,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(struct CompactionOptionsFIFO)},
       {offsetof(struct MutableCFOptions, compression_per_level),
        sizeof(std::vector<CompressionType>)},
+      {offsetof(struct MutableCFOptions, compressor_per_level),
+       sizeof(std::vector<std::shared_ptr<Compressor>>)},
       {offsetof(struct MutableCFOptions, max_file_size),
        sizeof(std::vector<uint64_t>)},
   };

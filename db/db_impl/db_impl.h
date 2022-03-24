@@ -3128,8 +3128,9 @@ DBOptions SanitizeOptions(const std::string& db, const DBOptions& src,
                           bool read_only = false,
                           Status* logger_creation_s = nullptr);
 
-CompressionType GetCompressionFlush(const ImmutableCFOptions& ioptions,
-                                    const MutableCFOptions& mutable_cf_options);
+std::shared_ptr<Compressor> GetCompressionFlush(
+    const ImmutableCFOptions& ioptions,
+    const MutableCFOptions& mutable_cf_options);
 
 // Return a VersionEdit for the DB's recovery when the `memtables` of the
 // specified column family are obsolete. Specifically, the min log number to

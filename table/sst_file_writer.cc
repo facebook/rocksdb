@@ -340,23 +340,15 @@ Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
 
   sst_file->SetIOPriority(r->io_priority);
 
-  CompressionType compression_type;
-  CompressionOptions compression_opts;
-  if (r->mutable_cf_options.bottommost_compression !=
-      kDisableCompressionOption) {
-    compression_type = r->mutable_cf_options.bottommost_compression;
-    if (r->mutable_cf_options.bottommost_compression_opts.enabled) {
-      compression_opts = r->mutable_cf_options.bottommost_compression_opts;
-    } else {
-      compression_opts = r->mutable_cf_options.compression_opts;
-    }
-  } else if (!r->mutable_cf_options.compression_per_level.empty()) {
-    // Use the compression of the last level if we have per level compression
-    compression_type = *(r->mutable_cf_options.compression_per_level.rbegin());
-    compression_opts = r->mutable_cf_options.compression_opts;
+  std::shared_ptr<Compressor> compressor;
+  if (r->mutable_cf_options.bottommost_compressor != nullptr) {
+    compressor = r->mutable_cf_options.bottommost_compressor;
+  } else if (r->mutable_cf_options.compressor_per_level.empty()) {
+    compressor = r->mutable_cf_options.compressor;
   } else {
-    compression_type = r->mutable_cf_options.compression;
-    compression_opts = r->mutable_cf_options.compression_opts;
+    // Use the compression of the last level if we have per level compression
+    auto levels = r->mutable_cf_options.compressor_per_level.size();
+    compressor = r->mutable_cf_options.compressor_per_level[levels - 1];
   }
 
   InternalTblPropCollFactories internal_tbl_prop_coll_factories;
@@ -392,12 +384,12 @@ Status SstFileWriter::Open(const std::string& file_path, Temperature temp) {
   // TODO: plumb Env::IOActivity, Env::IOPriority
   TableBuilderOptions table_builder_options(
       r->ioptions, r->mutable_cf_options, ReadOptions(), r->write_options,
-      r->internal_comparator, &internal_tbl_prop_coll_factories,
-      compression_type, compression_opts, cf_id, r->column_family_name,
-      unknown_level, kUnknownNewestKeyTime, false /* is_bottommost */,
-      TableFileCreationReason::kMisc, 0 /* oldest_key_time */,
-      0 /* file_creation_time */, "SST Writer" /* db_id */, r->db_session_id,
-      0 /* target_file_size */, r->next_file_number);
+      r->internal_comparator, &internal_tbl_prop_coll_factories, compressor,
+      cf_id, r->column_family_name, unknown_level, kUnknownNewestKeyTime,
+      false /* is_bottommost */, TableFileCreationReason::kMisc,
+      0 /* oldest_key_time */, 0 /* file_creation_time */,
+      "SST Writer" /* db_id */, r->db_session_id, 0 /* target_file_size */,
+      r->next_file_number);
   // External SST files used to each get a unique session id. Now for
   // slightly better uniqueness probability in constructing cache keys, we
   // assign fake file numbers to each file (into table properties) and keep

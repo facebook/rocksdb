@@ -46,6 +46,7 @@
 #include "util/coding.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -96,8 +97,9 @@ FlushJob::FlushJob(
     SequenceNumber earliest_write_conflict_snapshot,
     SnapshotChecker* snapshot_checker, JobContext* job_context,
     FlushReason flush_reason, LogBuffer* log_buffer, FSDirectory* db_directory,
-    FSDirectory* output_file_directory, CompressionType output_compression,
-    Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
+    FSDirectory* output_file_directory,
+    const std::shared_ptr<Compressor>& output_compressor, Statistics* stats,
+    EventLogger* event_logger, bool measure_io_stats,
     const bool sync_output_directory, const bool write_manifest,
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
     std::shared_ptr<const SeqnoToTimeMapping> seqno_to_time_mapping,
@@ -125,7 +127,7 @@ FlushJob::FlushJob(
       log_buffer_(log_buffer),
       db_directory_(db_directory),
       output_file_directory_(output_file_directory),
-      output_compression_(output_compression),
+      output_compressor_(output_compressor),
       stats_(stats),
       event_logger_(event_logger),
       measure_io_stats_(measure_io_stats),
@@ -346,8 +348,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   // When measure_io_stats_ is true, the default 512 bytes is not enough.
   auto stream = event_logger_->LogToBuffer(log_buffer_, 1024);
   stream << "job" << job_context_->job_id << "event" << "flush_finished";
-  stream << "output_compression"
-         << CompressionTypeToString(output_compression_);
+  stream << "output_compression" << output_compressor_->GetId();
   stream << "lsm_state";
   stream.StartArray();
   auto vstorage = cfd_->current()->storage_info();
@@ -949,8 +950,11 @@ Status FlushJob::WriteLevel0Table() {
                      cfd_->GetName().c_str(), job_context_->job_id,
                      meta_.fd.GetNumber());
 
+      CompressionType output_compression_type =
+          output_compressor_->GetCompressionType();
+      (void)output_compression_type;
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:output_compression",
-                               &output_compression_);
+                               &output_compression_type);
       int64_t _current_time = 0;
       auto status = clock_->GetCurrentTime(&_current_time);
       // Safe to proceed even if GetCurrentTime fails. So, log and proceed.
@@ -988,8 +992,7 @@ Status FlushJob::WriteLevel0Table() {
       TableBuilderOptions tboptions(
           *cfd_->ioptions(), mutable_cf_options_, read_options, write_options,
           cfd_->internal_comparator(), cfd_->internal_tbl_prop_coll_factories(),
-          output_compression_, mutable_cf_options_.compression_opts,
-          cfd_->GetID(), cfd_->GetName(), 0 /* level */,
+          output_compressor_, cfd_->GetID(), cfd_->GetName(), 0 /* level */,
           current_time /* newest_key_time */, false /* is_bottommost */,
           TableFileCreationReason::kFlush, oldest_key_time, current_time,
           db_id_, db_session_id_, 0 /* target_file_size */,
@@ -1149,7 +1152,8 @@ std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
   info->largest_seqno = meta_.fd.largest_seqno;
   info->table_properties = table_properties_;
   info->flush_reason = flush_reason_;
-  info->blob_compression_type = mutable_cf_options_.blob_compression_type;
+  info->blob_compression_type =
+      mutable_cf_options_.blob_compressor->GetCompressionType();
 
   // Update BlobFilesInfo.
   for (const auto& blob_file : edit_->GetBlobFileAdditions()) {

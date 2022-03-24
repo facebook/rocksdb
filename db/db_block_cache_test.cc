@@ -27,7 +27,7 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/unique_id_impl.h"
 #include "test_util/secondary_cache_test_util.h"
-#include "util/compression.h"
+#include "util/compressor.h"
 #include "util/defer.h"
 #include "util/hash.h"
 #include "util/math.h"
@@ -825,21 +825,11 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
   const int kNumBytesPerEntry = 1024;
 
   // Try all the available libraries that support dictionary compression
-  std::vector<CompressionType> compression_types;
-  if (Zlib_Supported()) {
-    compression_types.push_back(kZlibCompression);
-  }
-  if (LZ4_Supported()) {
-    compression_types.push_back(kLZ4Compression);
-    compression_types.push_back(kLZ4HCCompression);
-  }
-  if (ZSTD_Supported()) {
-    compression_types.push_back(kZSTD);
-  } else if (ZSTDNotFinal_Supported()) {
-    compression_types.push_back(kZSTDNotFinalCompression);
-  }
+  auto compressors = Compressor::GetDictSupported();
   Random rnd(301);
-  for (auto compression_type : compression_types) {
+  for (auto c : compressors) {
+    CompressionType compression_type;
+    ASSERT_TRUE(BuiltinCompressor::StringToType(c, &compression_type));
     Options options = CurrentOptions();
     options.bottommost_compression = compression_type;
     options.bottommost_compression_opts.max_dict_bytes = 4096;
@@ -2105,7 +2095,8 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
       ++expected_index_misses;
     }
   }
-  if (unpartitioned_pinning_ == PinningTier::kNone) {
+  if (unpartitioned_pinning_ == PinningTier::kNone &&
+      options.compression != kNoCompression) {
     ++expected_compression_dict_misses;
   }
   ASSERT_EQ(expected_filter_misses,

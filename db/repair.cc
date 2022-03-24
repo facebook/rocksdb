@@ -467,19 +467,20 @@ class Repairer {
       }
 
       IOStatus io_s;
-      CompressionOptions default_compression;
       // TODO: plumb Env::IOActivity, Env::IOPriority
       const ReadOptions read_options;
       const WriteOptions write_option(Env::IO_HIGH);
+
       TableBuilderOptions tboptions(
           *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(), read_options,
           write_option, cfd->internal_comparator(),
-          cfd->internal_tbl_prop_coll_factories(), kNoCompression,
-          default_compression, cfd->GetID(), cfd->GetName(), -1 /* level */,
-          current_time /* newest_key_time */, false /* is_bottommost */,
-          TableFileCreationReason::kRecovery, 0 /* oldest_key_time */,
-          0 /* file_creation_time */, "DB Repairer" /* db_id */, db_session_id_,
-          0 /*target_file_size*/, meta.fd.GetNumber());
+          cfd->internal_tbl_prop_coll_factories(),
+          BuiltinCompressor::GetCompressor(kNoCompression), cfd->GetID(),
+          cfd->GetName(), -1 /* level */, current_time /* newest_key_time */,
+          false /* is_bottommost */, TableFileCreationReason::kRecovery,
+          0 /* oldest_key_time */, 0 /* file_creation_time */,
+          "DB Repairer" /* db_id */, db_session_id_, 0 /*target_file_size*/,
+          meta.fd.GetNumber());
 
       SeqnoToTimeMapping empty_seqno_to_time_mapping;
       status = BuildTable(

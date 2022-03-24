@@ -66,7 +66,7 @@ BlobFileBuilder::BlobFileBuilder(
       immutable_options_(immutable_options),
       min_blob_size_(mutable_cf_options->min_blob_size),
       blob_file_size_(mutable_cf_options->blob_file_size),
-      blob_compression_type_(mutable_cf_options->blob_compression_type),
+      blob_compressor_(mutable_cf_options->blob_compressor),
       prepopulate_blob_cache_(mutable_cf_options->prepopulate_blob_cache),
       file_options_(file_options),
       write_options_(write_options),
@@ -92,6 +92,10 @@ BlobFileBuilder::BlobFileBuilder(
   assert(blob_file_paths_->empty());
   assert(blob_file_additions_);
   assert(blob_file_additions_->empty());
+
+  if (blob_compressor_ == nullptr) {
+    blob_compressor_ = BuiltinCompressor::GetCompressor(kNoCompression);
+  }
 }
 
 BlobFileBuilder::~BlobFileBuilder() = default;
@@ -151,7 +155,7 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
   }
 
   BlobIndex::EncodeBlob(blob_index, blob_file_number, blob_offset, blob.size(),
-                        blob_compression_type_);
+                        blob_compressor_->GetCompressionType());
 
   return Status::OK();
 }
@@ -228,7 +232,8 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   constexpr bool has_ttl = false;
   constexpr ExpirationRange expiration_range;
 
-  BlobLogHeader header(column_family_id_, blob_compression_type_, has_ttl,
+  BlobLogHeader header(column_family_id_,
+                       blob_compressor_->GetCompressionType(), has_ttl,
                        expiration_range);
 
   {
@@ -256,27 +261,18 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
   assert(compressed_blob->empty());
   assert(immutable_options_);
 
-  if (blob_compression_type_ == kNoCompression) {
+  if (blob_compressor_->GetCompressionType() == kNoCompression) {
     return Status::OK();
   }
 
-  // TODO: allow user CompressionOptions, including max_compressed_bytes_per_kb
-  CompressionOptions opts;
-  CompressionContext context(blob_compression_type_, opts);
-  constexpr uint64_t sample_for_compression = 0;
-
-  CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                       blob_compression_type_, sample_for_compression);
-
-  constexpr uint32_t compression_format_version = 2;
+  CompressionInfo info;
 
   bool success = false;
 
   {
     StopWatch stop_watch(immutable_options_->clock, immutable_options_->stats,
                          BLOB_DB_COMPRESSION_MICROS);
-    success =
-        CompressData(*blob, info, compression_format_version, compressed_blob);
+    success = info.CompressData(blob_compressor_.get(), *blob, compressed_blob);
   }
 
   if (!success) {

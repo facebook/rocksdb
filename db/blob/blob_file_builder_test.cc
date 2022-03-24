@@ -403,16 +403,12 @@ TEST_F(BlobFileBuilderTest, Compression) {
   ASSERT_EQ(blob_file_addition.GetBlobFileNumber(), blob_file_number);
   ASSERT_EQ(blob_file_addition.GetTotalBlobCount(), 1);
 
-  CompressionOptions opts;
-  CompressionContext context(kSnappyCompression, opts);
-  constexpr uint64_t sample_for_compression = 0;
-
-  CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                       kSnappyCompression, sample_for_compression);
+  auto compressor = BuiltinCompressor::GetCompressor(kSnappyCompression);
+  ASSERT_NE(compressor, nullptr);
 
   std::string compressed_value;
-  ASSERT_TRUE(Snappy_Compress(info, uncompressed_value.data(),
-                              uncompressed_value.size(), &compressed_value));
+  ASSERT_OK(compressor->Compress(CompressionInfo(), uncompressed_value,
+                                 &compressed_value));
 
   ASSERT_EQ(blob_file_addition.GetTotalBlobBytes(),
             BlobLogRecord::kHeaderSize + key_size + compressed_value.size());

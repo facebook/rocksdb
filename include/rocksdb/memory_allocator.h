@@ -39,6 +39,30 @@ class MemoryAllocator : public Customizable {
   std::string GetId() const override { return GenerateIndividualId(); }
 };
 
+// Allocate a buffer using the specified or default memory allocator.
+// @param size Buffer size.
+// @param allocator MemoryAllocator to use. If nullptr, the default allocator is
+// used (new operator). Returns a pointer to the buffer.
+inline char* Allocate(size_t size, MemoryAllocator* allocator) {
+  if (allocator) {
+    return reinterpret_cast<char*>(allocator->Allocate(size));
+  }
+  return new char[size];
+}
+
+// Deallocate a buffer allocated by a specified or default memory allocator.
+// @param p Pointer to the buffer to deallocate. This is the pointer that was
+// returned by Allocate.
+// @param allocator MemoryAllocator that was used for allocation. If nullptr,
+// the default allocator was used.
+inline void Deallocate(char* p, MemoryAllocator* allocator) {
+  if (allocator) {
+    allocator->Deallocate(p);
+  } else {
+    delete[] p;
+  }
+}
+
 struct JemallocAllocatorOptions {
   static const char* kName() { return "JemallocAllocatorOptions"; }
   // Jemalloc tcache cache allocations by size class. For each size class,

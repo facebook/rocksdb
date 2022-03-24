@@ -105,10 +105,9 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
       const ReadOptions& _read_options, const WriteOptions& _write_options,
       const InternalKeyComparator& _internal_comparator,
       const InternalTblPropCollFactories* _internal_tbl_prop_coll_factories,
-      CompressionType _compression_type,
-      const CompressionOptions& _compression_opts, uint32_t _column_family_id,
-      const std::string& _column_family_name, int _level,
-      const int64_t _newest_key_time, bool _is_bottommost = false,
+      const std::shared_ptr<Compressor>& _compressor,
+      uint32_t _column_family_id, const std::string& _column_family_name,
+      int _level, const int64_t _newest_key_time, bool _is_bottommost = false,
       TableFileCreationReason _reason = TableFileCreationReason::kMisc,
       const int64_t _oldest_key_time = 0,
       const uint64_t _file_creation_time = 0, const std::string& _db_id = "",
@@ -125,8 +124,7 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
         write_options(_write_options),
         internal_comparator(_internal_comparator),
         internal_tbl_prop_coll_factories(_internal_tbl_prop_coll_factories),
-        compression_type(_compression_type),
-        compression_opts(_compression_opts),
+        compressor(_compressor),
         column_family_name(_column_family_name),
         oldest_key_time(_oldest_key_time),
         newest_key_time(_newest_key_time),
@@ -144,8 +142,7 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
   const WriteOptions& write_options;
   const InternalKeyComparator& internal_comparator;
   const InternalTblPropCollFactories* internal_tbl_prop_coll_factories;
-  const CompressionType compression_type;
-  const CompressionOptions& compression_opts;
+  std::shared_ptr<Compressor> compressor;
   const std::string& column_family_name;
   const int64_t oldest_key_time;
   const int64_t newest_key_time;

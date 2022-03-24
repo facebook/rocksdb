@@ -17,6 +17,7 @@
 #include "rocksdb/rocksdb_namespace.h"
 #include "table/block_based/cachable_entry.h"
 #include "util/autovector.h"
+#include "util/compressor.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -55,7 +56,8 @@ class BlobSource {
   // record.
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
                  uint64_t file_number, uint64_t offset, uint64_t file_size,
-                 uint64_t value_size, CompressionType compression_type,
+                 uint64_t value_size,
+                 const std::shared_ptr<Compressor>& compressor,
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read);
 
