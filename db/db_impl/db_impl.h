@@ -1402,6 +1402,10 @@ class DBImpl : public DB {
                                        bool is_primary_db = true);
 
 >>>>>>> 9b40f4c749ee6f8fe21574b9cfeaa6927c7015eb
+<<<<<<< HEAD
+
+=======
+>>>>>>> bf26ff4835cf819d4ca377361049725ef1749723
 
  private:
   friend class DB;
