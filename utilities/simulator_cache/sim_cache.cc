@@ -213,8 +213,8 @@ class SimCacheImpl : public SimCache {
   bool Ref(Handle* handle) override { return cache_->Ref(handle); }
 
   using Cache::Release;
-  bool Release(Handle* handle, bool force_erase = false) override {
-    return cache_->Release(handle, force_erase);
+  bool Release(Handle* handle, bool erase_if_last_ref = false) override {
+    return cache_->Release(handle, erase_if_last_ref);
   }
 
   void Erase(const Slice& key) override {

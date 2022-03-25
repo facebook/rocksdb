@@ -8,11 +8,7 @@
 
 BASH_EXISTS := $(shell which bash)
 SHELL := $(shell which bash)
-# Default to python3. Some distros like CentOS 8 do not have `python`.
-ifeq ($(origin PYTHON), undefined)
-	PYTHON := $(shell which python3 || which python || echo python3)
-endif
-export PYTHON
+include python.mk
 
 CLEAN_FILES = # deliberately empty, so we can append below.
 CFLAGS += ${EXTRA_CFLAGS}
@@ -329,8 +325,8 @@ ifneq ($(MACHINE), arm64)
 # linking with jemalloc (as it won't be arm64-compatible) and remove some other options
 # set during platform detection
 DISABLE_JEMALLOC=1
-PLATFORM_CFLAGS := $(filter-out -march=native -DHAVE_SSE42, $(PLATFORM_CFLAGS))
-PLATFORM_CXXFLAGS := $(filter-out -march=native -DHAVE_SSE42, $(PLATFORM_CXXFLAGS))
+PLATFORM_CFLAGS := $(filter-out -march=native -DHAVE_SSE42 -DHAVE_AVX2, $(PLATFORM_CFLAGS))
+PLATFORM_CXXFLAGS := $(filter-out -march=native -DHAVE_SSE42 -DHAVE_AVX2, $(PLATFORM_CXXFLAGS))
 endif
 endif
 endif
@@ -793,7 +789,9 @@ endif  # PLATFORM_SHARED_EXT
 	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
 	blackbox_crash_test_with_txn whitebox_crash_test_with_txn \
 	blackbox_crash_test_with_best_efforts_recovery \
-	blackbox_crash_test_with_ts whitebox_crash_test_with_ts
+	blackbox_crash_test_with_ts whitebox_crash_test_with_ts \
+	blackbox_crash_test_with_multiops_wc_txn \
+	blackbox_crash_test_with_multiops_wp_txn
 
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
@@ -911,7 +909,7 @@ gen_parallel_tests:
 # 107.816 PASS t/DBTest.EncodeDecompressedBlockSizeTest
 #
 slow_test_regexp = \
-	^.*SnapshotConcurrentAccessTest.*$$|^.*SeqAdvanceConcurrentTest.*$$|^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
+	^.*MySQLStyleTransactionTest.*$$|^.*SnapshotConcurrentAccessTest.*$$|^.*SeqAdvanceConcurrentTest.*$$|^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
 prioritize_long_running_tests =						\
   perl -pe 's,($(slow_test_regexp)),100 $$1,'				\
     | sort -k1,1gr							\
@@ -1031,92 +1029,34 @@ check_some: $(ROCKSDBTESTS_SUBSET)
 ldb_tests: ldb
 	$(PYTHON) tools/ldb_test.py
 
-crash_test:
-# Do not parallelize
-	$(MAKE) whitebox_crash_test
-	$(MAKE) blackbox_crash_test
-
-crash_test_with_atomic_flush:
-# Do not parallelize
-	$(MAKE) whitebox_crash_test_with_atomic_flush
-	$(MAKE) blackbox_crash_test_with_atomic_flush
-
-crash_test_with_txn:
-# Do not parallelize
-	$(MAKE) whitebox_crash_test_with_txn
-	$(MAKE) blackbox_crash_test_with_txn
-
-crash_test_with_best_efforts_recovery: blackbox_crash_test_with_best_efforts_recovery
-
-crash_test_with_ts:
-# Do not parallelize
-	$(MAKE) whitebox_crash_test_with_ts
-	$(MAKE) blackbox_crash_test_with_ts
-
-blackbox_crash_test: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
-	$(PYTHON) -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
-
-blackbox_crash_test_with_atomic_flush: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --cf_consistency blackbox $(CRASH_TEST_EXT_ARGS)
-
-blackbox_crash_test_with_txn: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --txn blackbox $(CRASH_TEST_EXT_ARGS)
-
-blackbox_crash_test_with_best_efforts_recovery: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --test_best_efforts_recovery blackbox $(CRASH_TEST_EXT_ARGS)
-
-blackbox_crash_test_with_ts: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --enable_ts blackbox $(CRASH_TEST_EXT_ARGS)
-
-ifeq ($(CRASH_TEST_KILL_ODD),)
-  CRASH_TEST_KILL_ODD=888887
-endif
-
-whitebox_crash_test: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --simple whitebox --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
-	$(PYTHON) -u tools/db_crashtest.py whitebox  --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
-
-whitebox_crash_test_with_atomic_flush: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --cf_consistency whitebox  --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
-
-whitebox_crash_test_with_txn: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --txn whitebox --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
-
-whitebox_crash_test_with_ts: db_stress
-	$(PYTHON) -u tools/db_crashtest.py --enable_ts whitebox --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
+include crash_test.mk
 
 asan_check: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) check -j32
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) check -j32
 	$(MAKE) clean
 
 asan_crash_test: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test
 	$(MAKE) clean
 
 whitebox_asan_crash_test: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) whitebox_crash_test
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) whitebox_crash_test
 	$(MAKE) clean
 
 blackbox_asan_crash_test: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) blackbox_crash_test
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) blackbox_crash_test
 	$(MAKE) clean
 
 asan_crash_test_with_atomic_flush: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_atomic_flush
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_atomic_flush
 	$(MAKE) clean
 
 asan_crash_test_with_txn: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_txn
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_txn
 	$(MAKE) clean
 
 asan_crash_test_with_best_efforts_recovery: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_best_efforts_recovery
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_best_efforts_recovery
 	$(MAKE) clean
 
 ubsan_check: clean
@@ -1276,7 +1216,7 @@ clean-rocks:
 	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
 	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm -f {} \;
 
-clean-rocksjava:
+clean-rocksjava: clean-rocks
 	rm -rf jl jls
 	cd java && $(MAKE) clean
 
@@ -1866,6 +1806,9 @@ point_lock_manager_test: utilities/transactions/lock/point/point_lock_manager_te
 transaction_test: $(OBJ_DIR)/utilities/transactions/transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+write_committed_transaction_ts_test: $(OBJ_DIR)/utilities/transactions/write_committed_transaction_ts_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 write_prepared_transaction_test: $(OBJ_DIR)/utilities/transactions/write_prepared_transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -2121,7 +2064,9 @@ CURL_SSL_OPTS ?= --tlsv1
 ifeq ($(PLATFORM), OS_MACOSX)
 ifeq (,$(findstring librocksdbjni-osx,$(ROCKSDBJNILIB)))
 ifeq ($(MACHINE),arm64)
-	ROCKSDBJNILIB = librocksdbjni-osx-aarch64.jnilib
+	ROCKSDBJNILIB = librocksdbjni-osx-arm64.jnilib
+else ifeq ($(MACHINE),x86_64)
+	ROCKSDBJNILIB = librocksdbjni-osx-x86_64.jnilib
 else
 	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
 endif
@@ -2252,15 +2197,20 @@ endif
 	$(MAKE) rocksdbjavastatic_deps
 	$(MAKE) rocksdbjavastatic_libobjects
 	$(MAKE) rocksdbjavastatic_javalib
-	$(MAKE) rocksdbjavastatic_jar
+	$(MAKE) rocksdbjava_jar
 
 rocksdbjavastaticosx: rocksdbjavastaticosx_archs
-	mv java/target/librocksdbjni-osx-x86_64.jnilib java/target/librocksdbjni-osx.jnilib
-	mv java/target/librocksdbjni-osx-arm64.jnilib java/target/librocksdbjni-osx-aarch64.jnilib
+	cd java; $(JAR_CMD)  -cf target/$(ROCKSDB_JAR) HISTORY*.md
+	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR) librocksdbjni-osx-x86_64.jnilib librocksdbjni-osx-arm64.jnilib
+	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
+	openssl sha1 java/target/$(ROCKSDB_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAR).sha1
 
 rocksdbjavastaticosx_ub: rocksdbjavastaticosx_archs
-	lipo -create -output ./java/target/$(ROCKSDBJNILIB) java/target/librocksdbjni-osx-x86_64.jnilib java/target/librocksdbjni-osx-arm64.jnilib
-	$(MAKE) rocksdbjavastatic_jar
+	cd java/target; lipo -create -output librocksdbjni-osx.jnilib librocksdbjni-osx-x86_64.jnilib librocksdbjni-osx-arm64.jnilib
+	cd java; $(JAR_CMD)  -cf target/$(ROCKSDB_JAR) HISTORY*.md
+	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR) librocksdbjni-osx.jnilib
+	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
+	openssl sha1 java/target/$(ROCKSDB_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAR).sha1
 
 rocksdbjavastaticosx_archs:
 	$(MAKE) rocksdbjavastaticosx_arch_x86_64
@@ -2294,28 +2244,32 @@ rocksdbjavastatic_javalib:
 		strip $(STRIPFLAGS) $(ROCKSDBJNILIB); \
 	fi
 
-rocksdbjavastatic_jar:
+rocksdbjava_jar:
 	cd java; $(JAR_CMD)  -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
 	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
-	cd java/target/apidocs; $(JAR_CMD) -cf ../$(ROCKSDB_JAVADOCS_JAR) *
-	cd java/src/main/java; $(JAR_CMD) -cf ../../../target/$(ROCKSDB_SOURCES_JAR) org
 	openssl sha1 java/target/$(ROCKSDB_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAR).sha1
+
+rocksdbjava_javadocs_jar:
+	cd java/target/apidocs; $(JAR_CMD) -cf ../$(ROCKSDB_JAVADOCS_JAR) *
 	openssl sha1 java/target/$(ROCKSDB_JAVADOCS_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAVADOCS_JAR).sha1
+
+rocksdbjava_sources_jar:
+	cd java/src/main/java; $(JAR_CMD) -cf ../../../target/$(ROCKSDB_SOURCES_JAR) org
 	openssl sha1 java/target/$(ROCKSDB_SOURCES_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_SOURCES_JAR).sha1
 
 rocksdbjavastatic_deps: $(JAVA_COMPRESSIONS)
 
 rocksdbjavastatic_libobjects: $(LIB_OBJECTS)
 
-rocksdbjavastaticrelease: rocksdbjavastaticosx
+rocksdbjavastaticrelease: rocksdbjavastaticosx rocksdbjava_javadocs_jar rocksdbjava_sources_jar
 	cd java/crossbuild && (vagrant destroy -f || true) && vagrant up linux32 && vagrant halt linux32 && vagrant up linux64 && vagrant halt linux64 && vagrant up linux64-musl && vagrant halt linux64-musl
 	cd java; $(JAR_CMD) -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
 	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
 	openssl sha1 java/target/$(ROCKSDB_JAR_ALL) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAR_ALL).sha1
 
-rocksdbjavastaticreleasedocker: rocksdbjavastaticosx rocksdbjavastaticdockerx86 rocksdbjavastaticdockerx86_64 rocksdbjavastaticdockerx86musl rocksdbjavastaticdockerx86_64musl
+rocksdbjavastaticreleasedocker: rocksdbjavastaticosx rocksdbjavastaticdockerx86 rocksdbjavastaticdockerx86_64 rocksdbjavastaticdockerx86musl rocksdbjavastaticdockerx86_64musl rocksdbjava_javadocs_jar rocksdbjava_sources_jar
 	cd java; $(JAR_CMD) -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
 	cd java/target; $(JAR_CMD) -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes; $(JAR_CMD) -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class

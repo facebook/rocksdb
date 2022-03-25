@@ -220,6 +220,8 @@ class TransactionBaseImpl : public Transaction {
 
   void EnableIndexing() override { indexing_enabled_ = true; }
 
+  bool IndexingEnabled() const { return indexing_enabled_; }
+
   uint64_t GetElapsedTime() const override;
 
   uint64_t GetNumPuts() const override;
@@ -277,6 +279,8 @@ class TransactionBaseImpl : public Transaction {
     auto s = WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
     assert(s.ok());
   }
+
+  WriteBatchBase* GetBatchForWrite();
 
   DB* db_;
   DBImpl* dbimpl_;
@@ -365,7 +369,6 @@ class TransactionBaseImpl : public Transaction {
                  bool read_only, bool exclusive, const bool do_validate = true,
                  const bool assume_tracked = false);
 
-  WriteBatchBase* GetBatchForWrite();
   void SetSnapshotInternal(const Snapshot* snapshot);
 };
 

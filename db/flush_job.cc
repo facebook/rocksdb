@@ -136,7 +136,6 @@ FlushJob::FlushJob(
 }
 
 FlushJob::~FlushJob() {
-  io_status_.PermitUncheckedError();
   ThreadStatusUtil::ResetThreadStatus();
 }
 
@@ -170,8 +169,20 @@ void FlushJob::PickMemTable() {
   db_mutex_->AssertHeld();
   assert(!pick_memtable_called);
   pick_memtable_called = true;
+
+  // Maximum "NextLogNumber" of the memtables to flush.
+  // When mempurge feature is turned off, this variable is useless
+  // because the memtables are implicitly sorted by increasing order of creation
+  // time. Therefore mems_->back()->GetNextLogNumber() is already equal to
+  // max_next_log_number. However when Mempurge is on, the memtables are no
+  // longer sorted by increasing order of creation time. Therefore this variable
+  // becomes necessary because mems_->back()->GetNextLogNumber() is no longer
+  // necessarily equal to max_next_log_number.
+  uint64_t max_next_log_number = 0;
+
   // Save the contents of the earliest memtable as a new Table
-  cfd_->imm()->PickMemtablesToFlush(max_memtable_id_, &mems_);
+  cfd_->imm()->PickMemtablesToFlush(max_memtable_id_, &mems_,
+                                    &max_next_log_number);
   if (mems_.empty()) {
     return;
   }
@@ -186,7 +197,7 @@ void FlushJob::PickMemTable() {
   edit_->SetPrevLogNumber(0);
   // SetLogNumber(log_num) indicates logs with number smaller than log_num
   // will no longer be picked up for recovery.
-  edit_->SetLogNumber(mems_.back()->GetNextLogNumber());
+  edit_->SetLogNumber(max_next_log_number);
   edit_->SetColumnFamily(cfd_->GetID());
 
   // path 0 for level 0 file.
@@ -278,17 +289,13 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   } else if (write_manifest_) {
     TEST_SYNC_POINT("FlushJob::InstallResults");
     // Replace immutable memtable with the generated Table
-    IOStatus tmp_io_s;
     s = cfd_->imm()->TryInstallMemtableFlushResults(
         cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
         meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
-        log_buffer_, &committed_flush_jobs_info_, &tmp_io_s,
+        log_buffer_, &committed_flush_jobs_info_,
         !(mempurge_s.ok()) /* write_edit : true if no mempurge happened (or if aborted),
                               but 'false' if mempurge successful: no new min log number
                               or new level 0 file path to write to manifest. */);
-    if (!tmp_io_s.ok()) {
-      io_status_ = tmp_io_s;
-    }
   }
 
   if (s.ok() && file_meta != nullptr) {
@@ -354,7 +361,7 @@ Status FlushJob::MemPurge() {
 
   // Measure purging time.
   const uint64_t start_micros = clock_->NowMicros();
-  const uint64_t start_cpu_micros = clock_->CPUNanos() / 1000;
+  const uint64_t start_cpu_micros = clock_->CPUMicros();
 
   MemTable* new_mem = nullptr;
   // For performance/log investigation purposes:
@@ -569,6 +576,7 @@ Status FlushJob::MemPurge() {
         uint64_t new_mem_id = mems_[0]->GetID();
 
         new_mem->SetID(new_mem_id);
+        new_mem->SetNextLogNumber(mems_[0]->GetNextLogNumber());
 
         // This addition will not trigger another flush, because
         // we do not call SchedulePendingFlush().
@@ -606,7 +614,7 @@ Status FlushJob::MemPurge() {
     TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeUnsuccessful");
   }
   const uint64_t micros = clock_->NowMicros() - start_micros;
-  const uint64_t cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
+  const uint64_t cpu_micros = clock_->CPUMicros() - start_cpu_micros;
   ROCKS_LOG_INFO(db_options_.info_log,
                  "[%s] [JOB %d] Mempurge lasted %" PRIu64
                  " microseconds, and %" PRIu64
@@ -792,7 +800,7 @@ Status FlushJob::WriteLevel0Table() {
       ThreadStatus::STAGE_FLUSH_WRITE_L0);
   db_mutex_->AssertHeld();
   const uint64_t start_micros = clock_->NowMicros();
-  const uint64_t start_cpu_micros = clock_->CPUNanos() / 1000;
+  const uint64_t start_cpu_micros = clock_->CPUMicros();
   Status s;
 
   std::vector<BlobFileAddition> blob_file_additions;
@@ -815,6 +823,12 @@ Status FlushJob::WriteLevel0Table() {
     uint64_t total_num_entries = 0, total_num_deletes = 0;
     uint64_t total_data_size = 0;
     size_t total_memory_usage = 0;
+    // Used for testing:
+    uint64_t mems_size = mems_.size();
+    (void)mems_size;  // avoids unused variable error when
+                      // TEST_SYNC_POINT_CALLBACK not used.
+    TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:num_memtables",
+                             &mems_size);
     for (MemTable* m : mems_) {
       ROCKS_LOG_INFO(
           db_options_.info_log,
@@ -907,9 +921,9 @@ Status FlushJob::WriteLevel0Table() {
           job_context_->job_id, Env::IO_HIGH, &table_properties_, write_hint,
           full_history_ts_low, blob_callback_, &num_input_entries,
           &memtable_payload_bytes, &memtable_garbage_bytes);
-      if (!io_s.ok()) {
-        io_status_ = io_s;
-      }
+      // TODO: Cleanup io_status in BuildTable and table builders
+      assert(!s.ok() || io_s.ok());
+      io_s.PermitUncheckedError();
       if (num_input_entries != total_num_entries && s.ok()) {
         std::string msg = "Expected " + ToString(total_num_entries) +
                           " entries in memtables, but read " +
@@ -979,7 +993,7 @@ Status FlushJob::WriteLevel0Table() {
   // Note that here we treat flush as level 0 compaction in internal stats
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
   const uint64_t micros = clock_->NowMicros() - start_micros;
-  const uint64_t cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
+  const uint64_t cpu_micros = clock_->CPUMicros() - start_cpu_micros;
   stats.micros = micros;
   stats.cpu_micros = cpu_micros;
 

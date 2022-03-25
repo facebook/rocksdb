@@ -242,9 +242,9 @@ Status SstFileWriter::Open(const std::string& file_path) {
     } else {
       compression_opts = r->mutable_cf_options.compression_opts;
     }
-  } else if (!r->ioptions.compression_per_level.empty()) {
+  } else if (!r->mutable_cf_options.compression_per_level.empty()) {
     // Use the compression of the last level if we have per level compression
-    compression_type = *(r->ioptions.compression_per_level.rbegin());
+    compression_type = *(r->mutable_cf_options.compression_per_level.rbegin());
     compression_opts = r->mutable_cf_options.compression_opts;
   } else {
     compression_type = r->mutable_cf_options.compression;
