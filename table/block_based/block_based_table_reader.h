@@ -343,9 +343,10 @@ class BlockBasedTable : public TableReader {
   Status MaybeReadBlockAndLoadToCache(
       FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
-      const bool wait, CachableEntry<TBlocklike>* block_entry,
-      BlockType block_type, GetContext* get_context,
-      BlockCacheLookupContext* lookup_context, BlockContents* contents) const;
+      const bool wait, const bool for_compaction,
+      CachableEntry<TBlocklike>* block_entry, BlockType block_type,
+      GetContext* get_context, BlockCacheLookupContext* lookup_context,
+      BlockContents* contents) const;
 
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
