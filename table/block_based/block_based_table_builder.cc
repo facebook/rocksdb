@@ -1605,7 +1605,7 @@ void BlockBasedTableBuilder::WriteFilterBlock(
                 ? BlockBasedTable::kPartitionedFilterBlockPrefix
                 : BlockBasedTable::kFullFilterBlockPrefix;
     }
-    key.append(rep_->table_options.filter_policy->Name());
+    key.append(rep_->table_options.filter_policy->CompatibilityName());
     meta_index_builder->Add(key, filter_block_handle);
   }
 }

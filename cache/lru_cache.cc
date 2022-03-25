@@ -507,7 +507,7 @@ void LRUCacheShard::SetHighPriorityPoolRatio(double high_pri_pool_ratio) {
   MaintainPoolSize();
 }
 
-bool LRUCacheShard::Release(Cache::Handle* handle, bool force_erase) {
+bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   if (handle == nullptr) {
     return false;
   }
@@ -518,9 +518,9 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool force_erase) {
     last_reference = e->Unref();
     if (last_reference && e->InCache()) {
       // The item is still in cache, and nobody else holds a reference to it
-      if (usage_ > capacity_ || force_erase) {
+      if (usage_ > capacity_ || erase_if_last_ref) {
         // The LRU list must be empty since the cache is full
-        assert(lru_.next == &lru_ || force_erase);
+        assert(lru_.next == &lru_ || erase_if_last_ref);
         // Take this opportunity and remove the item
         table_.Remove(e->key(), e->hash);
         e->SetInCache(false);

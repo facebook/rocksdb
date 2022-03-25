@@ -3752,6 +3752,9 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(
     const FilterPolicy* rep_;
     ~Wrapper() override { delete rep_; }
     const char* Name() const override { return rep_->Name(); }
+    const char* CompatibilityName() const override {
+      return rep_->CompatibilityName();
+    }
     // No need to override GetFilterBitsBuilder if this one is overridden
     ROCKSDB_NAMESPACE::FilterBitsBuilder* GetBuilderWithContext(
         const ROCKSDB_NAMESPACE::FilterBuildingContext& context)
@@ -3789,6 +3792,9 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon_format(
     const FilterPolicy* rep_;
     ~Wrapper() override { delete rep_; }
     const char* Name() const override { return rep_->Name(); }
+    const char* CompatibilityName() const override {
+      return rep_->CompatibilityName();
+    }
     ROCKSDB_NAMESPACE::FilterBitsBuilder* GetBuilderWithContext(
         const ROCKSDB_NAMESPACE::FilterBuildingContext& context)
         const override {

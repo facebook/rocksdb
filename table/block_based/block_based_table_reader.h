@@ -343,9 +343,10 @@ class BlockBasedTable : public TableReader {
   Status MaybeReadBlockAndLoadToCache(
       FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
-      const bool wait, CachableEntry<TBlocklike>* block_entry,
-      BlockType block_type, GetContext* get_context,
-      BlockCacheLookupContext* lookup_context, BlockContents* contents) const;
+      const bool wait, const bool for_compaction,
+      CachableEntry<TBlocklike>* block_entry, BlockType block_type,
+      GetContext* get_context, BlockCacheLookupContext* lookup_context,
+      BlockContents* contents) const;
 
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
@@ -652,20 +653,21 @@ struct BlockBasedTable::Rep {
   void CreateFilePrefetchBuffer(size_t readahead_size,
                                 size_t max_readahead_size,
                                 std::unique_ptr<FilePrefetchBuffer>* fpb,
-                                bool implicit_auto_readahead) const {
+                                bool implicit_auto_readahead,
+                                bool async_io) const {
     fpb->reset(new FilePrefetchBuffer(readahead_size, max_readahead_size,
                                       !ioptions.allow_mmap_reads /* enable */,
                                       false /* track_min_offset */,
-                                      implicit_auto_readahead));
+                                      implicit_auto_readahead, async_io));
   }
 
   void CreateFilePrefetchBufferIfNotExists(
       size_t readahead_size, size_t max_readahead_size,
-      std::unique_ptr<FilePrefetchBuffer>* fpb,
-      bool implicit_auto_readahead) const {
+      std::unique_ptr<FilePrefetchBuffer>* fpb, bool implicit_auto_readahead,
+      bool async_io) const {
     if (!(*fpb)) {
       CreateFilePrefetchBuffer(readahead_size, max_readahead_size, fpb,
-                               implicit_auto_readahead);
+                               implicit_auto_readahead, async_io);
     }
   }
 };
