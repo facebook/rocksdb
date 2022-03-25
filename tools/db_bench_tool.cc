@@ -1240,6 +1240,10 @@ DEFINE_int64(stats_interval_seconds, 0, "Report stats every N seconds. This "
 DEFINE_int32(stats_per_interval, 0, "Reports additional stats per interval when"
              " this is greater than 0.");
 
+DEFINE_uint64(slow_usecs, 1000000,
+              "A message is printed for operations that "
+              "take at least this many microseconds.");
+
 DEFINE_int64(report_interval_seconds, 0,
              "If greater than zero, it will write simple stats in CSV format "
              "to --report_file every N seconds");
@@ -2145,7 +2149,7 @@ class Stats {
       }
       hist_[op_type]->Add(micros);
 
-      if (micros > 20000 && !FLAGS_stats_interval) {
+      if (micros >= FLAGS_slow_usecs && !FLAGS_stats_interval) {
         fprintf(stderr, "long op: %" PRIu64 " micros%30s\r", micros, "");
         fflush(stderr);
       }
