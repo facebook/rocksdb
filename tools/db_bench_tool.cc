@@ -285,8 +285,10 @@ DEFINE_int64(deletes, -1, "Number of delete operations to do.  "
 
 DEFINE_int32(bloom_locality, 0, "Control bloom filter probes locality");
 
-DEFINE_int64(seed, 0, "Seed base for random number generators. "
-             "When 0 it is deterministic.");
+DEFINE_int64(seed, 0,
+             "Seed base for random number generators. "
+             "When 0 it is derived from the current time.");
+static int64_t seed_base;
 
 DEFINE_int32(threads, 1, "Number of concurrent threads to run.");
 
@@ -2425,8 +2427,7 @@ struct ThreadState {
   Stats stats;
   SharedState* shared;
 
-  explicit ThreadState(int index)
-      : tid(index), rand((FLAGS_seed ? FLAGS_seed : 1000) + index) {}
+  explicit ThreadState(int index) : tid(index), rand(seed_base + index) {}
 };
 
 class Duration {
@@ -4604,7 +4605,7 @@ class Benchmark {
           values_[i] = i;
         }
         RandomShuffle(values_.begin(), values_.end(),
-                      static_cast<uint32_t>(FLAGS_seed));
+                      static_cast<uint32_t>(seed_base));
       }
     }
 
@@ -4717,7 +4718,7 @@ class Benchmark {
     // Default_random_engine provides slightly
     // improved throughput over mt19937.
     std::default_random_engine overwrite_gen{
-        static_cast<unsigned int>(FLAGS_seed)};
+        static_cast<unsigned int>(seed_base)};
     std::bernoulli_distribution overwrite_decider(p);
 
     // Inserted key window is filled with the last N
@@ -4727,7 +4728,7 @@ class Benchmark {
     // - random access is O(1)
     // - insertion/removal at beginning/end is also O(1).
     std::deque<int64_t> inserted_key_window;
-    Random64 reservoir_id_gen(FLAGS_seed);
+    Random64 reservoir_id_gen(seed_base);
 
     // --- Variables used in disposable/persistent keys simulation:
     // The following variables are used when
@@ -4764,7 +4765,7 @@ class Benchmark {
         ErrorExit();
       }
     }
-    Random rnd_disposable_entry(static_cast<uint32_t>(FLAGS_seed));
+    Random rnd_disposable_entry(static_cast<uint32_t>(seed_base));
     std::string random_value;
     // Queue that stores scheduled timestamp of disposable entries deletes,
     // along with starting index of disposable entry keys to delete.
@@ -8104,6 +8105,15 @@ int db_bench_tool(int argc, char** argv) {
   // Let -readonly imply -use_existing_db
   FLAGS_use_existing_db |= FLAGS_readonly;
 #endif  // ROCKSDB_LITE
+
+  if (!FLAGS_seed) {
+    uint64_t now = FLAGS_env->GetSystemClock()->NowMicros();
+    seed_base = static_cast<int64_t>(now);
+    fprintf(stdout, "Set seed to %" PRIu64 " because --seed was 0\n",
+            seed_base);
+  } else {
+    seed_base = FLAGS_seed;
+  }
 
   if (FLAGS_use_existing_keys && !FLAGS_use_existing_db) {
     fprintf(stderr,
