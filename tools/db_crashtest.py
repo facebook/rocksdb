@@ -214,6 +214,8 @@ def setup_multiops_txn_key_spaces_file():
         multiops_txn_key_spaces_file = tempfile.mkstemp(
                 prefix=key_spaces_file_prefix)[1]
     else:
+        if not os.path.exists(test_tmpdir):
+            os.mkdir(test_tmpdir)
         multiops_txn_key_spaces_file = tempfile.mkstemp(
                 prefix=key_spaces_file_prefix, dir=test_tmpdir)[1]
     return multiops_txn_key_spaces_file

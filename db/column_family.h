@@ -520,9 +520,10 @@ class ColumnFamilyData {
   ThreadLocalPtr* TEST_GetLocalSV() { return local_sv_.get(); }
   WriteBufferManager* write_buffer_mgr() { return write_buffer_manager_; }
 
+  static const uint32_t kDummyColumnFamilyDataId;
+
  private:
   friend class ColumnFamilySet;
-  static const uint32_t kDummyColumnFamilyDataId;
   ColumnFamilyData(uint32_t id, const std::string& name,
                    Version* dummy_versions, Cache* table_cache,
                    WriteBufferManager* write_buffer_manager,
@@ -628,10 +629,8 @@ class ColumnFamilyData {
 // held and it needs to be executed from the write thread. SetDropped() also
 // guarantees that it will be called only from single-threaded LogAndApply(),
 // but this condition is not that important.
-// * Iteration -- hold DB mutex, but you can release it in the body of
-// iteration. If you release DB mutex in body, reference the column
-// family before the mutex and unreference after you unlock, since the column
-// family might get dropped when the DB mutex is released
+// * Iteration -- hold DB mutex. If you want to release the DB mutex in the
+// body of the iteration, wrap in a RefedColumnFamilySet.
 // * GetDefault() -- thread safe
 // * GetColumnFamily() -- either inside of DB mutex or from a write thread
 // * GetNextColumnFamilyID(), GetMaxColumnFamily(), UpdateMaxColumnFamily(),
@@ -643,17 +642,12 @@ class ColumnFamilySet {
    public:
     explicit iterator(ColumnFamilyData* cfd)
         : current_(cfd) {}
+    // NOTE: minimum operators for for-loop iteration
     iterator& operator++() {
-      // dropped column families might still be included in this iteration
-      // (we're only removing them when client drops the last reference to the
-      // column family).
-      // dummy is never dead, so this will never be infinite
-      do {
-        current_ = current_->next_;
-      } while (current_->refs_.load(std::memory_order_relaxed) == 0);
+      current_ = current_->next_;
       return *this;
     }
-    bool operator!=(const iterator& other) {
+    bool operator!=(const iterator& other) const {
       return this->current_ != other.current_;
     }
     ColumnFamilyData* operator*() { return current_; }
@@ -691,10 +685,6 @@ class ColumnFamilySet {
 
   iterator begin() { return iterator(dummy_cfd_->next_); }
   iterator end() { return iterator(dummy_cfd_); }
-
-  // REQUIRES: DB mutex held
-  // Don't call while iterating over ColumnFamilySet
-  void FreeDeadColumnFamilies();
 
   Cache* get_table_cache() { return table_cache_; }
 
@@ -736,6 +726,55 @@ class ColumnFamilySet {
   BlockCacheTracer* const block_cache_tracer_;
   std::shared_ptr<IOTracer> io_tracer_;
   std::string db_session_id_;
+};
+
+// A wrapper for ColumnFamilySet that supports releasing DB mutex during each
+// iteration over the iterator, because the cfd is Refed and Unrefed during
+// each iteration to prevent concurrent CF drop from destroying it (until
+// Unref).
+class RefedColumnFamilySet {
+ public:
+  explicit RefedColumnFamilySet(ColumnFamilySet* cfs) : wrapped_(cfs) {}
+
+  class iterator {
+   public:
+    explicit iterator(ColumnFamilySet::iterator wrapped) : wrapped_(wrapped) {
+      MaybeRef(*wrapped_);
+    }
+    ~iterator() { MaybeUnref(*wrapped_); }
+    inline void MaybeRef(ColumnFamilyData* cfd) {
+      if (cfd->GetID() != ColumnFamilyData::kDummyColumnFamilyDataId) {
+        cfd->Ref();
+      }
+    }
+    inline void MaybeUnref(ColumnFamilyData* cfd) {
+      if (cfd->GetID() != ColumnFamilyData::kDummyColumnFamilyDataId) {
+        cfd->UnrefAndTryDelete();
+      }
+    }
+    // NOTE: minimum operators for for-loop iteration
+    inline iterator& operator++() {
+      ColumnFamilyData* old = *wrapped_;
+      ++wrapped_;
+      // Can only unref & potentially free cfd after accessing its next_
+      MaybeUnref(old);
+      MaybeRef(*wrapped_);
+      return *this;
+    }
+    inline bool operator!=(const iterator& other) const {
+      return this->wrapped_ != other.wrapped_;
+    }
+    inline ColumnFamilyData* operator*() { return *wrapped_; }
+
+   private:
+    ColumnFamilySet::iterator wrapped_;
+  };
+
+  iterator begin() { return iterator(wrapped_->begin()); }
+  iterator end() { return iterator(wrapped_->end()); }
+
+ private:
+  ColumnFamilySet* wrapped_;
 };
 
 // We use ColumnFamilyMemTablesImpl to provide WriteBatch a way to access
