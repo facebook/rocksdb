@@ -168,7 +168,7 @@ Status Configurable::ConfigureOptions(
     const ConfigOptions& config_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     std::unordered_map<std::string, std::string>* unused) {
-  std::string curr_opts;
+  std::vector<std::pair<std::string, std::string>> curr_opts;
   Status s;
   if (!opts_map.empty()) {
     // There are options in the map.
@@ -183,14 +183,24 @@ Status Configurable::ConfigureOptions(
       // reset
       copy.depth = ConfigOptions::kDepthDetailed;
       copy.delimiter = "; ";
-      GetOptionString(copy, &curr_opts).PermitUncheckedError();
+      ConfigurableHelper::SerializeOptions(copy, *this, "", curr_opts)
+          .PermitUncheckedError();
     }
     // Since we now have a copy of all of the options (including for sub-objects),
     // Embedded classes do not need to do a restore.
     copy.restore_on_error = false;
 #endif  // ROCKSDB_LITE
-
-    s = ConfigurableHelper::ConfigureOptions(copy, *this, opts_map, unused);
+    std::vector<std::pair<std::string, std::string>> remaining(opts_map.begin(),
+                                                               opts_map.end());
+    s = ConfigurableHelper::ConfigureOptions(copy, *this, remaining);
+    if (config_options.ignore_unknown_options) {
+      s = Status::OK();
+    } else if (s.ok() && unused == nullptr && !remaining.empty()) {
+      s = Status::NotFound("Could not find option: ", remaining.begin()->first);
+    }
+    if (unused != nullptr) {
+      unused->insert(remaining.begin(), remaining.end());
+    }
   }
   if (config_options.invoke_prepare_options && s.ok()) {
     s = PrepareOptions(config_options);
@@ -203,7 +213,8 @@ Status Configurable::ConfigureOptions(
     reset.invoke_prepare_options = true;
     reset.ignore_unsupported_options = true;
     // There are some options to reset from this current error
-    ConfigureFromString(reset, curr_opts).PermitUncheckedError();
+    ConfigurableHelper::ConfigureOptions(reset, *this, curr_opts)
+        .PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
   return s;
@@ -286,16 +297,14 @@ Status Configurable::ParseOption(const ConfigOptions& config_options,
 
 Status ConfigurableHelper::ConfigureOptions(
     const ConfigOptions& config_options, Configurable& configurable,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    std::unordered_map<std::string, std::string>* unused) {
-  std::unordered_map<std::string, std::string> remaining = opts_map;
+    std::vector<std::pair<std::string, std::string>>& remaining) {
   Status s = Status::OK();
-  if (!opts_map.empty()) {
+  if (!remaining.empty()) {
 #ifndef ROCKSDB_LITE
     for (const auto& iter : configurable.options_) {
       if (iter.type_map != nullptr) {
         s = ConfigureSomeOptions(config_options, configurable, *(iter.type_map),
-                                 &remaining, iter.opt_ptr);
+                                 remaining, iter.opt_ptr);
         if (remaining.empty()) {  // Are there more options left?
           break;
         } else if (!s.ok()) {
@@ -309,14 +318,6 @@ Status ConfigurableHelper::ConfigureOptions(
       s = Status::NotSupported("ConfigureFromMap not supported in LITE mode");
     }
 #endif  // ROCKSDB_LITE
-  }
-  if (unused != nullptr && !remaining.empty()) {
-    unused->insert(remaining.begin(), remaining.end());
-  }
-  if (config_options.ignore_unknown_options) {
-    s = Status::OK();
-  } else if (s.ok() && unused == nullptr && !remaining.empty()) {
-    s = Status::NotFound("Could not find option: ", remaining.begin()->first);
   }
   return s;
 }
@@ -337,36 +338,37 @@ Status ConfigurableHelper::ConfigureOptions(
 Status ConfigurableHelper::ConfigureSomeOptions(
     const ConfigOptions& config_options, Configurable& configurable,
     const std::unordered_map<std::string, OptionTypeInfo>& type_map,
-    std::unordered_map<std::string, std::string>* options, void* opt_ptr) {
+    std::vector<std::pair<std::string, std::string>>& options, void* opt_ptr) {
   Status result = Status::OK();  // The last non-OK result (if any)
   Status notsup = Status::OK();  // The last NotSupported result (if any)
   std::string elem_name;
   int found = 1;
-  std::unordered_set<std::string> unsupported;
   // While there are unused properties and we processed at least one,
   // go through the remaining unused properties and attempt to configure them.
-  while (found > 0 && !options->empty()) {
+  while (found > 0 && !options.empty()) {
     found = 0;
     notsup = Status::OK();
-    for (auto it = options->begin(); it != options->end();) {
-      const std::string& opt_name = configurable.GetOptionName(it->first);
-      const std::string& opt_value = it->second;
+    for (size_t i = 0; i < options.size();) {
+      const std::string& opt_name =
+          configurable.GetOptionName(options[i].first);
+      const std::string& opt_value = options[i].second;
       const auto opt_info =
           OptionTypeInfo::Find(opt_name, type_map, &elem_name);
       if (opt_info == nullptr) {  // Did not find the option.  Skip it
-        ++it;
+        ++i;
       } else {
         Status s = ConfigureOption(config_options, configurable, *opt_info,
                                    opt_name, elem_name, opt_value, opt_ptr);
         if (s.IsNotFound()) {
-          ++it;
+          ++i;
         } else if (s.IsNotSupported()) {
           notsup = s;
-          unsupported.insert(it->first);
-          ++it;  // Skip it for now
+          options[i] = options.back();
+          options.pop_back();
         } else {
           found++;
-          it = options->erase(it);
+          options[i] = options.back();
+          options.pop_back();
           if (!s.ok()) {
             result = s;
           }
@@ -375,13 +377,6 @@ Status ConfigurableHelper::ConfigureSomeOptions(
     }  // End for all remaining options
   }    // End while found one or options remain
 
-  // Now that we have been through the list, remove any unsupported
-  for (auto u : unsupported) {
-    auto it = options->find(u);
-    if (it != options->end()) {
-      options->erase(it);
-    }
-  }
   if (config_options.ignore_unknown_options) {
     if (!result.ok()) result.PermitUncheckedError();
     if (!notsup.ok()) notsup.PermitUncheckedError();
@@ -518,8 +513,15 @@ Status Configurable::GetOptionString(const ConfigOptions& config_options,
   assert(result);
   result->clear();
 #ifndef ROCKSDB_LITE
-  return ConfigurableHelper::SerializeOptions(config_options, *this, "",
-                                              result);
+  std::vector<std::pair<std::string, std::string>> options;
+  Status s =
+      ConfigurableHelper::SerializeOptions(config_options, *this, "", options);
+  if (s.ok()) {
+    for (const auto& opt : options) {
+      result->append(opt.first + "=" + opt.second + config_options.delimiter);
+    }
+  }
+  return s;
 #else
   (void)config_options;
   return Status::NotSupported("GetOptionString not supported in LITE mode");
@@ -540,9 +542,13 @@ std::string Configurable::ToString(const ConfigOptions& config_options,
 std::string Configurable::SerializeOptions(const ConfigOptions& config_options,
                                            const std::string& header) const {
   std::string result;
+  std::vector<std::pair<std::string, std::string>> options;
   Status s = ConfigurableHelper::SerializeOptions(config_options, *this, header,
-                                                  &result);
+                                                  options);
   assert(s.ok());
+  for (const auto& opt : options) {
+    result.append(opt.first + "=" + opt.second + config_options.delimiter);
+  }
   return result;
 }
 
@@ -582,11 +588,11 @@ Status ConfigurableHelper::GetOption(const ConfigOptions& config_options,
   return Status::NotFound("Cannot find option: ", short_name);
 }
 
-Status ConfigurableHelper::SerializeOptions(const ConfigOptions& config_options,
-                                            const Configurable& configurable,
-                                            const std::string& prefix,
-                                            std::string* result) {
-  assert(result);
+Status ConfigurableHelper::SerializeOptions(
+    const ConfigOptions& config_options, const Configurable& configurable,
+    const std::string& prefix,
+    std::vector<std::pair<std::string, std::string>>& options) {
+  bool has_prefix = !prefix.empty();
   for (auto const& opt_iter : configurable.options_) {
     if (opt_iter.type_map != nullptr) {
       for (const auto& map_iter : *(opt_iter.type_map)) {
@@ -637,14 +643,18 @@ Status ConfigurableHelper::SerializeOptions(const ConfigOptions& config_options,
                   opt_info.AsRawPointer<Customizable>(opt_iter.ref_ptr);
               if ((custom != nullptr && value != custom->GetId()) ||
                   (custom == nullptr && value != kNullptrString)) {
-                // <prefix><opt_name>=<value><delimiter>
-                result->append(prefix + opt_name + "=" + value +
-                               config_options.delimiter);
+                if (has_prefix) {
+                  options.emplace_back(opt_name, value);
+                  options.emplace_back(prefix + opt_name, value);
+                } else {
+                }
               }
             } else {
-              // <prefix><opt_name>=<value><delimiter>
-              result->append(prefix + opt_name + "=" + value +
-                             config_options.delimiter);
+              if (has_prefix) {
+                options.emplace_back(prefix + opt_name, value);
+              } else {
+                options.emplace_back(opt_name, value);
+              }
             }
           }
         }

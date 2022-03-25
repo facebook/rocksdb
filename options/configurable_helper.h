@@ -43,8 +43,7 @@ class ConfigurableHelper {
   //       error.
   static Status ConfigureOptions(
       const ConfigOptions& config_options, Configurable& configurable,
-      const std::unordered_map<std::string, std::string>& options,
-      std::unordered_map<std::string, std::string>* unused);
+      std::vector<std::pair<std::string, std::string>>& options);
 
 #ifndef ROCKSDB_LITE
   // Internal method to configure a set of options for this object.
@@ -64,7 +63,7 @@ class ConfigurableHelper {
   static Status ConfigureSomeOptions(
       const ConfigOptions& config_options, Configurable& configurable,
       const std::unordered_map<std::string, OptionTypeInfo>& type_map,
-      std::unordered_map<std::string, std::string>* options, void* opt_ptr);
+      std::vector<std::pair<std::string, std::string>>& options, void* opt_ptr);
 
   // Configures a single option in the input Configurable.
   // This method will look through the set of option names for this
@@ -134,10 +133,10 @@ class ConfigurableHelper {
   // @return OK If the options for this object wer successfully serialized.
   // @return InvalidArgument If one or more of the options could not be
   // serialized.
-  static Status SerializeOptions(const ConfigOptions& config_options,
-                                 const Configurable& configurable,
-                                 const std::string& prefix,
-                                 std::string* result);
+  static Status SerializeOptions(
+      const ConfigOptions& config_options, const Configurable& configurable,
+      const std::string& prefix,
+      std::vector<std::pair<std::string, std::string>>& options);
 
   // Internal method to list the option names for this object.
   // Classes may override this value to change its behavior.
