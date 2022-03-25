@@ -82,7 +82,7 @@ struct ConfigOptions {
   // If true, a best-efforts attempt will be made to restore the original
   // values of the options when a Configure method fails.
   bool restore_on_error = true;
-  
+
   // The separator between options when converting to a string
   std::string delimiter = ";";
 

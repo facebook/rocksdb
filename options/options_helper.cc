@@ -736,7 +736,7 @@ Status GetColumnFamilyOptionsFromMap(
   ConfigOptions copy = config_options;
   copy.only_changed_options = true;
   copy.restore_on_error = false;
-  
+
   return GetColumnFamilyOptionsFromMap(copy, ColumnFamilyOptions(), opts_map,
                                        new_options);
 }

@@ -178,7 +178,8 @@ Status Configurable::ConfigureOptions(
     ConfigOptions copy = config_options;
     copy.invoke_prepare_options = false;
 #ifndef ROCKSDB_LITE
-    if (!config_options.ignore_unknown_options && config_options.restore_on_error) {
+    if (!config_options.ignore_unknown_options &&
+        config_options.restore_on_error) {
       // If we are not ignoring unused, get the defaults in case we need to
       // reset
       copy.depth = ConfigOptions::kDepthDetailed;
@@ -186,8 +187,8 @@ Status Configurable::ConfigureOptions(
       ConfigurableHelper::SerializeOptions(copy, *this, "", curr_opts)
           .PermitUncheckedError();
     }
-    // Since we now have a copy of all of the options (including for sub-objects),
-    // Embedded classes do not need to do a restore.
+    // Since we now have a copy of all of the options (including for
+    // sub-objects), Embedded classes do not need to do a restore.
     copy.restore_on_error = false;
 #endif  // ROCKSDB_LITE
     std::vector<std::pair<std::string, std::string>> remaining(opts_map.begin(),
