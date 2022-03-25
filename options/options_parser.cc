@@ -136,7 +136,7 @@ Status PersistRocksDBOptions(const ConfigOptions& config_options_in,
   if (s.ok()) {
     s = writable->Close();
   }
-  if (db_opt.paraniod_checks && s.ok()) {
+  if (db_opt.paranoid_checks && s.ok()) {
     return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
         config_options, db_opt, cf_names, cf_opts, file_name, fs);
   }
