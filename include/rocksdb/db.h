@@ -10,15 +10,18 @@
 
 #include <stdint.h>
 #include <stdio.h>
+
 #include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
 #include "rocksdb/options.h"
+#include "rocksdb/pointer.h"
 #include "rocksdb/snapshot.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/thread_status.h"
@@ -159,7 +162,7 @@ class DB {
   //
   // Caller must delete *dbptr when it is no longer needed.
   static Status Open(const Options& options, const std::string& name,
-                     DB** dbptr);
+                     UniquePtrOut<DB> dbptr);
 
   // Open the database for read only. All DB interfaces
   // that modify data, like put/delete, will return error.
@@ -175,7 +178,7 @@ class DB {
   // Not supported in ROCKSDB_LITE, in which case the function will
   // return Status::NotSupported.
   static Status OpenForReadOnly(const Options& options, const std::string& name,
-                                DB** dbptr,
+                                UniquePtrOut<DB> dbptr,
                                 bool error_if_wal_file_exists = false);
 
   // Open the database for read only with column families. When opening DB with
@@ -195,7 +198,7 @@ class DB {
   static Status OpenForReadOnly(
       const DBOptions& db_options, const std::string& name,
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+      std::vector<ColumnFamilyHandle*>* handles, UniquePtrOut<DB> dbptr,
       bool error_if_wal_file_exists = false);
 
   // The following OpenAsSecondary functions create a secondary instance that
@@ -221,7 +224,8 @@ class DB {
   // Open DB as secondary instance with only the default column family.
   // Return OK on success, non-OK on failures.
   static Status OpenAsSecondary(const Options& options, const std::string& name,
-                                const std::string& secondary_path, DB** dbptr);
+                                const std::string& secondary_path,
+                                UniquePtrOut<DB> dbptr);
 
   // Open DB as secondary instance with column families. You can open a subset
   // of column families in secondary mode.
@@ -244,7 +248,7 @@ class DB {
       const DBOptions& db_options, const std::string& name,
       const std::string& secondary_path,
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
+      std::vector<ColumnFamilyHandle*>* handles, UniquePtrOut<DB> dbptr);
 
   // Open DB with column families.
   // db_options specify database specific options
@@ -262,7 +266,8 @@ class DB {
   // DestroyColumnFamilyHandle() with all the handles.
   static Status Open(const DBOptions& db_options, const std::string& name,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
-                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
+                     std::vector<ColumnFamilyHandle*>* handles,
+                     UniquePtrOut<DB> dbptr);
 
   // Open DB and run the compaction.
   // It's a read-only operation, the result won't be installed to the DB, it

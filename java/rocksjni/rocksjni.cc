@@ -31,11 +31,12 @@
 #undef min
 #endif
 
-jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
-                          std::function<ROCKSDB_NAMESPACE::Status(
-                              const ROCKSDB_NAMESPACE::Options&,
-                              const std::string&, ROCKSDB_NAMESPACE::DB**)>
-                              open_fn) {
+jlong rocksdb_open_helper(
+    JNIEnv* env, jlong jopt_handle, jstring jdb_path,
+    std::function<ROCKSDB_NAMESPACE::Status(
+        const ROCKSDB_NAMESPACE::Options&, const std::string&,
+        ROCKSDB_NAMESPACE::UniquePtrOut<ROCKSDB_NAMESPACE::DB>)>
+        open_fn) {
   const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
   if (db_path == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -63,11 +64,12 @@ jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
  */
 jlong Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2(
     JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path) {
-  return rocksdb_open_helper(env, jopt_handle, jdb_path,
-                             (ROCKSDB_NAMESPACE::Status(*)(
-                                 const ROCKSDB_NAMESPACE::Options&,
-                                 const std::string&, ROCKSDB_NAMESPACE::DB**)) &
-                                 ROCKSDB_NAMESPACE::DB::Open);
+  return rocksdb_open_helper(
+      env, jopt_handle, jdb_path,
+      (ROCKSDB_NAMESPACE::Status(*)(
+          const ROCKSDB_NAMESPACE::Options&, const std::string&,
+          ROCKSDB_NAMESPACE::UniquePtrOut<ROCKSDB_NAMESPACE::DB>)) &
+          ROCKSDB_NAMESPACE::DB::Open);
 }
 
 /*
@@ -81,9 +83,9 @@ jlong Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2Z(
   const bool error_if_wal_file_exists = jerror_if_wal_file_exists == JNI_TRUE;
   return rocksdb_open_helper(
       env, jopt_handle, jdb_path,
-      [error_if_wal_file_exists](const ROCKSDB_NAMESPACE::Options& options,
-                                 const std::string& db_path,
-                                 ROCKSDB_NAMESPACE::DB** db) {
+      [error_if_wal_file_exists](
+          const ROCKSDB_NAMESPACE::Options& options, const std::string& db_path,
+          ROCKSDB_NAMESPACE::UniquePtrOut<ROCKSDB_NAMESPACE::DB> db) {
         return ROCKSDB_NAMESPACE::DB::OpenForReadOnly(options, db_path, db,
                                                       error_if_wal_file_exists);
       });
@@ -96,7 +98,7 @@ jlongArray rocksdb_open_helper(
         const ROCKSDB_NAMESPACE::DBOptions&, const std::string&,
         const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&,
         std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>*,
-        ROCKSDB_NAMESPACE::DB**)>
+        ROCKSDB_NAMESPACE::UniquePtrOut<ROCKSDB_NAMESPACE::DB>)>
         open_fn) {
   const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
   if (db_path == nullptr) {
@@ -192,7 +194,7 @@ jlongArray Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2_3_3B_3JZ(
           const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&
               column_families,
           std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>* handles,
-          ROCKSDB_NAMESPACE::DB** db) {
+          ROCKSDB_NAMESPACE::UniquePtrOut<ROCKSDB_NAMESPACE::DB> db) {
         return ROCKSDB_NAMESPACE::DB::OpenForReadOnly(
             options, db_path, column_families, handles, db,
             error_if_wal_file_exists);
@@ -213,7 +215,7 @@ jlongArray Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2_3_3B_3J(
           const ROCKSDB_NAMESPACE::DBOptions&, const std::string&,
           const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&,
           std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>*,
-          ROCKSDB_NAMESPACE::DB**)) &
+          ROCKSDB_NAMESPACE::UniquePtrOut<ROCKSDB_NAMESPACE::DB>)) &
           ROCKSDB_NAMESPACE::DB::Open);
 }
 
@@ -234,9 +236,9 @@ jlong Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_S
 
   jlong db_handle = rocksdb_open_helper(
       env, jopt_handle, jdb_path,
-      [secondary_db_path](const ROCKSDB_NAMESPACE::Options& options,
-                          const std::string& db_path,
-                          ROCKSDB_NAMESPACE::DB** db) {
+      [secondary_db_path](
+          const ROCKSDB_NAMESPACE::Options& options, const std::string& db_path,
+          ROCKSDB_NAMESPACE::UniquePtrOut<ROCKSDB_NAMESPACE::DB> db) {
         return ROCKSDB_NAMESPACE::DB::OpenAsSecondary(options, db_path,
                                                       secondary_db_path, db);
       });
@@ -272,7 +274,7 @@ Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_String_
           const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&
               column_families,
           std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>* handles,
-          ROCKSDB_NAMESPACE::DB** db) {
+          ROCKSDB_NAMESPACE::UniquePtrOut<ROCKSDB_NAMESPACE::DB> db) {
         return ROCKSDB_NAMESPACE::DB::OpenAsSecondary(
             options, db_path, secondary_db_path, column_families, handles, db);
       });

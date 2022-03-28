@@ -621,7 +621,8 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
 }
 
 Status DB::OpenAsSecondary(const Options& options, const std::string& dbname,
-                           const std::string& secondary_path, DB** dbptr) {
+                           const std::string& secondary_path,
+                           UniquePtrOut<DB> dbptr) {
   *dbptr = nullptr;
 
   DBOptions db_options(options);
@@ -643,7 +644,7 @@ Status DB::OpenAsSecondary(
     const DBOptions& db_options, const std::string& dbname,
     const std::string& secondary_path,
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
+    std::vector<ColumnFamilyHandle*>* handles, UniquePtrOut<DB> dbptr) {
   *dbptr = nullptr;
   if (db_options.max_open_files != -1) {
     // TODO (yanqin) maybe support max_open_files != -1 by creating hard links
@@ -694,7 +695,7 @@ Status DB::OpenAsSecondary(
   impl->mutex_.Unlock();
   sv_context.Clean();
   if (s.ok()) {
-    *dbptr = impl;
+    dbptr->reset(impl);
     for (auto h : *handles) {
       impl->NewThreadStatusCfInfo(
           static_cast_with_check<ColumnFamilyHandleImpl>(h)->cfd());
@@ -867,7 +868,7 @@ Status DB::OpenAndCompact(
 Status DB::OpenAsSecondary(const Options& /*options*/,
                            const std::string& /*name*/,
                            const std::string& /*secondary_path*/,
-                           DB** /*dbptr*/) {
+                           UniquePtrOut<DB> /*dbptr*/) {
   return Status::NotSupported("Not supported in ROCKSDB_LITE.");
 }
 
@@ -875,7 +876,7 @@ Status DB::OpenAsSecondary(
     const DBOptions& /*db_options*/, const std::string& /*dbname*/,
     const std::string& /*secondary_path*/,
     const std::vector<ColumnFamilyDescriptor>& /*column_families*/,
-    std::vector<ColumnFamilyHandle*>* /*handles*/, DB** /*dbptr*/) {
+    std::vector<ColumnFamilyHandle*>* /*handles*/, UniquePtrOut<DB> /*dbptr*/) {
   return Status::NotSupported("Not supported in ROCKSDB_LITE.");
 }
 #endif  // !ROCKSDB_LITE

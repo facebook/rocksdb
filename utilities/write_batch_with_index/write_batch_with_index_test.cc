@@ -280,7 +280,11 @@ class WBWIBaseTest : public testing::Test {
     return result;
   }
 
-  virtual Status OpenDB() { return DB::Open(options_, dbname_, &db_); }
+  virtual Status OpenDB() {
+    Status s = DB::Open(options_, dbname_, &db_);
+    assert(db_ || !s.ok());  // help clang-analyze
+    return s;
+  }
 
   void ReleaseSnapshot() {
     if (read_opts_.snapshot != nullptr) {
