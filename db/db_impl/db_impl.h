@@ -1240,36 +1240,36 @@ class DBImpl : public DB {
 
   std::atomic<bool> shutting_down_;
 
-  class RecoveryVersionEdits {
+  class VersionEditsContext {
    public:
-    ~RecoveryVersionEdits() {
-      for (size_t i = 0; i < edit_lists.size(); i++) {
-        for (size_t j = 0; j < edit_lists[i].size(); j++) {
-          delete edit_lists[i][j];
+    ~VersionEditsContext() {
+      for (size_t i = 0; i < edit_lists_.size(); i++) {
+        for (size_t j = 0; j < edit_lists_[i].size(); j++) {
+          delete edit_lists_[i][j];
         }
-        edit_lists[i].clear();
+        edit_lists_[i].clear();
       }
-      cfds.clear();
-      mutable_cf_opts.clear();
-      edit_lists.clear();
+      cfds_.clear();
+      mutable_cf_opts_.clear();
+      edit_lists_.clear();
     }
 
-    void UpdateVersionEdits(ColumnFamilyData* cfd, VersionEdit& _edit) {
-      if (map.find(cfd->GetID()) == map.end()) {
-        uint32_t size = static_cast<uint32_t>(map.size());
-        map.emplace(cfd->GetID(), size);
-        cfds.emplace_back(cfd);
-        mutable_cf_opts.emplace_back(cfd->GetLatestMutableCFOptions());
-        edit_lists.emplace_back(autovector<VersionEdit*>());
+    void UpdateVersionEdits(ColumnFamilyData* cfd, VersionEdit& edit) {
+      if (map_.find(cfd->GetID()) == map_.end()) {
+        uint32_t size = static_cast<uint32_t>(map_.size());
+        map_.emplace(cfd->GetID(), size);
+        cfds_.emplace_back(cfd);
+        mutable_cf_opts_.emplace_back(cfd->GetLatestMutableCFOptions());
+        edit_lists_.emplace_back(autovector<VersionEdit*>());
       }
-      uint32_t i = map[cfd->GetID()];
-      edit_lists[i].emplace_back(new VersionEdit(_edit));
+      uint32_t i = map_[cfd->GetID()];
+      edit_lists_[i].emplace_back(new VersionEdit(edit));
     }
 
-    std::unordered_map<uint32_t, uint32_t> map;  // cf_id to index;
-    autovector<ColumnFamilyData*> cfds;
-    autovector<const MutableCFOptions*> mutable_cf_opts;
-    autovector<autovector<VersionEdit*>> edit_lists;
+    std::unordered_map<uint32_t, uint32_t> map_;  // cf_id to index;
+    autovector<ColumnFamilyData*> cfds_;
+    autovector<const MutableCFOptions*> mutable_cf_opts_;
+    autovector<autovector<VersionEdit*>> edit_lists_;
   };
 
   // Except in DB::Open(), WriteOptionsFile can only be called when:
@@ -1390,15 +1390,15 @@ class DBImpl : public DB {
   // skipped.
   virtual Status Recover(
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      RecoveryVersionEdits* recovery_version_edits, bool read_only = false,
-      bool error_if_wal_file_exists = false,
+      bool read_only = false, bool error_if_wal_file_exists = false,
       bool error_if_data_exists_in_wals = false,
-      uint64_t* recovered_seq = nullptr);
+      uint64_t* recovered_seq = nullptr,
+      VersionEditsContext* recovery_version_edits = nullptr);
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
   // Set DB identity file, and write DB ID to manifest if necessary.
-  Status SetDBId(bool read_only, RecoveryVersionEdits* recovery_edit);
+  Status SetDBId(bool read_only, VersionEditsContext* recovery_edit);
 
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
@@ -1412,7 +1412,7 @@ class DBImpl : public DB {
   // We delete these SST files. In the
   // meantime, we find out the largest file number present in the paths, and
   // bump up the version set's next_file_number_ to be 1 + largest_file_number.
-  Status DeleteUnreferencedSstFiles(RecoveryVersionEdits* recovery_edit);
+  Status DeleteUnreferencedSstFiles(VersionEditsContext* recovery_edit);
 
   // SetDbSessionId() should be called in the constuctor DBImpl()
   // to ensure that db_session_id_ gets updated every time the DB is opened
@@ -1422,7 +1422,7 @@ class DBImpl : public DB {
   Status FailIfTsSizesMismatch(const ColumnFamilyHandle* column_family,
                                const Slice& ts) const;
 
-  Status LogAndApply(RecoveryVersionEdits* recovery_version_edits);
+  Status LogAndApplyForRecovery(VersionEditsContext* recovery_version_edits);
 
  private:
   friend class DB;
@@ -1681,7 +1681,7 @@ class DBImpl : public DB {
   Status RecoverLogFiles(std::vector<uint64_t>& log_numbers,
                          SequenceNumber* next_sequence, bool read_only,
                          bool* corrupted_log_found,
-                         RecoveryVersionEdits* recovery_version_edits);
+                         VersionEditsContext* recovery_version_edits);
 
   // The following two methods are used to flush a memtable to
   // storage. The first one is used at database RecoveryTime (when the
@@ -1691,11 +1691,11 @@ class DBImpl : public DB {
   Status WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                                      MemTable* mem, VersionEdit* edit);
 
-  // Delete all the WAL files starting from corrupted WAL found to
+  // Move all the WAL files starting from corrupted WAL found to
   // max_wal_number to avoid column family inconsistency error on recovery. It
   // also removes the deleted file from the vector wal_numbers.
-  void DeleteCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
-                               uint64_t corrupted_wal_number);
+  void MoveCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
+                             uint64_t corrupted_wal_number);
 
   // Get the size of a log file and, if truncate is true, truncate the
   // log file to its actual size, thereby freeing preallocated space.

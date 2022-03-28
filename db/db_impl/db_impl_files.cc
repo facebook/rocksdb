@@ -863,8 +863,7 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
   return min_log_number_to_keep;
 }
 
-Status DBImpl::SetDBId(bool read_only,
-                       RecoveryVersionEdits* recovery_version_edits) {
+Status DBImpl::SetDBId(bool read_only, VersionEditsContext* version_edits_ctx) {
   Status s;
   // Happens when immutable_db_options_.write_dbid_to_manifest is set to true
   // the very first time.
@@ -894,7 +893,7 @@ Status DBImpl::SetDBId(bool read_only,
       VersionEdit edit;
       edit.SetDBId(db_id_);
       versions_->db_id_ = db_id_;
-      if (recovery_version_edits == nullptr) {
+      if (version_edits_ctx == nullptr) {
         // In case of ReadOnly DB, recovery_version_edits is nullptr.
         Options options;
         MutableCFOptions mutable_cf_options(options);
@@ -903,7 +902,7 @@ Status DBImpl::SetDBId(bool read_only,
             &edit, &mutex_, nullptr,
             /* new_descriptor_log */ false);
       } else {
-        recovery_version_edits->UpdateVersionEdits(
+        version_edits_ctx->UpdateVersionEdits(
             versions_->GetColumnFamilySet()->GetDefault(), edit);
       }
     }
@@ -914,7 +913,7 @@ Status DBImpl::SetDBId(bool read_only,
 }
 
 Status DBImpl::DeleteUnreferencedSstFiles(
-    RecoveryVersionEdits* recovery_version_edits) {
+    VersionEditsContext* version_edits_ctx) {
   mutex_.AssertHeld();
   std::vector<std::string> paths;
   paths.push_back(NormalizePath(dbname_ + std::string(1, kFilePathSeparator)));
@@ -970,7 +969,7 @@ Status DBImpl::DeleteUnreferencedSstFiles(
   assert(versions_->GetColumnFamilySet());
   ColumnFamilyData* default_cfd = versions_->GetColumnFamilySet()->GetDefault();
   assert(default_cfd);
-  if (recovery_version_edits == nullptr) {
+  if (version_edits_ctx == nullptr) {
     // In case of ReadOnly DB, recovery_version_edits is nullptr.
     s = versions_->LogAndApply(
         default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
@@ -979,7 +978,7 @@ Status DBImpl::DeleteUnreferencedSstFiles(
       return s;
     }
   } else {
-    recovery_version_edits->UpdateVersionEdits(default_cfd, edit);
+    version_edits_ctx->UpdateVersionEdits(default_cfd, edit);
   }
   mutex_.Unlock();
   for (const auto& fname : files_to_delete) {

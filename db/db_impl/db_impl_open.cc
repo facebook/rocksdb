@@ -397,10 +397,9 @@ IOStatus Directories::SetDirectories(FileSystem* fs, const std::string& dbname,
 }
 
 Status DBImpl::Recover(
-    const std::vector<ColumnFamilyDescriptor>& column_families,
-    RecoveryVersionEdits* recovery_version_edits, bool read_only,
+    const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     bool error_if_wal_file_exists, bool error_if_data_exists_in_wals,
-    uint64_t* recovered_seq) {
+    uint64_t* recovered_seq, VersionEditsContext* version_edits_ctx) {
   mutex_.AssertHeld();
 
   bool is_new_db = false;
@@ -520,9 +519,9 @@ Status DBImpl::Recover(
     return s;
   }
 
-  s = SetDBId(read_only, recovery_version_edits);
+  s = SetDBId(read_only, version_edits_ctx);
   if (s.ok() && !read_only) {
-    s = DeleteUnreferencedSstFiles(recovery_version_edits);
+    s = DeleteUnreferencedSstFiles(version_edits_ctx);
   }
 
   if (immutable_db_options_.paranoid_checks && s.ok()) {
@@ -610,8 +609,8 @@ Status DBImpl::Recover(
       WalNumber max_wal_number =
           versions_->GetWalSet().GetWals().rbegin()->first;
       edit.DeleteWalsBefore(max_wal_number + 1);
-      assert(recovery_version_edits != nullptr);
-      recovery_version_edits->UpdateVersionEdits(
+      assert(version_edits_ctx != nullptr);
+      version_edits_ctx->UpdateVersionEdits(
           versions_->GetColumnFamilySet()->GetDefault(), edit);
     }
     if (!s.ok()) {
@@ -649,7 +648,7 @@ Status DBImpl::Recover(
 
       bool corrupted_wal_found = false;
       s = RecoverLogFiles(wals, &next_sequence, read_only, &corrupted_wal_found,
-                          recovery_version_edits);
+                          version_edits_ctx);
       if (corrupted_wal_found && recovered_seq != nullptr) {
         *recovered_seq = next_sequence;
       }
@@ -809,10 +808,10 @@ Status DBImpl::InitPersistStatsColumnFamily() {
   return s;
 }
 
-Status DBImpl::LogAndApply(RecoveryVersionEdits* recovery_version_edits) {
+Status DBImpl::LogAndApplyForRecovery(VersionEditsContext* version_edits_ctx) {
   return versions_->LogAndApply(
-      recovery_version_edits->cfds, recovery_version_edits->mutable_cf_opts,
-      recovery_version_edits->edit_lists, &mutex_, directories_.GetDbDir(),
+      version_edits_ctx->cfds_, version_edits_ctx->mutable_cf_opts_,
+      version_edits_ctx->edit_lists_, &mutex_, directories_.GetDbDir(),
       /*new_descriptor_log=*/true);
 }
 
@@ -820,7 +819,7 @@ Status DBImpl::LogAndApply(RecoveryVersionEdits* recovery_version_edits) {
 Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
                                SequenceNumber* next_sequence, bool read_only,
                                bool* corrupted_wal_found,
-                               RecoveryVersionEdits* recovery_version_edits) {
+                               VersionEditsContext* version_edits_ctx) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
@@ -1281,16 +1280,16 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
       if (corrupted_wal_found != nullptr && *corrupted_wal_found == true &&
           immutable_db_options_.wal_recovery_mode ==
               WALRecoveryMode::kPointInTimeRecovery) {
-        DeleteCorruptedWalFiles(wal_numbers, corrupted_wal_number);
+        MoveCorruptedWalFiles(wal_numbers, corrupted_wal_number);
         // Since last log has been deleted, no need to truncate the log.
         truncate_last_log = false;
       }
 
-      assert(recovery_version_edits != nullptr);
+      assert(version_edits_ctx != nullptr);
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
         auto iter = version_edits.find(cfd->GetID());
         assert(iter != version_edits.end());
-        recovery_version_edits->UpdateVersionEdits(cfd, iter->second);
+        version_edits_ctx->UpdateVersionEdits(cfd, iter->second);
       }
 
       if (flushed) {
@@ -1303,7 +1302,7 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
           // means we can advance min_log_number_to_keep.
           wal_deletion.SetMinLogNumberToKeep(max_wal_number + 1);
         }
-        recovery_version_edits->UpdateVersionEdits(
+        version_edits_ctx->UpdateVersionEdits(
             versions_->GetColumnFamilySet()->GetDefault(), wal_deletion);
       }
     }
@@ -1328,13 +1327,13 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
   return status;
 }
 
-void DBImpl::DeleteCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
-                                     uint64_t corrupted_wal_number) {
+void DBImpl::MoveCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
+                                   uint64_t corrupted_wal_number) {
   size_t corrupt_index_start = wal_numbers.size() - 1;
   size_t i = 0;
 
   // Find the index of first corrupted wal.
-  while (i < wal_numbers.size() - 1) {
+  while (i <= wal_numbers.size() - 1) {
     if (wal_numbers[i] == corrupted_wal_number) {
       corrupt_index_start = i;
       break;
@@ -1342,24 +1341,40 @@ void DBImpl::DeleteCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
     i++;
   }
 
-  // Delete all the WAL files from corrupted_wal_number to last WAL
-  // (max_wal_number) to avoid column family inconsistency error.
+  // Start from first corrupted file + 1.
+  i++;
+
+  std::string archivalPath =
+      ArchivalDirectory(immutable_db_options_.GetWalDir());
+  Status create_status = env_->CreateDirIfMissing(archivalPath);
+
+  // Move all the WAL files from corrupted_wal_number + 1 to last WAL
+  // (max_wal_number) to avoid column family inconsistency error to archival
+  // directory. If its unable to create archive dir, it will delete the
+  // corrupted WAL files.
+  // We are moving all but first corrupted WAL file to a different folder.
   while (i <= wal_numbers.size() - 1) {
     LogFileNumberSize log(wal_numbers[i]);
     std::string fname =
         LogFileName(immutable_db_options_.GetWalDir(), wal_numbers[i]);
-    std::string path_to_sync =
-        ArchivalDirectory(immutable_db_options_.GetWalDir());
-    Status s = DeleteDBFile(&immutable_db_options_, fname, path_to_sync, false,
-                            /*force_fg=*/!wal_in_db_path_);
-    if (!s.ok()) {
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "Unable to delete file: %s: %s", fname.c_str(),
-                     s.ToString().c_str());
+#ifndef ROCKSDB_LITE
+    if (create_status.ok()) {
+      wal_manager_.ArchiveWALFile(fname, wal_numbers[i]);
+    } else {
+#endif
+      std::string path_to_sync =
+          ArchivalDirectory(immutable_db_options_.GetWalDir());
+      Status s = DeleteDBFile(&immutable_db_options_, fname, path_to_sync,
+                              false, !wal_in_db_path_);
+      if (!s.ok()) {
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "Unable to delete file: %s: %s", fname.c_str(),
+                       s.ToString().c_str());
+      }
     }
     i++;
   }
-  wal_numbers.erase(wal_numbers.begin() + corrupt_index_start,
+  wal_numbers.erase(wal_numbers.begin() + corrupt_index_start + 1,
                     wal_numbers.begin() + wal_numbers.size());
 }
 
@@ -1790,12 +1805,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
   impl->mutex_.Lock();
 
-  RecoveryVersionEdits recovery_version_edits;
+  VersionEditsContext version_edits_ctx;
 
   // Handles create_if_missing, error_if_exists
   uint64_t recovered_seq(kMaxSequenceNumber);
-  s = impl->Recover(column_families, &recovery_version_edits, false, false,
-                    false, &recovered_seq);
+  s = impl->Recover(column_families, false, false, false, &recovered_seq,
+                    &version_edits_ctx);
 
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
@@ -1881,7 +1896,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
   }
   if (s.ok()) {
-    s = impl->LogAndApply(&recovery_version_edits);
+    s = impl->LogAndApplyForRecovery(&version_edits_ctx);
   }
 
   if (s.ok()) {
