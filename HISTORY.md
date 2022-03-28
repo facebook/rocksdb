@@ -4,6 +4,9 @@
 * Fixed a race condition when 2PC is disabled and WAL tracking in the MANIFEST is enabled. The race condition is between two background flush threads trying to install flush results, causing a WAL deletion not tracked in the MANIFEST. A future DB open may fail.
 * Fixed a heap use-after-free race with DropColumnFamily.
 * Fixed a bug that `rocksdb.read.block.compaction.micros` cannot track compaction stats (#9722).
+### New Features
+* For db_bench when --seed=0 or --seed is not set then it uses the current time as the seed value. Previously it used the value 1000.
+* For db_bench when --benchmark lists multiple tests and each test uses a seed for a RNG then the seeds across tests will no longer be repeated.
 
 ## 7.1.0 (03/23/2022)
 ### New Features
