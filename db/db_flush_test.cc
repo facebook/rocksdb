@@ -2271,7 +2271,7 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
 
   // The recovered min log number with prepared data should be non-zero.
   // In 2pc mode, MinLogNumberToKeep returns the
-  // VersionSet::min_log_number_to_keep_2pc recovered from MANIFEST, if it's 0,
+  // VersionSet::min_log_number_to_keep recovered from MANIFEST, if it's 0,
   // it means atomic flush didn't write the min_log_number_to_keep to MANIFEST.
   cfs.push_back(kDefaultColumnFamilyName);
   ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
