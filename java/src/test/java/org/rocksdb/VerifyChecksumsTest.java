@@ -6,6 +6,9 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -25,6 +28,10 @@ public class VerifyChecksumsTest {
     final String dbPath = dbFolder.getRoot().getAbsolutePath();
 
     final int KV_COUNT = 10000;
+    final List<String> elements = new ArrayList<>();
+    for (int i = 0; i < KV_COUNT; i++) elements.add(MessageFormat.format("{0,number,#}", i));
+    final List<String> sortedElements = new ArrayList<>(elements);
+    Collections.sort(sortedElements);
 
     //noinspection SingleStatementInBlock
     try (final Statistics statistics = new Statistics(); final Options options =
@@ -34,8 +41,8 @@ public class VerifyChecksumsTest {
       try (final RocksDB db = RocksDB.open(options, dbPath)) {
         for (int i = 0; i < KV_COUNT; i++) {
           //noinspection ObjectAllocationInLoop
-          final String key = MessageFormat.format("key{0}", i);
-          final String value = MessageFormat.format("value{0}", i);
+          final String key = MessageFormat.format("key{0}", elements.get(i));
+          final String value = MessageFormat.format("value{0}", elements.get(i));
           System.out.println(key + "-->" + value);
           db.put(key.getBytes(), value.getBytes());
         }
@@ -56,8 +63,9 @@ public class VerifyChecksumsTest {
             while (rocksIterator.isValid()) {
               final byte[] key = rocksIterator.key();
               final byte[] value = rocksIterator.value();
-              assertThat(key).isEqualTo((MessageFormat.format("key{0}", i)).getBytes());
-              assertThat(value).isEqualTo((MessageFormat.format("value{0}", i)).getBytes());
+              System.out.println(new String(key) + "-->" + new String(value));
+              assertThat(key).isEqualTo((MessageFormat.format("key{0}", sortedElements.get(i))).getBytes());
+              assertThat(value).isEqualTo((MessageFormat.format("value{0}", sortedElements.get(i))).getBytes());
               rocksIterator.next();
               rocksIterator.status();
               i++;
