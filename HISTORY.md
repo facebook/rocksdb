@@ -5,8 +5,8 @@
 * Fixed a heap use-after-free race with DropColumnFamily.
 * Fixed a bug that `rocksdb.read.block.compaction.micros` cannot track compaction stats (#9722).
 ### New Features
-* For db_bench when --seed=0 or --seed is not set then it uses the current time as the seed value. Previously it used the value 1000.
-* For db_bench when --benchmark lists multiple tests and each test uses a seed for a RNG then the seeds across tests will no longer be repeated.
+* For db_bench when --seed=0 or --seed is not set then it uses the current time as the seed value. Previously it used the value 1000. (#9740)
+* For db_bench when --benchmark lists multiple tests and each test uses a seed for a RNG then the seeds across tests will no longer be repeated. (#9733)
 
 ## 7.1.0 (03/23/2022)
 ### New Features
