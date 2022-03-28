@@ -1433,7 +1433,8 @@ inline bool ZSTD_TrainDictionarySupported() {
 
 inline std::string ZSTD_TrainDictionary(const std::string& samples,
                                         const std::vector<size_t>& sample_lens,
-                                        size_t max_dict_bytes) {
+                                        size_t max_dict_bytes,
+                                        bool finalizeDict = false) {
   // Dictionary trainer is available since v0.6.1 for static linking, but not
   // available for dynamic linking until v1.1.3. For now we enable the feature
   // in v1.1.3+ only.
@@ -1442,16 +1443,32 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
   if (samples.empty()) {
     return "";
   }
+  unsigned nbSamples = static_cast<unsigned>(sample_lens.size());
   std::string dict_data(max_dict_bytes, '\0');
   size_t dict_len = ZDICT_trainFromBuffer(
-      &dict_data[0], max_dict_bytes, &samples[0], &sample_lens[0],
-      static_cast<unsigned>(sample_lens.size()));
+      &dict_data[0], max_dict_bytes, &samples[0], &sample_lens[0], nbSamples);
   if (ZDICT_isError(dict_len)) {
     return "";
   }
   assert(dict_len <= max_dict_bytes);
   dict_data.resize(dict_len);
-  return dict_data;
+  if (!finalizeDict) {
+    return dict_data;
+  }
+
+  ZDICT_params_t params;
+  memset(&params, 0, sizeof(params));
+  std::string fin_dict_data(max_dict_bytes, '\0');
+  size_t fin_dict_len = ZDICT_finalizeDictionary(
+      &fin_dict_data[0], max_dict_bytes, &dict_data[0], dict_len, &samples[0],
+      &sample_lens[0], nbSamples, params);
+  if (ZDICT_isError(fin_dict_len)) {
+    return "";
+  }
+  assert(fin_dict_len <= max_dict_bytes);
+  fin_dict_data.resize(fin_dict_len);
+  return fin_dict_data;
+
 #else   // up to v1.1.2
   assert(false);
   (void)samples;
@@ -1470,7 +1487,7 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
   // skips potential partial sample at the end of "samples"
   size_t num_samples = samples.size() >> sample_len_shift;
   std::vector<size_t> sample_lens(num_samples, size_t(1) << sample_len_shift);
-  return ZSTD_TrainDictionary(samples, sample_lens, max_dict_bytes);
+  return ZSTD_TrainDictionary(samples, sample_lens, max_dict_bytes, false);
 #else   // up to v1.1.2
   assert(false);
   (void)samples;
