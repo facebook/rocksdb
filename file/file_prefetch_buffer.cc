@@ -129,6 +129,7 @@ Status FilePrefetchBuffer::ReadAsync(const IOOptions& opts,
   req.scratch = bufs_[index].buffer_.BufferStart() + chunk_len;
   Status s = reader->ReadAsync(req, opts, fp, nullptr /*cb_arg*/, &io_handle_,
                                &del_fn_, rate_limiter_priority);
+  req.status.PermitUncheckedError();
   if (s.ok()) {
     async_read_in_progress_ = true;
   }
@@ -238,7 +239,8 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     fs->Poll(handles, 1).PermitUncheckedError();
   }
 
-  // TODO akanksha: Update TEST_SYNC_POINT after new tests are added.
+  // TODO akanksha: Update TEST_SYNC_POINT after Async APIs are merged with
+  // normal prefetching.
   TEST_SYNC_POINT("FilePrefetchBuffer::Prefetch:Start");
   Status s;
   size_t prefetch_size = length + readahead_size;
