@@ -213,10 +213,9 @@ public class BlockBasedTableConfigTest {
 
   @Test
   public void persistentCache() throws RocksDBException {
-    try (final DBOptions dbOptions = new DBOptions().
-        setInfoLogLevel(InfoLogLevel.INFO_LEVEL).
-        setCreateIfMissing(true);
-        final Logger logger = new SimpleLogger(dbOptions)) {
+    try (final DBOptions dbOptions =
+             new DBOptions().setInfoLogLevel(InfoLogLevel.INFO_LEVEL).setCreateIfMissing(true);
+         final Logger logger = new SimpleLogger(dbOptions)) {
       try (final PersistentCache persistentCache =
                new PersistentCache(Env.getDefault(), dbFolder.getRoot().getPath(), 1024 * 1024 * 100, logger, false);
            final Options options = new Options().setTableFormatConfig(

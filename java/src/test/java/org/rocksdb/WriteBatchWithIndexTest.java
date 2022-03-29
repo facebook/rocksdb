@@ -849,9 +849,8 @@ public class WriteBatchWithIndexTest {
   }
 
   @SuppressWarnings("ReturnOfNull")
-  private static String getFromWriteBatchWithIndex(final RocksDB db,
-                                                   final ReadOptions readOptions, final WriteBatchWithIndex wbwi,
-                                                   final String skey) {
+  private static String getFromWriteBatchWithIndex(final RocksDB db, final ReadOptions readOptions,
+      final WriteBatchWithIndex wbwi, final String skey) {
     final byte[] key = skey.getBytes();
     try (final RocksIterator baseIterator = db.newIterator(readOptions);
          final RocksIterator iterator = wbwi.newIteratorWithBase(baseIterator)) {
