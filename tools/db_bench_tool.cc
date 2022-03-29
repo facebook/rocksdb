@@ -77,6 +77,7 @@
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
+#include "util/file_checksum_helper.h"
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
@@ -284,8 +285,10 @@ DEFINE_int64(deletes, -1, "Number of delete operations to do.  "
 
 DEFINE_int32(bloom_locality, 0, "Control bloom filter probes locality");
 
-DEFINE_int64(seed, 0, "Seed base for random number generators. "
-             "When 0 it is deterministic.");
+DEFINE_int64(seed, 0,
+             "Seed base for random number generators. "
+             "When 0 it is derived from the current time.");
+static int64_t seed_base;
 
 DEFINE_int32(threads, 1, "Number of concurrent threads to run.");
 
@@ -555,6 +558,38 @@ DEFINE_double(cache_high_pri_pool_ratio, 0.0,
 DEFINE_bool(use_clock_cache, false,
             "Replace default LRU block cache with clock cache.");
 
+DEFINE_bool(use_lru_secondary_cache, false,
+            "Use the LRUSecondaryCache as the secondary cache.");
+
+DEFINE_int64(lru_secondary_cache_size, 8 << 20,  // 8MB
+             "Number of bytes to use as a cache of data");
+
+DEFINE_int32(lru_secondary_cache_numshardbits, 6,
+             "Number of shards for the block cache"
+             " is 2 ** lru_secondary_cache_numshardbits."
+             " Negative means use default settings."
+             " This is applied only if FLAGS_cache_size is non-negative.");
+
+DEFINE_double(lru_secondary_cache_high_pri_pool_ratio, 0.0,
+              "Ratio of block cache reserve for high pri blocks. "
+              "If > 0.0, we also enable "
+              "cache_index_and_filter_blocks_with_high_priority.");
+
+DEFINE_string(lru_secondary_cache_compression_type, "lz4",
+              "The compression algorithm to use for large "
+              "values stored in LRUSecondaryCache.");
+static enum ROCKSDB_NAMESPACE::CompressionType
+    FLAGS_lru_secondary_cache_compression_type_e =
+        ROCKSDB_NAMESPACE::kLZ4Compression;
+
+DEFINE_uint32(
+    lru_secondary_cache_compress_format_version, 2,
+    "compress_format_version can have two values: "
+    "compress_format_version == 1 -- decompressed size is not included"
+    " in the block header."
+    "compress_format_version == 2 -- decompressed size is included"
+    " in the block header in varint32 format.");
+
 DEFINE_int64(simcache_size, -1,
              "Number of bytes to use as a simcache of "
              "uncompressed data. Nagative value disables simcache.");
@@ -662,9 +697,6 @@ DEFINE_int32(file_opening_threads,
              "If open_files is set to -1, this option set the number of "
              "threads that will be used to open files during DB::Open()");
 
-DEFINE_bool(new_table_reader_for_compaction_inputs, true,
-             "If true, uses a separate file handle for compaction inputs");
-
 DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
 
 DEFINE_int32(log_readahead_size, 0, "WAL and manifest readahead size");
@@ -765,7 +797,7 @@ DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
 DEFINE_bool(manual_wal_flush, false,
             "If true, buffer WAL until buffer is full or a manual FlushWAL().");
 
-DEFINE_string(wal_compression, "string",
+DEFINE_string(wal_compression, "none",
               "Algorithm to use for WAL compression. none to disable.");
 static enum ROCKSDB_NAMESPACE::CompressionType FLAGS_wal_compression_e =
     ROCKSDB_NAMESPACE::kNoCompression;
@@ -1080,6 +1112,24 @@ DEFINE_bool(adaptive_readahead, false,
             "carry forward internal auto readahead size from one file to next "
             "file at each level during iteration");
 
+DEFINE_bool(rate_limit_user_ops, false,
+            "When true use Env::IO_USER priority level to charge internal rate "
+            "limiter for reads associated with user operations.");
+
+DEFINE_bool(file_checksum, false,
+            "When true use FileChecksumGenCrc32cFactory for "
+            "file_checksum_gen_factory.");
+
+DEFINE_bool(rate_limit_auto_wal_flush, false,
+            "When true use Env::IO_USER priority level to charge internal rate "
+            "limiter for automatic WAL flush (`Options::manual_wal_flush` == "
+            "false) after the user "
+            "write operation");
+
+DEFINE_bool(async_io, false,
+            "When set true, RocksDB does asynchronous reads for internal auto "
+            "readahead prefetching.");
+
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);
@@ -1100,9 +1150,10 @@ static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     return ROCKSDB_NAMESPACE::kXpressCompression;
   else if (!strcasecmp(ctype, "zstd"))
     return ROCKSDB_NAMESPACE::kZSTD;
-
-  fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
-  return ROCKSDB_NAMESPACE::kSnappyCompression;  // default value
+  else {
+    fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
+    exit(1);
+  }
 }
 
 static std::string ColumnFamilyName(size_t i) {
@@ -1190,6 +1241,10 @@ DEFINE_int64(stats_interval_seconds, 0, "Report stats every N seconds. This "
 
 DEFINE_int32(stats_per_interval, 0, "Reports additional stats per interval when"
              " this is greater than 0.");
+
+DEFINE_uint64(slow_usecs, 1000000,
+              "A message is printed for operations that "
+              "take at least this many microseconds.");
 
 DEFINE_int64(report_interval_seconds, 0,
              "If greater than zero, it will write simple stats in CSV format "
@@ -1313,19 +1368,23 @@ DEFINE_double(key_dist_b, 0.0,
 DEFINE_double(value_theta, 0.0,
               "The parameter 'theta' of Generized Pareto Distribution "
               "f(x)=(1/sigma)*(1+k*(x-theta)/sigma)^-(1/k+1)");
-DEFINE_double(value_k, 0.0,
+// Use reasonable defaults based on the mixgraph paper
+DEFINE_double(value_k, 0.2615,
               "The parameter 'k' of Generized Pareto Distribution "
               "f(x)=(1/sigma)*(1+k*(x-theta)/sigma)^-(1/k+1)");
-DEFINE_double(value_sigma, 0.0,
+// Use reasonable defaults based on the mixgraph paper
+DEFINE_double(value_sigma, 25.45,
               "The parameter 'theta' of Generized Pareto Distribution "
               "f(x)=(1/sigma)*(1+k*(x-theta)/sigma)^-(1/k+1)");
 DEFINE_double(iter_theta, 0.0,
               "The parameter 'theta' of Generized Pareto Distribution "
               "f(x)=(1/sigma)*(1+k*(x-theta)/sigma)^-(1/k+1)");
-DEFINE_double(iter_k, 0.0,
+// Use reasonable defaults based on the mixgraph paper
+DEFINE_double(iter_k, 2.517,
               "The parameter 'k' of Generized Pareto Distribution "
               "f(x)=(1/sigma)*(1+k*(x-theta)/sigma)^-(1/k+1)");
-DEFINE_double(iter_sigma, 0.0,
+// Use reasonable defaults based on the mixgraph paper
+DEFINE_double(iter_sigma, 14.236,
               "The parameter 'sigma' of Generized Pareto Distribution "
               "f(x)=(1/sigma)*(1+k*(x-theta)/sigma)^-(1/k+1)");
 DEFINE_double(mix_get_ratio, 1.0,
@@ -1591,7 +1650,7 @@ static enum DistributionType StringToDistributionType(const char* ctype) {
     return kNormal;
 
   fprintf(stdout, "Cannot parse distribution type '%s'\n", ctype);
-  return kFixed;  // default value
+  exit(1);
 }
 
 class BaseDistribution {
@@ -2092,7 +2151,7 @@ class Stats {
       }
       hist_[op_type]->Add(micros);
 
-      if (micros > 20000 && !FLAGS_stats_interval) {
+      if (micros >= FLAGS_slow_usecs && !FLAGS_stats_interval) {
         fprintf(stderr, "long op: %" PRIu64 " micros%30s\r", micros, "");
         fflush(stderr);
       }
@@ -2159,7 +2218,13 @@ class Stats {
               }
             } else if (db) {
               if (db->GetProperty("rocksdb.stats", &stats)) {
-                fprintf(stderr, "%s\n", stats.c_str());
+                fprintf(stderr, "%s", stats.c_str());
+              }
+              if (db->GetProperty("rocksdb.num-running-compactions", &stats)) {
+                fprintf(stderr, "num-running-compactions: %s\n", stats.c_str());
+              }
+              if (db->GetProperty("rocksdb.num-running-flushes", &stats)) {
+                fprintf(stderr, "num-running-flushes: %s\n\n", stats.c_str());
               }
               if (FLAGS_show_table_properties) {
                 for (int level = 0; level < FLAGS_num_levels; ++level) {
@@ -2362,8 +2427,8 @@ struct ThreadState {
   Stats stats;
   SharedState* shared;
 
-  explicit ThreadState(int index)
-      : tid(index), rand((FLAGS_seed ? FLAGS_seed : 1000) + index) {}
+  explicit ThreadState(int index, int my_seed)
+      : tid(index), rand(seed_base + my_seed) {}
 };
 
 class Duration {
@@ -2415,6 +2480,7 @@ class Benchmark {
   int key_size_;
   int user_timestamp_size_;
   int prefix_size_;
+  int total_thread_count_;
   int64_t keys_per_prefix_;
   int64_t entries_per_batch_;
   int64_t writes_before_delete_range_;
@@ -2785,6 +2851,21 @@ class Benchmark {
         opts.secondary_cache = secondary_cache;
       }
 #endif  // ROCKSDB_LITE
+
+      if (FLAGS_use_lru_secondary_cache) {
+        LRUSecondaryCacheOptions secondary_cache_opts;
+        secondary_cache_opts.capacity = FLAGS_lru_secondary_cache_size;
+        secondary_cache_opts.num_shard_bits =
+            FLAGS_lru_secondary_cache_numshardbits;
+        secondary_cache_opts.high_pri_pool_ratio =
+            FLAGS_lru_secondary_cache_high_pri_pool_ratio;
+        secondary_cache_opts.compression_type =
+            FLAGS_lru_secondary_cache_compression_type_e;
+        secondary_cache_opts.compress_format_version =
+            FLAGS_lru_secondary_cache_compress_format_version;
+        opts.secondary_cache = NewLRUSecondaryCache(secondary_cache_opts);
+      }
+
       return NewLRUCache(opts);
     }
   }
@@ -2798,6 +2879,7 @@ class Benchmark {
         key_size_(FLAGS_key_size),
         user_timestamp_size_(FLAGS_user_timestamp_size),
         prefix_size_(FLAGS_prefix_size),
+        total_thread_count_(0),
         keys_per_prefix_(FLAGS_keys_per_prefix),
         entries_per_batch_(1),
         reads_(FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads),
@@ -3047,12 +3129,17 @@ class Benchmark {
         write_options_.sync = true;
       }
       write_options_.disableWAL = FLAGS_disable_wal;
+      write_options_.rate_limiter_priority =
+          FLAGS_rate_limit_auto_wal_flush ? Env::IO_USER : Env::IO_TOTAL;
       read_options_ = ReadOptions(FLAGS_verify_checksum, true);
       read_options_.total_order_seek = FLAGS_total_order_seek;
       read_options_.prefix_same_as_start = FLAGS_prefix_same_as_start;
+      read_options_.rate_limiter_priority =
+          FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
       read_options_.tailing = FLAGS_use_tailing_iterator;
       read_options_.readahead_size = FLAGS_readahead_size;
       read_options_.adaptive_readahead = FLAGS_adaptive_readahead;
+      read_options_.async_io = FLAGS_async_io;
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
       void (Benchmark::*post_process_method)() = nullptr;
@@ -3316,6 +3403,12 @@ class Benchmark {
 #endif  // ROCKSDB_LITE
       } else if (name == "getmergeoperands") {
         method = &Benchmark::GetMergeOperands;
+#ifndef ROCKSDB_LITE
+      } else if (name == "verifychecksum") {
+        method = &Benchmark::VerifyChecksum;
+      } else if (name == "verifyfilechecksums") {
+        method = &Benchmark::VerifyFileChecksums;
+#endif                             // ROCKSDB_LITE
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
         ErrorExit();
@@ -3570,7 +3663,8 @@ class Benchmark {
       arg[i].bm = this;
       arg[i].method = method;
       arg[i].shared = &shared;
-      arg[i].thread = new ThreadState(i);
+      total_thread_count_++;
+      arg[i].thread = new ThreadState(i, total_thread_count_);
       arg[i].thread->stats.SetReporterAgent(reporter_agent.get());
       arg[i].thread->shared = &shared;
       FLAGS_env->StartThread(ThreadBody, &arg[i]);
@@ -3818,8 +3912,6 @@ class Benchmark {
     }
     options.bloom_locality = FLAGS_bloom_locality;
     options.max_file_opening_threads = FLAGS_file_opening_threads;
-    options.new_table_reader_for_compaction_inputs =
-        FLAGS_new_table_reader_for_compaction_inputs;
     options.compaction_readahead_size = FLAGS_compaction_readahead_size;
     options.log_readahead_size = FLAGS_log_readahead_size;
     options.random_access_max_buffer_size = FLAGS_random_access_max_buffer_size;
@@ -4155,7 +4247,7 @@ class Benchmark {
         fprintf(stderr, "Only 64 bits timestamps are supported.\n");
         exit(1);
       }
-      options.comparator = ROCKSDB_NAMESPACE::test::ComparatorWithU64Ts();
+      options.comparator = test::BytewiseComparatorWithU64TsWrapper();
     }
 
     // Integrated BlobDB
@@ -4222,12 +4314,22 @@ class Benchmark {
         table_options->filter_policy = BlockBasedTableOptions().filter_policy;
       } else if (FLAGS_bloom_bits == 0) {
         table_options->filter_policy.reset();
+      } else if (FLAGS_use_block_based_filter) {
+        // Use back-door way of enabling obsolete block-based Bloom
+        Status s = FilterPolicy::CreateFromString(
+            ConfigOptions(),
+            "rocksdb.internal.DeprecatedBlockBasedBloomFilter:" +
+                ROCKSDB_NAMESPACE::ToString(FLAGS_bloom_bits),
+            &table_options->filter_policy);
+        if (!s.ok()) {
+          fprintf(stderr, "failure creating obsolete block-based filter: %s\n",
+                  s.ToString().c_str());
+          exit(1);
+        }
       } else {
         table_options->filter_policy.reset(
-            FLAGS_use_ribbon_filter
-                ? NewRibbonFilterPolicy(FLAGS_bloom_bits)
-                : NewBloomFilterPolicy(FLAGS_bloom_bits,
-                                       FLAGS_use_block_based_filter));
+            FLAGS_use_ribbon_filter ? NewRibbonFilterPolicy(FLAGS_bloom_bits)
+                                    : NewBloomFilterPolicy(FLAGS_bloom_bits));
       }
     }
     if (FLAGS_row_cache_size) {
@@ -4252,13 +4354,6 @@ class Benchmark {
     }
 
     if (FLAGS_rate_limiter_bytes_per_sec > 0) {
-      if (FLAGS_rate_limit_bg_reads &&
-          !FLAGS_new_table_reader_for_compaction_inputs) {
-        fprintf(stderr,
-                "rate limit compaction reads must have "
-                "new_table_reader_for_compaction_inputs set\n");
-        exit(1);
-      }
       options.rate_limiter.reset(NewGenericRateLimiter(
           FLAGS_rate_limiter_bytes_per_sec, FLAGS_rate_limiter_refill_period_us,
           10 /* fairness */,
@@ -4268,6 +4363,11 @@ class Benchmark {
     }
 
     options.listeners.emplace_back(listener_);
+
+    if (FLAGS_file_checksum) {
+      options.file_checksum_gen_factory.reset(
+          new FileChecksumGenCrc32cFactory());
+    }
 
     if (FLAGS_num_multi_db <= 1) {
       OpenDb(options, FLAGS_db, &db_);
@@ -4506,7 +4606,7 @@ class Benchmark {
           values_[i] = i;
         }
         RandomShuffle(values_.begin(), values_.end(),
-                      static_cast<uint32_t>(FLAGS_seed));
+                      static_cast<uint32_t>(seed_base));
       }
     }
 
@@ -4619,7 +4719,7 @@ class Benchmark {
     // Default_random_engine provides slightly
     // improved throughput over mt19937.
     std::default_random_engine overwrite_gen{
-        static_cast<unsigned int>(FLAGS_seed)};
+        static_cast<unsigned int>(seed_base)};
     std::bernoulli_distribution overwrite_decider(p);
 
     // Inserted key window is filled with the last N
@@ -4629,7 +4729,7 @@ class Benchmark {
     // - random access is O(1)
     // - insertion/removal at beginning/end is also O(1).
     std::deque<int64_t> inserted_key_window;
-    Random64 reservoir_id_gen(FLAGS_seed);
+    Random64 reservoir_id_gen(seed_base);
 
     // --- Variables used in disposable/persistent keys simulation:
     // The following variables are used when
@@ -4666,7 +4766,7 @@ class Benchmark {
         ErrorExit();
       }
     }
-    Random rnd_disposable_entry(static_cast<uint32_t>(FLAGS_seed));
+    Random rnd_disposable_entry(static_cast<uint32_t>(seed_base));
     std::string random_value;
     // Queue that stores scheduled timestamp of disposable entries deletes,
     // along with starting index of disposable entry keys to delete.
@@ -4690,6 +4790,9 @@ class Benchmark {
 
     int64_t stage = 0;
     int64_t num_written = 0;
+    int64_t next_seq_db_at = num_ops;
+    size_t id = 0;
+
     while ((num_per_key_gen != 0) && !duration.Done(entries_per_batch_)) {
       if (duration.GetStage() != stage) {
         stage = duration.GetStage();
@@ -4702,8 +4805,25 @@ class Benchmark {
         }
       }
 
-      size_t id = thread->rand.Next() % num_key_gens;
+      if (write_mode != SEQUENTIAL) {
+        id = thread->rand.Next() % num_key_gens;
+      } else {
+        // When doing a sequential load with multiple databases, load them in
+        // order rather than all at the same time to avoid:
+        // 1) long delays between flushing memtables
+        // 2) flushing memtables for all of them at the same point in time
+        // 3) not putting the same number of keys in each database
+        if (num_written >= next_seq_db_at) {
+          next_seq_db_at += num_ops;
+          id++;
+          if (id >= num_key_gens) {
+            fprintf(stderr, "Logic error. Filled all databases\n");
+            ErrorExit();
+          }
+        }
+      }
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(id);
+
       batch.Clear();
       int64_t batch_bytes = 0;
 
@@ -5303,6 +5423,8 @@ class Benchmark {
     }
 
     options.adaptive_readahead = FLAGS_adaptive_readahead;
+    options.async_io = FLAGS_async_io;
+
     Iterator* iter = db->NewIterator(options);
     int64_t i = 0;
     int64_t bytes = 0;
@@ -5951,13 +6073,14 @@ class Benchmark {
   // needs to decide the ratio between Get, Put, Iterator queries before
   // starting the benchmark.
   void MixGraph(ThreadState* thread) {
-    int64_t read = 0;  // including single gets and Next of iterators
     int64_t gets = 0;
     int64_t puts = 0;
-    int64_t found = 0;
+    int64_t get_found = 0;
     int64_t seek = 0;
     int64_t seek_found = 0;
     int64_t bytes = 0;
+    double total_scan_length = 0;
+    double total_val_size = 0;
     const int64_t default_value_max = 1 * 1024 * 1024;
     int64_t value_max = default_value_max;
     int64_t scan_len_max = FLAGS_mix_max_scan_len;
@@ -6056,7 +6179,6 @@ class Benchmark {
       if (query_type == 0) {
         // the Get query
         gets++;
-        read++;
         if (FLAGS_num_column_families > 1) {
           s = db_with_cfh->db->Get(read_options_, db_with_cfh->GetCfh(key_rand),
                                    key, &pinnable_val);
@@ -6068,14 +6190,14 @@ class Benchmark {
         }
 
         if (s.ok()) {
-          found++;
+          get_found++;
           bytes += key.size() + pinnable_val.size();
         } else if (!s.IsNotFound()) {
           fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
           abort();
         }
 
-        if (thread->shared->read_rate_limiter && read % 100 == 0) {
+        if (thread->shared->read_rate_limiter && (gets + seek) % 100 == 0) {
           thread->shared->read_rate_limiter->Request(100, Env::IO_HIGH,
                                                      nullptr /*stats*/);
         }
@@ -6085,11 +6207,13 @@ class Benchmark {
         puts++;
         int64_t val_size = ParetoCdfInversion(
             u, FLAGS_value_theta, FLAGS_value_k, FLAGS_value_sigma);
-        if (val_size < 0) {
+        if (val_size < 10) {
           val_size = 10;
         } else if (val_size > value_max) {
           val_size = val_size % value_max;
         }
+        total_val_size += val_size;
+
         s = db_with_cfh->db->Put(
             write_options_, key,
             gen.Generate(static_cast<unsigned int>(val_size)));
@@ -6111,7 +6235,6 @@ class Benchmark {
           if (single_iter != nullptr) {
             single_iter->Seek(key);
             seek++;
-            read++;
             if (single_iter->Valid() && single_iter->key().compare(key) == 0) {
               seek_found++;
             }
@@ -6126,6 +6249,7 @@ class Benchmark {
               bytes += single_iter->key().size() + single_iter->value().size();
               single_iter->Next();
               assert(single_iter->status().ok());
+              total_scan_length++;
             }
           }
           delete single_iter;
@@ -6135,9 +6259,12 @@ class Benchmark {
     }
     char msg[256];
     snprintf(msg, sizeof(msg),
-             "( Gets:%" PRIu64 " Puts:%" PRIu64 " Seek:%" PRIu64 " of %" PRIu64
-             " in %" PRIu64 " found)\n",
-             gets, puts, seek, found, read);
+             "( Gets:%" PRIu64 " Puts:%" PRIu64 " Seek:%" PRIu64
+             ", reads %" PRIu64 " in %" PRIu64
+             " found, "
+             "avg size: %.1f value, %.1f scan)\n",
+             gets, puts, seek, get_found + seek_found, gets + seek,
+             total_val_size / puts, total_scan_length / seek);
 
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
@@ -7209,6 +7336,37 @@ class Benchmark {
   }
 
 #ifndef ROCKSDB_LITE
+  void VerifyChecksum(ThreadState* thread) {
+    DB* db = SelectDB(thread);
+    ReadOptions ro;
+    ro.adaptive_readahead = FLAGS_adaptive_readahead;
+    ro.async_io = FLAGS_async_io;
+    ro.rate_limiter_priority =
+        FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+    ro.readahead_size = FLAGS_readahead_size;
+    Status s = db->VerifyChecksum(ro);
+    if (!s.ok()) {
+      fprintf(stderr, "VerifyChecksum() failed: %s\n", s.ToString().c_str());
+      exit(1);
+    }
+  }
+
+  void VerifyFileChecksums(ThreadState* thread) {
+    DB* db = SelectDB(thread);
+    ReadOptions ro;
+    ro.adaptive_readahead = FLAGS_adaptive_readahead;
+    ro.async_io = FLAGS_async_io;
+    ro.rate_limiter_priority =
+        FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+    ro.readahead_size = FLAGS_readahead_size;
+    Status s = db->VerifyFileChecksums(ro);
+    if (!s.ok()) {
+      fprintf(stderr, "VerifyFileChecksums() failed: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
+  }
+
   // This benchmark stress tests Transactions.  For a given --duration (or
   // total number of --writes, a Transaction will perform a read-modify-write
   // to increment the value of a key in each of N(--transaction-sets) sets of
@@ -7912,6 +8070,9 @@ int db_bench_tool(int argc, char** argv) {
   FLAGS_wal_compression_e =
       StringToCompressionType(FLAGS_wal_compression.c_str());
 
+  FLAGS_lru_secondary_cache_compression_type_e = StringToCompressionType(
+      FLAGS_lru_secondary_cache_compression_type.c_str());
+
 #ifndef ROCKSDB_LITE
   // Stacked BlobDB
   FLAGS_blob_db_compression_type_e =
@@ -7941,7 +8102,20 @@ int db_bench_tool(int argc, char** argv) {
             /*is_full_fs_warm=*/FLAGS_simulate_hdd));
     FLAGS_env = composite_env.get();
   }
+
+  // Let -readonly imply -use_existing_db
+  FLAGS_use_existing_db |= FLAGS_readonly;
 #endif  // ROCKSDB_LITE
+
+  if (!FLAGS_seed) {
+    uint64_t now = FLAGS_env->GetSystemClock()->NowMicros();
+    seed_base = static_cast<int64_t>(now);
+    fprintf(stdout, "Set seed to %" PRIu64 " because --seed was 0\n",
+            seed_base);
+  } else {
+    seed_base = FLAGS_seed;
+  }
+
   if (FLAGS_use_existing_keys && !FLAGS_use_existing_db) {
     fprintf(stderr,
             "`-use_existing_db` must be true for `-use_existing_keys` to be "
@@ -7960,6 +8134,7 @@ int db_bench_tool(int argc, char** argv) {
   else {
     fprintf(stdout, "Unknown compaction fadvice:%s\n",
             FLAGS_compaction_fadvice.c_str());
+    exit(1);
   }
 
   FLAGS_value_size_distribution_type_e =

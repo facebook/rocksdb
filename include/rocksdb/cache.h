@@ -27,6 +27,7 @@
 #include <memory>
 #include <string>
 
+#include "rocksdb/compression_type.h"
 #include "rocksdb/memory_allocator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
@@ -127,6 +128,53 @@ extern std::shared_ptr<Cache> NewLRUCache(
 
 extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 
+// EXPERIMENTAL
+// Options structure for configuring a SecondaryCache instance based on
+// LRUCache. The LRUCacheOptions.secondary_cache is not used and
+// should not be set.
+struct LRUSecondaryCacheOptions : LRUCacheOptions {
+  // The compression method (if any) that is used to compress data.
+  CompressionType compression_type = CompressionType::kLZ4Compression;
+
+  // compress_format_version can have two values:
+  // compress_format_version == 1 -- decompressed size is not included in the
+  // block header.
+  // compress_format_version == 2 -- decompressed size is included in the block
+  // header in varint32 format.
+  uint32_t compress_format_version = 2;
+
+  LRUSecondaryCacheOptions() {}
+  LRUSecondaryCacheOptions(
+      size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
+      double _high_pri_pool_ratio,
+      std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
+      bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
+      CacheMetadataChargePolicy _metadata_charge_policy =
+          kDefaultCacheMetadataChargePolicy,
+      CompressionType _compression_type = CompressionType::kLZ4Compression,
+      uint32_t _compress_format_version = 2)
+      : LRUCacheOptions(_capacity, _num_shard_bits, _strict_capacity_limit,
+                        _high_pri_pool_ratio, std::move(_memory_allocator),
+                        _use_adaptive_mutex, _metadata_charge_policy),
+        compression_type(_compression_type),
+        compress_format_version(_compress_format_version) {}
+};
+
+// EXPERIMENTAL
+// Create a new Secondary Cache that is implemented on top of LRUCache.
+extern std::shared_ptr<SecondaryCache> NewLRUSecondaryCache(
+    size_t capacity, int num_shard_bits = -1,
+    bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.5,
+    std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
+    bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
+    CacheMetadataChargePolicy metadata_charge_policy =
+        kDefaultCacheMetadataChargePolicy,
+    CompressionType compression_type = CompressionType::kLZ4Compression,
+    uint32_t compress_format_version = 2);
+
+extern std::shared_ptr<SecondaryCache> NewLRUSecondaryCache(
+    const LRUSecondaryCacheOptions& opts);
+
 // Similar to NewLRUCache, but create a cache based on CLOCK algorithm with
 // better concurrent performance in some cases. See util/clock_cache.cc for
 // more detail.
@@ -206,7 +254,7 @@ class Cache {
   // takes in a buffer from the NVM cache and constructs an object using
   // it. The callback doesn't have ownership of the buffer and should
   // copy the contents into its own buffer.
-  using CreateCallback = std::function<Status(void* buf, size_t size,
+  using CreateCallback = std::function<Status(const void* buf, size_t size,
                                               void** out_obj, size_t* charge)>;
 
   Cache(std::shared_ptr<MemoryAllocator> allocator = nullptr)
@@ -281,16 +329,15 @@ class Cache {
   /**
    * Release a mapping returned by a previous Lookup(). A released entry might
    * still  remain in cache in case it is later looked up by others. If
-   * force_erase is set then it also erase it from the cache if there is no
-   * other reference to  it. Erasing it should call the deleter function that
-   * was provided when the
-   * entry was inserted.
+   * erase_if_last_ref is set then it also erase it from the cache if there is
+   * no other reference to  it. Erasing it should call the deleter function that
+   * was provided when the entry was inserted.
    *
    * Returns true if the entry was also erased.
    */
   // REQUIRES: handle must not have been released yet.
   // REQUIRES: handle must have been returned by a method on *this.
-  virtual bool Release(Handle* handle, bool force_erase = false) = 0;
+  virtual bool Release(Handle* handle, bool erase_if_last_ref = false) = 0;
 
   // Return the value encapsulated in a handle returned by a
   // successful Lookup().
@@ -469,8 +516,9 @@ class Cache {
   // parameter specifies whether the data was actually used or not,
   // which may be used by the cache implementation to decide whether
   // to consider it as a hit for retention purposes.
-  virtual bool Release(Handle* handle, bool /*useful*/, bool force_erase) {
-    return Release(handle, force_erase);
+  virtual bool Release(Handle* handle, bool /*useful*/,
+                       bool erase_if_last_ref) {
+    return Release(handle, erase_if_last_ref);
   }
 
   // Determines if the handle returned by Lookup() has a valid value yet. The

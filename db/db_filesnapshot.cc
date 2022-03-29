@@ -45,17 +45,15 @@ Status DBImpl::FlushForGetLiveFiles() {
     }
     mutex_.Lock();
   } else {
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
+    for (auto cfd : versions_->GetRefedColumnFamilySet()) {
       if (cfd->IsDropped()) {
         continue;
       }
-      cfd->Ref();
       mutex_.Unlock();
       status = FlushMemTable(cfd, FlushOptions(), FlushReason::kGetLiveFiles);
       TEST_SYNC_POINT("DBImpl::GetLiveFiles:1");
       TEST_SYNC_POINT("DBImpl::GetLiveFiles:2");
       mutex_.Lock();
-      cfd->UnrefAndTryDelete();
       if (!status.ok() && !status.IsColumnFamilyDropped()) {
         break;
       } else if (status.IsColumnFamilyDropped()) {
@@ -63,7 +61,6 @@ Status DBImpl::FlushForGetLiveFiles() {
       }
     }
   }
-  versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   return status;
 }
 
@@ -260,15 +257,14 @@ Status DBImpl::GetLiveFilesStorageInfo(
       }
     }
     const auto& blob_files = vsi.GetBlobFiles();
-    for (const auto& pair : blob_files) {
-      const auto& meta = pair.second;
+    for (const auto& meta : blob_files) {
       assert(meta);
 
       results.emplace_back();
       LiveFileStorageInfo& info = results.back();
 
       info.relative_filename = BlobFileName(meta->GetBlobFileNumber());
-      info.directory = GetName();  // TODO?: support db_paths/cf_paths
+      info.directory = GetDir(/* path_id */ 0);
       info.file_number = meta->GetBlobFileNumber();
       info.file_type = kBlobFile;
       info.size = meta->GetBlobFileSize();

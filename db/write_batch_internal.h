@@ -228,6 +228,10 @@ class WriteBatchInternal {
   static bool TimestampsUpdateNeeded(const WriteBatch& wb) {
     return wb.needs_in_place_update_ts_;
   }
+
+  static bool HasKeyWithTimestamp(const WriteBatch& wb) {
+    return wb.has_key_with_ts_;
+  }
 };
 
 // LocalSavePoint is similar to a scope guard

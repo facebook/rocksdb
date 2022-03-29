@@ -16,6 +16,7 @@
 
 #include "include/org_rocksdb_BackupEngineOptions.h"
 #include "rocksdb/utilities/backup_engine.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 ///////////////////////////////////////////////////////////////////////////
@@ -35,7 +36,7 @@ jlong Java_org_rocksdb_BackupEngineOptions_newBackupEngineOptions(
   }
   auto* bopt = new ROCKSDB_NAMESPACE::BackupEngineOptions(cpath);
   env->ReleaseStringUTFChars(jpath, cpath);
-  return reinterpret_cast<jlong>(bopt);
+  return GET_CPLUSPLUS_POINTER(bopt);
 }
 
 /*

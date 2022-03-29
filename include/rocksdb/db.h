@@ -274,6 +274,19 @@ class DB {
       const std::string& input, std::string* output,
       const CompactionServiceOptionsOverride& override_options);
 
+  // Experimental and subject to change
+  // Open DB and trim data newer than specified timestamp.
+  // The trim_ts specified the user-defined timestamp trim bound.
+  // This API should only be used at timestamp enabled column families recovery.
+  // If some input column families do not support timestamp, nothing will
+  // be happened to them. The data with timestamp > trim_ts
+  // will be removed after this API returns successfully.
+  static Status OpenAndTrimHistory(
+      const DBOptions& db_options, const std::string& dbname,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+      std::string trim_ts);
+
   virtual Status Resume() { return Status::NotSupported(); }
 
   // Close the DB by releasing resources, closing files etc. This should be
@@ -343,10 +356,11 @@ class DB {
   virtual Status DropColumnFamilies(
       const std::vector<ColumnFamilyHandle*>& column_families);
 
-  // Close a column family specified by column_family handle and destroy
-  // the column family handle specified to avoid double deletion. This call
-  // deletes the column family handle by default. Use this method to
-  // close column family instead of deleting column family handle directly
+  // Release and deallocate a column family handle. A column family is only
+  // removed once it is dropped (DropColumnFamily) and all handles have been
+  // destroyed (DestroyColumnFamilyHandle). Use this method to destroy
+  // column family handles (except for DefaultColumnFamily()!) before closing
+  // a DB.
   virtual Status DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family);
 
   // Set the database entry for "key" to "value".
@@ -779,7 +793,7 @@ class DB {
   // snapshot is no longer needed.
   //
   // nullptr will be returned if the DB fails to take a snapshot or does
-  // not support snapshot.
+  // not support snapshot (eg: inplace_update_support enabled).
   virtual const Snapshot* GetSnapshot() = 0;
 
   // Release a previously acquired snapshot.  The caller must not
@@ -1113,7 +1127,7 @@ class DB {
 
   // Flags for DB::GetSizeApproximation that specify whether memtable
   // stats should be included, or file stats approximation or both
-  enum SizeApproximationFlags : uint8_t {
+  enum class SizeApproximationFlags : uint8_t {
     NONE = 0,
     INCLUDE_MEMTABLES = 1 << 0,
     INCLUDE_FILES = 1 << 1
@@ -1137,17 +1151,13 @@ class DB {
   virtual Status GetApproximateSizes(ColumnFamilyHandle* column_family,
                                      const Range* ranges, int n,
                                      uint64_t* sizes,
-                                     uint8_t include_flags = INCLUDE_FILES) {
-    SizeApproximationOptions options;
-    options.include_memtables =
-        (include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) != 0;
-    options.include_files =
-        (include_flags & SizeApproximationFlags::INCLUDE_FILES) != 0;
-    return GetApproximateSizes(options, column_family, ranges, n, sizes);
-  }
-  virtual Status GetApproximateSizes(const Range* ranges, int n,
-                                     uint64_t* sizes,
-                                     uint8_t include_flags = INCLUDE_FILES) {
+                                     SizeApproximationFlags include_flags =
+                                         SizeApproximationFlags::INCLUDE_FILES);
+
+  virtual Status GetApproximateSizes(
+      const Range* ranges, int n, uint64_t* sizes,
+      SizeApproximationFlags include_flags =
+          SizeApproximationFlags::INCLUDE_FILES) {
     return GetApproximateSizes(DefaultColumnFamily(), ranges, n, sizes,
                                include_flags);
   }
@@ -1162,25 +1172,6 @@ class DB {
                                            uint64_t* const count,
                                            uint64_t* const size) {
     GetApproximateMemTableStats(DefaultColumnFamily(), range, count, size);
-  }
-
-  // Deprecated versions of GetApproximateSizes
-  ROCKSDB_DEPRECATED_FUNC virtual void GetApproximateSizes(
-      const Range* range, int n, uint64_t* sizes, bool include_memtable) {
-    uint8_t include_flags = SizeApproximationFlags::INCLUDE_FILES;
-    if (include_memtable) {
-      include_flags |= SizeApproximationFlags::INCLUDE_MEMTABLES;
-    }
-    GetApproximateSizes(DefaultColumnFamily(), range, n, sizes, include_flags);
-  }
-  ROCKSDB_DEPRECATED_FUNC virtual void GetApproximateSizes(
-      ColumnFamilyHandle* column_family, const Range* range, int n,
-      uint64_t* sizes, bool include_memtable) {
-    uint8_t include_flags = SizeApproximationFlags::INCLUDE_FILES;
-    if (include_memtable) {
-      include_flags |= SizeApproximationFlags::INCLUDE_MEMTABLES;
-    }
-    GetApproximateSizes(column_family, range, n, sizes, include_flags);
   }
 
   // Compact the underlying storage for the key range [*begin,*end].
@@ -1210,6 +1201,10 @@ class DB {
     return CompactRange(options, DefaultColumnFamily(), begin, end);
   }
 
+  // TODO: documentation needed
+  // NOTE: SetOptions is intended only for expert users, and does not apply the
+  // same sanitization to options as the standard DB::Open code path does. Use
+  // with caution.
   virtual Status SetOptions(
       ColumnFamilyHandle* /*column_family*/,
       const std::unordered_map<std::string, std::string>& /*new_options*/) {
@@ -1684,6 +1679,32 @@ class DB {
   }
 #endif  // !ROCKSDB_LITE
 };
+
+// Overloaded operators for enum class SizeApproximationFlags.
+inline DB::SizeApproximationFlags operator&(DB::SizeApproximationFlags lhs,
+                                            DB::SizeApproximationFlags rhs) {
+  return static_cast<DB::SizeApproximationFlags>(static_cast<uint8_t>(lhs) &
+                                                 static_cast<uint8_t>(rhs));
+}
+inline DB::SizeApproximationFlags operator|(DB::SizeApproximationFlags lhs,
+                                            DB::SizeApproximationFlags rhs) {
+  return static_cast<DB::SizeApproximationFlags>(static_cast<uint8_t>(lhs) |
+                                                 static_cast<uint8_t>(rhs));
+}
+
+inline Status DB::GetApproximateSizes(ColumnFamilyHandle* column_family,
+                                      const Range* ranges, int n,
+                                      uint64_t* sizes,
+                                      SizeApproximationFlags include_flags) {
+  SizeApproximationOptions options;
+  options.include_memtables =
+      ((include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) !=
+       SizeApproximationFlags::NONE);
+  options.include_files =
+      ((include_flags & SizeApproximationFlags::INCLUDE_FILES) !=
+       SizeApproximationFlags::NONE);
+  return GetApproximateSizes(options, column_family, ranges, n, sizes);
+}
 
 // Destroy the contents of the specified database.
 // Be very careful using this method.

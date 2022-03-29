@@ -127,6 +127,8 @@ class VersionStorageInfo {
 
   void AddFile(int level, FileMetaData* f);
 
+  void ReserveBlob(size_t size) { blob_files_.reserve(size); }
+
   void AddBlobFile(std::shared_ptr<BlobFileMetaData> blob_file_meta);
 
   void PrepareForVersionAppend(const ImmutableOptions& immutable_options,
@@ -264,7 +266,7 @@ class VersionStorageInfo {
 
   void set_l0_delay_trigger_count(int v) { l0_delay_trigger_count_ = v; }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
   int NumLevelFiles(int level) const {
     assert(finalized_);
     return static_cast<int>(files_[level].size());
@@ -273,7 +275,7 @@ class VersionStorageInfo {
   // Return the combined file size of all files at the specified level.
   uint64_t NumLevelBytes(int level) const;
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
   const std::vector<FileMetaData*>& LevelFiles(int level) const {
     return files_[level];
   }
@@ -302,7 +304,7 @@ class VersionStorageInfo {
     size_t position_ = 0;
   };
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: PrepareForVersionAppend has been called
   FileLocation GetFileLocation(uint64_t file_number) const {
     const auto it = file_locations_.find(file_number);
 
@@ -319,7 +321,7 @@ class VersionStorageInfo {
     return it->second;
   }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: PrepareForVersionAppend has been called
   FileMetaData* GetFileMetaDataByNumber(uint64_t file_number) const {
     auto location = GetFileLocation(file_number);
 
@@ -330,21 +332,54 @@ class VersionStorageInfo {
     return files_[location.GetLevel()][location.GetPosition()];
   }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  using BlobFiles = std::map<uint64_t, std::shared_ptr<BlobFileMetaData>>;
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
+  using BlobFiles = std::vector<std::shared_ptr<BlobFileMetaData>>;
   const BlobFiles& GetBlobFiles() const { return blob_files_; }
 
-  uint64_t GetTotalBlobFileSize() const {
-    uint64_t total_blob_bytes = 0;
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
+  BlobFiles::const_iterator GetBlobFileMetaDataLB(
+      uint64_t blob_file_number) const;
 
-    for (const auto& pair : blob_files_) {
-      const auto& meta = pair.second;
-      assert(meta);
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
+  std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
+      uint64_t blob_file_number) const {
+    const auto it = GetBlobFileMetaDataLB(blob_file_number);
 
-      total_blob_bytes += meta->GetBlobFileSize();
+    assert(it == blob_files_.end() || *it);
+
+    if (it != blob_files_.end() &&
+        (*it)->GetBlobFileNumber() == blob_file_number) {
+      return *it;
     }
 
-    return total_blob_bytes;
+    return std::shared_ptr<BlobFileMetaData>();
+  }
+
+  // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
+  struct BlobStats {
+    uint64_t total_file_size = 0;
+    uint64_t total_garbage_size = 0;
+    double space_amp = 0.0;
+  };
+
+  BlobStats GetBlobStats() const {
+    uint64_t total_file_size = 0;
+    uint64_t total_garbage_size = 0;
+
+    for (const auto& meta : blob_files_) {
+      assert(meta);
+
+      total_file_size += meta->GetBlobFileSize();
+      total_garbage_size += meta->GetGarbageBlobBytes();
+    }
+
+    double space_amp = 0.0;
+    if (total_file_size > total_garbage_size) {
+      space_amp = static_cast<double>(total_file_size) /
+                  (total_file_size - total_garbage_size);
+    }
+
+    return BlobStats{total_file_size, total_garbage_size, space_amp};
   }
 
   const ROCKSDB_NAMESPACE::LevelFilesBrief& LevelFilesBrief(int level) const {
@@ -520,6 +555,7 @@ class VersionStorageInfo {
   void GenerateLevelFilesBrief();
   void GenerateLevel0NonOverlapping();
   void GenerateBottommostFiles();
+  void GenerateFileLocationIndex();
 
   const InternalKeyComparator* internal_comparator_;
   const Comparator* user_comparator_;
@@ -545,7 +581,7 @@ class VersionStorageInfo {
   using FileLocations = std::unordered_map<uint64_t, FileLocation>;
   FileLocations file_locations_;
 
-  // Map of blob files in version by number.
+  // Vector of blob files in version sorted by blob file number.
   BlobFiles blob_files_;
 
   // Level that L0 data should be compacted to. All levels < base_level_ should
@@ -698,9 +734,11 @@ class Version {
   //    If the key has any merge operands then store them in
   //    merge_context.operands_list and don't merge the operands
   // REQUIRES: lock is not held
+  // REQUIRES: pinned_iters_mgr != nullptr
   void Get(const ReadOptions&, const LookupKey& key, PinnableSlice* value,
            std::string* timestamp, Status* status, MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
+           PinnedIteratorsManager* pinned_iters_mgr,
            bool* value_found = nullptr, bool* key_exists = nullptr,
            SequenceNumber* seq = nullptr, ReadCallback* callback = nullptr,
            bool* is_blob = nullptr, bool do_merge = true);
@@ -1052,6 +1090,9 @@ class VersionSet {
   // column_families.
   static Status ListColumnFamilies(std::vector<std::string>* column_families,
                                    const std::string& dbname, FileSystem* fs);
+  static Status ListColumnFamiliesFromManifest(
+      const std::string& manifest_path, FileSystem* fs,
+      std::vector<std::string>* column_families);
 
 #ifndef ROCKSDB_LITE
   // Try to reduce the number of levels. This call is valid when
@@ -1090,8 +1131,8 @@ class VersionSet {
 
   uint64_t current_next_file_number() const { return next_file_number_.load(); }
 
-  uint64_t min_log_number_to_keep_2pc() const {
-    return min_log_number_to_keep_2pc_.load();
+  uint64_t min_log_number_to_keep() const {
+    return min_log_number_to_keep_.load();
   }
 
   // Allocate and return a new file number
@@ -1149,7 +1190,7 @@ class VersionSet {
   // Mark the specified log number as deleted
   // REQUIRED: this is only called during single-threaded recovery or repair, or
   // from ::LogAndApply where the global mutex is held.
-  void MarkMinLogNumberToKeep2PC(uint64_t number);
+  void MarkMinLogNumberToKeep(uint64_t number);
 
   // Return the log file number for the log file that is currently
   // being compacted, or zero if there is no such log file.
@@ -1158,10 +1199,12 @@ class VersionSet {
   // Returns the minimum log number which still has data not flushed to any SST
   // file.
   // In non-2PC mode, all the log numbers smaller than this number can be safely
-  // deleted.
+  // deleted, although we still use `min_log_number_to_keep_` to determine when
+  // to delete a WAL file.
   uint64_t MinLogNumberWithUnflushedData() const {
     return PreComputeMinLogNumberWithUnflushedData(nullptr);
   }
+
   // Returns the minimum log number which still has data not flushed to any SST
   // file.
   // Empty column families' log number is considered to be
@@ -1259,6 +1302,10 @@ class VersionSet {
                         uint64_t min_pending_output);
 
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
+  RefedColumnFamilySet GetRefedColumnFamilySet() {
+    return RefedColumnFamilySet(GetColumnFamilySet());
+  }
+
   const FileOptions& file_options() { return file_options_; }
   void ChangeFileOptions(const MutableDBOptions& new_options) {
     file_options_.writable_file_max_buffer_size =
@@ -1361,9 +1408,8 @@ class VersionSet {
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
   // Any WAL number smaller than this should be ignored during recovery,
-  // and is qualified for being deleted in 2PC mode. In non-2PC mode, this
-  // number is ignored.
-  std::atomic<uint64_t> min_log_number_to_keep_2pc_ = {0};
+  // and is qualified for being deleted.
+  std::atomic<uint64_t> min_log_number_to_keep_ = {0};
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
   uint64_t options_file_size_;

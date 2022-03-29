@@ -58,8 +58,11 @@ COMMON_FLAGS="-DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX"
 # Default to fbcode gcc on internal fb machines
 if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
     FBCODE_BUILD="true"
-    # If we're compiling with TSAN we need pic build
+    # If we're compiling with TSAN or shared lib, we need pic build
     PIC_BUILD=$COMPILE_WITH_TSAN
+    if [ "$LIB_MODE" == "shared" ]; then
+      PIC_BUILD=1
+    fi
     if [ -n "$ROCKSDB_FBCODE_BUILD_WITH_481" ]; then
       # we need this to build with MySQL. Don't use for other purposes.
       source "$PWD/build_tools/fbcode_config4.8.1.sh"
@@ -271,7 +274,7 @@ esac
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS ${CXXFLAGS}"
 JAVA_LDFLAGS="$PLATFORM_LDFLAGS"
 JAVA_STATIC_LDFLAGS="$PLATFORM_LDFLAGS"
-JAVAC_ARGS="-source 7"
+JAVAC_ARGS="-source 8"
 
 if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Cross-compiling; do not try any compilation tests.
@@ -629,12 +632,15 @@ if test "0$PORTABLE" -eq 0; then
     COMMON_FLAGS="$COMMON_FLAGS"
   elif test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
     if echo 'int main() {}' | $CXX $PLATFORM_CXXFLAGS -x c++ \
-      -fsyntax-only -march=native - -o /dev/null 2>/dev/null; then
+      -march=native - -o /dev/null 2>/dev/null; then
       COMMON_FLAGS="$COMMON_FLAGS -march=native "
     else
       COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
     fi
     COMMON_FLAGS="$COMMON_FLAGS"
+  elif test -n "`echo $TARGET_ARCHITECTURE | grep ^riscv64`"; then
+    RISC_ISA=$(cat /proc/cpuinfo | grep isa | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
+    COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
   elif [ "$TARGET_OS" == "IOS" ]; then
     COMMON_FLAGS="$COMMON_FLAGS"
   elif [ "$TARGET_OS" == "AIX" ] || [ "$TARGET_OS" == "SunOS" ]; then
@@ -653,6 +659,11 @@ else
 
   if test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
     COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
+  fi
+
+  if test -n "`echo $TARGET_ARCHITECTURE | grep ^riscv64`"; then
+    RISC_ISA=$(cat /proc/cpuinfo | grep isa | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
+    COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
   fi
 
   if [[ "${PLATFORM}" == "OS_MACOSX" ]]; then

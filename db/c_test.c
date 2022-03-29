@@ -7,12 +7,13 @@
 
 #ifndef ROCKSDB_LITE  // Lite does not support C API
 
-#include "rocksdb/c.h"
-
+#include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+
+#include "rocksdb/c.h"
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -89,10 +90,8 @@ static void CheckEqual(const char* expected, const char* v, size_t n) {
     // ok
     return;
   } else {
-    fprintf(stderr, "%s: expected '%s', got '%s'\n",
-            phase,
-            (expected ? expected : "(null)"),
-            (v ? v : "(null"));
+    fprintf(stderr, "%s: expected '%s', got '%s'\n", phase,
+            (expected ? expected : "(null)"), (v ? v : "(null)"));
     abort();
   }
 }
@@ -224,39 +223,6 @@ static int CmpCompare(void* arg, const char* a, size_t alen,
 static const char* CmpName(void* arg) {
   (void)arg;
   return "foo";
-}
-
-// Custom filter policy
-static unsigned char fake_filter_result = 1;
-static void FilterDestroy(void* arg) { (void)arg; }
-static const char* FilterName(void* arg) {
-  (void)arg;
-  return "TestFilter";
-}
-static char* FilterCreate(
-    void* arg,
-    const char* const* key_array, const size_t* key_length_array,
-    int num_keys,
-    size_t* filter_length) {
-  (void)arg;
-  (void)key_array;
-  (void)key_length_array;
-  (void)num_keys;
-  *filter_length = 4;
-  char* result = malloc(4);
-  memcpy(result, "fake", 4);
-  return result;
-}
-static unsigned char FilterKeyMatch(
-    void* arg,
-    const char* key, size_t length,
-    const char* filter, size_t filter_length) {
-  (void)arg;
-  (void)key;
-  (void)length;
-  CheckCondition(filter_length == 4);
-  CheckCondition(memcmp(filter, "fake", 4) == 0);
-  return fake_filter_result;
 }
 
 // Custom compaction filter
@@ -480,6 +446,10 @@ int main(int argc, char** argv) {
   cmp = rocksdb_comparator_create(NULL, CmpDestroy, CmpCompare, CmpName);
   dbpath = rocksdb_dbpath_create(dbpathname, 1024 * 1024);
   env = rocksdb_create_default_env();
+
+  rocksdb_create_dir_if_missing(env, GetTempDir(), &err);
+  CheckNoError(err);
+
   cache = rocksdb_cache_create_lru(100000);
 
   options = rocksdb_options_create();
@@ -1018,7 +988,36 @@ int main(int argc, char** argv) {
     CheckGet(db, roptions, "foo", NULL);
     rocksdb_release_snapshot(db, snap);
   }
-
+  StartPhase("snapshot_with_memtable_inplace_update");
+  {
+    rocksdb_close(db);
+    const rocksdb_snapshot_t* snap = NULL;
+    const char* s_key = "foo_snap";
+    const char* value1 = "hello_s1";
+    const char* value2 = "hello_s2";
+    rocksdb_options_set_allow_concurrent_memtable_write(options, 0);
+    rocksdb_options_set_inplace_update_support(options, 1);
+    rocksdb_options_set_error_if_exists(options, 0);
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+    rocksdb_put(db, woptions, s_key, 8, value1, 8, &err);
+    snap = rocksdb_create_snapshot(db);
+    assert(snap != NULL);
+    rocksdb_put(db, woptions, s_key, 8, value2, 8, &err);
+    CheckNoError(err);
+    rocksdb_readoptions_set_snapshot(roptions, snap);
+    CheckGet(db, roptions, "foo", NULL);
+    // snapshot syntax is invalid, because of inplace update supported is set
+    CheckGet(db, roptions, s_key, value2);
+    // restore the data and options
+    rocksdb_delete(db, woptions, s_key, 8, &err);
+    CheckGet(db, roptions, s_key, NULL);
+    rocksdb_release_snapshot(db, snap);
+    rocksdb_readoptions_set_snapshot(roptions, NULL);
+    rocksdb_options_set_inplace_update_support(options, 0);
+    rocksdb_options_set_allow_concurrent_memtable_write(options, 1);
+    rocksdb_options_set_error_if_exists(options, 1);
+  }
   StartPhase("repair");
   {
     // If we do not compact here, then the lazy deletion of
@@ -1042,18 +1041,15 @@ int main(int argc, char** argv) {
   }
 
   StartPhase("filter");
-  for (run = 0; run <= 4; run++) {
-    // run=0 uses custom filter
+  for (run = 1; run <= 4; run++) {
+    // run=0 uses custom filter (not currently supported)
     // run=1 uses old block-based bloom filter
     // run=2 run uses full bloom filter
     // run=3 uses Ribbon
     // run=4 uses Ribbon-Bloom hybrid configuration
     CheckNoError(err);
     rocksdb_filterpolicy_t* policy;
-    if (run == 0) {
-      policy = rocksdb_filterpolicy_create(NULL, FilterDestroy, FilterCreate,
-                                           FilterKeyMatch, NULL, FilterName);
-    } else if (run == 1) {
+    if (run == 1) {
       policy = rocksdb_filterpolicy_create_bloom(8.0);
     } else if (run == 2) {
       policy = rocksdb_filterpolicy_create_bloom_full(8.0);
@@ -1088,19 +1084,8 @@ int main(int argc, char** argv) {
     }
     rocksdb_compact_range(db, NULL, 0, NULL, 0);
 
-    fake_filter_result = 1;
     CheckGet(db, roptions, "foo", "foovalue");
     CheckGet(db, roptions, "bar", "barvalue");
-    if (run == 0) {
-      // Must not find value when custom filter returns false
-      fake_filter_result = 0;
-      CheckGet(db, roptions, "foo", NULL);
-      CheckGet(db, roptions, "bar", NULL);
-      fake_filter_result = 1;
-
-      CheckGet(db, roptions, "foo", "foovalue");
-      CheckGet(db, roptions, "bar", "barvalue");
-    }
 
     {
       // Query some keys not added to identify Bloom filter implementation
@@ -1113,7 +1098,6 @@ int main(int argc, char** argv) {
       int i;
       char keybuf[100];
       for (i = 0; i < keys_to_query; i++) {
-        fake_filter_result = i % 2;
         snprintf(keybuf, sizeof(keybuf), "no%020d", i);
         CheckGet(db, roptions, keybuf, NULL);
       }
@@ -1123,10 +1107,10 @@ int main(int argc, char** argv) {
       if (run == 0) {
         // Due to half true, half false with fake filter result
         CheckCondition(hits == keys_to_query / 2);
-      } else if (run == 1) {
-        // Essentially a fingerprint of the block-based Bloom schema
-        CheckCondition(hits == 241);
-      } else if (run == 2 || run == 4) {
+      } else if (run == 1 || run == 2 || run == 4) {
+        // For run == 1, block-based Bloom is no longer available in public
+        // API; attempting to enable it enables full Bloom instead.
+        //
         // Essentially a fingerprint of full Bloom schema, format_version=5
         CheckCondition(hits == 188);
       } else {

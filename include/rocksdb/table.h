@@ -227,9 +227,8 @@ struct BlockBasedTableOptions {
   // kDataBlockBinaryAndHash.
   double data_block_hash_table_util_ratio = 0.75;
 
-  // This option is now deprecated. No matter what value it is set to,
-  // it will behave as if hash_index_allow_collision=true.
-  bool hash_index_allow_collision = true;
+  // Option hash_index_allow_collision is now deleted.
+  // It will behave as if hash_index_allow_collision=true.
 
   // Use the specified checksum type. Newly created table files will be
   // protected with this checksum type. Old table files will still be readable,
@@ -371,6 +370,10 @@ struct BlockBasedTableOptions {
   // This is an extra check that is only
   // useful in detecting software bugs or CPU+memory malfunction.
   // Turning on this feature increases filter construction time by 30%.
+  //
+  // This parameter can be changed dynamically by
+  // DB::SetOptions({{"block_based_table_factory",
+  //                  "{detect_filter_construct_corruption=true;}"}});
   //
   // TODO: optimize this performance
   bool detect_filter_construct_corruption = false;

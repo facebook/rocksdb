@@ -718,9 +718,11 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
 
   WriteBatch batch;
   Random rnd(309);
+  int total_keys = 0;
   for (int j = 0; j < 5; j++) {
     for (int i = j * kNumKeys; i < (j + 1) * kNumKeys; i++) {
       ASSERT_OK(batch.Put(BuildKey(i), rnd.RandomString(1000)));
+      total_keys++;
     }
     ASSERT_OK(db_->Write(WriteOptions(), &batch));
     ASSERT_OK(Flush());
@@ -761,12 +763,16 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
     ReadOptions ro;
     if (is_adaptive_readahead) {
       ro.adaptive_readahead = true;
+      // TODO akanksha: Remove after adding new units.
+      ro.async_io = true;
     }
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     int num_keys = 0;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
       num_keys++;
     }
+    ASSERT_EQ(num_keys, total_keys);
 
     ASSERT_GT(buff_prefetch_count, 0);
     buff_prefetch_count = 0;
@@ -854,6 +860,8 @@ TEST_P(PrefetchTest2, NonSequentialReads) {
     // Iterate until prefetch is done.
     ReadOptions ro;
     ro.adaptive_readahead = true;
+    // TODO akanksha: Remove after adding new units.
+    ro.async_io = true;
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     iter->SeekToFirst();
     while (iter->Valid() && buff_prefetch_count == 0) {
@@ -940,6 +948,8 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
   SyncPoint::GetInstance()->EnableProcessing();
   ReadOptions ro;
   ro.adaptive_readahead = true;
+  // TODO akanksha: Remove after adding new units.
+  ro.async_io = true;
   {
     /*
      * Reseek keys from sequential Data Blocks within same partitioned
@@ -958,28 +968,35 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
     // After caching, blocks will be read from cache (Sequential blocks)
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     iter->Seek(BuildKey(0));
+    ASSERT_TRUE(iter->Valid());
     iter->Seek(BuildKey(1000));
+    ASSERT_TRUE(iter->Valid());
     iter->Seek(BuildKey(1004));  // Prefetch data (not in cache).
+    ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(current_readahead_size, expected_current_readahead_size);
 
     // Missed one sequential block but 1011 is already in buffer so
     // readahead will not be reset.
     iter->Seek(BuildKey(1011));
+    ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(current_readahead_size, expected_current_readahead_size);
 
     // Eligible to Prefetch data (not in buffer) but block is in cache so no
     // prefetch will happen and will result in decrease in readahead_size.
     // readahead_size will be 8 * 1024
     iter->Seek(BuildKey(1015));
+    ASSERT_TRUE(iter->Valid());
     expected_current_readahead_size -= decrease_readahead_size;
 
     // 1016 is the same block as 1015. So no change in readahead_size.
     iter->Seek(BuildKey(1016));
+    ASSERT_TRUE(iter->Valid());
 
     // Prefetch data (not in buffer) but found in cache. So decrease
     // readahead_size. Since it will 0 after decrementing so readahead_size will
     // be set to initial value.
     iter->Seek(BuildKey(1019));
+    ASSERT_TRUE(iter->Valid());
     expected_current_readahead_size = std::max(
         decrease_readahead_size,
         (expected_current_readahead_size >= decrease_readahead_size
@@ -988,6 +1005,7 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
 
     // Prefetch next sequential data.
     iter->Seek(BuildKey(1022));
+    ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(current_readahead_size, expected_current_readahead_size);
     ASSERT_EQ(buff_prefetch_count, 2);
     buff_prefetch_count = 0;

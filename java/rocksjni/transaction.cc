@@ -6,12 +6,14 @@
 // This file implements the "bridge" between Java and C++
 // for ROCKSDB_NAMESPACE::Transaction.
 
+#include "rocksdb/utilities/transaction.h"
+
 #include <jni.h>
+
 #include <functional>
 
 #include "include/org_rocksdb_Transaction.h"
-
-#include "rocksdb/utilities/transaction.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 #if defined(_MSC_VER)
@@ -67,7 +69,7 @@ jlong Java_org_rocksdb_Transaction_getSnapshot(JNIEnv* /*env*/,
                                                jlong jhandle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   const ROCKSDB_NAMESPACE::Snapshot* snapshot = txn->GetSnapshot();
-  return reinterpret_cast<jlong>(snapshot);
+  return GET_CPLUSPLUS_POINTER(snapshot);
 }
 
 /*
@@ -532,7 +534,7 @@ jlong Java_org_rocksdb_Transaction_getIterator__JJ(JNIEnv* /*env*/,
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
   auto* read_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
-  return reinterpret_cast<jlong>(txn->GetIterator(*read_options));
+  return GET_CPLUSPLUS_POINTER(txn->GetIterator(*read_options));
 }
 
 /*
@@ -549,7 +551,7 @@ jlong Java_org_rocksdb_Transaction_getIterator__JJJ(
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  return reinterpret_cast<jlong>(
+  return GET_CPLUSPLUS_POINTER(
       txn->GetIterator(*read_options, column_family_handle));
 }
 
@@ -1379,7 +1381,7 @@ jlong Java_org_rocksdb_Transaction_getWriteBatch(JNIEnv* /*env*/,
                                                  jobject /*jobj*/,
                                                  jlong jhandle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  return reinterpret_cast<jlong>(txn->GetWriteBatch());
+  return GET_CPLUSPLUS_POINTER(txn->GetWriteBatch());
 }
 
 /*
@@ -1404,7 +1406,7 @@ jlong Java_org_rocksdb_Transaction_getWriteOptions(JNIEnv* /*env*/,
                                                    jobject /*jobj*/,
                                                    jlong jhandle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  return reinterpret_cast<jlong>(txn->GetWriteOptions());
+  return GET_CPLUSPLUS_POINTER(txn->GetWriteOptions());
 }
 
 /*
@@ -1496,7 +1498,7 @@ jlong Java_org_rocksdb_Transaction_getCommitTimeWriteBatch(JNIEnv* /*env*/,
                                                            jobject /*jobj*/,
                                                            jlong jhandle) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  return reinterpret_cast<jlong>(txn->GetCommitTimeWriteBatch());
+  return GET_CPLUSPLUS_POINTER(txn->GetCommitTimeWriteBatch());
 }
 
 /*

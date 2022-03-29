@@ -1164,12 +1164,12 @@ Compaction* ColumnFamilyData::CompactRange(
     int output_level, const CompactRangeOptions& compact_range_options,
     const InternalKey* begin, const InternalKey* end,
     InternalKey** compaction_end, bool* conflict,
-    uint64_t max_file_num_to_ignore) {
+    uint64_t max_file_num_to_ignore, const std::string& trim_ts) {
   auto* result = compaction_picker_->CompactRange(
       GetName(), mutable_cf_options, mutable_db_options,
       current_->storage_info(), input_level, output_level,
       compact_range_options, begin, end, compaction_end, conflict,
-      max_file_num_to_ignore);
+      max_file_num_to_ignore, trim_ts);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }
@@ -1560,20 +1560,6 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
     default_cfd_cache_ = new_cfd;
   }
   return new_cfd;
-}
-
-// REQUIRES: DB mutex held
-void ColumnFamilySet::FreeDeadColumnFamilies() {
-  autovector<ColumnFamilyData*> to_delete;
-  for (auto cfd = dummy_cfd_->next_; cfd != dummy_cfd_; cfd = cfd->next_) {
-    if (cfd->refs_.load(std::memory_order_relaxed) == 0) {
-      to_delete.push_back(cfd);
-    }
-  }
-  for (auto cfd : to_delete) {
-    // this is very rare, so it's not a problem that we do it under a mutex
-    delete cfd;
-  }
 }
 
 // under a DB mutex AND from a write thread

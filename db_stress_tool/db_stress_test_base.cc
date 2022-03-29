@@ -19,6 +19,7 @@
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "test_util/testutil.h"
 #include "util/cast_util.h"
 #include "utilities/backupable/backupable_db_impl.h"
 #include "utilities/fault_injection_fs.h"
@@ -348,6 +349,8 @@ bool StressTest::VerifySecondaries() {
       fprintf(stderr, "Secondary failed to catch up with primary\n");
       return false;
     }
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions ropts;
     ropts.total_order_seek = true;
     // Verify only the default column family since the primary may have
@@ -396,6 +399,8 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
   if (cf->GetName() != snap_state.cf_at_name) {
     return s;
   }
+  // This `ReadOptions` is for validation purposes. Ignore
+  // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
   ReadOptions ropt;
   ropt.snapshot = snap_state.snapshot;
   Slice ts;
@@ -479,6 +484,9 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
   write_opts.disableWAL = FLAGS_disable_wal;
   if (FLAGS_sync) {
     write_opts.sync = true;
+  }
+  if (FLAGS_rate_limit_auto_wal_flush) {
+    write_opts.rate_limiter_priority = Env::IO_USER;
   }
   char value[100];
   int cf_idx = 0;
@@ -596,8 +604,11 @@ Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   if (!FLAGS_use_txn) {
     return Status::InvalidArgument("NewTxn when FLAGS_use_txn is not set");
   }
+  write_opts.disableWAL = FLAGS_disable_wal;
   static std::atomic<uint64_t> txn_id = {0};
   TransactionOptions txn_options;
+  txn_options.use_only_the_last_commit_time_batch_for_recovery =
+      FLAGS_use_only_the_last_commit_time_batch_for_recovery;
   txn_options.lock_timeout = 600000;  // 10 min
   txn_options.deadlock_detect = true;
   *txn = txn_db_->BeginTransaction(write_opts, txn_options);
@@ -632,7 +643,12 @@ Status StressTest::RollbackTxn(Transaction* txn) {
 
 void StressTest::OperateDb(ThreadState* thread) {
   ReadOptions read_opts(FLAGS_verify_checksum, true);
+  read_opts.rate_limiter_priority =
+      FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
   WriteOptions write_opts;
+  if (FLAGS_rate_limit_auto_wal_flush) {
+    write_opts.rate_limiter_priority = Env::IO_USER;
+  }
   auto shared = thread->shared;
   char value[100];
   std::string from_db;
@@ -1132,6 +1148,8 @@ Status StressTest::TestIterate(ThreadState* thread,
     // to bounds, prefix extractor or reseeking. Sometimes we are comparing
     // iterators with the same set-up, and it doesn't hurt to check them
     // to be equal.
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions cmp_ro;
     cmp_ro.timestamp = readoptionscopy.timestamp;
     cmp_ro.snapshot = snapshot;
@@ -1433,6 +1451,11 @@ Status StressTest::TestBackupRestore(
       }
     }
   }
+  if (thread->rand.OneIn(2)) {
+    backup_opts.schema_version = 1;
+  } else {
+    backup_opts.schema_version = 2;
+  }
   BackupEngine* backup_engine = nullptr;
   std::string from = "a backup/restore operation";
   Status s = BackupEngine::Open(db_stress_env, backup_opts, &backup_engine);
@@ -1440,11 +1463,11 @@ Status StressTest::TestBackupRestore(
     from = "BackupEngine::Open";
   }
   if (s.ok()) {
-    if (thread->rand.OneIn(2)) {
-      TEST_FutureSchemaVersion2Options test_opts;
+    if (backup_opts.schema_version >= 2 && thread->rand.OneIn(2)) {
+      TEST_BackupMetaSchemaOptions test_opts;
       test_opts.crc32c_checksums = thread->rand.OneIn(2) == 0;
       test_opts.file_sizes = thread->rand.OneIn(2) == 0;
-      TEST_EnableWriteFutureSchemaVersion2(backup_engine, test_opts);
+      TEST_SetBackupMetaSchemaOptions(backup_engine, test_opts);
     }
     CreateBackupOptions create_opts;
     if (FLAGS_disable_wal) {
@@ -1572,6 +1595,8 @@ Status StressTest::TestBackupRestore(
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     std::string restored_value;
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions read_opts;
     std::string ts_str;
     Slice ts;
@@ -1733,6 +1758,8 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   if (s.ok()) {
     Options options(options_);
     options.listeners.clear();
+    // Avoid race condition in trash handling after delete checkpoint_db
+    options.sst_file_manager.reset();
     std::vector<ColumnFamilyDescriptor> cf_descs;
     // TODO(ajkr): `column_family_names_` is not safe to access here when
     // `clear_column_family_one_in != 0`. But we can't easily switch to
@@ -1942,6 +1969,8 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
                                      const std::string& keystr, uint64_t i) {
   Slice key = keystr;
   ColumnFamilyHandle* column_family = column_families_[rand_column_family];
+  // This `ReadOptions` is for validation purposes. Ignore
+  // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
   ReadOptions ropt;
 #ifndef ROCKSDB_LITE
   auto db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
@@ -2095,6 +2124,8 @@ uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
                                   const Slice& end_key) {
   const std::string kCrcCalculatorSepearator = ";";
   uint32_t crc = 0;
+  // This `ReadOptions` is for validation purposes. Ignore
+  // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
   ReadOptions ro;
   ro.snapshot = snapshot;
   ro.total_order_seek = true;
@@ -2130,6 +2161,28 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Format version            : %d\n", FLAGS_format_version);
   fprintf(stdout, "TransactionDB             : %s\n",
           FLAGS_use_txn ? "true" : "false");
+
+  if (FLAGS_use_txn) {
+#ifndef ROCKSDB_LITE
+    fprintf(stdout, "Two write queues:         : %s\n",
+            FLAGS_two_write_queues ? "true" : "false");
+    fprintf(stdout, "Write policy              : %d\n",
+            static_cast<int>(FLAGS_txn_write_policy));
+    if (static_cast<uint64_t>(TxnDBWritePolicy::WRITE_PREPARED) ==
+            FLAGS_txn_write_policy ||
+        static_cast<uint64_t>(TxnDBWritePolicy::WRITE_UNPREPARED) ==
+            FLAGS_txn_write_policy) {
+      fprintf(stdout, "Snapshot cache bits       : %d\n",
+              static_cast<int>(FLAGS_wp_snapshot_cache_bits));
+      fprintf(stdout, "Commit cache bits         : %d\n",
+              static_cast<int>(FLAGS_wp_commit_cache_bits));
+    }
+    fprintf(stdout, "last cwb for recovery    : %s\n",
+            FLAGS_use_only_the_last_commit_time_batch_for_recovery ? "true"
+                                                                   : "false");
+#endif  // !ROCKSDB_LITE
+  }
+
 #ifndef ROCKSDB_LITE
   fprintf(stdout, "Stacked BlobDB            : %s\n",
           FLAGS_use_blob_db ? "true" : "false");
@@ -2293,6 +2346,7 @@ void StressTest::Open() {
     options_.memtable_prefix_bloom_size_ratio =
         FLAGS_memtable_prefix_bloom_size_ratio;
     options_.memtable_whole_key_filtering = FLAGS_memtable_whole_key_filtering;
+    options_.disable_auto_compactions = FLAGS_disable_auto_compactions;
     options_.max_background_compactions = FLAGS_max_background_compactions;
     options_.max_background_flushes = FLAGS_max_background_flushes;
     options_.compaction_style =
@@ -2405,9 +2459,6 @@ void StressTest::Open() {
         10 /* fairness */,
         FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
                                   : RateLimiter::Mode::kWritesOnly));
-    if (FLAGS_rate_limit_bg_reads) {
-      options_.new_table_reader_for_compaction_inputs = true;
-    }
   }
   if (FLAGS_sst_file_manager_bytes_per_sec > 0 ||
       FLAGS_sst_file_manager_bytes_per_truncate > 0) {
@@ -2684,7 +2735,13 @@ void StressTest::Open() {
         options_.unordered_write = true;
         options_.two_write_queues = true;
         txn_db_options.skip_concurrency_control = true;
+      } else {
+        options_.two_write_queues = FLAGS_two_write_queues;
       }
+      txn_db_options.wp_snapshot_cache_bits =
+          static_cast<size_t>(FLAGS_wp_snapshot_cache_bits);
+      txn_db_options.wp_commit_cache_bits =
+          static_cast<size_t>(FLAGS_wp_commit_cache_bits);
       s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
                               cf_descriptors, &column_families_, &txn_db_);
       if (!s.ok()) {
@@ -2742,7 +2799,11 @@ void StressTest::Open() {
       exit(1);
 #endif
     }
-    if (s.ok() && FLAGS_continuous_verification_interval > 0 && !cmp_db_) {
+    // Secondary instance does not support write-prepared/write-unprepared
+    // transactions, thus just disable secondary instance if we use
+    // transaction.
+    if (s.ok() && FLAGS_continuous_verification_interval > 0 &&
+        !FLAGS_use_txn && !cmp_db_) {
       Options tmp_opts;
       // TODO(yanqin) support max_open_files != -1 for secondary instance.
       tmp_opts.max_open_files = -1;
@@ -2854,7 +2915,7 @@ void StressTest::Reopen(ThreadState* thread) {
 
 void StressTest::CheckAndSetOptionsForUserTimestamp() {
   assert(FLAGS_user_timestamp_size > 0);
-  const Comparator* const cmp = test::ComparatorWithU64Ts();
+  const Comparator* const cmp = test::BytewiseComparatorWithU64TsWrapper();
   assert(cmp);
   if (FLAGS_user_timestamp_size != cmp->timestamp_size()) {
     fprintf(stderr,

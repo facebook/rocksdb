@@ -132,11 +132,12 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
           [&](const std::string& src_dirname, const std::string& fname,
               uint64_t size_limit_bytes, FileType,
               const std::string& /* checksum_func_name */,
-              const std::string& /* checksum_val */) {
+              const std::string& /* checksum_val */,
+              const Temperature temperature) {
             ROCKS_LOG_INFO(db_options.info_log, "Copying %s", fname.c_str());
             return CopyFile(db_->GetFileSystem(), src_dirname + "/" + fname,
                             full_private_path + "/" + fname, size_limit_bytes,
-                            db_options.use_fsync);
+                            db_options.use_fsync, nullptr, temperature);
           } /* copy_file_cb */,
           [&](const std::string& fname, const std::string& contents, FileType) {
             ROCKS_LOG_INFO(db_options.info_log, "Creating %s", fname.c_str());
@@ -191,10 +192,11 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     std::function<Status(const std::string& src_dirname,
                          const std::string& src_fname, FileType type)>
         link_file_cb,
-    std::function<Status(
-        const std::string& src_dirname, const std::string& src_fname,
-        uint64_t size_limit_bytes, FileType type,
-        const std::string& checksum_func_name, const std::string& checksum_val)>
+    std::function<
+        Status(const std::string& src_dirname, const std::string& src_fname,
+               uint64_t size_limit_bytes, FileType type,
+               const std::string& checksum_func_name,
+               const std::string& checksum_val, const Temperature temperature)>
         copy_file_cb,
     std::function<Status(const std::string& fname, const std::string& contents,
                          FileType type)>
@@ -261,11 +263,11 @@ Status CheckpointImpl::CreateCustomCheckpoint(
         if (opts.include_checksum_info) {
           s = copy_file_cb(info.directory, info.relative_filename, info.size,
                            info.file_type, info.file_checksum_func_name,
-                           info.file_checksum);
+                           info.file_checksum, info.temperature);
         } else {
           s = copy_file_cb(info.directory, info.relative_filename, info.size,
                            info.file_type, kUnknownFileChecksumFuncName,
-                           kUnknownFileChecksum);
+                           kUnknownFileChecksum, info.temperature);
         }
       }
     }
@@ -332,7 +334,8 @@ Status CheckpointImpl::ExportColumnFamily(
             ROCKS_LOG_INFO(db_options.info_log, "[%s] Copying %s",
                            cf_name.c_str(), fname.c_str());
             return CopyFile(db_->GetFileSystem(), src_dirname + fname,
-                            tmp_export_dir + fname, 0, db_options.use_fsync);
+                            tmp_export_dir + fname, 0, db_options.use_fsync,
+                            nullptr, Temperature::kUnknown);
           } /*copy_file_cb*/);
 
       const auto enable_status = db_->EnableFileDeletions(false /*force*/);

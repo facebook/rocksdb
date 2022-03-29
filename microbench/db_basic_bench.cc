@@ -128,7 +128,8 @@ static void SetupDB(benchmark::State& state, Options& options, DB** dpptr,
     state.SkipWithError(s.ToString().c_str());
     return;
   }
-  std::string db_name = db_path + "/" + test_name + std::to_string(getpid());
+  std::string db_name =
+      db_path + kFilePathSeparator + test_name + std::to_string(getpid());
   DestroyDB(db_name, options);
 
   s = DB::Open(options, db_name, dpptr);
@@ -292,9 +293,9 @@ static void DBPut(benchmark::State& state) {
     if (enable_statistics) {
       HistogramData histogram_data;
       options.statistics->histogramData(DB_WRITE, &histogram_data);
-      state.counters["put_mean"] = histogram_data.average;
-      state.counters["put_p95"] = histogram_data.percentile95;
-      state.counters["put_p99"] = histogram_data.percentile99;
+      state.counters["put_mean"] = histogram_data.average * std::milli::den;
+      state.counters["put_p95"] = histogram_data.percentile95 * std::milli::den;
+      state.counters["put_p99"] = histogram_data.percentile99 * std::milli::den;
     }
 
     TeardownDB(state, db, options, kg);
@@ -319,7 +320,7 @@ static void DBPutArguments(benchmark::internal::Benchmark* b) {
       {"comp_style", "max_data", "per_key_size", "enable_statistics", "wal"});
 }
 
-static const uint64_t DBPutNum = 10l << 10;
+static const uint64_t DBPutNum = 409600l;
 BENCHMARK(DBPut)->Threads(1)->Iterations(DBPutNum)->Apply(DBPutArguments);
 BENCHMARK(DBPut)->Threads(8)->Iterations(DBPutNum / 8)->Apply(DBPutArguments);
 
@@ -598,9 +599,9 @@ static void DBGet(benchmark::State& state) {
     if (enable_statistics) {
       HistogramData histogram_data;
       options.statistics->histogramData(DB_GET, &histogram_data);
-      state.counters["get_mean"] = histogram_data.average;
-      state.counters["get_p95"] = histogram_data.percentile95;
-      state.counters["get_p99"] = histogram_data.percentile99;
+      state.counters["get_mean"] = histogram_data.average * std::milli::den;
+      state.counters["get_p95"] = histogram_data.percentile95 * std::milli::den;
+      state.counters["get_p99"] = histogram_data.percentile99 * std::milli::den;
     }
 
     TeardownDB(state, db, options, kg);
@@ -785,6 +786,7 @@ void GenerateRandomKVs(std::vector<std::string>* keys,
   }
 }
 
+// TODO: move it to different files, as it's testing an internal API
 static void DataBlockSeek(benchmark::State& state) {
   Random rnd(301);
   Options options = Options();
@@ -1286,6 +1288,72 @@ BENCHMARK(PrefixSeek)
     ->Threads(8)
     ->Iterations(kPrefixSeekNum / 8)
     ->Apply(PrefixSeekArguments);
+
+// TODO: move it to different files, as it's testing an internal API
+static void RandomAccessFileReaderRead(benchmark::State& state) {
+  bool enable_statistics = state.range(0);
+  constexpr int kFileNum = 10;
+  auto env = Env::Default();
+  auto fs = env->GetFileSystem();
+  std::string db_path;
+  Status s = env->GetTestDirectory(&db_path);
+  if (!s.ok()) {
+    state.SkipWithError(s.ToString().c_str());
+    return;
+  }
+
+  // Setup multiple `RandomAccessFileReader`s with different parameters to be
+  // used for test
+  Random rand(301);
+  std::string fname_base =
+      db_path + kFilePathSeparator + "random-access-file-reader-read";
+  std::vector<std::unique_ptr<RandomAccessFileReader>> readers;
+  auto statistics_share = CreateDBStatistics();
+  Statistics* statistics = enable_statistics ? statistics_share.get() : nullptr;
+  for (int i = 0; i < kFileNum; i++) {
+    std::string fname = fname_base + ToString(i);
+    std::string content = rand.RandomString(kDefaultPageSize);
+    std::unique_ptr<WritableFile> tgt_file;
+    env->NewWritableFile(fname, &tgt_file, EnvOptions());
+    tgt_file->Append(content);
+    tgt_file->Close();
+
+    std::unique_ptr<FSRandomAccessFile> f;
+    fs->NewRandomAccessFile(fname, FileOptions(), &f, nullptr);
+    int rand_num = rand.Next() % 3;
+    auto temperature = rand_num == 0   ? Temperature::kUnknown
+                       : rand_num == 1 ? Temperature::kWarm
+                                       : Temperature::kCold;
+    readers.emplace_back(new RandomAccessFileReader(
+        std::move(f), fname, env->GetSystemClock().get(), nullptr, statistics,
+        0, nullptr, nullptr, {}, temperature, rand_num == 1));
+  }
+
+  IOOptions io_options;
+  std::unique_ptr<char[]> scratch(new char[2048]);
+  Slice result;
+  uint64_t idx = 0;
+  for (auto _ : state) {
+    s = readers[idx++ % kFileNum]->Read(io_options, 0, kDefaultPageSize / 3,
+                                        &result, scratch.get(), nullptr,
+                                        Env::IO_TOTAL);
+    if (!s.ok()) {
+      state.SkipWithError(s.ToString().c_str());
+    }
+  }
+
+  // clean up
+  for (int i = 0; i < kFileNum; i++) {
+    std::string fname = fname_base + ToString(i);
+    env->DeleteFile(fname);  // ignore return, okay to fail cleanup
+  }
+}
+
+BENCHMARK(RandomAccessFileReaderRead)
+    ->Iterations(1000000)
+    ->Arg(0)
+    ->Arg(1)
+    ->ArgName("enable_statistics");
 
 }  // namespace ROCKSDB_NAMESPACE
 

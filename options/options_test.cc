@@ -148,7 +148,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"advise_random_on_open", "true"},
       {"experimental_mempurge_threshold", "0.0"},
       {"use_adaptive_mutex", "false"},
-      {"new_table_reader_for_compaction_inputs", "true"},
       {"compaction_readahead_size", "100"},
       {"random_access_max_buffer_size", "3145728"},
       {"writable_file_max_buffer_size", "314159"},
@@ -309,7 +308,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
   ASSERT_EQ(new_db_opt.experimental_mempurge_threshold, 0.0);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
-  ASSERT_EQ(new_db_opt.new_table_reader_for_compaction_inputs, true);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
   ASSERT_EQ(new_db_opt.random_access_max_buffer_size, 3145728);
   ASSERT_EQ(new_db_opt.writable_file_max_buffer_size, 314159);
@@ -846,12 +844,13 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ConfigOptions config_options;
   config_options.input_strings_escaped = false;
   config_options.ignore_unknown_options = false;
+  config_options.ignore_unsupported_options = false;
 
   // make sure default values are overwritten by something else
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt,
       "cache_index_and_filter_blocks=1;index_type=kHashSearch;"
-      "checksum=kxxHash;hash_index_allow_collision=1;"
+      "checksum=kxxHash;"
       "block_cache=1M;block_cache_compressed=1k;block_size=1024;"
       "block_size_deviation=8;block_restart_interval=4;"
       "format_version=5;whole_key_filtering=1;"
@@ -867,7 +866,6 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_TRUE(new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(new_opt.index_type, BlockBasedTableOptions::kHashSearch);
   ASSERT_EQ(new_opt.checksum, ChecksumType::kxxHash);
-  ASSERT_TRUE(new_opt.hash_index_allow_collision);
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
@@ -880,11 +878,10 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(new_opt.detect_filter_construct_corruption, true);
   ASSERT_EQ(new_opt.reserve_table_builder_memory, true);
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
-  const BloomFilterPolicy* bfp =
-      dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  auto bfp = new_opt.filter_policy->CheckedCast<BloomFilterPolicy>();
+  ASSERT_NE(bfp, nullptr);
   EXPECT_EQ(bfp->GetMillibitsPerKey(), 4567);
   EXPECT_EQ(bfp->GetWholeBitsPerKey(), 5);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kAutoBloom);
   // Verify that only the lower 32bits are stored in
   // new_opt.read_amp_bytes_per_bit.
   EXPECT_EQ(1U, new_opt.read_amp_bytes_per_bit);
@@ -921,77 +918,91 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
 
   // unrecognized filter policy name
   s = GetBlockBasedTableOptionsFromString(config_options, table_opt,
-                                          "cache_index_and_filter_blocks=1;"
                                           "filter_policy=bloomfilterxx:4:true",
                                           &new_opt);
   ASSERT_NOK(s);
   ASSERT_TRUE(s.IsInvalidArgument());
-  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
-            new_opt.cache_index_and_filter_blocks);
-  ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
 
-  // unrecognized filter policy config
-  s = GetBlockBasedTableOptionsFromString(config_options, table_opt,
-                                          "cache_index_and_filter_blocks=1;"
-                                          "filter_policy=bloomfilter:4",
-                                          &new_opt);
+  // missing bits per key
+  s = GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=bloomfilter", &new_opt);
   ASSERT_NOK(s);
   ASSERT_TRUE(s.IsInvalidArgument());
-  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
-            new_opt.cache_index_and_filter_blocks);
-  ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
+
+  // Used to be rejected, now accepted
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=bloomfilter:4", &new_opt));
+  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 4000);
+  EXPECT_EQ(bfp->GetWholeBitsPerKey(), 4);
+
+  // use_block_based_builder=true now ignored in public API (same as false)
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=bloomfilter:4:true", &new_opt));
+  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 4000);
+  EXPECT_EQ(bfp->GetWholeBitsPerKey(), 4);
+
+  // Back door way of enabling deprecated block-based Bloom
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt,
+      "filter_policy=rocksdb.internal.DeprecatedBlockBasedBloomFilter:4",
+      &new_opt));
+  auto builtin =
+      dynamic_cast<const BuiltinFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(builtin->GetId(),
+            "rocksdb.internal.DeprecatedBlockBasedBloomFilter:4");
+
+  // Test configuring using other internal names
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt,
+      "filter_policy=rocksdb.internal.LegacyBloomFilter:3", &new_opt));
+  builtin =
+      dynamic_cast<const BuiltinFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(builtin->GetId(), "rocksdb.internal.LegacyBloomFilter:3");
+
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt,
+      "filter_policy=rocksdb.internal.FastLocalBloomFilter:1.234", &new_opt));
+  builtin =
+      dynamic_cast<const BuiltinFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(builtin->GetId(), "rocksdb.internal.FastLocalBloomFilter:1.234");
+
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt,
+      "filter_policy=rocksdb.internal.Standard128RibbonFilter:1.234",
+      &new_opt));
+  builtin =
+      dynamic_cast<const BuiltinFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(builtin->GetId(), "rocksdb.internal.Standard128RibbonFilter:1.234");
 
   // Ribbon filter policy (no Bloom hybrid)
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt, "filter_policy=ribbonfilter:5.678:-1;",
       &new_opt));
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
-  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
-  EXPECT_EQ(bfp->GetMillibitsPerKey(), 5678);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
+  auto rfp =
+      dynamic_cast<const RibbonFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(rfp->GetMillibitsPerKey(), 5678);
+  EXPECT_EQ(rfp->GetBloomBeforeLevel(), -1);
 
   // Ribbon filter policy (default Bloom hybrid)
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt, "filter_policy=ribbonfilter:6.789;",
       &new_opt));
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
-  auto ltfp = dynamic_cast<const LevelThresholdFilterPolicy*>(
-      new_opt.filter_policy.get());
-  EXPECT_EQ(ltfp->TEST_GetStartingLevelForB(), 0);
-
-  bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyA());
-  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kFastLocalBloom);
-
-  bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyB());
-  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
+  rfp = dynamic_cast<const RibbonFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(rfp->GetMillibitsPerKey(), 6789);
+  EXPECT_EQ(rfp->GetBloomBeforeLevel(), 0);
 
   // Ribbon filter policy (custom Bloom hybrid)
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt, "filter_policy=ribbonfilter:6.789:5;",
       &new_opt));
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
-  ltfp = dynamic_cast<const LevelThresholdFilterPolicy*>(
-      new_opt.filter_policy.get());
-  EXPECT_EQ(ltfp->TEST_GetStartingLevelForB(), 5);
-
-  bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyA());
-  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kFastLocalBloom);
-
-  bfp = dynamic_cast<const BloomFilterPolicy*>(ltfp->TEST_GetPolicyB());
-  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
-
-  // Old name
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(
-      config_options, table_opt, "filter_policy=experimental_ribbon:6.789;",
-      &new_opt));
-  ASSERT_TRUE(new_opt.filter_policy != nullptr);
-  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
-  EXPECT_EQ(bfp->GetMillibitsPerKey(), 6789);
-  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
+  rfp = dynamic_cast<const RibbonFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(rfp->GetMillibitsPerKey(), 6789);
+  EXPECT_EQ(rfp->GetBloomBeforeLevel(), 5);
 
   // Check block cache options are overwritten when specified
   // in new format as a struct.
@@ -1093,6 +1104,25 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
                 ->GetHighPriPoolRatio(),
             0.5);
+
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=rocksdb.BloomFilter:1.234",
+      &new_opt));
+  ASSERT_TRUE(new_opt.filter_policy != nullptr);
+  ASSERT_TRUE(
+      new_opt.filter_policy->IsInstanceOf(BloomFilterPolicy::kClassName()));
+  ASSERT_TRUE(
+      new_opt.filter_policy->IsInstanceOf(BloomFilterPolicy::kNickName()));
+
+  // Ribbon filter policy alternative name
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=rocksdb.RibbonFilter:6.789:5;",
+      &new_opt));
+  ASSERT_TRUE(new_opt.filter_policy != nullptr);
+  ASSERT_TRUE(
+      new_opt.filter_policy->IsInstanceOf(RibbonFilterPolicy::kClassName()));
+  ASSERT_TRUE(
+      new_opt.filter_policy->IsInstanceOf(RibbonFilterPolicy::kNickName()));
 }
 #endif  // !ROCKSDB_LITE
 
@@ -2314,7 +2344,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"advise_random_on_open", "true"},
       {"experimental_mempurge_threshold", "0.0"},
       {"use_adaptive_mutex", "false"},
-      {"new_table_reader_for_compaction_inputs", "true"},
       {"compaction_readahead_size", "100"},
       {"random_access_max_buffer_size", "3145728"},
       {"writable_file_max_buffer_size", "314159"},
@@ -2469,7 +2498,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
   ASSERT_EQ(new_db_opt.experimental_mempurge_threshold, 0.0);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
-  ASSERT_EQ(new_db_opt.new_table_reader_for_compaction_inputs, true);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
   ASSERT_EQ(new_db_opt.random_access_max_buffer_size, 3145728);
   ASSERT_EQ(new_db_opt.writable_file_max_buffer_size, 314159);
@@ -2785,7 +2813,7 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       table_opt,
       "cache_index_and_filter_blocks=1;index_type=kHashSearch;"
-      "checksum=kxxHash;hash_index_allow_collision=1;no_block_cache=1;"
+      "checksum=kxxHash;no_block_cache=1;"
       "block_cache=1M;block_cache_compressed=1k;block_size=1024;"
       "block_size_deviation=8;block_restart_interval=4;"
       "format_version=5;whole_key_filtering=1;"
@@ -2794,7 +2822,6 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_TRUE(new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(new_opt.index_type, BlockBasedTableOptions::kHashSearch);
   ASSERT_EQ(new_opt.checksum, ChecksumType::kxxHash);
-  ASSERT_TRUE(new_opt.hash_index_allow_collision);
   ASSERT_TRUE(new_opt.no_block_cache);
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
@@ -2806,10 +2833,10 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(new_opt.format_version, 5U);
   ASSERT_EQ(new_opt.whole_key_filtering, true);
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
-  const BloomFilterPolicy& bfp =
-      dynamic_cast<const BloomFilterPolicy&>(*new_opt.filter_policy);
-  EXPECT_EQ(bfp.GetMillibitsPerKey(), 4567);
-  EXPECT_EQ(bfp.GetWholeBitsPerKey(), 5);
+  const BloomFilterPolicy* bfp =
+      dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 4567);
+  EXPECT_EQ(bfp->GetWholeBitsPerKey(), 5);
 
   // unknown option
   ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
@@ -2845,14 +2872,12 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
 
-  // unrecognized filter policy config
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
-             "cache_index_and_filter_blocks=1;"
-             "filter_policy=bloomfilter:4",
-             &new_opt));
-  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
-            new_opt.cache_index_and_filter_blocks);
-  ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
+  // Used to be rejected, now accepted
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      table_opt, "filter_policy=bloomfilter:4", &new_opt));
+  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 4000);
+  EXPECT_EQ(bfp->GetWholeBitsPerKey(), 4);
 
   // Check block cache options are overwritten when specified
   // in new format as a struct.

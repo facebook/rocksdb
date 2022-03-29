@@ -950,7 +950,8 @@ Status CheckTimestampsInWriteBatch(
 }  // namespace
 
 TEST_F(WriteBatchTest, SanityChecks) {
-  ColumnFamilyHandleImplDummy cf0(0, test::ComparatorWithU64Ts());
+  ColumnFamilyHandleImplDummy cf0(0,
+                                  test::BytewiseComparatorWithU64TsWrapper());
   ColumnFamilyHandleImplDummy cf4(4);
 
   WriteBatch wb(0, 0, 0, /*default_cf_ts_sz=*/sizeof(uint64_t));
@@ -998,13 +999,38 @@ TEST_F(WriteBatchTest, UpdateTimestamps) {
   std::vector<std::string> key_strs(num_of_keys, std::string(key_size, '\0'));
 
   ColumnFamilyHandleImplDummy cf0(0);
-  ColumnFamilyHandleImplDummy cf4(4, test::ComparatorWithU64Ts());
-  ColumnFamilyHandleImplDummy cf5(5, test::ComparatorWithU64Ts());
+  ColumnFamilyHandleImplDummy cf4(4,
+                                  test::BytewiseComparatorWithU64TsWrapper());
+  ColumnFamilyHandleImplDummy cf5(5,
+                                  test::BytewiseComparatorWithU64TsWrapper());
 
   const std::unordered_map<uint32_t, const Comparator*> cf_to_ucmps = {
       {0, cf0.GetComparator()},
       {4, cf4.GetComparator()},
       {5, cf5.GetComparator()}};
+
+  static constexpr size_t timestamp_size = sizeof(uint64_t);
+
+  {
+    WriteBatch wb1, wb2, wb3, wb4, wb5, wb6, wb7;
+    ASSERT_OK(wb1.Put(&cf0, "key", "value"));
+    ASSERT_FALSE(WriteBatchInternal::HasKeyWithTimestamp(wb1));
+    ASSERT_OK(wb2.Put(&cf4, "key", "value"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb2));
+    ASSERT_OK(wb3.Put(&cf4, "key", /*ts=*/std::string(timestamp_size, '\xfe'),
+                      "value"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb3));
+    ASSERT_OK(wb4.Delete(&cf4, "key",
+                         /*ts=*/std::string(timestamp_size, '\xfe')));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb4));
+    ASSERT_OK(wb5.Delete(&cf4, "key"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb5));
+    ASSERT_OK(wb6.SingleDelete(&cf4, "key"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb6));
+    ASSERT_OK(wb7.SingleDelete(&cf4, "key",
+                               /*ts=*/std::string(timestamp_size, '\xfe')));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb7));
+  }
 
   WriteBatch batch;
   // Write to the batch. We will assign timestamps later.
@@ -1014,7 +1040,6 @@ TEST_F(WriteBatchTest, UpdateTimestamps) {
     ASSERT_OK(batch.Put(&cf5, key_str, "value"));
   }
 
-  static constexpr size_t timestamp_size = sizeof(uint64_t);
   const auto checker1 = [](uint32_t cf) {
     if (cf == 4 || cf == 5) {
       return timestamp_size;

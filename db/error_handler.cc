@@ -9,6 +9,7 @@
 #include "db/event_helpers.h"
 #include "file/sst_file_manager_impl.h"
 #include "logging/logging.h"
+#include "port/lang.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -251,6 +252,8 @@ void ErrorHandler::CancelErrorRecovery() {
 #endif
 }
 
+STATIC_AVOID_DESTRUCTION(const Status, kOkStatus){Status::OK()};
+
 // This is the main function for looking at an error during a background
 // operation and deciding the severity, and error recovery strategy. The high
 // level algorithm is as follows -
@@ -269,11 +272,11 @@ void ErrorHandler::CancelErrorRecovery() {
 // This can also get called as part of a recovery operation. In that case, we
 // also track the error separately in recovery_error_ so we can tell in the
 // end whether recovery succeeded or not
-const Status& ErrorHandler::SetBGError(const Status& bg_err,
-                                       BackgroundErrorReason reason) {
+const Status& ErrorHandler::HandleKnownErrors(const Status& bg_err,
+                                              BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
   if (bg_err.ok()) {
-    return bg_err;
+    return kOkStatus;
   }
 
   if (bg_error_stats_ != nullptr) {
@@ -379,11 +382,14 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
 //    c) all other errors are mapped to hard error.
 // 3) for other cases, SetBGError(const Status& bg_err, BackgroundErrorReason
 //    reason) will be called to handle other error cases.
-const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
+const Status& ErrorHandler::SetBGError(const Status& bg_status,
                                        BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
+  Status tmp_status = bg_status;
+  IOStatus bg_io_err = status_to_io_status(std::move(tmp_status));
+
   if (bg_io_err.ok()) {
-    return bg_io_err;
+    return kOkStatus;
   }
   ROCKS_LOG_WARN(db_options_.info_log, "Background IO error %s",
                  bg_io_err.ToString().c_str());
@@ -480,7 +486,11 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
     if (bg_error_stats_ != nullptr) {
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
     }
-    return SetBGError(new_bg_io_err, reason);
+    // HandleKnownErrors() will use recovery_error_, so ignore
+    // recovery_io_error_.
+    // TODO: Do some refactoring and use only one recovery_error_
+    recovery_io_error_.PermitUncheckedError();
+    return HandleKnownErrors(new_bg_io_err, reason);
   }
 }
 
@@ -625,7 +635,7 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
   if (bg_error_.ok()) {
     return bg_error_;
   } else if (io_error.ok()) {
-    return io_error;
+    return kOkStatus;
   } else if (db_options_.max_bgerror_resume_count <= 0 || recovery_in_prog_) {
     // Auto resume BG error is not enabled, directly return bg_error_.
     return bg_error_;
