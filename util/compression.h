@@ -615,7 +615,7 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
     case kXpressCompression:
       return "Xpress";
     case kZSTD:
-      return "ZSTD";
+      return "ZSTD (" ZSTD_VERSION_STRING ")";
     case kZSTDNotFinalCompression:
       return "ZSTDNotFinal";
     case kDisableCompressionOption:
@@ -1434,7 +1434,7 @@ inline bool ZSTD_TrainDictionarySupported() {
 inline std::string ZSTD_TrainDictionary(const std::string& samples,
                                         const std::vector<size_t>& sample_lens,
                                         size_t max_dict_bytes,
-                                        bool finalizeDict = false) {
+                                        bool finalize_dict = false) {
   // Dictionary trainer is available since v0.6.1 for static linking, but not
   // available for dynamic linking until v1.1.3. For now we enable the feature
   // in v1.1.3+ only.
@@ -1452,7 +1452,7 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
   }
   assert(dict_len <= max_dict_bytes);
   dict_data.resize(dict_len);
-  if (!finalizeDict) {
+  if (!finalize_dict) {
     return dict_data;
   }
 
@@ -1474,6 +1474,7 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
   (void)samples;
   (void)sample_lens;
   (void)max_dict_bytes;
+  (void)finalize_dict;
   return "";
 #endif  // ZSTD_VERSION_NUMBER >= 10103
 }
@@ -1487,7 +1488,7 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
   // skips potential partial sample at the end of "samples"
   size_t num_samples = samples.size() >> sample_len_shift;
   std::vector<size_t> sample_lens(num_samples, size_t(1) << sample_len_shift);
-  return ZSTD_TrainDictionary(samples, sample_lens, max_dict_bytes, false);
+  return ZSTD_TrainDictionary(samples, sample_lens, max_dict_bytes, true);
 #else   // up to v1.1.2
   assert(false);
   (void)samples;
