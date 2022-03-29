@@ -185,6 +185,7 @@ public class BlockBasedTableConfigTest {
     }
   }
 
+  @SuppressWarnings("ObjectAllocationInLoop")
   @Test
   public void blockCacheIntegration() throws RocksDBException {
     try (final Cache cache = new LRUCache(8 * 1024 * 1024);
@@ -215,12 +216,7 @@ public class BlockBasedTableConfigTest {
     try (final DBOptions dbOptions = new DBOptions().
         setInfoLogLevel(InfoLogLevel.INFO_LEVEL).
         setCreateIfMissing(true);
-        final Logger logger = new Logger(dbOptions) {
-      @Override
-      protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
-        System.out.println(infoLogLevel.name() + ": " + logMsg);
-      }
-    }) {
+        final Logger logger = new SimpleLogger(dbOptions)) {
       try (final PersistentCache persistentCache =
                new PersistentCache(Env.getDefault(), dbFolder.getRoot().getPath(), 1024 * 1024 * 100, logger, false);
            final Options options = new Options().setTableFormatConfig(
@@ -239,6 +235,7 @@ public class BlockBasedTableConfigTest {
     }
   }
 
+  @SuppressWarnings("ObjectAllocationInLoop")
   @Ignore("See issue: https://github.com/facebook/rocksdb/issues/4822")
   @Test
   public void blockCacheCompressedIntegration() throws RocksDBException {
@@ -408,13 +405,13 @@ public class BlockBasedTableConfigTest {
     blockBasedTableConfig.setFormatVersion(-1);
   }
 
-  @Test(expected = RocksDBException.class)
+  @Test(expected = RuntimeException.class)
   public void invalidFormatVersion() throws RocksDBException {
     final BlockBasedTableConfig blockBasedTableConfig =
         new BlockBasedTableConfig().setFormatVersion(99999);
 
     try (final Options options = new Options().setTableFormatConfig(blockBasedTableConfig);
-         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+         final RocksDB ignored = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       fail("Opening the database with an invalid format_version should have raised an exception");
     }
   }
@@ -486,5 +483,16 @@ public class BlockBasedTableConfigTest {
     blockBasedTableConfig.setBlockCacheCompressedNumShardBits(4);
     assertThat(blockBasedTableConfig.blockCacheCompressedNumShardBits()).
         isEqualTo(4);
+  }
+
+  private static class SimpleLogger extends Logger {
+    private SimpleLogger(final DBOptions dbOptions) {
+      super(dbOptions);
+    }
+
+    @Override
+    protected void log(final InfoLogLevel infoLogLevel, final String logMsg) {
+      System.out.println(infoLogLevel.name() + ": " + logMsg);
+    }
   }
 }

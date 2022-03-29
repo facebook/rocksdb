@@ -203,7 +203,7 @@ public class WriteBatchWithIndexTest {
     readYourOwnWritesCfIterDirect(ByteBufferAllocator.HEAP);
   }
 
-  public void readYourOwnWritesCfIterDirect(final ByteBufferAllocator byteBufferAllocator)
+  private void readYourOwnWritesCfIterDirect(final ByteBufferAllocator byteBufferAllocator)
       throws RocksDBException {
     final List<ColumnFamilyDescriptor> cfNames =
         Arrays.asList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
@@ -477,6 +477,7 @@ public class WriteBatchWithIndexTest {
     }
   }
 
+  @SuppressWarnings("ObjectAllocationInLoop")
   @Test
   public void iterator() throws RocksDBException {
     try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true)) {
@@ -638,9 +639,9 @@ public class WriteBatchWithIndexTest {
         }
 
         //reverse iterative access
-        i = expected.length - 1;
+        int j = expected.length - 1;
         for (it.seekToLast(); it.isValid(); it.prev()) {
-          assertThat(it.entry()).isEqualTo(expected[i--]);
+          assertThat(it.entry()).isEqualTo(expected[j--]);
         }
       }
     }
@@ -847,9 +848,10 @@ public class WriteBatchWithIndexTest {
     }
   }
 
+  @SuppressWarnings("ReturnOfNull")
   private static String getFromWriteBatchWithIndex(final RocksDB db,
-      final ReadOptions readOptions, final WriteBatchWithIndex wbwi,
-      final String skey) {
+                                                   final ReadOptions readOptions, final WriteBatchWithIndex wbwi,
+                                                   final String skey) {
     final byte[] key = skey.getBytes();
     try (final RocksIterator baseIterator = db.newIterator(readOptions);
          final RocksIterator iterator = wbwi.newIteratorWithBase(baseIterator)) {
@@ -934,7 +936,7 @@ public class WriteBatchWithIndexTest {
       }
     }
   }
-  private byte[] toArray(final ByteBuffer buf) {
+  private static byte[] toArray(final ByteBuffer buf) {
     final byte[] ary = new byte[buf.remaining()];
     buf.get(ary);
     return ary;

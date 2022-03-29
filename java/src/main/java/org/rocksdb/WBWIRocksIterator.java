@@ -6,6 +6,8 @@
 package org.rocksdb;
 
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
+import java.util.Optional;
 
 public class WBWIRocksIterator
     extends AbstractRocksIterator<WriteBatchWithIndex> {
@@ -33,6 +35,7 @@ public class WBWIRocksIterator
     assert(isOwningHandle());
     final long[] ptrs = entry1(nativeHandle_);
 
+    //noinspection NumericCastThatLosesPrecision
     entry.type = WriteType.fromId((byte)ptrs[0]);
     entry.key.resetNativeHandle(ptrs[1], ptrs[1] != 0);
     entry.value.resetNativeHandle(ptrs[2], ptrs[2] != 0);
@@ -84,12 +87,12 @@ public class WBWIRocksIterator
     }
 
     public static WriteType fromId(final byte id) {
-      for(final WriteType wt : WriteType.values()) {
+      for(final WriteType wt : values()) {
         if(id == wt.id) {
           return wt;
         }
       }
-      throw new IllegalArgumentException("No WriteType with id=" + id);
+      throw new IllegalArgumentException(MessageFormat.format("No WriteType with id={0}", id));
     }
   }
 
@@ -109,6 +112,7 @@ public class WBWIRocksIterator
    * will not have a value.
    */
   public static class WriteEntry implements AutoCloseable {
+    @SuppressWarnings("RedundantFieldInitialization")
     WriteType type = null;
     final DirectSlice key;
     final DirectSlice value;
@@ -158,11 +162,21 @@ public class WBWIRocksIterator
      * the WriteEntry or null if the WriteEntry has
      * no value
      */
+    @SuppressWarnings("ReturnOfNull")
     public DirectSlice getValue() {
-      if(!value.isOwningHandle()) {
-        return null; //TODO(AR) migrate to JDK8 java.util.Optional#empty()
-      } else {
+      if (value.isOwningHandle()) {
         return value;
+      } else {
+        return null; //TODO(AR) migrate to JDK8 java.util.Optional#empty()
+      }
+    }
+
+    @SuppressWarnings("unused")
+    public Optional<DirectSlice> getDirectValue() {
+      if (value.isOwningHandle()) {
+        return Optional.of(value);
+      } else {
+        return Optional.empty();
       }
     }
 
@@ -180,18 +194,16 @@ public class WBWIRocksIterator
 
     @Override
     public boolean equals(final Object other) {
-      if(other == null) {
-        return false;
-      } else if (this == other) {
-        return true;
-      } else if(other instanceof WriteEntry) {
+      if (this == other) return true;
+      if (other == null) return false;
+      if(other instanceof WriteEntry) {
         final WriteEntry otherWriteEntry = (WriteEntry)other;
+        //noinspection NonFinalFieldReferenceInEquals
         return type.equals(otherWriteEntry.type)
             && key.equals(otherWriteEntry.key)
             && value.equals(otherWriteEntry.value);
-      } else {
-        return false;
       }
+      return false;
     }
 
     @Override
