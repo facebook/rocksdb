@@ -1126,6 +1126,8 @@ size_t BlockBasedTable::ApproximateMemoryUsage() const {
   size_t usage = 0;
   if (rep_) {
     usage += rep_->ApproximateMemoryUsage();
+  } else {
+    return usage;
   }
   if (rep_->filter) {
     usage += rep_->filter->ApproximateMemoryUsage();
