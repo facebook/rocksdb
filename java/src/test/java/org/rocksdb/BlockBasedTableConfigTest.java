@@ -405,7 +405,8 @@ public class BlockBasedTableConfigTest {
     blockBasedTableConfig.setFormatVersion(-1);
   }
 
-  @Test(expected = RuntimeException.class)
+  @SuppressWarnings("ExpectedExceptionNeverThrown")
+  @Test(expected = RocksDBException.class)
   public void invalidFormatVersion() throws RocksDBException {
     final BlockBasedTableConfig blockBasedTableConfig =
         new BlockBasedTableConfig().setFormatVersion(99999);
