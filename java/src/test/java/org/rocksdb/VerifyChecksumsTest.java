@@ -1,3 +1,8 @@
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 package org.rocksdb;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -19,7 +24,7 @@ public class VerifyChecksumsTest {
   @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
   /**
-   * Class to factor out DB manipulations within the test
+   * Class to factor out the specific DB operations within the test
    */
   abstract static class Operations {
     final int kv_count;
@@ -119,6 +124,18 @@ public class VerifyChecksumsTest {
 
   private static final int KV_COUNT = 10000;
 
+  /**
+   * Run some operations and count the TickerType.BLOCK_CHECKSUM_COMPUTE_COUNT before and after
+   * It should GO UP when the read options have checksum verification turned on.
+   * It shoulld REMAIN UNCHANGED when the read options have checksum verification turned off.
+   * As the read options refer only to the read operations, there are still a few checksums
+   * performed outside this (blocks are getting loaded for lots of reasons, not aways directly due
+   * to reads) but this test provides a good enough proxy for whether the flag is being noticed.
+   *
+   * @param operations the DB reading operations to perform which affect the checksum stats
+   *
+   * @throws RocksDBException
+   */
   private void verifyChecksums(final Operations operations) throws RocksDBException {
     final String dbPath = dbFolder.getRoot().getAbsolutePath();
 
