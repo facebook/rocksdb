@@ -5,9 +5,8 @@
 
 package org.rocksdb;
 
-import org.junit.ClassRule;
-import org.junit.Test;
-import org.rocksdb.test.RemoveEmptyValueCompactionFilterFactory;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -16,9 +15,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 import java.util.Random;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.fail;
+import org.junit.ClassRule;
+import org.junit.Test;
+import org.rocksdb.test.RemoveEmptyValueCompactionFilterFactory;
 
 public class ColumnFamilyOptionsTest {
 
@@ -51,10 +50,10 @@ public class ColumnFamilyOptionsTest {
         getColumnFamilyOptionsFromProps(properties)) {
       // setup sample properties
       assertThat(opt).isNotNull();
-      assertThat(String.valueOf(opt.writeBufferSize())).
-          isEqualTo(properties.getProperty("write_buffer_size"));
-      assertThat(String.valueOf(opt.maxWriteBufferNumber())).
-          isEqualTo(properties.getProperty("max_write_buffer_number"));
+      assertThat(String.valueOf(opt.writeBufferSize()))
+          .isEqualTo(properties.getProperty("write_buffer_size"));
+      assertThat(String.valueOf(opt.maxWriteBufferNumber()))
+          .isEqualTo(properties.getProperty("max_write_buffer_number"));
     }
   }
 
@@ -103,8 +102,7 @@ public class ColumnFamilyOptionsTest {
   @Test(expected = IllegalArgumentException.class)
   public void failColumnFamilyOptionsFromPropsWithEmptyProps() {
     try (final ColumnFamilyOptions ignored =
-             ColumnFamilyOptions.getColumnFamilyOptionsFromProps(
-                 new Properties())) {
+             ColumnFamilyOptions.getColumnFamilyOptionsFromProps(new Properties())) {
       fail("create column family from empty properties should not succeed");
     }
   }
@@ -486,12 +484,9 @@ public class ColumnFamilyOptionsTest {
       final List<CompressionType> compressionTypeList2 = columnFamilyOptions.compressionPerLevel();
 
       assertThat(compressionTypeList2.size()).isEqualTo(3);
-      assertThat(compressionTypeList2).
-          containsExactly(
-              CompressionType.BZLIB2_COMPRESSION,
-              CompressionType.SNAPPY_COMPRESSION,
+      assertThat(compressionTypeList2)
+          .containsExactly(CompressionType.BZLIB2_COMPRESSION, CompressionType.SNAPPY_COMPRESSION,
               CompressionType.LZ4_COMPRESSION);
-
     }
   }
 

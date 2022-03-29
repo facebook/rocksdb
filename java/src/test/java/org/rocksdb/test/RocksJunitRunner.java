@@ -31,27 +31,18 @@ public class RocksJunitRunner {
    * to print class and method to system out.
    */
   static class RocksJunitListener extends TextListener {
-
-    private static final NumberFormat secsFormat =
-        new DecimalFormat("###,###.###");
+    private static final NumberFormat secsFormat = new DecimalFormat("###,###.###");
 
     private final PrintStream writer;
 
-    @SuppressWarnings("RedundantFieldInitialization")
-    private String currentClassName = null;
-    @SuppressWarnings("RedundantFieldInitialization")
-    private String currentMethodName = null;
-    @SuppressWarnings("RedundantFieldInitialization")
-    private Status currentStatus = null;
+    @SuppressWarnings("RedundantFieldInitialization") private String currentClassName = null;
+    @SuppressWarnings("RedundantFieldInitialization") private String currentMethodName = null;
+    @SuppressWarnings("RedundantFieldInitialization") private Status currentStatus = null;
     private long currentTestsStartTime = System.currentTimeMillis();
-    @SuppressWarnings("RedundantFieldInitialization")
-    private int currentTestsCount = 0;
-    @SuppressWarnings("RedundantFieldInitialization")
-    private int currentTestsIgnoredCount = 0;
-    @SuppressWarnings("RedundantFieldInitialization")
-    private int currentTestsFailureCount = 0;
-    @SuppressWarnings("RedundantFieldInitialization")
-    private int currentTestsErrorCount = 0;
+    @SuppressWarnings("RedundantFieldInitialization") private int currentTestsCount = 0;
+    @SuppressWarnings("RedundantFieldInitialization") private int currentTestsIgnoredCount = 0;
+    @SuppressWarnings("RedundantFieldInitialization") private int currentTestsFailureCount = 0;
+    @SuppressWarnings("RedundantFieldInitialization") private int currentTestsErrorCount = 0;
 
     enum Status {
       IGNORED,
@@ -158,7 +149,7 @@ public class RocksJunitRunner {
     }
   }
 
-  private static final Class<?>[] EMPTY_CLASS_ARRAY = new Class<?>[0];
+  private static final Class<?>[] EMPTY_CLASS_ARRAY = new Class<?>[ 0 ];
 
   /**
    * Main method to execute tests

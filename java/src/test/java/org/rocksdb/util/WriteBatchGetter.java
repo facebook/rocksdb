@@ -7,13 +7,10 @@ import org.rocksdb.WriteBatch;
 import java.util.Arrays;
 
 public class WriteBatchGetter extends WriteBatch.Handler {
-
-  @SuppressWarnings("unused")
-  private int columnFamilyId = -1;
+  @SuppressWarnings("unused") private int columnFamilyId = -1;
 
   private final byte[] key;
-  @SuppressWarnings("InstanceVariableMayNotBeInitialized")
-  private byte[] value;
+  @SuppressWarnings("InstanceVariableMayNotBeInitialized") private byte[] value;
 
   public WriteBatchGetter(final byte[] key) {
     this.key = key;

@@ -4,14 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
-import org.assertj.core.api.AbstractObjectAssert;
-import org.assertj.core.api.ObjectAssert;
-import org.junit.ClassRule;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
-import org.rocksdb.AbstractEventListener.EnabledEventCallback;
-import org.rocksdb.test.TestableEventListener;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -25,8 +18,14 @@ import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.assertj.core.api.AbstractObjectAssert;
+import org.assertj.core.api.ObjectAssert;
+import org.junit.ClassRule;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+import org.rocksdb.AbstractEventListener.EnabledEventCallback;
+import org.rocksdb.test.TestableEventListener;
 
 @SuppressWarnings("AnonymousInnerClassMayBeStatic")
 public class EventListenerTest {
@@ -181,8 +180,8 @@ public class EventListenerTest {
     flushDb(onTableFileCreationStartedListener, wasCbCalled);
   }
 
-  private void deleteColumnFamilyHandle(final AbstractEventListener el, final AtomicBoolean wasCbCalled)
-      throws RocksDBException {
+  private void deleteColumnFamilyHandle(
+      final AbstractEventListener el, final AtomicBoolean wasCbCalled) throws RocksDBException {
     try (final Options opt =
              new Options().setCreateIfMissing(true).setListeners(Collections.singletonList(el));
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {

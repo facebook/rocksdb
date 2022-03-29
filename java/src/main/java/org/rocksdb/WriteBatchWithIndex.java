@@ -232,8 +232,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * Merge operations, MergeInProgress status may be returned.
    */
   @SuppressWarnings("RedundantThrows")
-  public byte[] getFromBatch(final DBOptions options, final byte[] key)
-      throws RocksDBException {
+  public byte[] getFromBatch(final DBOptions options, final byte[] key) throws RocksDBException {
     return getFromBatch(nativeHandle_, options.nativeHandle_, key, key.length);
   }
 

@@ -5,13 +5,12 @@
 
 package org.rocksdb;
 
-import org.junit.ClassRule;
-import org.junit.Test;
-
-import java.util.Random;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
+
+import java.util.Random;
+import org.junit.ClassRule;
+import org.junit.Test;
 
 public class BackupEngineOptionsTest {
   @SuppressWarnings("AccessOfSystemProperties")

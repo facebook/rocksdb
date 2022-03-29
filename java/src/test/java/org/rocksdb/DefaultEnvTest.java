@@ -97,14 +97,11 @@ public class DefaultEnvTest {
   @Test
   public void threadList_integration() throws RocksDBException {
     try (final Env env = Env.getDefault();
-         final Options opt = new Options()
-            .setCreateIfMissing(true)
-            .setCreateMissingColumnFamilies(true)
-            .setEnv(env)) {
+         final Options opt =
+             new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true).setEnv(
+                 env)) {
       // open database
-      try (final RocksDB ignored = RocksDB.open(opt,
-          dbFolder.getRoot().getAbsolutePath())) {
-
+      try (final RocksDB ignored = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
         final List<ThreadStatus> threadList = env.getThreadList();
         assertThat(threadList.size()).isGreaterThan(0);
       }

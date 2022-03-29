@@ -5,10 +5,9 @@
 
 package org.rocksdb;
 
-import org.junit.Test;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.junit.Test;
 
 public class CompressionTypesTest {
   @Test
@@ -16,11 +15,10 @@ public class CompressionTypesTest {
     for (final CompressionType compressionType : CompressionType.values()) {
       final String libraryName = compressionType.getLibraryName();
       if (compressionType == CompressionType.DISABLE_COMPRESSION_OPTION) {
-        assertThat(CompressionType.getCompressionType(
-            libraryName)).isEqualTo(CompressionType.NO_COMPRESSION);
+        assertThat(CompressionType.getCompressionType(libraryName))
+            .isEqualTo(CompressionType.NO_COMPRESSION);
       } else {
-        assertThat(CompressionType.getCompressionType(
-            libraryName)).isEqualTo(compressionType);
+        assertThat(CompressionType.getCompressionType(libraryName)).isEqualTo(compressionType);
       }
     }
   }

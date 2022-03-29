@@ -9,7 +9,6 @@ import org.junit.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class SizeUnitTest {
-
   private static final long COMPUTATION_UNIT = 1024L;
 
   @Test

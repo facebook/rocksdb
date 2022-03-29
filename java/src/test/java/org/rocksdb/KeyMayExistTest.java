@@ -4,6 +4,14 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.nio.BufferUnderflowException;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.ClassRule;
@@ -11,15 +19,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.rules.TemporaryFolder;
-
-import java.nio.BufferUnderflowException;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.assertj.core.api.Assertions.assertThat;
 
 public class KeyMayExistTest {
   @ClassRule
@@ -30,7 +29,8 @@ public class KeyMayExistTest {
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @SuppressWarnings("deprecation")
-  @Rule public ExpectedException exceptionRule = ExpectedException.none();
+  @Rule
+  public ExpectedException exceptionRule = ExpectedException.none();
 
   private final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
   private RocksDB db;
@@ -44,8 +44,9 @@ public class KeyMayExistTest {
 
   @Before
   public void before() throws RocksDBException {
-    final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
-        new ColumnFamilyDescriptor("new_cf".getBytes()));
+    final List<ColumnFamilyDescriptor> cfDescriptors =
+        Arrays.asList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+            new ColumnFamilyDescriptor("new_cf".getBytes()));
     final DBOptions options =
         new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
 
@@ -120,7 +121,8 @@ public class KeyMayExistTest {
 
     // Test slice key with column family
     final Holder<byte[]> holder = new Holder<>();
-    assertThat(db.keyMayExist(columnFamilyHandleList.get(0), sliceKey, offset, len, holder)).isTrue();
+    assertThat(db.keyMayExist(columnFamilyHandleList.get(0), sliceKey, offset, len, holder))
+        .isTrue();
     assertThat(holder.getValue()).isNotNull();
     assertThat(holder.getValue()).isEqualTo(sliceValue);
 
@@ -138,18 +140,26 @@ public class KeyMayExistTest {
     // Test slice key with column family and read options
     final Holder<byte[]> holder = new Holder<>();
     try (final ReadOptions readOptions = new ReadOptions()) {
-      assertThat(db.keyMayExist(columnFamilyHandleList.get(0), readOptions, "key".getBytes(UTF_8), holder)).isTrue();
+      assertThat(
+          db.keyMayExist(columnFamilyHandleList.get(0), readOptions, "key".getBytes(UTF_8), holder))
+          .isTrue();
       assertThat(holder.getValue()).isNotNull();
       assertThat(new String(holder.getValue(), UTF_8)).isEqualTo("value");
 
-      assertThat(db.keyMayExist(columnFamilyHandleList.get(0), readOptions, "key".getBytes(UTF_8), null)).isTrue();
+      assertThat(
+          db.keyMayExist(columnFamilyHandleList.get(0), readOptions, "key".getBytes(UTF_8), null))
+          .isTrue();
 
       // Test slice key with column family and read options
-      assertThat(db.keyMayExist(columnFamilyHandleList.get(0), readOptions, sliceKey, offset, len, holder)).isTrue();
+      assertThat(
+          db.keyMayExist(columnFamilyHandleList.get(0), readOptions, sliceKey, offset, len, holder))
+          .isTrue();
       assertThat(holder.getValue()).isNotNull();
       assertThat(holder.getValue()).isEqualTo(sliceValue);
 
-      assertThat(db.keyMayExist(columnFamilyHandleList.get(0), readOptions, sliceKey, offset, len, null)).isTrue();
+      assertThat(
+          db.keyMayExist(columnFamilyHandleList.get(0), readOptions, sliceKey, offset, len, null))
+          .isTrue();
     }
   }
 
@@ -175,16 +185,19 @@ public class KeyMayExistTest {
     assertThat(db.keyMayExist("slice key 0".getBytes(UTF_8), null)).isTrue();
 
     // Test with column family
-    assertThat(db.keyMayExist(columnFamilyHandleList.get(0), "key".getBytes(UTF_8), holder)).isTrue();
+    assertThat(db.keyMayExist(columnFamilyHandleList.get(0), "key".getBytes(UTF_8), holder))
+        .isTrue();
     assertThat(holder.getValue()).isNotNull();
     assertThat(new String(holder.getValue(), UTF_8)).isEqualTo("value");
 
     assertThat(db.keyMayExist(columnFamilyHandleList.get(0), "key".getBytes(UTF_8), null)).isTrue();
 
     // KeyMayExist in CF1 must return null value
-    assertThat(db.keyMayExist(columnFamilyHandleList.get(1), "key".getBytes(UTF_8), holder)).isFalse();
+    assertThat(db.keyMayExist(columnFamilyHandleList.get(1), "key".getBytes(UTF_8), holder))
+        .isFalse();
     assertThat(holder.getValue()).isNull();
-    assertThat(db.keyMayExist(columnFamilyHandleList.get(1), "key".getBytes(UTF_8), null)).isFalse();
+    assertThat(db.keyMayExist(columnFamilyHandleList.get(1), "key".getBytes(UTF_8), null))
+        .isFalse();
 
     // slice key
     assertThat(db.keyMayExist(columnFamilyHandleList.get(1), sliceKey, 1, 3, holder)).isFalse();
@@ -202,9 +215,11 @@ public class KeyMayExistTest {
 
     // KeyMayExist in CF1 must return null value
     final Holder<byte[]> holder = new Holder<>();
-    assertThat(db.keyMayExist(columnFamilyHandleList.get(1), "key".getBytes(UTF_8), holder)).isFalse();
+    assertThat(db.keyMayExist(columnFamilyHandleList.get(1), "key".getBytes(UTF_8), holder))
+        .isFalse();
     assertThat(holder.getValue()).isNull();
-    assertThat(db.keyMayExist(columnFamilyHandleList.get(1), "key".getBytes(UTF_8), null)).isFalse();
+    assertThat(db.keyMayExist(columnFamilyHandleList.get(1), "key".getBytes(UTF_8), null))
+        .isFalse();
   }
 
   @Test
@@ -352,7 +367,8 @@ public class KeyMayExistTest {
     exceptionRule.expect(AssertionError.class);
     exceptionRule.expectMessage(
         "value ByteBuffer parameter cannot be null. If you do not need the value, use a different version of the method");
-    @SuppressWarnings("unused") final KeyMayExist keyMayExist = db.keyMayExist(columnFamilyHandleList.get(0), keyBuffer2, null);
+    @SuppressWarnings("unused")
+    final KeyMayExist keyMayExist = db.keyMayExist(columnFamilyHandleList.get(0), keyBuffer2, null);
   }
 
   @Test
@@ -389,7 +405,8 @@ public class KeyMayExistTest {
       exceptionRule.expect(AssertionError.class);
       exceptionRule.expectMessage(
           "value ByteBuffer parameter cannot be null. If you do not need the value, use a different version of the method");
-      @SuppressWarnings({"unused", "ConstantConditions"}) final KeyMayExist keyMayExist =
+      @SuppressWarnings({"unused", "ConstantConditions"})
+      final KeyMayExist keyMayExist =
           db.keyMayExist(columnFamilyHandleList.get(0), readOptions, keyBuffer, null);
     }
   }
@@ -409,7 +426,8 @@ public class KeyMayExistTest {
 
     final ByteBuffer valueBuffer = ByteBuffer.allocateDirect(value.length + 24);
     valueBuffer.position(12);
-    final KeyMayExist keyMayExist = db.keyMayExist(columnFamilyHandleList.get(1), keyBuffer, valueBuffer);
+    final KeyMayExist keyMayExist =
+        db.keyMayExist(columnFamilyHandleList.get(1), keyBuffer, valueBuffer);
     assertThat(keyMayExist.exists).isEqualTo(KeyMayExist.KeyMayExistEnum.kExistsWithValue);
     assertThat(keyMayExist.valueLength).isEqualTo(value.length);
     assertThat(valueBuffer.position()).isEqualTo(12);
@@ -420,7 +438,8 @@ public class KeyMayExistTest {
 
     valueBuffer.limit(value.length + 24);
     valueBuffer.position(25);
-    final KeyMayExist keyMayExist2 = db.keyMayExist(columnFamilyHandleList.get(1), keyBuffer, valueBuffer);
+    final KeyMayExist keyMayExist2 =
+        db.keyMayExist(columnFamilyHandleList.get(1), keyBuffer, valueBuffer);
     assertThat(keyMayExist2.exists).isEqualTo(KeyMayExist.KeyMayExistEnum.kExistsWithValue);
     assertThat(keyMayExist2.valueLength).isEqualTo(value.length);
     assertThat(valueBuffer.position()).isEqualTo(25);
@@ -463,7 +482,8 @@ public class KeyMayExistTest {
 
       valueBuffer.limit(value.length + 24);
       valueBuffer.position(25);
-      final KeyMayExist keyMayExist2 = db.keyMayExist(columnFamilyHandleList.get(1), readOptions, keyBuffer, valueBuffer);
+      final KeyMayExist keyMayExist2 =
+          db.keyMayExist(columnFamilyHandleList.get(1), readOptions, keyBuffer, valueBuffer);
       assertThat(keyMayExist2.exists).isEqualTo(KeyMayExist.KeyMayExistEnum.kExistsWithValue);
       assertThat(keyMayExist2.valueLength).isEqualTo(value.length);
       assertThat(valueBuffer.position()).isEqualTo(25);
@@ -481,7 +501,8 @@ public class KeyMayExistTest {
   @Test
   public void keyMayExistNonUnicodeString() throws RocksDBException {
     final byte[] key = "key".getBytes(UTF_8);
-    @SuppressWarnings("NumericCastThatLosesPrecision") final byte[] value = {(byte) 0x80}; // invalid unicode code-point
+    @SuppressWarnings("NumericCastThatLosesPrecision")
+    final byte[] value = {(byte) 0x80}; // invalid unicode code-point
     db.put(key, value);
 
     final byte[] buf = new byte[10];

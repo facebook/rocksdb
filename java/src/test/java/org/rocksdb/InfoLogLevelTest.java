@@ -24,8 +24,7 @@ public class InfoLogLevelTest {
 
   @SuppressWarnings("MultipleExceptionsDeclaredOnTestMethod")
   @Test
-  public void testInfoLogLevel() throws RocksDBException,
-      IOException {
+  public void testInfoLogLevel() throws RocksDBException, IOException {
     try (final RocksDB db =
              RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       db.put("key".getBytes(), "value".getBytes());
@@ -38,8 +37,7 @@ public class InfoLogLevelTest {
 
   @SuppressWarnings("MultipleExceptionsDeclaredOnTestMethod")
   @Test
-  public void testFatalLogLevel() throws RocksDBException,
-      IOException {
+  public void testFatalLogLevel() throws RocksDBException, IOException {
     try (final Options options = new Options().
         setCreateIfMissing(true).
         setInfoLogLevel(InfoLogLevel.FATAL_LEVEL);
@@ -56,8 +54,7 @@ public class InfoLogLevelTest {
 
   @SuppressWarnings("MultipleExceptionsDeclaredOnTestMethod")
   @Test
-  public void testFatalLogLevelWithDBOptions()
-      throws RocksDBException, IOException {
+  public void testFatalLogLevelWithDBOptions() throws RocksDBException, IOException {
     try (final DBOptions dbOptions = new DBOptions().
         setInfoLogLevel(InfoLogLevel.FATAL_LEVEL);
          final Options options = new Options(dbOptions,
@@ -92,8 +89,8 @@ public class InfoLogLevelTest {
    * @throws IOException if file is not found.
    */
   private String getLogContentsWithoutHeader() throws IOException {
-    @SuppressWarnings("AccessOfSystemProperties") final String separator = Environment.isWindows() ?
-        "\n" : System.getProperty("line.separator");
+    @SuppressWarnings("AccessOfSystemProperties")
+    final String separator = Environment.isWindows() ? "\n" : System.getProperty("line.separator");
     final String[] lines = new String(readAllBytes(get(
         dbFolder.getRoot().getAbsolutePath() + "/LOG"))).split(separator);
 
@@ -102,7 +99,7 @@ public class InfoLogLevelTest {
     for (int i = lines.length - 1; i >= 0; --i) {
       if (lines[i].contains("DB pointer")) {
         first_non_header = i + 1;
-        //noinspection BreakStatement
+        // noinspection BreakStatement
         break;
       }
     }

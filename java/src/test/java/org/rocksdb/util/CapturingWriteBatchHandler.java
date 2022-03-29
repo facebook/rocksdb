@@ -60,8 +60,7 @@ public class CapturingWriteBatchHandler extends WriteBatch.Handler {
 
   @Override
   public void singleDelete(final int columnFamilyId, final byte[] key) {
-    events.add(new Event(Action.SINGLE_DELETE,
-        columnFamilyId, key, null));
+    events.add(new Event(Action.SINGLE_DELETE, columnFamilyId, key, null));
   }
 
   @Override
@@ -95,15 +94,13 @@ public class CapturingWriteBatchHandler extends WriteBatch.Handler {
   @SuppressWarnings("RedundantThrows")
   @Override
   public void markBeginPrepare() throws RocksDBException {
-    events.add(new Event(Action.MARK_BEGIN_PREPARE, null,
-        null));
+    events.add(new Event(Action.MARK_BEGIN_PREPARE, null, null));
   }
 
   @SuppressWarnings("RedundantThrows")
   @Override
   public void markEndPrepare(final byte[] xid) throws RocksDBException {
-    events.add(new Event(Action.MARK_END_PREPARE, null,
-        null));
+    events.add(new Event(Action.MARK_END_PREPARE, null, null));
   }
 
   @SuppressWarnings("RedundantThrows")
@@ -157,9 +154,10 @@ public class CapturingWriteBatchHandler extends WriteBatch.Handler {
         return false;
       }
       final Event event = (Event) o;
-      if (columnFamilyId == event.columnFamilyId) if (action == event.action) if ((key == null && event.key == null)
-          || Arrays.equals(key, event.key)) return (value == null && event.value == null)
-          || Arrays.equals(value, event.value);
+      if (columnFamilyId == event.columnFamilyId)
+        if (action == event.action)
+          if ((key == null && event.key == null) || Arrays.equals(key, event.key))
+            return (value == null && event.value == null) || Arrays.equals(value, event.value);
       return false;
     }
 

@@ -5,17 +5,16 @@
 
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.rocksdb.util.BytewiseComparator;
-
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * This test confirms that the following issues were in fact resolved
@@ -62,7 +61,7 @@ public class BytewiseComparatorRegressionTest {
   @Test
   public void testCppComparator() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true).setComparator(
-        BuiltinComparator.BYTEWISE_COMPARATOR)) {
+             BuiltinComparator.BYTEWISE_COMPARATOR)) {
       performTest(options);
     }
   }
@@ -94,7 +93,7 @@ public class BytewiseComparatorRegressionTest {
     for (int i = 0; i < bytes.length; i++) {
       final int firstDigit = toDigit(hexString.charAt(i + i));
       final int secondDigit = toDigit(hexString.charAt(i + i + 1));
-      //noinspection NumericCastThatLosesPrecision
+      // noinspection NumericCastThatLosesPrecision
       bytes[i] = (byte) ((firstDigit << 4) + secondDigit);
     }
 

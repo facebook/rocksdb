@@ -4,19 +4,18 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
-import org.junit.ClassRule;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.ClassRule;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 @SuppressWarnings("CheckForOutOfMemoryOnLargeArrayAllocation")
 public class BlobOptionsTest {
@@ -38,8 +37,7 @@ public class BlobOptionsTest {
    */
   @SuppressWarnings("CallToStringConcatCanBeReplacedByOperator")
   private int countDBFiles(final String endsWith) {
-    return Objects
-        .requireNonNull(dbFolder.getRoot().list((dir, name) -> name.endsWith(endsWith)))
+    return Objects.requireNonNull(dbFolder.getRoot().list((dir, name) -> name.endsWith(endsWith)))
         .length;
   }
 
@@ -58,7 +56,8 @@ public class BlobOptionsTest {
   }
 
   private static byte[] large_value(final String repeat) {
-    final byte[] large_value = (MessageFormat.format("{0}_{1}b", repeat, largeBlobSize)).getBytes(UTF_8);
+    final byte[] large_value =
+        (MessageFormat.format("{0}_{1}b", repeat, largeBlobSize)).getBytes(UTF_8);
     final byte[] large_buffer = new byte[largeBlobSize];
     for (int pos = 0; pos < largeBlobSize; pos += large_value.length) {
       final int numBytes = Math.min(large_value.length, large_buffer.length - pos);

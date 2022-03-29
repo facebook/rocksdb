@@ -17,7 +17,6 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class CompactionFilterFactoryTest {
-
   private static final byte[] ZERO_BYTES = new byte[0];
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();

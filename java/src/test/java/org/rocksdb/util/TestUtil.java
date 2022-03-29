@@ -5,13 +5,12 @@
 
 package org.rocksdb.util;
 
-import org.rocksdb.CompactionPriority;
-import org.rocksdb.Options;
-import org.rocksdb.WALRecoveryMode;
-
 import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 import java.util.Random;
+import org.rocksdb.CompactionPriority;
+import org.rocksdb.Options;
+import org.rocksdb.WALRecoveryMode;
 
 /**
  * General test utilities.
@@ -36,13 +35,13 @@ public class TestUtil {
    */
   @SuppressWarnings("resource")
   private static Options defaultOptions() {
-      return new Options()
-          .setWriteBufferSize(4090 * 4096)
-          .setTargetFileSizeBase(2 * 1024 * 1024)
-          .setMaxBytesForLevelBase(10 * 1024 * 1024)
-          .setMaxOpenFiles(5000)
-          .setWalRecoveryMode(WALRecoveryMode.TolerateCorruptedTailRecords)
-          .setCompactionPriority(CompactionPriority.ByCompensatedSize);
+    return new Options()
+        .setWriteBufferSize(4090 * 4096)
+        .setTargetFileSizeBase(2 * 1024 * 1024)
+        .setMaxBytesForLevelBase(10 * 1024 * 1024)
+        .setMaxOpenFiles(5000)
+        .setWalRecoveryMode(WALRecoveryMode.TolerateCorruptedTailRecords)
+        .setCompactionPriority(CompactionPriority.ByCompensatedSize);
   }
 
   private static final Random random = new SecureRandom();

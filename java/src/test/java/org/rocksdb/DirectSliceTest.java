@@ -58,8 +58,8 @@ public class DirectSliceTest {
   public void directSliceInitWithoutDirectAllocation() {
     final byte[] data = "Some text".getBytes();
     final ByteBuffer buffer = ByteBuffer.wrap(data);
-    //noinspection EmptyTryBlock
-    try(final DirectSlice ignored = new DirectSlice(buffer)) {
+    // noinspection EmptyTryBlock
+    try (final DirectSlice ignored = new DirectSlice(buffer)) {
       //no-op
     }
   }
@@ -68,8 +68,8 @@ public class DirectSliceTest {
   public void directSlicePrefixInitWithoutDirectAllocation() {
     final byte[] data = "Some text".getBytes();
     final ByteBuffer buffer = ByteBuffer.wrap(data);
-    //noinspection EmptyTryBlock
-    try(final DirectSlice ignored = new DirectSlice(buffer, 4)) {
+    // noinspection EmptyTryBlock
+    try (final DirectSlice ignored = new DirectSlice(buffer, 4)) {
       //no-op
     }
   }
