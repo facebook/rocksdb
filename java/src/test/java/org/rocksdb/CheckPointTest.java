@@ -8,6 +8,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 public class CheckPointTest {
 
@@ -59,8 +60,8 @@ public class CheckPointTest {
 
   @Test(expected = IllegalArgumentException.class)
   public void failIfDbIsNull() {
-    try (final Checkpoint checkpoint = Checkpoint.create(null)) {
-
+    try (final Checkpoint ignored = Checkpoint.create(null)) {
+      fail("Null db should throw exception on creation");
     }
   }
 

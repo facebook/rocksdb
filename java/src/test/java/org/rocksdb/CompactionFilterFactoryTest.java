@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class CompactionFilterFactoryTest {
 
+  private static final byte[] ZERO_BYTES = new byte[0];
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
@@ -45,10 +46,9 @@ public class CompactionFilterFactoryTest {
         final byte[] key2 = "key2".getBytes();
 
         final byte[] value1 = "value1".getBytes();
-        final byte[] value2 = new byte[0];
 
         rocksDb.put(cfHandles.get(1), key1, value1);
-        rocksDb.put(cfHandles.get(1), key2, value2);
+        rocksDb.put(cfHandles.get(1), key2, ZERO_BYTES);
 
         rocksDb.compactRange(cfHandles.get(1));
 

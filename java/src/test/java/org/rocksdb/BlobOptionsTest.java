@@ -4,17 +4,21 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.assertj.core.api.Assertions.assertThat;
-
-import java.io.File;
-import java.io.FilenameFilter;
-import java.util.*;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.assertThat;
+
+@SuppressWarnings("CheckForOutOfMemoryOnLargeArrayAllocation")
 public class BlobOptionsTest {
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
@@ -22,8 +26,8 @@ public class BlobOptionsTest {
 
   @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
-  final int minBlobSize = 65536;
-  final int largeBlobSize = 65536 * 2;
+  private static final int minBlobSize = 65536;
+  private static final int largeBlobSize = 65536 * 2;
 
   /**
    * Count the files in the temporary folder which end with a particular suffix
@@ -35,34 +39,29 @@ public class BlobOptionsTest {
   @SuppressWarnings("CallToStringConcatCanBeReplacedByOperator")
   private int countDBFiles(final String endsWith) {
     return Objects
-        .requireNonNull(dbFolder.getRoot().list(new FilenameFilter() {
-          @Override
-          public boolean accept(File dir, String name) {
-            return name.endsWith(endsWith);
-          }
-        }))
+        .requireNonNull(dbFolder.getRoot().list((dir, name) -> name.endsWith(endsWith)))
         .length;
   }
 
   @SuppressWarnings("SameParameterValue")
-  private byte[] small_key(String suffix) {
+  private static byte[] small_key(final String suffix) {
     return ("small_key_" + suffix).getBytes(UTF_8);
   }
 
   @SuppressWarnings("SameParameterValue")
-  private byte[] small_value(String suffix) {
+  private static byte[] small_value(final String suffix) {
     return ("small_value_" + suffix).getBytes(UTF_8);
   }
 
-  private byte[] large_key(String suffix) {
+  private static byte[] large_key(final String suffix) {
     return ("large_key_" + suffix).getBytes(UTF_8);
   }
 
-  private byte[] large_value(String repeat) {
-    final byte[] large_value = ("" + repeat + "_" + largeBlobSize + "b").getBytes(UTF_8);
+  private static byte[] large_value(final String repeat) {
+    final byte[] large_value = (MessageFormat.format("{0}_{1}b", repeat, largeBlobSize)).getBytes(UTF_8);
     final byte[] large_buffer = new byte[largeBlobSize];
     for (int pos = 0; pos < largeBlobSize; pos += large_value.length) {
-      int numBytes = Math.min(large_value.length, large_buffer.length - pos);
+      final int numBytes = Math.min(large_value.length, large_buffer.length - pos);
       System.arraycopy(large_value, 0, large_buffer, pos, numBytes);
     }
     return large_buffer;
@@ -232,14 +231,18 @@ public class BlobOptionsTest {
 
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       db.put(small_key("default"), small_value("default"));
-      db.flush(new FlushOptions().setWaitForFlush(true));
+      try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+        db.flush(flushOptions);
+      }
 
       // check there are no blobs in the database
       assertThat(countDBFiles(".sst")).isEqualTo(1);
       assertThat(countDBFiles(".blob")).isEqualTo(0);
 
       db.put(large_key("default"), large_value("default"));
-      db.flush(new FlushOptions().setWaitForFlush(true));
+      try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+        db.flush(flushOptions);
+      }
 
       // wrote and flushed a value larger than the blobbing threshold
       // check there is a single blob in the database
@@ -277,7 +280,9 @@ public class BlobOptionsTest {
          final RocksDB db = RocksDB.open(dbOptions, dbFolder.getRoot().getAbsolutePath(),
              columnFamilyDescriptors, columnFamilyHandles)) {
       db.put(columnFamilyHandles.get(0), small_key("default"), small_value("default"));
-      db.flush(new FlushOptions().setWaitForFlush(true));
+      try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+        db.flush(flushOptions);
+      }
 
       assertThat(countDBFiles(".blob")).isEqualTo(0);
 
@@ -338,12 +343,18 @@ public class BlobOptionsTest {
 
         db.put(columnFamilyHandles.get(1), large_key("column_family_1_k2"),
             large_value("column_family_1_k2"));
-        db.flush(new FlushOptions().setWaitForFlush(true), columnFamilyHandles.get(1));
+        try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+          db.flush(flushOptions, columnFamilyHandles.get(1));
+        }
+
         assertThat(countDBFiles(".blob")).isEqualTo(1);
 
         db.put(columnFamilyHandles.get(2), large_key("column_family_2_k2"),
             large_value("column_family_2_k2"));
-        db.flush(new FlushOptions().setWaitForFlush(true), columnFamilyHandles.get(2));
+        try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+          db.flush(flushOptions, columnFamilyHandles.get(2));
+        }
+
         assertThat(countDBFiles(".blob")).isEqualTo(1);
       }
     }

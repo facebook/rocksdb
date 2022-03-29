@@ -5,16 +5,17 @@
 
 package org.rocksdb;
 
-import static org.junit.Assert.assertArrayEquals;
-
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.rocksdb.util.BytewiseComparator;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * This test confirms that the following issues were in fact resolved
@@ -34,8 +35,8 @@ public class BytewiseComparatorRegressionTest {
 
   @Rule public TemporaryFolder temporarySSTFolder = new TemporaryFolder();
 
-  private final static byte[][] testData = {{10, -11, 13}, {10, 11, 12}, {10, 11, 14}};
-  private final static byte[][] orderedData = {{10, 11, 12}, {10, 11, 14}, {10, -11, 13}};
+  private static final byte[][] testData = {{10, -11, 13}, {10, 11, 12}, {10, 11, 14}};
+  private static final byte[][] orderedData = {{10, 11, 12}, {10, 11, 14}, {10, -11, 13}};
 
   /**
    * {@link <a href="https://github.com/facebook/rocksdb/issues/5891">...</a>}
@@ -43,12 +44,16 @@ public class BytewiseComparatorRegressionTest {
   @Test
   public void testJavaComparator() throws RocksDBException {
     final BytewiseComparator comparator = new BytewiseComparator(new ComparatorOptions());
-    performTest(new Options().setCreateIfMissing(true).setComparator(comparator));
+    try (final Options options = new Options().setCreateIfMissing(true).setComparator(comparator)) {
+      performTest(options);
+    }
   }
 
   @Test
   public void testDefaultComparator() throws RocksDBException {
-    performTest(new Options().setCreateIfMissing(true));
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      performTest(options);
+    }
   }
 
   /**
@@ -56,8 +61,10 @@ public class BytewiseComparatorRegressionTest {
    */
   @Test
   public void testCppComparator() throws RocksDBException {
-    performTest(new Options().setCreateIfMissing(true).setComparator(
-        BuiltinComparator.BYTEWISE_COMPARATOR));
+    try (final Options options = new Options().setCreateIfMissing(true).setComparator(
+        BuiltinComparator.BYTEWISE_COMPARATOR)) {
+      performTest(options);
+    }
   }
 
   private void performTest(final Options options) throws RocksDBException {
@@ -72,12 +79,13 @@ public class BytewiseComparatorRegressionTest {
           result.add(iterator.key());
           iterator.next();
         }
-        assertArrayEquals(orderedData, result.toArray());
+        assertThat(result.toArray()).isEqualTo(orderedData);
       }
     }
   }
 
-  private byte[] hexToByte(final String hexString) {
+  @SuppressWarnings("ProhibitedExceptionThrown")
+  private static byte[] hexToByte(final String hexString) {
     final byte[] bytes = new byte[hexString.length() / 2];
     if (bytes.length * 2 < hexString.length()) {
       throw new RuntimeException("Hex string has odd length: " + hexString);
@@ -86,13 +94,14 @@ public class BytewiseComparatorRegressionTest {
     for (int i = 0; i < bytes.length; i++) {
       final int firstDigit = toDigit(hexString.charAt(i + i));
       final int secondDigit = toDigit(hexString.charAt(i + i + 1));
+      //noinspection NumericCastThatLosesPrecision
       bytes[i] = (byte) ((firstDigit << 4) + secondDigit);
     }
 
     return bytes;
   }
 
-  private int toDigit(final char hexChar) {
+  private static int toDigit(final char hexChar) {
     final int digit = Character.digit(hexChar, 16);
     if (digit == -1) {
       throw new IllegalArgumentException("Invalid Hexadecimal Character: " + hexChar);
@@ -106,6 +115,7 @@ public class BytewiseComparatorRegressionTest {
    * @throws RocksDBException if something goes wrong, or if the regression occurs
    * @throws IOException if we can't make the temporary file
    */
+  @SuppressWarnings("MultipleExceptionsDeclaredOnTestMethod")
   @Test
   public void testSST() throws RocksDBException, IOException {
     final File tempSSTFile = temporarySSTFolder.newFile("test_file_with_weird_keys.sst");

@@ -5,12 +5,13 @@
 
 package org.rocksdb;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
-import java.util.Random;
-import org.junit.Assert;
 import org.junit.ClassRule;
 import org.junit.Test;
+
+import java.util.Random;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 public class BackupEngineOptionsTest {
   @SuppressWarnings("AccessOfSystemProperties")
@@ -176,7 +177,7 @@ public class BackupEngineOptionsTest {
   @Test(expected = IllegalArgumentException.class)
   public void failBackupDirIsNull() {
     try (final BackupEngineOptions ignored = new BackupEngineOptions(null)) {
-      Assert.fail("That's wierd");
+      fail("Create BackupEngineOptions with null path should exception");
     }
   }
 
@@ -292,7 +293,7 @@ public class BackupEngineOptionsTest {
   }
 
   private static class EmptyLogger extends Logger {
-    public EmptyLogger(Options options) {
+    private EmptyLogger(final Options options) {
       super(options);
     }
 

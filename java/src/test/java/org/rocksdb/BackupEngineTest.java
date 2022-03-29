@@ -234,8 +234,8 @@ public class BackupEngineTest {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
-  private List<BackupInfo> verifyNumberOfValidBackups(final BackupEngine be,
-      final int expectedNumberOfBackups) throws RocksDBException {
+  private static List<BackupInfo> verifyNumberOfValidBackups(final BackupEngine be,
+                                                             final int expectedNumberOfBackups) throws RocksDBException {
     // Verify that backups exist
     assertThat(be.getCorruptedBackups().length).
         isEqualTo(0);
@@ -253,7 +253,7 @@ public class BackupEngineTest {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
-  private void prepareDatabase(final RocksDB db)
+  private static void prepareDatabase(final RocksDB db)
       throws RocksDBException {
     db.put("key1".getBytes(), "valueV1".getBytes());
     db.put("key2".getBytes(), "valueV1".getBytes());

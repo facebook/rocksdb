@@ -5,16 +5,20 @@
 
 package org.rocksdb;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.Assert.assertEquals;
-
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.*;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.rocksdb.test.RemoveEmptyValueCompactionFilterFactory;
+
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Properties;
+import java.util.Random;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 public class ColumnFamilyOptionsTest {
 
@@ -27,11 +31,11 @@ public class ColumnFamilyOptionsTest {
 
   @Test
   public void copyConstructor() {
-    ColumnFamilyOptions origOpts = new ColumnFamilyOptions();
+    final ColumnFamilyOptions origOpts = new ColumnFamilyOptions();
     origOpts.setNumLevels(rand.nextInt(8));
     origOpts.setTargetFileSizeMultiplier(rand.nextInt(100));
     origOpts.setLevel0StopWritesTrigger(rand.nextInt(50));
-    ColumnFamilyOptions copyOpts = new ColumnFamilyOptions(origOpts);
+    final ColumnFamilyOptions copyOpts = new ColumnFamilyOptions(origOpts);
     assertThat(origOpts.numLevels()).isEqualTo(copyOpts.numLevels());
     assertThat(origOpts.targetFileSizeMultiplier()).isEqualTo(copyOpts.targetFileSizeMultiplier());
     assertThat(origOpts.level0StopWritesTrigger()).isEqualTo(copyOpts.level0StopWritesTrigger());
@@ -39,7 +43,7 @@ public class ColumnFamilyOptionsTest {
 
   @Test
   public void getColumnFamilyOptionsFromProps() {
-    Properties properties = new Properties();
+    final Properties properties = new Properties();
     properties.put("write_buffer_size", "112");
     properties.put("max_write_buffer_number", "13");
 
@@ -48,9 +52,9 @@ public class ColumnFamilyOptionsTest {
       // setup sample properties
       assertThat(opt).isNotNull();
       assertThat(String.valueOf(opt.writeBufferSize())).
-          isEqualTo(properties.get("write_buffer_size"));
+          isEqualTo(properties.getProperty("write_buffer_size"));
       assertThat(String.valueOf(opt.maxWriteBufferNumber())).
-          isEqualTo(properties.get("max_write_buffer_number"));
+          isEqualTo(properties.getProperty("max_write_buffer_number"));
     }
   }
 
@@ -69,9 +73,9 @@ public class ColumnFamilyOptionsTest {
       // setup sample properties
       assertThat(opt).isNotNull();
       assertThat(String.valueOf(opt.writeBufferSize()))
-          .isEqualTo(properties.get("write_buffer_size"));
+          .isEqualTo(properties.getProperty("write_buffer_size"));
       assertThat(String.valueOf(opt.maxWriteBufferNumber()))
-          .isEqualTo(properties.get("max_write_buffer_number"));
+          .isEqualTo(properties.getProperty("max_write_buffer_number"));
     }
   }
 
@@ -90,19 +94,22 @@ public class ColumnFamilyOptionsTest {
 
   @Test(expected = IllegalArgumentException.class)
   public void failColumnFamilyOptionsFromPropsWithNullValue() {
-    try (final ColumnFamilyOptions opt =
+    try (final ColumnFamilyOptions ignored =
              ColumnFamilyOptions.getColumnFamilyOptionsFromProps(null)) {
+      fail("create column family options from nulll properties should not succeed");
     }
   }
 
   @Test(expected = IllegalArgumentException.class)
   public void failColumnFamilyOptionsFromPropsWithEmptyProps() {
-    try (final ColumnFamilyOptions opt =
+    try (final ColumnFamilyOptions ignored =
              ColumnFamilyOptions.getColumnFamilyOptionsFromProps(
                  new Properties())) {
+      fail("create column family from empty properties should not succeed");
     }
   }
 
+  @SuppressWarnings("RedundantThrows")
   @Test
   public void writeBufferSize() throws RocksDBException {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
@@ -278,7 +285,7 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void arenaBlockSize() throws RocksDBException {
+  public void arenaBlockSize() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       final long longValue = rand.nextLong();
       opt.setArenaBlockSize(longValue);
@@ -314,7 +321,7 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void inplaceUpdateNumLocks() throws RocksDBException {
+  public void inplaceUpdateNumLocks() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       final long longValue = rand.nextLong();
       opt.setInplaceUpdateNumLocks(longValue);
@@ -368,7 +375,7 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void maxSuccessiveMerges() throws RocksDBException {
+  public void maxSuccessiveMerges() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       final long longValue = rand.nextLong();
       opt.setMaxSuccessiveMerges(longValue);
@@ -386,7 +393,7 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void memTable() throws RocksDBException {
+  public void memTable() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       opt.setMemTableConfig(new HashLinkedListMemTableConfig());
       assertThat(opt.memTableFactoryName()).
@@ -449,13 +456,13 @@ public class ColumnFamilyOptionsTest {
     try (final ColumnFamilyOptions columnFamilyOptions
              = new ColumnFamilyOptions()) {
       assertThat(columnFamilyOptions.compressionPerLevel()).isEmpty();
-      List<CompressionType> compressionTypeList = new ArrayList<>();
+      final List<CompressionType> compressionTypeList = new ArrayList<>();
       for (int i = 0; i < columnFamilyOptions.numLevels(); i++) {
         compressionTypeList.add(CompressionType.NO_COMPRESSION);
       }
       columnFamilyOptions.setCompressionPerLevel(compressionTypeList);
-      compressionTypeList = columnFamilyOptions.compressionPerLevel();
-      for (CompressionType compressionType : compressionTypeList) {
+      final List<CompressionType> compressionTypeList2 = columnFamilyOptions.compressionPerLevel();
+      for (final CompressionType compressionType : compressionTypeList2) {
         assertThat(compressionType).isEqualTo(
             CompressionType.NO_COMPRESSION);
       }
@@ -469,17 +476,17 @@ public class ColumnFamilyOptionsTest {
       columnFamilyOptions.setNumLevels(3);
 
       assertThat(columnFamilyOptions.compressionPerLevel()).isEmpty();
-      List<CompressionType> compressionTypeList = new ArrayList<>();
+      final List<CompressionType> compressionTypeList = new ArrayList<>();
 
       compressionTypeList.add(CompressionType.BZLIB2_COMPRESSION);
       compressionTypeList.add(CompressionType.SNAPPY_COMPRESSION);
       compressionTypeList.add(CompressionType.LZ4_COMPRESSION);
 
       columnFamilyOptions.setCompressionPerLevel(compressionTypeList);
-      compressionTypeList = columnFamilyOptions.compressionPerLevel();
+      final List<CompressionType> compressionTypeList2 = columnFamilyOptions.compressionPerLevel();
 
-      assertThat(compressionTypeList.size()).isEqualTo(3);
-      assertThat(compressionTypeList).
+      assertThat(compressionTypeList2.size()).isEqualTo(3);
+      assertThat(compressionTypeList2).
           containsExactly(
               CompressionType.BZLIB2_COMPRESSION,
               CompressionType.SNAPPY_COMPRESSION,
@@ -683,7 +690,7 @@ public class ColumnFamilyOptionsTest {
   public void oldDefaults() {
     try (final ColumnFamilyOptions options = new ColumnFamilyOptions()) {
       options.oldDefaults(4, 6);
-      assertEquals(4 << 20, options.writeBufferSize());
+      assertThat(options.writeBufferSize()).isEqualTo(4 << 20);
       assertThat(options.compactionPriority()).isEqualTo(CompactionPriority.ByCompensatedSize);
       assertThat(options.targetFileSizeBase()).isEqualTo(2 * 1048576);
       assertThat(options.maxBytesForLevelBase()).isEqualTo(10 * 1048576);
@@ -702,7 +709,7 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void cfPaths() throws IOException {
+  public void cfPaths() {
     try (final ColumnFamilyOptions options = new ColumnFamilyOptions()) {
       final List<DbPath> paths = Arrays.asList(
           new DbPath(Paths.get("test1"), 2 << 25), new DbPath(Paths.get("/test2/path"), 2 << 25));
