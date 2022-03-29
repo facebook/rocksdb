@@ -63,7 +63,8 @@ struct SavePoint {
 
 class WriteBatch : public WriteBatchBase {
  public:
-  explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0);
+  explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0)
+      : WriteBatch(reserved_bytes, max_bytes, 0, 0) {}
 
   // `protection_bytes_per_key` is the number of bytes used to store
   // protection information for each key entry. Currently supported values are
