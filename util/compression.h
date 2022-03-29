@@ -615,7 +615,11 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
     case kXpressCompression:
       return "Xpress";
     case kZSTD:
+#if defined(ZSTD_VERSION_STRING)
       return "ZSTD (" ZSTD_VERSION_STRING ")";
+#else
+      return "ZSTD";
+#endif
     case kZSTDNotFinalCompression:
       return "ZSTDNotFinal";
     case kDisableCompressionOption:
