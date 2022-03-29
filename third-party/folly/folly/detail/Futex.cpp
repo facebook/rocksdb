@@ -46,9 +46,15 @@ namespace {
 #define FUTEX_CLOCK_REALTIME 256
 #endif
 
+/// Newer 32bit CPUs eg. RISCV-32 are defaulting to 64bit time_t from get go and
+/// therefore do not define __NR_futex
+#if !defined(SYS_futex) && defined(SYS_futex_time64)
+# define SYS_futex SYS_futex_time64
+#endif
+
 int nativeFutexWake(const void* addr, int count, uint32_t wakeMask) {
   long rv = syscall(
-      __NR_futex,
+      SYS_futex,
       addr, /* addr1 */
       FUTEX_WAKE_BITSET | FUTEX_PRIVATE_FLAG, /* op */
       count, /* val */
@@ -111,7 +117,7 @@ FutexResult nativeFutexWaitImpl(
   // Unlike FUTEX_WAIT, FUTEX_WAIT_BITSET requires an absolute timeout
   // value - http://locklessinc.com/articles/futex_cheat_sheet/
   long rv = syscall(
-      __NR_futex,
+      SYS_futex,
       addr, /* addr1 */
       op, /* op */
       expected, /* val */
