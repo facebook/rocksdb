@@ -1,6 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Bug Fixes
+* Fixed bug which caused rocksdb failure in the situation when rocksdb was accessible using UNC path
 * Fixed a major bug in which batched MultiGet could return old values for keys deleted by DeleteRange when memtable Bloom filter is enabled (memtable_prefix_bloom_size_ratio > 0). (The fix includes a substantial MultiGet performance improvement in the unusual case of both memtable_whole_key_filtering and prefix_extractor.)
 * Fixed more cases of EventListener::OnTableFileCreated called with OK status, file_size==0, and no SST file kept. Now the status is Aborted.
 
