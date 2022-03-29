@@ -204,6 +204,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
+  @Deprecated
   public final void multiGetPut_cf() throws RocksDBException {
     final byte[][] keys = new byte[][] {
         "key1".getBytes(UTF_8),
@@ -248,6 +249,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
+  @Deprecated
   public void multiGetPut() throws RocksDBException {
     final byte[][] keys = new byte[][] {"key1".getBytes(UTF_8), "key2".getBytes(UTF_8)};
     final byte[][] values = new byte[][] {"value1".getBytes(UTF_8), "value2".getBytes(UTF_8)};
@@ -307,6 +309,7 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
+  @Deprecated
   public final void multiGetForUpdate_cf() throws RocksDBException {
     final byte[][] keys = new byte[][] {
         "key1".getBytes(UTF_8),
@@ -332,6 +335,32 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
+  public final void multiGetForUpdateAsList_cf() throws RocksDBException {
+    final byte[][] keys = new byte[][] {
+        "key1".getBytes(UTF_8),
+        "key2".getBytes(UTF_8)};
+    final byte[][] values = new byte[][] {
+        "value1".getBytes(UTF_8),
+        "value2".getBytes(UTF_8)};
+
+    try(final DBContainer dbContainer = startDb();
+        final ReadOptions readOptions = new ReadOptions();
+        final Transaction txn = dbContainer.beginTransaction()) {
+      final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
+      final List<ColumnFamilyHandle> cfList = Arrays.asList(testCf, testCf);
+
+      assertThat(txn.multiGetForUpdateAsList(readOptions, cfList, Arrays.asList(keys)))
+          .isEqualTo(Arrays.asList(null, null));
+
+      txn.put(testCf, keys[0], values[0]);
+      txn.put(testCf, keys[1], values[1]);
+      assertThat(txn.multiGetForUpdateAsList(readOptions, cfList, Arrays.asList(keys)))
+          .isEqualTo(Arrays.asList(values));
+    }
+  }
+
+  @Test
+  @Deprecated
   public final void multiGetForUpdate() throws RocksDBException {
     final byte[][] keys = new byte[][]{
         "key1".getBytes(UTF_8),
@@ -348,6 +377,27 @@ public abstract class AbstractTransactionTest {
       txn.put(keys[0], values[0]);
       txn.put(keys[1], values[1]);
       assertThat(txn.multiGetForUpdate(readOptions, keys)).isEqualTo(values);
+    }
+  }
+
+  @Test
+  public final void multiGetForUpdateAsList() throws RocksDBException {
+    final byte[][] keys = new byte[][]{
+        "key1".getBytes(UTF_8),
+        "key2".getBytes(UTF_8)};
+    final byte[][] values = new byte[][]{
+        "value1".getBytes(UTF_8),
+        "value2".getBytes(UTF_8)};
+
+    try (final DBContainer dbContainer = startDb();
+         final ReadOptions readOptions = new ReadOptions();
+         final Transaction txn = dbContainer.beginTransaction()) {
+      assertThat(txn.multiGetForUpdateAsList(readOptions, Arrays.asList(keys))).isEqualTo(
+          Arrays.asList(null, null));
+
+      txn.put(keys[0], values[0]);
+      txn.put(keys[1], values[1]);
+      assertThat(txn.multiGetForUpdateAsList(readOptions, Arrays.asList(keys))).isEqualTo(Arrays.asList(values));
     }
   }
 
@@ -752,6 +802,7 @@ public abstract class AbstractTransactionTest {
     }
   }
 
+  @SuppressWarnings({"OverlyBroadThrowsClause", "ProhibitedExceptionDeclared"})
   @Test
   public final void elapsedTime() throws Exception {
     final long preStartTxnTime = System.currentTimeMillis();

@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
+
 public enum WalProcessingOption {
   /**
    * Continue processing as usual.
@@ -43,12 +45,12 @@ public enum WalProcessingOption {
   }
 
   public static WalProcessingOption fromValue(final byte value) {
-    for (final WalProcessingOption walProcessingOption : WalProcessingOption.values()) {
+    for (final WalProcessingOption walProcessingOption : values()) {
       if (walProcessingOption.value == value) {
         return walProcessingOption;
       }
     }
     throw new IllegalArgumentException(
-        "Illegal value provided for WalProcessingOption: " + value);
+        MessageFormat.format("Illegal value provided for WalProcessingOption: {0}", value));
   }
 }

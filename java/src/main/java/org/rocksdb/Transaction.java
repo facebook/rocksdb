@@ -340,7 +340,7 @@ public class Transaction extends RocksObject {
    * @throws IllegalArgumentException thrown if the size of passed keys is not
    *    equal to the amount of passed column family handles.
    */
-  @SuppressWarnings("deprecation")
+  @Deprecated
   public byte[][] multiGet(final ReadOptions readOptions,
                            final List<ColumnFamilyHandle> columnFamilyHandles,
                            final byte[][] keys) throws RocksDBException {
@@ -401,7 +401,7 @@ public class Transaction extends RocksObject {
     if (keys.size() != columnFamilyHandles.size()) {
       throw new IllegalArgumentException("For each key there must be a ColumnFamilyHandle.");
     }
-    if (keys.size() == 0) {
+    if (keys.isEmpty()) {
       return new ArrayList<>(0);
     }
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
@@ -438,7 +438,7 @@ public class Transaction extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  @SuppressWarnings("deprecation")
+  @Deprecated
   public byte[][] multiGet(final ReadOptions readOptions,
                            final byte[][] keys) throws RocksDBException {
     assert(isOwningHandle());
@@ -477,7 +477,7 @@ public class Transaction extends RocksObject {
    */
   public List<byte[]> multiGetAsList(final ReadOptions readOptions, final List<byte[]> keys)
       throws RocksDBException {
-    if (keys.size() == 0) {
+    if (keys.isEmpty()) {
       return new ArrayList<>(0);
     }
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
@@ -632,6 +632,8 @@ public class Transaction extends RocksObject {
    *
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
+   *
+   * @deprecated Use {@link #multiGetForUpdateAsList} instead.
    */
   @Deprecated
   public byte[][] multiGetForUpdate(final ReadOptions readOptions,
@@ -679,7 +681,7 @@ public class Transaction extends RocksObject {
     if (keys.size() != columnFamilyHandles.size()) {
       throw new IllegalArgumentException("For each key there must be a ColumnFamilyHandle.");
     }
-    if (keys.size() == 0) {
+    if (keys.isEmpty()) {
       return new ArrayList<>();
     }
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
@@ -731,7 +733,7 @@ public class Transaction extends RocksObject {
   public List<byte[]> multiGetForUpdateAsList(
       final ReadOptions readOptions, final List<byte[]> keys) throws RocksDBException {
     assert (isOwningHandle());
-    if (keys.size() == 0) {
+    if (keys.isEmpty()) {
       return new ArrayList<>(0);
     }
 

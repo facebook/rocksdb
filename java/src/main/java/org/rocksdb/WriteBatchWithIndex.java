@@ -211,6 +211,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * @throws RocksDBException if the batch does not have enough data to resolve
    * Merge operations, MergeInProgress status may be returned.
    */
+  @SuppressWarnings({"unused", "RedundantThrows"})
   public byte[] getFromBatch(final ColumnFamilyHandle columnFamilyHandle,
                              final DBOptions options, final byte[] key) throws RocksDBException {
     return getFromBatch(nativeHandle_, options.nativeHandle_,
@@ -258,8 +259,9 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    *
    * @throws RocksDBException if the value for the key cannot be read
    */
+  @SuppressWarnings({"unused", "RedundantThrows"})
   public byte[] getFromBatchAndDB(final RocksDB db, final ColumnFamilyHandle columnFamilyHandle,
-      final ReadOptions options, final byte[] key) throws RocksDBException {
+                                  final ReadOptions options, final byte[] key) throws RocksDBException {
     return getFromBatchAndDB(nativeHandle_, db.nativeHandle_,
         options.nativeHandle_, key, key.length,
         columnFamilyHandle.nativeHandle_);
@@ -287,6 +289,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    *
    * @throws RocksDBException if the value for the key cannot be read
    */
+  @SuppressWarnings("RedundantThrows")
   public byte[] getFromBatchAndDB(final RocksDB db, final ReadOptions options,
       final byte[] key) throws RocksDBException {
     return getFromBatchAndDB(nativeHandle_, db.nativeHandle_,

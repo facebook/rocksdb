@@ -36,6 +36,7 @@ public abstract class RocksCallbackObject extends
    *
    * @return the native handles
    */
+  @SuppressWarnings("ReturnOfNull")
   static /* @Nullable */ long[] toNativeHandleList(
       /* @Nullable */ final List<? extends RocksCallbackObject> objectList) {
     if (objectList == null) {

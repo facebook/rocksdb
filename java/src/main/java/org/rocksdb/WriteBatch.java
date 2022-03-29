@@ -125,6 +125,7 @@ public class WriteBatch extends AbstractWriteBatch {
    *
    * @return true if Merge will be called during Iterate.
    */
+  @SuppressWarnings("unused")
   public boolean hasMerge() {
     return hasMerge(nativeHandle_);
   }
@@ -285,7 +286,7 @@ public class WriteBatch extends AbstractWriteBatch {
   public abstract static class Handler
       extends RocksCallbackObject {
     protected Handler() {
-      super(null);
+      super();
     }
 
     @Override
@@ -309,18 +310,26 @@ public class WriteBatch extends AbstractWriteBatch {
         final byte[] beginKey, final byte[] endKey) throws RocksDBException;
     public abstract void deleteRange(final byte[] beginKey,
         final byte[] endKey);
+    @SuppressWarnings("unused")
     public abstract void logData(final byte[] blob);
+    @SuppressWarnings("unused")
     public abstract void putBlobIndex(final int columnFamilyId,
         final byte[] key, final byte[] value) throws RocksDBException;
+    @SuppressWarnings("unused")
     public abstract void markBeginPrepare() throws RocksDBException;
+    @SuppressWarnings("unused")
     public abstract void markEndPrepare(final byte[] xid)
         throws RocksDBException;
+    @SuppressWarnings("unused")
     public abstract void markNoop(final boolean emptyBatch)
         throws RocksDBException;
+    @SuppressWarnings("unused")
     public abstract void markRollback(final byte[] xid)
         throws RocksDBException;
+    @SuppressWarnings("unused")
     public abstract void markCommit(final byte[] xid)
         throws RocksDBException;
+    @SuppressWarnings("unused")
     public abstract void markCommitWithTimestamp(final byte[] xid, final byte[] ts)
         throws RocksDBException;
 
@@ -334,6 +343,7 @@ public class WriteBatch extends AbstractWriteBatch {
      * @return boolean value indicating if the
      *     iteration is halted.
      */
+    @SuppressWarnings({"unused", "MethodMayBeStatic"})
     public boolean shouldContinue() {
       return true;
     }

@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.text.MessageFormat;
+
 public enum WalFileType {
   /**
    * Indicates that WAL file is in archive directory. WAL files are moved from
@@ -31,6 +33,7 @@ public enum WalFileType {
    *
    * @return the internal representation value
    */
+  @SuppressWarnings("unused")
   byte getValue() {
     return value;
   }
@@ -43,13 +46,13 @@ public enum WalFileType {
    * @throws IllegalArgumentException if the value is unknown.
    */
   static WalFileType fromValue(final byte value) {
-    for (final WalFileType walFileType : WalFileType.values()) {
+    for (final WalFileType walFileType : values()) {
       if(walFileType.value == value) {
         return walFileType;
       }
     }
 
     throw new IllegalArgumentException(
-        "Illegal value provided for WalFileType: " + value);
+        MessageFormat.format("Illegal value provided for WalFileType: {0}", value));
   }
 }

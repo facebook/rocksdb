@@ -23,7 +23,7 @@ public enum TxnDBWritePolicy {
    */
   WRITE_UNPREPARED((byte)0x2);
 
-  private byte value;
+  private final byte value;
 
   TxnDBWritePolicy(final byte value) {
     this.value = value;
@@ -50,8 +50,8 @@ public enum TxnDBWritePolicy {
    *     the provided byteIdentifier
    */
   public static TxnDBWritePolicy getTxnDBWritePolicy(final byte byteIdentifier) {
-    for (final TxnDBWritePolicy txnDBWritePolicy : TxnDBWritePolicy.values()) {
-      if (txnDBWritePolicy.getValue() == byteIdentifier) {
+    for (final TxnDBWritePolicy txnDBWritePolicy : values()) {
+      if (txnDBWritePolicy.value == byteIdentifier) {
         return txnDBWritePolicy;
       }
     }

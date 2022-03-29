@@ -46,6 +46,7 @@ public class TransactionOptions extends RocksObject
    *
    * @return this TransactionOptions instance
    */
+  @SuppressWarnings("UnusedReturnValue")
   public TransactionOptions setDeadlockDetect(final boolean deadlockDetect) {
     assert(isOwningHandle());
     setDeadlockDetect(nativeHandle_, deadlockDetect);
@@ -56,7 +57,7 @@ public class TransactionOptions extends RocksObject
    * The wait timeout in milliseconds when a transaction attempts to lock a key.
    *
    * If 0, no waiting is done if a lock cannot instantly be acquired.
-   * If negative, {@link TransactionDBOptions#getTransactionLockTimeout(long)}
+   * If negative, {@link TransactionDBOptions#getTransactionLockTimeout()}
    * will be used
    *
    * @return the lock timeout in milliseconds
@@ -71,7 +72,7 @@ public class TransactionOptions extends RocksObject
    * a transaction attempts to lock a key.
    *
    * If 0, no waiting is done if a lock cannot instantly be acquired.
-   * If negative, {@link TransactionDBOptions#getTransactionLockTimeout(long)}
+   * If negative, {@link TransactionDBOptions#getTransactionLockTimeout()}
    * will be used
    *
    * Default: -1
@@ -115,6 +116,7 @@ public class TransactionOptions extends RocksObject
    *
    * @return this TransactionOptions instance
    */
+  @SuppressWarnings("UnusedReturnValue")
   public TransactionOptions setExpiration(final long expiration) {
     assert(isOwningHandle());
     setExpiration(nativeHandle_, expiration);
@@ -141,6 +143,7 @@ public class TransactionOptions extends RocksObject
    *
    * @return this TransactionOptions instance
    */
+  @SuppressWarnings("UnusedReturnValue")
   public TransactionOptions setDeadlockDetectDepth(
       final long deadlockDetectDepth) {
     setDeadlockDetectDepth(nativeHandle_, deadlockDetectDepth);
@@ -163,12 +166,13 @@ public class TransactionOptions extends RocksObject
    *
    * @return this TransactionOptions instance
    */
+  @SuppressWarnings("UnusedReturnValue")
   public TransactionOptions setMaxWriteBatchSize(final long maxWriteBatchSize) {
     setMaxWriteBatchSize(nativeHandle_, maxWriteBatchSize);
     return this;
   }
 
-  private native static long newTransactionOptions();
+  private static native long newTransactionOptions();
   private native boolean isSetSnapshot(final long handle);
   private native void setSetSnapshot(final long handle,
       final boolean setSnapshot);

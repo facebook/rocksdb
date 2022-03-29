@@ -15,7 +15,7 @@ public class TransactionDBOptions extends RocksObject {
    * Specifies the maximum number of keys that can be locked at the same time
    * per column family.
    *
-   * If the number of locked keys is greater than {@link #getMaxNumLocks()},
+   * If the number of locked keys is greater than this number,
    * transaction writes (or GetForUpdate) will return an error.
    *
    * @return The maximum number of keys that can be locked
@@ -37,6 +37,7 @@ public class TransactionDBOptions extends RocksObject {
    *
    * @return this TransactionDBOptions instance
    */
+  @SuppressWarnings("UnusedReturnValue")
   public TransactionDBOptions setMaxNumLocks(final long maxNumLocks) {
     assert(isOwningHandle());
     setMaxNumLocks(nativeHandle_, maxNumLocks);
@@ -64,6 +65,7 @@ public class TransactionDBOptions extends RocksObject {
    *
    * @return this TransactionDBOptions instance
    */
+  @SuppressWarnings("UnusedReturnValue")
   public TransactionDBOptions setNumStripes(final long numStripes) {
     assert(isOwningHandle());
     setNumStripes(nativeHandle_, numStripes);
@@ -101,6 +103,7 @@ public class TransactionDBOptions extends RocksObject {
    *
    * @return this TransactionDBOptions instance
    */
+  @SuppressWarnings("UnusedReturnValue")
   public TransactionDBOptions setTransactionLockTimeout(
       final long transactionLockTimeout) {
     assert(isOwningHandle());
@@ -110,9 +113,9 @@ public class TransactionDBOptions extends RocksObject {
 
   /**
    * The wait timeout in milliseconds when writing a key
-   * OUTSIDE of a transaction (ie by calling {@link RocksDB#put},
-   * {@link RocksDB#merge}, {@link RocksDB#delete} or {@link RocksDB#write}
-   * directly).
+   * OUTSIDE of a transaction (ie by calling {@link org.rocksdb.RocksDB#put(byte[], byte[])},
+   * {@link org.rocksdb.RocksDB#merge(byte[], byte[])}, {@link RocksDB#delete(byte[])} or {@link RocksDB#write}
+   * , or one of their variants, directly).
    *
    * If 0, no waiting is done if a lock cannot instantly be acquired.
    * If negative, there is no timeout and will block indefinitely when acquiring
@@ -128,9 +131,9 @@ public class TransactionDBOptions extends RocksObject {
 
   /**
    * If positive, specifies the wait timeout in milliseconds when writing a key
-   * OUTSIDE of a transaction (ie by calling {@link RocksDB#put},
-   * {@link RocksDB#merge}, {@link RocksDB#delete} or {@link RocksDB#write}
-   * directly).
+   * OUTSIDE of a transaction (ie by calling {@link org.rocksdb.RocksDB#put(byte[], byte[])},
+   * {@link org.rocksdb.RocksDB#merge(byte[], byte[])}, {@link RocksDB#delete(byte[])} or {@link RocksDB#write}
+   * , or one of their variants, directly).
    *
    * If 0, no waiting is done if a lock cannot instantly be acquired.
    * If negative, there is no timeout and will block indefinitely when acquiring
@@ -148,7 +151,8 @@ public class TransactionDBOptions extends RocksObject {
    *     OUTSIDE of a transaction
    * @return this TransactionDBOptions instance
    */
-   public TransactionDBOptions setDefaultLockTimeout(
+  @SuppressWarnings("UnusedReturnValue")
+  public TransactionDBOptions setDefaultLockTimeout(
        final long defaultLockTimeout) {
      assert(isOwningHandle());
      setDefaultLockTimeout(nativeHandle_, defaultLockTimeout);
@@ -192,6 +196,7 @@ public class TransactionDBOptions extends RocksObject {
    *
    * @return this TransactionDBOptions instance
    */
+  @SuppressWarnings("UnusedReturnValue")
   public TransactionDBOptions setWritePolicy(
       final TxnDBWritePolicy writePolicy) {
     assert(isOwningHandle());
@@ -199,7 +204,7 @@ public class TransactionDBOptions extends RocksObject {
     return this;
   }
 
-  private native static long newTransactionDBOptions();
+  private static native long newTransactionDBOptions();
   private native long getMaxNumLocks(final long handle);
   private native void setMaxNumLocks(final long handle,
       final long maxNumLocks);

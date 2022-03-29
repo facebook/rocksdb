@@ -26,6 +26,7 @@ public interface WalFilter {
    * @param cfLognumber column_family_id to lognumber map
    * @param cfNameId column_family_name to column_family_id map
    */
+  @SuppressWarnings("unused")
   void columnFamilyLogNumberMap(final Map<Integer, Long> cfLognumber,
       final Map<String, Integer> cfNameId);
 
@@ -58,6 +59,7 @@ public interface WalFilter {
       final WriteBatch newBatch);
 
   class LogRecordFoundResult {
+    @SuppressWarnings("unused")
     public static LogRecordFoundResult CONTINUE_UNCHANGED =
         new LogRecordFoundResult(WalProcessingOption.CONTINUE_PROCESSING, false);
 
