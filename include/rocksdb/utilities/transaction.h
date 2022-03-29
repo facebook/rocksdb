@@ -557,6 +557,8 @@ class Transaction {
 
   virtual Status RebuildFromWriteBatch(WriteBatch* src_batch) = 0;
 
+  // Note: data in the commit-time-write-batch bypasses concurrency control,
+  // thus should be used with great caution.
   virtual WriteBatch* GetCommitTimeWriteBatch() = 0;
 
   virtual void SetLogNumber(uint64_t log) { log_number_ = log; }
