@@ -152,11 +152,6 @@ struct SavePoints {
   std::stack<SavePoint, autovector<SavePoint>> stack;
 };
 
-// TODO gonzo this constructor delegation could happen in the .h file to inline
-// it, but that requires doing make clean -- left for later.
-WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes)
-    : WriteBatch(reserved_bytes, max_bytes, 0, 0) {}
-
 WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes,
                        size_t protection_bytes_per_key, size_t default_cf_ts_sz)
     : content_flags_(0),
@@ -2610,114 +2605,88 @@ Status WriteBatchInternal::InsertInto(
   return s;
 }
 
-// This class computes checksums for a WriteBatch.
-// This is WIP -- gonzo does not really fully know (yet) what he is doing.
-class ChecksumUpdater : public WriteBatch::Handler {
+// This class adds checksums for a WriteBatch.
+class ChecksumAdder : public WriteBatch::Handler {
  public:
-  explicit ChecksumUpdater(WriteBatch::ProtectionInfo* prot_info)
+  explicit ChecksumAdder(WriteBatch::ProtectionInfo* prot_info)
       : prot_info_(prot_info) {}
 
-  ~ChecksumUpdater() override {}
+  ~ChecksumAdder() override {}
 
   Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
-    return update_checksum(cf, key, val);
+    return add_checksum(cf, key, val, kTypeValue);
   }
 
-  Status DeleteCF(uint32_t /* cf */, const Slice& /* key */) override {
-    // TODO gonzo: does it make sense to checksum the key (no value)?
-    return do_nothing();
+  Status DeleteCF(uint32_t cf, const Slice& key) override {
+    return add_checksum(cf, key, "", kTypeDeletion);
   }
 
-  Status SingleDeleteCF(uint32_t /* cf */, const Slice& /* key */) override {
-    // TODO gonzo: does it make sense to checksum the key (no value)?
-    return do_nothing();
+  Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
+    return add_checksum(cf, key, "", kTypeSingleDeletion);
   }
 
-  Status DeleteRangeCF(uint32_t /* cf */, const Slice& /* begin_key */,
-                       const Slice& /* end_key */) override {
-    // TODO gonzo: does it make sense to checksum the keys (no values)?
-    return do_nothing();
+  Status DeleteRangeCF(uint32_t cf, const Slice& begin_key,
+                       const Slice& end_key) override {
+    return add_checksum(cf, begin_key, end_key, kTypeRangeDeletion);
   }
 
   Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
-    return update_checksum(cf, key, val);
+    return add_checksum(cf, key, val, kTypeMerge);
   }
 
   Status PutBlobIndexCF(uint32_t cf, const Slice& key,
                         const Slice& val) override {
-    return update_checksum(cf, key, val);
+    return add_checksum(cf, key, val, kTypeValue);
   }
 
   Status MarkBeginPrepare(bool /* unprepare */) override {
-    // TODO gonzo: does it make sense to checksum? but what?
-    return do_nothing();
+    return Status::OK();
   }
 
   Status MarkEndPrepare(const Slice& /* xid */) override {
-    // TODO gonzo: does it make sense to checksum? but what?
-    return do_nothing();
+    return Status::OK();
   }
 
-  Status MarkCommit(const Slice& /* xid */) override {
-    // TODO gonzo: does it make sense to checksum? but what?
-    return do_nothing();
-  }
+  Status MarkCommit(const Slice& /* xid */) override { return Status::OK(); }
 
   Status MarkCommitWithTimestamp(const Slice& /* xid */,
                                  const Slice& /* ts */) override {
-    // TODO gonzo: does it make sense to checksum? but what?
-    return do_nothing();
+    return Status::OK();
   }
 
-  Status MarkRollback(const Slice& /* xid */) override {
-    // TODO gonzo: does it make sense to checksum? but what?
-    return do_nothing();
-  }
+  Status MarkRollback(const Slice& /* xid */) override { return Status::OK(); }
 
-  Status MarkNoop(bool /* empty_batch */) override {
-    // TODO gonzo: does it make sense to checksum? but what?
-    return do_nothing();
-  }
+  Status MarkNoop(bool /* empty_batch */) override { return Status::OK(); }
 
  private:
-  Status update_checksum(uint32_t cf, const Slice& key, const Slice& val) {
-    if (key.size() > size_t{port::kMaxUint32}) {
-      return Status::InvalidArgument("key is too large");
-    }
-    if (val.size() > size_t{port::kMaxUint32}) {
-      return Status::InvalidArgument("value is too large");
-    }
+  Status add_checksum(uint32_t cf, const Slice& key, const Slice& val,
+                      const ValueType op_type) {
     if (prot_info_) {
       prot_info_->entries_.emplace_back(
-          ProtectionInfo64().ProtectKVO(key, val, kTypeValue).ProtectC(cf));
+          ProtectionInfo64().ProtectKVO(key, val, op_type).ProtectC(cf));
     }
     return Status::OK();
   }
 
-  Status do_nothing() { return Status::OK(); }
-
   // No copy or move.
-  ChecksumUpdater(const ChecksumUpdater&) = delete;
-  ChecksumUpdater(ChecksumUpdater&&) = delete;
-  ChecksumUpdater& operator=(const ChecksumUpdater&) = delete;
-  ChecksumUpdater& operator=(ChecksumUpdater&&) = delete;
+  ChecksumAdder(const ChecksumAdder&) = delete;
+  ChecksumAdder(ChecksumAdder&&) = delete;
+  ChecksumAdder& operator=(const ChecksumAdder&) = delete;
+  ChecksumAdder& operator=(ChecksumAdder&&) = delete;
 
   WriteBatch::ProtectionInfo* const prot_info_ = nullptr;
 };
 
 Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
   assert(contents.size() >= WriteBatchInternal::kHeader);
-  // TODO gonzo this assert does not make sense anymore because we are now
-  // passing a WriteBatch that has a prot_info_; is it ok to get rid of it?
-  // assert(b->prot_info_ == nullptr);
 
   b->rep_.assign(contents.data(), contents.size());
   b->content_flags_.store(ContentFlags::DEFERRED, std::memory_order_relaxed);
 
   // If we have a prot_info_, compute checksums for the batch.
   if (b->prot_info_) {
-    ChecksumUpdater cs_updater(b->prot_info_.get());
-    return b->Iterate(&cs_updater);
+    ChecksumAdder cs_adder(b->prot_info_.get());
+    return b->Iterate(&cs_adder);
   }
 
   return Status::OK();
