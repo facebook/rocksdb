@@ -1274,7 +1274,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
 
       std::unique_ptr<VersionEdit> wal_deletion;
       if (flushed) {
-        wal_deletion = std::make_unique<VersionEdit>();
+        wal_deletion = std::unique_ptr<VersionEdit>(new VersionEdit());
         if (immutable_db_options_.track_and_verify_wals_in_manifest) {
           wal_deletion->DeleteWalsBefore(max_wal_number + 1);
         }
