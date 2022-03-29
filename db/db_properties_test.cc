@@ -1997,8 +1997,6 @@ TEST_F(DBPropertiesTest, GetMapPropertyDbStats) {
   Close();
 }
 
-#endif  // ROCKSDB_LITE
-
 namespace {
 std::string PopMetaIndexKey(InternalIterator* meta_iter) {
   Status s = meta_iter->status();
@@ -2082,6 +2080,8 @@ TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
     EXPECT_EQ("NOT_FOUND", PopMetaIndexKey(meta_iter.get()));
   } while (ChangeOptions());
 }
+
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 
