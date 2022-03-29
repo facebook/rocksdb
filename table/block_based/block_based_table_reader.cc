@@ -2597,6 +2597,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           uncompression_dict_status =
               rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
                   nullptr /* prefetch_buffer */, no_io,
+                  read_options.verify_checksums,
                   sst_file_range.begin()->get_context, &lookup_context,
                   &uncompression_dict);
           uncompression_dict_inited = true;
@@ -3442,6 +3443,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
     CachableEntry<UncompressionDict> uncompression_dict;
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
         nullptr /* prefetch_buffer */, false /* no_io */,
+        false, /* verify_checksums */
         nullptr /* get_context */, nullptr /* lookup_context */,
         &uncompression_dict);
     if (!s.ok()) {
