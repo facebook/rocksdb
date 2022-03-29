@@ -80,11 +80,6 @@ extern const std::string kHashIndexPrefixesBlock;
 extern const std::string kHashIndexPrefixesMetadataBlock;
 
 BlockBasedTable::~BlockBasedTable() {
-  std::size_t mem_usage = ApproximateMemoryUsage();
-  if (rep_->table_reader_mem_allocator) {
-    rep_->table_reader_mem_allocator
-        ->Deallocate<CacheEntryRole::kBlockBasedTableReader>(mem_usage);
-  }
   delete rep_;
 }
 
@@ -558,8 +553,8 @@ Status BlockBasedTable::Open(
     const InternalKeyComparator& internal_comparator,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table_reader,
-    std::shared_ptr<CacheCapacityBasedMemoryAllocator>
-        table_reader_mem_allocator,
+    std::shared_ptr<CacheReservationManagerThreadSafeWrapper>
+        table_reader_cache_res_mgr,
     const std::shared_ptr<const SliceTransform>& prefix_extractor,
     const bool prefetch_index_and_filter_in_cache, const bool skip_filters,
     const int level, const bool immortal_table,
@@ -725,12 +720,12 @@ Status BlockBasedTable::Open(
     }
   }
 
-  if (s.ok() && table_reader_mem_allocator) {
-    rep->table_reader_mem_allocator = table_reader_mem_allocator;
+  if (s.ok() && table_reader_cache_res_mgr) {
     std::size_t mem_usage = new_table->ApproximateMemoryUsage();
-    rep->table_reader_mem_allocator
-        ->Allocate<CacheEntryRole::kBlockBasedTableReader>(mem_usage, &s);
-    if (s.IsMemoryLimit()) {
+    s = table_reader_cache_res_mgr
+            ->MakeCacheReservation<CacheEntryRole::kBlockBasedTableReader>(
+                mem_usage, &(rep->table_reader_cache_res_handle));
+    if (s.IsIncomplete()) {
       s = Status::MemoryLimit(
           "Can't allocate BlockBasedTableReader due to memory limit based on "
           "cache capacity for memory allocation");

@@ -17,9 +17,37 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "table/block_based/reader_common.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+template <CacheEntryRole R>
+CacheReservationManager::CacheReservationHandle<R>::CacheReservationHandle(
+    std::size_t incremental_memory_used,
+    std::shared_ptr<CacheReservationManager> cache_res_mgr)
+    : incremental_memory_used_(incremental_memory_used) {
+  assert(cache_res_mgr);
+  cache_res_mgr_ = cache_res_mgr;
+}
+
+template <CacheEntryRole R>
+CacheReservationManager::CacheReservationHandle<R>::~CacheReservationHandle() {
+  assert(cache_res_mgr_);
+  Status s =
+      cache_res_mgr_->ReleaseCacheReservation<R>(incremental_memory_used_);
+  s.PermitUncheckedError();
+}
+
+// Explicitly instantiate templates for "CacheEntryRole" values we use.
+// This makes it possible to keep the template definitions in the .cc file.
+template class CacheReservationManager::CacheReservationHandle<
+    CacheEntryRole::kMisc>;
+template class CacheReservationManager::CacheReservationHandle<
+    CacheEntryRole::kFilterConstruction>;
+template class CacheReservationManager::CacheReservationHandle<
+    CacheEntryRole::kBlockBasedTableReader>;
+
 CacheReservationManager::CacheReservationManager(std::shared_ptr<Cache> cache,
                                                  bool delayed_decrease)
     : delayed_decrease_(delayed_decrease),
@@ -72,8 +100,6 @@ template Status CacheReservationManager::UpdateCacheReservation<
 template Status CacheReservationManager::UpdateCacheReservation<
     CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
     std::size_t new_mem_used);
-template Status CacheReservationManager::UpdateCacheReservation<
-    CacheEntryRole::kBlockBasedTableReader>(std::size_t new_mem_used);
 // For cache reservation manager unit tests
 template Status CacheReservationManager::UpdateCacheReservation<
     CacheEntryRole::kMisc>(std::size_t new_mem_used);
@@ -81,24 +107,55 @@ template Status CacheReservationManager::UpdateCacheReservation<
 template <CacheEntryRole R>
 Status CacheReservationManager::MakeCacheReservation(
     std::size_t incremental_memory_used,
-    std::unique_ptr<CacheReservationHandle<R>>* handle) {
-  assert(handle != nullptr);
+    std::unique_ptr<CacheReservationManager::CacheReservationHandle<R>>*
+        handle) {
+  assert(handle);
   Status s =
       UpdateCacheReservation<R>(GetTotalMemoryUsed() + incremental_memory_used);
-  (*handle).reset(new CacheReservationHandle<R>(incremental_memory_used,
-                                                shared_from_this()));
+  (*handle).reset(new CacheReservationManager::CacheReservationHandle<R>(
+      incremental_memory_used, shared_from_this()));
   return s;
 }
 
+// Explicitly instantiate templates for "CacheEntryRole" values we use.
+// This makes it possible to keep the template definitions in the .cc file.
 template Status
 CacheReservationManager::MakeCacheReservation<CacheEntryRole::kMisc>(
     std::size_t incremental_memory_used,
-    std::unique_ptr<CacheReservationHandle<CacheEntryRole::kMisc>>* handle);
+    std::unique_ptr<
+        CacheReservationManager::CacheReservationHandle<CacheEntryRole::kMisc>>*
+        handle);
 template Status CacheReservationManager::MakeCacheReservation<
     CacheEntryRole::kFilterConstruction>(
     std::size_t incremental_memory_used,
-    std::unique_ptr<
-        CacheReservationHandle<CacheEntryRole::kFilterConstruction>>* handle);
+    std::unique_ptr<CacheReservationManager::CacheReservationHandle<
+        CacheEntryRole::kFilterConstruction>>* handle);
+template Status CacheReservationManager::MakeCacheReservation<
+    CacheEntryRole::kBlockBasedTableReader>(
+    std::size_t incremental_memory_used,
+    std::unique_ptr<CacheReservationManager::CacheReservationHandle<
+        CacheEntryRole::kBlockBasedTableReader>>* handle);
+
+template <CacheEntryRole R>
+Status CacheReservationManager::ReleaseCacheReservation(
+    std::size_t incremental_memory_used) {
+  assert(GetTotalMemoryUsed() >= incremental_memory_used);
+  std::size_t updated_total_mem_used =
+      GetTotalMemoryUsed() - incremental_memory_used;
+  Status s = UpdateCacheReservation<R>(updated_total_mem_used);
+  s.PermitUncheckedError();
+  return Status::OK();
+}
+
+// Explicitly instantiate templates for "CacheEntryRole" values we use.
+// This makes it possible to keep the template definitions in the .cc file.
+template Status CacheReservationManager::ReleaseCacheReservation<
+    CacheEntryRole::kMisc>(std::size_t incremental_memory_used);
+template Status CacheReservationManager::ReleaseCacheReservation<
+    CacheEntryRole::kFilterConstruction>(std::size_t incremental_memory_used);
+template Status CacheReservationManager::ReleaseCacheReservation<
+    CacheEntryRole::kBlockBasedTableReader>(
+    std::size_t incremental_memory_used);
 
 template <CacheEntryRole R>
 Status CacheReservationManager::IncreaseCacheReservation(
@@ -166,26 +223,89 @@ template Cache::DeleterFn CacheReservationManager::TEST_GetNoopDeleterForRole<
     CacheEntryRole::kBlockBasedTableReader>();
 
 template <CacheEntryRole R>
-CacheReservationHandle<R>::CacheReservationHandle(
-    std::size_t incremental_memory_used,
-    std::shared_ptr<CacheReservationManager> cache_res_mgr)
+CacheReservationManagerThreadSafeWrapper::CacheReservationHandle<R>::
+    CacheReservationHandle(
+        std::size_t incremental_memory_used,
+        std::shared_ptr<CacheReservationManagerThreadSafeWrapper>
+            cache_res_mgr_threadsafe_wrapper)
     : incremental_memory_used_(incremental_memory_used) {
-  assert(cache_res_mgr != nullptr);
-  cache_res_mgr_ = cache_res_mgr;
+  assert(cache_res_mgr_threadsafe_wrapper);
+  cache_res_mgr_threadsafe_wrapper_ = cache_res_mgr_threadsafe_wrapper;
 }
 
 template <CacheEntryRole R>
-CacheReservationHandle<R>::~CacheReservationHandle() {
-  assert(cache_res_mgr_ != nullptr);
-  assert(cache_res_mgr_->GetTotalMemoryUsed() >= incremental_memory_used_);
-
-  Status s = cache_res_mgr_->UpdateCacheReservation<R>(
-      cache_res_mgr_->GetTotalMemoryUsed() - incremental_memory_used_);
+CacheReservationManagerThreadSafeWrapper::CacheReservationHandle<
+    R>::~CacheReservationHandle() {
+  assert(cache_res_mgr_threadsafe_wrapper_);
+  Status s = cache_res_mgr_threadsafe_wrapper_->ReleaseCacheReservation<R>(
+      incremental_memory_used_);
   s.PermitUncheckedError();
 }
 
 // Explicitly instantiate templates for "CacheEntryRole" values we use.
 // This makes it possible to keep the template definitions in the .cc file.
-template class CacheReservationHandle<CacheEntryRole::kMisc>;
-template class CacheReservationHandle<CacheEntryRole::kFilterConstruction>;
+template class CacheReservationManagerThreadSafeWrapper::CacheReservationHandle<
+    CacheEntryRole::kBlockBasedTableReader>;
+
+CacheReservationManagerThreadSafeWrapper::
+    CacheReservationManagerThreadSafeWrapper(std::shared_ptr<Cache> cache,
+                                             bool delayed_decrease) {
+  assert(cache);
+  cache_res_mgr_.reset(new CacheReservationManager(cache, delayed_decrease));
+}
+
+template <CacheEntryRole R>
+Status CacheReservationManagerThreadSafeWrapper::UpdateCacheReservation(
+    std::size_t new_memory_used) {
+  std::lock_guard<std::mutex> lock(cache_res_mgr_mu_);
+  return cache_res_mgr_->UpdateCacheReservation<R>(new_memory_used);
+  ;
+}
+
+template <CacheEntryRole R>
+Status CacheReservationManagerThreadSafeWrapper::MakeCacheReservation(
+    std::size_t incremental_memory_used,
+    std::unique_ptr<
+        CacheReservationManagerThreadSafeWrapper::CacheReservationHandle<R>>*
+        handle) {
+  assert(handle);
+  std::lock_guard<std::mutex> lock(cache_res_mgr_mu_);
+  Status s = cache_res_mgr_->UpdateCacheReservation<R>(
+      cache_res_mgr_->GetTotalMemoryUsed() + incremental_memory_used);
+  (*handle).reset(
+      new CacheReservationManagerThreadSafeWrapper::CacheReservationHandle<R>(
+          incremental_memory_used, shared_from_this()));
+  return s;
+}
+
+template Status CacheReservationManagerThreadSafeWrapper::MakeCacheReservation<
+    CacheEntryRole::kBlockBasedTableReader>(
+    std::size_t incremental_memory_used,
+    std::unique_ptr<
+        CacheReservationManagerThreadSafeWrapper::CacheReservationHandle<
+            CacheEntryRole::kBlockBasedTableReader>>* handle);
+
+template <CacheEntryRole R>
+Status CacheReservationManagerThreadSafeWrapper::ReleaseCacheReservation(
+    std::size_t incremental_memory_used) {
+  std::lock_guard<std::mutex> lock(cache_res_mgr_mu_);
+  Status s =
+      cache_res_mgr_->ReleaseCacheReservation<R>(incremental_memory_used);
+  s.PermitUncheckedError();
+  return Status::OK();
+}
+
+template Status CacheReservationManagerThreadSafeWrapper::
+    ReleaseCacheReservation<CacheEntryRole::kBlockBasedTableReader>(
+        std::size_t incremental_memory_used);
+
+std::size_t
+CacheReservationManagerThreadSafeWrapper::GetTotalReservedCacheSize() {
+  return cache_res_mgr_->GetTotalReservedCacheSize();
+}
+
+std::size_t CacheReservationManagerThreadSafeWrapper::GetTotalMemoryUsed() {
+  std::lock_guard<std::mutex> lock(cache_res_mgr_mu_);
+  return cache_res_mgr_->GetTotalMemoryUsed();
+}
 }  // namespace ROCKSDB_NAMESPACE

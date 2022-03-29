@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 #include "cache/cache_entry_roles.h"
@@ -23,10 +24,6 @@
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-template <CacheEntryRole R>
-class CacheReservationHandle;
-
 // CacheReservationManager is for reserving cache space for the memory used
 // through inserting/releasing dummy entries in the cache.
 //
@@ -35,6 +32,26 @@ class CacheReservationHandle;
 class CacheReservationManager
     : public std::enable_shared_from_this<CacheReservationManager> {
  public:
+  // CacheReservationHandle is for managing the lifetime of a cache reservation
+  // for an incremental amount of memory used (i.e, incremental_memory_used)
+  // This class is NOT thread-safe
+  template <CacheEntryRole R>
+  class CacheReservationHandle {
+   public:
+    // REQUIRES: cache_res_mgr != nullptr
+    explicit CacheReservationHandle(
+        std::size_t incremental_memory_used,
+        std::shared_ptr<CacheReservationManager> cache_res_mgr);
+
+    ~CacheReservationHandle();
+
+    std::size_t GetIncrementalMemoryUsed() { return incremental_memory_used_; }
+
+   private:
+    std::size_t incremental_memory_used_;
+    std::shared_ptr<CacheReservationManager> cache_res_mgr_;
+  };
+
   // Construct a CacheReservationManager
   // @param cache The cache where dummy entries are inserted and released for
   // reserving cache space
@@ -94,8 +111,11 @@ class CacheReservationManager
   //         On keeping dummy entries the same, it always returns Status::OK().
   Status UpdateCacheReservation(std::size_t new_memory_used);
 
-  // One of the two ways of reserving/releasing cache,
-  // see CacheReservationManager::UpdateCacheReservation() for the other.
+  // One of the two ways of reserving cache, used with
+  // ReleaseCacheReservation().
+  // See CacheReservationManager::UpdateCacheReservation()
+  // for the other way.
+  //
   // Use ONLY one of them to prevent unexpected behavior.
   //
   // Insert dummy entries in the cache for the incremental memory usage
@@ -134,7 +154,41 @@ class CacheReservationManager
   template <CacheEntryRole R>
   Status MakeCacheReservation(
       std::size_t incremental_memory_used,
-      std::unique_ptr<CacheReservationHandle<R>> *handle);
+      std::unique_ptr<CacheReservationManager::CacheReservationHandle<R>>
+          *handle);
+
+  // One of the two ways of releasing cache reservation, used with
+  // MakeCacheReservation(). It's usually called on the destruction of a
+  // CacheReservationManager::CacheReservationHandle<R> handle, which achieves
+  // better RAII per cache reservation.
+  // See CacheReservationManager::UpdateCacheReservation()
+  // for the other way.
+  //
+  // Use ONLY one of them to prevent unexpected behavior.
+  //
+  // Release dummy entries in the cache for the incremental memory usage
+  // to match the size of total dummy entries with the least multiple of
+  // kSizeDummyEntry greater than or equal to the total memory used.
+  //
+  // WARNING: The passed-in incremental_memory_used should be resulted from
+  //          calling GetIncrementalMemoryUsed() on some
+  //          CacheReservationManager::CacheReservationHandle<R>> object
+  //          created by MakeCacheReservation() and hasn't had its cache
+  //          reservation released
+  //
+  // @param incremental_memory_used The number of bytes previously increased in
+  //        memory usage.
+  //
+  //        Calling GetTotalMemoryUsed() afterward will return the total memory
+  //        decreased by this number.
+  //
+  //        Since the class is NOT thread-safe, external synchronization in
+  //        calling ReleaseCacheReservation() is needed if you want
+  //        GetTotalMemoryUsed() indeed returns the latest memory used.
+  //
+  // @return It always returns Status::OK()
+  template <CacheEntryRole R>
+  Status ReleaseCacheReservation(std::size_t incremental_memory_used);
 
   // Return the size of the cache (which is a multiple of kSizeDummyEntry)
   // successfully reserved by calling UpdateCacheReservation().
@@ -174,20 +228,75 @@ class CacheReservationManager
   CacheKey cache_key_;
 };
 
-// CacheReservationHandle is for managing the lifetime of a cache reservation
-// This class is NOT thread-safe
-template <CacheEntryRole R>
-class CacheReservationHandle {
+// Same as CacheReservationManager, except that
+// it's thread-safe in calling all the APIs excluding construction and
+// destruction.
+//
+// See CacheReservationManager for more API usage.
+class CacheReservationManagerThreadSafeWrapper
+    : public std::enable_shared_from_this<
+          CacheReservationManagerThreadSafeWrapper> {
  public:
-  // REQUIRES: cache_res_mgr != nullptr
-  explicit CacheReservationHandle(
-      std::size_t incremental_memory_used,
-      std::shared_ptr<CacheReservationManager> cache_res_mgr);
+  // Same as CacheReservationManager::CacheReservationHandle
+  // expect that it's for CacheReservationManagerThreadSafeWrapper
+  //
+  // This class is NOT thread-safe
+  //
+  // See CacheReservationManager::CacheReservationManager for more API usage.
+  template <CacheEntryRole R>
+  class CacheReservationHandle {
+   public:
+    // REQUIRES: cache_res_mgr_threadsafe_wrapper != nullptr
+    explicit CacheReservationHandle(
+        std::size_t incremental_memory_used,
+        std::shared_ptr<CacheReservationManagerThreadSafeWrapper>
+            cache_res_mgr_threadsafe_wrapper);
 
-  ~CacheReservationHandle();
+    ~CacheReservationHandle();
+
+    std::size_t GetIncrementalMemoryUsed() { return incremental_memory_used_; }
+
+   private:
+    std::size_t incremental_memory_used_;
+    std::shared_ptr<CacheReservationManagerThreadSafeWrapper>
+        cache_res_mgr_threadsafe_wrapper_;
+  };
+
+  // REQUIRED: cache is not nullptr
+  explicit CacheReservationManagerThreadSafeWrapper(
+      std::shared_ptr<Cache> cache, bool delayed_decrease = false);
+
+  // no copy constructor, copy assignment, move constructor, move assignment
+  CacheReservationManagerThreadSafeWrapper(
+      const CacheReservationManagerThreadSafeWrapper &) = delete;
+  CacheReservationManagerThreadSafeWrapper &operator=(
+      const CacheReservationManagerThreadSafeWrapper &) = delete;
+  CacheReservationManagerThreadSafeWrapper(
+      CacheReservationManagerThreadSafeWrapper &&) = delete;
+  CacheReservationManagerThreadSafeWrapper &operator=(
+      CacheReservationManagerThreadSafeWrapper &&) = delete;
+
+  ~CacheReservationManagerThreadSafeWrapper() {}
+
+  template <CacheEntryRole R>
+  Status UpdateCacheReservation(std::size_t new_memory_used);
+
+  template <CacheEntryRole R>
+  Status MakeCacheReservation(
+      std::size_t incremental_memory_used,
+      std::unique_ptr<
+          CacheReservationManagerThreadSafeWrapper::CacheReservationHandle<R>>
+          *handle);
+
+  template <CacheEntryRole R>
+  Status ReleaseCacheReservation(std::size_t incremental_memory_used);
+
+  std::size_t GetTotalReservedCacheSize();
+
+  std::size_t GetTotalMemoryUsed();
 
  private:
-  std::size_t incremental_memory_used_;
+  std::mutex cache_res_mgr_mu_;
   std::shared_ptr<CacheReservationManager> cache_res_mgr_;
 };
 }  // namespace ROCKSDB_NAMESPACE

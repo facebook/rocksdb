@@ -112,7 +112,6 @@ LIB_SOURCES =                                                   \
   logging/event_logger.cc                                       \
   logging/log_buffer.cc                                         \
   memory/arena.cc                                               \
-  memory/cache_capacity_based_memory_allocator.cc               \
   memory/concurrent_arena.cc                                    \
   memory/jemalloc_nodump_allocator.cc                           \
   memory/memkind_kmem_allocator.cc                              \

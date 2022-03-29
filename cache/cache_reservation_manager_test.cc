@@ -15,7 +15,6 @@
 #include "cache/cache_entry_roles.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/slice.h"
-#include "table/block_based/block_based_table_reader.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
 
@@ -447,8 +446,9 @@ TEST(CacheReservationHandleTest, HandleTest) {
   std::size_t mem_used = 0;
   const std::size_t incremental_mem_used_handle_1 = 1 * kSizeDummyEntry;
   const std::size_t incremental_mem_used_handle_2 = 2 * kSizeDummyEntry;
-  std::unique_ptr<CacheReservationHandle<CacheEntryRole::kMisc>> handle_1,
-      handle_2;
+  std::unique_ptr<
+      CacheReservationManager::CacheReservationHandle<CacheEntryRole::kMisc>>
+      handle_1, handle_2;
 
   // To test consecutive CacheReservationManager::MakeCacheReservation works
   // correctly in terms of returning the handle as well as updating cache
@@ -473,8 +473,9 @@ TEST(CacheReservationHandleTest, HandleTest) {
   EXPECT_GE(cache->GetPinnedUsage(), mem_used);
   EXPECT_LT(cache->GetPinnedUsage(), mem_used + kMetaDataChargeOverhead);
 
-  // To test CacheReservationHandle::~CacheReservationHandle() works correctly
-  // in releasing the cache reserved for the handle
+  // To test
+  // CacheReservationManager::CacheReservationHandle::~CacheReservationHandle()
+  // works correctly in releasing the cache reserved for the handle
   handle_1.reset();
   EXPECT_TRUE(handle_1 == nullptr);
   mem_used = mem_used - incremental_mem_used_handle_1;

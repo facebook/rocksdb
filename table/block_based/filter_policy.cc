@@ -259,8 +259,8 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
 
   // For managing cache reservation for final filter in (new) Bloom and Ribbon
   // Filter construction
-  std::deque<std::unique_ptr<
-      CacheReservationHandle<CacheEntryRole::kFilterConstruction>>>
+  std::deque<std::unique_ptr<CacheReservationManager::CacheReservationHandle<
+      CacheEntryRole::kFilterConstruction>>>
       final_filter_cache_res_handles_;
 
   bool detect_filter_construct_corruption_;
@@ -274,8 +274,8 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     // it manages cache reservation for buckets of hash entries in (new) Bloom
     // or Ribbon Filter construction.
     // Otherwise, it is empty.
-    std::deque<std::unique_ptr<
-        CacheReservationHandle<CacheEntryRole::kFilterConstruction>>>
+    std::deque<std::unique_ptr<CacheReservationManager::CacheReservationHandle<
+        CacheEntryRole::kFilterConstruction>>>
         cache_res_bucket_handles;
 
     // If detect_filter_construct_corruption_ == true,
@@ -336,7 +336,8 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
     size_t len_with_metadata = CalculateSpace(num_entries);
 
     std::unique_ptr<char[]> mutable_buf;
-    std::unique_ptr<CacheReservationHandle<CacheEntryRole::kFilterConstruction>>
+    std::unique_ptr<CacheReservationManager::CacheReservationHandle<
+        CacheEntryRole::kFilterConstruction>>
         final_filter_cache_res_handle;
     len_with_metadata =
         AllocateMaybeRounding(len_with_metadata, num_entries, &mutable_buf);
@@ -661,7 +662,8 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
     Status status_banding_cache_res = Status::OK();
 
     // Cache reservation for banding
-    std::unique_ptr<CacheReservationHandle<CacheEntryRole::kFilterConstruction>>
+    std::unique_ptr<CacheReservationManager::CacheReservationHandle<
+        CacheEntryRole::kFilterConstruction>>
         banding_res_handle;
     if (cache_res_mgr_) {
       status_banding_cache_res =
@@ -720,7 +722,8 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
     assert(seed < 256);
 
     std::unique_ptr<char[]> mutable_buf;
-    std::unique_ptr<CacheReservationHandle<CacheEntryRole::kFilterConstruction>>
+    std::unique_ptr<CacheReservationManager::CacheReservationHandle<
+        CacheEntryRole::kFilterConstruction>>
         final_filter_cache_res_handle;
     len_with_metadata =
         AllocateMaybeRounding(len_with_metadata, num_entries, &mutable_buf);

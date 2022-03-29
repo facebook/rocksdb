@@ -313,8 +313,11 @@ struct BlockBasedTableOptions {
   //
   // Charged memory usage includes:
   // 1. Table properties
-  // 2. Some internal data structures
-  // 3. More to come...
+  // 2. Index block/Filter block/Uncompression dictionary if stored in table
+  // reader (i.e, BlockBasedTableOptions::cache_index_and_filter_blocks ==
+  // false)
+  // 3. Some internal data structures
+  // 4. More to come...
   //
   // Note:
   // If creation of a table reader uses up too much memory
