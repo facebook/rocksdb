@@ -1442,7 +1442,7 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
   // Dictionary trainer is available since v0.6.1 for static linking, but not
   // available for dynamic linking until v1.1.3. For now we enable the feature
   // in v1.1.3+ only.
-#if ZSTD_VERSION_NUMBER >= 10103  // v1.1.3+
+#if defined(ZSTD) && (ZSTD_VERSION_NUMBER >= 10103)  // v1.1.3+
   assert(samples.empty() == sample_lens.empty());
   if (samples.empty()) {
     return "";
@@ -1480,7 +1480,7 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
   (void)max_dict_bytes;
   (void)finalize_dict;
   return "";
-#endif  // ZSTD_VERSION_NUMBER >= 10103
+#endif  // defined(ZSTD) && (ZSTD_VERSION_NUMBER >= 10103)
 }
 
 inline std::string ZSTD_TrainDictionary(const std::string& samples,
@@ -1488,7 +1488,7 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
                                         size_t max_dict_bytes) {
   // Dictionary trainer is available since v0.6.1, but ZSTD was marked stable
   // only since v0.8.0. For now we enable the feature in stable versions only.
-#if ZSTD_VERSION_NUMBER >= 10103  // v1.1.3+
+#if defined(ZSTD) && (ZSTD_VERSION_NUMBER >= 10103)  // v1.1.3+
   // skips potential partial sample at the end of "samples"
   size_t num_samples = samples.size() >> sample_len_shift;
   std::vector<size_t> sample_lens(num_samples, size_t(1) << sample_len_shift);
@@ -1499,7 +1499,7 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
   (void)sample_len_shift;
   (void)max_dict_bytes;
   return "";
-#endif  // ZSTD_VERSION_NUMBER >= 10103
+#endif  // defined(ZSTD) && (ZSTD_VERSION_NUMBER >= 10103)
 }
 
 inline bool CompressData(const Slice& raw,
