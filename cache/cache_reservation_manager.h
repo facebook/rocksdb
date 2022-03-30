@@ -34,7 +34,6 @@ class CacheReservationManager
  public:
   // CacheReservationHandle is for managing the lifetime of a cache reservation
   // for an incremental amount of memory used (i.e, incremental_memory_used)
-  // This class is NOT thread-safe
   template <CacheEntryRole R>
   class CacheReservationHandle {
    public:
@@ -239,8 +238,6 @@ class CacheReservationManagerThreadSafeWrapper
  public:
   // Same as CacheReservationManager::CacheReservationHandle
   // expect that it's for CacheReservationManagerThreadSafeWrapper
-  //
-  // This class is NOT thread-safe
   //
   // See CacheReservationManager::CacheReservationManager for more API usage.
   template <CacheEntryRole R>
