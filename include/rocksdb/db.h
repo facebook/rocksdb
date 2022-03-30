@@ -1230,8 +1230,8 @@ class DB {
     return SetOptions(DefaultColumnFamily(), new_options);
   }
 
-  // Like SetOptions but for DBOptions. Similarly, only recommended for
-  // expert users and infrequent use. See GetDBOptionsFromMap() (and
+  // Like SetOptions but for DBOptions, including the same caveats for
+  // usability, reliability, and performance. See GetDBOptionsFromMap() (and
   // GetColumnFamilyOptionsFromMap()) in convenience.h for details on
   // `opts_map`. Note supported in LITE mode.
   //
