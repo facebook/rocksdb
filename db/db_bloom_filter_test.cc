@@ -864,8 +864,8 @@ TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {
     Reopen(options);
     for (size_t j = 0; j < kCompatibilityConfigs.size(); ++j) {
       std::string prefix = ToString(j) + "_";
-      ASSERT_EQ("val", Get(prefix + "A"));        // Filter positive
-      ASSERT_EQ("val", Get(prefix + "Z"));        // Filter positive
+      ASSERT_EQ("val", Get(prefix + "A"));  // Filter positive
+      ASSERT_EQ("val", Get(prefix + "Z"));  // Filter positive
       // Filter negative, with high probability
       ASSERT_EQ("NOT_FOUND", Get(prefix + "Q"));
       // FULL_POSITIVE does not include block-based filter case (j == 0)
