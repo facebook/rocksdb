@@ -2037,7 +2037,7 @@ TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
 
     // Open it for inspection
     std::string sst_file =
-        dbname_ + "/" + MakeTableFileName(files[0].file_number);
+        files[0].directory + "/" + files[0].relative_filename;
     std::unique_ptr<FSRandomAccessFile> f;
     ASSERT_OK(env_->GetFileSystem()->NewRandomAccessFile(
         sst_file, FileOptions(), &f, nullptr));
