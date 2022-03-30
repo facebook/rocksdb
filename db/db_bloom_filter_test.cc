@@ -19,6 +19,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
@@ -802,34 +803,38 @@ TEST_F(DBBloomFilterTest, BloomFilterRate) {
 
 namespace {
 struct CompatibilityConfig {
-  std::string policy;
+  std::shared_ptr<const FilterPolicy> policy;
   bool partitioned;
   uint32_t format_version;
 
   void SetInTableOptions(BlockBasedTableOptions* table_options) {
-    ASSERT_OK(FilterPolicy::CreateFromString(ConfigOptions(), policy,
-                                             &table_options->filter_policy));
+    table_options->filter_policy = policy;
     table_options->partition_filters = partitioned;
     table_options->format_version = format_version;
   }
 };
-std::vector<CompatibilityConfig> kCompatibilityConfigs = {
-    {"rocksdb.internal.DeprecatedBlockBasedBloomFilter:20", false,
-     test::kDefaultFormatVersion},
-    {"bloomfilter:20", false, test::kDefaultFormatVersion},
-    {"bloomfilter:20", true, test::kDefaultFormatVersion},
-    {"bloomfilter:20", false, /* legacy Bloom */ 4U},
-    {"ribbonfilter:20:-1", false, test::kDefaultFormatVersion},
-    {"ribbonfilter:20:-1", true, test::kDefaultFormatVersion},
-};
+// High bits per key -> almost no FPs
+std::shared_ptr<const FilterPolicy> kCompatibilityBloomPolicy{
+    NewBloomFilterPolicy(20)};
+// bloom_before_level=-1 -> always use Ribbon
+std::shared_ptr<const FilterPolicy> kCompatibilityRibbonPolicy{
+    NewRibbonFilterPolicy(20, -1)};
 
+std::vector<CompatibilityConfig> kCompatibilityConfigs = {
+    {Create(20, kDeprecatedBlock), false, test::kDefaultFormatVersion},
+    {kCompatibilityBloomPolicy, false, test::kDefaultFormatVersion},
+    {kCompatibilityBloomPolicy, true, test::kDefaultFormatVersion},
+    {kCompatibilityBloomPolicy, false, /* legacy Bloom */ 4U},
+    {kCompatibilityRibbonPolicy, false, test::kDefaultFormatVersion},
+    {kCompatibilityRibbonPolicy, true, test::kDefaultFormatVersion},
+};
 }  // namespace
 
 TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {
   Options options = CurrentOptions();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  options.compaction_style = kCompactionStyleFIFO;
-  options.compaction_options_fifo.allow_compaction = false;
+  options.level0_file_num_compaction_trigger =
+      static_cast<int>(kCompatibilityConfigs.size()) + 1;
   options.max_open_files = -1;
 
   Close();
@@ -839,6 +844,7 @@ TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {
   for (size_t i = 0; i < kCompatibilityConfigs.size(); ++i) {
     BlockBasedTableOptions table_options;
     kCompatibilityConfigs[i].SetInTableOptions(&table_options);
+    ASSERT_TRUE(table_options.filter_policy != nullptr);
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     Reopen(options);
 
@@ -848,7 +854,9 @@ TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {
     ASSERT_OK(Flush());
   }
 
-  // Test filter is used between each pair of {reader,writer} configurations
+  // Test filter is used between each pair of {reader,writer} configurations,
+  // because any built-in FilterPolicy should be able to read filters from any
+  // other built-in FilterPolicy
   for (size_t i = 0; i < kCompatibilityConfigs.size(); ++i) {
     BlockBasedTableOptions table_options;
     kCompatibilityConfigs[i].SetInTableOptions(&table_options);
@@ -858,11 +866,12 @@ TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {
       std::string prefix = ToString(j) + "_";
       ASSERT_EQ("val", Get(prefix + "A"));        // Filter positive
       ASSERT_EQ("val", Get(prefix + "Z"));        // Filter positive
-      ASSERT_EQ("NOT_FOUND", Get(prefix + "Q"));  // Filter negative
+      // Filter negative, with high probability
+      ASSERT_EQ("NOT_FOUND", Get(prefix + "Q"));
       // FULL_POSITIVE does not include block-based filter case (j == 0)
-      ASSERT_EQ(TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE),
+      EXPECT_EQ(TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE),
                 j == 0 ? 0 : 2);
-      ASSERT_EQ(TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+      EXPECT_EQ(TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
     }
   }
 }
