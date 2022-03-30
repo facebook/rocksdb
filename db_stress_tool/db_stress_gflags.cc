@@ -912,4 +912,11 @@ DEFINE_uint64(wp_commit_cache_bits, 23ull,
               "commit cache. Default: 23 (8M entries)");
 #endif  // !ROCKSDB_LITE
 
+DEFINE_bool(adaptive_readahead, false,
+            "Carry forward internal auto readahead size from one file to next "
+            "file at each level during iteration");
+DEFINE_bool(
+    async_io, false,
+    "Does asynchronous prefetching when internal auto readahead is enabled");
+
 #endif  // GFLAGS
