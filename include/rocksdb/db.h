@@ -1201,20 +1201,44 @@ class DB {
     return CompactRange(options, DefaultColumnFamily(), begin, end);
   }
 
-  // TODO: documentation needed
-  // NOTE: SetOptions is intended only for expert users, and does not apply the
-  // same sanitization to options as the standard DB::Open code path does. Use
-  // with caution.
+  // Dynamically change column family options or table factory options in a
+  // running DB, for the specified column family. Only options internally
+  // marked as "mutable" can be changed. Options not listed in `opts_map` will
+  // keep their current values. See GetColumnFamilyOptionsFromMap() in
+  // convenience.h for the details of `opts_map`. Not supported in LITE mode.
+  //
+  // USABILITY NOTE: SetOptions is intended only for expert users, and does
+  // not apply the same sanitization to options as the standard DB::Open code
+  // path does. Use with caution.
+  //
+  // RELIABILITY & PERFORMANCE NOTE: SetOptions is not fully stress-tested for
+  // reliability, and this is a slow call because a new OPTIONS file is
+  // serialized and persisted for each call. Use only infrequently.
+  //
+  // EXAMPLES:
+  //  s = db->SetOptions(cfh, {{"ttl", "36000"}});
+  //  s = db->SetOptions(cfh, {{"block_based_table_factory",
+  //                            "{prepopulate_block_cache=kDisable;}"}});
   virtual Status SetOptions(
       ColumnFamilyHandle* /*column_family*/,
-      const std::unordered_map<std::string, std::string>& /*new_options*/) {
+      const std::unordered_map<std::string, std::string>& /*opts_map*/) {
     return Status::NotSupported("Not implemented");
   }
+  // Shortcut for SetOptions on the default column family handle.
   virtual Status SetOptions(
       const std::unordered_map<std::string, std::string>& new_options) {
     return SetOptions(DefaultColumnFamily(), new_options);
   }
 
+  // Like SetOptions but for DBOptions, including the same caveats for
+  // usability, reliability, and performance. See GetDBOptionsFromMap() (and
+  // GetColumnFamilyOptionsFromMap()) in convenience.h for details on
+  // `opts_map`. Note supported in LITE mode.
+  //
+  // EXAMPLES:
+  //  s = db->SetDBOptions({{"max_subcompactions", "2"}});
+  //  s = db->SetDBOptions({{"stats_dump_period_sec", "0"},
+  //                        {"stats_persist_period_sec", "0"}});
   virtual Status SetDBOptions(
       const std::unordered_map<std::string, std::string>& new_options) = 0;
 
@@ -1299,6 +1323,8 @@ class DB {
   // Get Env object from the DB
   virtual Env* GetEnv() const = 0;
 
+  // A shortcut for GetEnv()->->GetFileSystem().get(), possibly cached for
+  // efficiency.
   virtual FileSystem* GetFileSystem() const;
 
   // Get DB Options that we use.  During the process of opening the

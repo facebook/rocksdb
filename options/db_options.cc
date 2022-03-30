@@ -738,11 +738,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       lowest_used_cache_tier(options.lowest_used_cache_tier),
       compaction_service(options.compaction_service) {
   fs = env->GetFileSystem();
-  if (env != nullptr) {
-    clock = env->GetSystemClock().get();
-  } else {
-    clock = SystemClock::Default().get();
-  }
+  clock = env->GetSystemClock().get();
   logger = info_log.get();
   stats = statistics.get();
 }
