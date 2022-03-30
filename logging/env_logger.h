@@ -149,7 +149,7 @@ class EnvLogger : public Logger {
     }
   }
 
-  size_t GetLogFileSize() const override {
+  uint64_t GetLogFileSize() const override {
     MutexLock l(&mutex_);
     return file_.GetFileSize();
   }

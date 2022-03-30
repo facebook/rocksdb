@@ -298,7 +298,7 @@ class SpecialEnv : public EnvWrapper {
         return Append(data);
       }
       Status Truncate(uint64_t size) override { return base_->Truncate(size); }
-      void PrepareWrite(size_t offset, size_t len) override {
+      void PrepareWrite(uint64_t offset, size_t len) override {
         base_->PrepareWrite(offset, len);
       }
       void SetPreallocationBlockSize(size_t size) override {

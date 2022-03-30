@@ -40,7 +40,7 @@ class WinLogger : public ROCKSDB_NAMESPACE::Logger {
   using ROCKSDB_NAMESPACE::Logger::Logv;
   void Logv(const char* format, va_list ap) override;
 
-  size_t GetLogFileSize() const override;
+  uint64_t GetLogFileSize() const override;
 
   void DebugWriter(const char* str, int len);
 

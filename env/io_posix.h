@@ -196,7 +196,7 @@ class PosixSequentialFile : public FSSequentialFile {
                                   const IOOptions& opts, Slice* result,
                                   char* scratch, IODebugContext* dbg) override;
   virtual IOStatus Skip(uint64_t n) override;
-  virtual IOStatus InvalidateCache(size_t offset, size_t length) override;
+  virtual IOStatus InvalidateCache(uint64_t offset, uint64_t length) override;
   virtual bool use_direct_io() const override { return use_direct_io_; }
   virtual size_t GetRequiredBufferAlignment() const override {
     return logical_sector_size_;
@@ -259,7 +259,7 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 #endif
   virtual void Hint(AccessPattern pattern) override;
-  virtual IOStatus InvalidateCache(size_t offset, size_t length) override;
+  virtual IOStatus InvalidateCache(uint64_t offset, uint64_t length) override;
   virtual bool use_direct_io() const override { return use_direct_io_; }
   virtual size_t GetRequiredBufferAlignment() const override {
     return logical_sector_size_;
@@ -323,7 +323,7 @@ class PosixWritableFile : public FSWritableFile {
   virtual void SetWriteLifeTimeHint(Env::WriteLifeTimeHint hint) override;
   virtual uint64_t GetFileSize(const IOOptions& opts,
                                IODebugContext* dbg) override;
-  virtual IOStatus InvalidateCache(size_t offset, size_t length) override;
+  virtual IOStatus InvalidateCache(uint64_t offset, uint64_t length) override;
   virtual size_t GetRequiredBufferAlignment() const override {
     return logical_sector_size_;
   }
@@ -355,7 +355,7 @@ class PosixMmapReadableFile : public FSRandomAccessFile {
   virtual IOStatus Read(uint64_t offset, size_t n, const IOOptions& opts,
                         Slice* result, char* scratch,
                         IODebugContext* dbg) const override;
-  virtual IOStatus InvalidateCache(size_t offset, size_t length) override;
+  virtual IOStatus InvalidateCache(uint64_t offset, uint64_t length) override;
 };
 
 class PosixMmapFile : public FSWritableFile {
@@ -411,7 +411,7 @@ class PosixMmapFile : public FSWritableFile {
   virtual IOStatus Fsync(const IOOptions& opts, IODebugContext* dbg) override;
   virtual uint64_t GetFileSize(const IOOptions& opts,
                                IODebugContext* dbg) override;
-  virtual IOStatus InvalidateCache(size_t offset, size_t length) override;
+  virtual IOStatus InvalidateCache(uint64_t offset, uint64_t length) override;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual IOStatus Allocate(uint64_t offset, uint64_t len,
                             const IOOptions& opts,

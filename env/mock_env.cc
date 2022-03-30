@@ -563,7 +563,7 @@ class TestMemLogger : public Logger {
       break;
     }
   }
-  size_t GetLogFileSize() const override { return log_size_; }
+  uint64_t GetLogFileSize() const override { return log_size_; }
 };
 
 static std::unordered_map<std::string, OptionTypeInfo> mock_fs_type_info = {
@@ -819,7 +819,7 @@ IOStatus MockFileSystem::DeleteFile(const std::string& fname,
   return IOStatus::OK();
 }
 
-IOStatus MockFileSystem::Truncate(const std::string& fname, size_t size,
+IOStatus MockFileSystem::Truncate(const std::string& fname, uint64_t size,
                                   const IOOptions& options,
                                   IODebugContext* dbg) {
   auto fn = NormalizeMockPath(fname);

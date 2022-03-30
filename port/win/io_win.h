@@ -124,7 +124,7 @@ class WinSequentialFile : protected WinFileData, public FSSequentialFile {
 
   IOStatus Skip(uint64_t n) override;
 
-  IOStatus InvalidateCache(size_t offset, size_t length) override;
+  IOStatus InvalidateCache(uint64_t offset, uint64_t length) override;
 
   virtual bool use_direct_io() const override {
     return WinFileData::use_direct_io();
@@ -152,7 +152,7 @@ class WinMmapReadableFile : private WinFileData, public FSRandomAccessFile {
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override;
 
-  virtual IOStatus InvalidateCache(size_t offset, size_t length) override;
+  virtual IOStatus InvalidateCache(uint64_t offset, uint64_t length) override;
 
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 };
@@ -239,7 +239,7 @@ class WinMmapFile : private WinFileData, public FSWritableFile {
    */
   uint64_t GetFileSize(const IOOptions& options, IODebugContext* dbg) override;
 
-  IOStatus InvalidateCache(size_t offset, size_t length) override;
+  IOStatus InvalidateCache(uint64_t offset, uint64_t length) override;
 
   IOStatus Allocate(uint64_t offset, uint64_t len, const IOOptions& options,
                     IODebugContext* dbg) override;
@@ -294,7 +294,7 @@ class WinRandomAccessFile
     return WinFileData::use_direct_io();
   }
 
-  IOStatus InvalidateCache(size_t offset, size_t length) override;
+  IOStatus InvalidateCache(uint64_t offset, uint64_t length) override;
 
   virtual size_t GetRequiredBufferAlignment() const override;
 };

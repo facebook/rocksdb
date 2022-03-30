@@ -126,7 +126,7 @@ class LegacySequentialFileWrapper : public FSSequentialFile {
   size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
   }
-  IOStatus InvalidateCache(size_t offset, size_t length) override {
+  IOStatus InvalidateCache(uint64_t offset, uint64_t length) override {
     return status_to_io_status(target_->InvalidateCache(offset, length));
   }
   IOStatus PositionedRead(uint64_t offset, size_t n,
@@ -191,7 +191,7 @@ class LegacyRandomAccessFileWrapper : public FSRandomAccessFile {
   size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
   }
-  IOStatus InvalidateCache(size_t offset, size_t length) override {
+  IOStatus InvalidateCache(uint64_t offset, uint64_t length) override {
     return status_to_io_status(target_->InvalidateCache(offset, length));
   }
 
@@ -318,7 +318,7 @@ class LegacyWritableFileWrapper : public FSWritableFile {
     return target_->GetUniqueId(id, max_size);
   }
 
-  IOStatus InvalidateCache(size_t offset, size_t length) override {
+  IOStatus InvalidateCache(uint64_t offset, uint64_t length) override {
     return status_to_io_status(target_->InvalidateCache(offset, length));
   }
 
@@ -328,7 +328,7 @@ class LegacyWritableFileWrapper : public FSWritableFile {
     return status_to_io_status(target_->RangeSync(offset, nbytes));
   }
 
-  void PrepareWrite(size_t offset, size_t len, const IOOptions& /*options*/,
+  void PrepareWrite(uint64_t offset, size_t len, const IOOptions& /*options*/,
                     IODebugContext* /*dbg*/) override {
     target_->PrepareWrite(offset, len);
   }
@@ -472,7 +472,7 @@ class LegacyFileSystemWrapper : public FileSystem {
                       IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->DeleteFile(f));
   }
-  IOStatus Truncate(const std::string& fname, size_t size,
+  IOStatus Truncate(const std::string& fname, uint64_t size,
                     const IOOptions& /*options*/,
                     IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->Truncate(fname, size));

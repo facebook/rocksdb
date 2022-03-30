@@ -231,7 +231,8 @@ IOStatus WinMmapReadableFile::Read(uint64_t offset, size_t n,
   return s;
 }
 
-IOStatus WinMmapReadableFile::InvalidateCache(size_t offset, size_t length) {
+IOStatus WinMmapReadableFile::InvalidateCache(uint64_t offset,
+                                              uint64_t length) {
   return IOStatus::OK();
 }
 
@@ -539,7 +540,7 @@ uint64_t WinMmapFile::GetFileSize(const IOOptions& /*options*/,
   return file_offset_ + used;
 }
 
-IOStatus WinMmapFile::InvalidateCache(size_t offset, size_t length) {
+IOStatus WinMmapFile::InvalidateCache(uint64_t offset, uint64_t length) {
   return IOStatus::OK();
 }
 
@@ -662,7 +663,7 @@ IOStatus WinSequentialFile::Skip(uint64_t n) {
   return IOStatus::OK();
 }
 
-IOStatus WinSequentialFile::InvalidateCache(size_t offset, size_t length) {
+IOStatus WinSequentialFile::InvalidateCache(uint64_t offset, uint64_t length) {
   return IOStatus::OK();
 }
 
@@ -720,7 +721,8 @@ IOStatus WinRandomAccessFile::Read(uint64_t offset, size_t n,
   return ReadImpl(offset, n, result, scratch);
 }
 
-IOStatus WinRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
+IOStatus WinRandomAccessFile::InvalidateCache(uint64_t offset,
+                                              uint64_t length) {
   return IOStatus::OK();
 }
 

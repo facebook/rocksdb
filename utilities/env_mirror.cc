@@ -55,7 +55,7 @@ class SequentialFileMirror : public SequentialFile {
     assert(as == bs);
     return as;
   }
-  Status InvalidateCache(size_t offset, size_t length) override {
+  Status InvalidateCache(uint64_t offset, uint64_t length) override {
     Status as = a_->InvalidateCache(offset, length);
     Status bs = b_->InvalidateCache(offset, length);
     assert(as == bs);
@@ -183,7 +183,7 @@ class WritableFileMirror : public WritableFile {
     // NOTE: we don't verify this one
     return a_->GetUniqueId(id, max_size);
   }
-  Status InvalidateCache(size_t offset, size_t length) override {
+  Status InvalidateCache(uint64_t offset, uint64_t length) override {
     Status as = a_->InvalidateCache(offset, length);
     Status bs = b_->InvalidateCache(offset, length);
     assert(as == bs);

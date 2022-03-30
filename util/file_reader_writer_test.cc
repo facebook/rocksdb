@@ -73,7 +73,8 @@ TEST_F(WritableFileWriterTest, RangeSync) {
     size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const override {
       return 0;
     }
-    IOStatus InvalidateCache(size_t /*offset*/, size_t /*length*/) override {
+    IOStatus InvalidateCache(uint64_t /*offset*/,
+                             uint64_t /*length*/) override {
       return IOStatus::OK();
     }
 
@@ -186,7 +187,8 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
     size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const override {
       return 0;
     }
-    IOStatus InvalidateCache(size_t /*offset*/, size_t /*length*/) override {
+    IOStatus InvalidateCache(uint64_t /*offset*/,
+                             uint64_t /*length*/) override {
       return IOStatus::OK();
     }
     bool use_direct_io() const override { return use_direct_io_; }
