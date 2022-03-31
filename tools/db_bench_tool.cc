@@ -5700,8 +5700,6 @@ class Benchmark {
             &get_merge_operands_options, &number_of_operands);
         if (s.IsIncomplete()) {
           // OK if it happens a few times.
-          fprintf(stderr, "GetMergeOperands incomplete: %s\n",
-                  s.ToString().c_str());
           pinnable_vals.resize(number_of_operands);
           s = Status::OK();
           continue;
