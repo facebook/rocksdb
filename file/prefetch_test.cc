@@ -1017,6 +1017,11 @@ extern "C" bool RocksDbIOUringEnable() { return true; }
 
 // Tests the default implementation of ReadAsync API with PosixFileSystem.
 TEST_F(PrefetchTest2, ReadAsyncWithPosixFS) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+
   const int kNumKeys = 1000;
   std::shared_ptr<MockFS> fs = std::make_shared<MockFS>(
       FileSystem::Default(), /*support_prefetch=*/false);

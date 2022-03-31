@@ -222,21 +222,21 @@ void FilePrefetchBuffer::CopyDataToBuffer(uint32_t src, uint64_t& offset,
 //        the asynchronous prefetching in second buffer.
 Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
                                          RandomAccessFileReader* reader,
-                                         FileSystem* fs, uint64_t offset,
-                                         size_t length, size_t readahead_size,
+                                         uint64_t offset, size_t length,
+                                         size_t readahead_size,
                                          Env::IOPriority rate_limiter_priority,
                                          bool& copy_to_third_buffer) {
   if (!enable_) {
     return Status::OK();
   }
-  if (async_read_in_progress_ && fs != nullptr) {
+  if (async_read_in_progress_ && fs_ != nullptr) {
     // Wait for prefetch data to complete.
     // No mutex is needed as PrefetchAsyncCallback updates the result in second
     // buffer and FilePrefetchBuffer should wait for Poll before accessing the
     // second buffer.
     std::vector<void*> handles;
     handles.emplace_back(io_handle_);
-    fs->Poll(handles, 1).PermitUncheckedError();
+    fs_->Poll(handles, 1).PermitUncheckedError();
   }
 
   // TODO akanksha: Update TEST_SYNC_POINT after Async APIs are merged with
@@ -440,8 +440,8 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
 bool FilePrefetchBuffer::TryReadFromCacheAsync(
     const IOOptions& opts, RandomAccessFileReader* reader, uint64_t offset,
     size_t n, Slice* result, Status* status,
-    Env::IOPriority rate_limiter_priority, bool for_compaction /* = false */,
-    FileSystem* fs) {
+    Env::IOPriority rate_limiter_priority, bool for_compaction /* = false */
+) {
   if (track_min_offset_ && offset < min_offset_read_) {
     min_offset_read_ = static_cast<size_t>(offset);
   }
@@ -476,7 +476,7 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
         if (implicit_auto_readahead_ && async_io_) {
           // Prefetch n + readahead_size_/2 synchronously as remaining
           // readahead_size_/2 will be prefetched asynchronously.
-          s = PrefetchAsync(opts, reader, fs, offset, n, readahead_size_ / 2,
+          s = PrefetchAsync(opts, reader, offset, n, readahead_size_ / 2,
                             rate_limiter_priority, copy_to_third_buffer);
         } else {
           s = Prefetch(opts, reader, offset, n + readahead_size_,
@@ -515,6 +515,13 @@ void FilePrefetchBuffer::PrefetchAsyncCallback(const FSReadRequest& req,
                                                void* /*cb_arg*/) {
   async_read_in_progress_ = false;
   uint32_t index = curr_ ^ 1;
+  // Release io_handle_.
+  if (io_handle_ != nullptr && del_fn_ != nullptr) {
+    del_fn_(io_handle_);
+    io_handle_ = nullptr;
+    del_fn_ = nullptr;
+  }
+
   if (req.status.ok()) {
     if (req.offset + req.result.size() <=
         bufs_[index].offset_ + bufs_[index].buffer_.CurrentSize()) {
@@ -528,13 +535,6 @@ void FilePrefetchBuffer::PrefetchAsyncCallback(const FSReadRequest& req,
     }
     size_t current_size = bufs_[index].buffer_.CurrentSize();
     bufs_[index].buffer_.Size(current_size + req.result.size());
-  }
-
-  // Release io_handle_.
-  if (io_handle_ != nullptr && del_fn_ != nullptr) {
-    del_fn_(io_handle_);
-    io_handle_ = nullptr;
-    del_fn_ = nullptr;
   }
 }
 }  // namespace ROCKSDB_NAMESPACE
