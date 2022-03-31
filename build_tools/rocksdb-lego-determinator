@@ -84,9 +84,9 @@ UPLOAD_DB_DIR="
     ]
 }"
 
-# set default RATIO to 1, which sets J=$(nproc) and j=$(nproc)
+# set default RATIO to 2, which sets J=$(nproc)/2 and j=$(nproc)/2
 if [ -z $RATIO ]; then
-  RATIO=1
+  RATIO=2
 fi
 
 # Should probably be called PARALLEL_TEST
