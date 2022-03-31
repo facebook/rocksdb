@@ -52,9 +52,8 @@ struct LRUCacheOptions {
   // Capacity of the cache.
   size_t capacity = 0;
 
-  // Cache is sharded into 2^num_shard_bits shards,
-  // by hash of key. Refer to NewLRUCache for further
-  // information.
+  // Cache is sharded into 2^num_shard_bits shards, by hash of key.
+  // Refer to NewLRUCache for further information.
   int num_shard_bits = -1;
 
   // If strict_capacity_limit is set,
@@ -91,7 +90,7 @@ struct LRUCacheOptions {
   CacheMetadataChargePolicy metadata_charge_policy =
       kDefaultCacheMetadataChargePolicy;
 
-  // A SecondaryCache instance to use a the non-volatile tier
+  // A SecondaryCache instance to use a the non-volatile tier.
   std::shared_ptr<SecondaryCache> secondary_cache;
 
   LRUCacheOptions() {}
@@ -328,8 +327,8 @@ class Cache {
 
   /**
    * Release a mapping returned by a previous Lookup(). A released entry might
-   * still  remain in cache in case it is later looked up by others. If
-   * erase_if_last_ref is set then it also erase it from the cache if there is
+   * still remain in cache in case it is later looked up by others. If
+   * erase_if_last_ref is set then it also erases it from the cache if there is
    * no other reference to  it. Erasing it should call the deleter function that
    * was provided when the entry was inserted.
    *
@@ -345,7 +344,7 @@ class Cache {
   // REQUIRES: handle must have been returned by a method on *this.
   virtual void* Value(Handle* handle) = 0;
 
-  // If the cache contains entry for key, erase it.  Note that the
+  // If the cache contains the entry for the key, erase it.  Note that the
   // underlying entry will be kept around until all existing handles
   // to it have been released.
   virtual void Erase(const Slice& key) = 0;
@@ -369,19 +368,19 @@ class Cache {
   // full capacity.
   virtual bool HasStrictCapacityLimit() const = 0;
 
-  // returns the maximum configured capacity of the cache
+  // Returns the maximum configured capacity of the cache
   virtual size_t GetCapacity() const = 0;
 
-  // returns the memory size for the entries residing in the cache.
+  // Returns the memory size for the entries residing in the cache.
   virtual size_t GetUsage() const = 0;
 
-  // returns the memory size for a specific entry in the cache.
+  // Returns the memory size for a specific entry in the cache.
   virtual size_t GetUsage(Handle* handle) const = 0;
 
-  // returns the memory size for the entries in use by the system
+  // Returns the memory size for the entries in use by the system
   virtual size_t GetPinnedUsage() const = 0;
 
-  // returns the charge for the specific entry in the cache.
+  // Returns the charge for the specific entry in the cache.
   virtual size_t GetCharge(Handle* handle) const = 0;
 
   // Returns the deleter for the specified entry. This might seem useless
@@ -440,9 +439,8 @@ class Cache {
   // The Insert and Lookup APIs below are intended to allow cached objects
   // to be demoted/promoted between the primary block cache and a secondary
   // cache. The secondary cache could be a non-volatile cache, and will
-  // likely store the object in a different representation more suitable
-  // for on disk storage. They rely on a per object CacheItemHelper to do
-  // the conversions.
+  // likely store the object in a different representation. They rely on a
+  // per object CacheItemHelper to do the conversions.
   // The secondary cache may persist across process and system restarts,
   // and may even be moved between hosts. Therefore, the cache key must
   // be repeatable across restarts/reboots, and globally unique if

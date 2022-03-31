@@ -243,10 +243,9 @@ IF_ROCKSDB_LITE("",
 )
     "\tgetmergeoperands -- Insert lots of merge records which are a list of "
     "sorted ints for a key and then compare performance of lookup for another "
-    "key "
-    "by doing a Get followed by binary searching in the large sorted list vs "
-    "doing a GetMergeOperands and binary searching in the operands which are"
-    "sorted sub-lists. The MergeOperator used is sortlist.h\n");
+    "key by doing a Get followed by binary searching in the large sorted list "
+    "vs doing a GetMergeOperands and binary searching in the operands which "
+    "are sorted sub-lists. The MergeOperator used is sortlist.h\n");
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
@@ -351,18 +350,14 @@ DEFINE_double(
     "Used in 'filluniquerandom' benchmark: for each write operation, "
     "we give a probability to perform an overwrite instead. The key used for "
     "the overwrite is randomly chosen from the last 'overwrite_window_size' "
-    "keys "
-    "previously inserted into the DB. "
+    "keys previously inserted into the DB. "
     "Valid overwrite_probability values: [0.0, 1.0].");
 
 DEFINE_uint32(overwrite_window_size, 1,
-              "Used in 'filluniquerandom' benchmark. For each write "
-              "operation, when "
-              "the overwrite_probability flag is set by the user, the key used "
-              "to perform "
-              "an overwrite is randomly chosen from the last "
-              "'overwrite_window_size' keys "
-              "previously inserted into the DB. "
+              "Used in 'filluniquerandom' benchmark. For each write operation,"
+              " when the overwrite_probability flag is set by the user, the "
+              "key used to perform an overwrite is randomly chosen from the "
+              "last 'overwrite_window_size' keys previously inserted into DB. "
               "Warning: large values can affect throughput. "
               "Valid overwrite_window_size values: [1, kMaxUint32].");
 
