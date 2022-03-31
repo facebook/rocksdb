@@ -262,10 +262,10 @@ static void DBPut(benchmark::State& state) {
   }
   options.compaction_style = compaction_style;
 
-  auto rnd = Random(301 + state.thread_index);
+  auto rnd = Random(301 + state.thread_index());
   KeyGenerator kg(&rnd, key_num);
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     SetupDB(state, options, &db, "DBPut");
   }
 
@@ -283,7 +283,7 @@ static void DBPut(benchmark::State& state) {
     }
   }
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     auto db_full = static_cast_with_check<DBImpl>(db);
     Status s = db_full->WaitForCompact(true);
     if (!s.ok()) {
@@ -346,10 +346,10 @@ static void ManualCompaction(benchmark::State& state) {
   options.soft_pending_compaction_bytes_limit = 0;
   options.hard_pending_compaction_bytes_limit = 0;
 
-  auto rnd = Random(301 + state.thread_index);
+  auto rnd = Random(301 + state.thread_index());
   KeyGenerator kg(&rnd, key_num);
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     SetupDB(state, options, &db, "ManualCompaction");
   }
 
@@ -390,7 +390,7 @@ static void ManualCompaction(benchmark::State& state) {
     }
   }
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     auto db_full = static_cast_with_check<DBImpl>(db);
     s = db_full->WaitForCompact(true);
     if (!s.ok()) {
@@ -466,10 +466,10 @@ static void ManualFlush(benchmark::State& state) {
   options.hard_pending_compaction_bytes_limit = 0;
   options.write_buffer_size = 2l << 30;  // 2G to avoid auto flush
 
-  auto rnd = Random(301 + state.thread_index);
+  auto rnd = Random(301 + state.thread_index());
   KeyGenerator kg(&rnd, key_num);
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     SetupDB(state, options, &db, "ManualFlush");
   }
 
@@ -488,7 +488,7 @@ static void ManualFlush(benchmark::State& state) {
     }
   }
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     auto db_full = static_cast_with_check<DBImpl>(db);
     Status s = db_full->WaitForCompact(true);
     if (!s.ok()) {
@@ -541,10 +541,10 @@ static void DBGet(benchmark::State& state) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
 
-  auto rnd = Random(301 + state.thread_index);
+  auto rnd = Random(301 + state.thread_index());
   KeyGenerator kg(&rnd, key_num);
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     SetupDB(state, options, &db, "DBGet");
 
     // load db
@@ -595,7 +595,7 @@ static void DBGet(benchmark::State& state) {
   state.counters["neg_qu_pct"] = benchmark::Counter(
       static_cast<double>(not_found * 100), benchmark::Counter::kAvgIterations);
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     if (enable_statistics) {
       HistogramData histogram_data;
       options.statistics->histogramData(DB_GET, &histogram_data);
@@ -640,10 +640,10 @@ static void SimpleGetWithPerfContext(benchmark::State& state) {
   options.create_if_missing = true;
   options.arena_block_size = 8 << 20;
 
-  auto rnd = Random(301 + state.thread_index);
+  auto rnd = Random(301 + state.thread_index());
   KeyGenerator kg(&rnd, 1024);
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     auto env = Env::Default();
     std::string db_path;
     Status s = env->GetTestDirectory(&db_path);
@@ -748,7 +748,7 @@ static void SimpleGetWithPerfContext(benchmark::State& state) {
       benchmark::Counter(static_cast<double>(get_from_table_nanos),
                          benchmark::Counter::kAvgIterations);
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     TeardownDB(state, db, options, kg);
   }
 }
@@ -857,10 +857,10 @@ static void IteratorSeek(benchmark::State& state) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
 
-  auto rnd = Random(301 + state.thread_index);
+  auto rnd = Random(301 + state.thread_index());
   KeyGenerator kg(&rnd, key_num);
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     SetupDB(state, options, &db, "IteratorSeek");
 
     // load db
@@ -905,7 +905,7 @@ static void IteratorSeek(benchmark::State& state) {
     }
   }
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     TeardownDB(state, db, options, kg);
   }
 }
@@ -951,10 +951,10 @@ static void IteratorNext(benchmark::State& state) {
   Options options;
   options.compaction_style = compaction_style;
 
-  auto rnd = Random(301 + state.thread_index);
+  auto rnd = Random(301 + state.thread_index());
   KeyGenerator kg(&rnd, key_num);
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     SetupDB(state, options, &db, "IteratorNext");
     // load db
     auto wo = WriteOptions();
@@ -999,7 +999,7 @@ static void IteratorNext(benchmark::State& state) {
     }
   }
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     TeardownDB(state, db, options, kg);
   }
 }
@@ -1025,10 +1025,10 @@ static void IteratorNextWithPerfContext(benchmark::State& state) {
   static DB* db;
   Options options;
 
-  auto rnd = Random(301 + state.thread_index);
+  auto rnd = Random(301 + state.thread_index());
   KeyGenerator kg(&rnd, 1024);
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     SetupDB(state, options, &db, "IteratorNextWithPerfContext");
     // load db
     auto wo = WriteOptions();
@@ -1100,7 +1100,7 @@ static void IteratorNextWithPerfContext(benchmark::State& state) {
       benchmark::Counter(static_cast<double>(iter_next_cpu_nanos),
                          benchmark::Counter::kAvgIterations);
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     TeardownDB(state, db, options, kg);
   }
 }
@@ -1119,10 +1119,10 @@ static void IteratorPrev(benchmark::State& state) {
   Options options;
   options.compaction_style = compaction_style;
 
-  auto rnd = Random(301 + state.thread_index);
+  auto rnd = Random(301 + state.thread_index());
   KeyGenerator kg(&rnd, key_num);
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     SetupDB(state, options, &db, "IteratorPrev");
     // load db
     auto wo = WriteOptions();
@@ -1167,7 +1167,7 @@ static void IteratorPrev(benchmark::State& state) {
     }
   }
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     TeardownDB(state, db, options, kg);
   }
 }
@@ -1212,10 +1212,10 @@ static void PrefixSeek(benchmark::State& state) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
 
-  auto rnd = Random(301 + state.thread_index);
+  auto rnd = Random(301 + state.thread_index());
   KeyGenerator kg(&rnd, key_num, key_num / 100);
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     SetupDB(state, options, &db, "PrefixSeek");
 
     // load db
@@ -1259,7 +1259,7 @@ static void PrefixSeek(benchmark::State& state) {
     }
   }
 
-  if (state.thread_index == 0) {
+  if (state.thread_index() == 0) {
     TeardownDB(state, db, options, kg);
   }
 }

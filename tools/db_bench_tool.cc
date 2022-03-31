@@ -2427,7 +2427,8 @@ struct ThreadState {
   Stats stats;
   SharedState* shared;
 
-  explicit ThreadState(int index) : tid(index), rand(seed_base + index) {}
+  explicit ThreadState(int index, int my_seed)
+      : tid(index), rand(seed_base + my_seed) {}
 };
 
 class Duration {
@@ -3663,7 +3664,7 @@ class Benchmark {
       arg[i].method = method;
       arg[i].shared = &shared;
       total_thread_count_++;
-      arg[i].thread = new ThreadState(total_thread_count_);
+      arg[i].thread = new ThreadState(i, total_thread_count_);
       arg[i].thread->stats.SetReporterAgent(reporter_agent.get());
       arg[i].thread->shared = &shared;
       FLAGS_env->StartThread(ThreadBody, &arg[i]);
