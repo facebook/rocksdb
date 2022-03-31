@@ -10,7 +10,7 @@ The tests are based on [Google Benchmark](https://github.com/google/benchmark) l
 ### Prerequisite
 Install the [Google Benchmark](https://github.com/google/benchmark) version `1.6.0` or above.
 
-*Note: Google Benchmark `1.6.x` is incompatible with previous versions like `1.5.x`, please make sure you're using the newer version.* 
+*Note: Google Benchmark `1.6.x` is incompatible with previous versions like `1.5.x`, please make sure you're using the newer version.*
 
 ### Build and Run
 With `Makefile`:
@@ -49,3 +49,12 @@ The compiler might be able to optimize the code that not the same way as the who
 
 #### * Names of user-defined counters/metrics has to be `[A-Za-z0-9_]`
 It's a restriction of the metrics collecting and reporting system RocksDB is using internally. It will also help integrate with more systems.
+
+#### * Minimize the Metrics Variation
+Try reducing the test result variation, one way to check that is running the test multiple times and check the CV (Coefficient of Variation) reported by gbenchmark.
+```bash
+$ ./db_basic_bench --benchmark_filter=<TEST_NAME> --benchmark_repetitions=10
+...
+<TEST_NAME>_cv    3.2%
+```
+RocksDB has background compaction jobs which may cause the test result to vary a lot. If the micro-benchmark is not purposely testing the operation while compaction is in progress, it should wait for the compaction to finish (`db_impl->WaitForCompact()`) or disable auto-compaction.
