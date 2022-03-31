@@ -2901,8 +2901,7 @@ class Benchmark {
 #else
         use_blob_db_(false),  // Stacked BlobDB
 #endif  // !ROCKSDB_LITE
-        read_operands_(false)
-  {
+        read_operands_(false) {
     // use simcache instead of cache
     if (FLAGS_simcache_size >= 0) {
       if (FLAGS_cache_numshardbits >= 1) {
