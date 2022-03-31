@@ -1331,9 +1331,9 @@ void DBImpl::MoveCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
                                    uint64_t corrupted_wal_number) {
   size_t corrupt_index_start = wal_numbers.size() - 1;
   size_t i = 0;
-
+  size_t num_wals = wal_numbers.size();
   // Find the index of first corrupted wal.
-  while (i <= wal_numbers.size() - 1) {
+  while (i < num_wals) {
     if (wal_numbers[i] == corrupted_wal_number) {
       corrupt_index_start = i;
       break;
@@ -1341,27 +1341,32 @@ void DBImpl::MoveCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
     i++;
   }
 
-  // Start from first corrupted file + 1.
+  // Increment i to move WAL files from first corrupted_wal_number + 1.
   i++;
 
   std::string archivalPath =
       ArchivalDirectory(immutable_db_options_.GetWalDir());
   Status create_status = env_->CreateDirIfMissing(archivalPath);
 
+  // create_status is only checked when it needs to move the corrupted WAL files
+  // to archive folder.
+  create_status.PermitUncheckedError();
+
   // Move all the WAL files from corrupted_wal_number + 1 to last WAL
   // (max_wal_number) to avoid column family inconsistency error to archival
   // directory. If its unable to create archive dir, it will delete the
   // corrupted WAL files.
   // We are moving all but first corrupted WAL file to a different folder.
-  while (i <= wal_numbers.size() - 1) {
+  while (i < num_wals) {
     LogFileNumberSize log(wal_numbers[i]);
     std::string fname =
         LogFileName(immutable_db_options_.GetWalDir(), wal_numbers[i]);
 #ifndef ROCKSDB_LITE
     if (create_status.ok()) {
       wal_manager_.ArchiveWALFile(fname, wal_numbers[i]);
-    } else {
+    } else
 #endif
+    {
       std::string path_to_sync =
           ArchivalDirectory(immutable_db_options_.GetWalDir());
       Status s = DeleteDBFile(&immutable_db_options_, fname, path_to_sync,
