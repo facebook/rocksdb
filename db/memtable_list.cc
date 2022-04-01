@@ -505,21 +505,20 @@ Status MemTableList::TryInstallMemtableFlushResults(
         min_wal_number_to_keep =
             PrecomputeMinLogNumberToKeepNon2PC(vset, *cfd, edit_list);
       }
-      edit_list.back()->SetMinLogNumberToKeep(min_wal_number_to_keep);
 
-      std::unique_ptr<VersionEdit> wal_deletion;
+      VersionEdit wal_deletion;
+      wal_deletion.SetMinLogNumberToKeep(min_wal_number_to_keep);
       if (vset->db_options()->track_and_verify_wals_in_manifest) {
         if (min_wal_number_to_keep >
             vset->GetWalSet().GetMinWalNumberToKeep()) {
-          wal_deletion.reset(new VersionEdit);
-          wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
-          edit_list.push_back(wal_deletion.get());
+          wal_deletion.DeleteWalsBefore(min_wal_number_to_keep);
         }
         TEST_SYNC_POINT_CALLBACK(
             "MemTableList::TryInstallMemtableFlushResults:"
             "AfterComputeMinWalToKeep",
             nullptr);
       }
+      edit_list.push_back(&wal_deletion);
 
       const auto manifest_write_cb = [this, cfd, batch_count, log_buffer,
                                       to_delete, mu](const Status& status) {
@@ -805,17 +804,15 @@ Status InstallMemtableAtomicFlushResults(
     min_wal_number_to_keep =
         PrecomputeMinLogNumberToKeepNon2PC(vset, cfds, edit_lists);
   }
-  edit_lists.back().back()->SetMinLogNumberToKeep(min_wal_number_to_keep);
 
-  std::unique_ptr<VersionEdit> wal_deletion;
-  if (vset->db_options()->track_and_verify_wals_in_manifest) {
-    if (min_wal_number_to_keep > vset->GetWalSet().GetMinWalNumberToKeep()) {
-      wal_deletion.reset(new VersionEdit);
-      wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
-      edit_lists.back().push_back(wal_deletion.get());
-      ++num_entries;
-    }
+  VersionEdit wal_deletion;
+  wal_deletion.SetMinLogNumberToKeep(min_wal_number_to_keep);
+  if (vset->db_options()->track_and_verify_wals_in_manifest &&
+      min_wal_number_to_keep > vset->GetWalSet().GetMinWalNumberToKeep()) {
+    wal_deletion.DeleteWalsBefore(min_wal_number_to_keep);
   }
+  edit_lists.back().push_back(&wal_deletion);
+  ++num_entries;
 
   // Mark the version edits as an atomic group if the number of version edits
   // exceeds 1.
