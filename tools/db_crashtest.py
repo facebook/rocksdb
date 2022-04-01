@@ -163,6 +163,8 @@ default_params = {
     "memtable_prefix_bloom_size_ratio": lambda: random.choice([0.001, 0.01, 0.1, 0.5]),
     "memtable_whole_key_filtering": lambda: random.randint(0, 1),
     "detect_filter_construct_corruption": lambda: random.choice([0, 1]),
+    "adaptive_readahead": lambda: random.choice([0, 1]),
+    "async_io": lambda: random.choice([0, 1]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -214,6 +216,8 @@ def setup_multiops_txn_key_spaces_file():
         multiops_txn_key_spaces_file = tempfile.mkstemp(
                 prefix=key_spaces_file_prefix)[1]
     else:
+        if not os.path.exists(test_tmpdir):
+            os.mkdir(test_tmpdir)
         multiops_txn_key_spaces_file = tempfile.mkstemp(
                 prefix=key_spaces_file_prefix, dir=test_tmpdir)[1]
     return multiops_txn_key_spaces_file

@@ -42,6 +42,12 @@ crash_test_with_ts: $(DB_STRESS_CMD)
 	$(CRASHTEST_MAKE) whitebox_crash_test_with_ts
 	$(CRASHTEST_MAKE) blackbox_crash_test_with_ts
 
+crash_test_with_multiops_wc_txn: $(DB_STRESS_CMD)
+	$(CRASHTEST_MAKE) blackbox_crash_test_with_multiops_wc_txn
+
+crash_test_with_multiops_wp_txn: $(DB_STRESS_CMD)
+	$(CRASHTEST_MAKE) blackbox_crash_test_with_multiops_wp_txn
+
 blackbox_crash_test: $(DB_STRESS_CMD)
 	$(CRASHTEST_PY) --simple blackbox $(CRASH_TEST_EXT_ARGS)
 	$(CRASHTEST_PY) blackbox $(CRASH_TEST_EXT_ARGS)

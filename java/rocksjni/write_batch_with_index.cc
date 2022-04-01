@@ -735,9 +735,11 @@ void Java_org_rocksdb_WBWIRocksIterator_seek0(JNIEnv* env, jobject /*jobj*/,
                                               jlong handle, jbyteArray jtarget,
                                               jint jtarget_len) {
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::WBWIIterator*>(handle);
-  jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
-  if (target == nullptr) {
-    // exception thrown: OutOfMemoryError
+  jbyte* target = new jbyte[jtarget_len];
+  env->GetByteArrayRegion(jtarget, 0, jtarget_len, target);
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    delete[] target;
     return;
   }
 
@@ -746,7 +748,7 @@ void Java_org_rocksdb_WBWIRocksIterator_seek0(JNIEnv* env, jobject /*jobj*/,
 
   it->Seek(target_slice);
 
-  env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+  delete[] target;
 }
 
 /*
@@ -766,6 +768,33 @@ void Java_org_rocksdb_WBWIRocksIterator_seekDirect0(
 }
 
 /*
+ * This method supports fetching into indirect byte buffers;
+ * the Java wrapper extracts the byte[] and passes it here.
+ *
+ * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    seekByteArray0
+ * Signature: (J[BII)V
+ */
+void Java_org_rocksdb_WBWIRocksIterator_seekByteArray0(
+    JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jtarget,
+    jint jtarget_off, jint jtarget_len) {
+  const std::unique_ptr<char[]> target(new char[jtarget_len]);
+  if (target == nullptr) {
+    jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
+    env->ThrowNew(oom_class,
+                  "Memory allocation failed in RocksDB JNI function");
+    return;
+  }
+  env->GetByteArrayRegion(jtarget, jtarget_off, jtarget_len,
+                          reinterpret_cast<jbyte*>(target.get()));
+
+  ROCKSDB_NAMESPACE::Slice target_slice(target.get(), jtarget_len);
+
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::WBWIIterator*>(handle);
+  it->Seek(target_slice);
+}
+
+/*
  * Class:     org_rocksdb_WBWIRocksIterator
  * Method:    seekForPrev0
  * Signature: (J[BI)V
@@ -776,9 +805,11 @@ void Java_org_rocksdb_WBWIRocksIterator_seekForPrev0(JNIEnv* env,
                                                      jbyteArray jtarget,
                                                      jint jtarget_len) {
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::WBWIIterator*>(handle);
-  jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
-  if (target == nullptr) {
-    // exception thrown: OutOfMemoryError
+  jbyte* target = new jbyte[jtarget_len];
+  env->GetByteArrayRegion(jtarget, 0, jtarget_len, target);
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    delete[] target;
     return;
   }
 
@@ -787,7 +818,50 @@ void Java_org_rocksdb_WBWIRocksIterator_seekForPrev0(JNIEnv* env,
 
   it->SeekForPrev(target_slice);
 
-  env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+  delete[] target;
+}
+
+/*
+ * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    seekForPrevDirect0
+ * Signature: (JLjava/nio/ByteBuffer;II)V
+ */
+void Java_org_rocksdb_WBWIRocksIterator_seekForPrevDirect0(
+    JNIEnv* env, jobject /*jobj*/, jlong handle, jobject jtarget,
+    jint jtarget_off, jint jtarget_len) {
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::WBWIIterator*>(handle);
+  auto seek_for_prev = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
+    it->SeekForPrev(target_slice);
+  };
+  ROCKSDB_NAMESPACE::JniUtil::k_op_direct(seek_for_prev, env, jtarget,
+                                          jtarget_off, jtarget_len);
+}
+
+/*
+ * This method supports fetching into indirect byte buffers;
+ * the Java wrapper extracts the byte[] and passes it here.
+ *
+ * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    seekForPrevByteArray0
+ * Signature: (J[BII)V
+ */
+void Java_org_rocksdb_WBWIRocksIterator_seekForPrevByteArray0(
+    JNIEnv* env, jobject /*jobj*/, jlong handle, jbyteArray jtarget,
+    jint jtarget_off, jint jtarget_len) {
+  const std::unique_ptr<char[]> target(new char[jtarget_len]);
+  if (target == nullptr) {
+    jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
+    env->ThrowNew(oom_class,
+                  "Memory allocation failed in RocksDB JNI function");
+    return;
+  }
+  env->GetByteArrayRegion(jtarget, jtarget_off, jtarget_len,
+                          reinterpret_cast<jbyte*>(target.get()));
+
+  ROCKSDB_NAMESPACE::Slice target_slice(target.get(), jtarget_len);
+
+  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::WBWIIterator*>(handle);
+  it->SeekForPrev(target_slice);
 }
 
 /*

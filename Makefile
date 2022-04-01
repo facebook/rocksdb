@@ -1032,31 +1032,31 @@ ldb_tests: ldb
 include crash_test.mk
 
 asan_check: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) check -j32
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) check -j32
 	$(MAKE) clean
 
 asan_crash_test: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test
 	$(MAKE) clean
 
 whitebox_asan_crash_test: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) whitebox_crash_test
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) whitebox_crash_test
 	$(MAKE) clean
 
 blackbox_asan_crash_test: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) blackbox_crash_test
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) blackbox_crash_test
 	$(MAKE) clean
 
 asan_crash_test_with_atomic_flush: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_atomic_flush
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_atomic_flush
 	$(MAKE) clean
 
 asan_crash_test_with_txn: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_txn
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_txn
 	$(MAKE) clean
 
 asan_crash_test_with_best_efforts_recovery: clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_best_efforts_recovery
+	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_best_efforts_recovery
 	$(MAKE) clean
 
 ubsan_check: clean
@@ -1216,7 +1216,7 @@ clean-rocks:
 	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
 	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm -f {} \;
 
-clean-rocksjava:
+clean-rocksjava: clean-rocks
 	rm -rf jl jls
 	cd java && $(MAKE) clean
 
@@ -2044,8 +2044,8 @@ ROCKSDB_JAVADOCS_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-javadoc.jar
 ROCKSDB_SOURCES_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-sources.jar
 SHA256_CMD = sha256sum
 
-ZLIB_VER ?= 1.2.11
-ZLIB_SHA256 ?= c3e5e9fdd5004dcb542feda5ee4f0ff0744628baf8ed2dd5d66f8ca1197cb1a1
+ZLIB_VER ?= 1.2.12
+ZLIB_SHA256 ?= 91844808532e5ce316b3c010929493c0244f3d37593afd6de04f71821d5136d9
 ZLIB_DOWNLOAD_BASE ?= http://zlib.net
 BZIP2_VER ?= 1.0.8
 BZIP2_SHA256 ?= ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269

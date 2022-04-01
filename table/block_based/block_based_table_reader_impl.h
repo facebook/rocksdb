@@ -39,8 +39,8 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   if (rep_->uncompression_dict_reader) {
     const bool no_io = (ro.read_tier == kBlockCacheTier);
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        prefetch_buffer, no_io, get_context, lookup_context,
-        &uncompression_dict);
+        prefetch_buffer, no_io, ro.verify_checksums, get_context,
+        lookup_context, &uncompression_dict);
     if (!s.ok()) {
       iter->Invalidate(s);
       return iter;

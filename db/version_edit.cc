@@ -120,6 +120,9 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   if (has_max_column_family_) {
     PutVarint32Varint32(dst, kMaxColumnFamily, max_column_family_);
   }
+  if (has_min_log_number_to_keep_) {
+    PutVarint32Varint64(dst, kMinLogNumberToKeep, min_log_number_to_keep_);
+  }
   if (has_last_sequence_) {
     PutVarint32Varint64(dst, kLastSequence, last_sequence_);
   }

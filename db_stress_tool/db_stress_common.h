@@ -282,6 +282,9 @@ DECLARE_uint64(wp_snapshot_cache_bits);
 DECLARE_uint64(wp_commit_cache_bits);
 #endif  // !ROCKSDB_LITE
 
+DECLARE_bool(adaptive_readahead);
+DECLARE_bool(async_io);
+
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;

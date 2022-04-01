@@ -1475,7 +1475,7 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
       const uint64_t file_number = file->fd.GetNumber();
       files.emplace_back(
           MakeTableFileName("", file_number), file_number, file_path,
-          static_cast<size_t>(file->fd.GetFileSize()), file->fd.smallest_seqno,
+          file->fd.GetFileSize(), file->fd.smallest_seqno,
           file->fd.largest_seqno, file->smallest.user_key().ToString(),
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
@@ -4141,7 +4141,7 @@ void VersionSet::Reset() {
   }
   db_id_.clear();
   next_file_number_.store(2);
-  min_log_number_to_keep_2pc_.store(0);
+  min_log_number_to_keep_.store(0);
   manifest_file_number_ = 0;
   options_file_number_ = 0;
   pending_manifest_file_number_ = 0;
@@ -4610,8 +4610,7 @@ Status VersionSet::ProcessManifestWrites(
       }
 
       if (last_min_log_number_to_keep != 0) {
-        // Should only be set in 2PC mode.
-        MarkMinLogNumberToKeep2PC(last_min_log_number_to_keep);
+        MarkMinLogNumberToKeep(last_min_log_number_to_keep);
       }
 
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
@@ -4965,7 +4964,7 @@ Status VersionSet::Recover(
         ",min_log_number_to_keep is %" PRIu64 "\n",
         manifest_path.c_str(), manifest_file_number_, next_file_number_.load(),
         last_sequence_.load(), log_number, prev_log_number_,
-        column_family_set_->GetMaxColumnFamily(), min_log_number_to_keep_2pc());
+        column_family_set_->GetMaxColumnFamily(), min_log_number_to_keep());
 
     for (auto cfd : *column_family_set_) {
       if (cfd->IsDropped()) {
@@ -5126,9 +5125,6 @@ Status VersionSet::TryRecoverFromOneManifest(
 Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
                                       const std::string& dbname,
                                       FileSystem* fs) {
-  // these are just for performance reasons, not correctness,
-  // so we're fine using the defaults
-  FileOptions soptions;
   // Read "CURRENT" file, which contains a pointer to the current manifest file
   std::string manifest_path;
   uint64_t manifest_file_number;
@@ -5137,16 +5133,24 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
   if (!s.ok()) {
     return s;
   }
+  return ListColumnFamiliesFromManifest(manifest_path, fs, column_families);
+}
 
+Status VersionSet::ListColumnFamiliesFromManifest(
+    const std::string& manifest_path, FileSystem* fs,
+    std::vector<std::string>* column_families) {
   std::unique_ptr<SequentialFileReader> file_reader;
+  Status s;
   {
     std::unique_ptr<FSSequentialFile> file;
-    s = fs->NewSequentialFile(manifest_path, soptions, &file, nullptr);
+    // these are just for performance reasons, not correctness,
+    // so we're fine using the defaults
+    s = fs->NewSequentialFile(manifest_path, FileOptions(), &file, nullptr);
     if (!s.ok()) {
       return s;
-  }
-  file_reader.reset(new SequentialFileReader(std::move(file), manifest_path,
-                                             nullptr /*IOTracer*/));
+    }
+    file_reader = std::make_unique<SequentialFileReader>(
+        std::move(file), manifest_path, /*io_tracer=*/nullptr);
   }
 
   VersionSet::LogReporter reporter;
@@ -5336,9 +5340,16 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
 
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
                                 bool verbose, bool hex, bool json) {
+  assert(options.env);
+  std::vector<std::string> column_families;
+  Status s = ListColumnFamiliesFromManifest(
+      dscname, options.env->GetFileSystem().get(), &column_families);
+  if (!s.ok()) {
+    return s;
+  }
+
   // Open the specified manifest file.
   std::unique_ptr<SequentialFileReader> file_reader;
-  Status s;
   {
     std::unique_ptr<FSSequentialFile> file;
     const std::shared_ptr<FileSystem>& fs = options.env->GetFileSystem();
@@ -5349,14 +5360,16 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     if (!s.ok()) {
       return s;
     }
-    file_reader.reset(new SequentialFileReader(
-        std::move(file), dscname, db_options_->log_readahead_size, io_tracer_));
+    file_reader = std::make_unique<SequentialFileReader>(
+        std::move(file), dscname, db_options_->log_readahead_size, io_tracer_);
   }
 
-  std::vector<ColumnFamilyDescriptor> column_families(
-      1, ColumnFamilyDescriptor(kDefaultColumnFamilyName, options));
-  DumpManifestHandler handler(column_families, this, io_tracer_, verbose, hex,
-                              json);
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  for (const auto& cf : column_families) {
+    cf_descs.emplace_back(cf, options);
+  }
+
+  DumpManifestHandler handler(cf_descs, this, io_tracer_, verbose, hex, json);
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;
@@ -5378,9 +5391,9 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
 }
 // Called only either from ::LogAndApply which is protected by mutex or during
 // recovery which is single-threaded.
-void VersionSet::MarkMinLogNumberToKeep2PC(uint64_t number) {
-  if (min_log_number_to_keep_2pc_.load(std::memory_order_relaxed) < number) {
-    min_log_number_to_keep_2pc_.store(number, std::memory_order_relaxed);
+void VersionSet::MarkMinLogNumberToKeep(uint64_t number) {
+  if (min_log_number_to_keep_.load(std::memory_order_relaxed) < number) {
+    min_log_number_to_keep_.store(number, std::memory_order_relaxed);
   }
 }
 
@@ -5506,7 +5519,7 @@ Status VersionSet::WriteCurrentStateToManifest(
         // min_log_number_to_keep is for the whole db, not for specific column family.
         // So it does not need to be set for every column family, just need to be set once.
         // Since default CF can never be dropped, we set the min_log to the default CF here.
-        uint64_t min_log = min_log_number_to_keep_2pc();
+        uint64_t min_log = min_log_number_to_keep();
         if (min_log != 0) {
           edit.SetMinLogNumberToKeep(min_log);
         }
@@ -5894,11 +5907,13 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
           assert(!cfd->ioptions()->cf_paths.empty());
           filemetadata.db_path = cfd->ioptions()->cf_paths.back().path;
         }
+        filemetadata.directory = filemetadata.db_path;
         const uint64_t file_number = file->fd.GetNumber();
         filemetadata.name = MakeTableFileName("", file_number);
+        filemetadata.relative_filename = filemetadata.name.substr(1);
         filemetadata.file_number = file_number;
         filemetadata.level = level;
-        filemetadata.size = static_cast<size_t>(file->fd.GetFileSize());
+        filemetadata.size = file->fd.GetFileSize();
         filemetadata.smallestkey = file->smallest.user_key().ToString();
         filemetadata.largestkey = file->largest.user_key().ToString();
         filemetadata.smallest_seqno = file->fd.smallest_seqno;
