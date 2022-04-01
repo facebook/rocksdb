@@ -537,16 +537,16 @@ class DB {
     return Get(options, DefaultColumnFamily(), key, value, timestamp);
   }
 
-  // Assigns all the merge operands corresponding to the key to the
-  // `merge_operands` array. Upon success, the number of merge operands set is
-  // assigned to `*number_of_operands`. Merge operands returned are in the order
-  // of insertion.
+  // Populates the `merge_operands` array with all the merge operands in the DB
+  // for `key`. The `merge_operands` array will be populated in the order of
+  // insertion. The number of entries populated in `merge_operands` will be
+  // assigned to `*number_of_operands`.
   //
-  // If the number of merge operands in DB is greater than
-  // `merge_operands_options.expected_max_number_of_operands`
-  // no merge operands are returned and status is Incomplete. In that case,
-  // `*number_of_operands` will be assigned the number of merge operands found
-  // in the DB for that key.
+  // If the number of merge operands in DB for `key` is greater than
+  // `merge_operands_options.expected_max_number_of_operands`,
+  // `merge_operands` is not populated and the return value is
+  // `Status::Incomplete`. In that case, `*number_of_operands` will be assigned
+  // the number of merge operands found in the DB for `key`.
   //
   // `merge_operands`- Points to an array of at-least
   //             merge_operands_options.expected_max_number_of_operands and the

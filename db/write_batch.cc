@@ -25,6 +25,7 @@
 //    kTypeBeginPrepareXID
 //    kTypeEndPrepareXID varstring
 //    kTypeCommitXID varstring
+//    kTypeCommitXIDAndTimestamp varstring varstring
 //    kTypeRollbackXID varstring
 //    kTypeBeginPersistedPrepareXID
 //    kTypeBeginUnprepareXID
