@@ -119,10 +119,6 @@ class PreCommitChecker(Env):
 
         # Run commands
         for cmd in cmds:
-            # Replace J=<..> with the local environment variable
-            if "J" in os.environ:
-                cmd = cmd.replace("J=1", "J=%s" % os.environ["J"])
-                cmd = cmd.replace("make ", "make -j%s " % os.environ["J"])
             # Run the command
             status = self.shell(cmd, ".")
             if status != 0:
