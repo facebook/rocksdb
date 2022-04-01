@@ -610,6 +610,7 @@ Status DBImpl::Recover(
           versions_->GetWalSet().GetWals().rbegin()->first;
       edit.DeleteWalsBefore(max_wal_number + 1);
       assert(version_edits_ctx != nullptr);
+      assert(versions_->GetColumnFamilySet() != nullptr);
       version_edits_ctx->UpdateVersionEdits(
           versions_->GetColumnFamilySet()->GetDefault(), edit);
     }
@@ -809,10 +810,10 @@ Status DBImpl::InitPersistStatsColumnFamily() {
 }
 
 Status DBImpl::LogAndApplyForRecovery(VersionEditsContext* version_edits_ctx) {
+  assert(versions_->descriptor_log_ == nullptr);
   return versions_->LogAndApply(
       version_edits_ctx->cfds_, version_edits_ctx->mutable_cf_opts_,
-      version_edits_ctx->edit_lists_, &mutex_, directories_.GetDbDir(),
-      /*new_descriptor_log=*/true);
+      version_edits_ctx->edit_lists_, &mutex_, directories_.GetDbDir());
 }
 
 // REQUIRES: wal_numbers are sorted in ascending order
@@ -1214,7 +1215,7 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
 
   // True if there's any data in the WALs; if not, we can skip re-processing
   // them later
-  bool truncate_last_log = true;
+  bool truncate_last_wal = true;
   bool data_seen = false;
   if (!read_only) {
     // no need to refcount since client still doesn't have access
@@ -1280,9 +1281,12 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
       if (corrupted_wal_found != nullptr && *corrupted_wal_found == true &&
           immutable_db_options_.wal_recovery_mode ==
               WALRecoveryMode::kPointInTimeRecovery) {
+        // Truncate the last WAL to reclaim the pre allocated space before
+        // moving it.
+        GetLogSizeAndMaybeTruncate(wal_numbers.back(), /*truncate=*/true,
+                                   nullptr);
         MoveCorruptedWalFiles(wal_numbers, corrupted_wal_number);
-        // Since last log has been deleted, no need to truncate the log.
-        truncate_last_log = false;
+        truncate_last_wal = false;
       }
 
       assert(version_edits_ctx != nullptr);
@@ -1302,6 +1306,7 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
           // means we can advance min_log_number_to_keep.
           wal_deletion.SetMinLogNumberToKeep(max_wal_number + 1);
         }
+        assert(versions_->GetColumnFamilySet() != nullptr);
         version_edits_ctx->UpdateVersionEdits(
             versions_->GetColumnFamilySet()->GetDefault(), wal_deletion);
       }
@@ -1310,12 +1315,12 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
 
   if (status.ok()) {
     if (data_seen && !flushed) {
-      status = RestoreAliveLogFiles(wal_numbers, truncate_last_log);
+      status = RestoreAliveLogFiles(wal_numbers, truncate_last_wal);
     } else if (!wal_numbers.empty()) {
       // If there's no data in the WAL, or we flushed all the data, still
       // truncate the log file. If the process goes into a crash loop before
       // the file is deleted, the preallocated space will never get freed.
-      const bool truncate = !read_only && truncate_last_log;
+      const bool truncate = !read_only && truncate_last_wal;
       GetLogSizeAndMaybeTruncate(wal_numbers.back(), truncate, nullptr)
           .PermitUncheckedError();
     }
@@ -1329,17 +1334,16 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
 
 void DBImpl::MoveCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
                                    uint64_t corrupted_wal_number) {
-  size_t corrupt_index_start = wal_numbers.size() - 1;
-  size_t i = 0;
+  // size_t corrupt_index_start = wal_numbers.size() - 1;
+  // size_t i = 0;
   size_t num_wals = wal_numbers.size();
+
   // Find the index of first corrupted wal.
-  while (i < num_wals) {
-    if (wal_numbers[i] == corrupted_wal_number) {
-      corrupt_index_start = i;
-      break;
-    }
-    i++;
-  }
+  size_t i = static_cast<size_t>(std::lower_bound(wal_numbers.begin(),
+                                                  wal_numbers.end(),
+                                                  corrupted_wal_number) -
+                                 wal_numbers.begin());
+  size_t corrupt_index_start = i;
 
   // Increment i to move WAL files from first corrupted_wal_number + 1.
   i++;
@@ -1364,23 +1368,12 @@ void DBImpl::MoveCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
 #ifndef ROCKSDB_LITE
     if (create_status.ok()) {
       wal_manager_.ArchiveWALFile(fname, wal_numbers[i]);
-    } else
-#endif
-    {
-      std::string path_to_sync =
-          ArchivalDirectory(immutable_db_options_.GetWalDir());
-      Status s = DeleteDBFile(&immutable_db_options_, fname, path_to_sync,
-                              false, !wal_in_db_path_);
-      if (!s.ok()) {
-        ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                       "Unable to delete file: %s: %s", fname.c_str(),
-                       s.ToString().c_str());
-      }
     }
+#endif
     i++;
   }
   wal_numbers.erase(wal_numbers.begin() + corrupt_index_start + 1,
-                    wal_numbers.begin() + wal_numbers.size());
+                    wal_numbers.begin() + num_wals);
 }
 
 Status DBImpl::GetLogSizeAndMaybeTruncate(uint64_t wal_number, bool truncate,
@@ -1419,7 +1412,7 @@ Status DBImpl::GetLogSizeAndMaybeTruncate(uint64_t wal_number, bool truncate,
 }
 
 Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers,
-                                    bool truncate_last_log) {
+                                    bool truncate_last_wal) {
   if (wal_numbers.empty()) {
     return Status::OK();
   }
@@ -1447,7 +1440,7 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers,
     LogFileNumberSize log;
     s = GetLogSizeAndMaybeTruncate(
         wal_number,
-        /*truncate=*/(wal_number == wal_numbers.back() && truncate_last_log),
+        /*truncate=*/(wal_number == wal_numbers.back() && truncate_last_wal),
         &log);
     if (!s.ok()) {
       break;

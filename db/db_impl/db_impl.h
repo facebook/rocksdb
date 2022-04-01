@@ -1243,18 +1243,18 @@ class DBImpl : public DB {
   class VersionEditsContext {
    public:
     ~VersionEditsContext() {
-      for (size_t i = 0; i < edit_lists_.size(); i++) {
-        for (size_t j = 0; j < edit_lists_[i].size(); j++) {
-          delete edit_lists_[i][j];
+      for (auto& edit_list : edit_lists_) {
+        for (auto* edit : edit_list) {
+          delete edit;
         }
-        edit_lists_[i].clear();
+        edit_list.clear();
       }
       cfds_.clear();
       mutable_cf_opts_.clear();
       edit_lists_.clear();
     }
 
-    void UpdateVersionEdits(ColumnFamilyData* cfd, VersionEdit& edit) {
+    void UpdateVersionEdits(ColumnFamilyData* cfd, const VersionEdit& edit) {
       if (map_.find(cfd->GetID()) == map_.end()) {
         uint32_t size = static_cast<uint32_t>(map_.size());
         map_.emplace(cfd->GetID(), size);
@@ -1708,7 +1708,7 @@ class DBImpl : public DB {
   // (e.g. avoid_flush_during_recovery=true). May also trigger flush
   // in case total_log_size > max_total_wal_size.
   Status RestoreAliveLogFiles(const std::vector<uint64_t>& log_numbers,
-                              bool truncate_last_log);
+                              bool truncate_last_wal);
 
   // num_bytes: for slowdown case, delay time is calculated based on
   //            `num_bytes` going through.

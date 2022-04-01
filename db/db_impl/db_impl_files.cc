@@ -890,21 +890,14 @@ Status DBImpl::SetDBId(bool read_only, VersionEditsContext* version_edits_ctx) {
     }
     s = GetDbIdentityFromIdentityFile(&db_id_);
     if (immutable_db_options_.write_dbid_to_manifest && s.ok()) {
+      assert(!read_only);
+      assert(version_edits_ctx != nullptr);
+      assert(versions_->GetColumnFamilySet() != nullptr);
       VersionEdit edit;
       edit.SetDBId(db_id_);
       versions_->db_id_ = db_id_;
-      if (version_edits_ctx == nullptr) {
-        // In case of ReadOnly DB, recovery_version_edits is nullptr.
-        Options options;
-        MutableCFOptions mutable_cf_options(options);
-        s = versions_->LogAndApply(
-            versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options,
-            &edit, &mutex_, nullptr,
-            /* new_descriptor_log */ false);
-      } else {
-        version_edits_ctx->UpdateVersionEdits(
-            versions_->GetColumnFamilySet()->GetDefault(), edit);
-      }
+      version_edits_ctx->UpdateVersionEdits(
+          versions_->GetColumnFamilySet()->GetDefault(), edit);
     }
   } else if (!read_only) {
     s = SetIdentityFile(env_, dbname_, db_id_);
@@ -969,17 +962,8 @@ Status DBImpl::DeleteUnreferencedSstFiles(
   assert(versions_->GetColumnFamilySet());
   ColumnFamilyData* default_cfd = versions_->GetColumnFamilySet()->GetDefault();
   assert(default_cfd);
-  if (version_edits_ctx == nullptr) {
-    // In case of ReadOnly DB, recovery_version_edits is nullptr.
-    s = versions_->LogAndApply(
-        default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
-        directories_.GetDbDir(), /*new_descriptor_log*/ false);
-    if (!s.ok()) {
-      return s;
-    }
-  } else {
-    version_edits_ctx->UpdateVersionEdits(default_cfd, edit);
-  }
+  version_edits_ctx->UpdateVersionEdits(default_cfd, edit);
+
   mutex_.Unlock();
   for (const auto& fname : files_to_delete) {
     s = env_->DeleteFile(fname);
