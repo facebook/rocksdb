@@ -5704,10 +5704,16 @@ class Benchmark {
             options, cfh, key, pinnable_vals.data(),
             &get_merge_operands_options, &number_of_operands);
         if (s.IsIncomplete()) {
-          // OK if it happens a few times.
+          // Should only happen a few times when we encounter a key that had
+          // more merge operands than any key seen so far. Production use case
+          // would typically retry in such event to get all the operands so do
+          // that here.
           pinnable_vals.resize(number_of_operands);
-          s = Status::OK();
-          continue;
+          get_merge_operands_options.expected_max_number_of_operands =
+              static_cast<int>(pinnable_vals.size());
+          s = db_with_cfh->db->GetMergeOperands(
+              options, cfh, key, pinnable_vals.data(),
+              &get_merge_operands_options, &number_of_operands);
         }
       } else {
         s = db_with_cfh->db->Get(options, cfh, key, &pinnable_val, ts_ptr);
