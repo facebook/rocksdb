@@ -244,32 +244,9 @@ IF_ROCKSDB_LITE("",
 )
     "\tgetmergeoperands -- Insert lots of merge records which are a list of "
     "sorted ints for a key and then compare performance of lookup for another "
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-    "key "
-    "by doing a Get followed by binary searching in the large sorted list vs "
-    "doing a GetMergeOperands and binary searching in the operands which are"
-    "sorted sub-lists. The MergeOperator used is sortlist.h\n"
-    "\treadrandomoperands -- read random keys using `GetMergeOperands()`. An "
-    "operation includes a rare but possible retry in case it got "
-    "`Status::Incomplete()`. This happens upon encountering more keys than "
-    "have ever been seen by the thread (or eight initially)\n");
-=======
     "key by doing a Get followed by binary searching in the large sorted list "
     "vs doing a GetMergeOperands and binary searching in the operands which "
     "are sorted sub-lists. The MergeOperator used is sortlist.h\n");
->>>>>>> 88f2cf21f (Improve the comments)
-=======
-    "key by doing a Get followed by binary searching in the large sorted list "
-    "vs doing a GetMergeOperands and binary searching in the operands which "
-    "are sorted sub-lists. The MergeOperator used is sortlist.h\n");
->>>>>>> 251298331 (Improve the comments)
-=======
-    "key by doing a Get followed by binary searching in the large sorted list "
-    "vs doing a GetMergeOperands and binary searching in the operands which "
-    "are sorted sub-lists. The MergeOperator used is sortlist.h\n");
->>>>>>> 2b216d1ae22f59c1b0c942e4b6b6ca3b49421940
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
