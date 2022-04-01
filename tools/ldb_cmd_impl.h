@@ -579,11 +579,11 @@ class RepairCommand : public LDBCommand {
   static const std::string ARG_VERBOSE;
 };
 
-class BackupableCommand : public LDBCommand {
+class BackupEngineCommand : public LDBCommand {
  public:
-  BackupableCommand(const std::vector<std::string>& params,
-                    const std::map<std::string, std::string>& options,
-                    const std::vector<std::string>& flags);
+  BackupEngineCommand(const std::vector<std::string>& params,
+                      const std::map<std::string, std::string>& options,
+                      const std::vector<std::string>& flags);
 
  protected:
   static void Help(const std::string& name, std::string& ret);
@@ -602,7 +602,7 @@ class BackupableCommand : public LDBCommand {
   static const std::string ARG_STDERR_LOG_LEVEL;
 };
 
-class BackupCommand : public BackupableCommand {
+class BackupCommand : public BackupEngineCommand {
  public:
   static std::string Name() { return "backup"; }
   BackupCommand(const std::vector<std::string>& params,
@@ -612,7 +612,7 @@ class BackupCommand : public BackupableCommand {
   static void Help(std::string& ret);
 };
 
-class RestoreCommand : public BackupableCommand {
+class RestoreCommand : public BackupEngineCommand {
  public:
   static std::string Name() { return "restore"; }
   RestoreCommand(const std::vector<std::string>& params,

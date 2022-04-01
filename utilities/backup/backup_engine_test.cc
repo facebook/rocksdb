@@ -9,6 +9,8 @@
 
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
+#include "rocksdb/utilities/backup_engine.h"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -34,7 +36,6 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
-#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/stackable_db.h"
 #include "test_util/sync_point.h"
@@ -46,7 +47,7 @@
 #include "util/rate_limiter.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
-#include "utilities/backupable/backupable_db_impl.h"
+#include "utilities/backup/backup_engine_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
