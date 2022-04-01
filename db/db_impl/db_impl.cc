@@ -1717,6 +1717,21 @@ static void CleanupIteratorState(void* arg1, void* /*arg2*/) {
 
   delete state;
 }
+
+struct GetMergeOperandsState {
+  MergeContext merge_context;
+  PinnedIteratorsManager pinned_iters_mgr;
+  // TODO(ajkr): `IterState` is not named appropriately for this purpose.
+  IterState* iter_state;
+};
+
+static void CleanupGetMergeOperandsState(void* arg1, void* /*arg2*/) {
+  GetMergeOperandsState* state = static_cast<GetMergeOperandsState*>(arg1);
+  // TODO(ajkr): `CleanupIteratorState()` is not named appropriately for this
+  // purpose.
+  CleanupIteratorState(state->iter_state, nullptr /* arg2 */);
+  delete state;
+}
 }  // namespace
 
 InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
@@ -1799,6 +1814,30 @@ Status DBImpl::Get(const ReadOptions& read_options,
   get_impl_options.timestamp = timestamp;
   Status s = GetImpl(read_options, key, get_impl_options);
   return s;
+}
+
+bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {
+  // If either threshold is reached, a function returning merge operands as
+  // `PinnableSlice`s should reference the `SuperVersion` to avoid large and/or
+  // numerous `memcpy()`s.
+  //
+  // TODO(ajkr): find crossover point where sv ref becomes better with many
+  // threads on dual socket host and set these values accordingly.
+  static const size_t kNumOpsForSvRef = 32;
+  static const size_t kNumBytesForSvRef = 32;
+
+  if (merge_context.GetOperands().size() >= kNumOpsForSvRef) {
+    return true;
+  }
+
+  size_t num_bytes = 0;
+  for (const Slice& sl : merge_context.GetOperands()) {
+    num_bytes += sl.size();
+  }
+  if (num_bytes >= kNumBytesForSvRef) {
+    return true;
+  }
+  return false;
 }
 
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
@@ -1904,8 +1943,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
 
-  // Prepare to store a list of merge operations if merge occurs.
-  MergeContext merge_context;
+  // TODO(ajkr): avoid this heap alloc. Only do it when we require pinning
+  // resources, then move resources from stack objects.
+  auto state = std::make_unique<GetMergeOperandsState>();
   SequenceNumber max_covering_tombstone_seq = 0;
 
   Status s;
@@ -1924,7 +1964,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     // Get value associated with key
     if (get_impl_options.get_value) {
       if (sv->mem->Get(lkey, get_impl_options.value->GetSelf(), timestamp, &s,
-                       &merge_context, &max_covering_tombstone_seq,
+                       &state->merge_context, &max_covering_tombstone_seq,
                        read_options, get_impl_options.callback,
                        get_impl_options.is_blob_index)) {
         done = true;
@@ -1932,7 +1972,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
                  sv->imm->Get(lkey, get_impl_options.value->GetSelf(),
-                              timestamp, &s, &merge_context,
+                              timestamp, &s, &state->merge_context,
                               &max_covering_tombstone_seq, read_options,
                               get_impl_options.callback,
                               get_impl_options.is_blob_index)) {
@@ -1944,12 +1984,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       // Get Merge Operands associated with key, Merge Operands should not be
       // merged and raw values should be returned to the user.
       if (sv->mem->Get(lkey, /*value*/ nullptr, /*timestamp=*/nullptr, &s,
-                       &merge_context, &max_covering_tombstone_seq,
+                       &state->merge_context, &max_covering_tombstone_seq,
                        read_options, nullptr, nullptr, false)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->GetMergeOperands(lkey, &s, &merge_context,
+                 sv->imm->GetMergeOperands(lkey, &s, &state->merge_context,
                                            &max_covering_tombstone_seq,
                                            read_options)) {
         done = true;
@@ -1961,14 +2001,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       return s;
     }
   }
-  TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:0");
-  TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:1");
-  PinnedIteratorsManager pinned_iters_mgr;
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(
         read_options, lkey, get_impl_options.value, timestamp, &s,
-        &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
+        &state->merge_context, &max_covering_tombstone_seq,
+        &state->pinned_iters_mgr,
         get_impl_options.get_value ? get_impl_options.value_found : nullptr,
         nullptr, nullptr,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
@@ -1988,23 +2026,78 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       } else {
         // Return all merge operands for get_impl_options.key
         *get_impl_options.number_of_operands =
-            static_cast<int>(merge_context.GetNumOperands());
+            static_cast<int>(state->merge_context.GetNumOperands());
         if (*get_impl_options.number_of_operands >
             get_impl_options.get_merge_operands_options
                 ->expected_max_number_of_operands) {
           s = Status::Incomplete(
               Status::SubCode::KMergeOperandsInsufficientCapacity);
         } else {
-          for (const Slice& sl : merge_context.GetOperands()) {
+          // Each operand depends on one of the following resources: `sv`,
+          // `state->pinned_iters_mgr`, or `state->merge_context`. It would be
+          // crazy expensive to reference `sv` for each operand relying on it
+          // because `sv` is (un)ref'd in all threads using the DB. Furthermore,
+          // we do not track on which resource each operand depends.
+          //
+          // To solve this, we bundle the resources and manage them with a
+          // local refcount shared among the `PinnableSlice`s we return. This
+          // bundle includes one `sv` reference and ownership of the
+          // `state` object. The final `PinnableSlice` to cleanup is responsible
+          // for unreferencing the `sv` and deleting `state`.
+          std::atomic<size_t>* local_refcount = nullptr;
+          bool ref_sv = ShouldReferenceSuperVersion(state->merge_context);
+
+          for (const Slice& sl : state->merge_context.GetOperands()) {
             size += sl.size();
-            get_impl_options.merge_operands->PinSelf(sl);
+            if (ref_sv) {
+              if (local_refcount == nullptr) {
+                // Only ref `sv` within loop body to ensure there is at least
+                // one `PinnableSlice` who can unref it.
+                sv->Ref();
+                local_refcount = new std::atomic<size_t>(0);
+                // TODO(ajkr): `background_purge_on_iterator_cleanup` is
+                // inappropriately named for this purpose.
+                state->iter_state = new IterState(
+                    this, &mutex_, sv,
+                    read_options.background_purge_on_iterator_cleanup ||
+                        immutable_db_options_.avoid_unnecessary_blocking_io);
+              }
+              local_refcount->fetch_add(1, std::memory_order_relaxed);
+
+              // TODO(ajkr): this `Reset()` is to avoid an assertion in
+              // `PinnableSlice`. Consider making clients do it or removing the
+              // assertion.
+              get_impl_options.merge_operands->Reset();
+              get_impl_options.merge_operands->PinSlice(
+                  sl,
+                  [](void* arg1, void* arg2) {
+                    auto* _state = static_cast<GetMergeOperandsState*>(arg1);
+                    auto* _local_refcount =
+                        static_cast<std::atomic<size_t>*>(arg2);
+                    if (_local_refcount->fetch_sub(
+                            1, std::memory_order_relaxed) == 1) {
+                      CleanupGetMergeOperandsState(_state, nullptr /* arg2 */);
+                      delete _local_refcount;
+                    }
+                  },
+                  state.get(), local_refcount);
+            } else {
+              get_impl_options.merge_operands->PinSelf(sl);
+            }
             get_impl_options.merge_operands++;
+          }
+
+          if (local_refcount != nullptr) {
+            state.release();
           }
         }
       }
       RecordTick(stats_, BYTES_READ, size);
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
+
+    ReturnAndCleanupSuperVersion(cfd, sv);
+
     RecordInHistogram(stats_, BYTES_PER_READ, size);
 
     ReturnAndCleanupSuperVersion(cfd, sv);

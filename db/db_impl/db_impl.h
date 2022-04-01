@@ -2279,6 +2279,8 @@ class DBImpl : public DB {
   Status IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
                                       std::string ts_low);
 
+  bool ShouldReferenceSuperVersion(const MergeContext& merge_context);
+
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
 
