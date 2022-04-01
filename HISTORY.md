@@ -6,6 +6,7 @@
 * Fixed a heap use-after-free race with DropColumnFamily.
 * Fixed a bug that `rocksdb.read.block.compaction.micros` cannot track compaction stats (#9722).
 * Fixed `file_type`, `relative_filename` and `directory` fields returned by `GetLiveFilesMetaData()`, which were added in inheriting from `FileStorageInfo`.
+* Fixed a bug affecting `track_and_verify_wals_in_manifest`. Without the fix, application may see "open error: Corruption: Missing WAL with log number" while trying to open the db. The corruption is a false alarm but prevents DB open (#9766).
 
 ### New Features
 * For db_bench when --seed=0 or --seed is not set then it uses the current time as the seed value. Previously it used the value 1000.
