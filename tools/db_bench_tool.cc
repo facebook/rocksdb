@@ -246,6 +246,7 @@ IF_ROCKSDB_LITE("",
     "sorted ints for a key and then compare performance of lookup for another "
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     "key "
     "by doing a Get followed by binary searching in the large sorted list vs "
     "doing a GetMergeOperands and binary searching in the operands which are"
@@ -264,6 +265,11 @@ IF_ROCKSDB_LITE("",
     "vs doing a GetMergeOperands and binary searching in the operands which "
     "are sorted sub-lists. The MergeOperator used is sortlist.h\n");
 >>>>>>> 251298331 (Improve the comments)
+=======
+    "key by doing a Get followed by binary searching in the large sorted list "
+    "vs doing a GetMergeOperands and binary searching in the operands which "
+    "are sorted sub-lists. The MergeOperator used is sortlist.h\n");
+>>>>>>> 2b216d1ae22f59c1b0c942e4b6b6ca3b49421940
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
