@@ -427,9 +427,10 @@ BlockBasedTableFactory::BlockBasedTableFactory(
 
   if (table_options_.reserve_table_reader_memory &&
       table_options_.no_block_cache == false) {
-    table_reader_cache_res_mgr_.reset(
-        new CacheReservationManagerThreadSafeWrapper(
-            table_options_.block_cache));
+    table_reader_cache_res_mgr_.reset(new ConcurrentCacheReservationManager(
+        std::make_shared<CacheReservationManagerImpl<
+            CacheEntryRole::kBlockBasedTableReader>>(
+            table_options_.block_cache)));
   }
 }
 

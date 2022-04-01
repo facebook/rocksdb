@@ -952,8 +952,8 @@ class FilterConstructResPeakTrackingCache : public CacheWrapper {
 
 const Cache::DeleterFn
     FilterConstructResPeakTrackingCache::kNoopDeleterForFilterConstruction =
-        CacheReservationManager::TEST_GetNoopDeleterForRole<
-            CacheEntryRole::kFilterConstruction>();
+        CacheReservationManagerImpl<
+            CacheEntryRole::kFilterConstruction>::TEST_GetNoopDeleterForRole();
 
 // To align with the type of hash entry being reserved in implementation.
 using FilterConstructionReserveMemoryHash = uint64_t;
@@ -983,7 +983,9 @@ class DBFilterConstructionReserveMemoryTestWithParam
       // trigger at least 1 dummy entry reservation each for hash entries and
       // final filter, we need a large number of keys to ensure we have at least
       // two partitions.
-      num_key_ = 18 * CacheReservationManager::GetDummyEntrySize() /
+      num_key_ = 18 *
+                 CacheReservationManagerImpl<
+                     CacheEntryRole::kFilterConstruction>::GetDummyEntrySize() /
                  sizeof(FilterConstructionReserveMemoryHash);
     } else if (policy_ == kFastLocalBloom) {
       // For Bloom Filter + FullFilter case, since we design the num_key_ to
@@ -993,7 +995,9 @@ class DBFilterConstructionReserveMemoryTestWithParam
       // behavior and we don't need a large number of keys to verify we
       // indeed charge the final filter for cache reservation, even though final
       // filter is a lot smaller than hash entries.
-      num_key_ = 1 * CacheReservationManager::GetDummyEntrySize() /
+      num_key_ = 1 *
+                 CacheReservationManagerImpl<
+                     CacheEntryRole::kFilterConstruction>::GetDummyEntrySize() /
                  sizeof(FilterConstructionReserveMemoryHash);
     } else {
       // For Ribbon Filter + FullFilter case, we need a large enough number of
@@ -1001,7 +1005,9 @@ class DBFilterConstructionReserveMemoryTestWithParam
       // reservation will trigger at least another dummy entry (or equivalently
       // to saying, causing another peak in cache reservation) as banding
       // reservation might not be a multiple of dummy entry.
-      num_key_ = 12 * CacheReservationManager::GetDummyEntrySize() /
+      num_key_ = 12 *
+                 CacheReservationManagerImpl<
+                     CacheEntryRole::kFilterConstruction>::GetDummyEntrySize() /
                  sizeof(FilterConstructionReserveMemoryHash);
     }
   }
@@ -1156,8 +1162,8 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
     return;
   }
 
-  const std::size_t kDummyEntrySize =
-      CacheReservationManager::GetDummyEntrySize();
+  const std::size_t kDummyEntrySize = CacheReservationManagerImpl<
+      CacheEntryRole::kFilterConstruction>::GetDummyEntrySize();
 
   const std::size_t predicted_hash_entries_cache_res =
       num_key * sizeof(FilterConstructionReserveMemoryHash);
@@ -1345,9 +1351,12 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
      *
      */
     if (!partition_filters) {
-      ASSERT_GE(std::floor(1.0 * predicted_final_filter_cache_res /
-                           CacheReservationManager::GetDummyEntrySize()),
-                1)
+      ASSERT_GE(
+          std::floor(
+              1.0 * predicted_final_filter_cache_res /
+              CacheReservationManagerImpl<
+                  CacheEntryRole::kFilterConstruction>::GetDummyEntrySize()),
+          1)
           << "Final filter cache reservation too small for this test - please "
              "increase the number of keys";
       if (!detect_filter_construct_corruption) {

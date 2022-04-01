@@ -90,8 +90,7 @@ class BlockBasedTableFactory : public TableFactory {
 
  private:
   BlockBasedTableOptions table_options_;
-  std::shared_ptr<CacheReservationManagerThreadSafeWrapper>
-      table_reader_cache_res_mgr_;
+  std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr_;
   mutable TailPrefetchStats tail_prefetch_stats_;
 };
 
