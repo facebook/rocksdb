@@ -111,7 +111,7 @@ class PreCommitChecker(Env):
             return False
 
         # Parse the JSON to extract the commands to run
-        cmds = re.findall("'shell':'([^\']*)'", cmds)
+        cmds = re.findall('"shell":"([^\"]*)', cmds)
 
         if len(cmds) == 0:
             self.log.log("No commands found")
