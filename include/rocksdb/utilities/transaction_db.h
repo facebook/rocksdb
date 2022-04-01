@@ -259,6 +259,8 @@ struct TransactionOptions {
   // meant to be used later during recovery. It enables an optimization to
   // postpone updating the memtable with CommitTimeWriteBatch to only
   // SwitchMemtable or recovery.
+  // This option does not affect write-committed. Only
+  // write-prepared/write-unprepared transactions will be affected.
   bool use_only_the_last_commit_time_batch_for_recovery = false;
 
   // TODO(agiardullo): TransactionDB does not yet support comparators that allow
