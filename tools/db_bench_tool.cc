@@ -246,7 +246,11 @@ IF_ROCKSDB_LITE("",
     "sorted ints for a key and then compare performance of lookup for another "
     "key by doing a Get followed by binary searching in the large sorted list "
     "vs doing a GetMergeOperands and binary searching in the operands which "
-    "are sorted sub-lists. The MergeOperator used is sortlist.h\n");
+    "are sorted sub-lists. The MergeOperator used is sortlist.h\n"
+    "\treadrandomoperands -- read random keys using `GetMergeOperands()`. An "
+    "operation includes a rare but possible retry in case it got "
+    "`Status::Incomplete()`. This happens upon encountering more keys than "
+    "have ever been seen by the thread (or eight initially)\n");
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
