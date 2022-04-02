@@ -456,12 +456,14 @@ TEST_P(BlockBasedTableReaderCapMemoryTest, CapMemoryUsageUnderCacheCapacity) {
     EXPECT_TRUE(s.ToString().find("memory limit based on cache capacity") !=
                 std::string::npos);
 
-    // Accetable error rate coming from overstimating max_table_reader_num
-    // when # dummy entries is high resulting in their metadata charge overhead
-    // greater than 1 dummy entry size (violating our assumption in calculating
-    // max_table_reader_nums)
+    // Acceptable estimtation errors coming from
+    // 1. overstimate max_table_reader_num due to # dummy entries is high and
+    // results in metadata charge overhead greater than 1 dummy entry size
+    // (violating our assumption in calculating max_table_reader_nums)
+    // 2. overestimate/underestimate max_table_reader_num due to the gap between
+    // ApproximateTableReaderMem() and actual table reader mem
     EXPECT_GE(opened_table_reader_num, max_table_reader_num * 0.99);
-    EXPECT_LE(opened_table_reader_num, max_table_reader_num);
+    EXPECT_LE(opened_table_reader_num, max_table_reader_num * 1.01);
 
     std::size_t updated_max_table_reader_num =
         BlockBasedTableReaderCapMemoryTest::
