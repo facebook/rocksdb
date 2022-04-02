@@ -438,10 +438,6 @@ class DB {
   // If "end_key" comes before "start_key" according to the user's comparator,
   // a `Status::InvalidArgument` is returned.
   //
-  // WARNING: Do not use `Iterator::Refresh()` API on DBs where `DeleteRange()`
-  // has been used or will be used. This feature combination is neither
-  // supported nor programmatically prevented.
-  //
   // This feature is now usable in production, with the following caveats:
   // 1) Accumulating many range tombstones in the memtable will degrade read
   // performance; this can be avoided by manually flushing occasionally.
@@ -541,16 +537,20 @@ class DB {
     return Get(options, DefaultColumnFamily(), key, value, timestamp);
   }
 
-  // Returns all the merge operands corresponding to the key. If the
-  // number of merge operands in DB is greater than
-  // merge_operands_options.expected_max_number_of_operands
-  // no merge operands are returned and status is Incomplete. Merge operands
-  // returned are in the order of insertion.
-  // merge_operands- Points to an array of at-least
+  // Populates the `merge_operands` array with all the merge operands in the DB
+  // for `key`. The `merge_operands` array will be populated in the order of
+  // insertion. The number of entries populated in `merge_operands` will be
+  // assigned to `*number_of_operands`.
+  //
+  // If the number of merge operands in DB for `key` is greater than
+  // `merge_operands_options.expected_max_number_of_operands`,
+  // `merge_operands` is not populated and the return value is
+  // `Status::Incomplete`. In that case, `*number_of_operands` will be assigned
+  // the number of merge operands found in the DB for `key`.
+  //
+  // `merge_operands`- Points to an array of at-least
   //             merge_operands_options.expected_max_number_of_operands and the
-  //             caller is responsible for allocating it. If the status
-  //             returned is Incomplete then number_of_operands will contain
-  //             the total number of merge operands found in DB for key.
+  //             caller is responsible for allocating it.
   virtual Status GetMergeOperands(
       const ReadOptions& options, ColumnFamilyHandle* column_family,
       const Slice& key, PinnableSlice* merge_operands,

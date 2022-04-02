@@ -244,10 +244,9 @@ IF_ROCKSDB_LITE("",
 )
     "\tgetmergeoperands -- Insert lots of merge records which are a list of "
     "sorted ints for a key and then compare performance of lookup for another "
-    "key "
-    "by doing a Get followed by binary searching in the large sorted list vs "
-    "doing a GetMergeOperands and binary searching in the operands which are"
-    "sorted sub-lists. The MergeOperator used is sortlist.h\n"
+    "key by doing a Get followed by binary searching in the large sorted list "
+    "vs doing a GetMergeOperands and binary searching in the operands which "
+    "are sorted sub-lists. The MergeOperator used is sortlist.h\n"
     "\treadrandomoperands -- read random keys using `GetMergeOperands()`. An "
     "operation includes a rare but possible retry in case it got "
     "`Status::Incomplete()`. This happens upon encountering more keys than "
@@ -356,18 +355,14 @@ DEFINE_double(
     "Used in 'filluniquerandom' benchmark: for each write operation, "
     "we give a probability to perform an overwrite instead. The key used for "
     "the overwrite is randomly chosen from the last 'overwrite_window_size' "
-    "keys "
-    "previously inserted into the DB. "
+    "keys previously inserted into the DB. "
     "Valid overwrite_probability values: [0.0, 1.0].");
 
 DEFINE_uint32(overwrite_window_size, 1,
-              "Used in 'filluniquerandom' benchmark. For each write "
-              "operation, when "
-              "the overwrite_probability flag is set by the user, the key used "
-              "to perform "
-              "an overwrite is randomly chosen from the last "
-              "'overwrite_window_size' keys "
-              "previously inserted into the DB. "
+              "Used in 'filluniquerandom' benchmark. For each write operation,"
+              " when the overwrite_probability flag is set by the user, the "
+              "key used to perform an overwrite is randomly chosen from the "
+              "last 'overwrite_window_size' keys previously inserted into DB. "
               "Warning: large values can affect throughput. "
               "Valid overwrite_window_size values: [1, kMaxUint32].");
 
@@ -567,7 +562,7 @@ DEFINE_bool(use_lru_secondary_cache, false,
             "Use the LRUSecondaryCache as the secondary cache.");
 
 DEFINE_int64(lru_secondary_cache_size, 8 << 20,  // 8MB
-             "Number of bytes to use as a cache of data");
+             "Number of bytes to use as a cache of data.");
 
 DEFINE_int32(lru_secondary_cache_numshardbits, 6,
              "Number of shards for the block cache"
@@ -838,18 +833,15 @@ DEFINE_string(max_bytes_for_level_multiplier_additional, "",
 
 DEFINE_int32(level0_stop_writes_trigger,
              ROCKSDB_NAMESPACE::Options().level0_stop_writes_trigger,
-             "Number of files in level-0"
-             " that will trigger put stop.");
+             "Number of files in level-0 that will trigger put stop.");
 
 DEFINE_int32(level0_slowdown_writes_trigger,
              ROCKSDB_NAMESPACE::Options().level0_slowdown_writes_trigger,
-             "Number of files in level-0"
-             " that will slow down writes.");
+             "Number of files in level-0 that will slow down writes.");
 
 DEFINE_int32(level0_file_num_compaction_trigger,
              ROCKSDB_NAMESPACE::Options().level0_file_num_compaction_trigger,
-             "Number of files in level-0"
-             " when compactions start");
+             "Number of files in level-0 when compactions start.");
 
 DEFINE_uint64(periodic_compaction_seconds,
               ROCKSDB_NAMESPACE::Options().periodic_compaction_seconds,
@@ -913,8 +905,7 @@ DEFINE_int64(writes_per_range_tombstone, 0,
 DEFINE_int64(range_tombstone_width, 100, "Number of keys in tombstone's range");
 
 DEFINE_int64(max_num_range_tombstones, 0,
-             "Maximum number of range tombstones "
-             "to insert.");
+             "Maximum number of range tombstones to insert.");
 
 DEFINE_bool(expand_range_tombstones, false,
             "Expand range tombstone into sequential regular tombstones.");
@@ -1128,8 +1119,7 @@ DEFINE_bool(file_checksum, false,
 DEFINE_bool(rate_limit_auto_wal_flush, false,
             "When true use Env::IO_USER priority level to charge internal rate "
             "limiter for automatic WAL flush (`Options::manual_wal_flush` == "
-            "false) after the user "
-            "write operation");
+            "false) after the user write operation.");
 
 DEFINE_bool(async_io, false,
             "When set true, RocksDB does asynchronous reads for internal auto "
@@ -1218,8 +1208,7 @@ DEFINE_int32(table_cache_numshardbits, 4, "");
 
 #ifndef ROCKSDB_LITE
 DEFINE_string(env_uri, "",
-              "URI for registry Env lookup. Mutually exclusive"
-              " with --fs_uri");
+              "URI for registry Env lookup. Mutually exclusive with --fs_uri");
 DEFINE_string(fs_uri, "",
               "URI for registry Filesystem lookup. Mutually exclusive"
               " with --env_uri."
@@ -1313,8 +1302,7 @@ DEFINE_uint64(write_thread_slow_yield_usec, 3,
 DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 
 DEFINE_int64(rate_limiter_refill_period_us, 100 * 1000,
-             "Set refill period on "
-             "rate limiter.");
+             "Set refill period on rate limiter.");
 
 DEFINE_bool(rate_limiter_auto_tuned, false,
             "Enable dynamic adjustment of rate limit according to demand for "
@@ -1362,14 +1350,11 @@ DEFINE_double(keyrange_dist_d, 0.0,
               "f(x)=a*exp(b*x)+c*exp(d*x)");
 DEFINE_int64(keyrange_num, 1,
              "The number of key ranges that are in the same prefix "
-             "group, each prefix range will have its key access "
-             "distribution");
+             "group, each prefix range will have its key access distribution");
 DEFINE_double(key_dist_a, 0.0,
-              "The parameter 'a' of key access distribution model "
-              "f(x)=a*x^b");
+              "The parameter 'a' of key access distribution model f(x)=a*x^b");
 DEFINE_double(key_dist_b, 0.0,
-              "The parameter 'b' of key access distribution model "
-              "f(x)=a*x^b");
+              "The parameter 'b' of key access distribution model f(x)=a*x^b");
 DEFINE_double(value_theta, 0.0,
               "The parameter 'theta' of Generized Pareto Distribution "
               "f(x)=(1/sigma)*(1+k*(x-theta)/sigma)^-(1/k+1)");
@@ -1897,7 +1882,7 @@ struct DBWithColumnFamilies {
   }
 };
 
-// a class that reports stats to CSV file
+// A class that reports stats to CSV file.
 class ReporterAgent {
  public:
   ReporterAgent(Env* env, const std::string& fname,
@@ -2082,7 +2067,7 @@ class Stats {
     if (other.start_ < start_) start_ = other.start_;
     if (other.finish_ > finish_) finish_ = other.finish_;
 
-    // Just keep the messages from one thread
+    // Just keep the messages from one thread.
     if (message_.empty()) message_ = other.message_;
   }
 
@@ -2139,7 +2124,7 @@ class Stats {
   }
 
   void ResetLastOpTime() {
-    // Set to now to avoid latency from calls to SleepForMicroseconds
+    // Set to now to avoid latency from calls to SleepForMicroseconds.
     last_op_finish_ = clock_->NowMicros();
   }
 
@@ -2186,7 +2171,7 @@ class Stats {
 
         if (FLAGS_stats_interval_seconds &&
             usecs_since_last < (FLAGS_stats_interval_seconds * 1000000)) {
-          // Don't check again for this many operations
+          // Don't check again for this many operations.
           next_report_ += FLAGS_stats_interval;
 
         } else {
