@@ -6,7 +6,6 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 import argparse
-import commands
 import subprocess
 import sys
 import re
@@ -22,7 +21,7 @@ class Log:
 
     def __init__(self, filename):
         self.filename = filename
-        self.f = open(self.filename, 'w+', 0)
+        self.f = open(self.filename, 'w+')
 
     def caption(self, str):
         line = "\n##### %s #####\n" % str
@@ -73,11 +72,14 @@ class Env(object):
 
         self.log.log("==== shell session ===========================")
         self.log.log("%s> %s" % (path, cmd))
-        status, out = commands.getstatusoutput(cmd)
+        p = subprocess.Popen(cmd)
+        stdout, stderr = p.communicate()
+        status = p.returncode
         self.log.log("status = %s" % status)
-        self.log.log("out = %s" % out)
+        self.log.log("stdout = %s" % stdout)
+        self.log.log("stderr = %s" % stderr)
         self.log.log("============================================== \n\n")
-        return status, out
+        return status, stdout
 
 #
 # Pre-commit checker
