@@ -10,7 +10,7 @@
 #include "rocksdb/rocksdb_namespace.h"
 
 #define ROCKSDB_MAJOR 7
-#define ROCKSDB_MINOR 0
+#define ROCKSDB_MINOR 1
 #define ROCKSDB_PATCH 0
 
 // Do not use these. We made the mistake of declaring macros starting with

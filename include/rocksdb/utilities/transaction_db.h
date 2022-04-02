@@ -226,8 +226,12 @@ struct TransactionDBOptions {
 
  private:
   // 128 entries
+  // Should the default value change, please also update wp_snapshot_cache_bits
+  // in db_stress_gflags.cc
   size_t wp_snapshot_cache_bits = static_cast<size_t>(7);
   // 8m entry, 64MB size
+  // Should the default value change, please also update wp_commit_cache_bits
+  // in db_stress_gflags.cc
   size_t wp_commit_cache_bits = static_cast<size_t>(23);
 
   // For testing, whether transaction name should be auto-generated or not. This
@@ -239,6 +243,7 @@ struct TransactionDBOptions {
   friend class WritePreparedTransactionTestBase;
   friend class TransactionTestBase;
   friend class MySQLStyleTransactionTest;
+  friend class StressTest;
 };
 
 struct TransactionOptions {

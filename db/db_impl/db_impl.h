@@ -1550,8 +1550,7 @@ class DBImpl : public DB {
     Compaction* compaction;
     // caller retains ownership of `manual_compaction_state` as it is reused
     // across background compactions.
-    std::shared_ptr<ManualCompactionState>
-        manual_compaction_state;  // nullptr if non-manual
+    ManualCompactionState* manual_compaction_state;  // nullptr if non-manual
     // task limiter token is requested during compaction picking.
     std::unique_ptr<TaskLimiterToken> task_token;
   };

@@ -263,11 +263,6 @@ Status DBImpl::FlushMemTableToOutputFile(
   if (!s.ok() && need_cancel) {
     flush_job.Cancel();
   }
-  IOStatus io_s = IOStatus::OK();
-  io_s = flush_job.io_status();
-  if (s.ok()) {
-    s = io_s;
-  }
 
   if (s.ok()) {
     InstallSuperVersionAndScheduleWork(cfd, superversion_context,
@@ -303,9 +298,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
-    if (!io_s.ok() && !io_s.IsShutdownInProgress() &&
-        !io_s.IsColumnFamilyDropped()) {
-      assert(log_io_s.ok());
+    if (log_io_s.ok()) {
       // Error while writing to MANIFEST.
       // In fact, versions_->io_status() can also be the result of renaming
       // CURRENT file. With current code, it's just difficult to tell. So just
@@ -316,24 +309,19 @@ Status DBImpl::FlushMemTableToOutputFile(
         // error), all the Manifest write will be map to soft error.
         // TODO: kManifestWriteNoWAL and kFlushNoWAL are misleading. Refactor is
         // needed.
-        error_handler_.SetBGError(io_s,
+        error_handler_.SetBGError(s,
                                   BackgroundErrorReason::kManifestWriteNoWAL);
       } else {
         // If WAL sync is successful (either WAL size is 0 or there is no IO
         // error), all the other SST file write errors will be set as
         // kFlushNoWAL.
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
+        error_handler_.SetBGError(s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
-      if (log_io_s.ok()) {
-        Status new_bg_error = s;
-        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
-      }
+      assert(s == log_io_s);
+      Status new_bg_error = s;
+      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
     }
-  } else {
-    // If we got here, then we decided not to care about the i_os status (either
-    // from never needing it or ignoring the flush job status
-    io_s.PermitUncheckedError();
   }
   // If flush ran smoothly and no mempurge happened
   // install new SST file path.
@@ -416,6 +404,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   for (const auto cfd : cfds) {
     assert(cfd->imm()->NumNotFlushed() != 0);
     assert(cfd->imm()->IsFlushPending());
+    assert(cfd->GetFlushReason() == cfds[0]->GetFlushReason());
   }
 #endif /* !NDEBUG */
 
@@ -502,12 +491,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // exec_status stores the execution status of flush_jobs as
   // <bool /* executed */, Status /* status code */>
   autovector<std::pair<bool, Status>> exec_status;
-  autovector<IOStatus> io_status;
   std::vector<bool> pick_status;
   for (int i = 0; i != num_cfs; ++i) {
     // Initially all jobs are not executed, with status OK.
     exec_status.emplace_back(false, Status::OK());
-    io_status.emplace_back(IOStatus::OK());
     pick_status.push_back(false);
   }
 
@@ -527,7 +514,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
           jobs[i]->Run(&logs_with_prep_tracker_, &file_meta[i],
                        &(switched_to_mempurge.at(i)));
       exec_status[i].first = true;
-      io_status[i] = jobs[i]->io_status();
     }
     if (num_cfs > 1) {
       TEST_SYNC_POINT(
@@ -541,7 +527,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         &logs_with_prep_tracker_, file_meta.data() /* &file_meta[0] */,
         switched_to_mempurge.empty() ? nullptr : &(switched_to_mempurge.at(0)));
     exec_status[0].first = true;
-    io_status[0] = jobs[0]->io_status();
 
     Status error_status;
     for (const auto& e : exec_status) {
@@ -558,21 +543,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     }
 
     s = error_status.ok() ? s : error_status;
-  }
-
-  IOStatus io_s = IOStatus::OK();
-  if (io_s.ok()) {
-    IOStatus io_error = IOStatus::OK();
-    for (int i = 0; i != static_cast<int>(io_status.size()); i++) {
-      if (!io_status[i].ok() && !io_status[i].IsShutdownInProgress() &&
-          !io_status[i].IsColumnFamilyDropped()) {
-        io_error = io_status[i];
-      }
-    }
-    io_s = io_error;
-    if (s.ok() && !io_s.ok()) {
-      s = io_s;
-    }
   }
 
   if (s.IsColumnFamilyDropped()) {
@@ -647,7 +617,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       return std::make_pair(Status::OK(), !ready);
     };
 
-    bool resuming_from_bg_err = error_handler_.IsDBStopped();
+    bool resuming_from_bg_err =
+        error_handler_.IsDBStopped() ||
+        (cfds[0]->GetFlushReason() == FlushReason::kErrorRecovery ||
+         cfds[0]->GetFlushReason() == FlushReason::kErrorRecoveryRetryFlush);
     while ((!resuming_from_bg_err || error_handler_.GetRecoveryError().ok())) {
       std::pair<Status, bool> res = wait_to_install_func();
 
@@ -662,7 +635,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       }
       atomic_flush_install_cv_.Wait();
 
-      resuming_from_bg_err = error_handler_.IsDBStopped();
+      resuming_from_bg_err =
+          error_handler_.IsDBStopped() ||
+          (cfds[0]->GetFlushReason() == FlushReason::kErrorRecovery ||
+           cfds[0]->GetFlushReason() == FlushReason::kErrorRecoveryRetryFlush);
     }
 
     if (!resuming_from_bg_err) {
@@ -786,8 +762,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // Need to undo atomic flush if something went wrong, i.e. s is not OK and
   // it is not because of CF drop.
   if (!s.ok() && !s.IsColumnFamilyDropped()) {
-    if (!io_s.ok() && !io_s.IsColumnFamilyDropped()) {
-      assert(log_io_s.ok());
+    if (log_io_s.ok()) {
       // Error while writing to MANIFEST.
       // In fact, versions_->io_status() can also be the result of renaming
       // CURRENT file. With current code, it's just difficult to tell. So just
@@ -798,19 +773,18 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         // error), all the Manifest write will be map to soft error.
         // TODO: kManifestWriteNoWAL and kFlushNoWAL are misleading. Refactor
         // is needed.
-        error_handler_.SetBGError(io_s,
+        error_handler_.SetBGError(s,
                                   BackgroundErrorReason::kManifestWriteNoWAL);
       } else {
         // If WAL sync is successful (either WAL size is 0 or there is no IO
         // error), all the other SST file write errors will be set as
         // kFlushNoWAL.
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
+        error_handler_.SetBGError(s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
-      if (log_io_s.ok()) {
-        Status new_bg_error = s;
-        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
-      }
+      assert(s == log_io_s);
+      Status new_bg_error = s;
+      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
     }
   }
 
@@ -1796,10 +1770,11 @@ Status DBImpl::RunManualCompaction(
   CompactionArg* ca = nullptr;
 
   bool scheduled = false;
+  bool unscheduled = false;
   Env::Priority thread_pool_priority = Env::Priority::TOTAL;
   bool manual_conflict = false;
 
-  auto manual = std::make_shared<ManualCompactionState>(
+  ManualCompactionState manual(
       cfd, input_level, output_level, compact_range_options.target_path_id,
       exclusive, disallow_trivial_move, compact_range_options.canceled);
   // For universal compaction, we enforce every manual compaction to compact
@@ -1807,18 +1782,18 @@ Status DBImpl::RunManualCompaction(
   if (begin == nullptr ||
       cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
       cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
-    manual->begin = nullptr;
+    manual.begin = nullptr;
   } else {
     begin_storage.SetMinPossibleForUserKey(*begin);
-    manual->begin = &begin_storage;
+    manual.begin = &begin_storage;
   }
   if (end == nullptr ||
       cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
       cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
-    manual->end = nullptr;
+    manual.end = nullptr;
   } else {
     end_storage.SetMaxPossibleForUserKey(*end);
-    manual->end = &end_storage;
+    manual.end = &end_storage;
   }
 
   TEST_SYNC_POINT("DBImpl::RunManualCompaction:0");
@@ -1830,10 +1805,10 @@ Status DBImpl::RunManualCompaction(
     // `DisableManualCompaction()` just waited for the manual compaction queue
     // to drain. So return immediately.
     TEST_SYNC_POINT("DBImpl::RunManualCompaction:PausedAtStart");
-    manual->status =
+    manual.status =
         Status::Incomplete(Status::SubCode::kManualCompactionPaused);
-    manual->done = true;
-    return manual->status;
+    manual.done = true;
+    return manual.status;
   }
 
   // When a manual compaction arrives, temporarily disable scheduling of
@@ -1853,7 +1828,7 @@ Status DBImpl::RunManualCompaction(
   // However, only one of them will actually schedule compaction, while
   // others will wait on a condition variable until it completes.
 
-  AddManualCompaction(manual.get());
+  AddManualCompaction(&manual);
   TEST_SYNC_POINT_CALLBACK("DBImpl::RunManualCompaction:NotScheduled", &mutex_);
   if (exclusive) {
     // Limitation: there's no way to wake up the below loop when user sets
@@ -1862,11 +1837,11 @@ Status DBImpl::RunManualCompaction(
     while (bg_bottom_compaction_scheduled_ > 0 ||
            bg_compaction_scheduled_ > 0) {
       if (manual_compaction_paused_ > 0 ||
-          (manual->canceled != nullptr && *manual->canceled == true)) {
+          (manual.canceled != nullptr && *manual.canceled == true)) {
         // Pretend the error came from compaction so the below cleanup/error
         // handling code can process it.
-        manual->done = true;
-        manual->status =
+        manual.done = true;
+        manual.status =
             Status::Incomplete(Status::SubCode::kManualCompactionPaused);
         break;
       }
@@ -1888,64 +1863,63 @@ Status DBImpl::RunManualCompaction(
   // We don't check bg_error_ here, because if we get the error in compaction,
   // the compaction will set manual.status to bg_error_ and set manual.done to
   // true.
-  while (!manual->done) {
+  while (!manual.done) {
     assert(HasPendingManualCompaction());
     manual_conflict = false;
     Compaction* compaction = nullptr;
-    if (ShouldntRunManualCompaction(manual.get()) ||
-        (manual->in_progress == true) || scheduled ||
-        (((manual->manual_end = &manual->tmp_storage1) != nullptr) &&
-         ((compaction = manual->cfd->CompactRange(
-               *manual->cfd->GetLatestMutableCFOptions(), mutable_db_options_,
-               manual->input_level, manual->output_level, compact_range_options,
-               manual->begin, manual->end, &manual->manual_end,
-               &manual_conflict, max_file_num_to_ignore, trim_ts)) == nullptr &&
+    if (ShouldntRunManualCompaction(&manual) || (manual.in_progress == true) ||
+        scheduled ||
+        (((manual.manual_end = &manual.tmp_storage1) != nullptr) &&
+         ((compaction = manual.cfd->CompactRange(
+               *manual.cfd->GetLatestMutableCFOptions(), mutable_db_options_,
+               manual.input_level, manual.output_level, compact_range_options,
+               manual.begin, manual.end, &manual.manual_end, &manual_conflict,
+               max_file_num_to_ignore, trim_ts)) == nullptr &&
           manual_conflict))) {
       // exclusive manual compactions should not see a conflict during
       // CompactRange
       assert(!exclusive || !manual_conflict);
       // Running either this or some other manual compaction
       bg_cv_.Wait();
-      if (manual_compaction_paused_ > 0) {
-        manual->done = true;
-        manual->status =
-            Status::Incomplete(Status::SubCode::kManualCompactionPaused);
-        if (scheduled) {
-          assert(thread_pool_priority != Env::Priority::TOTAL);
-          auto unscheduled_task_num = env_->UnSchedule(
-              GetTaskTag(TaskType::kManualCompaction), thread_pool_priority);
-          if (unscheduled_task_num > 0) {
-            ROCKS_LOG_INFO(
-                immutable_db_options_.info_log,
-                "[%s] Unscheduled %d number of manual compactions from the "
-                "thread-pool",
-                cfd->GetName().c_str(), unscheduled_task_num);
-          }
+      if (manual_compaction_paused_ > 0 && scheduled && !unscheduled) {
+        assert(thread_pool_priority != Env::Priority::TOTAL);
+        // unschedule all manual compactions
+        auto unscheduled_task_num = env_->UnSchedule(
+            GetTaskTag(TaskType::kManualCompaction), thread_pool_priority);
+        if (unscheduled_task_num > 0) {
+          ROCKS_LOG_INFO(
+              immutable_db_options_.info_log,
+              "[%s] Unscheduled %d number of manual compactions from the "
+              "thread-pool",
+              cfd->GetName().c_str(), unscheduled_task_num);
+          // it may unschedule other manual compactions, notify others.
+          bg_cv_.SignalAll();
         }
-        break;
+        unscheduled = true;
+        TEST_SYNC_POINT("DBImpl::RunManualCompaction:Unscheduled");
       }
-      if (scheduled && manual->incomplete == true) {
-        assert(!manual->in_progress);
+      if (scheduled && manual.incomplete == true) {
+        assert(!manual.in_progress);
         scheduled = false;
-        manual->incomplete = false;
+        manual.incomplete = false;
       }
     } else if (!scheduled) {
       if (compaction == nullptr) {
-        manual->done = true;
+        manual.done = true;
         bg_cv_.SignalAll();
         continue;
       }
       ca = new CompactionArg;
       ca->db = this;
       ca->prepicked_compaction = new PrepickedCompaction;
-      ca->prepicked_compaction->manual_compaction_state = manual;
+      ca->prepicked_compaction->manual_compaction_state = &manual;
       ca->prepicked_compaction->compaction = compaction;
       if (!RequestCompactionToken(
               cfd, true, &ca->prepicked_compaction->task_token, &log_buffer)) {
         // Don't throttle manual compaction, only count outstanding tasks.
         assert(false);
       }
-      manual->incomplete = false;
+      manual.incomplete = false;
       if (compaction->bottommost_level() &&
           env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
         bg_bottom_compaction_scheduled_++;
@@ -1969,18 +1943,18 @@ Status DBImpl::RunManualCompaction(
   }
 
   log_buffer.FlushBufferToLog();
-  assert(!manual->in_progress);
+  assert(!manual.in_progress);
   assert(HasPendingManualCompaction());
-  RemoveManualCompaction(manual.get());
+  RemoveManualCompaction(&manual);
   // if the manual job is unscheduled, try schedule other jobs in case there's
   // any unscheduled compaction job which was blocked by exclusive manual
   // compaction.
-  if (manual->status.IsIncomplete() &&
-      manual->status.subcode() == Status::SubCode::kManualCompactionPaused) {
+  if (manual.status.IsIncomplete() &&
+      manual.status.subcode() == Status::SubCode::kManualCompactionPaused) {
     MaybeScheduleFlushOrCompaction();
   }
   bg_cv_.SignalAll();
-  return manual->status;
+  return manual.status;
 }
 
 void DBImpl::GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
@@ -2706,6 +2680,12 @@ void DBImpl::UnscheduleCompactionCallback(void* arg) {
   CompactionArg ca = *(ca_ptr);
   delete reinterpret_cast<CompactionArg*>(arg);
   if (ca.prepicked_compaction != nullptr) {
+    // if it's a manual compaction, set status to ManualCompactionPaused
+    if (ca.prepicked_compaction->manual_compaction_state) {
+      ca.prepicked_compaction->manual_compaction_state->done = true;
+      ca.prepicked_compaction->manual_compaction_state->status =
+          Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+    }
     if (ca.prepicked_compaction->compaction != nullptr) {
       ca.prepicked_compaction->compaction->ReleaseCompactionFiles(
           Status::Incomplete(Status::SubCode::kManualCompactionPaused));
@@ -2948,7 +2928,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       mutex_.Lock();
     } else if (s.IsManualCompactionPaused()) {
       assert(prepicked_compaction);
-      auto m = prepicked_compaction->manual_compaction_state;
+      ManualCompactionState* m = prepicked_compaction->manual_compaction_state;
       assert(m);
       ROCKS_LOG_BUFFER(&log_buffer, "[%s] [JOB %d] Manual compaction paused",
                        m->cfd->GetName().c_str(), job_context.job_id);
@@ -2993,8 +2973,6 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       bg_bottom_compaction_scheduled_--;
     }
 
-    versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
-
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
 
@@ -3030,7 +3008,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     LogBuffer* log_buffer,
                                     PrepickedCompaction* prepicked_compaction,
                                     Env::Priority thread_pri) {
-  std::shared_ptr<ManualCompactionState> manual_compaction =
+  ManualCompactionState* manual_compaction =
       prepicked_compaction == nullptr
           ? nullptr
           : prepicked_compaction->manual_compaction_state;
@@ -3074,10 +3052,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   if (!status.ok()) {
     if (is_manual) {
       manual_compaction->status = status;
-      manual_compaction->status
-          .PermitUncheckedError();  // the manual compaction thread may exit
-                                    // first, which won't be able to check the
-                                    // status
       manual_compaction->done = true;
       manual_compaction->in_progress = false;
       manual_compaction = nullptr;
@@ -3094,13 +3068,15 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     manual_compaction->in_progress = true;
   }
 
+  TEST_SYNC_POINT("DBImpl::BackgroundCompaction:InProgress");
+
   std::unique_ptr<TaskLimiterToken> task_token;
 
   // InternalKey manual_end_storage;
   // InternalKey* manual_end = &manual_end_storage;
   bool sfm_reserved_compact_space = false;
   if (is_manual) {
-    auto m = manual_compaction;
+    ManualCompactionState* m = manual_compaction;
     assert(m->in_progress);
     if (!c) {
       m->done = true;
@@ -3484,7 +3460,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   c.reset();
 
   if (is_manual) {
-    auto m = manual_compaction;
+    ManualCompactionState* m = manual_compaction;
     if (!status.ok()) {
       m->status = status;
       m->done = true;

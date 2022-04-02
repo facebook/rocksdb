@@ -507,6 +507,9 @@ struct DBOptions {
   // - Reads associated with a `ReadOptions` can be charged at
   //   `ReadOptions::rate_limiter_priority` (see that option's API doc for usage
   //   and limitations).
+  // - Writes associated with a `WriteOptions` can be charged at
+  //   `WriteOptions::rate_limiter_priority` (see that option's API doc for
+  //   usage and limitations).
   //
   // Rate limiting is disabled if nullptr. If rate limiter is enabled,
   // bytes_per_sync is set to 1MB by default.
@@ -1597,6 +1600,15 @@ struct ReadOptions {
   //
   // Default: `Env::IO_TOTAL`.
   Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
+
+  // Experimental
+  //
+  // If async_io is enabled, RocksDB will prefetch some of data asynchronously.
+  // RocksDB apply it if reads are sequential and its internal automatic
+  // prefetching.
+  //
+  // Default: false
+  bool async_io;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);

@@ -3,27 +3,23 @@
         "benchmarks": {
             "db_basic_bench": {
                 "DBGet/comp_style:1/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 510.387506
                     }
                 ],
                 "DBGet/comp_style:2/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 497.077261
                     }
@@ -135,33 +131,29 @@
         "expected_runtime_one_iter": 2438,
         "name": "rocksdb_microbench_suite_0",
         "regression_threshold": 10,
-        "sl_iterations": 2
+        "sl_iterations": 3
     },
     {
         "benchmarks": {
             "db_basic_bench": {
                 "DBGet/comp_style:1/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 510.88842
                     }
                 ],
                 "DBGet/comp_style:2/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 497.546918
                     }
@@ -266,33 +258,29 @@
         "expected_runtime_one_iter": 2437,
         "name": "rocksdb_microbench_suite_1",
         "regression_threshold": 10,
-        "sl_iterations": 2
+        "sl_iterations": 3
     },
     {
         "benchmarks": {
             "db_basic_bench": {
                 "DBGet/comp_style:0/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 479.941992
                     }
                 ],
                 "DBGet/comp_style:1/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 513.865636
                     }
@@ -331,7 +319,7 @@
         "expected_runtime_one_iter": 2446,
         "name": "rocksdb_microbench_suite_2",
         "regression_threshold": 10,
-        "sl_iterations": 2
+        "sl_iterations": 3
     },
     {
         "benchmarks": {
@@ -357,27 +345,23 @@
                     }
                 ],
                 "DBGet/comp_style:1/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 471.459789
                     }
                 ],
                 "DBGet/comp_style:1/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 514.201628
                     }
@@ -461,7 +445,7 @@
         "expected_runtime_one_iter": 2437,
         "name": "rocksdb_microbench_suite_3",
         "regression_threshold": 10,
-        "sl_iterations": 2
+        "sl_iterations": 3
     },
     {
         "benchmarks": {
@@ -487,27 +471,23 @@
                     }
                 ],
                 "DBGet/comp_style:2/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 694.628355
                     }
                 ],
                 "DBGet/comp_style:2/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 517.245591
                     }
@@ -590,7 +570,7 @@
         "expected_runtime_one_iter": 2437,
         "name": "rocksdb_microbench_suite_4",
         "regression_threshold": 10,
-        "sl_iterations": 2
+        "sl_iterations": 3
     },
     {
         "benchmarks": {
@@ -720,20 +700,18 @@
         "expected_runtime_one_iter": 2437,
         "name": "rocksdb_microbench_suite_5",
         "regression_threshold": 10,
-        "sl_iterations": 2
+        "sl_iterations": 3
     },
     {
         "benchmarks": {
             "db_basic_bench": {
                 "DBGet/comp_style:0/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 658.890773
                     }
@@ -822,20 +800,18 @@
         "expected_runtime_one_iter": 2437,
         "name": "rocksdb_microbench_suite_6",
         "regression_threshold": 10,
-        "sl_iterations": 2
+        "sl_iterations": 3
     },
     {
         "benchmarks": {
             "db_basic_bench": {
                 "DBGet/comp_style:0/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 505.270116
                     }
@@ -851,14 +827,12 @@
                     }
                 ],
                 "DBGet/comp_style:2/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 532.702176
                     }
@@ -939,7 +913,7 @@
         "expected_runtime_one_iter": 2438,
         "name": "rocksdb_microbench_suite_7",
         "regression_threshold": 10,
-        "sl_iterations": 2
+        "sl_iterations": 3
     },
     {
         "benchmarks": {
@@ -1056,7 +1030,7 @@
         "expected_runtime_one_iter": 2437,
         "name": "rocksdb_microbench_suite_8",
         "regression_threshold": 10,
-        "sl_iterations": 2
+        "sl_iterations": 3
     },
     {
         "benchmarks": {
@@ -1082,14 +1056,12 @@
                     }
                 ],
                 "DBGet/comp_style:2/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 497.710941
                     }
@@ -1155,46 +1127,40 @@
         "expected_runtime_one_iter": 2437,
         "name": "rocksdb_microbench_suite_9",
         "regression_threshold": 10,
-        "sl_iterations": 2
+        "sl_iterations": 3
     },
     {
         "benchmarks": {
             "db_basic_bench": {
                 "DBGet/comp_style:0/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 624.132525
                     }
                 ],
                 "DBGet/comp_style:0/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 510.156004
                     }
                 ],
                 "DBGet/comp_style:0/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 551.935026
                     }
@@ -1246,46 +1212,40 @@
         "expected_runtime_one_iter": 2437,
         "name": "rocksdb_microbench_suite_10",
         "regression_threshold": 10,
-        "sl_iterations": 2
+        "sl_iterations": 3
     },
     {
         "benchmarks": {
             "db_basic_bench": {
                 "DBGet/comp_style:0/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 507.805668
                     }
                 ],
                 "DBGet/comp_style:1/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 557.749335
                     }
                 ],
                 "DBGet/comp_style:1/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 623.018994
                     }
@@ -1320,7 +1280,7 @@
         "expected_runtime_one_iter": 2446,
         "name": "rocksdb_microbench_suite_11",
         "regression_threshold": 10,
-        "sl_iterations": 2
+        "sl_iterations": 3
     },
     {
         "benchmarks": {
@@ -1336,14 +1296,12 @@
                     }
                 ],
                 "DBGet/comp_style:0/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 609.749844
                     }
@@ -1359,14 +1317,12 @@
                     }
                 ],
                 "DBGet/comp_style:1/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 557.886298
                     }
@@ -1458,7 +1414,7 @@
         "expected_runtime_one_iter": 2437,
         "name": "rocksdb_microbench_suite_12",
         "regression_threshold": 10,
-        "sl_iterations": 2
+        "sl_iterations": 3
     },
     {
         "benchmarks": {
@@ -1484,14 +1440,12 @@
                     }
                 ],
                 "DBGet/comp_style:2/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 578.538571
                     }
@@ -1559,7 +1513,7 @@
         "expected_runtime_one_iter": 2437,
         "name": "rocksdb_microbench_suite_13",
         "regression_threshold": 10,
-        "sl_iterations": 2
+        "sl_iterations": 3
     },
     {
         "benchmarks": {
@@ -1585,14 +1539,12 @@
                     }
                 ],
                 "DBGet/comp_style:2/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
-                    "get_p95",
                     "db_size",
                     "get_mean",
                     "threads",
                     "real_time",
                     "cpu_time",
                     "neg_qu_pct",
-                    "get_p99",
                     {
                         "est_runtime": 501.900122
                     }
@@ -1661,6 +1613,6 @@
         "expected_runtime_one_iter": 2437,
         "name": "rocksdb_microbench_suite_14",
         "regression_threshold": 10,
-        "sl_iterations": 2
+        "sl_iterations": 3
     }
 ]

@@ -1325,6 +1325,16 @@ bool BuiltinFilterPolicy::IsInstanceOf(const std::string& name) const {
   }
 }
 
+static const char* kBuiltinFilterMetadataName = "rocksdb.BuiltinBloomFilter";
+
+const char* BuiltinFilterPolicy::kCompatibilityName() {
+  return kBuiltinFilterMetadataName;
+}
+
+const char* BuiltinFilterPolicy::CompatibilityName() const {
+  return kBuiltinFilterMetadataName;
+}
+
 BloomLikeFilterPolicy::BloomLikeFilterPolicy(double bits_per_key)
     : warned_(false), aggregate_rounding_balance_(0) {
   // Sanitize bits_per_key
@@ -1372,7 +1382,7 @@ bool BloomLikeFilterPolicy::IsInstanceOf(const std::string& name) const {
 }
 
 const char* ReadOnlyBuiltinFilterPolicy::kClassName() {
-  return "rocksdb.BuiltinBloomFilter";
+  return kBuiltinFilterMetadataName;
 }
 
 const char* DeprecatedBlockBasedBloomFilterPolicy::kClassName() {
