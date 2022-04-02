@@ -6390,9 +6390,9 @@ class Benchmark {
       }
 
       // Pick a Iterator to use
-      size_t db_idx_to_use =
+      uint64_t db_idx_to_use =
           (db_.db == nullptr)
-              ? (size_t{thread->rand.Next()} % multi_dbs_.size())
+              ? (uint64_t{thread->rand.Next()} % multi_dbs_.size())
               : 0;
       std::unique_ptr<Iterator> single_iter;
       Iterator* iter_to_use;
