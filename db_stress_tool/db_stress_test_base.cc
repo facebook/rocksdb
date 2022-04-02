@@ -485,6 +485,9 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
   if (FLAGS_sync) {
     write_opts.sync = true;
   }
+  if (FLAGS_rate_limit_auto_wal_flush) {
+    write_opts.rate_limiter_priority = Env::IO_USER;
+  }
   char value[100];
   int cf_idx = 0;
   Status s;
@@ -601,8 +604,11 @@ Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   if (!FLAGS_use_txn) {
     return Status::InvalidArgument("NewTxn when FLAGS_use_txn is not set");
   }
+  write_opts.disableWAL = FLAGS_disable_wal;
   static std::atomic<uint64_t> txn_id = {0};
   TransactionOptions txn_options;
+  txn_options.use_only_the_last_commit_time_batch_for_recovery =
+      FLAGS_use_only_the_last_commit_time_batch_for_recovery;
   txn_options.lock_timeout = 600000;  // 10 min
   txn_options.deadlock_detect = true;
   *txn = txn_db_->BeginTransaction(write_opts, txn_options);
@@ -639,7 +645,12 @@ void StressTest::OperateDb(ThreadState* thread) {
   ReadOptions read_opts(FLAGS_verify_checksum, true);
   read_opts.rate_limiter_priority =
       FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+  read_opts.async_io = FLAGS_async_io;
+  read_opts.adaptive_readahead = FLAGS_adaptive_readahead;
   WriteOptions write_opts;
+  if (FLAGS_rate_limit_auto_wal_flush) {
+    write_opts.rate_limiter_priority = Env::IO_USER;
+  }
   auto shared = thread->shared;
   char value[100];
   std::string from_db;
@@ -1442,6 +1453,11 @@ Status StressTest::TestBackupRestore(
       }
     }
   }
+  if (thread->rand.OneIn(2)) {
+    backup_opts.schema_version = 1;
+  } else {
+    backup_opts.schema_version = 2;
+  }
   BackupEngine* backup_engine = nullptr;
   std::string from = "a backup/restore operation";
   Status s = BackupEngine::Open(db_stress_env, backup_opts, &backup_engine);
@@ -1449,11 +1465,11 @@ Status StressTest::TestBackupRestore(
     from = "BackupEngine::Open";
   }
   if (s.ok()) {
-    if (thread->rand.OneIn(2)) {
-      TEST_FutureSchemaVersion2Options test_opts;
+    if (backup_opts.schema_version >= 2 && thread->rand.OneIn(2)) {
+      TEST_BackupMetaSchemaOptions test_opts;
       test_opts.crc32c_checksums = thread->rand.OneIn(2) == 0;
       test_opts.file_sizes = thread->rand.OneIn(2) == 0;
-      TEST_EnableWriteFutureSchemaVersion2(backup_engine, test_opts);
+      TEST_SetBackupMetaSchemaOptions(backup_engine, test_opts);
     }
     CreateBackupOptions create_opts;
     if (FLAGS_disable_wal) {
@@ -1744,6 +1760,8 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   if (s.ok()) {
     Options options(options_);
     options.listeners.clear();
+    // Avoid race condition in trash handling after delete checkpoint_db
+    options.sst_file_manager.reset();
     std::vector<ColumnFamilyDescriptor> cf_descs;
     // TODO(ajkr): `column_family_names_` is not safe to access here when
     // `clear_column_family_one_in != 0`. But we can't easily switch to
@@ -2145,6 +2163,28 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Format version            : %d\n", FLAGS_format_version);
   fprintf(stdout, "TransactionDB             : %s\n",
           FLAGS_use_txn ? "true" : "false");
+
+  if (FLAGS_use_txn) {
+#ifndef ROCKSDB_LITE
+    fprintf(stdout, "Two write queues:         : %s\n",
+            FLAGS_two_write_queues ? "true" : "false");
+    fprintf(stdout, "Write policy              : %d\n",
+            static_cast<int>(FLAGS_txn_write_policy));
+    if (static_cast<uint64_t>(TxnDBWritePolicy::WRITE_PREPARED) ==
+            FLAGS_txn_write_policy ||
+        static_cast<uint64_t>(TxnDBWritePolicy::WRITE_UNPREPARED) ==
+            FLAGS_txn_write_policy) {
+      fprintf(stdout, "Snapshot cache bits       : %d\n",
+              static_cast<int>(FLAGS_wp_snapshot_cache_bits));
+      fprintf(stdout, "Commit cache bits         : %d\n",
+              static_cast<int>(FLAGS_wp_commit_cache_bits));
+    }
+    fprintf(stdout, "last cwb for recovery    : %s\n",
+            FLAGS_use_only_the_last_commit_time_batch_for_recovery ? "true"
+                                                                   : "false");
+#endif  // !ROCKSDB_LITE
+  }
+
 #ifndef ROCKSDB_LITE
   fprintf(stdout, "Stacked BlobDB            : %s\n",
           FLAGS_use_blob_db ? "true" : "false");
@@ -2308,6 +2348,7 @@ void StressTest::Open() {
     options_.memtable_prefix_bloom_size_ratio =
         FLAGS_memtable_prefix_bloom_size_ratio;
     options_.memtable_whole_key_filtering = FLAGS_memtable_whole_key_filtering;
+    options_.disable_auto_compactions = FLAGS_disable_auto_compactions;
     options_.max_background_compactions = FLAGS_max_background_compactions;
     options_.max_background_flushes = FLAGS_max_background_flushes;
     options_.compaction_style =
@@ -2696,7 +2737,13 @@ void StressTest::Open() {
         options_.unordered_write = true;
         options_.two_write_queues = true;
         txn_db_options.skip_concurrency_control = true;
+      } else {
+        options_.two_write_queues = FLAGS_two_write_queues;
       }
+      txn_db_options.wp_snapshot_cache_bits =
+          static_cast<size_t>(FLAGS_wp_snapshot_cache_bits);
+      txn_db_options.wp_commit_cache_bits =
+          static_cast<size_t>(FLAGS_wp_commit_cache_bits);
       s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
                               cf_descriptors, &column_families_, &txn_db_);
       if (!s.ok()) {
@@ -2754,7 +2801,11 @@ void StressTest::Open() {
       exit(1);
 #endif
     }
-    if (s.ok() && FLAGS_continuous_verification_interval > 0 && !cmp_db_) {
+    // Secondary instance does not support write-prepared/write-unprepared
+    // transactions, thus just disable secondary instance if we use
+    // transaction.
+    if (s.ok() && FLAGS_continuous_verification_interval > 0 &&
+        !FLAGS_use_txn && !cmp_db_) {
       Options tmp_opts;
       // TODO(yanqin) support max_open_files != -1 for secondary instance.
       tmp_opts.max_open_files = -1;

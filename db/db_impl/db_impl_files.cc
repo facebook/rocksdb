@@ -23,11 +23,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 uint64_t DBImpl::MinLogNumberToKeep() {
-  if (allow_2pc()) {
-    return versions_->min_log_number_to_keep_2pc();
-  } else {
-    return versions_->MinLogNumberWithUnflushedData();
-  }
+  return versions_->min_log_number_to_keep();
 }
 
 uint64_t DBImpl::MinObsoleteSstNumberToKeep() {
@@ -224,7 +220,6 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
 
     // Add log files in wal_dir
-
     if (!immutable_db_options_.IsWalDirSameAsDBPath(dbname_)) {
       std::vector<std::string> log_files;
       Status s = env_->GetChildren(immutable_db_options_.wal_dir, &log_files);
@@ -234,6 +229,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
             log_file, immutable_db_options_.wal_dir);
       }
     }
+
     // Add info log files in db_log_dir
     if (!immutable_db_options_.db_log_dir.empty() &&
         immutable_db_options_.db_log_dir != dbname_) {

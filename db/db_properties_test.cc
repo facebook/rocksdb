@@ -1067,10 +1067,16 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
   const int kNumEntriesPerFile = 1000;
 
   Options options = CurrentOptions();
-  options.compression_per_level = {kNoCompression, kSnappyCompression};
   options.disable_auto_compactions = true;
-  options.num_levels = 2;
+  options.num_levels = 3;
   Reopen(options);
+
+  ASSERT_OK(db_->SetOptions(
+      {{"compression_per_level", "kNoCompression:kSnappyCompression"}}));
+  auto opts = db_->GetOptions();
+  ASSERT_EQ(opts.compression_per_level.size(), 2);
+  ASSERT_EQ(opts.compression_per_level[0], kNoCompression);
+  ASSERT_EQ(opts.compression_per_level[1], kSnappyCompression);
 
   // compression ratio is -1.0 when no open files at level
   ASSERT_EQ(CompressionRatioAtLevel(0), -1.0);

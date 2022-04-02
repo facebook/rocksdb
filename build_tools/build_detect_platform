@@ -598,7 +598,7 @@ EOF
     fi
     if ! test $ROCKSDB_DISABLE_BENCHMARK; then
         # Test whether google benchmark is available
-        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null -lbenchmark 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null -lbenchmark -lpthread 2>/dev/null  <<EOF
           #include <benchmark/benchmark.h>
           int main() {}
 EOF

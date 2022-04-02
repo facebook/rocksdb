@@ -2,7 +2,7 @@
 #     This cmake build is for Windows 64-bit only.
 #
 # Prerequisites:
-#     You must have at least Visual Studio 2015 Update 3. Start the Developer Command Prompt window that is a part of Visual Studio installation.
+#     You must have at least Visual Studio 2019. Start the Developer Command Prompt window that is a part of Visual Studio installation.
 #     Run the build commands from within the Developer Command Prompt window to have paths to the compiler and runtime libraries set.
 #     You must have git.exe in your %PATH% environment variable.
 #
@@ -298,7 +298,8 @@ if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
 endif()
 
-CHECK_CXX_SOURCE_COMPILES("
+if (NOT PORTABLE OR FORCE_SSE42)
+  CHECK_CXX_SOURCE_COMPILES("
 #include <cstdint>
 #include <nmmintrin.h>
 #include <wmmintrin.h>
@@ -310,11 +311,12 @@ int main() {
   auto d = _mm_cvtsi128_si64(c);
 }
 " HAVE_SSE42)
-if(HAVE_SSE42)
-  add_definitions(-DHAVE_SSE42)
-  add_definitions(-DHAVE_PCLMUL)
-elseif(FORCE_SSE42)
-  message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
+  if(HAVE_SSE42)
+    add_definitions(-DHAVE_SSE42)
+    add_definitions(-DHAVE_PCLMUL)
+  elseif(FORCE_SSE42)
+    message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
+  endif()
 endif()
 
 # Check if -latomic is required or not
@@ -1365,6 +1367,7 @@ if(WITH_TESTS)
         utilities/transactions/optimistic_transaction_test.cc
         utilities/transactions/transaction_test.cc
         utilities/transactions/lock/point/point_lock_manager_test.cc
+        utilities/transactions/write_committed_transaction_ts_test.cc
         utilities/transactions/write_prepared_transaction_test.cc
         utilities/transactions/write_unprepared_transaction_test.cc
         utilities/transactions/lock/range/range_locking_test.cc

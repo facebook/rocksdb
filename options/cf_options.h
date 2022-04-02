@@ -62,8 +62,6 @@ struct ImmutableCFOptions {
   // to PlainTableOptions just like bloom_bits_per_key
   uint32_t bloom_locality;
 
-  std::vector<CompressionType> compression_per_level;
-
   bool level_compaction_dynamic_level_bytes;
 
   int num_levels;
@@ -154,7 +152,8 @@ struct MutableCFOptions {
         bottommost_compression_opts(options.bottommost_compression_opts),
         bottommost_temperature(options.bottommost_temperature),
         sample_for_compression(
-            options.sample_for_compression) {  // TODO: is 0 fine here?
+            options.sample_for_compression),  // TODO: is 0 fine here?
+        compression_per_level(options.compression_per_level) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 
@@ -271,6 +270,7 @@ struct MutableCFOptions {
   Temperature bottommost_temperature;
 
   uint64_t sample_for_compression;
+  std::vector<CompressionType> compression_per_level;
 
   // Derived options
   // Per-level target file size.
