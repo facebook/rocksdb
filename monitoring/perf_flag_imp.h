@@ -11,8 +11,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-extern __thread uint8_t perf_flags[FLAGS_LEN];
+extern __thread PerfFlags perf_flags;
 #else
-extern uint8_t perf_flags[FLAGS_LEN];
+extern PerfFlags perf_flags;
 #endif
 }  // namespace ROCKSDB_NAMESPACE

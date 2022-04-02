@@ -41,31 +41,31 @@ extern thread_local PerfContext perf_context;
 #define PERF_TIMER_START(metric) perf_step_timer_##metric.Start();
 
 // Declare and set start time of the timer
-#define PERF_TIMER_GUARD(metric)                                        \
-  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric),        \
-                                         CheckPerfFlag(flag_##metric)); \
+#define PERF_TIMER_GUARD(metric)                                           \
+  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric),           \
+                                         CheckPerfFlag(PerfFlag::metric)); \
   perf_step_timer_##metric.Start();
 
 // Declare and set start time of the timer
-#define PERF_TIMER_GUARD_WITH_CLOCK(metric, clock)                             \
-  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric),               \
-                                         CheckPerfFlag(flag_##metric), clock); \
+#define PERF_TIMER_GUARD_WITH_CLOCK(metric, clock)                     \
+  PerfStepTimer perf_step_timer_##metric(                              \
+      &(perf_context.metric), CheckPerfFlag(PerfFlag::metric), clock); \
   perf_step_timer_##metric.Start();
 
 // Declare and set start time of the timer
-#define PERF_CPU_TIMER_GUARD(metric, clock)                              \
-  PerfStepTimer perf_step_timer_##metric(                                \
-      &(perf_context.metric), CheckPerfFlag(flag_##metric), clock, true, \
-      PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);                   \
-  perf_step_timer_##metric.Start();
-
-#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition, stats,    \
-                                               ticker_type)                 \
+#define PERF_CPU_TIMER_GUARD(metric, clock)                                 \
   PerfStepTimer perf_step_timer_##metric(                                   \
-      &(perf_context.metric), CheckPerfFlag(flag_##metric), nullptr, false, \
-      PerfLevel::kEnableTime, stats, ticker_type);                          \
-  if (condition) {                                                          \
-    perf_step_timer_##metric.Start();                                       \
+      &(perf_context.metric), CheckPerfFlag(PerfFlag::metric), clock, true, \
+      PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);                      \
+  perf_step_timer_##metric.Start();
+
+#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition, stats,       \
+                                               ticker_type)                    \
+  PerfStepTimer perf_step_timer_##metric(                                      \
+      &(perf_context.metric), CheckPerfFlag(PerfFlag::metric), nullptr, false, \
+      PerfLevel::kEnableTime, stats, ticker_type);                             \
+  if (condition) {                                                             \
+    perf_step_timer_##metric.Start();                                          \
   }
 
 // Update metric with time elapsed since last START. start time is reset
@@ -73,15 +73,16 @@ extern thread_local PerfContext perf_context;
 #define PERF_TIMER_MEASURE(metric) perf_step_timer_##metric.Measure();
 
 // Increase metric value
-#define PERF_COUNTER_ADD(metric, value)                                        \
-  if (perf_level >= PerfLevel::kEnableCount || CheckPerfFlag(flag_##metric)) { \
-    perf_context.metric += value;                                              \
+#define PERF_COUNTER_ADD(metric, value)        \
+  if (perf_level >= PerfLevel::kEnableCount || \
+      CheckPerfFlag(PerfFlag::metric)) {       \
+    perf_context.metric += value;              \
   }
 
 // Increase metric value
 #define PERF_COUNTER_BY_LEVEL_ADD(metric, value, level)               \
   if ((perf_level >= PerfLevel::kEnableCount ||                       \
-       CheckPerfFlag(flag_##metric)) &&                               \
+       CheckPerfFlag(PerfFlag::metric)) &&                            \
       perf_context.per_level_perf_context_enabled &&                  \
       perf_context.level_to_perf_context) {                           \
     if ((*(perf_context.level_to_perf_context)).find(level) !=        \

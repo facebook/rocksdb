@@ -962,8 +962,8 @@ TEST_F(PerfContextTest, BitMapControl) {
   auto db = OpenDb();
   WriteOptions write_options;
   SetPerfLevel(PerfLevel::kDisable);
-  EnablePerfFlag(flag_user_key_comparison_count);
-  EnablePerfFlag(flag_write_wal_time);
+  SetPerfFlags(NewPerfFlags(
+      {PerfFlag::user_key_comparison_count, PerfFlag::write_wal_time}));
 
   for (int i = 0; i < FLAGS_total_keys; ++i) {
     std::string i_str = ToString(i);
