@@ -340,7 +340,7 @@ extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_as_secondary_column_families(
     const char* secondary_path, int num_column_families,
     const char* const* column_family_names,
     const rocksdb_options_t* const* column_family_options,
-    rocksdb_column_family_handle_t** colummn_family_handles, char** errptr);
+    rocksdb_column_family_handle_t** column_family_handles, char** errptr);
 
 extern ROCKSDB_LIBRARY_API char** rocksdb_list_column_families(
     const rocksdb_options_t* options, const char* name, size_t* lencf,
@@ -872,9 +872,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_data_block_index
     rocksdb_block_based_table_options_t*, int);  // uses one of the above enums
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_data_block_hash_ratio(
     rocksdb_block_based_table_options_t* options, double v);
-extern ROCKSDB_LIBRARY_API void
-rocksdb_block_based_options_set_hash_index_allow_collision(
-    rocksdb_block_based_table_options_t*, unsigned char);
+// rocksdb_block_based_options_set_hash_index_allow_collision()
+// is removed since BlockBasedTableOptions.hash_index_allow_collision()
+// is removed
 extern ROCKSDB_LIBRARY_API void
 rocksdb_block_based_options_set_cache_index_and_filter_blocks(
     rocksdb_block_based_table_options_t*, unsigned char);
@@ -1572,15 +1572,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_comparator_destroy(
 
 /* Filter policy */
 
-extern ROCKSDB_LIBRARY_API rocksdb_filterpolicy_t* rocksdb_filterpolicy_create(
-    void* state, void (*destructor)(void*),
-    char* (*create_filter)(void*, const char* const* key_array,
-                           const size_t* key_length_array, int num_keys,
-                           size_t* filter_length),
-    unsigned char (*key_may_match)(void*, const char* key, size_t length,
-                                   const char* filter, size_t filter_length),
-    void (*delete_filter)(void*, const char* filter, size_t filter_length),
-    const char* (*name)(void*));
 extern ROCKSDB_LIBRARY_API void rocksdb_filterpolicy_destroy(
     rocksdb_filterpolicy_t*);
 
@@ -1827,6 +1818,8 @@ extern ROCKSDB_LIBRARY_API rocksdb_envoptions_t* rocksdb_envoptions_create(
     void);
 extern ROCKSDB_LIBRARY_API void rocksdb_envoptions_destroy(
     rocksdb_envoptions_t* opt);
+extern ROCKSDB_LIBRARY_API void rocksdb_create_dir_if_missing(
+    rocksdb_env_t* env, const char* path, char** errptr);
 
 /* SstFile */
 

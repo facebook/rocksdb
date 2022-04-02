@@ -78,9 +78,19 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
   FilterBitsBuilder* filter_bits_builder =
       BloomFilterPolicy::GetBuilderFromContext(context);
   if (filter_bits_builder == nullptr) {
-    return new BlockBasedFilterBlockBuilder(mopt.prefix_extractor.get(),
-                                            table_opt);
+    return nullptr;
   } else {
+    // Check for backdoor deprecated block-based bloom config
+    size_t starting_est = filter_bits_builder->EstimateEntriesAdded();
+    constexpr auto kSecretStart =
+        DeprecatedBlockBasedBloomFilterPolicy::kSecretBitsPerKeyStart;
+    if (starting_est >= kSecretStart && starting_est < kSecretStart + 100) {
+      int bits_per_key = static_cast<int>(starting_est - kSecretStart);
+      delete filter_bits_builder;
+      return new BlockBasedFilterBlockBuilder(mopt.prefix_extractor.get(),
+                                              table_opt, bits_per_key);
+    }
+    // END check for backdoor deprecated block-based bloom config
     if (table_opt.partition_filters) {
       assert(p_index_builder != nullptr);
       // Since after partition cut request from filter builder it takes time
@@ -1595,7 +1605,7 @@ void BlockBasedTableBuilder::WriteFilterBlock(
                 ? BlockBasedTable::kPartitionedFilterBlockPrefix
                 : BlockBasedTable::kFullFilterBlockPrefix;
     }
-    key.append(rep_->table_options.filter_policy->Name());
+    key.append(rep_->table_options.filter_policy->CompatibilityName());
     meta_index_builder->Add(key, filter_block_handle);
   }
 }

@@ -1475,7 +1475,7 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
       const uint64_t file_number = file->fd.GetNumber();
       files.emplace_back(
           MakeTableFileName("", file_number), file_number, file_path,
-          static_cast<size_t>(file->fd.GetFileSize()), file->fd.smallest_seqno,
+          file->fd.GetFileSize(), file->fd.smallest_seqno,
           file->fd.largest_seqno, file->smallest.user_key().ToString(),
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
@@ -1491,15 +1491,16 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
         level, level_size, std::move(files));
     cf_meta->size += level_size;
   }
-  for (const auto& iter : vstorage->GetBlobFiles()) {
-    const auto meta = iter.second.get();
+  for (const auto& meta : vstorage->GetBlobFiles()) {
+    assert(meta);
+
     cf_meta->blob_files.emplace_back(
         meta->GetBlobFileNumber(), BlobFileName("", meta->GetBlobFileNumber()),
         ioptions->cf_paths.front().path, meta->GetBlobFileSize(),
         meta->GetTotalBlobCount(), meta->GetTotalBlobBytes(),
         meta->GetGarbageBlobCount(), meta->GetGarbageBlobBytes(),
         meta->GetChecksumMethod(), meta->GetChecksumValue());
-    cf_meta->blob_file_count++;
+    ++cf_meta->blob_file_count;
     cf_meta->blob_file_size += meta->GetBlobFileSize();
   }
 }
@@ -1821,12 +1822,9 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
     return Status::Corruption("Unexpected TTL/inlined blob index");
   }
 
-  const auto& blob_files = storage_info_.GetBlobFiles();
-
   const uint64_t blob_file_number = blob_index.file_number();
 
-  const auto it = blob_files.find(blob_file_number);
-  if (it == blob_files.end()) {
+  if (!storage_info_.GetBlobFileMetaData(blob_file_number)) {
     return Status::Corruption("Invalid blob file number");
   }
 
@@ -1870,10 +1868,11 @@ void Version::MultiGetBlob(
 
   assert(!blob_rqs.empty());
   Status status;
-  const auto& blob_files = storage_info_.GetBlobFiles();
+
   for (auto& elem : blob_rqs) {
-    uint64_t blob_file_number = elem.first;
-    if (blob_files.find(blob_file_number) == blob_files.end()) {
+    const uint64_t blob_file_number = elem.first;
+
+    if (!storage_info_.GetBlobFileMetaData(blob_file_number)) {
       auto& blobs_in_file = elem.second;
       for (const auto& blob : blobs_in_file) {
         const KeyContext& key_context = blob.second;
@@ -1881,6 +1880,7 @@ void Version::MultiGetBlob(
       }
       continue;
     }
+
     CacheHandleGuard<BlobFileReader> blob_file_reader;
     assert(blob_file_cache_);
     status = blob_file_cache_->GetBlobFileReader(blob_file_number,
@@ -1965,7 +1965,8 @@ void Version::MultiGetBlob(
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   PinnableSlice* value, std::string* timestamp, Status* status,
                   MergeContext* merge_context,
-                  SequenceNumber* max_covering_tombstone_seq, bool* value_found,
+                  SequenceNumber* max_covering_tombstone_seq,
+                  PinnedIteratorsManager* pinned_iters_mgr, bool* value_found,
                   bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
                   bool* is_blob, bool do_merge) {
   Slice ikey = k.internal_key();
@@ -1978,7 +1979,6 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     *key_exists = true;
   }
 
-  PinnedIteratorsManager pinned_iters_mgr;
   uint64_t tracing_get_id = BlockCacheTraceHelper::kReservedGetId;
   if (vset_ && vset_->block_cache_tracer_ &&
       vset_->block_cache_tracer_->is_tracing_enabled()) {
@@ -1992,17 +1992,18 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   bool* const is_blob_to_use = is_blob ? is_blob : &is_blob_index;
   BlobFetcher blob_fetcher(this, read_options);
 
+  assert(pinned_iters_mgr);
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
       do_merge ? value : nullptr, do_merge ? timestamp : nullptr, value_found,
       merge_context, do_merge, max_covering_tombstone_seq, clock_, seq,
-      merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob_to_use,
+      merge_operator_ ? pinned_iters_mgr : nullptr, callback, is_blob_to_use,
       tracing_get_id, &blob_fetcher);
 
   // Pin blocks that we read to hold merge operands
   if (merge_operator_) {
-    pinned_iters_mgr.StartPinning();
+    pinned_iters_mgr->StartPinning();
   }
 
   FilePicker fp(user_key, ikey, &storage_info_.level_files_brief_,
@@ -2188,12 +2189,31 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   MultiGetRange keys_with_blobs_range(*range, range->begin(), range->end());
   // blob_file => [[blob_idx, it], ...]
   std::unordered_map<uint64_t, BlobReadRequests> blob_rqs;
+  int level = -1;
 
   while (f != nullptr) {
     MultiGetRange file_range = fp.CurrentFileRange();
     bool timer_enabled =
         GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
         get_perf_context()->per_level_perf_context_enabled;
+
+    // Report MultiGet stats per level.
+    if (level >= 0 && level != (int)fp.GetHitFileLevel()) {
+      // Dump the stats if the search has moved to the next level and
+      // reset for next level.
+      RecordInHistogram(db_statistics_,
+                        NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
+                        num_index_read + num_filter_read);
+      RecordInHistogram(db_statistics_, NUM_DATA_BLOCKS_READ_PER_LEVEL,
+                        num_data_read);
+      RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
+      num_filter_read = 0;
+      num_index_read = 0;
+      num_data_read = 0;
+      num_sst_read = 0;
+      level = fp.GetHitFileLevel();
+    }
+
     StopWatchNano timer(clock_, timer_enabled /* auto_start */);
     s = table_cache_->MultiGet(
         read_options, *internal_comparator(), *f->file_metadata, &file_range,
@@ -2238,6 +2258,11 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       num_filter_read += get_context.get_context_stats_.num_filter_read;
       num_data_read += get_context.get_context_stats_.num_data_read;
       num_sst_read += get_context.get_context_stats_.num_sst_read;
+      // Reset these stats since they're specific to a level
+      get_context.get_context_stats_.num_index_read = 0;
+      get_context.get_context_stats_.num_filter_read = 0;
+      get_context.get_context_stats_.num_data_read = 0;
+      get_context.get_context_stats_.num_sst_read = 0;
 
       // report the counters before returning
       if (get_context.State() != GetContext::kNotFound &&
@@ -2314,28 +2339,19 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       }
     }
 
-    // Report MultiGet stats per level.
-    if (fp.IsHitFileLastInLevel()) {
-      // Dump the stats if this is the last file of this level and reset for
-      // next level.
-      RecordInHistogram(db_statistics_,
-                        NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
-                        num_index_read + num_filter_read);
-      RecordInHistogram(db_statistics_, NUM_DATA_BLOCKS_READ_PER_LEVEL,
-                        num_data_read);
-      RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
-      num_filter_read = 0;
-      num_index_read = 0;
-      num_data_read = 0;
-      num_sst_read = 0;
-    }
-
     RecordInHistogram(db_statistics_, SST_BATCH_SIZE, batch_size);
     if (!s.ok() || file_picker_range.empty()) {
       break;
     }
     f = fp.GetNextFile();
   }
+
+  // Dump stats for most recent level
+  RecordInHistogram(db_statistics_, NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
+                    num_index_read + num_filter_read);
+  RecordInHistogram(db_statistics_, NUM_DATA_BLOCKS_READ_PER_LEVEL,
+                    num_data_read);
+  RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
 
   if (s.ok() && !blob_rqs.empty()) {
     MultiGetBlob(read_options, keys_with_blobs_range, blob_rqs);
@@ -2413,6 +2429,7 @@ void VersionStorageInfo::PrepareForVersionAppend(
   GenerateLevelFilesBrief();
   GenerateLevel0NonOverlapping();
   GenerateBottommostFiles();
+  GenerateFileLocationIndex();
 }
 
 void Version::PrepareAppend(const MutableCFOptions& mutable_cf_options,
@@ -2971,9 +2988,7 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
   // blob_garbage_collection_force_threshold and the entire batch has to be
   // eligible for GC according to blob_garbage_collection_age_cutoff in order
   // for us to schedule any compactions.
-  const auto oldest_it = blob_files_.begin();
-
-  const auto& oldest_meta = oldest_it->second;
+  const auto& oldest_meta = blob_files_.front();
   assert(oldest_meta);
 
   const auto& linked_ssts = oldest_meta->GetLinkedSsts();
@@ -2983,21 +2998,29 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
   uint64_t sum_total_blob_bytes = oldest_meta->GetTotalBlobBytes();
   uint64_t sum_garbage_blob_bytes = oldest_meta->GetGarbageBlobBytes();
 
-  auto it = oldest_it;
-  for (++it; it != blob_files_.end(); ++it) {
-    const auto& meta = it->second;
+  assert(cutoff_count <= blob_files_.size());
+
+  for (; count < cutoff_count; ++count) {
+    const auto& meta = blob_files_[count];
     assert(meta);
 
     if (!meta->GetLinkedSsts().empty()) {
+      // Found the beginning of the next batch of blob files
       break;
-    }
-
-    if (++count > cutoff_count) {
-      return;
     }
 
     sum_total_blob_bytes += meta->GetTotalBlobBytes();
     sum_garbage_blob_bytes += meta->GetGarbageBlobBytes();
+  }
+
+  if (count < blob_files_.size()) {
+    const auto& meta = blob_files_[count];
+    assert(meta);
+
+    if (meta->GetLinkedSsts().empty()) {
+      // Some files in the oldest batch are not eligible for GC
+      return;
+    }
   }
 
   if (sum_garbage_blob_bytes <
@@ -3046,24 +3069,27 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f) {
   level_files.push_back(f);
 
   f->refs++;
-
-  const uint64_t file_number = f->fd.GetNumber();
-
-  assert(file_locations_.find(file_number) == file_locations_.end());
-  file_locations_.emplace(file_number,
-                          FileLocation(level, level_files.size() - 1));
 }
 
 void VersionStorageInfo::AddBlobFile(
     std::shared_ptr<BlobFileMetaData> blob_file_meta) {
   assert(blob_file_meta);
 
-  const uint64_t blob_file_number = blob_file_meta->GetBlobFileNumber();
+  assert(blob_files_.empty() ||
+         (blob_files_.back() && blob_files_.back()->GetBlobFileNumber() <
+                                    blob_file_meta->GetBlobFileNumber()));
 
-  auto it = blob_files_.lower_bound(blob_file_number);
-  assert(it == blob_files_.end() || it->first != blob_file_number);
+  blob_files_.emplace_back(std::move(blob_file_meta));
+}
 
-  blob_files_.emplace_hint(it, blob_file_number, std::move(blob_file_meta));
+VersionStorageInfo::BlobFiles::const_iterator
+VersionStorageInfo::GetBlobFileMetaDataLB(uint64_t blob_file_number) const {
+  return std::lower_bound(
+      blob_files_.begin(), blob_files_.end(), blob_file_number,
+      [](const std::shared_ptr<BlobFileMetaData>& lhs, uint64_t rhs) {
+        assert(lhs);
+        return lhs->GetBlobFileNumber() < rhs;
+      });
 }
 
 void VersionStorageInfo::SetFinalized() {
@@ -3282,6 +3308,28 @@ void VersionStorageInfo::GenerateBottommostFiles() {
         bottommost_files_.emplace_back(static_cast<int>(level),
                                        f.file_metadata);
       }
+    }
+  }
+}
+
+void VersionStorageInfo::GenerateFileLocationIndex() {
+  size_t num_files = 0;
+
+  for (int level = 0; level < num_levels_; ++level) {
+    num_files += files_[level].size();
+  }
+
+  file_locations_.reserve(num_files);
+
+  for (int level = 0; level < num_levels_; ++level) {
+    for (size_t pos = 0; pos < files_[level].size(); ++pos) {
+      const FileMetaData* const meta = files_[level][pos];
+      assert(meta);
+
+      const uint64_t file_number = meta->fd.GetNumber();
+
+      assert(file_locations_.find(file_number) == file_locations_.end());
+      file_locations_.emplace(file_number, FileLocation(level, pos));
     }
   }
 }
@@ -3828,14 +3876,16 @@ uint64_t VersionStorageInfo::EstimateLiveDataSize() const {
       }
     }
   }
+
   // For BlobDB, the result also includes the exact value of live bytes in the
   // blob files of the version.
-  const auto& blobFiles = GetBlobFiles();
-  for (const auto& pair : blobFiles) {
-    const auto& meta = pair.second;
+  for (const auto& meta : blob_files_) {
+    assert(meta);
+
     size += meta->GetTotalBlobBytes();
     size -= meta->GetGarbageBlobBytes();
   }
+
   return size;
 }
 
@@ -3885,8 +3935,7 @@ void Version::AddLiveFiles(std::vector<uint64_t>* live_table_files,
   }
 
   const auto& blob_files = storage_info_.GetBlobFiles();
-  for (const auto& pair : blob_files) {
-    const auto& meta = pair.second;
+  for (const auto& meta : blob_files) {
     assert(meta);
 
     live_blob_files->emplace_back(meta->GetBlobFileNumber());
@@ -3943,8 +3992,7 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
     r.append("--- blob files --- version# ");
     AppendNumberTo(&r, version_number_);
     r.append(" ---\n");
-    for (const auto& pair : blob_files) {
-      const auto& blob_file_meta = pair.second;
+    for (const auto& blob_file_meta : blob_files) {
       assert(blob_file_meta);
 
       r.append(blob_file_meta->DebugString());
@@ -4093,7 +4141,7 @@ void VersionSet::Reset() {
   }
   db_id_.clear();
   next_file_number_.store(2);
-  min_log_number_to_keep_2pc_.store(0);
+  min_log_number_to_keep_.store(0);
   manifest_file_number_ = 0;
   options_file_number_ = 0;
   pending_manifest_file_number_ = 0;
@@ -4562,8 +4610,7 @@ Status VersionSet::ProcessManifestWrites(
       }
 
       if (last_min_log_number_to_keep != 0) {
-        // Should only be set in 2PC mode.
-        MarkMinLogNumberToKeep2PC(last_min_log_number_to_keep);
+        MarkMinLogNumberToKeep(last_min_log_number_to_keep);
       }
 
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
@@ -4917,7 +4964,7 @@ Status VersionSet::Recover(
         ",min_log_number_to_keep is %" PRIu64 "\n",
         manifest_path.c_str(), manifest_file_number_, next_file_number_.load(),
         last_sequence_.load(), log_number, prev_log_number_,
-        column_family_set_->GetMaxColumnFamily(), min_log_number_to_keep_2pc());
+        column_family_set_->GetMaxColumnFamily(), min_log_number_to_keep());
 
     for (auto cfd : *column_family_set_) {
       if (cfd->IsDropped()) {
@@ -5078,9 +5125,6 @@ Status VersionSet::TryRecoverFromOneManifest(
 Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
                                       const std::string& dbname,
                                       FileSystem* fs) {
-  // these are just for performance reasons, not correctness,
-  // so we're fine using the defaults
-  FileOptions soptions;
   // Read "CURRENT" file, which contains a pointer to the current manifest file
   std::string manifest_path;
   uint64_t manifest_file_number;
@@ -5089,16 +5133,24 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
   if (!s.ok()) {
     return s;
   }
+  return ListColumnFamiliesFromManifest(manifest_path, fs, column_families);
+}
 
+Status VersionSet::ListColumnFamiliesFromManifest(
+    const std::string& manifest_path, FileSystem* fs,
+    std::vector<std::string>* column_families) {
   std::unique_ptr<SequentialFileReader> file_reader;
+  Status s;
   {
     std::unique_ptr<FSSequentialFile> file;
-    s = fs->NewSequentialFile(manifest_path, soptions, &file, nullptr);
+    // these are just for performance reasons, not correctness,
+    // so we're fine using the defaults
+    s = fs->NewSequentialFile(manifest_path, FileOptions(), &file, nullptr);
     if (!s.ok()) {
       return s;
-  }
-  file_reader.reset(new SequentialFileReader(std::move(file), manifest_path,
-                                             nullptr /*IOTracer*/));
+    }
+    file_reader = std::make_unique<SequentialFileReader>(
+        std::move(file), manifest_path, /*io_tracer=*/nullptr);
   }
 
   VersionSet::LogReporter reporter;
@@ -5234,13 +5286,25 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
   checksum_list->reset();
 
   for (auto cfd : *column_family_set_) {
+    assert(cfd);
+
     if (cfd->IsDropped() || !cfd->initialized()) {
       continue;
     }
+
+    const auto* current = cfd->current();
+    assert(current);
+
+    const auto* vstorage = current->storage_info();
+    assert(vstorage);
+
     /* SST files */
     for (int level = 0; level < cfd->NumberLevels(); level++) {
-      for (const auto& file :
-           cfd->current()->storage_info()->LevelFiles(level)) {
+      const auto& level_files = vstorage->LevelFiles(level);
+
+      for (const auto& file : level_files) {
+        assert(file);
+
         s = checksum_list->InsertOneFileChecksum(file->fd.GetNumber(),
                                                  file->file_checksum,
                                                  file->file_checksum_func_name);
@@ -5251,13 +5315,9 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
     }
 
     /* Blob files */
-    const auto& blob_files = cfd->current()->storage_info()->GetBlobFiles();
-    for (const auto& pair : blob_files) {
-      const uint64_t blob_file_number = pair.first;
-      const auto& meta = pair.second;
-
+    const auto& blob_files = vstorage->GetBlobFiles();
+    for (const auto& meta : blob_files) {
       assert(meta);
-      assert(blob_file_number == meta->GetBlobFileNumber());
 
       std::string checksum_value = meta->GetChecksumValue();
       std::string checksum_method = meta->GetChecksumMethod();
@@ -5267,8 +5327,8 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
         checksum_method = kUnknownFileChecksumFuncName;
       }
 
-      s = checksum_list->InsertOneFileChecksum(blob_file_number, checksum_value,
-                                               checksum_method);
+      s = checksum_list->InsertOneFileChecksum(meta->GetBlobFileNumber(),
+                                               checksum_value, checksum_method);
       if (!s.ok()) {
         return s;
       }
@@ -5280,9 +5340,16 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
 
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
                                 bool verbose, bool hex, bool json) {
+  assert(options.env);
+  std::vector<std::string> column_families;
+  Status s = ListColumnFamiliesFromManifest(
+      dscname, options.env->GetFileSystem().get(), &column_families);
+  if (!s.ok()) {
+    return s;
+  }
+
   // Open the specified manifest file.
   std::unique_ptr<SequentialFileReader> file_reader;
-  Status s;
   {
     std::unique_ptr<FSSequentialFile> file;
     const std::shared_ptr<FileSystem>& fs = options.env->GetFileSystem();
@@ -5293,14 +5360,16 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     if (!s.ok()) {
       return s;
     }
-    file_reader.reset(new SequentialFileReader(
-        std::move(file), dscname, db_options_->log_readahead_size, io_tracer_));
+    file_reader = std::make_unique<SequentialFileReader>(
+        std::move(file), dscname, db_options_->log_readahead_size, io_tracer_);
   }
 
-  std::vector<ColumnFamilyDescriptor> column_families(
-      1, ColumnFamilyDescriptor(kDefaultColumnFamilyName, options));
-  DumpManifestHandler handler(column_families, this, io_tracer_, verbose, hex,
-                              json);
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  for (const auto& cf : column_families) {
+    cf_descs.emplace_back(cf, options);
+  }
+
+  DumpManifestHandler handler(cf_descs, this, io_tracer_, verbose, hex, json);
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;
@@ -5322,9 +5391,9 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
 }
 // Called only either from ::LogAndApply which is protected by mutex or during
 // recovery which is single-threaded.
-void VersionSet::MarkMinLogNumberToKeep2PC(uint64_t number) {
-  if (min_log_number_to_keep_2pc_.load(std::memory_order_relaxed) < number) {
-    min_log_number_to_keep_2pc_.store(number, std::memory_order_relaxed);
+void VersionSet::MarkMinLogNumberToKeep(uint64_t number) {
+  if (min_log_number_to_keep_.load(std::memory_order_relaxed) < number) {
+    min_log_number_to_keep_.store(number, std::memory_order_relaxed);
   }
 }
 
@@ -5404,12 +5473,18 @@ Status VersionSet::WriteCurrentStateToManifest(
       VersionEdit edit;
       edit.SetColumnFamily(cfd->GetID());
 
-      assert(cfd->current());
-      assert(cfd->current()->storage_info());
+      const auto* current = cfd->current();
+      assert(current);
+
+      const auto* vstorage = current->storage_info();
+      assert(vstorage);
 
       for (int level = 0; level < cfd->NumberLevels(); level++) {
-        for (const auto& f :
-             cfd->current()->storage_info()->LevelFiles(level)) {
+        const auto& level_files = vstorage->LevelFiles(level);
+
+        for (const auto& f : level_files) {
+          assert(f);
+
           edit.AddFile(
               level, f->fd.GetNumber(), f->fd.GetPathId(), f->fd.GetFileSize(),
               f->smallest, f->largest, f->fd.smallest_seqno,
@@ -5420,13 +5495,11 @@ Status VersionSet::WriteCurrentStateToManifest(
         }
       }
 
-      const auto& blob_files = cfd->current()->storage_info()->GetBlobFiles();
-      for (const auto& pair : blob_files) {
-        const uint64_t blob_file_number = pair.first;
-        const auto& meta = pair.second;
-
+      const auto& blob_files = vstorage->GetBlobFiles();
+      for (const auto& meta : blob_files) {
         assert(meta);
-        assert(blob_file_number == meta->GetBlobFileNumber());
+
+        const uint64_t blob_file_number = meta->GetBlobFileNumber();
 
         edit.AddBlobFile(blob_file_number, meta->GetTotalBlobCount(),
                          meta->GetTotalBlobBytes(), meta->GetChecksumMethod(),
@@ -5446,7 +5519,7 @@ Status VersionSet::WriteCurrentStateToManifest(
         // min_log_number_to_keep is for the whole db, not for specific column family.
         // So it does not need to be set for every column family, just need to be set once.
         // Since default CF can never be dropped, we set the min_log to the default CF here.
-        uint64_t min_log = min_log_number_to_keep_2pc();
+        uint64_t min_log = min_log_number_to_keep();
         if (min_log != 0) {
           edit.SetMinLogNumberToKeep(min_log);
         }
@@ -5834,11 +5907,13 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
           assert(!cfd->ioptions()->cf_paths.empty());
           filemetadata.db_path = cfd->ioptions()->cf_paths.back().path;
         }
+        filemetadata.directory = filemetadata.db_path;
         const uint64_t file_number = file->fd.GetNumber();
         filemetadata.name = MakeTableFileName("", file_number);
+        filemetadata.relative_filename = filemetadata.name.substr(1);
         filemetadata.file_number = file_number;
         filemetadata.level = level;
-        filemetadata.size = static_cast<size_t>(file->fd.GetFileSize());
+        filemetadata.size = file->fd.GetFileSize();
         filemetadata.smallestkey = file->smallest.user_key().ToString();
         filemetadata.largestkey = file->largest.user_key().ToString();
         filemetadata.smallest_seqno = file->fd.smallest_seqno;
@@ -5953,21 +6028,30 @@ uint64_t VersionSet::GetTotalSstFilesSize(Version* dummy_versions) {
 
 uint64_t VersionSet::GetTotalBlobFileSize(Version* dummy_versions) {
   std::unordered_set<uint64_t> unique_blob_files;
-  uint64_t all_v_blob_file_size = 0;
+
+  uint64_t all_versions_blob_file_size = 0;
+
   for (auto* v = dummy_versions->next_; v != dummy_versions; v = v->next_) {
     // iterate all the versions
-    auto* vstorage = v->storage_info();
+    const auto* vstorage = v->storage_info();
+    assert(vstorage);
+
     const auto& blob_files = vstorage->GetBlobFiles();
-    for (const auto& pair : blob_files) {
-      if (unique_blob_files.find(pair.first) == unique_blob_files.end()) {
+
+    for (const auto& meta : blob_files) {
+      assert(meta);
+
+      const uint64_t blob_file_number = meta->GetBlobFileNumber();
+
+      if (unique_blob_files.find(blob_file_number) == unique_blob_files.end()) {
         // find Blob file that has not been counted
-        unique_blob_files.insert(pair.first);
-        const auto& meta = pair.second;
-        all_v_blob_file_size += meta->GetBlobFileSize();
+        unique_blob_files.insert(blob_file_number);
+        all_versions_blob_file_size += meta->GetBlobFileSize();
       }
     }
   }
-  return all_v_blob_file_size;
+
+  return all_versions_blob_file_size;
 }
 
 Status VersionSet::VerifyFileMetadata(const std::string& fpath,

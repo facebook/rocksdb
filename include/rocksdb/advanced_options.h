@@ -377,7 +377,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // If this value is larger than 0.25, it is sanitized to 0.25.
   //
-  // Default: 0 (disable)
+  // Default: 0 (disabled)
   //
   // Dynamically changeable through SetOptions() API
   double memtable_prefix_bloom_size_ratio = 0.0;
@@ -386,7 +386,7 @@ struct AdvancedColumnFamilyOptions {
   // if memtable_prefix_bloom_size_ratio is not 0. Enabling whole key filtering
   // can potentially reduce CPU usage for point-look-ups.
   //
-  // Default: false (disable)
+  // Default: false (disabled)
   //
   // Dynamically changeable through SetOptions() API
   bool memtable_whole_key_filtering = false;
@@ -421,7 +421,7 @@ struct AdvancedColumnFamilyOptions {
   // example would be updating the same key over and over again, in which case
   // the prefix can be the key itself.
   //
-  // Default: nullptr (disable)
+  // Default: nullptr (disabled)
   std::shared_ptr<const SliceTransform>
       memtable_insert_with_hint_prefix_extractor = nullptr;
 
@@ -471,6 +471,14 @@ struct AdvancedColumnFamilyOptions {
   // according to compression_per_level[1], L3 using compression_per_level[2]
   // and L4 using compression_per_level[3]. Compaction for each level can
   // change when data grows.
+  //
+  // NOTE: if the vector size is smaller than the level number, the undefined
+  // lower level uses the last option in the vector, for example, for 3 level
+  // LSM tree the following settings are the same:
+  // {kNoCompression, kSnappyCompression}
+  // {kNoCompression, kSnappyCompression, kSnappyCompression}
+  //
+  // Dynamically changeable through SetOptions() API
   std::vector<CompressionType> compression_per_level;
 
   // Number of levels for this database

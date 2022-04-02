@@ -143,9 +143,9 @@ public class ReadOptionsTest {
   public void readaheadSize() {
     try (final ReadOptions opt = new ReadOptions()) {
       final Random rand = new Random();
-      final long longValue = rand.nextLong();
-      opt.setReadaheadSize(longValue);
-      assertThat(opt.readaheadSize()).isEqualTo(longValue);
+      final int intValue = rand.nextInt(2147483647);
+      opt.setReadaheadSize(intValue);
+      assertThat(opt.readaheadSize()).isEqualTo(intValue);
     }
   }
 

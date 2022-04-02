@@ -114,15 +114,18 @@ Status TableCache::GetTableReader(
   if (s.ok()) {
     s = ioptions_.fs->NewRandomAccessFile(fname, fopts, &file, nullptr);
   }
-  RecordTick(ioptions_.stats, NO_FILE_OPENS);
-  if (s.IsPathNotFound()) {
+  if (s.ok()) {
+    RecordTick(ioptions_.stats, NO_FILE_OPENS);
+  } else if (s.IsPathNotFound()) {
     fname = Rocks2LevelTableFileName(fname);
     s = PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
     if (s.ok()) {
       s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file,
                                             nullptr);
     }
-    RecordTick(ioptions_.stats, NO_FILE_OPENS);
+    if (s.ok()) {
+      RecordTick(ioptions_.stats, NO_FILE_OPENS);
+    }
   }
 
   if (s.ok()) {
@@ -135,7 +138,7 @@ Status TableCache::GetTableReader(
             std::move(file), fname, ioptions_.clock, io_tracer_,
             record_read_stats ? ioptions_.stats : nullptr, SST_READ_MICROS,
             file_read_hist, ioptions_.rate_limiter.get(), ioptions_.listeners,
-            file_temperature));
+            file_temperature, level == ioptions_.num_levels - 1));
     s = ioptions_.table_factory->NewTableReader(
         ro,
         TableReaderOptions(

@@ -142,10 +142,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     result.compaction_readahead_size = 1024 * 1024 * 2;
   }
 
-  if (result.compaction_readahead_size > 0 || result.use_direct_reads) {
-    result.new_table_reader_for_compaction_inputs = true;
-  }
-
   // Force flush on DB open if 2PC is enabled, since with 2PC we have no
   // guarantee that consecutive log files have consecutive sequence id, which
   // make recovery complicated.
@@ -195,8 +191,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
 #endif  // !ROCKSDB_LITE
 
   // Supported wal compression types
-  if (result.wal_compression != kNoCompression &&
-      result.wal_compression != kZSTD) {
+  if (!StreamingCompressionTypeSupported(result.wal_compression)) {
     result.wal_compression = kNoCompression;
     ROCKS_LOG_WARN(result.info_log,
                    "wal_compression is disabled since only zstd is supported");
@@ -871,6 +866,11 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
   bool flushed = false;
   uint64_t corrupted_wal_number = kMaxSequenceNumber;
   uint64_t min_wal_number = MinLogNumberToKeep();
+  if (!allow_2pc()) {
+    // In non-2pc mode, we skip WALs that do not back unflushed data.
+    min_wal_number =
+        std::max(min_wal_number, versions_->MinLogNumberWithUnflushedData());
+  }
   for (auto wal_number : wal_numbers) {
     if (wal_number < min_wal_number) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -1275,9 +1275,16 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       }
 
       std::unique_ptr<VersionEdit> wal_deletion;
-      if (immutable_db_options_.track_and_verify_wals_in_manifest) {
-        wal_deletion.reset(new VersionEdit);
-        wal_deletion->DeleteWalsBefore(max_wal_number + 1);
+      if (flushed) {
+        wal_deletion = std::make_unique<VersionEdit>();
+        if (immutable_db_options_.track_and_verify_wals_in_manifest) {
+          wal_deletion->DeleteWalsBefore(max_wal_number + 1);
+        }
+        if (!allow_2pc()) {
+          // In non-2pc mode, flushing the memtables of the column families
+          // means we can advance min_log_number_to_keep.
+          wal_deletion->SetMinLogNumberToKeep(max_wal_number + 1);
+        }
         edit_lists.back().push_back(wal_deletion.get());
       }
 
@@ -1356,7 +1363,14 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
   // FindObsoleteFiles()
   total_log_size_ = 0;
   log_empty_ = false;
+  uint64_t min_wal_with_unflushed_data =
+      versions_->MinLogNumberWithUnflushedData();
   for (auto wal_number : wal_numbers) {
+    if (!allow_2pc() && wal_number < min_wal_with_unflushed_data) {
+      // In non-2pc mode, the WAL files not backing unflushed data are not
+      // alive, thus should not be added to the alive_log_files_.
+      continue;
+    }
     // We preallocate space for wals, but then after a crash and restart, those
     // preallocated space are not needed anymore. It is likely only the last
     // log has such preallocated space, so we only truncate for the last log.
@@ -1369,6 +1383,7 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
     total_log_size_ += log.size;
     alive_log_files_.push_back(log);
   }
+  alive_log_files_tail_ = alive_log_files_.rbegin();
   if (two_write_queues_) {
     log_write_mutex_.Unlock();
   }
@@ -1378,6 +1393,12 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
 Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                                            MemTable* mem, VersionEdit* edit) {
   mutex_.AssertHeld();
+  assert(cfd);
+  assert(cfd->imm());
+  // The immutable memtable list must be empty.
+  assert(std::numeric_limits<uint64_t>::max() ==
+         cfd->imm()->GetEarliestMemTableID());
+
   const uint64_t start_micros = immutable_db_options_.clock->NowMicros();
 
   FileMetaData meta;
@@ -1545,6 +1566,72 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                       !kSeqPerBatch, kBatchPerTxn);
 }
 
+// TODO: Implement the trimming in flush code path.
+// TODO: Perform trimming before inserting into memtable during recovery.
+// TODO: Pick files with max_timestamp > trim_ts by each file's timestamp meta
+// info, and handle only these files to reduce io.
+Status DB::OpenAndTrimHistory(
+    const DBOptions& db_options, const std::string& dbname,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+    std::string trim_ts) {
+  assert(dbptr != nullptr);
+  assert(handles != nullptr);
+  auto validate_options = [&db_options] {
+    if (db_options.avoid_flush_during_recovery) {
+      return Status::InvalidArgument(
+          "avoid_flush_during_recovery incompatible with "
+          "OpenAndTrimHistory");
+    }
+    return Status::OK();
+  };
+  auto s = validate_options();
+  if (!s.ok()) {
+    return s;
+  }
+
+  DB* db = nullptr;
+  s = DB::Open(db_options, dbname, column_families, handles, &db);
+  if (!s.ok()) {
+    return s;
+  }
+  assert(db);
+  CompactRangeOptions options;
+  options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForceOptimized;
+  auto db_impl = static_cast_with_check<DBImpl>(db);
+  for (auto handle : *handles) {
+    assert(handle != nullptr);
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(handle);
+    auto cfd = cfh->cfd();
+    assert(cfd != nullptr);
+    // Only compact column families with timestamp enabled
+    if (cfd->user_comparator() != nullptr &&
+        cfd->user_comparator()->timestamp_size() > 0) {
+      s = db_impl->CompactRangeInternal(options, handle, nullptr, nullptr,
+                                        trim_ts);
+      if (!s.ok()) {
+        break;
+      }
+    }
+  }
+  auto clean_op = [&handles, &db] {
+    for (auto handle : *handles) {
+      auto temp_s = db->DestroyColumnFamilyHandle(handle);
+      assert(temp_s.ok());
+    }
+    handles->clear();
+    delete db;
+  };
+  if (!s.ok()) {
+    clean_op();
+    return s;
+  }
+
+  *dbptr = db;
+  return s;
+}
+
 IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                            size_t preallocate_block_size,
                            log::Writer** new_log) {
@@ -1584,7 +1671,9 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
         tmp_set.Contains(FileType::kWalFile)));
     *new_log = new log::Writer(std::move(file_writer), log_file_num,
                                immutable_db_options_.recycle_log_file_num > 0,
-                               immutable_db_options_.manual_wal_flush);
+                               immutable_db_options_.manual_wal_flush,
+                               immutable_db_options_.wal_compression);
+    io_s = (*new_log)->AddCompressionTypeRecord();
   }
   return io_s;
 }
@@ -1706,6 +1795,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       }
       impl->alive_log_files_.push_back(
           DBImpl::LogFileNumberSize(impl->logfile_number_));
+      impl->alive_log_files_tail_ = impl->alive_log_files_.rbegin();
       if (impl->two_write_queues_) {
         impl->log_write_mutex_.Unlock();
       }
@@ -1726,7 +1816,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         WriteOptions write_options;
         uint64_t log_used, log_size;
         log::Writer* log_writer = impl->logs_.back().writer;
-        s = impl->WriteToWAL(empty_batch, log_writer, &log_used, &log_size);
+        s = impl->WriteToWAL(empty_batch, log_writer, &log_used, &log_size,
+                             Env::IO_TOTAL, /*with_db_mutex==*/true);
         if (s.ok()) {
           // Need to fsync, otherwise it might get lost after a power reset.
           s = impl->FlushWAL(false);
@@ -1880,14 +1971,15 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           "DB::Open() failed --- Unable to persist Options file",
           persist_options_status.ToString());
     }
-  } else {
+  }
+  if (!s.ok()) {
     ROCKS_LOG_WARN(impl->immutable_db_options_.info_log,
-                   "Persisting Option File error: %s",
-                   persist_options_status.ToString().c_str());
+                   "DB::Open() failed: %s", s.ToString().c_str());
   }
   if (s.ok()) {
-    impl->StartPeriodicWorkScheduler();
-  } else {
+    s = impl->StartPeriodicWorkScheduler();
+  }
+  if (!s.ok()) {
     for (auto* h : *handles) {
       delete h;
     }

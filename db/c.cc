@@ -290,45 +290,10 @@ struct rocksdb_filterpolicy_t : public FilterPolicy {
   void* state_;
   void (*destructor_)(void*);
   const char* (*name_)(void*);
-  char* (*create_)(
-      void*,
-      const char* const* key_array, const size_t* key_length_array,
-      int num_keys,
-      size_t* filter_length);
-  unsigned char (*key_match_)(
-      void*,
-      const char* key, size_t length,
-      const char* filter, size_t filter_length);
-  void (*delete_filter_)(
-      void*,
-      const char* filter, size_t filter_length);
 
   ~rocksdb_filterpolicy_t() override { (*destructor_)(state_); }
 
   const char* Name() const override { return (*name_)(state_); }
-
-  void CreateFilter(const Slice* keys, int n, std::string* dst) const override {
-    std::vector<const char*> key_pointers(n);
-    std::vector<size_t> key_sizes(n);
-    for (int i = 0; i < n; i++) {
-      key_pointers[i] = keys[i].data();
-      key_sizes[i] = keys[i].size();
-    }
-    size_t len;
-    char* filter = (*create_)(state_, &key_pointers[0], &key_sizes[0], n, &len);
-    dst->append(filter, len);
-
-    if (delete_filter_ != nullptr) {
-      (*delete_filter_)(state_, filter, len);
-    } else {
-      free(filter);
-    }
-  }
-
-  bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
-    return (*key_match_)(state_, key.data(), key.size(),
-                         filter.data(), filter.size());
-  }
 };
 
 struct rocksdb_mergeoperator_t : public MergeOperator {
@@ -2332,11 +2297,6 @@ void rocksdb_block_based_options_set_data_block_hash_ratio(
   options->rep.data_block_hash_table_util_ratio = v;
 }
 
-void rocksdb_block_based_options_set_hash_index_allow_collision(
-    rocksdb_block_based_table_options_t* options, unsigned char v) {
-  options->rep.hash_index_allow_collision = v;
-}
-
 void rocksdb_block_based_options_set_cache_index_and_filter_blocks(
     rocksdb_block_based_table_options_t* options, unsigned char v) {
   options->rep.cache_index_and_filter_blocks = v;
@@ -3779,32 +3739,6 @@ void rocksdb_comparator_destroy(rocksdb_comparator_t* cmp) {
   delete cmp;
 }
 
-rocksdb_filterpolicy_t* rocksdb_filterpolicy_create(
-    void* state,
-    void (*destructor)(void*),
-    char* (*create_filter)(
-        void*,
-        const char* const* key_array, const size_t* key_length_array,
-        int num_keys,
-        size_t* filter_length),
-    unsigned char (*key_may_match)(
-        void*,
-        const char* key, size_t length,
-        const char* filter, size_t filter_length),
-    void (*delete_filter)(
-        void*,
-        const char* filter, size_t filter_length),
-    const char* (*name)(void*)) {
-  rocksdb_filterpolicy_t* result = new rocksdb_filterpolicy_t;
-  result->state_ = state;
-  result->destructor_ = destructor;
-  result->create_ = create_filter;
-  result->key_match_ = key_may_match;
-  result->delete_filter_ = delete_filter;
-  result->name_ = name;
-  return result;
-}
-
 void rocksdb_filterpolicy_destroy(rocksdb_filterpolicy_t* filter) {
   delete filter;
 }
@@ -3818,12 +3752,8 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(
     const FilterPolicy* rep_;
     ~Wrapper() override { delete rep_; }
     const char* Name() const override { return rep_->Name(); }
-    void CreateFilter(const Slice* keys, int n,
-                      std::string* dst) const override {
-      return rep_->CreateFilter(keys, n, dst);
-    }
-    bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
-      return rep_->KeyMayMatch(key, filter);
+    const char* CompatibilityName() const override {
+      return rep_->CompatibilityName();
     }
     // No need to override GetFilterBitsBuilder if this one is overridden
     ROCKSDB_NAMESPACE::FilterBitsBuilder* GetBuilderWithContext(
@@ -3840,7 +3770,6 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(
   Wrapper* wrapper = new Wrapper;
   wrapper->rep_ = NewBloomFilterPolicy(bits_per_key, original_format);
   wrapper->state_ = nullptr;
-  wrapper->delete_filter_ = nullptr;
   wrapper->destructor_ = &Wrapper::DoNothing;
   return wrapper;
 }
@@ -3863,12 +3792,8 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon_format(
     const FilterPolicy* rep_;
     ~Wrapper() override { delete rep_; }
     const char* Name() const override { return rep_->Name(); }
-    void CreateFilter(const Slice* keys, int n,
-                      std::string* dst) const override {
-      return rep_->CreateFilter(keys, n, dst);
-    }
-    bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
-      return rep_->KeyMayMatch(key, filter);
+    const char* CompatibilityName() const override {
+      return rep_->CompatibilityName();
     }
     ROCKSDB_NAMESPACE::FilterBitsBuilder* GetBuilderWithContext(
         const ROCKSDB_NAMESPACE::FilterBuildingContext& context)
@@ -3885,7 +3810,6 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon_format(
   wrapper->rep_ =
       NewRibbonFilterPolicy(bloom_equivalent_bits_per_key, bloom_before_level);
   wrapper->state_ = nullptr;
-  wrapper->delete_filter_ = nullptr;
   wrapper->destructor_ = &Wrapper::DoNothing;
   return wrapper;
 }
@@ -4396,6 +4320,11 @@ rocksdb_sstfilewriter_t* rocksdb_sstfilewriter_create(
   rocksdb_sstfilewriter_t* writer = new rocksdb_sstfilewriter_t;
   writer->rep = new SstFileWriter(env->rep, io_options->rep);
   return writer;
+}
+
+void rocksdb_create_dir_if_missing(rocksdb_env_t* env, const char* path,
+                                   char** errptr) {
+  SaveError(errptr, env->rep->CreateDirIfMissing(std::string(path)));
 }
 
 rocksdb_sstfilewriter_t* rocksdb_sstfilewriter_create_with_comparator(

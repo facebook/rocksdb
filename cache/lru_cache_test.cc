@@ -432,8 +432,9 @@ class LRUSecondaryCacheTest : public LRUCacheTest {
 
   static Cache::CacheItemHelper helper_fail_;
 
-  Cache::CreateCallback test_item_creator =
-      [&](void* buf, size_t size, void** out_obj, size_t* charge) -> Status {
+  Cache::CreateCallback test_item_creator = [&](const void* buf, size_t size,
+                                                void** out_obj,
+                                                size_t* charge) -> Status {
     if (fail_create_) {
       return Status::NotSupported();
     }
@@ -511,10 +512,12 @@ TEST_F(LRUSecondaryCacheTest, BasicFailTest) {
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
-  TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_NOK(cache->Insert("k1", item1, nullptr, str1.length()));
-  ASSERT_OK(cache->Insert("k1", item1, &LRUSecondaryCacheTest::helper_,
+  auto item1 = std::make_unique<TestItem>(str1.data(), str1.length());
+  ASSERT_TRUE(cache->Insert("k1", item1.get(), nullptr, str1.length())
+                  .IsInvalidArgument());
+  ASSERT_OK(cache->Insert("k1", item1.get(), &LRUSecondaryCacheTest::helper_,
                           str1.length()));
+  item1.release();  // Appease clang-analyze "potential memory leak"
 
   Cache::Handle* handle;
   handle = cache->Lookup("k2", nullptr, test_item_creator, Cache::Priority::LOW,
