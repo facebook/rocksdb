@@ -60,8 +60,8 @@ class Env(object):
 
         self.log.log("==== shell session ===========================")
         self.log.log("%s> %s" % (path, cmd))
-        status = subprocess.call("cd %s; %s" % (path, cmd), shell=True,
-                                 stdout=self.log.f, stderr=self.log.f)
+        status = subprocess.run("cd %s; %s" % (path, cmd), shell=True,
+                                stdout=self.log.f, stderr=self.log.f)
         self.log.log("status = %s" % status)
         self.log.log("============================================== \n\n")
         return status
@@ -72,14 +72,12 @@ class Env(object):
 
         self.log.log("==== shell session ===========================")
         self.log.log("%s> %s" % (path, cmd))
-        p = subprocess.Popen(cmd)
-        stdout, stderr = p.communicate()
-        status = p.returncode
-        self.log.log("status = %s" % status)
-        self.log.log("stdout = %s" % stdout)
-        self.log.log("stderr = %s" % stderr)
+        p = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        self.log.log("status = %s" % p.returncode)
+        self.log.log("stdout = %s" % p.stdout)
+        self.log.log("stderr = %s" % p.stderr)
         self.log.log("============================================== \n\n")
-        return status, stdout
+        return p.returncode, p.stdout
 
 #
 # Pre-commit checker
