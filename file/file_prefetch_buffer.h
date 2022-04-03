@@ -94,6 +94,12 @@ class FilePrefetchBuffer {
       handles.emplace_back(io_handle_);
       fs_->Poll(handles, 1).PermitUncheckedError();
     }
+    // Release io_handle_.
+    if (io_handle_ != nullptr && del_fn_ != nullptr) {
+      del_fn_(io_handle_);
+      io_handle_ = nullptr;
+      del_fn_ = nullptr;
+    }
   }
 
   // Load data into the buffer from a file.

@@ -111,13 +111,6 @@ Status FilePrefetchBuffer::ReadAsync(const IOOptions& opts,
                                      Env::IOPriority rate_limiter_priority,
                                      uint64_t read_len, uint64_t chunk_len,
                                      uint64_t rounddown_start, uint32_t index) {
-  // Reset io_handle.
-  if (io_handle_ != nullptr && del_fn_ != nullptr) {
-    del_fn_(io_handle_);
-    io_handle_ = nullptr;
-    del_fn_ = nullptr;
-  }
-
   // callback for async read request.
   auto fp = std::bind(&FilePrefetchBuffer::PrefetchAsyncCallback, this,
                       std::placeholders::_1, std::placeholders::_2);
@@ -237,6 +230,12 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     std::vector<void*> handles;
     handles.emplace_back(io_handle_);
     fs_->Poll(handles, 1).PermitUncheckedError();
+  }
+  // Release io_handle_ after the Poll API as request has been completed.
+  if (io_handle_ != nullptr && del_fn_ != nullptr) {
+    del_fn_(io_handle_);
+    io_handle_ = nullptr;
+    del_fn_ = nullptr;
   }
 
   // TODO akanksha: Update TEST_SYNC_POINT after Async APIs are merged with
@@ -515,13 +514,6 @@ void FilePrefetchBuffer::PrefetchAsyncCallback(const FSReadRequest& req,
                                                void* /*cb_arg*/) {
   async_read_in_progress_ = false;
   uint32_t index = curr_ ^ 1;
-  // Release io_handle_.
-  if (io_handle_ != nullptr && del_fn_ != nullptr) {
-    del_fn_(io_handle_);
-    io_handle_ = nullptr;
-    del_fn_ = nullptr;
-  }
-
   if (req.status.ok()) {
     if (req.offset + req.result.size() <=
         bufs_[index].offset_ + bufs_[index].buffer_.CurrentSize()) {
