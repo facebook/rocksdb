@@ -11,6 +11,7 @@
 ### New Features
 * For db_bench when --seed=0 or --seed is not set then it uses the current time as the seed value. Previously it used the value 1000.
 * For db_bench when --benchmark lists multiple tests and each test uses a seed for a RNG then the seeds across tests will no longer be repeated.
+* Add new statistics "NUM_ASYNC_PREFETCH" and NUM_SYNC_PREFETCH related to RocksDB's prefetching.
 
 ## 7.1.0 (03/23/2022)
 ### New Features
