@@ -60,22 +60,12 @@ class Env(object):
 
         self.log.log("==== shell session ===========================")
         self.log.log("%s> %s" % (path, cmd))
-        status = subprocess.run("cd %s; %s" % (path, cmd), shell=True,
-                                stdout=self.log.f, stderr=self.log.f)
-        self.log.log("status = %s" % status)
-        self.log.log("============================================== \n\n")
-        return status
-
-    def GetOutput(self, cmd, path=os.getcwd()):
-        if path:
-            os.chdir(path)
-
-        self.log.log("==== shell session ===========================")
-        self.log.log("%s> %s" % (path, cmd))
-        p = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        p = subprocess.run("cd %s; %s" % (path, cmd), shell=True,
+                            capture_output=True, text=True)
         self.log.log("status = %s" % p.returncode)
         self.log.log("stdout = %s" % p.stdout)
-        self.log.log("stderr = %s" % p.stderr)
+        if p.stderr:
+            self.log.log("stderr = %s" % p.stderr)
         self.log.log("============================================== \n\n")
         return p.returncode, p.stdout
 
@@ -94,7 +84,7 @@ class PreCommitChecker(Env):
     #   Get commands for a given job from the determinator file
     #
     def get_commands(self, test):
-        status, out = self.GetOutput(
+        status, out = self.shell(
             "RATIO=1 build_tools/rocksdb-lego-determinator %s" % test, ".")
         return status, out
 
@@ -120,7 +110,7 @@ class PreCommitChecker(Env):
         # Run commands
         for cmd in cmds:
             # Run the command
-            status = self.shell(cmd, ".")
+            status, out = self.shell(cmd, ".")
             if status != 0:
                 self.log.error("Error running command %s for test %s"
                                % (cmd, test))
