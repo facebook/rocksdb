@@ -784,12 +784,15 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
       ASSERT_EQ(readahead_carry_over_count, 0);
     }
     if (ro.async_io) {
-      ASSERT_GT(options.statistics->getAndResetTickerCount(NUM_SYNC_PREFETCH), 0);
-      ASSERT_GT(options.statistics->getAndResetTickerCount(NUM_ASYNC_PREFETCH), 0);
+      ASSERT_GT(options.statistics->getAndResetTickerCount(NUM_SYNC_PREFETCH),
+                0);
+      ASSERT_GT(options.statistics->getAndResetTickerCount(NUM_ASYNC_PREFETCH),
+                0);
     } else {
       ASSERT_EQ(options.statistics->getAndResetTickerCount(NUM_SYNC_PREFETCH),
                 buff_prefetch_count);
-      ASSERT_EQ(options.statistics->getAndResetTickerCount(NUM_ASYNC_PREFETCH), 0);
+      ASSERT_EQ(options.statistics->getAndResetTickerCount(NUM_ASYNC_PREFETCH),
+                0);
     }
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -1029,7 +1032,8 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
     } else {
       ASSERT_EQ(options.statistics->getAndResetTickerCount(NUM_SYNC_PREFETCH),
                 buff_prefetch_count);
-      ASSERT_EQ(options.statistics->getAndResetTickerCount(NUM_ASYNC_PREFETCH), 0);
+      ASSERT_EQ(options.statistics->getAndResetTickerCount(NUM_ASYNC_PREFETCH),
+                0);
     }
 
     buff_prefetch_count = 0;
