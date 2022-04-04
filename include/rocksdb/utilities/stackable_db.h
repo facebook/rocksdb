@@ -390,8 +390,8 @@ class StackableDB : public DB {
 
   using DB::StartBlockCacheTrace;
   Status StartBlockCacheTrace(
-      const TraceOptions& options,
-      std::unique_ptr<TraceWriter>&& trace_writer) override {
+      const BlockCacheTraceOptions& options,
+      std::unique_ptr<BlockCacheTraceWriter>&& trace_writer) override {
     return db_->StartBlockCacheTrace(options, std::move(trace_writer));
   }
 

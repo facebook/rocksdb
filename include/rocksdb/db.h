@@ -10,11 +10,14 @@
 
 #include <stdint.h>
 #include <stdio.h>
+
 #include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include "rocksdb/block_cache_trace_writer.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
@@ -1657,8 +1660,8 @@ class DB {
 
   // Trace block cache accesses. Use EndBlockCacheTrace() to stop tracing.
   virtual Status StartBlockCacheTrace(
-      const TraceOptions& /*options*/,
-      std::unique_ptr<TraceWriter>&& /*trace_writer*/) {
+      const BlockCacheTraceOptions& /*options*/,
+      std::unique_ptr<BlockCacheTraceWriter>&& /*trace_writer*/) {
     return Status::NotSupported("StartBlockCacheTrace() is not implemented.");
   }
 
