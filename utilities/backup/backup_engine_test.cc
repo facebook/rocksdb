@@ -95,37 +95,6 @@ class DummyDB : public StackableDB {
 
   ColumnFamilyHandle* DefaultColumnFamily() const override { return nullptr; }
 
-  class DummyLogFile : public LogFile {
-   public:
-    /* implicit */
-     DummyLogFile(const std::string& path, bool alive = true)
-         : path_(path), alive_(alive) {}
-
-     std::string PathName() const override { return path_; }
-
-     uint64_t LogNumber() const override {
-       // what business do you have calling this method?
-       ADD_FAILURE();
-       return 0;
-     }
-
-     WalFileType Type() const override {
-       return alive_ ? kAliveLogFile : kArchivedLogFile;
-     }
-
-     SequenceNumber StartSequence() const override {
-       // this seqnum guarantees the dummy file will be included in the backup
-       // as long as it is alive.
-       return kMaxSequenceNumber;
-     }
-
-     uint64_t SizeFileBytes() const override { return 0; }
-
-    private:
-     std::string path_;
-     bool alive_;
-  }; // DummyLogFile
-
   Status GetLiveFilesStorageInfo(
       const LiveFilesStorageInfoOptions& opts,
       std::vector<LiveFileStorageInfo>* files) override {
@@ -232,8 +201,8 @@ class TestFs : public FileSystemWrapper {
                            IODebugContext* dbg) override {
     MutexLock l(&mutex_);
     written_files_.push_back(f);
-    if (limit_written_files_ <= 0) {
-      return IOStatus::NotSupported("Sorry, can't do this");
+    if (limit_written_files_ == 0) {
+      return IOStatus::NotSupported("Limit on written files reached");
     }
     limit_written_files_--;
     IOStatus s = FileSystemWrapper::NewWritableFile(f, file_opts, r, dbg);
@@ -406,6 +375,7 @@ class TestFs : public FileSystemWrapper {
   int num_seq_readers() { return num_seq_readers_; }
   int num_direct_seq_readers() { return num_direct_seq_readers_; }
   int num_writers() { return num_writers_; }
+  // FIXME(?): unused
   int num_direct_writers() { return num_direct_writers_; }
 
  private:
