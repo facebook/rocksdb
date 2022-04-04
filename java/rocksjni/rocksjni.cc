@@ -2288,12 +2288,12 @@ bool key_may_exist_direct_helper(JNIEnv* env, jlong jdb_handle,
                                  bool* has_exception, std::string* value,
                                  bool* value_found) {
   const auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
-  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
-  if (jcf_handle == 0) {
-    cf_handle = dbAPI->DefaultColumnFamily();
-  } else {
-    cf_handle =
-        reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  const auto cfhPtr =
+      APIColumnFamilyHandle::lockCFHOrDefault(env, jcf_handle, dbAPI);
+  if (!cfhPtr) {
+    // CFH exception
+    *has_exception = true;
+    return false;
   }
   ROCKSDB_NAMESPACE::ReadOptions read_opts =
       jread_opts_handle == 0
@@ -2320,8 +2320,8 @@ bool key_may_exist_direct_helper(JNIEnv* env, jlong jdb_handle,
 
   ROCKSDB_NAMESPACE::Slice key_slice(key, jkey_len);
 
-  const bool exists =
-      dbAPI->KeyMayExist(read_opts, cf_handle, key_slice, value, value_found);
+  const bool exists = dbAPI->KeyMayExist(read_opts, cfhPtr.get(), key_slice,
+                                         value, value_found);
 
   return exists;
 }
