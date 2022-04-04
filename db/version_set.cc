@@ -5818,7 +5818,8 @@ InternalIterator* VersionSet::MakeInputIterator(
     const ReadOptions& read_options, const Compaction* c,
     RangeDelAggregator* range_del_agg,
     const FileOptions& file_options_compactions,
-    std::optional<const Slice> start, std::optional<const Slice> end) {
+    const std::optional<const Slice> start,
+    const std::optional<const Slice> end) {
   auto cfd = c->column_family_data();
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.
