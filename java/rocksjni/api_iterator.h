@@ -26,5 +26,9 @@ class APIIterator : APIBase {
 
   ROCKSDB_NAMESPACE::Iterator* operator->() const { return iterator.get(); }
 
+  std::shared_ptr<ROCKSDB_NAMESPACE::Iterator>& operator*() { return iterator; }
+
+  ROCKSDB_NAMESPACE::Iterator* get() const { return iterator.get(); }
+
   void check(std::string message);
 };

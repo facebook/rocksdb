@@ -136,7 +136,7 @@ void Java_org_rocksdb_RocksIterator_seek0(JNIEnv* env, jobject /*jobj*/,
                                           jint jtarget_len) {
   auto* it = reinterpret_cast<APIIterator*>(handle);
   auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
-    it->Seek(target_slice);
+    (*it)->Seek(target_slice);
   };
   ROCKSDB_NAMESPACE::JniUtil::k_op_region(seek, env, jtarget, 0, jtarget_len);
 }
@@ -205,7 +205,7 @@ void Java_org_rocksdb_RocksIterator_seekForPrev0(JNIEnv* env, jobject /*jobj*/,
                                                  jint jtarget_len) {
   auto* it = reinterpret_cast<APIIterator*>(handle);
   auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
-    it->SeekForPrev(target_slice);
+    (*it)->SeekForPrev(target_slice);
   };
   ROCKSDB_NAMESPACE::JniUtil::k_op_region(seek, env, jtarget, 0, jtarget_len);
 }
