@@ -277,21 +277,17 @@ class CorruptionTest : public testing::Test {
     return Slice(*storage);
   }
 
-  uint64_t GetMaxWalNum() {
-    uint64_t max_wal_num = 0;
-    std::vector<std::string> files;
-    EXPECT_OK(env_->GetChildren(dbname_, &files));
-
-    for (const auto& f : files) {
-      uint64_t file_num = 0;
-      FileType type{kWalFile};
-      if (ParseFileName(f, &file_num, &type) && type == kWalFile) {
-        if (file_num > max_wal_num) {
-          max_wal_num = file_num;
-        }
+  void GetSortedWalFiles(std::vector<uint64_t>& file_nums) {
+    std::vector<std::string> tmp_files;
+    ASSERT_OK(env_->GetChildren(dbname_, &tmp_files));
+    FileType type = kWalFile;
+    for (const auto& file : tmp_files) {
+      uint64_t number = 0;
+      if (ParseFileName(file, &number, &type) && type == kWalFile) {
+        file_nums.push_back(number);
       }
     }
-    return max_wal_num;
+    std::sort(file_nums.begin(), file_nums.end());
   }
 
   void CorruptFileWithTruncation(FileType file, uint64_t number,
@@ -1006,6 +1002,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
   options.env = env_;
   ASSERT_OK(DestroyDB(dbname_, options));
   options.create_if_missing = true;
+  options.max_write_buffer_number = 3;
 
   Reopen(&options);
   Status s;
@@ -1026,17 +1023,19 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
   // while other don't.
   {
     ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles, &db_));
+    auto* dbimpl = static_cast_with_check<DBImpl>(db_);
+    assert(dbimpl);
+
     // Write one key to test_cf.
     ASSERT_OK(db_->Put(WriteOptions(), handles[1], "old_key", "dontcare"));
     // Write to default_cf and flush this cf several times to advance wal
     // number.
     for (int i = 0; i < 2; ++i) {
       ASSERT_OK(db_->Put(WriteOptions(), "key" + std::to_string(i), "value"));
-      ASSERT_OK(db_->Flush(FlushOptions()));
+      ASSERT_OK(dbimpl->TEST_SwitchMemtable());
     }
-    auto* dbimpl = static_cast_with_check<DBImpl>(db_);
-    assert(dbimpl);
     ASSERT_OK(db_->Put(WriteOptions(), handles[1], "dontcare", "dontcare"));
+
     for (auto* h : handles) {
       delete h;
     }
@@ -1044,14 +1043,15 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
     CloseDb();
   }
 
-  uint64_t max_wal_num = 0;
-  // 2. Corrupt max_wal_num to emulate power reset which caused the DB to lose
-  // the last un-synced WAL.
+  // 2. Corrupt second last wal file to emulate power reset which caused the DB
+  // to lose the un-synced WAL.
   {
-    // Find max wal_number.
-    max_wal_num = GetMaxWalNum();
-    CorruptFileWithTruncation(FileType::kWalFile, max_wal_num,
-                              /* bytes_to_truncate = */ 8);
+    std::vector<uint64_t> file_nums;
+    GetSortedWalFiles(file_nums);
+    size_t size = file_nums.size();
+    uint64_t log_num = file_nums[size - 2];
+    CorruptFileWithTruncation(FileType::kWalFile, log_num,
+                              /*bytes_to_truncate=*/8);
   }
 
   // 3. After first crash reopen the DB which contains corrupted WAL. Default
@@ -1076,12 +1076,14 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
     CloseDb();
   }
 
-  // 4. Corrupt max_wal_num again to emulate second power reset which caused the
-  // DB to again lose the last un-synced WAL.
+  // 4. Corrupt max_wal_num to emulate second power reset which caused the
+  // DB to again lose the un-synced WAL.
   {
-    // Find max wal_number.
-    max_wal_num = GetMaxWalNum();
-    CorruptFileWithTruncation(FileType::kWalFile, max_wal_num);
+    std::vector<uint64_t> file_nums;
+    GetSortedWalFiles(file_nums);
+    size_t size = file_nums.size();
+    uint64_t log_num = file_nums[size - 1];
+    CorruptFileWithTruncation(FileType::kWalFile, log_num);
   }
 
   // 5. After second crash reopen the db with second corruption. Default family
@@ -1107,6 +1109,8 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
     for (auto* h : handles) {
       delete h;
     }
+    handles.clear();
+    CloseDb();
   }
 }
 
@@ -1136,6 +1140,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
   options.env = env_;
   ASSERT_OK(DestroyDB(dbname_, options));
   options.create_if_missing = true;
+  options.max_write_buffer_number = 3;
   Reopen(&options);
 
   // Create cf test_cf_name.
@@ -1170,10 +1175,13 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
     delete txn;
     txn = nullptr;
 
+    auto* dbimpl = static_cast_with_check<DBImpl>(txn_db->GetRootDB());
+    assert(dbimpl);
+
     // Put and flush cf0
     for (int i = 0; i < 2; ++i) {
       ASSERT_OK(txn_db->Put(WriteOptions(), "dontcare", "value"));
-      ASSERT_OK(txn_db->Flush(FlushOptions()));
+      ASSERT_OK(dbimpl->TEST_SwitchMemtable());
     }
 
     // Put cf1
@@ -1190,13 +1198,15 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
     delete txn_db;
   }
 
-  uint64_t max_wal_num = 0;
-  // 2. Corrupt max_wal_num to emulate power reset which caused the DB to lose
-  // the last un-synced WAL.
+  // 2. Corrupt second last wal to emulate power reset which caused the DB to
+  // lose the un-synced WAL.
   {
-    max_wal_num = GetMaxWalNum();
-    CorruptFileWithTruncation(FileType::kWalFile, max_wal_num,
-                              /* bytes_to_truncate = */ 8);
+    std::vector<uint64_t> file_nums;
+    GetSortedWalFiles(file_nums);
+    size_t size = file_nums.size();
+    uint64_t log_num = file_nums[size - 2];
+    CorruptFileWithTruncation(FileType::kWalFile, log_num,
+                              /*bytes_to_truncate=*/8);
   }
 
   // 3. After first crash reopen the DB which contains corrupted WAL. Default
@@ -1216,12 +1226,14 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
     delete txn_db;
   }
 
-  // 4. Corrupt max_wal_num again to emulate second power reset which caused the
-  // DB to again lose the last un-synced WAL.
+  // 4. Corrupt max_wal_num to emulate second power reset which caused the
+  // DB to again lose the un-synced WAL.
   {
-    // Find max wal_number.
-    max_wal_num = GetMaxWalNum();
-    CorruptFileWithTruncation(FileType::kWalFile, max_wal_num);
+    std::vector<uint64_t> file_nums;
+    GetSortedWalFiles(file_nums);
+    size_t size = file_nums.size();
+    uint64_t log_num = file_nums[size - 1];
+    CorruptFileWithTruncation(FileType::kWalFile, log_num);
   }
 
   // 5. After second crash reopen the db with second corruption. Default family
