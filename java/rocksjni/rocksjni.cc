@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "api_columnfamilyhandle.h"
+#include "api_iterator.h"
 #include "api_rocksdb.h"
 #include "include/org_rocksdb_RocksDB.h"
 #include "rocksdb/cache.h"
@@ -1322,16 +1323,25 @@ void Java_org_rocksdb_RocksDB_merge__JJ_3BII_3BIIJ(
   }
 }
 
-jlong rocksdb_iterator_helper(
-    ROCKSDB_NAMESPACE::DB* db, ROCKSDB_NAMESPACE::ReadOptions read_options,
-    ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle) {
+jlong rocksdb_iterator_helper(APIRocksDB* dbAPI,
+                              ROCKSDB_NAMESPACE::ReadOptions read_options,
+                              APIColumnFamilyHandle* cfhAPI) {
   ROCKSDB_NAMESPACE::Iterator* iterator = nullptr;
-  if (cf_handle != nullptr) {
-    iterator = db->NewIterator(read_options, cf_handle);
+  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cf_handle;
+  if (cfhAPI != nullptr) {
+    cf_handle = cfhAPI->cfh.lock();
+  }
+  if (cf_handle.get() != nullptr) {
+    iterator = dbAPI->db->NewIterator(read_options, cf_handle.get());
   } else {
-    iterator = db->NewIterator(read_options);
+    iterator = dbAPI->db->NewIterator(read_options);
   }
   return GET_CPLUSPLUS_POINTER(iterator);
+
+  std::shared_ptr<ROCKSDB_NAMESPACE::Iterator> iter(iterator);
+  std::unique_ptr<APIIterator> iterAPI(
+      new APIIterator(dbAPI->db, iter, cf_handle));
+  return reinterpret_cast<jlong>(iterAPI.release());
 }
 
 /*
@@ -2418,8 +2428,9 @@ jobjectArray Java_org_rocksdb_RocksDB_keyMayExistFoundValue(
  */
 jlong Java_org_rocksdb_RocksDB_iterator__J(
       JNIEnv*, jobject, jlong db_handle) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(db_handle);
-  return rocksdb_iterator_helper(db, ROCKSDB_NAMESPACE::ReadOptions(), nullptr);
+  auto dbAPI = reinterpret_cast<APIRocksDB*>(db_handle);
+  return rocksdb_iterator_helper(dbAPI, ROCKSDB_NAMESPACE::ReadOptions(),
+                                 nullptr);
 }
 
 /*
@@ -2429,10 +2440,10 @@ jlong Java_org_rocksdb_RocksDB_iterator__J(
  */
 jlong Java_org_rocksdb_RocksDB_iterator__JJ(
     JNIEnv*, jobject, jlong db_handle, jlong jread_options_handle) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(db_handle);
+  auto dbAPI = reinterpret_cast<APIRocksDB*>(db_handle);
   auto& read_options =
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
-  return rocksdb_iterator_helper(db, read_options, nullptr);
+  return rocksdb_iterator_helper(dbAPI, read_options, nullptr);
 }
 
 /*
@@ -2442,11 +2453,10 @@ jlong Java_org_rocksdb_RocksDB_iterator__JJ(
  */
 jlong Java_org_rocksdb_RocksDB_iteratorCF__JJ(
     JNIEnv*, jobject, jlong db_handle, jlong jcf_handle) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(db_handle);
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  return rocksdb_iterator_helper(db, ROCKSDB_NAMESPACE::ReadOptions(),
-                                 cf_handle);
+  auto dbAPI = reinterpret_cast<APIRocksDB*>(db_handle);
+  auto cfhAPI = reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle);
+  return rocksdb_iterator_helper(dbAPI, ROCKSDB_NAMESPACE::ReadOptions(),
+                                 cfhAPI);
 }
 
 /*
@@ -2457,12 +2467,11 @@ jlong Java_org_rocksdb_RocksDB_iteratorCF__JJ(
 jlong Java_org_rocksdb_RocksDB_iteratorCF__JJJ(
     JNIEnv*, jobject,
     jlong db_handle, jlong jcf_handle, jlong jread_options_handle) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(db_handle);
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  auto dbAPI = reinterpret_cast<APIRocksDB*>(db_handle);
+  auto cfhAPI = reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle);
   auto& read_options =
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
-  return rocksdb_iterator_helper(db, read_options, cf_handle);
+  return rocksdb_iterator_helper(dbAPI, read_options, cfhAPI);
 }
 
 /*

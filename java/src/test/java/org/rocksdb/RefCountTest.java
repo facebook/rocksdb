@@ -44,7 +44,11 @@ public class RefCountTest {
       final ColumnFamilyHandle cfHandle = db.createColumnFamily(
           new ColumnFamilyDescriptor("new_cf".getBytes(StandardCharsets.UTF_8)));
 
-      final RocksIterator iterator = db.newIterator(cfHandle);
+      final RocksIterator iterator = db.newIterator();
+      final RocksIterator iteratorCF = db.newIterator(cfHandle);
+
+      //TODO (AP) - add nativeClose() to RocksIterator, (std::unique trick)
+      //TODO (AP) - add isLastReference() method to RocksNative , checking everything is 1 (or 2, see &)
     }
   }
 
