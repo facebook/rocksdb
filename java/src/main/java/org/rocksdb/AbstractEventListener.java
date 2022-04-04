@@ -125,7 +125,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param flushJobInfo the flush job info
    */
   private void onFlushCompletedProxy(final long dbHandle, final FlushJobInfo flushJobInfo) {
-    try (final RocksDB db = new RocksDB(dbHandle)) {
+    try (final RocksDB db = RocksDB.openRawDBHandle(dbHandle)) {
       onFlushCompleted(db, flushJobInfo);
     }
   }
@@ -143,7 +143,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    * @param flushJobInfo the flush job info
    */
   private void onFlushBeginProxy(final long dbHandle, final FlushJobInfo flushJobInfo) {
-    try (final RocksDB db = new RocksDB(dbHandle)) {
+    try (final RocksDB db = RocksDB.openRawDBHandle(dbHandle)) {
       onFlushBegin(db, flushJobInfo);
     }
   }
@@ -167,7 +167,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    */
   private void onCompactionBeginProxy(
       final long dbHandle, final CompactionJobInfo compactionJobInfo) {
-    try (final RocksDB db = new RocksDB(dbHandle)) {
+    try (final RocksDB db = RocksDB.openRawDBHandle(dbHandle)) {
       onCompactionBegin(db, compactionJobInfo);
     }
   }
@@ -186,7 +186,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    */
   private void onCompactionCompletedProxy(
       final long dbHandle, final CompactionJobInfo compactionJobInfo) {
-    try (final RocksDB db = new RocksDB(dbHandle)) {
+    try (final RocksDB db = RocksDB.openRawDBHandle(dbHandle)) {
       onCompactionCompleted(db, compactionJobInfo);
     }
   }
@@ -227,7 +227,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
    */
   private void onExternalFileIngestedProxy(
       final long dbHandle, final ExternalFileIngestionInfo externalFileIngestionInfo) {
-    try (final RocksDB db = new RocksDB(dbHandle)) {
+    try (final RocksDB db = RocksDB.openRawDBHandle(dbHandle)) {
       onExternalFileIngested(db, externalFileIngestionInfo);
     }
   }

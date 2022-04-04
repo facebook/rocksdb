@@ -52,14 +52,46 @@ jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
   env->ReleaseStringUTFChars(jdb_path, db_path);
 
   if (s.ok()) {
-    return GET_CPLUSPLUS_POINTER(db);
-    std::shared_ptr<ROCKSDB_NAMESPACE::DB> dbShared(db);
+    std::shared_ptr<ROCKSDB_NAMESPACE::DB> dbShared =
+        APIBase::createSharedPtr(db, false /*isDefault*/);
     std::unique_ptr<APIRocksDB> dbAPI(new APIRocksDB(dbShared));
-    return reinterpret_cast<jlong>(dbAPI.release());
+    return GET_CPLUSPLUS_POINTER(dbAPI.release());
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return 0;
   }
+}
+
+/**
+ * @brief wrap an existing raw DB* in an API object for use by the Java API
+ * Used exclusively on callbacks (C++ up to Java), when we don't have an
+ * APIRocksDB available.
+ *
+ * We use a SharedPtrHolder with isDefault set to true, so that closing the
+ * shared_ptr DOES NOT DELETE the underlying object. This is all sorts of
+ * mind-bending, the issue here is that the DB* aka jdb_handle has been received
+ * from the C++ layer via a callback, so we don't have the already existing
+ * APIRocksDB object to hand which the caller normally has. So we're forced back
+ * to having a 2nd unrelated APIRocksDB object to use in the callback. This is
+ * NOT NICE, and we're relying on this APIRocksDB having a lifecycle nested
+ * within the lifecycle of the normally created APIRocksDB (almost certainly
+ * synchronously within the calllback handler). Therefore we want close()-ing it
+ * to be a no-op.
+ *
+ * @param env
+ * @param jdb_handle
+ * @return jlong
+ */
+jlong Java_org_rocksdb_RocksDB_fromRawDBHandle(JNIEnv*, jclass,
+                                               jlong jdb_handle) {
+  if (jdb_handle == 0L) {
+    return 0L;
+  }
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  std::shared_ptr<ROCKSDB_NAMESPACE::DB> dbShared =
+      APIBase::createSharedPtr(db, true /*isDefault*/);
+  std::unique_ptr<APIRocksDB> dbAPI(new APIRocksDB(dbShared));
+  return reinterpret_cast<jlong>(dbAPI.release());
 }
 
 /*
@@ -67,8 +99,9 @@ jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
  * Method:    open
  * Signature: (JLjava/lang/String;)J
  */
-jlong Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2(
-    JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path) {
+jlong Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2(JNIEnv* env, jclass,
+                                                          jlong jopt_handle,
+                                                          jstring jdb_path) {
   return rocksdb_open_helper(env, jopt_handle, jdb_path,
                              (ROCKSDB_NAMESPACE::Status(*)(
                                  const ROCKSDB_NAMESPACE::Options&,
@@ -164,7 +197,7 @@ jlongArray rocksdb_open_helper(
       std::unique_ptr<jlong[]>(new jlong[resultsLen]);
   for (int i = 1; i <= len_cols; i++) {
     std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfShared =
-        APIColumnFamilyHandle::createSharedPtr(cf_handles[i - 1]);
+        APIBase::createSharedPtr(cf_handles[i - 1], false /*isDefault*/);
     std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
         new APIColumnFamilyHandle(dbShared, cfShared));
     dbAPI->columnFamilyHandles.push_back(cfShared);
@@ -393,7 +426,7 @@ jlong Java_org_rocksdb_RocksDB_createColumnFamily(
     return 0;
   }
   std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh =
-      APIColumnFamilyHandle::createSharedPtr(cf_handle);
+      APIBase::createSharedPtr(cf_handle, false /*isDefault*/);
   std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
       new APIColumnFamilyHandle(dbAPI.db, cfh));
   dbAPI.columnFamilyHandles.push_back(cfh);
@@ -435,7 +468,7 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__JJ_3_3B(
   std::vector<APIColumnFamilyHandle*> cfhAPIs;
   for (auto* cf_handle : cf_handles) {
     std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh =
-        APIColumnFamilyHandle::createSharedPtr(cf_handle);
+        APIBase::createSharedPtr(cf_handle, false /*isDefault*/);
     std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
         new APIColumnFamilyHandle(dbAPI->db, cfh));
     dbAPI->columnFamilyHandles.push_back(cfh);
@@ -520,7 +553,7 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__J_3J_3_3B(
   std::vector<APIColumnFamilyHandle*> cfhAPIs;
   for (auto* cf_handle : cf_handles) {
     std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh =
-        APIColumnFamilyHandle::createSharedPtr(cf_handle);
+        APIBase::createSharedPtr(cf_handle, false /*isDefault*/);
     std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
         new APIColumnFamilyHandle(dbAPI->db, cfh));
     dbAPI->columnFamilyHandles.push_back(cfh);

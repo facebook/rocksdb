@@ -33,8 +33,8 @@ class APIRocksDB : APIBase {
 
   APIRocksDB(std::shared_ptr<ROCKSDB_NAMESPACE::DB> db)
       : db(db),
-        defaultColumnFamilyHandle(
-            createSharedPtrToDefault(db->DefaultColumnFamily())){};
+        defaultColumnFamilyHandle(APIBase::createSharedPtr(
+            db->DefaultColumnFamily(), true /*isDefault*/)){};
 
   ROCKSDB_NAMESPACE::DB* operator->() const { return db.get(); }
 
@@ -45,19 +45,4 @@ class APIRocksDB : APIBase {
   std::unique_ptr<APIIterator> newIterator(
       ROCKSDB_NAMESPACE::Iterator* iterator,
       std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh);
-
-  /**
-   * @brief Create a CFH wrapped with a SharedPtrContent which will NOT
-   * delete the CFH at delete() time, because it knows handle is the default
-   * CF, owned by the DB.
-   *
-   * @param handle
-   * @return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
-   */
-  static std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
-  createSharedPtrToDefault(ROCKSDB_NAMESPACE::ColumnFamilyHandle* handle) {
-    std::shared_ptr<SharedPtrHolder> holder(new SharedPtrHolder(handle, true));
-    return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>(holder,
-                                                                  handle);
-  };
 };

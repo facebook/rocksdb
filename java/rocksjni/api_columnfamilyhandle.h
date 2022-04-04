@@ -92,18 +92,4 @@ class APIColumnFamilyHandle : public APIWeakDB {
       return defaultHandle;
     }
   }
-  /**
-   * @brief create a CFH wrapped with a SharedPtrHolder which will delete the
-   * CFH at delete() time (whole idea is not to do this for the default CFH,
-   * which shouldn't be deleted by us)
-   *
-   * @param handle
-   * @return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
-   */
-  static std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> createSharedPtr(
-      ROCKSDB_NAMESPACE::ColumnFamilyHandle* handle) {
-    std::shared_ptr<SharedPtrHolder> holder(new SharedPtrHolder(handle, false));
-    return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>(holder,
-                                                                  handle);
-  };
 };

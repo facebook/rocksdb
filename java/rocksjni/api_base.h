@@ -20,8 +20,9 @@ class APIBase {
    */
 
  public:
+  template <class THandle>
   class SharedPtrHolder {
-    const ROCKSDB_NAMESPACE::ColumnFamilyHandle* handle;
+    const THandle* handle;
     const bool isDefault;
 
    public:
@@ -31,11 +32,27 @@ class APIBase {
       }
     }
 
-    SharedPtrHolder(ROCKSDB_NAMESPACE::ColumnFamilyHandle* handle,
-                    bool isDefault)
+    SharedPtrHolder(THandle* handle, bool isDefault)
         : handle(handle), isDefault(isDefault){};
   };
 
  public:
   void check(std::string message);
+
+  /**
+   * @brief create a THandle wrapped with a SharedPtrHolder which will delete
+   * the THandle at delete() time only if the handle is NOT a special default.
+   * This was devised in order not to delete the default CFH,
+   * which shouldn't be deleted by us, as it is owned by the C++ layer.
+   *
+   * @param handle
+   * @return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
+   */
+  template <class THandle>
+  static std::shared_ptr<THandle> createSharedPtr(THandle* handle,
+                                                  bool isDefault) {
+    std::shared_ptr<SharedPtrHolder<THandle>> holder(
+        new SharedPtrHolder<THandle>(handle, isDefault));
+    return std::shared_ptr<THandle>(holder, handle);
+  };
 };
