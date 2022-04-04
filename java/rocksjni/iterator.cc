@@ -14,20 +14,36 @@
 
 #include <algorithm>
 
+#include "api_iterator.h"
 #include "include/org_rocksdb_RocksIterator.h"
 #include "rocksjni/portal.h"
 
 /*
  * Class:     org_rocksdb_RocksIterator
- * Method:    disposeInternal
+ * Method:    nativeClose
  * Signature: (J)V
  */
-void Java_org_rocksdb_RocksIterator_disposeInternal(JNIEnv* /*env*/,
-                                                    jobject /*jobj*/,
-                                                    jlong handle) {
-  auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
-  assert(it != nullptr);
-  delete it;
+void Java_org_rocksdb_RocksIterator_nativeClose(JNIEnv* /*env*/,
+                                                jobject /*jobj*/,
+                                                jlong handle) {
+  std::unique_ptr<APIIterator> iteratorAPI(
+      reinterpret_cast<APIIterator*>(handle));
+  iteratorAPI->check();
+}
+
+/*
+ * Class:     org_rocksdb_RocksIterator
+ * Method:    isLastReference
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_RocksIterator_isLastReference(JNIEnv*, jobject,
+                                                        jlong jhandle) {
+  std::unique_ptr<APIIterator> iteratorAPI(
+      reinterpret_cast<APIIterator*>(jhandle));
+  iteratorAPI->check();
+  const bool result = (iteratorAPI->iterator.use_count() == 1);
+  iteratorAPI.release();
+  return result;
 }
 
 /*

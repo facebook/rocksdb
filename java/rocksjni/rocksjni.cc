@@ -303,6 +303,20 @@ void Java_org_rocksdb_RocksDB_nativeClose(JNIEnv*, jobject, jlong jhandle) {
 
 /*
  * Class:     org_rocksdb_RocksDB
+ * Method:    isLastReference
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_RocksDB_isLastReference(JNIEnv*, jobject,
+                                                  jlong jhandle) {
+  std::unique_ptr<APIRocksDB> dbAPI(reinterpret_cast<APIRocksDB*>(jhandle));
+  dbAPI->check();
+  const bool result = (dbAPI->db.use_count() == 1);
+  dbAPI.release();
+  return result;
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
  * Method:    closeDatabase
  * Signature: (J)V
  */

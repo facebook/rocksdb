@@ -13,7 +13,7 @@
 
 void APIRocksDB::check() {
   std::cout << " APIRocksDB::check() " << std::endl;
-  std::cout << " db.use_count() " << db.use_count() << std::endl;
+  std::cout << " db.use_count() " << db.use_count() << "; ";
   for (auto& cfh : columnFamilyHandles) {
     std::cout << " cfh.use_count() " << cfh.use_count() << "; ";
   }

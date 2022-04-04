@@ -35,8 +35,7 @@ public class SstFileReaderIterator extends AbstractRocksIterator<SstFileReader> 
    * @return key for the current entry.
    */
   public byte[] key() {
-    assert (isOwningHandle());
-    return key0(nativeHandle_);
+    return key0(getNative());
   }
 
   /**
@@ -55,13 +54,12 @@ public class SstFileReaderIterator extends AbstractRocksIterator<SstFileReader> 
    *     be returned.
    */
   public int key(final ByteBuffer key) {
-    assert (isOwningHandle());
     final int result;
     if (key.isDirect()) {
-      result = keyDirect0(nativeHandle_, key, key.position(), key.remaining());
+      result = keyDirect0(getNative(), key, key.position(), key.remaining());
     } else {
       result = keyByteArray0(
-          nativeHandle_, key.array(), key.arrayOffset() + key.position(), key.remaining());
+          getNative(), key.array(), key.arrayOffset() + key.position(), key.remaining());
     }
     key.limit(Math.min(key.position() + result, key.limit()));
     return result;
@@ -76,8 +74,7 @@ public class SstFileReaderIterator extends AbstractRocksIterator<SstFileReader> 
    * @return value for the current entry.
    */
   public byte[] value() {
-    assert (isOwningHandle());
-    return value0(nativeHandle_);
+    return value0(getNative());
   }
 
   /**
@@ -96,19 +93,17 @@ public class SstFileReaderIterator extends AbstractRocksIterator<SstFileReader> 
    *     be returned.
    */
   public int value(final ByteBuffer value) {
-    assert (isOwningHandle());
     final int result;
     if (value.isDirect()) {
-      result = valueDirect0(nativeHandle_, value, value.position(), value.remaining());
+      result = valueDirect0(getNative(), value, value.position(), value.remaining());
     } else {
       result = valueByteArray0(
-          nativeHandle_, value.array(), value.arrayOffset() + value.position(), value.remaining());
+          getNative(), value.array(), value.arrayOffset() + value.position(), value.remaining());
     }
     value.limit(Math.min(value.position() + result, value.limit()));
     return result;
   }
 
-  @Override protected final native void disposeInternal(final long handle);
   @Override final native boolean isValid0(long handle);
   @Override final native void seekToFirst0(long handle);
   @Override final native void seekToLast0(long handle);

@@ -973,7 +973,7 @@ public class WriteBatchWithIndexTest {
            final RocksIterator baseIter = db.newIterator();
            final RocksIterator wbwiIter = wbwi.newIteratorWithBase(baseIter)) {
         assertThat(wbwiIter).isNotNull();
-        assertThat(wbwiIter.nativeHandle_).isGreaterThan(0);
+        assertThat(wbwiIter.getNative()).isGreaterThan(0);
         wbwiIter.status();
       }
 
@@ -982,7 +982,7 @@ public class WriteBatchWithIndexTest {
            final ReadOptions readOptions = new ReadOptions();
            final RocksIterator wbwiIter = wbwi.newIteratorWithBase(baseIter, readOptions)) {
         assertThat(wbwiIter).isNotNull();
-        assertThat(wbwiIter.nativeHandle_).isGreaterThan(0);
+        assertThat(wbwiIter.getNative()).isGreaterThan(0);
         wbwiIter.status();
       }
     }
@@ -1000,7 +1000,7 @@ public class WriteBatchWithIndexTest {
            final RocksIterator wbwiIter =
                wbwi.newIteratorWithBase(columnFamilyHandleList.get(1), baseIter)) {
         assertThat(wbwiIter).isNotNull();
-        assertThat(wbwiIter.nativeHandle_).isGreaterThan(0);
+        assertThat(wbwiIter.getNative()).isGreaterThan(0);
         wbwiIter.status();
       }
 
@@ -1010,7 +1010,7 @@ public class WriteBatchWithIndexTest {
            final RocksIterator wbwiIter =
                wbwi.newIteratorWithBase(columnFamilyHandleList.get(1), baseIter, readOptions)) {
         assertThat(wbwiIter).isNotNull();
-        assertThat(wbwiIter.nativeHandle_).isGreaterThan(0);
+        assertThat(wbwiIter.getNative()).isGreaterThan(0);
         wbwiIter.status();
       }
     }
@@ -1024,7 +1024,7 @@ public class WriteBatchWithIndexTest {
            final RocksIterator baseIter = db.newIterator();
            final RocksIterator wbwiIter = wbwi.newIteratorWithBase(baseIter)) {
         assertThat(wbwiIter).isNotNull();
-        assertThat(wbwiIter.nativeHandle_).isGreaterThan(0);
+        assertThat(wbwiIter.getNative()).isGreaterThan(0);
         wbwiIter.status();
       }
 
@@ -1033,7 +1033,7 @@ public class WriteBatchWithIndexTest {
            final ReadOptions readOptions = new ReadOptions();
            final RocksIterator wbwiIter = wbwi.newIteratorWithBase(baseIter, readOptions)) {
         assertThat(wbwiIter).isNotNull();
-        assertThat(wbwiIter.nativeHandle_).isGreaterThan(0);
+        assertThat(wbwiIter.getNative()).isGreaterThan(0);
         wbwiIter.status();
       }
     }
@@ -1051,7 +1051,7 @@ public class WriteBatchWithIndexTest {
            final RocksIterator wbwiIter =
                wbwi.newIteratorWithBase(columnFamilyHandleList.get(1), baseIter)) {
         assertThat(wbwiIter).isNotNull();
-        assertThat(wbwiIter.nativeHandle_).isGreaterThan(0);
+        assertThat(wbwiIter.getNative()).isGreaterThan(0);
         wbwiIter.status();
       }
 
@@ -1061,7 +1061,7 @@ public class WriteBatchWithIndexTest {
            final RocksIterator wbwiIter =
                wbwi.newIteratorWithBase(columnFamilyHandleList.get(1), baseIter, readOptions)) {
         assertThat(wbwiIter).isNotNull();
-        assertThat(wbwiIter.nativeHandle_).isGreaterThan(0);
+        assertThat(wbwiIter.getNative()).isGreaterThan(0);
         wbwiIter.status();
       }
     }

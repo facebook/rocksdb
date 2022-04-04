@@ -83,6 +83,10 @@ public class SstFileReader extends RocksNative {
       throws RocksDBException;
 
   @Override
-  protected native void nativeClose(long nativeReference);
+  protected final native void nativeClose(long nativeReference);
+  //TODO (AP) reference counted API
+
+  @Override
+  protected final native boolean isLastReference(long nativeAPIReference);
   //TODO (AP) reference counted API
 }

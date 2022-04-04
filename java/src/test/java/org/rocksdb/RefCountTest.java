@@ -35,26 +35,38 @@ public class RefCountTest {
         rocksDBRuntimeException.printStackTrace();
         assertThat(rocksDBRuntimeException.getMessage()).contains("RocksDB native reference was previously closed");
       }
+      assertThat(db.isLastReference()).isTrue();
     }
   }
 
   @Test
-  public void testIteratorFromCFHandle() throws RocksDBException {
+  public void testIteratorCreateDelete() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      assertThat(db.isLastReference()).isTrue();
+      final RocksIterator iterator = db.newIterator();
+      assertThat(db.isLastReference()).isFalse();
+      iterator.close();
+      assertThat(db.isLastReference()).isTrue();
+    }
+  }
+
+  @Test
+  public void testIteratorCreateDeleteFromCFHandle() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       final ColumnFamilyHandle cfHandle = db.createColumnFamily(
           new ColumnFamilyDescriptor("new_cf".getBytes(StandardCharsets.UTF_8)));
 
-      final RocksIterator iterator = db.newIterator();
+      assertThat(db.isLastReference()).isTrue();
       final RocksIterator iteratorCF = db.newIterator(cfHandle);
-
-      //TODO (AP) - add nativeClose() to RocksIterator, (std::unique trick)
-      //TODO (AP) - add isLastReference() method to RocksNative , checking everything is 1 (or 2, see &)
-      //TODO (AP) - put(), get(), seek, ensure iterators work...
+      assertThat(db.isLastReference()).isFalse();
+      assertThat(iteratorCF.isLastReference()).isTrue();
+      iteratorCF.close();
+      assertThat(db.isLastReference()).isTrue();
     }
   }
 
   @Test
-  public void testUseClosedHandle() {
+  public void testUseClosedHandle() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       final ColumnFamilyHandle cfHandle = db.createColumnFamily(
           new ColumnFamilyDescriptor("new_cf".getBytes(StandardCharsets.UTF_8)));
@@ -62,14 +74,12 @@ public class RefCountTest {
       // Closing here means that the following iterator is not valid
       cfHandle.close();
 
-      // And we SEGV deep in C++, because the CFHandle is a reference to a deleted CF object.
-      // TODO (AP) this is what happened in the "old" API
-      // We can delete this test once the tests above deal with the same case with new results (Exception or success)
+      // The old API used to SEGV here. Now we check for a closed handle.
       db.newIterator(cfHandle);
-      Assert.fail("Iterator with a closed handle, we expect it to fail");
-    } catch (RocksDBException rocksDBException) {
+      Assert.fail("Iterator with a closed handle, we expected it to fail");
+    } catch (RocksDBRuntimeException rocksDBRuntimeException) {
       // Expected failure path here.
-      rocksDBException.printStackTrace();
+      assertThat(rocksDBRuntimeException.getMessage()).contains("RocksDB native reference was previously closed");
     }
   }
 
@@ -86,6 +96,8 @@ public class RefCountTest {
       final RocksIterator iterator = db.newIterator(cfHandle);
       iterator.seekToFirst();
       assertThat(iterator.isValid()).isFalse();
+
+      assertThat(db.isLastReference()).isFalse();
 
       // Closing the DB, closes the CF, but the iterator still exists.
       // Assertion failed: (last_ref), function ~ColumnFamilySet, file column_family.cc, line 1494.

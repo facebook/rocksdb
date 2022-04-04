@@ -111,6 +111,8 @@ public class ColumnFamilyHandle extends RocksNative {
 
   @Override
   protected native void nativeClose(long nativeReference);
+  @Override
+  protected native boolean isLastReference(long nativeAPIReference);
 
   protected boolean isDefaultColumnFamily() {
     return isDefaultColumnFamily(getNative());

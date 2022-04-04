@@ -24,7 +24,7 @@ import java.nio.ByteBuffer;
  * @see org.rocksdb.RocksObject
  */
 public abstract class AbstractRocksIterator<P extends RocksNative>
-    extends RocksObject implements RocksIteratorInterface {
+    extends RocksNative implements RocksIteratorInterface {
   final P parent_;
 
   protected AbstractRocksIterator(final P parent,
@@ -40,41 +40,35 @@ public abstract class AbstractRocksIterator<P extends RocksNative>
 
   @Override
   public boolean isValid() {
-    assert (isOwningHandle());
-    return isValid0(nativeHandle_);
+    return isValid0(getNative());
   }
 
   @Override
   public void seekToFirst() {
-    assert (isOwningHandle());
-    seekToFirst0(nativeHandle_);
+    seekToFirst0(getNative());
   }
 
   @Override
   public void seekToLast() {
-    assert (isOwningHandle());
-    seekToLast0(nativeHandle_);
+    seekToLast0(getNative());
   }
 
   @Override
   public void seek(final byte[] target) {
-    assert (isOwningHandle());
-    seek0(nativeHandle_, target, target.length);
+    seek0(getNative(), target, target.length);
   }
 
   @Override
   public void seekForPrev(final byte[] target) {
-    assert (isOwningHandle());
-    seekForPrev0(nativeHandle_, target, target.length);
+    seekForPrev0(getNative(), target, target.length);
   }
 
   @Override
   public void seek(final ByteBuffer target) {
-    assert (isOwningHandle());
     if (target.isDirect()) {
-      seekDirect0(nativeHandle_, target, target.position(), target.remaining());
+      seekDirect0(getNative(), target, target.position(), target.remaining());
     } else {
-      seekByteArray0(nativeHandle_, target.array(), target.arrayOffset() + target.position(),
+      seekByteArray0(getNative(), target.array(), target.arrayOffset() + target.position(),
           target.remaining());
     }
     target.position(target.limit());
@@ -82,11 +76,10 @@ public abstract class AbstractRocksIterator<P extends RocksNative>
 
   @Override
   public void seekForPrev(final ByteBuffer target) {
-    assert (isOwningHandle());
     if (target.isDirect()) {
-      seekForPrevDirect0(nativeHandle_, target, target.position(), target.remaining());
+      seekForPrevDirect0(getNative(), target, target.position(), target.remaining());
     } else {
-      seekForPrevByteArray0(nativeHandle_, target.array(), target.arrayOffset() + target.position(),
+      seekForPrevByteArray0(getNative(), target.array(), target.arrayOffset() + target.position(),
           target.remaining());
     }
     target.position(target.limit());
@@ -94,43 +87,22 @@ public abstract class AbstractRocksIterator<P extends RocksNative>
 
   @Override
   public void next() {
-    assert (isOwningHandle());
-    next0(nativeHandle_);
+    next0(getNative());
   }
 
   @Override
   public void prev() {
-    assert (isOwningHandle());
-    prev0(nativeHandle_);
+    prev0(getNative());
   }
 
   @Override
   public void refresh() throws RocksDBException {
-    assert (isOwningHandle());
-    refresh0(nativeHandle_);
+    refresh0(getNative());
   }
 
   @Override
   public void status() throws RocksDBException {
-    assert (isOwningHandle());
-    status0(nativeHandle_);
-  }
-
-  /**
-   * <p>Deletes underlying C++ iterator pointer.</p>
-   *
-   * <p>Note: the underlying handle can only be safely deleted if the parent
-   * instance related to a certain RocksIterator is still valid and initialized.
-   * Therefore {@code disposeInternal()} checks if the parent is initialized
-   * before freeing the native handle.</p>
-   */
-  @Override
-  protected void disposeInternal() {
-    //TODO (AP) conversion of AbstractRocksIterator to RocksNative
-    throw new RuntimeException("TODO (AP) conversion of AbstractRocksIterator to RocksNative");
-      //if (parent_.isOwningHandle()) {
-      //  disposeInternal(nativeHandle_);
-      //}
+    status0(getNative());
   }
 
   abstract boolean isValid0(long handle);

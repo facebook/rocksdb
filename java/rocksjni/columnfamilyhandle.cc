@@ -73,3 +73,18 @@ void Java_org_rocksdb_ColumnFamilyHandle_nativeClose(JNIEnv* /*env*/,
   // here This may turn out to be the standard pattern.
   cfhAPI->check();
 }
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyHandle
+ * Method:    isLastReference
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ColumnFamilyHandle_isLastReference(JNIEnv*, jobject,
+                                                             jlong jhandle) {
+  std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
+      reinterpret_cast<APIColumnFamilyHandle*>(jhandle));
+  cfhAPI->check();
+  const bool result = !cfhAPI->cfh.lock();
+  cfhAPI.release();
+  return result;
+}

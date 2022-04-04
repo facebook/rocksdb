@@ -12,11 +12,11 @@
 #include "rocksdb/db.h"
 
 class APIIterator : APIBase {
+ public:
   std::shared_ptr<ROCKSDB_NAMESPACE::DB> db;
   std::shared_ptr<ROCKSDB_NAMESPACE::Iterator> iterator;
   std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh;
 
- public:
   APIIterator(std::shared_ptr<ROCKSDB_NAMESPACE::DB> db,
               std::shared_ptr<ROCKSDB_NAMESPACE::Iterator> iterator,
               std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh)

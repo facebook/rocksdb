@@ -16,13 +16,14 @@ void APIColumnFamilyHandle::check() {
   std::shared_ptr<ROCKSDB_NAMESPACE::DB> dbLocked = db.lock();
   std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfhLocked = cfh.lock();
   if (dbLocked) {
-    std::cout << " db.use_count() " << dbLocked.use_count() << std::endl;
+    std::cout << " db.use_count() " << dbLocked.use_count() << "; ";
   } else {
-    std::cout << " db 0 uses " << std::endl;
+    std::cout << " db 0 uses; ";
   }
   if (cfhLocked) {
-    std::cout << " cfh.use_count() " << cfhLocked.use_count() << std::endl;
+    std::cout << " cfh.use_count() " << cfhLocked.use_count() << "; ";
   } else {
-    std::cout << " cfh 0 uses " << std::endl;
+    std::cout << " cfh 0 uses;";
   }
+  std::cout << std::endl;
 }

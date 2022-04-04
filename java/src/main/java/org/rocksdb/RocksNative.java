@@ -21,14 +21,14 @@ public abstract class RocksNative implements AutoCloseable {
   }
 
   @Override
-  public final void close() {
+  public void close() {
 
     if (isOpen.getAndSet(false)) {
       nativeClose(nativeAPIReference_);
     }
   }
 
-  public long getNative() {
+  public final long getNative() {
     if (isOpen.get()) {
       return nativeAPIReference_;
     } else {
@@ -38,10 +38,25 @@ public abstract class RocksNative implements AutoCloseable {
   }
 
   /**
+   * Test support method ensures that internal reference counts are as expected.
+   */
+   public final boolean isLastReference() {
+    return isLastReference(getNative());
+  }
+
+  /**
    * The native method knows about the C++ class of the native reference,
    * and will go about discounting shared_ptrs enclosed in that object.
    *
    * @param nativeReference index to a table containing a reference
    */
   protected abstract void nativeClose(long nativeReference);
+
+  /**
+   * Test support method ensures that the reference counts are as expected.
+   *
+   * @param nativeAPIReference handle which is a C++ API pointer
+   * @return true iff nativeAPIReference has just 1 reference left for each member
+   */
+  protected abstract boolean isLastReference(long nativeAPIReference);
 }

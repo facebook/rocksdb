@@ -30,8 +30,7 @@ public class WBWIRocksIterator
    * @return The WriteEntry of the current entry
    */
   public WriteEntry entry() {
-    assert(isOwningHandle());
-    final long[] ptrs = entry1(nativeHandle_);
+    final long[] ptrs = entry1(getNative());
 
     entry.type = WriteType.fromId((byte)ptrs[0]);
     entry.key.resetNativeHandle(ptrs[1], ptrs[1] != 0);
@@ -40,7 +39,6 @@ public class WBWIRocksIterator
     return entry;
   }
 
-  @Override protected final native void disposeInternal(final long handle);
   @Override final native boolean isValid0(long handle);
   @Override final native void seekToFirst0(long handle);
   @Override final native void seekToLast0(long handle);
@@ -98,6 +96,11 @@ public class WBWIRocksIterator
     entry.close();
     super.close();
   }
+
+  @Override
+  protected final native void nativeClose(long nativeReference);
+  @Override
+  protected final native boolean isLastReference(long nativeAPIReference);
 
   /**
    * Represents an entry returned by

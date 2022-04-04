@@ -81,7 +81,11 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   }
 
   @Override
-  protected native void nativeClose(long nativeReference);
+  protected final native void nativeClose(long nativeReference);
+  //TODO (AP) reference counted API
+
+  @Override
+  protected final native boolean isLastReference(long nativeAPIReference);
   //TODO (AP) reference counted API
 
   /**
@@ -161,10 +165,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
       final RocksIterator baseIterator, /* @Nullable */ final ReadOptions readOptions) {
     final RocksIterator iterator = new RocksIterator(baseIterator.parent_,
         iteratorWithBase(getNative(), columnFamilyHandle.getNative(),
-            baseIterator.nativeHandle_, readOptions == null ? 0 : readOptions.nativeHandle_));
-
-    // when the iterator is deleted it will also delete the baseIterator
-    baseIterator.disOwnNativeHandle();
+            baseIterator.getNative(), readOptions == null ? 0 : readOptions.nativeHandle_));
 
     return iterator;
   }
