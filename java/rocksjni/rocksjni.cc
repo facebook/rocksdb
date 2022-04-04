@@ -91,7 +91,7 @@ jlong Java_org_rocksdb_RocksDB_fromRawDBHandle(JNIEnv*, jclass,
   std::shared_ptr<ROCKSDB_NAMESPACE::DB> dbShared =
       APIBase::createSharedPtr(db, true /*isDefault*/);
   std::unique_ptr<APIRocksDB> dbAPI(new APIRocksDB(dbShared));
-  return reinterpret_cast<jlong>(dbAPI.release());
+  return GET_CPLUSPLUS_POINTER(dbAPI.release());
 }
 
 /*
@@ -3740,13 +3740,10 @@ void Java_org_rocksdb_RocksDB_verifyChecksum(
  * Method:    getDefaultColumnFamily
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_RocksDB_getDefaultColumnFamily(
-    JNIEnv*, jobject, jlong jdb_handle) {
-  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  auto* cf_handle = db_handle->DefaultColumnFamily();
-  return GET_CPLUSPLUS_POINTER(cf_handle);
+jlong Java_org_rocksdb_RocksDB_getDefaultColumnFamily(JNIEnv*, jobject,
+                                                      jlong jdb_handle) {
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
-  return reinterpret_cast<jlong>(
+  return GET_CPLUSPLUS_POINTER(
       new APIColumnFamilyHandle(dbAPI.db, dbAPI.defaultColumnFamilyHandle));
 }
 
