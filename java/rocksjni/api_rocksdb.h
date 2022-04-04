@@ -42,6 +42,11 @@ class APIRocksDB : APIBase {
 
   ROCKSDB_NAMESPACE::DB* get() const { return db.get(); }
 
+  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> DefaultColumnFamily()
+      const {
+    return defaultColumnFamilyHandle;
+  }
+
   std::unique_ptr<APIIterator> newIterator(
       ROCKSDB_NAMESPACE::Iterator* iterator,
       std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh);

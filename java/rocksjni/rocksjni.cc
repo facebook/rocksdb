@@ -3112,13 +3112,21 @@ void Java_org_rocksdb_RocksDB_setOptions(
     env->DeleteLocalRef(jobj_value);
   }
 
-  const auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle == nullptr) {
-    cf_handle = dbAPI->DefaultColumnFamily();
+  auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
+  auto* cfhAPI = reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle);
+
+  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh;
+  if (cfhAPI != nullptr) {
+    cfh = cfhAPI->cfhLockDBCheck(env, dbAPI);
+    if (!cfh) {
+      // exception thrown
+      return;
+    }
+  } else {
+    cfh = dbAPI.DefaultColumnFamily();
   }
-  auto s = dbAPI->SetOptions(cf_handle, options_map);
+
+  auto s = dbAPI->SetOptions(cfh.get(), options_map);
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
