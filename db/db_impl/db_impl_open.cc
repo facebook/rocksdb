@@ -809,11 +809,12 @@ Status DBImpl::InitPersistStatsColumnFamily() {
   return s;
 }
 
-Status DBImpl::LogAndApplyForRecovery(VersionEditsContext* version_edits_ctx) {
-  assert(versions_->descriptor_log_ == nullptr);
+Status DBImpl::LogAndApplyForRecovery(
+    const VersionEditsContext* version_edits_ctx) {
   return versions_->LogAndApply(
       version_edits_ctx->cfds_, version_edits_ctx->mutable_cf_opts_,
-      version_edits_ctx->edit_lists_, &mutex_, directories_.GetDbDir());
+      version_edits_ctx->edit_lists_, &mutex_, directories_.GetDbDir(),
+      /*new_descriptor_log =*/true);
 }
 
 // REQUIRES: wal_numbers are sorted in ascending order

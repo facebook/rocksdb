@@ -1240,6 +1240,8 @@ class DBImpl : public DB {
 
   std::atomic<bool> shutting_down_;
 
+  // VersionEditsContext struct stores the context about version edits along
+  // with corresponding column_family_data and column_family_options.
   class VersionEditsContext {
    public:
     ~VersionEditsContext() {
@@ -1388,6 +1390,8 @@ class DBImpl : public DB {
   // be made to the descriptor are added to *edit.
   // recovered_seq is set to less than kMaxSequenceNumber if the log's tail is
   // skipped.
+  // recovery_version_edits stores the context about version edits and all those
+  // edits are persisted to new Manifest after succesfully syncing the new WAL.
   virtual Status Recover(
       const std::vector<ColumnFamilyDescriptor>& column_families,
       bool read_only = false, bool error_if_wal_file_exists = false,
@@ -1412,6 +1416,8 @@ class DBImpl : public DB {
   // We delete these SST files. In the
   // meantime, we find out the largest file number present in the paths, and
   // bump up the version set's next_file_number_ to be 1 + largest_file_number.
+  // recovery_version_edits stores the context about version edits and all those
+  // edits are persisted to new Manifest after succesfully syncing the new WAL.
   Status DeleteUnreferencedSstFiles(VersionEditsContext* recovery_edit);
 
   // SetDbSessionId() should be called in the constuctor DBImpl()
@@ -1422,7 +1428,11 @@ class DBImpl : public DB {
   Status FailIfTsSizesMismatch(const ColumnFamilyHandle* column_family,
                                const Slice& ts) const;
 
-  Status LogAndApplyForRecovery(VersionEditsContext* recovery_version_edits);
+  // recovery_version_edits stores the context about version edits and
+  // LogAndApplyForRecovery persist all those edits to new Manifest after
+  // successfully syncing new WAL.
+  Status LogAndApplyForRecovery(
+      const VersionEditsContext* recovery_version_edits);
 
  private:
   friend class DB;
