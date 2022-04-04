@@ -1,8 +1,4 @@
 NATIVE_JAVA_CLASSES = \
-	org.rocksdb.api.ColumnFamilyHandle \
-	org.rocksdb.api.ColumnFamilyOptions \
-	org.rocksdb.api.DBOptions \
-	org.rocksdb.api.RocksDB \
 	org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.AbstractCompactionFilterFactory\
 	org.rocksdb.AbstractComparator\

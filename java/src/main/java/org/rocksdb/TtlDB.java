@@ -134,7 +134,7 @@ public class TtlDB extends RocksDB {
 
     final TtlDB ttlDB = new TtlDB(handles[0]);
     for (int i = 1; i < handles.length; i++) {
-      columnFamilyHandles.add(new ColumnFamilyHandle(ttlDB, handles[i]));
+      columnFamilyHandles.add(new ColumnFamilyHandle(handles[i]));
     }
     return ttlDB;
   }
@@ -162,8 +162,7 @@ public class TtlDB extends RocksDB {
   public ColumnFamilyHandle createColumnFamilyWithTtl(
       final ColumnFamilyDescriptor columnFamilyDescriptor,
       final int ttl) throws RocksDBException {
-    return new ColumnFamilyHandle(this,
-        createColumnFamilyWithTtl(getNative(),
+    return new ColumnFamilyHandle(createColumnFamilyWithTtl(getNative(),
             columnFamilyDescriptor.getName(),
             columnFamilyDescriptor.getOptions().nativeHandle_, ttl));
   }

@@ -11,4 +11,4 @@
 class APIBase {
  public:
   void check();
-}
+};

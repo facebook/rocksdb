@@ -8,9 +8,10 @@
 
 #pragma once
 
+#include "api_base.h"
 #include "rocksdb/db.h"
 
-class APIIterator {
+class APIIterator : APIBase {
   std::shared_ptr<ROCKSDB_NAMESPACE::DB> db;
   std::shared_ptr<ROCKSDB_NAMESPACE::Iterator> iterator;
   std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> columnFamilyHandle;

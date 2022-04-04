@@ -5,7 +5,7 @@
 
 package org.rocksdb;
 
-import org.rocksdb.api.RocksNative;
+import org.rocksdb.RocksNative;
 
 import java.util.Arrays;
 import java.util.Objects;

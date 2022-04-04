@@ -5,7 +5,7 @@
 
 package org.rocksdb;
 
-import org.rocksdb.api.RocksNative;
+import org.rocksdb.RocksNative;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -99,7 +99,7 @@ public class TransactionDB extends RocksDB
     tdb.storeTransactionDbOptions(transactionDbOptions);
 
     for (int i = 1; i < handles.length; i++) {
-      columnFamilyHandles.add(new ColumnFamilyHandle(tdb, handles[i]));
+      columnFamilyHandles.add(new ColumnFamilyHandle(handles[i]));
     }
 
     return tdb;

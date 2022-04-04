@@ -5,7 +5,7 @@
 
 package org.rocksdb;
 
-import org.rocksdb.api.RocksNative;
+import org.rocksdb.RocksNative;
 
 import java.util.List;
 
@@ -90,7 +90,7 @@ public class OptimisticTransactionDB extends RocksDB
     otdb.storeOptionsInstance(dbOptions);
 
     for (int i = 1; i < handles.length; i++) {
-      columnFamilyHandles.add(new ColumnFamilyHandle(otdb, handles[i]));
+      columnFamilyHandles.add(new ColumnFamilyHandle(handles[i]));
     }
 
     return otdb;

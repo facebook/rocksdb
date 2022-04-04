@@ -5,7 +5,7 @@
 
 package org.rocksdb;
 
-import org.rocksdb.api.RocksNative;
+import org.rocksdb.RocksNative;
 
 public class SstFileReader extends RocksNative {
   static {

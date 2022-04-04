@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.rocksdb.api.RocksNative;
+import org.rocksdb.RocksNative;
 import org.rocksdb.util.Environment;
 
 /**

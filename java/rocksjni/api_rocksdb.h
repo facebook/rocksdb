@@ -10,9 +10,10 @@
 
 #include <jni.h>
 
+#include "api_base.h"
 #include "rocksdb/db.h"
 
-class APIRocksDB {
+class APIRocksDB : APIBase {
  public:
   std::shared_ptr<ROCKSDB_NAMESPACE::DB> db;
   std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>>
