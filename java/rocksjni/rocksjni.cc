@@ -567,7 +567,7 @@ void Java_org_rocksdb_RocksDB_dropColumnFamilies(
  */
 bool rocksdb_put_helper(JNIEnv* env, APIRocksDB& dbAPI,
                         const ROCKSDB_NAMESPACE::WriteOptions& write_options,
-                        ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle,
+                        std::unique_ptr<APIColumnFamilyHandle>& cfhAPI,
                         jbyteArray jkey, jint jkey_off, jint jkey_len,
                         jbyteArray jval, jint jval_off, jint jval_len) {
   jbyte* key = new jbyte[jkey_len];
@@ -592,8 +592,15 @@ bool rocksdb_put_helper(JNIEnv* env, APIRocksDB& dbAPI,
                                        jval_len);
 
   ROCKSDB_NAMESPACE::Status s;
-  if (cf_handle != nullptr) {
-    s = dbAPI->Put(write_options, cf_handle, key_slice, value_slice);
+  if (cfhAPI) {
+    std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cf_handle =
+        cfhAPI->cfh.lock();
+    if (!cf_handle) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+          env, "Invalid ColumnFamilyHandle.");
+      return false;
+    }
+    s = dbAPI->Put(write_options, cf_handle.get(), key_slice, value_slice);
   } else {
     // backwards compatibility
     s = dbAPI->Put(write_options, key_slice, value_slice);
@@ -623,7 +630,8 @@ void Java_org_rocksdb_RocksDB_put__J_3BII_3BII(
   auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   static const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
       ROCKSDB_NAMESPACE::WriteOptions();
-  rocksdb_put_helper(env, *dbAPI, default_write_options, nullptr, jkey,
+  std::unique_ptr<APIColumnFamilyHandle> nullCFH;
+  rocksdb_put_helper(env, *dbAPI, default_write_options, nullCFH, jkey,
                      jkey_off, jkey_len, jval, jval_off, jval_len);
 }
 
@@ -640,16 +648,17 @@ void Java_org_rocksdb_RocksDB_put__J_3BII_3BIIJ(
   auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   static const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
       ROCKSDB_NAMESPACE::WriteOptions();
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle != nullptr) {
-    rocksdb_put_helper(env, *dbAPI, default_write_options, cf_handle, jkey,
+  std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
+      reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle));
+  if (cfhAPI) {
+    rocksdb_put_helper(env, *dbAPI, default_write_options, cfhAPI, jkey,
                        jkey_off, jkey_len, jval, jval_off, jval_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
                  "Invalid ColumnFamilyHandle."));
   }
+  cfhAPI.release();
 }
 
 /*
@@ -666,7 +675,8 @@ void Java_org_rocksdb_RocksDB_put__JJ_3BII_3BII(JNIEnv* env, jobject,
   auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
-  rocksdb_put_helper(env, *dbAPI, *write_options, nullptr, jkey, jkey_off,
+  std::unique_ptr<APIColumnFamilyHandle> nullCFH;
+  rocksdb_put_helper(env, *dbAPI, *write_options, nullCFH, jkey, jkey_off,
                      jkey_len, jval, jval_off, jval_len);
 }
 
@@ -683,16 +693,17 @@ void Java_org_rocksdb_RocksDB_put__JJ_3BII_3BIIJ(
   auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle != nullptr) {
-    rocksdb_put_helper(env, *dbAPI, *write_options, cf_handle, jkey, jkey_off,
+  std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
+      reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle));
+  if (cfhAPI) {
+    rocksdb_put_helper(env, *dbAPI, *write_options, cfhAPI, jkey, jkey_off,
                        jkey_len, jval, jval_off, jval_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
                  "Invalid ColumnFamilyHandle."));
   }
+  cfhAPI.release();
 }
 
 /*
@@ -3603,6 +3614,10 @@ jlong Java_org_rocksdb_RocksDB_getDefaultColumnFamily(
   auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto* cf_handle = db_handle->DefaultColumnFamily();
   return GET_CPLUSPLUS_POINTER(cf_handle);
+  auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
+  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh(
+      dbAPI->DefaultColumnFamily());
+  return reinterpret_cast<jlong>(new APIColumnFamilyHandle(dbAPI.db, cfh));
 }
 
 /*
