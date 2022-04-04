@@ -1392,7 +1392,7 @@ TEST_P(DBCompactionTestWithParam, PartialOverlappingL0) {
   ASSERT_EQ(NumTableFilesAtLevel(1, 0), 1);  // One file in L1
 
   ASSERT_OK(db_->EnableAutoCompaction({db_->DefaultColumnFamily()}));
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // We expect that all the files were trivially moved from L0 to L1
   ASSERT_EQ(NumTableFilesAtLevel(0, 0), 0);
