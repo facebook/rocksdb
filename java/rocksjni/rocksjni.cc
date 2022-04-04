@@ -565,7 +565,7 @@ void Java_org_rocksdb_RocksDB_dropColumnFamilies(
 /**
  * @return true if the put succeeded, false if a Java Exception was thrown
  */
-bool rocksdb_put_helper(JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
+bool rocksdb_put_helper(JNIEnv* env, APIRocksDB& dbAPI,
                         const ROCKSDB_NAMESPACE::WriteOptions& write_options,
                         ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle,
                         jbyteArray jkey, jint jkey_off, jint jkey_len,
@@ -593,10 +593,10 @@ bool rocksdb_put_helper(JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
 
   ROCKSDB_NAMESPACE::Status s;
   if (cf_handle != nullptr) {
-    s = db->Put(write_options, cf_handle, key_slice, value_slice);
+    s = dbAPI->Put(write_options, cf_handle, key_slice, value_slice);
   } else {
     // backwards compatibility
-    s = db->Put(write_options, key_slice, value_slice);
+    s = dbAPI->Put(write_options, key_slice, value_slice);
   }
 
   // cleanup
@@ -620,11 +620,11 @@ void Java_org_rocksdb_RocksDB_put__J_3BII_3BII(
     JNIEnv* env, jobject, jlong jdb_handle,
     jbyteArray jkey, jint jkey_off, jint jkey_len,
     jbyteArray jval, jint jval_off, jint jval_len) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   static const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
       ROCKSDB_NAMESPACE::WriteOptions();
-  rocksdb_put_helper(env, db, default_write_options, nullptr, jkey, jkey_off,
-      jkey_len, jval, jval_off, jval_len);
+  rocksdb_put_helper(env, *dbAPI, default_write_options, nullptr, jkey,
+                     jkey_off, jkey_len, jval, jval_off, jval_len);
 }
 
 /*
@@ -637,14 +637,14 @@ void Java_org_rocksdb_RocksDB_put__J_3BII_3BIIJ(
     jbyteArray jkey, jint jkey_off, jint jkey_len,
     jbyteArray jval, jint jval_off, jint jval_len,
     jlong jcf_handle) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   static const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
       ROCKSDB_NAMESPACE::WriteOptions();
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
   if (cf_handle != nullptr) {
-    rocksdb_put_helper(env, db, default_write_options, cf_handle, jkey,
-        jkey_off, jkey_len, jval, jval_off, jval_len);
+    rocksdb_put_helper(env, *dbAPI, default_write_options, cf_handle, jkey,
+                       jkey_off, jkey_len, jval, jval_off, jval_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
@@ -657,16 +657,17 @@ void Java_org_rocksdb_RocksDB_put__J_3BII_3BIIJ(
  * Method:    put
  * Signature: (JJ[BII[BII)V
  */
-void Java_org_rocksdb_RocksDB_put__JJ_3BII_3BII(
-    JNIEnv* env, jobject, jlong jdb_handle,
-    jlong jwrite_options_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len,
-    jbyteArray jval, jint jval_off, jint jval_len) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+void Java_org_rocksdb_RocksDB_put__JJ_3BII_3BII(JNIEnv* env, jobject,
+                                                jlong jdb_handle,
+                                                jlong jwrite_options_handle,
+                                                jbyteArray jkey, jint jkey_off,
+                                                jint jkey_len, jbyteArray jval,
+                                                jint jval_off, jint jval_len) {
+  auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
-  rocksdb_put_helper(env, db, *write_options, nullptr, jkey, jkey_off, jkey_len,
-      jval, jval_off, jval_len);
+  rocksdb_put_helper(env, *dbAPI, *write_options, nullptr, jkey, jkey_off,
+                     jkey_len, jval, jval_off, jval_len);
 }
 
 /*
@@ -679,14 +680,14 @@ void Java_org_rocksdb_RocksDB_put__JJ_3BII_3BIIJ(
     jbyteArray jkey, jint jkey_off, jint jkey_len,
     jbyteArray jval, jint jval_off, jint jval_len,
     jlong jcf_handle) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
   if (cf_handle != nullptr) {
-    rocksdb_put_helper(env, db, *write_options, cf_handle, jkey, jkey_off,
-        jkey_len, jval, jval_off, jval_len);
+    rocksdb_put_helper(env, *dbAPI, *write_options, cf_handle, jkey, jkey_off,
+                       jkey_len, jval, jval_off, jval_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
