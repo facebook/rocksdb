@@ -3,18 +3,19 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "rocksdb/utilities/memory_util.h"
+
 #include <jni.h>
+
 #include <map>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
+#include "api_iterator.h"
+#include "api_rocksdb.h"
 #include "include/org_rocksdb_MemoryUtil.h"
-
 #include "rocksjni/portal.h"
-
-#include "rocksdb/utilities/memory_util.h"
-
 
 /*
  * Class:     org_rocksdb_MemoryUtil
@@ -24,12 +25,16 @@
 jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
     JNIEnv *env, jclass, jlongArray jdb_handles, jlongArray jcache_handles) {
   jboolean has_exception = JNI_FALSE;
-  std::vector<ROCKSDB_NAMESPACE::DB *> dbs =
-      ROCKSDB_NAMESPACE::JniUtil::fromJPointers<ROCKSDB_NAMESPACE::DB>(
-          env, jdb_handles, &has_exception);
+  std::vector<APIRocksDB *> dbAPIs =
+      ROCKSDB_NAMESPACE::JniUtil::fromJPointers<APIRocksDB>(env, jdb_handles,
+                                                            &has_exception);
   if (has_exception == JNI_TRUE) {
     // exception thrown: OutOfMemoryError
     return nullptr;
+  }
+  std::vector<ROCKSDB_NAMESPACE::DB *> dbs;
+  for (auto it = std::begin(dbAPIs); it != std::end(dbAPIs); ++it) {
+    dbs.push_back((*it)->get());
   }
 
   std::unordered_set<const ROCKSDB_NAMESPACE::Cache *> cache_set;
