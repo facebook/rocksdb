@@ -38,7 +38,7 @@ public abstract class RocksNative implements AutoCloseable {
       return nativeAPIReference_;
     } else {
       // TODO AP ref-counting-experiments - should we throw a checked exception ?
-      throw new RocksDBRuntimeException("RocksDB native reference was previously closed");
+      throw new IllegalStateException("RocksDB native reference was previously closed");
     }
   }
 

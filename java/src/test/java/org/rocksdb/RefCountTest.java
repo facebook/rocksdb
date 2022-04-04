@@ -34,9 +34,9 @@ public class RefCountTest {
       try {
         db.newIterator(cfHandle);
         Assert.fail("Iterator with a closed handle, we expect it to fail");
-      } catch (RocksDBRuntimeException rocksDBRuntimeException) {
-        rocksDBRuntimeException.printStackTrace();
-        assertThat(rocksDBRuntimeException.getMessage()).contains("RocksDB native reference was previously closed");
+      } catch (IllegalStateException illegalStateException) {
+        illegalStateException.printStackTrace();
+        assertThat(illegalStateException.getMessage()).contains("RocksDB native reference was previously closed");
       }
     }
     assertThat(weakDB.isDatabaseOpen()).isFalse();
@@ -88,9 +88,9 @@ public class RefCountTest {
       // The old API used to SEGV here. Now we check for a closed handle.
       db.newIterator(cfHandle);
       Assert.fail("Iterator with a closed handle, we expected it to fail");
-    } catch (RocksDBRuntimeException rocksDBRuntimeException) {
+    } catch (IllegalStateException illegalStateException) {
       // Expected failure path here.
-      assertThat(rocksDBRuntimeException.getMessage()).contains("RocksDB native reference was previously closed");
+      assertThat(illegalStateException.getMessage()).contains("RocksDB native reference was previously closed");
     }
     assertThat(weakDB.isDatabaseOpen()).isFalse();
   }
@@ -163,8 +163,8 @@ public class RefCountTest {
     try {
       assertThat(closedDB.get("key".getBytes())).isEqualTo("value".getBytes());
       fail("Expect an exception because the DB we accessed was closed");
-    } catch (RocksDBRuntimeException rocksDBRuntimeException) {
-      assertThat(rocksDBRuntimeException.getMessage()).contains("RocksDB native reference was previously closed");
+    } catch (IllegalStateException illegalStateException) {
+      assertThat(illegalStateException.getMessage()).contains("RocksDB native reference was previously closed");
     }
   }
 
@@ -238,8 +238,8 @@ public class RefCountTest {
         try {
           final RocksIterator iterator2 = db.newIterator(cfHandle);
           fail("New iterator should throw exception as DB is closed");
-        } catch (RocksDBRuntimeException rocksDBRuntimeException) {
-          assertThat(rocksDBRuntimeException.getMessage()).contains("RocksDB native reference was previously closed");
+        } catch (IllegalStateException illegalStateException) {
+          assertThat(illegalStateException.getMessage()).contains("RocksDB native reference was previously closed");
         }
       }
     }
@@ -454,8 +454,8 @@ public class RefCountTest {
       try {
         final byte[] valueBytes = db.get(cfHandle, "key1".getBytes());
         Assert.fail("Get to close CF should fail");
-      } catch (RocksDBRuntimeException rocksDBRuntimeException) {
-        assertThat(rocksDBRuntimeException.getMessage()).contains("RocksDB native reference was previously closed");
+      } catch (IllegalStateException illegalStateException) {
+        assertThat(illegalStateException.getMessage()).contains("RocksDB native reference was previously closed");
       }
     }
     assertThat(weakDB.isDatabaseOpen()).isFalse();

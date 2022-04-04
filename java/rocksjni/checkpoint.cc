@@ -14,6 +14,7 @@
 
 #include <string>
 
+#include "api_rocksdb.h"
 #include "include/org_rocksdb_Checkpoint.h"
 #include "rocksdb/db.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
@@ -26,9 +27,9 @@
 jlong Java_org_rocksdb_Checkpoint_newCheckpoint(JNIEnv* /*env*/,
                                                 jclass /*jclazz*/,
                                                 jlong jdb_handle) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  const auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
   ROCKSDB_NAMESPACE::Checkpoint* checkpoint;
-  ROCKSDB_NAMESPACE::Checkpoint::Create(db, &checkpoint);
+  ROCKSDB_NAMESPACE::Checkpoint::Create(dbAPI.get(), &checkpoint);
   return GET_CPLUSPLUS_POINTER(checkpoint);
 }
 
