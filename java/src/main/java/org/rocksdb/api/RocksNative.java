@@ -30,11 +30,12 @@ public abstract class RocksNative implements AutoCloseable {
     }
   }
 
-  public long getNative() throws RocksDBException {
+  public long getNative() {
     if (isOpen.get()) {
       return nativeReference_;
     } else {
-      throw new RocksDBException("RocksDB native reference was previously closed");
+      // TODO AP ref-counting-experiments - should we throw a checked exception ?
+      throw new RuntimeException("RocksDB native reference was previously closed");
     }
   }
 
@@ -44,5 +45,5 @@ public abstract class RocksNative implements AutoCloseable {
    *
    * @param nativeReference index to a table containing a reference
    */
-  abstract void nativeClose(long nativeReference);
+  protected abstract void nativeClose(long nativeReference);
 }

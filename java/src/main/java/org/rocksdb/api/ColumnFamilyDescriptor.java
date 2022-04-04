@@ -5,8 +5,6 @@
 
 package org.rocksdb.api;
 
-import org.rocksdb.RocksDBException;
-
 import java.util.Arrays;
 
 /**
@@ -95,22 +93,15 @@ public class ColumnFamilyDescriptor {
     }
 
     final ColumnFamilyDescriptor that = (ColumnFamilyDescriptor) o;
-    try {
-      return Arrays.equals(columnFamilyName_, that.columnFamilyName_)
-              && columnFamilyOptions_.getNative() == that.columnFamilyOptions_.getNative();
-    } catch (RocksDBException e) {
-      throw new RuntimeException(e);
-    }
+
+    return Arrays.equals(columnFamilyName_, that.columnFamilyName_)
+        && columnFamilyOptions_.getNative() == that.columnFamilyOptions_.getNative();
   }
 
   @Override
   public int hashCode() {
     int result = 0;
-    try {
-      result = (int) (columnFamilyOptions_.getNative() ^ (columnFamilyOptions_.getNative() >>> 32));
-    } catch (RocksDBException e) {
-      throw new RuntimeException(e);
-    }
+    result = (int) (columnFamilyOptions_.getNative() ^ (columnFamilyOptions_.getNative() >>> 32));
     result = 31 * result + Arrays.hashCode(columnFamilyName_);
     return result;
   }

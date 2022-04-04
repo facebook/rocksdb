@@ -264,10 +264,12 @@ public class RefCountTest {
           new ColumnFamilyDescriptor("new_cf".getBytes(StandardCharsets.UTF_8)));
     }
 
+    final List<ColumnFamilyDescriptor> columnFamilyDescriptors = new ArrayList<>();
+    columnFamilyDescriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
+    columnFamilyDescriptors.add(new ColumnFamilyDescriptor("new_cf".getBytes(StandardCharsets.UTF_8)));
     final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
     try (final RocksDB db2 = RocksDB.open(new DBOptions(), dbFolder.getRoot().getAbsolutePath(),
-        List.of(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
-            new ColumnFamilyDescriptor("new_cf".getBytes(StandardCharsets.UTF_8))),
+        columnFamilyDescriptors,
         cfHandles)) {
       db2.put(cfHandles.get(1), "key1".getBytes(), "value1".getBytes());
 

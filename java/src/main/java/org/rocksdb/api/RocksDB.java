@@ -1,7 +1,6 @@
 package org.rocksdb.api;
 
 import org.rocksdb.CompressionType;
-import org.rocksdb.DBOptionsInterface;
 import org.rocksdb.NativeLibraryLoader;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.util.Environment;
@@ -166,7 +165,17 @@ public class RocksDB extends RocksNative {
     return db;
   }
 
-  protected void storeOptionsInstance(DBOptionsInterface<DBOptions> options) {
+  /**
+   * Gets the handle for the default column family
+   *
+   * @return The handle of the default column family
+   */
+  public ColumnFamilyHandle getDefaultColumnFamily() throws RocksDBException {
+    return new ColumnFamilyHandle(this,
+        getDefaultColumnFamily(getNative()));
+  }
+
+  protected void storeOptionsInstance(DBOptions options) {
     options_ = options;
   }
 
@@ -187,11 +196,13 @@ public class RocksDB extends RocksNative {
                                     final long[] columnFamilyOptions) throws RocksDBException;
 
   @Override
-  native void nativeClose(long nativeReference);
+  protected native void nativeClose(long nativeReference);
 
   private native static int version();
 
-  protected DBOptionsInterface<DBOptions> options_;
+  private native long getDefaultColumnFamily(final long handle);
+
+  protected DBOptions options_;
   private static org.rocksdb.RocksDB.Version version;
 
   public static class Version {

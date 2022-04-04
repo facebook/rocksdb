@@ -33,28 +33,6 @@ public class ColumnFamilyHandle extends RocksNative {
   }
 
   /**
-   * Constructor called only from JNI.
-   *
-   * NOTE: we are producing an additional Java Object here to represent the underlying native C++
-   * ColumnFamilyHandle object. The underlying object is not owned by ourselves. The Java API user
-   * likely already had a ColumnFamilyHandle Java object which owns the underlying C++ object, as
-   * they will have been presented it when they opened the database or added a Column Family.
-   *
-   *
-   * TODO(AR) - Potentially a better design would be to cache the active Java Column Family Objects
-   * in RocksDB, and return the same Java Object instead of instantiating a new one here. This could
-   * also help us to improve the Java API semantics for Java users. See for example
-   * https://github.com/facebook/rocksdb/issues/2687.
-   *
-   * @param nativeHandle native handle to the column family.
-   */
-  ColumnFamilyHandle(final long nativeHandle) {
-    super(nativeHandle);
-    rocksDB_ = null;
-    disOwnNativeHandle();
-  }
-
-  /**
    * Gets the name of the Column Family.
    *
    * @return The name of the Column Family.
@@ -62,8 +40,7 @@ public class ColumnFamilyHandle extends RocksNative {
    * @throws RocksDBException if an error occurs whilst retrieving the name.
    */
   public byte[] getName() throws RocksDBException {
-    assert(isOwningHandle() || isDefaultColumnFamily());
-    return getName(nativeHandle_);
+    return getName(getNative());
   }
 
   /**
@@ -71,9 +48,8 @@ public class ColumnFamilyHandle extends RocksNative {
    *
    * @return the ID of the Column Family.
    */
-  public int getID() {
-    assert(isOwningHandle() || isDefaultColumnFamily());
-    return getID(nativeHandle_);
+  public int getID() throws RocksDBException {
+    return getID(getNative());
   }
 
   /**
@@ -91,8 +67,7 @@ public class ColumnFamilyHandle extends RocksNative {
    *     descriptor.
    */
   public ColumnFamilyDescriptor getDescriptor() throws RocksDBException {
-    assert(isOwningHandle() || isDefaultColumnFamily());
-    return getDescriptor(nativeHandle_);
+    return getDescriptor(getNative());
   }
 
   @Override
@@ -106,7 +81,7 @@ public class ColumnFamilyHandle extends RocksNative {
 
     final ColumnFamilyHandle that = (ColumnFamilyHandle) o;
     try {
-      return rocksDB_.nativeHandle_ == that.rocksDB_.nativeHandle_ &&
+      return rocksDB_.getNative() == that.rocksDB_.getNative() &&
           getID() == that.getID() &&
           Arrays.equals(getName(), that.getName());
     } catch (RocksDBException e) {
@@ -117,7 +92,7 @@ public class ColumnFamilyHandle extends RocksNative {
   @Override
   public int hashCode() {
     try {
-      int result = Objects.hash(getID(), rocksDB_.nativeHandle_);
+      int result = Objects.hash(getID(), rocksDB_.getNative());
       result = 31 * result + Arrays.hashCode(getName());
       return result;
     } catch (RocksDBException e) {
@@ -125,8 +100,8 @@ public class ColumnFamilyHandle extends RocksNative {
     }
   }
 
-  protected boolean isDefaultColumnFamily() {
-    return nativeHandle_ == rocksDB_.getDefaultColumnFamily().nativeHandle_;
+  protected boolean isDefaultColumnFamily() throws RocksDBException {
+    return getNative() == rocksDB_.getDefaultColumnFamily().getNative();
   }
 
   private native byte[] getName(final long handle) throws RocksDBException;
