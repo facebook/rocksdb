@@ -10,8 +10,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "api_columnfamilyhandle_nondefault.h"
-#include "include/org_rocksdb_ColumnFamilyHandleNonDefault.h"
+#include "api_columnfamilyhandle.h"
+#include "include/org_rocksdb_ColumnFamilyHandle.h"
 #include "rocksjni/portal.h"
 
 /*
@@ -19,8 +19,8 @@
  * Method:    nativeClose
  * Signature: (J)V
  */
-void Java_org_rocksdb_ColumnFamilyHandleNonDefault_nativeClose(JNIEnv*, jobject,
-                                                               jlong handle) {
+void Java_org_rocksdb_ColumnFamilyHandle_nativeClose(JNIEnv*, jobject,
+                                                     jlong handle) {
   std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
       reinterpret_cast<APIColumnFamilyHandle*>(handle));
   // All pointers in APIColumnFamilyHandle are weak, so there is nothing to do
@@ -33,8 +33,8 @@ void Java_org_rocksdb_ColumnFamilyHandleNonDefault_nativeClose(JNIEnv*, jobject,
  * Method:    isLastReference
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_ColumnFamilyHandleNonDefault_isLastReference(
-    JNIEnv*, jobject, jlong handle) {
+jboolean Java_org_rocksdb_ColumnFamilyHandle_isLastReference(JNIEnv*, jobject,
+                                                             jlong handle) {
   auto* cfhAPI = reinterpret_cast<APIColumnFamilyHandle*>(handle);
   cfhAPI->check("isLastReference()");
   return !cfhAPI->cfh.lock();
@@ -45,8 +45,10 @@ jboolean Java_org_rocksdb_ColumnFamilyHandleNonDefault_isLastReference(
  * Method:    equalsByHandle
  * Signature: (JJ)Z
  */
-jboolean Java_org_rocksdb_ColumnFamilyHandleNonDefault_equalsByHandle(
-    JNIEnv* env, jobject, jlong handle, jlong handle2) {
+jboolean Java_org_rocksdb_ColumnFamilyHandle_equalsByHandle(JNIEnv* env,
+                                                            jobject,
+                                                            jlong handle,
+                                                            jlong handle2) {
   auto cfh = APIColumnFamilyHandle::lock(env, handle);
   auto cfh2 = APIColumnFamilyHandle::lock(env, handle2);
   if (!cfh || !cfh2) {
@@ -71,9 +73,8 @@ jboolean Java_org_rocksdb_ColumnFamilyHandleNonDefault_equalsByHandle(
  * Method:    getName
  * Signature: (J)[B
  */
-jbyteArray Java_org_rocksdb_ColumnFamilyHandleNonDefault_getName(JNIEnv* env,
-                                                                 jobject,
-                                                                 jlong handle) {
+jbyteArray Java_org_rocksdb_ColumnFamilyHandle_getName(JNIEnv* env, jobject,
+                                                       jlong handle) {
   auto cfh = APIColumnFamilyHandle::lock(env, handle);
   if (!cfh) {
     // exception has been raised / set up
@@ -89,8 +90,8 @@ jbyteArray Java_org_rocksdb_ColumnFamilyHandleNonDefault_getName(JNIEnv* env,
  * Method:    getID
  * Signature: (J)I
  */
-jint Java_org_rocksdb_ColumnFamilyHandleNonDefault_getID(JNIEnv* env, jobject,
-                                                         jlong handle) {
+jint Java_org_rocksdb_ColumnFamilyHandle_getID(JNIEnv* env, jobject,
+                                               jlong handle) {
   auto cfh = APIColumnFamilyHandle::lock(env, handle);
   if (!cfh) {
     return -1;
@@ -104,8 +105,8 @@ jint Java_org_rocksdb_ColumnFamilyHandleNonDefault_getID(JNIEnv* env, jobject,
  * Method:    getDescriptor
  * Signature: (J)Lorg/rocksdb/ColumnFamilyDescriptor;
  */
-jobject Java_org_rocksdb_ColumnFamilyHandleNonDefault_getDescriptor(
-    JNIEnv* env, jobject, jlong handle) {
+jobject Java_org_rocksdb_ColumnFamilyHandle_getDescriptor(JNIEnv* env, jobject,
+                                                          jlong handle) {
   auto cfh = APIColumnFamilyHandle::lock(env, handle);
   if (!cfh) {
     return nullptr;

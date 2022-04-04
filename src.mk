@@ -623,8 +623,7 @@ MICROBENCH_SOURCES =                                          \
   microbench/db_basic_bench.cc                                  \
 
 JNI_NATIVE_SOURCES =                                          \
-  java/rocksjni/api_columnfamilyhandle_default.cc             \
-  java/rocksjni/api_columnfamilyhandle_nondefault.cc          \
+  java/rocksjni/api_columnfamilyhandle.cc                     \
   java/rocksjni/api_iterator.cc                               \
   java/rocksjni/api_rocksdb.cc                                \
   java/rocksjni/backupenginejni.cc                            \
@@ -632,8 +631,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/checkpoint.cc                                 \
   java/rocksjni/clock_cache.cc                                \
   java/rocksjni/cache.cc                                      \
-  java/rocksjni/columnfamilyhandle_default.cc                 \
-  java/rocksjni/columnfamilyhandle_nondefault.cc              \
+  java/rocksjni/columnfamilyhandle.cc                         \
   java/rocksjni/compact_range_options.cc                      \
   java/rocksjni/compaction_filter.cc                          \
   java/rocksjni/compaction_filter_factory.cc                  \

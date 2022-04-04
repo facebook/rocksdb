@@ -15,19 +15,39 @@
 
 class APIRocksDB : APIBase {
  public:
+  /**
+   * @brief dump some status info to std::cout
+   *
+   */
+  void check(std::string message);
+
   std::shared_ptr<ROCKSDB_NAMESPACE::DB> db;
   std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>>
       columnFamilyHandles;
+  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
+      defaultColumnFamilyHandle;
 
-  APIRocksDB(std::shared_ptr<ROCKSDB_NAMESPACE::DB> db) : db(db){};
+  APIRocksDB(std::shared_ptr<ROCKSDB_NAMESPACE::DB> db)
+      : db(db),
+        defaultColumnFamilyHandle(
+            createSharedPtrToDefault(db->DefaultColumnFamily())){};
 
   ROCKSDB_NAMESPACE::DB* operator->() const { return db.get(); }
 
   std::shared_ptr<ROCKSDB_NAMESPACE::DB>& operator*() { return db; }
 
   /**
-   * @brief dump some status info to std::cout
+   * @brief Create a CFH wrapped with a SharedPtrContent which will NOT delete
+   * the CFH at delete() time, because it knows handle is the default CF,
+   * owned by the DB.
    *
+   * @param handle
+   * @return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
    */
-  void check(std::string message);
+  static std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
+  createSharedPtrToDefault(ROCKSDB_NAMESPACE::ColumnFamilyHandle* handle) {
+    std::shared_ptr<SharedPtrHolder> holder(new SharedPtrHolder(handle, true));
+    return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>(holder,
+                                                                  handle);
+  };
 };

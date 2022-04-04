@@ -17,8 +17,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.Cache\
 	org.rocksdb.CassandraCompactionFilter\
 	org.rocksdb.CassandraValueMergeOperator\
-	org.rocksdb.ColumnFamilyHandleDefault\
-	org.rocksdb.ColumnFamilyHandleNonDefault\
+	org.rocksdb.ColumnFamilyHandle\
 	org.rocksdb.ColumnFamilyOptions\
 	org.rocksdb.CompactionJobInfo\
 	org.rocksdb.CompactionJobStats\

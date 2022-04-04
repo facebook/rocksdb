@@ -16,7 +16,7 @@
 #include "portal.h"
 #include "rocksdb/db.h"
 
-class APIWeakDB : APIBase {
+class APIWeakDB : public APIBase {
  public:
   std::weak_ptr<ROCKSDB_NAMESPACE::DB> db;
 

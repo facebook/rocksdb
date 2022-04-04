@@ -9,7 +9,33 @@
 #pragma once
 
 #include <iostream>
+
+#include "rocksdb/db.h"
+
 class APIBase {
+  /**
+   * @brief control deletion of the RocksDB CFH, which we must avoid if this is
+   * the DB's default CFH
+   *
+   */
+
+ public:
+  class SharedPtrHolder {
+    const ROCKSDB_NAMESPACE::ColumnFamilyHandle* handle;
+    const bool isDefault;
+
+   public:
+    virtual ~SharedPtrHolder() {
+      if (!isDefault) {
+        delete handle;
+      }
+    }
+
+    SharedPtrHolder(ROCKSDB_NAMESPACE::ColumnFamilyHandle* handle,
+                    bool isDefault)
+        : handle(handle), isDefault(isDefault){};
+  };
+
  public:
   void check(std::string message);
 };

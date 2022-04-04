@@ -17,8 +17,7 @@
 #include <tuple>
 #include <vector>
 
-#include "api_columnfamilyhandle_default.h"
-#include "api_columnfamilyhandle_nondefault.h"
+#include "api_columnfamilyhandle.h"
 #include "api_iterator.h"
 #include "api_rocksdb.h"
 #include "include/org_rocksdb_RocksDB.h"
@@ -164,8 +163,8 @@ jlongArray rocksdb_open_helper(
   std::unique_ptr<jlong[]> results =
       std::unique_ptr<jlong[]>(new jlong[resultsLen]);
   for (int i = 1; i <= len_cols; i++) {
-    std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfShared(
-        cf_handles[i - 1]);
+    std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfShared =
+        APIColumnFamilyHandle::createSharedPtr(cf_handles[i - 1]);
     std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
         new APIColumnFamilyHandle(dbShared, cfShared));
     dbAPI->columnFamilyHandles.push_back(cfShared);
@@ -394,12 +393,12 @@ jlong Java_org_rocksdb_RocksDB_createColumnFamily(
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return 0;
   }
-  return GET_CPLUSPLUS_POINTER(cf_handle);
-  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh(cf_handle);
+  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh =
+      APIColumnFamilyHandle::createSharedPtr(cf_handle);
   std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
       new APIColumnFamilyHandle(dbAPI->db, cfh));
   dbAPI->columnFamilyHandles.push_back(cfh);
-  return reinterpret_cast<jlong>(cfhAPI.release());
+  return GET_CPLUSPLUS_POINTER(cfhAPI.release());
 }
 
 /*
@@ -3617,7 +3616,7 @@ jlong Java_org_rocksdb_RocksDB_getDefaultColumnFamily(
   return GET_CPLUSPLUS_POINTER(cf_handle);
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
   return reinterpret_cast<jlong>(
-      new APIColumnFamilyHandleDefault(dbAPI.db, dbAPI->DefaultColumnFamily()));
+      new APIColumnFamilyHandle(dbAPI.db, dbAPI.defaultColumnFamilyHandle));
 }
 
 /*
