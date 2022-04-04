@@ -2372,10 +2372,10 @@ jtest: rocksdbjava
 jdb_bench:
 	cd java;$(MAKE) db_bench;
 
-commit_prereq: build_tools/rocksdb-lego-determinator \
-               build_tools/precommit_checker.py
-	J=$(J) build_tools/precommit_checker.py unit clang_unit release clang_release tsan asan ubsan lite unit_non_shm
-	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
+commit_prereq:
+	echo "TODO: bring this back using parts of old precommit_checker.py and rocksdb-lego-determinator"
+	false # J=$(J) build_tools/precommit_checker.py unit clang_unit release clang_release tsan asan ubsan lite unit_non_shm
+	# $(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
 
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation
