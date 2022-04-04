@@ -1153,7 +1153,7 @@ NO_COMPRESSION_COMMANDS="[
             $CLEANUP_ENV,
             {
                 \"name\":\"Run RocksDB debug unit test\",
-                \"shell\":\"cd $WORKING_DIR; build_tools/rocksdb-lego-determinator run_no_compression || $CONTRUN_NAME=run_no_compression $TASK_CREATION_TOOL\",
+                \"shell\":\"cd $WORKING_DIR; PARALLEL_J=$PARALLEL_J PARALLEL_j=$PARALLEL_j build_tools/rocksdb-lego-determinator run_no_compression || $CONTRUN_NAME=run_no_compression $TASK_CREATION_TOOL\",
                 \"user\":\"root\",
                 $PARSER
             }
