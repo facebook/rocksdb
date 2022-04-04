@@ -25,8 +25,7 @@ public class Checkpoint extends RocksObject {
    */
   public static Checkpoint create(final RocksDB db) {
     if (db == null) {
-      throw new IllegalArgumentException(
-          "RocksDB instance shall not be null.");
+      throw new IllegalArgumentException("RocksDB instance shall not be null.");
     }
     return new Checkpoint(db);
   }

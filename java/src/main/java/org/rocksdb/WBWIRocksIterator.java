@@ -97,10 +97,8 @@ public class WBWIRocksIterator
     super.close();
   }
 
-  @Override
-  protected final native void nativeClose(long nativeReference);
-  @Override
-  protected final native boolean isLastReference(long nativeAPIReference);
+  @Override protected final native void nativeClose(long nativeReference);
+  @Override protected final native boolean isLastReference(long nativeAPIReference);
 
   /**
    * Represents an entry returned by

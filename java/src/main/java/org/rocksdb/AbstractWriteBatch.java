@@ -5,13 +5,10 @@
 
 package org.rocksdb;
 
+import java.nio.ByteBuffer;
 import org.rocksdb.RocksNative;
 
-import java.nio.ByteBuffer;
-
-public abstract class AbstractWriteBatch extends RocksNative
-    implements WriteBatchInterface {
-
+public abstract class AbstractWriteBatch extends RocksNative implements WriteBatchInterface {
   protected AbstractWriteBatch(final long nativeHandle) {
     super(nativeHandle);
   }
@@ -29,8 +26,7 @@ public abstract class AbstractWriteBatch extends RocksNative
   @Override
   public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key,
       byte[] value) throws RocksDBException {
-    put(getNative(), key, key.length, value, value.length,
-        columnFamilyHandle.getNative());
+    put(getNative(), key, key.length, value, value.length, columnFamilyHandle.getNative());
   }
 
   @Override
@@ -41,8 +37,7 @@ public abstract class AbstractWriteBatch extends RocksNative
   @Override
   public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key,
       byte[] value) throws RocksDBException {
-    merge(getNative(), key, key.length, value, value.length,
-        columnFamilyHandle.getNative());
+    merge(getNative(), key, key.length, value, value.length, columnFamilyHandle.getNative());
   }
 
   @Override
@@ -84,8 +79,7 @@ public abstract class AbstractWriteBatch extends RocksNative
   @Override
   public void delete(ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key)
       throws RocksDBException {
-    deleteDirect(
-        getNative(), key, key.position(), key.remaining(), columnFamilyHandle.getNative());
+    deleteDirect(getNative(), key, key.position(), key.remaining(), columnFamilyHandle.getNative());
     key.position(key.limit());
   }
 

@@ -1,7 +1,6 @@
 package org.rocksdb;
 
 public class RocksDBRuntimeException extends RuntimeException {
-
   /* @Nullable */ private final Status status;
 
   /**
@@ -19,8 +18,7 @@ public class RocksDBRuntimeException extends RuntimeException {
   }
 
   public RocksDBRuntimeException(final Status status) {
-    super(status.getState() != null ? status.getState()
-        : status.getCodeString());
+    super(status.getState() != null ? status.getState() : status.getCodeString());
     this.status = status;
   }
 
@@ -32,5 +30,4 @@ public class RocksDBRuntimeException extends RuntimeException {
   public Status getStatus() {
     return status;
   }
-
 }

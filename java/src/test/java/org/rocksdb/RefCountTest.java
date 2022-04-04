@@ -36,7 +36,8 @@ public class RefCountTest {
         Assert.fail("Iterator with a closed handle, we expect it to fail");
       } catch (IllegalStateException illegalStateException) {
         illegalStateException.printStackTrace();
-        assertThat(illegalStateException.getMessage()).contains("RocksDB native reference was previously closed");
+        assertThat(illegalStateException.getMessage())
+            .contains("RocksDB native reference was previously closed");
       }
     }
     assertThat(weakDB.isDatabaseOpen()).isFalse();
@@ -90,17 +91,18 @@ public class RefCountTest {
       Assert.fail("Iterator with a closed handle, we expected it to fail");
     } catch (IllegalStateException illegalStateException) {
       // Expected failure path here.
-      assertThat(illegalStateException.getMessage()).contains("RocksDB native reference was previously closed");
+      assertThat(illegalStateException.getMessage())
+          .contains("RocksDB native reference was previously closed");
     }
     assertThat(weakDB.isDatabaseOpen()).isFalse();
   }
 
-  @Test public void openIteratorCausesAssertionFailure() throws RocksDBException {
+  @Test
+  public void openIteratorCausesAssertionFailure() throws RocksDBException {
     WeakDB weakDB = null;
     RocksIterator iterator = null;
-    try (final Options options = new Options()
-        .setCreateIfMissing(true)
-        .setCreateMissingColumnFamilies(true);
+    try (final Options options =
+             new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       weakDB = db.createWeakDB();
       final ColumnFamilyHandle cfHandle = db.createColumnFamily(
@@ -129,11 +131,9 @@ public class RefCountTest {
    */
   @Test
   public void rocksDefaultCF() throws RocksDBException {
-    try (final Options options = new Options()
-        .setCreateIfMissing(true)
-        .setCreateMissingColumnFamilies(true);
-         final RocksDB db = RocksDB.open(options,
-             this.dbFolder.getRoot().getAbsolutePath())) {
+    try (final Options options =
+             new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(options, this.dbFolder.getRoot().getAbsolutePath())) {
       db.put("key".getBytes(), "value".getBytes());
       db.getDefaultColumnFamily().close();
     }
@@ -146,25 +146,23 @@ public class RefCountTest {
    */
   @Test
   public void rocksDBClosedDBAccess() throws RocksDBException {
-
     RocksDB closedDB;
     WeakDB weakDB;
-    try (final Options options = new Options()
-        .setCreateIfMissing(true)
-        .setCreateMissingColumnFamilies(true);
-         final RocksDB db = RocksDB.open(options,
-             this.dbFolder.getRoot().getAbsolutePath())) {
+    try (final Options options =
+             new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(options, this.dbFolder.getRoot().getAbsolutePath())) {
       db.put("key".getBytes(), "value".getBytes());
       weakDB = db.createWeakDB();
       closedDB = db;
     }
     assertThat(weakDB.isDatabaseOpen()).isFalse();
-    //And we crap out accessing the closed DB
+    // And we crap out accessing the closed DB
     try {
       assertThat(closedDB.get("key".getBytes())).isEqualTo("value".getBytes());
       fail("Expect an exception because the DB we accessed was closed");
     } catch (IllegalStateException illegalStateException) {
-      assertThat(illegalStateException.getMessage()).contains("RocksDB native reference was previously closed");
+      assertThat(illegalStateException.getMessage())
+          .contains("RocksDB native reference was previously closed");
     }
   }
 
@@ -175,9 +173,8 @@ public class RefCountTest {
   @Test
   public void testIterateClosedCF() throws RocksDBException {
     WeakDB weakDB = null;
-    try (final Options options = new Options()
-        .setCreateIfMissing(true)
-        .setCreateMissingColumnFamilies(true);
+    try (final Options options =
+             new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       weakDB = db.createWeakDB();
       final ColumnFamilyHandle cfHandle = db.createColumnFamily(
@@ -214,9 +211,8 @@ public class RefCountTest {
   @Test
   public void testUseCFAfterClose() throws RocksDBException {
     WeakDB weakDB = null;
-    try (final Options options = new Options()
-        .setCreateIfMissing(true)
-        .setCreateMissingColumnFamilies(true);
+    try (final Options options =
+             new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       weakDB = db.createWeakDB();
       final ColumnFamilyHandle cfHandle = db.createColumnFamily(
@@ -230,7 +226,6 @@ public class RefCountTest {
         assertThat(iterator.key()).isEqualTo("key1".getBytes());
         assertThat(iterator.value()).isEqualTo("value1".getBytes());
 
-
         // Close the CF
         cfHandle.close();
 
@@ -239,7 +234,8 @@ public class RefCountTest {
           final RocksIterator iterator2 = db.newIterator(cfHandle);
           fail("New iterator should throw exception as DB is closed");
         } catch (IllegalStateException illegalStateException) {
-          assertThat(illegalStateException.getMessage()).contains("RocksDB native reference was previously closed");
+          assertThat(illegalStateException.getMessage())
+              .contains("RocksDB native reference was previously closed");
         }
       }
     }
@@ -252,12 +248,10 @@ public class RefCountTest {
    */
   @Test
   public void testCloseCFWithDanglingIterator() {
-
     WeakDB weakDB = null;
 
-    try (final Options options = new Options()
-        .setCreateIfMissing(true)
-        .setCreateMissingColumnFamilies(true);
+    try (final Options options =
+             new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       weakDB = db.createWeakDB();
 
@@ -305,10 +299,8 @@ public class RefCountTest {
    */
   @Test
   public void testCloseDBWithDanglingIterator() {
-
-    try (final Options options = new Options()
-        .setCreateIfMissing(true)
-        .setCreateMissingColumnFamilies(true);
+    try (final Options options =
+             new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       final ColumnFamilyHandle cfHandle = db.createColumnFamily(
           new ColumnFamilyDescriptor("new_cf".getBytes(StandardCharsets.UTF_8)));
@@ -323,9 +315,9 @@ public class RefCountTest {
         assertThat(iterator.key()).isEqualTo("key1".getBytes());
         assertThat(iterator.value()).isEqualTo("value1".getBytes());
 
-        // Close the db, but the open iterator should hold a reference, so we can continue to use it.
-        // The model is that open iterator(s) prolong the lifetime of the underlying C++ database,
-        // it is still "open" after db.close(), until the iterator itself is closed.
+        // Close the db, but the open iterator should hold a reference, so we can continue to use
+        // it. The model is that open iterator(s) prolong the lifetime of the underlying C++
+        // database, it is still "open" after db.close(), until the iterator itself is closed.
         assertThat(db.isLastReference()).isFalse();
         weakDB = db.createWeakDB();
         assertThat(weakDB.isDatabaseOpen()).isTrue();
@@ -355,9 +347,8 @@ public class RefCountTest {
   @Test
   public void testIteratorNextWithoutInitialSeek() {
     WeakDB weakDB = null;
-    try (final Options options = new Options()
-        .setCreateIfMissing(true)
-        .setCreateMissingColumnFamilies(true);
+    try (final Options options =
+             new Options().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       final ColumnFamilyHandle cfHandle = db.createColumnFamily(
           new ColumnFamilyDescriptor("new_cf".getBytes(StandardCharsets.UTF_8)));
@@ -366,8 +357,8 @@ public class RefCountTest {
       db.put(cfHandle, "key2".getBytes(), "value2".getBytes());
 
       try (final RocksIterator iterator = db.newIterator(cfHandle)) {
-        //Iterator hasn't seek()-ed, so we get a valid assertion in C++
-        //Assertion failed: (valid_), function Next, file db_iter.cc, line 129.
+        // Iterator hasn't seek()-ed, so we get a valid assertion in C++
+        // Assertion failed: (valid_), function Next, file db_iter.cc, line 129.
         iterator.next();
         fail("Iterator next() without seek() should not be valid");
       } catch (RocksDBException e) {
@@ -375,8 +366,8 @@ public class RefCountTest {
       }
 
       try (final RocksIterator iterator = db.newIterator(cfHandle)) {
-        //Iterator hasn't seek()-ed, so we get a valid assertion in C++
-        //Assertion failed: (valid_), function Next, file db_iter.cc, line 129.
+        // Iterator hasn't seek()-ed, so we get a valid assertion in C++
+        // Assertion failed: (valid_), function Next, file db_iter.cc, line 129.
         iterator.prev();
         fail("Iterator prev() without seek() should not be valid");
       } catch (RocksDBException e) {
@@ -415,20 +406,22 @@ public class RefCountTest {
 
     final List<ColumnFamilyDescriptor> columnFamilyDescriptors = new ArrayList<>();
     columnFamilyDescriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
-    columnFamilyDescriptors.add(new ColumnFamilyDescriptor("new_cf".getBytes(StandardCharsets.UTF_8)));
+    columnFamilyDescriptors.add(
+        new ColumnFamilyDescriptor("new_cf".getBytes(StandardCharsets.UTF_8)));
     final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
     try (final RocksDB db2 = RocksDB.open(new DBOptions(), dbFolder.getRoot().getAbsolutePath(),
-        columnFamilyDescriptors,
-        cfHandles)) {
+             columnFamilyDescriptors, cfHandles)) {
       weakDB = db2.createWeakDB();
       db2.put(cfHandles.get(1), "key1".getBytes(), "value1".getBytes());
 
-      //The handle we have in our hand is not valid (it was closed with a previous DB open), and a crash happens.
+      // The handle we have in our hand is not valid (it was closed with a previous DB open), and a
+      // crash happens.
       try {
         final byte[] valueBytes = db2.get(cfHandle, "key1".getBytes());
         fail("Expect exception for already closed cfHandle");
       } catch (RocksDBException rocksDBException) {
-        assertThat(rocksDBException.getMessage()).contains("The DB associated with an object is already closed.");
+        assertThat(rocksDBException.getMessage())
+            .contains("The DB associated with an object is already closed.");
       }
 
       assertThat(db2.get(cfHandles.get(1), "key1".getBytes())).isEqualTo("value1".getBytes());
@@ -439,7 +432,6 @@ public class RefCountTest {
 
   @Test
   public void testClosedCFHandle() throws RocksDBException {
-
     WeakDB weakDB = null;
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       weakDB = db.createWeakDB();
@@ -455,7 +447,8 @@ public class RefCountTest {
         final byte[] valueBytes = db.get(cfHandle, "key1".getBytes());
         Assert.fail("Get to close CF should fail");
       } catch (IllegalStateException illegalStateException) {
-        assertThat(illegalStateException.getMessage()).contains("RocksDB native reference was previously closed");
+        assertThat(illegalStateException.getMessage())
+            .contains("RocksDB native reference was previously closed");
       }
     }
     assertThat(weakDB.isDatabaseOpen()).isFalse();
@@ -463,7 +456,6 @@ public class RefCountTest {
 
   @Test
   public void test2Databases() throws RocksDBException {
-
     WeakDB weakDB = null;
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       weakDB = db.createWeakDB();
@@ -475,7 +467,6 @@ public class RefCountTest {
 
       byte[] bytesFromOtherDB = "not the correct answer".getBytes();
       try (final RocksDB db2 = RocksDB.open(dbFolder2.getRoot().getAbsolutePath())) {
-
         // We are fetching from a valid open handle on another database.
         // We introduced some checking code in the get() to ensure the DB matches.
         bytesFromOtherDB = db2.get(cfHandle, "key1".getBytes());

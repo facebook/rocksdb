@@ -216,11 +216,9 @@ public class WriteBatch extends AbstractWriteBatch {
     super(nativeHandle);
   }
 
-  @Override
-  protected final native void nativeClose(long nativeReference);
+  @Override protected final native void nativeClose(long nativeReference);
 
-  @Override
-  protected final native boolean isLastReference(long nativeAPIReference);
+  @Override protected final native boolean isLastReference(long nativeAPIReference);
   // TODO (AP) RCA
 
   @Override final native int count0(final long handle);

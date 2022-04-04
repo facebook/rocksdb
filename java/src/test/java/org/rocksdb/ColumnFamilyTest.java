@@ -238,9 +238,9 @@ public class ColumnFamilyTest {
 
   @Test
   public void writeBatchSimple() throws RocksDBException {
-    try (final WriteOptions writeOpt = new WriteOptions(); final WriteBatch writeBatch = new WriteBatch();
-         final RocksDB db = RocksDB.open(
-             dbFolder.getRoot().getAbsolutePath())) {
+    try (final WriteOptions writeOpt = new WriteOptions();
+         final WriteBatch writeBatch = new WriteBatch();
+         final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       StringBuilder sb = new StringBuilder();
       for (int i = 0; i < 1000; i++) {
         sb.append("value0123456789");
@@ -589,19 +589,20 @@ public class ColumnFamilyTest {
       final ColumnFamilyDescriptor desc2 = new ColumnFamilyDescriptor(name2);
       final ColumnFamilyHandle cf1 = db.createColumnFamily(desc1);
       cf2 = db.createColumnFamily(desc2);
-      //TODO (AP) RCA
+      // TODO (AP) RCA
       assertThat(cf1.isLastReference()).isFalse();
       assertThat(cf2.isLastReference()).isFalse();
       assertThat(cf1.isDefaultColumnFamily()).isFalse();
       db.destroyColumnFamilyHandle(cf1);
-      assertThat(cf1.isLastReference()).isFalse(); //destroy was deprecated, and is a no-op
-      cf1.close(); //but we can still close it
+      assertThat(cf1.isLastReference()).isFalse(); // destroy was deprecated, and is a no-op
+      cf1.close(); // but we can still close it
       // At this point cf1 should not be used!
       try {
         assertThat(cf1.isLastReference()).isTrue();
         fail("cf1 should throw an exception on being closed");
       } catch (IllegalStateException illegalStateException) {
-        assertThat(illegalStateException.getMessage()).contains("RocksDB native reference was previously closed");
+        assertThat(illegalStateException.getMessage())
+            .contains("RocksDB native reference was previously closed");
       }
       assertThat(cf2.isLastReference()).isFalse();
     }

@@ -5,11 +5,10 @@
 
 package org.rocksdb;
 
-import org.rocksdb.RocksNative;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.rocksdb.RocksNative;
 
 /**
  * Database with Transaction support
@@ -105,21 +104,21 @@ public class TransactionDB extends RocksDB
     return tdb;
   }
 
-  @Override
-  protected native void nativeClose(long nativeReference);
-  //TODO (AP) in native, duplicate the closeDatabase() functionality and the reference counted API dance
+  @Override protected native void nativeClose(long nativeReference);
+  // TODO (AP) in native, duplicate the closeDatabase() functionality and the reference counted API
+  // dance
 
   @Override
   public Transaction beginTransaction(final WriteOptions writeOptions) {
-    return new Transaction(this, beginTransaction(getNative(),
-        writeOptions.nativeHandle_));
+    return new Transaction(this, beginTransaction(getNative(), writeOptions.nativeHandle_));
   }
 
   @Override
   public Transaction beginTransaction(final WriteOptions writeOptions,
       final TransactionOptions transactionOptions) {
-    return new Transaction(this, beginTransaction(getNative(),
-        writeOptions.nativeHandle_, transactionOptions.nativeHandle_));
+    return new Transaction(this,
+        beginTransaction(
+            getNative(), writeOptions.nativeHandle_, transactionOptions.nativeHandle_));
   }
 
   // TODO(AR) consider having beingTransaction(... oldTransaction) set a
@@ -131,8 +130,8 @@ public class TransactionDB extends RocksDB
   @Override
   public Transaction beginTransaction(final WriteOptions writeOptions,
       final Transaction oldTransaction) {
-    final long jtxnHandle = beginTransaction_withOld(getNative(),
-        writeOptions.nativeHandle_, oldTransaction.nativeHandle_);
+    final long jtxnHandle = beginTransaction_withOld(
+        getNative(), writeOptions.nativeHandle_, oldTransaction.nativeHandle_);
 
     // RocksJava relies on the assumption that
     // we do not allocate a new Transaction object
@@ -146,9 +145,8 @@ public class TransactionDB extends RocksDB
   public Transaction beginTransaction(final WriteOptions writeOptions,
       final TransactionOptions transactionOptions,
       final Transaction oldTransaction) {
-    final long jtxn_handle = beginTransaction_withOld(getNative(),
-        writeOptions.nativeHandle_, transactionOptions.nativeHandle_,
-        oldTransaction.nativeHandle_);
+    final long jtxn_handle = beginTransaction_withOld(getNative(), writeOptions.nativeHandle_,
+        transactionOptions.nativeHandle_, oldTransaction.nativeHandle_);
 
     // RocksJava relies on the assumption that
     // we do not allocate a new Transaction object

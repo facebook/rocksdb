@@ -9,7 +9,6 @@ import java.util.Arrays;
 import java.util.Objects;
 
 public class ColumnFamilyHandle extends RocksNative {
-
   /**
    * Constructor called only from JNI.
    *
@@ -25,8 +24,8 @@ public class ColumnFamilyHandle extends RocksNative {
    * https://github.com/facebook/rocksdb/issues/2687.
    *
    * TODO (AP) - not yet implemented in the new reference counted API world.
-   * I think the right answer now is to create a separate ColumnFamilyHandle java object, and to let the
-   * shared/weak pointers contained in that object (and other ColumnFamilyHandle java objects)
+   * I think the right answer now is to create a separate ColumnFamilyHandle java object, and to let
+   * the shared/weak pointers contained in that object (and other ColumnFamilyHandle java objects)
    *
    *
    * @param nativeReference native reference to the column family.
@@ -46,9 +45,8 @@ public class ColumnFamilyHandle extends RocksNative {
 
     final ColumnFamilyHandle that = (ColumnFamilyHandle) o;
     try {
-      return equalsByHandle(getNative(), that.getNative()) &&
-          getID() == that.getID() &&
-          Arrays.equals(getName(), that.getName());
+      return equalsByHandle(getNative(), that.getNative()) && getID() == that.getID()
+          && Arrays.equals(getName(), that.getName());
     } catch (RocksDBException e) {
       throw new RuntimeException("Cannot compare column family handles", e);
     }
@@ -103,10 +101,8 @@ public class ColumnFamilyHandle extends RocksNative {
     return getDescriptor(getNative());
   }
 
-  @Override
-  protected native void nativeClose(long nativeReference);
-  @Override
-  protected native boolean isLastReference(long nativeAPIReference);
+  @Override protected native void nativeClose(long nativeReference);
+  @Override protected native boolean isLastReference(long nativeAPIReference);
 
   protected boolean isDefaultColumnFamily() throws RocksDBException {
     return isDefaultColumnFamily(getNative());
@@ -117,5 +113,4 @@ public class ColumnFamilyHandle extends RocksNative {
   protected native int getID(final long handle);
   protected native ColumnFamilyDescriptor getDescriptor(final long handle) throws RocksDBException;
   protected native boolean isDefaultColumnFamily(final long handle) throws RocksDBException;
-
 }

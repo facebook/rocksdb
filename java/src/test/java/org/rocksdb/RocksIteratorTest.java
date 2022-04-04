@@ -276,7 +276,7 @@ public class RocksIteratorTest {
       db.put(cfHandle2, "key2".getBytes(), "value2".getBytes());
 
       try (final RocksIterator iterator = db.newIterator(cfHandle2)) {
-        //db.dropColumnFamily(cfHandle2);
+        // db.dropColumnFamily(cfHandle2);
         cfHandle2.close();
 
         iterator.seekToFirst();

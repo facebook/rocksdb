@@ -46,7 +46,7 @@ public class SstFileReader extends RocksNative {
    *    native library.
    */
   public void open(final String filePath) throws RocksDBException {
-    //TODO (AP) reference counted API
+    // TODO (AP) reference counted API
     open(getNative(), filePath);
   }
 
@@ -71,7 +71,7 @@ public class SstFileReader extends RocksNative {
     return getTableProperties(getNative());
   }
 
-  //TODO (AP) reference counted API
+  // TODO (AP) reference counted API
   private native long newIterator(final long handle, final long readOptionsHandle);
 
   private native void open(final long handle, final String filePath)
@@ -82,11 +82,9 @@ public class SstFileReader extends RocksNative {
   private native TableProperties getTableProperties(final long handle)
       throws RocksDBException;
 
-  @Override
-  protected final native void nativeClose(long nativeReference);
-  //TODO (AP) reference counted API
+  @Override protected final native void nativeClose(long nativeReference);
+  // TODO (AP) reference counted API
 
-  @Override
-  protected final native boolean isLastReference(long nativeAPIReference);
-  //TODO (AP) reference counted API
+  @Override protected final native boolean isLastReference(long nativeAPIReference);
+  // TODO (AP) reference counted API
 }

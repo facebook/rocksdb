@@ -139,9 +139,9 @@ public class TtlDB extends RocksDB {
     return ttlDB;
   }
 
-  @Override
-  protected native void nativeClose(long nativeReference);
-  //TODO (AP) in native, duplicate the closeDatabase() functionality and the reference counted API dance
+  @Override protected native void nativeClose(long nativeReference);
+  // TODO (AP) in native, duplicate the closeDatabase() functionality and the reference counted API
+  // dance
 
   /**
    * <p>Creates a new ttl based column family with a name defined
@@ -163,8 +163,7 @@ public class TtlDB extends RocksDB {
       final ColumnFamilyDescriptor columnFamilyDescriptor,
       final int ttl) throws RocksDBException {
     return new ColumnFamilyHandle(createColumnFamilyWithTtl(getNative(),
-            columnFamilyDescriptor.getName(),
-            columnFamilyDescriptor.getOptions().nativeHandle_, ttl));
+        columnFamilyDescriptor.getName(), columnFamilyDescriptor.getOptions().nativeHandle_, ttl));
   }
 
   /**
@@ -189,7 +188,6 @@ public class TtlDB extends RocksDB {
       final String db_path, final byte[][] columnFamilyNames,
       final long[] columnFamilyOptions, final int[] ttlValues,
       final boolean readOnly) throws RocksDBException;
-  private native long createColumnFamilyWithTtl(final long handle,
-      final byte[] columnFamilyName, final long columnFamilyOptions, int ttl)
-      throws RocksDBException;
+  private native long createColumnFamilyWithTtl(final long handle, final byte[] columnFamilyName,
+      final long columnFamilyOptions, int ttl) throws RocksDBException;
 }

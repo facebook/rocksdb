@@ -6,7 +6,6 @@
 package org.rocksdb;
 
 public class WeakDB extends RocksNative {
-
   protected WeakDB(long nativeReference) {
     super(nativeReference);
   }
@@ -17,9 +16,7 @@ public class WeakDB extends RocksNative {
 
   private native boolean isDatabaseOpen(long nativeReference);
 
-  @Override
-  protected native void nativeClose(long nativeReference);
+  @Override protected native void nativeClose(long nativeReference);
 
-  @Override
-  protected native boolean isLastReference(long nativeAPIReference);
+  @Override protected native boolean isLastReference(long nativeAPIReference);
 }

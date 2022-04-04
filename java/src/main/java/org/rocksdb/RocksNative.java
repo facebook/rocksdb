@@ -8,10 +8,9 @@ package org.rocksdb;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public abstract class RocksNative implements AutoCloseable {
-
   /**
-   * The reference is final, and the fact that it has been closed (and is no longer valid) must be checked
-   * with the atomic flag.
+   * The reference is final, and the fact that it has been closed (and is no longer valid) must be
+   * checked with the atomic flag.
    */
   private final long nativeAPIReference_;
   protected final AtomicBoolean isOpen;
@@ -27,7 +26,6 @@ public abstract class RocksNative implements AutoCloseable {
 
   @Override
   public void close() {
-
     if (isOpen.getAndSet(false)) {
       nativeClose(nativeAPIReference_);
     }

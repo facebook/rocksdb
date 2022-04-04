@@ -5,9 +5,8 @@
 
 package org.rocksdb;
 
-import org.rocksdb.RocksNative;
-
 import java.util.List;
+import org.rocksdb.RocksNative;
 
 /**
  * Database with Transaction support.
@@ -96,22 +95,20 @@ public class OptimisticTransactionDB extends RocksDB
     return otdb;
   }
 
-  @Override
-  protected native void nativeClose(long nativeReference);
-  //TODO (AP) reference counted API
+  @Override protected native void nativeClose(long nativeReference);
+  // TODO (AP) reference counted API
 
   @Override
   public Transaction beginTransaction(final WriteOptions writeOptions) {
-    return new Transaction(this, beginTransaction(getNative(),
-        writeOptions.nativeHandle_));
+    return new Transaction(this, beginTransaction(getNative(), writeOptions.nativeHandle_));
   }
 
   @Override
   public Transaction beginTransaction(final WriteOptions writeOptions,
       final OptimisticTransactionOptions optimisticTransactionOptions) {
-    return new Transaction(this, beginTransaction(getNative(),
-        writeOptions.nativeHandle_,
-        optimisticTransactionOptions.nativeHandle_));
+    return new Transaction(this,
+        beginTransaction(
+            getNative(), writeOptions.nativeHandle_, optimisticTransactionOptions.nativeHandle_));
   }
 
   // TODO(AR) consider having beingTransaction(... oldTransaction) set a
@@ -123,8 +120,8 @@ public class OptimisticTransactionDB extends RocksDB
   @Override
   public Transaction beginTransaction(final WriteOptions writeOptions,
       final Transaction oldTransaction) {
-    final long jtxn_handle = beginTransaction_withOld(getNative(),
-        writeOptions.nativeHandle_, oldTransaction.nativeHandle_);
+    final long jtxn_handle = beginTransaction_withOld(
+        getNative(), writeOptions.nativeHandle_, oldTransaction.nativeHandle_);
 
     // RocksJava relies on the assumption that
     // we do not allocate a new Transaction object
@@ -138,9 +135,8 @@ public class OptimisticTransactionDB extends RocksDB
   public Transaction beginTransaction(final WriteOptions writeOptions,
       final OptimisticTransactionOptions optimisticTransactionOptions,
       final Transaction oldTransaction) {
-    final long jtxn_handle = beginTransaction_withOld(getNative(),
-        writeOptions.nativeHandle_, optimisticTransactionOptions.nativeHandle_,
-        oldTransaction.nativeHandle_);
+    final long jtxn_handle = beginTransaction_withOld(getNative(), writeOptions.nativeHandle_,
+        optimisticTransactionOptions.nativeHandle_, oldTransaction.nativeHandle_);
 
     // RocksJava relies on the assumption that
     // we do not allocate a new Transaction object

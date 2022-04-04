@@ -132,4 +132,7 @@ public class RocksIterator extends AbstractRocksIterator<RocksDB> {
   private native int keyByteArray0(long handle, byte[] array, int arrayOffset, int arrayLen);
   private native int valueDirect0(long handle, ByteBuffer buffer, int bufferOffset, int bufferLen);
   private native int valueByteArray0(long handle, byte[] array, int arrayOffset, int arrayLen);
+
+  @Override protected final native void nativeClose(long nativeReference);
+  @Override protected final native boolean isLastReference(long nativeAPIReference);
 }
