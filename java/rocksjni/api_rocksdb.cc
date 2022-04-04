@@ -11,6 +11,9 @@
 #include <iostream>
 #include <memory>
 
+#include "api_columnfamilyhandle.h"
+#include "api_iterator.h"
+
 void APIRocksDB::check(std::string message) {
   std::cout << " APIRocksDB::check(); " << message << " ";
   std::cout << " db.use_count() " << db.use_count() << "; ";
@@ -18,4 +21,12 @@ void APIRocksDB::check(std::string message) {
     std::cout << " cfh.use_count() " << cfh.use_count() << "; ";
   }
   std::cout << std::endl;
+}
+
+std::unique_ptr<APIIterator> APIRocksDB::newIterator(
+    ROCKSDB_NAMESPACE::Iterator* iterator,
+    std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh) {
+  std::shared_ptr<ROCKSDB_NAMESPACE::Iterator> iter(iterator);
+  std::unique_ptr<APIIterator> iterAPI(new APIIterator(db, iter, cfh));
+  return iterAPI;
 }

@@ -963,7 +963,7 @@ public class RocksDB extends RocksNative {
       throws RocksDBException {
     assert key.isDirect() && value.isDirect();
     putDirect(getNative(), writeOpts.nativeHandle_, key, key.position(), key.remaining(), value,
-        value.position(), value.remaining(), 0);
+        value.position(), value.remaining());
     key.position(key.limit());
     value.position(value.limit());
   }
@@ -4480,7 +4480,10 @@ public class RocksDB extends RocksNative {
       final long handle, final long cfHandle, final long readOptHandle,
       final byte[] key, final int keyOffset, final int keyLength);
   private native void putDirect(long handle, long writeOptHandle, ByteBuffer key, int keyOffset,
-      int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
+                                int keyLength, ByteBuffer value, int valueOffset, int valueLength)
+      throws RocksDBException;
+  private native void putDirect(long handle, long writeOptHandle, ByteBuffer key, int keyOffset,
+                                int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
       throws RocksDBException;
   private native long iterator(final long handle);
   private native long iterator(final long handle, final long readOptHandle);
@@ -4508,7 +4511,9 @@ public class RocksDB extends RocksNative {
       final long readOptHandle, final ByteBuffer key, final int keyOffset, final int keyLength,
       final ByteBuffer value, final int valueOffset, final int valueLength);
   private native void deleteDirect(long handle, long optHandle, ByteBuffer key, int keyOffset,
-      int keyLength, long cfHandle) throws RocksDBException;
+                                   int keyLength) throws RocksDBException;
+  private native void deleteDirect(long handle, long optHandle, ByteBuffer key, int keyOffset,
+                                   int keyLength, long cfHandle) throws RocksDBException;
   private native long getLongProperty(final long nativeHandle,
       final long cfHandle, final String property, final int propertyLength)
       throws RocksDBException;

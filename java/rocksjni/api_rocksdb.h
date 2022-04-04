@@ -13,6 +13,8 @@
 #include "api_base.h"
 #include "rocksdb/db.h"
 
+class APIIterator;
+
 class APIRocksDB : APIBase {
  public:
   /**
@@ -37,6 +39,10 @@ class APIRocksDB : APIBase {
   std::shared_ptr<ROCKSDB_NAMESPACE::DB>& operator*() { return db; }
 
   ROCKSDB_NAMESPACE::DB* get() const { return db.get(); }
+
+  std::unique_ptr<APIIterator> newIterator(
+      ROCKSDB_NAMESPACE::Iterator* iterator,
+      std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh);
 
   /**
    * @brief Create a CFH wrapped with a SharedPtrContent which will NOT
