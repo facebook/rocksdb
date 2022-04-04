@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Fix segfault in FilePrefetchBuffer with async_io as it doesn't wait for pending jobs to complete on destruction.
+
 ## 7.1.0 (03/23/2022)
 ### New Features
 * Allow WriteBatchWithIndex to index a WriteBatch that includes keys with user-defined timestamps. The index itself does not have timestamp.
