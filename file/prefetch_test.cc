@@ -694,6 +694,7 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
   options.write_buffer_size = 1024;
   options.create_if_missing = true;
   options.compression = kNoCompression;
+  options.statistics = CreateDBStatistics();
   options.env = env.get();
   if (std::get<0>(GetParam())) {
     options.use_direct_reads = true;
@@ -766,6 +767,8 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
       // TODO akanksha: Remove after adding new units.
       ro.async_io = true;
     }
+
+    options.statistics->Reset().PermitUncheckedError();
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     int num_keys = 0;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -773,14 +776,23 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
       num_keys++;
     }
     ASSERT_EQ(num_keys, total_keys);
-
     ASSERT_GT(buff_prefetch_count, 0);
-    buff_prefetch_count = 0;
     // For index and data blocks.
     if (is_adaptive_readahead) {
       ASSERT_EQ(readahead_carry_over_count, 2 * (num_sst_files - 1));
     } else {
       ASSERT_EQ(readahead_carry_over_count, 0);
+    }
+    if (ro.async_io) {
+      ASSERT_GT(options.statistics->getAndResetTickerCount(NUM_SYNC_PREFETCH),
+                0);
+      ASSERT_GT(options.statistics->getAndResetTickerCount(NUM_ASYNC_PREFETCH),
+                0);
+    } else {
+      ASSERT_EQ(options.statistics->getAndResetTickerCount(NUM_SYNC_PREFETCH),
+                buff_prefetch_count);
+      ASSERT_EQ(options.statistics->getAndResetTickerCount(NUM_ASYNC_PREFETCH),
+                0);
     }
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -902,6 +914,8 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
     options.use_direct_reads = true;
     options.use_direct_io_for_flush_and_compaction = true;
   }
+
+  options.statistics = CreateDBStatistics();
   BlockBasedTableOptions table_options;
   std::shared_ptr<Cache> cache = NewLRUCache(4 * 1024 * 1024, 2);  // 8MB
   table_options.block_cache = cache;
@@ -963,6 +977,7 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
     iter->Seek(BuildKey(1015));
     iter->Seek(BuildKey(1019));
     buff_prefetch_count = 0;
+    options.statistics->Reset().PermitUncheckedError();
   }
   {
     // After caching, blocks will be read from cache (Sequential blocks)
@@ -1008,6 +1023,19 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(current_readahead_size, expected_current_readahead_size);
     ASSERT_EQ(buff_prefetch_count, 2);
+
+    if (ro.async_io) {
+      ASSERT_EQ(options.statistics->getAndResetTickerCount(NUM_SYNC_PREFETCH),
+                buff_prefetch_count);
+      ASSERT_EQ(options.statistics->getAndResetTickerCount(NUM_ASYNC_PREFETCH),
+                buff_prefetch_count);
+    } else {
+      ASSERT_EQ(options.statistics->getAndResetTickerCount(NUM_SYNC_PREFETCH),
+                buff_prefetch_count);
+      ASSERT_EQ(options.statistics->getAndResetTickerCount(NUM_ASYNC_PREFETCH),
+                0);
+    }
+
     buff_prefetch_count = 0;
   }
   Close();

@@ -5088,6 +5088,10 @@ class TickerTypeJni {
         return -0x2D;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_COMPUTE_COUNT:
         return -0x2E;
+      case ROCKSDB_NAMESPACE::Tickers::NUM_SYNC_PREFETCH:
+        return -0X2F;
+      case ROCKSDB_NAMESPACE::Tickers::NUM_ASYNC_PREFETCH:
+        return -0X30;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5459,6 +5463,10 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_COUNT;
       case -0x2E:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_COMPUTE_COUNT;
+      case -0x2F:
+        return ROCKSDB_NAMESPACE::Tickers::NUM_SYNC_PREFETCH;
+      case -0x30:
+        return ROCKSDB_NAMESPACE::Tickers::NUM_ASYNC_PREFETCH;
       case 0x5F:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep

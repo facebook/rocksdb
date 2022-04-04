@@ -433,6 +433,11 @@ enum Tickers : uint32_t {
 
   BLOCK_CHECKSUM_COMPUTE_COUNT,
 
+  // # of synchronous prefetch calls made by RocksDB's internal prefetcher.
+  NUM_SYNC_PREFETCH,
+  // # of asynchronous prefetch calls made by RocksDB's internal prefetcher.
+  NUM_ASYNC_PREFETCH,
+
   TICKER_ENUM_MAX
 };
 

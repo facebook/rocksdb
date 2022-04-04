@@ -65,7 +65,7 @@ class FilePrefetchBuffer {
   FilePrefetchBuffer(size_t readahead_size = 0, size_t max_readahead_size = 0,
                      bool enable = true, bool track_min_offset = false,
                      bool implicit_auto_readahead = false,
-                     bool async_io = false)
+                     bool async_io = false, Statistics* statistics = nullptr)
       : curr_(0),
         readahead_size_(readahead_size),
         max_readahead_size_(max_readahead_size),
@@ -79,7 +79,8 @@ class FilePrefetchBuffer {
         io_handle_(nullptr),
         del_fn_(nullptr),
         async_read_in_progress_(false),
-        async_io_(async_io) {
+        async_io_(async_io),
+        statistics_(statistics) {
     // If async_io_ is enabled, data is asynchronously filled in second buffer
     // while curr_ is being consumed. If data is overlapping in two buffers,
     // data is copied to third buffer to return continuous buffer.
@@ -256,5 +257,7 @@ class FilePrefetchBuffer {
   IOHandleDeleter del_fn_;
   bool async_read_in_progress_;
   bool async_io_;
+
+  Statistics* statistics_;
 };
 }  // namespace ROCKSDB_NAMESPACE

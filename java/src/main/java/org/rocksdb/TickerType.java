@@ -806,6 +806,12 @@ public enum TickerType {
 
     BLOCK_CHECKSUM_COMPUTE_COUNT((byte) -0x2E),
 
+    /**
+     * RocksDB's internal prefetching statistics.
+     */
+    NUM_SYNC_PREFETCH((byte) -0x2F),
+    NUM_ASYNC_PREFETCH((byte) -0x30),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;
