@@ -1311,11 +1311,18 @@ jint Java_org_rocksdb_RocksDB_getDirect(JNIEnv* env, jobject /*jdb*/,
 /**
  * @return true if the merge succeeded, false if a Java Exception was thrown
  */
-bool rocksdb_merge_helper(JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
+bool rocksdb_merge_helper(JNIEnv* env, APIRocksDB& dbAPI,
                           const ROCKSDB_NAMESPACE::WriteOptions& write_options,
-                          ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle,
-                          jbyteArray jkey, jint jkey_off, jint jkey_len,
-                          jbyteArray jval, jint jval_off, jint jval_len) {
+                          APIColumnFamilyHandle* cfhAPI, jbyteArray jkey,
+                          jint jkey_off, jint jkey_len, jbyteArray jval,
+                          jint jval_off, jint jval_len) {
+  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh;
+  if (cfhAPI != nullptr) {
+    cfh = cfhAPI->cfhLockDBCheck(env, dbAPI);
+    if (!cfh) {
+      return false;
+    }
+  }
   jbyte* key = new jbyte[jkey_len];
   env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key);
   if (env->ExceptionCheck()) {
@@ -1337,10 +1344,10 @@ bool rocksdb_merge_helper(JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
                                        jval_len);
 
   ROCKSDB_NAMESPACE::Status s;
-  if (cf_handle != nullptr) {
-    s = db->Merge(write_options, cf_handle, key_slice, value_slice);
+  if (cfh) {
+    s = dbAPI->Merge(write_options, cfh.get(), key_slice, value_slice);
   } else {
-    s = db->Merge(write_options, key_slice, value_slice);
+    s = dbAPI->Merge(write_options, key_slice, value_slice);
   }
 
   // cleanup
@@ -1360,14 +1367,15 @@ bool rocksdb_merge_helper(JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
  * Method:    merge
  * Signature: (J[BII[BII)V
  */
-void Java_org_rocksdb_RocksDB_merge__J_3BII_3BII(
-    JNIEnv* env, jobject, jlong jdb_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len,
-    jbyteArray jval, jint jval_off, jint jval_len) {
+void Java_org_rocksdb_RocksDB_merge__J_3BII_3BII(JNIEnv* env, jobject,
+                                                 jlong jdb_handle,
+                                                 jbyteArray jkey, jint jkey_off,
+                                                 jint jkey_len, jbyteArray jval,
+                                                 jint jval_off, jint jval_len) {
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
   static const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
       ROCKSDB_NAMESPACE::WriteOptions();
-  rocksdb_merge_helper(env, dbAPI.get(), default_write_options, nullptr, jkey,
+  rocksdb_merge_helper(env, dbAPI, default_write_options, nullptr, jkey,
                        jkey_off, jkey_len, jval, jval_off, jval_len);
 }
 
@@ -1377,18 +1385,16 @@ void Java_org_rocksdb_RocksDB_merge__J_3BII_3BII(
  * Signature: (J[BII[BIIJ)V
  */
 void Java_org_rocksdb_RocksDB_merge__J_3BII_3BIIJ(
-    JNIEnv* env, jobject, jlong jdb_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len,
-    jbyteArray jval, jint jval_off, jint jval_len,
+    JNIEnv* env, jobject, jlong jdb_handle, jbyteArray jkey, jint jkey_off,
+    jint jkey_len, jbyteArray jval, jint jval_off, jint jval_len,
     jlong jcf_handle) {
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
   static const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
       ROCKSDB_NAMESPACE::WriteOptions();
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle != nullptr) {
-    rocksdb_merge_helper(env, dbAPI.get(), default_write_options, cf_handle,
-                         jkey, jkey_off, jkey_len, jval, jval_off, jval_len);
+  auto cfhAPI = reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle);
+  if (cfhAPI != nullptr) {
+    rocksdb_merge_helper(env, dbAPI, default_write_options, cfhAPI, jkey,
+                         jkey_off, jkey_len, jval, jval_off, jval_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
@@ -1402,13 +1408,13 @@ void Java_org_rocksdb_RocksDB_merge__J_3BII_3BIIJ(
  */
 void Java_org_rocksdb_RocksDB_merge__JJ_3BII_3BII(
     JNIEnv* env, jobject, jlong jdb_handle, jlong jwrite_options_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len,
-    jbyteArray jval, jint jval_off, jint jval_len) {
+    jbyteArray jkey, jint jkey_off, jint jkey_len, jbyteArray jval,
+    jint jval_off, jint jval_len) {
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
-  rocksdb_merge_helper(env, dbAPI.get(), *write_options, nullptr, jkey,
-                       jkey_off, jkey_len, jval, jval_off, jval_len);
+  rocksdb_merge_helper(env, dbAPI, *write_options, nullptr, jkey, jkey_off,
+                       jkey_len, jval, jval_off, jval_len);
 }
 
 /*
@@ -1418,16 +1424,15 @@ void Java_org_rocksdb_RocksDB_merge__JJ_3BII_3BII(
  */
 void Java_org_rocksdb_RocksDB_merge__JJ_3BII_3BIIJ(
     JNIEnv* env, jobject, jlong jdb_handle, jlong jwrite_options_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len,
-    jbyteArray jval, jint jval_off, jint jval_len, jlong jcf_handle) {
+    jbyteArray jkey, jint jkey_off, jint jkey_len, jbyteArray jval,
+    jint jval_off, jint jval_len, jlong jcf_handle) {
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle != nullptr) {
-    rocksdb_merge_helper(env, dbAPI.get(), *write_options, cf_handle, jkey,
-                         jkey_off, jkey_len, jval, jval_off, jval_len);
+  auto cfhAPI = reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle);
+  if (cfhAPI != nullptr) {
+    rocksdb_merge_helper(env, dbAPI, *write_options, cfhAPI, jkey, jkey_off,
+                         jkey_len, jval, jval_off, jval_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
@@ -1492,9 +1497,9 @@ void Java_org_rocksdb_RocksDB_deleteDirect__JJLjava_nio_ByteBuffer_2IIJ(
  * Method:    write0
  * Signature: (JJJ)V
  */
-void Java_org_rocksdb_RocksDB_write0(
-    JNIEnv* env, jobject, jlong jdb_handle,
-    jlong jwrite_options_handle, jlong jwb_handle) {
+void Java_org_rocksdb_RocksDB_write0(JNIEnv* env, jobject, jlong jdb_handle,
+                                     jlong jwrite_options_handle,
+                                     jlong jwb_handle) {
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
@@ -1512,9 +1517,9 @@ void Java_org_rocksdb_RocksDB_write0(
  * Method:    write1
  * Signature: (JJJ)V
  */
-void Java_org_rocksdb_RocksDB_write1(
-    JNIEnv* env, jobject, jlong jdb_handle,
-    jlong jwrite_options_handle, jlong jwbwi_handle) {
+void Java_org_rocksdb_RocksDB_write1(JNIEnv* env, jobject, jlong jdb_handle,
+                                     jlong jwrite_options_handle,
+                                     jlong jwbwi_handle) {
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
@@ -1585,9 +1590,10 @@ jbyteArray rocksdb_get_helper(JNIEnv* env, APIRocksDB& dbAPI,
  * Method:    get
  * Signature: (J[BII)[B
  */
-jbyteArray Java_org_rocksdb_RocksDB_get__J_3BII(
-    JNIEnv* env, jobject, jlong jdb_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len) {
+jbyteArray Java_org_rocksdb_RocksDB_get__J_3BII(JNIEnv* env, jobject,
+                                                jlong jdb_handle,
+                                                jbyteArray jkey, jint jkey_off,
+                                                jint jkey_len) {
   return rocksdb_get_helper(env, *reinterpret_cast<APIRocksDB*>(jdb_handle),
                             ROCKSDB_NAMESPACE::ReadOptions(), nullptr, jkey,
                             jkey_off, jkey_len);
@@ -1598,9 +1604,11 @@ jbyteArray Java_org_rocksdb_RocksDB_get__J_3BII(
  * Method:    get
  * Signature: (J[BIIJ)[B
  */
-jbyteArray Java_org_rocksdb_RocksDB_get__J_3BIIJ(
-    JNIEnv* env, jobject, jlong jdb_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len, jlong jcf_handle) {
+jbyteArray Java_org_rocksdb_RocksDB_get__J_3BIIJ(JNIEnv* env, jobject,
+                                                 jlong jdb_handle,
+                                                 jbyteArray jkey, jint jkey_off,
+                                                 jint jkey_len,
+                                                 jlong jcf_handle) {
   auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto* cfAPI = reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle);
   if (cfAPI != nullptr) {
@@ -1618,10 +1626,11 @@ jbyteArray Java_org_rocksdb_RocksDB_get__J_3BIIJ(
  * Method:    get
  * Signature: (JJ[BII)[B
  */
-jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BII(
-    JNIEnv* env, jobject,
-    jlong jdb_handle, jlong jropt_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len) {
+jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BII(JNIEnv* env, jobject,
+                                                 jlong jdb_handle,
+                                                 jlong jropt_handle,
+                                                 jbyteArray jkey, jint jkey_off,
+                                                 jint jkey_len) {
   return rocksdb_get_helper(
       env, *reinterpret_cast<APIRocksDB*>(jdb_handle),
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle), nullptr,
@@ -1634,8 +1643,8 @@ jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BII(
  * Signature: (JJ[BIIJ)[B
  */
 jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BIIJ(
-    JNIEnv* env, jobject, jlong jdb_handle, jlong jropt_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len, jlong jcf_handle) {
+    JNIEnv* env, jobject, jlong jdb_handle, jlong jropt_handle, jbyteArray jkey,
+    jint jkey_off, jint jkey_len, jlong jcf_handle) {
   auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto& ro_opt =
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle);
@@ -1726,10 +1735,11 @@ jint rocksdb_get_helper(JNIEnv* env, APIRocksDB& dbAPI,
  * Method:    get
  * Signature: (J[BII[BII)I
  */
-jint Java_org_rocksdb_RocksDB_get__J_3BII_3BII(
-    JNIEnv* env, jobject, jlong jdb_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len,
-    jbyteArray jval, jint jval_off, jint jval_len) {
+jint Java_org_rocksdb_RocksDB_get__J_3BII_3BII(JNIEnv* env, jobject,
+                                               jlong jdb_handle,
+                                               jbyteArray jkey, jint jkey_off,
+                                               jint jkey_len, jbyteArray jval,
+                                               jint jval_off, jint jval_len) {
   bool has_exception = false;
   return rocksdb_get_helper(env, *reinterpret_cast<APIRocksDB*>(jdb_handle),
                             ROCKSDB_NAMESPACE::ReadOptions(), nullptr, jkey,
@@ -1742,11 +1752,12 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BII(
  * Method:    get
  * Signature: (J[BII[BIIJ)I
  */
-jint Java_org_rocksdb_RocksDB_get__J_3BII_3BIIJ(
-    JNIEnv* env, jobject, jlong jdb_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len,
-    jbyteArray jval, jint jval_off, jint jval_len,
-    jlong jcf_handle) {
+jint Java_org_rocksdb_RocksDB_get__J_3BII_3BIIJ(JNIEnv* env, jobject,
+                                                jlong jdb_handle,
+                                                jbyteArray jkey, jint jkey_off,
+                                                jint jkey_len, jbyteArray jval,
+                                                jint jval_off, jint jval_len,
+                                                jlong jcf_handle) {
   auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto* cfhAPI = reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle);
   if (cfhAPI != nullptr) {
@@ -1767,10 +1778,12 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BIIJ(
  * Method:    get
  * Signature: (JJ[BII[BII)I
  */
-jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BII(
-    JNIEnv* env, jobject, jlong jdb_handle, jlong jropt_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len,
-    jbyteArray jval, jint jval_off, jint jval_len) {
+jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BII(JNIEnv* env, jobject,
+                                                jlong jdb_handle,
+                                                jlong jropt_handle,
+                                                jbyteArray jkey, jint jkey_off,
+                                                jint jkey_len, jbyteArray jval,
+                                                jint jval_off, jint jval_len) {
   bool has_exception = false;
   return rocksdb_get_helper(
       env, *reinterpret_cast<APIRocksDB*>(jdb_handle),
@@ -1784,9 +1797,8 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BII(
  * Signature: (JJ[BII[BIIJ)I
  */
 jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BIIJ(
-    JNIEnv* env, jobject, jlong jdb_handle, jlong jropt_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len,
-    jbyteArray jval, jint jval_off, jint jval_len,
+    JNIEnv* env, jobject, jlong jdb_handle, jlong jropt_handle, jbyteArray jkey,
+    jint jkey_off, jint jkey_len, jbyteArray jval, jint jval_off, jint jval_len,
     jlong jcf_handle) {
   auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto& ro_opt =
@@ -2312,7 +2324,8 @@ bool key_may_exist_direct_helper(JNIEnv* env, jlong jdb_handle,
   if (env->GetDirectBufferCapacity(jkey) < (jkey_offset + jkey_len)) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env,
-        "Invalid key argument. Capacity is less than requested region (offset "
+        "Invalid key argument. Capacity is less than requested region "
+        "(offset "
         "+ length).");
     *has_exception = true;
     return false;
@@ -2333,17 +2346,14 @@ bool key_may_exist_direct_helper(JNIEnv* env, jlong jdb_handle,
  */
 jboolean Java_org_rocksdb_RocksDB_keyMayExist(
     JNIEnv* env, jobject, jlong jdb_handle, jlong jcf_handle,
-    jlong jread_opts_handle,
-    jbyteArray jkey, jint jkey_offset, jint jkey_len) {
-
+    jlong jread_opts_handle, jbyteArray jkey, jint jkey_offset, jint jkey_len) {
   bool has_exception = false;
   std::string value;
   bool value_found = false;
 
   const bool exists = key_may_exist_helper(
-      env, jdb_handle, jcf_handle, jread_opts_handle,
-      jkey, jkey_offset, jkey_len,
-      &has_exception, &value, &value_found);
+      env, jdb_handle, jcf_handle, jread_opts_handle, jkey, jkey_offset,
+      jkey_len, &has_exception, &value, &value_found);
 
   if (has_exception) {
     // java exception already raised
@@ -2541,8 +2551,7 @@ jobjectArray Java_org_rocksdb_RocksDB_keyMayExistFoundValue(
  * Method:    iterator
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_RocksDB_iterator__J(
-      JNIEnv*, jobject, jlong db_handle) {
+jlong Java_org_rocksdb_RocksDB_iterator__J(JNIEnv*, jobject, jlong db_handle) {
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(db_handle);
   auto dbIterator =
       dbAPI.newIterator(dbAPI->NewIterator(ROCKSDB_NAMESPACE::ReadOptions()),
@@ -2555,8 +2564,8 @@ jlong Java_org_rocksdb_RocksDB_iterator__J(
  * Method:    iterator
  * Signature: (JJ)J
  */
-jlong Java_org_rocksdb_RocksDB_iterator__JJ(
-    JNIEnv*, jobject, jlong db_handle, jlong jread_options_handle) {
+jlong Java_org_rocksdb_RocksDB_iterator__JJ(JNIEnv*, jobject, jlong db_handle,
+                                            jlong jread_options_handle) {
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(db_handle);
   auto& read_options =
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
@@ -2616,10 +2625,10 @@ jlong Java_org_rocksdb_RocksDB_iteratorCF__JJJ(JNIEnv* env, jobject,
  * Method:    iterators
  * Signature: (J[JJ)[J
  */
-jlongArray Java_org_rocksdb_RocksDB_iterators(
-    JNIEnv* env, jobject, jlong db_handle,
-    jlongArray jcolumn_family_handles,
-    jlong jread_options_handle) {
+jlongArray Java_org_rocksdb_RocksDB_iterators(JNIEnv* env, jobject,
+                                              jlong db_handle,
+                                              jlongArray jcolumn_family_handles,
+                                              jlong jread_options_handle) {
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(db_handle);
   auto& read_options =
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle);
@@ -2684,8 +2693,7 @@ jlongArray Java_org_rocksdb_RocksDB_iterators(
  * Method:    getSnapshot
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_RocksDB_getSnapshot(
-    JNIEnv*, jobject, jlong db_handle) {
+jlong Java_org_rocksdb_RocksDB_getSnapshot(JNIEnv*, jobject, jlong db_handle) {
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(db_handle);
   const ROCKSDB_NAMESPACE::Snapshot* snapshot = dbAPI->GetSnapshot();
   return GET_CPLUSPLUS_POINTER(snapshot);
@@ -2695,9 +2703,8 @@ jlong Java_org_rocksdb_RocksDB_getSnapshot(
  * Method:    releaseSnapshot
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_RocksDB_releaseSnapshot(
-    JNIEnv*, jobject, jlong db_handle,
-    jlong snapshot_handle) {
+void Java_org_rocksdb_RocksDB_releaseSnapshot(JNIEnv*, jobject, jlong db_handle,
+                                              jlong snapshot_handle) {
   auto& dbAPI = *reinterpret_cast<APIRocksDB*>(db_handle);
   auto* snapshot =
       reinterpret_cast<ROCKSDB_NAMESPACE::Snapshot*>(snapshot_handle);
@@ -2709,9 +2716,10 @@ void Java_org_rocksdb_RocksDB_releaseSnapshot(
  * Method:    getProperty
  * Signature: (JJLjava/lang/String;I)Ljava/lang/String;
  */
-jstring Java_org_rocksdb_RocksDB_getProperty(
-    JNIEnv* env, jobject, jlong jdb_handle, jlong jcf_handle,
-    jstring jproperty, jint jproperty_len) {
+jstring Java_org_rocksdb_RocksDB_getProperty(JNIEnv* env, jobject,
+                                             jlong jdb_handle, jlong jcf_handle,
+                                             jstring jproperty,
+                                             jint jproperty_len) {
   const char* property = env->GetStringUTFChars(jproperty, nullptr);
   if (property == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -2745,10 +2753,12 @@ jstring Java_org_rocksdb_RocksDB_getProperty(
  * Method:    getMapProperty
  * Signature: (JJLjava/lang/String;I)Ljava/util/Map;
  */
-jobject Java_org_rocksdb_RocksDB_getMapProperty(
-    JNIEnv* env, jobject, jlong jdb_handle, jlong jcf_handle,
-    jstring jproperty, jint jproperty_len) {
-    const char* property = env->GetStringUTFChars(jproperty, nullptr);
+jobject Java_org_rocksdb_RocksDB_getMapProperty(JNIEnv* env, jobject,
+                                                jlong jdb_handle,
+                                                jlong jcf_handle,
+                                                jstring jproperty,
+                                                jint jproperty_len) {
+  const char* property = env->GetStringUTFChars(jproperty, nullptr);
   if (property == nullptr) {
     // exception thrown: OutOfMemoryError
     return nullptr;
