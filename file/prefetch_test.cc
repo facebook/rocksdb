@@ -1013,6 +1013,87 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
   Close();
 }
 
+extern "C" bool RocksDbIOUringEnable() { return true; }
+
+// Tests the default implementation of ReadAsync API with PosixFileSystem.
+TEST_F(PrefetchTest2, ReadAsyncWithPosixFS) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+
+  const int kNumKeys = 1000;
+  std::shared_ptr<MockFS> fs = std::make_shared<MockFS>(
+      FileSystem::Default(), /*support_prefetch=*/false);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+
+  bool use_direct_io = false;
+  Options options = CurrentOptions();
+  options.write_buffer_size = 1024;
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.env = env.get();
+  if (use_direct_io) {
+    options.use_direct_reads = true;
+    options.use_direct_io_for_flush_and_compaction = true;
+  }
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.metadata_block_size = 1024;
+  table_options.index_type =
+      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  Status s = TryReopen(options);
+  if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
+    // If direct IO is not supported, skip the test
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
+
+  int total_keys = 0;
+  // Write the keys.
+  {
+    WriteBatch batch;
+    Random rnd(309);
+    for (int j = 0; j < 5; j++) {
+      for (int i = j * kNumKeys; i < (j + 1) * kNumKeys; i++) {
+        ASSERT_OK(batch.Put(BuildKey(i), rnd.RandomString(1000)));
+        total_keys++;
+      }
+      ASSERT_OK(db_->Write(WriteOptions(), &batch));
+      ASSERT_OK(Flush());
+    }
+    MoveFilesToLevel(2);
+  }
+
+  int buff_prefetch_count = 0;
+  SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
+                                        [&](void*) { buff_prefetch_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Read the keys.
+  {
+    ReadOptions ro;
+    ro.adaptive_readahead = true;
+    ro.async_io = true;
+
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    int num_keys = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      num_keys++;
+    }
+    ASSERT_EQ(num_keys, total_keys);
+    ASSERT_GT(buff_prefetch_count, 0);
+  }
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  Close();
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
