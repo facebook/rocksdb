@@ -405,7 +405,7 @@ public class Transaction extends RocksObject {
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
     final long[] cfHandles = new long[columnFamilyHandles.size()];
     for (int i = 0; i < columnFamilyHandles.size(); i++) {
-      cfHandles[i] = columnFamilyHandles.get(i).nativeHandle_;
+      cfHandles[i] = columnFamilyHandles.get(i).getNative();
     }
 
     return Arrays.asList(multiGet(nativeHandle_, readOptions.nativeHandle_, keysArray, cfHandles));
@@ -683,7 +683,7 @@ public class Transaction extends RocksObject {
 
     final long[] cfHandles = new long[columnFamilyHandles.size()];
     for (int i = 0; i < columnFamilyHandles.size(); i++) {
-      cfHandles[i] = columnFamilyHandles.get(i).nativeHandle_;
+      cfHandles[i] = columnFamilyHandles.get(i).getNative();
     }
     return Arrays.asList(
         multiGetForUpdate(nativeHandle_, readOptions.nativeHandle_, keysArray, cfHandles));
