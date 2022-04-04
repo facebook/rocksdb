@@ -1341,6 +1341,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   CompactionRangeDelAggregator range_del_agg(&cfd->internal_comparator(),
                                              existing_snapshots_);
 
+  // TODO: since we already use C++17, should use
+  // std::optional<const Slice> instead.
   const Slice* const start = sub_compact->start;
   const Slice* const end = sub_compact->end;
 
@@ -1362,9 +1364,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   // Although the v2 aggregator is what the level iterator(s) know about,
   // the AddTombstones calls will be propagated down to the v1 aggregator.
-  std::unique_ptr<InternalIterator> raw_input(
-      versions_->MakeInputIterator(read_options, sub_compact->compaction,
-                                   &range_del_agg, file_options_for_read_));
+  std::unique_ptr<InternalIterator> raw_input(versions_->MakeInputIterator(
+      read_options, sub_compact->compaction, &range_del_agg,
+      file_options_for_read_,
+      (start == nullptr) ? std::optional<const Slice>{}
+                         : std::optional<const Slice>{*start},
+      (end == nullptr) ? std::optional<const Slice>{}
+                       : std::optional<const Slice>{*end}));
   InternalIterator* input = raw_input.get();
 
   IterKey start_ikey;
