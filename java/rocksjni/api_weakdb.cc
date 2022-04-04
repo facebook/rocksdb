@@ -18,10 +18,5 @@
 std::shared_ptr<ROCKSDB_NAMESPACE::DB> APIWeakDB::lockDB(JNIEnv* env,
                                                          jlong handle) {
   auto* weakDBAPI = reinterpret_cast<APIWeakDB*>(handle);
-  std::shared_ptr<ROCKSDB_NAMESPACE::DB> db = weakDBAPI->db.lock();
-  if (!db) {
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-        env, "Column family (DB) already closed");
-  }
-  return db;
+  return weakDBAPI->dbLock(env);
 }

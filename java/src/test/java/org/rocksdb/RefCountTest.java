@@ -384,13 +384,18 @@ public class RefCountTest {
       db2.put(cfHandles.get(1), "key1".getBytes(), "value1".getBytes());
 
       //The handle we have in our hand is not valid (it was closed with a previous DB open), and a crash happens.
-      final byte[] valueBytes = db2.get(cfHandle, "key1".getBytes());
+      try {
+        final byte[] valueBytes = db2.get(cfHandle, "key1".getBytes());
+        fail("Expect exception for already closed cfHandle");
+      } catch (RocksDBException rocksDBException) {
+        assertThat(rocksDBException.getMessage()).contains("Invalid ColumnFamilyHandle. Maybe DB is already closed");
+      }
 
-      assertThat(valueBytes).isEqualTo("value1".getBytes());
+      assertThat(db2.get(cfHandles.get(1), "key1".getBytes())).isEqualTo("value1".getBytes());
+      assertThat(cfHandles.get(1).getName()).isEqualTo("new_cf".getBytes());
     }
 
-    assertThat(cfHandle.getName()).isEqualTo(cfHandles.get(1).getName());
-    assertThat(cfHandle.getNative()).isEqualTo(cfHandles.get(1).getNative());
+
   }
 
   @Test

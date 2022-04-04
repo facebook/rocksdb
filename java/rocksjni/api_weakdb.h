@@ -25,6 +25,20 @@ class APIWeakDB : APIBase {
   /**
    * @brief lock the referenced pointer if the weak pointer is valid
    *
+   * @return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
+   */
+  std::shared_ptr<ROCKSDB_NAMESPACE::DB> dbLock(JNIEnv* env) {
+    auto lock = db.lock();
+    if (!lock) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+          env, "Column family (DB) already closed");
+    }
+    return lock;
+  }
+
+  /**
+   * @brief lock the referenced pointer if the weak pointer is valid
+   *
    * @param handle
    * @return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
    */

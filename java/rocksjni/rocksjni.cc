@@ -157,13 +157,21 @@ jlongArray rocksdb_open_helper(
     return nullptr;
   }
 
+  std::shared_ptr<ROCKSDB_NAMESPACE::DB> dbShared(db);
+  std::unique_ptr<APIRocksDB> dbAPI(new APIRocksDB(dbShared));
+
   const jsize resultsLen = 1 + len_cols;  // db handle + column family handles
   std::unique_ptr<jlong[]> results =
       std::unique_ptr<jlong[]>(new jlong[resultsLen]);
-  results[0] = GET_CPLUSPLUS_POINTER(db);
   for (int i = 1; i <= len_cols; i++) {
-    results[i] = GET_CPLUSPLUS_POINTER(cf_handles[i - 1]);
+    std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfShared(
+        cf_handles[i - 1]);
+    std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
+        new APIColumnFamilyHandle(dbShared, cfShared));
+    dbAPI->columnFamilyHandles.push_back(cfShared);
+    results[i] = GET_CPLUSPLUS_POINTER(cfhAPI.release());
   }
+  results[0] = GET_CPLUSPLUS_POINTER(dbAPI.release());
 
   jlongArray jresults = env->NewLongArray(resultsLen);
   if (jresults == nullptr) {
@@ -574,9 +582,9 @@ void Java_org_rocksdb_RocksDB_dropColumnFamilies(
  */
 bool rocksdb_put_helper(JNIEnv* env, APIRocksDB& dbAPI,
                         const ROCKSDB_NAMESPACE::WriteOptions& write_options,
-                        std::unique_ptr<APIColumnFamilyHandle>& cfhAPI,
-                        jbyteArray jkey, jint jkey_off, jint jkey_len,
-                        jbyteArray jval, jint jval_off, jint jval_len) {
+                        APIColumnFamilyHandle* cfhAPI, jbyteArray jkey,
+                        jint jkey_off, jint jkey_len, jbyteArray jval,
+                        jint jval_off, jint jval_len) {
   jbyte* key = new jbyte[jkey_len];
   env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key);
   if (env->ExceptionCheck()) {
@@ -599,12 +607,9 @@ bool rocksdb_put_helper(JNIEnv* env, APIRocksDB& dbAPI,
                                        jval_len);
 
   ROCKSDB_NAMESPACE::Status s;
-  if (cfhAPI) {
-    std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cf_handle =
-        cfhAPI->cfh.lock();
+  if (cfhAPI != nullptr) {
+    auto cf_handle = cfhAPI->cfhLock(env);
     if (!cf_handle) {
-      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-          env, "Invalid ColumnFamilyHandle.");
       return false;
     }
     s = dbAPI->Put(write_options, cf_handle.get(), key_slice, value_slice);
@@ -637,8 +642,7 @@ void Java_org_rocksdb_RocksDB_put__J_3BII_3BII(
   auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   static const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
       ROCKSDB_NAMESPACE::WriteOptions();
-  std::unique_ptr<APIColumnFamilyHandle> nullCFH;
-  rocksdb_put_helper(env, *dbAPI, default_write_options, nullCFH, jkey,
+  rocksdb_put_helper(env, *dbAPI, default_write_options, nullptr, jkey,
                      jkey_off, jkey_len, jval, jval_off, jval_len);
 }
 
@@ -653,11 +657,10 @@ void Java_org_rocksdb_RocksDB_put__J_3BII_3BIIJ(
     jbyteArray jval, jint jval_off, jint jval_len,
     jlong jcf_handle) {
   auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
+  auto* cfhAPI = reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle);
   static const ROCKSDB_NAMESPACE::WriteOptions default_write_options =
       ROCKSDB_NAMESPACE::WriteOptions();
-  std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
-      reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle));
-  if (cfhAPI) {
+  if (cfhAPI != nullptr) {
     rocksdb_put_helper(env, *dbAPI, default_write_options, cfhAPI, jkey,
                        jkey_off, jkey_len, jval, jval_off, jval_len);
   } else {
@@ -665,7 +668,6 @@ void Java_org_rocksdb_RocksDB_put__J_3BII_3BIIJ(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
                  "Invalid ColumnFamilyHandle."));
   }
-  cfhAPI.release();
 }
 
 /*
@@ -682,8 +684,7 @@ void Java_org_rocksdb_RocksDB_put__JJ_3BII_3BII(JNIEnv* env, jobject,
   auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
-  std::unique_ptr<APIColumnFamilyHandle> nullCFH;
-  rocksdb_put_helper(env, *dbAPI, *write_options, nullCFH, jkey, jkey_off,
+  rocksdb_put_helper(env, *dbAPI, *write_options, nullptr, jkey, jkey_off,
                      jkey_len, jval, jval_off, jval_len);
 }
 
@@ -700,9 +701,8 @@ void Java_org_rocksdb_RocksDB_put__JJ_3BII_3BIIJ(
   auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
-  std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
-      reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle));
-  if (cfhAPI) {
+  auto* cfhAPI = reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle);
+  if (cfhAPI != nullptr) {
     rocksdb_put_helper(env, *dbAPI, *write_options, cfhAPI, jkey, jkey_off,
                        jkey_len, jval, jval_off, jval_len);
   } else {
@@ -710,7 +710,6 @@ void Java_org_rocksdb_RocksDB_put__JJ_3BII_3BIIJ(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
                  "Invalid ColumnFamilyHandle."));
   }
-  cfhAPI.release();
 }
 
 /*
@@ -1456,11 +1455,10 @@ void Java_org_rocksdb_RocksDB_write1(
 //////////////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::DB::Get
 
-jbyteArray rocksdb_get_helper(
-    JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
-    const ROCKSDB_NAMESPACE::ReadOptions& read_opt,
-    ROCKSDB_NAMESPACE::ColumnFamilyHandle* column_family_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len) {
+jbyteArray rocksdb_get_helper(JNIEnv* env, APIRocksDB& dbAPI,
+                              const ROCKSDB_NAMESPACE::ReadOptions& read_opt,
+                              APIColumnFamilyHandle* cfhAPI, jbyteArray jkey,
+                              jint jkey_off, jint jkey_len) {
   jbyte* key = new jbyte[jkey_len];
   env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key);
   if (env->ExceptionCheck()) {
@@ -1473,11 +1471,17 @@ jbyteArray rocksdb_get_helper(
 
   std::string value;
   ROCKSDB_NAMESPACE::Status s;
-  if (column_family_handle != nullptr) {
-    s = db->Get(read_opt, column_family_handle, key_slice, &value);
+  if (cfhAPI != nullptr) {
+    auto cfh = cfhAPI->cfhLock(env);
+    if (!cfh) {
+      // exception raised by cfhLock
+      delete[] key;
+      return nullptr;
+    }
+    s = dbAPI->Get(read_opt, cfh.get(), key_slice, &value);
   } else {
     // backwards compatibility
-    s = db->Get(read_opt, key_slice, &value);
+    s = dbAPI->Get(read_opt, key_slice, &value);
   }
 
   // cleanup
@@ -1508,9 +1512,9 @@ jbyteArray rocksdb_get_helper(
 jbyteArray Java_org_rocksdb_RocksDB_get__J_3BII(
     JNIEnv* env, jobject, jlong jdb_handle,
     jbyteArray jkey, jint jkey_off, jint jkey_len) {
-  return rocksdb_get_helper(
-      env, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
-      ROCKSDB_NAMESPACE::ReadOptions(), nullptr, jkey, jkey_off, jkey_len);
+  return rocksdb_get_helper(env, *reinterpret_cast<APIRocksDB*>(jdb_handle),
+                            ROCKSDB_NAMESPACE::ReadOptions(), nullptr, jkey,
+                            jkey_off, jkey_len);
 }
 
 /*
@@ -1521,12 +1525,11 @@ jbyteArray Java_org_rocksdb_RocksDB_get__J_3BII(
 jbyteArray Java_org_rocksdb_RocksDB_get__J_3BIIJ(
     JNIEnv* env, jobject, jlong jdb_handle,
     jbyteArray jkey, jint jkey_off, jint jkey_len, jlong jcf_handle) {
-  auto db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  auto cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle != nullptr) {
-    return rocksdb_get_helper(env, db_handle, ROCKSDB_NAMESPACE::ReadOptions(),
-                              cf_handle, jkey, jkey_off, jkey_len);
+  auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
+  auto* cfAPI = reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle);
+  if (cfAPI != nullptr) {
+    return rocksdb_get_helper(env, *dbAPI, ROCKSDB_NAMESPACE::ReadOptions(),
+                              cfAPI, jkey, jkey_off, jkey_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
@@ -1545,7 +1548,7 @@ jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BII(
     jlong jdb_handle, jlong jropt_handle,
     jbyteArray jkey, jint jkey_off, jint jkey_len) {
   return rocksdb_get_helper(
-      env, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
+      env, *reinterpret_cast<APIRocksDB*>(jdb_handle),
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle), nullptr,
       jkey, jkey_off, jkey_len);
 }
@@ -1558,14 +1561,13 @@ jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BII(
 jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BIIJ(
     JNIEnv* env, jobject, jlong jdb_handle, jlong jropt_handle,
     jbyteArray jkey, jint jkey_off, jint jkey_len, jlong jcf_handle) {
-  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto& ro_opt =
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle);
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle != nullptr) {
-    return rocksdb_get_helper(
-        env, db_handle, ro_opt, cf_handle, jkey, jkey_off, jkey_len);
+  auto* cfhAPI = reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle);
+  if (cfhAPI != nullptr) {
+    return rocksdb_get_helper(env, *dbAPI, ro_opt, cfhAPI, jkey, jkey_off,
+                              jkey_len);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
@@ -1574,12 +1576,11 @@ jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BIIJ(
   }
 }
 
-jint rocksdb_get_helper(
-    JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
-    const ROCKSDB_NAMESPACE::ReadOptions& read_options,
-    ROCKSDB_NAMESPACE::ColumnFamilyHandle* column_family_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len, jbyteArray jval,
-    jint jval_off, jint jval_len, bool* has_exception) {
+jint rocksdb_get_helper(JNIEnv* env, APIRocksDB& dbAPI,
+                        const ROCKSDB_NAMESPACE::ReadOptions& read_options,
+                        APIColumnFamilyHandle* cfhAPI, jbyteArray jkey,
+                        jint jkey_off, jint jkey_len, jbyteArray jval,
+                        jint jval_off, jint jval_len, bool* has_exception) {
   static const int kNotFound = -1;
   static const int kStatusError = -2;
 
@@ -1597,11 +1598,17 @@ jint rocksdb_get_helper(
   // a DB::Get() function which takes preallocated jbyte* as input.
   std::string cvalue;
   ROCKSDB_NAMESPACE::Status s;
-  if (column_family_handle != nullptr) {
-    s = db->Get(read_options, column_family_handle, key_slice, &cvalue);
+  if (cfhAPI) {
+    auto cfh = cfhAPI->cfhLock(env);
+    if (!cfh) {
+      delete[] key;
+      *has_exception = true;
+      return kStatusError;
+    }
+    s = dbAPI->Get(read_options, cfh.get(), key_slice, &cvalue);
   } else {
     // backwards compatibility
-    s = db->Get(read_options, key_slice, &cvalue);
+    s = dbAPI->Get(read_options, key_slice, &cvalue);
   }
 
   // cleanup
@@ -1650,10 +1657,10 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BII(
     jbyteArray jkey, jint jkey_off, jint jkey_len,
     jbyteArray jval, jint jval_off, jint jval_len) {
   bool has_exception = false;
-  return rocksdb_get_helper(
-      env, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
-      ROCKSDB_NAMESPACE::ReadOptions(), nullptr, jkey, jkey_off, jkey_len, jval,
-      jval_off, jval_len, &has_exception);
+  return rocksdb_get_helper(env, *reinterpret_cast<APIRocksDB*>(jdb_handle),
+                            ROCKSDB_NAMESPACE::ReadOptions(), nullptr, jkey,
+                            jkey_off, jkey_len, jval, jval_off, jval_len,
+                            &has_exception);
 }
 
 /*
@@ -1666,14 +1673,13 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BIIJ(
     jbyteArray jkey, jint jkey_off, jint jkey_len,
     jbyteArray jval, jint jval_off, jint jval_len,
     jlong jcf_handle) {
-  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle != nullptr) {
+  auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
+  auto* cfhAPI = reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle);
+  if (cfhAPI != nullptr) {
     bool has_exception = false;
-    return rocksdb_get_helper(env, db_handle, ROCKSDB_NAMESPACE::ReadOptions(),
-                              cf_handle, jkey, jkey_off, jkey_len, jval,
-                              jval_off, jval_len, &has_exception);
+    return rocksdb_get_helper(env, *dbAPI, ROCKSDB_NAMESPACE::ReadOptions(),
+                              cfhAPI, jkey, jkey_off, jkey_len, jval, jval_off,
+                              jval_len, &has_exception);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
@@ -1694,7 +1700,7 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BII(
     jbyteArray jval, jint jval_off, jint jval_len) {
   bool has_exception = false;
   return rocksdb_get_helper(
-      env, reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle),
+      env, *reinterpret_cast<APIRocksDB*>(jdb_handle),
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle), nullptr,
       jkey, jkey_off, jkey_len, jval, jval_off, jval_len, &has_exception);
 }
@@ -1709,17 +1715,15 @@ jint Java_org_rocksdb_RocksDB_get__JJ_3BII_3BIIJ(
     jbyteArray jkey, jint jkey_off, jint jkey_len,
     jbyteArray jval, jint jval_off, jint jval_len,
     jlong jcf_handle) {
-  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* dbAPI = reinterpret_cast<APIRocksDB*>(jdb_handle);
   auto& ro_opt =
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle);
-  auto* cf_handle =
-      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  if (cf_handle != nullptr) {
+  auto* cfhAPI = reinterpret_cast<APIColumnFamilyHandle*>(jcf_handle);
+  if (cfhAPI != nullptr) {
     bool has_exception = false;
-    return rocksdb_get_helper(env, db_handle, ro_opt, cf_handle,
-        jkey, jkey_off, jkey_len,
-        jval, jval_off, jval_len,
-        &has_exception);
+    return rocksdb_get_helper(env, *dbAPI, ro_opt, cfhAPI, jkey, jkey_off,
+                              jkey_len, jval, jval_off, jval_len,
+                              &has_exception);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(

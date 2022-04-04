@@ -27,6 +27,15 @@ class APIColumnFamilyHandle : public APIWeakDB {
 
   void check(std::string message);
 
+  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfhLock(JNIEnv* env) {
+    auto lock = cfh.lock();
+    if (!lock) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+          env, "Invalid ColumnFamilyHandle. Maybe DB is already closed.");
+    }
+    return lock;
+  }
+
   /**
    * @brief lock the referenced pointer if the weak pointer is valid
    *
