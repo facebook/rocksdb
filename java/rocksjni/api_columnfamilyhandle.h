@@ -8,9 +8,10 @@
 
 #pragma once
 
+#include "api_base.h"
 #include "rocksdb/db.h"
 
-class APIColumnFamilyHandle {
+class APIColumnFamilyHandle : APIBase {
  public:
   std::weak_ptr<ROCKSDB_NAMESPACE::DB> db;
   std::weak_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh;
@@ -19,4 +20,6 @@ class APIColumnFamilyHandle {
       std::shared_ptr<ROCKSDB_NAMESPACE::DB> db,
       std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh)
       : db(db), cfh(cfh){};
+
+  void check() {}
 };

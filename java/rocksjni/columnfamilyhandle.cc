@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "api_columnfamilyhandle.h"
 #include "include/org_rocksdb_ColumnFamilyHandle.h"
 #include "rocksjni/portal.h"
 
@@ -63,10 +64,12 @@ jobject Java_org_rocksdb_ColumnFamilyHandle_getDescriptor(JNIEnv* env,
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_ColumnFamilyHandle_disposeInternal(JNIEnv* /*env*/,
-                                                         jobject /*jobj*/,
-                                                         jlong jhandle) {
-  auto* cfh = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jhandle);
-  assert(cfh != nullptr);
-  delete cfh;
+void Java_org_rocksdb_ColumnFamilyHandle_nativeClose(JNIEnv* /*env*/,
+                                                     jobject /*jobj*/,
+                                                     jlong jhandle) {
+  std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
+      reinterpret_cast<APIColumnFamilyHandle*>(jhandle));
+  // All pointers in APIColumnFamilyHandle are weak, so there is nothing to do
+  // here This may turn out to be the standard pattern.
+  cfhAPI->check();
 }

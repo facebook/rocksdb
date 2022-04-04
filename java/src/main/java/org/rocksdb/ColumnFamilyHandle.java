@@ -15,18 +15,6 @@ import java.util.Objects;
  * ColumnFamily Pointers.
  */
 public class ColumnFamilyHandle extends RocksNative {
-  /**
-   * Constructs column family Java object, which operates on underlying native object.
-   *
-   * @param rocksDB db instance associated with this column family
-   * @param nativeHandle native handle to underlying native ColumnFamily object
-   */
-  @Deprecated
-  ColumnFamilyHandle(final RocksDB rocksDB,
-      final long nativeHandle) {
-    super(nativeHandle);
-    throw new RuntimeException("TODO (AP) this method is no longer needed, and a code change has been missed");
-  }
 
   /**
    * Constructor called only from JNI.
@@ -52,9 +40,6 @@ public class ColumnFamilyHandle extends RocksNative {
   ColumnFamilyHandle(final long nativeHandle) {
     super(nativeHandle);
   }
-
-  @Override
-  protected native void nativeClose(long nativeReference);
 
   /**
    * Gets the name of the Column Family.
@@ -123,6 +108,9 @@ public class ColumnFamilyHandle extends RocksNative {
       throw new RuntimeException("Cannot calculate hash code of column family handle", e);
     }
   }
+
+  @Override
+  protected native void nativeClose(long nativeReference);
 
   protected boolean isDefaultColumnFamily() {
     return isDefaultColumnFamily(getNative());

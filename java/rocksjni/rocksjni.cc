@@ -17,6 +17,8 @@
 #include <tuple>
 #include <vector>
 
+#include "api_columnfamilyhandle.h"
+#include "api_rocksdb.h"
 #include "include/org_rocksdb_RocksDB.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
@@ -50,6 +52,9 @@ jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
 
   if (s.ok()) {
     return GET_CPLUSPLUS_POINTER(db);
+    std::shared_ptr<ROCKSDB_NAMESPACE::DB> dbShared(db);
+    std::unique_ptr<APIRocksDB> dbAPI(new APIRocksDB(dbShared));
+    return reinterpret_cast<jlong>(dbAPI.release());
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return 0;
@@ -63,13 +68,11 @@ jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
  */
 jlong Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2(
     JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path) {
-  jlong jresult_db_handle =
-      rocksdb_open_helper(env, jopt_handle, jdb_path,
-                          (ROCKSDB_NAMESPACE::Status(*)(
-                              const ROCKSDB_NAMESPACE::Options&,
-                              const std::string&, ROCKSDB_NAMESPACE::DB**)) &
-                              ROCKSDB_NAMESPACE::DB::Open);
-  return db_api(jresult_db_handle);
+  return rocksdb_open_helper(env, jopt_handle, jdb_path,
+                             (ROCKSDB_NAMESPACE::Status(*)(
+                                 const ROCKSDB_NAMESPACE::Options&,
+                                 const std::string&, ROCKSDB_NAMESPACE::DB**)) &
+                                 ROCKSDB_NAMESPACE::DB::Open);
 }
 
 /*
@@ -344,7 +347,7 @@ jobjectArray Java_org_rocksdb_RocksDB_listColumnFamilies(
 jlong Java_org_rocksdb_RocksDB_createColumnFamily(
     JNIEnv* env, jobject, jlong jhandle, jbyteArray jcf_name,
     jint jcf_name_len, jlong jcf_options_handle) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jhandle);
+  auto* dbAPI = reinterpret_cast<APIRocksDB*>(jhandle);
   jboolean has_exception = JNI_FALSE;
   const std::string cf_name =
       ROCKSDB_NAMESPACE::JniUtil::byteString<std::string>(
@@ -361,13 +364,18 @@ jlong Java_org_rocksdb_RocksDB_createColumnFamily(
       jcf_options_handle);
   ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
   ROCKSDB_NAMESPACE::Status s =
-      db->CreateColumnFamily(*cf_options, cf_name, &cf_handle);
+      dbAPI->db->CreateColumnFamily(*cf_options, cf_name, &cf_handle);
   if (!s.ok()) {
     // error occurred
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return 0;
   }
   return GET_CPLUSPLUS_POINTER(cf_handle);
+  std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh(cf_handle);
+  std::unique_ptr<APIColumnFamilyHandle> cfhAPI(
+      new APIColumnFamilyHandle(dbAPI->db, cfh));
+  dbAPI->columnFamilyHandles.push_back(cfh);
+  return reinterpret_cast<jlong>(cfhAPI.release());
 }
 
 /*

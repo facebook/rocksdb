@@ -20,6 +20,24 @@ public class RefCountTest {
   @Rule public TemporaryFolder dbFolder2 = new TemporaryFolder();
 
   @Test
+  public void testDBRef() {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      final ColumnFamilyHandle cfHandle = db.createColumnFamily(
+          new ColumnFamilyDescriptor("new_cf".getBytes(StandardCharsets.UTF_8)));
+
+      // Closing here means that the following iterator is not valid
+      cfHandle.close();
+
+      // And we SEGV deep in C++, because the CFHandle is a reference to a deleted CF object.
+      db.newIterator(cfHandle);
+      Assert.fail("Iterator with a closed handle, we expect it to fail");
+    } catch (RocksDBException rocksDBException) {
+      // Expected failure path here.
+      rocksDBException.printStackTrace();
+    }
+  }
+
+  @Test
   public void testUseClosedHandle() {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       final ColumnFamilyHandle cfHandle = db.createColumnFamily(

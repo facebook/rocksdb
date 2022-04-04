@@ -3,7 +3,12 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-// This file implements the "bridge" between Java and C++ for
+// This file defines the "bridge" object between Java and C++ for
 // ROCKSDB_NAMESPACE::ColumnFamilyHandle.
 
-#include "api_rocksdb.h"
+#pragma once
+
+class APIBase {
+ public:
+  void check();
+}
