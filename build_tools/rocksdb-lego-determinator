@@ -104,7 +104,6 @@ PARALLELISM="$PARALLEL_J $PARALLEL_j"
 DEBUG="OPT=-g"
 SHM="TEST_TMPDIR=/dev/shm/rocksdb"
 NON_SHM="TMPD=/tmp/rocksdb_test_tmp"
-GCC_481="ROCKSDB_FBCODE_BUILD_WITH_481=1"
 ASAN="COMPILE_WITH_ASAN=1"
 ASAN_TEST_OPTIONS="ASAN_OPTIONS=detect_stack_use_after_return=1"
 CLANG="USE_CLANG=1"
@@ -207,48 +206,6 @@ RELEASE_BUILD_COMMANDS="[
             {
                 \"name\":\"Build RocksDB release\",
                 \"shell\":\"cd $WORKING_DIR; make $PARALLEL_j release || $CONTRUN_NAME=release $TASK_CREATION_TOOL\",
-                \"user\":\"root\",
-                $PARSER
-            }
-        ]
-        $REPORT
-    }
-]"
-
-#
-# RocksDB unit test on gcc-4.8.1
-#
-UNIT_TEST_COMMANDS_481="[
-    {
-        \"name\":\"Rocksdb Unit Test on GCC 4.8.1\",
-        \"oncall\":\"$ONCALL\",
-        \"executeLocal\": \"true\",
-        \"steps\": [
-            $CLEANUP_ENV,
-            {
-                \"name\":\"Build and test RocksDB debug version\",
-                \"shell\":\"cd $WORKING_DIR; $SHM $GCC_481 $DEBUG $SKIP_FORMAT_CHECKS make $PARALLELISM check || $CONTRUN_NAME=unit_gcc_481_check $TASK_CREATION_TOOL\",
-                \"user\":\"root\",
-                $PARSER
-            }
-        ]
-        $REPORT
-    }
-]"
-
-#
-# RocksDB release build and unit tests
-#
-RELEASE_BUILD_COMMANDS_481="[
-    {
-        \"name\":\"Rocksdb Release on GCC 4.8.1\",
-        \"oncall\":\"$ONCALL\",
-        \"executeLocal\": \"true\",
-        \"steps\": [
-            $CLEANUP_ENV,
-            {
-                \"name\":\"Build RocksDB release on GCC 4.8.1\",
-                \"shell\":\"cd $WORKING_DIR; $GCC_481 make $PARALLEL_j release || $CONTRUN_NAME=release_gcc481 $TASK_CREATION_TOOL\",
                 \"user\":\"root\",
                 $PARSER
             }
@@ -1287,12 +1244,6 @@ case $1 in
     ;;
   release)
     echo $RELEASE_BUILD_COMMANDS
-    ;;
-  unit_481)
-    echo $UNIT_TEST_COMMANDS_481
-    ;;
-  release_481)
-    echo $RELEASE_BUILD_COMMANDS_481
     ;;
   clang_unit)
     echo $CLANG_UNIT_TEST_COMMANDS
