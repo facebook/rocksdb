@@ -42,12 +42,6 @@ class CacheReservationManager {
           *handle) = 0;
   virtual std::size_t GetTotalReservedCacheSize() = 0;
   virtual std::size_t GetTotalMemoryUsed() = 0;
-
- protected:
-  virtual Status ReleaseCacheReservation(
-      std::size_t /* incremental_memory_used */) {
-    return Status::NotSupported();
-  }
 };
 
 // CacheReservationManagerImpl implements interface CacheReservationManager
@@ -202,7 +196,7 @@ class CacheReservationManagerImpl
 
   Slice GetNextCacheKey();
 
-  Status ReleaseCacheReservation(std::size_t incremental_memory_used) override;
+  Status ReleaseCacheReservation(std::size_t incremental_memory_used);
   Status IncreaseCacheReservation(std::size_t new_mem_used);
   Status DecreaseCacheReservation(std::size_t new_mem_used);
 

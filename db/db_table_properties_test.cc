@@ -420,9 +420,9 @@ TEST_F(DBTablePropertiesTest, GetUint64TAndStringPropStartEndPosition) {
   tp.user_collected_properties = {{"some_user_prop", "value"}};
 
   std::pair<const uint64_t*, const uint64_t*> u_props =
-      TEST_GetUint64TPropStartEndPosition(&tp);
+      GetUint64TPropStartEndPosition(&tp);
   std::pair<const std::string*, const std::string*> s_props =
-      TEST_GetStringPropStartEndPosition(&tp);
+      GetStringPropStartEndPosition(&tp);
 
   EXPECT_TRUE(u_props.first == &tp.orig_file_number);
   EXPECT_TRUE(*u_props.first == tp.orig_file_number);

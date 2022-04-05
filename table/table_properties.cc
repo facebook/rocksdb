@@ -223,7 +223,7 @@ std::size_t TableProperties::ApproximateMemoryUsage() const {
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
 
   std::pair<const std::string*, const std::string*> string_prop_start_end_pos =
-      TEST_GetStringPropStartEndPosition(this);
+      GetStringPropStartEndPosition(this);
   const std::string* ps = string_prop_start_end_pos.first;
   const std::string* const ps_end = string_prop_start_end_pos.second;
   for (; ps < ps_end; ++ps) {
@@ -309,7 +309,7 @@ void TEST_SetRandomTableProperties(TableProperties* props) {
   Random* r = Random::GetTLSInstance();
 
   std::pair<const uint64_t*, const uint64_t*> uint64t_prop_start_end_pos =
-      TEST_GetUint64TPropStartEndPosition(props);
+      GetUint64TPropStartEndPosition(props);
   uint64_t* pu = const_cast<uint64_t*>(uint64t_prop_start_end_pos.first);
   const uint64_t* const pu_end = uint64t_prop_start_end_pos.second;
   for (; pu < pu_end; ++pu) {
@@ -317,7 +317,7 @@ void TEST_SetRandomTableProperties(TableProperties* props) {
   }
 
   std::pair<const std::string*, const std::string*> string_prop_start_end_pos =
-      TEST_GetStringPropStartEndPosition(props);
+      GetStringPropStartEndPosition(props);
   std::string* ps = const_cast<std::string*>(string_prop_start_end_pos.first);
   const std::string* const ps_end = string_prop_start_end_pos.second;
   for (; ps < ps_end; ++ps) {
@@ -326,22 +326,21 @@ void TEST_SetRandomTableProperties(TableProperties* props) {
 }
 #endif
 
-std::pair<const uint64_t*, const uint64_t*> TEST_GetUint64TPropStartEndPosition(
-    const TableProperties* const_props) {
-  TableProperties* props = const_cast<TableProperties*>(const_props);
-  uint64_t* pu = &props->orig_file_number;
-  assert(static_cast<void*>(pu) == static_cast<void*>(props));
+std::pair<const uint64_t*, const uint64_t*> GetUint64TPropStartEndPosition(
+    const TableProperties* props) {
+  const uint64_t* pu = &props->orig_file_number;
+  assert(static_cast<void*>(const_cast<uint64_t*>(pu)) ==
+         static_cast<void*>(const_cast<TableProperties*>(props)));
   const uint64_t* pu_end = reinterpret_cast<const uint64_t*>(&props->db_id);
   return std::pair<const uint64_t*, const uint64_t*>(pu, pu_end);
 }
 
-std::pair<const std::string*, const std::string*>
-TEST_GetStringPropStartEndPosition(const TableProperties* const_props) {
-  TableProperties* props = const_cast<TableProperties*>(const_props);
-  std::string* ps = &props->db_id;
+std::pair<const std::string*, const std::string*> GetStringPropStartEndPosition(
+    const TableProperties* props) {
+  const std::string* ps = &props->db_id;
   assert(static_cast<void*>(const_cast<uint64_t*>(
-             TEST_GetUint64TPropStartEndPosition(props).second)) ==
-         static_cast<void*>(ps));
+             GetUint64TPropStartEndPosition(props).second)) ==
+         static_cast<void*>(const_cast<std::string*>(ps)));
   const std::string* ps_end =
       reinterpret_cast<const std::string*>(&props->user_collected_properties);
   return std::pair<const std::string*, const std::string*>(ps, ps_end);

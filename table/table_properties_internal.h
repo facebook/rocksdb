@@ -33,8 +33,8 @@ void TEST_SetRandomTableProperties(TableProperties* props);
 //
 // WARNING: minimize usage of these functions as they assume some fixed layout
 // of TableProperties
-std::pair<const uint64_t*, const uint64_t*> TEST_GetUint64TPropStartEndPosition(
-    const TableProperties* const_props);
-std::pair<const std::string*, const std::string*>
-TEST_GetStringPropStartEndPosition(const TableProperties* const_props);
+std::pair<const uint64_t*, const uint64_t*> GetUint64TPropStartEndPosition(
+    const TableProperties* props);
+std::pair<const std::string*, const std::string*> GetStringPropStartEndPosition(
+    const TableProperties* props);
 }  // namespace ROCKSDB_NAMESPACE
