@@ -5,6 +5,7 @@
 
 #include "rocksdb/table_properties.h"
 
+#include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/unique_id.h"
@@ -214,11 +215,27 @@ TableProperties::GetAggregatablePropertiesAsMap() const {
 }
 
 std::size_t TableProperties::ApproximateMemoryUsage() const {
-  return approx_mem_usage_;
-}
+  std::size_t usage = 0;
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+  usage += malloc_usable_size((void*)this);
+#else
+  usage += sizeof(*this);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
 
-void TableProperties::IncreaseApproximateMemoryUsage(std::size_t delta) {
-  approx_mem_usage_ += delta;
+  std::pair<const std::string*, const std::string*> string_prop_start_end_pos =
+      TEST_GetStringPropStartEndPosition(this);
+  const std::string* ps = string_prop_start_end_pos.first;
+  const std::string* const ps_end = string_prop_start_end_pos.second;
+  for (; ps < ps_end; ++ps) {
+    usage += ps->size();
+  }
+
+  for (auto iter = user_collected_properties.begin();
+       iter != user_collected_properties.end(); ++iter) {
+    usage += (iter->first.size() + iter->second.size());
+  }
+
+  return usage;
 }
 
 const std::string TablePropertiesNames::kDbId = "rocksdb.creating.db.identity";
@@ -290,24 +307,44 @@ const std::string TablePropertiesNames::kFastCompressionEstimatedDataSize =
 #ifndef NDEBUG
 void TEST_SetRandomTableProperties(TableProperties* props) {
   Random* r = Random::GetTLSInstance();
-  // For now, TableProperties is composed of a number of uint64_t followed by
-  // a number of std::string, followed by some extras starting with
-  // user_collected_properties.
-  uint64_t* pu = &props->orig_file_number;
-  assert(static_cast<void*>(pu) == static_cast<void*>(props));
-  std::string* ps = &props->db_id;
-  const uint64_t* const pu_end = reinterpret_cast<const uint64_t*>(ps);
-  const std::string* const ps_end =
-      reinterpret_cast<const std::string*>(&props->user_collected_properties);
 
+  std::pair<const uint64_t*, const uint64_t*> uint64t_prop_start_end_pos =
+      TEST_GetUint64TPropStartEndPosition(props);
+  uint64_t* pu = const_cast<uint64_t*>(uint64t_prop_start_end_pos.first);
+  const uint64_t* const pu_end = uint64t_prop_start_end_pos.second;
   for (; pu < pu_end; ++pu) {
     *pu = r->Next64();
   }
-  assert(static_cast<void*>(pu) == static_cast<void*>(ps));
+
+  std::pair<const std::string*, const std::string*> string_prop_start_end_pos =
+      TEST_GetStringPropStartEndPosition(props);
+  std::string* ps = const_cast<std::string*>(string_prop_start_end_pos.first);
+  const std::string* const ps_end = string_prop_start_end_pos.second;
   for (; ps < ps_end; ++ps) {
     *ps = r->RandomBinaryString(13);
   }
 }
 #endif
+
+std::pair<const uint64_t*, const uint64_t*> TEST_GetUint64TPropStartEndPosition(
+    const TableProperties* const_props) {
+  TableProperties* props = const_cast<TableProperties*>(const_props);
+  uint64_t* pu = &props->orig_file_number;
+  assert(static_cast<void*>(pu) == static_cast<void*>(props));
+  const uint64_t* pu_end = reinterpret_cast<const uint64_t*>(&props->db_id);
+  return std::pair<const uint64_t*, const uint64_t*>(pu, pu_end);
+}
+
+std::pair<const std::string*, const std::string*>
+TEST_GetStringPropStartEndPosition(const TableProperties* const_props) {
+  TableProperties* props = const_cast<TableProperties*>(const_props);
+  std::string* ps = &props->db_id;
+  assert(static_cast<void*>(const_cast<uint64_t*>(
+             TEST_GetUint64TPropStartEndPosition(props).second)) ==
+         static_cast<void*>(ps));
+  const std::string* ps_end =
+      reinterpret_cast<const std::string*>(&props->user_collected_properties);
+  return std::pair<const std::string*, const std::string*>(ps, ps_end);
+}
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <memory>
 #include <unordered_set>
 #include <vector>
 
@@ -18,6 +19,7 @@
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
+#include "table/table_properties_internal.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
@@ -407,6 +409,30 @@ TEST_F(DBTablePropertiesTest, GetDbIdentifiersProperty) {
     ASSERT_EQ(id, fname_to_props.begin()->second->db_id);
     ASSERT_EQ(sid, fname_to_props.begin()->second->db_session_id);
   }
+}
+
+TEST_F(DBTablePropertiesTest, GetUint64TAndStringPropStartEndPosition) {
+  TableProperties tp;
+  tp.orig_file_number = 123;
+  tp.data_size = 456;
+  tp.db_id = "123";
+  tp.db_session_id = "456";
+  tp.user_collected_properties = {{"some_user_prop", "value"}};
+
+  std::pair<const uint64_t*, const uint64_t*> u_props =
+      TEST_GetUint64TPropStartEndPosition(&tp);
+  std::pair<const std::string*, const std::string*> s_props =
+      TEST_GetStringPropStartEndPosition(&tp);
+
+  EXPECT_TRUE(u_props.first == &tp.orig_file_number);
+  EXPECT_TRUE(*u_props.first == tp.orig_file_number);
+  EXPECT_TRUE(static_cast<const void*>(u_props.second) ==
+              static_cast<const void*>(s_props.first));
+
+  EXPECT_TRUE(s_props.first == &tp.db_id);
+  EXPECT_TRUE(*s_props.first == tp.db_id);
+  EXPECT_TRUE(static_cast<const void*>(s_props.second) ==
+              static_cast<const void*>(&tp.user_collected_properties));
 }
 
 class DBTableHostnamePropertyTest

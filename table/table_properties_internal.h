@@ -11,4 +11,30 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef NDEBUG
 void TEST_SetRandomTableProperties(TableProperties* props);
 #endif
+
+// REQUIRED:
+// The following TEST_GetXXXPropStartEndPosition() funcitons require the
+// following layout of TableProperties being true:
+//
+// struct TableProperties {
+//    int64_t orig_file_number = 0;
+//    ...
+//    ... int64_t properties only
+//    ...
+//    std::string db_id;
+//    ...
+//    ... std::string properties only
+//    ...
+//    UserCollectedProperties user_collected_properties;
+//    ...
+//    ... non-int64_t/std::string/UserCollectedProperties only
+//    ...
+// }
+//
+// WARNING: minimize usage of these functions as they assume some fixed layout
+// of TableProperties
+std::pair<const uint64_t*, const uint64_t*> TEST_GetUint64TPropStartEndPosition(
+    const TableProperties* const_props);
+std::pair<const std::string*, const std::string*>
+TEST_GetStringPropStartEndPosition(const TableProperties* const_props);
 }  // namespace ROCKSDB_NAMESPACE

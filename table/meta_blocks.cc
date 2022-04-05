@@ -335,8 +335,6 @@ Status ReadTablePropertiesHelper(
         // Insert in user-collected properties for API backwards compatibility
         new_table_properties->user_collected_properties.insert(
             {key, raw_val.ToString()});
-        new_table_properties->IncreaseApproximateMemoryUsage(key.size() +
-                                                             raw_val.size());
       }
       // handle predefined rocksdb properties
       uint64_t val;
@@ -349,46 +347,32 @@ Status ReadTablePropertiesHelper(
         continue;
       }
       *(pos->second) = val;
-      new_table_properties->IncreaseApproximateMemoryUsage(sizeof(val));
     } else if (key == TablePropertiesNames::kDbId) {
       new_table_properties->db_id = raw_val.ToString();
-      new_table_properties->IncreaseApproximateMemoryUsage(raw_val.size());
     } else if (key == TablePropertiesNames::kDbSessionId) {
       new_table_properties->db_session_id = raw_val.ToString();
-      new_table_properties->IncreaseApproximateMemoryUsage(raw_val.size());
     } else if (key == TablePropertiesNames::kDbHostId) {
       new_table_properties->db_host_id = raw_val.ToString();
-      new_table_properties->IncreaseApproximateMemoryUsage(raw_val.size());
     } else if (key == TablePropertiesNames::kFilterPolicy) {
       new_table_properties->filter_policy_name = raw_val.ToString();
-      new_table_properties->IncreaseApproximateMemoryUsage(raw_val.size());
     } else if (key == TablePropertiesNames::kColumnFamilyName) {
       new_table_properties->column_family_name = raw_val.ToString();
-      new_table_properties->IncreaseApproximateMemoryUsage(raw_val.size());
     } else if (key == TablePropertiesNames::kComparator) {
       new_table_properties->comparator_name = raw_val.ToString();
-      new_table_properties->IncreaseApproximateMemoryUsage(raw_val.size());
     } else if (key == TablePropertiesNames::kMergeOperator) {
       new_table_properties->merge_operator_name = raw_val.ToString();
-      new_table_properties->IncreaseApproximateMemoryUsage(raw_val.size());
     } else if (key == TablePropertiesNames::kPrefixExtractorName) {
       new_table_properties->prefix_extractor_name = raw_val.ToString();
-      new_table_properties->IncreaseApproximateMemoryUsage(raw_val.size());
     } else if (key == TablePropertiesNames::kPropertyCollectors) {
       new_table_properties->property_collectors_names = raw_val.ToString();
-      new_table_properties->IncreaseApproximateMemoryUsage(raw_val.size());
     } else if (key == TablePropertiesNames::kCompression) {
       new_table_properties->compression_name = raw_val.ToString();
-      new_table_properties->IncreaseApproximateMemoryUsage(raw_val.size());
     } else if (key == TablePropertiesNames::kCompressionOptions) {
       new_table_properties->compression_options = raw_val.ToString();
-      new_table_properties->IncreaseApproximateMemoryUsage(raw_val.size());
     } else {
       // handle user-collected properties
       new_table_properties->user_collected_properties.insert(
           {key, raw_val.ToString()});
-      new_table_properties->IncreaseApproximateMemoryUsage(key.size() +
-                                                           raw_val.size());
     }
   }
 

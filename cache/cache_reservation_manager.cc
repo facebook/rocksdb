@@ -22,16 +22,18 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-CacheReservationManager::CacheReservationHandle::CacheReservationHandle(
+template <CacheEntryRole R>
+CacheReservationManagerImpl<R>::CacheReservationHandle::CacheReservationHandle(
     std::size_t incremental_memory_used,
-    std::shared_ptr<CacheReservationManager> cache_res_mgr)
+    std::shared_ptr<CacheReservationManagerImpl> cache_res_mgr)
     : incremental_memory_used_(incremental_memory_used) {
   assert(cache_res_mgr);
   cache_res_mgr_ = cache_res_mgr;
 }
 
-CacheReservationManager::CacheReservationHandle::~CacheReservationHandle() {
-  assert(cache_res_mgr_);
+template <CacheEntryRole R>
+CacheReservationManagerImpl<
+    R>::CacheReservationHandle::~CacheReservationHandle() {
   Status s = cache_res_mgr_->ReleaseCacheReservation(incremental_memory_used_);
   s.PermitUncheckedError();
 }
@@ -86,12 +88,14 @@ Status CacheReservationManagerImpl<R>::UpdateCacheReservation(
 template <CacheEntryRole R>
 Status CacheReservationManagerImpl<R>::MakeCacheReservation(
     std::size_t incremental_memory_used,
-    std::unique_ptr<CacheReservationHandle>* handle) {
+    std::unique_ptr<CacheReservationManager::CacheReservationHandle>* handle) {
   assert(handle);
   Status s =
       UpdateCacheReservation(GetTotalMemoryUsed() + incremental_memory_used);
-  (*handle).reset(new CacheReservationHandle(incremental_memory_used,
-                                             this->shared_from_this()));
+  (*handle).reset(new CacheReservationManagerImpl::CacheReservationHandle(
+      incremental_memory_used,
+      std::enable_shared_from_this<
+          CacheReservationManagerImpl<R>>::shared_from_this()));
   return s;
 }
 
