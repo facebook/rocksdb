@@ -13,13 +13,14 @@
 #include "api_base.h"
 #include "rocksdb/db.h"
 
+template <class TDatabase>
 class APIIterator : APIBase {
  public:
-  std::shared_ptr<ROCKSDB_NAMESPACE::DB> db;
+  std::shared_ptr<TDatabase> db;
   std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh;
   std::shared_ptr<ROCKSDB_NAMESPACE::Iterator> iterator;
 
-  APIIterator(std::shared_ptr<ROCKSDB_NAMESPACE::DB> db,
+  APIIterator(std::shared_ptr<TDatabase> db,
               std::shared_ptr<ROCKSDB_NAMESPACE::Iterator> iterator,
               std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh)
       : db(db), cfh(cfh), iterator(iterator){};
@@ -30,5 +31,11 @@ class APIIterator : APIBase {
 
   ROCKSDB_NAMESPACE::Iterator* get() const { return iterator.get(); }
 
-  void check(std::string message);
+  void check(std::string message) {
+    std::cout << " APIIterator::check(); " << message << " ";
+    std::cout << " iterator.use_count() " << iterator.use_count() << "; ";
+    std::cout << " db.use_count() " << db.use_count() << "; ";
+    std::cout << " cfh.use_count() " << cfh.use_count();
+    std::cout << std::endl;
+  }
 };

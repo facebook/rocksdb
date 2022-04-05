@@ -48,7 +48,8 @@ jlong Java_org_rocksdb_BackupEngine_open(JNIEnv* env, jclass /*jcls*/,
 void Java_org_rocksdb_BackupEngine_createNewBackup(
     JNIEnv* env, jobject /*jbe*/, jlong jbe_handle, jlong db_handle,
     jboolean jflush_before_backup) {
-  auto& dbAPI = *reinterpret_cast<APIRocksDB*>(db_handle);
+  auto& dbAPI =
+      *reinterpret_cast<APIRocksDB<ROCKSDB_NAMESPACE::DB>*>(db_handle);
   auto* backup_engine =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngine*>(jbe_handle);
   auto status = backup_engine->CreateNewBackup(
@@ -69,7 +70,7 @@ void Java_org_rocksdb_BackupEngine_createNewBackup(
 void Java_org_rocksdb_BackupEngine_createNewBackupWithMetadata(
     JNIEnv* env, jobject /*jbe*/, jlong jbe_handle, jlong db_handle,
     jstring japp_metadata, jboolean jflush_before_backup) {
-  auto& dbAPI = *reinterpret_cast<APIRocksDB*>(db_handle);
+  auto& dbAPI = *reinterpret_cast<APIRocksDB<ROCKSDB_NAMESPACE::DB>*>(db_handle);
   auto* backup_engine =
       reinterpret_cast<ROCKSDB_NAMESPACE::BackupEngine*>(jbe_handle);
 

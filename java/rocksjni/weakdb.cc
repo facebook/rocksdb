@@ -19,7 +19,8 @@
  */
 jboolean Java_org_rocksdb_WeakDB_isDatabaseOpen(JNIEnv *, jobject,
                                                 jlong handle) {
-  std::unique_ptr<APIWeakDB> weakDBAPI(reinterpret_cast<APIWeakDB *>(handle));
+  std::unique_ptr<APIWeakDB<ROCKSDB_NAMESPACE::DB>> weakDBAPI(
+      reinterpret_cast<APIWeakDB<ROCKSDB_NAMESPACE::DB> *>(handle));
   auto lock = weakDBAPI->db.lock();
   bool result = !!lock;
   weakDBAPI.release();
@@ -32,7 +33,8 @@ jboolean Java_org_rocksdb_WeakDB_isDatabaseOpen(JNIEnv *, jobject,
  * Signature: (J)V
  */
 void Java_org_rocksdb_WeakDB_nativeClose(JNIEnv *, jobject, jlong handle) {
-  std::unique_ptr<APIWeakDB> weakDBAPI(reinterpret_cast<APIWeakDB *>(handle));
+  std::unique_ptr<APIWeakDB<ROCKSDB_NAMESPACE::DB>> weakDBAPI(
+      reinterpret_cast<APIWeakDB<ROCKSDB_NAMESPACE::DB> *>(handle));
 }
 
 /*
@@ -43,7 +45,8 @@ void Java_org_rocksdb_WeakDB_nativeClose(JNIEnv *, jobject, jlong handle) {
  */
 jboolean Java_org_rocksdb_WeakDB_isLastReference(JNIEnv *, jobject,
                                                  jlong handle) {
-  std::unique_ptr<APIWeakDB> weakDBAPI(reinterpret_cast<APIWeakDB *>(handle));
+  std::unique_ptr<APIWeakDB<ROCKSDB_NAMESPACE::DB>> weakDBAPI(
+      reinterpret_cast<APIWeakDB<ROCKSDB_NAMESPACE::DB> *>(handle));
   auto lock = weakDBAPI->db.lock();
   bool result = !lock;
   weakDBAPI.release();

@@ -13,17 +13,18 @@
 #include "api_base.h"
 #include "rocksdb/db.h"
 
+template <class TDatabase>
 class APIIterator;
 
+/**
+ * @brief Most commonly used to hold a ROCKSDB_NAMESPACE::DB
+ * Can also handle ROCKSDB_NAMESPACE::OptimisticTransactionDB
+ */
+template <class TDatabase>
 class APIRocksDB : APIBase {
  public:
-  /**
-   * @brief dump some status info to std::cout
-   *
-   */
-  void check(std::string message);
 
-  std::shared_ptr<ROCKSDB_NAMESPACE::DB> db;
+  std::shared_ptr<TDatabase> db;
   std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>>
       columnFamilyHandles;
   // Every default APIColumnFamilyHandle must start from (i.e. share) this
@@ -31,23 +32,40 @@ class APIRocksDB : APIBase {
   std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
       defaultColumnFamilyHandle;
 
-  APIRocksDB(std::shared_ptr<ROCKSDB_NAMESPACE::DB> db)
+  APIRocksDB(std::shared_ptr<TDatabase> db)
       : db(db),
         defaultColumnFamilyHandle(APIBase::createSharedPtr(
             db->DefaultColumnFamily(), true /*isDefault*/)){};
 
-  ROCKSDB_NAMESPACE::DB* operator->() const { return db.get(); }
+  TDatabase* operator->() const { return db.get(); }
 
-  std::shared_ptr<ROCKSDB_NAMESPACE::DB>& operator*() { return db; }
+  std::shared_ptr<TDatabase>& operator*() { return db; }
 
-  ROCKSDB_NAMESPACE::DB* get() const { return db.get(); }
+  TDatabase* get() const { return db.get(); }
 
   std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> DefaultColumnFamily()
       const {
     return defaultColumnFamilyHandle;
   }
 
-  std::unique_ptr<APIIterator> newIterator(
+  /**
+   * @brief dump some status info to std::cout
+   *
+   */
+  void check(std::string message) {
+    std::cout << " APIRocksDB::check(); " << message << " ";
+    std::cout << " db.use_count() " << db.use_count() << "; ";
+    for (auto& cfh : columnFamilyHandles) {
+      std::cout << " cfh.use_count() " << cfh.use_count() << "; ";
+    }
+    std::cout << std::endl;
+  }
+
+  std::unique_ptr<APIIterator<TDatabase>> newIterator(
       ROCKSDB_NAMESPACE::Iterator* iterator,
-      std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh);
+      std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh) {
+    std::shared_ptr<ROCKSDB_NAMESPACE::Iterator> iter(iterator);
+    std::unique_ptr<APIIterator<TDatabase>> iterAPI(new APIIterator(db, iter, cfh));
+    return iterAPI;
+  }
 };

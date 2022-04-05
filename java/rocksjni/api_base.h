@@ -14,8 +14,10 @@
 
 class APIBase {
   /**
-   * @brief control deletion of the RocksDB CFH, which we must avoid if this is
-   * the DB's default CFH. We could template this..
+   * @brief control deletion of the underllying pointer.
+   * We do not own, and should not delete, the pointer if it is
+   * the default instance of a pointer class in RocksDB.
+   * For instance, ColumnFamilyHandle behaves llike this.
    *
    */
 

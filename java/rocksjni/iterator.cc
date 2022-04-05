@@ -18,9 +18,11 @@
 #include "include/org_rocksdb_RocksIterator.h"
 #include "rocksjni/portal.h"
 
-void if_valid_helper(JNIEnv* env, jlong handle,
-                     std::function<void(APIIterator&)> lambda) {
-  auto& iteratorAPI = *reinterpret_cast<APIIterator*>(handle);
+void if_valid_helper(
+    JNIEnv* env, jlong handle,
+    std::function<void(APIIterator < ROCKSDB_NAMESPACE::DB>&)> lambda) {
+  auto& iteratorAPI =
+      *reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle);
   if (iteratorAPI->Valid()) {
     lambda(iteratorAPI);
   } else {
@@ -36,8 +38,8 @@ void if_valid_helper(JNIEnv* env, jlong handle,
 void Java_org_rocksdb_RocksIterator_nativeClose(JNIEnv* /*env*/,
                                                 jobject /*jobj*/,
                                                 jlong handle) {
-  std::unique_ptr<APIIterator> iteratorAPI(
-      reinterpret_cast<APIIterator*>(handle));
+  std::unique_ptr<APIIterator<ROCKSDB_NAMESPACE::DB>> iteratorAPI(
+      reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle));
   iteratorAPI->check("nativeClose()");
 }
 
@@ -48,8 +50,8 @@ void Java_org_rocksdb_RocksIterator_nativeClose(JNIEnv* /*env*/,
  */
 jboolean Java_org_rocksdb_RocksIterator_isLastReference(JNIEnv*, jobject,
                                                         jlong jhandle) {
-  std::unique_ptr<APIIterator> iteratorAPI(
-      reinterpret_cast<APIIterator*>(jhandle));
+  std::unique_ptr<APIIterator<ROCKSDB_NAMESPACE::DB>> iteratorAPI(
+      reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(jhandle));
   iteratorAPI->check("isLastReference()");
   const bool result = (iteratorAPI->iterator.use_count() == 1);
   iteratorAPI.release();
@@ -64,7 +66,8 @@ jboolean Java_org_rocksdb_RocksIterator_isLastReference(JNIEnv*, jobject,
 jboolean Java_org_rocksdb_RocksIterator_isValid0(JNIEnv* /*env*/,
                                                  jobject /*jobj*/,
                                                  jlong handle) {
-  return (*reinterpret_cast<APIIterator*>(handle))->Valid();
+  return (*reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle))
+      ->Valid();
 }
 
 /*
@@ -75,7 +78,7 @@ jboolean Java_org_rocksdb_RocksIterator_isValid0(JNIEnv* /*env*/,
 void Java_org_rocksdb_RocksIterator_seekToFirst0(JNIEnv* /*env*/,
                                                  jobject /*jobj*/,
                                                  jlong handle) {
-  (*reinterpret_cast<APIIterator*>(handle))->SeekToFirst();
+  (*reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle))->SeekToFirst();
 }
 
 /*
@@ -86,7 +89,8 @@ void Java_org_rocksdb_RocksIterator_seekToFirst0(JNIEnv* /*env*/,
 void Java_org_rocksdb_RocksIterator_seekToLast0(JNIEnv* /*env*/,
                                                 jobject /*jobj*/,
                                                 jlong handle) {
-  (*reinterpret_cast<APIIterator*>(handle))->SeekToLast();
+  (*reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle))
+      ->SeekToLast();
 }
 
 /*
@@ -96,7 +100,8 @@ void Java_org_rocksdb_RocksIterator_seekToLast0(JNIEnv* /*env*/,
  */
 void Java_org_rocksdb_RocksIterator_next0(JNIEnv* env, jobject /*jobj*/,
                                           jlong handle) {
-  if_valid_helper(env, handle, [](APIIterator& it) { it->Next(); });
+  if_valid_helper(env, handle,
+                  [](APIIterator<ROCKSDB_NAMESPACE::DB>& it) { it->Next(); });
 }
 
 /*
@@ -106,7 +111,8 @@ void Java_org_rocksdb_RocksIterator_next0(JNIEnv* env, jobject /*jobj*/,
  */
 void Java_org_rocksdb_RocksIterator_prev0(JNIEnv* env, jobject /*jobj*/,
                                           jlong handle) {
-  if_valid_helper(env, handle, [](APIIterator& it) { it->Prev(); });
+  if_valid_helper(env, handle,
+                  [](APIIterator<ROCKSDB_NAMESPACE::DB>& it) { it->Prev(); });
 }
 
 /*
@@ -116,7 +122,7 @@ void Java_org_rocksdb_RocksIterator_prev0(JNIEnv* env, jobject /*jobj*/,
  */
 void Java_org_rocksdb_RocksIterator_refresh0(JNIEnv* env, jobject /*jobj*/,
                                             jlong handle) {
-  auto& it = (*reinterpret_cast<APIIterator*>(handle));
+  auto& it = (*reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle));
   ROCKSDB_NAMESPACE::Status s = it->Refresh();
 
   if (s.ok()) {
@@ -134,7 +140,7 @@ void Java_org_rocksdb_RocksIterator_refresh0(JNIEnv* env, jobject /*jobj*/,
 void Java_org_rocksdb_RocksIterator_seek0(JNIEnv* env, jobject /*jobj*/,
                                           jlong handle, jbyteArray jtarget,
                                           jint jtarget_len) {
-  auto* it = reinterpret_cast<APIIterator*>(handle);
+  auto* it = reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle);
   auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
     (*it)->Seek(target_slice);
   };
@@ -170,7 +176,7 @@ void Java_org_rocksdb_RocksIterator_seekDirect0(JNIEnv* env, jobject /*jobj*/,
                                                 jlong handle, jobject jtarget,
                                                 jint jtarget_off,
                                                 jint jtarget_len) {
-  auto& it = (*reinterpret_cast<APIIterator*>(handle));
+  auto& it = (*reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle));
   auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
     it->Seek(target_slice);
   };
@@ -186,7 +192,7 @@ void Java_org_rocksdb_RocksIterator_seekDirect0(JNIEnv* env, jobject /*jobj*/,
 void Java_org_rocksdb_RocksIterator_seekForPrevDirect0(
     JNIEnv* env, jobject /*jobj*/, jlong handle, jobject jtarget,
     jint jtarget_off, jint jtarget_len) {
-  auto& it = (*reinterpret_cast<APIIterator*>(handle));
+  auto& it = (*reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle));
   auto seekPrev = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
     it->SeekForPrev(target_slice);
   };
@@ -203,7 +209,7 @@ void Java_org_rocksdb_RocksIterator_seekForPrev0(JNIEnv* env, jobject /*jobj*/,
                                                  jlong handle,
                                                  jbyteArray jtarget,
                                                  jint jtarget_len) {
-  auto* it = reinterpret_cast<APIIterator*>(handle);
+  auto* it = reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle);
   auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
     (*it)->SeekForPrev(target_slice);
   };
@@ -237,7 +243,7 @@ void Java_org_rocksdb_RocksIterator_seekForPrevByteArray0(
  */
 void Java_org_rocksdb_RocksIterator_status0(JNIEnv* env, jobject /*jobj*/,
                                             jlong handle) {
-  auto& it = (*reinterpret_cast<APIIterator*>(handle));
+  auto& it = (*reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle));
   ROCKSDB_NAMESPACE::Status s = it->status();
 
   if (s.ok()) {
@@ -254,7 +260,7 @@ void Java_org_rocksdb_RocksIterator_status0(JNIEnv* env, jobject /*jobj*/,
  */
 jbyteArray Java_org_rocksdb_RocksIterator_key0(JNIEnv* env, jobject /*jobj*/,
                                                jlong handle) {
-  auto& it = (*reinterpret_cast<APIIterator*>(handle));
+  auto& it = (*reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle));
   ROCKSDB_NAMESPACE::Slice key_slice = it->key();
 
   jbyteArray jkey = env->NewByteArray(static_cast<jsize>(key_slice.size()));
@@ -277,7 +283,7 @@ jint Java_org_rocksdb_RocksIterator_keyDirect0(JNIEnv* env, jobject /*jobj*/,
                                                jlong handle, jobject jtarget,
                                                jint jtarget_off,
                                                jint jtarget_len) {
-  auto& it = (*reinterpret_cast<APIIterator*>(handle));
+  auto& it = (*reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle));
   ROCKSDB_NAMESPACE::Slice key_slice = it->key();
   return ROCKSDB_NAMESPACE::JniUtil::copyToDirect(env, key_slice, jtarget,
                                                   jtarget_off, jtarget_len);
@@ -313,7 +319,7 @@ jint Java_org_rocksdb_RocksIterator_keyByteArray0(JNIEnv* env, jobject /*jobj*/,
  */
 jbyteArray Java_org_rocksdb_RocksIterator_value0(JNIEnv* env, jobject /*jobj*/,
                                                  jlong handle) {
-  auto& it = (*reinterpret_cast<APIIterator*>(handle));
+  auto& it = (*reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle));
   ROCKSDB_NAMESPACE::Slice value_slice = it->value();
 
   jbyteArray jkeyValue =
@@ -337,7 +343,7 @@ jint Java_org_rocksdb_RocksIterator_valueDirect0(JNIEnv* env, jobject /*jobj*/,
                                                  jlong handle, jobject jtarget,
                                                  jint jtarget_off,
                                                  jint jtarget_len) {
-  auto& it = (*reinterpret_cast<APIIterator*>(handle));
+  auto& it = (*reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle));
   ROCKSDB_NAMESPACE::Slice value_slice = it->value();
   return ROCKSDB_NAMESPACE::JniUtil::copyToDirect(env, value_slice, jtarget,
                                                   jtarget_off, jtarget_len);

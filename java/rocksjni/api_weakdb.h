@@ -17,18 +17,19 @@
 #include "portal.h"
 #include "rocksdb/db.h"
 
+template <class TDatabase>
 class APIWeakDB : public APIBase {
  public:
-  std::weak_ptr<ROCKSDB_NAMESPACE::DB> db;
+  std::weak_ptr<TDatabase> db;
 
-  APIWeakDB(std::shared_ptr<ROCKSDB_NAMESPACE::DB> db) : db(db){};
+  APIWeakDB(std::shared_ptr<TDatabase> db) : db(db){};
 
   /**
    * @brief lock the referenced pointer if the weak pointer is valid
    *
    * @return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
    */
-  const std::shared_ptr<ROCKSDB_NAMESPACE::DB> dbLock(JNIEnv* env) const {
+  const std::shared_ptr<TDatabase> dbLock(JNIEnv* env) const {
     auto lock = db.lock();
     if (!lock) {
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
@@ -43,8 +44,7 @@ class APIWeakDB : public APIBase {
    * @param handle
    * @return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
    */
-  static std::shared_ptr<ROCKSDB_NAMESPACE::DB> lockDB(JNIEnv* env,
-                                                       jlong handle) {
+  static std::shared_ptr<TDatabase> lockDB(JNIEnv* env, jlong handle) {
     auto* weakDBAPI = reinterpret_cast<APIWeakDB*>(handle);
     auto lock = weakDBAPI->db.lock();
     if (!lock) {

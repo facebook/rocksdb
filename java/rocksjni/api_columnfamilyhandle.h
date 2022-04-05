@@ -17,16 +17,15 @@
 #include "portal.h"
 #include "rocksdb/db.h"
 
-class APIColumnFamilyHandle : public APIWeakDB {
+template <class TDatabase>
+class APIColumnFamilyHandle : public APIWeakDB<TDatabase> {
  public:
   std::weak_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh;
 
   APIColumnFamilyHandle(
-      std::shared_ptr<ROCKSDB_NAMESPACE::DB> db,
+      std::shared_ptr<TDatabase> db,
       std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh)
-      : APIWeakDB(db), cfh(cfh){};
-
-  void check(std::string message);
+      : APIWeakDB<TDatabase>(db), cfh(cfh){};
 
   const std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfhLock(
       JNIEnv* env) const {
@@ -45,8 +44,8 @@ class APIColumnFamilyHandle : public APIWeakDB {
    * ptr otherwise
    */
   std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfhLockDBCheck(
-      JNIEnv* env, APIRocksDB& dbAPI) {
-    if (dbLock(env) != *dbAPI) {
+      JNIEnv* env, APIRocksDB<TDatabase>& dbAPI) {
+    if (APIWeakDB<TDatabase>::dbLock(env) != *dbAPI) {
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
           env,
           ROCKSDB_NAMESPACE::RocksDBExceptionJni::MismatchedColumnFamily());
@@ -80,7 +79,8 @@ class APIColumnFamilyHandle : public APIWeakDB {
   }
 
   static std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
-  lockCFHOrDefault(JNIEnv* env, jlong jhandle, const APIRocksDB& dbAPI) {
+  lockCFHOrDefault(JNIEnv* env, jlong jhandle,
+                   const APIRocksDB<TDatabase>& dbAPI) {
     if (jhandle != 0) {
       return lock(env, jhandle);
     } else {
@@ -91,5 +91,24 @@ class APIColumnFamilyHandle : public APIWeakDB {
       }
       return defaultHandle;
     }
+  }
+
+  void check(std::string message) {
+    std::cout << " APIColumnFamilyHandleNonDefault::check(); " << message
+              << " ";
+    std::shared_ptr<TDatabase> dbLocked = APIWeakDB<TDatabase>::db.lock();
+    std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfhLocked =
+        cfh.lock();
+    if (dbLocked) {
+      std::cout << " db.use_count() " << dbLocked.use_count() << "; ";
+    } else {
+      std::cout << " db 0 uses; ";
+    }
+    if (cfhLocked) {
+      std::cout << " cfh.use_count() " << cfhLocked.use_count() << "; ";
+    } else {
+      std::cout << " cfh 0 uses;";
+    }
+    std::cout << std::endl;
   }
 };

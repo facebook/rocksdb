@@ -186,7 +186,8 @@ void Java_org_rocksdb_WriteBatch_put__J_3BI_3BIJ(
     jbyteArray jentry_value, jint jentry_value_len, jlong jcf_handle) {
   auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
-  const auto& cfhPtr = APIColumnFamilyHandle::lock(env, jcf_handle);
+  const auto& cfhPtr =
+      APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(env, jcf_handle);
   if (!cfhPtr) {
     // CFH exception
     std::cout << "exception in put to wb (CF)" << std::endl;
@@ -223,7 +224,8 @@ void Java_org_rocksdb_WriteBatch_putDirect(JNIEnv* env, jobject /*jobj*/,
     put = [&wb](ROCKSDB_NAMESPACE::Slice& key,
                 ROCKSDB_NAMESPACE::Slice& value) { wb->Put(key, value); };
   } else {
-    const auto& cfhPtr = APIColumnFamilyHandle::lock(env, jcf_handle);
+    const auto& cfhPtr =
+        APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(env, jcf_handle);
     if (!cfhPtr) {
       // CFH exception
       return;
@@ -270,7 +272,8 @@ void Java_org_rocksdb_WriteBatch_merge__J_3BI_3BIJ(
     jbyteArray jentry_value, jint jentry_value_len, jlong jcf_handle) {
   auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
-  const auto& cfhPtr = APIColumnFamilyHandle::lock(env, jcf_handle);
+  const auto& cfhPtr =
+      APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(env, jcf_handle);
   if (!cfhPtr) {
     // CFH exception
     return;
@@ -316,7 +319,8 @@ void Java_org_rocksdb_WriteBatch_delete__J_3BIJ(JNIEnv* env, jobject jobj,
                                                 jlong jcf_handle) {
   auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
-  const auto& cfhPtr = APIColumnFamilyHandle::lock(env, jcf_handle);
+  const auto& cfhPtr =
+      APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(env, jcf_handle);
   if (!cfhPtr) {
     // CFH exception
     return;
@@ -365,7 +369,8 @@ void Java_org_rocksdb_WriteBatch_singleDelete__J_3BIJ(JNIEnv* env, jobject jobj,
                                                       jlong jcf_handle) {
   auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
-  const auto& cfhPtr = APIColumnFamilyHandle::lock(env, jcf_handle);
+  const auto& cfhPtr =
+      APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(env, jcf_handle);
   if (!cfhPtr) {
     // CFH exception
     return;
@@ -397,7 +402,8 @@ void Java_org_rocksdb_WriteBatch_deleteDirect(JNIEnv* env, jobject /*jobj*/,
   if (jcf_handle == 0) {
     remove = [&wb](ROCKSDB_NAMESPACE::Slice& key) { wb->Delete(key); };
   } else {
-    const auto& cfhPtr = APIColumnFamilyHandle::lock(env, jcf_handle);
+    const auto& cfhPtr =
+        APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(env, jcf_handle);
     if (!cfhPtr) {
       // CFH exception
       return;
@@ -444,7 +450,8 @@ void Java_org_rocksdb_WriteBatch_deleteRange__J_3BI_3BIJ(
     jlong jcf_handle) {
   auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
-  const auto& cfhPtr = APIColumnFamilyHandle::lock(env, jcf_handle);
+  const auto& cfhPtr =
+      APIColumnFamilyHandle<ROCKSDB_NAMESPACE::DB>::lock(env, jcf_handle);
   if (!cfhPtr) {
     // CFH exception
     return;

@@ -25,9 +25,9 @@
 jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
     JNIEnv *env, jclass, jlongArray jdb_handles, jlongArray jcache_handles) {
   jboolean has_exception = JNI_FALSE;
-  std::vector<APIRocksDB *> dbAPIs =
-      ROCKSDB_NAMESPACE::JniUtil::fromJPointers<APIRocksDB>(env, jdb_handles,
-                                                            &has_exception);
+  std::vector<APIRocksDB<ROCKSDB_NAMESPACE::DB> *> dbAPIs =
+      ROCKSDB_NAMESPACE::JniUtil::fromJPointers<
+          APIRocksDB<ROCKSDB_NAMESPACE::DB>>(env, jdb_handles, &has_exception);
   if (has_exception == JNI_TRUE) {
     // exception thrown: OutOfMemoryError
     return nullptr;

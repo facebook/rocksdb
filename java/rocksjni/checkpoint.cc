@@ -27,7 +27,8 @@
 jlong Java_org_rocksdb_Checkpoint_newCheckpoint(JNIEnv* /*env*/,
                                                 jclass /*jclazz*/,
                                                 jlong jdb_handle) {
-  const auto& dbAPI = *reinterpret_cast<APIRocksDB*>(jdb_handle);
+  const auto& dbAPI =
+      *reinterpret_cast<APIRocksDB<ROCKSDB_NAMESPACE::DB>*>(jdb_handle);
   ROCKSDB_NAMESPACE::Checkpoint* checkpoint;
   ROCKSDB_NAMESPACE::Checkpoint::Create(dbAPI.get(), &checkpoint);
   return GET_CPLUSPLUS_POINTER(checkpoint);
