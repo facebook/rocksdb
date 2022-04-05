@@ -564,7 +564,9 @@ class Transaction {
   // with
   // `TransactionOptions::use_only_the_last_commit_time_batch_for_recovery` set
   // to true. Otherwise, it is possible that two uncommitted versions of the
-  // same key exist in the database. During bottommost compaction, RocksDB may
+  // same key exist in the database due to the current implementation (see the
+  // explanation in WritePreparedTxn::CommitInternal).
+  // During bottommost compaction, RocksDB may
   // set the sequence numbers of both to zero once becoming committed, causing
   // output SST file to have two identical internal keys.
   virtual WriteBatch* GetCommitTimeWriteBatch() = 0;
