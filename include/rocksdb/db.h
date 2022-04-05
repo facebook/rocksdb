@@ -181,8 +181,6 @@ class DB {
 
   // OpenForReadOnly() creates a Read-only instance that supports reads alone.
   //
-  // Two overloaded versions of OpenForReadOnly() are supported (open with
-  // default Column Family and open with specifed Column Families).
   // All DB interfaces that modify data, like put/delete, will return error.
   // Automatic Flush and Compactions are disabled and any manual calls
   // to Flush/Compaction will return error.
@@ -219,13 +217,15 @@ class DB {
   // OpenAsSecondary() creates a secondary instance that supports read-only
   // operations and supports dynamic catch up with the primary (through a
   // call to TryCatchUpWithPrimary()).
-  // Two overloaded versions of OpenAsSecondary() are supported (open with
-  // default Column Family and open with specifed Column Families)
+  //
+  // All DB interfaces that modify data, like put/delete, will return error.
+  // Automatic Flush and Compactions are disabled and any manual calls
+  // to Flush/Compaction will return error.
   //
   // Multiple secondary instances can co-exist at the same time.
   //
 
-  // Open DB as secondary instance with only the default column family.
+  // Open DB as secondary instance
   //
   // The options argument specifies the options to open the secondary instance.
   // Options.max_open_files should be set to -1.
@@ -243,9 +243,10 @@ class DB {
 
   // Open DB as secondary instance with specified column families
   //
-  // Unlike Primary Instance Open(), the secondary instances can be opened with
-  // subset of the DB's Column families (default Column family cannot be
-  // skipped).
+  // When opening DB in secondary mode, you can specify only a subset of column
+  // families in the database that should be opened. However, you always need
+  // to specify default column family. The default column family name is
+  // 'default' and it's stored in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName
   //
   // Column families created by the primary after the secondary instance starts
   // are currently ignored by the secondary instance.  Column families opened
