@@ -3468,7 +3468,7 @@ class BackupEngineJni
                                 BackupEngineJni> {
  public:
   /**
-   * Get the Java Class org.rocksdb.BackupableEngine
+   * Get the Java Class org.rocksdb.BackupEngine
    *
    * @param env A pointer to the Java environment
    *

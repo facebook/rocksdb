@@ -21,7 +21,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
-#include "utilities/backupable/backupable_db_impl.h"
+#include "utilities/backup/backup_engine_impl.h"
 #include "utilities/fault_injection_fs.h"
 #include "utilities/fault_injection_secondary_cache.h"
 
