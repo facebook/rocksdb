@@ -2440,7 +2440,7 @@ void StressTest::Open() {
         FLAGS_blob_compaction_readahead_size;
 
     options_.wal_compression =
-      StringToCompressionType(FLAGS_wal_compression.c_str());
+        StringToCompressionType(FLAGS_wal_compression.c_str());
   } else {
 #ifdef ROCKSDB_LITE
     fprintf(stderr, "--options_file not supported in lite mode\n");
