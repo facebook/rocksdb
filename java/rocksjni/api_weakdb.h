@@ -3,8 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-// This file defines the "bridge" object between Java and C++ for
-// ROCKSDB_NAMESPACE::ColumnFamilyHandle.
+// This file defines a "bridge" object between Java and C++ for
+// weak references to a RocksDB database. That is to say, the database
+// may be closed by other methods and we need to be cognisant of that.
 
 #pragma once
 
