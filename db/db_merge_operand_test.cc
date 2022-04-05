@@ -117,6 +117,7 @@ TEST_F(DBMergeOperandTest, FlushedMergeOperandReadAfterFreeBug) {
   ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
                                   "key", &value, &merge_operands_info,
                                   &number_of_operands));
+  ASSERT_EQ(1, number_of_operands);
 
   flush_thread.join();
 }
