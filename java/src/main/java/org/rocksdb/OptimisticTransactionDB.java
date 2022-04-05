@@ -96,7 +96,6 @@ public class OptimisticTransactionDB extends RocksDB
   }
 
   @Override protected native void nativeClose(long nativeReference);
-  // TODO (AP) reference counted API
 
   @Override
   public Transaction beginTransaction(final WriteOptions writeOptions) {
