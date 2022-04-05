@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 from __future__ import absolute_import
@@ -6,7 +6,6 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 import argparse
-import commands
 import subprocess
 import sys
 import re
@@ -22,7 +21,7 @@ class Log:
 
     def __init__(self, filename):
         self.filename = filename
-        self.f = open(self.filename, 'w+', 0)
+        self.f = open(self.filename, 'w+')
 
     def caption(self, str):
         line = "\n##### %s #####\n" % str
@@ -61,23 +60,14 @@ class Env(object):
 
         self.log.log("==== shell session ===========================")
         self.log.log("%s> %s" % (path, cmd))
-        status = subprocess.call("cd %s; %s" % (path, cmd), shell=True,
-                                 stdout=self.log.f, stderr=self.log.f)
-        self.log.log("status = %s" % status)
+        p = subprocess.run("cd %s; %s" % (path, cmd), shell=True,
+                            capture_output=True, text=True)
+        self.log.log("status = %s" % p.returncode)
+        self.log.log("stdout = %s" % p.stdout)
+        if p.stderr:
+            self.log.log("stderr = %s" % p.stderr)
         self.log.log("============================================== \n\n")
-        return status
-
-    def GetOutput(self, cmd, path=os.getcwd()):
-        if path:
-            os.chdir(path)
-
-        self.log.log("==== shell session ===========================")
-        self.log.log("%s> %s" % (path, cmd))
-        status, out = commands.getstatusoutput(cmd)
-        self.log.log("status = %s" % status)
-        self.log.log("out = %s" % out)
-        self.log.log("============================================== \n\n")
-        return status, out
+        return p.returncode, p.stdout
 
 #
 # Pre-commit checker
@@ -94,7 +84,7 @@ class PreCommitChecker(Env):
     #   Get commands for a given job from the determinator file
     #
     def get_commands(self, test):
-        status, out = self.GetOutput(
+        status, out = self.shell(
             "RATIO=1 build_tools/rocksdb-lego-determinator %s" % test, ".")
         return status, out
 
@@ -111,7 +101,7 @@ class PreCommitChecker(Env):
             return False
 
         # Parse the JSON to extract the commands to run
-        cmds = re.findall("'shell':'([^\']*)'", cmds)
+        cmds = re.findall('"shell":"([^\"]*)', cmds)
 
         if len(cmds) == 0:
             self.log.log("No commands found")
@@ -119,12 +109,8 @@ class PreCommitChecker(Env):
 
         # Run commands
         for cmd in cmds:
-            # Replace J=<..> with the local environment variable
-            if "J" in os.environ:
-                cmd = cmd.replace("J=1", "J=%s" % os.environ["J"])
-                cmd = cmd.replace("make ", "make -j%s " % os.environ["J"])
             # Run the command
-            status = self.shell(cmd, ".")
+            status, out = self.shell(cmd, ".")
             if status != 0:
                 self.log.error("Error running command %s for test %s"
                                % (cmd, test))
