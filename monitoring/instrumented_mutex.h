@@ -55,7 +55,6 @@ class ALIGN_AS(CACHE_LINE_SIZE) CacheAlignedInstrumentedMutex
     : public InstrumentedMutex {
   using InstrumentedMutex::InstrumentedMutex;
 };
-static_assert(sizeof(CacheAlignedInstrumentedMutex) % CACHE_LINE_SIZE == 0);
 
 // RAII wrapper for InstrumentedMutex
 class InstrumentedMutexLock {
