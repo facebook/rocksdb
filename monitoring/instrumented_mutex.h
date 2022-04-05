@@ -53,7 +53,6 @@ class InstrumentedMutex {
 
 class ALIGN_AS(CACHE_LINE_SIZE) CacheAlignedInstrumentedMutex
     : public InstrumentedMutex {
-  using InstrumentedMutex::InstrumentedMutex;
 };
 static_assert(alignof(CacheAlignedInstrumentedMutex) != CACHE_LINE_SIZE ||
               sizeof(CacheAlignedInstrumentedMutex) % CACHE_LINE_SIZE == 0);
