@@ -463,13 +463,13 @@ Status FindMetaBlock(InternalIterator* meta_index_iter,
   }
 }
 
-Status ReadMetaBlockInFile(RandomAccessFileReader* file, uint64_t file_size,
-                           uint64_t table_magic_number,
-                           const ImmutableOptions& ioptions,
-                           BlockContents* metaindex_contents,
-                           MemoryAllocator* memory_allocator,
-                           FilePrefetchBuffer* prefetch_buffer,
-                           Footer* footer_out) {
+Status ReadMetaIndexBlockInFile(RandomAccessFileReader* file,
+                                uint64_t file_size, uint64_t table_magic_number,
+                                const ImmutableOptions& ioptions,
+                                BlockContents* metaindex_contents,
+                                MemoryAllocator* memory_allocator,
+                                FilePrefetchBuffer* prefetch_buffer,
+                                Footer* footer_out) {
   Footer footer;
   IOOptions opts;
   auto s = ReadFooterFromFile(opts, file, prefetch_buffer, file_size, &footer,
@@ -499,9 +499,9 @@ Status FindMetaBlockInFile(RandomAccessFileReader* file, uint64_t file_size,
                            FilePrefetchBuffer* prefetch_buffer,
                            Footer* footer_out) {
   BlockContents metaindex_contents;
-  auto s = ReadMetaBlockInFile(file, file_size, table_magic_number, ioptions,
-                               &metaindex_contents, memory_allocator,
-                               prefetch_buffer, footer_out);
+  auto s = ReadMetaIndexBlockInFile(
+      file, file_size, table_magic_number, ioptions, &metaindex_contents,
+      memory_allocator, prefetch_buffer, footer_out);
   if (!s.ok()) {
     return s;
   }

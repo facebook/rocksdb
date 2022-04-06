@@ -810,6 +810,13 @@ struct CompatibilityConfig {
   void SetInTableOptions(BlockBasedTableOptions* table_options) {
     table_options->filter_policy = policy;
     table_options->partition_filters = partitioned;
+    if (partitioned) {
+      table_options->index_type =
+          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    } else {
+      table_options->index_type =
+          BlockBasedTableOptions::IndexType::kBinarySearch;
+    }
     table_options->format_version = format_version;
   }
 };
@@ -821,12 +828,14 @@ std::shared_ptr<const FilterPolicy> kCompatibilityRibbonPolicy{
     NewRibbonFilterPolicy(20, -1)};
 
 std::vector<CompatibilityConfig> kCompatibilityConfigs = {
-    {Create(20, kDeprecatedBlock), false, test::kDefaultFormatVersion},
-    {kCompatibilityBloomPolicy, false, test::kDefaultFormatVersion},
-    {kCompatibilityBloomPolicy, true, test::kDefaultFormatVersion},
+    {Create(20, kDeprecatedBlock), false,
+     BlockBasedTableOptions().format_version},
+    {kCompatibilityBloomPolicy, false, BlockBasedTableOptions().format_version},
+    {kCompatibilityBloomPolicy, true, BlockBasedTableOptions().format_version},
     {kCompatibilityBloomPolicy, false, /* legacy Bloom */ 4U},
-    {kCompatibilityRibbonPolicy, false, test::kDefaultFormatVersion},
-    {kCompatibilityRibbonPolicy, true, test::kDefaultFormatVersion},
+    {kCompatibilityRibbonPolicy, false,
+     BlockBasedTableOptions().format_version},
+    {kCompatibilityRibbonPolicy, true, BlockBasedTableOptions().format_version},
 };
 }  // namespace
 
