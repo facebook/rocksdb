@@ -694,8 +694,10 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
   options.write_buffer_size = 1024;
   options.create_if_missing = true;
   options.compression = kNoCompression;
+  options.statistics = CreateDBStatistics();
   options.env = env.get();
-  if (std::get<0>(GetParam())) {
+  bool use_direct_io = std::get<0>(GetParam());
+  if (use_direct_io) {
     options.use_direct_reads = true;
     options.use_direct_io_for_flush_and_compaction = true;
   }
@@ -708,8 +710,7 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   Status s = TryReopen(options);
-  if (std::get<0>(GetParam()) &&
-      (s.IsNotSupported() || s.IsInvalidArgument())) {
+  if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
     // If direct IO is not supported, skip the test
     return;
   } else {
@@ -766,6 +767,8 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
       // TODO akanksha: Remove after adding new units.
       ro.async_io = true;
     }
+
+    ASSERT_OK(options.statistics->Reset());
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     int num_keys = 0;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -773,15 +776,25 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
       num_keys++;
     }
     ASSERT_EQ(num_keys, total_keys);
-
     ASSERT_GT(buff_prefetch_count, 0);
-    buff_prefetch_count = 0;
     // For index and data blocks.
     if (is_adaptive_readahead) {
       ASSERT_EQ(readahead_carry_over_count, 2 * (num_sst_files - 1));
     } else {
       ASSERT_EQ(readahead_carry_over_count, 0);
     }
+
+    // Check stats to make sure async prefetch is done.
+    {
+      HistogramData async_read_bytes;
+      options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+      if (ro.async_io && !use_direct_io) {
+        ASSERT_GT(async_read_bytes.count, 0);
+      } else {
+        ASSERT_EQ(async_read_bytes.count, 0);
+      }
+    }
+
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
   }
@@ -902,6 +915,8 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
     options.use_direct_reads = true;
     options.use_direct_io_for_flush_and_compaction = true;
   }
+
+  options.statistics = CreateDBStatistics();
   BlockBasedTableOptions table_options;
   std::shared_ptr<Cache> cache = NewLRUCache(4 * 1024 * 1024, 2);  // 8MB
   table_options.block_cache = cache;
@@ -948,7 +963,6 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
   SyncPoint::GetInstance()->EnableProcessing();
   ReadOptions ro;
   ro.adaptive_readahead = true;
-  // TODO akanksha: Remove after adding new units.
   ro.async_io = true;
   {
     /*
@@ -964,7 +978,9 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
     iter->Seek(BuildKey(1019));
     buff_prefetch_count = 0;
   }
+
   {
+    ASSERT_OK(options.statistics->Reset());
     // After caching, blocks will be read from cache (Sequential blocks)
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     iter->Seek(BuildKey(0));
@@ -1008,6 +1024,18 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(current_readahead_size, expected_current_readahead_size);
     ASSERT_EQ(buff_prefetch_count, 2);
+
+    // Check stats to make sure async prefetch is done.
+    {
+      HistogramData async_read_bytes;
+      options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+      if (GetParam()) {
+        ASSERT_EQ(async_read_bytes.count, 0);
+      } else {
+        ASSERT_GT(async_read_bytes.count, 0);
+      }
+    }
+
     buff_prefetch_count = 0;
   }
   Close();
@@ -1033,6 +1061,7 @@ TEST_F(PrefetchTest2, ReadAsyncWithPosixFS) {
   options.create_if_missing = true;
   options.compression = kNoCompression;
   options.env = env.get();
+  options.statistics = CreateDBStatistics();
   if (use_direct_io) {
     options.use_direct_reads = true;
     options.use_direct_io_for_flush_and_compaction = true;
@@ -1080,6 +1109,7 @@ TEST_F(PrefetchTest2, ReadAsyncWithPosixFS) {
     ro.adaptive_readahead = true;
     ro.async_io = true;
 
+    ASSERT_OK(options.statistics->Reset());
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     int num_keys = 0;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -1088,7 +1118,19 @@ TEST_F(PrefetchTest2, ReadAsyncWithPosixFS) {
     }
     ASSERT_EQ(num_keys, total_keys);
     ASSERT_GT(buff_prefetch_count, 0);
+
+    // Check stats to make sure async prefetch is done.
+    {
+      HistogramData async_read_bytes;
+      options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+#if defined(ROCKSDB_IOURING_PRESENT)
+      ASSERT_GT(async_read_bytes.count, 0);
+#else
+      ASSERT_EQ(async_read_bytes.count, 0);
+#endif
+    }
   }
+
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 
