@@ -1123,7 +1123,11 @@ TEST_F(PrefetchTest2, ReadAsyncWithPosixFS) {
     {
       HistogramData async_read_bytes;
       options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+#if defined(ROCKSDB_IOURING_PRESENT)
       ASSERT_GT(async_read_bytes.count, 0);
+#else
+      ASSERT_EQ(async_read_bytes.count, 0);
+#endif
     }
   }
 

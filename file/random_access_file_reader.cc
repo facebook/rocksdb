@@ -455,8 +455,12 @@ IOStatus RandomAccessFileReader::ReadAsync(
   }
 #endif
 
-  return file_->ReadAsync(req, opts, read_async_callback, read_async_info,
-                          io_handle, del_fn, nullptr /*dbg*/);
+  IOStatus s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
+                                io_handle, del_fn, nullptr /*dbg*/);
+  if (!s.ok()) {
+    delete read_async_info;
+  }
+  return s;
 }
 
 void RandomAccessFileReader::ReadAsyncCallback(const FSReadRequest& req,
@@ -474,8 +478,9 @@ void RandomAccessFileReader::ReadAsyncCallback(const FSReadRequest& req,
     uint64_t elapsed = clock_->NowMicros() - read_async_info->start_time_;
     file_read_hist_->Add(elapsed);
   }
-
-  RecordInHistogram(stats_, ASYNC_READ_BYTES, req.result.size());
+  if (req.status.ok()) {
+    RecordInHistogram(stats_, ASYNC_READ_BYTES, req.result.size());
+  }
 #ifndef ROCKSDB_LITE
   if (ShouldNotifyListeners()) {
     auto finish_ts = FileOperationInfo::FinishNow();
