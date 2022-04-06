@@ -327,8 +327,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::string str1 = rnd.RandomString(1020);
     TestItem* item1 = new TestItem(str1.data(), str1.length());
     ASSERT_NOK(cache->Insert("k1", item1, nullptr, str1.length()));
-    ASSERT_OK(cache->Insert("k1", item1,
-                            &CompressedSecondaryCacheTest::helper_,
+    ASSERT_OK(cache->Insert("k1", item1, &CompressedSecondaryCacheTest::helper_,
                             str1.length()));
 
     Cache::Handle* handle;
