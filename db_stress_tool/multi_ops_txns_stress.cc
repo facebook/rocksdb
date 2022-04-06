@@ -761,13 +761,23 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
     } else if (s.IsNotFound()) {
       // We can also fail verification here.
       std::ostringstream oss;
-      oss << "pk should exist: " << Slice(pk).ToString(true);
+      auto* dbimpl = static_cast_with_check<DBImpl>(db_->GetRootDB());
+      assert(dbimpl);
+      oss << "Under snap " << read_opts.snapshot->GetSequenceNumber()
+          << " (last published " << dbimpl->GetLastPublishedSequence()
+          << "), pk should exist: " << Slice(pk).ToString(true);
       fprintf(stderr, "%s\n", oss.str().c_str());
       assert(false);
       break;
     }
     if (!s.ok()) {
-      fprintf(stderr, "%s\n", s.ToString().c_str());
+      std::ostringstream oss;
+      auto* dbimpl = static_cast_with_check<DBImpl>(db_->GetRootDB());
+      assert(dbimpl);
+      oss << "Under snap " << read_opts.snapshot->GetSequenceNumber()
+          << "(last published " << dbimpl->GetLastPublishedSequence() << "), "
+          << s.ToString();
+      fprintf(stderr, "%s\n", oss.str().c_str());
       assert(false);
       break;
     }
@@ -783,8 +793,11 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
     uint32_t c = std::get<2>(result);
     if (c != old_c) {
       std::ostringstream oss;
-      oss << "c in primary index does not match secondary index: " << c
-          << " != " << old_c;
+      auto* dbimpl = static_cast_with_check<DBImpl>(db_->GetRootDB());
+      assert(dbimpl);
+      oss << "Under snap " << read_opts.snapshot->GetSequenceNumber()
+          << "(last published " << dbimpl->GetLastPublishedSequence()
+          << "), pk/sk mismatch. pk: (c=" << c << "), sk: (c=" << old_c << ")";
       s = Status::Corruption();
       fprintf(stderr, "%s\n", oss.str().c_str());
       assert(false);
