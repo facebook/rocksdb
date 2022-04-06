@@ -1081,7 +1081,6 @@ Status DBImpl::SetOptions(
   MutableCFOptions new_options;
   Status s;
   Status persist_options_status;
-  persist_options_status.PermitUncheckedError();  // Allow uninitialized access
   SuperVersionContext sv_context(/* create_superversion */ true);
   {
     auto db_options = GetDBOptions();
@@ -1117,9 +1116,11 @@ Status DBImpl::SetOptions(
                    "[%s] SetOptions() succeeded", cfd->GetName().c_str());
     new_options.Dump(immutable_db_options_.info_log.get());
     if (!persist_options_status.ok()) {
+      // NOTE: WriteOptionsFile already logs on failure
       s = persist_options_status;
     }
   } else {
+    persist_options_status.PermitUncheckedError();  // less important
     ROCKS_LOG_WARN(immutable_db_options_.info_log, "[%s] SetOptions() failed",
                    cfd->GetName().c_str());
   }
@@ -1888,6 +1889,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       return s;
     }
   }
+  TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:0");
+  TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:1");
   PinnedIteratorsManager pinned_iters_mgr;
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
@@ -1904,8 +1907,6 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
   {
     PERF_TIMER_GUARD(get_post_process_time);
-
-    ReturnAndCleanupSuperVersion(cfd, sv);
 
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
@@ -1933,6 +1934,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
     RecordInHistogram(stats_, BYTES_PER_READ, size);
+
+    ReturnAndCleanupSuperVersion(cfd, sv);
   }
   return s;
 }

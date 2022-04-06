@@ -826,8 +826,8 @@ release: clean
 coverage: clean
 	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) J=1 all check
 	cd coverage && ./coverage_test.sh
-        # Delete intermediate files
-	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm -f {} \;
+	# Delete intermediate files
+	$(FIND) . -type f \( -name "*.gcda" -o -name "*.gcno" \) -exec rm -f {} \;
 
 ifneq (,$(filter check parallel_check,$(MAKECMDGOALS)),)
 # Use /dev/shm if it has the sticky bit set (otherwise, /tmp),
@@ -1214,7 +1214,7 @@ clean-rocks:
 	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(ALL_STATIC_LIBS) $(ALL_SHARED_LIBS) $(MICROBENCHS)
 	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
 	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
-	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm -f {} \;
+	$(FIND) . -type f \( -name "*.gcda" -o -name "*.gcno" \) -exec rm -f {} \;
 
 clean-rocksjava: clean-rocks
 	rm -rf jl jls
@@ -1551,7 +1551,7 @@ perf_context_test: $(OBJ_DIR)/db/perf_context_test.o $(TEST_LIBRARY) $(LIBRARY)
 prefix_test: $(OBJ_DIR)/db/prefix_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-backupable_db_test: $(OBJ_DIR)/utilities/backupable/backupable_db_test.o $(TEST_LIBRARY) $(LIBRARY)
+backup_engine_test: $(OBJ_DIR)/utilities/backup/backup_engine_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 checkpoint_test: $(OBJ_DIR)/utilities/checkpoint/checkpoint_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2044,8 +2044,8 @@ ROCKSDB_JAVADOCS_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-javadoc.jar
 ROCKSDB_SOURCES_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-sources.jar
 SHA256_CMD = sha256sum
 
-ZLIB_VER ?= 1.2.11
-ZLIB_SHA256 ?= c3e5e9fdd5004dcb542feda5ee4f0ff0744628baf8ed2dd5d66f8ca1197cb1a1
+ZLIB_VER ?= 1.2.12
+ZLIB_SHA256 ?= 91844808532e5ce316b3c010929493c0244f3d37593afd6de04f71821d5136d9
 ZLIB_DOWNLOAD_BASE ?= http://zlib.net
 BZIP2_VER ?= 1.0.8
 BZIP2_SHA256 ?= ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
@@ -2374,7 +2374,7 @@ jdb_bench:
 
 commit_prereq: build_tools/rocksdb-lego-determinator \
                build_tools/precommit_checker.py
-	J=$(J) build_tools/precommit_checker.py unit unit_481 clang_unit release release_481 clang_release tsan asan ubsan lite unit_non_shm
+	J=$(J) build_tools/precommit_checker.py unit clang_unit release clang_release tsan asan ubsan lite unit_non_shm
 	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
 
 # ---------------------------------------------------------------------------

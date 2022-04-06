@@ -103,9 +103,15 @@ commands:
   install-benchmark:
     steps:
       - run:
+          name: Install ninja build
+          command: sudo apt-get update -y && sudo apt-get install -y ninja-build
+      - run:
           name: Install benchmark
           command: |
-            sudo apt-get update -y && sudo apt-get install -y libbenchmark-dev
+            git clone --depth 1 --branch v1.6.1 https://github.com/google/benchmark.git ~/benchmark
+            cd ~/benchmark && mkdir build && cd build
+            cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_ENABLE_GTEST_TESTS=0
+            ninja && sudo ninja install
 
   upgrade-cmake:
     steps:
@@ -431,8 +437,8 @@ jobs:
     resource_class: xlarge
     steps:
       - pre-steps
-      - install-benchmark
       - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-11 g++-11 libgflags-dev
+      - install-benchmark
       - run: CC=gcc-11 CXX=g++-11 V=1 make -j16 all microbench
       - post-steps
 

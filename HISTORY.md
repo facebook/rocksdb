@@ -1,9 +1,20 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Bug Fixes
+* Fixed bug which caused rocksdb failure in the situation when rocksdb was accessible using UNC path
 * Fixed a race condition when 2PC is disabled and WAL tracking in the MANIFEST is enabled. The race condition is between two background flush threads trying to install flush results, causing a WAL deletion not tracked in the MANIFEST. A future DB open may fail.
 * Fixed a heap use-after-free race with DropColumnFamily.
 * Fixed a bug that `rocksdb.read.block.compaction.micros` cannot track compaction stats (#9722).
+* Fixed `file_type`, `relative_filename` and `directory` fields returned by `GetLiveFilesMetaData()`, which were added in inheriting from `FileStorageInfo`.
+* Fixed a bug affecting `track_and_verify_wals_in_manifest`. Without the fix, application may see "open error: Corruption: Missing WAL with log number" while trying to open the db. The corruption is a false alarm but prevents DB open (#9766).
+* Fix segfault in FilePrefetchBuffer with async_io as it doesn't wait for pending jobs to complete on destruction.
+
+### New Features
+* For db_bench when --seed=0 or --seed is not set then it uses the current time as the seed value. Previously it used the value 1000.
+* For db_bench when --benchmark lists multiple tests and each test uses a seed for a RNG then the seeds across tests will no longer be repeated.
+
+### Behavior changes
+* Disallow usage of commit-time-write-batch for write-prepared/write-unprepared transactions if TransactionOptions::use_only_the_last_commit_time_batch_for_recovery is false to prevent two (or more) uncommitted versions of the same key in the database. Otherwise, bottommost compaction may violate the internal key uniqueness invariant of SSTs if the sequence numbers of both internal keys are zeroed out (#9794).
 
 ## 7.1.0 (03/23/2022)
 ### New Features
@@ -1664,7 +1675,7 @@ if set to something > 0 user will see 2 changes in iterators behavior 1) only ke
 * Added a new way to report QPS from db_bench (check out --report_file and --report_interval_seconds)
 * Added a cache for individual rows. See DBOptions::row_cache for more info.
 * Several new features on EventListener (see include/rocksdb/listener.h):
- - OnCompationCompleted() now returns per-compaction job statistics, defined in include/rocksdb/compaction_job_stats.h.
+ - OnCompactionCompleted() now returns per-compaction job statistics, defined in include/rocksdb/compaction_job_stats.h.
  - Added OnTableFileCreated() and OnTableFileDeleted().
 * Add compaction_options_universal.enable_trivial_move to true, to allow trivial move while performing universal compaction. Trivial move will happen only when all the input files are non overlapping.
 

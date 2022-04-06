@@ -245,7 +245,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "util/thread_local.cc",
         "util/threadpool_imp.cc",
         "util/xxhash.cc",
-        "utilities/backupable/backupable_db.cc",
+        "utilities/backup/backup_engine.cc",
         "utilities/blob_db/blob_compaction_filter.cc",
         "utilities/blob_db/blob_db.cc",
         "utilities/blob_db/blob_db_impl.cc",
@@ -563,7 +563,7 @@ cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
         "util/thread_local.cc",
         "util/threadpool_imp.cc",
         "util/xxhash.cc",
-        "utilities/backupable/backupable_db.cc",
+        "utilities/backup/backup_engine.cc",
         "utilities/blob_db/blob_compaction_filter.cc",
         "utilities/blob_db/blob_db.cc",
         "utilities/blob_db/blob_db_impl.cc",
@@ -4768,8 +4768,8 @@ cpp_unittest_wrapper(name="autovector_test",
             extra_compiler_flags=[])
 
 
-cpp_unittest_wrapper(name="backupable_db_test",
-            srcs=["utilities/backupable/backupable_db_test.cc"],
+cpp_unittest_wrapper(name="backup_engine_test",
+            srcs=["utilities/backup/backup_engine_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

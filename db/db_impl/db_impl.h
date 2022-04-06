@@ -2144,7 +2144,7 @@ class DBImpl : public DB {
   // only during recovery. Using this feature enables not writing the state to
   // memtable on normal writes and hence improving the throughput. Each new
   // write of the state will replace the previous state entirely even if the
-  // keys in the two consecuitive states do not overlap.
+  // keys in the two consecutive states do not overlap.
   // It is protected by log_write_mutex_ when two_write_queues_ is enabled.
   // Otherwise only the heaad of write_thread_ can access it.
   WriteBatch cached_recoverable_state_;

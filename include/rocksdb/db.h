@@ -438,10 +438,6 @@ class DB {
   // If "end_key" comes before "start_key" according to the user's comparator,
   // a `Status::InvalidArgument` is returned.
   //
-  // WARNING: Do not use `Iterator::Refresh()` API on DBs where `DeleteRange()`
-  // has been used or will be used. This feature combination is neither
-  // supported nor programmatically prevented.
-  //
   // This feature is now usable in production, with the following caveats:
   // 1) Accumulating many range tombstones in the memtable will degrade read
   // performance; this can be avoided by manually flushing occasionally.
@@ -541,16 +537,20 @@ class DB {
     return Get(options, DefaultColumnFamily(), key, value, timestamp);
   }
 
-  // Returns all the merge operands corresponding to the key. If the
-  // number of merge operands in DB is greater than
-  // merge_operands_options.expected_max_number_of_operands
-  // no merge operands are returned and status is Incomplete. Merge operands
-  // returned are in the order of insertion.
-  // merge_operands- Points to an array of at-least
+  // Populates the `merge_operands` array with all the merge operands in the DB
+  // for `key`. The `merge_operands` array will be populated in the order of
+  // insertion. The number of entries populated in `merge_operands` will be
+  // assigned to `*number_of_operands`.
+  //
+  // If the number of merge operands in DB for `key` is greater than
+  // `merge_operands_options.expected_max_number_of_operands`,
+  // `merge_operands` is not populated and the return value is
+  // `Status::Incomplete`. In that case, `*number_of_operands` will be assigned
+  // the number of merge operands found in the DB for `key`.
+  //
+  // `merge_operands`- Points to an array of at-least
   //             merge_operands_options.expected_max_number_of_operands and the
-  //             caller is responsible for allocating it. If the status
-  //             returned is Incomplete then number_of_operands will contain
-  //             the total number of merge operands found in DB for key.
+  //             caller is responsible for allocating it.
   virtual Status GetMergeOperands(
       const ReadOptions& options, ColumnFamilyHandle* column_family,
       const Slice& key, PinnableSlice* merge_operands,
@@ -1201,20 +1201,44 @@ class DB {
     return CompactRange(options, DefaultColumnFamily(), begin, end);
   }
 
-  // TODO: documentation needed
-  // NOTE: SetOptions is intended only for expert users, and does not apply the
-  // same sanitization to options as the standard DB::Open code path does. Use
-  // with caution.
+  // Dynamically change column family options or table factory options in a
+  // running DB, for the specified column family. Only options internally
+  // marked as "mutable" can be changed. Options not listed in `opts_map` will
+  // keep their current values. See GetColumnFamilyOptionsFromMap() in
+  // convenience.h for the details of `opts_map`. Not supported in LITE mode.
+  //
+  // USABILITY NOTE: SetOptions is intended only for expert users, and does
+  // not apply the same sanitization to options as the standard DB::Open code
+  // path does. Use with caution.
+  //
+  // RELIABILITY & PERFORMANCE NOTE: SetOptions is not fully stress-tested for
+  // reliability, and this is a slow call because a new OPTIONS file is
+  // serialized and persisted for each call. Use only infrequently.
+  //
+  // EXAMPLES:
+  //  s = db->SetOptions(cfh, {{"ttl", "36000"}});
+  //  s = db->SetOptions(cfh, {{"block_based_table_factory",
+  //                            "{prepopulate_block_cache=kDisable;}"}});
   virtual Status SetOptions(
       ColumnFamilyHandle* /*column_family*/,
-      const std::unordered_map<std::string, std::string>& /*new_options*/) {
+      const std::unordered_map<std::string, std::string>& /*opts_map*/) {
     return Status::NotSupported("Not implemented");
   }
+  // Shortcut for SetOptions on the default column family handle.
   virtual Status SetOptions(
       const std::unordered_map<std::string, std::string>& new_options) {
     return SetOptions(DefaultColumnFamily(), new_options);
   }
 
+  // Like SetOptions but for DBOptions, including the same caveats for
+  // usability, reliability, and performance. See GetDBOptionsFromMap() (and
+  // GetColumnFamilyOptionsFromMap()) in convenience.h for details on
+  // `opts_map`. Note supported in LITE mode.
+  //
+  // EXAMPLES:
+  //  s = db->SetDBOptions({{"max_subcompactions", "2"}});
+  //  s = db->SetDBOptions({{"stats_dump_period_sec", "0"},
+  //                        {"stats_persist_period_sec", "0"}});
   virtual Status SetDBOptions(
       const std::unordered_map<std::string, std::string>& new_options) = 0;
 
@@ -1299,6 +1323,8 @@ class DB {
   // Get Env object from the DB
   virtual Env* GetEnv() const = 0;
 
+  // A shortcut for GetEnv()->->GetFileSystem().get(), possibly cached for
+  // efficiency.
   virtual FileSystem* GetFileSystem() const;
 
   // Get DB Options that we use.  During the process of opening the

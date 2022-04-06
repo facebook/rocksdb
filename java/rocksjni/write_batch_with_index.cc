@@ -735,9 +735,11 @@ void Java_org_rocksdb_WBWIRocksIterator_seek0(JNIEnv* env, jobject /*jobj*/,
                                               jlong handle, jbyteArray jtarget,
                                               jint jtarget_len) {
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::WBWIIterator*>(handle);
-  jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
-  if (target == nullptr) {
-    // exception thrown: OutOfMemoryError
+  jbyte* target = new jbyte[jtarget_len];
+  env->GetByteArrayRegion(jtarget, 0, jtarget_len, target);
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    delete[] target;
     return;
   }
 
@@ -746,7 +748,7 @@ void Java_org_rocksdb_WBWIRocksIterator_seek0(JNIEnv* env, jobject /*jobj*/,
 
   it->Seek(target_slice);
 
-  env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+  delete[] target;
 }
 
 /*
@@ -803,9 +805,11 @@ void Java_org_rocksdb_WBWIRocksIterator_seekForPrev0(JNIEnv* env,
                                                      jbyteArray jtarget,
                                                      jint jtarget_len) {
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::WBWIIterator*>(handle);
-  jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
-  if (target == nullptr) {
-    // exception thrown: OutOfMemoryError
+  jbyte* target = new jbyte[jtarget_len];
+  env->GetByteArrayRegion(jtarget, 0, jtarget_len, target);
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    delete[] target;
     return;
   }
 
@@ -814,7 +818,7 @@ void Java_org_rocksdb_WBWIRocksIterator_seekForPrev0(JNIEnv* env,
 
   it->SeekForPrev(target_slice);
 
-  env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+  delete[] target;
 }
 
 /*

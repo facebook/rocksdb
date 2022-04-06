@@ -2,7 +2,7 @@
 #     This cmake build is for Windows 64-bit only.
 #
 # Prerequisites:
-#     You must have at least Visual Studio 2015 Update 3. Start the Developer Command Prompt window that is a part of Visual Studio installation.
+#     You must have at least Visual Studio 2019. Start the Developer Command Prompt window that is a part of Visual Studio installation.
 #     Run the build commands from within the Developer Command Prompt window to have paths to the compiler and runtime libraries set.
 #     You must have git.exe in your %PATH% environment variable.
 #
@@ -849,7 +849,7 @@ set(SOURCES
         util/thread_local.cc
         util/threadpool_imp.cc
         util/xxhash.cc
-        utilities/backupable/backupable_db.cc
+        utilities/backup/backup_engine.cc
         utilities/blob_db/blob_compaction_filter.cc
         utilities/blob_db/blob_db.cc
         utilities/blob_db/blob_db_impl.cc
@@ -1315,7 +1315,7 @@ if(WITH_TESTS)
         util/thread_list_test.cc
         util/thread_local_test.cc
         util/work_queue_test.cc
-        utilities/backupable/backupable_db_test.cc
+        utilities/backup/backup_engine_test.cc
         utilities/blob_db/blob_db_test.cc
         utilities/cassandra/cassandra_functional_test.cc
         utilities/cassandra/cassandra_format_test.cc

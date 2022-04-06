@@ -21,7 +21,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
-#include "utilities/backupable/backupable_db_impl.h"
+#include "utilities/backup/backup_engine_impl.h"
 #include "utilities/fault_injection_fs.h"
 #include "utilities/fault_injection_secondary_cache.h"
 
@@ -645,6 +645,8 @@ void StressTest::OperateDb(ThreadState* thread) {
   ReadOptions read_opts(FLAGS_verify_checksum, true);
   read_opts.rate_limiter_priority =
       FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
+  read_opts.async_io = FLAGS_async_io;
+  read_opts.adaptive_readahead = FLAGS_adaptive_readahead;
   WriteOptions write_opts;
   if (FLAGS_rate_limit_auto_wal_flush) {
     write_opts.rate_limiter_priority = Env::IO_USER;

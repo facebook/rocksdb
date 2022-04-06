@@ -35,6 +35,7 @@ inline void BlockFetcher::ProcessTrailerIfPresent() {
       io_status_ = status_to_io_status(VerifyBlockChecksum(
           footer_.checksum_type(), slice_.data(), block_size_,
           file_->file_name(), handle_.offset()));
+      RecordTick(ioptions_.stats, BLOCK_CHECKSUM_COMPUTE_COUNT);
     }
     compression_type_ =
         BlockBasedTable::GetBlockCompressionType(slice_.data(), block_size_);
@@ -74,8 +75,7 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
       if (read_options_.async_io) {
         read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCacheAsync(
             opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
-            &io_s, read_options_.rate_limiter_priority, for_compaction_,
-            ioptions_.fs.get());
+            &io_s, read_options_.rate_limiter_priority, for_compaction_);
       } else {
         read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCache(
             opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
