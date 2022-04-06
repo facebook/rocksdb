@@ -120,12 +120,12 @@ public class OptimisticTransactionDB extends RocksDB
   public Transaction beginTransaction(final WriteOptions writeOptions,
       final Transaction oldTransaction) {
     final long jtxn_handle = beginTransaction_withOld(
-        getNative(), writeOptions.nativeHandle_, oldTransaction.nativeHandle_);
+        getNative(), writeOptions.nativeHandle_, oldTransaction.getNative());
 
     // RocksJava relies on the assumption that
     // we do not allocate a new Transaction object
     // when providing an old_txn
-    assert(jtxn_handle == oldTransaction.nativeHandle_);
+    assert (jtxn_handle == oldTransaction.getNative());
 
     return oldTransaction;
   }
@@ -135,12 +135,12 @@ public class OptimisticTransactionDB extends RocksDB
       final OptimisticTransactionOptions optimisticTransactionOptions,
       final Transaction oldTransaction) {
     final long jtxn_handle = beginTransaction_withOld(getNative(), writeOptions.nativeHandle_,
-        optimisticTransactionOptions.nativeHandle_, oldTransaction.nativeHandle_);
+        optimisticTransactionOptions.nativeHandle_, oldTransaction.getNative());
 
     // RocksJava relies on the assumption that
     // we do not allocate a new Transaction object
     // when providing an old_txn
-    assert(jtxn_handle == oldTransaction.nativeHandle_);
+    assert (jtxn_handle == oldTransaction.getNative());
 
     return oldTransaction;
   }

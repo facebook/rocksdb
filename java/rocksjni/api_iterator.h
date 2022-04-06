@@ -25,6 +25,10 @@ class APIIterator : APIBase {
               std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh)
       : db(db), cfh(cfh), iterator(iterator){};
 
+  APIIterator(std::shared_ptr<TDatabase> db,
+              std::shared_ptr<ROCKSDB_NAMESPACE::Iterator> iterator)
+      : db(db), iterator(iterator){};
+
   ROCKSDB_NAMESPACE::Iterator* operator->() const { return iterator.get(); }
 
   std::shared_ptr<ROCKSDB_NAMESPACE::Iterator>& operator*() { return iterator; }

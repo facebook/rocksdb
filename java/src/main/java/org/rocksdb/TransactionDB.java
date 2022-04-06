@@ -131,12 +131,12 @@ public class TransactionDB extends RocksDB
   public Transaction beginTransaction(final WriteOptions writeOptions,
       final Transaction oldTransaction) {
     final long jtxnHandle = beginTransaction_withOld(
-        getNative(), writeOptions.nativeHandle_, oldTransaction.nativeHandle_);
+        getNative(), writeOptions.nativeHandle_, oldTransaction.getNative());
 
     // RocksJava relies on the assumption that
     // we do not allocate a new Transaction object
     // when providing an old_txn
-    assert(jtxnHandle == oldTransaction.nativeHandle_);
+    assert (jtxnHandle == oldTransaction.getNative());
 
     return oldTransaction;
   }
@@ -146,12 +146,12 @@ public class TransactionDB extends RocksDB
       final TransactionOptions transactionOptions,
       final Transaction oldTransaction) {
     final long jtxn_handle = beginTransaction_withOld(getNative(), writeOptions.nativeHandle_,
-        transactionOptions.nativeHandle_, oldTransaction.nativeHandle_);
+        transactionOptions.nativeHandle_, oldTransaction.getNative());
 
     // RocksJava relies on the assumption that
     // we do not allocate a new Transaction object
     // when providing an old_txn
-    assert(jtxn_handle == oldTransaction.nativeHandle_);
+    assert (jtxn_handle == oldTransaction.getNative());
 
     return oldTransaction;
   }
@@ -165,9 +165,10 @@ public class TransactionDB extends RocksDB
     final Transaction txn = new Transaction(this, jtxnHandle);
 
     // this instance doesn't own the underlying C++ object
-    txn.disOwnNativeHandle();
+    // txn.disOwnNativeHandle();
+    throw new UnsupportedOperationException("Not implemented in experimental ref-counting");
 
-    return txn;
+    // return txn;
   }
 
   public List<Transaction> getAllPreparedTransactions() {
@@ -178,11 +179,12 @@ public class TransactionDB extends RocksDB
       final Transaction txn = new Transaction(this, jtxnHandle);
 
       // this instance doesn't own the underlying C++ object
-      txn.disOwnNativeHandle();
+      // txn.disOwnNativeHandle();
 
       txns.add(txn);
     }
-    return txns;
+    throw new UnsupportedOperationException("Not implemented in experimental ref-counting");
+    // return txns;
   }
 
   public static class KeyLockInfo {
