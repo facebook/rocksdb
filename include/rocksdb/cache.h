@@ -131,7 +131,7 @@ extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 // Options structure for configuring a SecondaryCache instance based on
 // LRUCache. The LRUCacheOptions.secondary_cache is not used and
 // should not be set.
-struct LRUSecondaryCacheOptions : LRUCacheOptions {
+struct CompressedSecondaryCacheOptions : LRUCacheOptions {
   // The compression method (if any) that is used to compress data.
   CompressionType compression_type = CompressionType::kLZ4Compression;
 
@@ -142,8 +142,8 @@ struct LRUSecondaryCacheOptions : LRUCacheOptions {
   // header in varint32 format.
   uint32_t compress_format_version = 2;
 
-  LRUSecondaryCacheOptions() {}
-  LRUSecondaryCacheOptions(
+  CompressedSecondaryCacheOptions() {}
+  CompressedSecondaryCacheOptions(
       size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
       double _high_pri_pool_ratio,
       std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
@@ -161,7 +161,7 @@ struct LRUSecondaryCacheOptions : LRUCacheOptions {
 
 // EXPERIMENTAL
 // Create a new Secondary Cache that is implemented on top of LRUCache.
-extern std::shared_ptr<SecondaryCache> NewLRUSecondaryCache(
+extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.5,
     std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
@@ -171,8 +171,8 @@ extern std::shared_ptr<SecondaryCache> NewLRUSecondaryCache(
     CompressionType compression_type = CompressionType::kLZ4Compression,
     uint32_t compress_format_version = 2);
 
-extern std::shared_ptr<SecondaryCache> NewLRUSecondaryCache(
-    const LRUSecondaryCacheOptions& opts);
+extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
+    const CompressedSecondaryCacheOptions& opts);
 
 // Similar to NewLRUCache, but create a cache based on CLOCK algorithm with
 // better concurrent performance in some cases. See util/clock_cache.cc for
