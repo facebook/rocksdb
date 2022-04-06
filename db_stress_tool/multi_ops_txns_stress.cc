@@ -763,8 +763,8 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
       std::ostringstream oss;
       auto* dbimpl = static_cast_with_check<DBImpl>(db_->GetRootDB());
       assert(dbimpl);
-      oss << "Under snap " << read_opts.snapshot->GetSequenceNumber()
-          << " (last published " << dbimpl->GetLastPublishedSequence()
+      oss << "snap " << read_opts.snapshot->GetSequenceNumber()
+          << " (published " << dbimpl->GetLastPublishedSequence()
           << "), pk should exist: " << Slice(pk).ToString(true);
       fprintf(stderr, "%s\n", oss.str().c_str());
       assert(false);
@@ -774,8 +774,8 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
       std::ostringstream oss;
       auto* dbimpl = static_cast_with_check<DBImpl>(db_->GetRootDB());
       assert(dbimpl);
-      oss << "Under snap " << read_opts.snapshot->GetSequenceNumber()
-          << "(last published " << dbimpl->GetLastPublishedSequence() << "), "
+      oss << "snap " << read_opts.snapshot->GetSequenceNumber()
+          << " (published " << dbimpl->GetLastPublishedSequence() << "), "
           << s.ToString();
       fprintf(stderr, "%s\n", oss.str().c_str());
       assert(false);
@@ -795,9 +795,10 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
       std::ostringstream oss;
       auto* dbimpl = static_cast_with_check<DBImpl>(db_->GetRootDB());
       assert(dbimpl);
-      oss << "Under snap " << read_opts.snapshot->GetSequenceNumber()
-          << "(last published " << dbimpl->GetLastPublishedSequence()
-          << "), pk/sk mismatch. pk: (c=" << c << "), sk: (c=" << old_c << ")";
+      oss << "snap " << read_opts.snapshot->GetSequenceNumber()
+          << " (published " << dbimpl->GetLastPublishedSequence()
+          << "), pk/sk mismatch. pk: (a=" << record.a_value() << ", "
+          << "c=" << c << "), sk: (c=" << old_c << ")";
       s = Status::Corruption();
       fprintf(stderr, "%s\n", oss.str().c_str());
       assert(false);
@@ -1184,8 +1185,9 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       }
       uint32_t c_in_primary = std::get<2>(result);
       if (c_in_primary != record.c_value()) {
-        oss << "Pk/sk mismatch. pk: (c=" << c_in_primary
-            << "), sk: (c=" << record.c_value() << ")";
+        oss << "Pk/sk mismatch. pk: (a=" << record.a_value()
+            << ", c=" << c_in_primary << "), sk: (c=" << record.c_value()
+            << ")";
         VerificationAbort(thread->shared, oss.str(), s);
         assert(false);
         return;
