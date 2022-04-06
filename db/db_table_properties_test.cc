@@ -411,30 +411,6 @@ TEST_F(DBTablePropertiesTest, GetDbIdentifiersProperty) {
   }
 }
 
-TEST_F(DBTablePropertiesTest, GetUint64TAndStringPropStartEndPosition) {
-  TableProperties tp;
-  tp.orig_file_number = 123;
-  tp.data_size = 456;
-  tp.db_id = "123";
-  tp.db_session_id = "456";
-  tp.user_collected_properties = {{"some_user_prop", "value"}};
-
-  std::pair<const uint64_t*, const uint64_t*> u_props =
-      GetUint64TPropStartEndPosition(&tp);
-  std::pair<const std::string*, const std::string*> s_props =
-      GetStringPropStartEndPosition(&tp);
-
-  EXPECT_TRUE(u_props.first == &tp.orig_file_number);
-  EXPECT_TRUE(*u_props.first == tp.orig_file_number);
-  EXPECT_TRUE(static_cast<const void*>(u_props.second) ==
-              static_cast<const void*>(s_props.first));
-
-  EXPECT_TRUE(s_props.first == &tp.db_id);
-  EXPECT_TRUE(*s_props.first == tp.db_id);
-  EXPECT_TRUE(static_cast<const void*>(s_props.second) ==
-              static_cast<const void*>(&tp.user_collected_properties));
-}
-
 class DBTableHostnamePropertyTest
     : public DBTestBase,
       public ::testing::WithParamInterface<std::tuple<int, std::string>> {
