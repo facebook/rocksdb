@@ -1889,6 +1889,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       return s;
     }
   }
+  TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:0");
+  TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:1");
   PinnedIteratorsManager pinned_iters_mgr;
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
@@ -1905,8 +1907,6 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
   {
     PERF_TIMER_GUARD(get_post_process_time);
-
-    ReturnAndCleanupSuperVersion(cfd, sv);
 
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
@@ -1934,6 +1934,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
     RecordInHistogram(stats_, BYTES_PER_READ, size);
+
+    ReturnAndCleanupSuperVersion(cfd, sv);
   }
   return s;
 }

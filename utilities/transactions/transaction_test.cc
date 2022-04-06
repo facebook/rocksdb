@@ -1018,10 +1018,12 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
     ASSERT_EQ(value, "bar2");
 
     // commit time put
-    ASSERT_OK(
-        txn->GetCommitTimeWriteBatch()->Put(Slice("gtid"), Slice("dogs")));
-    ASSERT_OK(
-        txn->GetCommitTimeWriteBatch()->Put(Slice("gtid2"), Slice("cats")));
+    if (cwb4recovery) {
+      ASSERT_OK(
+          txn->GetCommitTimeWriteBatch()->Put(Slice("gtid"), Slice("dogs")));
+      ASSERT_OK(
+          txn->GetCommitTimeWriteBatch()->Put(Slice("gtid2"), Slice("cats")));
+    }
 
     // nothing has been prepped yet
     ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
@@ -1053,16 +1055,6 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
     s = db->Get(read_options, "foo", &value);
     ASSERT_OK(s);
     ASSERT_EQ(value, "bar");
-
-    if (!cwb4recovery) {
-      s = db->Get(read_options, "gtid", &value);
-      ASSERT_OK(s);
-      ASSERT_EQ(value, "dogs");
-
-      s = db->Get(read_options, "gtid2", &value);
-      ASSERT_OK(s);
-      ASSERT_EQ(value, "cats");
-    }
 
     // we already committed
     s = txn->Commit();
@@ -1219,8 +1211,10 @@ TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
 
       delete txn1;
 
-      ASSERT_OK(
-          txn2->GetCommitTimeWriteBatch()->Put(Slice("foo"), Slice("bar")));
+      if (cwb4recovery) {
+        ASSERT_OK(
+            txn2->GetCommitTimeWriteBatch()->Put(Slice("foo"), Slice("bar")));
+      }
 
       s = txn2->Prepare();
       ASSERT_OK(s);
@@ -1229,11 +1223,7 @@ TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
       ASSERT_OK(s);
 
       delete txn2;
-      if (!cwb4recovery) {
-        s = db->Get(read_options, "foo", &value);
-        ASSERT_OK(s);
-        ASSERT_EQ(value, "bar");
-      } else {
+      if (cwb4recovery) {
         if (test_with_empty_wal) {
           DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
           ASSERT_OK(db_impl->TEST_FlushMemTable(true));
@@ -5442,9 +5432,8 @@ Status TransactionStressTestInserter(
   WriteOptions write_options;
   ReadOptions read_options;
   TransactionOptions txn_options;
-  if (rand->OneIn(2)) {
-    txn_options.use_only_the_last_commit_time_batch_for_recovery = true;
-  }
+  txn_options.use_only_the_last_commit_time_batch_for_recovery = true;
+
   // Inside the inserter we might also retake the snapshot. We do both since two
   // separte functions are engaged for each.
   txn_options.set_snapshot = rand->OneIn(2);
@@ -5887,7 +5876,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
         ASSERT_OK(ReOpen());
         ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &cf_handle));
         TransactionOptions txn_options;
-        txn_options.use_only_the_last_commit_time_batch_for_recovery = false;
+        txn_options.use_only_the_last_commit_time_batch_for_recovery = true;
         WriteOptions write_options;
         Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
         auto s = txn0->SetName("xid");
@@ -5991,8 +5980,13 @@ TEST_P(TransactionTest, DuplicateKeys) {
           ASSERT_TRUE(s.IsNotFound());
           if (with_commit_batch) {
             s = db->Get(ropt, db->DefaultColumnFamily(), "foo6", &pinnable_val);
-            ASSERT_OK(s);
-            ASSERT_TRUE(pinnable_val == ("bar6b"));
+            if (txn_db_options.write_policy ==
+                TxnDBWritePolicy::WRITE_COMMITTED) {
+              ASSERT_OK(s);
+              ASSERT_TRUE(pinnable_val == ("bar6b"));
+            } else {
+              ASSERT_TRUE(s.IsNotFound());
+            }
             s = db->Get(ropt, db->DefaultColumnFamily(), "foo7", &pinnable_val);
             ASSERT_TRUE(s.IsNotFound());
           }
