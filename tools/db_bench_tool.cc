@@ -1125,6 +1125,11 @@ DEFINE_bool(async_io, false,
             "When set true, RocksDB does asynchronous reads for internal auto "
             "readahead prefetching.");
 
+DEFINE_bool(reserve_table_reader_memory, false,
+            "A dynamically updating charge to block cache, loosely based on "
+            "the actual memory usage of table reader, will occur to account "
+            "the memory, if block cache available.");
+
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);
@@ -4049,6 +4054,8 @@ class Benchmark {
             true;
       }
       block_based_options.block_cache = cache_;
+      block_based_options.reserve_table_reader_memory =
+          FLAGS_reserve_table_reader_memory;
       block_based_options.block_cache_compressed = compressed_cache_;
       block_based_options.block_size = FLAGS_block_size;
       block_based_options.block_restart_interval = FLAGS_block_restart_interval;

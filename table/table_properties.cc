@@ -5,6 +5,7 @@
 
 #include "rocksdb/table_properties.h"
 
+#include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/unique_id.h"
@@ -211,6 +212,36 @@ TableProperties::GetAggregatablePropertiesAsMap() const {
   rv["fast_compression_estimated_data_size"] =
       fast_compression_estimated_data_size;
   return rv;
+}
+
+// WARNING: manual update to this function is needed
+// whenever a new string property is added to TableProperties
+// to reduce approximation error.
+//
+// TODO: eliminate the need of manually updating this function
+// for new string properties
+std::size_t TableProperties::ApproximateMemoryUsage() const {
+  std::size_t usage = 0;
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+  usage += malloc_usable_size((void*)this);
+#else
+  usage += sizeof(*this);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+
+  std::size_t string_props_mem_usage =
+      db_id.size() + db_session_id.size() + db_host_id.size() +
+      column_family_name.size() + filter_policy_name.size() +
+      comparator_name.size() + merge_operator_name.size() +
+      prefix_extractor_name.size() + property_collectors_names.size() +
+      compression_name.size() + compression_options.size();
+  usage += string_props_mem_usage;
+
+  for (auto iter = user_collected_properties.begin();
+       iter != user_collected_properties.end(); ++iter) {
+    usage += (iter->first.size() + iter->second.size());
+  }
+
+  return usage;
 }
 
 const std::string TablePropertiesNames::kDbId = "rocksdb.creating.db.identity";

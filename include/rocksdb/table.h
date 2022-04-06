@@ -300,11 +300,34 @@ struct BlockBasedTableOptions {
   //
   // If additional temporary memory of Ribbon Filter uses up too much memory
   // relative to the avaible space left in the block cache
-  // at some point (i.e, causing a cache full when strict_capacity_limit =
-  // true), construction will fall back to Bloom Filter.
+  // at some point (i.e, causing a cache full under
+  // LRUCacheOptions::strict_capacity_limit = true), construction will fall back
+  // to Bloom Filter.
   //
   // Default: false
   bool reserve_table_builder_memory = false;
+
+  // If true, a dynamically updating charge to block cache, loosely based
+  // on the actual memory usage of table reader, will occur to account
+  // the memory, if block cache available.
+  //
+  // Charged memory usage includes:
+  // 1. Table properties
+  // 2. Index block/Filter block/Uncompression dictionary if stored in table
+  // reader (i.e, BlockBasedTableOptions::cache_index_and_filter_blocks ==
+  // false)
+  // 3. Some internal data structures
+  // 4. More to come...
+  //
+  // Note:
+  // If creation of a table reader uses up too much memory
+  // relative to the avaible space left in the block cache
+  // at some point (i.e, causing a cache full under
+  // LRUCacheOptions::strict_capacity_limit = true), such creation will fail
+  // with Status::MemoryLimit().
+  //
+  // Default: false
+  bool reserve_table_reader_memory = false;
 
   // Note: currently this option requires kTwoLevelIndexSearch to be set as
   // well.

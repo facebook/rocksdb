@@ -2319,6 +2319,8 @@ void StressTest::Open() {
     block_based_options.block_cache_compressed = compressed_cache_;
     block_based_options.checksum = checksum_type_e;
     block_based_options.block_size = FLAGS_block_size;
+    block_based_options.reserve_table_reader_memory =
+        FLAGS_reserve_table_reader_memory;
     block_based_options.format_version =
         static_cast<uint32_t>(FLAGS_format_version);
     block_based_options.index_block_restart_interval =
