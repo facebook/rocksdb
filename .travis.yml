@@ -239,10 +239,10 @@ script:
       OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=only make -j$MK_PARALLEL all_but_some_tests check_some
       ;;
     1)
-      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_END=backupable_db_test make -j$MK_PARALLEL check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_END=backup_engine_test make -j$MK_PARALLEL check_some
       ;;
     2)
-      OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" LIB_MODE=shared V=1 make -j$MK_PARALLEL tools && OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=backupable_db_test ROCKSDBTESTS_END=db_universal_compaction_test make -j$MK_PARALLEL check_some
+      OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" LIB_MODE=shared V=1 make -j$MK_PARALLEL tools && OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=backup_engine_test ROCKSDBTESTS_END=db_universal_compaction_test make -j$MK_PARALLEL check_some
       ;;
     3)
       OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=db_universal_compaction_test ROCKSDBTESTS_END=table_properties_collector_test make -j$MK_PARALLEL check_some

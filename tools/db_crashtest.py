@@ -131,7 +131,7 @@ default_params = {
     # Sync mode might make test runs slower so running it in a smaller chance
     "sync" : lambda : random.choice(
         [1 if t == 0 else 0 for t in range(0, 20)]),
-    # Disable compation_readahead_size because the test is not passing.
+    # Disable compaction_readahead_size because the test is not passing.
     #"compaction_readahead_size" : lambda : random.choice(
     #    [0, 0, 1024 * 1024]),
     "db_write_buffer_size" : lambda: random.choice(
@@ -163,6 +163,8 @@ default_params = {
     "memtable_prefix_bloom_size_ratio": lambda: random.choice([0.001, 0.01, 0.1, 0.5]),
     "memtable_whole_key_filtering": lambda: random.randint(0, 1),
     "detect_filter_construct_corruption": lambda: random.choice([0, 1]),
+    "adaptive_readahead": lambda: random.choice([0, 1]),
+    "async_io": lambda: random.choice([0, 1]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'

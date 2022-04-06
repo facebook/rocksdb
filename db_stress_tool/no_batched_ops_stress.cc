@@ -45,8 +45,8 @@ class NonBatchedOpsStressTest : public StressTest {
       if (thread->shared->HasVerificationFailedYet()) {
         break;
       }
-      if (thread->rand.OneIn(3)) {
-        // 1/3 chance use iterator to verify this range
+      if (thread->rand.OneIn(4)) {
+        // 1/4 chance use iterator to verify this range
         Slice prefix;
         std::string seek_key = Key(start);
         std::unique_ptr<Iterator> iter(
@@ -91,8 +91,8 @@ class NonBatchedOpsStressTest : public StressTest {
                           from_db.data(), from_db.length());
           }
         }
-      } else if (thread->rand.OneIn(2)) {
-        // 1/3 chance use Get to verify this range
+      } else if (thread->rand.OneIn(3)) {
+        // 1/4 chance use Get to verify this range
         for (auto i = start; i < end; i++) {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
@@ -108,8 +108,8 @@ class NonBatchedOpsStressTest : public StressTest {
                           from_db.data(), from_db.length());
           }
         }
-      } else {
-        // 1/3 chance use MultiGet to verify this range
+      } else if (thread->rand.OneIn(2)) {
+        // 1/4 chance use MultiGet to verify this range
         for (auto i = start; i < end;) {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
@@ -139,6 +139,47 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           i += batch_size;
+        }
+      } else {
+        // 1/4 chance use GetMergeOperand to verify this range
+        // Start off with small size that will be increased later if necessary
+        std::vector<PinnableSlice> values(4);
+        GetMergeOperandsOptions merge_operands_info;
+        merge_operands_info.expected_max_number_of_operands =
+            static_cast<int>(values.size());
+        for (auto i = start; i < end; i++) {
+          if (thread->shared->HasVerificationFailedYet()) {
+            break;
+          }
+          std::string from_db;
+          std::string keystr = Key(i);
+          Slice k = keystr;
+          int number_of_operands = 0;
+          Status s = db_->GetMergeOperands(options, column_families_[cf], k,
+                                           values.data(), &merge_operands_info,
+                                           &number_of_operands);
+          if (s.IsIncomplete()) {
+            // Need to resize values as there are more than values.size() merge
+            // operands on this key. Should only happen a few times when we
+            // encounter a key that had more merge operands than any key seen so
+            // far
+            values.resize(number_of_operands);
+            merge_operands_info.expected_max_number_of_operands =
+                static_cast<int>(number_of_operands);
+            s = db_->GetMergeOperands(options, column_families_[cf], k,
+                                      values.data(), &merge_operands_info,
+                                      &number_of_operands);
+          }
+          // Assumed here that GetMergeOperands always sets number_of_operand
+          if (number_of_operands) {
+            from_db = values[number_of_operands - 1].ToString();
+          }
+          VerifyValue(static_cast<int>(cf), i, options, shared, from_db, s,
+                      true);
+          if (from_db.length()) {
+            PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
+                          from_db.data(), from_db.length());
+          }
         }
       }
     }
