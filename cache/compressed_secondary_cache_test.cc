@@ -325,13 +325,11 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
     Random rnd(301);
     std::string str1 = rnd.RandomString(1020);
-    auto item1 =
-        std::unique_ptr<TestItem>(new TestItem(str1.data(), str1.length()));
-    ASSERT_NOK(cache->Insert("k1", item1.get(), nullptr, str1.length()));
-    ASSERT_OK(cache->Insert("k1", item1.get(),
+    TestItem* item1 = new TestItem(str1.data(), str1.length());
+    ASSERT_NOK(cache->Insert("k1", item1, nullptr, str1.length()));
+    ASSERT_OK(cache->Insert("k1", item1,
                             &CompressedSecondaryCacheTest::helper_,
                             str1.length()));
-    item1.release();  // Appease clang-analyze "potential memory leak"
 
     Cache::Handle* handle;
     handle = cache->Lookup("k2", nullptr, test_item_creator,
