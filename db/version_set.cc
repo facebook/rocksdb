@@ -5840,6 +5840,9 @@ InternalIterator* VersionSet::MakeInputIterator(
                                               fmd.largest.user_key()) > 0) {
             continue;
           }
+          // We should be able to filter out the case where the end key
+          // equals to the end boundary, since the end key is exclusive.
+          // We try to be extra safe here.
           if (end.has_value() &&
               cfd->user_comparator()->Compare(end.value(),
                                               fmd.smallest.user_key()) < 0) {
