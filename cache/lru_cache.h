@@ -371,15 +371,15 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
                 DeleterFn deleter, const Cache::CacheItemHelper* helper,
                 Cache::Handle** handle, Cache::Priority priority);
-  // Promote an item looked up from the secondary cache to the LRU cache. The
-  // item may be still in the secondary cache as indicated by is_in_sec_cache.
+  // Promote an item looked up from the secondary cache to the LRU cache.
+  // The item may be still in the secondary cache.
   // It is only inserted into the hash table and not the LRU list, and only
   // if the cache is not at full capacity, as is the case during Insert.  The
   // caller should hold a reference on the LRUHandle. When the caller releases
   // the last reference, the item is added to the LRU list.
   // The item is promoted to the high pri or low pri pool as specified by the
   // caller in Lookup.
-  void Promote(LRUHandle* e, bool is_in_sec_cache);
+  void Promote(LRUHandle* e);
   void LRU_Remove(LRUHandle* e);
   void LRU_Insert(LRUHandle* e);
 

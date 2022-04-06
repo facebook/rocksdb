@@ -383,13 +383,12 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
   return s;
 }
 
-void LRUCacheShard::Promote(LRUHandle* e, bool is_in_sec_cache) {
+void LRUCacheShard::Promote(LRUHandle* e) {
   SecondaryCacheResultHandle* secondary_handle = e->sec_handle;
 
   assert(secondary_handle->IsReady());
   e->SetIncomplete(false);
   e->SetInCache(true);
-  e->SetIsInSecondaryCache(is_in_sec_cache);
   e->value = secondary_handle->Value();
   e->charge = secondary_handle->Size();
   delete secondary_handle;
@@ -467,7 +466,8 @@ Cache::Handle* LRUCacheShard::Lookup(
       e->Ref();
 
       if (wait) {
-        Promote(e, is_in_sec_cache);
+        Promote(e);
+        e->SetIsInSecondaryCache(is_in_sec_cache);
         if (!e->value) {
           // The secondary cache returned a handle, but the lookup failed.
           e->Unref();
@@ -753,8 +753,9 @@ void LRUCache::WaitAll(std::vector<Handle*>& handles) {
       }
       uint32_t hash = GetHash(handle);
       LRUCacheShard* shard = static_cast<LRUCacheShard*>(GetShard(Shard(hash)));
+      shard->Promote(lru_handle);
       // Since wait is needed, we assume these handles are still in sec cache.
-      shard->Promote(lru_handle, /* is_still_in_sec_cache */ true);
+      lru_handle->SetIsInSecondaryCache(true);
     }
   }
 }
