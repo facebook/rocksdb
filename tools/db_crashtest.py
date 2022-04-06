@@ -166,6 +166,7 @@ default_params = {
     "detect_filter_construct_corruption": lambda: random.choice([0, 1]),
     "adaptive_readahead": lambda: random.choice([0, 1]),
     "async_io": lambda: random.choice([0, 1]),
+    "wal_compression": lambda: random.choice(["none", "zstd"]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
