@@ -253,16 +253,15 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJ(
   auto& otdbAPI = *reinterpret_cast<API_OTDB*>(jhandle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
-  auto* old_txn =
-      reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jold_txn_handle);
+  auto& oldTxn = *reinterpret_cast<API_OTXN*>(jold_txn_handle);
   ROCKSDB_NAMESPACE::OptimisticTransactionOptions optimistic_txn_options;
   ROCKSDB_NAMESPACE::Transaction* txn = otdbAPI->BeginTransaction(
-      *write_options, optimistic_txn_options, old_txn);
+      *write_options, optimistic_txn_options, oldTxn.get());
 
   // RocksJava relies on the assumption that
   // we do not allocate a new Transaction object
   // when providing an old_optimistic_txn
-  assert(txn == old_txn);
+  assert(txn == oldTxn.get());
 
   return jold_txn_handle;
 }
@@ -281,15 +280,14 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJJ(
   auto* optimistic_txn_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionOptions*>(
           joptimistic_txn_options_handle);
-  auto* old_txn =
-      reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jold_txn_handle);
+  auto& oldTxn = *reinterpret_cast<API_OTXN*>(jold_txn_handle);
   ROCKSDB_NAMESPACE::Transaction* txn = otdbAPI->BeginTransaction(
-      *write_options, *optimistic_txn_options, old_txn);
+      *write_options, *optimistic_txn_options, oldTxn.get());
 
   // RocksJava relies on the assumption that
   // we do not allocate a new Transaction object
   // when providing an old_optimisic_txn
-  assert(txn == old_txn);
+  assert(txn == oldTxn.get());
 
   return jold_txn_handle;
 }
