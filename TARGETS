@@ -14,8 +14,8 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "cache/cache_key.cc",
         "cache/cache_reservation_manager.cc",
         "cache/clock_cache.cc",
+        "cache/compressed_secondary_cache.cc",
         "cache/lru_cache.cc",
-        "cache/lru_secondary_cache.cc",
         "cache/sharded_cache.cc",
         "db/arena_wrapped_db_iter.cc",
         "db/blob/blob_fetcher.cc",
@@ -332,8 +332,8 @@ cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
         "cache/cache_key.cc",
         "cache/cache_reservation_manager.cc",
         "cache/clock_cache.cc",
+        "cache/compressed_secondary_cache.cc",
         "cache/lru_cache.cc",
-        "cache/lru_secondary_cache.cc",
         "cache/sharded_cache.cc",
         "db/arena_wrapped_db_iter.cc",
         "db/blob/blob_fetcher.cc",
@@ -4984,6 +4984,12 @@ cpp_unittest_wrapper(name="comparator_db_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="compressed_secondary_cache_test",
+            srcs=["cache/compressed_secondary_cache_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="configurable_test",
             srcs=["options/configurable_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5474,12 +5480,6 @@ cpp_unittest_wrapper(name="log_test",
 
 cpp_unittest_wrapper(name="lru_cache_test",
             srcs=["cache/lru_cache_test.cc"],
-            deps=[":rocksdb_test_lib"],
-            extra_compiler_flags=[])
-
-
-cpp_unittest_wrapper(name="lru_secondary_cache_test",
-            srcs=["cache/lru_secondary_cache_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

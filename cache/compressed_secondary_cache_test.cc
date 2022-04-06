@@ -128,9 +128,13 @@ class CompressedSecondaryCacheTest : public testing::Test {
         sec_cache->Lookup("k1", test_item_creator, true, is_in_sec_cache);
     ASSERT_NE(handle1, nullptr);
 <<<<<<< HEAD:cache/compressed_secondary_cache_test.cc
+<<<<<<< HEAD:cache/compressed_secondary_cache_test.cc
     ASSERT_FALSE(is_in_sec_cache);
 =======
 >>>>>>> fa8f04035 (Prevent double caching):cache/lru_secondary_cache_test.cc
+=======
+    ASSERT_FALSE(is_in_sec_cache);
+>>>>>>> defb816c774238a1c66210995cbab091c1f6e0fd:cache/lru_secondary_cache_test.cc
     std::unique_ptr<TestItem> val1 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle1->Value()));
     ASSERT_NE(val1, nullptr);
@@ -139,10 +143,14 @@ class CompressedSecondaryCacheTest : public testing::Test {
     // Lookup the first item again.
     std::unique_ptr<SecondaryCacheResultHandle> handle1_1 =
 <<<<<<< HEAD:cache/compressed_secondary_cache_test.cc
+<<<<<<< HEAD:cache/compressed_secondary_cache_test.cc
         sec_cache->Lookup("k1", test_item_creator, true, is_in_sec_cache);
 =======
         cache->Lookup("k1", test_item_creator, true);
 >>>>>>> fa8f04035 (Prevent double caching):cache/lru_secondary_cache_test.cc
+=======
+        sec_cache->Lookup("k1", test_item_creator, true, is_in_sec_cache);
+>>>>>>> defb816c774238a1c66210995cbab091c1f6e0fd:cache/lru_secondary_cache_test.cc
     ASSERT_EQ(handle1_1, nullptr);
 
     // Insert and Lookup the second item.
@@ -164,10 +172,14 @@ class CompressedSecondaryCacheTest : public testing::Test {
     sec_cache->WaitAll(handles);
 
 <<<<<<< HEAD:cache/compressed_secondary_cache_test.cc
+<<<<<<< HEAD:cache/compressed_secondary_cache_test.cc
     sec_cache.reset();
 =======
     cache.reset();
 >>>>>>> fa8f04035 (Prevent double caching):cache/lru_secondary_cache_test.cc
+=======
+    sec_cache.reset();
+>>>>>>> defb816c774238a1c66210995cbab091c1f6e0fd:cache/lru_secondary_cache_test.cc
   }
 
   void FailsTest(bool sec_cache_is_compressed) {
@@ -192,11 +204,16 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::string str1(rnd.RandomString(1000));
     TestItem item1(str1.data(), str1.length());
 <<<<<<< HEAD:cache/compressed_secondary_cache_test.cc
+<<<<<<< HEAD:cache/compressed_secondary_cache_test.cc
     ASSERT_OK(sec_cache->Insert("k1", &item1,
                                 &CompressedSecondaryCacheTest::helper_));
 =======
     ASSERT_OK(cache->Insert("k1", &item1, &LRUSecondaryCacheTest::helper_));
 >>>>>>> fa8f04035 (Prevent double caching):cache/lru_secondary_cache_test.cc
+=======
+    ASSERT_OK(sec_cache->Insert("k1", &item1,
+                                &CompressedSecondaryCacheTest::helper_));
+>>>>>>> defb816c774238a1c66210995cbab091c1f6e0fd:cache/lru_secondary_cache_test.cc
 
     // Insert and Lookup the second item.
     std::string str2(rnd.RandomString(200));
@@ -295,6 +312,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     // This Lookup should promote k1 and erase k1 from the secondary cache,
     // then k3 is demoted. So k2 and k3 are in the secondary cache.
 <<<<<<< HEAD:cache/compressed_secondary_cache_test.cc
+<<<<<<< HEAD:cache/compressed_secondary_cache_test.cc
     handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true,
                            stats.get());
@@ -303,12 +321,18 @@ class CompressedSecondaryCacheTest : public testing::Test {
         cache->Lookup("k1", &LRUSecondaryCacheTest::helper_, test_item_creator,
                       Cache::Priority::LOW, true, stats.get());
 >>>>>>> fa8f04035 (Prevent double caching):cache/lru_secondary_cache_test.cc
+=======
+    handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
+                           test_item_creator, Cache::Priority::LOW, true,
+                           stats.get());
+>>>>>>> defb816c774238a1c66210995cbab091c1f6e0fd:cache/lru_secondary_cache_test.cc
     ASSERT_NE(handle, nullptr);
     TestItem* val1_1 = static_cast<TestItem*>(cache->Value(handle));
     ASSERT_NE(val1_1, nullptr);
     ASSERT_EQ(memcmp(val1_1->Buf(), str1_clone.data(), str1_clone.size()), 0);
     cache->Release(handle);
 
+<<<<<<< HEAD:cache/compressed_secondary_cache_test.cc
 <<<<<<< HEAD:cache/compressed_secondary_cache_test.cc
     handle = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true,
@@ -318,6 +342,11 @@ class CompressedSecondaryCacheTest : public testing::Test {
         cache->Lookup("k2", &LRUSecondaryCacheTest::helper_, test_item_creator,
                       Cache::Priority::LOW, true, stats.get());
 >>>>>>> fa8f04035 (Prevent double caching):cache/lru_secondary_cache_test.cc
+=======
+    handle = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
+                           test_item_creator, Cache::Priority::LOW, true,
+                           stats.get());
+>>>>>>> defb816c774238a1c66210995cbab091c1f6e0fd:cache/lru_secondary_cache_test.cc
     ASSERT_NE(handle, nullptr);
     cache->Release(handle);
 
@@ -519,6 +548,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
     Cache::Handle* handle2;
 <<<<<<< HEAD:cache/compressed_secondary_cache_test.cc
+<<<<<<< HEAD:cache/compressed_secondary_cache_test.cc
     handle2 = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
                             test_item_creator, Cache::Priority::LOW, true);
     ASSERT_NE(handle2, nullptr);
@@ -527,11 +557,15 @@ class CompressedSecondaryCacheTest : public testing::Test {
     // but the lookup should still succeed
     Cache::Handle* handle1;
     handle1 = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
+=======
+    handle2 = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
+>>>>>>> defb816c774238a1c66210995cbab091c1f6e0fd:cache/lru_secondary_cache_test.cc
                             test_item_creator, Cache::Priority::LOW, true);
 =======
     handle2 = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
-                           test_item_creator, Cache::Priority::LOW, true);
+                            test_item_creator, Cache::Priority::LOW, true);
     ASSERT_NE(handle2, nullptr);
+<<<<<<< HEAD:cache/compressed_secondary_cache_test.cc
     cache->Release(handle2);
     // k1 promotion should fail due to the block cache being at capacity,
     // but the lookup should still succeed
@@ -548,10 +582,26 @@ class CompressedSecondaryCacheTest : public testing::Test {
                             test_item_creator, Cache::Priority::LOW, true);
 =======
     handle2 = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
-                           test_item_creator, Cache::Priority::LOW, true);
+                            test_item_creator, Cache::Priority::LOW, true);
 >>>>>>> fa8f04035 (Prevent double caching):cache/lru_secondary_cache_test.cc
     ASSERT_NE(handle2, nullptr);
     cache->Release(handle2);
+=======
+    cache->Release(handle2);
+    // k1 promotion should fail due to the block cache being at capacity,
+    // but the lookup should still succeed
+    Cache::Handle* handle1;
+    handle1 = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
+                            test_item_creator, Cache::Priority::LOW, true);
+    ASSERT_NE(handle1, nullptr);
+    cache->Release(handle1);
+
+    // Since k1 didn't get inserted, k2 should still be in cache
+    handle2 = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
+                            test_item_creator, Cache::Priority::LOW, true);
+    ASSERT_NE(handle2, nullptr);
+    cache->Release(handle2);
+>>>>>>> defb816c774238a1c66210995cbab091c1f6e0fd:cache/lru_secondary_cache_test.cc
 
     cache.reset();
     secondary_cache.reset();
