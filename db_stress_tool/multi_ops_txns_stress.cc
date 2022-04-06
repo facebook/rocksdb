@@ -31,6 +31,10 @@ DEFINE_int32(delay_snapshot_read_one_in, 0,
              "With a chance of 1/N, inject a random delay between taking "
              "snapshot and read.");
 
+DEFINE_int32(rollback_one_in, 0,
+             "If non-zero, rollback each one out of this number of "
+             "non-read-only transactions.");
+
 // MultiOpsTxnsStressTest can either operate on a database with pre-populated
 // data (possibly from previous ones), or create a new db and preload it with
 // data specified via `-lb_a`, `-ub_a`, `-lb_c`, `-ub_c`, etc. Among these, we
@@ -561,8 +565,10 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
     }
     if (s.IsNotFound()) {
       thread->stats.AddGets(/*ngets=*/1, /*nfounds=*/0);
-    } else if (s.IsBusy()) {
+    } else if (s.IsBusy() || s.IsIncomplete()) {
       // ignore.
+      // Incomplete also means rollback by application. See the transaction
+      // implementations.
     } else {
       thread->stats.AddErrors(1);
     }
@@ -631,6 +637,11 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
     return s;
   }
 
+  if (FLAGS_rollback_one_in > 0 && thread->rand.OneIn(FLAGS_rollback_one_in)) {
+    s = Status::Incomplete();
+    return s;
+  }
+
   s = txn->Commit();
 
   auto& key_gen = key_gen_for_a_.at(thread->tid);
@@ -677,11 +688,12 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
           Record::kPrimaryIndexEntrySize + Record::kSecondaryIndexEntrySize);
       return;
     } else if (s.IsBusy() || s.IsTimedOut() || s.IsTryAgain() ||
-               s.IsMergeInProgress()) {
+               s.IsMergeInProgress() || s.IsIncomplete()) {
       // ww-conflict detected, or
       // lock cannot be acquired, or
       // memtable history is not large enough for conflict checking, or
-      // Merge operation cannot be resolved.
+      // Merge operation cannot be resolved, or
+      // application rollback.
       // TODO (yanqin) add stats for other cases?
     } else if (s.IsNotFound()) {
       // ignore.
@@ -811,6 +823,11 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
     return s;
   }
 
+  if (FLAGS_rollback_one_in > 0 && thread->rand.OneIn(FLAGS_rollback_one_in)) {
+    s = Status::Incomplete();
+    return s;
+  }
+
   s = txn->Commit();
 
   if (s.ok()) {
@@ -856,7 +873,7 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
     } else if (s.IsInvalidArgument()) {
       // ignored.
     } else if (s.IsBusy() || s.IsTimedOut() || s.IsTryAgain() ||
-               s.IsMergeInProgress()) {
+               s.IsMergeInProgress() || s.IsIncomplete()) {
       // ignored.
     } else {
       thread->stats.AddErrors(1);
@@ -892,6 +909,12 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
   if (!s.ok()) {
     return s;
   }
+
+  if (FLAGS_rollback_one_in > 0 && thread->rand.OneIn(FLAGS_rollback_one_in)) {
+    s = Status::Incomplete();
+    return s;
+  }
+
   s = txn->Commit();
   if (s.ok()) {
     delete txn;
