@@ -3835,7 +3835,7 @@ public class RocksDB extends RocksNative {
     final String[] result = getLiveFiles(getNative(), flushMemtable);
     if (result == null) {
       return null;
-     }
+    }
      final String[] files = Arrays.copyOf(result, result.length - 1);
      final long manifestFileSize = Long.parseLong(result[result.length - 1]);
 

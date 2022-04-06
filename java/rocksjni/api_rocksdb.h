@@ -23,7 +23,6 @@ class APIIterator;
 template <class TDatabase>
 class APIRocksDB : APIBase {
  public:
-
   std::shared_ptr<TDatabase> db;
   std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>>
       columnFamilyHandles;
@@ -65,7 +64,8 @@ class APIRocksDB : APIBase {
       ROCKSDB_NAMESPACE::Iterator* iterator,
       std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh) {
     std::shared_ptr<ROCKSDB_NAMESPACE::Iterator> iter(iterator);
-    std::unique_ptr<APIIterator<TDatabase>> iterAPI(new APIIterator(db, iter, cfh));
+    std::unique_ptr<APIIterator<TDatabase>> iterAPI(
+        new APIIterator(db, iter, cfh));
     return iterAPI;
   }
 };

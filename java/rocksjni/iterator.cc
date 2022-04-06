@@ -20,7 +20,7 @@
 
 void if_valid_helper(
     JNIEnv* env, jlong handle,
-    std::function<void(APIIterator < ROCKSDB_NAMESPACE::DB>&)> lambda) {
+    std::function<void(APIIterator<ROCKSDB_NAMESPACE::DB>&)> lambda) {
   auto& iteratorAPI =
       *reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle);
   if (iteratorAPI->Valid()) {
@@ -78,7 +78,8 @@ jboolean Java_org_rocksdb_RocksIterator_isValid0(JNIEnv* /*env*/,
 void Java_org_rocksdb_RocksIterator_seekToFirst0(JNIEnv* /*env*/,
                                                  jobject /*jobj*/,
                                                  jlong handle) {
-  (*reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle))->SeekToFirst();
+  (*reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle))
+      ->SeekToFirst();
 }
 
 /*
@@ -121,7 +122,7 @@ void Java_org_rocksdb_RocksIterator_prev0(JNIEnv* env, jobject /*jobj*/,
  * Signature: (J)V
  */
 void Java_org_rocksdb_RocksIterator_refresh0(JNIEnv* env, jobject /*jobj*/,
-                                            jlong handle) {
+                                             jlong handle) {
   auto& it = (*reinterpret_cast<APIIterator<ROCKSDB_NAMESPACE::DB>*>(handle));
   ROCKSDB_NAMESPACE::Status s = it->Refresh();
 

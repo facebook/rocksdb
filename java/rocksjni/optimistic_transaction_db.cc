@@ -141,8 +141,8 @@ Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2_3_3B_3J(
   }
 
   std::shared_ptr<ROCKSDB_NAMESPACE::OptimisticTransactionDB> dbShared(otdb);
-  std::unique_ptr<APIRocksDB<ROCKSDB_NAMESPACE::OptimisticTransactionDB>> otdbAPI(
-      new APIRocksDB(dbShared));
+  std::unique_ptr<APIRocksDB<ROCKSDB_NAMESPACE::OptimisticTransactionDB>>
+      otdbAPI(new APIRocksDB(dbShared));
 
   const jsize resultsLen = 1 + len_cols;  // db handle + column family handles
   std::unique_ptr<jlong[]> results =
@@ -230,8 +230,8 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction__JJJ(
   auto* optimistic_txn_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionOptions*>(
           joptimistic_txn_options_handle);
-  ROCKSDB_NAMESPACE::Transaction* txn = otdbAPI->BeginTransaction(
-      *write_options, *optimistic_txn_options);
+  ROCKSDB_NAMESPACE::Transaction* txn =
+      otdbAPI->BeginTransaction(*write_options, *optimistic_txn_options);
   return GET_CPLUSPLUS_POINTER(txn);
 }
 
