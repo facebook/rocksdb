@@ -161,98 +161,13 @@ class DB {
   static Status Open(const Options& options, const std::string& name,
                      DB** dbptr);
 
-  // Open the database for read only. All DB interfaces
-  // that modify data, like put/delete, will return error.
-  // If the db is opened in read only mode, then no compactions
-  // will happen.
-  //
-  // While a given DB can be simultaneously open via OpenForReadOnly
-  // by any number of readers, if a DB is simultaneously open by Open
-  // and OpenForReadOnly, the read-only instance has undefined behavior
-  // (though can often succeed if quickly closed) and the read-write
-  // instance is unaffected. See also OpenAsSecondary.
-  //
-  // Not supported in ROCKSDB_LITE, in which case the function will
-  // return Status::NotSupported.
-  static Status OpenForReadOnly(const Options& options, const std::string& name,
-                                DB** dbptr,
-                                bool error_if_wal_file_exists = false);
-
-  // Open the database for read only with column families. When opening DB with
-  // read only, you can specify only a subset of column families in the
-  // database that should be opened. However, you always need to specify default
-  // column family. The default column family name is 'default' and it's stored
-  // in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName
-  //
-  // While a given DB can be simultaneously open via OpenForReadOnly
-  // by any number of readers, if a DB is simultaneously open by Open
-  // and OpenForReadOnly, the read-only instance has undefined behavior
-  // (though can often succeed if quickly closed) and the read-write
-  // instance is unaffected. See also OpenAsSecondary.
-  //
-  // Not supported in ROCKSDB_LITE, in which case the function will
-  // return Status::NotSupported.
-  static Status OpenForReadOnly(
-      const DBOptions& db_options, const std::string& name,
-      const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-      bool error_if_wal_file_exists = false);
-
-  // The following OpenAsSecondary functions create a secondary instance that
-  // can dynamically tail the MANIFEST of a primary that must have already been
-  // created. User can call TryCatchUpWithPrimary to make the secondary
-  // instance catch up with primary (WAL tailing is NOT supported now) whenever
-  // the user feels necessary. Column families created by the primary after the
-  // secondary instance starts are currently ignored by the secondary instance.
-  // Column families opened by secondary and dropped by the primary will be
-  // dropped by secondary as well. However the user of the secondary instance
-  // can still access the data of such dropped column family as long as they
-  // do not destroy the corresponding column family handle.
-  // WAL tailing is not supported at present, but will arrive soon.
-  //
-  // The options argument specifies the options to open the secondary instance.
-  // The name argument specifies the name of the primary db that you have used
-  // to open the primary instance.
-  // The secondary_path argument points to a directory where the secondary
-  // instance stores its info log.
-  // The dbptr is an out-arg corresponding to the opened secondary instance.
-  // The pointer points to a heap-allocated database, and the user should
-  // delete it after use.
-  // Open DB as secondary instance with only the default column family.
-  // Return OK on success, non-OK on failures.
-  static Status OpenAsSecondary(const Options& options, const std::string& name,
-                                const std::string& secondary_path, DB** dbptr);
-
-  // Open DB as secondary instance with column families. You can open a subset
-  // of column families in secondary mode.
-  // The db_options specify the database specific options.
-  // The name argument specifies the name of the primary db that you have used
-  // to open the primary instance.
-  // The secondary_path argument points to a directory where the secondary
-  // instance stores its info log.
-  // The column_families argument specifies a list of column families to open.
-  // If any of the column families does not exist, the function returns non-OK
-  // status.
-  // The handles is an out-arg corresponding to the opened database column
-  // family handles.
-  // The dbptr is an out-arg corresponding to the opened secondary instance.
-  // The pointer points to a heap-allocated database, and the caller should
-  // delete it after use. Before deleting the dbptr, the user should also
-  // delete the pointers stored in handles vector.
-  // Return OK on success, on-OK on failures.
-  static Status OpenAsSecondary(
-      const DBOptions& db_options, const std::string& name,
-      const std::string& secondary_path,
-      const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
-
   // Open DB with column families.
   // db_options specify database specific options
   // column_families is the vector of all column families in the database,
   // containing column family name and options. You need to open ALL column
   // families in the database. To get the list of column families, you can use
-  // ListColumnFamilies(). Also, you can open only a subset of column families
-  // for read-only access.
+  // ListColumnFamilies().
+  //
   // The default column family name is 'default' and it's stored
   // in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName.
   // If everything is OK, handles will on return be the same size
@@ -263,6 +178,107 @@ class DB {
   static Status Open(const DBOptions& db_options, const std::string& name,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
+
+  // OpenForReadOnly() creates a Read-only instance that supports reads alone.
+  //
+  // All DB interfaces that modify data, like put/delete, will return error.
+  // Automatic Flush and Compactions are disabled and any manual calls
+  // to Flush/Compaction will return error.
+  //
+  // While a given DB can be simultaneously opened via OpenForReadOnly
+  // by any number of readers, if a DB is simultaneously opened by Open
+  // and OpenForReadOnly, the read-only instance has undefined behavior
+  // (though can often succeed if quickly closed) and the read-write
+  // instance is unaffected. See also OpenAsSecondary.
+
+  // Open the database for read only.
+  //
+  // Not supported in ROCKSDB_LITE, in which case the function will
+  // return Status::NotSupported.
+  static Status OpenForReadOnly(const Options& options, const std::string& name,
+                                DB** dbptr,
+                                bool error_if_wal_file_exists = false);
+
+  // Open the database for read only with column families.
+  //
+  // When opening DB with read only, you can specify only a subset of column
+  // families in the database that should be opened. However, you always need
+  // to specify default column family. The default column family name is
+  // 'default' and it's stored in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName
+  //
+  // Not supported in ROCKSDB_LITE, in which case the function will
+  // return Status::NotSupported.
+  static Status OpenForReadOnly(
+      const DBOptions& db_options, const std::string& name,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+      bool error_if_wal_file_exists = false);
+
+  // OpenAsSecondary() creates a secondary instance that supports read-only
+  // operations and supports dynamic catch up with the primary (through a
+  // call to TryCatchUpWithPrimary()).
+  //
+  // All DB interfaces that modify data, like put/delete, will return error.
+  // Automatic Flush and Compactions are disabled and any manual calls
+  // to Flush/Compaction will return error.
+  //
+  // Multiple secondary instances can co-exist at the same time.
+  //
+
+  // Open DB as secondary instance
+  //
+  // The options argument specifies the options to open the secondary instance.
+  // Options.max_open_files should be set to -1.
+  // The name argument specifies the name of the primary db that you have used
+  // to open the primary instance.
+  // The secondary_path argument points to a directory where the secondary
+  // instance stores its info log.
+  // The dbptr is an out-arg corresponding to the opened secondary instance.
+  // The pointer points to a heap-allocated database, and the caller should
+  // delete it after use.
+  //
+  // Return OK on success, non-OK on failures.
+  static Status OpenAsSecondary(const Options& options, const std::string& name,
+                                const std::string& secondary_path, DB** dbptr);
+
+  // Open DB as secondary instance with specified column families
+  //
+  // When opening DB in secondary mode, you can specify only a subset of column
+  // families in the database that should be opened. However, you always need
+  // to specify default column family. The default column family name is
+  // 'default' and it's stored in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName
+  //
+  // Column families created by the primary after the secondary instance starts
+  // are currently ignored by the secondary instance.  Column families opened
+  // by secondary and dropped by the primary will be dropped by secondary as
+  // well (on next invocation of TryCatchUpWithPrimary()). However the user
+  // of the secondary instance can still access the data of such dropped column
+  // family as long as they do not destroy the corresponding column family
+  // handle.
+  //
+  // The options argument specifies the options to open the secondary instance.
+  // Options.max_open_files should be set to -1.
+  // The name argument specifies the name of the primary db that you have used
+  // to open the primary instance.
+  // The secondary_path argument points to a directory where the secondary
+  // instance stores its info log.
+  // The column_families argument specifies a list of column families to open.
+  // If default column family is not specified or if any specified column
+  // families does not exist, the function returns non-OK status.
+  // The handles is an out-arg corresponding to the opened database column
+  // family handles.
+  // The dbptr is an out-arg corresponding to the opened secondary instance.
+  // The pointer points to a heap-allocated database, and the caller should
+  // delete it after use. Before deleting the dbptr, the user should also
+  // delete the pointers stored in handles vector.
+  //
+  // Return OK on success, non-OK on failures.
+  static Status OpenAsSecondary(
+      const DBOptions& db_options, const std::string& name,
+      const std::string& secondary_path,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
+
 
   // Open DB and run the compaction.
   // It's a read-only operation, the result won't be installed to the DB, it
@@ -1701,7 +1717,6 @@ class DB {
   // secondary instance does not delete the corresponding column family
   // handles, the data of the column family is still accessible to the
   // secondary.
-  // TODO: we will support WAL tailing soon.
   virtual Status TryCatchUpWithPrimary() {
     return Status::NotSupported("Supported only by secondary instance");
   }
