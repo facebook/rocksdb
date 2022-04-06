@@ -356,7 +356,6 @@ multiops_txn_default_params = {
     "two_write_queues": lambda: random.choice([0, 1]),
     # TODO: enable write-prepared
     "disable_wal": 0,
-    "use_only_the_last_commit_time_batch_for_recovery": lambda: random.choice([0, 1]),
     "clear_column_family_one_in": 0,
     "column_families": 1,
     "enable_pipelined_write": lambda: random.choice([0, 1]),
@@ -402,6 +401,8 @@ multiops_wp_txn_params = {
     "enable_pipelined_write": 0,
     # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
     "checkpoint_one_in": 0,
+    # Required to be 1 in order to use commit-time-batch
+    "use_only_the_last_commit_time_batch_for_recovery": 1,
     "recycle_log_file_num": 0,
 }
 
