@@ -1099,8 +1099,12 @@ TEST_F(PrefetchTest2, ReadAsyncWithPosixFS) {
   }
 
   int buff_prefetch_count = 0;
+  bool read_async_called = false;
   SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
                                         [&](void*) { buff_prefetch_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "UpdateResults::io_uring_result",
+      [&](void* /*arg*/) { read_async_called = true; });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // Read the keys.
@@ -1123,11 +1127,13 @@ TEST_F(PrefetchTest2, ReadAsyncWithPosixFS) {
     {
       HistogramData async_read_bytes;
       options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
-#if defined(ROCKSDB_IOURING_PRESENT)
-      ASSERT_GT(async_read_bytes.count, 0);
-#else
-      ASSERT_EQ(async_read_bytes.count, 0);
-#endif
+      // Not all platforms support iouring. In that case, ReadAsync in posix
+      // won't submit async requests.
+      if (read_async_called) {
+        ASSERT_GT(async_read_bytes.count, 0);
+      } else {
+        ASSERT_EQ(async_read_bytes.count, 0);
+      }
     }
   }
 
