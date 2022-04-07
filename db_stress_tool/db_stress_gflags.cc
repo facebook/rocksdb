@@ -924,4 +924,7 @@ DEFINE_bool(
     async_io, false,
     "Does asynchronous prefetching when internal auto readahead is enabled");
 
+DEFINE_string(wal_compression, "none",
+              "Algorithm to use for WAL compression. none to disable.");
+
 #endif  // GFLAGS

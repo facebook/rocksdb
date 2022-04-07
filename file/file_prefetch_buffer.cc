@@ -231,7 +231,10 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     handles.emplace_back(io_handle_);
     fs_->Poll(handles, 1).PermitUncheckedError();
   }
-  // Release io_handle_ after the Poll API as request has been completed.
+
+  // Reset and Release io_handle_ after the Poll API as request has been
+  // completed.
+  async_read_in_progress_ = false;
   if (io_handle_ != nullptr && del_fn_ != nullptr) {
     del_fn_(io_handle_);
     io_handle_ = nullptr;
@@ -512,7 +515,6 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
 
 void FilePrefetchBuffer::PrefetchAsyncCallback(const FSReadRequest& req,
                                                void* /*cb_arg*/) {
-  async_read_in_progress_ = false;
   uint32_t index = curr_ ^ 1;
   if (req.status.ok()) {
     if (req.offset + req.result.size() <=

@@ -6,7 +6,6 @@
 #include "db/db_impl/db_impl_secondary.h"
 
 #include <cinttypes>
-#include <iostream>
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/merge_context.h"

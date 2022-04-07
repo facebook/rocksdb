@@ -285,6 +285,7 @@ DECLARE_uint64(wp_commit_cache_bits);
 
 DECLARE_bool(adaptive_readahead);
 DECLARE_bool(async_io);
+DECLARE_string(wal_compression);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;

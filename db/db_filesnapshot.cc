@@ -386,11 +386,6 @@ Status DBImpl::GetLiveFilesStorageInfo(
   std::vector<LiveFileStorageInfo> results;
   Status s;
 
-
-  ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "DBImpl::GetLiveFilesStorageInfo");
-  LogFlush(immutable_db_options_.info_log);
-
   // Flush memtable if needed.
   bool need_flush_memtable{true};
   s = IsFlushMemtableNeededForGetLiveFiles(opts, need_flush_memtable);

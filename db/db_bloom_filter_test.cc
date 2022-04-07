@@ -17,8 +17,11 @@
 #include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/perf_context.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/filter_policy_internal.h"
@@ -798,83 +801,87 @@ TEST_F(DBBloomFilterTest, BloomFilterRate) {
   }
 }
 
+namespace {
+struct CompatibilityConfig {
+  std::shared_ptr<const FilterPolicy> policy;
+  bool partitioned;
+  uint32_t format_version;
+
+  void SetInTableOptions(BlockBasedTableOptions* table_options) {
+    table_options->filter_policy = policy;
+    table_options->partition_filters = partitioned;
+    if (partitioned) {
+      table_options->index_type =
+          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    } else {
+      table_options->index_type =
+          BlockBasedTableOptions::IndexType::kBinarySearch;
+    }
+    table_options->format_version = format_version;
+  }
+};
+// High bits per key -> almost no FPs
+std::shared_ptr<const FilterPolicy> kCompatibilityBloomPolicy{
+    NewBloomFilterPolicy(20)};
+// bloom_before_level=-1 -> always use Ribbon
+std::shared_ptr<const FilterPolicy> kCompatibilityRibbonPolicy{
+    NewRibbonFilterPolicy(20, -1)};
+
+std::vector<CompatibilityConfig> kCompatibilityConfigs = {
+    {Create(20, kDeprecatedBlock), false,
+     BlockBasedTableOptions().format_version},
+    {kCompatibilityBloomPolicy, false, BlockBasedTableOptions().format_version},
+    {kCompatibilityBloomPolicy, true, BlockBasedTableOptions().format_version},
+    {kCompatibilityBloomPolicy, false, /* legacy Bloom */ 4U},
+    {kCompatibilityRibbonPolicy, false,
+     BlockBasedTableOptions().format_version},
+    {kCompatibilityRibbonPolicy, true, BlockBasedTableOptions().format_version},
+};
+}  // namespace
+
 TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {
   Options options = CurrentOptions();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  BlockBasedTableOptions table_options;
-  table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.level0_file_num_compaction_trigger =
+      static_cast<int>(kCompatibilityConfigs.size()) + 1;
+  options.max_open_files = -1;
 
-  // Create with block based filter
-  CreateAndReopenWithCF({"pikachu"}, options);
+  Close();
 
-  const int maxKey = 10000;
-  for (int i = 0; i < maxKey; i++) {
-    ASSERT_OK(Put(1, Key(i), Key(i)));
-  }
-  ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
-  Flush(1);
-
-  // Check db with full filter
-  table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  ReopenWithColumnFamilies({"default", "pikachu"}, options);
-
-  // Check if they can be found
-  for (int i = 0; i < maxKey; i++) {
-    ASSERT_EQ(Key(i), Get(1, Key(i)));
-  }
-  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
-
-  // Check db with partitioned full filter
-  table_options.partition_filters = true;
-  table_options.index_type =
-      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-  table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  ReopenWithColumnFamilies({"default", "pikachu"}, options);
-
-  // Check if they can be found
-  for (int i = 0; i < maxKey; i++) {
-    ASSERT_EQ(Key(i), Get(1, Key(i)));
-  }
-  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
-}
-
-TEST_F(DBBloomFilterTest, BloomFilterReverseCompatibility) {
-  for (bool partition_filters : {true, false}) {
-    Options options = CurrentOptions();
-    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  // Create one file for each kind of filter. Each file covers a distinct key
+  // range.
+  for (size_t i = 0; i < kCompatibilityConfigs.size(); ++i) {
     BlockBasedTableOptions table_options;
-    if (partition_filters) {
-      table_options.partition_filters = true;
-      table_options.index_type =
-          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-    }
-    table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+    kCompatibilityConfigs[i].SetInTableOptions(&table_options);
+    ASSERT_TRUE(table_options.filter_policy != nullptr);
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    DestroyAndReopen(options);
+    Reopen(options);
 
-    // Create with full filter
-    CreateAndReopenWithCF({"pikachu"}, options);
+    std::string prefix = ToString(i) + "_";
+    ASSERT_OK(Put(prefix + "A", "val"));
+    ASSERT_OK(Put(prefix + "Z", "val"));
+    ASSERT_OK(Flush());
+  }
 
-    const int maxKey = 10000;
-    for (int i = 0; i < maxKey; i++) {
-      ASSERT_OK(Put(1, Key(i), Key(i)));
-    }
-    ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
-    Flush(1);
-
-    // Check db with block_based filter
-    table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  // Test filter is used between each pair of {reader,writer} configurations,
+  // because any built-in FilterPolicy should be able to read filters from any
+  // other built-in FilterPolicy
+  for (size_t i = 0; i < kCompatibilityConfigs.size(); ++i) {
+    BlockBasedTableOptions table_options;
+    kCompatibilityConfigs[i].SetInTableOptions(&table_options);
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    ReopenWithColumnFamilies({"default", "pikachu"}, options);
-
-    // Check if they can be found
-    for (int i = 0; i < maxKey; i++) {
-      ASSERT_EQ(Key(i), Get(1, Key(i)));
+    Reopen(options);
+    for (size_t j = 0; j < kCompatibilityConfigs.size(); ++j) {
+      std::string prefix = ToString(j) + "_";
+      ASSERT_EQ("val", Get(prefix + "A"));  // Filter positive
+      ASSERT_EQ("val", Get(prefix + "Z"));  // Filter positive
+      // Filter negative, with high probability
+      ASSERT_EQ("NOT_FOUND", Get(prefix + "Q"));
+      // FULL_POSITIVE does not include block-based filter case (j == 0)
+      EXPECT_EQ(TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE),
+                j == 0 ? 0 : 2);
+      EXPECT_EQ(TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
     }
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
   }
 }
 
