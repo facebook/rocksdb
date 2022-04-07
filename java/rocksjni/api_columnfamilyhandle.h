@@ -65,12 +65,18 @@ class APIColumnFamilyHandle : public APIWeakDB<TDatabase> {
    *
    * @param handle
    * @return std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle>
+   * There is an exception raised iff !cfh
    */
   static std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> lock(
       JNIEnv* env, jlong handle) {
     auto* cfhAPI = reinterpret_cast<APIColumnFamilyHandle*>(handle);
-    std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh =
-        cfhAPI->cfh.lock();
+    std::shared_ptr<ROCKSDB_NAMESPACE::ColumnFamilyHandle> cfh;
+    if (cfhAPI == nullptr) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+          env, ROCKSDB_NAMESPACE::RocksDBExceptionJni::InvalidColumnFamily());
+      return cfh;
+    }
+    cfh = cfhAPI->cfh.lock();
     if (!cfh) {
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
           env, "Column family already closed");

@@ -505,6 +505,51 @@ public class RocksDBTest {
   }
 
   @Test
+  public void deleteColumnFamily() throws RocksDBException {
+    final byte[] cfName = "columnFamily".getBytes(UTF_8);
+
+    List<ColumnFamilyHandle> cfHandles;
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions();
+         final WriteOptions wOpt = new WriteOptions()
+    ) {
+      cfHandles =
+          db.createColumnFamilies(cfOpts, Collections.singletonList(cfName));
+      ColumnFamilyHandle columnFamilyHandle = cfHandles.get(0);
+
+      db.put(columnFamilyHandle, "key1".getBytes(), "value".getBytes());
+      db.put(columnFamilyHandle, "key2".getBytes(), "12345678".getBytes());
+      db.put(columnFamilyHandle, "key3".getBytes(), "33".getBytes());
+      assertThat(db.get(columnFamilyHandle, "key1".getBytes())).isEqualTo(
+          "value".getBytes());
+      assertThat(db.get(columnFamilyHandle, "key2".getBytes())).isEqualTo(
+          "12345678".getBytes());
+      assertThat(db.get(columnFamilyHandle, "key3".getBytes())).isEqualTo("33".getBytes());
+      db.delete(columnFamilyHandle, "key1".getBytes());
+      db.delete(columnFamilyHandle, wOpt, "key2".getBytes());
+      ByteBuffer key = ByteBuffer.allocateDirect(16);
+      key.put("key3".getBytes()).flip();
+      db.delete(columnFamilyHandle, wOpt, key);
+      assertThat(key.position()).isEqualTo(4);
+      assertThat(key.limit()).isEqualTo(4);
+
+      assertThat(db.get(columnFamilyHandle, "key1".getBytes())).isNull();
+      assertThat(db.get(columnFamilyHandle, "key2".getBytes())).isNull();
+
+      Segment key3 = sliceSegment("key3");
+      Segment key4 = sliceSegment("key4");
+      db.put(columnFamilyHandle, "key3".getBytes(), "key3 value".getBytes());
+      db.put(columnFamilyHandle, "key4".getBytes(), "key4 value".getBytes());
+
+      db.delete(columnFamilyHandle, key3.data, key3.offset, key3.len);
+      db.delete(columnFamilyHandle, wOpt, key4.data, key4.offset, key4.len);
+
+      assertThat(db.get(columnFamilyHandle, "key3".getBytes())).isNull();
+      assertThat(db.get(columnFamilyHandle, "key4".getBytes())).isNull();
+    }
+  }
+
+  @Test
   public void singleDelete() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
          final WriteOptions wOpt = new WriteOptions()) {
