@@ -527,6 +527,10 @@ Status MultiOpsTxnsStressTest::TestCustomOperations(
   return s;
 }
 
+void MultiOpsTxnsStressTest::RegisterAdditionalListeners() {
+  options_.listeners.emplace_back(new MultiOpsTxnsStressListener(this));
+}
+
 Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
                                                    uint32_t old_a,
                                                    uint32_t old_a_pos,
@@ -1203,6 +1207,66 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
     assert(false);
     return;
   }
+}
+
+Status MultiOpsTxnsStressTest::VerifyPkSkFast() {
+  const Snapshot* const snapshot = db_->GetSnapshot();
+  assert(snapshot);
+  ManagedSnapshot snapshot_guard(db_, snapshot);
+
+  std::ostringstream oss;
+  auto* dbimpl = static_cast_with_check<DBImpl>(db_->GetRootDB());
+  assert(dbimpl);
+
+  oss << "[" << snapshot->GetSequenceNumber() << ","
+      << dbimpl->GetLastPublishedSequence() << "] ";
+
+  char buf[4];
+  EncodeFixed32(buf, Record::kSecondaryIndexId);
+  std::reverse(buf, buf + sizeof(buf));
+  const std::string start_key(buf, sizeof(buf));
+
+  // This `ReadOptions` is for validation purposes. Ignore
+  // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
+  ReadOptions ropts;
+  ropts.snapshot = snapshot;
+  ropts.total_order_seek = true;
+
+  std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
+  for (it->Seek(start_key); it->Valid(); it->Next()) {
+    Record record;
+    Status s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
+    if (!s.ok()) {
+      oss << "Cannot decode secondary index entry";
+      return Status::Corruption(oss.str());
+    }
+    // After decoding secondary index entry, we know a and c. Crc is verified
+    // in decoding phase.
+    //
+    // Form a primary key and search in the primary index.
+    std::string pk = Record::EncodePrimaryKey(record.a_value());
+    std::string value;
+    s = db_->Get(ropts, pk, &value);
+    if (!s.ok()) {
+      oss << "Error searching pk " << Slice(pk).ToString(true) << ". "
+          << s.ToString();
+      return Status::Corruption(oss.str());
+    }
+    auto result = Record::DecodePrimaryIndexValue(value);
+    s = std::get<0>(result);
+    if (!s.ok()) {
+      oss << "Error decoding primary index value "
+          << Slice(value).ToString(true) << ". " << s.ToString();
+      return Status::Corruption(oss.str());
+    }
+    uint32_t c_in_primary = std::get<2>(result);
+    if (c_in_primary != record.c_value()) {
+      oss << "Pk/sk mismatch. pk: (a=" << record.a_value()
+          << ", c=" << c_in_primary << "), sk: (c=" << record.c_value() << ")";
+      return Status::Corruption(oss.str());
+    }
+  }
+  return Status::OK();
 }
 
 std::pair<uint32_t, uint32_t> MultiOpsTxnsStressTest::ChooseExistingA(

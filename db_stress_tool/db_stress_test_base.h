@@ -224,6 +224,8 @@ class StressTest {
 
   void CheckAndSetOptionsForUserTimestamp();
 
+  virtual void RegisterAdditionalListeners() {}
+
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;

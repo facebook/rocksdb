@@ -261,6 +261,8 @@ class MultiOpsTxnsStressTest : public StressTest {
       ThreadState* thread,
       const std::vector<int>& rand_column_families) override;
 
+  void RegisterAdditionalListeners() override;
+
   Status PrimaryKeyUpdateTxn(ThreadState* thread, uint32_t old_a,
                              uint32_t old_a_pos, uint32_t new_a);
 
@@ -279,6 +281,8 @@ class MultiOpsTxnsStressTest : public StressTest {
   void ContinuouslyVerifyDb(ThreadState* thread) const override {
     VerifyDb(thread);
   }
+
+  Status VerifyPkSkFast();
 
  protected:
   using KeySet = std::set<uint32_t>;
@@ -368,6 +372,42 @@ class InvariantChecker {
                 "MultiOpsTxnsStressTest::Record::b_ must be 4 bytes");
   static_assert(sizeof(MultiOpsTxnsStressTest::Record().c_) == sizeof(uint32_t),
                 "MultiOpsTxnsStressTest::Record::c_ must be 4 bytes");
+};
+
+class MultiOpsTxnsStressListener : public EventListener {
+ public:
+  explicit MultiOpsTxnsStressListener(MultiOpsTxnsStressTest* stress_test)
+      : stress_test_(stress_test) {
+    assert(stress_test_);
+  }
+
+  ~MultiOpsTxnsStressListener() override {}
+
+  void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
+    assert(db);
+    assert(info.cf_id == 0);
+    Status s = stress_test_->VerifyPkSkFast();
+    if (!s.ok()) {
+      fprintf(stderr, "flush_job %d: %s\n", info.job_id, s.ToString().c_str());
+      fflush(stderr);
+      std::abort();
+    }
+  }
+
+  void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) override {
+    assert(db);
+    assert(info.cf_id == 0);
+    Status s = stress_test_->VerifyPkSkFast();
+    if (!s.ok()) {
+      fprintf(stderr, "compact_job %d: %s\n", info.job_id,
+              s.ToString().c_str());
+      fflush(stderr);
+      std::abort();
+    }
+  }
+
+ private:
+  MultiOpsTxnsStressTest* const stress_test_ = nullptr;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
