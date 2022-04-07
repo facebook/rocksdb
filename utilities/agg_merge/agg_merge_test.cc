@@ -27,7 +27,7 @@ TEST_F(AggMergeTest, TestUsingMergeOperator) {
   AddAggregator("last3", std::make_unique<Last3Aggregator>());
 
   Options options = CurrentOptions();
-  options.merge_operator = CreateAggMergeOperator();
+  options.merge_operator = GetAggMergeOperator();
   Reopen(options);
   std::string v = EncodeHelper::EncodeFuncAndInt("sum", 10);
   ASSERT_OK(Merge("foo", v));

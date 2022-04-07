@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "port/lang.h"
 #include "port/likely.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
@@ -61,7 +62,7 @@ bool ExtractList(const Slice& encoded_list, std::vector<Slice>& decoded_list) {
   return list_slice.empty();
 }
 
-class Accumulator {
+class AggMergeOperator::Accumulator {
  public:
   bool Add(const Slice& op, bool is_initial_value,
            bool is_partial_aggregation) {
@@ -78,7 +79,7 @@ class Accumulator {
         my_func = func_;
       } else {
         // We got some unexpected merge operands. Ignore this and all
-        // subsequence ones.
+        // subsequenr ones.
         ignore_operands_ = true;
         return true;
       }
@@ -96,7 +97,7 @@ class Accumulator {
 
   // Return false if aggregation fails.
   // One possible reason
-  bool GetResult(std::string* result) {
+  bool GetResult(std::string& result) {
     if (func_.empty()) {
       return false;
     }
@@ -107,7 +108,7 @@ class Accumulator {
     if (!f->second->Aggregate(values_, &scratch_)) {
       return false;
     }
-    *result = EncodeAggFuncAndValue(func_, scratch_);
+    result = EncodeAggFuncAndValue(func_, scratch_);
     return true;
   }
 
@@ -130,8 +131,8 @@ class Accumulator {
 // AggMergeOperator's merge operators can be invoked concurrently by multiple
 // threads so we cannot simply create one Aggregator and reuse.
 // We use thread local instances instead.
-Accumulator& GetTLSAccumulator() {
-  // The implementation is mostly copoied from Random::GetTLSInstance()
+AggMergeOperator::Accumulator& AggMergeOperator::GetTLSAccumulator() {
+  // The implementation is mostly copied from Random::GetTLSInstance()
   // If the same pattern is used more frequently, we might create a utility
   // function for that.
   static __thread Accumulator* tls_instance;
@@ -148,14 +149,14 @@ Accumulator& GetTLSAccumulator() {
 }
 
 void AggMergeOperator::PackAllMergeOperands(const MergeOperationInput& merge_in,
-                                            MergeOperationOutput* merge_out) {
-  merge_out->new_value = "";
-  PutLengthPrefixedSlice(&merge_out->new_value, kErrorFuncName);
+                                            MergeOperationOutput& merge_out) {
+  merge_out.new_value = "";
+  PutLengthPrefixedSlice(&merge_out.new_value, kErrorFuncName);
   if (merge_in.existing_value != nullptr) {
-    PutLengthPrefixedSlice(&merge_out->new_value, *merge_in.existing_value);
+    PutLengthPrefixedSlice(&merge_out.new_value, *merge_in.existing_value);
   }
   for (const Slice& op : merge_in.operand_list) {
-    PutLengthPrefixedSlice(&merge_out->new_value, op);
+    PutLengthPrefixedSlice(&merge_out.new_value, op);
   }
 }
 
@@ -171,13 +172,13 @@ bool AggMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
     agg.Add(*merge_in.existing_value, /*is_initial_value=*/true,
             /*is_partial_aggregation=*/false);
   }
-  bool succ = agg.GetResult(&merge_out->new_value);
+  bool succ = agg.GetResult(merge_out->new_value);
   if (!succ) {
     // If aggregation can't happen, pack all merge operands. In contrast to
     // merge operator, we don't want to fail the DB. If users insert wrong
     // format or call unregistered an aggregation function, we still hope
     // the DB can continue functioning with other keys.
-    PackAllMergeOperands(merge_in, merge_out);
+    PackAllMergeOperands(merge_in, *merge_out);
   }
   return true;
 }
@@ -194,13 +195,16 @@ bool AggMergeOperator::PartialMergeMulti(const Slice& /*key*/,
       return false;
     }
   }
-  if (!agg.GetResult(new_value)) {
+  if (!agg.GetResult(*new_value)) {
     return false;
   }
   return true;
 }
 
-std::shared_ptr<MergeOperator> CreateAggMergeOperator() {
-  return std::make_shared<AggMergeOperator>();
+std::shared_ptr<MergeOperator> GetAggMergeOperator() {
+  STATIC_AVOID_DESTRUCTION(std::shared_ptr<MergeOperator>, instance)
+  (new AggMergeOperator());
+  assert(instance);
+  return instance;
 }
 }  // namespace ROCKSDB_NAMESPACE

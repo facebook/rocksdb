@@ -235,7 +235,6 @@ LIB_SOURCES =                                                   \
   utilities/agg_merge/agg_merge.cc                              \
   utilities/agg_merge/example_agg_merge.cc                      \
   utilities/backup/backup_engine.cc                             \
-  utilities/backupable/backupable_db.cc                         \
   utilities/blob_db/blob_compaction_filter.cc                   \
   utilities/blob_db/blob_db.cc                                  \
   utilities/blob_db/blob_db_impl.cc                             \
@@ -564,7 +563,6 @@ TEST_MAIN_SOURCES =                                                     \
   util/work_queue_test.cc                                               \
   utilities/agg_merge/agg_merge_test.cc                                 \
   utilities/backup/backup_engine_test.cc                                \
-  utilities/backupable/backupable_db_test.cc                            \
   utilities/blob_db/blob_db_test.cc                                     \
   utilities/cassandra/cassandra_format_test.cc                          \
   utilities/cassandra/cassandra_functional_test.cc                      \

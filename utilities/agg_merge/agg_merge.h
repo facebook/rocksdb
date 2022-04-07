@@ -37,10 +37,13 @@ class AggMergeOperator : public MergeOperator {
   }
 
  private:
+  class Accumulator;
+
   // Pack all merge operands into one value. This is called when aggregation
   // fails. The existing values are preserved and returned so that users can
   // debug the problem.
   static void PackAllMergeOperands(const MergeOperationInput& merge_in,
-                                   MergeOperationOutput* merge_out);
+                                   MergeOperationOutput& merge_out);
+  static Accumulator& GetTLSAccumulator();
 };
 }  // namespace ROCKSDB_NAMESPACE

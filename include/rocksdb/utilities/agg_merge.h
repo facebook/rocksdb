@@ -6,6 +6,7 @@
 #pragma once
 
 #include <deque>
+#include <future>
 #include <string>
 #include <vector>
 
@@ -19,10 +20,11 @@ namespace ROCKSDB_NAMESPACE {
 class Aggregator {
  public:
   virtual ~Aggregator() {}
-  // The input list is ordered with insertion order, with the latest one
-  // to be oldest. The oldest one might be from Get().
+  // The input list is in reverse insertion order, with values[0] to be
+  // the one inserted last and values.back() to be the one inserted first.
+  // The oldest one might be from Get().
   // Return whether aggregation succeeded. False for aggregation error.
-  virtual bool Aggregate(const std::vector<Slice>&,
+  virtual bool Aggregate(const std::vector<Slice>& values,
                          std::string* result) const = 0;
 
   // True if a partial aggregation should be invoked. Some aggregators
@@ -38,7 +40,10 @@ class Aggregator {
 Status AddAggregator(const std::string& function_name,
                      std::unique_ptr<Aggregator>&& agg);
 
-// Get a merge operator for aggregation.
+// Get the singleton instance of merge operator for aggregation.
+// Always the same one is returned with a shared_ptr is hold as a
+// static variable by the function.
+// This is done so because options.merge_operator is shared_ptr.
 // Users can push values to be updated with a merge operand encoded with
 // registered function name and payload using EncodeAggFuncAndValue(),
 // and the merge operator will invoke the aggregation function.
@@ -56,7 +61,7 @@ Status AddAggregator(const std::string& function_name,
 //    Status s = db->Get(ReadOptions, "foo", &value);
 //    assert(s.ok());
 //    Slice func, aggregated_value;
-//    assert(ExtracAggtFuncAndValue(value, func, aggregated_value));
+//    assert(ExtractAggFuncAndValue(value, func, aggregated_value));
 //    assert(func == "sum");
 //    assert(aggregated_value == "600");
 //
@@ -67,12 +72,12 @@ Status AddAggregator(const std::string& function_name,
 //
 // If users add a merge operand using a different aggregation function from
 // the previous one, the previous ones will be ignored.
-std::shared_ptr<MergeOperator> CreateAggMergeOperator();
+std::shared_ptr<MergeOperator> GetAggMergeOperator();
 
-// Encode aggregation function and paylaod that can be consumed by aggregation
+// Encode aggregation function and payload that can be consumed by aggregation
 // merge operator.
 std::string EncodeAggFuncAndValue(const Slice& function_name,
-                                  const Slice& paylaod);
+                                  const Slice& payload);
 // Helper function to extract aggregation function name and payload.
 // Return false if it fails to decode.
 bool ExtractAggFuncAndValue(const Slice& op, Slice& func, Slice& value);
