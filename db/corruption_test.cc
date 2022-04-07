@@ -1210,10 +1210,9 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
   }
 
   // 3. After first crash reopen the DB which contains corrupted WAL. Default
-  // family has higher log number than corrupted wal number.
-  // RocksDB won't flush the data from WAL to L0 for all column families
-  // (test_cf_name in this case). As a result, not all column families can
-  // increase their log_numbers, and min_log_number_to_keep won't change.
+  // family has higher log number than corrupted wal number. There may be old
+  // WAL files that it must not delete because they can contain data of
+  // uncommitted transactions. As a result, min_log_number_to_keep won't change.
   {
     options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
     ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, cf_descs,
