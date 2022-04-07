@@ -448,7 +448,6 @@ Status ExternalSstFileIngestionJob::Run() {
         oldest_ancester_time, current_time, f.file_checksum,
         f.file_checksum_func_name, kDisableUserTimestamp,
         kDisableUserTimestamp);
-    f_metadata.temperature = f.file_temperature;
     edit_.AddFile(f.picked_level, f_metadata);
   }
   return status;
