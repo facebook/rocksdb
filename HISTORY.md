@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 7.1.1 (04/07/2022)
 ### Bug Fixes
 * Fix segfault in FilePrefetchBuffer with async_io as it doesn't wait for pending jobs to complete on destruction.
 
