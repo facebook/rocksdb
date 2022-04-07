@@ -81,14 +81,12 @@ class AggMergeOperator::Accumulator {
         // We got some unexpected merge operands. Ignore this and all
         // subsequenr ones.
         ignore_operands_ = true;
-        Clear();
         return true;
       }
     }
     if (is_partial_aggregation && !func_.empty()) {
       auto f = func_map.find(func_.ToString());
       if (f == func_map.end() || f->second->DoPartialAggregate()) {
-        Clear();
         return false;
       }
     }
@@ -101,16 +99,16 @@ class AggMergeOperator::Accumulator {
   // One possible reason
   bool GetResult(std::string& result) {
     if (func_.empty()) {
-      Clear();
       return false;
     }
     auto f = func_map.find(func_.ToString());
-    if (f == func_map.end() || !f->second->Aggregate(values_, &scratch_)) {
-      Clear();
+    if (f == func_map.end()) {
+      return false;
+    }
+    if (!f->second->Aggregate(values_, &scratch_)) {
       return false;
     }
     result = EncodeAggFuncAndValue(func_, scratch_);
-    Clear();
     return true;
   }
 
@@ -182,6 +180,7 @@ bool AggMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
     // the DB can continue functioning with other keys.
     PackAllMergeOperands(merge_in, *merge_out);
   }
+  agg.Clear();
   return true;
 }
 
@@ -189,18 +188,21 @@ bool AggMergeOperator::PartialMergeMulti(const Slice& /*key*/,
                                          const std::deque<Slice>& operand_list,
                                          std::string* new_value,
                                          Logger* /*logger*/) const {
+  return false;
   Accumulator& agg = GetTLSAccumulator();
+  bool do_aggregation = true;
   for (auto it = operand_list.rbegin(); it != operand_list.rend(); it++) {
-    bool do_aggregation = agg.Add(*it, /*is_initial_value=*/false,
-                                  /*is_partial_aggregation=*/true);
+    do_aggregation = agg.Add(*it, /*is_initial_value=*/false,
+                             /*is_partial_aggregation=*/true);
     if (!do_aggregation) {
-      return false;
+      break;
     }
   }
-  if (!agg.GetResult(*new_value)) {
-    return false;
+  if (do_aggregation) {
+    do_aggregation = agg.GetResult(*new_value);
   }
-  return true;
+  agg.Clear();
+  return do_aggregation;
 }
 
 std::shared_ptr<MergeOperator> GetAggMergeOperator() {
