@@ -1281,6 +1281,17 @@ class DBImpl : public DB {
       ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job);
 
   Status FlushForGetLiveFiles();
+
+  Status IsFlushMemtableNeededForGetLiveFiles(
+      const LiveFilesStorageInfoOptions& opts, bool& need_flush_memtable);
+  void GetNonWALLiveFiles(const LiveFilesStorageInfoOptions& opts,
+                          std::vector<LiveFileStorageInfo>& results,
+                          uint64_t& min_log_num);
+  Status GetWALLiveFiles(const LiveFilesStorageInfoOptions& opts,
+                         std::vector<LiveFileStorageInfo>& results,
+                         const bool need_flush_memtable,
+                         const uint64_t min_log_num);
+
 #endif  // !ROCKSDB_LITE
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;

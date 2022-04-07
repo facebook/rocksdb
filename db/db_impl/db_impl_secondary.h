@@ -172,6 +172,12 @@ class DBImplSecondary : public DBImpl {
     return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
+  // For the secondary instance, this function only get live files
+  // and doesn't flush memtable.
+  virtual Status GetLiveFilesStorageInfo(
+      const LiveFilesStorageInfoOptions& opts,
+      std::vector<LiveFileStorageInfo>* files) override;
+
   using DBImpl::Flush;
   Status Flush(const FlushOptions& /*options*/,
                ColumnFamilyHandle* /*column_family*/) override {

@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
+#include <bits/stdint-uintn.h>
 #ifndef ROCKSDB_LITE
 
 #include <algorithm>
@@ -163,22 +164,14 @@ Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {
   return wal_manager_.GetLiveWalFile(current_logfile_number, current_log_file);
 }
 
-Status DBImpl::GetLiveFilesStorageInfo(
-    const LiveFilesStorageInfoOptions& opts,
-    std::vector<LiveFileStorageInfo>* files) {
-  // To avoid returning partial results, only move results to files on success.
-  assert(files);
-  files->clear();
-  std::vector<LiveFileStorageInfo> results;
-
-  // NOTE: This implementation was largely migrated from Checkpoint.
-
+Status DBImpl::IsFlushMemtableNeededForGetLiveFiles(
+    const LiveFilesStorageInfoOptions& opts, bool& need_flush_memtable) {
   Status s;
   VectorLogPtr live_wal_files;
-  bool flush_memtable = true;
+  need_flush_memtable = true;
   if (!immutable_db_options_.allow_2pc) {
     if (opts.wal_size_for_flush == port::kMaxUint64) {
-      flush_memtable = false;
+      need_flush_memtable = false;
     } else if (opts.wal_size_for_flush > 0) {
       // If the outstanding log files are small, we skip the flush.
       s = GetSortedWalFiles(live_wal_files);
@@ -195,24 +188,20 @@ Status DBImpl::GetLiveFilesStorageInfo(
         total_wal_size += wal->SizeFileBytes();
       }
       if (total_wal_size < opts.wal_size_for_flush) {
-        flush_memtable = false;
+        need_flush_memtable = false;
       }
       live_wal_files.clear();
     }
   }
+  return s;
+}
 
+void DBImpl::GetNonWALLiveFiles(const LiveFilesStorageInfoOptions& opts,
+                                std::vector<LiveFileStorageInfo>& results,
+                                uint64_t& min_log_num) {
   // This is a modified version of GetLiveFiles, to get access to more
   // metadata.
   mutex_.Lock();
-  if (flush_memtable) {
-    Status status = FlushForGetLiveFiles();
-    if (!status.ok()) {
-      mutex_.Unlock();
-      ROCKS_LOG_ERROR(immutable_db_options_.info_log, "Cannot Flush data %s\n",
-                      status.ToString().c_str());
-      return status;
-    }
-  }
 
   // Make a set of all of the live table and blob files
   for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -285,7 +274,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
   const uint64_t manifest_size = versions_->manifest_file_size();
   const uint64_t options_number = versions_->options_file_number();
   const uint64_t options_size = versions_->options_file_size_;
-  const uint64_t min_log_num = MinLogNumberToKeep();
+  min_log_num = MinLogNumberToKeep();
 
   mutex_.Unlock();
 
@@ -341,24 +330,16 @@ Status DBImpl::GetLiveFilesStorageInfo(
       info.file_checksum = kUnknownFileChecksum;
     }
   }
+}
 
-  // Some legacy testing stuff  TODO: carefully clean up obsolete parts
-  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:FlushDone");
-
-  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
-  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
-
-  if (s.ok()) {
-    s = FlushWAL(false /* sync */);
-  }
-
-  TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1");
-  TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2");
-
+Status DBImpl::GetWALLiveFiles(const LiveFilesStorageInfoOptions& opts,
+                               std::vector<LiveFileStorageInfo>& results,
+                               const bool need_flush_memtable,
+                               const uint64_t min_log_num) {
   // If we have more than one column family, we also need to get WAL files.
-  if (s.ok()) {
-    s = GetSortedWalFiles(live_wal_files);
-  }
+  Status s;
+  VectorLogPtr live_wal_files;
+  s = GetSortedWalFiles(live_wal_files);
   if (!s.ok()) {
     return s;
   }
@@ -373,7 +354,8 @@ Status DBImpl::GetLiveFilesStorageInfo(
   auto wal_dir = immutable_db_options_.GetWalDir();
   for (size_t i = 0; s.ok() && i < wal_size; ++i) {
     if ((live_wal_files[i]->Type() == kAliveLogFile) &&
-        (!flush_memtable || live_wal_files[i]->LogNumber() >= min_log_num)) {
+        (!need_flush_memtable ||
+         live_wal_files[i]->LogNumber() >= min_log_num)) {
       results.emplace_back();
       LiveFileStorageInfo& info = results.back();
       auto f = live_wal_files[i]->PathName();
@@ -392,10 +374,63 @@ Status DBImpl::GetLiveFilesStorageInfo(
     }
   }
 
+  return s;
+}
+
+Status DBImpl::GetLiveFilesStorageInfo(
+    const LiveFilesStorageInfoOptions& opts,
+    std::vector<LiveFileStorageInfo>* files) {
+  // To avoid returning partial results, only move results to files on success.
+  assert(files);
+  files->clear();
+  std::vector<LiveFileStorageInfo> results;
+  Status s;
+
+
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "DBImpl::GetLiveFilesStorageInfo");
+  LogFlush(immutable_db_options_.info_log);
+
+  // Flush memtable if needed.
+  bool need_flush_memtable{true};
+  s = IsFlushMemtableNeededForGetLiveFiles(opts, need_flush_memtable);
+  if (!s.ok()) {
+    return s;
+  }
+  if (need_flush_memtable) {
+    mutex_.Lock();
+    Status status = FlushForGetLiveFiles();
+    if (!status.ok()) {
+      mutex_.Unlock();
+      ROCKS_LOG_ERROR(immutable_db_options_.info_log, "Cannot Flush data %s\n",
+                      status.ToString().c_str());
+      return status;
+    }
+    mutex_.Unlock();
+  }
+
+  uint64_t min_log_num{0};
+  GetNonWALLiveFiles(opts, results, min_log_num);
+
+  // Some legacy testing stuff  TODO: carefully clean up obsolete parts
+  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:FlushDone");
+  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
+  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
+
+  if (s.ok()) {
+    s = FlushWAL(false /* sync */);
+  }
+
+  TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1");
+  TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2");
+
+  s = GetWALLiveFiles(opts, results, need_flush_memtable, min_log_num);
+
   if (s.ok()) {
     // Only move results to output on success.
     *files = std::move(results);
   }
+
   return s;
 }
 
