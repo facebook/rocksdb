@@ -282,7 +282,7 @@ class MultiOpsTxnsStressTest : public StressTest {
     VerifyDb(thread);
   }
 
-  Status VerifyPkSkFast();
+  void VerifyPkSkFast(int job_id);
 
  protected:
   using KeySet = std::set<uint32_t>;
@@ -386,24 +386,13 @@ class MultiOpsTxnsStressListener : public EventListener {
   void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
     assert(db);
     assert(info.cf_id == 0);
-    Status s = stress_test_->VerifyPkSkFast();
-    if (!s.ok()) {
-      fprintf(stderr, "flush_job %d: %s\n", info.job_id, s.ToString().c_str());
-      fflush(stderr);
-      std::abort();
-    }
+    stress_test_->VerifyPkSkFast(info.job_id);
   }
 
   void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) override {
     assert(db);
     assert(info.cf_id == 0);
-    Status s = stress_test_->VerifyPkSkFast();
-    if (!s.ok()) {
-      fprintf(stderr, "compact_job %d: %s\n", info.job_id,
-              s.ToString().c_str());
-      fflush(stderr);
-      std::abort();
-    }
+    stress_test_->VerifyPkSkFast(info.job_id);
   }
 
  private:

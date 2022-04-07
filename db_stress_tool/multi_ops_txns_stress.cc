@@ -79,8 +79,9 @@ void MultiOpsTxnsStressTest::KeyGenerator::FinishInit() {
         "Cannot allocate key in [%u, %u)\nStart with a new DB or try change "
         "the number of threads for testing via -threads=<#threads>\n",
         static_cast<unsigned int>(low_), static_cast<unsigned int>(high_));
+    fflush(stdout);
     fflush(stderr);
-    std::terminate();
+    assert(false);
   }
   initialized_ = true;
 }
@@ -1173,7 +1174,7 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       s = db_->Get(ropts, pk, &value);
       if (!s.ok()) {
         oss << "Error searching pk " << Slice(pk).ToString(true) << ". "
-            << s.ToString();
+            << s.ToString() << ". sk " << it->key().ToString(true);
         VerificationAbort(thread->shared, oss.str(), s);
         assert(false);
         return;
@@ -1189,9 +1190,10 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       }
       uint32_t c_in_primary = std::get<2>(result);
       if (c_in_primary != record.c_value()) {
-        oss << "Pk/sk mismatch. pk: (a=" << record.a_value()
-            << ", c=" << c_in_primary << "), sk: (c=" << record.c_value()
-            << ")";
+        oss << "Pk/sk mismatch. pk: " << Slice(pk).ToString(true) << "=>"
+            << Slice(value).ToString(true) << " (a=" << record.a_value()
+            << ", c=" << c_in_primary << "), sk: " << it->key().ToString(true)
+            << " (c=" << record.c_value() << ")";
         VerificationAbort(thread->shared, oss.str(), s);
         assert(false);
         return;
@@ -1209,7 +1211,7 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
   }
 }
 
-Status MultiOpsTxnsStressTest::VerifyPkSkFast() {
+void MultiOpsTxnsStressTest::VerifyPkSkFast(int job_id) {
   const Snapshot* const snapshot = db_->GetSnapshot();
   assert(snapshot);
   ManagedSnapshot snapshot_guard(db_, snapshot);
@@ -1218,7 +1220,7 @@ Status MultiOpsTxnsStressTest::VerifyPkSkFast() {
   auto* dbimpl = static_cast_with_check<DBImpl>(db_->GetRootDB());
   assert(dbimpl);
 
-  oss << "[" << snapshot->GetSequenceNumber() << ","
+  oss << "Job " << job_id << ": [" << snapshot->GetSequenceNumber() << ","
       << dbimpl->GetLastPublishedSequence() << "] ";
 
   char buf[4];
@@ -1238,7 +1240,9 @@ Status MultiOpsTxnsStressTest::VerifyPkSkFast() {
     Status s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
     if (!s.ok()) {
       oss << "Cannot decode secondary index entry";
-      return Status::Corruption(oss.str());
+      fprintf(stderr, "%s\n", oss.str().c_str());
+      fflush(stderr);
+      assert(false);
     }
     // After decoding secondary index entry, we know a and c. Crc is verified
     // in decoding phase.
@@ -1249,24 +1253,31 @@ Status MultiOpsTxnsStressTest::VerifyPkSkFast() {
     s = db_->Get(ropts, pk, &value);
     if (!s.ok()) {
       oss << "Error searching pk " << Slice(pk).ToString(true) << ". "
-          << s.ToString();
-      return Status::Corruption(oss.str());
+          << s.ToString() << ". sk " << it->key().ToString(true);
+      fprintf(stderr, "%s\n", oss.str().c_str());
+      fflush(stderr);
+      assert(false);
     }
     auto result = Record::DecodePrimaryIndexValue(value);
     s = std::get<0>(result);
     if (!s.ok()) {
       oss << "Error decoding primary index value "
           << Slice(value).ToString(true) << ". " << s.ToString();
-      return Status::Corruption(oss.str());
+      fprintf(stderr, "%s\n", oss.str().c_str());
+      fflush(stderr);
+      assert(false);
     }
     uint32_t c_in_primary = std::get<2>(result);
     if (c_in_primary != record.c_value()) {
-      oss << "Pk/sk mismatch. pk: (a=" << record.a_value()
-          << ", c=" << c_in_primary << "), sk: (c=" << record.c_value() << ")";
-      return Status::Corruption(oss.str());
+      oss << "Pk/sk mismatch. pk: " << Slice(pk).ToString(true) << "=>"
+          << Slice(value).ToString(true) << " (a=" << record.a_value()
+          << ", c=" << c_in_primary << "), sk: " << it->key().ToString(true)
+          << " (c=" << record.c_value() << ")";
+      fprintf(stderr, "%s\n", oss.str().c_str());
+      fflush(stderr);
+      assert(false);
     }
   }
-  return Status::OK();
 }
 
 std::pair<uint32_t, uint32_t> MultiOpsTxnsStressTest::ChooseExistingA(
