@@ -536,10 +536,6 @@ Status DBImpl::Recover(
       }
     }
   }
-  // DB mutex is already held
-  if (s.ok() && immutable_db_options_.persist_stats_to_disk) {
-    s = InitPersistStatsColumnFamily();
-  }
 
   std::vector<std::string> files_in_wal_dir;
   if (s.ok()) {
@@ -811,10 +807,10 @@ Status DBImpl::InitPersistStatsColumnFamily() {
 
 Status DBImpl::LogAndApplyForRecovery(
     const VersionEditsContext* version_edits_ctx) {
+  assert(versions_->descriptor_log_ == nullptr);
   return versions_->LogAndApply(
       version_edits_ctx->cfds_, version_edits_ctx->mutable_cf_opts_,
-      version_edits_ctx->edit_lists_, &mutex_, directories_.GetDbDir(),
-      /*new_descriptor_log =*/true);
+      version_edits_ctx->edit_lists_, &mutex_, directories_.GetDbDir());
 }
 
 // REQUIRES: wal_numbers are sorted in ascending order
@@ -1827,34 +1823,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
 
     if (s.ok()) {
-      // set column family handles
-      for (auto cf : column_families) {
-        auto cfd =
-            impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
-        if (cfd != nullptr) {
-          handles->push_back(
-              new ColumnFamilyHandleImpl(cfd, impl, &impl->mutex_));
-          impl->NewThreadStatusCfInfo(cfd);
-        } else {
-          if (db_options.create_missing_column_families) {
-            // missing column family, create it
-            ColumnFamilyHandle* handle;
-            impl->mutex_.Unlock();
-            s = impl->CreateColumnFamily(cf.options, cf.name, &handle);
-            impl->mutex_.Lock();
-            if (s.ok()) {
-              handles->push_back(handle);
-            } else {
-              break;
-            }
-          } else {
-            s = Status::InvalidArgument("Column family not found", cf.name);
-            break;
-          }
-        }
-      }
-    }
-    if (s.ok()) {
       if (impl->two_write_queues_) {
         impl->log_write_mutex_.Lock();
       }
@@ -1896,6 +1864,40 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   if (s.ok()) {
     s = impl->LogAndApplyForRecovery(&version_edits_ctx);
+  }
+
+  // DB mutex is already held
+  if (s.ok() && impl->immutable_db_options_.persist_stats_to_disk) {
+    s = impl->InitPersistStatsColumnFamily();
+  }
+
+  if (s.ok()) {
+    // set column family handles
+    for (auto cf : column_families) {
+      auto cfd =
+          impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
+      if (cfd != nullptr) {
+        handles->push_back(
+            new ColumnFamilyHandleImpl(cfd, impl, &impl->mutex_));
+        impl->NewThreadStatusCfInfo(cfd);
+      } else {
+        if (db_options.create_missing_column_families) {
+          // missing column family, create it
+          ColumnFamilyHandle* handle;
+          impl->mutex_.Unlock();
+          s = impl->CreateColumnFamily(cf.options, cf.name, &handle);
+          impl->mutex_.Lock();
+          if (s.ok()) {
+            handles->push_back(handle);
+          } else {
+            break;
+          }
+        } else {
+          s = Status::InvalidArgument("Column family not found", cf.name);
+          break;
+        }
+      }
+    }
   }
 
   if (s.ok()) {
