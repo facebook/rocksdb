@@ -1251,7 +1251,7 @@ void CompactionJob::NotifyOnSubcompactionBegin(
   if (shutting_down_->load(std::memory_order_acquire)) {
     return;
   }
-  if (c->is_manual_compaction() &&
+  if (c->is_manual_compaction() && manual_compaction_paused_ &&
       manual_compaction_paused_->load(std::memory_order_acquire) > 0) {
     return;
   }
