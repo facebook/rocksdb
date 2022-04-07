@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "example_agg_merge.h"
+#include "test_agg_merge.h"
 
 #include <assert.h>
 
@@ -63,7 +63,7 @@ bool Last3Aggregator::Aggregate(const std::vector<Slice>& item_list,
   for (Slice item : item_list) {
     Slice entity;
     bool ret;
-    while ((ret = GetLengthPrefixedSlice(&item, &entity))) {
+    while ((ret = GetLengthPrefixedSlice(&item, &entity)) == true) {
       last3.push_back(entity);
       if (last3.size() >= 3) {
         break;

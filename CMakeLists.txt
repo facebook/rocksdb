@@ -817,7 +817,6 @@ set(SOURCES
         util/threadpool_imp.cc
         util/xxhash.cc
         utilities/agg_merge/agg_merge.cc
-        utilities/agg_merge/example_agg_merge.cc
         utilities/backup/backup_engine.cc
         utilities/blob_db/blob_compaction_filter.cc
         utilities/blob_db/blob_db.cc
@@ -1373,6 +1372,7 @@ if(WITH_TESTS)
       db/db_test_util.cc
       monitoring/thread_status_updater_debug.cc
       table/mock_table.cc
+      utilities/agg_merge/test_agg_merge.cc
       utilities/cassandra/test_utils.cc
   )
   enable_testing()

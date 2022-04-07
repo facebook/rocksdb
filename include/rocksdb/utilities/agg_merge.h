@@ -14,6 +14,53 @@
 #include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
+// Aggregation Merge Operator is a merge operator that allows users to
+// aggregate merge operands of different keys with different registered
+// aggregation functions.
+// The target application highly overlaps with merge operator in general
+// but we try to provide a better interface so that users are more likely
+// to use pre-implemented plug-in functions and connect with existing
+// third-party aggregation functions (such as those from SQL engines).
+// In this case, the need for users to write customized C++ plug-in code
+// is reduced.
+// If the idea proves to useful, we might consider to move it to be
+// a core functionality of RocksDB, and reduce the support of merge
+// operators.
+//
+// Users can implement aggregation functions by implementing abstract
+// class Aggregator, and register it using AddAggregator().
+// The merge operator can be retrieved from GetAggMergeOperator() and
+// it is a singleton.
+//
+// Users can push values to be updated with a merge operand encoded with
+// registered function name and payload using EncodeAggFuncAndValue(),
+// and the merge operator will invoke the aggregation function.
+// An example:
+//
+//    // Assume class ExampleSumAggregator is implemented to do simple sum.
+//    AddAggregator("sum", std::make_unique<ExampleSumAggregator>());
+//    std::shared_ptr<MergeOperator> mp_guard = CreateAggMergeOperator();
+//    options.merge_operator = mp_guard.get();
+//    ...... // Creating DB
+//    db->Put(WriteOptions(), "foo", "100");
+//    db->Merge(WriteOptions(), "foo", EncodeAggFuncAndValue("sum", "200"));
+//    db->Merge(WriteOptions(), "foo", EncodeAggFuncAndValue("sum", "300"));
+//    std::string value;
+//    Status s = db->Get(ReadOptions, "foo", &value);
+//    assert(s.ok());
+//    Slice func, aggregated_value;
+//    assert(ExtractAggFuncAndValue(value, func, aggregated_value));
+//    assert(func == "sum");
+//    assert(aggregated_value == "600");
+//
+// If the aggregation function is not registered or there is an error
+// returned by aggregation function, the result will be encoded with a fake
+// aggregation function kErrorFuncName, with each merge operands to be encoded
+// into a list that can be extracted using ExtractList();
+//
+// If users add a merge operand using a different aggregation function from
+// the previous one, the previous ones will be ignored.
+
 // A class used to aggregate data per key/value. The plug-in function is
 // implemented and registered using AddAggregator(). And then use it
 // with merge operator created using CreateAggMergeOperator().
@@ -44,34 +91,6 @@ Status AddAggregator(const std::string& function_name,
 // Always the same one is returned with a shared_ptr is hold as a
 // static variable by the function.
 // This is done so because options.merge_operator is shared_ptr.
-// Users can push values to be updated with a merge operand encoded with
-// registered function name and payload using EncodeAggFuncAndValue(),
-// and the merge operator will invoke the aggregation function.
-// An example:
-//
-//    // Assume class ExampleSumAggregator is implemented to do simple sum.
-//    AddAggregator("sum", std::make_unique<ExampleSumAggregator>());
-//    std::shared_ptr<MergeOperator> mp_guard = CreateAggMergeOperator();
-//    options.merge_operator = mp_guard.get();
-//    ...... // Creating DB
-//    db->Put(WriteOptions(), "foo", "100");
-//    db->Merge(WriteOptions(), "foo", EncodeAggFuncAndValue("sum", "200"));
-//    db->Merge(WriteOptions(), "foo", EncodeAggFuncAndValue("sum", "300"));
-//    std::string value;
-//    Status s = db->Get(ReadOptions, "foo", &value);
-//    assert(s.ok());
-//    Slice func, aggregated_value;
-//    assert(ExtractAggFuncAndValue(value, func, aggregated_value));
-//    assert(func == "sum");
-//    assert(aggregated_value == "600");
-//
-// If the aggregation function is not registered or there is an error
-// returned by aggregation function, the result will be encoded with a fake
-// aggregation function kErrorFuncName, with each merge operands to be encoded
-// into a list that can be extracted using ExtractList();
-//
-// If users add a merge operand using a different aggregation function from
-// the previous one, the previous ones will be ignored.
 std::shared_ptr<MergeOperator> GetAggMergeOperator();
 
 // Encode aggregation function and payload that can be consumed by aggregation

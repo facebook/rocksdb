@@ -246,9 +246,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "util/threadpool_imp.cc",
         "util/xxhash.cc",
         "utilities/agg_merge/agg_merge.cc",
-        "utilities/agg_merge/example_agg_merge.cc",
         "utilities/backup/backup_engine.cc",
-        "utilities/backupable/backupable_db.cc",
         "utilities/blob_db/blob_compaction_filter.cc",
         "utilities/blob_db/blob_db.cc",
         "utilities/blob_db/blob_db_impl.cc",
@@ -567,9 +565,7 @@ cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
         "util/threadpool_imp.cc",
         "util/xxhash.cc",
         "utilities/agg_merge/agg_merge.cc",
-        "utilities/agg_merge/example_agg_merge.cc",
         "utilities/backup/backup_engine.cc",
-        "utilities/backupable/backupable_db.cc",
         "utilities/blob_db/blob_compaction_filter.cc",
         "utilities/blob_db/blob_db.cc",
         "utilities/blob_db/blob_db_impl.cc",
@@ -5710,6 +5706,12 @@ cpp_unittest_wrapper(name="table_properties_collector_test",
 
 cpp_unittest_wrapper(name="table_test",
             srcs=["table/table_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="test_agg_merge",
+            srcs=["utilities/agg_merge/test_agg_merge.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

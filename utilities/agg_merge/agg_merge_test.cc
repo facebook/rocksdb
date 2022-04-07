@@ -13,7 +13,7 @@
 #include "rocksdb/options.h"
 #include "test_util/testharness.h"
 #include "utilities/agg_merge/agg_merge.h"
-#include "utilities/agg_merge/example_agg_merge.h"
+#include "utilities/agg_merge/test_agg_merge.h"
 
 namespace ROCKSDB_NAMESPACE {
 

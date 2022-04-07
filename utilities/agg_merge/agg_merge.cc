@@ -56,7 +56,7 @@ bool ExtractList(const Slice& encoded_list, std::vector<Slice>& decoded_list) {
   Slice list_slice = encoded_list;
   bool ret;
   Slice item;
-  while ((ret = GetLengthPrefixedSlice(&list_slice, &item))) {
+  while ((ret = GetLengthPrefixedSlice(&list_slice, &item)) == true) {
     decoded_list.push_back(item);
   }
   return list_slice.empty();
@@ -81,12 +81,14 @@ class AggMergeOperator::Accumulator {
         // We got some unexpected merge operands. Ignore this and all
         // subsequenr ones.
         ignore_operands_ = true;
+        Clear();
         return true;
       }
     }
     if (is_partial_aggregation && !func_.empty()) {
       auto f = func_map.find(func_.ToString());
       if (f == func_map.end() || f->second->DoPartialAggregate()) {
+        Clear();
         return false;
       }
     }
@@ -99,16 +101,16 @@ class AggMergeOperator::Accumulator {
   // One possible reason
   bool GetResult(std::string& result) {
     if (func_.empty()) {
+      Clear();
       return false;
     }
     auto f = func_map.find(func_.ToString());
-    if (f == func_map.end()) {
-      return false;
-    }
-    if (!f->second->Aggregate(values_, &scratch_)) {
+    if (f == func_map.end() || !f->second->Aggregate(values_, &scratch_)) {
+      Clear();
       return false;
     }
     result = EncodeAggFuncAndValue(func_, scratch_);
+    Clear();
     return true;
   }
 
