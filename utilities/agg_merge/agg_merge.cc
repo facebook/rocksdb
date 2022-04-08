@@ -38,12 +38,24 @@ Status AddAggregator(const std::string& function_name,
 
 AggMergeOperator::AggMergeOperator() {}
 
-std::string EncodeAggFuncAndValue(const Slice& function_name,
-                                  const Slice& value) {
+std::string EncodeAggFuncAndPayloadNoCheck(const Slice& function_name,
+                                           const Slice& value) {
   std::string result;
   PutLengthPrefixedSlice(&result, function_name);
   result += value.ToString();
   return result;
+}
+
+Status EncodeAggFuncAndPayload(const Slice& function_name, const Slice& payload,
+                               std::string& output) {
+  if (function_name == kErrorFuncName) {
+    return Status::InvalidArgument("Cannot use error function name");
+  }
+  if (func_map.find(function_name.ToString()) == func_map.end()) {
+    return Status::InvalidArgument("Function name not registered");
+  }
+  output = EncodeAggFuncAndPayloadNoCheck(function_name, payload);
+  return Status::OK();
 }
 
 bool ExtractAggFuncAndValue(const Slice& op, Slice& func, Slice& value) {
@@ -107,7 +119,7 @@ class AggMergeOperator::Accumulator {
     if (!f->second->Aggregate(values_, &scratch_)) {
       return false;
     }
-    result = EncodeAggFuncAndValue(func_, scratch_);
+    result = EncodeAggFuncAndPayloadNoCheck(func_, scratch_);
     return true;
   }
 
@@ -134,8 +146,8 @@ AggMergeOperator::Accumulator& AggMergeOperator::GetTLSAccumulator() {
   // The implementation is mostly copied from Random::GetTLSInstance()
   // If the same pattern is used more frequently, we might create a utility
   // function for that.
-  static __thread Accumulator* tls_instance;
-  static __thread std::aligned_storage<sizeof(Accumulator)>::type
+  static thread_local Accumulator* tls_instance;
+  static thread_local std::aligned_storage<sizeof(Accumulator)>::type
       tls_instance_bytes;
 
   auto rv = tls_instance;
@@ -206,7 +218,7 @@ bool AggMergeOperator::PartialMergeMulti(const Slice& /*key*/,
 
 std::shared_ptr<MergeOperator> GetAggMergeOperator() {
   STATIC_AVOID_DESTRUCTION(std::shared_ptr<MergeOperator>, instance)
-  (new AggMergeOperator());
+  (std::make_shared<AggMergeOperator>());
   assert(instance);
   return instance;
 }

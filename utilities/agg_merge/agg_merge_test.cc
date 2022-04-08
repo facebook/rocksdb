@@ -74,16 +74,18 @@ TEST_F(AggMergeTest, TestUsingMergeOperator) {
   ASSERT_EQ(30, ivalue);
 
   // Test unregistered function name
-  v = EncodeHelper::EncodeFuncAndInt("non_existing", 10);
+  v = EncodeAggFuncAndPayloadNoCheck("non_existing", "1");
   ASSERT_OK(Merge("bar2", v));
-  std::string v1 = EncodeHelper::EncodeFuncAndInt("non_existing", 20);
+  std::string v1;
+  v1 = EncodeAggFuncAndPayloadNoCheck("non_existing", "invalid");
+  ;
   ASSERT_OK(Merge("bar2", v1));
-  EXPECT_EQ(
-      EncodeAggFuncAndValue(kErrorFuncName, EncodeHelper::EncodeList({v, v1})),
-      Get("bar2"));
+  EXPECT_EQ(EncodeAggFuncAndPayloadNoCheck(kErrorFuncName,
+                                           EncodeHelper::EncodeList({v, v1})),
+            Get("bar2"));
 
   // invalidate input
-  v = EncodeAggFuncAndValue("sum", "invalid");
+  ASSERT_OK(EncodeAggFuncAndPayload("sum", "invalid", v));
   ASSERT_OK(Merge("bar3", v));
   v1 = EncodeHelper::EncodeFuncAndInt("sum", 20);
   ASSERT_OK(Merge("bar3", v1));

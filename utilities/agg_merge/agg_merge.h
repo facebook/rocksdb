@@ -28,7 +28,7 @@ class AggMergeOperator : public MergeOperator {
                                  Logger* logger) const override;
 
   const char* Name() const override { return kClassName(); }
-  static const char* kClassName() { return "AggMergeOperator"; }
+  static const char* kClassName() { return "AggMergeOperator.v1"; }
 
   virtual bool AllowSingleOperand() const override { return true; }
 
@@ -46,4 +46,7 @@ class AggMergeOperator : public MergeOperator {
                                    MergeOperationOutput& merge_out);
   static Accumulator& GetTLSAccumulator();
 };
+
+extern std::string EncodeAggFuncAndPayloadNoCheck(const Slice& function_name,
+                                                  const Slice& value);
 }  // namespace ROCKSDB_NAMESPACE

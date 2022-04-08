@@ -14,6 +14,9 @@
 #include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
+// The feature is still in development so the encoding format is subject
+// to change.
+//
 // Aggregation Merge Operator is a merge operator that allows users to
 // aggregate merge operands of different keys with different registered
 // aggregation functions.
@@ -33,7 +36,7 @@ namespace ROCKSDB_NAMESPACE {
 // it is a singleton.
 //
 // Users can push values to be updated with a merge operand encoded with
-// registered function name and payload using EncodeAggFuncAndValue(),
+// registered function name and payload using EncodeAggFuncAndPayload(),
 // and the merge operator will invoke the aggregation function.
 // An example:
 //
@@ -42,9 +45,17 @@ namespace ROCKSDB_NAMESPACE {
 //    std::shared_ptr<MergeOperator> mp_guard = CreateAggMergeOperator();
 //    options.merge_operator = mp_guard.get();
 //    ...... // Creating DB
+//
 //    db->Put(WriteOptions(), "foo", "100");
-//    db->Merge(WriteOptions(), "foo", EncodeAggFuncAndValue("sum", "200"));
-//    db->Merge(WriteOptions(), "foo", EncodeAggFuncAndValue("sum", "300"));
+//
+//    std::string encoded_value;
+//    s = EncodeAggFuncAndPayload("sum", "200").ok());
+//    assert(s.ok());
+//    db->Merge(WriteOptions(), "foo", encoded_value);
+//    s = EncodeAggFuncAndPayload("sum", "200").ok());
+//    assert(s.ok());
+//    db->Merge(WriteOptions(), "foo", encoded_value);
+//
 //    std::string value;
 //    Status s = db->Get(ReadOptions, "foo", &value);
 //    assert(s.ok());
@@ -95,8 +106,8 @@ std::shared_ptr<MergeOperator> GetAggMergeOperator();
 
 // Encode aggregation function and payload that can be consumed by aggregation
 // merge operator.
-std::string EncodeAggFuncAndValue(const Slice& function_name,
-                                  const Slice& payload);
+Status EncodeAggFuncAndPayload(const Slice& function_name, const Slice& payload,
+                               std::string& output);
 // Helper function to extract aggregation function name and payload.
 // Return false if it fails to decode.
 bool ExtractAggFuncAndValue(const Slice& op, Slice& func, Slice& value);
