@@ -34,7 +34,8 @@ Status DBImplSecondary::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     bool /*readonly*/, bool /*error_if_wal_file_exists*/,
     bool /*error_if_data_exists_in_wals*/, uint64_t*,
-    VersionEditsContext* /*version_edits_ctx*/) {
+    VersionEditsContext* /*version_edits_ctx*/,
+    std::set<std::string>* /*files_to_delete*/) {
   mutex_.AssertHeld();
 
   JobContext job_context(0);

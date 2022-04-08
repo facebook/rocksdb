@@ -1397,7 +1397,8 @@ class DBImpl : public DB {
       bool read_only = false, bool error_if_wal_file_exists = false,
       bool error_if_data_exists_in_wals = false,
       uint64_t* recovered_seq = nullptr,
-      VersionEditsContext* recovery_version_edits = nullptr);
+      VersionEditsContext* recovery_version_edits = nullptr,
+      std::set<std::string>* files_to_delete = nullptr);
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
@@ -1418,7 +1419,8 @@ class DBImpl : public DB {
   // bump up the version set's next_file_number_ to be 1 + largest_file_number.
   // recovery_version_edits stores the context about version edits and all those
   // edits are persisted to new Manifest after succesfully syncing the new WAL.
-  Status DeleteUnreferencedSstFiles(VersionEditsContext* recovery_edit);
+  Status DeleteUnreferencedSstFiles(VersionEditsContext* recovery_edit,
+                                    std::set<std::string>* files_to_delete);
 
   // SetDbSessionId() should be called in the constuctor DBImpl()
   // to ensure that db_session_id_ gets updated every time the DB is opened
@@ -1432,7 +1434,8 @@ class DBImpl : public DB {
   // LogAndApplyForRecovery persist all those edits to new Manifest after
   // successfully syncing new WAL.
   Status LogAndApplyForRecovery(
-      const VersionEditsContext* recovery_version_edits);
+      const std::set<std::string>& files_to_delete,
+      const VersionEditsContext& recovery_version_edits);
 
  private:
   friend class DB;
@@ -1717,8 +1720,7 @@ class DBImpl : public DB {
   // It needs to run only when there's no flush during recovery
   // (e.g. avoid_flush_during_recovery=true). May also trigger flush
   // in case total_log_size > max_total_wal_size.
-  Status RestoreAliveLogFiles(const std::vector<uint64_t>& log_numbers,
-                              bool truncate_last_wal);
+  Status RestoreAliveLogFiles(const std::vector<uint64_t>& log_numbers);
 
   // num_bytes: for slowdown case, delay time is calculated based on
   //            `num_bytes` going through.

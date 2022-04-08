@@ -607,8 +607,11 @@ TEST_F(StatsHistoryTest, ForceManualFlushStatsCF) {
   // LogNumbers: default: 16, stats: 10, pikachu: 5
   // Since in recovery process, cfd_stats column is created after WAL is
   // created, synced and MANIFEST is persisted, its log number which depends on
-  // logfile_number_ will be different.
+  // logfile_number_ will be different. Since "pikachu" is never flushed, thus
+  // its log_number should be the smallest of the three.
   ASSERT_OK(Flush());
+  ASSERT_LT(cfd_test->GetLogNumber(), cfd_stats->GetLogNumber());
+  ASSERT_LT(cfd_test->GetLogNumber(), cfd_default->GetLogNumber());
 
   ASSERT_OK(Put("foo1", "v1"));
   ASSERT_OK(Put("bar1", "v1"));

@@ -399,7 +399,8 @@ IOStatus Directories::SetDirectories(FileSystem* fs, const std::string& dbname,
 Status DBImpl::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     bool error_if_wal_file_exists, bool error_if_data_exists_in_wals,
-    uint64_t* recovered_seq, VersionEditsContext* version_edits_ctx) {
+    uint64_t* recovered_seq, VersionEditsContext* version_edits_ctx,
+    std::set<std::string>* files_to_delete) {
   mutex_.AssertHeld();
 
   bool is_new_db = false;
@@ -521,7 +522,7 @@ Status DBImpl::Recover(
 
   s = SetDBId(read_only, version_edits_ctx);
   if (s.ok() && !read_only) {
-    s = DeleteUnreferencedSstFiles(version_edits_ctx);
+    s = DeleteUnreferencedSstFiles(version_edits_ctx, files_to_delete);
   }
 
   if (immutable_db_options_.paranoid_checks && s.ok()) {
@@ -806,11 +807,23 @@ Status DBImpl::InitPersistStatsColumnFamily() {
 }
 
 Status DBImpl::LogAndApplyForRecovery(
-    const VersionEditsContext* version_edits_ctx) {
+    const std::set<std::string>& files_to_delete,
+    const VersionEditsContext& version_edits_ctx) {
   assert(versions_->descriptor_log_ == nullptr);
-  return versions_->LogAndApply(
-      version_edits_ctx->cfds_, version_edits_ctx->mutable_cf_opts_,
-      version_edits_ctx->edit_lists_, &mutex_, directories_.GetDbDir());
+  Status s = versions_->LogAndApply(
+      version_edits_ctx.cfds_, version_edits_ctx.mutable_cf_opts_,
+      version_edits_ctx.edit_lists_, &mutex_, directories_.GetDbDir());
+  if (s.ok() && !files_to_delete.empty()) {
+    mutex_.Unlock();
+    for (const auto& fname : files_to_delete) {
+      s = env_->DeleteFile(fname);
+      if (!s.ok()) {
+        break;
+      }
+    }
+    mutex_.Lock();
+  }
+  return s;
 }
 
 // REQUIRES: wal_numbers are sorted in ascending order
@@ -1312,7 +1325,7 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
 
   if (status.ok()) {
     if (data_seen && !flushed) {
-      status = RestoreAliveLogFiles(wal_numbers, truncate_last_wal);
+      status = RestoreAliveLogFiles(wal_numbers);
     } else if (!wal_numbers.empty()) {
       // If there's no data in the WAL, or we flushed all the data, still
       // truncate the log file. If the process goes into a crash loop before
@@ -1331,19 +1344,14 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
 
 void DBImpl::MoveCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
                                    uint64_t corrupted_wal_number) {
-  // size_t corrupt_index_start = wal_numbers.size() - 1;
-  // size_t i = 0;
   size_t num_wals = wal_numbers.size();
+  // Find the first corrupted wal.
+  auto iter = std::lower_bound(wal_numbers.begin(), wal_numbers.end(),
+                               corrupted_wal_number);
+  auto corrupt_start_iter = iter;
 
-  // Find the index of first corrupted wal.
-  size_t i = static_cast<size_t>(std::lower_bound(wal_numbers.begin(),
-                                                  wal_numbers.end(),
-                                                  corrupted_wal_number) -
-                                 wal_numbers.begin());
-  size_t corrupt_index_start = i;
-
-  // Increment i to move WAL files from first corrupted_wal_number + 1.
-  i++;
+  // Increment iter to move WAL files from first corrupted_wal_number + 1.
+  iter++;
 
   std::string archivalPath =
       ArchivalDirectory(immutable_db_options_.GetWalDir());
@@ -1358,19 +1366,17 @@ void DBImpl::MoveCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
   // directory. If its unable to create archive dir, it will delete the
   // corrupted WAL files.
   // We are moving all but first corrupted WAL file to a different folder.
-  while (i < num_wals) {
-    LogFileNumberSize log(wal_numbers[i]);
-    std::string fname =
-        LogFileName(immutable_db_options_.GetWalDir(), wal_numbers[i]);
+  while (iter != wal_numbers.end()) {
+    LogFileNumberSize log(*iter);
+    std::string fname = LogFileName(immutable_db_options_.GetWalDir(), *iter);
 #ifndef ROCKSDB_LITE
     if (create_status.ok()) {
-      wal_manager_.ArchiveWALFile(fname, wal_numbers[i]);
+      wal_manager_.ArchiveWALFile(fname, *iter);
     }
 #endif
-    i++;
+    iter++;
   }
-  wal_numbers.erase(wal_numbers.begin() + corrupt_index_start + 1,
-                    wal_numbers.begin() + num_wals);
+  wal_numbers.erase(corrupt_start_iter + 1, wal_numbers.begin() + num_wals);
 }
 
 Status DBImpl::GetLogSizeAndMaybeTruncate(uint64_t wal_number, bool truncate,
@@ -1408,8 +1414,7 @@ Status DBImpl::GetLogSizeAndMaybeTruncate(uint64_t wal_number, bool truncate,
   return s;
 }
 
-Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers,
-                                    bool truncate_last_wal) {
+Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
   if (wal_numbers.empty()) {
     return Status::OK();
   }
@@ -1437,8 +1442,7 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers,
     LogFileNumberSize log;
     s = GetLogSizeAndMaybeTruncate(
         wal_number,
-        /*truncate=*/(wal_number == wal_numbers.back() && truncate_last_wal),
-        &log);
+        /*truncate=*/(wal_number == wal_numbers.back()), &log);
     if (!s.ok()) {
       break;
     }
@@ -1804,9 +1808,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
   // Handles create_if_missing, error_if_exists
   uint64_t recovered_seq(kMaxSequenceNumber);
+  std::set<std::string> files_to_delete;
   s = impl->Recover(column_families, false, false, false, &recovered_seq,
-                    &version_edits_ctx);
-
+                    &version_edits_ctx, &files_to_delete);
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     log::Writer* new_log = nullptr;
@@ -1863,11 +1867,11 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
   }
   if (s.ok()) {
-    s = impl->LogAndApplyForRecovery(&version_edits_ctx);
+    s = impl->LogAndApplyForRecovery(files_to_delete, version_edits_ctx);
   }
 
-  // DB mutex is already held
   if (s.ok() && impl->immutable_db_options_.persist_stats_to_disk) {
+    impl->mutex_.AssertHeld();
     s = impl->InitPersistStatsColumnFamily();
   }
 
