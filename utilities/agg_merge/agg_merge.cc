@@ -54,9 +54,8 @@ bool ExtractAggFuncAndValue(const Slice& op, Slice& func, Slice& value) {
 bool ExtractList(const Slice& encoded_list, std::vector<Slice>& decoded_list) {
   decoded_list.clear();
   Slice list_slice = encoded_list;
-  bool ret;
   Slice item;
-  while ((ret = GetLengthPrefixedSlice(&list_slice, &item)) == true) {
+  while (GetLengthPrefixedSlice(&list_slice, &item)) {
     decoded_list.push_back(item);
   }
   return list_slice.empty();

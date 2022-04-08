@@ -23,8 +23,8 @@ class AggMergeTest : public DBTestBase {
 };
 
 TEST_F(AggMergeTest, TestUsingMergeOperator) {
-  AddAggregator("sum", std::make_unique<SumAggregator>());
-  AddAggregator("last3", std::make_unique<Last3Aggregator>());
+  ASSERT_OK(AddAggregator("sum", std::make_unique<SumAggregator>()));
+  ASSERT_OK(AddAggregator("last3", std::make_unique<Last3Aggregator>()));
 
   Options options = CurrentOptions();
   options.merge_operator = GetAggMergeOperator();
@@ -40,7 +40,7 @@ TEST_F(AggMergeTest, TestUsingMergeOperator) {
   ASSERT_OK(Merge("bar", v));
   v = EncodeHelper::EncodeFuncAndList("last3", {"c", "d", "e"});
   ASSERT_OK(Merge("bar", v));
-  Flush();
+  ASSERT_OK(Flush());
   v = EncodeHelper::EncodeFuncAndList("last3", {"f"});
   ASSERT_OK(Merge("bar", v));
 

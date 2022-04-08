@@ -654,6 +654,7 @@ cpp_library_wrapper(name="rocksdb_test_lib", srcs=[
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
         "tools/trace_analyzer_tool.cc",
+        "utilities/agg_merge/test_agg_merge.cc",
         "utilities/cassandra/test_utils.cc",
     ], deps=[":rocksdb_lib"], headers=None, link_whole=False, extra_test_libs=True)
 
@@ -5706,12 +5707,6 @@ cpp_unittest_wrapper(name="table_properties_collector_test",
 
 cpp_unittest_wrapper(name="table_test",
             srcs=["table/table_test.cc"],
-            deps=[":rocksdb_test_lib"],
-            extra_compiler_flags=[])
-
-
-cpp_unittest_wrapper(name="test_agg_merge",
-            srcs=["utilities/agg_merge/test_agg_merge.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
