@@ -481,6 +481,7 @@ Cache::Handle* LRUCacheShard::Lookup(
         // If wait is false, we always return a handle and let the caller
         // release the handle after checking for success or failure.
         e->SetIncomplete(true);
+        e->SetIsInSecondaryCache(is_in_sec_cache);
         // This may be slightly inaccurate, if the lookup eventually fails.
         // But the probability is very low.
         PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
@@ -754,8 +755,6 @@ void LRUCache::WaitAll(std::vector<Handle*>& handles) {
       uint32_t hash = GetHash(handle);
       LRUCacheShard* shard = static_cast<LRUCacheShard*>(GetShard(Shard(hash)));
       shard->Promote(lru_handle);
-      // Since wait is needed, we assume these handles are still in sec cache.
-      lru_handle->SetIsInSecondaryCache(true);
     }
   }
 }
