@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#include <bits/stdint-uintn.h>
 #ifndef ROCKSDB_LITE
 
 #include <algorithm>
