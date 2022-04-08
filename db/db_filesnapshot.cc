@@ -195,9 +195,9 @@ Status DBImpl::IsFlushMemtableNeededForGetLiveFiles(
   return s;
 }
 
-void DBImpl::GetNonWALLiveFiles(const LiveFilesStorageInfoOptions& opts,
-                                std::vector<LiveFileStorageInfo>& results,
-                                uint64_t& min_log_num) {
+void DBImpl::GetLiveFilesExceptWals(const LiveFilesStorageInfoOptions& opts,
+                                    std::vector<LiveFileStorageInfo>& results,
+                                    uint64_t& min_log_num) {
   // This is a modified version of GetLiveFiles, to get access to more
   // metadata.
   mutex_.Lock();
@@ -331,10 +331,10 @@ void DBImpl::GetNonWALLiveFiles(const LiveFilesStorageInfoOptions& opts,
   }
 }
 
-Status DBImpl::GetWALLiveFiles(const LiveFilesStorageInfoOptions& opts,
-                               std::vector<LiveFileStorageInfo>& results,
-                               const bool need_flush_memtable,
-                               const uint64_t min_log_num) {
+Status DBImpl::GetLiveWals(const LiveFilesStorageInfoOptions& opts,
+                           std::vector<LiveFileStorageInfo>& results,
+                           const bool need_flush_memtable,
+                           const uint64_t min_log_num) {
   // If we have more than one column family, we also need to get WAL files.
   Status s;
   VectorLogPtr live_wal_files;

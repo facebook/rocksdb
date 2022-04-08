@@ -1284,13 +1284,13 @@ class DBImpl : public DB {
 
   Status IsFlushMemtableNeededForGetLiveFiles(
       const LiveFilesStorageInfoOptions& opts, bool& need_flush_memtable);
-  void GetNonWALLiveFiles(const LiveFilesStorageInfoOptions& opts,
-                          std::vector<LiveFileStorageInfo>& results,
-                          uint64_t& min_log_num);
-  Status GetWALLiveFiles(const LiveFilesStorageInfoOptions& opts,
-                         std::vector<LiveFileStorageInfo>& results,
-                         const bool need_flush_memtable,
-                         const uint64_t min_log_num);
+  void GetLiveFilesExceptWals(const LiveFilesStorageInfoOptions& opts,
+                              std::vector<LiveFileStorageInfo>& results,
+                              uint64_t& min_log_num);
+  Status GetLiveWals(const LiveFilesStorageInfoOptions& opts,
+                     std::vector<LiveFileStorageInfo>& results,
+                     const bool need_flush_memtable,
+                     const uint64_t min_log_num);
 
 #endif  // !ROCKSDB_LITE
 

@@ -174,7 +174,7 @@ class DBImplSecondary : public DBImpl {
 
   // For the secondary instance, this function only get live files
   // and doesn't flush memtable.
-  virtual Status GetLiveFilesStorageInfo(
+  Status GetLiveFilesStorageInfo(
       const LiveFilesStorageInfoOptions& opts,
       std::vector<LiveFileStorageInfo>* files) override;
 

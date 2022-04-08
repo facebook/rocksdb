@@ -628,27 +628,10 @@ Status DBImplSecondary::GetLiveFilesStorageInfo(
   std::vector<LiveFileStorageInfo> results;
   Status s;
 
-  ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "DBImplSecondary::GetLiveFilesStorageInfo");
-  LogFlush(immutable_db_options_.info_log);
-
-  bool need_flush_memtable{true};
-  s = IsFlushMemtableNeededForGetLiveFiles(opts, need_flush_memtable);
-  if (!s.ok()) {
-    return s;
-  }
-
   uint64_t min_log_num{0};
-  GetNonWALLiveFiles(opts, results, min_log_num);
+  GetLiveFilesExceptWals(opts, results, min_log_num);
 
-  // Some legacy testing stuff  TODO: carefully clean up obsolete parts
-  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:FlushDone");
-  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
-  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
-  TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1");
-  TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2");
-
-  s = GetWALLiveFiles(opts, results, need_flush_memtable, min_log_num);
+  s = GetLiveWals(opts, results, /* need_flush_memtable */ false, min_log_num);
 
   if (s.ok()) {
     // Only move results to output on success.
