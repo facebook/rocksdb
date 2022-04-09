@@ -647,6 +647,11 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
     return s;
   }
 
+  s = WriteToCommitTimeWriteBatch(*txn);
+  if (!s.ok()) {
+    return s;
+  }
+
   s = txn->Commit();
 
   auto& key_gen = key_gen_for_a_.at(thread->tid);
@@ -744,8 +749,9 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
     Record record;
     s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
     if (!s.ok()) {
-      fprintf(stderr, "Cannot decode secondary key: %s\n",
-              s.ToString().c_str());
+      fprintf(stderr, "Cannot decode secondary key (%s => %s): %s\n",
+              it->key().ToString(true).c_str(),
+              it->value().ToString(true).c_str(), s.ToString().c_str());
       assert(false);
       break;
     }
@@ -789,8 +795,8 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
     auto result = Record::DecodePrimaryIndexValue(value);
     s = std::get<0>(result);
     if (!s.ok()) {
-      fprintf(stderr, "Cannot decode primary index value: %s\n",
-              s.ToString().c_str());
+      fprintf(stderr, "Cannot decode primary index value %s: %s\n",
+              Slice(value).ToString(true).c_str(), s.ToString().c_str());
       assert(false);
       break;
     }
@@ -844,6 +850,11 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
 
   if (FLAGS_rollback_one_in > 0 && thread->rand.OneIn(FLAGS_rollback_one_in)) {
     s = Status::Incomplete();
+    return s;
+  }
+
+  s = WriteToCommitTimeWriteBatch(*txn);
+  if (!s.ok()) {
     return s;
   }
 
@@ -910,8 +921,8 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
   auto result = Record::DecodePrimaryIndexValue(value);
   if (!std::get<0>(result).ok()) {
     s = std::get<0>(result);
-    fprintf(stderr, "Cannot decode primary index value: %s\n",
-            s.ToString().c_str());
+    fprintf(stderr, "Cannot decode primary index value %s: %s\n",
+            Slice(value).ToString(true).c_str(), s.ToString().c_str());
     assert(false);
     return s;
   }
@@ -931,6 +942,11 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
 
   if (FLAGS_rollback_one_in > 0 && thread->rand.OneIn(FLAGS_rollback_one_in)) {
     s = Status::Incomplete();
+    return s;
+  }
+
+  s = WriteToCommitTimeWriteBatch(*txn);
+  if (!s.ok()) {
     return s;
   }
 
@@ -1098,6 +1114,10 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
     std::string iter_ub_str(buf, sizeof(buf));
     Slice iter_ub = iter_ub_str;
 
+    EncodeFixed32(buf, Record::kPrimaryIndexId);
+    std::reverse(buf, buf + sizeof(buf));
+    std::string start_key(buf, sizeof(buf));
+
     // This `ReadOptions` is for validation purposes. Ignore
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions ropts;
@@ -1106,7 +1126,7 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
     ropts.iterate_upper_bound = &iter_ub;
 
     std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
-    for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    for (it->Seek(start_key); it->Valid(); it->Next()) {
       Record record;
       Status s = record.DecodePrimaryIndexEntry(it->key(), it->value());
       if (!s.ok()) {
@@ -1160,7 +1180,8 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
       Record record;
       Status s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
       if (!s.ok()) {
-        oss << "Cannot decode secondary index entry";
+        oss << "Cannot decode secondary index entry "
+            << it->key().ToString(true) << "=>" << it->value().ToString(true);
         VerificationAbort(thread->shared, oss.str(), s);
         assert(false);
         return;
@@ -1239,7 +1260,8 @@ void MultiOpsTxnsStressTest::VerifyPkSkFast(int job_id) {
     Record record;
     Status s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
     if (!s.ok()) {
-      oss << "Cannot decode secondary index entry";
+      oss << "Cannot decode secondary index entry " << it->key().ToString(true)
+          << "=>" << it->value().ToString(true);
       fprintf(stderr, "%s\n", oss.str().c_str());
       fflush(stderr);
       assert(false);
@@ -1304,6 +1326,19 @@ uint32_t MultiOpsTxnsStressTest::GenerateNextC(ThreadState* thread) {
   uint32_t tid = thread->tid;
   auto& key_gen = key_gen_for_c_.at(tid);
   return key_gen->Allocate();
+}
+
+Status MultiOpsTxnsStressTest::WriteToCommitTimeWriteBatch(Transaction& txn) {
+  WriteBatch* ctwb = txn.GetCommitTimeWriteBatch();
+  assert(ctwb);
+  static constexpr char key_buf[sizeof(Record::kMetadataPrefix) + 4] = {
+      '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\xff'};
+
+  uint64_t counter_val = counter_.Next();
+  char val_buf[sizeof(counter_val)];
+  EncodeFixed64(val_buf, counter_val);
+  return ctwb->Put(Slice(key_buf, sizeof(key_buf)),
+                   Slice(val_buf, sizeof(val_buf)));
 }
 
 std::string MultiOpsTxnsStressTest::KeySpaces::EncodeTo() const {
@@ -1541,8 +1576,9 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
       Record record;
       Status s = record.DecodePrimaryIndexEntry(it->key(), it->value());
       if (!s.ok()) {
-        fprintf(stderr, "Cannot decode primary index entry: %s\n",
-                s.ToString().c_str());
+        fprintf(stderr, "Cannot decode primary index entry (%s => %s): %s\n",
+                it->key().ToString(true).c_str(),
+                it->value().ToString(true).c_str(), s.ToString().c_str());
         assert(false);
       }
       uint32_t a = record.a_value();

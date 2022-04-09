@@ -111,6 +111,7 @@ class MultiOpsTxnsStressTest : public StressTest {
  public:
   class Record {
    public:
+    static constexpr uint32_t kMetadataPrefix = 0;
     static constexpr uint32_t kPrimaryIndexId = 1;
     static constexpr uint32_t kSecondaryIndexId = 2;
 
@@ -285,6 +286,14 @@ class MultiOpsTxnsStressTest : public StressTest {
   void VerifyPkSkFast(int job_id);
 
  protected:
+  class Counter {
+   public:
+    uint64_t Next() { return value_.fetch_add(1); }
+
+   private:
+    std::atomic<uint64_t> value_ = Env::Default()->NowNanos();
+  };
+
   using KeySet = std::set<uint32_t>;
   class KeyGenerator {
    public:
@@ -334,8 +343,12 @@ class MultiOpsTxnsStressTest : public StressTest {
 
   uint32_t GenerateNextC(ThreadState* thread);
 
+  Status WriteToCommitTimeWriteBatch(Transaction& txn);
+
   std::vector<std::unique_ptr<KeyGenerator>> key_gen_for_a_;
   std::vector<std::unique_ptr<KeyGenerator>> key_gen_for_c_;
+
+  Counter counter_{};
 
  private:
   struct KeySpaces {
