@@ -950,6 +950,13 @@ workflows:
     jobs:
       - build-fuzzers
   benchmark-linux:
+    triggers:
+      - schedule:
+          cron: "0 * * * *"
+          filters:
+            branches:
+              only:
+                - main
     jobs:
       - benchmark-linux
   nightly:
