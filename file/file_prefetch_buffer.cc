@@ -516,6 +516,16 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
 void FilePrefetchBuffer::PrefetchAsyncCallback(const FSReadRequest& req,
                                                void* /*cb_arg*/) {
   uint32_t index = curr_ ^ 1;
+
+#ifndef NDEBUG
+  if (req.result.size() < req.len) {
+    // Fake an IO error to force db_stress fault injection to ignore
+    // truncated read errors
+    IGNORE_STATUS_IF_ERROR(Status::IOError());
+  }
+  IGNORE_STATUS_IF_ERROR(req.status);
+#endif
+
   if (req.status.ok()) {
     if (req.offset + req.result.size() <=
         bufs_[index].offset_ + bufs_[index].buffer_.CurrentSize()) {
