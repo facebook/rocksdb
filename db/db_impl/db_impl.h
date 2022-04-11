@@ -1394,7 +1394,7 @@ class DBImpl : public DB {
   // recovered_seq is set to less than kMaxSequenceNumber if the log's tail is
   // skipped.
   // recovery_ctx stores the context about version edits and all those
-  // edits are persisted to new Manifest after succesfully syncing the new WAL.
+  // edits are persisted to new Manifest after successfully syncing the new WAL.
   virtual Status Recover(
       const std::vector<ColumnFamilyDescriptor>& column_families,
       bool read_only = false, bool error_if_wal_file_exists = false,
@@ -1420,7 +1420,7 @@ class DBImpl : public DB {
   // meantime, we find out the largest file number present in the paths, and
   // bump up the version set's next_file_number_ to be 1 + largest_file_number.
   // recovery_ctx stores the context about version edits and files to be
-  // deleted. All those edits are persisted to new Manifest after succesfully
+  // deleted. All those edits are persisted to new Manifest after successfully
   // syncing the new WAL.
   Status DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx);
 

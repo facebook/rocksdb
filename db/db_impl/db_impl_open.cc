@@ -1355,7 +1355,8 @@ void DBImpl::MoveCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
 
   // Truncate the last WAL to reclaim the pre allocated space before
   // moving it.
-  GetLogSizeAndMaybeTruncate(wal_numbers.back(), /*truncate=*/true, nullptr);
+  GetLogSizeAndMaybeTruncate(wal_numbers.back(), /*truncate=*/true, nullptr)
+      .PermitUncheckedError();
 
   // Move all the WAL files from corrupted_wal_number + 1 to last WAL
   // (max_wal_number) to avoid column family inconsistency error to archival
