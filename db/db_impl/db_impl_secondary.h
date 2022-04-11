@@ -82,8 +82,7 @@ class DBImplSecondary : public DBImpl {
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only, bool error_if_wal_file_exists,
                  bool error_if_data_exists_in_wals, uint64_t* = nullptr,
-                 VersionEditsContext* version_edits_ctx = nullptr,
-                 std::set<std::string>* files_to_delete = nullptr) override;
+                 RecoveryContext* recovery_ctx = nullptr) override;
 
   // Implementations of the DB interface
   using DB::Get;

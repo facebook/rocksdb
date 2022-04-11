@@ -863,7 +863,7 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
   return min_log_number_to_keep;
 }
 
-Status DBImpl::SetDBId(bool read_only, VersionEditsContext* version_edits_ctx) {
+Status DBImpl::SetDBId(bool read_only, RecoveryContext* recovery_ctx) {
   Status s;
   // Happens when immutable_db_options_.write_dbid_to_manifest is set to true
   // the very first time.
@@ -891,12 +891,12 @@ Status DBImpl::SetDBId(bool read_only, VersionEditsContext* version_edits_ctx) {
     s = GetDbIdentityFromIdentityFile(&db_id_);
     if (immutable_db_options_.write_dbid_to_manifest && s.ok()) {
       assert(!read_only);
-      assert(version_edits_ctx != nullptr);
+      assert(recovery_ctx != nullptr);
       assert(versions_->GetColumnFamilySet() != nullptr);
       VersionEdit edit;
       edit.SetDBId(db_id_);
       versions_->db_id_ = db_id_;
-      version_edits_ctx->UpdateVersionEdits(
+      recovery_ctx->UpdateVersionEdits(
           versions_->GetColumnFamilySet()->GetDefault(), edit);
     }
   } else if (!read_only) {
@@ -905,9 +905,7 @@ Status DBImpl::SetDBId(bool read_only, VersionEditsContext* version_edits_ctx) {
   return s;
 }
 
-Status DBImpl::DeleteUnreferencedSstFiles(
-    VersionEditsContext* version_edits_ctx,
-    std::set<std::string>* files_to_delete) {
+Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
   mutex_.AssertHeld();
   std::vector<std::string> paths;
   paths.push_back(NormalizePath(dbname_ + std::string(1, kFilePathSeparator)));
@@ -944,8 +942,9 @@ Status DBImpl::DeleteUnreferencedSstFiles(
       const std::string normalized_fpath = path + fname;
       largest_file_number = std::max(largest_file_number, number);
       if (type == kTableFile && number >= next_file_number &&
-          files_to_delete->find(normalized_fpath) == files_to_delete->end()) {
-        files_to_delete->insert(normalized_fpath);
+          recovery_ctx->files_to_delete_.find(normalized_fpath) ==
+              recovery_ctx->files_to_delete_.end()) {
+        recovery_ctx->files_to_delete_.insert(normalized_fpath);
       }
     }
   }
@@ -962,7 +961,7 @@ Status DBImpl::DeleteUnreferencedSstFiles(
   assert(versions_->GetColumnFamilySet());
   ColumnFamilyData* default_cfd = versions_->GetColumnFamilySet()->GetDefault();
   assert(default_cfd);
-  version_edits_ctx->UpdateVersionEdits(default_cfd, edit);
+  recovery_ctx->UpdateVersionEdits(default_cfd, edit);
   return s;
 }
 

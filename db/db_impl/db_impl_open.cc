@@ -399,8 +399,7 @@ IOStatus Directories::SetDirectories(FileSystem* fs, const std::string& dbname,
 Status DBImpl::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     bool error_if_wal_file_exists, bool error_if_data_exists_in_wals,
-    uint64_t* recovered_seq, VersionEditsContext* version_edits_ctx,
-    std::set<std::string>* files_to_delete) {
+    uint64_t* recovered_seq, RecoveryContext* recovery_ctx) {
   mutex_.AssertHeld();
 
   bool is_new_db = false;
@@ -520,9 +519,9 @@ Status DBImpl::Recover(
     return s;
   }
 
-  s = SetDBId(read_only, version_edits_ctx);
+  s = SetDBId(read_only, recovery_ctx);
   if (s.ok() && !read_only) {
-    s = DeleteUnreferencedSstFiles(version_edits_ctx, files_to_delete);
+    s = DeleteUnreferencedSstFiles(recovery_ctx);
   }
 
   if (immutable_db_options_.paranoid_checks && s.ok()) {
@@ -606,9 +605,9 @@ Status DBImpl::Recover(
       WalNumber max_wal_number =
           versions_->GetWalSet().GetWals().rbegin()->first;
       edit.DeleteWalsBefore(max_wal_number + 1);
-      assert(version_edits_ctx != nullptr);
+      assert(recovery_ctx != nullptr);
       assert(versions_->GetColumnFamilySet() != nullptr);
-      version_edits_ctx->UpdateVersionEdits(
+      recovery_ctx->UpdateVersionEdits(
           versions_->GetColumnFamilySet()->GetDefault(), edit);
     }
     if (!s.ok()) {
@@ -646,7 +645,7 @@ Status DBImpl::Recover(
 
       bool corrupted_wal_found = false;
       s = RecoverLogFiles(wals, &next_sequence, read_only, &corrupted_wal_found,
-                          version_edits_ctx);
+                          recovery_ctx);
       if (corrupted_wal_found && recovered_seq != nullptr) {
         *recovered_seq = next_sequence;
       }
@@ -806,16 +805,15 @@ Status DBImpl::InitPersistStatsColumnFamily() {
   return s;
 }
 
-Status DBImpl::LogAndApplyForRecovery(
-    const std::set<std::string>& files_to_delete,
-    const VersionEditsContext& version_edits_ctx) {
+Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
+  mutex_.AssertHeld();
   assert(versions_->descriptor_log_ == nullptr);
   Status s = versions_->LogAndApply(
-      version_edits_ctx.cfds_, version_edits_ctx.mutable_cf_opts_,
-      version_edits_ctx.edit_lists_, &mutex_, directories_.GetDbDir());
-  if (s.ok() && !files_to_delete.empty()) {
+      recovery_ctx.cfds_, recovery_ctx.mutable_cf_opts_,
+      recovery_ctx.edit_lists_, &mutex_, directories_.GetDbDir());
+  if (s.ok() && !(recovery_ctx.files_to_delete_.empty())) {
     mutex_.Unlock();
-    for (const auto& fname : files_to_delete) {
+    for (const auto& fname : recovery_ctx.files_to_delete_) {
       s = env_->DeleteFile(fname);
       if (!s.ok()) {
         break;
@@ -830,7 +828,7 @@ Status DBImpl::LogAndApplyForRecovery(
 Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
                                SequenceNumber* next_sequence, bool read_only,
                                bool* corrupted_wal_found,
-                               VersionEditsContext* version_edits_ctx) {
+                               RecoveryContext* recovery_ctx) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
@@ -1225,7 +1223,6 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
 
   // True if there's any data in the WALs; if not, we can skip re-processing
   // them later
-  bool truncate_last_wal = true;
   bool data_seen = false;
   if (!read_only) {
     // no need to refcount since client still doesn't have access
@@ -1291,19 +1288,14 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
       if (corrupted_wal_found != nullptr && *corrupted_wal_found == true &&
           immutable_db_options_.wal_recovery_mode ==
               WALRecoveryMode::kPointInTimeRecovery) {
-        // Truncate the last WAL to reclaim the pre allocated space before
-        // moving it.
-        GetLogSizeAndMaybeTruncate(wal_numbers.back(), /*truncate=*/true,
-                                   nullptr);
         MoveCorruptedWalFiles(wal_numbers, corrupted_wal_number);
-        truncate_last_wal = false;
       }
 
-      assert(version_edits_ctx != nullptr);
+      assert(recovery_ctx != nullptr);
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
         auto iter = version_edits.find(cfd->GetID());
         assert(iter != version_edits.end());
-        version_edits_ctx->UpdateVersionEdits(cfd, iter->second);
+        recovery_ctx->UpdateVersionEdits(cfd, iter->second);
       }
 
       if (flushed) {
@@ -1317,7 +1309,7 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
           wal_deletion.SetMinLogNumberToKeep(max_wal_number + 1);
         }
         assert(versions_->GetColumnFamilySet() != nullptr);
-        version_edits_ctx->UpdateVersionEdits(
+        recovery_ctx->UpdateVersionEdits(
             versions_->GetColumnFamilySet()->GetDefault(), wal_deletion);
       }
     }
@@ -1330,7 +1322,7 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
       // If there's no data in the WAL, or we flushed all the data, still
       // truncate the log file. If the process goes into a crash loop before
       // the file is deleted, the preallocated space will never get freed.
-      const bool truncate = !read_only && truncate_last_wal;
+      const bool truncate = !read_only;
       GetLogSizeAndMaybeTruncate(wal_numbers.back(), truncate, nullptr)
           .PermitUncheckedError();
     }
@@ -1353,13 +1345,17 @@ void DBImpl::MoveCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
   // Increment iter to move WAL files from first corrupted_wal_number + 1.
   iter++;
 
-  std::string archivalPath =
+  std::string archival_path =
       ArchivalDirectory(immutable_db_options_.GetWalDir());
-  Status create_status = env_->CreateDirIfMissing(archivalPath);
+  Status create_status = env_->CreateDirIfMissing(archival_path);
 
   // create_status is only checked when it needs to move the corrupted WAL files
   // to archive folder.
   create_status.PermitUncheckedError();
+
+  // Truncate the last WAL to reclaim the pre allocated space before
+  // moving it.
+  GetLogSizeAndMaybeTruncate(wal_numbers.back(), /*truncate=*/true, nullptr);
 
   // Move all the WAL files from corrupted_wal_number + 1 to last WAL
   // (max_wal_number) to avoid column family inconsistency error to archival
@@ -1804,13 +1800,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
   impl->mutex_.Lock();
 
-  VersionEditsContext version_edits_ctx;
+  RecoveryContext recovery_ctx;
 
   // Handles create_if_missing, error_if_exists
   uint64_t recovered_seq(kMaxSequenceNumber);
-  std::set<std::string> files_to_delete;
   s = impl->Recover(column_families, false, false, false, &recovered_seq,
-                    &version_edits_ctx, &files_to_delete);
+                    &recovery_ctx);
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     log::Writer* new_log = nullptr;
@@ -1867,7 +1862,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
   }
   if (s.ok()) {
-    s = impl->LogAndApplyForRecovery(files_to_delete, version_edits_ctx);
+    s = impl->LogAndApplyForRecovery(recovery_ctx);
   }
 
   if (s.ok() && impl->immutable_db_options_.persist_stats_to_disk) {
