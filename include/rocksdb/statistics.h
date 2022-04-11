@@ -431,6 +431,8 @@ enum Tickers : uint32_t {
   NON_LAST_LEVEL_READ_BYTES,
   NON_LAST_LEVEL_READ_COUNT,
 
+  BLOCK_CHECKSUM_COMPUTE_COUNT,
+
   TICKER_ENUM_MAX
 };
 
@@ -533,6 +535,8 @@ enum Histograms : uint32_t {
 
   // Error handler statistics
   ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
+
+  ASYNC_READ_BYTES,
 
   HISTOGRAM_ENUM_MAX,
 };

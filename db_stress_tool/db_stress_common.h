@@ -134,6 +134,7 @@ DECLARE_int32(set_in_place_one_in);
 DECLARE_int64(cache_size);
 DECLARE_int32(cache_numshardbits);
 DECLARE_bool(cache_index_and_filter_blocks);
+DECLARE_bool(reserve_table_reader_memory);
 DECLARE_int32(top_level_index_pinning);
 DECLARE_int32(partition_pinning);
 DECLARE_int32(unpartitioned_pinning);
@@ -281,6 +282,10 @@ DECLARE_bool(use_only_the_last_commit_time_batch_for_recovery);
 DECLARE_uint64(wp_snapshot_cache_bits);
 DECLARE_uint64(wp_commit_cache_bits);
 #endif  // !ROCKSDB_LITE
+
+DECLARE_bool(adaptive_readahead);
+DECLARE_bool(async_io);
+DECLARE_string(wal_compression);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;

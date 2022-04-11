@@ -2448,7 +2448,7 @@ int main(int argc, char** argv) {
     rocksdb_fifo_compaction_options_destroy(fco);
   }
 
-  StartPhase("backupable_db_option");
+  StartPhase("backup_engine_option");
   {
     rocksdb_backup_engine_options_t* bdo;
     bdo = rocksdb_backup_engine_options_create("path");

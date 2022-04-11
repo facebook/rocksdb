@@ -47,7 +47,7 @@ class DBMergeOperandTest : public DBTestBase {
       : DBTestBase("db_merge_operand_test", /*env_do_fsync=*/true) {}
 };
 
-TEST_F(DBMergeOperandTest, MergeOperandReadAfterFreeBug) {
+TEST_F(DBMergeOperandTest, CacheEvictedMergeOperandReadAfterFreeBug) {
   // There was a bug of reading merge operands after they are mistakely freed
   // in DB::GetMergeOperands, which is surfaced by cache full.
   // See PR#9507 for more.
@@ -84,6 +84,42 @@ TEST_F(DBMergeOperandTest, MergeOperandReadAfterFreeBug) {
   ASSERT_EQ(values[1].ToString(), "v2");
   ASSERT_EQ(values[2].ToString(), "v3");
   ASSERT_EQ(values[3].ToString(), "v4");
+}
+
+TEST_F(DBMergeOperandTest, FlushedMergeOperandReadAfterFreeBug) {
+  // Repro for a bug where a memtable containing a merge operand could be
+  // deleted before the merge operand was saved to the result.
+  auto options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  Reopen(options);
+
+  ASSERT_OK(Merge("key", "value"));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::GetImpl:PostMemTableGet:0",
+        "DBMergeOperandTest::FlushedMergeOperandReadAfterFreeBug:PreFlush"},
+       {"DBMergeOperandTest::FlushedMergeOperandReadAfterFreeBug:PostFlush",
+        "DBImpl::GetImpl:PostMemTableGet:1"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  auto flush_thread = port::Thread([&]() {
+    TEST_SYNC_POINT(
+        "DBMergeOperandTest::FlushedMergeOperandReadAfterFreeBug:PreFlush");
+    ASSERT_OK(Flush());
+    TEST_SYNC_POINT(
+        "DBMergeOperandTest::FlushedMergeOperandReadAfterFreeBug:PostFlush");
+  });
+
+  PinnableSlice value;
+  GetMergeOperandsOptions merge_operands_info;
+  merge_operands_info.expected_max_number_of_operands = 1;
+  int number_of_operands;
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "key", &value, &merge_operands_info,
+                                  &number_of_operands));
+  ASSERT_EQ(1, number_of_operands);
+
+  flush_thread.join();
 }
 
 TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {

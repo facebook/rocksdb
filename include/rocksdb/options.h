@@ -551,6 +551,10 @@ struct DBOptions {
   // on target_file_size_base and target_file_size_multiplier for level-based
   // compaction. For universal-style compaction, you can usually set it to -1.
   //
+  // A high value or -1 for this option can cause high memory usage.
+  // See BlockBasedTableOptions::reserve_table_reader_memory to constrain
+  // memory usage in case of block based table format.
+  //
   // Default: -1
   //
   // Dynamically changeable through SetDBOptions() API.

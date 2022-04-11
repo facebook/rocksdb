@@ -22,12 +22,13 @@
 //    kTypeColumnFamilySingleDeletion varint32 varstring
 //    kTypeColumnFamilyRangeDeletion varint32 varstring varstring
 //    kTypeColumnFamilyMerge varint32 varstring varstring
-//    kTypeBeginPrepareXID varstring
-//    kTypeEndPrepareXID
+//    kTypeBeginPrepareXID
+//    kTypeEndPrepareXID varstring
 //    kTypeCommitXID varstring
+//    kTypeCommitXIDAndTimestamp varstring varstring
 //    kTypeRollbackXID varstring
-//    kTypeBeginPersistedPrepareXID varstring
-//    kTypeBeginUnprepareXID varstring
+//    kTypeBeginPersistedPrepareXID
+//    kTypeBeginUnprepareXID
 //    kTypeNoop
 // varstring :=
 //    len: varint32

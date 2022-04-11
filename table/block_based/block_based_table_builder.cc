@@ -328,7 +328,7 @@ struct BlockBasedTableBuilder::Rep {
   // `kBuffered` state is allowed only as long as the buffering of uncompressed
   // data blocks (see `data_block_buffers`) does not exceed `buffer_limit`.
   uint64_t buffer_limit;
-  std::unique_ptr<CacheReservationManager>
+  std::shared_ptr<CacheReservationManager>
       compression_dict_buffer_cache_res_mgr;
   const bool use_delta_encoding_for_index_values;
   std::unique_ptr<FilterBlockBuilder> filter_builder;
@@ -462,10 +462,12 @@ struct BlockBasedTableBuilder::Rep {
                               compression_opts.max_dict_buffer_bytes);
     }
     if (table_options.no_block_cache || table_options.block_cache == nullptr) {
-      compression_dict_buffer_cache_res_mgr.reset(nullptr);
+      compression_dict_buffer_cache_res_mgr = nullptr;
     } else {
-      compression_dict_buffer_cache_res_mgr.reset(
-          new CacheReservationManager(table_options.block_cache));
+      compression_dict_buffer_cache_res_mgr =
+          std::make_shared<CacheReservationManagerImpl<
+              CacheEntryRole::kCompressionDictionaryBuildingBuffer>>(
+              table_options.block_cache);
     }
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
       compression_ctxs[i].reset(new CompressionContext(compression_type));
@@ -946,8 +948,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
         if (!exceeds_buffer_limit &&
             r->compression_dict_buffer_cache_res_mgr != nullptr) {
           Status s =
-              r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation<
-                  CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
+              r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation(
                   r->data_begin_offset);
           exceeds_global_block_cache_limit = s.IsIncomplete();
         }
@@ -1975,8 +1976,7 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
   r->data_begin_offset = 0;
   // Release all reserved cache for data block buffers
   if (r->compression_dict_buffer_cache_res_mgr != nullptr) {
-    Status s = r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation<
-        CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
+    Status s = r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation(
         r->data_begin_offset);
     s.PermitUncheckedError();
   }

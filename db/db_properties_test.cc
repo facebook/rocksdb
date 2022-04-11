@@ -13,12 +13,17 @@
 #include <string>
 
 #include "db/db_test_util.h"
+#include "options/cf_options.h"
 #include "port/stack_trace.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/perf_level.h"
 #include "rocksdb/table.h"
+#include "table/block_based/block.h"
+#include "table/format.h"
+#include "table/meta_blocks.h"
+#include "table/table_builder.h"
 #include "test_util/mock_time_env.h"
 #include "util/random.h"
 #include "util/string_util.h"
@@ -1990,6 +1995,90 @@ TEST_F(DBPropertiesTest, GetMapPropertyDbStats) {
   }
 
   Close();
+}
+
+namespace {
+std::string PopMetaIndexKey(InternalIterator* meta_iter) {
+  Status s = meta_iter->status();
+  if (!s.ok()) {
+    return s.ToString();
+  } else if (meta_iter->Valid()) {
+    std::string rv = meta_iter->key().ToString();
+    meta_iter->Next();
+    return rv;
+  } else {
+    return "NOT_FOUND";
+  }
+}
+
+}  // namespace
+
+TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
+  // This is to detect unexpected churn in metaindex block keys. This is more
+  // of a "table test" but table_test.cc doesn't depend on db_test_util.h and
+  // we need ChangeOptions() for broad coverage.
+  constexpr int kKeyCount = 100;
+  do {
+    Options options;
+    options = CurrentOptions(options);
+    DestroyAndReopen(options);
+
+    // Create an SST file
+    for (int key = 0; key < kKeyCount; key++) {
+      ASSERT_OK(Put(Key(key), "val"));
+    }
+    ASSERT_OK(Flush());
+
+    // Find its file number
+    std::vector<LiveFileMetaData> files;
+    db_->GetLiveFilesMetaData(&files);
+    // 1 SST file
+    ASSERT_EQ(1, files.size());
+
+    // Open it for inspection
+    std::string sst_file =
+        files[0].directory + "/" + files[0].relative_filename;
+    std::unique_ptr<FSRandomAccessFile> f;
+    ASSERT_OK(env_->GetFileSystem()->NewRandomAccessFile(
+        sst_file, FileOptions(), &f, nullptr));
+    std::unique_ptr<RandomAccessFileReader> r;
+    r.reset(new RandomAccessFileReader(std::move(f), sst_file));
+    uint64_t file_size = 0;
+    ASSERT_OK(env_->GetFileSize(sst_file, &file_size));
+
+    // Read metaindex
+    BlockContents bc;
+    ASSERT_OK(ReadMetaIndexBlockInFile(r.get(), file_size, 0U,
+                                       ImmutableOptions(options), &bc));
+    Block metaindex_block(std::move(bc));
+    std::unique_ptr<InternalIterator> meta_iter;
+    meta_iter.reset(metaindex_block.NewMetaIterator());
+    meta_iter->SeekToFirst();
+
+    if (strcmp(options.table_factory->Name(),
+               TableFactory::kBlockBasedTableName()) == 0) {
+      auto bbto = options.table_factory->GetOptions<BlockBasedTableOptions>();
+      if (bbto->filter_policy) {
+        if (bbto->partition_filters) {
+          // The key names are intentionally hard-coded here to detect
+          // accidental regression on compatibility.
+          EXPECT_EQ("partitionedfilter.rocksdb.BuiltinBloomFilter",
+                    PopMetaIndexKey(meta_iter.get()));
+        } else {
+          EXPECT_EQ("fullfilter.rocksdb.BuiltinBloomFilter",
+                    PopMetaIndexKey(meta_iter.get()));
+        }
+      }
+      if (bbto->index_type == BlockBasedTableOptions::kHashSearch) {
+        EXPECT_EQ("rocksdb.hashindex.metadata",
+                  PopMetaIndexKey(meta_iter.get()));
+        EXPECT_EQ("rocksdb.hashindex.prefixes",
+                  PopMetaIndexKey(meta_iter.get()));
+      }
+    }
+    EXPECT_EQ("rocksdb.properties", PopMetaIndexKey(meta_iter.get()));
+    EXPECT_EQ("NOT_FOUND", PopMetaIndexKey(meta_iter.get()));
+  } while (ChangeOptions());
 }
 
 #endif  // ROCKSDB_LITE

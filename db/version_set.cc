@@ -27,6 +27,7 @@
 #include "db/blob/blob_log_format.h"
 #include "db/compaction/compaction.h"
 #include "db/compaction/file_pri.h"
+#include "db/dbformat.h"
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -1475,7 +1476,7 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
       const uint64_t file_number = file->fd.GetNumber();
       files.emplace_back(
           MakeTableFileName("", file_number), file_number, file_path,
-          static_cast<size_t>(file->fd.GetFileSize()), file->fd.smallest_seqno,
+          file->fd.GetFileSize(), file->fd.smallest_seqno,
           file->fd.largest_seqno, file->smallest.user_key().ToString(),
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
@@ -5816,7 +5817,9 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_table_files,
 InternalIterator* VersionSet::MakeInputIterator(
     const ReadOptions& read_options, const Compaction* c,
     RangeDelAggregator* range_del_agg,
-    const FileOptions& file_options_compactions) {
+    const FileOptions& file_options_compactions,
+    const std::optional<const Slice>& start,
+    const std::optional<const Slice>& end) {
   auto cfd = c->column_family_data();
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.
@@ -5831,10 +5834,25 @@ InternalIterator* VersionSet::MakeInputIterator(
       if (c->level(which) == 0) {
         const LevelFilesBrief* flevel = c->input_levels(which);
         for (size_t i = 0; i < flevel->num_files; i++) {
+          const FileMetaData& fmd = *flevel->files[i].file_metadata;
+          if (start.has_value() &&
+              cfd->user_comparator()->Compare(start.value(),
+                                              fmd.largest.user_key()) > 0) {
+            continue;
+          }
+          // We should be able to filter out the case where the end key
+          // equals to the end boundary, since the end key is exclusive.
+          // We try to be extra safe here.
+          if (end.has_value() &&
+              cfd->user_comparator()->Compare(end.value(),
+                                              fmd.smallest.user_key()) < 0) {
+            continue;
+          }
+
           list[num++] = cfd->table_cache()->NewIterator(
               read_options, file_options_compactions,
-              cfd->internal_comparator(), *flevel->files[i].file_metadata,
-              range_del_agg, c->mutable_cf_options()->prefix_extractor,
+              cfd->internal_comparator(), fmd, range_del_agg,
+              c->mutable_cf_options()->prefix_extractor,
               /*table_reader_ptr=*/nullptr,
               /*file_read_hist=*/nullptr, TableReaderCaller::kCompaction,
               /*arena=*/nullptr,
@@ -5907,11 +5925,13 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
           assert(!cfd->ioptions()->cf_paths.empty());
           filemetadata.db_path = cfd->ioptions()->cf_paths.back().path;
         }
+        filemetadata.directory = filemetadata.db_path;
         const uint64_t file_number = file->fd.GetNumber();
         filemetadata.name = MakeTableFileName("", file_number);
+        filemetadata.relative_filename = filemetadata.name.substr(1);
         filemetadata.file_number = file_number;
         filemetadata.level = level;
-        filemetadata.size = static_cast<size_t>(file->fd.GetFileSize());
+        filemetadata.size = file->fd.GetFileSize();
         filemetadata.smallestkey = file->smallest.user_key().ToString();
         filemetadata.largestkey = file->largest.user_key().ToString();
         filemetadata.smallest_seqno = file->fd.smallest_seqno;
