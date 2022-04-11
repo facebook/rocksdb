@@ -28,9 +28,9 @@ uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
   return number | (path_id * (kFileNumberMask + 1));
 }
 
-void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
-                                    SequenceNumber seqno,
-                                    ValueType value_type) {
+Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
+                                      SequenceNumber seqno,
+                                      ValueType value_type) {
   if (smallest.size() == 0) {
     smallest.DecodeFrom(key);
   }
@@ -42,21 +42,19 @@ void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
     BlobIndex blob_index;
     const Status s = blob_index.DecodeFrom(value);
     if (!s.ok()) {
-      return;
+      return s;
     }
 
     if (blob_index.IsInlined()) {
-      return;
+      return Status::OK();
     }
 
     if (blob_index.HasTTL()) {
-      return;
+      return Status::OK();
     }
 
-    // Paranoid check: this should not happen because BlobDB numbers the blob
-    // files starting from 1.
     if (blob_index.file_number() == kInvalidBlobFileNumber) {
-      return;
+      return Status::Corruption("Invalid blob file number");
     }
 
     if (oldest_blob_file_number == kInvalidBlobFileNumber ||
@@ -64,6 +62,8 @@ void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
       oldest_blob_file_number = blob_index.file_number();
     }
   }
+
+  return Status::OK();
 }
 
 void VersionEdit::Clear() {
