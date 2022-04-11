@@ -950,6 +950,9 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
 
   // GC for integrated BlobDB
   if (compaction_->enable_blob_garbage_collection()) {
+    TEST_SYNC_POINT_CALLBACK(
+        "CompactionIterator::GarbageCollectBlobIfNeeded::Tamper", &value_);
+
     BlobIndex blob_index;
 
     {
