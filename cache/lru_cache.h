@@ -85,8 +85,8 @@ struct LRUHandle {
     IS_SECONDARY_CACHE_COMPATIBLE = (1 << 4),
     // Is the handle still being read from a lower tier.
     IS_PENDING = (1 << 5),
-    // Has the item been promoted from a lower tier.
-    IS_PROMOTED = (1 << 6),
+    // Whether this handle is still in a lower tier
+    IS_IN_SECONDARY_CACHE = (1 << 6),
   };
 
   uint8_t flags;
@@ -129,7 +129,7 @@ struct LRUHandle {
 #endif  // __SANITIZE_THREAD__
   }
   bool IsPending() const { return flags & IS_PENDING; }
-  bool IsPromoted() const { return flags & IS_PROMOTED; }
+  bool IsInSecondaryCache() const { return flags & IS_IN_SECONDARY_CACHE; }
 
   void SetInCache(bool in_cache) {
     if (in_cache) {
@@ -176,11 +176,11 @@ struct LRUHandle {
     }
   }
 
-  void SetPromoted(bool promoted) {
-    if (promoted) {
-      flags |= IS_PROMOTED;
+  void SetIsInSecondaryCache(bool is_in_secondary_cache) {
+    if (is_in_secondary_cache) {
+      flags |= IS_IN_SECONDARY_CACHE;
     } else {
-      flags &= ~IS_PROMOTED;
+      flags &= ~IS_IN_SECONDARY_CACHE;
     }
   }
 
@@ -371,8 +371,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
                 DeleterFn deleter, const Cache::CacheItemHelper* helper,
                 Cache::Handle** handle, Cache::Priority priority);
-  // Promote an item looked up from the secondary cache to the LRU cache. The
-  // item is only inserted into the hash table and not the LRU list, and only
+  // Promote an item looked up from the secondary cache to the LRU cache.
+  // The item may be still in the secondary cache.
+  // It is only inserted into the hash table and not the LRU list, and only
   // if the cache is not at full capacity, as is the case during Insert.  The
   // caller should hold a reference on the LRUHandle. When the caller releases
   // the last reference, the item is added to the LRU list.

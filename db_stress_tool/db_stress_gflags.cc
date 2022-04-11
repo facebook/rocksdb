@@ -304,6 +304,11 @@ DEFINE_int32(cache_numshardbits, 6,
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "True if indexes/filters should be cached in block cache.");
 
+DEFINE_bool(reserve_table_reader_memory, false,
+            "A dynamically updating charge to block cache, loosely based on "
+            "the actual memory usage of table reader, will occur to account "
+            "the memory, if block cache available.");
+
 DEFINE_int32(
     top_level_index_pinning,
     static_cast<int32_t>(ROCKSDB_NAMESPACE::PinningTier::kFallback),
@@ -918,5 +923,8 @@ DEFINE_bool(adaptive_readahead, false,
 DEFINE_bool(
     async_io, false,
     "Does asynchronous prefetching when internal auto readahead is enabled");
+
+DEFINE_string(wal_compression, "none",
+              "Algorithm to use for WAL compression. none to disable.");
 
 #endif  // GFLAGS

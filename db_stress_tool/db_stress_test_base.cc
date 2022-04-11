@@ -21,7 +21,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
-#include "utilities/backupable/backupable_db_impl.h"
+#include "utilities/backup/backup_engine_impl.h"
 #include "utilities/fault_injection_fs.h"
 #include "utilities/fault_injection_secondary_cache.h"
 
@@ -2296,6 +2296,8 @@ void StressTest::PrintEnv() const {
           static_cast<int>(FLAGS_fail_if_options_file_error));
   fprintf(stdout, "User timestamp size bytes : %d\n",
           static_cast<int>(FLAGS_user_timestamp_size));
+  fprintf(stdout, "WAL compression           : %s\n",
+          FLAGS_wal_compression.c_str());
 
   fprintf(stdout, "------------------------------------------------\n");
 }
@@ -2319,6 +2321,8 @@ void StressTest::Open() {
     block_based_options.block_cache_compressed = compressed_cache_;
     block_based_options.checksum = checksum_type_e;
     block_based_options.block_size = FLAGS_block_size;
+    block_based_options.reserve_table_reader_memory =
+        FLAGS_reserve_table_reader_memory;
     block_based_options.format_version =
         static_cast<uint32_t>(FLAGS_format_version);
     block_based_options.index_block_restart_interval =
@@ -2436,6 +2440,9 @@ void StressTest::Open() {
         FLAGS_blob_garbage_collection_force_threshold;
     options_.blob_compaction_readahead_size =
         FLAGS_blob_compaction_readahead_size;
+
+    options_.wal_compression =
+        StringToCompressionType(FLAGS_wal_compression.c_str());
   } else {
 #ifdef ROCKSDB_LITE
     fprintf(stderr, "--options_file not supported in lite mode\n");

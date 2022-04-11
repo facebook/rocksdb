@@ -232,14 +232,20 @@ include make_config.mk
 
 ROCKSDB_PLUGIN_MKS = $(foreach plugin, $(ROCKSDB_PLUGINS), plugin/$(plugin)/*.mk)
 include $(ROCKSDB_PLUGIN_MKS)
-ROCKSDB_PLUGIN_SOURCES = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach source, $($(plugin)_SOURCES), plugin/$(plugin)/$(source)))
-ROCKSDB_PLUGIN_HEADERS = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach header, $($(plugin)_HEADERS), plugin/$(plugin)/$(header)))
+ROCKSDB_PLUGIN_PROTO =ROCKSDB_NAMESPACE::ObjectLibrary\&, const std::string\&
+ROCKSDB_PLUGIN_SOURCES = $(foreach p, $(ROCKSDB_PLUGINS), $(foreach source, $($(p)_SOURCES), plugin/$(p)/$(source)))
+ROCKSDB_PLUGIN_HEADERS = $(foreach p, $(ROCKSDB_PLUGINS), $(foreach header, $($(p)_HEADERS), plugin/$(p)/$(header)))
+ROCKSDB_PLUGIN_LIBS = $(foreach p, $(ROCKSDB_PLUGINS), $(foreach lib, $($(p)_LIBS), -l$(lib)))
+ROCKSDB_PLUGIN_W_FUNCS = $(foreach p, $(ROCKSDB_PLUGINS), $(if $($(p)_FUNC), $(p)))
+ROCKSDB_PLUGIN_EXTERNS = $(foreach p, $(ROCKSDB_PLUGIN_W_FUNCS), int $($(p)_FUNC)($(ROCKSDB_PLUGIN_PROTO));)
+ROCKSDB_PLUGIN_BUILTINS = $(foreach p, $(ROCKSDB_PLUGIN_W_FUNCS), {\"$(p)\"\, $($(p)_FUNC)}\,)
+ROCKSDB_PLUGIN_LDFLAGS = $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_LDFLAGS))
 ROCKSDB_PLUGIN_PKGCONFIG_REQUIRES = $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_PKGCONFIG_REQUIRES))
+
 CXXFLAGS += $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_CXXFLAGS))
+PLATFORM_LDFLAGS += $(ROCKSDB_PLUGIN_LDFLAGS)
 
 # Patch up the link flags for JNI from the plugins
-ROCKSDB_PLUGIN_LDFLAGS = $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_LDFLAGS))
-PLATFORM_LDFLAGS += $(ROCKSDB_PLUGIN_LDFLAGS)
 JAVA_LDFLAGS += $(ROCKSDB_PLUGIN_LDFLAGS)
 JAVA_STATIC_LDFLAGS += $(ROCKSDB_PLUGIN_LDFLAGS)
 
@@ -728,7 +734,7 @@ else
 	git_mod  := $(shell git diff-index HEAD --quiet 2>/dev/null; echo $$?)
 	git_date := $(shell git log -1 --date=format:"%Y-%m-%d %T" --format="%ad" 2>/dev/null)
 endif
-gen_build_version = sed -e s/@GIT_SHA@/$(git_sha)/ -e s:@GIT_TAG@:"$(git_tag)": -e s/@GIT_MOD@/"$(git_mod)"/ -e s/@BUILD_DATE@/"$(build_date)"/ -e s/@GIT_DATE@/"$(git_date)"/ util/build_version.cc.in
+gen_build_version = sed -e s/@GIT_SHA@/$(git_sha)/ -e s:@GIT_TAG@:"$(git_tag)": -e s/@GIT_MOD@/"$(git_mod)"/ -e s/@BUILD_DATE@/"$(build_date)"/ -e s/@GIT_DATE@/"$(git_date)"/ -e s/@ROCKSDB_PLUGIN_BUILTINS@/'$(ROCKSDB_PLUGIN_BUILTINS)'/ -e s/@ROCKSDB_PLUGIN_EXTERNS@/"$(ROCKSDB_PLUGIN_EXTERNS)"/ util/build_version.cc.in
 
 # Record the version of the source that we are compiling.
 # We keep a record of the git revision in this file.  It is then built
@@ -826,8 +832,8 @@ release: clean
 coverage: clean
 	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) J=1 all check
 	cd coverage && ./coverage_test.sh
-        # Delete intermediate files
-	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm -f {} \;
+	# Delete intermediate files
+	$(FIND) . -type f \( -name "*.gcda" -o -name "*.gcno" \) -exec rm -f {} \;
 
 ifneq (,$(filter check parallel_check,$(MAKECMDGOALS)),)
 # Use /dev/shm if it has the sticky bit set (otherwise, /tmp),
@@ -1214,7 +1220,7 @@ clean-rocks:
 	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(ALL_STATIC_LIBS) $(ALL_SHARED_LIBS) $(MICROBENCHS)
 	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
 	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
-	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm -f {} \;
+	$(FIND) . -type f \( -name "*.gcda" -o -name "*.gcno" \) -exec rm -f {} \;
 
 clean-rocksjava: clean-rocks
 	rm -rf jl jls
@@ -1551,7 +1557,7 @@ perf_context_test: $(OBJ_DIR)/db/perf_context_test.o $(TEST_LIBRARY) $(LIBRARY)
 prefix_test: $(OBJ_DIR)/db/prefix_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-backupable_db_test: $(OBJ_DIR)/utilities/backupable/backupable_db_test.o $(TEST_LIBRARY) $(LIBRARY)
+backup_engine_test: $(OBJ_DIR)/utilities/backup/backup_engine_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 checkpoint_test: $(OBJ_DIR)/utilities/checkpoint/checkpoint_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -1842,7 +1848,7 @@ statistics_test: $(OBJ_DIR)/monitoring/statistics_test.o $(TEST_LIBRARY) $(LIBRA
 stats_history_test: $(OBJ_DIR)/monitoring/stats_history_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-lru_secondary_cache_test: $(OBJ_DIR)/cache/lru_secondary_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
+compressed_secondary_cache_test: $(OBJ_DIR)/cache/compressed_secondary_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 lru_cache_test: $(OBJ_DIR)/cache/lru_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2372,10 +2378,10 @@ jtest: rocksdbjava
 jdb_bench:
 	cd java;$(MAKE) db_bench;
 
-commit_prereq: build_tools/rocksdb-lego-determinator \
-               build_tools/precommit_checker.py
-	J=$(J) build_tools/precommit_checker.py unit unit_481 clang_unit release release_481 clang_release tsan asan ubsan lite unit_non_shm
-	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
+commit_prereq:
+	echo "TODO: bring this back using parts of old precommit_checker.py and rocksdb-lego-determinator"
+	false # J=$(J) build_tools/precommit_checker.py unit clang_unit release clang_release tsan asan ubsan lite unit_non_shm
+	# $(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
 
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation

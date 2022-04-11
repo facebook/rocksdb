@@ -41,6 +41,7 @@ default_params = {
                                          random.lognormvariate(2.3, 1.3)]),
     "cache_index_and_filter_blocks": lambda: random.randint(0, 1),
     "cache_size": 8388608,
+    "reserve_table_reader_memory": lambda: random.choice([0, 1]),
     "checkpoint_one_in": 1000000,
     "compression_type": lambda: random.choice(
         ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),
@@ -131,7 +132,7 @@ default_params = {
     # Sync mode might make test runs slower so running it in a smaller chance
     "sync" : lambda : random.choice(
         [1 if t == 0 else 0 for t in range(0, 20)]),
-    # Disable compation_readahead_size because the test is not passing.
+    # Disable compaction_readahead_size because the test is not passing.
     #"compaction_readahead_size" : lambda : random.choice(
     #    [0, 0, 1024 * 1024]),
     "db_write_buffer_size" : lambda: random.choice(
@@ -165,6 +166,7 @@ default_params = {
     "detect_filter_construct_corruption": lambda: random.choice([0, 1]),
     "adaptive_readahead": lambda: random.choice([0, 1]),
     "async_io": lambda: random.choice([0, 1]),
+    "wal_compression": lambda: random.choice(["none", "zstd"]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'

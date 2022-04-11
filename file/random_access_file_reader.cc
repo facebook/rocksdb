@@ -425,19 +425,75 @@ IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
   }
 }
 
-// TODO akanksha: Add perf_times etc.
+// TODO akanksha:
+// 1. Handle use_direct_io case which currently calls Read API.
 IOStatus RandomAccessFileReader::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
     std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn,
     Env::IOPriority rate_limiter_priority) {
   if (use_direct_io()) {
+    // For direct_io, it calls Read API.
     req.status = Read(opts, req.offset, req.len, &(req.result), req.scratch,
                       nullptr /*dbg*/, rate_limiter_priority);
     cb(req, cb_arg);
     return IOStatus::OK();
   }
-  return file_->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn,
-                          nullptr /*dbg*/);
+
+  // Create a callback and populate info.
+  auto read_async_callback =
+      std::bind(&RandomAccessFileReader::ReadAsyncCallback, this,
+                std::placeholders::_1, std::placeholders::_2);
+  ReadAsyncInfo* read_async_info = new ReadAsyncInfo;
+  read_async_info->cb_ = cb;
+  read_async_info->cb_arg_ = cb_arg;
+  read_async_info->start_time_ = clock_->NowMicros();
+
+#ifndef ROCKSDB_LITE
+  if (ShouldNotifyListeners()) {
+    read_async_info->fs_start_ts_ = FileOperationInfo::StartNow();
+  }
+#endif
+
+  IOStatus s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
+                                io_handle, del_fn, nullptr /*dbg*/);
+  if (!s.ok()) {
+    delete read_async_info;
+  }
+  return s;
+}
+
+void RandomAccessFileReader::ReadAsyncCallback(const FSReadRequest& req,
+                                               void* cb_arg) {
+  ReadAsyncInfo* read_async_info = static_cast<ReadAsyncInfo*>(cb_arg);
+  assert(read_async_info);
+  assert(read_async_info->cb_);
+
+  read_async_info->cb_(req, read_async_info->cb_arg_);
+
+  // Update stats and notify listeners.
+  if (stats_ != nullptr && file_read_hist_ != nullptr) {
+    // elapsed doesn't take into account delay and overwrite as StopWatch does
+    // in Read.
+    uint64_t elapsed = clock_->NowMicros() - read_async_info->start_time_;
+    file_read_hist_->Add(elapsed);
+  }
+  if (req.status.ok()) {
+    RecordInHistogram(stats_, ASYNC_READ_BYTES, req.result.size());
+  }
+#ifndef ROCKSDB_LITE
+  if (ShouldNotifyListeners()) {
+    auto finish_ts = FileOperationInfo::FinishNow();
+    NotifyOnFileReadFinish(req.offset, req.result.size(),
+                           read_async_info->fs_start_ts_, finish_ts,
+                           req.status);
+  }
+  if (!req.status.ok()) {
+    NotifyOnIOError(req.status, FileOperationType::kRead, file_name(),
+                    req.result.size(), req.offset);
+  }
+#endif
+  RecordIOStats(stats_, file_temperature_, is_last_level_, req.result.size());
+  delete read_async_info;
 }
 }  // namespace ROCKSDB_NAMESPACE

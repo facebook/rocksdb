@@ -49,7 +49,7 @@
 #include "util/crc32c.h"
 #include "util/math.h"
 #include "util/string_util.h"
-#include "utilities/backupable/backupable_db_impl.h"
+#include "utilities/backup/backup_engine_impl.h"
 #include "utilities/checkpoint/checkpoint_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -126,6 +126,7 @@ void BackupEngineOptions::Dump(Logger* logger) const {
                  max_background_operations);
 }
 
+namespace {
 // -------- BackupEngineImpl class ---------
 class BackupEngineImpl {
  public:
@@ -408,8 +409,9 @@ class BackupEngineImpl {
 
     std::shared_ptr<FileInfo> GetFile(const std::string& filename) const {
       auto it = file_infos_->find(filename);
-      if (it == file_infos_->end())
+      if (it == file_infos_->end()) {
         return nullptr;
+      }
       return it->second;
     }
 
@@ -944,6 +946,7 @@ class BackupEngineImplThreadSafe : public BackupEngine,
   mutable port::RWMutex mutex_;
   BackupEngineImpl impl_;
 };
+}  // namespace
 
 IOStatus BackupEngine::Open(const BackupEngineOptions& options, Env* env,
                             BackupEngine** backup_engine_ptr) {
@@ -958,6 +961,7 @@ IOStatus BackupEngine::Open(const BackupEngineOptions& options, Env* env,
   return IOStatus::OK();
 }
 
+namespace {
 BackupEngineImpl::BackupEngineImpl(const BackupEngineOptions& options,
                                    Env* db_env, bool read_only)
     : initialized_(false),
@@ -2697,8 +2701,6 @@ IOStatus BackupEngineImpl::BackupMeta::Delete(bool delete_meta) {
 }
 
 // Constants for backup meta file schema (see LoadFromFile)
-namespace {
-
 const std::string kSchemaVersionPrefix{"schema_version "};
 const std::string kFooterMarker{"// FOOTER"};
 
@@ -2716,7 +2718,6 @@ const std::string kTemperatureFieldName{"temp"};
 // to indicate all file names have had spaces and special characters
 // escaped using a URI percent encoding.
 const std::string kNonIgnorableFieldPrefix{"ni::"};
-}  // namespace
 
 // Each backup meta file is of the format (schema version 1):
 //----------------------------------------------------------
@@ -3029,13 +3030,11 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
   return IOStatus::OK();
 }
 
-namespace {
 const std::vector<std::string> minor_version_strings{
     "",  // invalid major version 0
     "",  // implicit major version 1
     "2.0",
 };
-}  // namespace
 
 IOStatus BackupEngineImpl::BackupMeta::StoreToFile(
     bool sync, int schema_version,
@@ -3133,6 +3132,7 @@ IOStatus BackupEngineImpl::BackupMeta::StoreToFile(
   }
   return io_s;
 }
+}  // namespace
 
 IOStatus BackupEngineReadOnly::Open(const BackupEngineOptions& options,
                                     Env* env,

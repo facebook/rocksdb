@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "cache/lru_secondary_cache.h"
+#include "cache/compressed_secondary_cache.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -17,10 +17,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class LRUSecondaryCacheTest : public testing::Test {
+class CompressedSecondaryCacheTest : public testing::Test {
  public:
-  LRUSecondaryCacheTest() : fail_create_(false) {}
-  ~LRUSecondaryCacheTest() {}
+  CompressedSecondaryCacheTest() : fail_create_(false) {}
+  ~CompressedSecondaryCacheTest() {}
 
  protected:
   class TestItem {
@@ -80,7 +80,7 @@ class LRUSecondaryCacheTest : public testing::Test {
   void SetFailCreate(bool fail) { fail_create_ = fail; }
 
   void BasicTest(bool sec_cache_is_compressed, bool use_jemalloc) {
-    LRUSecondaryCacheOptions opts;
+    CompressedSecondaryCacheOptions opts;
     opts.capacity = 2048;
     opts.num_shard_bits = 0;
     opts.metadata_charge_policy = kDontChargeCacheMetadata;
@@ -107,11 +107,13 @@ class LRUSecondaryCacheTest : public testing::Test {
         ROCKSDB_GTEST_BYPASS("JEMALLOC not supported");
       }
     }
-    std::shared_ptr<SecondaryCache> cache = NewLRUSecondaryCache(opts);
+    std::shared_ptr<SecondaryCache> sec_cache =
+        NewCompressedSecondaryCache(opts);
 
+    bool is_in_sec_cache{true};
     // Lookup an non-existent key.
     std::unique_ptr<SecondaryCacheResultHandle> handle0 =
-        cache->Lookup("k0", test_item_creator, true);
+        sec_cache->Lookup("k0", test_item_creator, true, is_in_sec_cache);
     ASSERT_EQ(handle0, nullptr);
 
     Random rnd(301);
@@ -119,51 +121,47 @@ class LRUSecondaryCacheTest : public testing::Test {
     std::string str1;
     test::CompressibleString(&rnd, 0.25, 1000, &str1);
     TestItem item1(str1.data(), str1.length());
-    ASSERT_OK(cache->Insert("k1", &item1, &LRUSecondaryCacheTest::helper_));
+    ASSERT_OK(sec_cache->Insert("k1", &item1,
+                                &CompressedSecondaryCacheTest::helper_));
+
     std::unique_ptr<SecondaryCacheResultHandle> handle1 =
-        cache->Lookup("k1", test_item_creator, true);
+        sec_cache->Lookup("k1", test_item_creator, true, is_in_sec_cache);
     ASSERT_NE(handle1, nullptr);
-    // delete reinterpret_cast<TestItem*>(handle1->Value());
+    ASSERT_FALSE(is_in_sec_cache);
+
     std::unique_ptr<TestItem> val1 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle1->Value()));
     ASSERT_NE(val1, nullptr);
     ASSERT_EQ(memcmp(val1->Buf(), item1.Buf(), item1.Size()), 0);
 
+    // Lookup the first item again.
+    std::unique_ptr<SecondaryCacheResultHandle> handle1_1 =
+        sec_cache->Lookup("k1", test_item_creator, true, is_in_sec_cache);
+    ASSERT_EQ(handle1_1, nullptr);
+
     // Insert and Lookup the second item.
     std::string str2;
     test::CompressibleString(&rnd, 0.5, 1000, &str2);
     TestItem item2(str2.data(), str2.length());
-    ASSERT_OK(cache->Insert("k2", &item2, &LRUSecondaryCacheTest::helper_));
+    ASSERT_OK(sec_cache->Insert("k2", &item2,
+                                &CompressedSecondaryCacheTest::helper_));
     std::unique_ptr<SecondaryCacheResultHandle> handle2 =
-        cache->Lookup("k2", test_item_creator, true);
+        sec_cache->Lookup("k2", test_item_creator, true, is_in_sec_cache);
     ASSERT_NE(handle2, nullptr);
     std::unique_ptr<TestItem> val2 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2->Value()));
     ASSERT_NE(val2, nullptr);
     ASSERT_EQ(memcmp(val2->Buf(), item2.Buf(), item2.Size()), 0);
 
-    // Lookup the first item again to make sure it is still in the cache.
-    std::unique_ptr<SecondaryCacheResultHandle> handle1_1 =
-        cache->Lookup("k1", test_item_creator, true);
-    ASSERT_NE(handle1_1, nullptr);
-    std::unique_ptr<TestItem> val1_1 =
-        std::unique_ptr<TestItem>(static_cast<TestItem*>(handle1_1->Value()));
-    ASSERT_NE(val1_1, nullptr);
-    ASSERT_EQ(memcmp(val1_1->Buf(), item1.Buf(), item1.Size()), 0);
-
     std::vector<SecondaryCacheResultHandle*> handles = {handle1.get(),
                                                         handle2.get()};
-    cache->WaitAll(handles);
+    sec_cache->WaitAll(handles);
 
-    cache->Erase("k1");
-    handle1 = cache->Lookup("k1", test_item_creator, true);
-    ASSERT_EQ(handle1, nullptr);
-
-    cache.reset();
+    sec_cache.reset();
   }
 
   void FailsTest(bool sec_cache_is_compressed) {
-    LRUSecondaryCacheOptions secondary_cache_opts;
+    CompressedSecondaryCacheOptions secondary_cache_opts;
     if (sec_cache_is_compressed) {
       if (!LZ4_Supported()) {
         ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
@@ -176,32 +174,28 @@ class LRUSecondaryCacheTest : public testing::Test {
     secondary_cache_opts.capacity = 1100;
     secondary_cache_opts.num_shard_bits = 0;
     secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
-    std::shared_ptr<SecondaryCache> cache =
-        NewLRUSecondaryCache(secondary_cache_opts);
+    std::shared_ptr<SecondaryCache> sec_cache =
+        NewCompressedSecondaryCache(secondary_cache_opts);
 
     // Insert and Lookup the first item.
     Random rnd(301);
     std::string str1(rnd.RandomString(1000));
     TestItem item1(str1.data(), str1.length());
-    ASSERT_OK(cache->Insert("k1", &item1, &LRUSecondaryCacheTest::helper_));
-    std::unique_ptr<SecondaryCacheResultHandle> handle1 =
-        cache->Lookup("k1", test_item_creator, true);
-    ASSERT_NE(handle1, nullptr);
-    std::unique_ptr<TestItem> val1 =
-        std::unique_ptr<TestItem>(static_cast<TestItem*>(handle1->Value()));
-    ASSERT_NE(val1, nullptr);
-    ASSERT_EQ(memcmp(val1->Buf(), item1.Buf(), item1.Size()), 0);
+    ASSERT_OK(sec_cache->Insert("k1", &item1,
+                                &CompressedSecondaryCacheTest::helper_));
 
     // Insert and Lookup the second item.
     std::string str2(rnd.RandomString(200));
     TestItem item2(str2.data(), str2.length());
     // k1 is evicted.
-    ASSERT_OK(cache->Insert("k2", &item2, &LRUSecondaryCacheTest::helper_));
+    ASSERT_OK(sec_cache->Insert("k2", &item2,
+                                &CompressedSecondaryCacheTest::helper_));
+    bool is_in_sec_cache{false};
     std::unique_ptr<SecondaryCacheResultHandle> handle1_1 =
-        cache->Lookup("k1", test_item_creator, true);
+        sec_cache->Lookup("k1", test_item_creator, true, is_in_sec_cache);
     ASSERT_EQ(handle1_1, nullptr);
     std::unique_ptr<SecondaryCacheResultHandle> handle2 =
-        cache->Lookup("k2", test_item_creator, true);
+        sec_cache->Lookup("k2", test_item_creator, true, is_in_sec_cache);
     ASSERT_NE(handle2, nullptr);
     std::unique_ptr<TestItem> val2 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2->Value()));
@@ -211,20 +205,20 @@ class LRUSecondaryCacheTest : public testing::Test {
     // Create Fails.
     SetFailCreate(true);
     std::unique_ptr<SecondaryCacheResultHandle> handle2_1 =
-        cache->Lookup("k2", test_item_creator, true);
+        sec_cache->Lookup("k2", test_item_creator, true, is_in_sec_cache);
     ASSERT_EQ(handle2_1, nullptr);
 
     // Save Fails.
     std::string str3 = rnd.RandomString(10);
     TestItem item3(str3.data(), str3.length());
-    ASSERT_NOK(
-        cache->Insert("k3", &item3, &LRUSecondaryCacheTest::helper_fail_));
+    ASSERT_NOK(sec_cache->Insert("k3", &item3,
+                                 &CompressedSecondaryCacheTest::helper_fail_));
 
-    cache.reset();
+    sec_cache.reset();
   }
 
   void BasicIntegrationTest(bool sec_cache_is_compressed) {
-    LRUSecondaryCacheOptions secondary_cache_opts;
+    CompressedSecondaryCacheOptions secondary_cache_opts;
 
     if (sec_cache_is_compressed) {
       if (!LZ4_Supported()) {
@@ -239,7 +233,7 @@ class LRUSecondaryCacheTest : public testing::Test {
     secondary_cache_opts.num_shard_bits = 0;
     secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
     std::shared_ptr<SecondaryCache> secondary_cache =
-        NewLRUSecondaryCache(secondary_cache_opts);
+        NewCompressedSecondaryCache(secondary_cache_opts);
     LRUCacheOptions lru_cache_opts(1024, 0, false, 0.5, nullptr,
                                    kDefaultToAdaptiveMutex,
                                    kDontChargeCacheMetadata);
@@ -252,26 +246,26 @@ class LRUSecondaryCacheTest : public testing::Test {
     std::string str1 = rnd.RandomString(1010);
     std::string str1_clone{str1};
     TestItem* item1 = new TestItem(str1.data(), str1.length());
-    ASSERT_OK(cache->Insert("k1", item1, &LRUSecondaryCacheTest::helper_,
+    ASSERT_OK(cache->Insert("k1", item1, &CompressedSecondaryCacheTest::helper_,
                             str1.length()));
 
     std::string str2 = rnd.RandomString(1020);
     TestItem* item2 = new TestItem(str2.data(), str2.length());
     // After Insert, lru cache contains k2 and secondary cache contains k1.
-    ASSERT_OK(cache->Insert("k2", item2, &LRUSecondaryCacheTest::helper_,
+    ASSERT_OK(cache->Insert("k2", item2, &CompressedSecondaryCacheTest::helper_,
                             str2.length()));
 
     std::string str3 = rnd.RandomString(1020);
     TestItem* item3 = new TestItem(str3.data(), str3.length());
     // After Insert, lru cache contains k3 and secondary cache contains k1 and
     // k2
-    ASSERT_OK(cache->Insert("k3", item3, &LRUSecondaryCacheTest::helper_,
+    ASSERT_OK(cache->Insert("k3", item3, &CompressedSecondaryCacheTest::helper_,
                             str3.length()));
 
     Cache::Handle* handle;
-    handle =
-        cache->Lookup("k3", &LRUSecondaryCacheTest::helper_, test_item_creator,
-                      Cache::Priority::LOW, true, stats.get());
+    handle = cache->Lookup("k3", &CompressedSecondaryCacheTest::helper_,
+                           test_item_creator, Cache::Priority::LOW, true,
+                           stats.get());
     ASSERT_NE(handle, nullptr);
     TestItem* val3 = static_cast<TestItem*>(cache->Value(handle));
     ASSERT_NE(val3, nullptr);
@@ -279,34 +273,35 @@ class LRUSecondaryCacheTest : public testing::Test {
     cache->Release(handle);
 
     // Lookup an non-existent key.
-    handle =
-        cache->Lookup("k0", &LRUSecondaryCacheTest::helper_, test_item_creator,
-                      Cache::Priority::LOW, true, stats.get());
+    handle = cache->Lookup("k0", &CompressedSecondaryCacheTest::helper_,
+                           test_item_creator, Cache::Priority::LOW, true,
+                           stats.get());
     ASSERT_EQ(handle, nullptr);
 
-    // This Lookup should promote k1 and demote k3, so k2 is evicted from the
-    // secondary cache. The lru cache contains k1 and secondary cache contains
-    // k3. item1 was Free(), so it cannot be compared against the item1.
-    handle =
-        cache->Lookup("k1", &LRUSecondaryCacheTest::helper_, test_item_creator,
-                      Cache::Priority::LOW, true, stats.get());
+    // This Lookup should promote k1 and erase k1 from the secondary cache,
+    // then k3 is demoted. So k2 and k3 are in the secondary cache.
+    handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
+                           test_item_creator, Cache::Priority::LOW, true,
+                           stats.get());
+
     ASSERT_NE(handle, nullptr);
     TestItem* val1_1 = static_cast<TestItem*>(cache->Value(handle));
     ASSERT_NE(val1_1, nullptr);
     ASSERT_EQ(memcmp(val1_1->Buf(), str1_clone.data(), str1_clone.size()), 0);
     cache->Release(handle);
 
-    handle =
-        cache->Lookup("k2", &LRUSecondaryCacheTest::helper_, test_item_creator,
-                      Cache::Priority::LOW, true, stats.get());
-    ASSERT_EQ(handle, nullptr);
+    handle = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
+                           test_item_creator, Cache::Priority::LOW, true,
+                           stats.get());
+    ASSERT_NE(handle, nullptr);
+    cache->Release(handle);
 
     cache.reset();
     secondary_cache.reset();
   }
 
   void BasicIntegrationFailTest(bool sec_cache_is_compressed) {
-    LRUSecondaryCacheOptions secondary_cache_opts;
+    CompressedSecondaryCacheOptions secondary_cache_opts;
 
     if (sec_cache_is_compressed) {
       if (!LZ4_Supported()) {
@@ -321,7 +316,7 @@ class LRUSecondaryCacheTest : public testing::Test {
     secondary_cache_opts.num_shard_bits = 0;
     secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
     std::shared_ptr<SecondaryCache> secondary_cache =
-        NewLRUSecondaryCache(secondary_cache_opts);
+        NewCompressedSecondaryCache(secondary_cache_opts);
 
     LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
                          kDontChargeCacheMetadata);
@@ -333,7 +328,8 @@ class LRUSecondaryCacheTest : public testing::Test {
     auto item1 =
         std::unique_ptr<TestItem>(new TestItem(str1.data(), str1.length()));
     ASSERT_NOK(cache->Insert("k1", item1.get(), nullptr, str1.length()));
-    ASSERT_OK(cache->Insert("k1", item1.get(), &LRUSecondaryCacheTest::helper_,
+    ASSERT_OK(cache->Insert("k1", item1.get(),
+                            &CompressedSecondaryCacheTest::helper_,
                             str1.length()));
     item1.release();  // Appease clang-analyze "potential memory leak"
 
@@ -341,7 +337,7 @@ class LRUSecondaryCacheTest : public testing::Test {
     handle = cache->Lookup("k2", nullptr, test_item_creator,
                            Cache::Priority::LOW, true);
     ASSERT_EQ(handle, nullptr);
-    handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
+    handle = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, false);
     ASSERT_EQ(handle, nullptr);
 
@@ -350,7 +346,7 @@ class LRUSecondaryCacheTest : public testing::Test {
   }
 
   void IntegrationSaveFailTest(bool sec_cache_is_compressed) {
-    LRUSecondaryCacheOptions secondary_cache_opts;
+    CompressedSecondaryCacheOptions secondary_cache_opts;
 
     if (sec_cache_is_compressed) {
       if (!LZ4_Supported()) {
@@ -366,7 +362,7 @@ class LRUSecondaryCacheTest : public testing::Test {
     secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
 
     std::shared_ptr<SecondaryCache> secondary_cache =
-        NewLRUSecondaryCache(secondary_cache_opts);
+        NewCompressedSecondaryCache(secondary_cache_opts);
 
     LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
                          kDontChargeCacheMetadata);
@@ -376,25 +372,27 @@ class LRUSecondaryCacheTest : public testing::Test {
     Random rnd(301);
     std::string str1 = rnd.RandomString(1020);
     TestItem* item1 = new TestItem(str1.data(), str1.length());
-    ASSERT_OK(cache->Insert("k1", item1, &LRUSecondaryCacheTest::helper_fail_,
+    ASSERT_OK(cache->Insert("k1", item1,
+                            &CompressedSecondaryCacheTest::helper_fail_,
                             str1.length()));
     std::string str2 = rnd.RandomString(1020);
     TestItem* item2 = new TestItem(str2.data(), str2.length());
     // k1 should be demoted to the secondary cache.
-    ASSERT_OK(cache->Insert("k2", item2, &LRUSecondaryCacheTest::helper_fail_,
+    ASSERT_OK(cache->Insert("k2", item2,
+                            &CompressedSecondaryCacheTest::helper_fail_,
                             str2.length()));
 
     Cache::Handle* handle;
-    handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_fail_,
+    handle = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_fail_,
                            test_item_creator, Cache::Priority::LOW, true);
     ASSERT_NE(handle, nullptr);
     cache->Release(handle);
     // This lookup should fail, since k1 demotion would have failed
-    handle = cache->Lookup("k1", &LRUSecondaryCacheTest::helper_fail_,
+    handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_fail_,
                            test_item_creator, Cache::Priority::LOW, true);
     ASSERT_EQ(handle, nullptr);
     // Since k1 didn't get promoted, k2 should still be in cache
-    handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_fail_,
+    handle = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_fail_,
                            test_item_creator, Cache::Priority::LOW, true);
     ASSERT_NE(handle, nullptr);
     cache->Release(handle);
@@ -404,7 +402,7 @@ class LRUSecondaryCacheTest : public testing::Test {
   }
 
   void IntegrationCreateFailTest(bool sec_cache_is_compressed) {
-    LRUSecondaryCacheOptions secondary_cache_opts;
+    CompressedSecondaryCacheOptions secondary_cache_opts;
 
     if (sec_cache_is_compressed) {
       if (!LZ4_Supported()) {
@@ -420,7 +418,7 @@ class LRUSecondaryCacheTest : public testing::Test {
     secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
 
     std::shared_ptr<SecondaryCache> secondary_cache =
-        NewLRUSecondaryCache(secondary_cache_opts);
+        NewCompressedSecondaryCache(secondary_cache_opts);
 
     LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
                          kDontChargeCacheMetadata);
@@ -430,27 +428,27 @@ class LRUSecondaryCacheTest : public testing::Test {
     Random rnd(301);
     std::string str1 = rnd.RandomString(1020);
     TestItem* item1 = new TestItem(str1.data(), str1.length());
-    ASSERT_OK(cache->Insert("k1", item1, &LRUSecondaryCacheTest::helper_,
+    ASSERT_OK(cache->Insert("k1", item1, &CompressedSecondaryCacheTest::helper_,
                             str1.length()));
 
     std::string str2 = rnd.RandomString(1020);
     TestItem* item2 = new TestItem(str2.data(), str2.length());
     // k1 should be demoted to the secondary cache.
-    ASSERT_OK(cache->Insert("k2", item2, &LRUSecondaryCacheTest::helper_,
+    ASSERT_OK(cache->Insert("k2", item2, &CompressedSecondaryCacheTest::helper_,
                             str2.length()));
 
     Cache::Handle* handle;
     SetFailCreate(true);
-    handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
+    handle = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true);
     ASSERT_NE(handle, nullptr);
     cache->Release(handle);
     // This lookup should fail, since k1 creation would have failed
-    handle = cache->Lookup("k1", &LRUSecondaryCacheTest::helper_,
+    handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true);
     ASSERT_EQ(handle, nullptr);
     // Since k1 didn't get promoted, k2 should still be in cache
-    handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
+    handle = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true);
     ASSERT_NE(handle, nullptr);
     cache->Release(handle);
@@ -460,7 +458,7 @@ class LRUSecondaryCacheTest : public testing::Test {
   }
 
   void IntegrationFullCapacityTest(bool sec_cache_is_compressed) {
-    LRUSecondaryCacheOptions secondary_cache_opts;
+    CompressedSecondaryCacheOptions secondary_cache_opts;
 
     if (sec_cache_is_compressed) {
       if (!LZ4_Supported()) {
@@ -476,7 +474,7 @@ class LRUSecondaryCacheTest : public testing::Test {
     secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
 
     std::shared_ptr<SecondaryCache> secondary_cache =
-        NewLRUSecondaryCache(secondary_cache_opts);
+        NewCompressedSecondaryCache(secondary_cache_opts);
 
     LRUCacheOptions opts(1024, 0, /*_strict_capacity_limit=*/true, 0.5, nullptr,
                          kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
@@ -486,31 +484,32 @@ class LRUSecondaryCacheTest : public testing::Test {
     Random rnd(301);
     std::string str1 = rnd.RandomString(1020);
     TestItem* item1 = new TestItem(str1.data(), str1.length());
-    ASSERT_OK(cache->Insert("k1", item1, &LRUSecondaryCacheTest::helper_,
+    ASSERT_OK(cache->Insert("k1", item1, &CompressedSecondaryCacheTest::helper_,
                             str1.length()));
     std::string str2 = rnd.RandomString(1020);
     TestItem* item2 = new TestItem(str2.data(), str2.length());
     // k1 should be demoted to the secondary cache.
-    ASSERT_OK(cache->Insert("k2", item2, &LRUSecondaryCacheTest::helper_,
+    ASSERT_OK(cache->Insert("k2", item2, &CompressedSecondaryCacheTest::helper_,
                             str2.length()));
 
-    Cache::Handle* handle;
-    handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
-                           test_item_creator, Cache::Priority::LOW, true);
-    ASSERT_NE(handle, nullptr);
-    // k1 promotion should fail due to the block cache being at capacity,
-    // but the lookup should still succeed
     Cache::Handle* handle2;
-    handle2 = cache->Lookup("k1", &LRUSecondaryCacheTest::helper_,
+    handle2 = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
                             test_item_creator, Cache::Priority::LOW, true);
     ASSERT_NE(handle2, nullptr);
-    // Since k1 didn't get inserted, k2 should still be in cache
-    cache->Release(handle);
     cache->Release(handle2);
-    handle = cache->Lookup("k2", &LRUSecondaryCacheTest::helper_,
-                           test_item_creator, Cache::Priority::LOW, true);
-    ASSERT_NE(handle, nullptr);
-    cache->Release(handle);
+    // k1 promotion should fail due to the block cache being at capacity,
+    // but the lookup should still succeed
+    Cache::Handle* handle1;
+    handle1 = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
+                            test_item_creator, Cache::Priority::LOW, true);
+    ASSERT_NE(handle1, nullptr);
+    cache->Release(handle1);
+
+    // Since k1 didn't get inserted, k2 should still be in cache
+    handle2 = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
+                            test_item_creator, Cache::Priority::LOW, true);
+    ASSERT_NE(handle2, nullptr);
+    cache->Release(handle2);
 
     cache.reset();
     secondary_cache.reset();
@@ -520,72 +519,83 @@ class LRUSecondaryCacheTest : public testing::Test {
   bool fail_create_;
 };
 
-Cache::CacheItemHelper LRUSecondaryCacheTest::helper_(
-    LRUSecondaryCacheTest::SizeCallback, LRUSecondaryCacheTest::SaveToCallback,
-    LRUSecondaryCacheTest::DeletionCallback);
+Cache::CacheItemHelper CompressedSecondaryCacheTest::helper_(
+    CompressedSecondaryCacheTest::SizeCallback,
+    CompressedSecondaryCacheTest::SaveToCallback,
+    CompressedSecondaryCacheTest::DeletionCallback);
 
-Cache::CacheItemHelper LRUSecondaryCacheTest::helper_fail_(
-    LRUSecondaryCacheTest::SizeCallback,
-    LRUSecondaryCacheTest::SaveToCallbackFail,
-    LRUSecondaryCacheTest::DeletionCallback);
+Cache::CacheItemHelper CompressedSecondaryCacheTest::helper_fail_(
+    CompressedSecondaryCacheTest::SizeCallback,
+    CompressedSecondaryCacheTest::SaveToCallbackFail,
+    CompressedSecondaryCacheTest::DeletionCallback);
 
-TEST_F(LRUSecondaryCacheTest, BasicTestWithNoCompression) {
+TEST_F(CompressedSecondaryCacheTest, BasicTestWithNoCompression) {
   BasicTest(false, false);
 }
 
-TEST_F(LRUSecondaryCacheTest, BasicTestWithMemoryAllocatorAndNoCompression) {
+TEST_F(CompressedSecondaryCacheTest,
+       BasicTestWithMemoryAllocatorAndNoCompression) {
   BasicTest(false, true);
 }
 
-TEST_F(LRUSecondaryCacheTest, BasicTestWithCompression) {
+TEST_F(CompressedSecondaryCacheTest, BasicTestWithCompression) {
   BasicTest(true, false);
 }
 
-TEST_F(LRUSecondaryCacheTest, BasicTestWithMemoryAllocatorAndCompression) {
+TEST_F(CompressedSecondaryCacheTest,
+       BasicTestWithMemoryAllocatorAndCompression) {
   BasicTest(true, true);
 }
 
-TEST_F(LRUSecondaryCacheTest, FailsTestWithNoCompression) { FailsTest(false); }
+TEST_F(CompressedSecondaryCacheTest, FailsTestWithNoCompression) {
+  FailsTest(false);
+}
 
-TEST_F(LRUSecondaryCacheTest, FailsTestWithCompression) { FailsTest(true); }
+TEST_F(CompressedSecondaryCacheTest, FailsTestWithCompression) {
+  FailsTest(true);
+}
 
-TEST_F(LRUSecondaryCacheTest, BasicIntegrationTestWithNoCompression) {
+TEST_F(CompressedSecondaryCacheTest, BasicIntegrationTestWithNoCompression) {
   BasicIntegrationTest(false);
 }
 
-TEST_F(LRUSecondaryCacheTest, BasicIntegrationTestWithCompression) {
+TEST_F(CompressedSecondaryCacheTest, BasicIntegrationTestWithCompression) {
   BasicIntegrationTest(true);
 }
 
-TEST_F(LRUSecondaryCacheTest, BasicIntegrationFailTestWithNoCompression) {
+TEST_F(CompressedSecondaryCacheTest,
+       BasicIntegrationFailTestWithNoCompression) {
   BasicIntegrationFailTest(false);
 }
 
-TEST_F(LRUSecondaryCacheTest, BasicIntegrationFailTestWithCompression) {
+TEST_F(CompressedSecondaryCacheTest, BasicIntegrationFailTestWithCompression) {
   BasicIntegrationFailTest(true);
 }
 
-TEST_F(LRUSecondaryCacheTest, IntegrationSaveFailTestWithNoCompression) {
+TEST_F(CompressedSecondaryCacheTest, IntegrationSaveFailTestWithNoCompression) {
   IntegrationSaveFailTest(false);
 }
 
-TEST_F(LRUSecondaryCacheTest, IntegrationSaveFailTestWithCompression) {
+TEST_F(CompressedSecondaryCacheTest, IntegrationSaveFailTestWithCompression) {
   IntegrationSaveFailTest(true);
 }
 
-TEST_F(LRUSecondaryCacheTest, IntegrationCreateFailTestWithNoCompression) {
+TEST_F(CompressedSecondaryCacheTest,
+       IntegrationCreateFailTestWithNoCompression) {
   IntegrationCreateFailTest(false);
 }
 
-TEST_F(LRUSecondaryCacheTest, IntegrationCreateFailTestWithCompression) {
+TEST_F(CompressedSecondaryCacheTest, IntegrationCreateFailTestWithCompression) {
   IntegrationCreateFailTest(true);
 }
 
-TEST_F(LRUSecondaryCacheTest, IntegrationFullCapacityTestWithNoCompression) {
+TEST_F(CompressedSecondaryCacheTest,
+       IntegrationFullCapacityTestWithNoCompression) {
   IntegrationFullCapacityTest(false);
 }
 
-TEST_F(LRUSecondaryCacheTest, IntegrationFullCapacityTestWithCompression) {
+TEST_F(CompressedSecondaryCacheTest,
+       IntegrationFullCapacityTestWithCompression) {
   IntegrationFullCapacityTest(true);
 }
 

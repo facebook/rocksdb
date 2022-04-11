@@ -182,26 +182,6 @@ else()
   endif()
 endif()
 
-string(TIMESTAMP TS "%Y-%m-%d %H:%M:%S" UTC)
-set(BUILD_DATE "${TS}" CACHE STRING "the time we first built rocksdb")
-
-find_package(Git)
-
-if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
-  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_SHA COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD )
-  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" RESULT_VARIABLE GIT_MOD COMMAND "${GIT_EXECUTABLE}" diff-index HEAD --quiet)
-  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_DATE COMMAND "${GIT_EXECUTABLE}" log -1 --date=format:"%Y-%m-%d %T" --format="%ad")
-  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_TAG RESULT_VARIABLE rv COMMAND "${GIT_EXECUTABLE}" symbolic-ref -q --short HEAD OUTPUT_STRIP_TRAILING_WHITESPACE)
-  if (rv AND NOT rv EQUAL 0)
-    execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_TAG COMMAND "${GIT_EXECUTABLE}" describe --tags --exact-match OUTPUT_STRIP_TRAILING_WHITESPACE)
-  endif()
-else()
-  set(GIT_SHA 0)
-  set(GIT_MOD 1)
-endif()
-string(REGEX REPLACE "[^0-9a-fA-F]+" "" GIT_SHA "${GIT_SHA}")
-string(REGEX REPLACE "[^0-9: /-]+" "" GIT_DATE "${GIT_DATE}")
-
 option(WITH_MD_LIBRARY "build with MD" ON)
 if(WIN32 AND MSVC)
   if(WITH_MD_LIBRARY)
@@ -210,9 +190,6 @@ if(WIN32 AND MSVC)
     set(RUNTIME_LIBRARY "MT")
   endif()
 endif()
-
-set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
-configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
 
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
@@ -628,8 +605,8 @@ set(SOURCES
         cache/cache_key.cc
         cache/cache_reservation_manager.cc
         cache/clock_cache.cc
+        cache/compressed_secondary_cache.cc
         cache/lru_cache.cc
-        cache/lru_secondary_cache.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_fetcher.cc
@@ -849,7 +826,7 @@ set(SOURCES
         util/thread_local.cc
         util/threadpool_imp.cc
         util/xxhash.cc
-        utilities/backupable/backupable_db.cc
+        utilities/backup/backup_engine.cc
         utilities/blob_db/blob_compaction_filter.cc
         utilities/blob_db/blob_db.cc
         utilities/blob_db/blob_db_impl.cc
@@ -1021,6 +998,60 @@ else()
   set(SYSTEM_LIBS ${CMAKE_THREAD_LIBS_INIT})
 endif()
 
+set(ROCKSDB_PLUGIN_EXTERNS "")
+set(ROCKSDB_PLUGIN_BUILTINS "")
+message(STATUS "ROCKSDB PLUGINS TO BUILD ${ROCKSDB_PLUGINS}")
+list(APPEND PLUGINS ${ROCKSDB_PLUGINS})
+foreach(PLUGIN IN LISTS PLUGINS)
+  set(PLUGIN_ROOT "${CMAKE_SOURCE_DIR}/plugin/${PLUGIN}/")
+  message("including rocksb plugin ${PLUGIN_ROOT}")
+  set(PLUGINMKFILE "${PLUGIN_ROOT}${PLUGIN}.mk")
+  if (NOT EXISTS ${PLUGINMKFILE})
+    message(FATAL_ERROR "Missing plugin makefile: ${PLUGINMKFILE}")
+  endif()
+  file(READ ${PLUGINMKFILE} PLUGINMK)
+  string(REGEX MATCH "SOURCES = ([^\n]*)" FOO ${PLUGINMK})
+  set(MK_SOURCES ${CMAKE_MATCH_1})
+  separate_arguments(MK_SOURCES)
+  foreach(MK_FILE IN LISTS MK_SOURCES)
+    list(APPEND SOURCES "${PLUGIN_ROOT}${MK_FILE}")
+  endforeach()
+  string(REGEX MATCH "_FUNC = ([^\n]*)" FOO ${PLUGINMK})
+  if (NOT ${CMAKE_MATCH_1} STREQUAL "")
+    string(APPEND ROCKSDB_PLUGIN_BUILTINS "{\"${PLUGIN}\", " ${CMAKE_MATCH_1} "},")
+    string(APPEND ROCKSDB_PLUGIN_EXTERNS "int " ${CMAKE_MATCH_1} "(ROCKSDB_NAMESPACE::ObjectLibrary&, const std::string&); ")
+  endif()
+  string(REGEX MATCH "_LIBS = ([^\n]*)" FOO ${PLUGINMK})
+  if (NOT ${CMAKE_MATCH_1} STREQUAL "")
+    list(APPEND THIRDPARTY_LIBS "${CMAKE_MATCH_1}")
+  endif()
+  message("THIRDPARTY_LIBS=${THIRDPARTY_LIBS}")
+  #TODO: We need to set any compile/link-time flags and add any link libraries
+endforeach()
+
+string(TIMESTAMP TS "%Y-%m-%d %H:%M:%S" UTC)
+set(BUILD_DATE "${TS}" CACHE STRING "the time we first built rocksdb")
+
+find_package(Git)
+
+if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_SHA COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD )
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" RESULT_VARIABLE GIT_MOD COMMAND "${GIT_EXECUTABLE}" diff-index HEAD --quiet)
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_DATE COMMAND "${GIT_EXECUTABLE}" log -1 --date=format:"%Y-%m-%d %T" --format="%ad")
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_TAG RESULT_VARIABLE rv COMMAND "${GIT_EXECUTABLE}" symbolic-ref -q --short HEAD OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if (rv AND NOT rv EQUAL 0)
+    execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_TAG COMMAND "${GIT_EXECUTABLE}" describe --tags --exact-match OUTPUT_STRIP_TRAILING_WHITESPACE)
+  endif()
+else()
+  set(GIT_SHA 0)
+  set(GIT_MOD 1)
+endif()
+string(REGEX REPLACE "[^0-9a-fA-F]+" "" GIT_SHA "${GIT_SHA}")
+string(REGEX REPLACE "[^0-9: /-]+" "" GIT_DATE "${GIT_DATE}")
+
+set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
+configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
+
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES} ${BUILD_VERSION_CC})
 target_link_libraries(${ROCKSDB_STATIC_LIB} PRIVATE
   ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
@@ -1159,8 +1190,8 @@ if(WITH_TESTS)
     list(APPEND TESTS
         cache/cache_reservation_manager_test.cc
         cache/cache_test.cc
+        cache/compressed_secondary_cache_test.cc
         cache/lru_cache_test.cc
-        cache/lru_secondary_cache_test.cc
         db/blob/blob_counting_iterator_test.cc
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc
@@ -1317,7 +1348,7 @@ if(WITH_TESTS)
         util/thread_list_test.cc
         util/thread_local_test.cc
         util/work_queue_test.cc
-        utilities/backupable/backupable_db_test.cc
+        utilities/backup/backup_engine_test.cc
         utilities/blob_db/blob_db_test.cc
         utilities/cassandra/cassandra_functional_test.cc
         utilities/cassandra/cassandra_format_test.cc

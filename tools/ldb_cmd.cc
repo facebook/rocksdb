@@ -3296,13 +3296,14 @@ void RepairCommand::DoCommand() {
 
 // ----------------------------------------------------------------------------
 
-const std::string BackupableCommand::ARG_NUM_THREADS = "num_threads";
-const std::string BackupableCommand::ARG_BACKUP_ENV_URI = "backup_env_uri";
-const std::string BackupableCommand::ARG_BACKUP_FS_URI = "backup_fs_uri";
-const std::string BackupableCommand::ARG_BACKUP_DIR = "backup_dir";
-const std::string BackupableCommand::ARG_STDERR_LOG_LEVEL = "stderr_log_level";
+const std::string BackupEngineCommand::ARG_NUM_THREADS = "num_threads";
+const std::string BackupEngineCommand::ARG_BACKUP_ENV_URI = "backup_env_uri";
+const std::string BackupEngineCommand::ARG_BACKUP_FS_URI = "backup_fs_uri";
+const std::string BackupEngineCommand::ARG_BACKUP_DIR = "backup_dir";
+const std::string BackupEngineCommand::ARG_STDERR_LOG_LEVEL =
+    "stderr_log_level";
 
-BackupableCommand::BackupableCommand(
+BackupEngineCommand::BackupEngineCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
@@ -3351,7 +3352,7 @@ BackupableCommand::BackupableCommand(
   }
 }
 
-void BackupableCommand::Help(const std::string& name, std::string& ret) {
+void BackupEngineCommand::Help(const std::string& name, std::string& ret) {
   ret.append("  ");
   ret.append(name);
   ret.append(" [--" + ARG_BACKUP_ENV_URI + " | --" + ARG_BACKUP_FS_URI + "] ");
@@ -3366,10 +3367,10 @@ void BackupableCommand::Help(const std::string& name, std::string& ret) {
 BackupCommand::BackupCommand(const std::vector<std::string>& params,
                              const std::map<std::string, std::string>& options,
                              const std::vector<std::string>& flags)
-    : BackupableCommand(params, options, flags) {}
+    : BackupEngineCommand(params, options, flags) {}
 
 void BackupCommand::Help(std::string& ret) {
-  BackupableCommand::Help(Name(), ret);
+  BackupEngineCommand::Help(Name(), ret);
 }
 
 void BackupCommand::DoCommand() {
@@ -3419,10 +3420,10 @@ RestoreCommand::RestoreCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : BackupableCommand(params, options, flags) {}
+    : BackupEngineCommand(params, options, flags) {}
 
 void RestoreCommand::Help(std::string& ret) {
-  BackupableCommand::Help(Name(), ret);
+  BackupEngineCommand::Help(Name(), ret);
 }
 
 void RestoreCommand::DoCommand() {

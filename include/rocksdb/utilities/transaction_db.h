@@ -160,8 +160,7 @@ struct TransactionDBOptions {
 
   // Increasing this value will increase the concurrency by dividing the lock
   // table (per column family) into more sub-tables, each with their own
-  // separate
-  // mutex.
+  // separate mutex.
   size_t num_stripes = 16;
 
   // If positive, specifies the default wait timeout in milliseconds when
@@ -171,8 +170,7 @@ struct TransactionDBOptions {
   // If 0, no waiting is done if a lock cannot instantly be acquired.
   // If negative, there is no timeout.  Not using a timeout is not recommended
   // as it can lead to deadlocks.  Currently, there is no deadlock-detection to
-  // recover
-  // from a deadlock.
+  // recover from a deadlock.
   int64_t transaction_lock_timeout = 1000;  // 1 second
 
   // If positive, specifies the wait timeout in milliseconds when writing a key
@@ -261,6 +259,8 @@ struct TransactionOptions {
   // meant to be used later during recovery. It enables an optimization to
   // postpone updating the memtable with CommitTimeWriteBatch to only
   // SwitchMemtable or recovery.
+  // This option does not affect write-committed. Only
+  // write-prepared/write-unprepared transactions will be affected.
   bool use_only_the_last_commit_time_batch_for_recovery = false;
 
   // TODO(agiardullo): TransactionDB does not yet support comparators that allow
