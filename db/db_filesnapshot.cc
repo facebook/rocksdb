@@ -404,7 +404,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
   }
 
   uint64_t min_log_num{0};
-  GetNonWALLiveFiles(opts, results, min_log_num);
+  GetLiveFilesExceptWals(opts, results, min_log_num);
 
   // Some legacy testing stuff  TODO: carefully clean up obsolete parts
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:FlushDone");
@@ -418,7 +418,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
   TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1");
   TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2");
 
-  s = GetWALLiveFiles(opts, results, need_flush_memtable, min_log_num);
+  s = GetLiveWals(opts, results, need_flush_memtable, min_log_num);
 
   if (s.ok()) {
     // Only move results to output on success.
