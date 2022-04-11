@@ -67,8 +67,7 @@ class CompactionJob {
       int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
       const MutableDBOptions& mutable_db_options,
       const FileOptions& file_options, VersionSet* versions,
-      const std::atomic<bool>* shutting_down,
-      const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
+      const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
       FSDirectory* db_directory, FSDirectory* output_directory,
       FSDirectory* blob_output_directory, Statistics* stats,
       InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
@@ -196,7 +195,6 @@ class CompactionJob {
   const std::atomic<bool>* shutting_down_;
   const std::atomic<int>* manual_compaction_paused_;
   const std::atomic<bool>* manual_compaction_canceled_;
-  const SequenceNumber preserve_deletes_seqnum_;
   FSDirectory* db_directory_;
   FSDirectory* blob_output_directory_;
   InstrumentedMutex* db_mutex_;

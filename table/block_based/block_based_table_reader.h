@@ -10,8 +10,11 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 
+#include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
+#include "cache/cache_reservation_manager.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "file/filename.h"
 #include "rocksdb/slice_transform.h"
@@ -98,6 +101,8 @@ class BlockBasedTable : public TableReader {
       const InternalKeyComparator& internal_key_comparator,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       std::unique_ptr<TableReader>* table_reader,
+      std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr =
+          nullptr,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
       bool prefetch_index_and_filter_in_cache = true, bool skip_filters = false,
       int level = -1, const bool immortal_table = false,
@@ -626,6 +631,9 @@ struct BlockBasedTable::Rep {
 
   const bool immortal_table;
 
+  std::unique_ptr<CacheReservationManager::CacheReservationHandle>
+      table_reader_cache_res_handle = nullptr;
+
   SequenceNumber get_global_seqno(BlockType block_type) const {
     return (block_type == BlockType::kFilter ||
             block_type == BlockType::kCompressionDictionary)
@@ -669,6 +677,16 @@ struct BlockBasedTable::Rep {
       CreateFilePrefetchBuffer(readahead_size, max_readahead_size, fpb,
                                implicit_auto_readahead, async_io);
     }
+  }
+
+  std::size_t ApproximateMemoryUsage() const {
+    std::size_t usage = 0;
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    usage += malloc_usable_size(const_cast<BlockBasedTable::Rep*>(this));
+#else
+    usage += sizeof(*this);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+    return usage;
   }
 };
 
