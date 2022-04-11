@@ -473,8 +473,9 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
             return false;
           }
         }
-        // async_io_ is enabled if it's implicit_auto_readahead_ and or explicit
-        // readahead_size_ is passed.
+        // async prefetching is enabled if it's implicit_auto_readahead_ or
+        // explicit readahead_size_ is passed along with ReadOptions.async_io =
+        // true.
         if (async_io_) {
           // Prefetch n + readahead_size_/2 synchronously as remaining
           // readahead_size_/2 will be prefetched asynchronously.

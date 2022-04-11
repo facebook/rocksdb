@@ -1129,14 +1129,6 @@ TEST_P(PrefetchTestWithPosix, ReadAsyncWithPosixFS) {
       [&](void*) { buff_prefetch_count++; });
 
   SyncPoint::GetInstance()->SetCallBack(
-      "FilePrefetchBuffer::TryReadFromCache", [&](void* arg) {
-        size_t current_readahead_size = *reinterpret_cast<size_t*>(arg);
-        if (GetParam()) {
-          ASSERT_EQ(current_readahead_size, ro.readahead_size);
-        }
-      });
-
-  SyncPoint::GetInstance()->SetCallBack(
       "UpdateResults::io_uring_result",
       [&](void* /*arg*/) { read_async_called = true; });
   SyncPoint::GetInstance()->EnableProcessing();
