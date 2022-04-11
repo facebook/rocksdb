@@ -558,32 +558,32 @@ DEFINE_double(cache_high_pri_pool_ratio, 0.0,
 DEFINE_bool(use_clock_cache, false,
             "Replace default LRU block cache with clock cache.");
 
-DEFINE_bool(use_lru_secondary_cache, false,
-            "Use the LRUSecondaryCache as the secondary cache.");
+DEFINE_bool(use_compressed_secondary_cache, false,
+            "Use the CompressedSecondaryCache as the secondary cache.");
 
-DEFINE_int64(lru_secondary_cache_size, 8 << 20,  // 8MB
-             "Number of bytes to use as a cache of data.");
+DEFINE_int64(compressed_secondary_cache_size, 8 << 20,  // 8MB
+             "Number of bytes to use as a cache of data");
 
-DEFINE_int32(lru_secondary_cache_numshardbits, 6,
+DEFINE_int32(compressed_secondary_cache_numshardbits, 6,
              "Number of shards for the block cache"
-             " is 2 ** lru_secondary_cache_numshardbits."
+             " is 2 ** compressed_secondary_cache_numshardbits."
              " Negative means use default settings."
              " This is applied only if FLAGS_cache_size is non-negative.");
 
-DEFINE_double(lru_secondary_cache_high_pri_pool_ratio, 0.0,
+DEFINE_double(compressed_secondary_cache_high_pri_pool_ratio, 0.0,
               "Ratio of block cache reserve for high pri blocks. "
               "If > 0.0, we also enable "
               "cache_index_and_filter_blocks_with_high_priority.");
 
-DEFINE_string(lru_secondary_cache_compression_type, "lz4",
+DEFINE_string(compressed_secondary_cache_compression_type, "lz4",
               "The compression algorithm to use for large "
-              "values stored in LRUSecondaryCache.");
+              "values stored in CompressedSecondaryCache.");
 static enum ROCKSDB_NAMESPACE::CompressionType
-    FLAGS_lru_secondary_cache_compression_type_e =
+    FLAGS_compressed_secondary_cache_compression_type_e =
         ROCKSDB_NAMESPACE::kLZ4Compression;
 
 DEFINE_uint32(
-    lru_secondary_cache_compress_format_version, 2,
+    compressed_secondary_cache_compress_format_version, 2,
     "compress_format_version can have two values: "
     "compress_format_version == 1 -- decompressed size is not included"
     " in the block header."
@@ -2851,18 +2851,19 @@ class Benchmark {
       }
 #endif  // ROCKSDB_LITE
 
-      if (FLAGS_use_lru_secondary_cache) {
-        LRUSecondaryCacheOptions secondary_cache_opts;
-        secondary_cache_opts.capacity = FLAGS_lru_secondary_cache_size;
+      if (FLAGS_use_compressed_secondary_cache) {
+        CompressedSecondaryCacheOptions secondary_cache_opts;
+        secondary_cache_opts.capacity = FLAGS_compressed_secondary_cache_size;
         secondary_cache_opts.num_shard_bits =
-            FLAGS_lru_secondary_cache_numshardbits;
+            FLAGS_compressed_secondary_cache_numshardbits;
         secondary_cache_opts.high_pri_pool_ratio =
-            FLAGS_lru_secondary_cache_high_pri_pool_ratio;
+            FLAGS_compressed_secondary_cache_high_pri_pool_ratio;
         secondary_cache_opts.compression_type =
-            FLAGS_lru_secondary_cache_compression_type_e;
+            FLAGS_compressed_secondary_cache_compression_type_e;
         secondary_cache_opts.compress_format_version =
-            FLAGS_lru_secondary_cache_compress_format_version;
-        opts.secondary_cache = NewLRUSecondaryCache(secondary_cache_opts);
+            FLAGS_compressed_secondary_cache_compress_format_version;
+        opts.secondary_cache =
+            NewCompressedSecondaryCache(secondary_cache_opts);
       }
 
       return NewLRUCache(opts);
@@ -8109,8 +8110,8 @@ int db_bench_tool(int argc, char** argv) {
   FLAGS_wal_compression_e =
       StringToCompressionType(FLAGS_wal_compression.c_str());
 
-  FLAGS_lru_secondary_cache_compression_type_e = StringToCompressionType(
-      FLAGS_lru_secondary_cache_compression_type.c_str());
+  FLAGS_compressed_secondary_cache_compression_type_e = StringToCompressionType(
+      FLAGS_compressed_secondary_cache_compression_type.c_str());
 
 #ifndef ROCKSDB_LITE
   // Stacked BlobDB

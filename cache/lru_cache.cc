@@ -298,7 +298,7 @@ void LRUCacheShard::SetCapacity(size_t capacity) {
   // Free the entries outside of mutex for performance reasons.
   for (auto entry : last_reference_list) {
     if (secondary_cache_ && entry->IsSecondaryCacheCompatible() &&
-        !entry->IsPromoted()) {
+        !entry->IsInSecondaryCache()) {
       secondary_cache_->Insert(entry->key(), entry->value, entry->info_.helper)
           .PermitUncheckedError();
     }
@@ -373,7 +373,7 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
   // Free the entries here outside of mutex for performance reasons.
   for (auto entry : last_reference_list) {
     if (secondary_cache_ && entry->IsSecondaryCacheCompatible() &&
-        !entry->IsPromoted()) {
+        !entry->IsInSecondaryCache()) {
       secondary_cache_->Insert(entry->key(), entry->value, entry->info_.helper)
           .PermitUncheckedError();
     }
@@ -389,7 +389,6 @@ void LRUCacheShard::Promote(LRUHandle* e) {
   assert(secondary_handle->IsReady());
   e->SetIncomplete(false);
   e->SetInCache(true);
-  e->SetPromoted(true);
   e->value = secondary_handle->Value();
   e->charge = secondary_handle->Size();
   delete secondary_handle;
@@ -446,8 +445,9 @@ Cache::Handle* LRUCacheShard::Lookup(
     // accounting purposes, which we won't demote to the secondary cache
     // anyway.
     assert(create_cb && helper->del_cb);
+    bool is_in_sec_cache{false};
     std::unique_ptr<SecondaryCacheResultHandle> secondary_handle =
-        secondary_cache_->Lookup(key, create_cb, wait);
+        secondary_cache_->Lookup(key, create_cb, wait, is_in_sec_cache);
     if (secondary_handle != nullptr) {
       e = reinterpret_cast<LRUHandle*>(
           new char[sizeof(LRUHandle) - 1 + key.size()]);
@@ -467,6 +467,7 @@ Cache::Handle* LRUCacheShard::Lookup(
 
       if (wait) {
         Promote(e);
+        e->SetIsInSecondaryCache(is_in_sec_cache);
         if (!e->value) {
           // The secondary cache returned a handle, but the lookup failed.
           e->Unref();
@@ -480,6 +481,7 @@ Cache::Handle* LRUCacheShard::Lookup(
         // If wait is false, we always return a handle and let the caller
         // release the handle after checking for success or failure.
         e->SetIncomplete(true);
+        e->SetIsInSecondaryCache(is_in_sec_cache);
         // This may be slightly inaccurate, if the lookup eventually fails.
         // But the probability is very low.
         PERF_COUNTER_ADD(secondary_cache_hit_count, 1);

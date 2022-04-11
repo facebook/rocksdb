@@ -16,15 +16,16 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class LRUSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
+class CompressedSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
  public:
-  LRUSecondaryCacheResultHandle(void* value, size_t size)
+  CompressedSecondaryCacheResultHandle(void* value, size_t size)
       : value_(value), size_(size) {}
-  virtual ~LRUSecondaryCacheResultHandle() override = default;
+  virtual ~CompressedSecondaryCacheResultHandle() override = default;
 
-  LRUSecondaryCacheResultHandle(const LRUSecondaryCacheResultHandle&) = delete;
-  LRUSecondaryCacheResultHandle& operator=(
-      const LRUSecondaryCacheResultHandle&) = delete;
+  CompressedSecondaryCacheResultHandle(
+      const CompressedSecondaryCacheResultHandle&) = delete;
+  CompressedSecondaryCacheResultHandle& operator=(
+      const CompressedSecondaryCacheResultHandle&) = delete;
 
   bool IsReady() override { return true; }
 
@@ -39,19 +40,19 @@ class LRUSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
   size_t size_;
 };
 
-// The LRUSecondaryCache is a concrete implementation of
+// The CompressedSecondaryCache is a concrete implementation of
 // rocksdb::SecondaryCache.
 //
 // Users can also cast a pointer to it and call methods on
 // it directly, especially custom methods that may be added
 // in the future.  For example -
 // std::unique_ptr<rocksdb::SecondaryCache> cache =
-//      NewLRUSecondaryCache(opts);
-// static_cast<LRUSecondaryCache*>(cache.get())->Erase(key);
+//      NewCompressedSecondaryCache(opts);
+// static_cast<CompressedSecondaryCache*>(cache.get())->Erase(key);
 
-class LRUSecondaryCache : public SecondaryCache {
+class CompressedSecondaryCache : public SecondaryCache {
  public:
-  LRUSecondaryCache(
+  CompressedSecondaryCache(
       size_t capacity, int num_shard_bits, bool strict_capacity_limit,
       double high_pri_pool_ratio,
       std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
@@ -60,16 +61,16 @@ class LRUSecondaryCache : public SecondaryCache {
           kDontChargeCacheMetadata,
       CompressionType compression_type = CompressionType::kLZ4Compression,
       uint32_t compress_format_version = 2);
-  virtual ~LRUSecondaryCache() override;
+  virtual ~CompressedSecondaryCache() override;
 
-  const char* Name() const override { return "LRUSecondaryCache"; }
+  const char* Name() const override { return "CompressedSecondaryCache"; }
 
   Status Insert(const Slice& key, void* value,
                 const Cache::CacheItemHelper* helper) override;
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
-      const Slice& key, const Cache::CreateCallback& create_cb,
-      bool /*wait*/) override;
+      const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
+      bool& is_in_sec_cache) override;
 
   void Erase(const Slice& key) override;
 
@@ -79,7 +80,7 @@ class LRUSecondaryCache : public SecondaryCache {
 
  private:
   std::shared_ptr<Cache> cache_;
-  LRUSecondaryCacheOptions cache_options_;
+  CompressedSecondaryCacheOptions cache_options_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
