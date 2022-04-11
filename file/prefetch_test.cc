@@ -730,6 +730,7 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
   }
   MoveFilesToLevel(2);
   int buff_prefetch_count = 0;
+  int buff_async_prefetch_count = 0;
   int readahead_carry_over_count = 0;
   int num_sst_files = NumTableFilesAtLevel(2);
   size_t current_readahead_size = 0;
@@ -740,6 +741,10 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
         "FilePrefetchBuffer::Prefetch:Start",
         [&](void*) { buff_prefetch_count++; });
 
+    SyncPoint::GetInstance()->SetCallBack(
+        "FilePrefetchBuffer::PrefetchAsync:Start",
+        [&](void*) { buff_async_prefetch_count++; });
+
     // The callback checks, since reads are sequential, readahead_size doesn't
     // start from 8KB when iterator moves to next file and its called
     // num_sst_files-1 times (excluding for first file).
@@ -749,7 +754,6 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
           size_t readahead_size = *reinterpret_cast<size_t*>(arg);
           if (readahead_carry_over_count) {
             ASSERT_GT(readahead_size, 8 * 1024);
-            // ASSERT_GE(readahead_size, current_readahead_size);
           }
         });
 
@@ -764,7 +768,6 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
     ReadOptions ro;
     if (is_adaptive_readahead) {
       ro.adaptive_readahead = true;
-      // TODO akanksha: Remove after adding new units.
       ro.async_io = true;
     }
 
@@ -776,11 +779,13 @@ TEST_P(PrefetchTest1, DBIterLevelReadAhead) {
       num_keys++;
     }
     ASSERT_EQ(num_keys, total_keys);
-    ASSERT_GT(buff_prefetch_count, 0);
+
     // For index and data blocks.
     if (is_adaptive_readahead) {
       ASSERT_EQ(readahead_carry_over_count, 2 * (num_sst_files - 1));
+      ASSERT_GT(buff_async_prefetch_count, 0);
     } else {
+      ASSERT_GT(buff_prefetch_count, 0);
       ASSERT_EQ(readahead_carry_over_count, 0);
     }
 
@@ -858,8 +863,9 @@ TEST_P(PrefetchTest2, NonSequentialReads) {
   int set_readahead = 0;
   size_t readahead_size = 0;
 
-  SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
-                                        [&](void*) { buff_prefetch_count++; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::PrefetchAsync:Start",
+      [&](void*) { buff_prefetch_count++; });
   SyncPoint::GetInstance()->SetCallBack(
       "BlockPrefetcher::SetReadaheadState",
       [&](void* /*arg*/) { set_readahead++; });
@@ -953,8 +959,9 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
   size_t expected_current_readahead_size = 8 * 1024;
   size_t decrease_readahead_size = 8 * 1024;
 
-  SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
-                                        [&](void*) { buff_prefetch_count++; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::PrefetchAsync:Start",
+      [&](void*) { buff_prefetch_count++; });
   SyncPoint::GetInstance()->SetCallBack(
       "FilePrefetchBuffer::TryReadFromCache", [&](void* arg) {
         current_readahead_size = *reinterpret_cast<size_t*>(arg);
@@ -1043,8 +1050,17 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
 
 extern "C" bool RocksDbIOUringEnable() { return true; }
 
+class PrefetchTestWithPosix : public DBTestBase,
+                              public ::testing::WithParamInterface<bool> {
+ public:
+  PrefetchTestWithPosix() : DBTestBase("prefetch_test_with_posix", true) {}
+};
+
+INSTANTIATE_TEST_CASE_P(PrefetchTestWithPosix, PrefetchTestWithPosix,
+                        ::testing::Bool());
+
 // Tests the default implementation of ReadAsync API with PosixFileSystem.
-TEST_F(PrefetchTest2, ReadAsyncWithPosixFS) {
+TEST_P(PrefetchTestWithPosix, ReadAsyncWithPosixFS) {
   if (mem_env_ || encrypted_env_) {
     ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
     return;
@@ -1100,19 +1116,25 @@ TEST_F(PrefetchTest2, ReadAsyncWithPosixFS) {
 
   int buff_prefetch_count = 0;
   bool read_async_called = false;
-  SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
-                                        [&](void*) { buff_prefetch_count++; });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  ReadOptions ro;
+  ro.adaptive_readahead = true;
+  ro.async_io = true;
+
+  if (GetParam()) {
+    ro.readahead_size = 16 * 1024;
+  }
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::PrefetchAsync:Start",
+      [&](void*) { buff_prefetch_count++; });
+
+  SyncPoint::GetInstance()->SetCallBack(
       "UpdateResults::io_uring_result",
       [&](void* /*arg*/) { read_async_called = true; });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  SyncPoint::GetInstance()->EnableProcessing();
 
   // Read the keys.
   {
-    ReadOptions ro;
-    ro.adaptive_readahead = true;
-    ro.async_io = true;
-
     ASSERT_OK(options.statistics->Reset());
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     int num_keys = 0;
