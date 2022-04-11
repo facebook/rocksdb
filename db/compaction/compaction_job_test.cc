@@ -87,7 +87,6 @@ class CompactionJobTestBase : public testing::Test {
                                  /*block_cache_tracer=*/nullptr,
                                  /*io_tracer=*/nullptr, /*db_session_id*/ "")),
         shutting_down_(false),
-        preserve_deletes_seqnum_(0),
         mock_table_factory_(new mock::MockTableFactory()),
         error_handler_(nullptr, db_options_, &mutex_),
         encode_u64_ts_(std::move(encode_u64_ts)) {
@@ -354,8 +353,8 @@ class CompactionJobTestBase : public testing::Test {
                 ucmp_->timestamp_size() == full_history_ts_low_.size());
     CompactionJob compaction_job(
         0, &compaction, db_options_, mutable_db_options_, env_options_,
-        versions_.get(), &shutting_down_, preserve_deletes_seqnum_, &log_buffer,
-        nullptr, nullptr, nullptr, nullptr, &mutex_, &error_handler_, snapshots,
+        versions_.get(), &shutting_down_, &log_buffer, nullptr, nullptr,
+        nullptr, nullptr, &mutex_, &error_handler_, snapshots,
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
         &event_logger, false, false, dbname_, &compaction_job_stats_,
         Env::Priority::USER, nullptr /* IOTracer */,
@@ -409,7 +408,6 @@ class CompactionJobTestBase : public testing::Test {
   std::unique_ptr<VersionSet> versions_;
   InstrumentedMutex mutex_;
   std::atomic<bool> shutting_down_;
-  SequenceNumber preserve_deletes_seqnum_;
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
   CompactionJobStats compaction_job_stats_;
   ColumnFamilyData* cfd_;

@@ -2369,11 +2369,6 @@ class DBImpl : public DB {
   // DB::Open() or passed to us
   bool own_sfm_;
 
-  // Default value is 0 which means ALL deletes are
-  // preserved. Note that this has no effect if preserve_deletes is false.
-  const std::atomic<SequenceNumber> preserve_deletes_seqnum_{0};
-  const bool preserve_deletes_ = false;
-
   // Flag to check whether Close() has been called on this DB
   bool closed_;
   // save the closing status, for re-calling the close()
