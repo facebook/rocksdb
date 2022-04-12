@@ -2648,12 +2648,13 @@ TEST_F(CompactionPickerTest, UniversalMarkedManualCompaction) {
   ASSERT_EQ(3U, vstorage_->FilesMarkedForCompaction().size());
 
   bool manual_conflict = false;
-  InternalKey* manual_end = NULL;
+  InternalKey* manual_end = nullptr;
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.CompactRange(
           cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          ColumnFamilyData::kCompactAllLevels, 6, CompactRangeOptions(), NULL,
-          NULL, &manual_end, &manual_conflict, port::kMaxUint64));
+          ColumnFamilyData::kCompactAllLevels, 6, CompactRangeOptions(),
+          nullptr, nullptr, &manual_end, &manual_conflict, port::kMaxUint64,
+          ""));
 
   ASSERT_TRUE(compaction);
 

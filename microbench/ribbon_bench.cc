@@ -143,7 +143,7 @@ static void FilterQueryNegative(benchmark::State &state) {
       fp_cnt++;
     }
   }
-  state.counters["FP %"] =
+  state.counters["fp_pct"] =
       benchmark::Counter(fp_cnt * 100, benchmark::Counter::kAvgIterations);
 }
 BENCHMARK(FilterQueryNegative)->Apply(CustomArguments);

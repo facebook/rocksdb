@@ -744,18 +744,14 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       wrap_cache.erase(wrap_check);
 
       FSReadRequest* req = req_wrap->req;
-      if (cqe->res < 0) {
-        req->result = Slice(req->scratch, 0);
-        req->status = IOError("Req failed", filename_, cqe->res);
-      } else {
-        size_t bytes_read = static_cast<size_t>(cqe->res);
-        TEST_SYNC_POINT_CALLBACK(
-            "PosixRandomAccessFile::MultiRead:io_uring_result", &bytes_read);
-        if (bytes_read == req_wrap->iov.iov_len) {
-          req->result = Slice(req->scratch, req->len);
-          req->status = IOStatus::OK();
-        } else if (bytes_read == 0) {
-          // cqe->res == 0 can means EOF, or can mean partial results. See
+      size_t bytes_read = 0;
+      UpdateResult(cqe, filename_, req->len, req_wrap->iov.iov_len,
+                   false /*async_read*/, req_wrap->finished_len, req,
+                   bytes_read);
+      int32_t res = cqe->res;
+      if (res >= 0) {
+        if (bytes_read == 0) {
+          /// cqe->res == 0 can means EOF, or can mean partial results. See
           // comment
           // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
           // Fall back to pread in this case.
@@ -776,14 +772,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
                 Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
           }
         } else if (bytes_read < req_wrap->iov.iov_len) {
-          assert(bytes_read > 0);
-          assert(bytes_read + req_wrap->finished_len < req->len);
-          req_wrap->finished_len += bytes_read;
           incomplete_rq_list.push_back(req_wrap);
-        } else {
-          req->result = Slice(req->scratch, 0);
-          req->status = IOError("Req returned more bytes than requested",
-                                filename_, cqe->res);
         }
       }
       io_uring_cqe_seen(iu, cqe);
@@ -869,6 +858,80 @@ IOStatus PosixRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
   return IOError("While fadvise NotNeeded offset " + ToString(offset) +
                      " len " + ToString(length),
                  filename_, errno);
+#endif
+}
+
+IOStatus PosixRandomAccessFile::ReadAsync(
+    FSReadRequest& req, const IOOptions& /*opts*/,
+    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
+  if (use_direct_io()) {
+    assert(IsSectorAligned(req.offset, GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(req.len, GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(req.scratch, GetRequiredBufferAlignment()));
+  }
+
+#if defined(ROCKSDB_IOURING_PRESENT)
+  // io_uring_queue_init.
+  struct io_uring* iu = nullptr;
+  if (thread_local_io_urings_) {
+    iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
+    if (iu == nullptr) {
+      iu = CreateIOUring();
+      if (iu != nullptr) {
+        thread_local_io_urings_->Reset(iu);
+      }
+    }
+  }
+
+  // Init failed, platform doesn't support io_uring.
+  if (iu == nullptr) {
+    return IOStatus::NotSupported("ReadAsync");
+  }
+
+  // Allocate io_handle.
+  IOHandleDeleter deletefn = [](void* args) -> void {
+    delete (static_cast<Posix_IOHandle*>(args));
+    args = nullptr;
+  };
+
+  Posix_IOHandle* posix_handle = new Posix_IOHandle();
+  *io_handle = static_cast<void*>(posix_handle);
+  *del_fn = deletefn;
+
+  // Initialize Posix_IOHandle.
+  posix_handle->iu = iu;
+  posix_handle->iov.iov_base = req.scratch;
+  posix_handle->iov.iov_len = req.len;
+  posix_handle->cb = cb;
+  posix_handle->cb_arg = cb_arg;
+  posix_handle->offset = req.offset;
+  posix_handle->len = req.len;
+  posix_handle->scratch = req.scratch;
+
+  // Step 3: io_uring_sqe_set_data
+  struct io_uring_sqe* sqe;
+  sqe = io_uring_get_sqe(iu);
+
+  io_uring_prep_readv(sqe, fd_, &posix_handle->iov, 1, posix_handle->offset);
+
+  io_uring_sqe_set_data(sqe, posix_handle);
+
+  // Step 4: io_uring_submit
+  ssize_t ret = io_uring_submit(iu);
+  if (ret < 0) {
+    fprintf(stderr, "io_uring_submit error: %ld\n", long(ret));
+    return IOStatus::IOError("io_uring_submit() requested but returned " +
+                             ToString(ret));
+  }
+  return IOStatus::OK();
+#else
+  (void)req;
+  (void)cb;
+  (void)cb_arg;
+  (void)io_handle;
+  (void)del_fn;
+  return IOStatus::NotSupported("ReadAsync");
 #endif
 }
 

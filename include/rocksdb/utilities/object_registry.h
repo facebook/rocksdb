@@ -280,9 +280,7 @@ class ObjectRegistry {
   static std::shared_ptr<ObjectRegistry> Default();
   explicit ObjectRegistry(const std::shared_ptr<ObjectRegistry>& parent)
       : parent_(parent) {}
-  explicit ObjectRegistry(const std::shared_ptr<ObjectLibrary>& library) {
-    libraries_.push_back(library);
-  }
+  explicit ObjectRegistry(const std::shared_ptr<ObjectLibrary>& library);
 
   std::shared_ptr<ObjectLibrary> AddLibrary(const std::string& id) {
     auto library = std::make_shared<ObjectLibrary>(id);
@@ -502,6 +500,9 @@ class ObjectRegistry {
   // Dump the contents of the registry to the logger
   void Dump(Logger* logger) const;
 
+  // Invokes the input function to retrieve the properties for this plugin.
+  int RegisterPlugin(const std::string& name, const RegistrarFunc& func);
+
  private:
   static std::string ToManagedObjectKey(const std::string& type,
                                         const std::string& id) {
@@ -548,6 +549,8 @@ class ObjectRegistry {
   // The libraries are searched in reverse order (back to front) when
   // searching for entries.
   std::vector<std::shared_ptr<ObjectLibrary>> libraries_;
+  std::vector<std::string> plugins_;
+  static std::unordered_map<std::string, RegistrarFunc> builtins_;
   std::map<std::string, std::weak_ptr<Customizable>> managed_objects_;
   std::shared_ptr<ObjectRegistry> parent_;
   mutable std::mutex objects_mutex_;  // Mutex for managed objects

@@ -37,13 +37,16 @@ struct SuperVersionContext {
   explicit SuperVersionContext(bool create_superversion = false)
     : new_superversion(create_superversion ? new SuperVersion() : nullptr) {}
 
-  explicit SuperVersionContext(SuperVersionContext&& other)
+  explicit SuperVersionContext(SuperVersionContext&& other) noexcept
       : superversions_to_free(std::move(other.superversions_to_free)),
 #ifndef ROCKSDB_DISABLE_STALL_NOTIFICATION
         write_stall_notifications(std::move(other.write_stall_notifications)),
 #endif
         new_superversion(std::move(other.new_superversion)) {
   }
+  // No copies
+  SuperVersionContext(const SuperVersionContext& other) = delete;
+  void operator=(const SuperVersionContext& other) = delete;
 
   void NewSuperVersion() {
     new_superversion = std::unique_ptr<SuperVersion>(new SuperVersion());

@@ -120,18 +120,16 @@ CompressionType GetCompressionFlush(
   // Compressing memtable flushes might not help unless the sequential load
   // optimization is used for leveled compaction. Otherwise the CPU and
   // latency overhead is not offset by saving much space.
-  if (ioptions.compaction_style == kCompactionStyleUniversal) {
-    if (mutable_cf_options.compaction_options_universal
-            .compression_size_percent < 0) {
-      return mutable_cf_options.compression;
-    } else {
-      return kNoCompression;
-    }
-  } else if (!ioptions.compression_per_level.empty()) {
-    // For leveled compress when min_level_to_compress != 0.
-    return ioptions.compression_per_level[0];
-  } else {
+  if (ioptions.compaction_style == kCompactionStyleUniversal &&
+      mutable_cf_options.compaction_options_universal
+              .compression_size_percent >= 0) {
+    return kNoCompression;
+  }
+  if (mutable_cf_options.compression_per_level.empty()) {
     return mutable_cf_options.compression;
+  } else {
+    // For leveled compress when min_level_to_compress != 0.
+    return mutable_cf_options.compression_per_level[0];
   }
 }
 
@@ -378,15 +376,12 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
       s = AtomicFlushMemTables(cfds, flush_opts, context.flush_reason);
       mutex_.Lock();
     } else {
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
+      for (auto cfd : versions_->GetRefedColumnFamilySet()) {
         if (cfd->IsDropped()) {
           continue;
         }
-        cfd->Ref();
-        mutex_.Unlock();
+        InstrumentedMutexUnlock u(&mutex_);
         s = FlushMemTable(cfd, flush_opts, context.flush_reason);
-        mutex_.Lock();
-        cfd->UnrefAndTryDelete();
         if (!s.ok()) {
           break;
         }
@@ -401,14 +396,6 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
 
   JobContext job_context(0);
   FindObsoleteFiles(&job_context, true);
-  if (s.ok()) {
-    s = error_handler_.ClearBGError();
-  } else {
-    // NOTE: this is needed to pass ASSERT_STATUS_CHECKED
-    // in the DBSSTTest.DBWithMaxSpaceAllowedRandomized test.
-    // See https://github.com/facebook/rocksdb/pull/7715#issuecomment-754947952
-    error_handler_.GetRecoveryError().PermitUncheckedError();
-  }
   mutex_.Unlock();
 
   job_context.manifest_file_number = 1;
@@ -429,11 +416,31 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
             immutable_db_options_.info_log,
             "DB resume requested but could not enable file deletions [%s]",
             s.ToString().c_str());
+        assert(false);
       }
     }
-    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
   }
+
   mutex_.Lock();
+  if (s.ok()) {
+    // This will notify and unblock threads waiting for error recovery to
+    // finish. Those previouly waiting threads can now proceed, which may
+    // include closing the db.
+    s = error_handler_.ClearBGError();
+  } else {
+    // NOTE: this is needed to pass ASSERT_STATUS_CHECKED
+    // in the DBSSTTest.DBWithMaxSpaceAllowedRandomized test.
+    // See https://github.com/facebook/rocksdb/pull/7715#issuecomment-754947952
+    error_handler_.GetRecoveryError().PermitUncheckedError();
+  }
+
+  if (s.ok()) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
+  } else {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Failed to resume DB [%s]",
+                   s.ToString().c_str());
+  }
+
   // Check for shutdown again before scheduling further compactions,
   // since we released and re-acquired the lock above
   if (shutdown_initiated_) {
@@ -486,18 +493,14 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
       s.PermitUncheckedError();  //**TODO: What to do on error?
       mutex_.Lock();
     } else {
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
+      for (auto cfd : versions_->GetRefedColumnFamilySet()) {
         if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
-          cfd->Ref();
-          mutex_.Unlock();
+          InstrumentedMutexUnlock u(&mutex_);
           Status s = FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
           s.PermitUncheckedError();  //**TODO: What to do on error?
-          mutex_.Lock();
-          cfd->UnrefAndTryDelete();
         }
       }
     }
-    versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   }
 
   shutting_down_.store(true, std::memory_order_release);
@@ -528,10 +531,19 @@ Status DBImpl::CloseHelper() {
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
   CancelAllBackgroundWork(false);
+
+  // Cancel manual compaction if there's any
+  if (HasPendingManualCompaction()) {
+    DisableManualCompaction();
+  }
   mutex_.Lock();
-  env_->UnSchedule(this, Env::Priority::BOTTOM);
-  env_->UnSchedule(this, Env::Priority::LOW);
-  env_->UnSchedule(this, Env::Priority::HIGH);
+  // Unschedule all tasks for this DB
+  for (uint8_t i = 0; i < static_cast<uint8_t>(TaskType::kCount); i++) {
+    env_->UnSchedule(GetTaskTag(i), Env::Priority::BOTTOM);
+    env_->UnSchedule(GetTaskTag(i), Env::Priority::LOW);
+    env_->UnSchedule(GetTaskTag(i), Env::Priority::HIGH);
+  }
+
   Status ret = Status::OK();
 
   // Wait for background work to finish
@@ -750,7 +762,7 @@ void DBImpl::PrintStatistics() {
   }
 }
 
-void DBImpl::StartPeriodicWorkScheduler() {
+Status DBImpl::StartPeriodicWorkScheduler() {
 #ifndef ROCKSDB_LITE
 
 #ifndef NDEBUG
@@ -760,7 +772,7 @@ void DBImpl::StartPeriodicWorkScheduler() {
       "DBImpl::StartPeriodicWorkScheduler:DisableScheduler",
       &disable_scheduler);
   if (disable_scheduler) {
-    return;
+    return Status::OK();
   }
 #endif  // !NDEBUG
 
@@ -771,10 +783,11 @@ void DBImpl::StartPeriodicWorkScheduler() {
                              &periodic_work_scheduler_);
   }
 
-  periodic_work_scheduler_->Register(
+  return periodic_work_scheduler_->Register(
       this, mutable_db_options_.stats_dump_period_sec,
       mutable_db_options_.stats_persist_period_sec);
 #endif  // !ROCKSDB_LITE
+  return Status::OK();
 }
 
 // esitmate the total size of stats_history_
@@ -950,18 +963,13 @@ void DBImpl::DumpStats() {
   TEST_SYNC_POINT("DBImpl::DumpStats:StartRunning");
   {
     InstrumentedMutexLock l(&mutex_);
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
+    for (auto cfd : versions_->GetRefedColumnFamilySet()) {
       if (cfd->initialized()) {
         // Release DB mutex for gathering cache entry stats. Pass over all
         // column families for this first so that other stats are dumped
         // near-atomically.
-        // Get a ref before unlocking
-        cfd->Ref();
-        {
-          InstrumentedMutexUnlock u(&mutex_);
-          cfd->internal_stats()->CollectCacheEntryStats(/*foreground=*/false);
-        }
-        cfd->UnrefAndTryDelete();
+        InstrumentedMutexUnlock u(&mutex_);
+        cfd->internal_stats()->CollectCacheEntryStats(/*foreground=*/false);
       }
     }
 
@@ -1074,7 +1082,6 @@ Status DBImpl::SetOptions(
   MutableCFOptions new_options;
   Status s;
   Status persist_options_status;
-  persist_options_status.PermitUncheckedError();  // Allow uninitialized access
   SuperVersionContext sv_context(/* create_superversion */ true);
   {
     auto db_options = GetDBOptions();
@@ -1110,9 +1117,11 @@ Status DBImpl::SetOptions(
                    "[%s] SetOptions() succeeded", cfd->GetName().c_str());
     new_options.Dump(immutable_db_options_.info_log.get());
     if (!persist_options_status.ok()) {
+      // NOTE: WriteOptionsFile already logs on failure
       s = persist_options_status;
     }
   } else {
+    persist_options_status.PermitUncheckedError();  // less important
     ROCKS_LOG_WARN(immutable_db_options_.info_log, "[%s] SetOptions() failed",
                    cfd->GetName().c_str());
   }
@@ -1208,7 +1217,7 @@ Status DBImpl::SetDBOptions(
               mutable_db_options_.stats_persist_period_sec) {
         mutex_.Unlock();
         periodic_work_scheduler_->Unregister(this);
-        periodic_work_scheduler_->Register(
+        s = periodic_work_scheduler_->Register(
             this, new_options.stats_dump_period_sec,
             new_options.stats_persist_period_sec);
         mutex_.Lock();
@@ -1881,6 +1890,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       return s;
     }
   }
+  TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:0");
+  TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:1");
   PinnedIteratorsManager pinned_iters_mgr;
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
@@ -1897,8 +1908,6 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
   {
     PERF_TIMER_GUARD(get_post_process_time);
-
-    ReturnAndCleanupSuperVersion(cfd, sv);
 
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
@@ -1926,6 +1935,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
     RecordInHistogram(stats_, BYTES_PER_READ, size);
+
+    ReturnAndCleanupSuperVersion(cfd, sv);
   }
   return s;
 }
@@ -3186,6 +3197,12 @@ bool CfdListContains(const CfdList& list, ColumnFamilyData* cfd) {
 }  //  namespace
 
 void DBImpl::ReleaseSnapshot(const Snapshot* s) {
+  if (s == nullptr) {
+    // DBImpl::GetSnapshot() can return nullptr when snapshot
+    // not supported by specifying the condition:
+    // inplace_update_support enabled.
+    return;
+  }
   const SnapshotImpl* casted_s = reinterpret_cast<const SnapshotImpl*>(s);
   {
     InstrumentedMutexLock l(&mutex_);
@@ -3465,15 +3482,13 @@ bool DBImpl::GetAggregatedIntProperty(const Slice& property,
     // Needs mutex to protect the list of column families.
     InstrumentedMutexLock l(&mutex_);
     uint64_t value;
-    for (auto* cfd : *versions_->GetColumnFamilySet()) {
+    for (auto* cfd : versions_->GetRefedColumnFamilySet()) {
       if (!cfd->initialized()) {
         continue;
       }
-      cfd->Ref();
       ret = GetIntPropertyInternal(cfd, *property_info, true, &value);
       // GetIntPropertyInternal may release db mutex and re-acquire it.
       mutex_.AssertHeld();
-      cfd->UnrefAndTryDelete();
       if (ret) {
         sum += value;
       } else {
@@ -5064,6 +5079,7 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
     }
   }
 
+  // TODO: simplify using GetRefedColumnFamilySet?
   std::vector<ColumnFamilyData*> cfd_list;
   {
     InstrumentedMutexLock l(&mutex_);
@@ -5176,7 +5192,8 @@ Status DBImpl::VerifyFullFileChecksum(const std::string& file_checksum_expected,
       fs_.get(), fname, immutable_db_options_.file_checksum_gen_factory.get(),
       func_name_expected, &file_checksum, &func_name,
       read_options.readahead_size, immutable_db_options_.allow_mmap_reads,
-      io_tracer_, immutable_db_options_.rate_limiter.get());
+      io_tracer_, immutable_db_options_.rate_limiter.get(),
+      read_options.rate_limiter_priority);
   if (s.ok()) {
     assert(func_name_expected == func_name);
     if (file_checksum != file_checksum_expected) {

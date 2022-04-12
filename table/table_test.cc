@@ -1319,7 +1319,7 @@ class FileChecksumTestHelper {
     uint64_t offset = 0;
     Status s;
     s = file_reader_->Read(IOOptions(), offset, 2048, &result, scratch.get(),
-                           nullptr, false);
+                           nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
     if (!s.ok()) {
       return s;
     }
@@ -1327,7 +1327,8 @@ class FileChecksumTestHelper {
       file_checksum_generator->Update(scratch.get(), result.size());
       offset += static_cast<uint64_t>(result.size());
       s = file_reader_->Read(IOOptions(), offset, 2048, &result, scratch.get(),
-                             nullptr, false);
+                             nullptr,
+                             Env::IO_TOTAL /* rate_limiter_priority */);
       if (!s.ok()) {
         return s;
       }
@@ -1871,7 +1872,7 @@ TEST_P(BlockBasedTableTest, FilterPolicyNameProperties) {
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
   auto& props = *c.GetTableReader()->GetTableProperties();
-  ASSERT_EQ("rocksdb.BuiltinBloomFilter", props.filter_policy_name);
+  ASSERT_EQ(table_options.filter_policy->Name(), props.filter_policy_name);
   c.ResetTableReader();
 }
 
@@ -2015,7 +2016,7 @@ TEST_P(BlockBasedTableTest, PrefetchTest) {
 
 TEST_P(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-  for (int i = 0; i <= 5; ++i) {
+  for (int i = 0; i <= 4; ++i) {
     Options options;
     // Make each key/value an individual block
     table_options.block_size = 64;
@@ -2032,25 +2033,18 @@ TEST_P(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
       options.prefix_extractor.reset(NewFixedPrefixTransform(4));
       break;
     case 2:
-      // Hash search index with hash_index_allow_collision
-      table_options.index_type = BlockBasedTableOptions::kHashSearch;
-      table_options.hash_index_allow_collision = true;
-      options.table_factory.reset(new BlockBasedTableFactory(table_options));
-      options.prefix_extractor.reset(NewFixedPrefixTransform(4));
-      break;
-    case 3:
       // Hash search index with filter policy
       table_options.index_type = BlockBasedTableOptions::kHashSearch;
       table_options.filter_policy.reset(NewBloomFilterPolicy(10));
       options.table_factory.reset(new BlockBasedTableFactory(table_options));
       options.prefix_extractor.reset(NewFixedPrefixTransform(4));
       break;
-    case 4:
+    case 3:
       // Two-level index
       table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
       options.table_factory.reset(new BlockBasedTableFactory(table_options));
       break;
-    case 5:
+    case 4:
       // Binary search with first key
       table_options.index_type =
           BlockBasedTableOptions::kBinarySearchWithFirstKey;
@@ -5001,13 +4995,16 @@ TEST_F(BBTTailPrefetchTest, FilePrefetchBufferMinOffset) {
   IOOptions opts;
   buffer.TryReadFromCache(opts, nullptr /* reader */, 500 /* offset */,
                           10 /* n */, nullptr /* result */,
-                          nullptr /* status */);
+                          nullptr /* status */,
+                          Env::IO_TOTAL /* rate_limiter_priority */);
   buffer.TryReadFromCache(opts, nullptr /* reader */, 480 /* offset */,
                           10 /* n */, nullptr /* result */,
-                          nullptr /* status */);
+                          nullptr /* status */,
+                          Env::IO_TOTAL /* rate_limiter_priority */);
   buffer.TryReadFromCache(opts, nullptr /* reader */, 490 /* offset */,
                           10 /* n */, nullptr /* result */,
-                          nullptr /* status */);
+                          nullptr /* status */,
+                          Env::IO_TOTAL /* rate_limiter_priority */);
   ASSERT_EQ(480, buffer.min_offset_read());
 }
 

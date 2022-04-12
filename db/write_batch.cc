@@ -22,12 +22,13 @@
 //    kTypeColumnFamilySingleDeletion varint32 varstring
 //    kTypeColumnFamilyRangeDeletion varint32 varstring varstring
 //    kTypeColumnFamilyMerge varint32 varstring varstring
-//    kTypeBeginPrepareXID varstring
-//    kTypeEndPrepareXID
+//    kTypeBeginPrepareXID
+//    kTypeEndPrepareXID varstring
 //    kTypeCommitXID varstring
+//    kTypeCommitXIDAndTimestamp varstring varstring
 //    kTypeRollbackXID varstring
-//    kTypeBeginPersistedPrepareXID varstring
-//    kTypeBeginUnprepareXID varstring
+//    kTypeBeginPersistedPrepareXID
+//    kTypeBeginUnprepareXID
 //    kTypeNoop
 // varstring :=
 //    len: varint32
@@ -800,6 +801,7 @@ Status WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
   }
 
   needs_in_place_update_ts_ = true;
+  has_key_with_ts_ = true;
   std::string dummy_ts(ts_sz, '\0');
   std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
   return WriteBatchInternal::Put(this, cf_id, SliceParts(key_with_ts.data(), 2),
@@ -812,6 +814,7 @@ Status WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
   if (!s.ok()) {
     return s;
   }
+  has_key_with_ts_ = true;
   assert(column_family);
   uint32_t cf_id = column_family->GetID();
   std::array<Slice, 2> key_with_ts{{key, ts}};
@@ -1002,6 +1005,7 @@ Status WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key) {
   }
 
   needs_in_place_update_ts_ = true;
+  has_key_with_ts_ = true;
   std::string dummy_ts(ts_sz, '\0');
   std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
   return WriteBatchInternal::Delete(this, cf_id,
@@ -1015,6 +1019,7 @@ Status WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key,
     return s;
   }
   assert(column_family);
+  has_key_with_ts_ = true;
   uint32_t cf_id = column_family->GetID();
   std::array<Slice, 2> key_with_ts{{key, ts}};
   return WriteBatchInternal::Delete(this, cf_id,
@@ -1115,6 +1120,7 @@ Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
   }
 
   needs_in_place_update_ts_ = true;
+  has_key_with_ts_ = true;
   std::string dummy_ts(ts_sz, '\0');
   std::array<Slice, 2> key_with_ts{{key, dummy_ts}};
   return WriteBatchInternal::SingleDelete(this, cf_id,
@@ -1127,6 +1133,7 @@ Status WriteBatch::SingleDelete(ColumnFamilyHandle* column_family,
   if (!s.ok()) {
     return s;
   }
+  has_key_with_ts_ = true;
   assert(column_family);
   uint32_t cf_id = column_family->GetID();
   std::array<Slice, 2> key_with_ts{{key, ts}};
@@ -2301,6 +2308,7 @@ class MemTableInserter : public WriteBatch::Handler {
     assert(db_);
 
     if (recovering_log_number_ != 0) {
+      db_->mutex()->AssertHeld();
       // during recovery we rebuild a hollow transaction
       // from all encountered prepare sections of the wal
       if (db_->allow_2pc() == false) {
@@ -2331,6 +2339,7 @@ class MemTableInserter : public WriteBatch::Handler {
     assert((rebuilding_trx_ != nullptr) == (recovering_log_number_ != 0));
 
     if (recovering_log_number_ != 0) {
+      db_->mutex()->AssertHeld();
       assert(db_->allow_2pc());
       size_t batch_cnt =
           write_after_commit_
@@ -2351,6 +2360,9 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
   Status MarkNoop(bool empty_batch) override {
+    if (recovering_log_number_ != 0) {
+      db_->mutex()->AssertHeld();
+    }
     // A hack in pessimistic transaction could result into a noop at the start
     // of the write batch, that should be ignored.
     if (!empty_batch) {

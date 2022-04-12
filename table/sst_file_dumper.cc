@@ -42,11 +42,13 @@ namespace ROCKSDB_NAMESPACE {
 
 SstFileDumper::SstFileDumper(const Options& options,
                              const std::string& file_path,
-                             size_t readahead_size, bool verify_checksum,
-                             bool output_hex, bool decode_blob_index,
-                             const EnvOptions& soptions, bool silent)
+                             Temperature file_temp, size_t readahead_size,
+                             bool verify_checksum, bool output_hex,
+                             bool decode_blob_index, const EnvOptions& soptions,
+                             bool silent)
     : file_name_(file_path),
       read_num_(0),
+      file_temp_(file_temp),
       output_hex_(output_hex),
       decode_blob_index_(decode_blob_index),
       soptions_(soptions),
@@ -82,8 +84,9 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
   const auto& fs = options_.env->GetFileSystem();
   std::unique_ptr<FSRandomAccessFile> file;
   uint64_t file_size = 0;
-  Status s = fs->NewRandomAccessFile(file_path, FileOptions(soptions_), &file,
-                                     nullptr);
+  FileOptions fopts = soptions_;
+  fopts.temperature = file_temp_;
+  Status s = fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
   if (s.ok()) {
     s = fs->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
   }
@@ -107,7 +110,8 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
     uint64_t prefetch_off = file_size - prefetch_size;
     IOOptions opts;
     s = prefetch_buffer.Prefetch(opts, file_.get(), prefetch_off,
-                                 static_cast<size_t>(prefetch_size));
+                                 static_cast<size_t>(prefetch_size),
+                                 Env::IO_TOTAL /* rate_limiter_priority */);
 
     s = ReadFooterFromFile(opts, file_.get(), &prefetch_buffer, file_size,
                            &footer);
@@ -121,8 +125,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
         magic_number == kLegacyPlainTableMagicNumber) {
       soptions_.use_mmap_reads = true;
 
-      fs->NewRandomAccessFile(file_path, FileOptions(soptions_), &file,
-                              nullptr);
+      fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
       file_.reset(new RandomAccessFileReader(std::move(file), file_path));
     }
 

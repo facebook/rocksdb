@@ -16,31 +16,41 @@ PeriodicWorkScheduler::PeriodicWorkScheduler(
   timer = std::unique_ptr<Timer>(new Timer(clock.get()));
 }
 
-void PeriodicWorkScheduler::Register(DBImpl* dbi,
-                                     unsigned int stats_dump_period_sec,
-                                     unsigned int stats_persist_period_sec) {
+Status PeriodicWorkScheduler::Register(DBImpl* dbi,
+                                       unsigned int stats_dump_period_sec,
+                                       unsigned int stats_persist_period_sec) {
   MutexLock l(&timer_mu_);
   static std::atomic<uint64_t> initial_delay(0);
   timer->Start();
   if (stats_dump_period_sec > 0) {
-    timer->Add([dbi]() { dbi->DumpStats(); }, GetTaskName(dbi, "dump_st"),
-               initial_delay.fetch_add(1) %
-                   static_cast<uint64_t>(stats_dump_period_sec) *
-                   kMicrosInSecond,
-               static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond);
+    bool succeeded = timer->Add(
+        [dbi]() { dbi->DumpStats(); }, GetTaskName(dbi, "dump_st"),
+        initial_delay.fetch_add(1) %
+            static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond,
+        static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond);
+    if (!succeeded) {
+      return Status::Aborted("Unable to add periodic task DumpStats");
+    }
   }
   if (stats_persist_period_sec > 0) {
-    timer->Add(
+    bool succeeded = timer->Add(
         [dbi]() { dbi->PersistStats(); }, GetTaskName(dbi, "pst_st"),
         initial_delay.fetch_add(1) %
             static_cast<uint64_t>(stats_persist_period_sec) * kMicrosInSecond,
         static_cast<uint64_t>(stats_persist_period_sec) * kMicrosInSecond);
+    if (!succeeded) {
+      return Status::Aborted("Unable to add periodic task PersistStats");
+    }
   }
-  timer->Add([dbi]() { dbi->FlushInfoLog(); },
-             GetTaskName(dbi, "flush_info_log"),
-             initial_delay.fetch_add(1) % kDefaultFlushInfoLogPeriodSec *
-                 kMicrosInSecond,
-             kDefaultFlushInfoLogPeriodSec * kMicrosInSecond);
+  bool succeeded = timer->Add(
+      [dbi]() { dbi->FlushInfoLog(); }, GetTaskName(dbi, "flush_info_log"),
+      initial_delay.fetch_add(1) % kDefaultFlushInfoLogPeriodSec *
+          kMicrosInSecond,
+      kDefaultFlushInfoLogPeriodSec * kMicrosInSecond);
+  if (!succeeded) {
+    return Status::Aborted("Unable to add periodic task PersistStats");
+  }
+  return Status::OK();
 }
 
 void PeriodicWorkScheduler::Unregister(DBImpl* dbi) {
