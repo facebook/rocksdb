@@ -21,6 +21,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/file_checksum.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/memory_allocator.h"
 #include "rocksdb/rate_limiter.h"
@@ -31,6 +32,7 @@
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/flush_block_policy.h"
 #include "table/mock_table.h"
 #include "test_util/mock_time_env.h"
@@ -206,31 +208,22 @@ struct SimpleOptions {
   TestCustomizable* cp = nullptr;
 };
 
-static SimpleOptions dummy_simple_options;
-template <typename T1>
-int offset_of(T1 SimpleOptions::*member) {
-  return static_cast<int>(
-      reinterpret_cast<uintptr_t>(
-          std::addressof(dummy_simple_options.*member)) -
-      reinterpret_cast<uintptr_t>(std::addressof(dummy_simple_options)));
-}
-
 static std::unordered_map<std::string, OptionTypeInfo> simple_option_info = {
 #ifndef ROCKSDB_LITE
     {"bool",
-     {offset_of(&SimpleOptions::b), OptionType::kBoolean,
+     {offsetof(struct SimpleOptions, b), OptionType::kBoolean,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
     {"unique",
      OptionTypeInfo::AsCustomUniquePtr<TestCustomizable>(
-         offset_of(&SimpleOptions::cu), OptionVerificationType::kNormal,
+         offsetof(struct SimpleOptions, cu), OptionVerificationType::kNormal,
          OptionTypeFlags::kAllowNull)},
     {"shared",
      OptionTypeInfo::AsCustomSharedPtr<TestCustomizable>(
-         offset_of(&SimpleOptions::cs), OptionVerificationType::kNormal,
+         offsetof(struct SimpleOptions, cs), OptionVerificationType::kNormal,
          OptionTypeFlags::kAllowNull)},
     {"pointer",
      OptionTypeInfo::AsCustomRawPtr<TestCustomizable>(
-         offset_of(&SimpleOptions::cp), OptionVerificationType::kNormal,
+         offsetof(struct SimpleOptions, cp), OptionVerificationType::kNormal,
          OptionTypeFlags::kAllowNull)},
 #endif  // ROCKSDB_LITE
 };
@@ -495,6 +488,55 @@ TEST_F(CustomizableTest, BadOptionTest) {
   ASSERT_NOK(
       c1->ConfigureFromString(config_options_, "shared.id=A;A.string=b}"));
   ASSERT_OK(c1->ConfigureFromString(ignore, "shared.id=A;A.string=s}"));
+}
+
+TEST_F(CustomizableTest, FailingFactoryTest) {
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  std::unique_ptr<Configurable> c1(new SimpleConfigurable());
+  ConfigOptions ignore = config_options_;
+
+  Status s;
+  ignore.registry->AddLibrary("failing")->AddFactory<TestCustomizable>(
+      "failing",
+      [](const std::string& /*uri*/,
+         std::unique_ptr<TestCustomizable>* /*guard */, std::string* errmsg) {
+        *errmsg = "Bad Factory";
+        return nullptr;
+      });
+
+  // If we are ignoring unknown and unsupported options, will see
+  // different errors for failing versus missing
+  ignore.ignore_unknown_options = false;
+  ignore.ignore_unsupported_options = false;
+  s = c1->ConfigureFromString(ignore, "shared.id=failing");
+  ASSERT_TRUE(s.IsInvalidArgument());
+  s = c1->ConfigureFromString(ignore, "unique.id=failing");
+  ASSERT_TRUE(s.IsInvalidArgument());
+  s = c1->ConfigureFromString(ignore, "shared.id=missing");
+  ASSERT_TRUE(s.IsNotSupported());
+  s = c1->ConfigureFromString(ignore, "unique.id=missing");
+  ASSERT_TRUE(s.IsNotSupported());
+
+  // If we are ignoring unsupported options, will see
+  // errors for failing but not missing
+  ignore.ignore_unknown_options = false;
+  ignore.ignore_unsupported_options = true;
+  s = c1->ConfigureFromString(ignore, "shared.id=failing");
+  ASSERT_TRUE(s.IsInvalidArgument());
+  s = c1->ConfigureFromString(ignore, "unique.id=failing");
+  ASSERT_TRUE(s.IsInvalidArgument());
+
+  ASSERT_OK(c1->ConfigureFromString(ignore, "shared.id=missing"));
+  ASSERT_OK(c1->ConfigureFromString(ignore, "unique.id=missing"));
+
+  // If we are ignoring unknown options, will see no errors
+  // for failing or missing
+  ignore.ignore_unknown_options = true;
+  ignore.ignore_unsupported_options = false;
+  ASSERT_OK(c1->ConfigureFromString(ignore, "shared.id=failing"));
+  ASSERT_OK(c1->ConfigureFromString(ignore, "unique.id=failing"));
+  ASSERT_OK(c1->ConfigureFromString(ignore, "shared.id=missing"));
+  ASSERT_OK(c1->ConfigureFromString(ignore, "unique.id=missing"));
 }
 
 // Tests that different IDs lead to different objects
@@ -1287,7 +1329,8 @@ class TestSecondaryCache : public SecondaryCache {
   }
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& /*key*/, const Cache::CreateCallback& /*create_cb*/,
-      bool /*wait*/) override {
+      bool /*wait*/, bool& is_in_sec_cache) override {
+    is_in_sec_cache = true;
     return nullptr;
   }
   void Erase(const Slice& /*key*/) override {}
@@ -1441,6 +1484,21 @@ class MockRateLimiter : public RateLimiter {
   }
 };
 
+class MockFilterPolicy : public FilterPolicy {
+ public:
+  static const char* kClassName() { return "MockFilterPolicy"; }
+  const char* Name() const override { return kClassName(); }
+  const char* CompatibilityName() const override { return Name(); }
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext&) const override {
+    return nullptr;
+  }
+  FilterBitsReader* GetFilterBitsReader(
+      const Slice& /*contents*/) const override {
+    return nullptr;
+  }
+};
+
 #ifndef ROCKSDB_LITE
 static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
@@ -1562,6 +1620,14 @@ static int RegisterLocalObjects(ObjectLibrary& library,
       [](const std::string& /*uri*/, std::unique_ptr<RateLimiter>* guard,
          std::string* /* errmsg */) {
         guard->reset(new MockRateLimiter());
+        return guard->get();
+      });
+
+  library.AddFactory<const FilterPolicy>(
+      MockFilterPolicy::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<const FilterPolicy>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockFilterPolicy());
         return guard->get();
       });
 
@@ -2070,6 +2136,55 @@ TEST_F(LoadCustomizableTest, LoadRateLimiterTest) {
         std::string("rate_limiter=") + MockRateLimiter::kClassName(),
         &db_opts_));
     ASSERT_NE(db_opts_.rate_limiter, nullptr);
+  }
+#endif  // ROCKSDB_LITE
+}
+
+TEST_F(LoadCustomizableTest, LoadFilterPolicyTest) {
+  std::shared_ptr<TableFactory> table;
+  std::shared_ptr<const FilterPolicy> result;
+  ASSERT_NOK(FilterPolicy::CreateFromString(
+      config_options_, MockFilterPolicy::kClassName(), &result));
+
+  ASSERT_OK(FilterPolicy::CreateFromString(config_options_, "", &result));
+  ASSERT_EQ(result, nullptr);
+  ASSERT_OK(FilterPolicy::CreateFromString(
+      config_options_, ReadOnlyBuiltinFilterPolicy::kClassName(), &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_STREQ(result->Name(), ReadOnlyBuiltinFilterPolicy::kClassName());
+
+#ifndef ROCKSDB_LITE
+  std::string table_opts = "id=BlockBasedTable; filter_policy=";
+  ASSERT_OK(TableFactory::CreateFromString(config_options_,
+                                           table_opts + "nullptr", &table));
+  ASSERT_NE(table.get(), nullptr);
+  auto bbto = table->GetOptions<BlockBasedTableOptions>();
+  ASSERT_NE(bbto, nullptr);
+  ASSERT_EQ(bbto->filter_policy.get(), nullptr);
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options_, table_opts + ReadOnlyBuiltinFilterPolicy::kClassName(),
+      &table));
+  bbto = table->GetOptions<BlockBasedTableOptions>();
+  ASSERT_NE(bbto, nullptr);
+  ASSERT_NE(bbto->filter_policy.get(), nullptr);
+  ASSERT_STREQ(bbto->filter_policy->Name(),
+               ReadOnlyBuiltinFilterPolicy::kClassName());
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options_, table_opts + MockFilterPolicy::kClassName(), &table));
+  bbto = table->GetOptions<BlockBasedTableOptions>();
+  ASSERT_NE(bbto, nullptr);
+  ASSERT_EQ(bbto->filter_policy.get(), nullptr);
+  if (RegisterTests("Test")) {
+    ASSERT_OK(FilterPolicy::CreateFromString(
+        config_options_, MockFilterPolicy::kClassName(), &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), MockFilterPolicy::kClassName());
+    ASSERT_OK(TableFactory::CreateFromString(
+        config_options_, table_opts + MockFilterPolicy::kClassName(), &table));
+    bbto = table->GetOptions<BlockBasedTableOptions>();
+    ASSERT_NE(bbto, nullptr);
+    ASSERT_NE(bbto->filter_policy.get(), nullptr);
+    ASSERT_STREQ(bbto->filter_policy->Name(), MockFilterPolicy::kClassName());
   }
 #endif  // ROCKSDB_LITE
 }

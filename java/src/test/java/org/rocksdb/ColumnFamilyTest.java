@@ -579,31 +579,4 @@ public class ColumnFamilyTest {
       assertTrue(cf2.isOwningHandle());
     }
   }
-
-  @Test
-  @Deprecated
-  /**
-   * @deprecated Now explicitly closing instances of ColumnFamilyHandle is not required.
-   *     RocksDB instance will take care of closing its associated ColumnFamilyHandle objects.
-   */
-  public void testColumnFamilyCloseBeforeDb() throws RocksDBException {
-    final List<ColumnFamilyDescriptor> cfNames =
-        Arrays.asList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
-            new ColumnFamilyDescriptor("new_cf".getBytes()));
-    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
-
-    try (final DBOptions options =
-             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
-         final RocksDB db = RocksDB.open(
-             options, dbFolder.getRoot().getAbsolutePath(), cfNames, columnFamilyHandleList)) {
-      try {
-        db.put("testKey".getBytes(), "tstValue".getBytes());
-        // Do something...
-      } finally {
-        for (final ColumnFamilyHandle columnFamilyHandle : columnFamilyHandleList) {
-          columnFamilyHandle.close();
-        }
-      }
-    }
-  }
 }

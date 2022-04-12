@@ -67,8 +67,7 @@ class CompactionJob {
       int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
       const MutableDBOptions& mutable_db_options,
       const FileOptions& file_options, VersionSet* versions,
-      const std::atomic<bool>* shutting_down,
-      const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
+      const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
       FSDirectory* db_directory, FSDirectory* output_directory,
       FSDirectory* blob_output_directory, Statistics* stats,
       InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
@@ -82,7 +81,7 @@ class CompactionJob {
       const std::atomic<int>* manual_compaction_paused = nullptr,
       const std::atomic<bool>* manual_compaction_canceled = nullptr,
       const std::string& db_id = "", const std::string& db_session_id = "",
-      std::string full_history_ts_low = "",
+      std::string full_history_ts_low = "", std::string trim_ts = "",
       BlobFileCompletionCallback* blob_callback = nullptr);
 
   virtual ~CompactionJob();
@@ -167,6 +166,16 @@ class CompactionJob {
   void UpdateCompactionInputStatsHelper(
       int* num_files, uint64_t* bytes_read, int input_level);
 
+#ifndef ROCKSDB_LITE
+  void BuildSubcompactionJobInfo(
+      SubcompactionState* sub_compact,
+      SubcompactionJobInfo* subcompaction_job_info) const;
+#endif  // ROCKSDB_LITE
+
+  void NotifyOnSubcompactionBegin(SubcompactionState* sub_compact);
+
+  void NotifyOnSubcompactionCompleted(SubcompactionState* sub_compact);
+
   uint32_t job_id_;
 
   CompactionJobStats* compaction_job_stats_;
@@ -186,7 +195,6 @@ class CompactionJob {
   const std::atomic<bool>* shutting_down_;
   const std::atomic<int>* manual_compaction_paused_;
   const std::atomic<bool>* manual_compaction_canceled_;
-  const SequenceNumber preserve_deletes_seqnum_;
   FSDirectory* db_directory_;
   FSDirectory* blob_output_directory_;
   InstrumentedMutex* db_mutex_;
@@ -216,6 +224,7 @@ class CompactionJob {
   std::vector<uint64_t> sizes_;
   Env::Priority thread_pri_;
   std::string full_history_ts_low_;
+  std::string trim_ts_;
   BlobFileCompletionCallback* blob_callback_;
 
   uint64_t GetCompactionId(SubcompactionState* sub_compact);

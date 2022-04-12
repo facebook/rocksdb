@@ -16,7 +16,7 @@ class BlockPrefetcher {
       : compaction_readahead_size_(compaction_readahead_size) {}
   void PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
                         const BlockHandle& handle, size_t readahead_size,
-                        bool is_for_compaction);
+                        bool is_for_compaction, bool async_io);
   FilePrefetchBuffer* prefetch_buffer() { return prefetch_buffer_.get(); }
 
   void UpdateReadPattern(const uint64_t& offset, const size_t& len) {

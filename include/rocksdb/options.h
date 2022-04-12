@@ -65,6 +65,10 @@ using FileTypeSet = SmallEnumSet<FileType, FileType::kBlobFile>;
 struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // The function recovers options to a previous version. Only 4.6 or later
   // versions are supported.
+  // NOT MAINTAINED: This function has not been and is not maintained.
+  // DEPRECATED: This function might be removed in a future release.
+  // In general, defaults are changed to suit broad interests. Opting
+  // out of a change on upgrade should be deliberate and considered.
   ColumnFamilyOptions* OldDefaults(int rocksdb_major_version = 4,
                                    int rocksdb_minor_version = 6);
 
@@ -406,42 +410,20 @@ class CompactionService : public Customizable {
   // Returns the name of this compaction service.
   const char* Name() const override = 0;
 
-  // Start the compaction with input information, which can be passed to
-  // `DB::OpenAndCompact()`.
-  // job_id is pre-assigned, it will be reset after DB re-open.
-  // Warning: deprecated, please use the new interface
-  // `StartV2(CompactionServiceJobInfo, ...)` instead.
-  virtual CompactionServiceJobStatus Start(
-      const std::string& /*compaction_service_input*/, uint64_t /*job_id*/) {
-    return CompactionServiceJobStatus::kUseLocal;
-  }
-
   // Start the remote compaction with `compaction_service_input`, which can be
   // passed to `DB::OpenAndCompact()` on the remote side. `info` provides the
   // information the user might want to know, which includes `job_id`.
   virtual CompactionServiceJobStatus StartV2(
-      const CompactionServiceJobInfo& info,
-      const std::string& compaction_service_input) {
-    // Default implementation to call legacy interface, please override and
-    // replace the legacy implementation
-    return Start(compaction_service_input, info.job_id);
-  }
-
-  // Wait compaction to be finish.
-  // Warning: deprecated, please use the new interface
-  // `WaitForCompleteV2(CompactionServiceJobInfo, ...)` instead.
-  virtual CompactionServiceJobStatus WaitForComplete(
-      uint64_t /*job_id*/, std::string* /*compaction_service_result*/) {
+      const CompactionServiceJobInfo& /*info*/,
+      const std::string& /*compaction_service_input*/) {
     return CompactionServiceJobStatus::kUseLocal;
   }
 
   // Wait for remote compaction to finish.
   virtual CompactionServiceJobStatus WaitForCompleteV2(
-      const CompactionServiceJobInfo& info,
-      std::string* compaction_service_result) {
-    // Default implementation to call legacy interface, please override and
-    // replace the legacy implementation
-    return WaitForComplete(info.job_id, compaction_service_result);
+      const CompactionServiceJobInfo& /*info*/,
+      std::string* /*compaction_service_result*/) {
+    return CompactionServiceJobStatus::kUseLocal;
   }
 
   ~CompactionService() override = default;
@@ -449,6 +431,10 @@ class CompactionService : public Customizable {
 
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
+  // NOT MAINTAINED: This function has not been and is not maintained.
+  // DEPRECATED: This function might be removed in a future release.
+  // In general, defaults are changed to suit broad interests. Opting
+  // out of a change on upgrade should be deliberate and considered.
   DBOptions* OldDefaults(int rocksdb_major_version = 4,
                          int rocksdb_minor_version = 6);
 
@@ -513,9 +499,21 @@ struct DBOptions {
   // Default: Env::Default()
   Env* env = Env::Default();
 
-  // Use to control write/read rate of flush and compaction. Flush has higher
-  // priority than compaction. Rate limiting is disabled if nullptr.
-  // If rate limiter is enabled, bytes_per_sync is set to 1MB by default.
+  // Limits internal file read/write bandwidth:
+  //
+  // - Flush requests write bandwidth at `Env::IOPriority::IO_HIGH`
+  // - Compaction requests read and write bandwidth at
+  //   `Env::IOPriority::IO_LOW`
+  // - Reads associated with a `ReadOptions` can be charged at
+  //   `ReadOptions::rate_limiter_priority` (see that option's API doc for usage
+  //   and limitations).
+  // - Writes associated with a `WriteOptions` can be charged at
+  //   `WriteOptions::rate_limiter_priority` (see that option's API doc for
+  //   usage and limitations).
+  //
+  // Rate limiting is disabled if nullptr. If rate limiter is enabled,
+  // bytes_per_sync is set to 1MB by default.
+  //
   // Default: nullptr
   std::shared_ptr<RateLimiter> rate_limiter = nullptr;
 
@@ -552,6 +550,10 @@ struct DBOptions {
   // files opened are always kept open. You can estimate number of files based
   // on target_file_size_base and target_file_size_multiplier for level-based
   // compaction. For universal-style compaction, you can usually set it to -1.
+  //
+  // A high value or -1 for this option can cause high memory usage.
+  // See BlockBasedTableOptions::reserve_table_reader_memory to constrain
+  // memory usage in case of block based table format.
   //
   // Default: -1
   //
@@ -1195,7 +1197,8 @@ struct DBOptions {
 
   // This feature is WORK IN PROGRESS
   // If enabled WAL records will be compressed before they are written.
-  // Only zstd is supported.
+  // Only zstd is supported. Compressed WAL records will be read in supported
+  // versions regardless of the wal_compression settings.
   CompressionType wal_compression = kNoCompression;
 
   // If true, RocksDB supports flushing multiple column families and committing
@@ -1582,6 +1585,35 @@ struct ReadOptions {
   // Default: false
   bool adaptive_readahead;
 
+  // For file reads associated with this option, charge the internal rate
+  // limiter (see `DBOptions::rate_limiter`) at the specified priority. The
+  // special value `Env::IO_TOTAL` disables charging the rate limiter.
+  //
+  // The rate limiting is bypassed no matter this option's value for file reads
+  // on plain tables (these can exist when `ColumnFamilyOptions::table_factory`
+  // is a `PlainTableFactory`) and cuckoo tables (these can exist when
+  // `ColumnFamilyOptions::table_factory` is a `CuckooTableFactory`).
+  //
+  // The new `DB::MultiGet()` APIs (i.e., the ones returning `void`) will return
+  // `Status::NotSupported` when that operation requires file read(s) and
+  // `rate_limiter_priority != Env::IO_TOTAL`.
+  //
+  // The bytes charged to rate limiter may not exactly match the file read bytes
+  // since there are some seemingly insignificant reads, like for file
+  // headers/footers, that we currently do not charge to rate limiter.
+  //
+  // Default: `Env::IO_TOTAL`.
+  Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
+
+  // Experimental
+  //
+  // If async_io is enabled, RocksDB will prefetch some of data asynchronously.
+  // RocksDB apply it if reads are sequential and its internal automatic
+  // prefetching.
+  //
+  // Default: false
+  bool async_io;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };
@@ -1643,13 +1675,29 @@ struct WriteOptions {
   // Default: false
   bool memtable_insert_hint_per_batch;
 
+  // For writes associated with this option, charge the internal rate
+  // limiter (see `DBOptions::rate_limiter`) at the specified priority. The
+  // special value `Env::IO_TOTAL` disables charging the rate limiter.
+  //
+  // Currently the support covers automatic WAL flushes, which happen during
+  // live updates (`Put()`, `Write()`, `Delete()`, etc.)
+  // when `WriteOptions::disableWAL == false`
+  // and `DBOptions::manual_wal_flush == false`.
+  //
+  // Only `Env::IO_USER` and `Env::IO_TOTAL` are allowed
+  // due to implementation constraints.
+  //
+  // Default: `Env::IO_TOTAL`
+  Env::IOPriority rate_limiter_priority;
+
   WriteOptions()
       : sync(false),
         disableWAL(false),
         ignore_missing_column_families(false),
         no_slowdown(false),
         low_pri(false),
-        memtable_insert_hint_per_batch(false) {}
+        memtable_insert_hint_per_batch(false),
+        rate_limiter_priority(Env::IO_TOTAL) {}
 };
 
 // Options that control flush operations

@@ -2297,11 +2297,6 @@ void rocksdb_block_based_options_set_data_block_hash_ratio(
   options->rep.data_block_hash_table_util_ratio = v;
 }
 
-void rocksdb_block_based_options_set_hash_index_allow_collision(
-    rocksdb_block_based_table_options_t* options, unsigned char v) {
-  options->rep.hash_index_allow_collision = v;
-}
-
 void rocksdb_block_based_options_set_cache_index_and_filter_blocks(
     rocksdb_block_based_table_options_t* options, unsigned char v) {
   options->rep.cache_index_and_filter_blocks = v;
@@ -3757,6 +3752,9 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(
     const FilterPolicy* rep_;
     ~Wrapper() override { delete rep_; }
     const char* Name() const override { return rep_->Name(); }
+    const char* CompatibilityName() const override {
+      return rep_->CompatibilityName();
+    }
     // No need to override GetFilterBitsBuilder if this one is overridden
     ROCKSDB_NAMESPACE::FilterBitsBuilder* GetBuilderWithContext(
         const ROCKSDB_NAMESPACE::FilterBuildingContext& context)
@@ -3794,6 +3792,9 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon_format(
     const FilterPolicy* rep_;
     ~Wrapper() override { delete rep_; }
     const char* Name() const override { return rep_->Name(); }
+    const char* CompatibilityName() const override {
+      return rep_->CompatibilityName();
+    }
     ROCKSDB_NAMESPACE::FilterBitsBuilder* GetBuilderWithContext(
         const ROCKSDB_NAMESPACE::FilterBuildingContext& context)
         const override {
@@ -4319,6 +4320,11 @@ rocksdb_sstfilewriter_t* rocksdb_sstfilewriter_create(
   rocksdb_sstfilewriter_t* writer = new rocksdb_sstfilewriter_t;
   writer->rep = new SstFileWriter(env->rep, io_options->rep);
   return writer;
+}
+
+void rocksdb_create_dir_if_missing(rocksdb_env_t* env, const char* path,
+                                   char** errptr) {
+  SaveError(errptr, env->rep->CreateDirIfMissing(std::string(path)));
 }
 
 rocksdb_sstfilewriter_t* rocksdb_sstfilewriter_create_with_comparator(

@@ -11,7 +11,9 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <memory>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -50,6 +52,7 @@
 #include "table/block_based/block_prefix_index.h"
 #include "table/block_based/block_type.h"
 #include "table/block_based/filter_block.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/hash_index_reader.h"
 #include "table/block_based/partitioned_filter_block.h"
@@ -119,7 +122,7 @@ Status ReadBlockFromFile(
 void ReleaseCachedEntry(void* arg, void* h) {
   Cache* cache = reinterpret_cast<Cache*>(arg);
   Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
-  cache->Release(handle, false /* force_erase */);
+  cache->Release(handle, false /* erase_if_last_ref */);
 }
 
 // For hash based index, return false if table_properties->prefix_extractor_name
@@ -550,6 +553,7 @@ Status BlockBasedTable::Open(
     const InternalKeyComparator& internal_comparator,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table_reader,
+    std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr,
     const std::shared_ptr<const SliceTransform>& prefix_extractor,
     const bool prefetch_index_and_filter_in_cache, const bool skip_filters,
     const int level, const bool immortal_table,
@@ -621,8 +625,6 @@ Status BlockBasedTable::Open(
                                       file_size, level, immortal_table);
   rep->file = std::move(file);
   rep->footer = footer;
-  rep->hash_index_allow_collision = table_options.hash_index_allow_collision;
-
   // We've successfully read the footer. We are ready to serve requests.
   // Better not mutate rep_ after the creation. eg. internal_prefix_transform
   // raw pointer will be used to create HashIndexReader, whose reset may
@@ -715,10 +717,22 @@ Status BlockBasedTable::Open(
       tail_prefetch_stats->RecordEffectiveSize(
           static_cast<size_t>(file_size) - prefetch_buffer->min_offset_read());
     }
-
-    *table_reader = std::move(new_table);
   }
 
+  if (s.ok() && table_reader_cache_res_mgr) {
+    std::size_t mem_usage = new_table->ApproximateMemoryUsage();
+    s = table_reader_cache_res_mgr->MakeCacheReservation(
+        mem_usage, &(rep->table_reader_cache_res_handle));
+    if (s.IsIncomplete()) {
+      s = Status::MemoryLimit(
+          "Can't allocate BlockBasedTableReader due to memory limit based on "
+          "cache capacity for memory allocation");
+    }
+  }
+
+  if (s.ok()) {
+    *table_reader = std::move(new_table);
+  }
   return s;
 }
 
@@ -771,7 +785,9 @@ Status BlockBasedTable::PrefetchTail(
   IOOptions opts;
   Status s = file->PrepareIOOptions(ro, opts);
   if (s.ok()) {
-    s = (*prefetch_buffer)->Prefetch(opts, file, prefetch_off, prefetch_len);
+    s = (*prefetch_buffer)
+            ->Prefetch(opts, file, prefetch_off, prefetch_len,
+                       ro.rate_limiter_priority);
   }
   return s;
 }
@@ -897,33 +913,59 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     const BlockBasedTableOptions& table_options, const int level,
     size_t file_size, size_t max_file_size_for_l0_meta_pin,
     BlockCacheLookupContext* lookup_context) {
-  Status s;
-
   // Find filter handle and filter type
   if (rep_->filter_policy) {
-    for (auto filter_type :
-         {Rep::FilterType::kFullFilter, Rep::FilterType::kPartitionedFilter,
-          Rep::FilterType::kBlockFilter}) {
-      std::string prefix;
-      switch (filter_type) {
-        case Rep::FilterType::kFullFilter:
-          prefix = kFullFilterBlockPrefix;
+    auto name = rep_->filter_policy->CompatibilityName();
+    bool builtin_compatible =
+        strcmp(name, BuiltinFilterPolicy::kCompatibilityName()) == 0;
+
+    for (const auto& [filter_type, prefix] :
+         {std::make_pair(Rep::FilterType::kFullFilter, kFullFilterBlockPrefix),
+          std::make_pair(Rep::FilterType::kPartitionedFilter,
+                         kPartitionedFilterBlockPrefix),
+          std::make_pair(Rep::FilterType::kBlockFilter, kFilterBlockPrefix)}) {
+      if (builtin_compatible) {
+        // This code is only here to deal with a hiccup in early 7.0.x where
+        // there was an unintentional name change in the SST files metadata.
+        // It should be OK to remove this in the future (late 2022) and just
+        // have the 'else' code.
+        // NOTE: the test:: names below are likely not needed but included
+        // out of caution
+        static const std::unordered_set<std::string> kBuiltinNameAndAliases = {
+            BuiltinFilterPolicy::kCompatibilityName(),
+            test::LegacyBloomFilterPolicy::kClassName(),
+            test::FastLocalBloomFilterPolicy::kClassName(),
+            test::Standard128RibbonFilterPolicy::kClassName(),
+            DeprecatedBlockBasedBloomFilterPolicy::kClassName(),
+            BloomFilterPolicy::kClassName(),
+            RibbonFilterPolicy::kClassName(),
+        };
+
+        // For efficiency, do a prefix seek and see if the first match is
+        // good.
+        meta_iter->Seek(prefix);
+        if (meta_iter->status().ok() && meta_iter->Valid()) {
+          Slice key = meta_iter->key();
+          if (key.starts_with(prefix)) {
+            key.remove_prefix(prefix.size());
+            if (kBuiltinNameAndAliases.find(key.ToString()) !=
+                kBuiltinNameAndAliases.end()) {
+              Slice v = meta_iter->value();
+              Status s = rep_->filter_handle.DecodeFrom(&v);
+              if (s.ok()) {
+                rep_->filter_type = filter_type;
+                break;
+              }
+            }
+          }
+        }
+      } else {
+        std::string filter_block_key = prefix + name;
+        if (FindMetaBlock(meta_iter, filter_block_key, &rep_->filter_handle)
+                .ok()) {
+          rep_->filter_type = filter_type;
           break;
-        case Rep::FilterType::kPartitionedFilter:
-          prefix = kPartitionedFilterBlockPrefix;
-          break;
-        case Rep::FilterType::kBlockFilter:
-          prefix = kFilterBlockPrefix;
-          break;
-        default:
-          assert(0);
-      }
-      std::string filter_block_key = prefix;
-      filter_block_key.append(rep_->filter_policy->Name());
-      if (FindMetaBlock(meta_iter, filter_block_key, &rep_->filter_handle)
-              .ok()) {
-        rep_->filter_type = filter_type;
-        break;
+        }
       }
     }
   }
@@ -932,8 +974,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
          rep_->index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
 
   // Find compression dictionary handle
-  s = FindOptionalMetaBlock(meta_iter, kCompressionDictBlockName,
-                            &rep_->compression_dict_handle);
+  Status s = FindOptionalMetaBlock(meta_iter, kCompressionDictBlockName,
+                                   &rep_->compression_dict_handle);
   if (!s.ok()) {
     return s;
   }
@@ -1080,6 +1122,11 @@ std::shared_ptr<const TableProperties> BlockBasedTable::GetTableProperties()
 
 size_t BlockBasedTable::ApproximateMemoryUsage() const {
   size_t usage = 0;
+  if (rep_) {
+    usage += rep_->ApproximateMemoryUsage();
+  } else {
+    return usage;
+  }
   if (rep_->filter) {
     usage += rep_->filter->ApproximateMemoryUsage();
   }
@@ -1088,6 +1135,9 @@ size_t BlockBasedTable::ApproximateMemoryUsage() const {
   }
   if (rep_->uncompression_dict_reader) {
     usage += rep_->uncompression_dict_reader->ApproximateMemoryUsage();
+  }
+  if (rep_->table_properties) {
+    usage += rep_->table_properties->ApproximateMemoryUsage();
   }
   return usage;
 }
@@ -1437,9 +1487,10 @@ template <typename TBlocklike>
 Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
-    const bool wait, CachableEntry<TBlocklike>* block_entry,
-    BlockType block_type, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context, BlockContents* contents) const {
+    const bool wait, const bool for_compaction,
+    CachableEntry<TBlocklike>* block_entry, BlockType block_type,
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
+    BlockContents* contents) const {
   assert(block_entry != nullptr);
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   Cache* block_cache = rep_->table_options.block_cache.get();
@@ -1472,9 +1523,9 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
           // Update the block details so that PrefetchBuffer can use the read
           // pattern to determine if reads are sequential or not for
           // prefetching. It should also take in account blocks read from cache.
-          prefetch_buffer->UpdateReadPattern(handle.offset(),
-                                             BlockSizeWithTrailer(handle),
-                                             ro.adaptive_readahead);
+          prefetch_buffer->UpdateReadPattern(
+              handle.offset(), BlockSizeWithTrailer(handle),
+              ro.adaptive_readahead /*decrease_readahead_size*/);
         }
       }
     }
@@ -1492,7 +1543,9 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
       CompressionType raw_block_comp_type;
       BlockContents raw_block_contents;
       if (!contents) {
-        StopWatch sw(rep_->ioptions.clock, statistics, READ_BLOCK_GET_MICROS);
+        Histograms histogram = for_compaction ? READ_BLOCK_COMPACTION_MICROS
+                                              : READ_BLOCK_GET_MICROS;
+        StopWatch sw(rep_->ioptions.clock, statistics, histogram);
         BlockFetcher block_fetcher(
             rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle,
             &raw_block_contents, rep_->ioptions, do_uncompress,
@@ -1730,8 +1783,8 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     IOOptions opts;
     IOStatus s = file->PrepareIOOptions(options, opts);
     if (s.ok()) {
-      s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(),
-                          &direct_io_buf);
+      s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(), &direct_io_buf,
+                          options.rate_limiter_priority);
     }
     if (!s.ok()) {
       // Discard all the results in this batch if there is any time out
@@ -1850,8 +1903,9 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         // avoid looking up the block cache
         s = MaybeReadBlockAndLoadToCache(
             nullptr, options, handle, uncompression_dict, /*wait=*/true,
-            block_entry, BlockType::kData, mget_iter->get_context,
-            &lookup_data_block_context, &raw_block_contents);
+            /*for_compaction=*/false, block_entry, BlockType::kData,
+            mget_iter->get_context, &lookup_data_block_context,
+            &raw_block_contents);
 
         // block_entry value could be null if no block cache is present, i.e
         // BlockBasedTableOptions::no_block_cache is true and no compressed
@@ -1905,7 +1959,7 @@ Status BlockBasedTable::RetrieveBlock(
   if (use_cache) {
     s = MaybeReadBlockAndLoadToCache(
         prefetch_buffer, ro, handle, uncompression_dict, wait_for_cache,
-        block_entry, block_type, get_context, lookup_context,
+        for_compaction, block_entry, block_type, get_context, lookup_context,
         /*contents=*/nullptr);
 
     if (!s.ok()) {
@@ -1934,8 +1988,9 @@ Status BlockBasedTable::RetrieveBlock(
   std::unique_ptr<TBlocklike> block;
 
   {
-    StopWatch sw(rep_->ioptions.clock, rep_->ioptions.stats,
-                 READ_BLOCK_GET_MICROS);
+    Histograms histogram =
+        for_compaction ? READ_BLOCK_COMPACTION_MICROS : READ_BLOCK_GET_MICROS;
+    StopWatch sw(rep_->ioptions.clock, rep_->ioptions.stats, histogram);
     s = ReadBlockFromFile(
         rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle, &block,
         rep_->ioptions, do_uncompress, maybe_compressed, block_type,
@@ -2564,6 +2619,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           uncompression_dict_status =
               rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
                   nullptr /* prefetch_buffer */, no_io,
+                  read_options.verify_checksums,
                   sst_file_range.begin()->get_context, &lookup_context,
                   &uncompression_dict);
           uncompression_dict_inited = true;
@@ -2981,7 +3037,7 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
     BlockHandle handle = index_iter->value().handle;
     BlockContents contents;
     BlockFetcher block_fetcher(
-        rep_->file.get(), &prefetch_buffer, rep_->footer, ReadOptions(), handle,
+        rep_->file.get(), &prefetch_buffer, rep_->footer, read_options, handle,
         &contents, rep_->ioptions, false /* decompress */,
         false /*maybe_compressed*/, BlockType::kData,
         UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options);
@@ -3156,6 +3212,7 @@ Status BlockBasedTable::CreateIndexReader(
 uint64_t BlockBasedTable::ApproximateDataOffsetOf(
     const InternalIteratorBase<IndexValue>& index_iter,
     uint64_t data_size) const {
+  assert(index_iter.status().ok());
   if (index_iter.Valid()) {
     BlockHandle handle = index_iter.value().handle;
     return handle.offset();
@@ -3198,8 +3255,16 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
   }
 
   index_iter->Seek(key);
+  uint64_t offset;
+  if (index_iter->status().ok()) {
+    offset = ApproximateDataOffsetOf(*index_iter, data_size);
+  } else {
+    // Split in half to avoid skewing one way or another,
+    // since we don't know whether we're operating on lower bound or
+    // upper bound.
+    return rep_->file_size / 2;
+  }
 
-  uint64_t offset = ApproximateDataOffsetOf(*index_iter, data_size);
   // Pro-rate file metadata (incl filters) size-proportionally across data
   // blocks.
   double size_ratio =
@@ -3215,7 +3280,9 @@ uint64_t BlockBasedTable::ApproximateSize(const Slice& start, const Slice& end,
   uint64_t data_size = GetApproximateDataSize();
   if (UNLIKELY(data_size == 0)) {
     // Hmm. Assume whole file is involved, since we have lower and upper
-    // bound.
+    // bound. This likely skews the estimate if we consider that this function
+    // is typically called with `[start, end]` fully contained in the file's
+    // key-range.
     return rep_->file_size;
   }
 
@@ -3233,9 +3300,24 @@ uint64_t BlockBasedTable::ApproximateSize(const Slice& start, const Slice& end,
   }
 
   index_iter->Seek(start);
-  uint64_t start_offset = ApproximateDataOffsetOf(*index_iter, data_size);
+  uint64_t start_offset;
+  if (index_iter->status().ok()) {
+    start_offset = ApproximateDataOffsetOf(*index_iter, data_size);
+  } else {
+    // Assume file is involved from the start. This likely skews the estimate
+    // but is consistent with the above error handling.
+    start_offset = 0;
+  }
+
   index_iter->Seek(end);
-  uint64_t end_offset = ApproximateDataOffsetOf(*index_iter, data_size);
+  uint64_t end_offset;
+  if (index_iter->status().ok()) {
+    end_offset = ApproximateDataOffsetOf(*index_iter, data_size);
+  } else {
+    // Assume file is involved until the end. This likely skews the estimate
+    // but is consistent with the above error handling.
+    end_offset = data_size;
+  }
 
   assert(end_offset >= start_offset);
   // Pro-rate file metadata (incl filters) size-proportionally across data
@@ -3383,6 +3465,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
     CachableEntry<UncompressionDict> uncompression_dict;
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
         nullptr /* prefetch_buffer */, false /* no_io */,
+        false, /* verify_checksums */
         nullptr /* get_context */, nullptr /* lookup_context */,
         &uncompression_dict);
     if (!s.ok()) {

@@ -21,9 +21,13 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   ret.append("commands MUST specify --" + LDBCommand::ARG_DB +
              "=<full_path_to_db_directory> when necessary\n");
   ret.append("\n");
-  ret.append("commands can optionally specify --" + LDBCommand::ARG_ENV_URI +
-             "=<uri_of_environment> or --" + LDBCommand::ARG_FS_URI +
-             "=<uri_of_filesystem> if necessary\n\n");
+  ret.append("commands can optionally specify\n");
+  ret.append("  --" + LDBCommand::ARG_ENV_URI + "=<uri_of_environment> or --" +
+             LDBCommand::ARG_FS_URI + "=<uri_of_filesystem> if necessary");
+  ret.append("\n");
+  ret.append("  --" + LDBCommand::ARG_SECONDARY_PATH +
+             "=<secondary_path> to open DB as secondary instance. Operations "
+             "not supported in secondary instance will fail.\n\n");
   ret.append(
       "The following optional parameters control if keys/values are "
       "input/output as hex or as plain strings:\n");
@@ -64,6 +68,20 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   ret.append("  --" + LDBCommand::ARG_WRITE_BUFFER_SIZE +
              "=<int,e.g.:4194304>\n");
   ret.append("  --" + LDBCommand::ARG_FILE_SIZE + "=<int,e.g.:2097152>\n");
+  ret.append("  --" + LDBCommand::ARG_ENABLE_BLOB_FILES +
+             " : Enable key-value separation using BlobDB\n");
+  ret.append("  --" + LDBCommand::ARG_MIN_BLOB_SIZE + "=<int,e.g.:2097152>\n");
+  ret.append("  --" + LDBCommand::ARG_BLOB_FILE_SIZE + "=<int,e.g.:2097152>\n");
+  ret.append("  --" + LDBCommand::ARG_BLOB_COMPRESSION_TYPE +
+             "=<no|snappy|zlib|bzip2|lz4|lz4hc|xpress|zstd>\n");
+  ret.append("  --" + LDBCommand::ARG_ENABLE_BLOB_GARBAGE_COLLECTION +
+             " : Enable blob garbage collection\n");
+  ret.append("  --" + LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF +
+             "=<double,e.g.:0.25>\n");
+  ret.append("  --" + LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD +
+             "=<double,e.g.:0.25>\n");
+  ret.append("  --" + LDBCommand::ARG_BLOB_COMPACTION_READAHEAD_SIZE +
+             "=<int,e.g.:2097152>\n");
 
   ret.append("\n\n");
   ret.append("Data Access Commands:\n");
@@ -87,6 +105,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   DBDumperCommand::Help(ret);
   DBLoaderCommand::Help(ret);
   ManifestDumpCommand::Help(ret);
+  UpdateManifestCommand::Help(ret);
   FileChecksumDumpCommand::Help(ret);
   GetPropertyCommand::Help(ret);
   ListColumnFamiliesCommand::Help(ret);

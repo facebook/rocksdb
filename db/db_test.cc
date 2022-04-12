@@ -1078,6 +1078,11 @@ void CheckColumnFamilyMeta(
       ASSERT_LE(file_meta_from_cf.file_creation_time, end_time);
       ASSERT_GE(file_meta_from_cf.oldest_ancester_time, start_time);
       ASSERT_LE(file_meta_from_cf.oldest_ancester_time, end_time);
+      // More from FileStorageInfo
+      ASSERT_EQ(file_meta_from_cf.file_type, kTableFile);
+      ASSERT_EQ(file_meta_from_cf.name,
+                "/" + file_meta_from_cf.relative_filename);
+      ASSERT_EQ(file_meta_from_cf.directory, file_meta_from_cf.db_path);
     }
 
     ASSERT_EQ(level_meta_from_cf.size, level_size);
@@ -1121,6 +1126,11 @@ void CheckLiveFilesMeta(
     ASSERT_EQ(meta.largestkey, expected_meta.largest.user_key().ToString());
     ASSERT_EQ(meta.oldest_blob_file_number,
               expected_meta.oldest_blob_file_number);
+
+    // More from FileStorageInfo
+    ASSERT_EQ(meta.file_type, kTableFile);
+    ASSERT_EQ(meta.name, "/" + meta.relative_filename);
+    ASSERT_EQ(meta.directory, meta.db_path);
 
     ++i;
   }

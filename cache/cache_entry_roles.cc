@@ -21,6 +21,7 @@ std::array<const char*, kNumCacheEntryRoles> kCacheEntryRoleToCamelString{{
     "WriteBuffer",
     "CompressionDictionaryBuildingBuffer",
     "FilterConstruction",
+    "BlockBasedTableReader",
     "Misc",
 }};
 
@@ -34,6 +35,7 @@ std::array<const char*, kNumCacheEntryRoles> kCacheEntryRoleToHyphenString{{
     "write-buffer",
     "compression-dictionary-building-buffer",
     "filter-construction",
+    "block-based-table-reader",
     "misc",
 }};
 

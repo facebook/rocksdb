@@ -75,7 +75,8 @@ class ObjectLibrary {
       kMatchZeroOrMore,  // [suffix].*
       kMatchAtLeastOne,  // [suffix].+
       kMatchExact,       // [suffix]
-      kMatchNumeric,     // [suffix][0-9]+
+      kMatchInteger,     // [suffix][0-9]+
+      kMatchDecimal,     // [suffix][0-9]+[.][0-9]+
     };
 
    public:
@@ -123,8 +124,9 @@ class ObjectLibrary {
 
     // Adds a separator (exact match of separator with trailing numbers) to the
     // entry
-    PatternEntry& AddNumber(const std::string& separator) {
-      separators_.emplace_back(separator, kMatchNumeric);
+    PatternEntry& AddNumber(const std::string& separator, bool is_int = true) {
+      separators_.emplace_back(separator,
+                               (is_int) ? kMatchInteger : kMatchDecimal);
       slength_ += separator.size() + 1;
       return *this;
     }
@@ -278,6 +280,7 @@ class ObjectRegistry {
   static std::shared_ptr<ObjectRegistry> Default();
   explicit ObjectRegistry(const std::shared_ptr<ObjectRegistry>& parent)
       : parent_(parent) {}
+  explicit ObjectRegistry(const std::shared_ptr<ObjectLibrary>& library);
 
   std::shared_ptr<ObjectLibrary> AddLibrary(const std::string& id) {
     auto library = std::make_shared<ObjectLibrary>(id);
@@ -296,29 +299,31 @@ class ObjectRegistry {
     library->Register(registrar, arg);
   }
 
-  // Creates a new T using the factory function that was registered for this
-  // target.  Searches through the libraries to find the first library where
-  // there is an entry that matches target (see PatternEntry for the matching
-  // rules).
-  //
-  // If no registered functions match, returns nullptr. If multiple functions
-  // match, the factory function used is unspecified.
-  //
-  // Populates guard with result pointer if caller is granted ownership.
-  // Deprecated.  Use NewShared/Static/UniqueObject instead.
+  // Finds the factory for target and instantiates a new T.
+  // Returns NotSupported if no factory is found
+  // Returns InvalidArgument if a factory is found but the factory failed.
   template <typename T>
-  T* NewObject(const std::string& target, std::unique_ptr<T>* guard,
-               std::string* errmsg) {
+  Status NewObject(const std::string& target, T** object,
+                   std::unique_ptr<T>* guard) {
+    assert(guard != nullptr);
     guard->reset();
     auto factory = FindFactory<T>(target);
     if (factory != nullptr) {
-      return factory(target, guard, errmsg);
+      std::string errmsg;
+      *object = factory(target, guard, &errmsg);
+      if (*object != nullptr) {
+        return Status::OK();
+      } else if (errmsg.empty()) {
+        return Status::InvalidArgument(
+            std::string("Could not load ") + T::Type(), target);
+      } else {
+        return Status::InvalidArgument(errmsg, target);
+      }
     } else {
-      *errmsg = std::string("Could not load ") + T::Type();
-      return nullptr;
+      return Status::NotSupported(std::string("Could not load ") + T::Type(),
+                                  target);
     }
   }
-
   // Creates a new unique T using the input factory functions.
   // Returns OK if a new unique T was successfully created
   // Returns NotSupported if the type/target could not be created
@@ -327,11 +332,13 @@ class ObjectRegistry {
   template <typename T>
   Status NewUniqueObject(const std::string& target,
                          std::unique_ptr<T>* result) {
-    std::string errmsg;
-    T* ptr = NewObject(target, result, &errmsg);
-    if (ptr == nullptr) {
-      return Status::NotSupported(errmsg, target);
-    } else if (*result) {
+    T* ptr = nullptr;
+    std::unique_ptr<T> guard;
+    Status s = NewObject(target, &ptr, &guard);
+    if (!s.ok()) {
+      return s;
+    } else if (guard) {
+      result->reset(guard.release());
       return Status::OK();
     } else {
       return Status::InvalidArgument(std::string("Cannot make a unique ") +
@@ -348,11 +355,11 @@ class ObjectRegistry {
   template <typename T>
   Status NewSharedObject(const std::string& target,
                          std::shared_ptr<T>* result) {
-    std::string errmsg;
     std::unique_ptr<T> guard;
-    T* ptr = NewObject(target, &guard, &errmsg);
-    if (ptr == nullptr) {
-      return Status::NotSupported(errmsg, target);
+    T* ptr = nullptr;
+    Status s = NewObject(target, &ptr, &guard);
+    if (!s.ok()) {
+      return s;
     } else if (guard) {
       result->reset(guard.release());
       return Status::OK();
@@ -370,11 +377,11 @@ class ObjectRegistry {
   //                      (meaning it is managed by a unique ptr)
   template <typename T>
   Status NewStaticObject(const std::string& target, T** result) {
-    std::string errmsg;
     std::unique_ptr<T> guard;
-    T* ptr = NewObject(target, &guard, &errmsg);
-    if (ptr == nullptr) {
-      return Status::NotSupported(errmsg, target);
+    T* ptr = nullptr;
+    Status s = NewObject(target, &ptr, &guard);
+    if (!s.ok()) {
+      return s;
     } else if (guard.get()) {
       return Status::InvalidArgument(std::string("Cannot make a static ") +
                                          T::Type() + " from a guarded one ",
@@ -493,10 +500,10 @@ class ObjectRegistry {
   // Dump the contents of the registry to the logger
   void Dump(Logger* logger) const;
 
+  // Invokes the input function to retrieve the properties for this plugin.
+  int RegisterPlugin(const std::string& name, const RegistrarFunc& func);
+
  private:
-  explicit ObjectRegistry(const std::shared_ptr<ObjectLibrary>& library) {
-    libraries_.push_back(library);
-  }
   static std::string ToManagedObjectKey(const std::string& type,
                                         const std::string& id) {
     return type + "://" + id;
@@ -542,6 +549,8 @@ class ObjectRegistry {
   // The libraries are searched in reverse order (back to front) when
   // searching for entries.
   std::vector<std::shared_ptr<ObjectLibrary>> libraries_;
+  std::vector<std::string> plugins_;
+  static std::unordered_map<std::string, RegistrarFunc> builtins_;
   std::map<std::string, std::weak_ptr<Customizable>> managed_objects_;
   std::shared_ptr<ObjectRegistry> parent_;
   mutable std::mutex objects_mutex_;  // Mutex for managed objects

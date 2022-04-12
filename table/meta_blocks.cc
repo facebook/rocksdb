@@ -463,14 +463,13 @@ Status FindMetaBlock(InternalIterator* meta_index_iter,
   }
 }
 
-Status FindMetaBlockInFile(RandomAccessFileReader* file, uint64_t file_size,
-                           uint64_t table_magic_number,
-                           const ImmutableOptions& ioptions,
-                           const std::string& meta_block_name,
-                           BlockHandle* block_handle,
-                           MemoryAllocator* memory_allocator,
-                           FilePrefetchBuffer* prefetch_buffer,
-                           Footer* footer_out) {
+Status ReadMetaIndexBlockInFile(RandomAccessFileReader* file,
+                                uint64_t file_size, uint64_t table_magic_number,
+                                const ImmutableOptions& ioptions,
+                                BlockContents* metaindex_contents,
+                                MemoryAllocator* memory_allocator,
+                                FilePrefetchBuffer* prefetch_buffer,
+                                Footer* footer_out) {
   Footer footer;
   IOOptions opts;
   auto s = ReadFooterFromFile(opts, file, prefetch_buffer, file_size, &footer,
@@ -483,13 +482,26 @@ Status FindMetaBlockInFile(RandomAccessFileReader* file, uint64_t file_size,
   }
 
   auto metaindex_handle = footer.metaindex_handle();
+  return BlockFetcher(file, prefetch_buffer, footer, ReadOptions(),
+                      metaindex_handle, metaindex_contents, ioptions,
+                      false /* do decompression */, false /*maybe_compressed*/,
+                      BlockType::kMetaIndex, UncompressionDict::GetEmptyDict(),
+                      PersistentCacheOptions::kEmpty, memory_allocator)
+      .ReadBlockContents();
+}
+
+Status FindMetaBlockInFile(RandomAccessFileReader* file, uint64_t file_size,
+                           uint64_t table_magic_number,
+                           const ImmutableOptions& ioptions,
+                           const std::string& meta_block_name,
+                           BlockHandle* block_handle,
+                           MemoryAllocator* memory_allocator,
+                           FilePrefetchBuffer* prefetch_buffer,
+                           Footer* footer_out) {
   BlockContents metaindex_contents;
-  s = BlockFetcher(file, prefetch_buffer, footer, ReadOptions(),
-                   metaindex_handle, &metaindex_contents, ioptions,
-                   false /* do decompression */, false /*maybe_compressed*/,
-                   BlockType::kMetaIndex, UncompressionDict::GetEmptyDict(),
-                   PersistentCacheOptions::kEmpty, memory_allocator)
-          .ReadBlockContents();
+  auto s = ReadMetaIndexBlockInFile(
+      file, file_size, table_magic_number, ioptions, &metaindex_contents,
+      memory_allocator, prefetch_buffer, footer_out);
   if (!s.ok()) {
     return s;
   }

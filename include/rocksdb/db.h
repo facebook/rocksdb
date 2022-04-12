@@ -161,98 +161,13 @@ class DB {
   static Status Open(const Options& options, const std::string& name,
                      DB** dbptr);
 
-  // Open the database for read only. All DB interfaces
-  // that modify data, like put/delete, will return error.
-  // If the db is opened in read only mode, then no compactions
-  // will happen.
-  //
-  // While a given DB can be simultaneously open via OpenForReadOnly
-  // by any number of readers, if a DB is simultaneously open by Open
-  // and OpenForReadOnly, the read-only instance has undefined behavior
-  // (though can often succeed if quickly closed) and the read-write
-  // instance is unaffected. See also OpenAsSecondary.
-  //
-  // Not supported in ROCKSDB_LITE, in which case the function will
-  // return Status::NotSupported.
-  static Status OpenForReadOnly(const Options& options, const std::string& name,
-                                DB** dbptr,
-                                bool error_if_wal_file_exists = false);
-
-  // Open the database for read only with column families. When opening DB with
-  // read only, you can specify only a subset of column families in the
-  // database that should be opened. However, you always need to specify default
-  // column family. The default column family name is 'default' and it's stored
-  // in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName
-  //
-  // While a given DB can be simultaneously open via OpenForReadOnly
-  // by any number of readers, if a DB is simultaneously open by Open
-  // and OpenForReadOnly, the read-only instance has undefined behavior
-  // (though can often succeed if quickly closed) and the read-write
-  // instance is unaffected. See also OpenAsSecondary.
-  //
-  // Not supported in ROCKSDB_LITE, in which case the function will
-  // return Status::NotSupported.
-  static Status OpenForReadOnly(
-      const DBOptions& db_options, const std::string& name,
-      const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-      bool error_if_wal_file_exists = false);
-
-  // The following OpenAsSecondary functions create a secondary instance that
-  // can dynamically tail the MANIFEST of a primary that must have already been
-  // created. User can call TryCatchUpWithPrimary to make the secondary
-  // instance catch up with primary (WAL tailing is NOT supported now) whenever
-  // the user feels necessary. Column families created by the primary after the
-  // secondary instance starts are currently ignored by the secondary instance.
-  // Column families opened by secondary and dropped by the primary will be
-  // dropped by secondary as well. However the user of the secondary instance
-  // can still access the data of such dropped column family as long as they
-  // do not destroy the corresponding column family handle.
-  // WAL tailing is not supported at present, but will arrive soon.
-  //
-  // The options argument specifies the options to open the secondary instance.
-  // The name argument specifies the name of the primary db that you have used
-  // to open the primary instance.
-  // The secondary_path argument points to a directory where the secondary
-  // instance stores its info log.
-  // The dbptr is an out-arg corresponding to the opened secondary instance.
-  // The pointer points to a heap-allocated database, and the user should
-  // delete it after use.
-  // Open DB as secondary instance with only the default column family.
-  // Return OK on success, non-OK on failures.
-  static Status OpenAsSecondary(const Options& options, const std::string& name,
-                                const std::string& secondary_path, DB** dbptr);
-
-  // Open DB as secondary instance with column families. You can open a subset
-  // of column families in secondary mode.
-  // The db_options specify the database specific options.
-  // The name argument specifies the name of the primary db that you have used
-  // to open the primary instance.
-  // The secondary_path argument points to a directory where the secondary
-  // instance stores its info log.
-  // The column_families argument specifies a list of column families to open.
-  // If any of the column families does not exist, the function returns non-OK
-  // status.
-  // The handles is an out-arg corresponding to the opened database column
-  // family handles.
-  // The dbptr is an out-arg corresponding to the opened secondary instance.
-  // The pointer points to a heap-allocated database, and the caller should
-  // delete it after use. Before deleting the dbptr, the user should also
-  // delete the pointers stored in handles vector.
-  // Return OK on success, on-OK on failures.
-  static Status OpenAsSecondary(
-      const DBOptions& db_options, const std::string& name,
-      const std::string& secondary_path,
-      const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
-
   // Open DB with column families.
   // db_options specify database specific options
   // column_families is the vector of all column families in the database,
   // containing column family name and options. You need to open ALL column
   // families in the database. To get the list of column families, you can use
-  // ListColumnFamilies(). Also, you can open only a subset of column families
-  // for read-only access.
+  // ListColumnFamilies().
+  //
   // The default column family name is 'default' and it's stored
   // in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName.
   // If everything is OK, handles will on return be the same size
@@ -264,6 +179,107 @@ class DB {
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
 
+  // OpenForReadOnly() creates a Read-only instance that supports reads alone.
+  //
+  // All DB interfaces that modify data, like put/delete, will return error.
+  // Automatic Flush and Compactions are disabled and any manual calls
+  // to Flush/Compaction will return error.
+  //
+  // While a given DB can be simultaneously opened via OpenForReadOnly
+  // by any number of readers, if a DB is simultaneously opened by Open
+  // and OpenForReadOnly, the read-only instance has undefined behavior
+  // (though can often succeed if quickly closed) and the read-write
+  // instance is unaffected. See also OpenAsSecondary.
+
+  // Open the database for read only.
+  //
+  // Not supported in ROCKSDB_LITE, in which case the function will
+  // return Status::NotSupported.
+  static Status OpenForReadOnly(const Options& options, const std::string& name,
+                                DB** dbptr,
+                                bool error_if_wal_file_exists = false);
+
+  // Open the database for read only with column families.
+  //
+  // When opening DB with read only, you can specify only a subset of column
+  // families in the database that should be opened. However, you always need
+  // to specify default column family. The default column family name is
+  // 'default' and it's stored in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName
+  //
+  // Not supported in ROCKSDB_LITE, in which case the function will
+  // return Status::NotSupported.
+  static Status OpenForReadOnly(
+      const DBOptions& db_options, const std::string& name,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+      bool error_if_wal_file_exists = false);
+
+  // OpenAsSecondary() creates a secondary instance that supports read-only
+  // operations and supports dynamic catch up with the primary (through a
+  // call to TryCatchUpWithPrimary()).
+  //
+  // All DB interfaces that modify data, like put/delete, will return error.
+  // Automatic Flush and Compactions are disabled and any manual calls
+  // to Flush/Compaction will return error.
+  //
+  // Multiple secondary instances can co-exist at the same time.
+  //
+
+  // Open DB as secondary instance
+  //
+  // The options argument specifies the options to open the secondary instance.
+  // Options.max_open_files should be set to -1.
+  // The name argument specifies the name of the primary db that you have used
+  // to open the primary instance.
+  // The secondary_path argument points to a directory where the secondary
+  // instance stores its info log.
+  // The dbptr is an out-arg corresponding to the opened secondary instance.
+  // The pointer points to a heap-allocated database, and the caller should
+  // delete it after use.
+  //
+  // Return OK on success, non-OK on failures.
+  static Status OpenAsSecondary(const Options& options, const std::string& name,
+                                const std::string& secondary_path, DB** dbptr);
+
+  // Open DB as secondary instance with specified column families
+  //
+  // When opening DB in secondary mode, you can specify only a subset of column
+  // families in the database that should be opened. However, you always need
+  // to specify default column family. The default column family name is
+  // 'default' and it's stored in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName
+  //
+  // Column families created by the primary after the secondary instance starts
+  // are currently ignored by the secondary instance.  Column families opened
+  // by secondary and dropped by the primary will be dropped by secondary as
+  // well (on next invocation of TryCatchUpWithPrimary()). However the user
+  // of the secondary instance can still access the data of such dropped column
+  // family as long as they do not destroy the corresponding column family
+  // handle.
+  //
+  // The options argument specifies the options to open the secondary instance.
+  // Options.max_open_files should be set to -1.
+  // The name argument specifies the name of the primary db that you have used
+  // to open the primary instance.
+  // The secondary_path argument points to a directory where the secondary
+  // instance stores its info log.
+  // The column_families argument specifies a list of column families to open.
+  // If default column family is not specified or if any specified column
+  // families does not exist, the function returns non-OK status.
+  // The handles is an out-arg corresponding to the opened database column
+  // family handles.
+  // The dbptr is an out-arg corresponding to the opened secondary instance.
+  // The pointer points to a heap-allocated database, and the caller should
+  // delete it after use. Before deleting the dbptr, the user should also
+  // delete the pointers stored in handles vector.
+  //
+  // Return OK on success, non-OK on failures.
+  static Status OpenAsSecondary(
+      const DBOptions& db_options, const std::string& name,
+      const std::string& secondary_path,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
+
+
   // Open DB and run the compaction.
   // It's a read-only operation, the result won't be installed to the DB, it
   // will be output to the `output_directory`. The API should only be used with
@@ -273,6 +289,19 @@ class DB {
       const std::string& name, const std::string& output_directory,
       const std::string& input, std::string* output,
       const CompactionServiceOptionsOverride& override_options);
+
+  // Experimental and subject to change
+  // Open DB and trim data newer than specified timestamp.
+  // The trim_ts specified the user-defined timestamp trim bound.
+  // This API should only be used at timestamp enabled column families recovery.
+  // If some input column families do not support timestamp, nothing will
+  // be happened to them. The data with timestamp > trim_ts
+  // will be removed after this API returns successfully.
+  static Status OpenAndTrimHistory(
+      const DBOptions& db_options, const std::string& dbname,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+      std::string trim_ts);
 
   virtual Status Resume() { return Status::NotSupported(); }
 
@@ -343,10 +372,11 @@ class DB {
   virtual Status DropColumnFamilies(
       const std::vector<ColumnFamilyHandle*>& column_families);
 
-  // Close a column family specified by column_family handle and destroy
-  // the column family handle specified to avoid double deletion. This call
-  // deletes the column family handle by default. Use this method to
-  // close column family instead of deleting column family handle directly
+  // Release and deallocate a column family handle. A column family is only
+  // removed once it is dropped (DropColumnFamily) and all handles have been
+  // destroyed (DestroyColumnFamilyHandle). Use this method to destroy
+  // column family handles (except for DefaultColumnFamily()!) before closing
+  // a DB.
   virtual Status DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family);
 
   // Set the database entry for "key" to "value".
@@ -423,10 +453,6 @@ class DB {
   //
   // If "end_key" comes before "start_key" according to the user's comparator,
   // a `Status::InvalidArgument` is returned.
-  //
-  // WARNING: Do not use `Iterator::Refresh()` API on DBs where `DeleteRange()`
-  // has been used or will be used. This feature combination is neither
-  // supported nor programmatically prevented.
   //
   // This feature is now usable in production, with the following caveats:
   // 1) Accumulating many range tombstones in the memtable will degrade read
@@ -527,16 +553,20 @@ class DB {
     return Get(options, DefaultColumnFamily(), key, value, timestamp);
   }
 
-  // Returns all the merge operands corresponding to the key. If the
-  // number of merge operands in DB is greater than
-  // merge_operands_options.expected_max_number_of_operands
-  // no merge operands are returned and status is Incomplete. Merge operands
-  // returned are in the order of insertion.
-  // merge_operands- Points to an array of at-least
+  // Populates the `merge_operands` array with all the merge operands in the DB
+  // for `key`. The `merge_operands` array will be populated in the order of
+  // insertion. The number of entries populated in `merge_operands` will be
+  // assigned to `*number_of_operands`.
+  //
+  // If the number of merge operands in DB for `key` is greater than
+  // `merge_operands_options.expected_max_number_of_operands`,
+  // `merge_operands` is not populated and the return value is
+  // `Status::Incomplete`. In that case, `*number_of_operands` will be assigned
+  // the number of merge operands found in the DB for `key`.
+  //
+  // `merge_operands`- Points to an array of at-least
   //             merge_operands_options.expected_max_number_of_operands and the
-  //             caller is responsible for allocating it. If the status
-  //             returned is Incomplete then number_of_operands will contain
-  //             the total number of merge operands found in DB for key.
+  //             caller is responsible for allocating it.
   virtual Status GetMergeOperands(
       const ReadOptions& options, ColumnFamilyHandle* column_family,
       const Slice& key, PinnableSlice* merge_operands,
@@ -779,7 +809,7 @@ class DB {
   // snapshot is no longer needed.
   //
   // nullptr will be returned if the DB fails to take a snapshot or does
-  // not support snapshot.
+  // not support snapshot (eg: inplace_update_support enabled).
   virtual const Snapshot* GetSnapshot() = 0;
 
   // Release a previously acquired snapshot.  The caller must not
@@ -910,6 +940,8 @@ class DB {
 
     //  "rocksdb.is-file-deletions-enabled" - returns 0 if deletion of obsolete
     //      files is enabled; otherwise, returns a non-zero number.
+    //  This name may be misleading because true(non-zero) means disable,
+    //  but we keep the name for backward compatibility.
     static const std::string kIsFileDeletionsEnabled;
 
     //  "rocksdb.num-snapshots" - returns number of unreleased snapshots of the
@@ -1113,7 +1145,7 @@ class DB {
 
   // Flags for DB::GetSizeApproximation that specify whether memtable
   // stats should be included, or file stats approximation or both
-  enum SizeApproximationFlags : uint8_t {
+  enum class SizeApproximationFlags : uint8_t {
     NONE = 0,
     INCLUDE_MEMTABLES = 1 << 0,
     INCLUDE_FILES = 1 << 1
@@ -1137,17 +1169,13 @@ class DB {
   virtual Status GetApproximateSizes(ColumnFamilyHandle* column_family,
                                      const Range* ranges, int n,
                                      uint64_t* sizes,
-                                     uint8_t include_flags = INCLUDE_FILES) {
-    SizeApproximationOptions options;
-    options.include_memtables =
-        (include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) != 0;
-    options.include_files =
-        (include_flags & SizeApproximationFlags::INCLUDE_FILES) != 0;
-    return GetApproximateSizes(options, column_family, ranges, n, sizes);
-  }
-  virtual Status GetApproximateSizes(const Range* ranges, int n,
-                                     uint64_t* sizes,
-                                     uint8_t include_flags = INCLUDE_FILES) {
+                                     SizeApproximationFlags include_flags =
+                                         SizeApproximationFlags::INCLUDE_FILES);
+
+  virtual Status GetApproximateSizes(
+      const Range* ranges, int n, uint64_t* sizes,
+      SizeApproximationFlags include_flags =
+          SizeApproximationFlags::INCLUDE_FILES) {
     return GetApproximateSizes(DefaultColumnFamily(), ranges, n, sizes,
                                include_flags);
   }
@@ -1191,16 +1219,44 @@ class DB {
     return CompactRange(options, DefaultColumnFamily(), begin, end);
   }
 
+  // Dynamically change column family options or table factory options in a
+  // running DB, for the specified column family. Only options internally
+  // marked as "mutable" can be changed. Options not listed in `opts_map` will
+  // keep their current values. See GetColumnFamilyOptionsFromMap() in
+  // convenience.h for the details of `opts_map`. Not supported in LITE mode.
+  //
+  // USABILITY NOTE: SetOptions is intended only for expert users, and does
+  // not apply the same sanitization to options as the standard DB::Open code
+  // path does. Use with caution.
+  //
+  // RELIABILITY & PERFORMANCE NOTE: SetOptions is not fully stress-tested for
+  // reliability, and this is a slow call because a new OPTIONS file is
+  // serialized and persisted for each call. Use only infrequently.
+  //
+  // EXAMPLES:
+  //  s = db->SetOptions(cfh, {{"ttl", "36000"}});
+  //  s = db->SetOptions(cfh, {{"block_based_table_factory",
+  //                            "{prepopulate_block_cache=kDisable;}"}});
   virtual Status SetOptions(
       ColumnFamilyHandle* /*column_family*/,
-      const std::unordered_map<std::string, std::string>& /*new_options*/) {
+      const std::unordered_map<std::string, std::string>& /*opts_map*/) {
     return Status::NotSupported("Not implemented");
   }
+  // Shortcut for SetOptions on the default column family handle.
   virtual Status SetOptions(
       const std::unordered_map<std::string, std::string>& new_options) {
     return SetOptions(DefaultColumnFamily(), new_options);
   }
 
+  // Like SetOptions but for DBOptions, including the same caveats for
+  // usability, reliability, and performance. See GetDBOptionsFromMap() (and
+  // GetColumnFamilyOptionsFromMap()) in convenience.h for details on
+  // `opts_map`. Note supported in LITE mode.
+  //
+  // EXAMPLES:
+  //  s = db->SetDBOptions({{"max_subcompactions", "2"}});
+  //  s = db->SetDBOptions({{"stats_dump_period_sec", "0"},
+  //                        {"stats_persist_period_sec", "0"}});
   virtual Status SetDBOptions(
       const std::unordered_map<std::string, std::string>& new_options) = 0;
 
@@ -1285,6 +1341,8 @@ class DB {
   // Get Env object from the DB
   virtual Env* GetEnv() const = 0;
 
+  // A shortcut for GetEnv()->->GetFileSystem().get(), possibly cached for
+  // efficiency.
   virtual FileSystem* GetFileSystem() const;
 
   // Get DB Options that we use.  During the process of opening the
@@ -1659,12 +1717,37 @@ class DB {
   // secondary instance does not delete the corresponding column family
   // handles, the data of the column family is still accessible to the
   // secondary.
-  // TODO: we will support WAL tailing soon.
   virtual Status TryCatchUpWithPrimary() {
     return Status::NotSupported("Supported only by secondary instance");
   }
 #endif  // !ROCKSDB_LITE
 };
+
+// Overloaded operators for enum class SizeApproximationFlags.
+inline DB::SizeApproximationFlags operator&(DB::SizeApproximationFlags lhs,
+                                            DB::SizeApproximationFlags rhs) {
+  return static_cast<DB::SizeApproximationFlags>(static_cast<uint8_t>(lhs) &
+                                                 static_cast<uint8_t>(rhs));
+}
+inline DB::SizeApproximationFlags operator|(DB::SizeApproximationFlags lhs,
+                                            DB::SizeApproximationFlags rhs) {
+  return static_cast<DB::SizeApproximationFlags>(static_cast<uint8_t>(lhs) |
+                                                 static_cast<uint8_t>(rhs));
+}
+
+inline Status DB::GetApproximateSizes(ColumnFamilyHandle* column_family,
+                                      const Range* ranges, int n,
+                                      uint64_t* sizes,
+                                      SizeApproximationFlags include_flags) {
+  SizeApproximationOptions options;
+  options.include_memtables =
+      ((include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) !=
+       SizeApproximationFlags::NONE);
+  options.include_files =
+      ((include_flags & SizeApproximationFlags::INCLUDE_FILES) !=
+       SizeApproximationFlags::NONE);
+  return GetApproximateSizes(options, column_family, ranges, n, sizes);
+}
 
 // Destroy the contents of the specified database.
 // Be very careful using this method.

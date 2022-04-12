@@ -7,6 +7,7 @@
 
 #include "rocksdb/utilities/object_registry.h"
 
+#include "rocksdb/convenience.h"
 #include "rocksdb/customizable.h"
 #include "test_util/testharness.h"
 
@@ -49,30 +50,48 @@ static FactoryFunc<Env> test_reg_b = ObjectLibrary::Default()->AddFactory<Env>(
 
 TEST_F(ObjRegistryTest, Basics) {
   std::string msg;
-  std::unique_ptr<Env> env_guard;
+  std::unique_ptr<Env> guard;
+  Env* a_env = nullptr;
+
   auto registry = ObjectRegistry::NewInstance();
-  auto res = registry->NewObject<Env>("a://test", &env_guard, &msg);
-  ASSERT_NE(res, nullptr);
-  ASSERT_EQ(env_guard, nullptr);
+  ASSERT_NOK(registry->NewStaticObject<Env>("c://test", &a_env));
+  ASSERT_NOK(registry->NewUniqueObject<Env>("c://test", &guard));
+  ASSERT_EQ(a_env, nullptr);
+  ASSERT_EQ(guard, nullptr);
+  ASSERT_EQ(0, num_a);
+  ASSERT_EQ(0, num_b);
+
+  ASSERT_OK(registry->NewStaticObject<Env>("a://test", &a_env));
+  ASSERT_NE(a_env, nullptr);
   ASSERT_EQ(1, num_a);
   ASSERT_EQ(0, num_b);
 
-  res = registry->NewObject<Env>("b://test", &env_guard, &msg);
-  ASSERT_NE(res, nullptr);
-  ASSERT_NE(env_guard, nullptr);
+  ASSERT_OK(registry->NewUniqueObject<Env>("b://test", &guard));
+  ASSERT_NE(guard, nullptr);
   ASSERT_EQ(1, num_a);
   ASSERT_EQ(1, num_b);
 
-  res = registry->NewObject<Env>("c://test", &env_guard, &msg);
-  ASSERT_EQ(res, nullptr);
-  ASSERT_EQ(env_guard, nullptr);
+  Env* b_env = nullptr;
+  ASSERT_NOK(registry->NewStaticObject<Env>("b://test", &b_env));
+  ASSERT_EQ(b_env, nullptr);
   ASSERT_EQ(1, num_a);
-  ASSERT_EQ(1, num_b);
+  ASSERT_EQ(2, num_b);  // Created but rejected as not static
+
+  b_env = a_env;
+  ASSERT_NOK(registry->NewStaticObject<Env>("b://test", &b_env));
+  ASSERT_EQ(b_env, a_env);
+  ASSERT_EQ(1, num_a);
+  ASSERT_EQ(3, num_b);
+
+  b_env = guard.get();
+  ASSERT_NOK(registry->NewUniqueObject<Env>("a://test", &guard));
+  ASSERT_EQ(guard.get(), b_env);  // Unchanged
+  ASSERT_EQ(2, num_a);            // Created one but rejected it as not unique
+  ASSERT_EQ(3, num_b);
 }
 
 TEST_F(ObjRegistryTest, LocalRegistry) {
-  std::string msg;
-  std::unique_ptr<Env> guard;
+  Env* env = nullptr;
   auto registry = ObjectRegistry::NewInstance();
   std::shared_ptr<ObjectLibrary> library =
       std::make_shared<ObjectLibrary>("local");
@@ -87,33 +106,37 @@ TEST_F(ObjRegistryTest, LocalRegistry) {
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
          std::string* /* errmsg */) { return Env::Default(); });
 
-  ASSERT_EQ(
-      ObjectRegistry::NewInstance()->NewObject<Env>("test-local", &guard, &msg),
-      nullptr);
-  ASSERT_NE(
-      ObjectRegistry::NewInstance()->NewObject("test-global", &guard, &msg),
-      nullptr);
-  ASSERT_NE(registry->NewObject<Env>("test-local", &guard, &msg), nullptr);
-  ASSERT_NE(registry->NewObject<Env>("test-global", &guard, &msg), nullptr);
+  ASSERT_NOK(
+      ObjectRegistry::NewInstance()->NewStaticObject<Env>("test-local", &env));
+  ASSERT_EQ(env, nullptr);
+  ASSERT_OK(
+      ObjectRegistry::NewInstance()->NewStaticObject<Env>("test-global", &env));
+  ASSERT_NE(env, nullptr);
+  ASSERT_OK(registry->NewStaticObject<Env>("test-local", &env));
+  ASSERT_NE(env, nullptr);
+  ASSERT_OK(registry->NewStaticObject<Env>("test-global", &env));
+  ASSERT_NE(env, nullptr);
 }
 
-TEST_F(ObjRegistryTest, CheckShared) {
-  std::shared_ptr<Env> shared;
-  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library =
-      std::make_shared<ObjectLibrary>("shared");
-  registry->AddLibrary(library);
-  library->AddFactory<Env>(
+static int RegisterTestUnguarded(ObjectLibrary& library,
+                                 const std::string& /*arg*/) {
+  library.AddFactory<Env>(
       "unguarded",
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
          std::string* /* errmsg */) { return Env::Default(); });
-
-  library->AddFactory<Env>(
+  library.AddFactory<Env>(
       "guarded", [](const std::string& uri, std::unique_ptr<Env>* guard,
                     std::string* /* errmsg */) {
         guard->reset(new WrappedEnv(Env::Default(), uri));
         return guard->get();
       });
+  return 2;
+}
+
+TEST_F(ObjRegistryTest, CheckShared) {
+  std::shared_ptr<Env> shared;
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  registry->AddLibrary("shared", RegisterTestUnguarded, "");
 
   ASSERT_OK(registry->NewSharedObject<Env>("guarded", &shared));
   ASSERT_NE(shared, nullptr);
@@ -125,20 +148,7 @@ TEST_F(ObjRegistryTest, CheckShared) {
 TEST_F(ObjRegistryTest, CheckStatic) {
   Env* env = nullptr;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library =
-      std::make_shared<ObjectLibrary>("static");
-  registry->AddLibrary(library);
-  library->AddFactory<Env>(
-      "unguarded",
-      [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
-         std::string* /* errmsg */) { return Env::Default(); });
-
-  library->AddFactory<Env>(
-      "guarded", [](const std::string& uri, std::unique_ptr<Env>* guard,
-                    std::string* /* errmsg */) {
-        guard->reset(new WrappedEnv(Env::Default(), uri));
-        return guard->get();
-      });
+  registry->AddLibrary("static", RegisterTestUnguarded, "");
 
   ASSERT_NOK(registry->NewStaticObject<Env>("guarded", &env));
   ASSERT_EQ(env, nullptr);
@@ -150,26 +160,43 @@ TEST_F(ObjRegistryTest, CheckStatic) {
 TEST_F(ObjRegistryTest, CheckUnique) {
   std::unique_ptr<Env> unique;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library =
-      std::make_shared<ObjectLibrary>("unique");
-  registry->AddLibrary(library);
-  library->AddFactory<Env>(
-      "unguarded",
-      [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
-         std::string* /* errmsg */) { return Env::Default(); });
-
-  library->AddFactory<Env>(
-      "guarded", [](const std::string& uri, std::unique_ptr<Env>* guard,
-                    std::string* /* errmsg */) {
-        guard->reset(new WrappedEnv(Env::Default(), uri));
-        return guard->get();
-      });
+  registry->AddLibrary("unique", RegisterTestUnguarded, "");
 
   ASSERT_OK(registry->NewUniqueObject<Env>("guarded", &unique));
   ASSERT_NE(unique, nullptr);
   unique.reset();
   ASSERT_NOK(registry->NewUniqueObject<Env>("unguarded", &unique));
   ASSERT_EQ(unique, nullptr);
+}
+
+TEST_F(ObjRegistryTest, FailingFactory) {
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  std::shared_ptr<ObjectLibrary> library =
+      std::make_shared<ObjectLibrary>("failing");
+  registry->AddLibrary(library);
+  library->AddFactory<Env>(
+      "failing", [](const std::string& /*uri*/,
+                    std::unique_ptr<Env>* /*guard */, std::string* errmsg) {
+        *errmsg = "Bad Factory";
+        return nullptr;
+      });
+  std::unique_ptr<Env> unique;
+  std::shared_ptr<Env> shared;
+  Env* pointer = nullptr;
+  Status s;
+  s = registry->NewUniqueObject<Env>("failing", &unique);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  s = registry->NewSharedObject<Env>("failing", &shared);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  s = registry->NewStaticObject<Env>("failing", &pointer);
+  ASSERT_TRUE(s.IsInvalidArgument());
+
+  s = registry->NewUniqueObject<Env>("missing", &unique);
+  ASSERT_TRUE(s.IsNotSupported());
+  s = registry->NewSharedObject<Env>("missing", &shared);
+  ASSERT_TRUE(s.IsNotSupported());
+  s = registry->NewStaticObject<Env>("missing", &pointer);
+  ASSERT_TRUE(s.IsNotSupported());
 }
 
 TEST_F(ObjRegistryTest, TestRegistryParents) {
@@ -194,14 +221,15 @@ TEST_F(ObjRegistryTest, TestRegistryParents) {
         return guard->get();
       });
 
+  Env* env = nullptr;
   std::unique_ptr<Env> guard;
   std::string msg;
 
-  // a:://* is registered in Default, so they should all workd
-  ASSERT_NE(parent->NewObject<Env>("a://test", &guard, &msg), nullptr);
-  ASSERT_NE(child->NewObject<Env>("a://test", &guard, &msg), nullptr);
-  ASSERT_NE(uncle->NewObject<Env>("a://test", &guard, &msg), nullptr);
-  ASSERT_NE(cousin->NewObject<Env>("a://test", &guard, &msg), nullptr);
+  // a:://* is registered in Default, so they should all work
+  ASSERT_OK(parent->NewStaticObject<Env>("a://test", &env));
+  ASSERT_OK(child->NewStaticObject<Env>("a://test", &env));
+  ASSERT_OK(uncle->NewStaticObject<Env>("a://test", &env));
+  ASSERT_OK(cousin->NewStaticObject<Env>("a://test", &env));
 
   // The parent env is only registered for parent, not uncle,
   // So parent and child should return success and uncle and cousin should fail
@@ -217,6 +245,7 @@ TEST_F(ObjRegistryTest, TestRegistryParents) {
   ASSERT_NOK(child->NewUniqueObject<Env>("cousin", &guard));
   ASSERT_NOK(uncle->NewUniqueObject<Env>("cousin", &guard));
 }
+
 class MyCustomizable : public Customizable {
  public:
   static const char* Type() { return "MyCustomizable"; }
@@ -442,6 +471,18 @@ TEST_F(ObjRegistryTest, TestGetOrCreateManagedObject) {
   ASSERT_EQ(2, obj.use_count());
 }
 
+TEST_F(ObjRegistryTest, RegisterPlugin) {
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  std::unique_ptr<Env> guard;
+  Env* env = nullptr;
+
+  ASSERT_NOK(registry->NewObject<Env>("unguarded", &env, &guard));
+  ASSERT_EQ(registry->RegisterPlugin("Missing", nullptr), -1);
+  ASSERT_EQ(registry->RegisterPlugin("", RegisterTestUnguarded), -1);
+  ASSERT_GT(registry->RegisterPlugin("Valid", RegisterTestUnguarded), 0);
+  ASSERT_OK(registry->NewObject<Env>("unguarded", &env, &guard));
+  ASSERT_NE(env, nullptr);
+}
 class PatternEntryTest : public testing::Test {};
 
 TEST_F(PatternEntryTest, TestSimpleEntry) {
@@ -548,6 +589,69 @@ TEST_F(PatternEntryTest, TestNumericEntry) {
   ASSERT_FALSE(entry.Matches("A:B"));
   ASSERT_FALSE(entry.Matches("A:1B"));
   ASSERT_FALSE(entry.Matches("A:B1"));
+
+  entry.AddSeparator(":", false);
+  ASSERT_FALSE(entry.Matches("A"));
+  ASSERT_FALSE(entry.Matches("AA"));
+  ASSERT_FALSE(entry.Matches("A:"));
+  ASSERT_FALSE(entry.Matches("AA:"));
+  ASSERT_TRUE(entry.Matches("A:1:"));
+  ASSERT_TRUE(entry.Matches("A:11:"));
+  ASSERT_FALSE(entry.Matches("A:1"));
+  ASSERT_FALSE(entry.Matches("A:B1:"));
+  ASSERT_FALSE(entry.Matches("A:1B:"));
+  ASSERT_FALSE(entry.Matches("A::"));
+}
+
+TEST_F(PatternEntryTest, TestDoubleEntry) {
+  ObjectLibrary::PatternEntry entry("A", false);
+  entry.AddNumber(":", false);
+  ASSERT_FALSE(entry.Matches("A"));
+  ASSERT_FALSE(entry.Matches("AA"));
+  ASSERT_FALSE(entry.Matches("A:"));
+  ASSERT_FALSE(entry.Matches("AA:"));
+  ASSERT_FALSE(entry.Matches("AA:1"));
+  ASSERT_FALSE(entry.Matches("AA:11"));
+  ASSERT_FALSE(entry.Matches("A:B"));
+  ASSERT_FALSE(entry.Matches("A:1B"));
+  ASSERT_FALSE(entry.Matches("A:B1"));
+  ASSERT_TRUE(entry.Matches("A:1"));
+  ASSERT_TRUE(entry.Matches("A:11"));
+  ASSERT_TRUE(entry.Matches("A:1.1"));
+  ASSERT_TRUE(entry.Matches("A:11.11"));
+  ASSERT_TRUE(entry.Matches("A:1."));
+  ASSERT_TRUE(entry.Matches("A:.1"));
+  ASSERT_TRUE(entry.Matches("A:0.1"));
+  ASSERT_TRUE(entry.Matches("A:1.0"));
+  ASSERT_TRUE(entry.Matches("A:1.0"));
+
+  ASSERT_FALSE(entry.Matches("A:1.0."));
+  ASSERT_FALSE(entry.Matches("A:1.0.2"));
+  ASSERT_FALSE(entry.Matches("A:.1.0"));
+  ASSERT_FALSE(entry.Matches("A:..10"));
+  ASSERT_FALSE(entry.Matches("A:10.."));
+  ASSERT_FALSE(entry.Matches("A:."));
+
+  entry.AddSeparator(":", false);
+  ASSERT_FALSE(entry.Matches("A:1"));
+  ASSERT_FALSE(entry.Matches("A:1.0"));
+
+  ASSERT_TRUE(entry.Matches("A:11:"));
+  ASSERT_TRUE(entry.Matches("A:1.1:"));
+  ASSERT_TRUE(entry.Matches("A:11.11:"));
+  ASSERT_TRUE(entry.Matches("A:1.:"));
+  ASSERT_TRUE(entry.Matches("A:.1:"));
+  ASSERT_TRUE(entry.Matches("A:0.1:"));
+  ASSERT_TRUE(entry.Matches("A:1.0:"));
+  ASSERT_TRUE(entry.Matches("A:1.0:"));
+
+  ASSERT_FALSE(entry.Matches("A:1.0.:"));
+  ASSERT_FALSE(entry.Matches("A:1.0.2:"));
+  ASSERT_FALSE(entry.Matches("A:.1.0:"));
+  ASSERT_FALSE(entry.Matches("A:..10:"));
+  ASSERT_FALSE(entry.Matches("A:10..:"));
+  ASSERT_FALSE(entry.Matches("A:.:"));
+  ASSERT_FALSE(entry.Matches("A::"));
 }
 
 TEST_F(PatternEntryTest, TestIndividualIdEntry) {

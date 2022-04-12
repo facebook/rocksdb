@@ -24,6 +24,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
 #include "rocksdb/version.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 #ifdef min
@@ -48,7 +49,7 @@ jlong rocksdb_open_helper(JNIEnv* env, jlong jopt_handle, jstring jdb_path,
   env->ReleaseStringUTFChars(jdb_path, db_path);
 
   if (s.ok()) {
-    return reinterpret_cast<jlong>(db);
+    return GET_CPLUSPLUS_POINTER(db);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return 0;
@@ -152,9 +153,9 @@ jlongArray rocksdb_open_helper(
   const jsize resultsLen = 1 + len_cols;  // db handle + column family handles
   std::unique_ptr<jlong[]> results =
       std::unique_ptr<jlong[]>(new jlong[resultsLen]);
-  results[0] = reinterpret_cast<jlong>(db);
+  results[0] = GET_CPLUSPLUS_POINTER(db);
   for (int i = 1; i <= len_cols; i++) {
-    results[i] = reinterpret_cast<jlong>(cf_handles[i - 1]);
+    results[i] = GET_CPLUSPLUS_POINTER(cf_handles[i - 1]);
   }
 
   jlongArray jresults = env->NewLongArray(resultsLen);
@@ -364,7 +365,7 @@ jlong Java_org_rocksdb_RocksDB_createColumnFamily(
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return 0;
   }
-  return reinterpret_cast<jlong>(cf_handle);
+  return GET_CPLUSPLUS_POINTER(cf_handle);
 }
 
 /*
@@ -828,9 +829,11 @@ bool rocksdb_single_delete_helper(
     const ROCKSDB_NAMESPACE::WriteOptions& write_options,
     ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle, jbyteArray jkey,
     jint jkey_len) {
-  jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-  if (key == nullptr) {
-    // exception thrown: OutOfMemoryError
+  jbyte* key = new jbyte[jkey_len];
+  env->GetByteArrayRegion(jkey, 0, jkey_len, key);
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    delete[] key;
     return false;
   }
   ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
@@ -843,10 +846,7 @@ bool rocksdb_single_delete_helper(
     s = db->SingleDelete(write_options, key_slice);
   }
 
-  // trigger java unref on key and value.
-  // by passing JNI_ABORT, it will simply release the reference without
-  // copying the result back to the java byte array.
-  env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+  delete[] key;
 
   if (s.ok()) {
     return true;
@@ -1321,7 +1321,7 @@ jlong rocksdb_iterator_helper(
   } else {
     iterator = db->NewIterator(read_options);
   }
-  return reinterpret_cast<jlong>(iterator);
+  return GET_CPLUSPLUS_POINTER(iterator);
 }
 
 /*
@@ -2524,7 +2524,7 @@ jlong Java_org_rocksdb_RocksDB_getSnapshot(
     JNIEnv*, jobject, jlong db_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(db_handle);
   const ROCKSDB_NAMESPACE::Snapshot* snapshot = db->GetSnapshot();
-  return reinterpret_cast<jlong>(snapshot);
+  return GET_CPLUSPLUS_POINTER(snapshot);
 }
 
 /*
@@ -2725,9 +2725,22 @@ jlongArray Java_org_rocksdb_RocksDB_getApproximateSizes(
   }
 
   auto sizes = std::unique_ptr<uint64_t[]>(new uint64_t[range_count]);
+
+  ROCKSDB_NAMESPACE::DB::SizeApproximationFlags include_flags =
+      ROCKSDB_NAMESPACE::DB::SizeApproximationFlags::NONE;
+  if (jinclude_flags & 1) {
+    include_flags =
+        ROCKSDB_NAMESPACE::DB::SizeApproximationFlags::INCLUDE_MEMTABLES;
+  }
+  if (jinclude_flags & 2) {
+    include_flags =
+        (include_flags |
+         ROCKSDB_NAMESPACE::DB::SizeApproximationFlags::INCLUDE_FILES);
+  }
+
   db->GetApproximateSizes(cf_handle, ranges.get(),
-      static_cast<int>(range_count), sizes.get(),
-      static_cast<uint8_t>(jinclude_flags));
+                          static_cast<int>(range_count), sizes.get(),
+                          include_flags);
 
   // release LongArrayElements
   env->ReleaseLongArrayElements(jrange_slice_handles, jranges, JNI_ABORT);
@@ -3226,7 +3239,7 @@ jstring Java_org_rocksdb_RocksDB_getName(
 jlong Java_org_rocksdb_RocksDB_getEnv(
     JNIEnv*, jobject, jlong jdb_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  return reinterpret_cast<jlong>(db->GetEnv());
+  return GET_CPLUSPLUS_POINTER(db->GetEnv());
 }
 
 /*
@@ -3411,7 +3424,7 @@ jlong Java_org_rocksdb_RocksDB_getUpdatesSince(
   std::unique_ptr<ROCKSDB_NAMESPACE::TransactionLogIterator> iter;
   ROCKSDB_NAMESPACE::Status s = db->GetUpdatesSince(sequence_number, &iter);
   if (s.ok()) {
-    return reinterpret_cast<jlong>(iter.release());
+    return GET_CPLUSPLUS_POINTER(iter.release());
   }
 
   ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
@@ -3555,7 +3568,7 @@ jlong Java_org_rocksdb_RocksDB_getDefaultColumnFamily(
     JNIEnv*, jobject, jlong jdb_handle) {
   auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto* cf_handle = db_handle->DefaultColumnFamily();
-  return reinterpret_cast<jlong>(cf_handle);
+  return GET_CPLUSPLUS_POINTER(cf_handle);
 }
 
 /*
@@ -3715,8 +3728,8 @@ jlongArray Java_org_rocksdb_RocksDB_suggestCompactRange(
   }
 
   jlong slice_handles[2];
-  slice_handles[0] = reinterpret_cast<jlong>(begin);
-  slice_handles[1] = reinterpret_cast<jlong>(end);
+  slice_handles[0] = GET_CPLUSPLUS_POINTER(begin);
+  slice_handles[1] = GET_CPLUSPLUS_POINTER(end);
   env->SetLongArrayRegion(jslice_handles, 0, 2, slice_handles);
   if (env->ExceptionCheck()) {
     // exception thrown: ArrayIndexOutOfBoundsException
