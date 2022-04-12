@@ -2394,7 +2394,7 @@ checkout_folly:
 	fi
 	@# Pin to a particular version for public CI, so that PR authors don't
 	@# need to worry about folly breaking our integration. Update periodically
-	cd third-party/folly && git reset --hard 7090d2e125a69a0d6896ce56b2f2fcebd1e31231
+	cd third-party/folly && git reset --hard 98b9b2c1124e99f50f9085ddee74ce32afffc665
 	@# A hack to remove boost dependency.
 	@# NOTE: this hack is not needed if using FBCODE compiler config
 	perl -pi -e 's/^(#include <boost)/\/\/$$1/' third-party/folly/folly/functional/Invoke.h
