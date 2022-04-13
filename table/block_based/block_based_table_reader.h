@@ -67,7 +67,6 @@ class BlockBasedTable : public TableReader {
   static const std::string kPartitionedFilterBlockPrefix;
 
   // All the below fields control iterator readahead
-  static const size_t kInitAutoReadaheadSize = 8 * 1024;
   static const int kMinNumFileReadsToStartAutoReadahead = 2;
 
   // 1-byte compression type + 32-bit checksum
