@@ -34,7 +34,7 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
   // If max_auto_readahead_size is set to be 0 by user, no data will be
   // prefetched.
   size_t max_auto_readahead_size = rep->table_options.max_auto_readahead_size;
-  if (max_auto_readahead_size == 0) {
+  if (max_auto_readahead_size == 0 || initial_auto_readahead_size_ == 0) {
     return;
   }
 
@@ -50,7 +50,7 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
 
   if (!IsBlockSequential(offset)) {
     UpdateReadPattern(offset, len);
-    ResetValues();
+    ResetValues(rep->table_options.initial_auto_readahead_size);
     return;
   }
   UpdateReadPattern(offset, len);

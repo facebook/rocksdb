@@ -12,8 +12,12 @@
 namespace ROCKSDB_NAMESPACE {
 class BlockPrefetcher {
  public:
-  explicit BlockPrefetcher(size_t compaction_readahead_size)
-      : compaction_readahead_size_(compaction_readahead_size) {}
+  explicit BlockPrefetcher(size_t compaction_readahead_size,
+                           size_t initial_auto_readahead_size)
+      : compaction_readahead_size_(compaction_readahead_size),
+        readahead_size_(initial_auto_readahead_size),
+        initial_auto_readahead_size_(initial_auto_readahead_size) {}
+
   void PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
                         const BlockHandle& handle, size_t readahead_size,
                         bool is_for_compaction, bool async_io);
@@ -28,12 +32,13 @@ class BlockPrefetcher {
     return (prev_len_ == 0 || (prev_offset_ + prev_len_ == offset));
   }
 
-  void ResetValues() {
+  void ResetValues(size_t initial_auto_readahead_size) {
     num_file_reads_ = 1;
     // Since initial_auto_readahead_size_ can be different from
-    // kInitAutoReadaheadSize in case of adaptive_readahead, so fallback the
-    // readahead_size_ to kInitAutoReadaheadSize in case of reset.
-    initial_auto_readahead_size_ = BlockBasedTable::kInitAutoReadaheadSize;
+    // the value passed to BlockBasedTableOptions.initial_auto_readahead_size in
+    // case of adaptive_readahead, so fallback the readahead_size_ to that value
+    // in case of reset.
+    initial_auto_readahead_size_ = initial_auto_readahead_size;
     readahead_size_ = initial_auto_readahead_size_;
     readahead_limit_ = 0;
     return;
@@ -52,12 +57,11 @@ class BlockPrefetcher {
   size_t compaction_readahead_size_;
 
   // readahead_size_ is used if underlying FS supports prefetching.
-  size_t readahead_size_ = BlockBasedTable::kInitAutoReadaheadSize;
+  size_t readahead_size_;
   size_t readahead_limit_ = 0;
   // initial_auto_readahead_size_ is used if RocksDB uses internal prefetch
   // buffer.
-  uint64_t initial_auto_readahead_size_ =
-      BlockBasedTable::kInitAutoReadaheadSize;
+  uint64_t initial_auto_readahead_size_;
   int64_t num_file_reads_ = 0;
   uint64_t prev_offset_ = 0;
   size_t prev_len_ = 0;
