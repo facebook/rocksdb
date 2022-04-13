@@ -18,6 +18,7 @@
 #include "cache/cache_entry_roles.h"
 #include "db/version_set.h"
 #include "rocksdb/system_clock.h"
+#include "util/hash_containers.h"
 
 class ColumnFamilyData;
 
@@ -387,7 +388,7 @@ class InternalStats {
                SystemClock* clock) const;
 
    private:
-    std::unordered_map<Cache::DeleterFn, CacheEntryRole> role_map_;
+    UnorderedMap<Cache::DeleterFn, CacheEntryRole> role_map_;
     uint64_t GetLastDurationMicros() const;
   };
 
@@ -482,7 +483,7 @@ class InternalStats {
 
   // Store a mapping from the user-facing DB::Properties string to our
   // DBPropertyInfo struct used internally for retrieving properties.
-  static const std::unordered_map<std::string, DBPropertyInfo> ppt_name_to_info;
+  static const UnorderedMap<std::string, DBPropertyInfo> ppt_name_to_info;
 
  private:
   void DumpDBMapStats(std::map<std::string, std::string>* db_stats);

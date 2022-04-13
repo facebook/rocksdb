@@ -101,6 +101,7 @@
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/defer.h"
+#include "util/hash_containers.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
@@ -2000,7 +2001,7 @@ std::vector<Status> DBImpl::MultiGet(
 
   SequenceNumber consistent_seqnum;
 
-  std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(
+  UnorderedMap<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(
       column_family.size());
   for (auto cf : column_family) {
     auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
@@ -2012,13 +2013,13 @@ std::vector<Status> DBImpl::MultiGet(
   }
 
   std::function<MultiGetColumnFamilyData*(
-      std::unordered_map<uint32_t, MultiGetColumnFamilyData>::iterator&)>
+      UnorderedMap<uint32_t, MultiGetColumnFamilyData>::iterator&)>
       iter_deref_lambda =
-          [](std::unordered_map<uint32_t, MultiGetColumnFamilyData>::iterator&
+          [](UnorderedMap<uint32_t, MultiGetColumnFamilyData>::iterator&
                  cf_iter) { return &cf_iter->second; };
 
   bool unref_only =
-      MultiCFSnapshot<std::unordered_map<uint32_t, MultiGetColumnFamilyData>>(
+      MultiCFSnapshot<UnorderedMap<uint32_t, MultiGetColumnFamilyData>>(
           read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
           &consistent_seqnum);
 

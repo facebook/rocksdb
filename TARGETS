@@ -324,7 +324,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/wal_filter.cc",
         "utilities/write_batch_with_index/write_batch_with_index.cc",
         "utilities/write_batch_with_index/write_batch_with_index_internal.cc",
-    ], deps=[], headers=None, link_whole=False, extra_test_libs=False)
+    ], deps=["//folly/container:f14_hash"], headers=None, link_whole=False, extra_test_libs=False)
 
 cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
         "cache/cache.cc",
@@ -642,7 +642,7 @@ cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
         "utilities/wal_filter.cc",
         "utilities/write_batch_with_index/write_batch_with_index.cc",
         "utilities/write_batch_with_index/write_batch_with_index_internal.cc",
-    ], deps=[], headers=None, link_whole=True, extra_test_libs=False)
+    ], deps=["//folly/container:f14_hash"], headers=None, link_whole=True, extra_test_libs=False)
 
 cpp_library_wrapper(name="rocksdb_test_lib", srcs=[
         "db/db_test_util.cc",

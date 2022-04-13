@@ -9,9 +9,9 @@
 #include <cstdint>
 #include <memory>
 #include <type_traits>
-#include <unordered_map>
 
 #include "rocksdb/cache.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -78,7 +78,7 @@ void RegisterCacheDeleterRole(Cache::DeleterFn fn, CacheEntryRole role);
 // * This is suitable for preparing for batch operations, like with
 // CacheEntryStatsCollector.
 // * The number of mappings should be sufficiently small (dozens).
-std::unordered_map<Cache::DeleterFn, CacheEntryRole> CopyCacheDeleterRoleMap();
+UnorderedMap<Cache::DeleterFn, CacheEntryRole> CopyCacheDeleterRoleMap();
 
 // ************************************************************** //
 // An automatic registration infrastructure. This enables code
