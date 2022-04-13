@@ -618,10 +618,13 @@ ROCKSDBTESTS_SUBSET ?= $(TESTS)
 # env_test - suspicious use of test::TmpDir
 # deletefile_test - serial because it generates giant temporary files in
 #   its various tests. Parallel can fill up your /dev/shm
+# db_bloom_filter_test - serial because excessive space usage by instances
+#   of DBFilterConstructionReserveMemoryTestWithParam can fill up /dev/shm
 NON_PARALLEL_TEST = \
 	c_test \
 	env_test \
 	deletefile_test \
+	db_bloom_filter_test \
 
 PARALLEL_TEST = $(filter-out $(NON_PARALLEL_TEST), $(TESTS))
 
