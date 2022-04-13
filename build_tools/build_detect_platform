@@ -63,7 +63,13 @@ if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
     if [ "$LIB_MODE" == "shared" ]; then
       PIC_BUILD=1
     fi
-    source "$PWD/build_tools/fbcode_config_platform009.sh"
+    if [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM010" ]; then
+      source "$PWD/build_tools/fbcode_config_platform010.sh"
+    elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM009" ]; then
+      source "$PWD/build_tools/fbcode_config_platform009.sh"
+    else
+      source "$PWD/build_tools/fbcode_config_platform009.sh"
+    fi
 fi
 
 # Delete existing output, if it exists
