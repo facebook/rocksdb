@@ -540,4 +540,55 @@ class Cache {
   std::shared_ptr<MemoryAllocator> memory_allocator_;
 };
 
+// Classifications of block cache entries.
+//
+// Developer notes: Adding a new enum to this class requires corresponding
+// updates to `kCacheEntryRoleToCamelString` and
+// `kCacheEntryRoleToHyphenString`. Do not add to this enum after `kMisc` since
+// `kNumCacheEntryRoles` assumes `kMisc` comes last.
+enum class CacheEntryRole {
+  // Block-based table data block
+  kDataBlock,
+  // Block-based table filter block (full or partitioned)
+  kFilterBlock,
+  // Block-based table metadata block for partitioned filter
+  kFilterMetaBlock,
+  // Block-based table deprecated filter block (old "block-based" filter)
+  kDeprecatedFilterBlock,
+  // Block-based table index block
+  kIndexBlock,
+  // Other kinds of block-based table block
+  kOtherBlock,
+  // WriteBufferManager reservations to account for memtable usage
+  kWriteBuffer,
+  // BlockBasedTableBuilder reservations to account for
+  // compression dictionary building buffer's memory usage
+  kCompressionDictionaryBuildingBuffer,
+  // Filter reservations to account for
+  // (new) bloom and ribbon filter construction's memory usage
+  kFilterConstruction,
+  // BlockBasedTableReader reservations to account for
+  // its memory usage
+  kBlockBasedTableReader,
+  // Default bucket, for miscellaneous cache entries. Do not use for
+  // entries that could potentially add up to large usage.
+  kMisc,
+};
+constexpr uint32_t kNumCacheEntryRoles =
+    static_cast<uint32_t>(CacheEntryRole::kMisc) + 1;
+
+// For use with `GetMapProperty()` for property
+// `DB::Properties::kBlockCacheEntryStats`. On success, the map will
+// be populated with all these keys.
+struct BlockCacheEntryStatsMapKeys {
+  static const std::string kCacheId;
+  static const std::string kCacheCapacityBytes;
+  static const std::string kLastCollectionDurationSeconds;
+  static const std::string kLastCollectionAgeSeconds;
+
+  static std::string EntryCount(CacheEntryRole);
+  static std::string UsedBytes(CacheEntryRole);
+  static std::string UsedPercent(CacheEntryRole);
+};
+
 }  // namespace ROCKSDB_NAMESPACE
