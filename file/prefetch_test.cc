@@ -1265,11 +1265,6 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
 
 extern "C" bool RocksDbIOUringEnable() { return true; }
 
-namespace {
-const int kMaxArgCount = 100;
-const size_t kArgBufferSize = 100000;
-}  // namespace
-
 class PrefetchTestWithPosix : public DBTestBase,
                               public ::testing::WithParamInterface<bool> {
  public:
@@ -1277,6 +1272,9 @@ class PrefetchTestWithPosix : public DBTestBase,
 
 #ifndef ROCKSDB_LITE
 #ifdef GFLAGS
+  const int kMaxArgCount = 100;
+  const size_t kArgBufferSize = 100000;
+
   void RunIOTracerParserTool(std::string trace_file) {
     std::vector<std::string> params = {"./io_tracer_parser",
                                        "-io_trace_file=" + trace_file};
