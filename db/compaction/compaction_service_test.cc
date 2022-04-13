@@ -78,8 +78,12 @@ class MyTestCompactionService : public CompactionService {
       options_override.listeners = listeners_;
     }
 
+    OpenAndCompactOptions options;
+    options.canceled = &canceled_;
+
     Status s = DB::OpenAndCompact(
-        db_path_, db_path_ + "/" + ROCKSDB_NAMESPACE::ToString(info.job_id),
+        options, db_path_,
+        db_path_ + "/" + ROCKSDB_NAMESPACE::ToString(info.job_id),
         compaction_input, compaction_service_result, options_override);
     if (is_override_wait_result_) {
       *compaction_service_result = override_wait_result_;
@@ -118,6 +122,8 @@ class MyTestCompactionService : public CompactionService {
     is_override_wait_status_ = false;
   }
 
+  void SetCanceled(bool canceled) { canceled_ = canceled; }
+
  private:
   InstrumentedMutex mutex_;
   std::atomic_int compaction_num_{0};
@@ -136,6 +142,7 @@ class MyTestCompactionService : public CompactionService {
   bool is_override_wait_result_ = false;
   std::string override_wait_result_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
+  std::atomic_bool canceled_{false};
 };
 
 class CompactionServiceTest : public DBTestBase {
@@ -328,6 +335,51 @@ TEST_F(CompactionServiceTest, ManualCompaction) {
   comp_num = my_cs->GetCompactionNum();
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
+  VerifyTestData();
+}
+
+TEST_F(CompactionServiceTest, CancelCompactionOnRemoteSide) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+
+  auto my_cs = GetCompactionService();
+
+  std::string start_str = Key(15);
+  std::string end_str = Key(45);
+  Slice start(start_str);
+  Slice end(end_str);
+  uint64_t comp_num = my_cs->GetCompactionNum();
+
+  // Test cancel compaction at the beginning
+  my_cs->SetCanceled(true);
+  auto s = db_->CompactRange(CompactRangeOptions(), &start, &end);
+  ASSERT_TRUE(s.IsIncomplete());
+  // compaction number is not increased
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num);
+  VerifyTestData();
+
+  // Test cancel compaction in progress
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+  my_cs = GetCompactionService();
+  my_cs->SetCanceled(false);
+
+  std::atomic_bool cancel_issued{false};
+  SyncPoint::GetInstance()->SetCallBack("CompactionJob::Run():Inprogress",
+                                        [&](void* /*arg*/) {
+                                          cancel_issued = true;
+                                          my_cs->SetCanceled(true);
+                                        });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  s = db_->CompactRange(CompactRangeOptions(), &start, &end);
+  ASSERT_TRUE(s.IsIncomplete());
+  ASSERT_TRUE(cancel_issued);
+  // compaction number is not increased
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num);
   VerifyTestData();
 }
 

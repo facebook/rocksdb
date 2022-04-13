@@ -290,6 +290,12 @@ class DB {
       const std::string& input, std::string* output,
       const CompactionServiceOptionsOverride& override_options);
 
+  static Status OpenAndCompact(
+      const OpenAndCompactOptions& options, const std::string& name,
+      const std::string& output_directory, const std::string& input,
+      std::string* output,
+      const CompactionServiceOptionsOverride& override_options);
+
   // Experimental and subject to change
   // Open DB and trim data newer than specified timestamp.
   // The trim_ts specified the user-defined timestamp trim bound.
