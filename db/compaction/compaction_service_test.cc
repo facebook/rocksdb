@@ -361,18 +361,26 @@ TEST_F(CompactionServiceTest, CancelCompactionOnRemoteSide) {
   VerifyTestData();
 
   // Test cancel compaction in progress
-  my_cs->SetCanceled(false);  // reset
-  SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::Run():Inprogress",
-      [&](void* /*arg*/) { my_cs->SetCanceled(true); });
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+  my_cs = GetCompactionService();
+  my_cs->SetCanceled(false);
+
+  std::atomic_bool cancel_issued{false};
+  SyncPoint::GetInstance()->SetCallBack("CompactionJob::Run():Inprogress",
+                                        [&](void* /*arg*/) {
+                                          cancel_issued = true;
+                                          my_cs->SetCanceled(true);
+                                        });
+
+  SyncPoint::GetInstance()->EnableProcessing();
 
   s = db_->CompactRange(CompactRangeOptions(), &start, &end);
   ASSERT_TRUE(s.IsIncomplete());
+  ASSERT_TRUE(cancel_issued);
   // compaction number is not increased
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num);
   VerifyTestData();
-  SyncPoint::GetInstance()->EnableProcessing();
-  ASSERT_GE(my_cs->GetCompactionNum(), comp_num);
 }
 
 TEST_F(CompactionServiceTest, FailedToStart) {
