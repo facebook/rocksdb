@@ -1337,6 +1337,7 @@ uint32_t MultiOpsTxnsStressTest::GenerateNextC(ThreadState* thread) {
   return key_gen->Allocate();
 }
 
+#ifndef ROCKSDB_LITE
 Status MultiOpsTxnsStressTest::WriteToCommitTimeWriteBatch(Transaction& txn) {
   WriteBatch* ctwb = txn.GetCommitTimeWriteBatch();
   assert(ctwb);
@@ -1349,6 +1350,7 @@ Status MultiOpsTxnsStressTest::WriteToCommitTimeWriteBatch(Transaction& txn) {
   return ctwb->Put(Slice(key_buf, sizeof(key_buf)),
                    Slice(val_buf, sizeof(val_buf)));
 }
+#endif  // !ROCKSDB_LITE
 
 std::string MultiOpsTxnsStressTest::KeySpaces::EncodeTo() const {
   std::string result;
@@ -1665,6 +1667,7 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
 }
 
 void MultiOpsTxnsStressTest::MaybeAdvanceMaxEvictedSeq(ThreadState* thread) {
+#ifndef ROCKSDB_LITE
   assert(thread);
   if (FLAGS_txn_write_policy == TxnDBWritePolicy::WRITE_COMMITTED ||
       thread->tid != 0) {
@@ -1697,6 +1700,9 @@ void MultiOpsTxnsStressTest::MaybeAdvanceMaxEvictedSeq(ThreadState* thread) {
     fflush(stderr);
     assert(false);
   }
+#else
+  (void)thread;
+#endif  // ROCKSDB_LITE
 }
 
 StressTest* CreateMultiOpsTxnsStressTest() {

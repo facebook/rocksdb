@@ -343,7 +343,9 @@ class MultiOpsTxnsStressTest : public StressTest {
 
   uint32_t GenerateNextC(ThreadState* thread);
 
+#ifndef ROCKSDB_LITE
   Status WriteToCommitTimeWriteBatch(Transaction& txn);
+#endif  //! ROCKSDB_LITE
 
   std::vector<std::unique_ptr<KeyGenerator>> key_gen_for_a_;
   std::vector<std::unique_ptr<KeyGenerator>> key_gen_for_c_;
@@ -397,19 +399,27 @@ class MultiOpsTxnsStressListener : public EventListener {
     assert(stress_test_);
   }
 
+#ifndef ROCKSDB_LITE
   ~MultiOpsTxnsStressListener() override {}
 
   void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
     assert(db);
+#ifdef NDEBUG
+    (void)db;
+#endif
     assert(info.cf_id == 0);
     stress_test_->VerifyPkSkFast(info.job_id);
   }
 
   void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) override {
     assert(db);
+#ifdef NDEBUG
+    (void)db;
+#endif
     assert(info.cf_id == 0);
     stress_test_->VerifyPkSkFast(info.job_id);
   }
+#endif  //! ROCKSDB_LITE
 
  private:
   MultiOpsTxnsStressTest* const stress_test_ = nullptr;
