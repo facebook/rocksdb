@@ -1932,6 +1932,14 @@ struct CompactionServiceOptionsOverride {
   std::shared_ptr<TableFactory> table_factory;
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
 
+  // Only subsets of events are triggered in remote compaction worker, like:
+  // `OnTableFileCreated`, `OnTableFileCreationStarted`,
+  // `ShouldBeNotifiedOnFileIO` `OnSubcompactionBegin`,
+  // `OnSubcompactionCompleted`, etc. Worth mentioning, `OnCompactionBegin` and
+  // `OnCompactionCompleted` won't be triggered. They will be triggered on the
+  // primary DB side.
+  std::vector<std::shared_ptr<EventListener>> listeners;
+
   // statistics is used to collect DB operation metrics, the metrics won't be
   // returned to CompactionService primary host, to collect that, the user needs
   // to set it here.

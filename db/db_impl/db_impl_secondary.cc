@@ -825,6 +825,7 @@ Status DB::OpenAndCompact(
       override_options.table_factory;
   compaction_input.column_family.options.sst_partitioner_factory =
       override_options.sst_partitioner_factory;
+  compaction_input.db_options.listeners = override_options.listeners;
 
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.push_back(compaction_input.column_family);
