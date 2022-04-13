@@ -691,6 +691,9 @@ class InternalStats {
   bool HandleBlobStats(std::string* value, Slice suffix);
   bool HandleTotalBlobFileSize(uint64_t* value, DBImpl* db, Version* version);
   bool HandleLiveBlobFileSize(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleLiveBlobFileGarbageSize(uint64_t* value, DBImpl* db,
+                                     Version* version);
+
   // Total number of background errors encountered. Every time a flush task
   // or compaction task fails, this counter is incremented. The failure can
   // be caused by any possible reason, including file system errors, out of

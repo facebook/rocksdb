@@ -1060,6 +1060,10 @@ class DB {
     // "rocksdb.live-blob-file-size" - returns the total size of all blob
     //      files in the current version.
     static const std::string kLiveBlobFileSize;
+
+    // "rocksdb.live-blob-file-garbage-size" - returns the total amount of
+    // garbage in the blob files in the current version.
+    static const std::string kLiveBlobFileGarbageSize;
   };
 #endif /* ROCKSDB_LITE */
 
