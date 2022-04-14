@@ -456,12 +456,7 @@ Status FlushJob::MemPurge() {
         existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
         snapshot_checker_);
     assert(job_context_);
-    SequenceNumber job_snapshot_seq = kMaxSequenceNumber;
-    if (job_context_ && job_context_->job_snapshot) {
-      assert(job_context_->job_snapshot->snapshot());
-      job_snapshot_seq =
-          job_context_->job_snapshot->snapshot()->GetSequenceNumber();
-    }
+    SequenceNumber job_snapshot_seq = job_context_->GetJobSnapshotSequence();
     CompactionIterator c_iter(
         iter.get(), (cfd_->internal_comparator()).user_comparator(), &merge,
         kMaxSequenceNumber, &existing_snapshots_,
@@ -919,12 +914,8 @@ Status FlushJob::WriteLevel0Table() {
           TableFileCreationReason::kFlush, creation_time, oldest_key_time,
           current_time, db_id_, db_session_id_, 0 /* target_file_size */,
           meta_.fd.GetNumber());
-      SequenceNumber job_snapshot_seq = kMaxSequenceNumber;
-      if (job_context_->job_snapshot) {
-        assert(job_context_->job_snapshot->snapshot());
-        job_snapshot_seq =
-            job_context_->job_snapshot->snapshot()->GetSequenceNumber();
-      }
+      const SequenceNumber job_snapshot_seq =
+          job_context_->GetJobSnapshotSequence();
       s = BuildTable(
           dbname_, versions_, db_options_, tboptions, file_options_,
           cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,

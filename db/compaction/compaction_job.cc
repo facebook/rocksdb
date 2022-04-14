@@ -1470,12 +1470,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   Status status;
   const std::string* const full_history_ts_low =
       full_history_ts_low_.empty() ? nullptr : &full_history_ts_low_;
-  SequenceNumber job_snapshot_seq = kMaxSequenceNumber;
-  if (job_context_ && job_context_->job_snapshot) {
-    assert(job_context_->job_snapshot->snapshot());
-    job_snapshot_seq =
-        job_context_->job_snapshot->snapshot()->GetSequenceNumber();
-  }
+  const SequenceNumber job_snapshot_seq =
+      job_context_ ? job_context_->GetJobSnapshotSequence()
+                   : kMaxSequenceNumber;
   sub_compact->c_iter.reset(new CompactionIterator(
       input, cfd->user_comparator(), &merge, versions_->LastSequence(),
       &existing_snapshots_, earliest_write_conflict_snapshot_, job_snapshot_seq,
