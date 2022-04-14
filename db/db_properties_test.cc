@@ -1997,6 +1997,37 @@ TEST_F(DBPropertiesTest, GetMapPropertyDbStats) {
   Close();
 }
 
+TEST_F(DBPropertiesTest, GetMapPropertyBlockCacheEntryStats) {
+  // Currently only verifies the expected properties are present
+  std::map<std::string, std::string> values;
+  ASSERT_TRUE(
+      db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats, &values));
+
+  ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::CacheId()) !=
+              values.end());
+  ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::CacheCapacityBytes()) !=
+              values.end());
+  ASSERT_TRUE(
+      values.find(
+          BlockCacheEntryStatsMapKeys::LastCollectionDurationSeconds()) !=
+      values.end());
+  ASSERT_TRUE(
+      values.find(BlockCacheEntryStatsMapKeys::LastCollectionAgeSeconds()) !=
+      values.end());
+  for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
+    CacheEntryRole role = static_cast<CacheEntryRole>(i);
+    ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::EntryCount(role)) !=
+                values.end());
+    ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::UsedBytes(role)) !=
+                values.end());
+    ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::UsedPercent(role)) !=
+                values.end());
+  }
+
+  // There should be no extra values in the map.
+  ASSERT_EQ(3 * kNumCacheEntryRoles + 4, values.size());
+}
+
 namespace {
 std::string PopMetaIndexKey(InternalIterator* meta_iter) {
   Status s = meta_iter->status();

@@ -876,7 +876,9 @@ class DB {
     static const std::string kLevelStats;
 
     //  "rocksdb.block-cache-entry-stats" - returns a multi-line string or
-    //      map with statistics on block cache usage.
+    //      map with statistics on block cache usage. See
+    //      `BlockCacheEntryStatsMapKeys` for structured representation of keys
+    //      available in the map form.
     static const std::string kBlockCacheEntryStats;
 
     //  "rocksdb.num-immutable-mem-table" - returns number of immutable

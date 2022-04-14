@@ -702,17 +702,21 @@ void InternalStats::CacheEntryRoleStats::ToMap(
     std::map<std::string, std::string>* values, SystemClock* clock) const {
   values->clear();
   auto& v = *values;
-  v["id"] = cache_id;
-  v["capacity"] = ROCKSDB_NAMESPACE::ToString(cache_capacity);
-  v["secs_for_last_collection"] =
+  v[BlockCacheEntryStatsMapKeys::CacheId()] = cache_id;
+  v[BlockCacheEntryStatsMapKeys::CacheCapacityBytes()] =
+      ROCKSDB_NAMESPACE::ToString(cache_capacity);
+  v[BlockCacheEntryStatsMapKeys::LastCollectionDurationSeconds()] =
       ROCKSDB_NAMESPACE::ToString(GetLastDurationMicros() / 1000000.0);
-  v["secs_since_last_collection"] = ROCKSDB_NAMESPACE::ToString(
-      (clock->NowMicros() - last_end_time_micros_) / 1000000U);
+  v[BlockCacheEntryStatsMapKeys::LastCollectionAgeSeconds()] =
+      ROCKSDB_NAMESPACE::ToString((clock->NowMicros() - last_end_time_micros_) /
+                                  1000000U);
   for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
-    std::string role = kCacheEntryRoleToHyphenString[i];
-    v["count." + role] = ROCKSDB_NAMESPACE::ToString(entry_counts[i]);
-    v["bytes." + role] = ROCKSDB_NAMESPACE::ToString(total_charges[i]);
-    v["percent." + role] =
+    auto role = static_cast<CacheEntryRole>(i);
+    v[BlockCacheEntryStatsMapKeys::EntryCount(role)] =
+        ROCKSDB_NAMESPACE::ToString(entry_counts[i]);
+    v[BlockCacheEntryStatsMapKeys::UsedBytes(role)] =
+        ROCKSDB_NAMESPACE::ToString(total_charges[i]);
+    v[BlockCacheEntryStatsMapKeys::UsedPercent(role)] =
         ROCKSDB_NAMESPACE::ToString(100.0 * total_charges[i] / cache_capacity);
   }
 }
