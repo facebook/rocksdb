@@ -6490,7 +6490,8 @@ TEST_F(DBCompactionTest, CompactionWithBlobGCError_CorruptIndex) {
   ASSERT_OK(Flush());
 
   SyncPoint::GetInstance()->SetCallBack(
-      "CompactionIterator::GarbageCollectBlobIfNeeded::Tamper", [](void* arg) {
+      "CompactionIterator::GarbageCollectBlobIfNeeded::TamperWithBlobIndex",
+      [](void* arg) {
         Slice* const blob_index = static_cast<Slice*>(arg);
         assert(blob_index);
         assert(!blob_index->empty());
