@@ -2073,6 +2073,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
 
         if (is_blob_index) {
           if (do_merge && value) {
+            TEST_SYNC_POINT_CALLBACK("Version::Get::TamperWithBlobIndex",
+                                     value);
+
             constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
             constexpr uint64_t* bytes_read = nullptr;
 
@@ -2300,6 +2303,9 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
           if (iter->is_blob_index) {
             if (iter->value) {
+              TEST_SYNC_POINT_CALLBACK("Version::MultiGet::TamperWithBlobIndex",
+                                       &(*iter));
+
               const Slice& blob_index_slice = *(iter->value);
               BlobIndex blob_index;
               Status tmp_s = blob_index.DecodeFrom(blob_index_slice);
