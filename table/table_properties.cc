@@ -311,23 +311,42 @@ const std::string TablePropertiesNames::kFastCompressionEstimatedDataSize =
     "rocksdb.sample_for_compression.fast.data.size";
 
 #ifndef NDEBUG
+// WARNING: TEST_SetRandomTableProperties assumes the following layout of
+// TableProperties
+//
+// struct TableProperties {
+//    int64_t orig_file_number = 0;
+//    ...
+//    ... int64_t properties only
+//    ...
+//    std::string db_id;
+//    ...
+//    ... std::string properties only
+//    ...
+//    std::string compression_options;
+//    UserCollectedProperties user_collected_properties;
+//    ...
+//    ... Other extra properties: non-int64_t/non-std::string properties only
+//    ...
+// }
 void TEST_SetRandomTableProperties(TableProperties* props) {
   Random* r = Random::GetTLSInstance();
-  // For now, TableProperties is composed of a number of uint64_t followed by
-  // a number of std::string, followed by some extras starting with
-  // user_collected_properties.
   uint64_t* pu = &props->orig_file_number;
   assert(static_cast<void*>(pu) == static_cast<void*>(props));
   std::string* ps = &props->db_id;
   const uint64_t* const pu_end = reinterpret_cast<const uint64_t*>(ps);
-  const std::string* const ps_end =
-      reinterpret_cast<const std::string*>(&props->user_collected_properties);
+  // Use the last string property's address instead of
+  // the first extra property (e.g `user_collected_properties`)'s address
+  // in the for-loop to avoid advancing pointer to pointing to
+  // potential non-zero padding bytes between these two addresses due to
+  // user_collected_properties's alignment requirement
+  const std::string* const ps_end_inclusive = &props->compression_options;
 
   for (; pu < pu_end; ++pu) {
     *pu = r->Next64();
   }
   assert(static_cast<void*>(pu) == static_cast<void*>(ps));
-  for (; ps < ps_end; ++ps) {
+  for (; ps <= ps_end_inclusive; ++ps) {
     *ps = r->RandomBinaryString(13);
   }
 }

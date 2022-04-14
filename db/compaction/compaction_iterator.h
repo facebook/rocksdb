@@ -92,8 +92,6 @@ class CompactionIterator {
 
     virtual bool allow_ingest_behind() const = 0;
 
-    virtual bool preserve_deletes() const = 0;
-
     virtual bool allow_mmap_reads() const = 0;
 
     virtual bool enable_blob_garbage_collection() const = 0;
@@ -139,8 +137,6 @@ class CompactionIterator {
       return compaction_->immutable_options()->allow_ingest_behind;
     }
 
-    bool preserve_deletes() const override { return false; }
-
     bool allow_mmap_reads() const override {
       return compaction_->immutable_options()->allow_mmap_reads;
     }
@@ -183,7 +179,6 @@ class CompactionIterator {
       const Compaction* compaction = nullptr,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
-      const SequenceNumber preserve_deletes_seqnum = 0,
       const std::atomic<int>* manual_compaction_paused = nullptr,
       const std::atomic<bool>* manual_compaction_canceled = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
@@ -201,7 +196,6 @@ class CompactionIterator {
       std::unique_ptr<CompactionProxy> compaction,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
-      const SequenceNumber preserve_deletes_seqnum = 0,
       const std::atomic<int>* manual_compaction_paused = nullptr,
       const std::atomic<bool>* manual_compaction_canceled = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
@@ -272,11 +266,6 @@ class CompactionIterator {
   inline SequenceNumber findEarliestVisibleSnapshot(
       SequenceNumber in, SequenceNumber* prev_snapshot);
 
-  // Checks whether the currently seen ikey_ is needed for
-  // incremental (differential) snapshot and hence can't be dropped
-  // or seqnum be zero-ed out even if all other conditions for it are met.
-  inline bool ikeyNotNeededForIncrementalSnapshot();
-
   inline bool KeyCommitted(SequenceNumber sequence) {
     return snapshot_checker_ == nullptr ||
            snapshot_checker_->CheckInSnapshot(sequence, kMaxSequenceNumber) ==
@@ -332,7 +321,6 @@ class CompactionIterator {
   const std::atomic<bool>* shutting_down_;
   const std::atomic<int>* manual_compaction_paused_;
   const std::atomic<bool>* manual_compaction_canceled_;
-  const SequenceNumber preserve_deletes_seqnum_;
   bool bottommost_level_;
   bool valid_ = false;
   bool visible_at_tip_;

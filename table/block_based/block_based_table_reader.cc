@@ -2061,7 +2061,7 @@ template Status BlockBasedTable::RetrieveBlock<UncompressionDict>(
 
 BlockBasedTable::PartitionedIndexIteratorState::PartitionedIndexIteratorState(
     const BlockBasedTable* table,
-    std::unordered_map<uint64_t, CachableEntry<Block>>* block_map)
+    UnorderedMap<uint64_t, CachableEntry<Block>>* block_map)
     : table_(table), block_map_(block_map) {}
 
 InternalIteratorBase<IndexValue>*

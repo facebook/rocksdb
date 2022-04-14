@@ -733,6 +733,14 @@ TEST_F(DBBlobBasicTest, Properties) {
                                   &live_blob_file_size));
   ASSERT_EQ(live_blob_file_size, total_expected_size);
 
+  // Total amount of garbage in live blob files
+  {
+    uint64_t live_blob_file_garbage_size = 0;
+    ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kLiveBlobFileGarbageSize,
+                                    &live_blob_file_garbage_size));
+    ASSERT_EQ(live_blob_file_garbage_size, 0);
+  }
+
   // Total size of all blob files across all versions
   // Note: this should be the same as above since we only have one
   // version at this point.
@@ -768,6 +776,14 @@ TEST_F(DBBlobBasicTest, Properties) {
       << "\nBlob file space amplification: " << expected_space_amp << '\n';
 
   ASSERT_EQ(blob_stats, oss.str());
+
+  // Total amount of garbage in live blob files
+  {
+    uint64_t live_blob_file_garbage_size = 0;
+    ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kLiveBlobFileGarbageSize,
+                                    &live_blob_file_garbage_size));
+    ASSERT_EQ(live_blob_file_garbage_size, expected_garbage_size);
+  }
 }
 
 TEST_F(DBBlobBasicTest, PropertiesMultiVersion) {

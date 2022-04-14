@@ -290,6 +290,12 @@ class DB {
       const std::string& input, std::string* output,
       const CompactionServiceOptionsOverride& override_options);
 
+  static Status OpenAndCompact(
+      const OpenAndCompactOptions& options, const std::string& name,
+      const std::string& output_directory, const std::string& input,
+      std::string* output,
+      const CompactionServiceOptionsOverride& override_options);
+
   // Experimental and subject to change
   // Open DB and trim data newer than specified timestamp.
   // The trim_ts specified the user-defined timestamp trim bound.
@@ -1060,6 +1066,10 @@ class DB {
     // "rocksdb.live-blob-file-size" - returns the total size of all blob
     //      files in the current version.
     static const std::string kLiveBlobFileSize;
+
+    // "rocksdb.live-blob-file-garbage-size" - returns the total amount of
+    // garbage in the blob files in the current version.
+    static const std::string kLiveBlobFileGarbageSize;
   };
 #endif /* ROCKSDB_LITE */
 

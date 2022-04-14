@@ -1074,7 +1074,8 @@ class DBFilterConstructionReserveMemoryTestWithParam
 };
 
 INSTANTIATE_TEST_CASE_P(
-    BlockBasedTableOptions, DBFilterConstructionReserveMemoryTestWithParam,
+    DBFilterConstructionReserveMemoryTestWithParam,
+    DBFilterConstructionReserveMemoryTestWithParam,
     ::testing::Values(std::make_tuple(false, kFastLocalBloom, false, false),
 
                       std::make_tuple(true, kFastLocalBloom, false, false),
@@ -1090,7 +1091,7 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(true, kDeprecatedBlock, false, false),
                       std::make_tuple(true, kLegacyBloom, false, false)));
 
-// TODO: Speed up this test.
+// TODO: Speed up this test, and reduce disk space usage (~700MB)
 // The current test inserts many keys (on the scale of dummy entry size)
 // in order to make small memory user (e.g, final filter, partitioned hash
 // entries/filter/banding) , which is proportional to the number of

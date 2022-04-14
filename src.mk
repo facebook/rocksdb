@@ -6,7 +6,7 @@ LIB_SOURCES =                                                   \
   cache/cache_reservation_manager.cc                            \
   cache/clock_cache.cc                                          \
   cache/lru_cache.cc                                            \
-  cache/lru_secondary_cache.cc                                  \
+  cache/compressed_secondary_cache.cc                           \
   cache/sharded_cache.cc                                        \
   db/arena_wrapped_db_iter.cc                                   \
   db/blob/blob_fetcher.cc                                       \
@@ -366,12 +366,11 @@ TEST_LIB_SOURCES =                                              \
   test_util/testutil.cc                                         \
   utilities/cassandra/test_utils.cc                             \
 
-FOLLY_SOURCES = \
-  third-party/folly/folly/detail/Futex.cpp                                     \
-  third-party/folly/folly/synchronization/AtomicNotification.cpp               \
-  third-party/folly/folly/synchronization/DistributedMutex.cpp                 \
-  third-party/folly/folly/synchronization/ParkingLot.cpp                       \
-  third-party/folly/folly/synchronization/WaitOptions.cpp                      \
+FOLLY_SOURCES =                                                 \
+  $(FOLLY_DIR)/folly/container/detail/F14Table.cpp              \
+  $(FOLLY_DIR)/folly/lang/SafeAssert.cpp                        \
+  $(FOLLY_DIR)/folly/lang/ToAscii.cpp                           \
+  $(FOLLY_DIR)/folly/ScopeGuard.cpp                             \
 
 TOOLS_MAIN_SOURCES =                                                    \
   db_stress_tool/db_stress.cc                                           \
@@ -402,7 +401,7 @@ TEST_MAIN_SOURCES =                                                     \
   cache/cache_test.cc                                                   \
   cache/cache_reservation_manager_test.cc                               \
   cache/lru_cache_test.cc                                               \
-  cache/lru_secondary_cache_test.cc                                     \
+  cache/compressed_secondary_cache_test.cc                              \
   db/blob/blob_counting_iterator_test.cc                                \
   db/blob/blob_file_addition_test.cc                                    \
   db/blob/blob_file_builder_test.cc                                     \

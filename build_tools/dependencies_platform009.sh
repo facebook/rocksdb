@@ -19,3 +19,4 @@ BINUTILS_BASE=/mnt/gvfs/third-party2/binutils/08634589372fa5f237bfd374e8c644a836
 VALGRIND_BASE=/mnt/gvfs/third-party2/valgrind/6ae525939ad02e5e676855082fbbc7828dbafeac/3.15.0/platform009/7f3b187
 LUA_BASE=/mnt/gvfs/third-party2/lua/162efd9561a3d21f6869f4814011e9cf1b3ff4dc/5.3.4/platform009/a6271c4
 BENCHMARK_BASE=/mnt/gvfs/third-party2/benchmark/30bf49ad6414325e17f3425b0edcb64239427ae3/1.6.1/platform009/7f3b187
+BOOST_BASE=/mnt/gvfs/third-party2/boost/201b7d74941e54b436dfa364a063aa6d2cd7de4c/1.69.0/platform009/8a7ffdf

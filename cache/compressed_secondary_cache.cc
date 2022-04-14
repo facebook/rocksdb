@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "cache/lru_secondary_cache.h"
+#include "cache/compressed_secondary_cache.h"
 
 #include <memory>
 
@@ -22,7 +22,7 @@ void DeletionCallback(const Slice& /*key*/, void* obj) {
 
 }  // namespace
 
-LRUSecondaryCache::LRUSecondaryCache(
+CompressedSecondaryCache::CompressedSecondaryCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     double high_pri_pool_ratio,
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
@@ -37,11 +37,13 @@ LRUSecondaryCache::LRUSecondaryCache(
                        use_adaptive_mutex, metadata_charge_policy);
 }
 
-LRUSecondaryCache::~LRUSecondaryCache() { cache_.reset(); }
+CompressedSecondaryCache::~CompressedSecondaryCache() { cache_.reset(); }
 
-std::unique_ptr<SecondaryCacheResultHandle> LRUSecondaryCache::Lookup(
-    const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/) {
+std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
+    const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
+    bool& is_in_sec_cache) {
   std::unique_ptr<SecondaryCacheResultHandle> handle;
+  is_in_sec_cache = false;
   Cache::Handle* lru_handle = cache_->Lookup(key);
   if (lru_handle == nullptr) {
     return handle;
@@ -69,24 +71,25 @@ std::unique_ptr<SecondaryCacheResultHandle> LRUSecondaryCache::Lookup(
         cache_options_.memory_allocator.get());
 
     if (!uncompressed) {
-      cache_->Release(lru_handle, true);
+      cache_->Release(lru_handle, /* erase_if_last_ref */ true);
       return handle;
     }
     s = create_cb(uncompressed.get(), uncompressed_size, &value, &charge);
   }
 
   if (!s.ok()) {
-    cache_->Release(lru_handle, true);
+    cache_->Release(lru_handle, /* erase_if_last_ref */ true);
     return handle;
   }
 
-  handle.reset(new LRUSecondaryCacheResultHandle(value, charge));
-  cache_->Release(lru_handle);
+  cache_->Release(lru_handle, /* erase_if_last_ref */ true);
+  handle.reset(new CompressedSecondaryCacheResultHandle(value, charge));
+
   return handle;
 }
 
-Status LRUSecondaryCache::Insert(const Slice& key, void* value,
-                                 const Cache::CacheItemHelper* helper) {
+Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
+                                        const Cache::CacheItemHelper* helper) {
   size_t size = (*helper->size_cb)(value);
   CacheAllocationPtr ptr =
       AllocateBlock(size, cache_options_.memory_allocator.get());
@@ -125,9 +128,9 @@ Status LRUSecondaryCache::Insert(const Slice& key, void* value,
   return cache_->Insert(key, buf, size, DeletionCallback);
 }
 
-void LRUSecondaryCache::Erase(const Slice& key) { cache_->Erase(key); }
+void CompressedSecondaryCache::Erase(const Slice& key) { cache_->Erase(key); }
 
-std::string LRUSecondaryCache::GetPrintableOptions() const {
+std::string CompressedSecondaryCache::GetPrintableOptions() const {
   std::string ret;
   ret.reserve(20000);
   const int kBufferSize = 200;
@@ -142,23 +145,23 @@ std::string LRUSecondaryCache::GetPrintableOptions() const {
   return ret;
 }
 
-std::shared_ptr<SecondaryCache> NewLRUSecondaryCache(
+std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     double high_pri_pool_ratio,
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy,
     CompressionType compression_type, uint32_t compress_format_version) {
-  return std::make_shared<LRUSecondaryCache>(
+  return std::make_shared<CompressedSecondaryCache>(
       capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
       memory_allocator, use_adaptive_mutex, metadata_charge_policy,
       compression_type, compress_format_version);
 }
 
-std::shared_ptr<SecondaryCache> NewLRUSecondaryCache(
-    const LRUSecondaryCacheOptions& opts) {
+std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
+    const CompressedSecondaryCacheOptions& opts) {
   // The secondary_cache is disabled for this LRUCache instance.
   assert(opts.secondary_cache == nullptr);
-  return NewLRUSecondaryCache(
+  return NewCompressedSecondaryCache(
       opts.capacity, opts.num_shard_bits, opts.strict_capacity_limit,
       opts.high_pri_pool_ratio, opts.memory_allocator, opts.use_adaptive_mutex,
       opts.metadata_charge_policy, opts.compression_type,

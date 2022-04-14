@@ -194,7 +194,7 @@ Status BuildTable(
         blob_file_builder.get(), ioptions.allow_data_in_errors,
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr,
-        /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
+        /*manual_compaction_paused=*/nullptr,
         /*manual_compaction_canceled=*/nullptr, db_options.info_log,
         full_history_ts_low);
 
