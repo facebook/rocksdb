@@ -64,13 +64,23 @@ namespace ROCKSDB_NAMESPACE {
 //    assert(func == "sum");
 //    assert(aggregated_value == "600");
 //
+//
+// DB::Put() can also be used to add a payload, but no function name should
+// be given and it will be eventually aggregated based on function names
+// provided by Merge() later.
+//
 // If the aggregation function is not registered or there is an error
 // returned by aggregation function, the result will be encoded with a fake
 // aggregation function kErrorFuncName, with each merge operands to be encoded
 // into a list that can be extracted using ExtractList();
 //
 // If users add a merge operand using a different aggregation function from
-// the previous one, the previous ones will be ignored.
+// the previous one, the merge operands for the previous one is aggregated
+// and the payload part of the result is treated as the first payload of
+// the items for the new aggregation function. For example, users can
+// Merge("plus, 1"), merge("plus 2"), merge("minus 3") and the aggregation
+// result would be "minus 0".
+//
 
 // A class used to aggregate data per key/value. The plug-in function is
 // implemented and registered using AddAggregator(). And then use it

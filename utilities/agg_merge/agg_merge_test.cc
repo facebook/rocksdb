@@ -25,6 +25,7 @@ class AggMergeTest : public DBTestBase {
 TEST_F(AggMergeTest, TestUsingMergeOperator) {
   ASSERT_OK(AddAggregator("sum", std::make_unique<SumAggregator>()));
   ASSERT_OK(AddAggregator("last3", std::make_unique<Last3Aggregator>()));
+  ASSERT_OK(AddAggregator("mul", std::make_unique<MultipleAggregator>()));
 
   Options options = CurrentOptions();
   options.merge_operator = GetAggMergeOperator();
@@ -59,37 +60,35 @@ TEST_F(AggMergeTest, TestUsingMergeOperator) {
   EXPECT_EQ(EncodeHelper::EncodeFuncAndInt("sum", 60), Get("foo2"));
 
   // Test changing aggregation type
-  v = EncodeHelper::EncodeFuncAndList("last3", {"a", "b"});
-  ASSERT_OK(Merge("bar", v));
+  v = EncodeHelper::EncodeFuncAndInt("mul", 10);
+  ASSERT_OK(Merge("bar2", v));
+  v = EncodeHelper::EncodeFuncAndInt("mul", 10);
+  ASSERT_OK(Merge("bar2", v));
   v = EncodeHelper::EncodeFuncAndInt("sum", 10);
-  ASSERT_OK(Merge("bar", v));
+  ASSERT_OK(Merge("bar2", v));
   v = EncodeHelper::EncodeFuncAndInt("sum", 20);
-  ASSERT_OK(Merge("bar", v));
-  std::string aggregated_value = Get("bar");
-  Slice func, payload;
-  ASSERT_TRUE(ExtractAggFuncAndValue(aggregated_value, func, payload));
-  EXPECT_EQ("sum", func);
-  int64_t ivalue;
-  ASSERT_TRUE(GetVarsignedint64(&payload, &ivalue));
-  ASSERT_EQ(30, ivalue);
+  ASSERT_OK(Merge("bar2", v));
+  EXPECT_EQ(EncodeHelper::EncodeFuncAndInt("sum", 10 * 10 + 10 + 20),
+            Get("bar2"));
 
   // Test unregistered function name
   v = EncodeAggFuncAndPayloadNoCheck("non_existing", "1");
-  ASSERT_OK(Merge("bar2", v));
+  ASSERT_OK(Merge("bar3", v));
   std::string v1;
   v1 = EncodeAggFuncAndPayloadNoCheck("non_existing", "invalid");
   ;
-  ASSERT_OK(Merge("bar2", v1));
+  ASSERT_OK(Merge("bar3", v1));
   EXPECT_EQ(EncodeAggFuncAndPayloadNoCheck(kErrorFuncName,
                                            EncodeHelper::EncodeList({v, v1})),
-            Get("bar2"));
+            Get("bar3"));
 
   // invalidate input
   ASSERT_OK(EncodeAggFuncAndPayload("sum", "invalid", v));
-  ASSERT_OK(Merge("bar3", v));
+  ASSERT_OK(Merge("bar4", v));
   v1 = EncodeHelper::EncodeFuncAndInt("sum", 20);
-  ASSERT_OK(Merge("bar3", v1));
-  aggregated_value = Get("bar3");
+  ASSERT_OK(Merge("bar4", v1));
+  std::string aggregated_value = Get("bar4");
+  Slice func, payload;
   ASSERT_TRUE(ExtractAggFuncAndValue(aggregated_value, func, payload));
   EXPECT_EQ(kErrorFuncName, func);
   std::vector<Slice> decoded_list;

@@ -9,6 +9,7 @@
 
 #include <deque>
 #include <memory>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -80,28 +81,44 @@ class AggMergeOperator::Accumulator {
     if (ignore_operands_) {
       return true;
     }
+    if (is_initial_value) {
+      values_.push_back(op);
+      return true;
+    }
+
     Slice my_func;
     Slice my_value;
     bool ret = ExtractAggFuncAndValue(op, my_func, my_value);
-    if (!ret || (!func_.empty() && func_ != my_func)) {
-      if (is_initial_value) {
-        // We allow initial value not to have the function name part.
-        my_value = op;
-        my_func = func_;
-      } else {
-        // We got some unexpected merge operands. Ignore this and all
-        // subsequenr ones.
-        ignore_operands_ = true;
-        return true;
-      }
+    if (!ret) {
+      ignore_operands_ = true;
+      return true;
     }
-    if (is_partial_aggregation && !func_.empty()) {
-      auto f = func_map.find(func_.ToString());
+
+    // Determine whether we need to do partial merge.
+    if (is_partial_aggregation && !my_func.empty()) {
+      auto f = func_map.find(my_func.ToString());
       if (f == func_map.end() || f->second->DoPartialAggregate()) {
         return false;
       }
     }
-    func_ = my_func;
+
+    if (!func_valid_) {
+      func_ = my_func;
+      func_valid_ = true;
+    } else if (func_ != my_func) {
+      // User switched aggregation function. Need to aggregate the older
+      // one first.
+      auto f = func_map.find(func_.ToString());
+      if (f == func_map.end() || !f->second->Aggregate(values_, &scratch_)) {
+        func_valid_ = false;
+        ignore_operands_ = true;
+        return true;
+      }
+      std::swap(scratch_, aggregated_);
+      values_.clear();
+      values_.push_back(aggregated_);
+      func_ = my_func;
+    }
     values_.push_back(my_value);
     return true;
   }
@@ -109,7 +126,7 @@ class AggMergeOperator::Accumulator {
   // Return false if aggregation fails.
   // One possible reason
   bool GetResult(std::string& result) {
-    if (func_.empty()) {
+    if (!func_valid_) {
       return false;
     }
     auto f = func_map.find(func_.ToString());
@@ -126,15 +143,19 @@ class AggMergeOperator::Accumulator {
   void Clear() {
     func_.clear();
     values_.clear();
+    aggregated_.clear();
     scratch_.clear();
     ignore_operands_ = false;
+    func_valid_ = false;
   }
 
  private:
   Slice func_;
   std::vector<Slice> values_;
+  std::string aggregated_;
   std::string scratch_;
   bool ignore_operands_ = false;
+  bool func_valid_ = false;
 };
 
 // Creating and using a new Accumulator might invoke multiple malloc and is
@@ -174,15 +195,15 @@ void AggMergeOperator::PackAllMergeOperands(const MergeOperationInput& merge_in,
 bool AggMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
                                    MergeOperationOutput* merge_out) const {
   Accumulator& agg = GetTLSAccumulator();
-  for (auto it = merge_in.operand_list.rbegin();
-       it != merge_in.operand_list.rend(); it++) {
-    agg.Add(*it, /*is_initial_value=*/false,
-            /*is_partial_aggregation=*/false);
-  }
   if (merge_in.existing_value != nullptr) {
     agg.Add(*merge_in.existing_value, /*is_initial_value=*/true,
             /*is_partial_aggregation=*/false);
   }
+  for (const Slice& e : merge_in.operand_list) {
+    agg.Add(e, /*is_initial_value=*/false,
+            /*is_partial_aggregation=*/false);
+  }
+
   bool succ = agg.GetResult(merge_out->new_value);
   if (!succ) {
     // If aggregation can't happen, pack all merge operands. In contrast to

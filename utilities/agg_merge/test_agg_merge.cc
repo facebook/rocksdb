@@ -58,7 +58,24 @@ bool SumAggregator::Aggregate(const std::vector<Slice>& item_list,
     }
     sum += ivalue;
   }
+  fprintf(stderr, "sum %ld\n", (long)sum);
   *result = EncodeHelper::EncodeInt(sum);
+  return true;
+}
+
+bool MultipleAggregator::Aggregate(const std::vector<Slice>& item_list,
+                                   std::string* result) const {
+  int64_t mresult = 1;
+  for (const Slice& item : item_list) {
+    int64_t ivalue;
+    Slice v = item;
+    if (!GetVarsignedint64(&v, &ivalue) || !v.empty()) {
+      return false;
+    }
+    mresult *= ivalue;
+  }
+  fprintf(stderr, "mul %ld\n", (long)mresult);
+  *result = EncodeHelper::EncodeInt(mresult);
   return true;
 }
 
@@ -66,10 +83,11 @@ bool Last3Aggregator::Aggregate(const std::vector<Slice>& item_list,
                                 std::string* result) const {
   std::vector<Slice> last3;
   last3.reserve(3);
-  for (Slice item : item_list) {
+  for (auto it = item_list.rbegin(); it != item_list.rend(); it++) {
+    Slice input = *it;
     Slice entity;
     bool ret;
-    while ((ret = GetLengthPrefixedSlice(&item, &entity)) == true) {
+    while ((ret = GetLengthPrefixedSlice(&input, &entity)) == true) {
       last3.push_back(entity);
       if (last3.size() >= 3) {
         break;

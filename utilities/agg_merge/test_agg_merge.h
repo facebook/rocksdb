@@ -22,6 +22,13 @@ class SumAggregator : public Aggregator {
   bool DoPartialAggregate() const override { return false; }
 };
 
+class MultipleAggregator : public Aggregator {
+ public:
+  ~MultipleAggregator() override {}
+  bool Aggregate(const std::vector<Slice>&, std::string* result) const override;
+  bool DoPartialAggregate() const override { return false; }
+};
+
 class Last3Aggregator : public Aggregator {
  public:
   ~Last3Aggregator() override {}
