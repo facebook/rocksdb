@@ -685,6 +685,8 @@ rocks_cpp_library_wrapper(name="rocksdb_stress_lib", srcs=[
     ], headers=None)
 
 
+cpp_binary_wrapper(name="db_stress", srcs=["db_stress_tool/db_stress.cc"], deps=[":rocksdb_stress_lib"], extra_preprocessor_flags=[], extra_bench_libs=False)
+
 cpp_binary_wrapper(name="ribbon_bench", srcs=["microbench/ribbon_bench.cc"], deps=[], extra_preprocessor_flags=[], extra_bench_libs=True)
 
 cpp_binary_wrapper(name="db_basic_bench", srcs=["microbench/db_basic_bench.cc"], deps=[], extra_preprocessor_flags=[], extra_bench_libs=True)
