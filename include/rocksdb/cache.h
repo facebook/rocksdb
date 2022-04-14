@@ -577,6 +577,9 @@ enum class CacheEntryRole {
 constexpr uint32_t kNumCacheEntryRoles =
     static_cast<uint32_t>(CacheEntryRole::kMisc) + 1;
 
+// Obtain a hyphen-separated, lowercase name of a `CacheEntryRole`.
+const std::string& GetCacheEntryRoleName(CacheEntryRole);
+
 // For use with `GetMapProperty()` for property
 // `DB::Properties::kBlockCacheEntryStats`. On success, the map will
 // be populated with all keys that can be obtained from these functions.

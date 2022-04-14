@@ -11,7 +11,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-std::array<const char*, kNumCacheEntryRoles> kCacheEntryRoleToCamelString{{
+std::array<std::string, kNumCacheEntryRoles> kCacheEntryRoleToCamelString{{
     "DataBlock",
     "FilterBlock",
     "FilterMetaBlock",
@@ -25,7 +25,7 @@ std::array<const char*, kNumCacheEntryRoles> kCacheEntryRoleToCamelString{{
     "Misc",
 }};
 
-std::array<const char*, kNumCacheEntryRoles> kCacheEntryRoleToHyphenString{{
+std::array<std::string, kNumCacheEntryRoles> kCacheEntryRoleToHyphenString{{
     "data-block",
     "filter-block",
     "filter-meta-block",
@@ -38,6 +38,10 @@ std::array<const char*, kNumCacheEntryRoles> kCacheEntryRoleToHyphenString{{
     "block-based-table-reader",
     "misc",
 }};
+
+const std::string& GetCacheEntryRoleName(CacheEntryRole role) {
+  return kCacheEntryRoleToHyphenString[static_cast<size_t>(role)];
+}
 
 const std::string& BlockCacheEntryStatsMapKeys::CacheId() {
   static const std::string kCacheId = "id";
@@ -64,10 +68,9 @@ const std::string& BlockCacheEntryStatsMapKeys::LastCollectionAgeSeconds() {
 
 namespace {
 
-std::string GetPrefixedHyphenatedRole(const std::string& prefix,
-                                      CacheEntryRole role) {
-  const std::string& role_name =
-      kCacheEntryRoleToHyphenString[static_cast<size_t>(role)];
+std::string GetPrefixedCacheEntryRoleName(const std::string& prefix,
+                                          CacheEntryRole role) {
+  const std::string& role_name = GetCacheEntryRoleName(role);
   std::string prefixed_role_name;
   prefixed_role_name.reserve(prefix.size() + role_name.size());
   prefixed_role_name.append(prefix);
@@ -79,17 +82,17 @@ std::string GetPrefixedHyphenatedRole(const std::string& prefix,
 
 std::string BlockCacheEntryStatsMapKeys::EntryCount(CacheEntryRole role) {
   const static std::string kPrefix = "count.";
-  return GetPrefixedHyphenatedRole(kPrefix, role);
+  return GetPrefixedCacheEntryRoleName(kPrefix, role);
 }
 
 std::string BlockCacheEntryStatsMapKeys::UsedBytes(CacheEntryRole role) {
   const static std::string kPrefix = "bytes.";
-  return GetPrefixedHyphenatedRole(kPrefix, role);
+  return GetPrefixedCacheEntryRoleName(kPrefix, role);
 }
 
 std::string BlockCacheEntryStatsMapKeys::UsedPercent(CacheEntryRole role) {
   const static std::string kPrefix = "percent.";
-  return GetPrefixedHyphenatedRole(kPrefix, role);
+  return GetPrefixedCacheEntryRoleName(kPrefix, role);
 }
 
 namespace {

@@ -15,9 +15,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-extern std::array<const char*, kNumCacheEntryRoles>
+extern std::array<std::string, kNumCacheEntryRoles>
     kCacheEntryRoleToCamelString;
-extern std::array<const char*, kNumCacheEntryRoles>
+extern std::array<std::string, kNumCacheEntryRoles>
     kCacheEntryRoleToHyphenString;
 
 // To associate cache entries with their role, we use a hack on the
