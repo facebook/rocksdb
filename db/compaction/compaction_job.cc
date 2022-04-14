@@ -423,10 +423,11 @@ CompactionJob::CompactionJob(
     ErrorHandler* db_error_handler,
     std::vector<SequenceNumber> existing_snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    const SnapshotChecker* snapshot_checker, std::shared_ptr<Cache> table_cache,
-    EventLogger* event_logger, bool paranoid_file_checks, bool measure_io_stats,
-    const std::string& dbname, CompactionJobStats* compaction_job_stats,
-    Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
+    const SnapshotChecker* snapshot_checker, JobContext* job_context,
+    std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
+    bool paranoid_file_checks, bool measure_io_stats, const std::string& dbname,
+    CompactionJobStats* compaction_job_stats, Env::Priority thread_pri,
+    const std::shared_ptr<IOTracer>& io_tracer,
     const std::atomic<int>* manual_compaction_paused,
     const std::atomic<bool>* manual_compaction_canceled,
     const std::string& db_id, const std::string& db_session_id,
@@ -463,6 +464,7 @@ CompactionJob::CompactionJob(
       existing_snapshots_(std::move(existing_snapshots)),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       snapshot_checker_(snapshot_checker),
+      job_context_(job_context),
       table_cache_(std::move(table_cache)),
       event_logger_(event_logger),
       paranoid_file_checks_(paranoid_file_checks),
@@ -1468,9 +1470,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   Status status;
   const std::string* const full_history_ts_low =
       full_history_ts_low_.empty() ? nullptr : &full_history_ts_low_;
+  const SequenceNumber job_snapshot_seq =
+      job_context_ ? job_context_->GetJobSnapshotSequence()
+                   : kMaxSequenceNumber;
   sub_compact->c_iter.reset(new CompactionIterator(
       input, cfd->user_comparator(), &merge, versions_->LastSequence(),
-      &existing_snapshots_, earliest_write_conflict_snapshot_,
+      &existing_snapshots_, earliest_write_conflict_snapshot_, job_snapshot_seq,
       snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_),
       /*expect_valid_internal_key=*/true, &range_del_agg,
       blob_file_builder.get(), db_options_.allow_data_in_errors,
@@ -2496,7 +2501,7 @@ CompactionServiceCompactionJob::CompactionServiceCompactionJob(
           job_id, compaction, db_options, mutable_db_options, file_options,
           versions, shutting_down, log_buffer, nullptr, output_directory,
           nullptr, stats, db_mutex, db_error_handler, existing_snapshots,
-          kMaxSequenceNumber, nullptr, table_cache, event_logger,
+          kMaxSequenceNumber, nullptr, nullptr, table_cache, event_logger,
           compaction->mutable_cf_options()->paranoid_file_checks,
           compaction->mutable_cf_options()->report_bg_io_stats, dbname,
           &(compaction_service_result->stats), Env::Priority::USER, io_tracer,

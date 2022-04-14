@@ -172,8 +172,8 @@ class CompactionIterator {
       InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
       SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
       SequenceNumber earliest_write_conflict_snapshot,
-      const SnapshotChecker* snapshot_checker, Env* env,
-      bool report_detailed_time, bool expect_valid_internal_key,
+      SequenceNumber job_snapshot, const SnapshotChecker* snapshot_checker,
+      Env* env, bool report_detailed_time, bool expect_valid_internal_key,
       CompactionRangeDelAggregator* range_del_agg,
       BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
       const Compaction* compaction = nullptr,
@@ -189,8 +189,8 @@ class CompactionIterator {
       InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
       SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
       SequenceNumber earliest_write_conflict_snapshot,
-      const SnapshotChecker* snapshot_checker, Env* env,
-      bool report_detailed_time, bool expect_valid_internal_key,
+      SequenceNumber job_snapshot, const SnapshotChecker* snapshot_checker,
+      Env* env, bool report_detailed_time, bool expect_valid_internal_key,
       CompactionRangeDelAggregator* range_del_agg,
       BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
       std::unique_ptr<CompactionProxy> compaction,
@@ -268,7 +268,7 @@ class CompactionIterator {
 
   inline bool KeyCommitted(SequenceNumber sequence) {
     return snapshot_checker_ == nullptr ||
-           snapshot_checker_->CheckInSnapshot(sequence, kMaxSequenceNumber) ==
+           snapshot_checker_->CheckInSnapshot(sequence, job_snapshot_) ==
                SnapshotCheckerResult::kInSnapshot;
   }
 
@@ -309,6 +309,7 @@ class CompactionIterator {
   std::unordered_set<SequenceNumber> released_snapshots_;
   std::vector<SequenceNumber>::const_iterator earliest_snapshot_iter_;
   const SequenceNumber earliest_write_conflict_snapshot_;
+  const SequenceNumber job_snapshot_;
   const SnapshotChecker* const snapshot_checker_;
   Env* env_;
   SystemClock* clock_;

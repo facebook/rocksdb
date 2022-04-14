@@ -455,11 +455,13 @@ Status FlushJob::MemPurge() {
         ioptions->logger, true /* internal key corruption is not ok */,
         existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
         snapshot_checker_);
+    assert(job_context_);
+    SequenceNumber job_snapshot_seq = job_context_->GetJobSnapshotSequence();
     CompactionIterator c_iter(
         iter.get(), (cfd_->internal_comparator()).user_comparator(), &merge,
         kMaxSequenceNumber, &existing_snapshots_,
-        earliest_write_conflict_snapshot_, snapshot_checker_, env,
-        ShouldReportDetailedTime(env, ioptions->stats),
+        earliest_write_conflict_snapshot_, job_snapshot_seq, snapshot_checker_,
+        env, ShouldReportDetailedTime(env, ioptions->stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         nullptr, ioptions->allow_data_in_errors,
         /*compaction=*/nullptr, compaction_filter.get(),
@@ -829,6 +831,7 @@ Status FlushJob::WriteLevel0Table() {
                       // TEST_SYNC_POINT_CALLBACK not used.
     TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:num_memtables",
                              &mems_size);
+    assert(job_context_);
     for (MemTable* m : mems_) {
       ROCKS_LOG_INFO(
           db_options_.info_log,
@@ -911,16 +914,19 @@ Status FlushJob::WriteLevel0Table() {
           TableFileCreationReason::kFlush, creation_time, oldest_key_time,
           current_time, db_id_, db_session_id_, 0 /* target_file_size */,
           meta_.fd.GetNumber());
+      const SequenceNumber job_snapshot_seq =
+          job_context_->GetJobSnapshotSequence();
       s = BuildTable(
           dbname_, versions_, db_options_, tboptions, file_options_,
           cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
           &blob_file_additions, existing_snapshots_,
-          earliest_write_conflict_snapshot_, snapshot_checker_,
-          mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
-          &io_s, io_tracer_, BlobFileCreationReason::kFlush, event_logger_,
-          job_context_->job_id, Env::IO_HIGH, &table_properties_, write_hint,
-          full_history_ts_low, blob_callback_, &num_input_entries,
-          &memtable_payload_bytes, &memtable_garbage_bytes);
+          earliest_write_conflict_snapshot_, job_snapshot_seq,
+          snapshot_checker_, mutable_cf_options_.paranoid_file_checks,
+          cfd_->internal_stats(), &io_s, io_tracer_,
+          BlobFileCreationReason::kFlush, event_logger_, job_context_->job_id,
+          Env::IO_HIGH, &table_properties_, write_hint, full_history_ts_low,
+          blob_callback_, &num_input_entries, &memtable_payload_bytes,
+          &memtable_garbage_bytes);
       // TODO: Cleanup io_status in BuildTable and table builders
       assert(!s.ok() || io_s.ok());
       io_s.PermitUncheckedError();
