@@ -39,12 +39,28 @@ std::array<const char*, kNumCacheEntryRoles> kCacheEntryRoleToHyphenString{{
     "misc",
 }};
 
-const std::string BlockCacheEntryStatsMapKeys::kCacheId = "id";
-const std::string BlockCacheEntryStatsMapKeys::kCacheCapacityBytes = "capacity";
-const std::string BlockCacheEntryStatsMapKeys::kLastCollectionDurationSeconds =
-    "secs_for_last_collection";
-const std::string BlockCacheEntryStatsMapKeys::kLastCollectionAgeSeconds =
-    "secs_since_last_collection";
+const std::string& BlockCacheEntryStatsMapKeys::CacheId() {
+  static const std::string kCacheId = "id";
+  return kCacheId;
+}
+
+const std::string& BlockCacheEntryStatsMapKeys::CacheCapacityBytes() {
+  static const std::string kCacheCapacityBytes = "capacity";
+  return kCacheCapacityBytes;
+}
+
+const std::string&
+BlockCacheEntryStatsMapKeys::LastCollectionDurationSeconds() {
+  static const std::string kLastCollectionDurationSeconds =
+      "secs_for_last_collection";
+  return kLastCollectionDurationSeconds;
+}
+
+const std::string& BlockCacheEntryStatsMapKeys::LastCollectionAgeSeconds() {
+  static const std::string kLastCollectionAgeSeconds =
+      "secs_since_last_collection";
+  return kLastCollectionAgeSeconds;
+}
 
 namespace {
 

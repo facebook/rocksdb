@@ -581,10 +581,10 @@ constexpr uint32_t kNumCacheEntryRoles =
 // `DB::Properties::kBlockCacheEntryStats`. On success, the map will
 // be populated with all these keys.
 struct BlockCacheEntryStatsMapKeys {
-  static const std::string kCacheId;
-  static const std::string kCacheCapacityBytes;
-  static const std::string kLastCollectionDurationSeconds;
-  static const std::string kLastCollectionAgeSeconds;
+  static const std::string& CacheId();
+  static const std::string& CacheCapacityBytes();
+  static const std::string& LastCollectionDurationSeconds();
+  static const std::string& LastCollectionAgeSeconds();
 
   static std::string EntryCount(CacheEntryRole);
   static std::string UsedBytes(CacheEntryRole);

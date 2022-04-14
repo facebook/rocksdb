@@ -2003,16 +2003,16 @@ TEST_F(DBPropertiesTest, GetMapPropertyBlockCacheEntryStats) {
   ASSERT_TRUE(
       db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats, &values));
 
-  ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::kCacheId) !=
+  ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::CacheId()) !=
               values.end());
-  ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::kCacheCapacityBytes) !=
+  ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::CacheCapacityBytes()) !=
               values.end());
   ASSERT_TRUE(
       values.find(
-          BlockCacheEntryStatsMapKeys::kLastCollectionDurationSeconds) !=
+          BlockCacheEntryStatsMapKeys::LastCollectionDurationSeconds()) !=
       values.end());
   ASSERT_TRUE(
-      values.find(BlockCacheEntryStatsMapKeys::kLastCollectionAgeSeconds) !=
+      values.find(BlockCacheEntryStatsMapKeys::LastCollectionAgeSeconds()) !=
       values.end());
   for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
     CacheEntryRole role = static_cast<CacheEntryRole>(i);

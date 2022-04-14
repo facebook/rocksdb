@@ -702,12 +702,12 @@ void InternalStats::CacheEntryRoleStats::ToMap(
     std::map<std::string, std::string>* values, SystemClock* clock) const {
   values->clear();
   auto& v = *values;
-  v[BlockCacheEntryStatsMapKeys::kCacheId] = cache_id;
-  v[BlockCacheEntryStatsMapKeys::kCacheCapacityBytes] =
+  v[BlockCacheEntryStatsMapKeys::CacheId()] = cache_id;
+  v[BlockCacheEntryStatsMapKeys::CacheCapacityBytes()] =
       ROCKSDB_NAMESPACE::ToString(cache_capacity);
-  v[BlockCacheEntryStatsMapKeys::kLastCollectionDurationSeconds] =
+  v[BlockCacheEntryStatsMapKeys::LastCollectionDurationSeconds()] =
       ROCKSDB_NAMESPACE::ToString(GetLastDurationMicros() / 1000000.0);
-  v[BlockCacheEntryStatsMapKeys::kLastCollectionAgeSeconds] =
+  v[BlockCacheEntryStatsMapKeys::LastCollectionAgeSeconds()] =
       ROCKSDB_NAMESPACE::ToString((clock->NowMicros() - last_end_time_micros_) /
                                   1000000U);
   for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
