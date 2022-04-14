@@ -83,7 +83,7 @@ bool Last3Aggregator::Aggregate(const std::vector<Slice>& item_list,
                                 std::string* result) const {
   std::vector<Slice> last3;
   last3.reserve(3);
-  for (auto it = item_list.rbegin(); it != item_list.rend(); it++) {
+  for (auto it = item_list.rbegin(); it != item_list.rend(); ++it) {
     Slice input = *it;
     Slice entity;
     bool ret;

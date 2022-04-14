@@ -223,8 +223,8 @@ bool AggMergeOperator::PartialMergeMulti(const Slice& /*key*/,
   return false;
   Accumulator& agg = GetTLSAccumulator();
   bool do_aggregation = true;
-  for (auto it = operand_list.rbegin(); it != operand_list.rend(); it++) {
-    do_aggregation = agg.Add(*it, /*is_initial_value=*/false,
+  for (const Slice& item : operand_list) {
+    do_aggregation = agg.Add(item, /*is_initial_value=*/false,
                              /*is_partial_aggregation=*/true);
     if (!do_aggregation) {
       break;
