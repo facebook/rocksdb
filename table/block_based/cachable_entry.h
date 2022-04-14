@@ -59,11 +59,12 @@ public:
   CachableEntry(const CachableEntry&) = delete;
   CachableEntry& operator=(const CachableEntry&) = delete;
 
-  CachableEntry(CachableEntry&& rhs) noexcept
-      : value_(rhs.value_),
-        cache_(rhs.cache_),
-        cache_handle_(rhs.cache_handle_),
-        own_value_(rhs.own_value_) {
+  CachableEntry(CachableEntry&& rhs)
+    : value_(rhs.value_)
+    , cache_(rhs.cache_)
+    , cache_handle_(rhs.cache_handle_)
+    , own_value_(rhs.own_value_)
+  {
     assert(value_ != nullptr ||
       (cache_ == nullptr && cache_handle_ == nullptr && !own_value_));
     assert(!!cache_ == !!cache_handle_);
@@ -72,7 +73,7 @@ public:
     rhs.ResetFields();
   }
 
-  CachableEntry& operator=(CachableEntry&& rhs) noexcept {
+  CachableEntry& operator=(CachableEntry&& rhs) {
     if (UNLIKELY(this == &rhs)) {
       return *this;
     }
@@ -194,21 +195,21 @@ public:
   }
 
 private:
- void ReleaseResource() noexcept {
-   if (LIKELY(cache_handle_ != nullptr)) {
-     assert(cache_ != nullptr);
-     cache_->Release(cache_handle_);
-   } else if (own_value_) {
-     delete value_;
-   }
- }
+  void ReleaseResource() {
+    if (LIKELY(cache_handle_ != nullptr)) {
+      assert(cache_ != nullptr);
+      cache_->Release(cache_handle_);
+    } else if (own_value_) {
+      delete value_;
+    }
+  }
 
- void ResetFields() noexcept {
-   value_ = nullptr;
-   cache_ = nullptr;
-   cache_handle_ = nullptr;
-   own_value_ = false;
- }
+  void ResetFields() {
+    value_ = nullptr;
+    cache_ = nullptr;
+    cache_handle_ = nullptr;
+    own_value_ = false;
+  }
 
   static void ReleaseCacheHandle(void* arg1, void* arg2) {
     Cache* const cache = static_cast<Cache*>(arg1);

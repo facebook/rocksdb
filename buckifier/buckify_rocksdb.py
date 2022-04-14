@@ -143,8 +143,7 @@ def generate_targets(repo_path, deps_map):
         src_mk["LIB_SOURCES"] +
         # always add range_tree, it's only excluded on ppc64, which we don't use internally
         src_mk["RANGE_TREE_SOURCES"] +
-        src_mk["TOOL_LIB_SOURCES"],
-        deps=["//folly/container:f14_hash"])
+        src_mk["TOOL_LIB_SOURCES"])
     # rocksdb_whole_archive_lib
     TARGETS.add_library(
         "rocksdb_whole_archive_lib",
@@ -152,7 +151,7 @@ def generate_targets(repo_path, deps_map):
         # always add range_tree, it's only excluded on ppc64, which we don't use internally
         src_mk["RANGE_TREE_SOURCES"] +
         src_mk["TOOL_LIB_SOURCES"],
-        deps=["//folly/container:f14_hash"],
+        deps=None,
         headers=None,
         extra_external_deps="",
         link_whole=True)
@@ -184,10 +183,6 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("ANALYZER_LIB_SOURCES", [])
         + src_mk.get('STRESS_LIB_SOURCES', [])
         + ["test_util/testutil.cc"])
-    # db_stress binary
-    TARGETS.add_binary("db_stress",
-                       ["db_stress_tool/db_stress.cc"],
-                       [":rocksdb_stress_lib"])
     # bench binaries
     for src in src_mk.get("MICROBENCH_SOURCES", []):
         name =  src.rsplit('/',1)[1].split('.')[0] if '/' in src else src.split('.')[0]

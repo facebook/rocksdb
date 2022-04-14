@@ -18,7 +18,6 @@
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/index_builder.h"
 #include "util/autovector.h"
-#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 class InternalKeyComparator;
@@ -173,7 +172,8 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
  protected:
   // For partition blocks pinned in cache. Can be a subset of blocks
   // in case some fail insertion on attempt to pin.
-  UnorderedMap<uint64_t, CachableEntry<ParsedFullFilterBlock>> filter_map_;
+  std::unordered_map<uint64_t, CachableEntry<ParsedFullFilterBlock>>
+      filter_map_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

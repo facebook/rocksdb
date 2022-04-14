@@ -13,6 +13,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -30,7 +31,6 @@
 #include "table/multiget_context.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
-#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -566,7 +566,7 @@ class MemTable {
   const SliceTransform* insert_with_hint_prefix_extractor_;
 
   // Insert hints for each prefix.
-  UnorderedMapH<Slice, void*, SliceHasher> insert_hints_;
+  std::unordered_map<Slice, void*, SliceHasher> insert_hints_;
 
   // Timestamp of oldest key
   std::atomic<uint64_t> oldest_key_time_;

@@ -9,10 +9,10 @@
 
 #pragma once
 
-#include <atomic>
-#include <string>
 #include <unordered_map>
+#include <string>
 #include <vector>
+#include <atomic>
 
 #include "db/memtable_list.h"
 #include "db/table_cache.h"
@@ -25,7 +25,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "trace_replay/block_cache_tracer.h"
-#include "util/hash_containers.h"
 #include "util/thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -706,8 +705,8 @@ class ColumnFamilySet {
   // * when reading, at least one condition needs to be satisfied:
   // 1. DB mutex locked
   // 2. accessed from a single-threaded write thread
-  UnorderedMap<std::string, uint32_t> column_families_;
-  UnorderedMap<uint32_t, ColumnFamilyData*> column_family_data_;
+  std::unordered_map<std::string, uint32_t> column_families_;
+  std::unordered_map<uint32_t, ColumnFamilyData*> column_family_data_;
 
   uint32_t max_column_family_;
   const FileOptions file_options_;

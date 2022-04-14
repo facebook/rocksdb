@@ -228,11 +228,10 @@ class DBImplSecondary : public DBImpl {
   Status CheckConsistency() override;
 
 #ifndef NDEBUG
-  Status TEST_CompactWithoutInstallation(const OpenAndCompactOptions& options,
-                                         ColumnFamilyHandle* cfh,
+  Status TEST_CompactWithoutInstallation(ColumnFamilyHandle* cfh,
                                          const CompactionServiceInput& input,
                                          CompactionServiceResult* result) {
-    return CompactWithoutInstallation(options, cfh, input, result);
+    return CompactWithoutInstallation(cfh, input, result);
   }
 #endif  // NDEBUG
 
@@ -347,8 +346,7 @@ class DBImplSecondary : public DBImpl {
   // Run compaction without installation, the output files will be placed in the
   // secondary DB path. The LSM tree won't be changed, the secondary DB is still
   // in read-only mode.
-  Status CompactWithoutInstallation(const OpenAndCompactOptions& options,
-                                    ColumnFamilyHandle* cfh,
+  Status CompactWithoutInstallation(ColumnFamilyHandle* cfh,
                                     const CompactionServiceInput& input,
                                     CompactionServiceResult* result);
 

@@ -78,6 +78,19 @@ if ($ENV{CIRCLECI})
   add_definitions(-DCIRCLECI)
 endif()
 
+# third-party/folly is only validated to work on Linux and Windows for now.
+# So only turn it on there by default.
+if(CMAKE_SYSTEM_NAME MATCHES "Linux|Windows")
+  if(MSVC AND MSVC_VERSION LESS 1910)
+    # Folly does not compile with MSVC older than VS2017
+    option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
+  else()
+    option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" ON)
+  endif()
+else()
+  option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
+endif()
+
 if( NOT DEFINED CMAKE_CXX_STANDARD )
   set(CMAKE_CXX_STANDARD 17)
 endif()
@@ -581,9 +594,8 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
-if(USE_FOLLY)
+if(WITH_FOLLY_DISTRIBUTED_MUTEX)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
-  add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
 endif()
 find_package(Threads REQUIRED)
 
@@ -965,12 +977,13 @@ else()
     env/io_posix.cc)
 endif()
 
-if(USE_FOLLY)
+if(WITH_FOLLY_DISTRIBUTED_MUTEX)
   list(APPEND SOURCES
-    third-party/folly/folly/container/detail/F14Table.cpp
-    third-party/folly/folly/lang/SafeAssert.cpp
-    third-party/folly/folly/lang/ToAscii.cpp
-    third-party/folly/folly/ScopeGuard.cpp)
+    third-party/folly/folly/detail/Futex.cpp
+    third-party/folly/folly/synchronization/AtomicNotification.cpp
+    third-party/folly/folly/synchronization/DistributedMutex.cpp
+    third-party/folly/folly/synchronization/ParkingLot.cpp
+    third-party/folly/folly/synchronization/WaitOptions.cpp)
 endif()
 
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
@@ -1364,6 +1377,10 @@ if(WITH_TESTS)
         utilities/util_merge_operators_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
     )
+  endif()
+
+  if(WITH_FOLLY_DISTRIBUTED_MUTEX)
+    list(APPEND TESTS third-party/folly/folly/synchronization/test/DistributedMutexTest.cpp)
   endif()
 
   set(TESTUTIL_SOURCE
