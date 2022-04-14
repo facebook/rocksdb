@@ -3521,9 +3521,7 @@ DBFileDumperCommand::DBFileDumperCommand(
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, true,
                  BuildCmdLineOptions({ARG_DECODE_BLOB_INDEX})),
-      decode_blob_index_(false) {
-  decode_blob_index_ = IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX);
-}
+      decode_blob_index_(IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX)) {}
 
 void DBFileDumperCommand::Help(std::string& ret) {
   ret.append("  ");
