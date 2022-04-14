@@ -458,7 +458,7 @@ class LDBTestCase(unittest.TestCase):
 
         dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
         self.assertRunOK("put x1 y1 --create_if_missing", "OK")
-        self.assertRunOK("put x2 y2", "OK")
+        self.assertRunOK("put x2 y2 --enable_blob_files", "OK")
         dumpFilePath = os.path.join(self.TMP_DIR, "dump1")
         self.assertTrue(self.dumpLiveFiles("--db=%s" % dbPath, dumpFilePath))
         self.assertRunOK("delete x1", "OK")
@@ -474,7 +474,7 @@ class LDBTestCase(unittest.TestCase):
             dbPath += "/"
 
         # Call the dump_live_files function with the edited dbPath name.
-        self.assertTrue(self.dumpLiveFiles("--db=%s" % dbPath, dumpFilePath))
+        self.assertTrue(self.dumpLiveFiles("--db=%s --decode_blob_index" % dbPath, dumpFilePath))
 
         # Investigate the output
         with open(dumpFilePath, "r") as tmp:
@@ -492,6 +492,10 @@ class LDBTestCase(unittest.TestCase):
         for manifestFilename in manifestFileList:
             filenumber = re.findall(r"(?<=MANIFEST-)\d+", manifestFilename)[0]
             self.assertEqual(manifestFilename, dbPath+"MANIFEST-"+filenumber)
+
+        # Check that the blob file index is decoded.
+        decodedBlobIndex = re.findall(r"\[blob ref\]", data)
+        self.assertTrue(len(decodedBlobIndex) >= 1)
 
     def listLiveFilesMetadata(self, params, dumpFile):
         return 0 == run_err_null("./ldb list_live_files_metadata %s > %s" % (

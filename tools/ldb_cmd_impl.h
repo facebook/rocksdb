@@ -44,6 +44,9 @@ class DBFileDumperCommand : public LDBCommand {
   static void Help(std::string& ret);
 
   virtual void DoCommand() override;
+
+ private:
+  bool decode_blob_index_;
 };
 
 class DBLiveFilesMetadataDumperCommand : public LDBCommand {
