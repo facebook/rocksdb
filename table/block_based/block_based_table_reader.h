@@ -31,6 +31,7 @@
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -528,14 +529,14 @@ class BlockBasedTable::PartitionedIndexIteratorState
  public:
   PartitionedIndexIteratorState(
       const BlockBasedTable* table,
-      std::unordered_map<uint64_t, CachableEntry<Block>>* block_map);
+      UnorderedMap<uint64_t, CachableEntry<Block>>* block_map);
   InternalIteratorBase<IndexValue>* NewSecondaryIterator(
       const BlockHandle& index_value) override;
 
  private:
   // Don't own table_
   const BlockBasedTable* table_;
-  std::unordered_map<uint64_t, CachableEntry<Block>>* block_map_;
+  UnorderedMap<uint64_t, CachableEntry<Block>>* block_map_;
 };
 
 // Stores all the properties associated with a BlockBasedTable.

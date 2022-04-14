@@ -47,13 +47,14 @@ TEST_F(CacheReservationManagerTest, GenerateCacheKey) {
 
   // Next unique Cache key
   CacheKey ckey = CacheKey::CreateUniqueForCacheLifetime(cache.get());
-  // Back it up to the one used by CRM (using CacheKey implementation details)
-  using PairU64 = std::pair<uint64_t, uint64_t>;
+  // Get to the underlying values
+  using PairU64 = std::array<uint64_t, 2>;
   auto& ckey_pair = *reinterpret_cast<PairU64*>(&ckey);
-  ckey_pair.second--;
+  // Back it up to the one used by CRM (using CacheKey implementation details)
+  ckey_pair[1]--;
 
   // Specific key (subject to implementation details)
-  EXPECT_EQ(ckey_pair, PairU64(0, 2));
+  EXPECT_EQ(ckey_pair, PairU64({0, 2}));
 
   Cache::Handle* handle = cache->Lookup(ckey.AsSlice());
   EXPECT_NE(handle, nullptr)
