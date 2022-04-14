@@ -579,7 +579,7 @@ constexpr uint32_t kNumCacheEntryRoles =
 
 // For use with `GetMapProperty()` for property
 // `DB::Properties::kBlockCacheEntryStats`. On success, the map will
-// be populated with all these keys.
+// be populated with all keys that can be obtained from these functions.
 struct BlockCacheEntryStatsMapKeys {
   static const std::string& CacheId();
   static const std::string& CacheCapacityBytes();
