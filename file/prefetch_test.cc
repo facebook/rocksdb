@@ -417,9 +417,8 @@ TEST_P(PrefetchTest, ConfigureInternalAutoReadaheadSize) {
           // intial_auto_readahead_size and max_auto_readahead_size are set same
           // so readahead_size remains same.
           ASSERT_OK(db_->SetOptions({{"block_based_table_factory",
-                                      "{initial_auto_readahead_size=4096;}"}}));
-          ASSERT_OK(db_->SetOptions({{"block_based_table_factory",
-                                      "{max_auto_readahead_size=4096;}"}}));
+                                      "{initial_auto_readahead_size=4096;max_"
+                                      "auto_readahead_size=4096;}"}}));
           break;
         case 2:
           ASSERT_OK(
