@@ -22,7 +22,6 @@ LIBGCC_LIBS=" -L $LIBGCC_BASE/lib -B$LIBGCC_BASE/lib/gcc/x86_64-facebook-linux/t
 GLIBC_INCLUDE="$GLIBC_BASE/include"
 GLIBC_LIBS=" -L $GLIBC_BASE/lib"
 GLIBC_LIBS+=" -B$GLIBC_BASE/lib"
-GLIBC_LIBS+=" -L$GLIBC_BASE/lib/gcc/x86_64-facebook-linux/trunk"
 
 if test -z $PIC_BUILD; then
   MAYBE_PIC=

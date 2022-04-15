@@ -288,7 +288,7 @@ missing_make_config_paths := $(shell				\
 	grep "\./\S*\|/\S*" -o $(CURDIR)/make_config.mk | 	\
 	while read path;					\
 		do [ -e $$path ] || echo $$path; 		\
-	done | sort | uniq)
+	done | sort | uniq | grep -v "/DOES/NOT/EXIST")
 
 $(foreach path, $(missing_make_config_paths), \
 	$(warning Warning: $(path) does not exist))
