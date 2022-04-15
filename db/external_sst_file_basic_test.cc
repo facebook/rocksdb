@@ -1817,7 +1817,7 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevel) {
     ifo.fail_if_not_bottommost_level = true;
     ifo.snapshot_consistency = true;
     const Status s = db_->IngestExternalFile({file_path}, ifo);
-    ASSERT_TRUE(s.IsInvalidArgument());
+    ASSERT_TRUE(s.IsTryAgain());
   }
 
   // Test level compaction
@@ -1840,7 +1840,7 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevel) {
     IngestExternalFileOptions ifo;
     ifo.fail_if_not_bottommost_level = true;
     const Status s = db_->IngestExternalFile({file_path}, ifo);
-    ASSERT_TRUE(s.IsInvalidArgument());
+    ASSERT_TRUE(s.IsTryAgain());
   }
 }
 

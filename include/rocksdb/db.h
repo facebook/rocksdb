@@ -1566,6 +1566,11 @@ class DB {
   // (3) If IngestExternalFileOptions->ingest_behind is set to true,
   //     we always ingest at the bottommost level, which should be reserved
   //     for this purpose (see DBOPtions::allow_ingest_behind flag).
+  // (4) If IngestExternalFileOptions->fail_if_not_bottommost_level is set to
+  //     true, then this method can return Status:TryAgain() indicating that
+  //     the files cannot be ingested to the bottommost level, and it is the
+  //     user's responsibility to clear the bottommost level in the overlapping
+  //     range before re-attempting the ingestion.
   virtual Status IngestExternalFile(
       ColumnFamilyHandle* column_family,
       const std::vector<std::string>& external_files,
