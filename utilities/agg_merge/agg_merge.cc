@@ -24,8 +24,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 static std::unordered_map<std::string, std::unique_ptr<Aggregator>> func_map;
-// A reserved function name for aggregation failure.
-const std::string kErrorFuncName = "";
+const std::string kUnamedFuncName = "";
+const std::string kErrorFuncName = "kErrorFuncName";
 
 Status AddAggregator(const std::string& function_name,
                      std::unique_ptr<Aggregator>&& agg) {
@@ -52,7 +52,8 @@ Status EncodeAggFuncAndPayload(const Slice& function_name, const Slice& payload,
   if (function_name == kErrorFuncName) {
     return Status::InvalidArgument("Cannot use error function name");
   }
-  if (func_map.find(function_name.ToString()) == func_map.end()) {
+  if (function_name != kUnamedFuncName &&
+      func_map.find(function_name.ToString()) == func_map.end()) {
     return Status::InvalidArgument("Function name not registered");
   }
   output = EncodeAggFuncAndPayloadNoCheck(function_name, payload);
@@ -76,16 +77,10 @@ bool ExtractList(const Slice& encoded_list, std::vector<Slice>& decoded_list) {
 
 class AggMergeOperator::Accumulator {
  public:
-  bool Add(const Slice& op, bool is_initial_value,
-           bool is_partial_aggregation) {
+  bool Add(const Slice& op, bool is_partial_aggregation) {
     if (ignore_operands_) {
       return true;
     }
-    if (is_initial_value) {
-      values_.push_back(op);
-      return true;
-    }
-
     Slice my_func;
     Slice my_value;
     bool ret = ExtractAggFuncAndValue(op, my_func, my_value);
@@ -97,17 +92,27 @@ class AggMergeOperator::Accumulator {
     // Determine whether we need to do partial merge.
     if (is_partial_aggregation && !my_func.empty()) {
       auto f = func_map.find(my_func.ToString());
-      if (f == func_map.end() || f->second->DoPartialAggregate()) {
+      if (f == func_map.end() || !f->second->DoPartialAggregate()) {
         return false;
       }
     }
 
     if (!func_valid_) {
-      func_ = my_func;
-      func_valid_ = true;
+      if (my_func != kUnamedFuncName) {
+        func_ = my_func;
+        func_valid_ = true;
+      }
     } else if (func_ != my_func) {
       // User switched aggregation function. Need to aggregate the older
       // one first.
+
+      // Previous aggreagion can't be done in partial merge
+      if (is_partial_aggregation) {
+        func_valid_ = false;
+        ignore_operands_ = true;
+        return false;
+      }
+
       auto f = func_map.find(func_.ToString());
       if (f == func_map.end() || !f->second->Aggregate(values_, &scratch_)) {
         func_valid_ = false;
@@ -196,12 +201,10 @@ bool AggMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
                                    MergeOperationOutput* merge_out) const {
   Accumulator& agg = GetTLSAccumulator();
   if (merge_in.existing_value != nullptr) {
-    agg.Add(*merge_in.existing_value, /*is_initial_value=*/true,
-            /*is_partial_aggregation=*/false);
+    agg.Add(*merge_in.existing_value, /*is_partial_aggregation=*/false);
   }
   for (const Slice& e : merge_in.operand_list) {
-    agg.Add(e, /*is_initial_value=*/false,
-            /*is_partial_aggregation=*/false);
+    agg.Add(e, /*is_partial_aggregation=*/false);
   }
 
   bool succ = agg.GetResult(merge_out->new_value);
@@ -220,12 +223,10 @@ bool AggMergeOperator::PartialMergeMulti(const Slice& /*key*/,
                                          const std::deque<Slice>& operand_list,
                                          std::string* new_value,
                                          Logger* /*logger*/) const {
-  return false;
   Accumulator& agg = GetTLSAccumulator();
   bool do_aggregation = true;
   for (const Slice& item : operand_list) {
-    do_aggregation = agg.Add(item, /*is_initial_value=*/false,
-                             /*is_partial_aggregation=*/true);
+    do_aggregation = agg.Add(item, /*is_partial_aggregation=*/true);
     if (!do_aggregation) {
       break;
     }

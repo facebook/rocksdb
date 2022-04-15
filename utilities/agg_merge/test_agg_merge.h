@@ -19,14 +19,14 @@ class SumAggregator : public Aggregator {
  public:
   ~SumAggregator() override {}
   bool Aggregate(const std::vector<Slice>&, std::string* result) const override;
-  bool DoPartialAggregate() const override { return false; }
+  bool DoPartialAggregate() const override { return true; }
 };
 
 class MultipleAggregator : public Aggregator {
  public:
   ~MultipleAggregator() override {}
   bool Aggregate(const std::vector<Slice>&, std::string* result) const override;
-  bool DoPartialAggregate() const override { return false; }
+  bool DoPartialAggregate() const override { return true; }
 };
 
 class Last3Aggregator : public Aggregator {

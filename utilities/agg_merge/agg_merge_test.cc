@@ -46,8 +46,7 @@ TEST_F(AggMergeTest, TestUsingMergeOperator) {
   ASSERT_OK(Merge("bar", v));
 
   // Test Put() without aggregation type.
-  v = "";
-  PutVarsignedint64(&v, 30);
+  v = EncodeHelper::EncodeFuncAndInt("sum", 30);
   ASSERT_OK(Put("foo2", v));
   v = EncodeHelper::EncodeFuncAndInt("sum", 10);
   ASSERT_OK(Merge("foo2", v));
@@ -60,16 +59,46 @@ TEST_F(AggMergeTest, TestUsingMergeOperator) {
   EXPECT_EQ(EncodeHelper::EncodeFuncAndInt("sum", 60), Get("foo2"));
 
   // Test changing aggregation type
-  v = EncodeHelper::EncodeFuncAndInt("mul", 10);
+  v = EncodeHelper::EncodeFuncAndInt(kUnamedFuncName, 10);
+  ASSERT_OK(Put("bar2", v));
+  v = EncodeHelper::EncodeFuncAndInt("mul", 20);
   ASSERT_OK(Merge("bar2", v));
-  v = EncodeHelper::EncodeFuncAndInt("mul", 10);
+  v = EncodeHelper::EncodeFuncAndInt("sum", 30);
   ASSERT_OK(Merge("bar2", v));
-  v = EncodeHelper::EncodeFuncAndInt("sum", 10);
+  v = EncodeHelper::EncodeFuncAndInt("sum", 40);
   ASSERT_OK(Merge("bar2", v));
-  v = EncodeHelper::EncodeFuncAndInt("sum", 20);
-  ASSERT_OK(Merge("bar2", v));
-  EXPECT_EQ(EncodeHelper::EncodeFuncAndInt("sum", 10 * 10 + 10 + 20),
+  EXPECT_EQ(EncodeHelper::EncodeFuncAndInt("sum", 10 * 20 + 30 + 40),
             Get("bar2"));
+
+  // Changing aggregation type with partial merge
+  v = EncodeHelper::EncodeFuncAndInt("mul", 10);
+  ASSERT_OK(Merge("foo3", v));
+  ASSERT_OK(Flush());
+  v = EncodeHelper::EncodeFuncAndInt("mul", 10);
+  ASSERT_OK(Merge("foo3", v));
+  v = EncodeHelper::EncodeFuncAndInt("mul", 10);
+  ASSERT_OK(Merge("foo3", v));
+  v = EncodeHelper::EncodeFuncAndInt("sum", 10);
+  ASSERT_OK(Merge("foo3", v));
+  ASSERT_OK(Flush());
+  EXPECT_EQ(EncodeHelper::EncodeFuncAndInt("sum", 10 * 10 * 10 + 10),
+            Get("foo3"));
+
+  // Merge after full merge
+  v = EncodeHelper::EncodeFuncAndInt("sum", 1);
+  ASSERT_OK(Merge("foo4", v));
+  v = EncodeHelper::EncodeFuncAndInt("sum", 2);
+  ASSERT_OK(Merge("foo4", v));
+  ASSERT_OK(Flush());
+  v = EncodeHelper::EncodeFuncAndInt("sum", 3);
+  ASSERT_OK(Merge("foo4", v));
+  v = EncodeHelper::EncodeFuncAndInt("sum", 4);
+  ASSERT_OK(Merge("foo4", v));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  v = EncodeHelper::EncodeFuncAndInt("sum", 5);
+  ASSERT_OK(Merge("foo4", v));
+  EXPECT_EQ(EncodeHelper::EncodeFuncAndInt("sum", 15), Get("foo4"));
 
   // Test unregistered function name
   v = EncodeAggFuncAndPayloadNoCheck("non_existing", "1");

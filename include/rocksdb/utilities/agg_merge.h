@@ -46,13 +46,15 @@ namespace ROCKSDB_NAMESPACE {
 //    options.merge_operator = mp_guard.get();
 //    ...... // Creating DB
 //
-//    db->Put(WriteOptions(), "foo", "100");
 //
 //    std::string encoded_value;
-//    s = EncodeAggFuncAndPayload("sum", "200").ok());
+//    s = EncodeAggFuncAndPayload(kUnamedFuncName, "200", encoded_value);
+//    assert(s.ok());
+//    db->Put(WriteOptions(), "foo", encoded_value);
+//    s = EncodeAggFuncAndPayload("sum", "200", encoded_value);
 //    assert(s.ok());
 //    db->Merge(WriteOptions(), "foo", encoded_value);
-//    s = EncodeAggFuncAndPayload("sum", "200").ok());
+//    s = EncodeAggFuncAndPayload("sum", "200", encoded_value);
 //    assert(s.ok());
 //    db->Merge(WriteOptions(), "foo", encoded_value);
 //
@@ -65,9 +67,11 @@ namespace ROCKSDB_NAMESPACE {
 //    assert(aggregated_value == "600");
 //
 //
-// DB::Put() can also be used to add a payload, but no function name should
-// be given and it will be eventually aggregated based on function names
-// provided by Merge() later.
+// DB::Put() can also be used to add a payloadin the same way as Merge().
+//
+// kUnamedFuncName can be used as a placeholder function name. This will
+// be aggregated with merge operands inserted later based on function
+// name given there.
 //
 // If the aggregation function is not registered or there is an error
 // returned by aggregation function, the result will be encoded with a fake
@@ -125,6 +129,9 @@ bool ExtractAggFuncAndValue(const Slice& op, Slice& func, Slice& value);
 // Extract encoded list. This can be used to extract error merge operands when
 // the returned function name is kErrorFuncName.
 bool ExtractList(const Slice& encoded_list, std::vector<Slice>& decoded_list);
+
+// Special function name that allows it to be merged to subsequent type.
+extern const std::string kUnamedFuncName;
 
 // Special error function name reserved for merging or aggregation error.
 extern const std::string kErrorFuncName;

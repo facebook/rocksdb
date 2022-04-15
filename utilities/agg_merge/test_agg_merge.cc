@@ -58,7 +58,6 @@ bool SumAggregator::Aggregate(const std::vector<Slice>& item_list,
     }
     sum += ivalue;
   }
-  fprintf(stderr, "sum %ld\n", (long)sum);
   *result = EncodeHelper::EncodeInt(sum);
   return true;
 }
@@ -74,7 +73,6 @@ bool MultipleAggregator::Aggregate(const std::vector<Slice>& item_list,
     }
     mresult *= ivalue;
   }
-  fprintf(stderr, "mul %ld\n", (long)mresult);
   *result = EncodeHelper::EncodeInt(mresult);
   return true;
 }
