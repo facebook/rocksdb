@@ -31,13 +31,6 @@ uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
 Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
                                       SequenceNumber seqno,
                                       ValueType value_type) {
-  if (smallest.size() == 0) {
-    smallest.DecodeFrom(key);
-  }
-  largest.DecodeFrom(key);
-  fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
-  fd.largest_seqno = std::max(fd.largest_seqno, seqno);
-
   if (value_type == kTypeBlobIndex) {
     BlobIndex blob_index;
     const Status s = blob_index.DecodeFrom(value);
@@ -45,23 +38,24 @@ Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
       return s;
     }
 
-    if (blob_index.IsInlined()) {
-      return Status::OK();
-    }
+    if (!blob_index.IsInlined() && !blob_index.HasTTL()) {
+      if (blob_index.file_number() == kInvalidBlobFileNumber) {
+        return Status::Corruption("Invalid blob file number");
+      }
 
-    if (blob_index.HasTTL()) {
-      return Status::OK();
-    }
-
-    if (blob_index.file_number() == kInvalidBlobFileNumber) {
-      return Status::Corruption("Invalid blob file number");
-    }
-
-    if (oldest_blob_file_number == kInvalidBlobFileNumber ||
-        oldest_blob_file_number > blob_index.file_number()) {
-      oldest_blob_file_number = blob_index.file_number();
+      if (oldest_blob_file_number == kInvalidBlobFileNumber ||
+          oldest_blob_file_number > blob_index.file_number()) {
+        oldest_blob_file_number = blob_index.file_number();
+      }
     }
   }
+
+  if (smallest.size() == 0) {
+    smallest.DecodeFrom(key);
+  }
+  largest.DecodeFrom(key);
+  fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
+  fd.largest_seqno = std::max(fd.largest_seqno, seqno);
 
   return Status::OK();
 }
