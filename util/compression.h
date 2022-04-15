@@ -1482,6 +1482,36 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
 #endif  // ZSTD_VERSION_NUMBER >= 10103
 }
 
+inline std::string ZSTD_FinalizeDictionary(
+    const std::string& samples, const std::vector<size_t>& sample_lens,
+    size_t max_dict_bytes) {
+  // ZDICT_finalizeDictionary is only available after version 1.1.3
+#if ZSTD_VERSION_NUMBER >= 10103  // v1.1.3+
+  if (samples.empty()) {
+    return "";
+  }
+  std::string dict_data(max_dict_bytes, '\0');
+  size_t dict_len = ZDICT_finalizeDictionary(
+      &dict_data[0], max_dict_bytes, &samples[0],
+      static_cast<size_t>(samples.size()), &samples[0], &sample_lens[0],
+      static_cast<unsigned>(sample_lens.size()), {});
+  if (ZDICT_isError(dict_len)) {
+    // fall back to use concatenated samples as raw content dictionary
+    return samples;
+  } else {
+    assert(dict_len <= max_dict_bytes);
+    dict_data.resize(dict_len);
+    return dict_data;
+  }
+#else   // up to v1.1.2
+  assert(false);
+  (void)samples;
+  (void)sample_lens;
+  (void)max_dict_bytes;
+  return "";
+#endif  // ZSTD_VERSION_NUMBER >= 10103
+}
+
 inline bool CompressData(const Slice& raw,
                          const CompressionInfo& compression_info,
                          uint32_t compress_format_version,

@@ -1899,6 +1899,10 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
     dict = ZSTD_TrainDictionary(compression_dict_samples,
                                 compression_dict_sample_lens,
                                 r->compression_opts.max_dict_bytes);
+  } else if (rep_->compression_type == kZSTD) {
+    dict = ZSTD_FinalizeDictionary(compression_dict_samples,
+                                   compression_dict_sample_lens,
+                                   r->compression_opts.max_dict_bytes);
   } else {
     dict = std::move(compression_dict_samples);
   }

@@ -100,8 +100,9 @@ struct CompressionOptions {
   //
   // The dictionary is created by sampling the SST file data. If
   // `zstd_max_train_bytes` is nonzero, the samples are passed through zstd's
-  // dictionary generator. Otherwise, the random samples are used directly as
-  // the dictionary.
+  // dictionary generator. Otherwise, if ZSTD compression is used, the
+  // dictionary is created by calling ZDICT_finalizeDictionary(), else the
+  // random samples are used directly as the dictionary.
   //
   // When compression dictionary is disabled, we compress and write each block
   // before buffering data for the next one. When compression dictionary is
