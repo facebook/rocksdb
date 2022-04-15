@@ -1,4 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+# The file is generated using update_dependencies.sh.
 GCC_BASE=/mnt/gvfs/third-party2/gcc/e40bde78650fa91b8405a857e3f10bf336633fb0/11.x/centos7-native/886b5eb
 CLANG_BASE=/mnt/gvfs/third-party2/llvm-fb/2043340983c032915adbb6f78903dc855b65aee8/12/platform010/9520e0f
 LIBGCC_BASE=/mnt/gvfs/third-party2/libgcc/c00dcc6a3e4125c7e8b248e9a79c14b78ac9e0ca/11.x/platform010/5684a5a

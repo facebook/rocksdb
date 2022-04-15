@@ -9,6 +9,7 @@ OUTPUT=""
 function log_header()
 {
   echo "# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved." >> "$OUTPUT"
+  echo "# The file is generated using update_dependencies.sh." >> "$OUTPUT"
 }
 
 
