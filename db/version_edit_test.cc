@@ -625,17 +625,23 @@ TEST(FileMetaDataTest, UpdateBoundariesBlobIndex) {
 
   constexpr char key[] = "foo";
 
-  // Plain old value
+  constexpr uint64_t expected_oldest_blob_file_number = 20;
+
+  // Plain old value (does not affect oldest_blob_file_number)
   {
     constexpr char value[] = "value";
     constexpr SequenceNumber seq = 200;
 
     ASSERT_OK(meta.UpdateBoundaries(key, value, seq, kTypeValue));
+    ASSERT_EQ(meta.oldest_blob_file_number, kInvalidBlobFileNumber);
   }
 
-  // Non-inlined, non-TTL blob index
+  // Non-inlined, non-TTL blob index (sets oldest_blob_file_number)
   {
     constexpr uint64_t blob_file_number = 25;
+    static_assert(blob_file_number > expected_oldest_blob_file_number,
+                  "unexpected");
+
     constexpr uint64_t offset = 1000;
     constexpr uint64_t size = 100;
 
@@ -649,23 +655,23 @@ TEST(FileMetaDataTest, UpdateBoundariesBlobIndex) {
     ASSERT_EQ(meta.oldest_blob_file_number, blob_file_number);
   }
 
-  // Another one, with a smaller blob file number
+  // Another one, with the oldest blob file number (updates
+  // oldest_blob_file_number)
   {
-    constexpr uint64_t blob_file_number = 20;
     constexpr uint64_t offset = 2000;
     constexpr uint64_t size = 300;
 
     std::string blob_index;
-    BlobIndex::EncodeBlob(&blob_index, blob_file_number, offset, size,
-                          kNoCompression);
+    BlobIndex::EncodeBlob(&blob_index, expected_oldest_blob_file_number, offset,
+                          size, kNoCompression);
 
-    constexpr SequenceNumber seq = 201;
+    constexpr SequenceNumber seq = 202;
 
     ASSERT_OK(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex));
-    ASSERT_EQ(meta.oldest_blob_file_number, blob_file_number);
+    ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
   }
 
-  // Inlined TTL blob index
+  // Inlined TTL blob index (does not affect oldest_blob_file_number)
   {
     constexpr uint64_t expiration = 9876543210;
     constexpr char value[] = "value";
@@ -676,12 +682,17 @@ TEST(FileMetaDataTest, UpdateBoundariesBlobIndex) {
     constexpr SequenceNumber seq = 203;
 
     ASSERT_OK(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex));
+    ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
   }
 
-  // Non-inlined TTL blob index
+  // Non-inlined TTL blob index (does not affect oldest_blob_file_number, even
+  // though file number is smaller)
   {
     constexpr uint64_t expiration = 9876543210;
     constexpr uint64_t blob_file_number = 15;
+    static_assert(blob_file_number < expected_oldest_blob_file_number,
+                  "unexpected");
+
     constexpr uint64_t offset = 2000;
     constexpr uint64_t size = 500;
 
@@ -692,7 +703,7 @@ TEST(FileMetaDataTest, UpdateBoundariesBlobIndex) {
     constexpr SequenceNumber seq = 204;
 
     ASSERT_OK(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex));
-    ASSERT_NE(meta.oldest_blob_file_number, blob_file_number);
+    ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
   }
 
   // Corrupt blob index
@@ -702,6 +713,7 @@ TEST(FileMetaDataTest, UpdateBoundariesBlobIndex) {
 
     ASSERT_NOK(
         meta.UpdateBoundaries(key, corrupt_blob_index, seq, kTypeBlobIndex));
+    ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
   }
 
   // Invalid blob file number
@@ -716,7 +728,7 @@ TEST(FileMetaDataTest, UpdateBoundariesBlobIndex) {
     constexpr SequenceNumber seq = 206;
 
     ASSERT_NOK(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex));
-    ASSERT_NE(meta.oldest_blob_file_number, kInvalidBlobFileNumber);
+    ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
   }
 }
 
