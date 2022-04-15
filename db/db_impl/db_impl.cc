@@ -3682,6 +3682,11 @@ Status DBImpl::GetUpdatesSince(
     SequenceNumber seq, std::unique_ptr<TransactionLogIterator>* iter,
     const TransactionLogIterator::ReadOptions& read_options) {
   RecordTick(stats_, GET_UPDATES_SINCE_CALLS);
+  if (seq_per_batch_) {
+    return Status::NotSupported(
+        "This API is not yet compatible with write-prepared/write-unprepared "
+        "transactions");
+  }
   if (seq > versions_->LastSequence()) {
     return Status::NotFound("Requested sequence not yet written in the db");
   }
