@@ -711,8 +711,9 @@ TEST(FileMetaDataTest, UpdateBoundariesBlobIndex) {
     constexpr char corrupt_blob_index[] = "!corrupt!";
     constexpr SequenceNumber seq = 205;
 
-    ASSERT_NOK(
-        meta.UpdateBoundaries(key, corrupt_blob_index, seq, kTypeBlobIndex));
+    ASSERT_TRUE(
+        meta.UpdateBoundaries(key, corrupt_blob_index, seq, kTypeBlobIndex)
+            .IsCorruption());
     ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
   }
 
@@ -727,7 +728,8 @@ TEST(FileMetaDataTest, UpdateBoundariesBlobIndex) {
 
     constexpr SequenceNumber seq = 206;
 
-    ASSERT_NOK(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex));
+    ASSERT_TRUE(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex)
+                    .IsCorruption());
     ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
   }
 }
