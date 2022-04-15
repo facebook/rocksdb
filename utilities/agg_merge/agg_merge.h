@@ -19,22 +19,19 @@ class AggMergeOperator : public MergeOperator {
  public:
   explicit AggMergeOperator();
 
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override;
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override;
 
-  virtual bool PartialMergeMulti(const Slice& key,
-                                 const std::deque<Slice>& operand_list,
-                                 std::string* new_value,
-                                 Logger* logger) const override;
+  bool PartialMergeMulti(const Slice& key,
+                         const std::deque<Slice>& operand_list,
+                         std::string* new_value, Logger* logger) const override;
 
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "AggMergeOperator.v1"; }
 
-  virtual bool AllowSingleOperand() const override { return true; }
+  bool AllowSingleOperand() const override { return true; }
 
-  virtual bool ShouldMerge(const std::vector<Slice>&) const override {
-    return false;
-  }
+  bool ShouldMerge(const std::vector<Slice>&) const override { return false; }
 
  private:
   class Accumulator;
