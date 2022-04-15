@@ -740,7 +740,8 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     *assigned_seqno = last_seqno + 1;
     if (compaction_style == kCompactionStyleUniversal || files_overlap_) {
       if (ingestion_options_.fail_if_not_bottommost_level) {
-        return Status::InvalidArgument("Files cannot be ingested to Lmax");
+        status = Status::InvalidArgument("Files cannot be ingested to Lmax");
+        return status;
       }
       file_to_ingest->picked_level = 0;
       return status;
@@ -814,7 +815,8 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
 
   if (ingestion_options_.fail_if_not_bottommost_level &&
       target_level < cfd_->NumberLevels() - 1) {
-    return Status::InvalidArgument("Files cannot be ingested to Lmax");
+    status = Status::InvalidArgument("Files cannot be ingested to Lmax");
+    return status;
   }
 
  TEST_SYNC_POINT_CALLBACK(
