@@ -558,9 +558,6 @@ struct BlockBasedTableOptions {
   // Value should be provided along with KB i.e. 256 * 1024 as it will prefetch
   // the blocks.
   //
-  // Found that 256 KB readahead size provides the best performance, based on
-  // experiments, for auto readahead. Experiment data is in PR #3282.
-  //
   // This parameter can be changed dynamically by
   // DB::SetOptions({{"block_based_table_factory",
   //                  "{initial_auto_readahead_size=0;}"}}));
