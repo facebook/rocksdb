@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "agg_merge.h"
+#include "utilities/agg_merge/agg_merge.h"
 
 #include <assert.h>
 
@@ -24,7 +24,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 static std::unordered_map<std::string, std::unique_ptr<Aggregator>> func_map;
-const std::string kUnamedFuncName = "";
+const std::string kUnnamedFuncName = "";
 const std::string kErrorFuncName = "kErrorFuncName";
 
 Status AddAggregator(const std::string& function_name,
@@ -52,7 +52,7 @@ Status EncodeAggFuncAndPayload(const Slice& function_name, const Slice& payload,
   if (function_name == kErrorFuncName) {
     return Status::InvalidArgument("Cannot use error function name");
   }
-  if (function_name != kUnamedFuncName &&
+  if (function_name != kUnnamedFuncName &&
       func_map.find(function_name.ToString()) == func_map.end()) {
     return Status::InvalidArgument("Function name not registered");
   }
@@ -98,7 +98,7 @@ class AggMergeOperator::Accumulator {
     }
 
     if (!func_valid_) {
-      if (my_func != kUnamedFuncName) {
+      if (my_func != kUnnamedFuncName) {
         func_ = my_func;
         func_valid_ = true;
       }
@@ -113,6 +113,8 @@ class AggMergeOperator::Accumulator {
         return false;
       }
 
+      // We could consider stashing an iterator into the hash of aggregators
+      // to avoid repeated lookups when the aggregator doesn't change.
       auto f = func_map.find(func_.ToString());
       if (f == func_map.end() || !f->second->Aggregate(values_, &scratch_)) {
         func_valid_ = false;

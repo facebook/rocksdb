@@ -46,7 +46,7 @@ TEST_F(AggMergeTest, TestUsingMergeOperator) {
   ASSERT_OK(Merge("bar", v));
 
   // Test Put() without aggregation type.
-  v = EncodeHelper::EncodeFuncAndInt("sum", 30);
+  v = EncodeHelper::EncodeFuncAndInt(kUnnamedFuncName, 30);
   ASSERT_OK(Put("foo2", v));
   v = EncodeHelper::EncodeFuncAndInt("sum", 10);
   ASSERT_OK(Merge("foo2", v));
@@ -59,7 +59,7 @@ TEST_F(AggMergeTest, TestUsingMergeOperator) {
   EXPECT_EQ(EncodeHelper::EncodeFuncAndInt("sum", 60), Get("foo2"));
 
   // Test changing aggregation type
-  v = EncodeHelper::EncodeFuncAndInt(kUnamedFuncName, 10);
+  v = EncodeHelper::EncodeFuncAndInt("mul", 10);
   ASSERT_OK(Put("bar2", v));
   v = EncodeHelper::EncodeFuncAndInt("mul", 20);
   ASSERT_OK(Merge("bar2", v));

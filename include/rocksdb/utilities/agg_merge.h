@@ -5,8 +5,6 @@
 
 #pragma once
 
-#include <deque>
-#include <future>
 #include <string>
 #include <vector>
 
@@ -19,7 +17,8 @@ namespace ROCKSDB_NAMESPACE {
 //
 // Aggregation Merge Operator is a merge operator that allows users to
 // aggregate merge operands of different keys with different registered
-// aggregation functions.
+// aggregation functions. The aggregation can also change for the same
+// key if the functions store the data in the same format.
 // The target application highly overlaps with merge operator in general
 // but we try to provide a better interface so that users are more likely
 // to use pre-implemented plug-in functions and connect with existing
@@ -131,7 +130,7 @@ bool ExtractAggFuncAndValue(const Slice& op, Slice& func, Slice& value);
 bool ExtractList(const Slice& encoded_list, std::vector<Slice>& decoded_list);
 
 // Special function name that allows it to be merged to subsequent type.
-extern const std::string kUnamedFuncName;
+extern const std::string kUnnamedFuncName;
 
 // Special error function name reserved for merging or aggregation error.
 extern const std::string kErrorFuncName;
