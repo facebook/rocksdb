@@ -116,7 +116,7 @@ class AggMergeOperator::Accumulator {
       // We could consider stashing an iterator into the hash of aggregators
       // to avoid repeated lookups when the aggregator doesn't change.
       auto f = func_map.find(func_.ToString());
-      if (f == func_map.end() || !f->second->Aggregate(values_, &scratch_)) {
+      if (f == func_map.end() || !f->second->Aggregate(values_, scratch_)) {
         func_valid_ = false;
         ignore_operands_ = true;
         return true;
@@ -140,7 +140,7 @@ class AggMergeOperator::Accumulator {
     if (f == func_map.end()) {
       return false;
     }
-    if (!f->second->Aggregate(values_, &scratch_)) {
+    if (!f->second->Aggregate(values_, scratch_)) {
       return false;
     }
     result = EncodeAggFuncAndPayloadNoCheck(func_, scratch_);
@@ -171,20 +171,9 @@ class AggMergeOperator::Accumulator {
 // threads so we cannot simply create one Aggregator and reuse.
 // We use thread local instances instead.
 AggMergeOperator::Accumulator& AggMergeOperator::GetTLSAccumulator() {
-  // The implementation is mostly copied from Random::GetTLSInstance()
-  // If the same pattern is used more frequently, we might create a utility
-  // function for that.
-  static thread_local Accumulator* tls_instance;
-  static thread_local std::aligned_storage<sizeof(Accumulator)>::type
-      tls_instance_bytes;
-
-  auto rv = tls_instance;
-  if (UNLIKELY(rv == nullptr)) {
-    rv = new (&tls_instance_bytes) Accumulator();
-    tls_instance = rv;
-  }
-  rv->Clear();
-  return *rv;
+  static thread_local Accumulator tls_acc;
+  tls_acc.Clear();
+  return tls_acc;
 }
 
 void AggMergeOperator::PackAllMergeOperands(const MergeOperationInput& merge_in,

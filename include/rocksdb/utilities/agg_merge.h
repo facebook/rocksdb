@@ -96,7 +96,7 @@ class Aggregator {
   // The oldest one might be from Get().
   // Return whether aggregation succeeded. False for aggregation error.
   virtual bool Aggregate(const std::vector<Slice>& values,
-                         std::string* result) const = 0;
+                         std::string& result) const = 0;
 
   // True if a partial aggregation should be invoked. Some aggregators
   // might opt to skip partial aggregation if possible.

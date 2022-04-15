@@ -48,7 +48,7 @@ std::string EncodeHelper::EncodeList(const std::vector<Slice>& list) {
 }
 
 bool SumAggregator::Aggregate(const std::vector<Slice>& item_list,
-                              std::string* result) const {
+                              std::string& result) const {
   int64_t sum = 0;
   for (const Slice& item : item_list) {
     int64_t ivalue;
@@ -58,12 +58,12 @@ bool SumAggregator::Aggregate(const std::vector<Slice>& item_list,
     }
     sum += ivalue;
   }
-  *result = EncodeHelper::EncodeInt(sum);
+  result = EncodeHelper::EncodeInt(sum);
   return true;
 }
 
 bool MultipleAggregator::Aggregate(const std::vector<Slice>& item_list,
-                                   std::string* result) const {
+                                   std::string& result) const {
   int64_t mresult = 1;
   for (const Slice& item : item_list) {
     int64_t ivalue;
@@ -73,12 +73,12 @@ bool MultipleAggregator::Aggregate(const std::vector<Slice>& item_list,
     }
     mresult *= ivalue;
   }
-  *result = EncodeHelper::EncodeInt(mresult);
+  result = EncodeHelper::EncodeInt(mresult);
   return true;
 }
 
 bool Last3Aggregator::Aggregate(const std::vector<Slice>& item_list,
-                                std::string* result) const {
+                                std::string& result) const {
   std::vector<Slice> last3;
   last3.reserve(3);
   for (auto it = item_list.rbegin(); it != item_list.rend(); ++it) {
@@ -98,7 +98,7 @@ bool Last3Aggregator::Aggregate(const std::vector<Slice>& item_list,
       continue;
     }
   }
-  *result = EncodeHelper::EncodeList(last3);
+  result = EncodeHelper::EncodeList(last3);
   return true;
 }
 }  // namespace ROCKSDB_NAMESPACE
