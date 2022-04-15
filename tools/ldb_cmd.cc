@@ -98,6 +98,7 @@ const std::string LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD =
     "blob_garbage_collection_force_threshold";
 const std::string LDBCommand::ARG_BLOB_COMPACTION_READAHEAD_SIZE =
     "blob_compaction_readahead_size";
+const std::string LDBCommand::ARG_DECODE_BLOB_INDEX = "decode_blob_index";
 
 const char* LDBCommand::DELIM = " ==> ";
 
@@ -108,7 +109,7 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
                  LDBCommandExecuteResult* exec_state);
 
 void DumpSstFile(Options options, std::string filename, bool output_hex,
-                 bool show_properties);
+                 bool show_properties, bool decode_blob_index);
 };
 
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
@@ -1956,7 +1957,8 @@ void DBDumperCommand::DoCommand() {
                     &exec_state_);
         break;
       case kTableFile:
-        DumpSstFile(options_, path_, is_key_hex_, /* show_properties */ true);
+        DumpSstFile(options_, path_, is_key_hex_, /* show_properties */ true,
+                    /* decode_blob_index */ false);
         break;
       case kDescriptorFile:
         DumpManifestFile(options_, path_, /* verbose_ */ false, is_key_hex_,
@@ -3468,7 +3470,7 @@ void RestoreCommand::DoCommand() {
 namespace {
 
 void DumpSstFile(Options options, std::string filename, bool output_hex,
-                 bool show_properties) {
+                 bool show_properties, bool decode_blob_index) {
   std::string from_key;
   std::string to_key;
   if (filename.length() <= 4 ||
@@ -3477,12 +3479,10 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
     return;
   }
   // no verification
-  // TODO: add support for decoding blob indexes in ldb as well
   ROCKSDB_NAMESPACE::SstFileDumper dumper(
       options, filename, Temperature::kUnknown,
       2 * 1024 * 1024 /* readahead_size */,
-      /* verify_checksum */ false, output_hex,
-      /* decode_blob_index */ false);
+      /* verify_checksum */ false, output_hex, decode_blob_index);
   Status st = dumper.ReadSequential(true, std::numeric_limits<uint64_t>::max(),
                                     false,            // has_from
                                     from_key, false,  // has_to
@@ -3519,11 +3519,14 @@ DBFileDumperCommand::DBFileDumperCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true, BuildCmdLineOptions({})) {}
+    : LDBCommand(options, flags, true,
+                 BuildCmdLineOptions({ARG_DECODE_BLOB_INDEX})),
+      decode_blob_index_(IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX)) {}
 
 void DBFileDumperCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(DBFileDumperCommand::Name());
+  ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "] ");
   ret.append("\n");
 }
 
@@ -3568,7 +3571,7 @@ void DBFileDumperCommand::DoCommand() {
     filename = NormalizePath(filename);
     std::cout << filename << " level:" << fileMetadata.level << std::endl;
     std::cout << "------------------------------" << std::endl;
-    DumpSstFile(options_, filename, false, true);
+    DumpSstFile(options_, filename, false, true, decode_blob_index_);
     std::cout << std::endl;
   }
   std::cout << std::endl;
