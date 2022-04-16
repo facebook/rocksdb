@@ -413,6 +413,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
              offsetof(struct BlockBasedTableOptions, prepopulate_block_cache),
              &block_base_table_prepopulate_block_cache_string_map,
              OptionTypeFlags::kMutable)},
+        {"initial_auto_readahead_size",
+         {offsetof(struct BlockBasedTableOptions, initial_auto_readahead_size),
+          OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
 
 #endif  // ROCKSDB_LITE
 };
@@ -814,6 +818,10 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  prepopulate_block_cache: %d\n",
            static_cast<int>(table_options_.prepopulate_block_cache));
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize,
+           "  initial_auto_readahead_size: %" ROCKSDB_PRIszt "\n",
+           table_options_.initial_auto_readahead_size);
   ret.append(buffer);
   return ret;
 }
