@@ -1908,11 +1908,15 @@ TEST_F(BlobDBTest, GarbageCollectionFailure) {
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("dead", "beef"));
 
-  // Write a fake blob reference into the base DB that cannot be parsed.
+  // Write a fake blob reference into the base DB that points to a non-existing
+  // blob file.
+  std::string blob_index;
+  BlobIndex::EncodeBlob(&blob_index, /* file_number */ 1000, /* offset */ 1234,
+                        /* size */ 5678, kNoCompression);
+
   WriteBatch batch;
   ASSERT_OK(WriteBatchInternal::PutBlobIndex(
-      &batch, blob_db_->DefaultColumnFamily()->GetID(), "key",
-      "not a valid blob index"));
+      &batch, blob_db_->DefaultColumnFamily()->GetID(), "key", blob_index));
   ASSERT_OK(blob_db_->GetRootDB()->Write(WriteOptions(), &batch));
 
   auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
@@ -1921,7 +1925,7 @@ TEST_F(BlobDBTest, GarbageCollectionFailure) {
   ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file));
 
   ASSERT_TRUE(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
-                  .IsCorruption());
+                  .IsIOError());
 
   const Statistics *const statistics = db_options.statistics.get();
   assert(statistics);
