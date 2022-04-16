@@ -32,6 +32,7 @@
 #include "db/log_writer.h"
 #include "db/logs_with_prep_tracker.h"
 #include "db/memtable_list.h"
+#include "db/post_memtable_callback.h"
 #include "db/pre_release_callback.h"
 #include "db/range_del_aggregator.h"
 #include "db/read_callback.h"
@@ -1309,7 +1310,8 @@ class DBImpl : public DB {
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                    bool disable_memtable = false, uint64_t* seq_used = nullptr,
                    size_t batch_cnt = 0,
-                   PreReleaseCallback* pre_release_callback = nullptr);
+                   PreReleaseCallback* pre_release_callback = nullptr,
+                   PostMemTableCallback* post_memtable_callback = nullptr);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
