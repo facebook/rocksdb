@@ -185,6 +185,11 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
   bool low_io_priority = false;
   CpuPriority current_cpu_priority = CpuPriority::kNormal;
 
+  // Background threads should not run pthread termination handlers.
+  // We handle the correct termination of background threads in the main thread.
+  // Environment destructors should only be called in the the main thread.
+  port::BlockTerminationSignals();
+
   while (true) {
     // Wait until there is an item that is ready to run
     std::unique_lock<std::mutex> lock(mu_);
