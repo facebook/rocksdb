@@ -350,7 +350,9 @@ class TransactionBaseImpl : public Transaction {
       save_points_;
 
  private:
+  friend class WriteCommittedTxn;
   friend class WritePreparedTxn;
+
   // Extra data to be persisted with the commit. Note this is only used when
   // prepare phase is not skipped.
   WriteBatch commit_time_batch_;

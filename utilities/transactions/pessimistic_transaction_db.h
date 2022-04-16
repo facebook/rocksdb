@@ -267,5 +267,29 @@ inline Status PessimisticTransactionDB::FailIfCfEnablesTs(
   return Status::OK();
 }
 
+class SnapshotCreationCallback : public PostMemTableCallback {
+ public:
+  explicit SnapshotCreationCallback(
+      DBImpl* dbi, TxnTimestamp commit_ts,
+      const std::shared_ptr<TransactionNotifier>& notifier,
+      std::shared_ptr<const Snapshot>& snapshot)
+      : db_impl_(dbi),
+        commit_ts_(commit_ts),
+        snapshot_notifier_(notifier),
+        snapshot_(snapshot) {
+    assert(db_impl_);
+  }
+
+  ~SnapshotCreationCallback() override {}
+
+  Status operator()(SequenceNumber seq, bool disable_memtable) override;
+
+ private:
+  DBImpl* const db_impl_;
+  const TxnTimestamp commit_ts_;
+  std::shared_ptr<TransactionNotifier> snapshot_notifier_;
+  std::shared_ptr<const Snapshot>& snapshot_;
+};
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

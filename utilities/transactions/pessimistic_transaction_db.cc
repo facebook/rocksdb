@@ -683,5 +683,35 @@ Status PessimisticTransactionDB::GetSharedSnapshots(
   assert(db_impl_);
   return db_impl_->GetSharedSnapshots(ts_lb, ts_ub, shared_snapshots);
 }
+
+Status SnapshotCreationCallback::operator()(SequenceNumber seq,
+                                            bool disable_memtable) {
+  assert(db_impl_);
+  assert(commit_ts_ != kMaxTxnTimestamp);
+
+  const bool two_write_queues =
+      db_impl_->immutable_db_options().two_write_queues;
+  assert(!two_write_queues || !disable_memtable);
+#ifdef NDEBUG
+  (void)two_write_queues;
+  (void)disable_memtable;
+#endif
+
+  const bool seq_per_batch = db_impl_->seq_per_batch();
+  if (!seq_per_batch) {
+    assert(db_impl_->GetLastPublishedSequence() <= seq);
+  } else {
+    assert(db_impl_->GetLastPublishedSequence() < seq);
+  }
+
+  // Create a snapshot which can also be used for write conflict checking.
+  snapshot_ = db_impl_->CreateSharedSnapshot(seq, commit_ts_);
+  assert(snapshot_);
+  if (snapshot_notifier_) {
+    snapshot_notifier_->SnapshotCreated(snapshot_.get());
+  }
+  return Status::OK();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE
