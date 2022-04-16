@@ -206,6 +206,10 @@ class TransactionBaseImpl : public Transaction {
     return snapshot_.get();
   }
 
+  std::shared_ptr<const Snapshot> GetSharedSnapshot() const override {
+    return snapshot_;
+  }
+
   virtual void SetSnapshot() override;
   void SetSnapshotOnNextOperation(
       std::shared_ptr<TransactionNotifier> notifier = nullptr) override;

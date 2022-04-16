@@ -115,6 +115,8 @@ class TransactionNotifier {
 
   // Implement this method to receive notification when a snapshot is
   // requested via SetSnapshotOnNextOperation.
+  // Do not take exclusive ownership of `newSnapshot` because it is shared with
+  // the underlying transaction.
   virtual void SnapshotCreated(const Snapshot* newSnapshot) = 0;
 };
 
@@ -183,6 +185,10 @@ class Transaction {
   //                             txn2->Put("A", ...);
   //                             txn2->Commit();
   //   txn1->GetForUpdate(opts, "A", ...);  // FAIL!
+  //
+  // WriteCommittedTxn only: a new snapshot will be taken upon next operation,
+  // and next operation can be a Commit.
+  // TODO(yanqin) remove the "write-committed only" limitation.
   virtual void SetSnapshotOnNextOperation(
       std::shared_ptr<TransactionNotifier> notifier = nullptr) = 0;
 
@@ -192,6 +198,10 @@ class Transaction {
   // SetSnapshot()/SetSnapshotOnNextSavePoint() is called, ClearSnapshot()
   // is called, or the Transaction is deleted.
   virtual const Snapshot* GetSnapshot() const = 0;
+
+  // Returns the Snapshot created by the last call to SetSnapshot().
+  // The returned snapshot can outlive the transaction.
+  virtual std::shared_ptr<const Snapshot> GetSharedSnapshot() const = 0;
 
   // Clears the current snapshot (i.e. no snapshot will be 'set')
   //
@@ -226,6 +236,53 @@ class Transaction {
   // TransactionOptions.skip_prepare is false and Prepare is not called on this
   // transaction before Commit.
   virtual Status Commit() = 0;
+
+  // In addition to Commit(), also creates a snapshot of the db after all
+  // writes by this txn are visible to other readers.
+  // Currently only supported by WriteCommittedTxn. Calling this method on
+  // other types of transactions will return non-ok Status resulting from
+  // Commit() or a `NotSupported` error.
+  // notifier will be notified upon next snapshot creation. Nullable.
+  // ret non-null output argument storing a shared_ptr to the newly created
+  // snapshot.
+  Status CommitAndCreateSnapshot(
+      std::shared_ptr<TransactionNotifier> notifier =
+          std::shared_ptr<TransactionNotifier>(),
+      TxnTimestamp ts = kMaxTxnTimestamp,
+      std::shared_ptr<const Snapshot>* snapshot = nullptr) {
+    TxnTimestamp commit_ts = GetCommitTimestamp();
+    if (commit_ts == kMaxTxnTimestamp) {
+      if (ts == kMaxTxnTimestamp) {
+        return Status::InvalidArgument("Commit timestamp unset");
+      } else {
+        const Status s = SetCommitTimestamp(ts);
+        if (!s.ok()) {
+          return s;
+        }
+      }
+    } else if (ts != kMaxTxnTimestamp) {
+      if (ts != commit_ts) {
+        // For now we treat this as error.
+        return Status::InvalidArgument("Different commit ts specified");
+      }
+    }
+    // Do not try to dereference prev_snapshot because it can be destroyed.
+    const Snapshot* const prev_snapshot = GetSnapshot();
+    SetSnapshotOnNextOperation(notifier);
+    Status s = Commit();
+    if (!s.ok()) {
+      return s;
+    }
+    std::shared_ptr<const Snapshot> new_snapshot = GetSharedSnapshot();
+    if (new_snapshot.get() == prev_snapshot) {
+      return Status::NotSupported();
+    }
+
+    if (snapshot) {
+      *snapshot = new_snapshot;
+    }
+    return s;
+  }
 
   // Discard all batched writes in this transaction.
   virtual Status Rollback() = 0;
