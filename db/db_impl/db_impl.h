@@ -284,6 +284,19 @@ class DBImpl : public DB {
 
   virtual const Snapshot* GetSnapshot() override;
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
+  // Create a shared snapshot. This snapshot can be shared by multiple readers.
+  // If any of them uses it for write conflict checking, then
+  // is_write_conflict_boundary is true. For simplicity, set it to true by
+  // default.
+  std::shared_ptr<const Snapshot> CreateSharedSnapshot(
+      SequenceNumber snapshot_seq, uint64_t ts);
+  std::shared_ptr<const Snapshot> GetSharedSnapshot(uint64_t ts) const;
+  void ReleaseSharedSnapshotsOlderThan(uint64_t ts,
+                                       size_t* remaining_total_ss = nullptr);
+  Status GetSharedSnapshots(
+      uint64_t ts_lb, uint64_t ts_ub,
+      std::vector<std::shared_ptr<const Snapshot>>* shared_snapshots) const;
+
   using DB::GetProperty;
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) override;
@@ -1923,9 +1936,22 @@ class DBImpl : public DB {
   SnapshotImpl* GetSnapshotImpl(bool is_write_conflict_boundary,
                                 bool lock = true);
 
+  // If snapshot_seq != kMaxSequenceNumber, then this function can only be
+  // called from the write thread that publishes sequence numbers to readers.
+  // For 1) write-committed, or 2) write-prepared + one-write-queue, this will
+  // be the write thread performing memtable writes. For write-prepared with
+  // two write queues, this will be the write thread writing commit marker to
+  // the WAL.
+  // If snapshot_seq == kMaxSequenceNumber, this function is called by a caller
+  // ensuring no writes to the database.
+  std::shared_ptr<const SnapshotImpl> CreateSharedSnapshotImpl(
+      SequenceNumber snapshot_seq, uint64_t ts, bool lock = true);
+
   uint64_t GetMaxTotalWalSize() const;
 
   FSDirectory* GetDataDir(ColumnFamilyData* cfd, size_t path_id) const;
+
+  Status CheckIfAllSnapshotsReleased();
 
   Status CloseHelper();
 
@@ -2195,6 +2221,8 @@ class DBImpl : public DB {
   TrimHistoryScheduler trim_history_scheduler_;
 
   SnapshotList snapshots_;
+
+  SharedSnapshotList shared_snapshots_;
 
   // For each background job, pending_outputs_ keeps the current file number at
   // the time that background job started.

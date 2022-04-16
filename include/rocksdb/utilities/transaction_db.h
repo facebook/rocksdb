@@ -458,6 +458,37 @@ class TransactionDB : public StackableDB {
   virtual std::vector<DeadlockPath> GetDeadlockInfoBuffer() = 0;
   virtual void SetDeadlockInfoBufferSize(uint32_t target_size) = 0;
 
+  // Caller must ensure there are no active writes when this API is called.
+  // Create a shared snapshot and assign ts to it.
+  virtual std::shared_ptr<const Snapshot> CreateSharedSnapshot(
+      TxnTimestamp ts) = 0;
+
+  // Return the latest shared snapshot if present.
+  std::shared_ptr<const Snapshot> GetLatestSharedSnapshot() const {
+    return GetSharedSnapshot(kMaxTxnTimestamp);
+  }
+  // Return the shared snapshot correponding to given timestamp. If ts is
+  // kMaxTxnTimestamp, then we return the latest shared snapshot if present.
+  // Othersise, we return the snapshot whose timestamp is equal to `ts`. If no
+  // such snapshot exists, then we return null.
+  virtual std::shared_ptr<const Snapshot> GetSharedSnapshot(
+      TxnTimestamp ts) const = 0;
+  // Release shared snapshots whose timestamps are less than or equal to ts.
+  virtual void ReleaseSharedSnapshotsOlderThan(TxnTimestamp ts) = 0;
+
+  // Get all shared snapshots which will be stored in shared_snapshots.
+  Status GetAllSharedSnapshots(
+      std::vector<std::shared_ptr<const Snapshot>>* shared_snapshots) const {
+    return GetSharedSnapshots(/*ts_lb=*/0, /*ts_ub=*/kMaxTxnTimestamp,
+                              shared_snapshots);
+  }
+
+  // Get all shared snapshots whose timestamps fall within [ts_lb, ts_ub).
+  // shared_snapshots will be cleared and contain returned snapshots.
+  virtual Status GetSharedSnapshots(
+      TxnTimestamp ts_lb, TxnTimestamp ts_ub,
+      std::vector<std::shared_ptr<const Snapshot>>* shared_snapshots) const = 0;
+
  protected:
   // To Create an TransactionDB, call Open()
   // The ownership of db is transferred to the base StackableDB
