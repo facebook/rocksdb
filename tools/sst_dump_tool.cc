@@ -33,7 +33,7 @@ namespace {
 
 void print_help(bool to_stderr) {
   std::string supported_compressions;
-  for (CompressionType ct : Getsupported_compressions()) {
+  for (CompressionType ct : GetSupportedCompressions()) {
     if (!supported_compressions.empty()) {
       supported_compressions += ", ";
     }
