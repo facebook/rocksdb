@@ -340,7 +340,7 @@ endif
 # ASAN doesn't work well with jemalloc. If we're compiling with ASAN, we should use regular malloc.
 ifdef COMPILE_WITH_ASAN
 	DISABLE_JEMALLOC=1
-	ASAN_OPTIONS=detect_stack_use_after_return=1
+	ASAN_OPTIONS?=detect_stack_use_after_return=1
 	export ASAN_OPTIONS
 	EXEC_LDFLAGS += -fsanitize=address
 	PLATFORM_CCFLAGS += -fsanitize=address
