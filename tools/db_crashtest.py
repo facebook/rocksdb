@@ -314,6 +314,7 @@ txn_params = {
     "checkpoint_one_in": 0,
     # pipeline write is not currnetly compatible with WritePrepared txns
     "enable_pipelined_write": 0,
+    "create_shared_snapshot_one_in": 10,
 }
 
 best_efforts_recovery_params = {
@@ -512,6 +513,11 @@ def finalize_and_sanitize(src_params):
       dest_params["enable_compaction_filter"] = 0
       dest_params["sync"] = 0
       dest_params["write_fault_one_in"] = 0
+    # Remove the following once write-prepared/write-unprepared with/without
+    # unordered write supports shared snapshots
+    if dest_params.get("create_shared_snapshot_one_in", 0) > 0:
+        dest_params["txn_write_policy"] = 0
+        dest_params["unordered_write"] = 0
 
     return dest_params
 

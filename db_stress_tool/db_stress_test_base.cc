@@ -619,13 +619,25 @@ Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   return s;
 }
 
-Status StressTest::CommitTxn(Transaction* txn) {
+Status StressTest::CommitTxn(Transaction* txn, ThreadState* thread) {
   if (!FLAGS_use_txn) {
     return Status::InvalidArgument("CommitTxn when FLAGS_use_txn is not set");
   }
   Status s = txn->Prepare();
+  std::shared_ptr<const Snapshot> shared_snapshot;
   if (s.ok()) {
-    s = txn->Commit();
+    if (thread && FLAGS_create_shared_snapshot_one_in &&
+        thread->rand.OneIn(FLAGS_create_shared_snapshot_one_in)) {
+      uint64_t ts = db_stress_env->NowNanos();
+      s = txn->CommitAndCreateSnapshot(/*notifier=*/nullptr, ts,
+                                       &shared_snapshot);
+    } else {
+      s = txn->Commit();
+    }
+    uint64_t ts2 = db_stress_env->NowNanos();
+    uint64_t ts_delta = 1ULL * 1000 * 1000 * 1000;
+    assert(txn_db_);
+    txn_db_->ReleaseSharedSnapshotsOlderThan(ts2 - ts_delta);
   }
   delete txn;
   return s;

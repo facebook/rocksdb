@@ -295,6 +295,8 @@ DECLARE_bool(async_io);
 DECLARE_string(wal_compression);
 DECLARE_bool(verify_sst_unique_id_in_manifest);
 
+DECLARE_int32(create_shared_snapshot_one_in);
+
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;
