@@ -366,19 +366,26 @@ TEST_F(DBBlobBasicTest, GetBlob_CorruptIndex) {
   Reopen(options);
 
   constexpr char key[] = "key";
+  constexpr char blob[] = "blob";
 
-  // Fake a corrupt blob index.
-  const std::string blob_index("foobar");
-
-  WriteBatch batch;
-  ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 0, key, blob_index));
-  ASSERT_OK(db_->Write(WriteOptions(), &batch));
-
+  ASSERT_OK(Put(key, blob));
   ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "Version::Get::TamperWithBlobIndex", [](void* arg) {
+        Slice* const blob_index = static_cast<Slice*>(arg);
+        assert(blob_index);
+        assert(!blob_index->empty());
+        blob_index->remove_prefix(1);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
 
   PinnableSlice result;
   ASSERT_TRUE(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result)
                   .IsCorruption());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(DBBlobBasicTest, MultiGetBlob_CorruptIndex) {
@@ -401,16 +408,26 @@ TEST_F(DBBlobBasicTest, MultiGetBlob_CorruptIndex) {
   }
 
   constexpr char key[] = "key";
-  {
-    // Fake a corrupt blob index.
-    const std::string blob_index("foobar");
-    WriteBatch batch;
-    ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 0, key, blob_index));
-    ASSERT_OK(db_->Write(WriteOptions(), &batch));
-    keys[kNumOfKeys] = Slice(static_cast<const char*>(key), sizeof(key) - 1);
-  }
+  constexpr char blob[] = "blob";
+  ASSERT_OK(Put(key, blob));
+  keys[kNumOfKeys] = key;
 
   ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "Version::MultiGet::TamperWithBlobIndex", [&key](void* arg) {
+        KeyContext* const key_context = static_cast<KeyContext*>(arg);
+        assert(key_context);
+        assert(key_context->key);
+
+        if (*(key_context->key) == key) {
+          Slice* const blob_index = key_context->value;
+          assert(blob_index);
+          assert(!blob_index->empty());
+          blob_index->remove_prefix(1);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
 
   std::array<PinnableSlice, kNumOfKeys + 1> values;
   std::array<Status, kNumOfKeys + 1> statuses;
@@ -425,6 +442,9 @@ TEST_F(DBBlobBasicTest, MultiGetBlob_CorruptIndex) {
       ASSERT_TRUE(statuses[i].IsCorruption());
     }
   }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(DBBlobBasicTest, MultiGetBlob_ExceedSoftLimit) {

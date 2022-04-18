@@ -739,6 +739,12 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
   if (force_global_seqno) {
     *assigned_seqno = last_seqno + 1;
     if (compaction_style == kCompactionStyleUniversal || files_overlap_) {
+      if (ingestion_options_.fail_if_not_bottommost_level) {
+        status = Status::TryAgain(
+            "Files cannot be ingested to Lmax. Please make sure key range of "
+            "Lmax does not overlap with files to ingest.");
+        return status;
+      }
       file_to_ingest->picked_level = 0;
       return status;
     }
@@ -808,6 +814,15 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     target_level = 0;
     *assigned_seqno = last_seqno + 1;
   }
+
+  if (ingestion_options_.fail_if_not_bottommost_level &&
+      target_level < cfd_->NumberLevels() - 1) {
+    status = Status::TryAgain(
+        "Files cannot be ingested to Lmax. Please make sure key range of Lmax "
+        "does not overlap with files to ingest.");
+    return status;
+  }
+
  TEST_SYNC_POINT_CALLBACK(
       "ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile",
       &overlap_with_db);

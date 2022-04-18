@@ -565,10 +565,13 @@ class Repairer {
 
         counter++;
 
-        t->meta.UpdateBoundaries(key, iter->value(), parsed.sequence,
-                                 parsed.type);
+        status = t->meta.UpdateBoundaries(key, iter->value(), parsed.sequence,
+                                          parsed.type);
+        if (!status.ok()) {
+          break;
+        }
       }
-      if (!iter->status().ok()) {
+      if (status.ok() && !iter->status().ok()) {
         status = iter->status();
       }
       delete iter;
