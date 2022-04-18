@@ -212,7 +212,11 @@ Status BuildTable(
         break;
       }
       builder->Add(key, value);
-      meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
+
+      s = meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
+      if (!s.ok()) {
+        break;
+      }
 
       // TODO(noetzli): Update stats after flush, too.
       if (io_priority == Env::IO_HIGH &&

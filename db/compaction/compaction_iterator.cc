@@ -234,6 +234,10 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           return false;
         }
 
+        TEST_SYNC_POINT_CALLBACK(
+            "CompactionIterator::InvokeFilterIfNeeded::TamperWithBlobIndex",
+            &value_);
+
         // For integrated BlobDB impl, CompactionIterator reads blob value.
         // For Stacked BlobDB impl, the corresponding CompactionFilter's
         // FilterV2 method should read the blob value.
@@ -950,6 +954,10 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
 
   // GC for integrated BlobDB
   if (compaction_->enable_blob_garbage_collection()) {
+    TEST_SYNC_POINT_CALLBACK(
+        "CompactionIterator::GarbageCollectBlobIfNeeded::TamperWithBlobIndex",
+        &value_);
+
     BlobIndex blob_index;
 
     {

@@ -9,17 +9,19 @@
 
 
 BASEDIR=`dirname $BASH_SOURCE`
-source "$BASEDIR/dependencies_platform009.sh"
+source "$BASEDIR/dependencies_platform010.sh"
 
-CFLAGS=""
+# Disallow using libraries from default locations as they might not be compatible with platform010 libraries.
+CFLAGS=" --sysroot=/DOES/NOT/EXIST"
 
 # libgcc
-LIBGCC_INCLUDE="$LIBGCC_BASE/include/c++/9.3.0"
-LIBGCC_LIBS=" -L $LIBGCC_BASE/lib"
+LIBGCC_INCLUDE="$LIBGCC_BASE/include/c++/trunk"
+LIBGCC_LIBS=" -L $LIBGCC_BASE/lib -B$LIBGCC_BASE/lib/gcc/x86_64-facebook-linux/trunk/"
 
 # glibc
 GLIBC_INCLUDE="$GLIBC_BASE/include"
 GLIBC_LIBS=" -L $GLIBC_BASE/lib"
+GLIBC_LIBS+=" -B$GLIBC_BASE/lib"
 
 if test -z $PIC_BUILD; then
   MAYBE_PIC=
@@ -68,8 +70,6 @@ CFLAGS+=" -DGFLAGS=gflags"
 BENCHMARK_INCLUDE=" -I $BENCHMARK_BASE/include/"
 BENCHMARK_LIBS=" $BENCHMARK_BASE/lib/libbenchmark${MAYBE_PIC}.a"
 
-BOOST_INCLUDE=" -I $BOOST_BASE/include/"
-
 # location of jemalloc
 JEMALLOC_INCLUDE=" -I $JEMALLOC_BASE/include/"
 JEMALLOC_LIB=" $JEMALLOC_BASE/lib/libjemalloc${MAYBE_PIC}.a"
@@ -101,7 +101,7 @@ BINUTILS="$BINUTILS_BASE/bin"
 AR="$BINUTILS/ar"
 AS="$BINUTILS/as"
 
-DEPS_INCLUDE="$SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $ZSTD_INCLUDE $GFLAGS_INCLUDE $NUMA_INCLUDE $TBB_INCLUDE $LIBURING_INCLUDE $BENCHMARK_INCLUDE $BOOST_INCLUDE"
+DEPS_INCLUDE="$SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $ZSTD_INCLUDE $GFLAGS_INCLUDE $NUMA_INCLUDE $TBB_INCLUDE $LIBURING_INCLUDE $BENCHMARK_INCLUDE"
 
 STDLIBS="-L $GCC_BASE/lib64"
 
@@ -118,6 +118,7 @@ if [ -z "$USE_CLANG" ]; then
   CXX="$GCC_BASE/bin/g++"
   AR="$GCC_BASE/bin/gcc-ar"
 
+
   CFLAGS+=" -B$BINUTILS"
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
   CFLAGS+=" -isystem $GLIBC_INCLUDE"
@@ -129,28 +130,28 @@ else
   CXX="$CLANG_BIN/clang++"
   AR="$CLANG_BIN/llvm-ar"
 
-  KERNEL_HEADERS_INCLUDE="$KERNEL_HEADERS_BASE/include"
-
   CFLAGS+=" -B$BINUTILS -nostdinc -nostdlib"
-  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/9.x "
-  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/9.x/x86_64-facebook-linux "
+  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/trunk "
+  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/trunk/x86_64-facebook-linux "
   CFLAGS+=" -isystem $GLIBC_INCLUDE"
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
   CFLAGS+=" -isystem $CLANG_INCLUDE"
-  CFLAGS+=" -isystem $KERNEL_HEADERS_INCLUDE/linux "
-  CFLAGS+=" -isystem $KERNEL_HEADERS_INCLUDE "
   CFLAGS+=" -Wno-expansion-to-defined "
   CXXFLAGS="-nostdinc++"
 fi
+
+KERNEL_HEADERS_INCLUDE="$KERNEL_HEADERS_BASE/include"
+CFLAGS+=" -isystem $KERNEL_HEADERS_INCLUDE/linux "
+CFLAGS+=" -isystem $KERNEL_HEADERS_INCLUDE "
 
 CFLAGS+=" $DEPS_INCLUDE"
 CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX -DROCKSDB_FALLOCATE_PRESENT -DROCKSDB_MALLOC_USABLE_SIZE -DROCKSDB_RANGESYNC_PRESENT -DROCKSDB_SCHED_GETCPU_PRESENT -DROCKSDB_SUPPORT_THREAD_LOCAL -DHAVE_SSE42 -DROCKSDB_IOURING_PRESENT"
 CXXFLAGS+=" $CFLAGS"
 
 EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $ZSTD_LIBS $GFLAGS_LIBS $NUMA_LIB $TBB_LIBS $LIBURING_LIBS $BENCHMARK_LIBS"
-EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/platform009/lib/ld.so"
+EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/platform010/lib/ld.so"
 EXEC_LDFLAGS+=" $LIBUNWIND"
-EXEC_LDFLAGS+=" -Wl,-rpath=/usr/local/fbcode/platform009/lib"
+EXEC_LDFLAGS+=" -Wl,-rpath=/usr/local/fbcode/platform010/lib"
 EXEC_LDFLAGS+=" -Wl,-rpath=$GCC_BASE/lib64"
 # required by libtbb
 EXEC_LDFLAGS+=" -ldl"
@@ -161,9 +162,5 @@ PLATFORM_LDFLAGS+=" -B$BINUTILS"
 EXEC_LDFLAGS_SHARED="$SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $ZSTD_LIBS $GFLAGS_LIBS $TBB_LIBS $LIBURING_LIBS $BENCHMARK_LIBS"
 
 VALGRIND_VER="$VALGRIND_BASE/bin/"
-
-# lua not supported because it's on track for deprecation, I think
-LUA_PATH=
-LUA_LIB=
 
 export CC CXX AR AS CFLAGS CXXFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED VALGRIND_VER JEMALLOC_LIB JEMALLOC_INCLUDE CLANG_ANALYZER CLANG_SCAN_BUILD LUA_PATH LUA_LIB

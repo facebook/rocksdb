@@ -1855,6 +1855,14 @@ struct IngestExternalFileOptions {
   // ingestion. However, if no checksum information is provided with the
   // ingested files, DB will generate the checksum and store in the Manifest.
   bool verify_file_checksum = true;
+  // Set to TRUE if user wants file to be ingested to the bottommost level. An
+  // error of Status::TryAgain() will be returned if a file cannot fit in the
+  // bottommost level when calling
+  // DB::IngestExternalFile()/DB::IngestExternalFiles(). The user should clear
+  // the bottommost level in the overlapping range before re-attempt.
+  //
+  // ingest_behind takes precedence over fail_if_not_bottommost_level.
+  bool fail_if_not_bottommost_level = false;
 };
 
 enum TraceFilterType : uint64_t {

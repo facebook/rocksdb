@@ -1533,11 +1533,15 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       break;
     }
 
+    const ParsedInternalKey& ikey = c_iter->ikey();
+    status = sub_compact->current_output()->meta.UpdateBoundaries(
+        key, value, ikey.sequence, ikey.type);
+    if (!status.ok()) {
+      break;
+    }
+
     sub_compact->current_output_file_size =
         sub_compact->builder->EstimatedFileSize();
-    const ParsedInternalKey& ikey = c_iter->ikey();
-    sub_compact->current_output()->meta.UpdateBoundaries(
-        key, value, ikey.sequence, ikey.type);
     sub_compact->num_output_records++;
 
     // Close output file if it is big enough. Two possibilities determine it's
