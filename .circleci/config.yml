@@ -224,14 +224,16 @@ jobs:
       - run: make V=1 J=32 -j32 check
       - post-steps
 
-  build-linux-encrypted-env:
+  build-linux-encrypted_env-no_compression:
     machine:
       image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
       - install-gflags
-      - run: ENCRYPTED_ENV=1 make V=1 J=32 -j32 check
+      - run: ENCRYPTED_ENV=1 ROCKSDB_DISABLE_SNAPPY=1 ROCKSDB_DISABLE_ZLIB=1 ROCKSDB_DISABLE_BZIP=1 ROCKSDB_DISABLE_LZ4=1 ROCKSDB_DISABLE_ZSTD=1 make V=1 J=32 -j32 check
+      - run: |
+          ./sst_dump --help | egrep -q 'Supported compression types: kNoCompression$' # Verify no compiled in compression
       - post-steps
 
   build-linux-shared_lib-alt_namespace-status_checked:
@@ -803,9 +805,9 @@ workflows:
     jobs:
       - build-linux-cmake-with-folly
       - build-linux-cmake-with-benchmark
-  build-linux-encrypted-env:
+  build-linux-encrypted_env-no_compression:
     jobs:
-      - build-linux-encrypted-env
+      - build-linux-encrypted_env-no_compression
   build-linux-shared_lib-alt_namespace-status_checked:
     jobs:
       - build-linux-shared_lib-alt_namespace-status_checked
