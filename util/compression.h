@@ -1484,7 +1484,7 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
 
 inline std::string ZSTD_FinalizeDictionary(
     const std::string& samples, const std::vector<size_t>& sample_lens,
-    std::string& dict_content, size_t max_dict_bytes) {
+    size_t max_dict_bytes) {
   // ZDICT_finalizeDictionary is only stable since version 1.4.5
 #if ZSTD_VERSION_NUMBER >= 10405  // v1.4.5+
   assert(samples.empty() == sample_lens.empty());
@@ -1504,10 +1504,11 @@ inline std::string ZSTD_FinalizeDictionary(
     return dict_data;
   }
 #else   // up to v1.4.4
+  assert(false);
   (void)samples;
   (void)sample_lens;
   (void)max_dict_bytes;
-  return std::move(dict_content);
+  return "";
 #endif  // ZSTD_VERSION_NUMBER >= 10405
 }
 
