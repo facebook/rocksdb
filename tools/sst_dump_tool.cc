@@ -32,15 +32,15 @@ static const std::vector<std::pair<CompressionType, const char*>>
 namespace {
 
 void print_help(bool to_stderr) {
-  std::string supportedCompressions;
-  for (CompressionType ct : GetSupportedCompressions()) {
-    if (!supportedCompressions.empty()) {
-      supportedCompressions += ", ";
+  std::string supported_compressions;
+  for (CompressionType ct : Getsupported_compressions()) {
+    if (!supported_compressions.empty()) {
+      supported_compressions += ", ";
     }
     std::string str;
     Status s = GetStringFromCompressionType(&str, ct);
     assert(s.ok());
-    supportedCompressions += str;
+    supported_compressions += str;
   }
   fprintf(
       to_stderr ? stderr : stdout,
@@ -123,7 +123,7 @@ void print_help(bool to_stderr) {
     --compression_max_dict_buffer_bytes=<int64_t>
       Limit on buffer size from which we collect samples for dictionary generation.
 )",
-      supportedCompressions.c_str());
+      supported_compressions.c_str());
 }
 
 // arg_name would include all prefix, e.g. "--my_arg="
