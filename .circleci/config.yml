@@ -876,12 +876,6 @@ workflows:
   build-linux-mini-crashtest:
     jobs:
       - build-linux-mini-crashtest
-  build-linux-clang-13-asan-ubsan-with-folly:
-    jobs:
-      - build-linux-clang-13-asan-ubsan-with-folly
-  build-linux-valgrind:
-    jobs:
-      - build-linux-valgrind
   build-windows-vs2019:
     jobs:
       - build-windows:
@@ -945,3 +939,5 @@ workflows:
       - build-linux-arm-test-full
       - build-linux-run-microbench
       - build-linux-non-shm
+      - build-linux-clang-13-asan-ubsan-with-folly
+      - build-linux-valgrind
