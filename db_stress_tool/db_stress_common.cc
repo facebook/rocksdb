@@ -16,6 +16,7 @@
 #include "util/file_checksum_helper.h"
 #include "util/xxhash.h"
 
+ROCKSDB_NAMESPACE::Env* db_stress_listener_env = nullptr;
 ROCKSDB_NAMESPACE::Env* db_stress_env = nullptr;
 #ifndef NDEBUG
 // If non-null, injects read error at a rate specified by the
@@ -225,12 +226,19 @@ size_t GenerateValue(uint32_t rand, char* v, size_t max_sz) {
       ((rand % kRandomValueMaxFactor) + 1) * FLAGS_value_size_mult;
   assert(value_sz <= max_sz && value_sz >= sizeof(uint32_t));
   (void)max_sz;
-  *((uint32_t*)v) = rand;
+  PutUnaligned(reinterpret_cast<uint32_t*>(v), rand);
   for (size_t i = sizeof(uint32_t); i < value_sz; i++) {
     v[i] = (char)(rand ^ i);
   }
   v[value_sz] = '\0';
   return value_sz;  // the size of the value set.
+}
+
+uint32_t GetValueBase(Slice s) {
+  assert(s.size() >= sizeof(uint32_t));
+  uint32_t res;
+  GetUnaligned(reinterpret_cast<const uint32_t*>(s.data()), &res);
+  return res;
 }
 
 std::string NowNanosStr() {

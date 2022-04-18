@@ -96,7 +96,17 @@ void locktree::create(locktree_manager *mgr, DICTIONARY_ID dict_id,
   m_sto_end_early_count = 0;
   m_sto_end_early_time = 0;
 
+  m_escalation_barrier = [](const DBT *, const DBT *, void *) -> bool {
+    return false;
+  };
+
   m_lock_request_info.init(mutex_factory);
+}
+
+void locktree::set_escalation_barrier_func(
+    lt_escalation_barrier_check_func func, void *extra) {
+  m_escalation_barrier = func;
+  m_escalation_barrier_arg = extra;
 }
 
 void lt_lock_request_info::init(toku_external_mutex_factory_t mutex_factory) {
@@ -863,14 +873,19 @@ void locktree::escalate(lt_escalate_cb after_escalate_callback,
       //  - belongs to a different txnid, or
       //  - belongs to several txnids, or
       //  - is a shared lock (we could potentially merge those but
-      //    currently we don't)
+      //    currently we don't), or
+      //  - is across a lock escalation barrier.
       int next_txnid_index = current_index + 1;
 
       while (next_txnid_index < num_extracted &&
              (extracted_buf[current_index].txnid ==
               extracted_buf[next_txnid_index].txnid) &&
              !extracted_buf[next_txnid_index].is_shared &&
-             !extracted_buf[next_txnid_index].owners) {
+             !extracted_buf[next_txnid_index].owners &&
+             !m_escalation_barrier(
+                 extracted_buf[current_index].range.get_right_key(),
+                 extracted_buf[next_txnid_index].range.get_left_key(),
+                 m_escalation_barrier_arg)) {
         next_txnid_index++;
       }
 

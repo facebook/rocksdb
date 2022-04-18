@@ -222,7 +222,11 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {HOT_FILE_READ_COUNT, "rocksdb.hot.file.read.count"},
     {WARM_FILE_READ_COUNT, "rocksdb.warm.file.read.count"},
     {COLD_FILE_READ_COUNT, "rocksdb.cold.file.read.count"},
-};
+    {LAST_LEVEL_READ_BYTES, "rocksdb.last.level.read.bytes"},
+    {LAST_LEVEL_READ_COUNT, "rocksdb.last.level.read.count"},
+    {NON_LAST_LEVEL_READ_BYTES, "rocksdb.non.last.level.read.bytes"},
+    {NON_LAST_LEVEL_READ_COUNT, "rocksdb.non.last.level.read.count"},
+    {BLOCK_CHECKSUM_COMPUTE_COUNT, "rocksdb.block.checksum.compute.count"}};
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {DB_GET, "rocksdb.db.get.micros"},
@@ -279,6 +283,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {NUM_SST_READ_PER_LEVEL, "rocksdb.num.sst.read.per.level"},
     {ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
      "rocksdb.error.handler.autoresume.retry.count"},
+    {ASYNC_READ_BYTES, "rocksdb.async.read.bytes"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {
@@ -288,7 +293,7 @@ std::shared_ptr<Statistics> CreateDBStatistics() {
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinStatistics(ObjectLibrary& library,
                                      const std::string& /*arg*/) {
-  library.Register<Statistics>(
+  library.AddFactory<Statistics>(
       StatisticsImpl::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<Statistics>* guard,
          std::string* /* errmsg */) {

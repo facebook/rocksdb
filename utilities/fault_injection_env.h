@@ -151,6 +151,9 @@ class FaultInjectionTestEnv : public EnvWrapper {
       : EnvWrapper(base), filesystem_active_(true) {}
   virtual ~FaultInjectionTestEnv() { error_.PermitUncheckedError(); }
 
+  static const char* kClassName() { return "FaultInjectionTestEnv"; }
+  const char* Name() const override { return kClassName(); }
+
   Status NewDirectory(const std::string& name,
                       std::unique_ptr<Directory>* result) override;
 

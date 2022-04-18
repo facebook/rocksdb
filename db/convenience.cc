@@ -56,10 +56,13 @@ Status VerifySstFileChecksum(const Options& options,
   }
   std::unique_ptr<TableReader> table_reader;
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(file), file_path));
+      new RandomAccessFileReader(
+          std::move(file), file_path, ioptions.clock, nullptr /* io_tracer */,
+          nullptr /* stats */, 0 /* hist_type */, nullptr /* file_read_hist */,
+          ioptions.rate_limiter.get()));
   const bool kImmortal = true;
   s = ioptions.table_factory->NewTableReader(
-      TableReaderOptions(ioptions, options.prefix_extractor.get(), env_options,
+      TableReaderOptions(ioptions, options.prefix_extractor, env_options,
                          internal_comparator, false /* skip_filters */,
                          !kImmortal, false /* force_direct_prefetch */,
                          -1 /* level */),

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cinttypes>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <thread>
@@ -23,12 +24,15 @@
 
 #include "db/db_impl/db_impl.h"
 #include "file/filename.h"
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/sst_file_writer.h"
@@ -114,6 +118,9 @@ enum SkipPolicy { kSkipNone = 0, kSkipNoSnapshot = 1, kSkipNoPrefix = 2 };
 class SpecialEnv : public EnvWrapper {
  public:
   explicit SpecialEnv(Env* base, bool time_elapse_only_sleep = false);
+
+  static const char* kClassName() { return "SpecialEnv"; }
+  const char* Name() const override { return kClassName(); }
 
   Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& soptions) override {
@@ -684,6 +691,121 @@ class SpecialEnv : public EnvWrapper {
 };
 
 #ifndef ROCKSDB_LITE
+class FileTemperatureTestFS : public FileSystemWrapper {
+ public:
+  explicit FileTemperatureTestFS(const std::shared_ptr<FileSystem>& fs)
+      : FileSystemWrapper(fs) {}
+
+  static const char* kClassName() { return "FileTemperatureTestFS"; }
+  const char* Name() const override { return kClassName(); }
+
+  IOStatus NewSequentialFile(const std::string& fname, const FileOptions& opts,
+                             std::unique_ptr<FSSequentialFile>* result,
+                             IODebugContext* dbg) override {
+    IOStatus s = target()->NewSequentialFile(fname, opts, result, dbg);
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(GetFileName(fname), &number, &type) &&
+        type == kTableFile) {
+      MutexLock lock(&mu_);
+      requested_sst_file_temperatures_.emplace_back(number, opts.temperature);
+      if (s.ok()) {
+        *result = WrapWithTemperature<FSSequentialFileOwnerWrapper>(
+            number, std::move(*result));
+      }
+    }
+    return s;
+  }
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    IOStatus s = target()->NewRandomAccessFile(fname, opts, result, dbg);
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(GetFileName(fname), &number, &type) &&
+        type == kTableFile) {
+      MutexLock lock(&mu_);
+      requested_sst_file_temperatures_.emplace_back(number, opts.temperature);
+      if (s.ok()) {
+        *result = WrapWithTemperature<FSRandomAccessFileOwnerWrapper>(
+            number, std::move(*result));
+      }
+    }
+    return s;
+  }
+
+  void PopRequestedSstFileTemperatures(
+      std::vector<std::pair<uint64_t, Temperature>>* out = nullptr) {
+    MutexLock lock(&mu_);
+    if (out) {
+      *out = std::move(requested_sst_file_temperatures_);
+      assert(requested_sst_file_temperatures_.empty());
+    } else {
+      requested_sst_file_temperatures_.clear();
+    }
+  }
+
+  IOStatus NewWritableFile(const std::string& fname, const FileOptions& opts,
+                           std::unique_ptr<FSWritableFile>* result,
+                           IODebugContext* dbg) override {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(GetFileName(fname), &number, &type) &&
+        type == kTableFile) {
+      MutexLock lock(&mu_);
+      current_sst_file_temperatures_[number] = opts.temperature;
+    }
+    return target()->NewWritableFile(fname, opts, result, dbg);
+  }
+
+  void CopyCurrentSstFileTemperatures(std::map<uint64_t, Temperature>* out) {
+    MutexLock lock(&mu_);
+    *out = current_sst_file_temperatures_;
+  }
+
+  void OverrideSstFileTemperature(uint64_t number, Temperature temp) {
+    MutexLock lock(&mu_);
+    current_sst_file_temperatures_[number] = temp;
+  }
+
+ protected:
+  port::Mutex mu_;
+  std::vector<std::pair<uint64_t, Temperature>>
+      requested_sst_file_temperatures_;
+  std::map<uint64_t, Temperature> current_sst_file_temperatures_;
+
+  std::string GetFileName(const std::string& fname) {
+    auto filename = fname.substr(fname.find_last_of(kFilePathSeparator) + 1);
+    // workaround only for Windows that the file path could contain both Windows
+    // FilePathSeparator and '/'
+    filename = filename.substr(filename.find_last_of('/') + 1);
+    return filename;
+  }
+
+  template <class FileOwnerWrapperT, /*inferred*/ class FileT>
+  std::unique_ptr<FileT> WrapWithTemperature(uint64_t number,
+                                             std::unique_ptr<FileT>&& t) {
+    class FileWithTemp : public FileOwnerWrapperT {
+     public:
+      FileWithTemp(FileTemperatureTestFS* fs, uint64_t number,
+                   std::unique_ptr<FileT>&& t)
+          : FileOwnerWrapperT(std::move(t)), fs_(fs), number_(number) {}
+
+      Temperature GetTemperature() const override {
+        MutexLock lock(&fs_->mu_);
+        return fs_->current_sst_file_temperatures_[number_];
+      }
+
+     private:
+      FileTemperatureTestFS* fs_;
+      uint64_t number_;
+    };
+    return std::make_unique<FileWithTemp>(this, number, std::move(t));
+  }
+};
+
 class OnFileDeletionListener : public EventListener {
  public:
   OnFileDeletionListener() : matched_count_(0), expected_file_name_("") {}
@@ -772,8 +894,8 @@ class CacheWrapper : public Cache {
   bool Ref(Handle* handle) override { return target_->Ref(handle); }
 
   using Cache::Release;
-  bool Release(Handle* handle, bool force_erase = false) override {
-    return target_->Release(handle, force_erase);
+  bool Release(Handle* handle, bool erase_if_last_ref = false) override {
+    return target_->Release(handle, erase_if_last_ref);
   }
 
   void* Value(Handle* handle) override { return target_->Value(handle); }
@@ -867,6 +989,7 @@ class DBTestBase : public testing::Test {
     kBlockBasedTableWithIndexRestartInterval,
     kBlockBasedTableWithPartitionedIndex,
     kBlockBasedTableWithPartitionedIndexFormat4,
+    kBlockBasedTableWithLatestFormat,
     kPartitionedFilterWithNewTableReaderForCompactions,
     kUniversalSubcompactions,
     kUnorderedWrite,
@@ -1017,8 +1140,6 @@ class DBTestBase : public testing::Test {
   Status SingleDelete(const std::string& k);
 
   Status SingleDelete(int cf, const std::string& k);
-
-  bool SetPreserveDeletesSequenceNumber(SequenceNumber sn);
 
   std::string Get(const std::string& k, const Snapshot* snapshot = nullptr);
 

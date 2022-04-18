@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 from __future__ import absolute_import
 from __future__ import division
@@ -143,7 +144,8 @@ def generate_targets(repo_path, deps_map):
         src_mk["LIB_SOURCES"] +
         # always add range_tree, it's only excluded on ppc64, which we don't use internally
         src_mk["RANGE_TREE_SOURCES"] +
-        src_mk["TOOL_LIB_SOURCES"])
+        src_mk["TOOL_LIB_SOURCES"],
+        deps=["//folly/container:f14_hash"])
     # rocksdb_whole_archive_lib
     TARGETS.add_library(
         "rocksdb_whole_archive_lib",
@@ -151,7 +153,7 @@ def generate_targets(repo_path, deps_map):
         # always add range_tree, it's only excluded on ppc64, which we don't use internally
         src_mk["RANGE_TREE_SOURCES"] +
         src_mk["TOOL_LIB_SOURCES"],
-        deps=None,
+        deps=["//folly/container:f14_hash"],
         headers=None,
         extra_external_deps="",
         link_whole=True)
@@ -163,9 +165,8 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("EXP_LIB_SOURCES", []) +
         src_mk.get("ANALYZER_LIB_SOURCES", []),
         [":rocksdb_lib"],
-        extra_external_deps=""" + [
-        ("googletest", None, "gtest"),
-    ]""")
+        extra_test_libs=True
+        )
     # rocksdb_tools_lib
     TARGETS.add_library(
         "rocksdb_tools_lib",
@@ -184,12 +185,23 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("ANALYZER_LIB_SOURCES", [])
         + src_mk.get('STRESS_LIB_SOURCES', [])
         + ["test_util/testutil.cc"])
-
+    # db_stress binary
+    TARGETS.add_binary("db_stress",
+                       ["db_stress_tool/db_stress.cc"],
+                       [":rocksdb_stress_lib"])
+    # bench binaries
+    for src in src_mk.get("MICROBENCH_SOURCES", []):
+        name =  src.rsplit('/',1)[1].split('.')[0] if '/' in src else src.split('.')[0]
+        TARGETS.add_binary(
+            name,
+            [src],
+            [],
+            extra_bench_libs=True
+            )
     print("Extra dependencies:\n{0}".format(json.dumps(deps_map)))
 
     # Dictionary test executable name -> relative source file path
     test_source_map = {}
-    print(src_mk)
 
     # c_test.c is added through TARGETS.add_c_test(). If there
     # are more than one .c test file, we need to extend
@@ -199,6 +211,42 @@ def generate_targets(repo_path, deps_map):
             print("Don't know how to deal with " + test_src)
             return False
     TARGETS.add_c_test()
+
+    try:
+        with open(f"{repo_path}/buckifier/bench.json") as json_file:
+            fast_fancy_bench_config_list = json.load(json_file)
+            for config_dict in fast_fancy_bench_config_list:
+                clean_benchmarks = {}
+                benchmarks = config_dict['benchmarks']
+                for binary, benchmark_dict in benchmarks.items():
+                    clean_benchmarks[binary] = {}
+                    for benchmark, overloaded_metric_list in benchmark_dict.items():
+                        clean_benchmarks[binary][benchmark] = []
+                        for metric in overloaded_metric_list:
+                            if not isinstance(metric, dict):
+                                clean_benchmarks[binary][benchmark].append(metric)
+                TARGETS.add_fancy_bench_config(config_dict['name'], clean_benchmarks, False, config_dict['expected_runtime_one_iter'], config_dict['sl_iterations'], config_dict['regression_threshold'])
+
+        with open(f"{repo_path}/buckifier/bench-slow.json") as json_file:
+            slow_fancy_bench_config_list = json.load(json_file)
+            for config_dict in slow_fancy_bench_config_list:
+                clean_benchmarks = {}
+                benchmarks = config_dict['benchmarks']
+                for binary, benchmark_dict in benchmarks.items():
+                    clean_benchmarks[binary] = {}
+                    for benchmark, overloaded_metric_list in benchmark_dict.items():
+                        clean_benchmarks[binary][benchmark] = []
+                        for metric in overloaded_metric_list:
+                            if not isinstance(metric, dict):
+                                clean_benchmarks[binary][benchmark].append(metric)
+            for config_dict in slow_fancy_bench_config_list:
+                TARGETS.add_fancy_bench_config(config_dict['name']+"_slow", clean_benchmarks, True, config_dict['expected_runtime_one_iter'], config_dict['sl_iterations'], config_dict['regression_threshold'])
+    # it is better servicelab experiments break
+    # than rocksdb github ci
+    except Exception:
+        pass
+
+    TARGETS.add_test_header()
 
     for test_src in src_mk.get("TEST_MAIN_SOURCES", []):
         test = test_src.split('.c')[0].strip().split('/')[-1].strip()
@@ -213,17 +261,21 @@ def generate_targets(repo_path, deps_map):
 
             test_target_name = \
                 test if not target_alias else test + "_" + target_alias
-            TARGETS.register_test(
-                test_target_name,
-                test_src,
-                test not in non_parallel_tests,
-                json.dumps(deps['extra_deps']),
-                json.dumps(deps['extra_compiler_flags']))
 
             if test in _EXPORTED_TEST_LIBS:
                 test_library = "%s_lib" % test_target_name
-                TARGETS.add_library(test_library, [test_src], [":rocksdb_test_lib"])
-    TARGETS.flush_tests()
+                TARGETS.add_library(test_library, [test_src], deps=[":rocksdb_test_lib"], extra_test_libs=True)
+                TARGETS.register_test(
+                    test_target_name,
+                    test_src,
+                    deps = json.dumps(deps['extra_deps'] + [':'+test_library]),
+                    extra_compiler_flags = json.dumps(deps['extra_compiler_flags']))
+            else:
+                TARGETS.register_test(
+                    test_target_name,
+                    test_src,
+                    deps = json.dumps(deps['extra_deps'] + [":rocksdb_test_lib"] ),
+                    extra_compiler_flags = json.dumps(deps['extra_compiler_flags']))
 
     print(ColorString.info("Generated TARGETS Summary:"))
     print(ColorString.info("- %d libs" % TARGETS.total_lib))

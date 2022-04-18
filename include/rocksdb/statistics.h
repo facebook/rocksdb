@@ -425,6 +425,14 @@ enum Tickers : uint32_t {
   WARM_FILE_READ_COUNT,
   COLD_FILE_READ_COUNT,
 
+  // Last level and non-last level read statistics
+  LAST_LEVEL_READ_BYTES,
+  LAST_LEVEL_READ_COUNT,
+  NON_LAST_LEVEL_READ_BYTES,
+  NON_LAST_LEVEL_READ_COUNT,
+
+  BLOCK_CHECKSUM_COMPUTE_COUNT,
+
   TICKER_ENUM_MAX
 };
 
@@ -528,6 +536,8 @@ enum Histograms : uint32_t {
   // Error handler statistics
   ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
 
+  ASYNC_READ_BYTES,
+
   HISTOGRAM_ENUM_MAX,
 };
 
@@ -587,7 +597,7 @@ enum StatsLevel : uint8_t {
 // including data loss, unreported corruption, deadlocks, and more.
 class Statistics : public Customizable {
  public:
-  virtual ~Statistics() {}
+  ~Statistics() override {}
   static const char* Type() { return "Statistics"; }
   static Status CreateFromString(const ConfigOptions& opts,
                                  const std::string& value,

@@ -500,7 +500,7 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
       1 /* input_level */, 2 /* output_level */, CompactRangeOptions(),
       nullptr /* begin */, nullptr /* end */, true /* exclusive */,
       true /* disallow_trivial_move */,
-      port::kMaxUint64 /* max_file_num_to_ignore */));
+      port::kMaxUint64 /* max_file_num_to_ignore */, "" /*trim_ts*/));
 }
 #endif  // ROCKSDB_LITE
 
@@ -1722,6 +1722,34 @@ TEST_F(DBRangeDelTest, OverlappedKeys) {
       3, NumTableFilesAtLevel(
              2));  // L1->L2 compaction size is limited to max_compaction_bytes
   ASSERT_EQ(0, NumTableFilesAtLevel(1));
+}
+
+TEST_F(DBRangeDelTest, IteratorRefresh) {
+  // Refreshing an iterator after a range tombstone is added should cause the
+  // deleted range of keys to disappear.
+  for (bool sv_changed : {false, true}) {
+    ASSERT_OK(db_->Put(WriteOptions(), "key1", "value1"));
+    ASSERT_OK(db_->Put(WriteOptions(), "key2", "value2"));
+
+    auto* iter = db_->NewIterator(ReadOptions());
+    ASSERT_OK(iter->status());
+
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               "key2", "key3"));
+
+    if (sv_changed) {
+      ASSERT_OK(db_->Flush(FlushOptions()));
+    }
+
+    ASSERT_OK(iter->Refresh());
+    ASSERT_OK(iter->status());
+    iter->SeekToFirst();
+    ASSERT_EQ("key1", iter->key());
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+
+    delete iter;
+  }
 }
 
 #endif  // ROCKSDB_LITE

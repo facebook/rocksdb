@@ -430,13 +430,14 @@ TEST_F(DeleteSchedulerTest, BackgroundError) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-// 1- Create 10 dummy files
-// 2- Delete 10 dummy files using DeleteScheduler
+// 1- Create kTestFileNum dummy files
+// 2- Delete kTestFileNum dummy files using DeleteScheduler
 // 3- Wait for DeleteScheduler to delete all files in queue
 // 4- Make sure all files in trash directory were deleted
 // 5- Repeat previous steps 5 times
 TEST_F(DeleteSchedulerTest, StartBGEmptyTrashMultipleTimes) {
-  int bg_delete_file = 0;
+  constexpr int kTestFileNum = 10;
+  std::atomic_int bg_delete_file = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteTrashFile:DeleteFile",
       [&](void* /*arg*/) { bg_delete_file++; });
@@ -445,25 +446,30 @@ TEST_F(DeleteSchedulerTest, StartBGEmptyTrashMultipleTimes) {
   rate_bytes_per_sec_ = 1024 * 1024;  // 1 MB / sec
   NewDeleteScheduler();
 
+  // If trash file is generated faster than deleting, delete_scheduler will
+  // delete it directly instead of waiting for background trash empty thread to
+  // clean it. Set the ratio higher to avoid that.
+  sst_file_mgr_->SetMaxTrashDBRatio(kTestFileNum + 1);
+
   // Move files to trash, wait for empty trash, start again
   for (int run = 1; run <= 5; run++) {
-    // Generate 10 dummy files and move them to trash
-    for (int i = 0; i < 10; i++) {
+    // Generate kTestFileNum dummy files and move them to trash
+    for (int i = 0; i < kTestFileNum; i++) {
       std::string file_name = "data_" + ToString(i) + ".data";
       ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile(file_name), ""));
     }
     ASSERT_EQ(CountNormalFiles(), 0);
     delete_scheduler_->WaitForEmptyTrash();
-    ASSERT_EQ(bg_delete_file, 10 * run);
+    ASSERT_EQ(bg_delete_file, kTestFileNum * run);
     ASSERT_EQ(CountTrashFiles(), 0);
 
     auto bg_errors = delete_scheduler_->GetBackgroundErrors();
     ASSERT_EQ(bg_errors.size(), 0);
-    ASSERT_EQ(10, stats_->getAndResetTickerCount(FILES_MARKED_TRASH));
+    ASSERT_EQ(kTestFileNum, stats_->getAndResetTickerCount(FILES_MARKED_TRASH));
     ASSERT_EQ(0, stats_->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
   }
 
-  ASSERT_EQ(bg_delete_file, 50);
+  ASSERT_EQ(bg_delete_file, 5 * kTestFileNum);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 }

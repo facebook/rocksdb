@@ -242,6 +242,12 @@ class TraceAnalyzer : private TraceRecord::Handler,
   using WriteBatch::Handler::MarkCommit;
   Status MarkCommit(const Slice& /*xid*/) override { return Status::OK(); }
 
+  using WriteBatch::Handler::MarkCommitWithTimestamp;
+  Status MarkCommitWithTimestamp(const Slice& /*xid*/,
+                                 const Slice& /*commit_ts*/) override {
+    return Status::OK();
+  }
+
   // Process each trace operation and output the analysis result to
   // stdout/files.
   Status OutputAnalysisResult(TraceOperationType op_type, uint64_t timestamp,

@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "db/blob/blob_index.h"
 #include "db/db_test_util.h"
 #include "rocksdb/rocksdb_namespace.h"
 
@@ -37,7 +38,7 @@ class DbKvChecksumTest
   std::pair<WriteBatch, Status> GetWriteBatch(ColumnFamilyHandle* cf_handle) {
     Status s;
     WriteBatch wb(0 /* reserved_bytes */, 0 /* max_bytes */,
-                  8 /* protection_bytes_per_entry */);
+                  8 /* protection_bytes_per_entry */, 0 /* default_cf_ts_sz */);
     switch (op_type_) {
       case WriteBatchOpType::kPut:
         s = wb.Put(cf_handle, "key", "val");
@@ -54,7 +55,7 @@ class DbKvChecksumTest
       case WriteBatchOpType::kMerge:
         s = wb.Merge(cf_handle, "key", "val");
         break;
-      case WriteBatchOpType::kBlobIndex:
+      case WriteBatchOpType::kBlobIndex: {
         // TODO(ajkr): use public API once available.
         uint32_t cf_id;
         if (cf_handle == nullptr) {
@@ -62,8 +63,14 @@ class DbKvChecksumTest
         } else {
           cf_id = cf_handle->GetID();
         }
-        s = WriteBatchInternal::PutBlobIndex(&wb, cf_id, "key", "val");
+
+        std::string blob_index;
+        BlobIndex::EncodeInlinedTTL(&blob_index, /* expiration */ 9876543210,
+                                    "val");
+
+        s = WriteBatchInternal::PutBlobIndex(&wb, cf_id, "key", blob_index);
         break;
+      }
       case WriteBatchOpType::kNum:
         assert(false);
     }

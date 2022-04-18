@@ -100,7 +100,7 @@ public class WriteBatchTest {
 
       key.clear();
       key.put("box".getBytes("US-ASCII")).flip();
-      batch.remove(key);
+      batch.delete(key);
       assertThat(key.position()).isEqualTo(3);
       assertThat(key.limit()).isEqualTo(3);
 

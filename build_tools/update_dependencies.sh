@@ -9,6 +9,7 @@ OUTPUT=""
 function log_header()
 {
   echo "# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved." >> "$OUTPUT"
+  echo "# The file is generated using update_dependencies.sh." >> "$OUTPUT"
 }
 
 
@@ -18,7 +19,7 @@ function log_variable()
 }
 
 
-TP2_LATEST="/mnt/vol/engshare/fbcode/third-party2"
+TP2_LATEST="/data/users/$USER/fbsource/fbcode/third-party2/"
 ## $1 => lib name
 ## $2 => lib version (if not provided, will try to pick latest)
 ## $3 => platform (if not provided, will try to pick latest gcc)
@@ -50,6 +51,8 @@ function get_lib_base()
   fi
   
   result=`ls -1d $result/*/ | head -n1`
+
+  echo Finding link $result
   
   # lib_name => LIB_NAME_BASE
   local __res_var=${lib_name^^}"_BASE"
@@ -61,10 +64,10 @@ function get_lib_base()
 }
 
 ###########################################################
-#                platform007 dependencies                 #
+#                platform010 dependencies                 #
 ###########################################################
 
-OUTPUT="$BASEDIR/dependencies_platform007.sh"
+OUTPUT="$BASEDIR/dependencies_platform010.sh"
 
 rm -f "$OUTPUT"
 touch "$OUTPUT"
@@ -72,40 +75,42 @@ touch "$OUTPUT"
 echo "Writing dependencies to $OUTPUT"
 
 # Compilers locations
-GCC_BASE=`readlink -f $TP2_LATEST/gcc/7.x/centos7-native/*/`
-CLANG_BASE=`readlink -f $TP2_LATEST/llvm-fb/stable/centos7-native/*/`
+GCC_BASE=`readlink -f $TP2_LATEST/gcc/11.x/centos7-native/*/`
+CLANG_BASE=`readlink -f $TP2_LATEST/llvm-fb/12/platform010/*/`
 
 log_header
 log_variable GCC_BASE
 log_variable CLANG_BASE
 
 # Libraries locations
-get_lib_base libgcc     7.x     platform007
-get_lib_base glibc      2.26    platform007
-get_lib_base snappy     LATEST  platform007
-get_lib_base zlib       LATEST  platform007
-get_lib_base bzip2      LATEST  platform007
-get_lib_base lz4        LATEST  platform007
-get_lib_base zstd       LATEST  platform007
-get_lib_base gflags     LATEST  platform007
-get_lib_base jemalloc   LATEST  platform007
-get_lib_base numa       LATEST  platform007
-get_lib_base libunwind  LATEST  platform007
-get_lib_base tbb        LATEST  platform007
-get_lib_base liburing   LATEST  platform007
+get_lib_base libgcc     11.x    platform010
+get_lib_base glibc      2.34    platform010
+get_lib_base snappy     LATEST  platform010
+get_lib_base zlib       LATEST  platform010
+get_lib_base bzip2      LATEST  platform010
+get_lib_base lz4        LATEST  platform010
+get_lib_base zstd       LATEST  platform010
+get_lib_base gflags     LATEST  platform010
+get_lib_base jemalloc   LATEST  platform010
+get_lib_base numa       LATEST  platform010
+get_lib_base libunwind  LATEST  platform010
+get_lib_base tbb        2018_U5 platform010
+get_lib_base liburing   LATEST  platform010
+get_lib_base benchmark  LATEST  platform010
 
-get_lib_base kernel-headers fb platform007
+get_lib_base kernel-headers fb platform010
 get_lib_base binutils   LATEST centos7-native
-get_lib_base valgrind   LATEST platform007
-get_lib_base lua        5.3.4  platform007
+get_lib_base valgrind   LATEST platform010
+get_lib_base lua        5.3.4  platform010
 
 git diff $OUTPUT
 
+
 ###########################################################
-#                   5.x dependencies                      #
+#                platform009 dependencies                 #
 ###########################################################
 
-OUTPUT="$BASEDIR/dependencies.sh"
+OUTPUT="$BASEDIR/dependencies_platform009.sh"
 
 rm -f "$OUTPUT"
 touch "$OUTPUT"
@@ -113,70 +118,32 @@ touch "$OUTPUT"
 echo "Writing dependencies to $OUTPUT"
 
 # Compilers locations
-GCC_BASE=`readlink -f $TP2_LATEST/gcc/5.x/centos7-native/*/`
-CLANG_BASE=`readlink -f $TP2_LATEST/llvm-fb/stable/centos7-native/*/`
+GCC_BASE=`readlink -f $TP2_LATEST/gcc/9.x/centos7-native/*/`
+CLANG_BASE=`readlink -f $TP2_LATEST/llvm-fb/9.0.0/platform009/*/`
 
 log_header
 log_variable GCC_BASE
 log_variable CLANG_BASE
 
 # Libraries locations
-get_lib_base libgcc     5.x     gcc-5-glibc-2.23
-get_lib_base glibc      2.23    gcc-5-glibc-2.23
-get_lib_base snappy     LATEST  gcc-5-glibc-2.23
-get_lib_base zlib       LATEST  gcc-5-glibc-2.23
-get_lib_base bzip2      LATEST  gcc-5-glibc-2.23
-get_lib_base lz4        LATEST  gcc-5-glibc-2.23
-get_lib_base zstd       LATEST  gcc-5-glibc-2.23
-get_lib_base gflags     LATEST  gcc-5-glibc-2.23
-get_lib_base jemalloc   LATEST  gcc-5-glibc-2.23
-get_lib_base numa       LATEST  gcc-5-glibc-2.23
-get_lib_base libunwind  LATEST  gcc-5-glibc-2.23
-get_lib_base tbb        LATEST  gcc-5-glibc-2.23
+get_lib_base libgcc     9.x     platform009
+get_lib_base glibc      2.30    platform009
+get_lib_base snappy     LATEST  platform009
+get_lib_base zlib       LATEST  platform009
+get_lib_base bzip2      LATEST  platform009
+get_lib_base lz4        LATEST  platform009
+get_lib_base zstd       LATEST  platform009
+get_lib_base gflags     LATEST  platform009
+get_lib_base jemalloc   LATEST  platform009
+get_lib_base numa       LATEST  platform009
+get_lib_base libunwind  LATEST  platform009
+get_lib_base tbb        2018_U5 platform009
+get_lib_base liburing   LATEST  platform009
+get_lib_base benchmark  LATEST  platform009
 
-get_lib_base kernel-headers 4.0.9-36_fbk5_2933_gd092e3f gcc-5-glibc-2.23
+get_lib_base kernel-headers fb platform009
 get_lib_base binutils   LATEST centos7-native
-get_lib_base valgrind   LATEST gcc-5-glibc-2.23
-get_lib_base lua        5.2.3 gcc-5-glibc-2.23
-
-git diff $OUTPUT
-
-###########################################################
-#                   4.8.1 dependencies                    #
-###########################################################
-
-OUTPUT="$BASEDIR/dependencies_4.8.1.sh"
-
-rm -f "$OUTPUT"
-touch "$OUTPUT"
-
-echo "Writing 4.8.1 dependencies to $OUTPUT"
-
-# Compilers locations
-GCC_BASE=`readlink -f $TP2_LATEST/gcc/4.8.1/centos6-native/*/`
-CLANG_BASE=`readlink -f $TP2_LATEST/llvm-fb/stable/centos6-native/*/`
-
-log_header
-log_variable GCC_BASE
-log_variable CLANG_BASE
-
-# Libraries locations
-get_lib_base libgcc     4.8.1  gcc-4.8.1-glibc-2.17
-get_lib_base glibc      2.17   gcc-4.8.1-glibc-2.17  
-get_lib_base snappy     LATEST gcc-4.8.1-glibc-2.17
-get_lib_base zlib       LATEST gcc-4.8.1-glibc-2.17
-get_lib_base bzip2      LATEST gcc-4.8.1-glibc-2.17
-get_lib_base lz4        LATEST gcc-4.8.1-glibc-2.17
-get_lib_base zstd       LATEST gcc-4.8.1-glibc-2.17
-get_lib_base gflags     LATEST gcc-4.8.1-glibc-2.17
-get_lib_base jemalloc   LATEST gcc-4.8.1-glibc-2.17
-get_lib_base numa       LATEST gcc-4.8.1-glibc-2.17
-get_lib_base libunwind  LATEST gcc-4.8.1-glibc-2.17
-get_lib_base tbb        4.0_update2 gcc-4.8.1-glibc-2.17
-
-get_lib_base kernel-headers LATEST gcc-4.8.1-glibc-2.17 
-get_lib_base binutils   LATEST centos6-native 
-get_lib_base valgrind   3.8.1  gcc-4.8.1-glibc-2.17
-get_lib_base lua        5.2.3 centos6-native
+get_lib_base valgrind   LATEST platform009
+get_lib_base lua        5.3.4  platform009
 
 git diff $OUTPUT

@@ -44,6 +44,9 @@ class DBFileDumperCommand : public LDBCommand {
   static void Help(std::string& ret);
 
   virtual void DoCommand() override;
+
+ private:
+  bool decode_blob_index_;
 };
 
 class DBLiveFilesMetadataDumperCommand : public LDBCommand {
@@ -188,6 +191,28 @@ class ManifestDumpCommand : public LDBCommand {
   static const std::string ARG_VERBOSE;
   static const std::string ARG_JSON;
   static const std::string ARG_PATH;
+};
+
+class UpdateManifestCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "update_manifest"; }
+
+  UpdateManifestCommand(const std::vector<std::string>& params,
+                        const std::map<std::string, std::string>& options,
+                        const std::vector<std::string>& flags);
+
+  static void Help(std::string& ret);
+  virtual void DoCommand() override;
+
+  virtual bool NoDBOpen() override { return true; }
+
+ private:
+  bool verbose_;
+  bool update_temperatures_;
+  // TODO future: checksum_func for populating checksums
+
+  static const std::string ARG_VERBOSE;
+  static const std::string ARG_UPDATE_TEMPERATURES;
 };
 
 class FileChecksumDumpCommand : public LDBCommand {
@@ -557,11 +582,11 @@ class RepairCommand : public LDBCommand {
   static const std::string ARG_VERBOSE;
 };
 
-class BackupableCommand : public LDBCommand {
+class BackupEngineCommand : public LDBCommand {
  public:
-  BackupableCommand(const std::vector<std::string>& params,
-                    const std::map<std::string, std::string>& options,
-                    const std::vector<std::string>& flags);
+  BackupEngineCommand(const std::vector<std::string>& params,
+                      const std::map<std::string, std::string>& options,
+                      const std::vector<std::string>& flags);
 
  protected:
   static void Help(const std::string& name, std::string& ret);
@@ -580,7 +605,7 @@ class BackupableCommand : public LDBCommand {
   static const std::string ARG_STDERR_LOG_LEVEL;
 };
 
-class BackupCommand : public BackupableCommand {
+class BackupCommand : public BackupEngineCommand {
  public:
   static std::string Name() { return "backup"; }
   BackupCommand(const std::vector<std::string>& params,
@@ -590,7 +615,7 @@ class BackupCommand : public BackupableCommand {
   static void Help(std::string& ret);
 };
 
-class RestoreCommand : public BackupableCommand {
+class RestoreCommand : public BackupEngineCommand {
  public:
   static std::string Name() { return "restore"; }
   RestoreCommand(const std::vector<std::string>& params,

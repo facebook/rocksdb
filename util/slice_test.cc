@@ -11,11 +11,17 @@
 #include "port/stack_trace.h"
 #include "rocksdb/data_structure.h"
 #include "rocksdb/types.h"
-#include "rocksdb/utilities/regex.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+TEST(SliceTest, StringView) {
+  std::string s = "foo";
+  std::string_view sv = s;
+  ASSERT_EQ(Slice(s), Slice(sv));
+  ASSERT_EQ(Slice(s), Slice(std::move(sv)));
+}
 
 // Use this to keep track of the cleanups that were actually performed
 void Multiplier(void* arg1, void* arg2) {
@@ -176,35 +182,6 @@ TEST_F(SmallEnumSetTest, SmallSetTest) {
   ASSERT_TRUE(fs.Contains(FileType::kIdentityFile));
   ASSERT_FALSE(fs.Contains(FileType::kDBLockFile));
 }
-
-// ***************************************************************** //
-// Unit test for Regex
-#ifndef ROCKSDB_LITE
-TEST(RegexTest, ParseEtc) {
-  Regex r;
-  ASSERT_OK(Regex::Parse("[abc]{5}", &r));
-  ASSERT_TRUE(r.Matches("abcba"));
-  ASSERT_FALSE(r.Matches("abcb"));    // too short
-  ASSERT_FALSE(r.Matches("abcbaa"));  // too long
-
-  ASSERT_OK(Regex::Parse(".*foo.*", &r));
-  ASSERT_TRUE(r.Matches("123forfoodie456"));
-  ASSERT_FALSE(r.Matches("123forfodie456"));
-  // Ensure copy operator
-  Regex r2;
-  r2 = r;
-  ASSERT_TRUE(r2.Matches("123forfoodie456"));
-  ASSERT_FALSE(r2.Matches("123forfodie456"));
-  // Ensure copy constructor
-  Regex r3{r};
-  ASSERT_TRUE(r3.Matches("123forfoodie456"));
-  ASSERT_FALSE(r3.Matches("123forfodie456"));
-
-  ASSERT_TRUE(Regex::Parse("*foo.*", &r).IsInvalidArgument());
-  ASSERT_TRUE(Regex::Parse("[abc", &r).IsInvalidArgument());
-  ASSERT_TRUE(Regex::Parse("[abc]{1", &r).IsInvalidArgument());
-}
-#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 
