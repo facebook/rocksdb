@@ -193,12 +193,10 @@ class WritableFileWriter {
         checksum_finalized_(false),
         perform_data_verification_(perform_data_verification),
         buffered_data_crc32c_checksum_(0),
-        buffered_data_with_checksum_(buffered_data_with_checksum)
+        buffered_data_with_checksum_(buffered_data_with_checksum) {
 #ifndef ROCKSDB_LITE
-        ,
-        temperature_(options.temperature)
+    temperature_ = options.temperature;
 #endif  // ROCKSDB_LITE
-  {
     assert(!use_direct_io() || max_buffer_size_ > 0);
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
