@@ -370,7 +370,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-valgrind
-      - run: make V=1 -j32 valgrind_test
+      - run: PORTABLE=1 make V=1 -j32 valgrind_test
       - post-steps
 
   build-linux-clang10-clang-analyze:
@@ -480,6 +480,7 @@ jobs:
     steps:
       - pre-steps
       - install-clang-13
+      - install-gflags
       - run: make checkout_folly
       - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
       - post-steps
