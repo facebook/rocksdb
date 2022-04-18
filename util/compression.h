@@ -1487,6 +1487,7 @@ inline std::string ZSTD_FinalizeDictionary(
     size_t max_dict_bytes) {
   // ZDICT_finalizeDictionary is only available after version 1.1.3
 #if ZSTD_VERSION_NUMBER >= 10103  // v1.1.3+
+  assert(samples.empty() == sample_lens.empty());
   if (samples.empty()) {
     return "";
   }
