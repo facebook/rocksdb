@@ -1161,6 +1161,8 @@ class DBImpl : public DB {
   static void TEST_ResetDbSessionIdGen();
   static std::string GenerateDbSessionId(Env* env);
 
+  bool seq_per_batch() const { return seq_per_batch_; }
+
  protected:
   const std::string dbname_;
   // TODO(peterd): unify with VersionSet::db_id_
