@@ -465,6 +465,14 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Get a dummy snapshot that refers to kMaxSequenceNumber
   Snapshot* GetMaxSnapshot() { return &dummy_max_snapshot_; }
 
+  std::function<bool(TransactionDB*, uint32_t, const Slice&)>
+  GetRollbackDeletionTypeCallback() const {
+    return rollback_deletion_type_callback_;
+  }
+
+  std::function<bool(TransactionDB*, uint32_t, const Slice&)>
+      rollback_deletion_type_callback_;
+
  private:
   friend class AddPreparedCallback;
   friend class PreparedHeap_BasicsTest_Test;
@@ -504,7 +512,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WriteUnpreparedTxnDB;
   friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
 
-  void Init(const TransactionDBOptions& /* unused */);
+  void Init(const TransactionDBOptions& txn_db_opts);
 
   void WPRecordTick(uint32_t ticker_type) const {
     RecordTick(db_impl_->immutable_db_options_.statistics.get(), ticker_type);

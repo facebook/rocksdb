@@ -263,6 +263,10 @@ Status WritePreparedTxn::CommitInternal() {
 Status WritePreparedTxn::RollbackInternal() {
   ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
                  "RollbackInternal prepare_seq: %" PRIu64, GetId());
+
+  assert(db_impl_);
+  assert(wpt_db_);
+
   WriteBatch rollback_batch;
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
@@ -273,7 +277,8 @@ Status WritePreparedTxn::RollbackInternal() {
   // to prevent callback's seq to be overrriden inside DBImpk::Get
   roptions.snapshot = wpt_db_->GetMaxSnapshot();
   struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
-    DBImpl* db_;
+    DBImpl* const db_;
+    WritePreparedTxnDB* const wpt_db_;
     WritePreparedTxnReadCallback callback;
     WriteBatch* rollback_batch_;
     std::map<uint32_t, const Comparator*>& comparators_;
@@ -282,19 +287,24 @@ Status WritePreparedTxn::RollbackInternal() {
     std::map<uint32_t, CFKeys> keys_;
     bool rollback_merge_operands_;
     ReadOptions roptions_;
+    std::function<bool(TransactionDB*, uint32_t, const Slice&)>
+        deletion_type_callback_;
+
     RollbackWriteBatchBuilder(
         DBImpl* db, WritePreparedTxnDB* wpt_db, SequenceNumber snap_seq,
         WriteBatch* dst_batch,
         std::map<uint32_t, const Comparator*>& comparators,
         std::map<uint32_t, ColumnFamilyHandle*>& handles,
-        bool rollback_merge_operands, ReadOptions _roptions)
+        bool rollback_merge_operands, const ReadOptions& _roptions)
         : db_(db),
+          wpt_db_(wpt_db),
           callback(wpt_db, snap_seq),  // disable min_uncommitted optimization
           rollback_batch_(dst_batch),
           comparators_(comparators),
           handles_(handles),
           rollback_merge_operands_(rollback_merge_operands),
-          roptions_(_roptions) {}
+          roptions_(_roptions),
+          deletion_type_callback_(wpt_db->GetRollbackDeletionTypeCallback()) {}
 
     Status Rollback(uint32_t cf, const Slice& key) {
       Status s;
@@ -325,7 +335,12 @@ Status WritePreparedTxn::RollbackInternal() {
       } else if (s.IsNotFound()) {
         // There has been no readable value before txn. By adding a delete we
         // make sure that there will be none afterwards either.
-        s = rollback_batch_->Delete(cf_handle, key);
+        if (deletion_type_callback_ &&
+            deletion_type_callback_(wpt_db_, cf, key)) {
+          s = rollback_batch_->SingleDelete(cf_handle, key);
+        } else {
+          s = rollback_batch_->Delete(cf_handle, key);
+        }
         assert(s.ok());
       } else {
         // Unexpected status. Return it to the user.
