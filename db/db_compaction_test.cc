@@ -2409,6 +2409,30 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionCFPathUse) {
 
   check_getvalues();
 
+  {  // Also verify GetLiveFilesStorageInfo with db_paths / cf_paths
+    std::vector<LiveFileStorageInfo> new_infos;
+    LiveFilesStorageInfoOptions lfsio;
+    lfsio.wal_size_for_flush = UINT64_MAX;  // no flush
+    ASSERT_OK(db_->GetLiveFilesStorageInfo(lfsio, &new_infos));
+    std::unordered_map<std::string, int> live_sst_by_dir;
+    for (auto& info : new_infos) {
+      if (info.file_type == kTableFile) {
+        live_sst_by_dir[info.directory]++;
+        // Verify file on disk (no directory confusion)
+        uint64_t size;
+        ASSERT_OK(env_->GetFileSize(
+            info.directory + "/" + info.relative_filename, &size));
+        ASSERT_EQ(info.size, size);
+      }
+    }
+    ASSERT_EQ(3U * 3U, live_sst_by_dir.size());
+    for (auto& paths : {options.db_paths, cf_opt1.cf_paths, cf_opt2.cf_paths}) {
+      ASSERT_EQ(1, live_sst_by_dir[paths[0].path]);
+      ASSERT_EQ(4, live_sst_by_dir[paths[1].path]);
+      ASSERT_EQ(2, live_sst_by_dir[paths[2].path]);
+    }
+  }
+
   ReopenWithColumnFamilies({"default", "one", "two"}, option_vector);
 
   check_getvalues();

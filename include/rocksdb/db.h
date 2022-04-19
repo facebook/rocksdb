@@ -1527,7 +1527,6 @@ class DB {
   // synchronized with GetLiveFiles.
   virtual Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) = 0;
 
-  // EXPERIMENTAL: This function is not yet feature-complete.
   // Get information about all live files that make up a DB, for making
   // live copies (Checkpoint, backups, etc.) or other storage-related purposes.
   // Use DisableFileDeletions() before and EnableFileDeletions() after to
