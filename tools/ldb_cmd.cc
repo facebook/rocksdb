@@ -1816,9 +1816,10 @@ void InternalDumpCommand::DoCommand() {
 
     if (!count_only_ && !count_delim_) {
       std::string key = ikey.DebugString(is_key_hex_);
-      Slice value = Slice(key_version.value);
+      Slice value(key_version.value);
       if (!decode_blob_index_ || value_type != kTypeBlobIndex) {
-        std::cout << key << " => " << value.ToString(is_value_hex_) << "\n";
+        fprintf(stdout, "%s => %s\n", key.c_str(),
+                value.ToString(is_value_hex_).c_str());
       } else {
         BlobIndex blob_index;
 
@@ -1826,7 +1827,8 @@ void InternalDumpCommand::DoCommand() {
         if (!s.ok()) {
           fprintf(stderr, "%s => error decoding blob index =>\n", key.c_str());
         } else {
-          std::cout << key << " => " << blob_index.DebugString(is_key_hex_);
+          fprintf(stdout, "%s => %s\n", key.c_str(),
+                  blob_index.DebugString(is_value_hex_).c_str());
         }
       }
     }
