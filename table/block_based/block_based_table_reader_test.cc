@@ -430,21 +430,32 @@ TEST_P(BlockBasedTableReaderCapMemoryTest, CapMemoryUsageUnderCacheCapacity) {
               table_reader_res_only_cache_->GetCapacity(),
               approx_table_reader_mem_);
 
+  // Acceptable estimtation errors coming from
+  // 1. overstimate max_table_reader_num_capped due to # dummy entries is high
+  // and results in metadata charge overhead greater than 1 dummy entry size
+  // (violating our assumption in calculating max_table_reader_num_capped)
+  // 2. overestimate/underestimate max_table_reader_num_capped due to the gap
+  // between ApproximateTableReaderMem() and actual table reader mem
+  std::size_t max_table_reader_num_capped_upper_bound =
+      max_table_reader_num_capped * 1.01;
+  std::size_t max_table_reader_num_capped_lower_bound =
+      max_table_reader_num_capped * 0.99;
+  std::size_t max_table_reader_num_uncapped = max_table_reader_num_capped * 1.1;
+  ASSERT_GT(max_table_reader_num_uncapped,
+            max_table_reader_num_capped_upper_bound)
+      << "We need `max_table_reader_num_uncapped` > "
+         "`max_table_reader_num_capped_upper_bound` to differentiate cases "
+         "between "
+         "reserve_table_reader_memory_ == false and == true)";
+
   Status s = Status::OK();
   std::size_t opened_table_reader_num = 0;
   std::string table_name;
   std::vector<std::unique_ptr<BlockBasedTable>> tables;
-
   // Keep creating BlockBasedTableReader till hiting the memory limit based on
   // cache capacity and creation fails (when reserve_table_reader_memory_ ==
   // true) or reaching a specfied big number of table readers (when
   // reserve_table_reader_memory_ == false)
-  std::size_t max_table_reader_num_uncapped =
-      max_table_reader_num_capped + max_table_reader_num_capped / 10;
-  ASSERT_GT(max_table_reader_num_uncapped, max_table_reader_num_capped)
-      << "We need `max_table_reader_num_uncapped` > "
-         "`max_table_reader_num_capped` to differentiate cases between "
-         "reserve_table_reader_memory_ == false and == true)";
   while (s.ok() && opened_table_reader_num < max_table_reader_num_uncapped) {
     table_name = "table_" + std::to_string(opened_table_reader_num);
     CreateTable(table_name, compression_type_, kv_);
@@ -463,14 +474,8 @@ TEST_P(BlockBasedTableReaderCapMemoryTest, CapMemoryUsageUnderCacheCapacity) {
     EXPECT_TRUE(s.ToString().find("memory limit based on cache capacity") !=
                 std::string::npos);
 
-    // Acceptable estimtation errors coming from
-    // 1. overstimate max_table_reader_num_capped due to # dummy entries is high
-    // and results in metadata charge overhead greater than 1 dummy entry size
-    // (violating our assumption in calculating max_table_reader_num_capped)
-    // 2. overestimate/underestimate max_table_reader_num_capped due to the gap
-    // between ApproximateTableReaderMem() and actual table reader mem
-    EXPECT_GE(opened_table_reader_num, max_table_reader_num_capped * 0.99);
-    EXPECT_LE(opened_table_reader_num, max_table_reader_num_capped * 1.01);
+    EXPECT_GE(opened_table_reader_num, max_table_reader_num_capped_lower_bound);
+    EXPECT_LE(opened_table_reader_num, max_table_reader_num_capped_upper_bound);
 
     std::size_t updated_max_table_reader_num_capped =
         BlockBasedTableReaderCapMemoryTest::
