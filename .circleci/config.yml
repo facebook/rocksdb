@@ -113,6 +113,12 @@ commands:
             cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_ENABLE_GTEST_TESTS=0
             ninja && sudo ninja install
 
+  install-valgrind:
+    steps:
+      - run:
+          name: Install valgrind
+          command: sudo apt-get update -y && sudo apt-get install -y valgrind
+
   upgrade-cmake:
     steps:
       - run:
@@ -314,7 +320,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-clang-10
-      - run: ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check # aligned new doesn't work for reason we haven't figured out
+      - run: COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check # aligned new doesn't work for reason we haven't figured out
       - post-steps
 
   build-linux-clang10-mini-tsan:
@@ -356,6 +362,17 @@ jobs:
       - install-gflags
       - install-clang-10
       - run: COMPILE_WITH_UBSAN=1 OPT="-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 ubsan_check # aligned new doesn't work for reason we haven't figured out
+      - post-steps
+
+  build-linux-valgrind:
+    machine:
+      image: ubuntu-2004:202111-02
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - install-valgrind
+      - run: PORTABLE=1 make V=1 -j32 valgrind_test
       - post-steps
 
   build-linux-clang10-clang-analyze:
@@ -455,6 +472,19 @@ jobs:
       - install-clang-13
       - install-benchmark
       - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j16 all microbench
+      - post-steps
+
+  # Ensure ASAN+UBSAN with folly, and full testsuite with clang 13
+  build-linux-clang-13-asan-ubsan-with-folly:
+    machine:
+      image: ubuntu-2004:202111-02
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-clang-13
+      - install-gflags
+      - run: make checkout_folly
+      - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
       - post-steps
 
   # This job is only to make sure the microbench tests are able to run, the benchmark result is not meaningful as the CI host is changing.
@@ -909,3 +939,5 @@ workflows:
       - build-linux-arm-test-full
       - build-linux-run-microbench
       - build-linux-non-shm
+      - build-linux-clang-13-asan-ubsan-with-folly
+      - build-linux-valgrind

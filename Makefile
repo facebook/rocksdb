@@ -340,6 +340,8 @@ endif
 # ASAN doesn't work well with jemalloc. If we're compiling with ASAN, we should use regular malloc.
 ifdef COMPILE_WITH_ASAN
 	DISABLE_JEMALLOC=1
+	ASAN_OPTIONS?=detect_stack_use_after_return=1
+	export ASAN_OPTIONS
 	EXEC_LDFLAGS += -fsanitize=address
 	PLATFORM_CCFLAGS += -fsanitize=address
 	PLATFORM_CXXFLAGS += -fsanitize=address
@@ -596,9 +598,6 @@ am__v_CCH_1 =
 check-headers: $(HEADER_OK_FILES)
 
 # options_settable_test doesn't pass with UBSAN as we use hack in the test
-ifdef COMPILE_WITH_UBSAN
-TESTS := $(shell echo $(TESTS) | sed 's/\boptions_settable_test\b//g')
-endif
 ifdef ASSERT_STATUS_CHECKED
 # TODO: finish fixing all tests to pass this check
 TESTS_FAILING_ASC = \
@@ -1046,31 +1045,31 @@ ldb_tests: ldb
 include crash_test.mk
 
 asan_check: clean
-	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) check -j32
+	COMPILE_WITH_ASAN=1 $(MAKE) check -j32
 	$(MAKE) clean
 
 asan_crash_test: clean
-	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test
+	COMPILE_WITH_ASAN=1 $(MAKE) crash_test
 	$(MAKE) clean
 
 whitebox_asan_crash_test: clean
-	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) whitebox_crash_test
+	COMPILE_WITH_ASAN=1 $(MAKE) whitebox_crash_test
 	$(MAKE) clean
 
 blackbox_asan_crash_test: clean
-	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) blackbox_crash_test
+	COMPILE_WITH_ASAN=1 $(MAKE) blackbox_crash_test
 	$(MAKE) clean
 
 asan_crash_test_with_atomic_flush: clean
-	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_atomic_flush
+	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_atomic_flush
 	$(MAKE) clean
 
 asan_crash_test_with_txn: clean
-	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_txn
+	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_txn
 	$(MAKE) clean
 
 asan_crash_test_with_best_efforts_recovery: clean
-	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_best_efforts_recovery
+	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_best_efforts_recovery
 	$(MAKE) clean
 
 ubsan_check: clean
