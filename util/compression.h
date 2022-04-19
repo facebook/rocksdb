@@ -1493,9 +1493,9 @@ inline std::string ZSTD_FinalizeDictionary(
   }
   std::string dict_data(max_dict_bytes, '\0');
   size_t dict_len = ZDICT_finalizeDictionary(
-      dict_data.data(), max_dict_bytes, dict_content.data(),
-      static_cast<size_t>(dict_content.size()), samples.data(),
-      sample_lens.data(), static_cast<unsigned>(sample_lens.size()), {});
+      dict_data.data(), max_dict_bytes, samples.data(),
+      static_cast<size_t>(samples.size()), samples.data(), sample_lens.data(),
+      static_cast<unsigned>(sample_lens.size()), {});
   if (ZDICT_isError(dict_len)) {
     return std::move(dict_content);
   } else {
@@ -1504,11 +1504,9 @@ inline std::string ZSTD_FinalizeDictionary(
     return dict_data;
   }
 #else   // up to v1.4.4
-  assert(false);
-  (void)samples;
   (void)sample_lens;
   (void)max_dict_bytes;
-  return "";
+  return std::move(samples);
 #endif  // ZSTD_VERSION_NUMBER >= 10405
 }
 
