@@ -1,4 +1,6 @@
 # Rocksdb Change Log
+## 7.0.5 (04/19/2022)
+
 ## 7.0.4 (03/29/2022)
 ### Bug Fixes
 * Fixed a race condition when disable and re-enable manual compaction.
