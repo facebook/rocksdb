@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 7.1.2 (04/19/2022)
 ### Bug Fixes
 * Fixed bug which caused rocksdb failure in the situation when rocksdb was accessible using UNC path
 * Fixed a race condition when 2PC is disabled and WAL tracking in the MANIFEST is enabled. The race condition is between two background flush threads trying to install flush results, causing a WAL deletion not tracked in the MANIFEST. A future DB open may fail.
