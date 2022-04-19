@@ -661,6 +661,10 @@ class FileSystem : public Customizable {
     return IOStatus::OK();
   }
 
+  virtual IOStatus AbortIO(std::vector<void*>& /*io_handles*/) {
+    return IOStatus::OK();
+  }
+
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
  private:
@@ -1491,6 +1495,10 @@ class FileSystemWrapper : public FileSystem {
   virtual IOStatus Poll(std::vector<void*>& io_handles,
                         size_t min_completions) override {
     return target_->Poll(io_handles, min_completions);
+  }
+
+  virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
+    return target_->AbortIO(io_handles);
   }
 
  protected:

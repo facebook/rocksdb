@@ -97,7 +97,7 @@ class FilePrefetchBuffer {
       std::vector<void*> handles;
       handles.emplace_back(io_handle_);
       StopWatch sw(clock_, stats_, POLL_WAIT_MICROS);
-      fs_->Poll(handles, 1).PermitUncheckedError();
+      fs_->AbortIO(handles).PermitUncheckedError();
     }
 
     // Prefetch buffer bytes discarded.
