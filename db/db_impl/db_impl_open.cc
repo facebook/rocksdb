@@ -968,7 +968,9 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
     // Read all the records and add to a memtable
     std::string scratch;
     Slice record;
-    WriteBatch batch;
+    // We create a new batch and make sure it has a valid prot_info_ to store
+    // the data checksums
+    WriteBatch batch(0, 0, 8, 0);
 
     TEST_SYNC_POINT_CALLBACK("DBImpl::RecoverLogFiles:BeforeReadWal",
                              /*arg=*/nullptr);

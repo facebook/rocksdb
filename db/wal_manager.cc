@@ -499,7 +499,7 @@ Status WalManager::ReadFirstLine(const std::string& fname,
     } else {
       // We create a new batch and make sure it has a valid prot_info_ to store
       // the data checksums.
-      WriteBatch batch(0, 0, 8, 0);
+      WriteBatch batch;
       // We can overwrite an existing non-OK Status since it'd only reach here
       // with `paranoid_checks == false`.
       status = WriteBatchInternal::SetContents(&batch, record);
