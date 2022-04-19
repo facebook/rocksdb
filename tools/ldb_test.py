@@ -398,7 +398,6 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("put a val --create_if_missing", "OK")
         self.assertRunOK("put b val --enable_blob_files", "OK")
 
-        dumpFilePath = os.path.join(self.TMP_DIR, "dump")
         # Pattern to expect from dump with decode_blob_index flag enabled.
         regex = ".*\[blob ref\].*"
         expected_pattern = re.compile(regex)
