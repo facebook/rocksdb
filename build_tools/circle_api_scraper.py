@@ -4,8 +4,8 @@
 #  COPYING file in the root directory) and Apache 2.0 License
 #  (found in the LICENSE.Apache file in the root directory).
 
-'''Access CircleCI output via a combination of v1 and v2 APIs
-In order to finally yield the output of benchmark tests.
+'''Access the results of benchmark runs
+And send these results on to Grafana graphing service
 '''
 
 import argparse
@@ -501,9 +501,20 @@ def push_pickle_to_graphite(reports, test_values: bool):
 
 
 def main():
-    '''Fetch and parse benchmark results from CircleCI
-    Save to a pickle file
-    Upload to Graphite port
+    '''Tool for fetching, parsing and uploading benchmark results to Grafana
+    This tool can perform a variety of operations depending on how it is invoked
+
+    Any combination (on input) of
+    (1) Open a local tsv file
+    (2) Fetch a set of results via the CircleCI API interface
+    (3) Load a local pickle file (pickle is a Python serialization format)
+
+    And on output of
+    (1) Save to a pickle file
+    (2) Upload to Graphite port, in pickle format (Graphite accepts pickle data)
+
+    The default operation is to load a local tsv file and upload it to Graphite
+    The other options allow for ad-hoc debugging and anaylsis of the process.
     '''
 
     parser = argparse.ArgumentParser(
@@ -511,13 +522,16 @@ def main():
 
     # --fetch from the CircleCI API into --picklefile <PICKLE-FILE>
     # this takes time because we plough through the CircleCI API
+    #
     # --push contents of --picklefile <PICKLE-FILE> to grafana/graphite
     # this is to avoid the cost of --fetch while debugging
+    #
     # --all fetch and push, missing out the intermediate picke file
     # demonstrate end-to-end function
+    #
     # --tsv
     # push results presented as a TSV file (slightly different proposed format)
-    # this is how we get used "inline" on the test machine when running benchmarks
+    # this is how the script is invoked on the CircleCI test machine when running benchmarks
     #
     parser.add_argument('--action', choices=['fetch', 'push', 'all', 'tsv'], default='tsv',
                         help='Which action to perform')
