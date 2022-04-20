@@ -5,6 +5,7 @@
 
 #include "table/block_based/block_based_table_reader.h"
 
+#include <cmath>
 #include <memory>
 #include <string>
 
@@ -437,10 +438,11 @@ TEST_P(BlockBasedTableReaderCapMemoryTest, CapMemoryUsageUnderCacheCapacity) {
   // 2. overestimate/underestimate max_table_reader_num_capped due to the gap
   // between ApproximateTableReaderMem() and actual table reader mem
   std::size_t max_table_reader_num_capped_upper_bound =
-      max_table_reader_num_capped * 1.01;
+      (std::size_t)(max_table_reader_num_capped * 1.01);
   std::size_t max_table_reader_num_capped_lower_bound =
-      max_table_reader_num_capped * 0.99;
-  std::size_t max_table_reader_num_uncapped = max_table_reader_num_capped * 1.1;
+      (std::size_t)(max_table_reader_num_capped * 0.99);
+  std::size_t max_table_reader_num_uncapped =
+      (std::size_t)(max_table_reader_num_capped * 1.1);
   ASSERT_GT(max_table_reader_num_uncapped,
             max_table_reader_num_capped_upper_bound)
       << "We need `max_table_reader_num_uncapped` > "
