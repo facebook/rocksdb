@@ -3971,9 +3971,7 @@ TEST_P(WritePreparedTransactionTest, AtomicCommit) {
 }
 
 TEST_P(WritePreparedTransactionTest, BasicRollbackDeletionTypeCb) {
-  constexpr int num_levels = 3;
-
-  options.num_levels = num_levels;
+  options.level0_file_num_compaction_trigger = 2;
 
   const auto write_to_db = [&]() {
     assert(db);
@@ -3989,7 +3987,7 @@ TEST_P(WritePreparedTransactionTest, BasicRollbackDeletionTypeCb) {
     {
       CompactRangeOptions cro;
       cro.change_level = true;
-      cro.target_level = num_levels - 1;
+      cro.target_level = options.num_levels - 1;
       cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
       ASSERT_OK(db->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
     }
@@ -3998,10 +3996,15 @@ TEST_P(WritePreparedTransactionTest, BasicRollbackDeletionTypeCb) {
     txn0.reset();
 
     ASSERT_OK(db->Put(WriteOptions(), "a", "v1"));
-    ASSERT_OK(db->Flush(FlushOptions()));
 
     ASSERT_OK(db->SingleDelete(WriteOptions(), "a"));
+    // Generate another SST with a SD to cover the oldest PUT('a')
     ASSERT_OK(db->Flush(FlushOptions()));
+
+    auto* dbimpl = static_cast_with_check<DBImpl>(db->GetRootDB());
+    assert(dbimpl);
+    ASSERT_OK(dbimpl->TEST_WaitForCompact());
+
     {
       CompactRangeOptions cro;
       cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
