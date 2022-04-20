@@ -287,8 +287,6 @@ Status WritePreparedTxn::RollbackInternal() {
     std::map<uint32_t, CFKeys> keys_;
     bool rollback_merge_operands_;
     ReadOptions roptions_;
-    std::function<bool(TransactionDB*, uint32_t, const Slice&)>
-        deletion_type_callback_;
 
     RollbackWriteBatchBuilder(
         DBImpl* db, WritePreparedTxnDB* wpt_db, SequenceNumber snap_seq,
@@ -303,8 +301,7 @@ Status WritePreparedTxn::RollbackInternal() {
           comparators_(comparators),
           handles_(handles),
           rollback_merge_operands_(rollback_merge_operands),
-          roptions_(_roptions),
-          deletion_type_callback_(wpt_db->GetRollbackDeletionTypeCallback()) {}
+          roptions_(_roptions) {}
 
     Status Rollback(uint32_t cf, const Slice& key) {
       Status s;
@@ -335,8 +332,7 @@ Status WritePreparedTxn::RollbackInternal() {
       } else if (s.IsNotFound()) {
         // There has been no readable value before txn. By adding a delete we
         // make sure that there will be none afterwards either.
-        if (deletion_type_callback_ &&
-            deletion_type_callback_(wpt_db_, cf, key)) {
+        if (wpt_db_->ShouldRollbackWithSingleDelete(cf, key)) {
           s = rollback_batch_->SingleDelete(cf_handle, key);
         } else {
           s = rollback_batch_->Delete(cf_handle, key);

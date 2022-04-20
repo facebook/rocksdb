@@ -227,7 +227,10 @@ struct TransactionDBOptions {
   // with Delete or SingleDelete when necessary. If the callback returns true,
   // then SingleDelete should be used. If the callback is not callable or the
   // callback returns false, then a Delete is used.
+  // The application should ensure thread-safety of this callback.
   // The callback should not throw because RocksDB is not exception-safe.
+  // The callback may be removed if we allow mixing Delete and SingleDelete in
+  // the future.
   std::function<bool(TransactionDB* /*db*/, uint32_t /*cf*/,
                      const Slice& /*key*/)>
       rollback_deletion_type_callback;
