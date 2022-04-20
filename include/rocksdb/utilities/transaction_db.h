@@ -231,7 +231,8 @@ struct TransactionDBOptions {
   // The callback should not throw because RocksDB is not exception-safe.
   // The callback may be removed if we allow mixing Delete and SingleDelete in
   // the future.
-  std::function<bool(TransactionDB* /*db*/, uint32_t /*cf*/,
+  std::function<bool(TransactionDB* /*db*/,
+                     ColumnFamilyHandle* /*column_family*/,
                      const Slice& /*key*/)>
       rollback_deletion_type_callback;
 

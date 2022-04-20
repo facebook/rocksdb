@@ -3974,7 +3974,7 @@ TEST_P(WritePreparedTransactionTest, BasicRollbackDeletionTypeCb) {
   options.level0_file_num_compaction_trigger = 2;
   // Always use SingleDelete to rollback Put.
   txn_db_options.rollback_deletion_type_callback =
-      [](TransactionDB*, uint32_t, const Slice&) { return true; };
+      [](TransactionDB*, ColumnFamilyHandle*, const Slice&) { return true; };
 
   const auto write_to_db = [&]() {
     assert(db);

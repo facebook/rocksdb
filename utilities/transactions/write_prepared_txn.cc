@@ -311,8 +311,8 @@ Status WritePreparedTxn::RollbackInternal() {
         keys_[cf] = CFKeys(SetComparator(cmp));
       }
       auto it = cf_keys.insert(key);
-      if (it.second ==
-          false) {  // second is false if a element already existed.
+      // second is false if a element already existed.
+      if (it.second == false) {
         return s;
       }
 
@@ -332,7 +332,7 @@ Status WritePreparedTxn::RollbackInternal() {
       } else if (s.IsNotFound()) {
         // There has been no readable value before txn. By adding a delete we
         // make sure that there will be none afterwards either.
-        if (wpt_db_->ShouldRollbackWithSingleDelete(cf, key)) {
+        if (wpt_db_->ShouldRollbackWithSingleDelete(cf_handle, key)) {
           s = rollback_batch_->SingleDelete(cf_handle, key);
         } else {
           s = rollback_batch_->Delete(cf_handle, key);

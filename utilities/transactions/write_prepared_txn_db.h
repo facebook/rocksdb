@@ -465,13 +465,14 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Get a dummy snapshot that refers to kMaxSequenceNumber
   Snapshot* GetMaxSnapshot() { return &dummy_max_snapshot_; }
 
-  bool ShouldRollbackWithSingleDelete(uint32_t cf, const Slice& key) {
+  bool ShouldRollbackWithSingleDelete(ColumnFamilyHandle* column_family,
+                                      const Slice& key) {
     return rollback_deletion_type_callback_
-               ? rollback_deletion_type_callback_(this, cf, key)
+               ? rollback_deletion_type_callback_(this, column_family, key)
                : false;
   }
 
-  std::function<bool(TransactionDB*, uint32_t, const Slice&)>
+  std::function<bool(TransactionDB*, ColumnFamilyHandle*, const Slice&)>
       rollback_deletion_type_callback_;
 
  private:
