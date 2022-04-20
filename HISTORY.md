@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### New Features
+* DB::GetLiveFilesStorageInfo is ready for production use.
 
 ## 7.2.0 (04/15/2022)
 ### Bug Fixes

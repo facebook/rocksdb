@@ -1440,39 +1440,6 @@ class DB {
   virtual Status EnableFileDeletions(bool force = true) = 0;
 
 #ifndef ROCKSDB_LITE
-  // GetLiveFiles followed by GetSortedWalFiles can generate a lossless backup
-
-  // Retrieve the list of all files in the database. The files are
-  // relative to the dbname and are not absolute paths. Despite being relative
-  // paths, the file names begin with "/". The valid size of the manifest file
-  // is returned in manifest_file_size. The manifest file is an ever growing
-  // file, but only the portion specified by manifest_file_size is valid for
-  // this snapshot. Setting flush_memtable to true does Flush before recording
-  // the live files. Setting flush_memtable to false is useful when we don't
-  // want to wait for flush which may have to wait for compaction to complete
-  // taking an indeterminate time.
-  //
-  // In case you have multiple column families, even if flush_memtable is true,
-  // you still need to call GetSortedWalFiles after GetLiveFiles to compensate
-  // for new data that arrived to already-flushed column families while other
-  // column families were flushing
-  virtual Status GetLiveFiles(std::vector<std::string>&,
-                              uint64_t* manifest_file_size,
-                              bool flush_memtable = true) = 0;
-
-  // Retrieve the sorted list of all wal files with earliest file first
-  virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
-
-  // Retrieve information about the current wal file
-  //
-  // Note that the log might have rolled after this call in which case
-  // the current_log_file would not point to the current log file.
-  //
-  // Additionally, for the sake of optimization current_log_file->StartSequence
-  // would always be set to 0
-  virtual Status GetCurrentWalFile(
-      std::unique_ptr<LogFile>* current_log_file) = 0;
-
   // Retrieves the creation time of the oldest file in the DB.
   // This API only works if max_open_files = -1, if it is not then
   // Status returned is Status::NotSupported()
@@ -1517,26 +1484,30 @@ class DB {
   // path relative to the db directory. eg. 000001.sst, /archive/000003.log
   virtual Status DeleteFile(std::string name) = 0;
 
-  // Returns a list of all table files with their level, start key
-  // and end key
+  // Obtains a list of all live table (SST) files and how they fit into the
+  // LSM-trees, such as column family, level, key range, etc.
+  // This builds a de-normalized form of GetAllColumnFamilyMetaData().
+  // For information about all files in a DB, use GetLiveFilesStorageInfo().
   virtual void GetLiveFilesMetaData(
       std::vector<LiveFileMetaData>* /*metadata*/) {}
 
-  // Return a list of all table and blob files checksum info.
+  // Return a list of all table (SST) and blob files checksum info.
   // Note: This function might be of limited use because it cannot be
-  // synchronized with GetLiveFiles.
+  // synchronized with other "live files" APIs. GetLiveFilesStorageInfo()
+  // is recommended instead.
   virtual Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) = 0;
 
-  // EXPERIMENTAL: This function is not yet feature-complete.
   // Get information about all live files that make up a DB, for making
   // live copies (Checkpoint, backups, etc.) or other storage-related purposes.
-  // Use DisableFileDeletions() before and EnableFileDeletions() after to
-  // preserve the files for live copy.
+  // If creating a live copy, use DisableFileDeletions() before and
+  // EnableFileDeletions() after to prevent deletions.
+  // For LSM-tree metadata, use Get*MetaData() functions instead.
   virtual Status GetLiveFilesStorageInfo(
       const LiveFilesStorageInfoOptions& opts,
       std::vector<LiveFileStorageInfo>* files) = 0;
 
-  // Obtains the meta data of the specified column family of the DB.
+  // Obtains the LSM-tree meta data of the specified column family of the DB,
+  // including metadata for each live table (SST) file in that column family.
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,
                                        ColumnFamilyMetaData* /*metadata*/) {}
 
@@ -1545,11 +1516,42 @@ class DB {
     GetColumnFamilyMetaData(DefaultColumnFamily(), metadata);
   }
 
-  // Obtains the meta data of all column families for the DB.
-  // The returned map contains one entry for each column family indexed by the
-  // name of the column family.
+  // Obtains the LSM-tree meta data of all column families of the DB,
+  // including metadata for each live table (SST) file in the DB.
   virtual void GetAllColumnFamilyMetaData(
       std::vector<ColumnFamilyMetaData>* /*metadata*/) {}
+
+  // Retrieve the list of all files in the database except WAL files. The files
+  // are relative to the dbname (or db_paths/cf_paths), not absolute paths.
+  // (Not recommended with db_paths/cf_paths because that information is not
+  // returned.) Despite being relative paths, the file names begin with "/".
+  // The valid size of the manifest file is returned in manifest_file_size.
+  // The manifest file is an ever growing file, but only the portion specified
+  // by manifest_file_size is valid for this snapshot. Setting flush_memtable
+  // to true does Flush before recording the live files. Setting flush_memtable
+  // to false is useful when we don't want to wait for flush which may have to
+  // wait for compaction to complete taking an indeterminate time.
+  //
+  // NOTE: Although GetLiveFiles() followed by GetSortedWalFiles() can generate
+  // a lossless backup, GetLiveFilesStorageInfo() is strongly recommended
+  // instead, because it ensures a single consistent view of all files is
+  // captured in one call.
+  virtual Status GetLiveFiles(std::vector<std::string>&,
+                              uint64_t* manifest_file_size,
+                              bool flush_memtable = true) = 0;
+
+  // Retrieve the sorted list of all wal files with earliest file first
+  virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
+
+  // Retrieve information about the current wal file
+  //
+  // Note that the log might have rolled after this call in which case
+  // the current_log_file would not point to the current log file.
+  //
+  // Additionally, for the sake of optimization current_log_file->StartSequence
+  // would always be set to 0
+  virtual Status GetCurrentWalFile(
+      std::unique_ptr<LogFile>* current_log_file) = 0;
 
   // IngestExternalFile() will load a list of external SST files (1) into the DB
   // Two primary modes are supported:
