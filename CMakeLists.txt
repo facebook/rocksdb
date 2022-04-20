@@ -40,6 +40,8 @@ include(GoogleTest)
 get_rocksdb_version(rocksdb_VERSION)
 project(rocksdb
   VERSION ${rocksdb_VERSION}
+  HOMEPAGE_URL https://github.com/facebook/rocksdb/wiki/
+  DESCRIPTION "An embeddable persistent key-value store for fast storage"
   LANGUAGES CXX C ASM)
 
 if(POLICY CMP0042)
