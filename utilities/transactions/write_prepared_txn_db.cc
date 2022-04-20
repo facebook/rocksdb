@@ -435,7 +435,7 @@ void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max,
       delayed_prepared_.insert(to_be_popped);
       ROCKS_LOG_WARN(info_log_,
                      "prepared_mutex_ overhead %" PRIu64 " (prep=%" PRIu64
-                     " new_max=%" PRIu64,
+                     " new_max=%" PRIu64 ")",
                      static_cast<uint64_t>(delayed_prepared_.size()),
                      to_be_popped, new_max);
       delayed_prepared_empty_.store(false, std::memory_order_release);

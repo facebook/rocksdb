@@ -279,7 +279,7 @@ Status WritePreparedTxn::RollbackInternal() {
   struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
     DBImpl* const db_;
     WritePreparedTxnDB* const wpt_db_;
-    WritePreparedTxnReadCallback callback;
+    WritePreparedTxnReadCallback callback_;
     WriteBatch* rollback_batch_;
     std::map<uint32_t, const Comparator*>& comparators_;
     std::map<uint32_t, ColumnFamilyHandle*>& handles_;
@@ -296,7 +296,7 @@ Status WritePreparedTxn::RollbackInternal() {
         bool rollback_merge_operands, const ReadOptions& _roptions)
         : db_(db),
           wpt_db_(wpt_db),
-          callback(wpt_db, snap_seq),  // disable min_uncommitted optimization
+          callback_(wpt_db, snap_seq),  // disable min_uncommitted optimization
           rollback_batch_(dst_batch),
           comparators_(comparators),
           handles_(handles),
@@ -323,7 +323,7 @@ Status WritePreparedTxn::RollbackInternal() {
       get_impl_options.column_family = cf_handle;
       get_impl_options.value = &pinnable_val;
       get_impl_options.value_found = &not_used;
-      get_impl_options.callback = &callback;
+      get_impl_options.callback = &callback_;
       s = db_->GetImpl(roptions_, key, get_impl_options);
       assert(s.ok() || s.IsNotFound());
       if (s.ok()) {
