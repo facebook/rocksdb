@@ -410,6 +410,10 @@ DEFINE_double(read_random_exp_range, 0.0,
 
 DEFINE_bool(histogram, false, "Print histogram of operation timings");
 
+DEFINE_bool(confidence_interval_only, false,
+            "Print 95% confidence interval upper and lower bounds only for "
+            "aggregate stats.");
+
 DEFINE_bool(enable_numa, false,
             "Make operations aware of NUMA architecture and bind memory "
             "and cpus corresponding to nodes together. In NUMA, memory "
@@ -2319,28 +2323,83 @@ class CombinedStats {
   }
 
   void Report(const std::string& bench_name) {
+    if (throughput_ops_.size() < 2) {
+      // skip if there are not enough samples
+      return;
+    }
+
     const char* name = bench_name.c_str();
     int num_runs = static_cast<int>(throughput_ops_.size());
 
     if (throughput_mbs_.size() == throughput_ops_.size()) {
       fprintf(stdout,
-              "%s [AVG    %d runs] : %d ops/sec; %6.1f MB/sec\n"
+              "%s [AVG %d runs] : %d (± %d) ops/sec; %6.1f (± %.1f) MB/sec\n",
+              name, num_runs, static_cast<int>(CalcAvg(throughput_ops_)),
+              static_cast<int>(CalcConfidence95(throughput_ops_)),
+              CalcAvg(throughput_mbs_), CalcConfidence95(throughput_mbs_));
+    } else {
+      fprintf(stdout, "%s [AVG %d runs] : %d (± %d) ops/sec\n", name, num_runs,
+              static_cast<int>(CalcAvg(throughput_ops_)),
+              static_cast<int>(CalcConfidence95(throughput_ops_)));
+    }
+  }
+
+  void ReportWithConfidenceIntervals(const std::string& bench_name) {
+    if (throughput_ops_.size() < 2) {
+      // skip if there are not enough samples
+      return;
+    }
+
+    const char* name = bench_name.c_str();
+    int num_runs = static_cast<int>(throughput_ops_.size());
+
+    int ops_avg = static_cast<int>(CalcAvg(throughput_ops_));
+    int ops_confidence_95 = static_cast<int>(CalcConfidence95(throughput_ops_));
+
+    if (throughput_mbs_.size() == throughput_ops_.size()) {
+      double mbs_avg = CalcAvg(throughput_mbs_);
+      double mbs_confidence_95 = CalcConfidence95(throughput_mbs_);
+      fprintf(stdout,
+              "%s [CI95 %d runs] : (%d, %d) ops/sec; (%.1f, %.1f) MB/sec\n",
+              name, num_runs, ops_avg - ops_confidence_95,
+              ops_avg + ops_confidence_95, mbs_avg - mbs_confidence_95,
+              mbs_avg + mbs_confidence_95);
+    } else {
+      fprintf(stdout, "%s [CI95 %d runs] : (%d, %d) ops/sec\n", name, num_runs,
+              ops_avg - ops_confidence_95, ops_avg + ops_confidence_95);
+    }
+  }
+
+  void ReportFinal(const std::string& bench_name) {
+    if (throughput_ops_.size() < 2) {
+      // skip if there are not enough samples
+      return;
+    }
+
+    const char* name = bench_name.c_str();
+    int num_runs = static_cast<int>(throughput_ops_.size());
+
+    if (throughput_mbs_.size() == throughput_ops_.size()) {
+      fprintf(stdout,
+              "%s [AVG    %d runs] : %d (± %d) ops/sec; %6.1f (± %.1f) MB/sec\n"
               "%s [MEDIAN %d runs] : %d ops/sec; %6.1f MB/sec\n",
               name, num_runs, static_cast<int>(CalcAvg(throughput_ops_)),
-              CalcAvg(throughput_mbs_), name, num_runs,
-              static_cast<int>(CalcMedian(throughput_ops_)),
+              static_cast<int>(CalcConfidence95(throughput_ops_)),
+              CalcAvg(throughput_mbs_), CalcConfidence95(throughput_mbs_), name,
+              num_runs, static_cast<int>(CalcMedian(throughput_ops_)),
               CalcMedian(throughput_mbs_));
     } else {
       fprintf(stdout,
-              "%s [AVG    %d runs] : %d ops/sec\n"
+              "%s [AVG    %d runs] : %d (± %d) ops/sec\n"
               "%s [MEDIAN %d runs] : %d ops/sec\n",
-              name, num_runs, static_cast<int>(CalcAvg(throughput_ops_)), name,
+              name, num_runs, static_cast<int>(CalcAvg(throughput_ops_)),
+              static_cast<int>(CalcConfidence95(throughput_ops_)), name,
               num_runs, static_cast<int>(CalcMedian(throughput_ops_)));
     }
   }
 
  private:
-  double CalcAvg(std::vector<double> data) {
+  double CalcAvg(std::vector<double>& data) {
     double avg = 0;
     for (double x : data) {
       avg += x;
@@ -2349,7 +2408,20 @@ class CombinedStats {
     return avg;
   }
 
-  double CalcMedian(std::vector<double> data) {
+  // Calculates 95% CI assuming a normal distribution of samples.
+  // Samples are not from a normal distribution, but it still
+  // provides useful approximation.
+  double CalcConfidence95(std::vector<double>& data) {
+    assert(data.size() > 1);
+    double avg = CalcAvg(data);
+    double std_error = CalcStdDev(data, avg) / std::sqrt(data.size());
+
+    // Z score for the 97.5 percentile
+    // see https://en.wikipedia.org/wiki/1.96
+    return 1.959964 * std_error;
+  }
+
+  double CalcMedian(std::vector<double>& data) {
     assert(data.size() > 0);
     std::sort(data.begin(), data.end());
 
@@ -2361,6 +2433,18 @@ class CombinedStats {
       // Even number of entries
       return (data[mid] + data[mid - 1]) / 2;
     }
+  }
+
+  double CalcStdDev(std::vector<double>& data, double average) {
+    assert(data.size() > 1);
+    double squared_sum = 0.0;
+    for (double x : data) {
+      squared_sum += std::pow(x - average, 2);
+    }
+
+    // using samples count - 1 following Bessel's correction
+    // see https://en.wikipedia.org/wiki/Bessel%27s_correction
+    return std::sqrt(squared_sum / (data.size() - 1));
   }
 
   std::vector<double> throughput_ops_;
@@ -3525,9 +3609,14 @@ class Benchmark {
         for (int i = 0; i < num_repeat; i++) {
           Stats stats = RunBenchmark(num_threads, name, method);
           combined_stats.AddStats(stats);
+          if (FLAGS_confidence_interval_only) {
+            combined_stats.ReportWithConfidenceIntervals(name);
+          } else {
+            combined_stats.Report(name);
+          }
         }
         if (num_repeat > 1) {
-          combined_stats.Report(name);
+          combined_stats.ReportFinal(name);
         }
       }
       if (post_process_method != nullptr) {
