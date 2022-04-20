@@ -4022,7 +4022,7 @@ TEST_P(WritePreparedTransactionTest, BasicRollbackDeletionTypeCb) {
   };
 
   // Destroy and reopen
-  ReOpen();
+  ASSERT_OK(ReOpen());
   write_to_db();
 }
 
