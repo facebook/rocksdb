@@ -107,6 +107,7 @@ class DBDumperCommand : public LDBCommand {
   bool count_delim_;
   bool print_stats_;
   std::string path_;
+  bool decode_blob_index_;
 
   static const std::string ARG_COUNT_ONLY;
   static const std::string ARG_COUNT_DELIM;
@@ -137,6 +138,7 @@ class InternalDumpCommand : public LDBCommand {
   bool count_delim_;
   bool print_stats_;
   bool is_input_key_hex_;
+  bool decode_blob_index_;
 
   static const std::string ARG_DELIM;
   static const std::string ARG_COUNT_ONLY;
