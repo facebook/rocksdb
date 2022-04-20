@@ -1125,6 +1125,11 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
 
   install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/modules" COMPONENT devel DESTINATION ${package_config_destination})
 
+  configure_package_config_file(
+    ${CMAKE_CURRENT_LIST_DIR}/rocksdb.pc.in rocksdb.pc
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+  )
+
   install(
     TARGETS ${ROCKSDB_STATIC_LIB}
     EXPORT RocksDBTargets
@@ -1158,6 +1163,13 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
     ${CMAKE_CURRENT_BINARY_DIR}/RocksDBConfigVersion.cmake
     COMPONENT devel
     DESTINATION ${package_config_destination}
+  )
+
+  install(
+    FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/rocksdb.pc
+    COMPONENT devel
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
   )
 endif()
 
