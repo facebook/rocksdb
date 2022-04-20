@@ -1487,6 +1487,7 @@ class DB {
   // Obtains a list of all live table (SST) files and how they fit into the
   // LSM-trees, such as column family, level, key range, etc.
   // This builds a de-normalized form of GetAllColumnFamilyMetaData().
+  // For information about all files in a DB, use GetLiveFilesStorageInfo().
   virtual void GetLiveFilesMetaData(
       std::vector<LiveFileMetaData>* /*metadata*/) {}
 
