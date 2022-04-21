@@ -233,6 +233,7 @@ jobs:
     resource_class: 2xlarge
     steps:
       - pre-steps
+      - run: set -m; sleep 10 & ; sleep 10 & ; pkill -g $(jobs -p)
       - install-gflags
       - install-pstack
       - run: make DRIVER=./tools/run_with_pstack.sh V=1 J=32 -j32 check
