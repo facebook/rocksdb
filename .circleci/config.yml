@@ -100,6 +100,13 @@ commands:
           command: |
             sudo apt-get update -y && sudo apt-get install -y libgflags-dev
 
+  install-pstack:
+    steps:
+      - run:
+          name: Install pstack
+          command: |
+            sudo apt-get update -y && sudo apt-get install -y pstack
+
   install-benchmark:
     steps:
       - run:
@@ -227,6 +234,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
+      - install-pstack
       - run: make DRIVER=./tools/run_with_pstack.sh V=1 J=32 -j32 check
       - post-steps
 
@@ -237,6 +245,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
+      - install-pstack
       - run: ENCRYPTED_ENV=1 ROCKSDB_DISABLE_SNAPPY=1 ROCKSDB_DISABLE_ZLIB=1 ROCKSDB_DISABLE_BZIP=1 ROCKSDB_DISABLE_LZ4=1 ROCKSDB_DISABLE_ZSTD=1 make DRIVER=./tools/run_with_pstack.sh V=1 J=32 -j32 check
       - run: |
           ./sst_dump --help | egrep -q 'Supported compression types: kNoCompression$' # Verify no compiled in compression
@@ -249,6 +258,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
+      - install-pstack
       - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make DRIVER=./tools/run_with_pstack.sh V=1 -j32 check
       - post-steps
 
@@ -286,6 +296,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
+      - install-pstack
       - run: LITE=1 make DRIVER=./tools/run_with_pstack.sh V=1 J=8 -j8 check
       - post-steps
 
@@ -320,6 +331,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-clang-10
+      - install-pstack
       - run: COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make DRIVER=./tools/run_with_pstack.sh V=1 -j32 check # aligned new doesn't work for reason we haven't figured out
       - post-steps
 
@@ -361,6 +373,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-clang-10
+      - install-pstack
       - run: COMPILE_WITH_UBSAN=1 OPT="-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make DRIVER=./tools/run_with_pstack.sh V=1 -j32 ubsan_check # aligned new doesn't work for reason we haven't figured out
       - post-steps
 
@@ -372,6 +385,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-valgrind
+      - install-pstack
       - run: PORTABLE=1 make DRIVER=./tools/run_with_pstack.sh V=1 -j32 valgrind_test
       - post-steps
 
@@ -429,6 +443,7 @@ jobs:
       - pre-steps
       - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-7 g++-7 libgflags-dev
       - run: make checkout_folly
+      - install-pstack
       - run: USE_FOLLY=1 CC=gcc-7 CXX=g++-7 V=1 make DRIVER=./tools/run_with_pstack.sh -j32 check
       - post-steps
 
@@ -484,6 +499,7 @@ jobs:
       - install-clang-13
       - install-gflags
       - run: make checkout_folly
+      - install-pstack
       - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make DRIVER=./tools/run_with_pstack.sh -j32 check
       - post-steps
 
@@ -736,6 +752,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
+      - install-pstack
       - run: make DRIVER=./tools/run_with_pstack.sh V=1 -j32 check
       - post-steps
 
@@ -746,6 +763,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
+      - install-pstack
       - run: make DRIVER=./tools/run_with_pstack.sh V=1 J=4 -j4 check
       - post-steps
 
@@ -756,6 +774,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
+      - install-pstack
       - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make DRIVER=./tools/run_with_pstack.sh V=1 J=4 -j4 all_but_some_tests check_some
       - post-steps
 
