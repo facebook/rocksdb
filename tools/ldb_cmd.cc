@@ -45,6 +45,7 @@
 #include "util/file_checksum_helper.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
+#include "utilities/blob_db/blob_dump_tool.h"
 #include "utilities/merge_operators.h"
 #include "utilities/ttl/db_ttl_impl.h"
 
@@ -100,14 +101,8 @@ const std::string LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD =
 const std::string LDBCommand::ARG_BLOB_COMPACTION_READAHEAD_SIZE =
     "blob_compaction_readahead_size";
 const std::string LDBCommand::ARG_DECODE_BLOB_INDEX = "decode_blob_index";
-const std::string LDBCommand::ARG_BLOB_DUMP_SHOW_KEY_TYPE =
-    "blob_dump_show_key_type";
-const std::string LDBCommand::ARG_BLOB_DUMP_SHOW_BLOB_TYPE =
-    "blob_dump_show_blob_type";
-const std::string LDBCommand::ARG_BLOB_DUMP_SHOW_UNCOMPRESSED_BLOB_TYPE =
-    "blob_dump_show_uncompressed_blob_type";
-const std::string LDBCommand::ARG_BLOB_DUMP_SHOW_SUMMARY =
-    "blob_dump_show_summary";
+const std::string LDBCommand::ARG_DUMP_UNCOMPRESSED_BLOBS =
+    "dump_uncompressed_blobs";
 
 const char* LDBCommand::DELIM = " ==> ";
 
@@ -122,10 +117,8 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
 void DumpSstFile(Options options, std::string filename, bool output_hex,
                  bool show_properties, bool decode_blob_index);
 
-void DumpBlobFile(std::string filename, BlobDumpTool::DisplayType show_key,
-                  BlobDumpTool::DisplayType show_blob,
-                  BlobDumpTool::DisplayType show_uncompressed_blob,
-                  bool show_summary);
+void DumpBlobFile(std::string filename, bool is_key_hex, bool is_value_hex,
+                  bool dump_uncompressed_blobs);
 };
 
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
@@ -700,39 +693,6 @@ bool LDBCommand::ParseCompressionTypeOption(
       // Unknown compression.
       exec_state = LDBCommandExecuteResult::Failed(
           "Unknown compression algorithm: " + comp);
-    }
-  }
-  return false;
-}
-
-/**
- * Parses the specified blob dump display type and fills in the value.
- * Returns true if the display type is found.
- * Returns false otherwise.
- */
-bool LDBCommand::ParseBlobDumpDisplayTypeOption(
-    const std::map<std::string, std::string>& /* options */,
-    const std::string& option, BlobDumpTool::DisplayType& value,
-    LDBCommandExecuteResult& exec_state) {
-  auto itr = option_map_.find(option);
-  if (itr != option_map_.end()) {
-    const std::string& type = itr->second;
-    if (type == "none") {
-      value = BlobDumpTool::DisplayType::kNone;
-      return true;
-    } else if (type == "raw") {
-      value = BlobDumpTool::DisplayType::kRaw;
-      return true;
-    } else if (type == "hex") {
-      value = BlobDumpTool::DisplayType::kHex;
-      return true;
-    } else if (type == "detail") {
-      value = BlobDumpTool::DisplayType::kDetail;
-      return true;
-    } else {
-      // Unknown display type.
-      exec_state = LDBCommandExecuteResult::Failed(
-          "Unknown blob dump display type: " + type);
     }
   }
   return false;
@@ -1901,27 +1861,13 @@ DBDumperCommand::DBDumperCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true,
-                 BuildCmdLineOptions({ARG_TTL,
-                                      ARG_HEX,
-                                      ARG_KEY_HEX,
-                                      ARG_VALUE_HEX,
-                                      ARG_FROM,
-                                      ARG_TO,
-                                      ARG_MAX_KEYS,
-                                      ARG_COUNT_ONLY,
-                                      ARG_COUNT_DELIM,
-                                      ARG_STATS,
-                                      ARG_TTL_START,
-                                      ARG_TTL_END,
-                                      ARG_TTL_BUCKET,
-                                      ARG_TIMESTAMP,
-                                      ARG_PATH,
-                                      ARG_DECODE_BLOB_INDEX,
-                                      ARG_BLOB_DUMP_SHOW_KEY_TYPE,
-                                      ARG_BLOB_DUMP_SHOW_BLOB_TYPE,
-                                      ARG_BLOB_DUMP_SHOW_UNCOMPRESSED_BLOB_TYPE,
-                                      ARG_BLOB_DUMP_SHOW_SUMMARY})),
+    : LDBCommand(
+          options, flags, true,
+          BuildCmdLineOptions(
+              {ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO,
+               ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM, ARG_STATS,
+               ARG_TTL_START, ARG_TTL_END, ARG_TTL_BUCKET, ARG_TIMESTAMP,
+               ARG_PATH, ARG_DECODE_BLOB_INDEX, ARG_DUMP_UNCOMPRESSED_BLOBS})),
       null_from_(true),
       null_to_(true),
       max_keys_(-1),
@@ -1969,6 +1915,7 @@ DBDumperCommand::DBDumperCommand(
   print_stats_ = IsFlagPresent(flags, ARG_STATS);
   count_only_ = IsFlagPresent(flags, ARG_COUNT_ONLY);
   decode_blob_index_ = IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX);
+  dump_uncompressed_blobs_ = IsFlagPresent(flags, ARG_DUMP_UNCOMPRESSED_BLOBS);
 
   if (is_key_hex_) {
     if (!null_from_) {
@@ -1986,15 +1933,6 @@ DBDumperCommand::DBDumperCommand(
       db_path_ = path_;
     }
   }
-
-  ParseBlobDumpDisplayTypeOption(option_map_, ARG_BLOB_DUMP_SHOW_KEY_TYPE,
-                                 show_key_type_, exec_state_);
-  ParseBlobDumpDisplayTypeOption(option_map_, ARG_BLOB_DUMP_SHOW_BLOB_TYPE,
-                                 show_blob_type_, exec_state_);
-  ParseBlobDumpDisplayTypeOption(option_map_,
-                                 ARG_BLOB_DUMP_SHOW_UNCOMPRESSED_BLOB_TYPE,
-                                 show_uncompressed_blob_type_, exec_state_);
-  show_summary_ = IsFlagPresent(flags, ARG_BLOB_DUMP_SHOW_SUMMARY);
 }
 
 void DBDumperCommand::Help(std::string& ret) {
@@ -2012,11 +1950,7 @@ void DBDumperCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_TTL_END + "=<N>:- is exclusive]");
   ret.append(" [--" + ARG_PATH + "=<path_to_a_file>]");
   ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "]");
-  ret.append(" [--" + ARG_BLOB_DUMP_SHOW_KEY_TYPE + "=<none|raw|hex|detail>]");
-  ret.append(" [--" + ARG_BLOB_DUMP_SHOW_BLOB_TYPE + "=<none|raw|hex|detail>]");
-  ret.append(" [--" + ARG_BLOB_DUMP_SHOW_UNCOMPRESSED_BLOB_TYPE +
-             "=<none|raw|hex|detail>]");
-  ret.append(" [--" + ARG_BLOB_DUMP_SHOW_SUMMARY + "]");
+  ret.append(" [--" + ARG_DUMP_UNCOMPRESSED_BLOBS + "]");
   ret.append("\n");
 }
 
@@ -2062,8 +1996,8 @@ void DBDumperCommand::DoCommand() {
                          /*  json_ */ false);
         break;
       case kBlobFile:
-        DumpBlobFile(path_, show_key_type_, show_blob_type_,
-                     show_uncompressed_blob_type_, show_summary_);
+        DumpBlobFile(path_, is_key_hex_, is_value_hex_,
+                     dump_uncompressed_blobs_);
         break;
       default:
         exec_state_ = LDBCommandExecuteResult::Failed(
@@ -3614,13 +3548,22 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
   }
 }
 
-void DumpBlobFile(std::string filename, BlobDumpTool::DisplayType show_key,
-                  BlobDumpTool::DisplayType show_blob,
-                  BlobDumpTool::DisplayType show_uncompressed_blob,
-                  bool show_summary) {
+void DumpBlobFile(std::string filename, bool is_key_hex, bool is_value_hex,
+                  bool dump_uncompressed_blobs) {
   BlobDumpTool tool;
+  BlobDumpTool::DisplayType blob_type = is_value_hex
+                                            ? BlobDumpTool::DisplayType::kHex
+                                            : BlobDumpTool::DisplayType::kRaw;
+  BlobDumpTool::DisplayType show_uncompressed_blob =
+      dump_uncompressed_blobs ? blob_type : BlobDumpTool::DisplayType::kNone;
+  BlobDumpTool::DisplayType show_blob =
+      dump_uncompressed_blobs ? BlobDumpTool::DisplayType::kNone : blob_type;
+
+  BlobDumpTool::DisplayType show_key = is_key_hex
+                                           ? BlobDumpTool::DisplayType::kHex
+                                           : BlobDumpTool::DisplayType::kRaw;
   Status s = tool.Run(filename, show_key, show_blob, show_uncompressed_blob,
-                      show_summary);
+                      /* show_summary */ true);
   if (!s.ok()) {
     fprintf(stderr, "Failed: %s\n", s.ToString().c_str());
   }

@@ -25,7 +25,6 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/ldb_cmd_execute_result.h"
-#include "utilities/blob_db/blob_dump_tool.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -71,10 +70,7 @@ class LDBCommand {
   static const std::string ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD;
   static const std::string ARG_BLOB_COMPACTION_READAHEAD_SIZE;
   static const std::string ARG_DECODE_BLOB_INDEX;
-  static const std::string ARG_BLOB_DUMP_SHOW_KEY_TYPE;
-  static const std::string ARG_BLOB_DUMP_SHOW_BLOB_TYPE;
-  static const std::string ARG_BLOB_DUMP_SHOW_UNCOMPRESSED_BLOB_TYPE;
-  static const std::string ARG_BLOB_DUMP_SHOW_SUMMARY;
+  static const std::string ARG_DUMP_UNCOMPRESSED_BLOBS;
 
   struct ParsedParams {
     std::string cmd;
@@ -261,11 +257,6 @@ class LDBCommand {
   bool ParseCompressionTypeOption(
       const std::map<std::string, std::string>& options,
       const std::string& option, CompressionType& value,
-      LDBCommandExecuteResult& exec_state);
-
-  bool ParseBlobDumpDisplayTypeOption(
-      const std::map<std::string, std::string>& options,
-      const std::string& option, blob_db::BlobDumpTool::DisplayType& value,
       LDBCommandExecuteResult& exec_state);
 
   /**

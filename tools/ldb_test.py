@@ -727,7 +727,7 @@ class LDBTestCase(unittest.TestCase):
         expected_pattern = re.compile(regex)
         blob_files = self.getBlobFiles(dbPath)
         self.assertTrue(len(blob_files) >= 1)
-        cmd = "dump --path=%s --blob_dump_show_blob_type=raw --blob_dump_show_summary"
+        cmd = "dump --path=%s --dump_uncompressed_blobs"
         self.assertRunOKFull((cmd)
                              % (blob_files[0]),
                              expected_pattern, unexpected=False,
