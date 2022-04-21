@@ -2752,6 +2752,7 @@ void StressTest::Open() {
           static_cast<size_t>(FLAGS_wp_snapshot_cache_bits);
       txn_db_options.wp_commit_cache_bits =
           static_cast<size_t>(FLAGS_wp_commit_cache_bits);
+      PrepareTxnDbOptions(txn_db_options);
       s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
                               cf_descriptors, &column_families_, &txn_db_);
       if (!s.ok()) {

@@ -541,6 +541,29 @@ void MultiOpsTxnsStressTest::RegisterAdditionalListeners() {
   options_.listeners.emplace_back(new MultiOpsTxnsStressListener(this));
 }
 
+void MultiOpsTxnsStressTest::PrepareTxnDbOptions(
+    TransactionDBOptions& txn_db_opts) {
+  // MultiOpsTxnStressTest uses SingleDelete to delete secondary keys, thus we
+  // register this callback to let TxnDb know that when rolling back
+  // a transaction, use only SingleDelete to cancel prior Put from the same
+  // transaction if applicable.
+  txn_db_opts.rollback_deletion_type_callback =
+      [](TransactionDB* /*db*/, ColumnFamilyHandle* /*column_family*/,
+         const Slice& key) {
+        const char* buf = key.data();
+        assert(buf);
+        uint32_t index_id =
+            static_cast<uint32_t>(static_cast<unsigned char>(buf[0])) << 24;
+        index_id += static_cast<uint32_t>(static_cast<unsigned char>(buf[1]))
+                    << 16;
+        index_id += static_cast<uint32_t>(static_cast<unsigned char>(buf[2]))
+                    << 8;
+        index_id += static_cast<uint32_t>(static_cast<unsigned char>(buf[3]));
+        assert(index_id < 3);
+        return index_id == Record::kSecondaryIndexId;
+      };
+}
+
 Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
                                                    uint32_t old_a,
                                                    uint32_t old_a_pos,

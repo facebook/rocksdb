@@ -264,6 +264,8 @@ class MultiOpsTxnsStressTest : public StressTest {
 
   void RegisterAdditionalListeners() override;
 
+  void PrepareTxnDbOptions(TransactionDBOptions& txn_db_opts) override;
+
   Status PrimaryKeyUpdateTxn(ThreadState* thread, uint32_t old_a,
                              uint32_t old_a_pos, uint32_t new_a);
 
