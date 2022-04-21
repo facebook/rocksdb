@@ -1016,7 +1016,7 @@ check: all
 	    $(MAKE) T="$$t" TMPD=$(TMPD) check_0;                       \
 	else                                                            \
 	    for t in $(TESTS); do                                       \
-	      echo "===== Running $$t (`date`)"; ./$$t || exit 1; done;          \
+	      echo "===== Running $$t (`date`)"; $(DRIVER) ./$$t || exit 1; done;          \
 	fi
 	rm -rf $(TMPD)
 ifneq ($(PLATFORM), OS_AIX)
@@ -1036,7 +1036,7 @@ endif
 
 # TODO add ldb_tests
 check_some: $(ROCKSDBTESTS_SUBSET)
-	for t in $(ROCKSDBTESTS_SUBSET); do echo "===== Running $$t (`date`)"; ./$$t || exit 1; done
+	for t in $(ROCKSDBTESTS_SUBSET); do echo "===== Running $$t (`date`)"; $(DRIVER) ./$$t || exit 1; done
 
 .PHONY: ldb_tests
 ldb_tests: ldb
@@ -1113,16 +1113,16 @@ valgrind_test_some:
 	ROCKSDB_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check_some
 
 valgrind_check: $(TESTS)
-	$(MAKE) DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" gen_parallel_tests
+	$(MAKE) DRIVER="$(DRIVER) $(VALGRIND_VER) $(VALGRIND_OPTS)" gen_parallel_tests
 	$(AM_V_GEN)if test "$(J)" != 1                                  \
 	    && (build_tools/gnu_parallel --gnu --help 2>/dev/null) |                    \
 	        grep -q 'GNU Parallel';                                 \
 	then                                                            \
       $(MAKE) TMPD=$(TMPD)                                        \
-      DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" valgrind_check_0; \
+      DRIVER="$(DRIVER) $(VALGRIND_VER) $(VALGRIND_OPTS)" valgrind_check_0; \
 	else                                                            \
 		for t in $(filter-out %skiplist_test options_settable_test,$(TESTS)); do \
-			$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
+			$(DRIVER) $(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
 			ret_code=$$?; \
 			if [ $$ret_code -ne 0 ]; then \
 				exit $$ret_code; \
@@ -1132,7 +1132,7 @@ valgrind_check: $(TESTS)
 
 valgrind_check_some: $(ROCKSDBTESTS_SUBSET)
 	for t in $(ROCKSDBTESTS_SUBSET); do \
-		$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
+		$(DRIVER) $(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
 		ret_code=$$?; \
 		if [ $$ret_code -ne 0 ]; then \
 			exit $$ret_code; \
