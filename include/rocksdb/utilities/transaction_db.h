@@ -222,6 +222,20 @@ struct TransactionDBOptions {
   // pending writes into the database. A value of 0 or less means no limit.
   int64_t default_write_batch_flush_threshold = 0;
 
+  // This option is valid only for write-prepared/write-unprepared. Transaction
+  // will rely on this callback to determine if a key should be rolled back
+  // with Delete or SingleDelete when necessary. If the callback returns true,
+  // then SingleDelete should be used. If the callback is not callable or the
+  // callback returns false, then a Delete is used.
+  // The application should ensure thread-safety of this callback.
+  // The callback should not throw because RocksDB is not exception-safe.
+  // The callback may be removed if we allow mixing Delete and SingleDelete in
+  // the future.
+  std::function<bool(TransactionDB* /*db*/,
+                     ColumnFamilyHandle* /*column_family*/,
+                     const Slice& /*key*/)>
+      rollback_deletion_type_callback;
+
  private:
   // 128 entries
   // Should the default value change, please also update wp_snapshot_cache_bits
