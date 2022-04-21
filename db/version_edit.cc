@@ -819,8 +819,6 @@ std::string VersionEdit::DebugString(bool hex_key) const {
       // permanent
       r.append(ToString(static_cast<int>(f.temperature)));
     }
-    r.append(" marked_for_compact: %d",
-             static_cast<int>(f.marked_for_compaction));
   }
 
   for (const auto& blob_file_addition : blob_file_additions_) {
@@ -940,7 +938,6 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
         // permanent
         jw << "Temperature" << static_cast<int>(f.temperature);
       }
-      jw << "MarkedForCompact" << static_cast<int>(f.marked_for_compaction);
       jw.EndArrayedObject();
     }
 

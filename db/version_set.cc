@@ -3990,9 +3990,6 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
             files[i]->stats.num_reads_sampled.load(std::memory_order_relaxed)));
         r.append(")");
       }
-      if (files[i]->marked_for_compaction) {
-        r.append("(marked_for_compact)");
-      }
       r.append("\n");
     }
   }
