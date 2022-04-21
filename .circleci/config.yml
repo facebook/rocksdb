@@ -774,8 +774,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
-      - install-pstack
-      - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make DRIVER=./tools/run_with_pstack.sh V=1 J=4 -j4 all_but_some_tests check_some
+      - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some
       - post-steps
 
   build-linux-arm-cmake-no_test_run:
