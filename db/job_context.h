@@ -124,6 +124,14 @@ struct JobContext {
            job_snapshot != nullptr || sv_have_sth;
   }
 
+  SequenceNumber GetJobSnapshotSequence() const {
+    if (job_snapshot) {
+      assert(job_snapshot->snapshot());
+      return job_snapshot->snapshot()->GetSequenceNumber();
+    }
+    return kMaxSequenceNumber;
+  }
+
   // Structure to store information for candidate files to delete.
   struct CandidateFileInfo {
     std::string file_name;

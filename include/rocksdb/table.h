@@ -501,14 +501,15 @@ struct BlockBasedTableOptions {
 
   // RocksDB does auto-readahead for iterators on noticing more than two reads
   // for a table file if user doesn't provide readahead_size. The readahead
-  // starts at 8KB and doubles on every additional read upto
-  // max_auto_readahead_size and max_auto_readahead_size can be configured.
+  // starts at BlockBasedTableOptions.initial_auto_readahead_size (default: 8KB)
+  // and doubles on every additional read upto max_auto_readahead_size and
+  // max_auto_readahead_size can be configured.
   //
-  // Special Value: 0 - If max_auto_readahead_size is set 0 then no implicit
-  // auto prefetching will be done. If max_auto_readahead_size provided is less
-  // than 8KB (which is initial readahead size used by rocksdb in case of
-  // auto-readahead), readahead size will remain same as
-  // max_auto_readahead_size.
+  // Special Value: 0 - If max_auto_readahead_size is set 0 then it will disable
+  // the implicit auto prefetching.
+  // If max_auto_readahead_size provided is less
+  // than initial_auto_readahead_size, then RocksDB will sanitize the
+  // initial_auto_readahead_size and set it to max_auto_readahead_size.
   //
   // Value should be provided along with KB i.e. 256 * 1024 as it will prefetch
   // the blocks.
@@ -547,6 +548,35 @@ struct BlockBasedTableOptions {
 
   PrepopulateBlockCache prepopulate_block_cache =
       PrepopulateBlockCache::kDisable;
+
+  // RocksDB does auto-readahead for iterators on noticing more than two reads
+  // for a table file if user doesn't provide readahead_size. The readahead size
+  // starts at initial_auto_readahead_size and doubles on every additional read
+  // upto BlockBasedTableOptions.max_auto_readahead_size.
+  // max_auto_readahead_size can also be configured.
+  //
+  // Scenarios:
+  // - If initial_auto_readahead_size is set 0 then it will disabled the
+  //   implicit auto prefetching irrespective of max_auto_readahead_size.
+  // - If max_auto_readahead_size is set 0, it will disable the internal
+  //    prefetching irrespective of initial_auto_readahead_size.
+  // - If initial_auto_readahead_size > max_auto_readahead_size, then RocksDB
+  //   will sanitize the value of initial_auto_readahead_size to
+  //   max_auto_readahead_size and readahead_size will be
+  //   max_auto_readahead_size.
+  //
+  // Value should be provided along with KB i.e. 8 * 1024 as it will prefetch
+  // the blocks.
+  //
+  // This parameter can be changed dynamically by
+  // DB::SetOptions({{"block_based_table_factory",
+  //                  "{initial_auto_readahead_size=0;}"}}));
+  //
+  // Changing the value dynamically will only affect files opened after the
+  // change.
+  //
+  // Default: 8 KB (8 * 1024).
+  size_t initial_auto_readahead_size = 8 * 1024;
 };
 
 // Table Properties that are specific to block-based table properties.

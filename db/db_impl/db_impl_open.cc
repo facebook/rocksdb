@@ -1528,9 +1528,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           dbname_, versions_.get(), immutable_db_options_, tboptions,
           file_options_for_compaction_, cfd->table_cache(), iter.get(),
           std::move(range_del_iters), &meta, &blob_file_additions,
-          snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
-          paranoid_file_checks, cfd->internal_stats(), &io_s, io_tracer_,
-          BlobFileCreationReason::kRecovery, &event_logger_, job_id,
+          snapshot_seqs, earliest_write_conflict_snapshot, kMaxSequenceNumber,
+          snapshot_checker, paranoid_file_checks, cfd->internal_stats(), &io_s,
+          io_tracer_, BlobFileCreationReason::kRecovery, &event_logger_, job_id,
           Env::IO_HIGH, nullptr /* table_properties */, write_hint,
           nullptr /*full_history_ts_low*/, &blob_callback_);
       LogFlush(immutable_db_options_.info_log);

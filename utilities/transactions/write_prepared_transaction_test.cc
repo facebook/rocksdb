@@ -3970,6 +3970,62 @@ TEST_P(WritePreparedTransactionTest, AtomicCommit) {
   }
 }
 
+TEST_P(WritePreparedTransactionTest, BasicRollbackDeletionTypeCb) {
+  options.level0_file_num_compaction_trigger = 2;
+  // Always use SingleDelete to rollback Put.
+  txn_db_options.rollback_deletion_type_callback =
+      [](TransactionDB*, ColumnFamilyHandle*, const Slice&) { return true; };
+
+  const auto write_to_db = [&]() {
+    assert(db);
+    std::unique_ptr<Transaction> txn0(
+        db->BeginTransaction(WriteOptions(), TransactionOptions()));
+    ASSERT_OK(txn0->SetName("txn0"));
+    ASSERT_OK(txn0->Put("a", "v0"));
+    ASSERT_OK(txn0->Prepare());
+
+    // Generate sst1: [PUT('a')]
+    ASSERT_OK(db->Flush(FlushOptions()));
+
+    {
+      CompactRangeOptions cro;
+      cro.change_level = true;
+      cro.target_level = options.num_levels - 1;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      ASSERT_OK(db->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
+    }
+
+    ASSERT_OK(txn0->Rollback());
+    txn0.reset();
+
+    ASSERT_OK(db->Put(WriteOptions(), "a", "v1"));
+
+    ASSERT_OK(db->SingleDelete(WriteOptions(), "a"));
+    // Generate another SST with a SD to cover the oldest PUT('a')
+    ASSERT_OK(db->Flush(FlushOptions()));
+
+    auto* dbimpl = static_cast_with_check<DBImpl>(db->GetRootDB());
+    assert(dbimpl);
+    ASSERT_OK(dbimpl->TEST_WaitForCompact());
+
+    {
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      ASSERT_OK(db->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
+    }
+
+    {
+      std::string value;
+      const Status s = db->Get(ReadOptions(), "a", &value);
+      ASSERT_TRUE(s.IsNotFound());
+    }
+  };
+
+  // Destroy and reopen
+  ASSERT_OK(ReOpen());
+  write_to_db();
+}
+
 // Test that we can change write policy from WriteCommitted to WritePrepared
 // after a clean shutdown (which would empty the WAL)
 TEST_P(WritePreparedTransactionTest, WP_WC_DBBackwardCompatibility) {

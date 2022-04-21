@@ -28,9 +28,28 @@ uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
   return number | (path_id * (kFileNumberMask + 1));
 }
 
-void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
-                                    SequenceNumber seqno,
-                                    ValueType value_type) {
+Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
+                                      SequenceNumber seqno,
+                                      ValueType value_type) {
+  if (value_type == kTypeBlobIndex) {
+    BlobIndex blob_index;
+    const Status s = blob_index.DecodeFrom(value);
+    if (!s.ok()) {
+      return s;
+    }
+
+    if (!blob_index.IsInlined() && !blob_index.HasTTL()) {
+      if (blob_index.file_number() == kInvalidBlobFileNumber) {
+        return Status::Corruption("Invalid blob file number");
+      }
+
+      if (oldest_blob_file_number == kInvalidBlobFileNumber ||
+          oldest_blob_file_number > blob_index.file_number()) {
+        oldest_blob_file_number = blob_index.file_number();
+      }
+    }
+  }
+
   if (smallest.size() == 0) {
     smallest.DecodeFrom(key);
   }
@@ -38,32 +57,7 @@ void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
   fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
   fd.largest_seqno = std::max(fd.largest_seqno, seqno);
 
-  if (value_type == kTypeBlobIndex) {
-    BlobIndex blob_index;
-    const Status s = blob_index.DecodeFrom(value);
-    if (!s.ok()) {
-      return;
-    }
-
-    if (blob_index.IsInlined()) {
-      return;
-    }
-
-    if (blob_index.HasTTL()) {
-      return;
-    }
-
-    // Paranoid check: this should not happen because BlobDB numbers the blob
-    // files starting from 1.
-    if (blob_index.file_number() == kInvalidBlobFileNumber) {
-      return;
-    }
-
-    if (oldest_blob_file_number == kInvalidBlobFileNumber ||
-        oldest_blob_file_number > blob_index.file_number()) {
-      oldest_blob_file_number = blob_index.file_number();
-    }
-  }
+  return Status::OK();
 }
 
 void VersionEdit::Clear() {

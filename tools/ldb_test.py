@@ -393,6 +393,20 @@ class LDBTestCase(unittest.TestCase):
                                                              hex(ord('b'))),
                 "'a' seq:1, type:1 => val\nInternal keys in range: 1")
 
+    def testIDumpDecodeBlobIndex(self):
+        print("Running testIDumpDecodeBlobIndex...")
+        self.assertRunOK("put a val --create_if_missing", "OK")
+        self.assertRunOK("put b val --enable_blob_files", "OK")
+
+        # Pattern to expect from dump with decode_blob_index flag enabled.
+        regex = ".*\[blob ref\].*"
+        expected_pattern = re.compile(regex)
+        cmd = "idump %s --decode_blob_index"
+        self.assertRunOKFull((cmd)
+                             % (self.dbParam(self.DB_NAME)),
+                             expected_pattern, unexpected=False,
+                             isPattern=True)
+
     def testMiscAdminTask(self):
         print("Running testMiscAdminTask...")
         # These tests need to be improved; for example with asserts about
@@ -458,7 +472,7 @@ class LDBTestCase(unittest.TestCase):
 
         dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
         self.assertRunOK("put x1 y1 --create_if_missing", "OK")
-        self.assertRunOK("put x2 y2", "OK")
+        self.assertRunOK("put x2 y2 --enable_blob_files", "OK")
         dumpFilePath = os.path.join(self.TMP_DIR, "dump1")
         self.assertTrue(self.dumpLiveFiles("--db=%s" % dbPath, dumpFilePath))
         self.assertRunOK("delete x1", "OK")
@@ -474,7 +488,7 @@ class LDBTestCase(unittest.TestCase):
             dbPath += "/"
 
         # Call the dump_live_files function with the edited dbPath name.
-        self.assertTrue(self.dumpLiveFiles("--db=%s" % dbPath, dumpFilePath))
+        self.assertTrue(self.dumpLiveFiles("--db=%s --decode_blob_index" % dbPath, dumpFilePath))
 
         # Investigate the output
         with open(dumpFilePath, "r") as tmp:
@@ -492,6 +506,10 @@ class LDBTestCase(unittest.TestCase):
         for manifestFilename in manifestFileList:
             filenumber = re.findall(r"(?<=MANIFEST-)\d+", manifestFilename)[0]
             self.assertEqual(manifestFilename, dbPath+"MANIFEST-"+filenumber)
+
+        # Check that the blob file index is decoded.
+        decodedBlobIndex = re.findall(r"\[blob ref\]", data)
+        self.assertTrue(len(decodedBlobIndex) >= 1)
 
     def listLiveFilesMetadata(self, params, dumpFile):
         return 0 == run_err_null("./ldb list_live_files_metadata %s > %s" % (
@@ -683,16 +701,16 @@ class LDBTestCase(unittest.TestCase):
 
         dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
         self.assertRunOK("put sst1 sst1_val --create_if_missing", "OK")
-        self.assertRunOK("put sst2 sst2_val", "OK")
+        self.assertRunOK("put sst2 sst2_val --enable_blob_files", "OK")
         self.assertRunOK("get sst1", "sst1_val")
 
         # Pattern to expect from SST dump.
-        regex = ".*Sst file format:.*"
+        regex = ".*Sst file format:.*\n.*\[blob ref\].*"
         expected_pattern = re.compile(regex)
 
         sst_files = self.getSSTFiles(dbPath)
         self.assertTrue(len(sst_files) >= 1)
-        cmd = "dump --path=%s"
+        cmd = "dump --path=%s --decode_blob_index"
         self.assertRunOKFull((cmd)
                              % (sst_files[0]),
                              expected_pattern, unexpected=False,

@@ -394,7 +394,7 @@ Status WritePreparedTxnDB::NewIterators(
   return Status::OK();
 }
 
-void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
+void WritePreparedTxnDB::Init(const TransactionDBOptions& txn_db_opts) {
   // Adcance max_evicted_seq_ no more than 100 times before the cache wraps
   // around.
   INC_STEP_FOR_MAX_EVICTED =
@@ -404,6 +404,8 @@ void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
   commit_cache_ = std::unique_ptr<std::atomic<CommitEntry64b>[]>(
       new std::atomic<CommitEntry64b>[COMMIT_CACHE_SIZE] {});
   dummy_max_snapshot_.number_ = kMaxSequenceNumber;
+  rollback_deletion_type_callback_ =
+      txn_db_opts.rollback_deletion_type_callback;
 }
 
 void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max,
@@ -433,7 +435,7 @@ void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max,
       delayed_prepared_.insert(to_be_popped);
       ROCKS_LOG_WARN(info_log_,
                      "prepared_mutex_ overhead %" PRIu64 " (prep=%" PRIu64
-                     " new_max=%" PRIu64,
+                     " new_max=%" PRIu64 ")",
                      static_cast<uint64_t>(delayed_prepared_.size()),
                      to_be_popped, new_max);
       delayed_prepared_empty_.store(false, std::memory_order_release);

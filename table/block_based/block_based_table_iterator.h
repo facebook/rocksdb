@@ -35,7 +35,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         pinned_iters_mgr_(nullptr),
         prefix_extractor_(prefix_extractor),
         lookup_context_(caller),
-        block_prefetcher_(compaction_readahead_size),
+        block_prefetcher_(
+            compaction_readahead_size,
+            table_->get_rep()->table_options.initial_auto_readahead_size),
         allow_unprepared_value_(allow_unprepared_value),
         block_iter_points_to_real_block_(false),
         check_filter_(check_filter),

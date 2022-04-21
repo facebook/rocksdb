@@ -1796,6 +1796,54 @@ TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
   ASSERT_EQ(std::atoi(prop.c_str()), 0);
 }
 
+TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevel) {
+  Options options = GetDefaultOptions();
+
+  std::string file_path = sst_files_dir_ + ToString(1);
+  SstFileWriter sfw(EnvOptions(), options);
+
+  ASSERT_OK(sfw.Open(file_path));
+  ASSERT_OK(sfw.Put("b", "dontcare"));
+  ASSERT_OK(sfw.Finish());
+
+  // Test universal compaction + ingest with snapshot consistency
+  options.create_if_missing = true;
+  options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  DestroyAndReopen(options);
+  {
+    const Snapshot* snapshot = db_->GetSnapshot();
+    ManagedSnapshot snapshot_guard(db_, snapshot);
+    IngestExternalFileOptions ifo;
+    ifo.fail_if_not_bottommost_level = true;
+    ifo.snapshot_consistency = true;
+    const Status s = db_->IngestExternalFile({file_path}, ifo);
+    ASSERT_TRUE(s.IsTryAgain());
+  }
+
+  // Test level compaction
+  options.compaction_style = CompactionStyle::kCompactionStyleLevel;
+  options.num_levels = 2;
+  DestroyAndReopen(options);
+  ASSERT_OK(db_->Put(WriteOptions(), "a", "dontcare"));
+  ASSERT_OK(db_->Put(WriteOptions(), "c", "dontcare"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  ASSERT_OK(db_->Put(WriteOptions(), "b", "dontcare"));
+  ASSERT_OK(db_->Put(WriteOptions(), "d", "dontcare"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  {
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+    IngestExternalFileOptions ifo;
+    ifo.fail_if_not_bottommost_level = true;
+    const Status s = db_->IngestExternalFile({file_path}, ifo);
+    ASSERT_TRUE(s.IsTryAgain());
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
                         testing::Values(std::make_tuple(true, true),
                                         std::make_tuple(true, false),
