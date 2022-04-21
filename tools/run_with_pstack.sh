@@ -12,7 +12,4 @@ trap 'trap - SIGTERM && jobs -p | xargs printf -- "-%s " | xargs kill --' SIGINT
 "$@" &
 test_pid=$!
 while true; do sleep 60; pstack $test_pid; done &
-loop_pid=$!
 wait $test_pid
-test_ret=$?
-exit $test_ret
