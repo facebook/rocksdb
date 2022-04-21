@@ -8,7 +8,7 @@ set -m
 # For cleaning up background jobs on exit (adapted from
 # https://stackoverflow.com/a/2173421).
 # Negating the PIDs passed to kill causes the whole process group to be killed.
-trap 'trap - TERM && jobs -p | xargs printf -- "-%s " | xargs kill --' INT TERM EXIT
+trap 'trap - TERM && pkill -g $(jobs -p)' INT TERM EXIT
 
 "$@" &
 test_pid=$!
