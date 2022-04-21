@@ -7,7 +7,7 @@
 set -m
 # For cleaning up background loop on exit (adapted from
 # https://stackoverflow.com/a/2173421).
-trap 'trap - SIGTERM && pkill -g $(jobs -p)' SIGINT SIGTERM EXIT
+trap 'trap - SIGTERM && jobs -p | xargs printf -- "-%s " | xargs kill --' SIGINT SIGTERM EXIT
 
 "$@" &
 test_pid=$!
