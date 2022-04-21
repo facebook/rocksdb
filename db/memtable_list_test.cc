@@ -124,7 +124,7 @@ class MemTableListTest : public testing::Test {
     std::list<std::unique_ptr<FlushJobInfo>> flush_jobs_info;
     Status s = list->TryInstallMemtableFlushResults(
         cfd, mutable_cf_options, m, &dummy_prep_tracker, &versions, &mutex,
-        file_num, to_delete, nullptr, &log_buffer, &flush_jobs_info, &io_s);
+        file_num, to_delete, nullptr, &log_buffer, &flush_jobs_info);
     EXPECT_OK(io_s);
     return s;
   }
@@ -344,7 +344,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   // Create MemTableList
   int min_write_buffer_number_to_merge = 2;
   int max_write_buffer_number_to_maintain = 2;
-  int64_t max_write_buffer_size_to_maintain = 2000;
+  int64_t max_write_buffer_size_to_maintain = 2 * Arena::kInlineSize;
   MemTableList list(min_write_buffer_number_to_merge,
                     max_write_buffer_number_to_maintain,
                     max_write_buffer_size_to_maintain);

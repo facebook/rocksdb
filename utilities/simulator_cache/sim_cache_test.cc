@@ -177,23 +177,21 @@ TEST_F(SimCacheTest, SimCacheLogging) {
 
   std::string file_contents = "";
   ASSERT_OK(ReadFileToString(env_, log_file, &file_contents));
+  std::istringstream contents(file_contents);
 
   int lookup_num = 0;
   int add_num = 0;
-  std::string::size_type pos;
 
-  // count number of lookups
-  pos = 0;
-  while ((pos = file_contents.find("LOOKUP -", pos)) != std::string::npos) {
-    ++lookup_num;
-    pos += 1;
-  }
-
-  // count number of additions
-  pos = 0;
-  while ((pos = file_contents.find("ADD -", pos)) != std::string::npos) {
-    ++add_num;
-    pos += 1;
+  std::string line;
+  // count number of lookups and additions
+  while (std::getline(contents, line)) {
+    // check if the line starts with LOOKUP or ADD
+    if (line.rfind("LOOKUP -", 0) == 0) {
+      ++lookup_num;
+    }
+    if (line.rfind("ADD -", 0) == 0) {
+      ++add_num;
+    }
   }
 
   // We asked for every block twice

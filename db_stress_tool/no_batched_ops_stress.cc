@@ -21,6 +21,8 @@ class NonBatchedOpsStressTest : public StressTest {
   virtual ~NonBatchedOpsStressTest() {}
 
   void VerifyDb(ThreadState* thread) const override {
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions options(FLAGS_verify_checksum, true);
     std::string ts_str;
     Slice ts;
@@ -179,6 +181,8 @@ class NonBatchedOpsStressTest : public StressTest {
 
   bool ShouldAcquireMutexOnKey() const override { return true; }
 
+  bool IsStateTracked() const override { return true; }
+
   Status TestGet(ThreadState* thread, const ReadOptions& read_opts,
                  const std::vector<int>& rand_column_families,
                  const std::vector<int64_t>& rand_keys) override {
@@ -267,6 +271,9 @@ class NonBatchedOpsStressTest : public StressTest {
     Transaction* txn = nullptr;
     if (use_txn) {
       WriteOptions wo;
+      if (FLAGS_rate_limit_auto_wal_flush) {
+        wo.rate_limiter_priority = Env::IO_USER;
+      }
       Status s = NewTxn(wo, &txn);
       if (!s.ok()) {
         fprintf(stderr, "NewTxn: %s\n", s.ToString().c_str());
@@ -498,8 +505,11 @@ class NonBatchedOpsStressTest : public StressTest {
       if (FLAGS_user_timestamp_size > 0) {
         write_ts_str = NowNanosStr();
         write_ts = write_ts_str;
-        write_opts.timestamp = &write_ts;
       }
+    }
+    if (write_ts.size() == 0 && FLAGS_user_timestamp_size) {
+      write_ts_str = NowNanosStr();
+      write_ts = write_ts_str;
     }
 
     std::string key_str = Key(rand_key);
@@ -538,7 +548,11 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     } else {
       if (!FLAGS_use_txn) {
-        s = db_->Put(write_opts, cfh, key, v);
+        if (FLAGS_user_timestamp_size == 0) {
+          s = db_->Put(write_opts, cfh, key, v);
+        } else {
+          s = db_->Put(write_opts, cfh, key, write_ts, v);
+        }
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;
@@ -597,8 +611,11 @@ class NonBatchedOpsStressTest : public StressTest {
       if (FLAGS_user_timestamp_size > 0) {
         write_ts_str = NowNanosStr();
         write_ts = write_ts_str;
-        write_opts.timestamp = &write_ts;
       }
+    }
+    if (write_ts.size() == 0 && FLAGS_user_timestamp_size) {
+      write_ts_str = NowNanosStr();
+      write_ts = write_ts_str;
     }
 
     std::string key_str = Key(rand_key);
@@ -611,7 +628,11 @@ class NonBatchedOpsStressTest : public StressTest {
     if (shared->AllowsOverwrite(rand_key)) {
       shared->Delete(rand_column_family, rand_key, true /* pending */);
       if (!FLAGS_use_txn) {
-        s = db_->Delete(write_opts, cfh, key);
+        if (FLAGS_user_timestamp_size == 0) {
+          s = db_->Delete(write_opts, cfh, key);
+        } else {
+          s = db_->Delete(write_opts, cfh, key, write_ts);
+        }
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;
@@ -644,7 +665,11 @@ class NonBatchedOpsStressTest : public StressTest {
     } else {
       shared->SingleDelete(rand_column_family, rand_key, true /* pending */);
       if (!FLAGS_use_txn) {
-        s = db_->SingleDelete(write_opts, cfh, key);
+        if (FLAGS_user_timestamp_size == 0) {
+          s = db_->SingleDelete(write_opts, cfh, key);
+        } else {
+          s = db_->SingleDelete(write_opts, cfh, key, write_ts);
+        }
       } else {
 #ifndef ROCKSDB_LITE
         Transaction* txn;

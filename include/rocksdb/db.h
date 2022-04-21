@@ -277,6 +277,19 @@ class DB {
       const std::string& input, std::string* output,
       const CompactionServiceOptionsOverride& override_options);
 
+  // Experimental and subject to change
+  // Open DB and trim data newer than specified timestamp.
+  // The trim_ts specified the user-defined timestamp trim bound.
+  // This API should only be used at timestamp enabled column families recovery.
+  // If some input column families do not support timestamp, nothing will
+  // be happened to them. The data with timestamp > trim_ts
+  // will be removed after this API returns successfully.
+  static Status OpenAndTrimHistory(
+      const DBOptions& db_options, const std::string& dbname,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+      std::string trim_ts);
+
   virtual Status Resume() { return Status::NotSupported(); }
 
   // Close the DB by releasing resources, closing files etc. This should be
@@ -346,10 +359,11 @@ class DB {
   virtual Status DropColumnFamilies(
       const std::vector<ColumnFamilyHandle*>& column_families);
 
-  // Close a column family specified by column_family handle and destroy
-  // the column family handle specified to avoid double deletion. This call
-  // deletes the column family handle by default. Use this method to
-  // close column family instead of deleting column family handle directly
+  // Release and deallocate a column family handle. A column family is only
+  // removed once it is dropped (DropColumnFamily) and all handles have been
+  // destroyed (DestroyColumnFamilyHandle). Use this method to destroy
+  // column family handles (except for DefaultColumnFamily()!) before closing
+  // a DB.
   virtual Status DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family);
 
   // Set the database entry for "key" to "value".
@@ -359,9 +373,16 @@ class DB {
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value) = 0;
+  virtual Status Put(const WriteOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     const Slice& ts, const Slice& value) = 0;
   virtual Status Put(const WriteOptions& options, const Slice& key,
                      const Slice& value) {
     return Put(options, DefaultColumnFamily(), key, value);
+  }
+  virtual Status Put(const WriteOptions& options, const Slice& key,
+                     const Slice& ts, const Slice& value) {
+    return Put(options, DefaultColumnFamily(), key, ts, value);
   }
 
   // Remove the database entry (if any) for "key".  Returns OK on
@@ -371,8 +392,15 @@ class DB {
   virtual Status Delete(const WriteOptions& options,
                         ColumnFamilyHandle* column_family,
                         const Slice& key) = 0;
+  virtual Status Delete(const WriteOptions& options,
+                        ColumnFamilyHandle* column_family, const Slice& key,
+                        const Slice& ts) = 0;
   virtual Status Delete(const WriteOptions& options, const Slice& key) {
     return Delete(options, DefaultColumnFamily(), key);
+  }
+  virtual Status Delete(const WriteOptions& options, const Slice& key,
+                        const Slice& ts) {
+    return Delete(options, DefaultColumnFamily(), key, ts);
   }
 
   // Remove the database entry for "key". Requires that the key exists
@@ -394,8 +422,15 @@ class DB {
   virtual Status SingleDelete(const WriteOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice& key) = 0;
+  virtual Status SingleDelete(const WriteOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice& key, const Slice& ts) = 0;
   virtual Status SingleDelete(const WriteOptions& options, const Slice& key) {
     return SingleDelete(options, DefaultColumnFamily(), key);
+  }
+  virtual Status SingleDelete(const WriteOptions& options, const Slice& key,
+                              const Slice& ts) {
+    return SingleDelete(options, DefaultColumnFamily(), key, ts);
   }
 
   // Removes the database entries in the range ["begin_key", "end_key"), i.e.,
@@ -406,6 +441,10 @@ class DB {
   // If "end_key" comes before "start_key" according to the user's comparator,
   // a `Status::InvalidArgument` is returned.
   //
+  // WARNING: Do not use `Iterator::Refresh()` API on DBs where `DeleteRange()`
+  // has been used or will be used. This feature combination is neither
+  // supported nor programmatically prevented.
+  //
   // This feature is now usable in production, with the following caveats:
   // 1) Accumulating many range tombstones in the memtable will degrade read
   // performance; this can be avoided by manually flushing occasionally.
@@ -415,6 +454,13 @@ class DB {
   virtual Status DeleteRange(const WriteOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key);
+  virtual Status DeleteRange(const WriteOptions& /*options*/,
+                             ColumnFamilyHandle* /*column_family*/,
+                             const Slice& /*begin_key*/,
+                             const Slice& /*end_key*/, const Slice& /*ts*/) {
+    return Status::NotSupported(
+        "DeleteRange does not support user-defined timestamp yet");
+  }
 
   // Merge the database entry for "key" with "value".  Returns OK on success,
   // and a non-OK status on error. The semantics of this operation is
@@ -426,6 +472,13 @@ class DB {
   virtual Status Merge(const WriteOptions& options, const Slice& key,
                        const Slice& value) {
     return Merge(options, DefaultColumnFamily(), key, value);
+  }
+  virtual Status Merge(const WriteOptions& /*options*/,
+                       ColumnFamilyHandle* /*column_family*/,
+                       const Slice& /*key*/, const Slice& /*ts*/,
+                       const Slice& /*value*/) {
+    return Status::NotSupported(
+        "Merge does not support user-defined timestamp yet");
   }
 
   // Apply the specified updates to the database.
@@ -743,7 +796,7 @@ class DB {
   // snapshot is no longer needed.
   //
   // nullptr will be returned if the DB fails to take a snapshot or does
-  // not support snapshot.
+  // not support snapshot (eg: inplace_update_support enabled).
   virtual const Snapshot* GetSnapshot() = 0;
 
   // Release a previously acquired snapshot.  The caller must not
@@ -1077,7 +1130,7 @@ class DB {
 
   // Flags for DB::GetSizeApproximation that specify whether memtable
   // stats should be included, or file stats approximation or both
-  enum SizeApproximationFlags : uint8_t {
+  enum class SizeApproximationFlags : uint8_t {
     NONE = 0,
     INCLUDE_MEMTABLES = 1 << 0,
     INCLUDE_FILES = 1 << 1
@@ -1101,17 +1154,13 @@ class DB {
   virtual Status GetApproximateSizes(ColumnFamilyHandle* column_family,
                                      const Range* ranges, int n,
                                      uint64_t* sizes,
-                                     uint8_t include_flags = INCLUDE_FILES) {
-    SizeApproximationOptions options;
-    options.include_memtabtles =
-        (include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) != 0;
-    options.include_files =
-        (include_flags & SizeApproximationFlags::INCLUDE_FILES) != 0;
-    return GetApproximateSizes(options, column_family, ranges, n, sizes);
-  }
-  virtual Status GetApproximateSizes(const Range* ranges, int n,
-                                     uint64_t* sizes,
-                                     uint8_t include_flags = INCLUDE_FILES) {
+                                     SizeApproximationFlags include_flags =
+                                         SizeApproximationFlags::INCLUDE_FILES);
+
+  virtual Status GetApproximateSizes(
+      const Range* ranges, int n, uint64_t* sizes,
+      SizeApproximationFlags include_flags =
+          SizeApproximationFlags::INCLUDE_FILES) {
     return GetApproximateSizes(DefaultColumnFamily(), ranges, n, sizes,
                                include_flags);
   }
@@ -1126,25 +1175,6 @@ class DB {
                                            uint64_t* const count,
                                            uint64_t* const size) {
     GetApproximateMemTableStats(DefaultColumnFamily(), range, count, size);
-  }
-
-  // Deprecated versions of GetApproximateSizes
-  ROCKSDB_DEPRECATED_FUNC virtual void GetApproximateSizes(
-      const Range* range, int n, uint64_t* sizes, bool include_memtable) {
-    uint8_t include_flags = SizeApproximationFlags::INCLUDE_FILES;
-    if (include_memtable) {
-      include_flags |= SizeApproximationFlags::INCLUDE_MEMTABLES;
-    }
-    GetApproximateSizes(DefaultColumnFamily(), range, n, sizes, include_flags);
-  }
-  ROCKSDB_DEPRECATED_FUNC virtual void GetApproximateSizes(
-      ColumnFamilyHandle* column_family, const Range* range, int n,
-      uint64_t* sizes, bool include_memtable) {
-    uint8_t include_flags = SizeApproximationFlags::INCLUDE_FILES;
-    if (include_memtable) {
-      include_flags |= SizeApproximationFlags::INCLUDE_MEMTABLES;
-    }
-    GetApproximateSizes(column_family, range, n, sizes, include_flags);
   }
 
   // Compact the underlying storage for the key range [*begin,*end].
@@ -1174,27 +1204,10 @@ class DB {
     return CompactRange(options, DefaultColumnFamily(), begin, end);
   }
 
-  ROCKSDB_DEPRECATED_FUNC virtual Status CompactRange(
-      ColumnFamilyHandle* column_family, const Slice* begin, const Slice* end,
-      bool change_level = false, int target_level = -1,
-      uint32_t target_path_id = 0) {
-    CompactRangeOptions options;
-    options.change_level = change_level;
-    options.target_level = target_level;
-    options.target_path_id = target_path_id;
-    return CompactRange(options, column_family, begin, end);
-  }
-
-  ROCKSDB_DEPRECATED_FUNC virtual Status CompactRange(
-      const Slice* begin, const Slice* end, bool change_level = false,
-      int target_level = -1, uint32_t target_path_id = 0) {
-    CompactRangeOptions options;
-    options.change_level = change_level;
-    options.target_level = target_level;
-    options.target_path_id = target_path_id;
-    return CompactRange(options, DefaultColumnFamily(), begin, end);
-  }
-
+  // TODO: documentation needed
+  // NOTE: SetOptions is intended only for expert users, and does not apply the
+  // same sanitization to options as the standard DB::Open code path does. Use
+  // with caution.
   virtual Status SetOptions(
       ColumnFamilyHandle* /*column_family*/,
       const std::unordered_map<std::string, std::string>& /*new_options*/) {
@@ -1346,18 +1359,19 @@ class DB {
   // The sequence number of the most recent transaction.
   virtual SequenceNumber GetLatestSequenceNumber() const = 0;
 
-  // Instructs DB to preserve deletes with sequence numbers >= passed seqnum.
-  // Has no effect if DBOptions.preserve_deletes is set to false.
-  // This function assumes that user calls this function with monotonically
-  // increasing seqnums (otherwise we can't guarantee that a particular delete
-  // hasn't been already processed); returns true if the value was successfully
-  // updated, false if user attempted to call if with seqnum <= current value.
-  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) = 0;
-
   // Prevent file deletions. Compactions will continue to occur,
   // but no obsolete files will be deleted. Calling this multiple
   // times have the same effect as calling it once.
   virtual Status DisableFileDeletions() = 0;
+
+  // Increase the full_history_ts of column family. The new ts_low value should
+  // be newer than current full_history_ts value.
+  virtual Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                          std::string ts_low) = 0;
+
+  // Get current full_history_ts value.
+  virtual Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
+                                     std::string* ts_low) = 0;
 
   // Allow compactions to delete obsolete files.
   // If force == true, the call to EnableFileDeletions() will guarantee that
@@ -1559,108 +1573,6 @@ class DB {
 
   virtual Status VerifyChecksum() { return VerifyChecksum(ReadOptions()); }
 
-  // AddFile() is deprecated, please use IngestExternalFile()
-  ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
-      ColumnFamilyHandle* column_family,
-      const std::vector<std::string>& file_path_list, bool move_file = false,
-      bool skip_snapshot_check = false) {
-    IngestExternalFileOptions ifo;
-    ifo.move_files = move_file;
-    ifo.snapshot_consistency = !skip_snapshot_check;
-    ifo.allow_global_seqno = false;
-    ifo.allow_blocking_flush = false;
-    return IngestExternalFile(column_family, file_path_list, ifo);
-  }
-
-  ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
-      const std::vector<std::string>& file_path_list, bool move_file = false,
-      bool skip_snapshot_check = false) {
-    IngestExternalFileOptions ifo;
-    ifo.move_files = move_file;
-    ifo.snapshot_consistency = !skip_snapshot_check;
-    ifo.allow_global_seqno = false;
-    ifo.allow_blocking_flush = false;
-    return IngestExternalFile(DefaultColumnFamily(), file_path_list, ifo);
-  }
-
-  // AddFile() is deprecated, please use IngestExternalFile()
-  ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
-      ColumnFamilyHandle* column_family, const std::string& file_path,
-      bool move_file = false, bool skip_snapshot_check = false) {
-    IngestExternalFileOptions ifo;
-    ifo.move_files = move_file;
-    ifo.snapshot_consistency = !skip_snapshot_check;
-    ifo.allow_global_seqno = false;
-    ifo.allow_blocking_flush = false;
-    return IngestExternalFile(column_family, {file_path}, ifo);
-  }
-
-  ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
-      const std::string& file_path, bool move_file = false,
-      bool skip_snapshot_check = false) {
-    IngestExternalFileOptions ifo;
-    ifo.move_files = move_file;
-    ifo.snapshot_consistency = !skip_snapshot_check;
-    ifo.allow_global_seqno = false;
-    ifo.allow_blocking_flush = false;
-    return IngestExternalFile(DefaultColumnFamily(), {file_path}, ifo);
-  }
-
-  // Load table file with information "file_info" into "column_family"
-  ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
-      ColumnFamilyHandle* column_family,
-      const std::vector<ExternalSstFileInfo>& file_info_list,
-      bool move_file = false, bool skip_snapshot_check = false) {
-    std::vector<std::string> external_files;
-    for (const ExternalSstFileInfo& file_info : file_info_list) {
-      external_files.push_back(file_info.file_path);
-    }
-    IngestExternalFileOptions ifo;
-    ifo.move_files = move_file;
-    ifo.snapshot_consistency = !skip_snapshot_check;
-    ifo.allow_global_seqno = false;
-    ifo.allow_blocking_flush = false;
-    return IngestExternalFile(column_family, external_files, ifo);
-  }
-
-  ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
-      const std::vector<ExternalSstFileInfo>& file_info_list,
-      bool move_file = false, bool skip_snapshot_check = false) {
-    std::vector<std::string> external_files;
-    for (const ExternalSstFileInfo& file_info : file_info_list) {
-      external_files.push_back(file_info.file_path);
-    }
-    IngestExternalFileOptions ifo;
-    ifo.move_files = move_file;
-    ifo.snapshot_consistency = !skip_snapshot_check;
-    ifo.allow_global_seqno = false;
-    ifo.allow_blocking_flush = false;
-    return IngestExternalFile(DefaultColumnFamily(), external_files, ifo);
-  }
-
-  ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
-      ColumnFamilyHandle* column_family, const ExternalSstFileInfo* file_info,
-      bool move_file = false, bool skip_snapshot_check = false) {
-    IngestExternalFileOptions ifo;
-    ifo.move_files = move_file;
-    ifo.snapshot_consistency = !skip_snapshot_check;
-    ifo.allow_global_seqno = false;
-    ifo.allow_blocking_flush = false;
-    return IngestExternalFile(column_family, {file_info->file_path}, ifo);
-  }
-
-  ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
-      const ExternalSstFileInfo* file_info, bool move_file = false,
-      bool skip_snapshot_check = false) {
-    IngestExternalFileOptions ifo;
-    ifo.move_files = move_file;
-    ifo.snapshot_consistency = !skip_snapshot_check;
-    ifo.allow_global_seqno = false;
-    ifo.allow_blocking_flush = false;
-    return IngestExternalFile(DefaultColumnFamily(), {file_info->file_path},
-                              ifo);
-  }
-
 #endif  // ROCKSDB_LITE
 
   // Returns the unique ID which is read from IDENTITY file during the opening
@@ -1791,6 +1703,32 @@ class DB {
   // Remove any pluggable compaction
   virtual void UnRegisterPluggableCompactionService() {}
 };
+
+// Overloaded operators for enum class SizeApproximationFlags.
+inline DB::SizeApproximationFlags operator&(DB::SizeApproximationFlags lhs,
+                                            DB::SizeApproximationFlags rhs) {
+  return static_cast<DB::SizeApproximationFlags>(static_cast<uint8_t>(lhs) &
+                                                 static_cast<uint8_t>(rhs));
+}
+inline DB::SizeApproximationFlags operator|(DB::SizeApproximationFlags lhs,
+                                            DB::SizeApproximationFlags rhs) {
+  return static_cast<DB::SizeApproximationFlags>(static_cast<uint8_t>(lhs) |
+                                                 static_cast<uint8_t>(rhs));
+}
+
+inline Status DB::GetApproximateSizes(ColumnFamilyHandle* column_family,
+                                      const Range* ranges, int n,
+                                      uint64_t* sizes,
+                                      SizeApproximationFlags include_flags) {
+  SizeApproximationOptions options;
+  options.include_memtables =
+      ((include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) !=
+       SizeApproximationFlags::NONE);
+  options.include_files =
+      ((include_flags & SizeApproximationFlags::INCLUDE_FILES) !=
+       SizeApproximationFlags::NONE);
+  return GetApproximateSizes(options, column_family, ranges, n, sizes);
+}
 
 // Destroy the contents of the specified database.
 // Be very careful using this method.

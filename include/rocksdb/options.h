@@ -66,6 +66,10 @@ using FileTypeSet = SmallEnumSet<FileType, FileType::kBlobFile>;
 struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // The function recovers options to a previous version. Only 4.6 or later
   // versions are supported.
+  // NOT MAINTAINED: This function has not been and is not maintained.
+  // DEPRECATED: This function might be removed in a future release.
+  // In general, defaults are changed to suit broad interests. Opting
+  // out of a change on upgrade should be deliberate and considered.
   ColumnFamilyOptions* OldDefaults(int rocksdb_major_version = 4,
                                    int rocksdb_minor_version = 6);
 
@@ -407,42 +411,20 @@ class CompactionService : public Customizable {
   // Returns the name of this compaction service.
   const char* Name() const override = 0;
 
-  // Start the compaction with input information, which can be passed to
-  // `DB::OpenAndCompact()`.
-  // job_id is pre-assigned, it will be reset after DB re-open.
-  // Warning: deprecated, please use the new interface
-  // `StartV2(CompactionServiceJobInfo, ...)` instead.
-  virtual CompactionServiceJobStatus Start(
-      const std::string& /*compaction_service_input*/, uint64_t /*job_id*/) {
-    return CompactionServiceJobStatus::kUseLocal;
-  }
-
   // Start the remote compaction with `compaction_service_input`, which can be
   // passed to `DB::OpenAndCompact()` on the remote side. `info` provides the
   // information the user might want to know, which includes `job_id`.
   virtual CompactionServiceJobStatus StartV2(
-      const CompactionServiceJobInfo& info,
-      const std::string& compaction_service_input) {
-    // Default implementation to call legacy interface, please override and
-    // replace the legacy implementation
-    return Start(compaction_service_input, info.job_id);
-  }
-
-  // Wait compaction to be finish.
-  // Warning: deprecated, please use the new interface
-  // `WaitForCompleteV2(CompactionServiceJobInfo, ...)` instead.
-  virtual CompactionServiceJobStatus WaitForComplete(
-      uint64_t /*job_id*/, std::string* /*compaction_service_result*/) {
+      const CompactionServiceJobInfo& /*info*/,
+      const std::string& /*compaction_service_input*/) {
     return CompactionServiceJobStatus::kUseLocal;
   }
 
   // Wait for remote compaction to finish.
   virtual CompactionServiceJobStatus WaitForCompleteV2(
-      const CompactionServiceJobInfo& info,
-      std::string* compaction_service_result) {
-    // Default implementation to call legacy interface, please override and
-    // replace the legacy implementation
-    return WaitForComplete(info.job_id, compaction_service_result);
+      const CompactionServiceJobInfo& /*info*/,
+      std::string* /*compaction_service_result*/) {
+    return CompactionServiceJobStatus::kUseLocal;
   }
 
   ~CompactionService() override = default;
@@ -450,6 +432,10 @@ class CompactionService : public Customizable {
 
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
+  // NOT MAINTAINED: This function has not been and is not maintained.
+  // DEPRECATED: This function might be removed in a future release.
+  // In general, defaults are changed to suit broad interests. Opting
+  // out of a change on upgrade should be deliberate and considered.
   DBOptions* OldDefaults(int rocksdb_major_version = 4,
                          int rocksdb_minor_version = 6);
 
@@ -514,9 +500,18 @@ struct DBOptions {
   // Default: Env::Default()
   Env* env = Env::Default();
 
-  // Use to control write rate of flush and compaction. Flush has higher
-  // priority than compaction. Rate limiting is disabled if nullptr.
-  // If rate limiter is enabled, bytes_per_sync is set to 1MB by default.
+  // Limits internal file read/write bandwidth:
+  //
+  // - Flush requests write bandwidth at `Env::IOPriority::IO_HIGH`
+  // - Compaction requests read and write bandwidth at
+  //   `Env::IOPriority::IO_LOW`
+  // - Reads associated with a `ReadOptions` can be charged at
+  //   `ReadOptions::rate_limiter_priority` (see that option's API doc for usage
+  //   and limitations).
+  //
+  // Rate limiting is disabled if nullptr. If rate limiter is enabled,
+  // bytes_per_sync is set to 1MB by default.
+  //
   // Default: nullptr
   std::shared_ptr<RateLimiter> rate_limiter = nullptr;
 
@@ -658,12 +653,6 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   int max_background_jobs = 2;
 
-  // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
-  // value of max_background_jobs. This option is ignored.
-  //
-  // Dynamically changeable through SetDBOptions() API.
-  int base_background_compactions = -1;
-
   // DEPRECATED: RocksDB automatically decides this based on the
   // value of max_background_jobs. For backwards compatibility we will set
   // `max_background_jobs = max_background_compactions + max_background_flushes`
@@ -749,9 +738,6 @@ struct DBOptions {
   // Number of shards used for table cache.
   int table_cache_numshardbits = 6;
 
-  // NOT SUPPORTED ANYMORE
-  // int table_cache_remove_scan_count_limit;
-
   // The following two fields affect how archived logs will be deleted.
   // 1. If both set to 0, logs will be deleted asap and will not get into
   //    the archive.
@@ -773,7 +759,9 @@ struct DBOptions {
   // large amounts of data (such as xfs's allocsize option).
   size_t manifest_preallocation_size = 4 * 1024 * 1024;
 
-  // Allow the OS to mmap file for reading sst tables. Default: false
+  // Allow the OS to mmap file for reading sst tables.
+  // Not recommended for 32-bit OS.
+  // Default: false
   bool allow_mmap_reads = false;
 
   // Allow the OS to mmap file for writing.
@@ -790,7 +778,6 @@ struct DBOptions {
   // be used. Memory mapped files are not impacted by these parameters.
 
   // Use O_DIRECT for user and compaction reads.
-  // When true, we also force new_table_reader_for_compaction_inputs to true.
   // Default: false
   // Not supported in ROCKSDB_LITE mode!
   bool use_direct_reads = false;
@@ -813,9 +800,6 @@ struct DBOptions {
 
   // Disable child process inherit open files. Default: true
   bool is_fd_close_on_exec = true;
-
-  // NOT SUPPORTED ANYMORE -- this options is no longer used
-  bool skip_log_error_on_recovery = false;
 
   // if not zero, dump rocksdb.stats to LOG every stats_dump_period_sec
   //
@@ -901,26 +885,9 @@ struct DBOptions {
   enum AccessHint { NONE, NORMAL, SEQUENTIAL, WILLNEED };
   AccessHint access_hint_on_compaction_start = NORMAL;
 
-  // If true, always create a new file descriptor and new table reader
-  // for compaction inputs. Turn this parameter on may introduce extra
-  // memory usage in the table reader, if it allocates extra memory
-  // for indexes. This will allow file descriptor prefetch options
-  // to be set for compaction input files and not to impact file
-  // descriptors for the same file used by user queries.
-  // Suggest to enable BlockBasedTableOptions.cache_index_and_filter_blocks
-  // for this mode if using block-based table.
-  //
-  // Default: false
-  // This flag has no affect on the behavior of compaction and plan to delete
-  // in the future.
-  bool new_table_reader_for_compaction_inputs = false;
-
   // If non-zero, we perform bigger reads when doing compaction. If you're
   // running RocksDB on spinning disks, you should set this to at least 2MB.
   // That way RocksDB's compaction is doing sequential instead of random reads.
-  //
-  // When non-zero, we also force new_table_reader_for_compaction_inputs to
-  // true.
   //
   // Default: 0
   //
@@ -1214,11 +1181,6 @@ struct DBOptions {
   // Immutable.
   bool allow_ingest_behind = false;
 
-  // Deprecated, will be removed in a future release.
-  // Please try using user-defined timestamp instead.
-  // DEFAULT: false
-  bool preserve_deletes = false;
-
   // If enabled it uses two queues for writes, one for the ones with
   // disable_memtable and one for the ones that also write to memtable. This
   // allows the memtable writes not to lag behind other writes. It can be used
@@ -1230,6 +1192,12 @@ struct DBOptions {
   // relies on manual invocation of FlushWAL to write the WAL buffer to its
   // file.
   bool manual_wal_flush = false;
+
+  // This feature is WORK IN PROGRESS
+  // If enabled WAL records will be compressed before they are written.
+  // Only zstd is supported. Compressed WAL records will be read in supported
+  // versions regardless of the wal_compression settings.
+  CompressionType wal_compression = kNoCompression;
 
   // If true, RocksDB supports flushing multiple column families and committing
   // their results atomically to MANIFEST. Note that it is not
@@ -1378,7 +1346,11 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
           const ColumnFamilyOptions& column_family_options)
       : DBOptions(db_options), ColumnFamilyOptions(column_family_options) {}
 
-  // The function recovers options to the option as in version 4.6.
+  // Change to some default settings from an older version.
+  // NOT MAINTAINED: This function has not been and is not maintained.
+  // DEPRECATED: This function might be removed in a future release.
+  // In general, defaults are changed to suit broad interests. Opting
+  // out of a change on upgrade should be deliberate and considered.
   Options* OldDefaults(int rocksdb_major_version = 4,
                        int rocksdb_minor_version = 6);
 
@@ -1401,6 +1373,12 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
   // Use this if your DB is very small (like under 1GB) and you don't want to
   // spend lots of memory for memtables.
   Options* OptimizeForSmallDb();
+
+  // Disable some checks that should not be necessary in the absence of
+  // software logic errors or CPU+memory hardware errors. This can improve
+  // write speeds but is only recommended for temporary use. Does not
+  // change protection against corrupt storage (e.g. verify_checksums).
+  Options* DisableExtraChecks();
 };
 
 //
@@ -1512,8 +1490,7 @@ struct ReadOptions {
   // used in the table. Some table format (e.g. plain table) may not support
   // this option.
   // If true when calling Get(), we also skip prefix bloom when reading from
-  // block based table. It provides a way to read existing data after
-  // changing implementation of prefix extractor.
+  // block based table, which only affects Get() performance.
   // Default: false
   bool total_order_seek;
 
@@ -1562,11 +1539,6 @@ struct ReadOptions {
   // no impact on point lookups.
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
-
-  // Deprecated, will be removed in a future release.
-  // Please try using user-defined timestamp instead.
-  // Default: 0 (don't filter by seqnum, return user keys)
-  SequenceNumber iter_start_seqnum;
 
   // Timestamp of operation. Read should return the latest data visible to the
   // specified timestamp. All timestamps of the same database must be of the
@@ -1618,6 +1590,35 @@ struct ReadOptions {
   //
   // Default: false
   bool adaptive_readahead;
+
+  // For file reads associated with this option, charge the internal rate
+  // limiter (see `DBOptions::rate_limiter`) at the specified priority. The
+  // special value `Env::IO_TOTAL` disables charging the rate limiter.
+  //
+  // The rate limiting is bypassed no matter this option's value for file reads
+  // on plain tables (these can exist when `ColumnFamilyOptions::table_factory`
+  // is a `PlainTableFactory`) and cuckoo tables (these can exist when
+  // `ColumnFamilyOptions::table_factory` is a `CuckooTableFactory`).
+  //
+  // The new `DB::MultiGet()` APIs (i.e., the ones returning `void`) will return
+  // `Status::NotSupported` when that operation requires file read(s) and
+  // `rate_limiter_priority != Env::IO_TOTAL`.
+  //
+  // The bytes charged to rate limiter may not exactly match the file read bytes
+  // since there are some seemingly insignificant reads, like for file
+  // headers/footers, that we currently do not charge to rate limiter.
+  //
+  // Default: `Env::IO_TOTAL`.
+  Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
+
+  // Experimental
+  //
+  // If async_io is enabled, RocksDB will prefetch some of data asynchronously.
+  // RocksDB apply it if reads are sequential and its internal automatic
+  // prefetching.
+  //
+  // Default: false
+  bool async_io;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
@@ -1683,16 +1684,20 @@ struct WriteOptions {
   // Default: false
   bool memtable_insert_hint_per_batch;
 
-  // Timestamp of write operation, e.g. Put. All timestamps of the same
-  // database must share the same length and format. The user is also
-  // responsible for providing a customized compare function via Comparator to
-  // order <key, timestamp> tuples. If the user wants to enable timestamp, then
-  // all write operations must be associated with timestamp because RocksDB, as
-  // a single-node storage engine currently has no knowledge of global time,
-  // thus has to rely on the application.
-  // The user-specified timestamp feature is still under active development,
-  // and the API is subject to change.
-  const Slice* timestamp;
+  // For writes associated with this option, charge the internal rate
+  // limiter (see `DBOptions::rate_limiter`) at the specified priority. The
+  // special value `Env::IO_TOTAL` disables charging the rate limiter.
+  //
+  // Currently the support covers automatic WAL flushes, which happen during
+  // live updates (`Put()`, `Write()`, `Delete()`, etc.)
+  // when `WriteOptions::disableWAL == false`
+  // and `DBOptions::manual_wal_flush == false`.
+  //
+  // Only `Env::IO_USER` and `Env::IO_TOTAL` are allowed
+  // due to implementation constraints.
+  //
+  // Default: `Env::IO_TOTAL`
+  Env::IOPriority rate_limiter_priority;
 
   WriteOptions()
       : sync(false),
@@ -1702,7 +1707,7 @@ struct WriteOptions {
         low_pri(false),
         pre_release_callback(nullptr),
         memtable_insert_hint_per_batch(false),
-        timestamp(nullptr) {}
+        rate_limiter_priority(Env::IO_TOTAL) {}
 };
 
 // Options that control flush operations
@@ -1873,8 +1878,14 @@ enum TraceFilterType : uint64_t {
   kTraceFilterGet = 0x1 << 0,
   // Do not trace the write operations
   kTraceFilterWrite = 0x1 << 1,
+  // Do not trace the `Iterator::Seek()` operations
+  kTraceFilterIteratorSeek = 0x1 << 2,
+  // Do not trace the `Iterator::SeekForPrev()` operations
+  kTraceFilterIteratorSeekForPrev = 0x1 << 3,
+  // Do not trace the `MultiGet()` operations
+  kTraceFilterMultiGet = 0x1 << 4,
   // Do not include user data in the referenced_key in block cache traces
-  kTraceFilterReferencedKey = 0x1 << 2
+  kTraceFilterReferencedKey = 0x1 << 5,
 };
 
 // TraceOptions is used for StartTrace
@@ -1887,6 +1898,13 @@ struct TraceOptions {
   uint64_t sampling_frequency = 1;
   // Note: The filtering happens before sampling.
   uint64_t filter = kTraceFilterNone;
+  // When true, the order of write records in the trace will match the order of
+  // the corresponding write records in the WAL and applied to the DB. There may
+  // be a performance penalty associated with preserving this ordering.
+  //
+  // Default: false. This means write records in the trace may be in an order
+  // different from the WAL's order.
+  bool preserve_write_order = false;
 };
 
 // ImportColumnFamilyOptions is used by ImportColumnFamily()
@@ -1898,10 +1916,10 @@ struct ImportColumnFamilyOptions {
 // Options used with DB::GetApproximateSizes()
 struct SizeApproximationOptions {
   // Defines whether the returned size should include the recently written
-  // data in the mem-tables. If set to false, include_files must be true.
-  bool include_memtabtles = false;
+  // data in the memtables. If set to false, include_files must be true.
+  bool include_memtables = false;
   // Defines whether the returned size should include data serialized to disk.
-  // If set to false, include_memtabtles must be true.
+  // If set to false, include_memtables must be true.
   bool include_files = true;
   // When approximating the files total size that is used to store a keys range
   // using DB::GetApproximateSizes, allow approximation with an error margin of

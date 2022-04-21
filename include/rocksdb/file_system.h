@@ -221,6 +221,11 @@ struct IODebugContext {
   }
 };
 
+// A function pointer type for custom destruction of void pointer passed to
+// ReadAsync API. RocksDB/caller is responsible for deleting the void pointer
+// allocated by FS in ReadAsync API.
+using IOHandleDeleter = std::function<void(void*)>;
+
 // The FileSystem, FSSequentialFile, FSRandomAccessFile, FSWritableFile,
 // FSRandomRWFileclass, and FSDIrectory classes define the interface between
 // RocksDB and storage systems, such as Posix filesystems,
@@ -640,6 +645,22 @@ class FileSystem : public Customizable {
                                const IOOptions& options, bool* is_dir,
                                IODebugContext* /*dgb*/) = 0;
 
+  // EXPERIMENTAL
+  // Poll for completion of read IO requests. The Poll() method should call the
+  // callback functions to indicate completion of read requests.
+  // Underlying FS is required to support Poll API. Poll implementation should
+  // ensure that the callback gets called at IO completion, and return only
+  // after the callback has been called.
+  // If Poll returns partial results for any reads, its caller reponsibility to
+  // call Read or ReadAsync in order to get the remaining bytes.
+  //
+  // Default implementation is to return IOStatus::OK.
+
+  virtual IOStatus Poll(std::vector<void*>& /*io_handles*/,
+                        size_t /*min_completions*/) {
+    return IOStatus::OK();
+  }
+
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
  private:
@@ -701,28 +722,47 @@ class FSSequentialFile {
     return IOStatus::NotSupported("PositionedRead");
   }
 
+  // EXPERIMENTAL
+  // When available, returns the actual temperature for the file. This is
+  // useful in case some outside process moves a file from one tier to another,
+  // though the temperature is generally expected not to change while a file is
+  // open.
+  virtual Temperature GetTemperature() const { return Temperature::kUnknown; }
+
   // If you're adding methods here, remember to add them to
   // SequentialFileWrapper too.
 };
 
-// A read IO request structure for use in MultiRead
+// A read IO request structure for use in MultiRead and asynchronous Read APIs.
 struct FSReadRequest {
-  // File offset in bytes
+  // Input parameter that represents the file offset in bytes.
   uint64_t offset;
 
-  // Length to read in bytes. `result` only returns fewer bytes if end of file
-  // is hit (or `status` is not OK).
+  // Input parameter that represents the length to read in bytes. `result` only
+  // returns fewer bytes if end of file is hit (or `status` is not OK).
   size_t len;
 
   // A buffer that MultiRead()  can optionally place data in. It can
-  // ignore this and allocate its own buffer
+  // ignore this and allocate its own buffer.
+  // The lifecycle of scratch will be until IO is completed.
+  //
+  // In case of asynchronous reads, its an output parameter and it will be
+  // maintained until callback has been called. Scratch is allocated by RocksDB
+  // and will be passed to underlying FileSystem.
   char* scratch;
 
   // Output parameter set by MultiRead() to point to the data buffer, and
   // the number of valid bytes
+  //
+  // In case of asynchronous reads, this output parameter is set by Async Read
+  // APIs to point to the data buffer, and
+  // the number of valid bytes.
+  // Slice result should point to scratch i.e the data should
+  // always be read into scratch.
   Slice result;
 
-  // Status of read
+  // Output parameter set by underlying FileSystem that represents status of
+  // read request.
   IOStatus status;
 };
 
@@ -817,6 +857,46 @@ class FSRandomAccessFile {
   virtual IOStatus InvalidateCache(size_t /*offset*/, size_t /*length*/) {
     return IOStatus::NotSupported("InvalidateCache not supported.");
   }
+
+  // EXPERIMENTAL
+  // This API reads the requested data in FSReadRequest asynchronously. This is
+  // a asynchronous call, i.e it should return after submitting the request.
+  //
+  // When the read request is completed, callback function specified in cb
+  // should be called with arguments cb_arg and the result populated in
+  // FSReadRequest with result and status fileds updated by FileSystem.
+  // cb_arg should be used by the callback to track the original request
+  // submitted.
+  //
+  // This API should also populate io_handle which should be used by
+  // underlying FileSystem to store the context in order to distinguish the read
+  // requests at their side and provide the custom deletion function in del_fn.
+  // RocksDB guarantees that the del_fn for io_handle will be called after
+  // receiving the callback. Furthermore, RocksDB guarantees that if it calls
+  // the Poll API for this io_handle, del_fn will be called after the Poll
+  // returns. RocksDB is responsible for managing the lifetime of io_handle.
+  //
+  // req contains the request offset and size passed as input parameter of read
+  // request and result and status fields are output parameter set by underlying
+  // FileSystem. The data should always be read into scratch field.
+  //
+  // Default implementation is to read the data synchronously.
+  virtual IOStatus ReadAsync(
+      FSReadRequest& req, const IOOptions& opts,
+      std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+      void** /*io_handle*/, IOHandleDeleter* /*del_fn*/, IODebugContext* dbg) {
+    req.status =
+        Read(req.offset, req.len, opts, &(req.result), req.scratch, dbg);
+    cb(req, cb_arg);
+    return IOStatus::OK();
+  }
+
+  // EXPERIMENTAL
+  // When available, returns the actual temperature for the file. This is
+  // useful in case some outside process moves a file from one tier to another,
+  // though the temperature is generally expected not to change while a file is
+  // open.
+  virtual Temperature GetTemperature() const { return Temperature::kUnknown; }
 
   // If you're adding methods here, remember to add them to
   // RandomAccessFileWrapper too.
@@ -952,6 +1032,17 @@ class FSWritableFile {
     write_hint_ = hint;
   }
 
+  /*
+   * If rate limiting is enabled, change the file-granularity priority used in
+   * rate-limiting writes.
+   *
+   * In the presence of finer-granularity priority such as
+   * `WriteOptions::rate_limiter_priority`, this file-granularity priority may
+   * be overridden by a non-Env::IO_TOTAL finer-granularity priority and used as
+   * a fallback for Env::IO_TOTAL finer-granularity priority.
+   *
+   * If rate limiting is not enabled, this call has no effect.
+   */
   virtual void SetIOPriority(Env::IOPriority pri) { io_priority_ = pri; }
 
   virtual Env::IOPriority GetIOPriority() { return io_priority_; }
@@ -1102,6 +1193,13 @@ class FSRandomRWFile {
 
   virtual IOStatus Close(const IOOptions& options, IODebugContext* dbg) = 0;
 
+  // EXPERIMENTAL
+  // When available, returns the actual temperature for the file. This is
+  // useful in case some outside process moves a file from one tier to another,
+  // though the temperature is generally expected not to change while a file is
+  // open.
+  virtual Temperature GetTemperature() const { return Temperature::kUnknown; }
+
   // If you're adding methods here, remember to add them to
   // RandomRWFileWrapper too.
 
@@ -1192,10 +1290,6 @@ class FileSystemWrapper : public FileSystem {
   // Initialize an EnvWrapper that delegates all calls to *t
   explicit FileSystemWrapper(const std::shared_ptr<FileSystem>& t);
   ~FileSystemWrapper() override {}
-
-  // Deprecated. Will be removed in a major release. Derived classes
-  // should implement this method.
-  const char* Name() const override { return target_->Name(); }
 
   // Return the target to which this Env forwards all calls
   FileSystem* target() const { return target_.get(); }
@@ -1393,6 +1487,12 @@ class FileSystemWrapper : public FileSystem {
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
 #endif  // ROCKSDB_LITE
+
+  virtual IOStatus Poll(std::vector<void*>& io_handles,
+                        size_t min_completions) override {
+    return target_->Poll(io_handles, min_completions);
+  }
+
  protected:
   std::shared_ptr<FileSystem> target_;
 };
@@ -1421,6 +1521,9 @@ class FSSequentialFileWrapper : public FSSequentialFile {
                           Slice* result, char* scratch,
                           IODebugContext* dbg) override {
     return target_->PositionedRead(offset, n, options, result, scratch, dbg);
+  }
+  Temperature GetTemperature() const override {
+    return target_->GetTemperature();
   }
 
  private:
@@ -1469,6 +1572,15 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
   }
   IOStatus InvalidateCache(size_t offset, size_t length) override {
     return target_->InvalidateCache(offset, length);
+  }
+  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                     std::function<void(const FSReadRequest&, void*)> cb,
+                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                     IODebugContext* dbg) override {
+    return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, dbg);
+  }
+  Temperature GetTemperature() const override {
+    return target_->GetTemperature();
   }
 
  private:
@@ -1632,6 +1744,9 @@ class FSRandomRWFileWrapper : public FSRandomRWFile {
   }
   IOStatus Close(const IOOptions& options, IODebugContext* dbg) override {
     return target_->Close(options, dbg);
+  }
+  Temperature GetTemperature() const override {
+    return target_->GetTemperature();
   }
 
  private:

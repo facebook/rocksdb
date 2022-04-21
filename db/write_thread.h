@@ -117,6 +117,7 @@ class WriteThread {
     bool sync;
     bool no_slowdown;
     bool disable_wal;
+    Env::IOPriority rate_limiter_priority;
     bool disable_memtable;
     size_t batch_cnt;  // if non-zero, number of sub-batches in the write batch
     size_t protection_bytes_per_key;
@@ -141,6 +142,7 @@ class WriteThread {
           sync(false),
           no_slowdown(false),
           disable_wal(false),
+          rate_limiter_priority(Env::IOPriority::IO_TOTAL),
           disable_memtable(false),
           batch_cnt(0),
           protection_bytes_per_key(0),
@@ -163,6 +165,7 @@ class WriteThread {
           sync(write_options.sync),
           no_slowdown(write_options.no_slowdown),
           disable_wal(write_options.disableWAL),
+          rate_limiter_priority(write_options.rate_limiter_priority),
           disable_memtable(_disable_memtable),
           batch_cnt(_batch_cnt),
           protection_bytes_per_key(_batch->GetProtectionBytesPerKey()),

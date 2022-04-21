@@ -60,24 +60,37 @@ void DBImpl::TEST_GetFilesMetaData(
     ColumnFamilyHandle* column_family,
     std::vector<std::vector<FileMetaData>>* metadata,
     std::vector<std::shared_ptr<BlobFileMetaData>>* blob_metadata) {
+  assert(metadata);
+
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  assert(cfh);
+
   auto cfd = cfh->cfd();
+  assert(cfd);
+
   InstrumentedMutexLock l(&mutex_);
+
+  const auto* current = cfd->current();
+  assert(current);
+
+  const auto* vstorage = current->storage_info();
+  assert(vstorage);
+
   metadata->resize(NumberLevels());
-  for (int level = 0; level < NumberLevels(); level++) {
-    const std::vector<FileMetaData*>& files =
-        cfd->current()->storage_info()->LevelFiles(level);
+
+  for (int level = 0; level < NumberLevels(); ++level) {
+    const std::vector<FileMetaData*>& files = vstorage->LevelFiles(level);
 
     (*metadata)[level].clear();
+    (*metadata)[level].reserve(files.size());
+
     for (const auto& f : files) {
       (*metadata)[level].push_back(*f);
     }
   }
-  if (blob_metadata != nullptr) {
-    blob_metadata->clear();
-    for (const auto& blob : cfd->current()->storage_info()->GetBlobFiles()) {
-      blob_metadata->push_back(blob.second);
-    }
+
+  if (blob_metadata) {
+    *blob_metadata = vstorage->GetBlobFiles();
   }
 }
 
@@ -107,7 +120,8 @@ Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
           : level + 1;
   return RunManualCompaction(cfd, level, output_level, CompactRangeOptions(),
                              begin, end, true, disallow_trivial_move,
-                             port::kMaxUint64 /*max_file_num_to_ignore*/);
+                             port::kMaxUint64 /*max_file_num_to_ignore*/,
+                             "" /*trim_ts*/);
 }
 
 Status DBImpl::TEST_SwitchMemtable(ColumnFamilyData* cfd) {
@@ -156,6 +170,12 @@ Status DBImpl::TEST_AtomicFlushMemTables(
   return AtomicFlushMemTables(cfds, flush_opts, FlushReason::kTest);
 }
 
+Status DBImpl::TEST_WaitForBackgroundWork() {
+  InstrumentedMutexLock l(&mutex_);
+  WaitForBackgroundWork();
+  return error_handler_.GetBGError();
+}
+
 Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
   ColumnFamilyData* cfd;
   if (column_family == nullptr) {
@@ -169,19 +189,7 @@ Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
 
 Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
   // Wait until the compaction completes
-
-  // TODO: a bug here. This function actually does not necessarily
-  // wait for compact. It actually waits for scheduled compaction
-  // OR flush to finish.
-
-  InstrumentedMutexLock l(&mutex_);
-  while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
-          bg_flush_scheduled_ ||
-          (wait_unscheduled && unscheduled_compactions_)) &&
-         (error_handler_.GetBGError().ok())) {
-    bg_cv_.Wait();
-  }
-  return error_handler_.GetBGError();
+  return WaitForCompact(wait_unscheduled);
 }
 
 Status DBImpl::TEST_WaitForPurge() {
@@ -256,8 +264,7 @@ size_t DBImpl::TEST_LogsWithPrepSize() {
 
 uint64_t DBImpl::TEST_FindMinPrepLogReferencedByMemTable() {
   autovector<MemTable*> empty_list;
-  return FindMinPrepLogReferencedByMemTable(versions_.get(), nullptr,
-                                            empty_list);
+  return FindMinPrepLogReferencedByMemTable(versions_.get(), empty_list);
 }
 
 Status DBImpl::TEST_GetLatestMutableCFOptions(

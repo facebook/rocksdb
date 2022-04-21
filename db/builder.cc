@@ -318,6 +318,7 @@ Status BuildTable(
 
     // TODO Also check the IO status when create the Iterator.
 
+    TEST_SYNC_POINT("BuildTable:BeforeOutputValidation");
     if (s.ok() && !empty) {
       // Verify that the table is usable
       // We set for_compaction to false and don't OptimizeForCompactionTableRead
@@ -328,8 +329,8 @@ Status BuildTable(
       ReadOptions read_options;
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           read_options, file_options, tboptions.internal_comparator, *meta,
-          nullptr /* range_del_agg */,
-          mutable_cf_options.prefix_extractor.get(), nullptr,
+          nullptr /* range_del_agg */, mutable_cf_options.prefix_extractor,
+          nullptr,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
           TableReaderCaller::kFlush, /*arena=*/nullptr,

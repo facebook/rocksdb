@@ -247,7 +247,7 @@ Status AwsEnv::NewAwsEnv(Env* env, std::unique_ptr<CloudEnv>* cenv) {
 int CloudEnvImpl::RegisterAwsObjects(ObjectLibrary& library,
                                      const std::string& /*arg*/) {
   int count = 0;
-  library.Register<Env>(CloudEnvImpl::kAws(),
+  library.AddFactory<Env>(CloudEnvImpl::kAws(),
                         [](const std::string& /*uri*/,
                            std::unique_ptr<Env>* guard, std::string* errmsg) {
                           std::unique_ptr<CloudEnv> cguard;
@@ -261,7 +261,7 @@ int CloudEnvImpl::RegisterAwsObjects(ObjectLibrary& library,
                           }
                         });
   count++;
-  library.Register<CloudLogController>(
+  library.AddFactory<CloudLogController>(
       CloudLogControllerImpl::kKinesis(),
       [](const std::string& /*uri*/, std::unique_ptr<CloudLogController>* guard,
          std::string* errmsg) {
@@ -272,7 +272,7 @@ int CloudEnvImpl::RegisterAwsObjects(ObjectLibrary& library,
         return guard->get();
       });
   count++;
-  library.Register<CloudStorageProvider>(  // s3
+  library.AddFactory<CloudStorageProvider>(  // s3
       CloudStorageProviderImpl::kS3(),
       [](const std::string& /*uri*/,
          std::unique_ptr<CloudStorageProvider>* guard, std::string* errmsg) {

@@ -2,9 +2,11 @@
 LIB_SOURCES =                                                   \
   cache/cache.cc                                                \
   cache/cache_entry_roles.cc                                    \
-  cache/cache_reservation_manager.cc                                            \
+  cache/cache_key.cc                                            \
+  cache/cache_reservation_manager.cc                            \
   cache/clock_cache.cc                                          \
   cache/lru_cache.cc                                            \
+  cache/lru_secondary_cache.cc                                  \
   cache/sharded_cache.cc                                        \
   cloud/aws/aws_env.cc                                          \
   cloud/aws/aws_kafka.cc                                        \
@@ -48,7 +50,7 @@ LIB_SOURCES =                                                   \
   db/compaction/sst_partitioner.cc                              \
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
-  db/db_impl/compacted_db_impl.cc                                       \
+  db/db_impl/compacted_db_impl.cc                               \
   db/db_impl/db_impl.cc                                         \
   db/db_impl/db_impl_compaction_flush.cc                        \
   db/db_impl/db_impl_debug.cc                                   \
@@ -104,7 +106,6 @@ LIB_SOURCES =                                                   \
   env/env.cc                                                    \
   env/env_chroot.cc                                             \
   env/env_encryption.cc                                         \
-  env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
   env/file_system.cc                                            \
   env/fs_posix.cc                                               \
@@ -131,6 +132,7 @@ LIB_SOURCES =                                                   \
   memory/concurrent_arena.cc                                    \
   memory/jemalloc_nodump_allocator.cc                           \
   memory/memkind_kmem_allocator.cc                              \
+  memory/memory_allocator.cc                                    \
   memtable/alloc_tracker.cc                                     \
   memtable/hash_linklist_rep.cc                                 \
   memtable/hash_skiplist_rep.cc                                 \
@@ -229,6 +231,7 @@ LIB_SOURCES =                                                   \
   util/coding.cc                                                \
   util/compaction_job_stats_impl.cc                             \
   util/comparator.cc                                            \
+  util/compression.cc                                           \
   util/compression_context_cache.cc                             \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
@@ -239,7 +242,6 @@ LIB_SOURCES =                                                   \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \
   util/ribbon_config.cc                                         \
-  util/regex.cc                                                 \
   util/slice.cc                                                 \
   util/file_checksum_helper.cc                                  \
   util/status.cc                                                \
@@ -262,6 +264,7 @@ LIB_SOURCES =                                                   \
   utilities/compaction_filters.cc                               \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
   utilities/convenience/info_log_finder.cc                      \
+  utilities/counted_fs.cc                                       \
   utilities/debug.cc                                            \
   utilities/env_mirror.cc                                       \
   utilities/env_timed.cc                                        \
@@ -366,10 +369,12 @@ STRESS_LIB_SOURCES =                                            \
   db_stress_tool/db_stress_gflags.cc                           \
   db_stress_tool/db_stress_listener.cc                         \
   db_stress_tool/db_stress_shared_state.cc                     \
+  db_stress_tool/db_stress_stat.cc                             \
   db_stress_tool/db_stress_test_base.cc                        \
   db_stress_tool/db_stress_tool.cc                             \
   db_stress_tool/expected_state.cc                             \
   db_stress_tool/no_batched_ops_stress.cc                      \
+  db_stress_tool/multi_ops_txns_stress.cc                      \
 
 TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
@@ -412,13 +417,14 @@ BENCH_MAIN_SOURCES =                                                    \
 
 TEST_MAIN_SOURCES =                                                     \
   cache/cache_test.cc                                                   \
-  cache/cache_reservation_manager_test.cc                                               \
+  cache/cache_reservation_manager_test.cc                               \
   cache/lru_cache_test.cc                                               \
   cloud/db_cloud_test.cc                                                \
   cloud/cloud_env_test.cc                                               \
   cloud/cloud_manifest_test.cc                                          \
   cloud/cloud_scheduler_test.cc                                         \
   cloud/remote_compaction_test.cc                                       \
+  cache/lru_secondary_cache_test.cc                                     \
   db/blob/blob_counting_iterator_test.cc                                \
   db/blob/blob_file_addition_test.cc                                    \
   db/blob/blob_file_builder_test.cc                                     \
@@ -464,6 +470,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_options_test.cc                                                 \
   db/db_properties_test.cc                                              \
   db/db_range_del_test.cc                                               \
+  db/db_rate_limiter_test.cc                                            \
   db/db_secondary_test.cc                                               \
   db/db_sst_test.cc                                                     \
   db/db_statistics_test.cc                                              \
@@ -520,7 +527,7 @@ TEST_MAIN_SOURCES =                                                     \
   logging/env_logger_test.cc                                            \
   logging/event_logger_test.cc                                          \
   memory/arena_test.cc                                                  \
-  memory/memkind_kmem_allocator_test.cc                                 \
+  memory/memory_allocator_test.cc                                       \
   memtable/inlineskiplist_test.cc                                       \
   memtable/skiplist_test.cc                                             \
   memtable/write_buffer_manager_test.cc                                 \
@@ -599,6 +606,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/transactions/lock/point/point_lock_manager_test.cc          \
   utilities/transactions/write_prepared_transaction_test.cc             \
   utilities/transactions/write_unprepared_transaction_test.cc           \
+  utilities/transactions/write_committed_transaction_ts_test.cc         \
   utilities/ttl/ttl_test.cc                                             \
   utilities/util_merge_operators_test.cc                                \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
@@ -608,6 +616,7 @@ TEST_MAIN_SOURCES_C = \
 
 MICROBENCH_SOURCES =                                          \
   microbench/ribbon_bench.cc                                  \
+  microbench/db_basic_bench.cc                                  \
 
 JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backupenginejni.cc                            \

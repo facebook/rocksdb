@@ -15,6 +15,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
@@ -437,10 +438,8 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
       ASSERT_TRUE(wp_db->old_commit_map_empty_);
       ROCKSDB_NAMESPACE::port::Thread t1(
           [&]() { wp_db->UpdateSnapshots(new_snapshots, version); });
-      ROCKSDB_NAMESPACE::port::Thread t2(
-          [&]() { wp_db->CheckAgainstSnapshots(entry); });
+      wp_db->CheckAgainstSnapshots(entry);
       t1.join();
-      t2.join();
       ASSERT_FALSE(wp_db->old_commit_map_empty_);
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -466,10 +465,8 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
       ASSERT_TRUE(wp_db->old_commit_map_empty_);
       ROCKSDB_NAMESPACE::port::Thread t1(
           [&]() { wp_db->UpdateSnapshots(new_snapshots, version); });
-      ROCKSDB_NAMESPACE::port::Thread t2(
-          [&]() { wp_db->CheckAgainstSnapshots(entry); });
+      wp_db->CheckAgainstSnapshots(entry);
       t1.join();
-      t2.join();
       ASSERT_FALSE(wp_db->old_commit_map_empty_);
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -3986,7 +3983,12 @@ TEST_P(WritePreparedTransactionTest, WC_WP_WALForwardIncompatibility) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  if (getenv("CIRCLECI")) {
+    // Looking for backtrace on "Resource temporarily unavailable" exceptions
+    ::testing::FLAGS_gtest_catch_exceptions = false;
+  }
   return RUN_ALL_TESTS();
 }
 

@@ -337,7 +337,7 @@ TEST_F(DBPropertiesTest, ValidateSampleNumber) {
 
 TEST_F(DBPropertiesTest, AggregatedTableProperties) {
   for (int kTableCount = 40; kTableCount <= 100; kTableCount += 30) {
-    const int kDeletionsPerTable = 5;
+    const int kDeletionsPerTable = 0;
     const int kMergeOperandsPerTable = 15;
     const int kRangeDeletionsPerTable = 5;
     const int kPutsPerTable = 100;
@@ -349,7 +349,6 @@ TEST_F(DBPropertiesTest, AggregatedTableProperties) {
     options.level0_file_num_compaction_trigger = 8;
     options.compression = kNoCompression;
     options.create_if_missing = true;
-    options.preserve_deletes = true;
     options.merge_operator.reset(new TestPutOperator());
 
     BlockBasedTableOptions table_options;
@@ -530,7 +529,7 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
 
 TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   const int kTableCount = 100;
-  const int kDeletionsPerTable = 2;
+  const int kDeletionsPerTable = 0;
   const int kMergeOperandsPerTable = 2;
   const int kRangeDeletionsPerTable = 2;
   const int kPutsPerTable = 10;
@@ -549,7 +548,6 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   options.max_bytes_for_level_multiplier = 2;
   // This ensures there no compaction happening when we call GetProperty().
   options.disable_auto_compactions = true;
-  options.preserve_deletes = true;
   options.merge_operator.reset(new TestPutOperator());
 
   BlockBasedTableOptions table_options;
@@ -628,7 +626,7 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
       // Gives larger bias here as index block size, filter block size,
       // and data block size become much harder to estimate in this test.
       VerifyTableProperties(expected_tp, tp, CACHE_LINE_SIZE >= 256 ? 0.6 : 0.5,
-                            0.4, 0.4, 0.25);
+                            0.5, 0.5, 0.25);
     }
   }
 }
@@ -1069,10 +1067,16 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
   const int kNumEntriesPerFile = 1000;
 
   Options options = CurrentOptions();
-  options.compression_per_level = {kNoCompression, kSnappyCompression};
   options.disable_auto_compactions = true;
-  options.num_levels = 2;
+  options.num_levels = 3;
   Reopen(options);
+
+  ASSERT_OK(db_->SetOptions(
+      {{"compression_per_level", "kNoCompression:kSnappyCompression"}}));
+  auto opts = db_->GetOptions();
+  ASSERT_EQ(opts.compression_per_level.size(), 2);
+  ASSERT_EQ(opts.compression_per_level[0], kNoCompression);
+  ASSERT_EQ(opts.compression_per_level[1], kSnappyCompression);
 
   // compression ratio is -1.0 when no open files at level
   ASSERT_EQ(CompressionRatioAtLevel(0), -1.0);

@@ -349,7 +349,8 @@ Status DBCloudImpl::DoCheckpointToCloud(
   auto fs = base_env->GetFileSystem();
   st =
       CopyFile(fs.get(), GetName() + "/" + manifest_fname,
-               GetName() + "/" + tmp_manifest_fname, manifest_file_size, false);
+               GetName() + "/" + tmp_manifest_fname, manifest_file_size, false,
+               nullptr, Temperature::kUnknown);
   if (!st.ok()) {
     return st;
   }

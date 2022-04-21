@@ -151,7 +151,7 @@ class TablePropertiesCollectorFactory : public Customizable {
     static const int kUnknownLevelAtCreation = -1;
   };
 
-  virtual ~TablePropertiesCollectorFactory() {}
+  ~TablePropertiesCollectorFactory() override {}
   static const char* Type() { return "TablePropertiesCollectorFactory"; }
   static Status CreateFromString(
       const ConfigOptions& options, const std::string& value,
@@ -162,7 +162,7 @@ class TablePropertiesCollectorFactory : public Customizable {
       TablePropertiesCollectorFactory::Context context) = 0;
 
   // The name of the properties collector can be used for debugging purpose.
-  virtual const char* Name() const = 0;
+  const char* Name() const override = 0;
 
   // Can be overridden by sub-classes to return the Name, followed by
   // configuration info that will // be logged to the info log when the
@@ -232,6 +232,10 @@ struct TableProperties {
   // compression algorithm (see `ColumnFamilyOptions::sample_for_compression`).
   // 0 means unknown.
   uint64_t fast_compression_estimated_data_size = 0;
+  // Offset of the value of the property "external sst file global seqno" in the
+  // file if the property exists.
+  // 0 means not exists.
+  uint64_t external_sst_file_global_seqno_offset = 0;
 
   // DB identity
   // db_id is an identifier generated the first time the DB is created
@@ -283,9 +287,6 @@ struct TableProperties {
   // user collected properties
   UserCollectedProperties user_collected_properties;
   UserCollectedProperties readable_properties;
-
-  // The offset of the value of each property in the file.
-  std::map<std::string, uint64_t> properties_offsets;
 
   // convert this object to a human readable form
   //   @prop_delim: delimiter for each property.

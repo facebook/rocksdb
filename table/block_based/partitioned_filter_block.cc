@@ -60,7 +60,9 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
   }
 }
 
-PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {}
+PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {
+  partitioned_filters_construction_status_.PermitUncheckedError();
+}
 
 void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
     const Slice* next_key) {
@@ -88,9 +90,18 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
 
   total_added_in_built_ += filter_bits_builder_->EstimateEntriesAdded();
   std::unique_ptr<const char[]> filter_data;
-  Slice filter = filter_bits_builder_->Finish(&filter_data);
+  Status filter_construction_status = Status::OK();
+  Slice filter =
+      filter_bits_builder_->Finish(&filter_data, &filter_construction_status);
+  if (filter_construction_status.ok()) {
+    filter_construction_status = filter_bits_builder_->MaybePostVerify(filter);
+  }
   std::string& index_key = p_index_builder_->GetPartitionKey();
-  filters.push_back({index_key, filter, std::move(filter_data)});
+  filters.push_back({index_key, std::move(filter_data), filter});
+  if (!filter_construction_status.ok() &&
+      partitioned_filters_construction_status_.ok()) {
+    partitioned_filters_construction_status_ = filter_construction_status;
+  }
   keys_added_to_partition_ = 0;
   Reset();
 }
@@ -132,6 +143,12 @@ Slice PartitionedFilterBlockBuilder::Finish(
   } else {
     MaybeCutAFilterBlock(nullptr);
   }
+
+  if (!partitioned_filters_construction_status_.ok()) {
+    *status = partitioned_filters_construction_status_;
+    return Slice();
+  }
+
   // If there is no filter partition left, then return the index on filter
   // partitions
   if (UNLIKELY(filters.empty())) {
@@ -480,13 +497,15 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
   rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer,
-                                false /* Implicit autoreadahead */);
+                                false /* Implicit autoreadahead */,
+                                false /*async_io*/);
 
   IOOptions opts;
   s = rep->file->PrepareIOOptions(ro, opts);
   if (s.ok()) {
     s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
-                                  static_cast<size_t>(prefetch_len));
+                                  static_cast<size_t>(prefetch_len),
+                                  ro.rate_limiter_priority);
   }
   if (!s.ok()) {
     return s;
@@ -501,8 +520,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
     // filter blocks
     s = table()->MaybeReadBlockAndLoadToCache(
         prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
-        /* wait */ true, &block, BlockType::kFilter, nullptr /* get_context */,
-        &lookup_context, nullptr /* contents */);
+        /* wait */ true, /* for_compaction */ false, &block, BlockType::kFilter,
+        nullptr /* get_context */, &lookup_context, nullptr /* contents */);
     if (!s.ok()) {
       return s;
     }

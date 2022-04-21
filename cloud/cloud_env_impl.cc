@@ -1805,7 +1805,8 @@ Status CloudEnvImpl::RollNewEpoch(const std::string& local_dbname) {
   // MANIFEST file will be cleaned up in DeleteInvisibleFiles().
   const auto& fs = GetBaseEnv()->GetFileSystem();
   st = CopyFile(fs.get(), ManifestFileWithEpoch(local_dbname, oldEpoch),
-                ManifestFileWithEpoch(local_dbname, newEpoch), 0, true);
+                ManifestFileWithEpoch(local_dbname, newEpoch), 0, true, nullptr,
+                Temperature::kUnknown);
   if (!st.ok()) {
     return st;
   }

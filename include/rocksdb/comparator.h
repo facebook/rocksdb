@@ -40,7 +40,7 @@ class Comparator : public Customizable {
     return *this;
   }
 
-  virtual ~Comparator() {}
+  ~Comparator() override {}
 
   static Status CreateFromString(const ConfigOptions& opts,
                                  const std::string& id,
@@ -75,7 +75,7 @@ class Comparator : public Customizable {
   //
   // Names starting with "rocksdb." are reserved and should not be used
   // by any clients of this package.
-  virtual const char* Name() const = 0;
+  const char* Name() const override = 0;
 
   // Advanced functions: these are used to reduce the space requirements
   // for internal data structures like index blocks.

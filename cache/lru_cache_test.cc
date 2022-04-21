@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "cache/cache_key.h"
 #include "db/db_test_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
@@ -233,7 +234,10 @@ class TestSecondaryCache : public SecondaryCache {
   void ResetInjectFailure() { inject_failure_ = false; }
 
   void SetDbSessionId(const std::string& db_session_id) {
-    db_session_id_ = db_session_id;
+    // NOTE: we assume the file is smaller than kMaxFileSizeStandardEncoding
+    // for this to work, but that's safe in a test.
+    auto base = OffsetableCacheKey("unknown", db_session_id, 1, 1);
+    ckey_prefix_ = base.CommonPrefixSlice().ToString();
   }
 
   Status Insert(const Slice& key, void* value,
@@ -241,7 +245,7 @@ class TestSecondaryCache : public SecondaryCache {
     if (inject_failure_) {
       return Status::Corruption("Insertion Data Corrupted");
     }
-    assert(IsDbSessionIdAsKeyPrefix(key) == true);
+    EXPECT_TRUE(IsDbSessionLowerAsKeyPrefix(key));
     size_t size;
     char* buf;
     Status s;
@@ -317,18 +321,8 @@ class TestSecondaryCache : public SecondaryCache {
 
   uint32_t num_lookups() { return num_lookups_; }
 
-  bool IsDbSessionIdAsKeyPrefix(const Slice& key) {
-    if (db_session_id_.size() == 0) {
-      return true;
-    }
-    if (key.size() < 20) {
-      return false;
-    }
-    std::string s_key = key.ToString();
-    if (s_key.substr(0, 20) != db_session_id_) {
-      return false;
-    }
-    return true;
+  bool IsDbSessionLowerAsKeyPrefix(const Slice& key) {
+    return key.starts_with(ckey_prefix_);
   }
 
  private:
@@ -373,7 +367,7 @@ class TestSecondaryCache : public SecondaryCache {
   uint32_t num_inserts_;
   uint32_t num_lookups_;
   bool inject_failure_;
-  std::string db_session_id_;
+  std::string ckey_prefix_;
   ResultMap result_map_;
 };
 
@@ -438,8 +432,9 @@ class LRUSecondaryCacheTest : public LRUCacheTest {
 
   static Cache::CacheItemHelper helper_fail_;
 
-  Cache::CreateCallback test_item_creator =
-      [&](void* buf, size_t size, void** out_obj, size_t* charge) -> Status {
+  Cache::CreateCallback test_item_creator = [&](const void* buf, size_t size,
+                                                void** out_obj,
+                                                size_t* charge) -> Status {
     if (fail_create_) {
       return Status::NotSupported();
     }
@@ -517,10 +512,12 @@ TEST_F(LRUSecondaryCacheTest, BasicFailTest) {
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
-  TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_NOK(cache->Insert("k1", item1, nullptr, str1.length()));
-  ASSERT_OK(cache->Insert("k1", item1, &LRUSecondaryCacheTest::helper_,
+  auto item1 = std::make_unique<TestItem>(str1.data(), str1.length());
+  ASSERT_TRUE(cache->Insert("k1", item1.get(), nullptr, str1.length())
+                  .IsInvalidArgument());
+  ASSERT_OK(cache->Insert("k1", item1.get(), &LRUSecondaryCacheTest::helper_,
                           str1.length()));
+  item1.release();  // Appease clang-analyze "potential memory leak"
 
   Cache::Handle* handle;
   handle = cache->Lookup("k2", nullptr, test_item_creator, Cache::Priority::LOW,

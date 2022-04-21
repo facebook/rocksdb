@@ -203,10 +203,11 @@ class CompactionJobTestBase : public testing::Test {
 
     VersionEdit edit;
     edit.AddFile(level, file_number, 0, 10, smallest_key, largest_key,
-                 smallest_seqno, largest_seqno, false, oldest_blob_file_number,
-                 kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-                 kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-                 kDisableUserTimestamp, kDisableUserTimestamp);
+                 smallest_seqno, largest_seqno, false, Temperature::kUnknown,
+                 oldest_blob_file_number, kUnknownOldestAncesterTime,
+                 kUnknownFileCreationTime, kUnknownFileChecksum,
+                 kUnknownFileChecksumFuncName, kDisableUserTimestamp,
+                 kDisableUserTimestamp);
 
     mutex_.Lock();
     EXPECT_OK(
@@ -1291,7 +1292,8 @@ class CompactionJobTimestampTest : public CompactionJobTestBase {
  public:
   CompactionJobTimestampTest()
       : CompactionJobTestBase(test::PerThreadDBPath("compaction_job_ts_test"),
-                              test::ComparatorWithU64Ts(), test::EncodeInt) {}
+                              test::BytewiseComparatorWithU64TsWrapper(),
+                              test::EncodeInt) {}
 };
 
 TEST_F(CompactionJobTimestampTest, GCDisabled) {

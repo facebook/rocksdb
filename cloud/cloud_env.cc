@@ -388,7 +388,7 @@ Status CloudEnv::NewAwsEnv(
 int DoRegisterCloudObjects(ObjectLibrary& library, const std::string& arg) {
   int count = 0;
   // Register the Env types
-  library.Register<Env>(
+  library.AddFactory<Env>(
         CloudEnvImpl::kClassName(),
         [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
            std::string* /*errmsg*/) {
@@ -401,7 +401,7 @@ int DoRegisterCloudObjects(ObjectLibrary& library, const std::string& arg) {
 
   // Register the Cloud Log Controllers
 
-  library.Register<CloudLogController>(
+  library.AddFactory<CloudLogController>(
       CloudLogControllerImpl::kKafka(),
       [](const std::string& /*uri*/, std::unique_ptr<CloudLogController>* guard,
          std::string* errmsg) {

@@ -418,7 +418,7 @@ typedef std::map<std::string, std::string> DbidList;
 //
 // The Cloud environment
 //
-class CloudEnv : public Env, public Configurable {
+class CloudEnv : public Env {
  protected:
   CloudEnvOptions cloud_env_options;
   Env* base_env_;  // The underlying env

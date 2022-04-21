@@ -7,9 +7,11 @@
 // calling c++ ROCKSDB_NAMESPACE::WriteBatchWithIndex methods from Java side.
 
 #include "rocksdb/utilities/write_batch_with_index.h"
+
 #include "include/org_rocksdb_WBWIRocksIterator.h"
 #include "include/org_rocksdb_WriteBatchWithIndex.h"
 #include "rocksdb/comparator.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 /*
@@ -20,7 +22,7 @@
 jlong Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__(
     JNIEnv* /*env*/, jclass /*jcls*/) {
   auto* wbwi = new ROCKSDB_NAMESPACE::WriteBatchWithIndex();
-  return reinterpret_cast<jlong>(wbwi);
+  return GET_CPLUSPLUS_POINTER(wbwi);
 }
 
 /*
@@ -33,7 +35,7 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__Z(
   auto* wbwi = new ROCKSDB_NAMESPACE::WriteBatchWithIndex(
       ROCKSDB_NAMESPACE::BytewiseComparator(), 0,
       static_cast<bool>(joverwrite_key));
-  return reinterpret_cast<jlong>(wbwi);
+  return GET_CPLUSPLUS_POINTER(wbwi);
 }
 
 /*
@@ -62,7 +64,7 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__JBIZ(
   auto* wbwi = new ROCKSDB_NAMESPACE::WriteBatchWithIndex(
       fallback_comparator, static_cast<size_t>(jreserved_bytes),
       static_cast<bool>(joverwrite_key));
-  return reinterpret_cast<jlong>(wbwi);
+  return GET_CPLUSPLUS_POINTER(wbwi);
 }
 
 /*
@@ -301,10 +303,10 @@ void Java_org_rocksdb_WriteBatchWithIndex_singleDelete__J_3BIJ(
 
 /*
  * Class:     org_rocksdb_WriteBatchWithIndex
- * Method:    removeDirect
+ * Method:    deleteDirect
  * Signature: (JLjava/nio/ByteBuffer;IIJ)V
  */
-void Java_org_rocksdb_WriteBatchWithIndex_removeDirect(
+void Java_org_rocksdb_WriteBatchWithIndex_deleteDirect(
     JNIEnv* env, jobject /*jobj*/, jlong jwb_handle, jobject jkey,
     jint jkey_offset, jint jkey_len, jlong jcf_handle) {
   auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(jwb_handle);
@@ -510,7 +512,7 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_iterator0(JNIEnv* /*env*/,
   auto* wbwi =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatchWithIndex*>(jwbwi_handle);
   auto* wbwi_iterator = wbwi->NewIterator();
-  return reinterpret_cast<jlong>(wbwi_iterator);
+  return GET_CPLUSPLUS_POINTER(wbwi_iterator);
 }
 
 /*
@@ -527,7 +529,7 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_iterator1(JNIEnv* /*env*/,
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
   auto* wbwi_iterator = wbwi->NewIterator(cf_handle);
-  return reinterpret_cast<jlong>(wbwi_iterator);
+  return GET_CPLUSPLUS_POINTER(wbwi_iterator);
 }
 
 /*
@@ -551,7 +553,7 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_iteratorWithBase(
                 jread_opts_handle);
   auto* iterator =
       wbwi->NewIteratorWithBase(cf_handle, base_iterator, read_opts);
-  return reinterpret_cast<jlong>(iterator);
+  return GET_CPLUSPLUS_POINTER(iterator);
 }
 
 /*
@@ -825,7 +827,7 @@ jlongArray Java_org_rocksdb_WBWIRocksIterator_entry1(JNIEnv* env,
   // org.rocksdb.DirectSlice#close
 
   auto* key_slice = new ROCKSDB_NAMESPACE::Slice(we.key.data(), we.key.size());
-  results[1] = reinterpret_cast<jlong>(key_slice);
+  results[1] = GET_CPLUSPLUS_POINTER(key_slice);
   if (we.type == ROCKSDB_NAMESPACE::kDeleteRecord ||
       we.type == ROCKSDB_NAMESPACE::kSingleDeleteRecord ||
       we.type == ROCKSDB_NAMESPACE::kLogDataRecord) {
@@ -834,7 +836,7 @@ jlongArray Java_org_rocksdb_WBWIRocksIterator_entry1(JNIEnv* env,
   } else {
     auto* value_slice =
         new ROCKSDB_NAMESPACE::Slice(we.value.data(), we.value.size());
-    results[2] = reinterpret_cast<jlong>(value_slice);
+    results[2] = GET_CPLUSPLUS_POINTER(value_slice);
   }
 
   jlongArray jresults = env->NewLongArray(3);

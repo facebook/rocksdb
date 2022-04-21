@@ -23,11 +23,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 uint64_t DBImpl::MinLogNumberToKeep() {
-  if (allow_2pc()) {
-    return versions_->min_log_number_to_keep_2pc();
-  } else {
-    return versions_->MinLogNumberWithUnflushedData();
-  }
+  return versions_->min_log_number_to_keep();
 }
 
 uint64_t DBImpl::MinObsoleteSstNumberToKeep() {
@@ -224,7 +220,6 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
 
     // Add log files in wal_dir
-
     if (!immutable_db_options_.IsWalDirSameAsDBPath(dbname_)) {
       std::vector<std::string> log_files;
       Status s = env_->GetChildren(immutable_db_options_.wal_dir, &log_files);
@@ -234,6 +229,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
             log_file, immutable_db_options_.wal_dir);
       }
     }
+
     // Add info log files in db_log_dir
     if (!immutable_db_options_.db_log_dir.empty() &&
         immutable_db_options_.db_log_dir != dbname_) {
@@ -670,8 +666,7 @@ void DBImpl::DeleteObsoleteFiles() {
 }
 
 uint64_t FindMinPrepLogReferencedByMemTable(
-    VersionSet* vset, const ColumnFamilyData* cfd_to_flush,
-    const autovector<MemTable*>& memtables_to_flush) {
+    VersionSet* vset, const autovector<MemTable*>& memtables_to_flush) {
   uint64_t min_log = 0;
 
   // we must look through the memtables for two phase transactions
@@ -679,7 +674,7 @@ uint64_t FindMinPrepLogReferencedByMemTable(
   std::unordered_set<MemTable*> memtables_to_flush_set(
       memtables_to_flush.begin(), memtables_to_flush.end());
   for (auto loop_cfd : *vset->GetColumnFamilySet()) {
-    if (loop_cfd->IsDropped() || loop_cfd == cfd_to_flush) {
+    if (loop_cfd->IsDropped()) {
       continue;
     }
 
@@ -701,18 +696,16 @@ uint64_t FindMinPrepLogReferencedByMemTable(
 }
 
 uint64_t FindMinPrepLogReferencedByMemTable(
-    VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
+    VersionSet* vset,
     const autovector<const autovector<MemTable*>*>& memtables_to_flush) {
   uint64_t min_log = 0;
 
-  std::unordered_set<ColumnFamilyData*> cfds_to_flush_set(cfds_to_flush.begin(),
-                                                          cfds_to_flush.end());
   std::unordered_set<MemTable*> memtables_to_flush_set;
   for (const autovector<MemTable*>* memtables : memtables_to_flush) {
     memtables_to_flush_set.insert(memtables->begin(), memtables->end());
   }
   for (auto loop_cfd : *vset->GetColumnFamilySet()) {
-    if (loop_cfd->IsDropped() || cfds_to_flush_set.count(loop_cfd)) {
+    if (loop_cfd->IsDropped()) {
       continue;
     }
 
@@ -828,8 +821,8 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
     min_log_number_to_keep = min_log_in_prep_heap;
   }
 
-  uint64_t min_log_refed_by_mem = FindMinPrepLogReferencedByMemTable(
-      vset, &cfd_to_flush, memtables_to_flush);
+  uint64_t min_log_refed_by_mem =
+      FindMinPrepLogReferencedByMemTable(vset, memtables_to_flush);
 
   if (min_log_refed_by_mem != 0 &&
       min_log_refed_by_mem < min_log_number_to_keep) {
@@ -859,8 +852,8 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
     min_log_number_to_keep = min_log_in_prep_heap;
   }
 
-  uint64_t min_log_refed_by_mem = FindMinPrepLogReferencedByMemTable(
-      vset, cfds_to_flush, memtables_to_flush);
+  uint64_t min_log_refed_by_mem =
+      FindMinPrepLogReferencedByMemTable(vset, memtables_to_flush);
 
   if (min_log_refed_by_mem != 0 &&
       min_log_refed_by_mem < min_log_number_to_keep) {

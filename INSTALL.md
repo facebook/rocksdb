@@ -6,7 +6,7 @@ than release mode.
 
 RocksDB's library should be able to compile without any dependency installed,
 although we recommend installing some compression libraries (see below).
-We do depend on newer gcc/clang with C++11 support.
+We do depend on newer gcc/clang with C++17 support (GCC >= 7, Clang >= 5).
 
 There are few options when compiling RocksDB:
 
@@ -47,10 +47,12 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
 
 * If you wish to build the RocksJava static target, then cmake is required for building Snappy.
 
+* If you wish to run microbench (e.g, `make microbench`, `make ribbon_bench` or `cmake -DWITH_BENCHMARK=1`), Google benchmark < 1.6.0 is needed.
+
 ## Supported platforms
 
 * **Linux - Ubuntu**
-    * Upgrade your gcc to version at least 4.8 to get C++11 support.
+    * Upgrade your gcc to version at least 7 to get C++17 support.
     * Install gflags. First, try: `sudo apt-get install libgflags-dev`
       If this doesn't work and you're using Ubuntu, here's a nice tutorial:
       (http://askubuntu.com/questions/312173/installing-gflags-12-04)
@@ -62,8 +64,7 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
     * Install zstandard: `sudo apt-get install libzstd-dev`.
 
 * **Linux - CentOS / RHEL**
-    * Upgrade your gcc to version at least 4.8 to get C++11 support:
-      `yum install gcc48-c++`
+    * Upgrade your gcc to version at least 7 to get C++17 support
     * Install gflags:
 
               git clone https://github.com/gflags/gflags.git
@@ -113,11 +114,11 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
               make && sudo make install
 
 * **OS X**:
-    * Install latest C++ compiler that supports C++ 11:
+    * Install latest C++ compiler that supports C++ 17:
         * Update XCode:  run `xcode-select --install` (or install it from XCode App's settting).
         * Install via [homebrew](http://brew.sh/).
             * If you're first time developer in MacOS, you still need to run: `xcode-select --install` in your command line.
-            * run `brew tap homebrew/versions; brew install gcc48 --use-llvm` to install gcc 4.8 (or higher).
+            * run `brew tap homebrew/versions; brew install gcc7 --use-llvm` to install gcc 7 (or higher).
     * run `brew install rocksdb`
 
 * **FreeBSD** (11.01):
@@ -201,7 +202,7 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
              export PATH=/opt/freeware/bin:$PATH
 
 * **Solaris Sparc**
-    * Install GCC 4.8.2 and higher.
+    * Install GCC 7 and higher.
     * Use these environment variables:
 
              export CC=gcc
@@ -210,4 +211,3 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
              export EXTRA_LDFLAGS=-m64
              export PORTABLE=1
              export PLATFORM_LDFLAGS="-static-libstdc++ -static-libgcc"
-

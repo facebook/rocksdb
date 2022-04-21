@@ -45,6 +45,7 @@ public class MutableDBOptions extends AbstractMutableOptions {
    * key1=value1;intArrayKey1=1:2:3
    *
    * @param str The string representation of the mutable db options
+   * @param ignoreUnknown what to do if the key is not one of the keys we expect
    *
    * @return A builder for the mutable db options
    */
@@ -63,7 +64,6 @@ public class MutableDBOptions extends AbstractMutableOptions {
 
   public enum DBOption implements MutableDBOptionKey {
     max_background_jobs(ValueType.INT),
-    base_background_compactions(ValueType.INT),
     max_background_compactions(ValueType.INT),
     avoid_flush_during_shutdown(ValueType.BOOLEAN),
     writable_file_max_buffer_size(ValueType.LONG),
@@ -130,19 +130,6 @@ public class MutableDBOptions extends AbstractMutableOptions {
     @Override
     public int maxBackgroundJobs() {
       return getInt(DBOption.max_background_jobs);
-    }
-
-    @Override
-    @Deprecated
-    public void setBaseBackgroundCompactions(
-        final int baseBackgroundCompactions) {
-      setInt(DBOption.base_background_compactions,
-          baseBackgroundCompactions);
-    }
-
-    @Override
-    public int baseBackgroundCompactions() {
-      return getInt(DBOption.base_background_compactions);
     }
 
     @Override

@@ -15,6 +15,11 @@
 #ifndef DEFINE_uint32
 // DEFINE_uint32 does not appear in older versions of gflags. This should be
 // a sane definition for those versions.
+#include <cstdint>
 #define DEFINE_uint32(name, val, txt) \
-  DEFINE_VARIABLE(GFLAGS_NAMESPACE::uint32, U, name, val, txt)
+  namespace gflags_compat {           \
+  DEFINE_int32(name, val, txt);       \
+  }                                   \
+  uint32_t &FLAGS_##name =            \
+      *reinterpret_cast<uint32_t *>(&gflags_compat::FLAGS_##name);
 #endif

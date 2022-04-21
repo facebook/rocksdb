@@ -148,6 +148,78 @@ TEST_P(TransactionTest, SuccessTest) {
   delete txn;
 }
 
+TEST_P(TransactionTest, SwitchMemtableDuringPrepareAndCommit_WC) {
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
+
+  if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
+    ROCKSDB_GTEST_BYPASS("Test applies to write-committed only");
+    return;
+  }
+
+  ASSERT_OK(db->Put(WriteOptions(), "key0", "value"));
+
+  TransactionOptions txn_opts;
+  txn_opts.use_only_the_last_commit_time_batch_for_recovery = true;
+  Transaction* txn = db->BeginTransaction(WriteOptions(), txn_opts);
+  assert(txn);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table", [&](void* arg) {
+        // db mutex not held.
+        auto* mems = reinterpret_cast<autovector<MemTable*>*>(arg);
+        assert(mems);
+        ASSERT_EQ(1, mems->size());
+        auto* ctwb = txn->GetCommitTimeWriteBatch();
+        ASSERT_OK(ctwb->Put("gtid", "123"));
+        ASSERT_OK(txn->Commit());
+        delete txn;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(txn->Put("key1", "value"));
+  ASSERT_OK(txn->SetName("txn1"));
+
+  ASSERT_OK(txn->Prepare());
+
+  auto dbimpl = static_cast_with_check<DBImpl>(db->GetRootDB());
+  ASSERT_OK(dbimpl->TEST_SwitchMemtable(nullptr));
+  ASSERT_OK(dbimpl->TEST_FlushMemTable(
+      /*wait=*/false, /*allow_write_stall=*/true, /*cfh=*/nullptr));
+
+  ASSERT_OK(dbimpl->TEST_WaitForFlushMemTable());
+
+  {
+    std::string value;
+    ASSERT_OK(db->Get(ReadOptions(), "key1", &value));
+    ASSERT_EQ("value", value);
+  }
+
+  delete db;
+  db = nullptr;
+  Status s;
+  if (use_stackable_db_ == false) {
+    s = TransactionDB::Open(options, txn_db_options, dbname, &db);
+  } else {
+    s = OpenWithStackableDB();
+  }
+  ASSERT_OK(s);
+  assert(db);
+
+  {
+    std::string value;
+    ASSERT_OK(db->Get(ReadOptions(), "gtid", &value));
+    ASSERT_EQ("123", value);
+
+    ASSERT_OK(db->Get(ReadOptions(), "key1", &value));
+    ASSERT_EQ("value", value);
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 // The test clarifies the contract of do_validate and assume_tracked
 // in GetForUpdate and Put/Merge/Delete
 TEST_P(TransactionTest, AssumeExclusiveTracked) {
@@ -6336,6 +6408,96 @@ TEST_P(TransactionTest, CommitWithoutPrepare) {
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
     ASSERT_OK(txn->Commit());
     delete txn;
+  }
+}
+
+TEST_P(TransactionTest, OpenAndEnableU64Timestamp) {
+  ASSERT_OK(ReOpenNoDelete());
+
+  assert(db);
+
+  const std::string test_cf_name = "test_cf";
+  ColumnFamilyOptions cf_opts;
+  cf_opts.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  {
+    ColumnFamilyHandle* cfh = nullptr;
+    const Status s = db->CreateColumnFamily(cf_opts, test_cf_name, &cfh);
+    if (txn_db_options.write_policy == WRITE_COMMITTED) {
+      ASSERT_OK(s);
+      delete cfh;
+    } else {
+      ASSERT_TRUE(s.IsNotSupported());
+      assert(!cfh);
+    }
+  }
+
+  // Bypass transaction db layer.
+  if (txn_db_options.write_policy != WRITE_COMMITTED) {
+    DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+    assert(db_impl);
+    ColumnFamilyHandle* cfh = nullptr;
+    ASSERT_OK(db_impl->CreateColumnFamily(cf_opts, test_cf_name, &cfh));
+    delete cfh;
+  }
+
+  {
+    std::vector<ColumnFamilyDescriptor> cf_descs;
+    cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+    cf_descs.emplace_back(test_cf_name, cf_opts);
+    std::vector<ColumnFamilyHandle*> handles;
+    const Status s = ReOpenNoDelete(cf_descs, &handles);
+    if (txn_db_options.write_policy == WRITE_COMMITTED) {
+      ASSERT_OK(s);
+      for (auto* h : handles) {
+        delete h;
+      }
+    } else {
+      ASSERT_TRUE(s.IsNotSupported());
+    }
+  }
+}
+
+TEST_P(TransactionTest, OpenAndEnableU32Timestamp) {
+  class DummyComparatorWithU32Ts : public Comparator {
+   public:
+    DummyComparatorWithU32Ts() : Comparator(sizeof(uint32_t)) {}
+    const char* Name() const override { return "DummyComparatorWithU32Ts"; }
+    void FindShortSuccessor(std::string*) const override {}
+    void FindShortestSeparator(std::string*, const Slice&) const override {}
+    int Compare(const Slice&, const Slice&) const override { return 0; }
+  };
+
+  std::unique_ptr<Comparator> dummy_ucmp(new DummyComparatorWithU32Ts());
+
+  ASSERT_OK(ReOpenNoDelete());
+
+  assert(db);
+
+  const std::string test_cf_name = "test_cf";
+
+  ColumnFamilyOptions cf_opts;
+  cf_opts.comparator = dummy_ucmp.get();
+  {
+    ColumnFamilyHandle* cfh = nullptr;
+    ASSERT_TRUE(db->CreateColumnFamily(cf_opts, test_cf_name, &cfh)
+                    .IsInvalidArgument());
+  }
+
+  // Bypass transaction db layer.
+  {
+    ColumnFamilyHandle* cfh = nullptr;
+    DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+    assert(db_impl);
+    ASSERT_OK(db_impl->CreateColumnFamily(cf_opts, test_cf_name, &cfh));
+    delete cfh;
+  }
+
+  {
+    std::vector<ColumnFamilyDescriptor> cf_descs;
+    cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+    cf_descs.emplace_back(test_cf_name, cf_opts);
+    std::vector<ColumnFamilyHandle*> handles;
+    ASSERT_TRUE(ReOpenNoDelete(cf_descs, &handles).IsInvalidArgument());
   }
 }
 

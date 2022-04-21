@@ -18,7 +18,7 @@ class DBBlobCompactionTest : public DBTestBase {
 
 #ifndef ROCKSDB_LITE
   const std::vector<InternalStats::CompactionStats>& GetCompactionStats() {
-    VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+    VersionSet* const versions = dbfull()->GetVersionSet();
     assert(versions);
     assert(versions->GetColumnFamilySet());
 
@@ -495,7 +495,7 @@ TEST_F(DBBlobCompactionTest, TrackGarbage) {
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
   assert(versions->GetColumnFamilySet());
 
@@ -512,8 +512,7 @@ TEST_F(DBBlobCompactionTest, TrackGarbage) {
   ASSERT_EQ(blob_files.size(), 2);
 
   {
-    auto it = blob_files.begin();
-    const auto& meta = it->second;
+    const auto& meta = blob_files.front();
     assert(meta);
 
     constexpr uint64_t first_expected_bytes =
@@ -543,8 +542,7 @@ TEST_F(DBBlobCompactionTest, TrackGarbage) {
   }
 
   {
-    auto it = blob_files.rbegin();
-    const auto& meta = it->second;
+    const auto& meta = blob_files.back();
     assert(meta);
 
     constexpr uint64_t new_first_expected_bytes =

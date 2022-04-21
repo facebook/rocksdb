@@ -58,16 +58,15 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"allow_os_buffer",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
+        {"base_background_compactions",
+         {0, OptionType::kInt, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable}},
         {"max_background_jobs",
          {offsetof(struct MutableDBOptions, max_background_jobs),
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"max_background_compactions",
          {offsetof(struct MutableDBOptions, max_background_compactions),
-          OptionType::kInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
-        {"base_background_compactions",
-         {offsetof(struct MutableDBOptions, base_background_compactions),
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"max_subcompactions",
@@ -242,9 +241,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"new_table_reader_for_compaction_inputs",
-         {offsetof(struct ImmutableDBOptions,
-                   new_table_reader_for_compaction_inputs),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"random_access_max_buffer_size",
          {offsetof(struct ImmutableDBOptions, random_access_max_buffer_size),
@@ -374,8 +371,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"preserve_deletes",
-         {offsetof(struct ImmutableDBOptions, preserve_deletes),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"concurrent_prepare",  // Deprecated by two_write_queues
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
@@ -387,6 +383,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"manual_wal_flush",
          {offsetof(struct ImmutableDBOptions, manual_wal_flush),
           OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"wal_compression",
+         {offsetof(struct ImmutableDBOptions, wal_compression),
+          OptionType::kCompressionType, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"seq_per_batch",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
@@ -422,6 +422,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"db_host_id",
          {offsetof(struct ImmutableDBOptions, db_host_id), OptionType::kString,
           OptionVerificationType::kNormal, OptionTypeFlags::kCompareNever}},
+        {"rate_limiter",
+         OptionTypeInfo::AsCustomSharedPtr<RateLimiter>(
+             offsetof(struct ImmutableDBOptions, rate_limiter),
+             OptionVerificationType::kNormal,
+             OptionTypeFlags::kCompareNever | OptionTypeFlags::kAllowNull)},
+
         // The following properties were handled as special cases in ParseOption
         // This means that the properties could be read from the options file
         // but never written to the file or compared to each other.
@@ -698,8 +704,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       db_write_buffer_size(options.db_write_buffer_size),
       write_buffer_manager(options.write_buffer_manager),
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
-      new_table_reader_for_compaction_inputs(
-          options.new_table_reader_for_compaction_inputs),
       random_access_max_buffer_size(options.random_access_max_buffer_size),
       use_adaptive_mutex(options.use_adaptive_mutex),
       listeners(options.listeners),
@@ -725,9 +729,9 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       dump_malloc_stats(options.dump_malloc_stats),
       avoid_flush_during_recovery(options.avoid_flush_during_recovery),
       allow_ingest_behind(options.allow_ingest_behind),
-      preserve_deletes(options.preserve_deletes),
       two_write_queues(options.two_write_queues),
       manual_wal_flush(options.manual_wal_flush),
+      wal_compression(options.wal_compression),
       atomic_flush(options.atomic_flush),
       avoid_unnecessary_blocking_io(options.avoid_unnecessary_blocking_io),
       persist_stats_to_disk(options.persist_stats_to_disk),
@@ -743,7 +747,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       checksum_handoff_file_types(options.checksum_handoff_file_types),
       lowest_used_cache_tier(options.lowest_used_cache_tier),
       compaction_service(options.compaction_service) {
-  stats = statistics.get();
   fs = env->GetFileSystem();
   if (env != nullptr) {
     clock = env->GetSystemClock().get();
@@ -841,8 +844,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    write_buffer_manager.get());
   ROCKS_LOG_HEADER(log, "        Options.access_hint_on_compaction_start: %d",
                    static_cast<int>(access_hint_on_compaction_start));
-  ROCKS_LOG_HEADER(log, " Options.new_table_reader_for_compaction_inputs: %d",
-                   new_table_reader_for_compaction_inputs);
   ROCKS_LOG_HEADER(
       log, "          Options.random_access_max_buffer_size: %" ROCKSDB_PRIszt,
       random_access_max_buffer_size);
@@ -889,12 +890,12 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    avoid_flush_during_recovery);
   ROCKS_LOG_HEADER(log, "            Options.allow_ingest_behind: %d",
                    allow_ingest_behind);
-  ROCKS_LOG_HEADER(log, "            Options.preserve_deletes: %d",
-                   preserve_deletes);
   ROCKS_LOG_HEADER(log, "            Options.two_write_queues: %d",
                    two_write_queues);
   ROCKS_LOG_HEADER(log, "            Options.manual_wal_flush: %d",
                    manual_wal_flush);
+  ROCKS_LOG_HEADER(log, "            Options.wal_compression: %d",
+                   wal_compression);
   ROCKS_LOG_HEADER(log, "            Options.atomic_flush: %d", atomic_flush);
   ROCKS_LOG_HEADER(log,
                    "            Options.avoid_unnecessary_blocking_io: %d",
@@ -961,7 +962,6 @@ const std::string& ImmutableDBOptions::GetWalDir(
 
 MutableDBOptions::MutableDBOptions()
     : max_background_jobs(2),
-      base_background_compactions(-1),
       max_background_compactions(-1),
       max_subcompactions(0),
       avoid_flush_during_shutdown(false),
@@ -981,7 +981,6 @@ MutableDBOptions::MutableDBOptions()
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : max_background_jobs(options.max_background_jobs),
-      base_background_compactions(options.base_background_compactions),
       max_background_compactions(options.max_background_compactions),
       max_subcompactions(options.max_subcompactions),
       avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),

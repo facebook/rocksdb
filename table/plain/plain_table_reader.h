@@ -179,15 +179,11 @@ class PlainTableReader: public TableReader {
 
   Slice GetPrefix(const Slice& target) const {
     assert(target.size() >= 8);  // target is internal key
-    return GetPrefixFromUserKey(GetUserKey(target));
+    return GetPrefixFromUserKey(ExtractUserKey(target));
   }
 
   Slice GetPrefix(const ParsedInternalKey& target) const {
     return GetPrefixFromUserKey(target.user_key);
-  }
-
-  Slice GetUserKey(const Slice& key) const {
-    return Slice(key.data(), key.size() - 8);
   }
 
   Slice GetPrefixFromUserKey(const Slice& user_key) const {

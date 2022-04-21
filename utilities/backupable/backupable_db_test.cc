@@ -9,8 +9,6 @@
 
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
-#include "rocksdb/utilities/backupable_db.h"
-
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -24,17 +22,21 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
+#include "env/composite_env_wrapper.h"
 #include "env/env_chroot.h"
 #include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
+#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/options_util.h"
+#include "rocksdb/utilities/stackable_db.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -49,11 +51,11 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
-using ShareFilesNaming = BackupableDBOptions::ShareFilesNaming;
+using ShareFilesNaming = BackupEngineOptions::ShareFilesNaming;
 const auto kLegacyCrc32cAndFileSize =
-    BackupableDBOptions::kLegacyCrc32cAndFileSize;
-const auto kUseDbSessionId = BackupableDBOptions::kUseDbSessionId;
-const auto kFlagIncludeFileSize = BackupableDBOptions::kFlagIncludeFileSize;
+    BackupEngineOptions::kLegacyCrc32cAndFileSize;
+const auto kUseDbSessionId = BackupEngineOptions::kUseDbSessionId;
+const auto kFlagIncludeFileSize = BackupEngineOptions::kFlagIncludeFileSize;
 const auto kNamingDefault = kUseDbSessionId | kFlagIncludeFileSize;
 
 class DummyDB : public StackableDB {
@@ -141,13 +143,13 @@ class DummyDB : public StackableDB {
       info.file_number = number;
       info.file_type = type;
       if (type == kDescriptorFile) {
-        info.size = 100;  // See TestEnv::GetChildrenFileAttributes below
+        info.size = 100;  // See TestFs::GetChildrenFileAttributes below
         info.trim_to_size = true;
       } else if (type == kCurrentFile) {
         info.size = 0;
         info.trim_to_size = true;
       } else {
-        info.size = 200;  // See TestEnv::GetChildrenFileAttributes below
+        info.size = 200;  // See TestFs::GetChildrenFileAttributes below
       }
       if (opts.include_checksum_info) {
         info.file_checksum = kUnknownFileChecksum;
@@ -169,17 +171,20 @@ class DummyDB : public StackableDB {
   mutable SequenceNumber sequence_number_;
 }; // DummyDB
 
-class TestEnv : public EnvWrapper {
+class TestFs : public FileSystemWrapper {
  public:
-  explicit TestEnv(Env* t) : EnvWrapper(t) {}
+  explicit TestFs(const std::shared_ptr<FileSystem>& t)
+      : FileSystemWrapper(t) {}
+  const char* Name() const override { return "TestFs"; }
 
-  class DummySequentialFile : public SequentialFile {
+  class DummySequentialFile : public FSSequentialFile {
    public:
     explicit DummySequentialFile(bool fail_reads)
-        : SequentialFile(), rnd_(5), fail_reads_(fail_reads) {}
-    Status Read(size_t n, Slice* result, char* scratch) override {
+        : FSSequentialFile(), rnd_(5), fail_reads_(fail_reads) {}
+    IOStatus Read(size_t n, const IOOptions&, Slice* result, char* scratch,
+                  IODebugContext*) override {
       if (fail_reads_) {
-        return Status::IOError();
+        return IOStatus::IOError();
       }
       size_t read_size = (n > size_left) ? size_left : n;
       for (size_t i = 0; i < read_size; ++i) {
@@ -187,12 +192,12 @@ class TestEnv : public EnvWrapper {
       }
       *result = Slice(scratch, read_size);
       size_left -= read_size;
-      return Status::OK();
+      return IOStatus::OK();
     }
 
-    Status Skip(uint64_t n) override {
+    IOStatus Skip(uint64_t n) override {
       size_left = (n > size_left) ? size_left - n : 0;
-      return Status::OK();
+      return IOStatus::OK();
     }
 
    private:
@@ -201,16 +206,16 @@ class TestEnv : public EnvWrapper {
     bool fail_reads_;
   };
 
-  Status NewSequentialFile(const std::string& f,
-                           std::unique_ptr<SequentialFile>* r,
-                           const EnvOptions& options) override {
+  IOStatus NewSequentialFile(const std::string& f, const FileOptions& file_opts,
+                             std::unique_ptr<FSSequentialFile>* r,
+                             IODebugContext* dbg) override {
     MutexLock l(&mutex_);
     if (dummy_sequential_file_) {
       r->reset(
-          new TestEnv::DummySequentialFile(dummy_sequential_file_fail_reads_));
-      return Status::OK();
+          new TestFs::DummySequentialFile(dummy_sequential_file_fail_reads_));
+      return IOStatus::OK();
     } else {
-      Status s = EnvWrapper::NewSequentialFile(f, r, options);
+      IOStatus s = FileSystemWrapper::NewSequentialFile(f, file_opts, r, dbg);
       if (s.ok()) {
         if ((*r)->use_direct_io()) {
           ++num_direct_seq_readers_;
@@ -221,15 +226,16 @@ class TestEnv : public EnvWrapper {
     }
   }
 
-  Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
-                         const EnvOptions& options) override {
+  IOStatus NewWritableFile(const std::string& f, const FileOptions& file_opts,
+                           std::unique_ptr<FSWritableFile>* r,
+                           IODebugContext* dbg) override {
     MutexLock l(&mutex_);
     written_files_.push_back(f);
     if (limit_written_files_ <= 0) {
-      return Status::NotSupported("Sorry, can't do this");
+      return IOStatus::NotSupported("Sorry, can't do this");
     }
     limit_written_files_--;
-    Status s = EnvWrapper::NewWritableFile(f, r, options);
+    IOStatus s = FileSystemWrapper::NewWritableFile(f, file_opts, r, dbg);
     if (s.ok()) {
       if ((*r)->use_direct_io()) {
         ++num_direct_writers_;
@@ -239,13 +245,14 @@ class TestEnv : public EnvWrapper {
     return s;
   }
 
-  Status NewRandomAccessFile(const std::string& fname,
-                             std::unique_ptr<RandomAccessFile>* result,
-                             const EnvOptions& options) override {
+  IOStatus NewRandomAccessFile(const std::string& f,
+                               const FileOptions& file_opts,
+                               std::unique_ptr<FSRandomAccessFile>* r,
+                               IODebugContext* dbg) override {
     MutexLock l(&mutex_);
-    Status s = EnvWrapper::NewRandomAccessFile(fname, result, options);
+    IOStatus s = FileSystemWrapper::NewRandomAccessFile(f, file_opts, r, dbg);
     if (s.ok()) {
-      if ((*result)->use_direct_io()) {
+      if ((*r)->use_direct_io()) {
         ++num_direct_rand_readers_;
       }
       ++num_rand_readers_;
@@ -253,22 +260,24 @@ class TestEnv : public EnvWrapper {
     return s;
   }
 
-  Status DeleteFile(const std::string& fname) override {
+  IOStatus DeleteFile(const std::string& f, const IOOptions& options,
+                      IODebugContext* dbg) override {
     MutexLock l(&mutex_);
     if (fail_delete_files_) {
-      return Status::IOError();
+      return IOStatus::IOError();
     }
     EXPECT_GT(limit_delete_files_, 0U);
     limit_delete_files_--;
-    return EnvWrapper::DeleteFile(fname);
+    return FileSystemWrapper::DeleteFile(f, options, dbg);
   }
 
-  Status DeleteDir(const std::string& dirname) override {
+  IOStatus DeleteDir(const std::string& d, const IOOptions& options,
+                     IODebugContext* dbg) override {
     MutexLock l(&mutex_);
     if (fail_delete_files_) {
-      return Status::IOError();
+      return IOStatus::IOError();
     }
-    return EnvWrapper::DeleteDir(dirname);
+    return FileSystemWrapper::DeleteDir(d, options, dbg);
   }
 
   void AssertWrittenFiles(std::vector<std::string>& should_have_written) {
@@ -309,12 +318,13 @@ class TestEnv : public EnvWrapper {
   }
 
   void SetGetChildrenFailure(bool fail) { get_children_failure_ = fail; }
-  Status GetChildren(const std::string& dir,
-                     std::vector<std::string>* r) override {
+  IOStatus GetChildren(const std::string& dir, const IOOptions& io_opts,
+                       std::vector<std::string>* r,
+                       IODebugContext* dbg) override {
     if (get_children_failure_) {
-      return Status::IOError("SimulatedFailure");
+      return IOStatus::IOError("SimulatedFailure");
     }
-    return EnvWrapper::GetChildren(dir, r);
+    return FileSystemWrapper::GetChildren(dir, io_opts, r, dbg);
   }
 
   // Some test cases do not actually create the test files (e.g., see
@@ -323,54 +333,61 @@ class TestEnv : public EnvWrapper {
   void SetFilenamesForMockedAttrs(const std::vector<std::string>& filenames) {
     filenames_for_mocked_attrs_ = filenames;
   }
-  Status GetChildrenFileAttributes(
-      const std::string& dir, std::vector<Env::FileAttributes>* r) override {
+  IOStatus GetChildrenFileAttributes(const std::string& dir,
+                                     const IOOptions& options,
+                                     std::vector<FileAttributes>* result,
+                                     IODebugContext* dbg) override {
     if (filenames_for_mocked_attrs_.size() > 0) {
       for (const auto& filename : filenames_for_mocked_attrs_) {
-        uint64_t size_bytes = 200;  // Match TestEnv
+        uint64_t size_bytes = 200;  // Match TestFs
         if (filename.find("MANIFEST") == 0) {
           size_bytes = 100;  // Match DummyDB::GetLiveFiles
         }
-        r->push_back({dir + "/" + filename, size_bytes});
+        result->push_back({dir + "/" + filename, size_bytes});
       }
-      return Status::OK();
+      return IOStatus::OK();
     }
-    return EnvWrapper::GetChildrenFileAttributes(dir, r);
+    return FileSystemWrapper::GetChildrenFileAttributes(dir, options, result,
+                                                        dbg);
   }
-  Status GetFileSize(const std::string& path, uint64_t* size_bytes) override {
+
+  IOStatus GetFileSize(const std::string& f, const IOOptions& options,
+                       uint64_t* s, IODebugContext* dbg) override {
     if (filenames_for_mocked_attrs_.size() > 0) {
-      auto fname = path.substr(path.find_last_of('/') + 1);
+      auto fname = f.substr(f.find_last_of('/') + 1);
       auto filename_iter = std::find(filenames_for_mocked_attrs_.begin(),
                                      filenames_for_mocked_attrs_.end(), fname);
       if (filename_iter != filenames_for_mocked_attrs_.end()) {
-        *size_bytes = 200;  // Match TestEnv
+        *s = 200;  // Match TestFs
         if (fname.find("MANIFEST") == 0) {
-          *size_bytes = 100;  // Match DummyDB::GetLiveFiles
+          *s = 100;  // Match DummyDB::GetLiveFiles
         }
-        return Status::OK();
+        return IOStatus::OK();
       }
-      return Status::NotFound(fname);
+      return IOStatus::NotFound(fname);
     }
-    return EnvWrapper::GetFileSize(path, size_bytes);
+    return FileSystemWrapper::GetFileSize(f, options, s, dbg);
   }
 
   void SetCreateDirIfMissingFailure(bool fail) {
     create_dir_if_missing_failure_ = fail;
   }
-  Status CreateDirIfMissing(const std::string& d) override {
+  IOStatus CreateDirIfMissing(const std::string& d, const IOOptions& options,
+                              IODebugContext* dbg) override {
     if (create_dir_if_missing_failure_) {
-      return Status::IOError("SimulatedFailure");
+      return IOStatus::IOError("SimulatedFailure");
     }
-    return EnvWrapper::CreateDirIfMissing(d);
+    return FileSystemWrapper::CreateDirIfMissing(d, options, dbg);
   }
 
   void SetNewDirectoryFailure(bool fail) { new_directory_failure_ = fail; }
-  Status NewDirectory(const std::string& name,
-                      std::unique_ptr<Directory>* result) override {
+  IOStatus NewDirectory(const std::string& name, const IOOptions& io_opts,
+                        std::unique_ptr<FSDirectory>* result,
+                        IODebugContext* dbg) override {
     if (new_directory_failure_) {
-      return Status::IOError("SimulatedFailure");
+      return IOStatus::IOError("SimulatedFailure");
     }
-    return EnvWrapper::NewDirectory(name, result);
+    return FileSystemWrapper::NewDirectory(name, io_opts, result, dbg);
   }
 
   void ClearFileOpenCounters() {
@@ -406,17 +423,18 @@ class TestEnv : public EnvWrapper {
 
   // Keeps track of how many files of each type were successfully opened, and
   // out of those, how many were opened with direct I/O.
-  std::atomic<int> num_rand_readers_;
-  std::atomic<int> num_direct_rand_readers_;
-  std::atomic<int> num_seq_readers_;
-  std::atomic<int> num_direct_seq_readers_;
-  std::atomic<int> num_writers_;
-  std::atomic<int> num_direct_writers_;
-};  // TestEnv
+  std::atomic<int> num_rand_readers_{};
+  std::atomic<int> num_direct_rand_readers_{};
+  std::atomic<int> num_seq_readers_{};
+  std::atomic<int> num_direct_seq_readers_{};
+  std::atomic<int> num_writers_{};
+  std::atomic<int> num_direct_writers_{};
+};  // TestFs
 
 class FileManager : public EnvWrapper {
  public:
   explicit FileManager(Env* t) : EnvWrapper(t), rnd_(5) {}
+  const char* Name() const override { return "FileManager"; }
 
   Status GetRandomFileInDir(const std::string& dir, std::string* fname,
                             uint64_t* fsize) {
@@ -632,29 +650,20 @@ class BackupEngineTest : public testing::Test {
     backupdir_ = "/tempbk";
     latest_backup_ = backupdir_ + "/LATEST_BACKUP";
 
-    // set up envs
-    db_chroot_env_.reset(NewChrootEnv(Env::Default(), db_chroot));
-    backup_chroot_env_.reset(NewChrootEnv(Env::Default(), backup_chroot));
-    test_db_env_.reset(new TestEnv(db_chroot_env_.get()));
-    test_backup_env_.reset(new TestEnv(backup_chroot_env_.get()));
-    file_manager_.reset(new FileManager(backup_chroot_env_.get()));
-    db_file_manager_.reset(new FileManager(db_chroot_env_.get()));
+    // set up FileSystem & Envs
+    db_chroot_fs_ = NewChrootFileSystem(FileSystem::Default(), db_chroot);
+    backup_chroot_fs_ =
+        NewChrootFileSystem(FileSystem::Default(), backup_chroot);
+    test_db_fs_ = std::make_shared<TestFs>(db_chroot_fs_);
+    test_backup_fs_ = std::make_shared<TestFs>(backup_chroot_fs_);
+    SetEnvsFromFileSystems();
 
     // set up db options
     options_.create_if_missing = true;
     options_.paranoid_checks = true;
     options_.write_buffer_size = 1 << 17; // 128KB
-    options_.env = test_db_env_.get();
     options_.wal_dir = dbname_;
     options_.enable_blob_files = true;
-
-    // Create logger
-    DBOptions logger_options;
-    logger_options.env = db_chroot_env_.get();
-    // TODO: This should really be an EXPECT_OK, but this CreateLogger fails
-    // regularly in some environments with "no such directory"
-    CreateLoggerFromOptions(dbname_, logger_options, &logger_)
-        .PermitUncheckedError();
 
     // The sync option is not easily testable in unit tests, but should be
     // smoke tested across all the other backup tests. However, it is
@@ -669,12 +678,12 @@ class BackupEngineTest : public testing::Test {
 #endif  // ROCKSDB_MODIFY_NPHASH
 
     // set up backup db options
-    backupable_options_.reset(new BackupableDBOptions(
+    engine_options_.reset(new BackupEngineOptions(
         backupdir_, test_backup_env_.get(), /*share_table_files*/ true,
         logger_.get(), kUseSync));
 
     // most tests will use multi-threaded backups
-    backupable_options_->max_background_operations = 7;
+    engine_options_->max_background_operations = 7;
 
     // delete old files in db
     DestroyDB(dbname_, options_);
@@ -682,6 +691,27 @@ class BackupEngineTest : public testing::Test {
     // delete old LATEST_BACKUP file, which some tests create for compatibility
     // testing.
     backup_chroot_env_->DeleteFile(latest_backup_).PermitUncheckedError();
+  }
+
+  void SetEnvsFromFileSystems() {
+    db_chroot_env_.reset(
+        new CompositeEnvWrapper(Env::Default(), db_chroot_fs_));
+    backup_chroot_env_.reset(
+        new CompositeEnvWrapper(Env::Default(), backup_chroot_fs_));
+    test_db_env_.reset(new CompositeEnvWrapper(Env::Default(), test_db_fs_));
+    options_.env = test_db_env_.get();
+    test_backup_env_.reset(
+        new CompositeEnvWrapper(Env::Default(), test_backup_fs_));
+    if (engine_options_) {
+      engine_options_->backup_env = test_backup_env_.get();
+    }
+    file_manager_.reset(new FileManager(backup_chroot_env_.get()));
+    db_file_manager_.reset(new FileManager(db_chroot_env_.get()));
+
+    // Create logger
+    DBOptions logger_options;
+    logger_options.env = db_chroot_env_.get();
+    ASSERT_OK(CreateLoggerFromOptions(dbname_, logger_options, &logger_));
   }
 
   DB* OpenDB() {
@@ -695,7 +725,7 @@ class BackupEngineTest : public testing::Test {
     db_.reset();
 
     // Open DB
-    test_db_env_->SetLimitWrittenFiles(1000000);
+    test_db_fs_->SetLimitWrittenFiles(1000000);
     DB* db;
     if (read_only) {
       ASSERT_OK(DB::OpenForReadOnly(options_, dbname_, &db));
@@ -707,8 +737,8 @@ class BackupEngineTest : public testing::Test {
 
   void InitializeDBAndBackupEngine(bool dummy = false) {
     // reset all the db env defaults
-    test_db_env_->SetLimitWrittenFiles(1000000);
-    test_db_env_->SetDummySequentialFile(dummy);
+    test_db_fs_->SetLimitWrittenFiles(1000000);
+    test_db_fs_->SetDummySequentialFile(dummy);
 
     DB* db;
     if (dummy) {
@@ -725,10 +755,10 @@ class BackupEngineTest : public testing::Test {
       ShareOption shared_option = kShareNoChecksum) {
     InitializeDBAndBackupEngine(dummy);
     // reset backup env defaults
-    test_backup_env_->SetLimitWrittenFiles(1000000);
-    backupable_options_->destroy_old_data = destroy_old_data;
-    backupable_options_->share_table_files = shared_option != kNoShare;
-    backupable_options_->share_files_with_checksum =
+    test_backup_fs_->SetLimitWrittenFiles(1000000);
+    engine_options_->destroy_old_data = destroy_old_data;
+    engine_options_->share_table_files = shared_option != kNoShare;
+    engine_options_->share_files_with_checksum =
         shared_option == kShareWithChecksum;
     OpenBackupEngine(destroy_old_data);
   }
@@ -739,9 +769,10 @@ class BackupEngineTest : public testing::Test {
   }
 
   void OpenBackupEngine(bool destroy_old_data = false) {
-    backupable_options_->destroy_old_data = destroy_old_data;
+    engine_options_->destroy_old_data = destroy_old_data;
+    engine_options_->info_log = logger_.get();
     BackupEngine* backup_engine;
-    ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
+    ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *engine_options_,
                                  &backup_engine));
     backup_engine_.reset(backup_engine);
   }
@@ -968,11 +999,17 @@ class BackupEngineTest : public testing::Test {
   // which uses a raw pointer to the logger, executes first.
   std::shared_ptr<Logger> logger_;
 
-  // envs
+  // FileSystems
+  std::shared_ptr<FileSystem> db_chroot_fs_;
+  std::shared_ptr<FileSystem> backup_chroot_fs_;
+  std::shared_ptr<TestFs> test_db_fs_;
+  std::shared_ptr<TestFs> test_backup_fs_;
+
+  // Env wrappers
   std::unique_ptr<Env> db_chroot_env_;
   std::unique_ptr<Env> backup_chroot_env_;
-  std::unique_ptr<TestEnv> test_db_env_;
-  std::unique_ptr<TestEnv> test_backup_env_;
+  std::unique_ptr<Env> test_db_env_;
+  std::unique_ptr<Env> test_backup_env_;
   std::unique_ptr<FileManager> file_manager_;
   std::unique_ptr<FileManager> db_file_manager_;
 
@@ -985,7 +1022,7 @@ class BackupEngineTest : public testing::Test {
   Options options_;
 
  protected:
-  std::unique_ptr<BackupableDBOptions> backupable_options_;
+  std::unique_ptr<BackupEngineOptions> engine_options_;
 };  // BackupEngineTest
 
 void AppendPath(const std::string& path, std::vector<std::string>& v) {
@@ -998,28 +1035,28 @@ class BackupEngineTestWithParam : public BackupEngineTest,
                                   public testing::WithParamInterface<bool> {
  public:
   BackupEngineTestWithParam() {
-    backupable_options_->share_files_with_checksum = GetParam();
+    engine_options_->share_files_with_checksum = GetParam();
   }
   void OpenDBAndBackupEngine(
       bool destroy_old_data = false, bool dummy = false,
       ShareOption shared_option = kShareNoChecksum) override {
     BackupEngineTest::InitializeDBAndBackupEngine(dummy);
     // reset backup env defaults
-    test_backup_env_->SetLimitWrittenFiles(1000000);
-    backupable_options_->destroy_old_data = destroy_old_data;
-    backupable_options_->share_table_files = shared_option != kNoShare;
+    test_backup_fs_->SetLimitWrittenFiles(1000000);
+    engine_options_->destroy_old_data = destroy_old_data;
+    engine_options_->share_table_files = shared_option != kNoShare;
     // NOTE: keep share_files_with_checksum setting from constructor
     OpenBackupEngine(destroy_old_data);
   }
 };
 
 TEST_F(BackupEngineTest, FileCollision) {
-  const int keys_iteration = 5000;
+  const int keys_iteration = 100;
   for (const auto& sopt : kAllShareOptions) {
     OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
     FillDB(db_.get(), 0, keys_iteration);
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
-    FillDB(db_.get(), 0, keys_iteration);
+    FillDB(db_.get(), keys_iteration, keys_iteration * 2);
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     CloseDBAndBackupEngine();
 
@@ -1027,10 +1064,12 @@ TEST_F(BackupEngineTest, FileCollision) {
     // collision.
     ASSERT_OK(DestroyDB(dbname_, options_));
 
-    // open with old backup
+    // open fresh DB, but old backups present
     OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
                           sopt);
-    FillDB(db_.get(), 0, keys_iteration * 2);
+    FillDB(db_.get(), 0, keys_iteration);
+    ASSERT_OK(db_->Flush(FlushOptions()));  // like backup would do
+    FillDB(db_.get(), keys_iteration, keys_iteration * 2);
     if (sopt != kShareNoChecksum) {
       ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     } else {
@@ -1205,30 +1244,30 @@ TEST_F(BackupEngineTest, NoDoubleCopy_And_AutoGC) {
   OpenDBAndBackupEngine(true, true);
 
   // should write 5 DB files + one meta file
-  test_backup_env_->SetLimitWrittenFiles(7);
-  test_backup_env_->ClearWrittenFiles();
-  test_db_env_->SetLimitWrittenFiles(0);
+  test_backup_fs_->SetLimitWrittenFiles(7);
+  test_backup_fs_->ClearWrittenFiles();
+  test_db_fs_->SetLimitWrittenFiles(0);
   dummy_db_->live_files_ = {"00010.sst", "00011.sst", "CURRENT", "MANIFEST-01",
                             "00011.log"};
-  test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
+  test_db_fs_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   std::vector<std::string> should_have_written = {
       "/shared/.00010.sst.tmp", "/shared/.00011.sst.tmp", "/private/1/CURRENT",
       "/private/1/MANIFEST-01", "/private/1/00011.log",   "/meta/.1.tmp"};
   AppendPath(backupdir_, should_have_written);
-  test_backup_env_->AssertWrittenFiles(should_have_written);
+  test_backup_fs_->AssertWrittenFiles(should_have_written);
 
   char db_number = '1';
 
   for (std::string other_sst : {"00015.sst", "00017.sst", "00019.sst"}) {
     // should write 4 new DB files + one meta file
     // should not write/copy 00010.sst, since it's already there!
-    test_backup_env_->SetLimitWrittenFiles(6);
-    test_backup_env_->ClearWrittenFiles();
+    test_backup_fs_->SetLimitWrittenFiles(6);
+    test_backup_fs_->ClearWrittenFiles();
 
     dummy_db_->live_files_ = {"00010.sst", other_sst, "CURRENT", "MANIFEST-01",
                               "00011.log"};
-    test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
+    test_db_fs_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
     // should not open 00010.sst - it's already there
 
@@ -1239,7 +1278,7 @@ TEST_F(BackupEngineTest, NoDoubleCopy_And_AutoGC) {
         private_dir + "/MANIFEST-01", private_dir + "/00011.log",
         std::string("/meta/.") + db_number + ".tmp"};
     AppendPath(backupdir_, should_have_written);
-    test_backup_env_->AssertWrittenFiles(should_have_written);
+    test_backup_fs_->AssertWrittenFiles(should_have_written);
   }
 
   ASSERT_OK(backup_engine_->DeleteBackup(1));
@@ -1321,11 +1360,11 @@ TEST_F(BackupEngineTest, CorruptionsTest) {
   // ---------- case 1. - fail a write -----------
   // try creating backup 6, but fail a write
   FillDB(db_.get(), keys_iteration * 5, keys_iteration * 6);
-  test_backup_env_->SetLimitWrittenFiles(2);
+  test_backup_fs_->SetLimitWrittenFiles(2);
   // should fail
   s = backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2));
   ASSERT_NOK(s);
-  test_backup_env_->SetLimitWrittenFiles(1000000);
+  test_backup_fs_->SetLimitWrittenFiles(1000000);
   // latest backup should have all the keys
   CloseDBAndBackupEngine();
   AssertBackupConsistency(0, 0, keys_iteration * 5, keys_iteration * 6);
@@ -1493,7 +1532,7 @@ TEST_P(BackupEngineTestWithParam, CorruptBlobFileMaintainSize) {
   std::vector<FileAttributes> children;
 
   std::string dir = backupdir_;
-  if (backupable_options_->share_files_with_checksum) {
+  if (engine_options_->share_files_with_checksum) {
     dir += "/shared_checksum";
   } else {
     dir += "/shared";
@@ -1649,8 +1688,7 @@ TEST_P(BackupEngineTestWithParam, BlobFileCorruptedBeforeBackup) {
 
 TEST_F(BackupEngineTest, TableFileWithoutDbChecksumCorruptedDuringBackup) {
   const int keys_iteration = 50000;
-  backupable_options_->share_files_with_checksum_naming =
-      kLegacyCrc32cAndFileSize;
+  engine_options_->share_files_with_checksum_naming = kLegacyCrc32cAndFileSize;
   // When share_files_with_checksum is on, we calculate checksums of table
   // files before and after copying. So we can test whether a corruption has
   // happened during the file is copied to backup directory.
@@ -1736,8 +1774,8 @@ TEST_F(BackupEngineTest, InterruptCreationTest) {
 
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
-  test_backup_env_->SetLimitWrittenFiles(2);
-  test_backup_env_->SetDeleteFileFailure(true);
+  test_backup_fs_->SetLimitWrittenFiles(2);
+  test_backup_fs_->SetDeleteFileFailure(true);
   // should fail creation
   ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)));
   CloseDBAndBackupEngine();
@@ -1745,8 +1783,8 @@ TEST_F(BackupEngineTest, InterruptCreationTest) {
   ASSERT_OK(backup_chroot_env_->FileExists(backupdir_ + "/private/1/"));
 
   OpenDBAndBackupEngine(false /* destroy_old_data */);
-  test_backup_env_->SetLimitWrittenFiles(1000000);
-  test_backup_env_->SetDeleteFileFailure(false);
+  test_backup_fs_->SetLimitWrittenFiles(1000000);
+  test_backup_fs_->SetDeleteFileFailure(false);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)));
   // latest backup should have all the keys
   CloseDBAndBackupEngine();
@@ -1880,11 +1918,10 @@ TEST_F(BackupEngineTest, NoDeleteWithReadOnly) {
   CloseDBAndBackupEngine();
   ASSERT_OK(file_manager_->WriteToFile(latest_backup_, "4"));
 
-  backupable_options_->destroy_old_data = false;
+  engine_options_->destroy_old_data = false;
   BackupEngineReadOnly* read_only_backup_engine;
-  ASSERT_OK(BackupEngineReadOnly::Open(backup_chroot_env_.get(),
-                                       *backupable_options_,
-                                       &read_only_backup_engine));
+  ASSERT_OK(BackupEngineReadOnly::Open(
+      backup_chroot_env_.get(), *engine_options_, &read_only_backup_engine));
 
   // assert that data from backup 5 is still here (even though LATEST_BACKUP
   // says 4 is latest)
@@ -2013,7 +2050,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsTransition) {
 
 // Verify backup and restore with various naming options, check names
 TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNaming) {
-  ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
+  ASSERT_TRUE(engine_options_->share_files_with_checksum_naming ==
               kNamingDefault);
 
   const int keys_iteration = 5000;
@@ -2036,7 +2073,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNaming) {
 
   for (const auto& pair : option_to_expected) {
     CloseAndReopenDB();
-    backupable_options_->share_files_with_checksum_naming = pair.first;
+    engine_options_->share_files_with_checksum_naming = pair.first;
     OpenBackupEngine(true /*destroy_old_data*/);
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     CloseDBAndBackupEngine();
@@ -2079,7 +2116,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsOldFileNaming) {
 
   for (ShareFilesNaming option : {kNamingDefault, kUseDbSessionId}) {
     CloseAndReopenDB();
-    backupable_options_->share_files_with_checksum_naming = option;
+    engine_options_->share_files_with_checksum_naming = option;
     OpenBackupEngine(true /*destroy_old_data*/);
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     CloseDBAndBackupEngine();
@@ -2107,7 +2144,7 @@ TEST_F(BackupEngineTest, TableFileCorruptionBeforeIncremental) {
       auto share =
           option == share_no_checksum ? kShareNoChecksum : kShareWithChecksum;
       if (option != share_no_checksum) {
-        backupable_options_->share_files_with_checksum_naming = option;
+        engine_options_->share_files_with_checksum_naming = option;
       }
       OpenDBAndBackupEngine(true, false, share);
       DBImpl* dbi = static_cast<DBImpl*>(db_.get());
@@ -2216,7 +2253,7 @@ TEST_F(BackupEngineTest, FileSizeForIncremental) {
     auto share =
         option == share_no_checksum ? kShareNoChecksum : kShareWithChecksum;
     if (option != share_no_checksum) {
-      backupable_options_->share_files_with_checksum_naming = option;
+      engine_options_->share_files_with_checksum_naming = option;
     }
     OpenDBAndBackupEngine(true, false, share);
 
@@ -2337,7 +2374,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNamingTransition) {
   // We may set share_files_with_checksum_naming to kLegacyCrc32cAndFileSize
   // here but even if we don't, it should have no effect when
   // share_files_with_checksum is false
-  ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
+  ASSERT_TRUE(engine_options_->share_files_with_checksum_naming ==
               kNamingDefault);
   // set share_files_with_checksum to false
   OpenDBAndBackupEngine(true, false, kShareNoChecksum);
@@ -2355,7 +2392,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNamingTransition) {
 
   // set share_files_with_checksum to true and do some more backups
   // and use session id in the name of SST file backup
-  ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
+  ASSERT_TRUE(engine_options_->share_files_with_checksum_naming ==
               kNamingDefault);
   OpenDBAndBackupEngine(false /* destroy_old_data */, false,
                         kShareWithChecksum);
@@ -2377,7 +2414,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNamingTransition) {
   // For an extra challenge, make sure that GarbageCollect / DeleteBackup
   // is OK even if we open without share_table_files but with
   // share_files_with_checksum_naming based on kUseDbSessionId
-  ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
+  ASSERT_TRUE(engine_options_->share_files_with_checksum_naming ==
               kNamingDefault);
   OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
   ASSERT_OK(backup_engine_->DeleteBackup(1));
@@ -2390,8 +2427,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNamingTransition) {
   // Use checksum and file size for backup table file names and open without
   // share_table_files
   // Again, make sure that GarbageCollect / DeleteBackup is OK
-  backupable_options_->share_files_with_checksum_naming =
-      kLegacyCrc32cAndFileSize;
+  engine_options_->share_files_with_checksum_naming = kLegacyCrc32cAndFileSize;
   OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
   ASSERT_OK(backup_engine_->DeleteBackup(2));
   ASSERT_OK(backup_engine_->GarbageCollect());
@@ -2407,8 +2443,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNamingTransition) {
 // Verify backup and restore with share_files_with_checksum on and transition
 // from kLegacyCrc32cAndFileSize to kUseDbSessionId
 TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
-  backupable_options_->share_files_with_checksum_naming =
-      kLegacyCrc32cAndFileSize;
+  engine_options_->share_files_with_checksum_naming = kLegacyCrc32cAndFileSize;
   const int keys_iteration = 5000;
   // set share_files_with_checksum to true
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
@@ -2424,7 +2459,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
                             keys_iteration * (j + 1));
   }
 
-  backupable_options_->share_files_with_checksum_naming = kUseDbSessionId;
+  engine_options_->share_files_with_checksum_naming = kUseDbSessionId;
   OpenDBAndBackupEngine(false /* destroy_old_data */, false,
                         kShareWithChecksum);
   FillDB(db_.get(), keys_iteration * j, keys_iteration * (j + 1));
@@ -2455,8 +2490,7 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
   // Use checksum and file size for backup table file names and open without
   // share_table_files
   // Again, make sure that GarbageCollect / DeleteBackup is OK
-  backupable_options_->share_files_with_checksum_naming =
-      kLegacyCrc32cAndFileSize;
+  engine_options_->share_files_with_checksum_naming = kLegacyCrc32cAndFileSize;
   OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
   ASSERT_OK(backup_engine_->DeleteBackup(2));
   ASSERT_OK(backup_engine_->GarbageCollect());
@@ -2550,7 +2584,7 @@ TEST_F(BackupEngineTest, DeleteTmpFiles) {
 }
 
 TEST_F(BackupEngineTest, KeepLogFiles) {
-  backupable_options_->backup_log_files = false;
+  engine_options_->backup_log_files = false;
   // basically infinite
   options_.WAL_ttl_seconds = 24 * 60 * 60;
   OpenDBAndBackupEngine(true);
@@ -2599,8 +2633,8 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimiting) {
 
   bool makeThrottler = std::get<0>(GetParam());
   if (makeThrottler) {
-    backupable_options_->backup_rate_limiter = backupThrottler;
-    backupable_options_->restore_rate_limiter = restoreThrottler;
+    engine_options_->backup_rate_limiter = backupThrottler;
+    engine_options_->restore_rate_limiter = restoreThrottler;
   }
 
   // iter 0 -- single threaded
@@ -2614,10 +2648,10 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimiting) {
     backupThrottler->SetBytesPerSecond(limit.first);
     restoreThrottler->SetBytesPerSecond(limit.second);
   } else {
-    backupable_options_->backup_rate_limit = limit.first;
-    backupable_options_->restore_rate_limit = limit.second;
+    engine_options_->backup_rate_limit = limit.first;
+    engine_options_->restore_rate_limit = limit.second;
   }
-  backupable_options_->max_background_operations = (iter == 0) ? 1 : 10;
+  engine_options_->max_background_operations = (iter == 0) ? 1 : 10;
   options_.compression = kNoCompression;
   OpenDBAndBackupEngine(true);
   size_t bytes_written = FillDB(db_.get(), 0, 100000);
@@ -2650,18 +2684,18 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingVerifyBackup) {
 
   bool makeThrottler = std::get<0>(GetParam());
   if (makeThrottler) {
-    backupable_options_->backup_rate_limiter = backupThrottler;
+    engine_options_->backup_rate_limiter = backupThrottler;
   }
 
   bool is_single_threaded = std::get<1>(GetParam()) == 0 ? true : false;
-  backupable_options_->max_background_operations = is_single_threaded ? 1 : 10;
+  engine_options_->max_background_operations = is_single_threaded ? 1 : 10;
 
   const std::uint64_t backup_rate_limiter_limit = std::get<2>(GetParam()).first;
   if (makeThrottler) {
-    backupable_options_->backup_rate_limiter->SetBytesPerSecond(
+    engine_options_->backup_rate_limiter->SetBytesPerSecond(
         backup_rate_limiter_limit);
   } else {
-    backupable_options_->backup_rate_limit = backup_rate_limiter_limit;
+    engine_options_->backup_rate_limit = backup_rate_limiter_limit;
   }
 
   DestroyDB(dbname_, Options());
@@ -2702,13 +2736,13 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingVerifyBackup) {
 
 TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInBackup) {
   bool is_single_threaded = std::get<1>(GetParam()) == 0 ? true : false;
-  backupable_options_->max_background_operations = is_single_threaded ? 1 : 10;
+  engine_options_->max_background_operations = is_single_threaded ? 1 : 10;
 
   const std::uint64_t backup_rate_limiter_limit = std::get<2>(GetParam()).first;
   std::shared_ptr<RateLimiter> backup_rate_limiter(NewGenericRateLimiter(
       backup_rate_limiter_limit, 100 * 1000 /* refill_period_us */,
       10 /* fairness */, RateLimiter::Mode::kWritesOnly /* mode */));
-  backupable_options_->backup_rate_limiter = backup_rate_limiter;
+  engine_options_->backup_rate_limiter = backup_rate_limiter;
 
   DestroyDB(dbname_, Options());
   OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
@@ -2723,7 +2757,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInBackup) {
   backup_rate_limiter.reset(NewGenericRateLimiter(
       backup_rate_limiter_limit, 100 * 1000 /* refill_period_us */,
       10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */));
-  backupable_options_->backup_rate_limiter = backup_rate_limiter;
+  engine_options_->backup_rate_limiter = backup_rate_limiter;
 
   OpenBackupEngine(true);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
@@ -2739,14 +2773,14 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInBackup) {
 
 TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInRestore) {
   bool is_single_threaded = std::get<1>(GetParam()) == 0 ? true : false;
-  backupable_options_->max_background_operations = is_single_threaded ? 1 : 10;
+  engine_options_->max_background_operations = is_single_threaded ? 1 : 10;
 
   const std::uint64_t restore_rate_limiter_limit =
       std::get<2>(GetParam()).second;
   std::shared_ptr<RateLimiter> restore_rate_limiter(NewGenericRateLimiter(
       restore_rate_limiter_limit, 100 * 1000 /* refill_period_us */,
       10 /* fairness */, RateLimiter::Mode::kWritesOnly /* mode */));
-  backupable_options_->restore_rate_limiter = restore_rate_limiter;
+  engine_options_->restore_rate_limiter = restore_rate_limiter;
 
   DestroyDB(dbname_, Options());
   OpenDBAndBackupEngine(true /* destroy_old_data */);
@@ -2766,7 +2800,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInRestore) {
   restore_rate_limiter.reset(NewGenericRateLimiter(
       restore_rate_limiter_limit, 100 * 1000 /* refill_period_us */,
       10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */));
-  backupable_options_->restore_rate_limiter = restore_rate_limiter;
+  engine_options_->restore_rate_limiter = restore_rate_limiter;
 
   OpenBackupEngine(false /* destroy_old_data */);
   ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
@@ -2782,13 +2816,13 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInRestore) {
 TEST_P(BackupEngineRateLimitingTestWithParam,
        RateLimitingChargeReadInInitialize) {
   bool is_single_threaded = std::get<1>(GetParam()) == 0 ? true : false;
-  backupable_options_->max_background_operations = is_single_threaded ? 1 : 10;
+  engine_options_->max_background_operations = is_single_threaded ? 1 : 10;
 
   const std::uint64_t backup_rate_limiter_limit = std::get<2>(GetParam()).first;
   std::shared_ptr<RateLimiter> backup_rate_limiter(NewGenericRateLimiter(
       backup_rate_limiter_limit, 100 * 1000 /* refill_period_us */,
       10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */));
-  backupable_options_->backup_rate_limiter = backup_rate_limiter;
+  engine_options_->backup_rate_limiter = backup_rate_limiter;
 
   DestroyDB(dbname_, Options());
   OpenDBAndBackupEngine(true /* destroy_old_data */);
@@ -2799,12 +2833,12 @@ TEST_P(BackupEngineRateLimitingTestWithParam,
   AssertBackupConsistency(1, 0, 10, 20);
 
   std::int64_t total_bytes_through_before_initialize =
-      backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+      engine_options_->backup_rate_limiter->GetTotalBytesThrough();
   OpenDBAndBackupEngine(false /* destroy_old_data */);
   // We charge read in BackupEngineImpl::BackupMeta::LoadFromFile,
   // which is called in BackupEngineImpl::Initialize() during
   // OpenBackupEngine(false)
-  EXPECT_GT(backupable_options_->backup_rate_limiter->GetTotalBytesThrough(),
+  EXPECT_GT(engine_options_->backup_rate_limiter->GetTotalBytesThrough(),
             total_bytes_through_before_initialize);
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, Options());
@@ -2829,7 +2863,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
        RateLimitingWithLowRefillBytesPerPeriod) {
   SpecialEnv special_env(Env::Default(), /*time_elapse_only_sleep*/ true);
 
-  backupable_options_->max_background_operations = 1;
+  engine_options_->max_background_operations = 1;
   const uint64_t backup_rate_limiter_limit = std::get<0>(GetParam()).first;
   std::shared_ptr<RateLimiter> backup_rate_limiter(
       std::make_shared<GenericRateLimiter>(
@@ -2837,7 +2871,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
           10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */,
           special_env.GetSystemClock(), false /* auto_tuned */));
 
-  backupable_options_->backup_rate_limiter = backup_rate_limiter;
+  engine_options_->backup_rate_limiter = backup_rate_limiter;
 
   const uint64_t restore_rate_limiter_limit = std::get<0>(GetParam()).second;
   std::shared_ptr<RateLimiter> restore_rate_limiter(
@@ -2846,7 +2880,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
           10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */,
           special_env.GetSystemClock(), false /* auto_tuned */));
 
-  backupable_options_->restore_rate_limiter = restore_rate_limiter;
+  engine_options_->restore_rate_limiter = restore_rate_limiter;
 
   // Rate limiter uses `CondVar::TimedWait()`, which does not have access to the
   // `Env` to advance its time according to the fake wait duration. The
@@ -2864,11 +2898,11 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
 
   FillDB(db_.get(), 0, 100);
   int64_t total_bytes_through_before_backup =
-      backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+      engine_options_->backup_rate_limiter->GetTotalBytesThrough();
   EXPECT_OK(backup_engine_->CreateNewBackup(db_.get(),
                                             false /* flush_before_backup */));
   int64_t total_bytes_through_after_backup =
-      backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+      engine_options_->backup_rate_limiter->GetTotalBytesThrough();
   ASSERT_GT(total_bytes_through_after_backup,
             total_bytes_through_before_backup);
 
@@ -2881,11 +2915,11 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
   ASSERT_OK(backup_engine_->GetBackupInfo(backup_id, &backup_info,
                                           true /* include_file_details */));
   int64_t total_bytes_through_before_verify_backup =
-      backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+      engine_options_->backup_rate_limiter->GetTotalBytesThrough();
   EXPECT_OK(
       backup_engine_->VerifyBackup(backup_id, true /* verify_with_checksum */));
   int64_t total_bytes_through_after_verify_backup =
-      backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+      engine_options_->backup_rate_limiter->GetTotalBytesThrough();
   ASSERT_GT(total_bytes_through_after_verify_backup,
             total_bytes_through_before_verify_backup);
 
@@ -2893,13 +2927,13 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
   AssertBackupConsistency(backup_id, 0, 100, 101);
 
   int64_t total_bytes_through_before_initialize =
-      backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+      engine_options_->backup_rate_limiter->GetTotalBytesThrough();
   OpenDBAndBackupEngine(false /* destroy_old_data */);
   // We charge read in BackupEngineImpl::BackupMeta::LoadFromFile,
   // which is called in BackupEngineImpl::Initialize() during
   // OpenBackupEngine(false)
   int64_t total_bytes_through_after_initialize =
-      backupable_options_->backup_rate_limiter->GetTotalBytesThrough();
+      engine_options_->backup_rate_limiter->GetTotalBytesThrough();
   ASSERT_GT(total_bytes_through_after_initialize,
             total_bytes_through_before_initialize);
   CloseDBAndBackupEngine();
@@ -2907,10 +2941,10 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
   DestroyDB(dbname_, Options());
   OpenBackupEngine(false /* destroy_old_data */);
   int64_t total_bytes_through_before_restore =
-      backupable_options_->restore_rate_limiter->GetTotalBytesThrough();
+      engine_options_->restore_rate_limiter->GetTotalBytesThrough();
   EXPECT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
   int64_t total_bytes_through_after_restore =
-      backupable_options_->restore_rate_limiter->GetTotalBytesThrough();
+      engine_options_->restore_rate_limiter->GetTotalBytesThrough();
   ASSERT_GT(total_bytes_through_after_restore,
             total_bytes_through_before_restore);
   CloseBackupEngine();
@@ -2934,12 +2968,12 @@ TEST_F(BackupEngineTest, ReadOnlyBackupEngine) {
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, options_);
 
-  backupable_options_->destroy_old_data = false;
-  test_backup_env_->ClearWrittenFiles();
-  test_backup_env_->SetLimitDeleteFiles(0);
+  engine_options_->destroy_old_data = false;
+  test_backup_fs_->ClearWrittenFiles();
+  test_backup_fs_->SetLimitDeleteFiles(0);
   BackupEngineReadOnly* read_only_backup_engine;
-  ASSERT_OK(BackupEngineReadOnly::Open(
-      db_chroot_env_.get(), *backupable_options_, &read_only_backup_engine));
+  ASSERT_OK(BackupEngineReadOnly::Open(db_chroot_env_.get(), *engine_options_,
+                                       &read_only_backup_engine));
   std::vector<BackupInfo> backup_info;
   read_only_backup_engine->GetBackupInfo(&backup_info);
   ASSERT_EQ(backup_info.size(), 2U);
@@ -2949,7 +2983,7 @@ TEST_F(BackupEngineTest, ReadOnlyBackupEngine) {
       dbname_, dbname_, restore_options));
   delete read_only_backup_engine;
   std::vector<std::string> should_have_written;
-  test_backup_env_->AssertWrittenFiles(should_have_written);
+  test_backup_fs_->AssertWrittenFiles(should_have_written);
 
   DB* db = OpenDB();
   AssertExists(db, 0, 200);
@@ -3025,7 +3059,7 @@ TEST_F(BackupEngineTest, OpenBackupAsReadOnlyDB) {
 TEST_F(BackupEngineTest, ProgressCallbackDuringBackup) {
   DestroyDB(dbname_, options_);
   // Too big for this small DB
-  backupable_options_->callback_trigger_interval_size = 100000;
+  engine_options_->callback_trigger_interval_size = 100000;
   OpenDBAndBackupEngine(true);
   FillDB(db_.get(), 0, 100);
   bool is_callback_invoked = false;
@@ -3036,7 +3070,7 @@ TEST_F(BackupEngineTest, ProgressCallbackDuringBackup) {
   CloseBackupEngine();
 
   // Easily small enough for this small DB
-  backupable_options_->callback_trigger_interval_size = 1000;
+  engine_options_->callback_trigger_interval_size = 1000;
   OpenBackupEngine();
   ASSERT_OK(backup_engine_->CreateNewBackup(
       db_.get(), true,
@@ -3077,26 +3111,26 @@ TEST_F(BackupEngineTest, EnvFailures) {
 
   // get children failure
   {
-    test_backup_env_->SetGetChildrenFailure(true);
-    ASSERT_NOK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
+    test_backup_fs_->SetGetChildrenFailure(true);
+    ASSERT_NOK(BackupEngine::Open(test_db_env_.get(), *engine_options_,
                                   &backup_engine));
-    test_backup_env_->SetGetChildrenFailure(false);
+    test_backup_fs_->SetGetChildrenFailure(false);
   }
 
   // created dir failure
   {
-    test_backup_env_->SetCreateDirIfMissingFailure(true);
-    ASSERT_NOK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
+    test_backup_fs_->SetCreateDirIfMissingFailure(true);
+    ASSERT_NOK(BackupEngine::Open(test_db_env_.get(), *engine_options_,
                                   &backup_engine));
-    test_backup_env_->SetCreateDirIfMissingFailure(false);
+    test_backup_fs_->SetCreateDirIfMissingFailure(false);
   }
 
   // new directory failure
   {
-    test_backup_env_->SetNewDirectoryFailure(true);
-    ASSERT_NOK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
+    test_backup_fs_->SetNewDirectoryFailure(true);
+    ASSERT_NOK(BackupEngine::Open(test_db_env_.get(), *engine_options_,
                                   &backup_engine));
-    test_backup_env_->SetNewDirectoryFailure(false);
+    test_backup_fs_->SetNewDirectoryFailure(false);
   }
 
   // Read from meta-file failure
@@ -3106,18 +3140,18 @@ TEST_F(BackupEngineTest, EnvFailures) {
     FillDB(db_.get(), 0, 100);
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
     CloseDBAndBackupEngine();
-    test_backup_env_->SetDummySequentialFile(true);
-    test_backup_env_->SetDummySequentialFileFailReads(true);
-    backupable_options_->destroy_old_data = false;
-    ASSERT_NOK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
+    test_backup_fs_->SetDummySequentialFile(true);
+    test_backup_fs_->SetDummySequentialFileFailReads(true);
+    engine_options_->destroy_old_data = false;
+    ASSERT_NOK(BackupEngine::Open(test_db_env_.get(), *engine_options_,
                                   &backup_engine));
-    test_backup_env_->SetDummySequentialFile(false);
-    test_backup_env_->SetDummySequentialFileFailReads(false);
+    test_backup_fs_->SetDummySequentialFile(false);
+    test_backup_fs_->SetDummySequentialFileFailReads(false);
   }
 
   // no failure
   {
-    ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
+    ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *engine_options_,
                                  &backup_engine));
     delete backup_engine;
   }
@@ -3156,6 +3190,10 @@ TEST_F(BackupEngineTest, ChangeManifestDuringBackupCreation) {
   FillDB(db_.get(), 0, 100, kAutoFlushOnly);
   ASSERT_OK(db_chroot_env_->FileExists(prev_manifest_path));
   ASSERT_OK(db_->Flush(FlushOptions()));
+  // Even though manual flush completed above, the background thread may not
+  // have finished its cleanup work. `TEST_WaitForBackgroundWork()` will wait
+  // until all the background thread's work has completed, including cleanup.
+  ASSERT_OK(db_impl->TEST_WaitForBackgroundWork());
   ASSERT_TRUE(db_chroot_env_->FileExists(prev_manifest_path).IsNotFound());
 
   CloseDBAndBackupEngine();
@@ -3166,11 +3204,11 @@ TEST_F(BackupEngineTest, ChangeManifestDuringBackupCreation) {
 // see https://github.com/facebook/rocksdb/issues/921
 TEST_F(BackupEngineTest, Issue921Test) {
   BackupEngine* backup_engine;
-  backupable_options_->share_table_files = false;
+  engine_options_->share_table_files = false;
   ASSERT_OK(
-      backup_chroot_env_->CreateDirIfMissing(backupable_options_->backup_dir));
-  backupable_options_->backup_dir += "/new_dir";
-  ASSERT_OK(BackupEngine::Open(backup_chroot_env_.get(), *backupable_options_,
+      backup_chroot_env_->CreateDirIfMissing(engine_options_->backup_dir));
+  engine_options_->backup_dir += "/new_dir";
+  ASSERT_OK(BackupEngine::Open(backup_chroot_env_.get(), *engine_options_,
                                &backup_engine));
 
   delete backup_engine;
@@ -3241,27 +3279,32 @@ TEST_F(BackupEngineTest, MetadataTooLarge) {
   DestroyDB(dbname_, options_);
 }
 
-TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_SizeCorruption) {
-  OpenDBAndBackupEngine(true);
+TEST_F(BackupEngineTest, MetaSchemaVersion2_SizeCorruption) {
+  engine_options_->schema_version = 1;
+  OpenDBAndBackupEngine(/*destroy_old_data*/ true);
 
   // Backup 1: no future schema, no sizes, with checksums
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
 
+  CloseDBAndBackupEngine();
+  engine_options_->schema_version = 2;
+  OpenDBAndBackupEngine(/*destroy_old_data*/ false);
+
   // Backup 2: no checksums, no sizes
-  TEST_FutureSchemaVersion2Options test_opts;
+  TEST_BackupMetaSchemaOptions test_opts;
   test_opts.crc32c_checksums = false;
   test_opts.file_sizes = false;
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
 
   // Backup 3: no checksums, with sizes
   test_opts.file_sizes = true;
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
 
   // Backup 4: with checksums and sizes
   test_opts.crc32c_checksums = true;
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
 
   CloseDBAndBackupEngine();
@@ -3304,13 +3347,14 @@ TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_SizeCorruption) {
   CloseBackupEngine();
 }
 
-TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_NotSupported) {
-  TEST_FutureSchemaVersion2Options test_opts;
+TEST_F(BackupEngineTest, MetaSchemaVersion2_NotSupported) {
+  engine_options_->schema_version = 2;
+  TEST_BackupMetaSchemaOptions test_opts;
   std::string app_metadata = "abc\ndef";
 
   OpenDBAndBackupEngine(true);
   // Start with supported
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
 
@@ -3318,30 +3362,30 @@ TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_NotSupported) {
   // detected on attempt to restore.
   // Not supported versions
   test_opts.version = "3";
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
   test_opts.version = "23.45.67";
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
   test_opts.version = "2";
 
   // Non-ignorable fields
   test_opts.meta_fields["ni::blah"] = "123";
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
   test_opts.meta_fields.clear();
 
   test_opts.file_fields["ni::123"] = "xyz";
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
   test_opts.file_fields.clear();
 
   test_opts.footer_fields["ni::123"] = "xyz";
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
   test_opts.footer_fields.clear();
@@ -3356,8 +3400,9 @@ TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_NotSupported) {
   CloseBackupEngine();
 }
 
-TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_Restore) {
-  TEST_FutureSchemaVersion2Options test_opts;
+TEST_F(BackupEngineTest, MetaSchemaVersion2_Restore) {
+  engine_options_->schema_version = 2;
+  TEST_BackupMetaSchemaOptions test_opts;
   const int keys_iteration = 5000;
 
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
@@ -3366,7 +3411,7 @@ TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_Restore) {
   // based on shared files also in other backups with the metadata.
   test_opts.crc32c_checksums = false;
   test_opts.file_sizes = false;
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
   CloseDBAndBackupEngine();
 
@@ -3375,7 +3420,7 @@ TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_Restore) {
   OpenDBAndBackupEngine(false /* destroy_old_data */, false,
                         kShareWithChecksum);
   test_opts.file_sizes = true;
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
   CloseDBAndBackupEngine();
 
@@ -3386,7 +3431,7 @@ TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_Restore) {
   OpenDBAndBackupEngine(false /* destroy_old_data */, false,
                         kShareWithChecksum);
   test_opts.crc32c_checksums = true;
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
   CloseDBAndBackupEngine();
 
@@ -3414,7 +3459,7 @@ TEST_F(BackupEngineTest, FutureMetaSchemaVersion2_Restore) {
   test_opts.file_fields["_7yyyyyyyyy"] = "111111111111";
   test_opts.footer_fields["Qwzn.tz89"] = "ASDF!!@# ##=\t ";
   test_opts.footer_fields["yes"] = "no!";
-  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  TEST_SetBackupMetaSchemaOptions(backup_engine_.get(), test_opts);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
   CloseDBAndBackupEngine();
 
@@ -3438,8 +3483,8 @@ TEST_F(BackupEngineTest, Concurrency) {
   // To check for a race condition in handling buffer size based on byte
   // burst limit, we need a (generous) rate limiter
   std::shared_ptr<RateLimiter> limiter{NewGenericRateLimiter(1000000000)};
-  backupable_options_->backup_rate_limiter = limiter;
-  backupable_options_->restore_rate_limiter = limiter;
+  engine_options_->backup_rate_limiter = limiter;
+  engine_options_->restore_rate_limiter = limiter;
 
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
 
@@ -3457,7 +3502,7 @@ TEST_F(BackupEngineTest, Concurrency) {
   Options db_opts = options_;
   db_opts.wal_dir = "";
   db_opts.create_if_missing = false;
-  BackupableDBOptions be_opts = *backupable_options_;
+  BackupEngineOptions be_opts = *engine_options_;
   be_opts.destroy_old_data = false;
 
   std::mt19937 rng{std::random_device()()};
@@ -3628,12 +3673,11 @@ TEST_F(BackupEngineTest, LimitBackupsOpened) {
   }
   CloseDBAndBackupEngine();
 
-  backupable_options_->max_valid_backups_to_open = 2;
-  backupable_options_->destroy_old_data = false;
+  engine_options_->max_valid_backups_to_open = 2;
+  engine_options_->destroy_old_data = false;
   BackupEngineReadOnly* read_only_backup_engine;
-  ASSERT_OK(BackupEngineReadOnly::Open(backup_chroot_env_.get(),
-                                       *backupable_options_,
-                                       &read_only_backup_engine));
+  ASSERT_OK(BackupEngineReadOnly::Open(
+      backup_chroot_env_.get(), *engine_options_, &read_only_backup_engine));
 
   std::vector<BackupInfo> backup_infos;
   read_only_backup_engine->GetBackupInfo(&backup_infos);
@@ -3665,7 +3709,7 @@ TEST_F(BackupEngineTest, IgnoreLimitBackupsOpenedWhenNotReadOnly) {
   }
   CloseDBAndBackupEngine();
 
-  backupable_options_->max_valid_backups_to_open = 2;
+  engine_options_->max_valid_backups_to_open = 2;
   OpenDBAndBackupEngine();
   std::vector<BackupInfo> backup_infos;
   backup_engine_->GetBackupInfo(&backup_infos);
@@ -3724,7 +3768,7 @@ TEST_F(BackupEngineTest, WriteOnlyEngineNoSharedFileDeletion) {
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
     CloseDBAndBackupEngine();
 
-    backupable_options_->max_valid_backups_to_open = 0;
+    engine_options_->max_valid_backups_to_open = 0;
     OpenDBAndBackupEngine();
     switch (i) {
       case 0:
@@ -3741,7 +3785,7 @@ TEST_F(BackupEngineTest, WriteOnlyEngineNoSharedFileDeletion) {
     }
     CloseDBAndBackupEngine();
 
-    backupable_options_->max_valid_backups_to_open = port::kMaxInt32;
+    engine_options_->max_valid_backups_to_open = port::kMaxInt32;
     AssertBackupConsistency(i + 1, 0, (i + 1) * kNumKeys);
   }
 }
@@ -3765,8 +3809,8 @@ TEST_P(BackupEngineTestWithParam, BackupUsingDirectIO) {
 
     // Clear the file open counters and then do a bunch of backup engine ops.
     // For all ops, files should be opened in direct mode.
-    test_backup_env_->ClearFileOpenCounters();
-    test_db_env_->ClearFileOpenCounters();
+    test_backup_fs_->ClearFileOpenCounters();
+    test_db_fs_->ClearFileOpenCounters();
     CloseBackupEngine();
     OpenBackupEngine();
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
@@ -3779,15 +3823,15 @@ TEST_P(BackupEngineTestWithParam, BackupUsingDirectIO) {
     ASSERT_EQ(static_cast<size_t>(i + 1), backup_infos.size());
 
     // Verify backup engine always opened files with direct I/O
-    ASSERT_EQ(0, test_db_env_->num_writers());
-    ASSERT_GE(test_db_env_->num_direct_rand_readers(), 0);
-    ASSERT_GT(test_db_env_->num_direct_seq_readers(), 0);
+    ASSERT_EQ(0, test_db_fs_->num_writers());
+    ASSERT_GE(test_db_fs_->num_direct_rand_readers(), 0);
+    ASSERT_GT(test_db_fs_->num_direct_seq_readers(), 0);
     // Currently the DB doesn't support reading WALs or manifest with direct
     // I/O, so subtract two.
-    ASSERT_EQ(test_db_env_->num_seq_readers() - 2,
-              test_db_env_->num_direct_seq_readers());
-    ASSERT_EQ(test_db_env_->num_rand_readers(),
-              test_db_env_->num_direct_rand_readers());
+    ASSERT_EQ(test_db_fs_->num_seq_readers() - 2,
+              test_db_fs_->num_direct_seq_readers());
+    ASSERT_EQ(test_db_fs_->num_rand_readers(),
+              test_db_fs_->num_direct_rand_readers());
   }
   CloseDBAndBackupEngine();
 
@@ -3809,7 +3853,7 @@ TEST_F(BackupEngineTest, BackgroundThreadCpuPriority) {
 
   // 1 thread is easier to test, otherwise, we may not be sure which thread
   // actually does the work during CreateNewBackup.
-  backupable_options_->max_background_operations = 1;
+  engine_options_->max_background_operations = 1;
   OpenDBAndBackupEngine(true);
 
   {
@@ -3969,6 +4013,148 @@ TEST_F(BackupEngineTest, IOStats) {
             expected_bytes_written);
   ASSERT_LT(expected_bytes_written,
             2 * options_.statistics->getTickerCount(BACKUP_READ_BYTES));
+}
+
+TEST_F(BackupEngineTest, FileTemperatures) {
+  CloseDBAndBackupEngine();
+
+  // Required for recording+restoring temperatures
+  engine_options_->schema_version = 2;
+
+  // More file IO instrumentation
+  auto my_db_fs = std::make_shared<FileTemperatureTestFS>(db_chroot_fs_);
+  test_db_fs_ = std::make_shared<TestFs>(my_db_fs);
+  SetEnvsFromFileSystems();
+
+  // Use temperatures
+  options_.bottommost_temperature = Temperature::kWarm;
+  options_.level0_file_num_compaction_trigger = 2;
+
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kShareWithChecksum);
+
+  // generate a bottommost file (combined from 2) and a non-bottommost file
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_.get());
+  ASSERT_OK(db_->Put(WriteOptions(), "a", "val"));
+  ASSERT_OK(db_->Put(WriteOptions(), "c", "val"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Put(WriteOptions(), "b", "val"));
+  ASSERT_OK(db_->Put(WriteOptions(), "d", "val"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(dbi->TEST_WaitForCompact());
+  ASSERT_OK(db_->Put(WriteOptions(), "e", "val"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // Get temperatures from manifest
+  std::map<uint64_t, Temperature> manifest_temps;
+  std::map<Temperature, int> manifest_temp_counts;
+  {
+    std::vector<LiveFileStorageInfo> infos;
+    ASSERT_OK(
+        db_->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(), &infos));
+    for (auto info : infos) {
+      if (info.file_type == kTableFile) {
+        manifest_temps.emplace(info.file_number, info.temperature);
+        manifest_temp_counts[info.temperature]++;
+      }
+    }
+  }
+
+  // Verify expected manifest temperatures
+  ASSERT_EQ(manifest_temp_counts.size(), 2);
+  ASSERT_EQ(manifest_temp_counts[Temperature::kWarm], 1);
+  ASSERT_EQ(manifest_temp_counts[Temperature::kUnknown], 1);
+
+  // Verify manifest temperatures match FS temperatures
+  std::map<uint64_t, Temperature> current_temps;
+  my_db_fs->CopyCurrentSstFileTemperatures(&current_temps);
+  for (const auto& manifest_temp : manifest_temps) {
+    ASSERT_EQ(current_temps[manifest_temp.first], manifest_temp.second);
+  }
+
+  // Try a few different things
+  for (int i = 1; i <= 5; ++i) {
+    // Expected temperatures after restore are based on manifest temperatures
+    std::map<uint64_t, Temperature> expected_temps = manifest_temps;
+
+    if (i >= 2) {
+      // For iterations 2 & 3, override current temperature of one file
+      // and vary which temperature is authoritative (current or manifest).
+      // For iterations 4 & 5, override current temperature of both files
+      // but make sure an current temperate always takes precedence over
+      // unknown regardless of current_temperatures_override_manifest setting.
+      bool use_current = ((i % 2) == 1);
+      engine_options_->current_temperatures_override_manifest = use_current;
+      CloseBackupEngine();
+      OpenBackupEngine();
+      for (const auto& manifest_temp : manifest_temps) {
+        if (i <= 3) {
+          if (manifest_temp.second == Temperature::kWarm) {
+            my_db_fs->OverrideSstFileTemperature(manifest_temp.first,
+                                                 Temperature::kCold);
+            if (use_current) {
+              expected_temps[manifest_temp.first] = Temperature::kCold;
+            }
+          }
+        } else {
+          assert(i <= 5);
+          if (manifest_temp.second == Temperature::kWarm) {
+            my_db_fs->OverrideSstFileTemperature(manifest_temp.first,
+                                                 Temperature::kUnknown);
+          } else {
+            ASSERT_EQ(manifest_temp.second, Temperature::kUnknown);
+            my_db_fs->OverrideSstFileTemperature(manifest_temp.first,
+                                                 Temperature::kHot);
+            // regardless of use_current
+            expected_temps[manifest_temp.first] = Temperature::kHot;
+          }
+        }
+      }
+    }
+
+    // Sample requested temperatures in opening files for backup
+    my_db_fs->PopRequestedSstFileTemperatures();
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+
+    // Verify requested temperatures against manifest temperatures (before
+    // backup finds out current temperatures in FileSystem)
+    std::vector<std::pair<uint64_t, Temperature>> requested_temps;
+    my_db_fs->PopRequestedSstFileTemperatures(&requested_temps);
+    std::set<uint64_t> distinct_requests;
+    for (const auto& requested_temp : requested_temps) {
+      // Matching manifest temperatures
+      ASSERT_EQ(manifest_temps.at(requested_temp.first), requested_temp.second);
+      distinct_requests.insert(requested_temp.first);
+    }
+    // Two distinct requests
+    ASSERT_EQ(distinct_requests.size(), 2);
+
+    // Verify against backup info file details API
+    BackupInfo info;
+    ASSERT_OK(backup_engine_->GetLatestBackupInfo(
+        &info, /*include_file_details*/ true));
+    ASSERT_GT(info.file_details.size(), 2);
+    for (auto& e : info.file_details) {
+      ASSERT_EQ(expected_temps[e.file_number], e.temperature);
+    }
+
+    // Restore backup to another virtual (tiered) dir
+    const std::string restore_dir = "/restore" + ToString(i);
+    ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(
+        RestoreOptions(), restore_dir, restore_dir));
+
+    // Verify restored FS temperatures match expectation
+    // (FileTemperatureTestFS doesn't distinguish directories when reporting
+    // current temperatures, just whatever SST was written or overridden last
+    // with that file number.)
+    my_db_fs->CopyCurrentSstFileTemperatures(&current_temps);
+    for (const auto& expected_temp : expected_temps) {
+      ASSERT_EQ(current_temps[expected_temp.first], expected_temp.second);
+    }
+
+    // Delete backup to force next backup to copy files
+    ASSERT_OK(backup_engine_->PurgeOldBackups(0));
+  }
 }
 
 }  // anon namespace
