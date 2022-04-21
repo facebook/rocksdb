@@ -16,7 +16,7 @@ namespace ROCKSDB_NAMESPACE {
 class SystemClock;
 class Transaction;
 class TransactionDB;
-class TransactionDBOptions;
+struct TransactionDBOptions;
 
 class StressTest {
  public:
