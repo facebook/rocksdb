@@ -280,6 +280,102 @@ TEST_F(WalManagerTest, WALArchivalTtl) {
   ASSERT_TRUE(log_files.empty());
 }
 
+TEST_F(WalManagerTest, GetWalFilesWithSequenceNumberHint) {
+  Init();
+  RollTheLog(false);
+  Put("key0", std::string(1024, 'a'));
+  SequenceNumber seq0 = versions_->LastSequence();
+
+  Put("key1", std::string(1024, 'a'));
+  SequenceNumber seq1 = versions_->LastSequence();
+
+  RollTheLog(false);
+
+  Put("key2", std::string(1024, 'a'));
+  SequenceNumber seq2 = versions_->LastSequence();
+
+  // test number of logfiles
+  auto get_num_files = [&](SequenceNumber seq, bool clear_cache) -> size_t {
+    if (clear_cache) {
+      wal_manager_->TEST_ClearFirstRecordCache();
+    }
+    VectorLogPtr v;
+    wal_manager_->GetSortedWalFiles(v, seq);
+    return v.size();
+  };
+
+  // the initial get_num_files call populates the cache for all following
+  // operations
+  ASSERT_EQ(2, get_num_files(seq0, false));
+  ASSERT_EQ(2, get_num_files(seq1, false));
+  ASSERT_EQ(1, get_num_files(seq2, false));
+  ASSERT_EQ(1, get_num_files(seq2 + 1, false));
+  ASSERT_EQ(1, get_num_files(seq2 + 1000, false));
+
+  ASSERT_EQ(2, get_num_files(seq0, true));
+  ASSERT_EQ(2, get_num_files(seq1, true));
+  ASSERT_GE(get_num_files(seq2, true), 1);
+
+  // test number of records
+  auto get_num_records = [&](SequenceNumber seq, bool clear_cache) -> size_t {
+    if (clear_cache) {
+      wal_manager_->TEST_ClearFirstRecordCache();
+    }
+    auto iter = OpenTransactionLogIter(seq);
+    return CountRecords(iter.get());
+  };
+
+  ASSERT_EQ(3, get_num_records(seq0, true));
+  ASSERT_EQ(3, get_num_records(seq0, false));
+  ASSERT_EQ(2, get_num_records(seq1, true));
+  ASSERT_EQ(2, get_num_records(seq1, false));
+  ASSERT_EQ(1, get_num_records(seq2, true));
+  ASSERT_EQ(1, get_num_records(seq2, false));
+  ASSERT_EQ(0, get_num_records(seq2 + 1, true));
+  ASSERT_EQ(0, get_num_records(seq2 + 1, false));
+  ASSERT_EQ(0, get_num_records(seq2 + 1000, true));
+  ASSERT_EQ(0, get_num_records(seq2 + 1000, false));
+}
+
+TEST_F(WalManagerTest, GetWalFilesWithSequenceNumberHintManyFiles) {
+  Init();
+  RollTheLog(false);
+
+  // write some initial key so our start sequence number is not 0.
+  Put("foo", "bar");
+  SequenceNumber seq0 = versions_->LastSequence();
+  ASSERT_NE(0, seq0);
+
+  constexpr size_t n = 1000;
+
+  for (size_t i = 0; i < n; ++i) {
+    std::string key = "key" + std::to_string(i);
+    Put(key, key);
+
+    if (i > 0 && i % 2 == 0) {
+      RollTheLog(false);
+    }
+  }
+
+  SequenceNumber seq1 = versions_->LastSequence();
+  ASSERT_EQ(n, seq1 - seq0);
+
+  // test number of logfiles
+  auto get_num_files = [&](SequenceNumber seq) -> size_t {
+    VectorLogPtr v;
+    wal_manager_->GetSortedWalFiles(v, seq);
+    return v.size();
+  };
+
+  // the initial get_num_files call populates the cache for all following
+  // operations
+  ASSERT_EQ(n / 2, get_num_files(0));
+  ASSERT_EQ(n / 2, get_num_files(seq0));
+  ASSERT_EQ(n / 4 + 1, get_num_files(seq0 + n / 2));
+  ASSERT_EQ(1, get_num_files(seq1));
+  ASSERT_EQ(1, get_num_files(seq1 + 1));
+}
+
 TEST_F(WalManagerTest, TransactionLogIteratorMoveOverZeroFiles) {
   Init();
   RollTheLog(false);
