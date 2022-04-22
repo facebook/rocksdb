@@ -488,7 +488,7 @@ class LDBTestCase(unittest.TestCase):
             dbPath += "/"
 
         # Call the dump_live_files function with the edited dbPath name.
-        self.assertTrue(self.dumpLiveFiles("--db=%s --decode_blob_index --key_hex --value_hex --dump_uncompressed_blobs" % dbPath, dumpFilePath))
+        self.assertTrue(self.dumpLiveFiles("--db=%s --decode_blob_index --dump_uncompressed_blobs" % dbPath, dumpFilePath))
 
         # Investigate the output
         with open(dumpFilePath, "r") as tmp:

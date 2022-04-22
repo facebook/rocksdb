@@ -3574,9 +3574,8 @@ DBFileDumperCommand::DBFileDumperCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, true,
-                 BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX,
-                                      ARG_DECODE_BLOB_INDEX,
-                                      ARG_DUMP_UNCOMPRESSED_BLOBS})),
+                 BuildCmdLineOptions(
+                     {ARG_DECODE_BLOB_INDEX, ARG_DUMP_UNCOMPRESSED_BLOBS})),
       decode_blob_index_(IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX)),
       dump_uncompressed_blobs_(
           IsFlagPresent(flags, ARG_DUMP_UNCOMPRESSED_BLOBS)) {}
@@ -3621,6 +3620,8 @@ void DBFileDumperCommand::DoCommand() {
   std::vector<ColumnFamilyMetaData> column_families;
   db_->GetAllColumnFamilyMetaData(&column_families);
   for (const auto& column_family : column_families) {
+    std::cout << "Column family name: " << column_family.name << std::endl;
+    std::cout << std::endl;
     std::cout << "SST Files" << std::endl;
     std::cout << "==============================" << std::endl;
     for (const LevelMetaData& level : column_family.levels) {
@@ -3647,7 +3648,7 @@ void DBFileDumperCommand::DoCommand() {
       filename = NormalizePath(filename);
       std::cout << filename << std::endl;
       std::cout << "------------------------------" << std::endl;
-      DumpBlobFile(filename, is_key_hex_, is_value_hex_,
+      DumpBlobFile(filename, /* is_key_hex */ false, /* is_value_hex */ false,
                    dump_uncompressed_blobs_);
       std::cout << std::endl;
     }
