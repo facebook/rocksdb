@@ -48,7 +48,7 @@ class RandomTransactionInserter {
     assert(set_i <= 9999);
     --set_i;
     return ((set_i % 4) != 0);
-  };
+  }
 
   // num_keys is the number of keys in each set.
   // num_sets is the number of sets of keys.
