@@ -18,6 +18,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "db/log_reader.h"
@@ -44,6 +45,7 @@
 #include "util/file_checksum_helper.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
+#include "utilities/blob_db/blob_dump_tool.h"
 #include "utilities/merge_operators.h"
 #include "utilities/ttl/db_ttl_impl.h"
 
@@ -98,6 +100,9 @@ const std::string LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD =
     "blob_garbage_collection_force_threshold";
 const std::string LDBCommand::ARG_BLOB_COMPACTION_READAHEAD_SIZE =
     "blob_compaction_readahead_size";
+const std::string LDBCommand::ARG_DECODE_BLOB_INDEX = "decode_blob_index";
+const std::string LDBCommand::ARG_DUMP_UNCOMPRESSED_BLOBS =
+    "dump_uncompressed_blobs";
 
 const char* LDBCommand::DELIM = " ==> ";
 
@@ -108,7 +113,10 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
                  LDBCommandExecuteResult* exec_state);
 
 void DumpSstFile(Options options, std::string filename, bool output_hex,
-                 bool show_properties);
+                 bool show_properties, bool decode_blob_index);
+
+void DumpBlobFile(const std::string& filename, bool is_key_hex,
+                  bool is_value_hex, bool dump_uncompressed_blobs);
 };
 
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
@@ -1695,11 +1703,11 @@ InternalDumpCommand::InternalDumpCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(
-          options, flags, true,
-          BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM,
-                               ARG_TO, ARG_MAX_KEYS, ARG_COUNT_ONLY,
-                               ARG_COUNT_DELIM, ARG_STATS, ARG_INPUT_KEY_HEX})),
+    : LDBCommand(options, flags, true,
+                 BuildCmdLineOptions(
+                     {ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO,
+                      ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM, ARG_STATS,
+                      ARG_INPUT_KEY_HEX, ARG_DECODE_BLOB_INDEX})),
       has_from_(false),
       has_to_(false),
       max_keys_(-1),
@@ -1707,7 +1715,8 @@ InternalDumpCommand::InternalDumpCommand(
       count_only_(false),
       count_delim_(false),
       print_stats_(false),
-      is_input_key_hex_(false) {
+      is_input_key_hex_(false),
+      decode_blob_index_(false) {
   has_from_ = ParseStringOption(options, ARG_FROM, &from_);
   has_to_ = ParseStringOption(options, ARG_TO, &to_);
 
@@ -1725,6 +1734,7 @@ InternalDumpCommand::InternalDumpCommand(
   print_stats_ = IsFlagPresent(flags, ARG_STATS);
   count_only_ = IsFlagPresent(flags, ARG_COUNT_ONLY);
   is_input_key_hex_ = IsFlagPresent(flags, ARG_INPUT_KEY_HEX);
+  decode_blob_index_ = IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX);
 
   if (is_input_key_hex_) {
     if (has_from_) {
@@ -1745,6 +1755,7 @@ void InternalDumpCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_COUNT_ONLY + "]");
   ret.append(" [--" + ARG_COUNT_DELIM + "=<char>]");
   ret.append(" [--" + ARG_STATS + "]");
+  ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "]");
   ret.append("\n");
 }
 
@@ -1776,8 +1787,8 @@ void InternalDumpCommand::DoCommand() {
 
   long long count = 0;
   for (auto& key_version : key_versions) {
-    InternalKey ikey(key_version.user_key, key_version.sequence,
-                     static_cast<ValueType>(key_version.type));
+    ValueType value_type = static_cast<ValueType>(key_version.type);
+    InternalKey ikey(key_version.user_key, key_version.sequence, value_type);
     if (has_to_ && ikey.user_key() == to_) {
       // GetAllKeyVersions() includes keys with user key `to_`, but idump has
       // traditionally excluded such keys.
@@ -1811,8 +1822,21 @@ void InternalDumpCommand::DoCommand() {
 
     if (!count_only_ && !count_delim_) {
       std::string key = ikey.DebugString(is_key_hex_);
-      std::string value = Slice(key_version.value).ToString(is_value_hex_);
-      std::cout << key << " => " << value << "\n";
+      Slice value(key_version.value);
+      if (!decode_blob_index_ || value_type != kTypeBlobIndex) {
+        fprintf(stdout, "%s => %s\n", key.c_str(),
+                value.ToString(is_value_hex_).c_str());
+      } else {
+        BlobIndex blob_index;
+
+        const Status s = blob_index.DecodeFrom(value);
+        if (!s.ok()) {
+          fprintf(stderr, "%s => error decoding blob index =>\n", key.c_str());
+        } else {
+          fprintf(stdout, "%s => %s\n", key.c_str(),
+                  blob_index.DebugString(is_value_hex_).c_str());
+        }
+      }
     }
 
     // Terminate if maximum number of keys have been dumped
@@ -1835,18 +1859,20 @@ DBDumperCommand::DBDumperCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true,
-                 BuildCmdLineOptions(
-                     {ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM,
-                      ARG_TO, ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM,
-                      ARG_STATS, ARG_TTL_START, ARG_TTL_END, ARG_TTL_BUCKET,
-                      ARG_TIMESTAMP, ARG_PATH})),
+    : LDBCommand(
+          options, flags, true,
+          BuildCmdLineOptions(
+              {ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO,
+               ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM, ARG_STATS,
+               ARG_TTL_START, ARG_TTL_END, ARG_TTL_BUCKET, ARG_TIMESTAMP,
+               ARG_PATH, ARG_DECODE_BLOB_INDEX, ARG_DUMP_UNCOMPRESSED_BLOBS})),
       null_from_(true),
       null_to_(true),
       max_keys_(-1),
       count_only_(false),
       count_delim_(false),
-      print_stats_(false) {
+      print_stats_(false),
+      decode_blob_index_(false) {
   auto itr = options.find(ARG_FROM);
   if (itr != options.end()) {
     null_from_ = false;
@@ -1886,6 +1912,8 @@ DBDumperCommand::DBDumperCommand(
 
   print_stats_ = IsFlagPresent(flags, ARG_STATS);
   count_only_ = IsFlagPresent(flags, ARG_COUNT_ONLY);
+  decode_blob_index_ = IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX);
+  dump_uncompressed_blobs_ = IsFlagPresent(flags, ARG_DUMP_UNCOMPRESSED_BLOBS);
 
   if (is_key_hex_) {
     if (!null_from_) {
@@ -1919,6 +1947,8 @@ void DBDumperCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_TTL_START + "=<N>:- is inclusive]");
   ret.append(" [--" + ARG_TTL_END + "=<N>:- is exclusive]");
   ret.append(" [--" + ARG_PATH + "=<path_to_a_file>]");
+  ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "]");
+  ret.append(" [--" + ARG_DUMP_UNCOMPRESSED_BLOBS + "]");
   ret.append("\n");
 }
 
@@ -1956,11 +1986,16 @@ void DBDumperCommand::DoCommand() {
                     &exec_state_);
         break;
       case kTableFile:
-        DumpSstFile(options_, path_, is_key_hex_, /* show_properties */ true);
+        DumpSstFile(options_, path_, is_key_hex_, /* show_properties */ true,
+                    decode_blob_index_);
         break;
       case kDescriptorFile:
         DumpManifestFile(options_, path_, /* verbose_ */ false, is_key_hex_,
                          /*  json_ */ false);
+        break;
+      case kBlobFile:
+        DumpBlobFile(path_, is_key_hex_, is_value_hex_,
+                     dump_uncompressed_blobs_);
         break;
       default:
         exec_state_ = LDBCommandExecuteResult::Failed(
@@ -3468,7 +3503,7 @@ void RestoreCommand::DoCommand() {
 namespace {
 
 void DumpSstFile(Options options, std::string filename, bool output_hex,
-                 bool show_properties) {
+                 bool show_properties, bool decode_blob_index) {
   std::string from_key;
   std::string to_key;
   if (filename.length() <= 4 ||
@@ -3477,12 +3512,10 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
     return;
   }
   // no verification
-  // TODO: add support for decoding blob indexes in ldb as well
   ROCKSDB_NAMESPACE::SstFileDumper dumper(
       options, filename, Temperature::kUnknown,
       2 * 1024 * 1024 /* readahead_size */,
-      /* verify_checksum */ false, output_hex,
-      /* decode_blob_index */ false);
+      /* verify_checksum */ false, output_hex, decode_blob_index);
   Status st = dumper.ReadSequential(true, std::numeric_limits<uint64_t>::max(),
                                     false,            // has_from
                                     from_key, false,  // has_to
@@ -3513,17 +3546,41 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
   }
 }
 
+void DumpBlobFile(const std::string& filename, bool is_key_hex,
+                  bool is_value_hex, bool dump_uncompressed_blobs) {
+  using ROCKSDB_NAMESPACE::blob_db::BlobDumpTool;
+  BlobDumpTool tool;
+  BlobDumpTool::DisplayType blob_type = is_value_hex
+                                            ? BlobDumpTool::DisplayType::kHex
+                                            : BlobDumpTool::DisplayType::kRaw;
+  BlobDumpTool::DisplayType show_uncompressed_blob =
+      dump_uncompressed_blobs ? blob_type : BlobDumpTool::DisplayType::kNone;
+  BlobDumpTool::DisplayType show_blob =
+      dump_uncompressed_blobs ? BlobDumpTool::DisplayType::kNone : blob_type;
+
+  BlobDumpTool::DisplayType show_key = is_key_hex
+                                           ? BlobDumpTool::DisplayType::kHex
+                                           : BlobDumpTool::DisplayType::kRaw;
+  Status s = tool.Run(filename, show_key, show_blob, show_uncompressed_blob,
+                      /* show_summary */ true);
+  if (!s.ok()) {
+    fprintf(stderr, "Failed: %s\n", s.ToString().c_str());
+  }
+}
 }  // namespace
 
 DBFileDumperCommand::DBFileDumperCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true, BuildCmdLineOptions({})) {}
+    : LDBCommand(options, flags, true,
+                 BuildCmdLineOptions({ARG_DECODE_BLOB_INDEX})),
+      decode_blob_index_(IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX)) {}
 
 void DBFileDumperCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(DBFileDumperCommand::Name());
+  ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "] ");
   ret.append("\n");
 }
 
@@ -3568,7 +3625,7 @@ void DBFileDumperCommand::DoCommand() {
     filename = NormalizePath(filename);
     std::cout << filename << " level:" << fileMetadata.level << std::endl;
     std::cout << "------------------------------" << std::endl;
-    DumpSstFile(options_, filename, false, true);
+    DumpSstFile(options_, filename, false, true, decode_blob_index_);
     std::cout << std::endl;
   }
   std::cout << std::endl;

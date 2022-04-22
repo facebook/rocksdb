@@ -36,7 +36,6 @@ struct BufferInfo {
 class FilePrefetchBuffer {
  public:
   static const int kMinNumFileReadsToStartAutoReadahead = 2;
-  static const size_t kInitAutoReadaheadSize = 8 * 1024;
 
   // Constructor.
   //
@@ -68,6 +67,7 @@ class FilePrefetchBuffer {
                      bool async_io = false, FileSystem* fs = nullptr)
       : curr_(0),
         readahead_size_(readahead_size),
+        initial_auto_readahead_size_(readahead_size),
         max_readahead_size_(max_readahead_size),
         min_offset_read_(port::kMaxSizet),
         enable_(enable),
@@ -184,9 +184,8 @@ class FilePrefetchBuffer {
            bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) &&
           IsBlockSequential(offset) &&
           (num_file_reads_ + 1 > kMinNumFileReadsToStartAutoReadahead)) {
-        size_t initial_auto_readahead_size = kInitAutoReadaheadSize;
         readahead_size_ =
-            std::max(initial_auto_readahead_size,
+            std::max(initial_auto_readahead_size_,
                      (readahead_size_ >= value ? readahead_size_ - value : 0));
       }
     }
@@ -238,7 +237,7 @@ class FilePrefetchBuffer {
   // Called in case of implicit auto prefetching.
   void ResetValues() {
     num_file_reads_ = 1;
-    readahead_size_ = kInitAutoReadaheadSize;
+    readahead_size_ = initial_auto_readahead_size_;
   }
 
   std::vector<BufferInfo> bufs_;
@@ -246,6 +245,7 @@ class FilePrefetchBuffer {
   // consumed currently.
   uint32_t curr_;
   size_t readahead_size_;
+  size_t initial_auto_readahead_size_;
   // FilePrefetchBuffer object won't be created from Iterator flow if
   // max_readahead_size_ = 0.
   size_t max_readahead_size_;

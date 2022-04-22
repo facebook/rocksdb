@@ -558,32 +558,32 @@ DEFINE_double(cache_high_pri_pool_ratio, 0.0,
 DEFINE_bool(use_clock_cache, false,
             "Replace default LRU block cache with clock cache.");
 
-DEFINE_bool(use_lru_secondary_cache, false,
-            "Use the LRUSecondaryCache as the secondary cache.");
+DEFINE_bool(use_compressed_secondary_cache, false,
+            "Use the CompressedSecondaryCache as the secondary cache.");
 
-DEFINE_int64(lru_secondary_cache_size, 8 << 20,  // 8MB
-             "Number of bytes to use as a cache of data.");
+DEFINE_int64(compressed_secondary_cache_size, 8 << 20,  // 8MB
+             "Number of bytes to use as a cache of data");
 
-DEFINE_int32(lru_secondary_cache_numshardbits, 6,
+DEFINE_int32(compressed_secondary_cache_numshardbits, 6,
              "Number of shards for the block cache"
-             " is 2 ** lru_secondary_cache_numshardbits."
+             " is 2 ** compressed_secondary_cache_numshardbits."
              " Negative means use default settings."
              " This is applied only if FLAGS_cache_size is non-negative.");
 
-DEFINE_double(lru_secondary_cache_high_pri_pool_ratio, 0.0,
+DEFINE_double(compressed_secondary_cache_high_pri_pool_ratio, 0.0,
               "Ratio of block cache reserve for high pri blocks. "
               "If > 0.0, we also enable "
               "cache_index_and_filter_blocks_with_high_priority.");
 
-DEFINE_string(lru_secondary_cache_compression_type, "lz4",
+DEFINE_string(compressed_secondary_cache_compression_type, "lz4",
               "The compression algorithm to use for large "
-              "values stored in LRUSecondaryCache.");
+              "values stored in CompressedSecondaryCache.");
 static enum ROCKSDB_NAMESPACE::CompressionType
-    FLAGS_lru_secondary_cache_compression_type_e =
+    FLAGS_compressed_secondary_cache_compression_type_e =
         ROCKSDB_NAMESPACE::kLZ4Compression;
 
 DEFINE_uint32(
-    lru_secondary_cache_compress_format_version, 2,
+    compressed_secondary_cache_compress_format_version, 2,
     "compress_format_version can have two values: "
     "compress_format_version == 1 -- decompressed size is not included"
     " in the block header."
@@ -2851,18 +2851,19 @@ class Benchmark {
       }
 #endif  // ROCKSDB_LITE
 
-      if (FLAGS_use_lru_secondary_cache) {
-        LRUSecondaryCacheOptions secondary_cache_opts;
-        secondary_cache_opts.capacity = FLAGS_lru_secondary_cache_size;
+      if (FLAGS_use_compressed_secondary_cache) {
+        CompressedSecondaryCacheOptions secondary_cache_opts;
+        secondary_cache_opts.capacity = FLAGS_compressed_secondary_cache_size;
         secondary_cache_opts.num_shard_bits =
-            FLAGS_lru_secondary_cache_numshardbits;
+            FLAGS_compressed_secondary_cache_numshardbits;
         secondary_cache_opts.high_pri_pool_ratio =
-            FLAGS_lru_secondary_cache_high_pri_pool_ratio;
+            FLAGS_compressed_secondary_cache_high_pri_pool_ratio;
         secondary_cache_opts.compression_type =
-            FLAGS_lru_secondary_cache_compression_type_e;
+            FLAGS_compressed_secondary_cache_compression_type_e;
         secondary_cache_opts.compress_format_version =
-            FLAGS_lru_secondary_cache_compress_format_version;
-        opts.secondary_cache = NewLRUSecondaryCache(secondary_cache_opts);
+            FLAGS_compressed_secondary_cache_compress_format_version;
+        opts.secondary_cache =
+            NewCompressedSecondaryCache(secondary_cache_opts);
       }
 
       return NewLRUCache(opts);
@@ -3856,6 +3857,26 @@ class Benchmark {
     assert(db_.db == nullptr);
 
     options.env = FLAGS_env;
+    options.wal_dir = FLAGS_wal_dir;
+    options.dump_malloc_stats = FLAGS_dump_malloc_stats;
+    options.stats_dump_period_sec =
+        static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
+    options.stats_persist_period_sec =
+        static_cast<unsigned int>(FLAGS_stats_persist_period_sec);
+    options.persist_stats_to_disk = FLAGS_persist_stats_to_disk;
+    options.stats_history_buffer_size =
+        static_cast<size_t>(FLAGS_stats_history_buffer_size);
+    options.avoid_flush_during_recovery = FLAGS_avoid_flush_during_recovery;
+
+    options.compression_opts.level = FLAGS_compression_level;
+    options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
+    options.compression_opts.zstd_max_train_bytes =
+        FLAGS_compression_zstd_max_train_bytes;
+    options.compression_opts.parallel_threads =
+        FLAGS_compression_parallel_threads;
+    options.compression_opts.max_dict_buffer_bytes =
+        FLAGS_compression_max_dict_buffer_bytes;
+
     options.max_open_files = FLAGS_open_files;
     if (FLAGS_cost_write_buffer_to_cache || FLAGS_db_write_buffer_size != 0) {
       options.write_buffer_manager.reset(
@@ -4284,94 +4305,104 @@ class Benchmark {
   }
 
   void InitializeOptionsGeneral(Options* opts) {
+    // Be careful about what is set here to avoid accidentally overwriting
+    // settings already configured by OPTIONS file. Only configure settings that
+    // are needed for the benchmark to run, settings for shared objects that
+    // were not configured already, settings that require dynamically invoking
+    // APIs, and settings for the benchmark itself.
     Options& options = *opts;
 
-    options.create_missing_column_families = FLAGS_num_column_families > 1;
-    options.statistics = dbstats;
-    options.wal_dir = FLAGS_wal_dir;
-    options.create_if_missing = !FLAGS_use_existing_db;
-    options.dump_malloc_stats = FLAGS_dump_malloc_stats;
-    options.stats_dump_period_sec =
-        static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
-    options.stats_persist_period_sec =
-        static_cast<unsigned int>(FLAGS_stats_persist_period_sec);
-    options.persist_stats_to_disk = FLAGS_persist_stats_to_disk;
-    options.stats_history_buffer_size =
-        static_cast<size_t>(FLAGS_stats_history_buffer_size);
-    options.avoid_flush_during_recovery = FLAGS_avoid_flush_during_recovery;
+    // Always set these since they are harmless when not needed and prevent
+    // a guaranteed failure when they are needed.
+    options.create_missing_column_families = true;
+    options.create_if_missing = true;
 
-    options.compression_opts.level = FLAGS_compression_level;
-    options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
-    options.compression_opts.zstd_max_train_bytes =
-        FLAGS_compression_zstd_max_train_bytes;
-    options.compression_opts.parallel_threads =
-        FLAGS_compression_parallel_threads;
-    options.compression_opts.max_dict_buffer_bytes =
-        FLAGS_compression_max_dict_buffer_bytes;
-    // If this is a block based table, set some related options
+    if (options.statistics == nullptr) {
+      options.statistics = dbstats;
+    }
+
     auto table_options =
         options.table_factory->GetOptions<BlockBasedTableOptions>();
     if (table_options != nullptr) {
-      if (FLAGS_cache_size) {
+      if (FLAGS_cache_size > 0) {
+        // This violates this function's rules on when to set options. But we
+        // have to do it because the case of unconfigured block cache in OPTIONS
+        // file is indistinguishable (it is sanitized to 8MB by this point, not
+        // nullptr), and our regression tests assume this will be the shared
+        // block cache, even with OPTIONS file provided.
         table_options->block_cache = cache_;
       }
-      if (FLAGS_bloom_bits < 0) {
-        table_options->filter_policy = BlockBasedTableOptions().filter_policy;
-      } else if (FLAGS_bloom_bits == 0) {
-        table_options->filter_policy.reset();
-      } else if (FLAGS_use_block_based_filter) {
-        // Use back-door way of enabling obsolete block-based Bloom
-        Status s = FilterPolicy::CreateFromString(
-            ConfigOptions(),
-            "rocksdb.internal.DeprecatedBlockBasedBloomFilter:" +
-                ROCKSDB_NAMESPACE::ToString(FLAGS_bloom_bits),
-            &table_options->filter_policy);
-        if (!s.ok()) {
-          fprintf(stderr, "failure creating obsolete block-based filter: %s\n",
-                  s.ToString().c_str());
-          exit(1);
+      if (table_options->filter_policy == nullptr) {
+        if (FLAGS_bloom_bits < 0) {
+          table_options->filter_policy = BlockBasedTableOptions().filter_policy;
+        } else if (FLAGS_bloom_bits == 0) {
+          table_options->filter_policy.reset();
+        } else if (FLAGS_use_block_based_filter) {
+          // Use back-door way of enabling obsolete block-based Bloom
+          Status s = FilterPolicy::CreateFromString(
+              ConfigOptions(),
+              "rocksdb.internal.DeprecatedBlockBasedBloomFilter:" +
+                  ROCKSDB_NAMESPACE::ToString(FLAGS_bloom_bits),
+              &table_options->filter_policy);
+          if (!s.ok()) {
+            fprintf(stderr,
+                    "failure creating obsolete block-based filter: %s\n",
+                    s.ToString().c_str());
+            exit(1);
+          }
+        } else {
+          table_options->filter_policy.reset(
+              FLAGS_use_ribbon_filter ? NewRibbonFilterPolicy(FLAGS_bloom_bits)
+                                      : NewBloomFilterPolicy(FLAGS_bloom_bits));
         }
-      } else {
-        table_options->filter_policy.reset(
-            FLAGS_use_ribbon_filter ? NewRibbonFilterPolicy(FLAGS_bloom_bits)
-                                    : NewBloomFilterPolicy(FLAGS_bloom_bits));
       }
     }
-    if (FLAGS_row_cache_size) {
-      if (FLAGS_cache_numshardbits >= 1) {
-        options.row_cache =
-            NewLRUCache(FLAGS_row_cache_size, FLAGS_cache_numshardbits);
-      } else {
-        options.row_cache = NewLRUCache(FLAGS_row_cache_size);
+
+    if (options.row_cache == nullptr) {
+      if (FLAGS_row_cache_size) {
+        if (FLAGS_cache_numshardbits >= 1) {
+          options.row_cache =
+              NewLRUCache(FLAGS_row_cache_size, FLAGS_cache_numshardbits);
+        } else {
+          options.row_cache = NewLRUCache(FLAGS_row_cache_size);
+        }
       }
+    }
+
+    if (options.env == Env::Default()) {
+      options.env = FLAGS_env;
     }
     if (FLAGS_enable_io_prio) {
-      FLAGS_env->LowerThreadPoolIOPriority(Env::LOW);
-      FLAGS_env->LowerThreadPoolIOPriority(Env::HIGH);
+      options.env->LowerThreadPoolIOPriority(Env::LOW);
+      options.env->LowerThreadPoolIOPriority(Env::HIGH);
     }
     if (FLAGS_enable_cpu_prio) {
-      FLAGS_env->LowerThreadPoolCPUPriority(Env::LOW);
-      FLAGS_env->LowerThreadPoolCPUPriority(Env::HIGH);
+      options.env->LowerThreadPoolCPUPriority(Env::LOW);
+      options.env->LowerThreadPoolCPUPriority(Env::HIGH);
     }
-    options.env = FLAGS_env;
+
     if (FLAGS_sine_write_rate) {
       FLAGS_benchmark_write_rate_limit = static_cast<uint64_t>(SineRate(0));
     }
 
-    if (FLAGS_rate_limiter_bytes_per_sec > 0) {
-      options.rate_limiter.reset(NewGenericRateLimiter(
-          FLAGS_rate_limiter_bytes_per_sec, FLAGS_rate_limiter_refill_period_us,
-          10 /* fairness */,
-          FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
-                                    : RateLimiter::Mode::kWritesOnly,
-          FLAGS_rate_limiter_auto_tuned));
+    if (options.rate_limiter == nullptr) {
+      if (FLAGS_rate_limiter_bytes_per_sec > 0) {
+        options.rate_limiter.reset(NewGenericRateLimiter(
+            FLAGS_rate_limiter_bytes_per_sec,
+            FLAGS_rate_limiter_refill_period_us, 10 /* fairness */,
+            FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
+                                      : RateLimiter::Mode::kWritesOnly,
+            FLAGS_rate_limiter_auto_tuned));
+      }
     }
 
     options.listeners.emplace_back(listener_);
 
-    if (FLAGS_file_checksum) {
-      options.file_checksum_gen_factory.reset(
-          new FileChecksumGenCrc32cFactory());
+    if (options.file_checksum_gen_factory == nullptr) {
+      if (FLAGS_file_checksum) {
+        options.file_checksum_gen_factory.reset(
+            new FileChecksumGenCrc32cFactory());
+      }
     }
 
     if (FLAGS_num_multi_db <= 1) {
@@ -4390,9 +4421,11 @@ class Benchmark {
     }
 
     // KeepFilter is a noop filter, this can be used to test compaction filter
-    if (FLAGS_use_keep_filter) {
-      options.compaction_filter = new KeepFilter();
-      fprintf(stdout, "A noop compaction filter is used\n");
+    if (options.compaction_filter == nullptr) {
+      if (FLAGS_use_keep_filter) {
+        options.compaction_filter = new KeepFilter();
+        fprintf(stdout, "A noop compaction filter is used\n");
+      }
     }
 
     if (FLAGS_use_existing_keys) {
@@ -6397,9 +6430,9 @@ class Benchmark {
       }
 
       // Pick a Iterator to use
-      size_t db_idx_to_use =
+      uint64_t db_idx_to_use =
           (db_.db == nullptr)
-              ? (size_t{thread->rand.Next()} % multi_dbs_.size())
+              ? (uint64_t{thread->rand.Next()} % multi_dbs_.size())
               : 0;
       std::unique_ptr<Iterator> single_iter;
       Iterator* iter_to_use;
@@ -8109,8 +8142,8 @@ int db_bench_tool(int argc, char** argv) {
   FLAGS_wal_compression_e =
       StringToCompressionType(FLAGS_wal_compression.c_str());
 
-  FLAGS_lru_secondary_cache_compression_type_e = StringToCompressionType(
-      FLAGS_lru_secondary_cache_compression_type.c_str());
+  FLAGS_compressed_secondary_cache_compression_type_e = StringToCompressionType(
+      FLAGS_compressed_secondary_cache_compression_type.c_str());
 
 #ifndef ROCKSDB_LITE
   // Stacked BlobDB

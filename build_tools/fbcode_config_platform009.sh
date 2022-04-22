@@ -27,28 +27,38 @@ else
   MAYBE_PIC=_pic
 fi
 
-# snappy
-SNAPPY_INCLUDE=" -I $SNAPPY_BASE/include/"
-SNAPPY_LIBS=" $SNAPPY_BASE/lib/libsnappy${MAYBE_PIC}.a"
-CFLAGS+=" -DSNAPPY"
+if ! test $ROCKSDB_DISABLE_SNAPPY; then
+  # snappy
+  SNAPPY_INCLUDE=" -I $SNAPPY_BASE/include/"
+  SNAPPY_LIBS=" $SNAPPY_BASE/lib/libsnappy${MAYBE_PIC}.a"
+  CFLAGS+=" -DSNAPPY"
+fi
 
-# location of zlib headers and libraries
-ZLIB_INCLUDE=" -I $ZLIB_BASE/include/"
-ZLIB_LIBS=" $ZLIB_BASE/lib/libz${MAYBE_PIC}.a"
-CFLAGS+=" -DZLIB"
+if ! test $ROCKSDB_DISABLE_ZLIB; then
+  # location of zlib headers and libraries
+  ZLIB_INCLUDE=" -I $ZLIB_BASE/include/"
+  ZLIB_LIBS=" $ZLIB_BASE/lib/libz${MAYBE_PIC}.a"
+  CFLAGS+=" -DZLIB"
+fi
 
-# location of bzip headers and libraries
-BZIP_INCLUDE=" -I $BZIP2_BASE/include/"
-BZIP_LIBS=" $BZIP2_BASE/lib/libbz2${MAYBE_PIC}.a"
-CFLAGS+=" -DBZIP2"
+if ! test $ROCKSDB_DISABLE_BZIP; then
+  # location of bzip headers and libraries
+  BZIP_INCLUDE=" -I $BZIP2_BASE/include/"
+  BZIP_LIBS=" $BZIP2_BASE/lib/libbz2${MAYBE_PIC}.a"
+  CFLAGS+=" -DBZIP2"
+fi
 
-LZ4_INCLUDE=" -I $LZ4_BASE/include/"
-LZ4_LIBS=" $LZ4_BASE/lib/liblz4${MAYBE_PIC}.a"
-CFLAGS+=" -DLZ4"
+if ! test $ROCKSDB_DISABLE_LZ4; then
+  LZ4_INCLUDE=" -I $LZ4_BASE/include/"
+  LZ4_LIBS=" $LZ4_BASE/lib/liblz4${MAYBE_PIC}.a"
+  CFLAGS+=" -DLZ4"
+fi
 
-ZSTD_INCLUDE=" -I $ZSTD_BASE/include/"
-ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd${MAYBE_PIC}.a"
-CFLAGS+=" -DZSTD"
+if ! test $ROCKSDB_DISABLE_ZSTD; then
+  ZSTD_INCLUDE=" -I $ZSTD_BASE/include/"
+  ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd${MAYBE_PIC}.a"
+  CFLAGS+=" -DZSTD"
+fi
 
 # location of gflags headers and libraries
 GFLAGS_INCLUDE=" -I $GFLAGS_BASE/include/"
@@ -57,6 +67,8 @@ CFLAGS+=" -DGFLAGS=gflags"
 
 BENCHMARK_INCLUDE=" -I $BENCHMARK_BASE/include/"
 BENCHMARK_LIBS=" $BENCHMARK_BASE/lib/libbenchmark${MAYBE_PIC}.a"
+
+BOOST_INCLUDE=" -I $BOOST_BASE/include/"
 
 # location of jemalloc
 JEMALLOC_INCLUDE=" -I $JEMALLOC_BASE/include/"
@@ -89,7 +101,7 @@ BINUTILS="$BINUTILS_BASE/bin"
 AR="$BINUTILS/ar"
 AS="$BINUTILS/as"
 
-DEPS_INCLUDE="$SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $ZSTD_INCLUDE $GFLAGS_INCLUDE $NUMA_INCLUDE $TBB_INCLUDE $LIBURING_INCLUDE $BENCHMARK_INCLUDE"
+DEPS_INCLUDE="$SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $ZSTD_INCLUDE $GFLAGS_INCLUDE $NUMA_INCLUDE $TBB_INCLUDE $LIBURING_INCLUDE $BENCHMARK_INCLUDE $BOOST_INCLUDE"
 
 STDLIBS="-L $GCC_BASE/lib64"
 

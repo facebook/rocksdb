@@ -82,6 +82,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     ro.io_timeout = read_options.io_timeout;
     ro.adaptive_readahead = read_options.adaptive_readahead;
     ro.async_io = read_options.async_io;
+
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
     std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter(
@@ -169,7 +170,7 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
   }
 
   // For saving "all or nothing" to partition_map_
-  std::unordered_map<uint64_t, CachableEntry<Block>> map_in_progress;
+  UnorderedMap<uint64_t, CachableEntry<Block>> map_in_progress;
 
   // After prefetch, read the partitions one by one
   biter.SeekToFirst();

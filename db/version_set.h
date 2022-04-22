@@ -54,6 +54,7 @@
 #include "table/get_context.h"
 #include "table/multiget_context.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -579,7 +580,7 @@ class VersionStorageInfo {
 
   // Map of all table files in version. Maps file number to (level, position on
   // level).
-  using FileLocations = std::unordered_map<uint64_t, FileLocation>;
+  using FileLocations = UnorderedMap<uint64_t, FileLocation>;
   FileLocations file_locations_;
 
   // Vector of blob files in version sorted by blob file number.
@@ -1344,8 +1345,7 @@ class VersionSet {
 
  protected:
   using VersionBuilderMap =
-      std::unordered_map<uint32_t,
-                         std::unique_ptr<BaseReferencedVersionBuilder>>;
+      UnorderedMap<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>;
 
   struct ManifestWriter;
 

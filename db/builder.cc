@@ -62,9 +62,9 @@ Status BuildTable(
     FileMetaData* meta, std::vector<BlobFileAddition>* blob_file_additions,
     std::vector<SequenceNumber> snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    SnapshotChecker* snapshot_checker, bool paranoid_file_checks,
-    InternalStats* internal_stats, IOStatus* io_status,
-    const std::shared_ptr<IOTracer>& io_tracer,
+    SequenceNumber job_snapshot, SnapshotChecker* snapshot_checker,
+    bool paranoid_file_checks, InternalStats* internal_stats,
+    IOStatus* io_status, const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCreationReason blob_creation_reason, EventLogger* event_logger,
     int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
@@ -189,12 +189,13 @@ Status BuildTable(
     CompactionIterator c_iter(
         iter, tboptions.internal_comparator.user_comparator(), &merge,
         kMaxSequenceNumber, &snapshots, earliest_write_conflict_snapshot,
-        snapshot_checker, env, ShouldReportDetailedTime(env, ioptions.stats),
+        job_snapshot, snapshot_checker, env,
+        ShouldReportDetailedTime(env, ioptions.stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr,
-        /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
+        /*manual_compaction_paused=*/nullptr,
         /*manual_compaction_canceled=*/nullptr, db_options.info_log,
         full_history_ts_low);
 
@@ -211,7 +212,11 @@ Status BuildTable(
         break;
       }
       builder->Add(key, value);
-      meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
+
+      s = meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
+      if (!s.ok()) {
+        break;
+      }
 
       // TODO(noetzli): Update stats after flush, too.
       if (io_priority == Env::IO_HIGH &&

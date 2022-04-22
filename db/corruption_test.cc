@@ -26,6 +26,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/meta_blocks.h"
@@ -274,6 +275,42 @@ class CorruptionTest : public testing::Test {
       *storage = r.RandomString(kValueSize);
     }
     return Slice(*storage);
+  }
+
+  void GetSortedWalFiles(std::vector<uint64_t>& file_nums) {
+    std::vector<std::string> tmp_files;
+    ASSERT_OK(env_->GetChildren(dbname_, &tmp_files));
+    FileType type = kWalFile;
+    for (const auto& file : tmp_files) {
+      uint64_t number = 0;
+      if (ParseFileName(file, &number, &type) && type == kWalFile) {
+        file_nums.push_back(number);
+      }
+    }
+    std::sort(file_nums.begin(), file_nums.end());
+  }
+
+  void CorruptFileWithTruncation(FileType file, uint64_t number,
+                                 uint64_t bytes_to_truncate = 0) {
+    std::string path;
+    switch (file) {
+      case FileType::kWalFile:
+        path = LogFileName(dbname_, number);
+        break;
+      // TODO: Add other file types as this method is being used for those file
+      // types.
+      default:
+        return;
+    }
+    uint64_t old_size = 0;
+    ASSERT_OK(env_->GetFileSize(path, &old_size));
+    assert(old_size > bytes_to_truncate);
+    uint64_t new_size = old_size - bytes_to_truncate;
+    // If bytes_to_truncate == 0, it will do full truncation.
+    if (bytes_to_truncate == 0) {
+      new_size = old_size;
+    }
+    ASSERT_OK(test::TruncateFile(env_, path, new_size));
   }
 };
 
@@ -910,6 +947,313 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
   SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsCorruption());
   ASSERT_EQ(1, count);
+}
+
+class CrashDuringRecoveryWithCorruptionTest
+    : public CorruptionTest,
+      public testing::WithParamInterface<std::tuple<bool, bool>> {
+ public:
+  explicit CrashDuringRecoveryWithCorruptionTest()
+      : CorruptionTest(),
+        avoid_flush_during_recovery_(std::get<0>(GetParam())),
+        track_and_verify_wals_in_manifest_(std::get<1>(GetParam())) {}
+
+ protected:
+  const bool avoid_flush_during_recovery_;
+  const bool track_and_verify_wals_in_manifest_;
+};
+
+INSTANTIATE_TEST_CASE_P(CorruptionTest, CrashDuringRecoveryWithCorruptionTest,
+                        ::testing::Values(std::make_tuple(true, false),
+                                          std::make_tuple(false, false),
+                                          std::make_tuple(true, true),
+                                          std::make_tuple(false, true)));
+
+// In case of non-TransactionDB with avoid_flush_during_recovery = true, RocksDB
+// won't flush the data from WAL to L0 for all column families if possible. As a
+// result, not all column families can increase their log_numbers, and
+// min_log_number_to_keep won't change.
+// It may prematurely persist a new MANIFEST even before we can declare the DB
+// is in consistent state after recovery (this is when the new WAL is synced)
+// and advances log_numbers for some column families.
+//
+// If there is power failure before we sync the new WAL, we will end up in
+// a situation in which after persisting the MANIFEST, RocksDB will see some
+// column families' log_numbers larger than the corrupted wal, and
+// "Column family inconsistency: SST file contains data beyond the point of
+// corruption" error will be hit, causing recovery to fail.
+//
+// After adding the fix, corrupted WALs whose numbers are larger than the
+// corrupted wal and smaller than the new WAL are moved to a separate folder.
+// Only after new WAL is synced, RocksDB persist a new MANIFEST with column
+// families to ensure RocksDB is in consistent state.
+// RocksDB writes an empty WriteBatch as a sentinel to the new WAL which is
+// synced immediately afterwards. The sequence number of the sentinel
+// WriteBatch will be the next sequence number immediately after the largest
+// sequence number recovered from previous WALs and MANIFEST because of which DB
+// will be in consistent state.
+TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
+  CloseDb();
+  Options options;
+  options.track_and_verify_wals_in_manifest =
+      track_and_verify_wals_in_manifest_;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  options.avoid_flush_during_recovery = false;
+  options.env = env_;
+  ASSERT_OK(DestroyDB(dbname_, options));
+  options.create_if_missing = true;
+  options.max_write_buffer_number = 3;
+
+  Reopen(&options);
+  Status s;
+  const std::string test_cf_name = "test_cf";
+  ColumnFamilyHandle* cfh = nullptr;
+  s = db_->CreateColumnFamily(options, test_cf_name, &cfh);
+  ASSERT_OK(s);
+  delete cfh;
+  CloseDb();
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+  cf_descs.emplace_back(test_cf_name, options);
+  std::vector<ColumnFamilyHandle*> handles;
+
+  // 1. Open and populate the DB. Write and flush default_cf several times to
+  // advance wal number so that some column families have advanced log_number
+  // while other don't.
+  {
+    ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles, &db_));
+    auto* dbimpl = static_cast_with_check<DBImpl>(db_);
+    assert(dbimpl);
+
+    // Write one key to test_cf.
+    ASSERT_OK(db_->Put(WriteOptions(), handles[1], "old_key", "dontcare"));
+    // Write to default_cf and flush this cf several times to advance wal
+    // number.
+    for (int i = 0; i < 2; ++i) {
+      ASSERT_OK(db_->Put(WriteOptions(), "key" + std::to_string(i), "value"));
+      ASSERT_OK(dbimpl->TEST_SwitchMemtable());
+    }
+    ASSERT_OK(db_->Put(WriteOptions(), handles[1], "dontcare", "dontcare"));
+
+    for (auto* h : handles) {
+      delete h;
+    }
+    handles.clear();
+    CloseDb();
+  }
+
+  // 2. Corrupt second last wal file to emulate power reset which caused the DB
+  // to lose the un-synced WAL.
+  {
+    std::vector<uint64_t> file_nums;
+    GetSortedWalFiles(file_nums);
+    size_t size = file_nums.size();
+    uint64_t log_num = file_nums[size - 2];
+    CorruptFileWithTruncation(FileType::kWalFile, log_num,
+                              /*bytes_to_truncate=*/8);
+  }
+
+  // 3. After first crash reopen the DB which contains corrupted WAL. Default
+  // family has higher log number than corrupted wal number.
+  //
+  // Case1: If avoid_flush_during_recovery = true, RocksDB won't flush the data
+  // from WAL to L0 for all column families (test_cf_name in this case). As a
+  // result, not all column families can increase their log_numbers, and
+  // min_log_number_to_keep won't change.
+  //
+  // Case2: If avoid_flush_during_recovery = false, all column families have
+  // flushed their data from WAL to L0 during recovery, and none of them will
+  // ever need to read the WALs again.
+  {
+    options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
+    s = DB::Open(options, dbname_, cf_descs, &handles, &db_);
+    ASSERT_OK(s);
+    for (auto* h : handles) {
+      delete h;
+    }
+    handles.clear();
+    CloseDb();
+  }
+
+  // 4. Corrupt max_wal_num to emulate second power reset which caused the
+  // DB to again lose the un-synced WAL.
+  {
+    std::vector<uint64_t> file_nums;
+    GetSortedWalFiles(file_nums);
+    size_t size = file_nums.size();
+    uint64_t log_num = file_nums[size - 1];
+    CorruptFileWithTruncation(FileType::kWalFile, log_num);
+  }
+
+  // 5. After second crash reopen the db with second corruption. Default family
+  // has higher log number than corrupted wal number.
+  //
+  // Case1: If avoid_flush_during_recovery = true, we persist a new
+  // MANIFEST with advanced log_numbers for some column families only after
+  // syncing the WAL. So during second crash, RocksDB will skip the corrupted
+  // WAL files as they have been moved to different folder. Since newly synced
+  // WAL file's sequence number (sentinel WriteBatch) will be the next
+  // sequence number immediately after the largest sequence number recovered
+  // from previous WALs and MANIFEST, db will be in consistent state and opens
+  // successfully.
+  //
+  // Case2: If avoid_flush_during_recovery = false, the corrupted WAL is below
+  // this number. So during a second crash after persisting the new MANIFEST,
+  // RocksDB will skip the corrupted WAL(s) because they are all below this
+  // bound. Therefore, we won't hit the "column family inconsistency" error
+  // message.
+  {
+    options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
+    ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles, &db_));
+    for (auto* h : handles) {
+      delete h;
+    }
+    handles.clear();
+    CloseDb();
+  }
+}
+
+// In case of TransactionDB, it enables two-phase-commit. The prepare section of
+// an uncommitted transaction always need to be kept. Even if we perform flush
+// during recovery, we may still need to hold an old WAL. The
+// min_log_number_to_keep won't change, and "Column family inconsistency: SST
+// file contains data beyond the point of corruption" error will be hit, causing
+// recovery to fail.
+//
+// After adding the fix, corrupted WALs whose numbers are larger than the
+// corrupted wal and smaller than the new WAL are moved to a separate folder.
+// Only after new WAL is synced, RocksDB persist a new MANIFEST with column
+// families to ensure RocksDB is in consistent state.
+// RocksDB writes an empty WriteBatch as a sentinel to the new WAL which is
+// synced immediately afterwards. The sequence number of the sentinel
+// WriteBatch will be the next sequence number immediately after the largest
+// sequence number recovered from previous WALs and MANIFEST because of which DB
+// will be in consistent state.
+TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
+  CloseDb();
+  Options options;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  options.track_and_verify_wals_in_manifest =
+      track_and_verify_wals_in_manifest_;
+  options.avoid_flush_during_recovery = false;
+  options.env = env_;
+  ASSERT_OK(DestroyDB(dbname_, options));
+  options.create_if_missing = true;
+  options.max_write_buffer_number = 3;
+  Reopen(&options);
+
+  // Create cf test_cf_name.
+  ColumnFamilyHandle* cfh = nullptr;
+  const std::string test_cf_name = "test_cf";
+  Status s = db_->CreateColumnFamily(options, test_cf_name, &cfh);
+  ASSERT_OK(s);
+  delete cfh;
+  CloseDb();
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+  cf_descs.emplace_back(test_cf_name, options);
+  std::vector<ColumnFamilyHandle*> handles;
+
+  TransactionDB* txn_db = nullptr;
+  TransactionDBOptions txn_db_opts;
+
+  // 1. Open and populate the DB. Write and flush default_cf several times to
+  // advance wal number so that some column families have advanced log_number
+  // while other don't.
+  {
+    options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
+    ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, cf_descs,
+                                  &handles, &txn_db));
+
+    auto* txn = txn_db->BeginTransaction(WriteOptions(), TransactionOptions());
+    // Put cf1
+    ASSERT_OK(txn->Put(handles[1], "foo", "value"));
+    ASSERT_OK(txn->SetName("txn0"));
+    ASSERT_OK(txn->Prepare());
+    delete txn;
+    txn = nullptr;
+
+    auto* dbimpl = static_cast_with_check<DBImpl>(txn_db->GetRootDB());
+    assert(dbimpl);
+
+    // Put and flush cf0
+    for (int i = 0; i < 2; ++i) {
+      ASSERT_OK(txn_db->Put(WriteOptions(), "dontcare", "value"));
+      ASSERT_OK(dbimpl->TEST_SwitchMemtable());
+    }
+
+    // Put cf1
+    txn = txn_db->BeginTransaction(WriteOptions(), TransactionOptions());
+    ASSERT_OK(txn->Put(handles[1], "foo1", "value"));
+    ASSERT_OK(txn->Commit());
+
+    delete txn;
+    txn = nullptr;
+    for (auto* h : handles) {
+      delete h;
+    }
+    handles.clear();
+    delete txn_db;
+  }
+
+  // 2. Corrupt second last wal to emulate power reset which caused the DB to
+  // lose the un-synced WAL.
+  {
+    std::vector<uint64_t> file_nums;
+    GetSortedWalFiles(file_nums);
+    size_t size = file_nums.size();
+    uint64_t log_num = file_nums[size - 2];
+    CorruptFileWithTruncation(FileType::kWalFile, log_num,
+                              /*bytes_to_truncate=*/8);
+  }
+
+  // 3. After first crash reopen the DB which contains corrupted WAL. Default
+  // family has higher log number than corrupted wal number. There may be old
+  // WAL files that it must not delete because they can contain data of
+  // uncommitted transactions. As a result, min_log_number_to_keep won't change.
+  {
+    options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
+    ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, cf_descs,
+                                  &handles, &txn_db));
+
+    for (auto* h : handles) {
+      delete h;
+    }
+    handles.clear();
+    delete txn_db;
+  }
+
+  // 4. Corrupt max_wal_num to emulate second power reset which caused the
+  // DB to again lose the un-synced WAL.
+  {
+    std::vector<uint64_t> file_nums;
+    GetSortedWalFiles(file_nums);
+    size_t size = file_nums.size();
+    uint64_t log_num = file_nums[size - 1];
+    CorruptFileWithTruncation(FileType::kWalFile, log_num);
+  }
+
+  // 5. After second crash reopen the db with second corruption. Default family
+  // has higher log number than corrupted wal number.
+  // We persist a new MANIFEST with advanced log_numbers for some column
+  // families only after syncing the WAL. So during second crash, RocksDB will
+  // skip the corrupted WAL files as they have been moved to different folder.
+  // Since newly synced WAL file's sequence number (sentinel WriteBatch) will be
+  // the next sequence number immediately after the largest sequence number
+  // recovered from previous WALs and MANIFEST, db will be in consistent state
+  // and opens successfully.
+  {
+    options.avoid_flush_during_recovery = false;
+
+    ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, cf_descs,
+                                  &handles, &txn_db));
+    for (auto* h : handles) {
+      delete h;
+    }
+    delete txn_db;
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

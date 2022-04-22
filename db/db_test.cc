@@ -2427,8 +2427,8 @@ TEST_F(DBTest, SnapshotFiles) {
 
     // Also test GetLiveFilesStorageInfo
     std::vector<LiveFileStorageInfo> new_infos;
-    ASSERT_OK(dbfull()->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(),
-                                                &new_infos));
+    ASSERT_OK(db_->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(),
+                                           &new_infos));
 
     // Close DB (while deletions disabled)
     Close();
