@@ -238,11 +238,12 @@ int64_t GetProcessID();
 bool GenerateRfcUuid(std::string* output);
 
 // Is called in the context of background threads.
-// Blocks the termination handlers of pthread from running in the context of the calling thread.
-// We block various termination signals (other than SIGKILL which we both cannot and do not want to block)
-// in the background threads where we do not wish our environment destructors to be called.
-// If the environment destructor is called inside a background thread we will encounter undefined behaviour,
-// such as a thread waiting on itself.
+// Blocks the termination handlers of pthread from running in the context of the
+// calling thread. We block various termination signals (other than SIGKILL
+// which we both cannot and do not want to block) in the background threads
+// where we do not wish our environment destructors to be called. If the
+// environment destructor is called inside a background thread we will encounter
+// undefined behaviour, such as a thread waiting on itself.
 extern void BlockTerminationSignals();
 
 } // namespace port
