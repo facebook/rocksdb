@@ -47,6 +47,7 @@ class DBFileDumperCommand : public LDBCommand {
 
  private:
   bool decode_blob_index_;
+  bool dump_uncompressed_blobs_;
 };
 
 class DBLiveFilesMetadataDumperCommand : public LDBCommand {

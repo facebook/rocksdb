@@ -3574,13 +3574,17 @@ DBFileDumperCommand::DBFileDumperCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, true,
-                 BuildCmdLineOptions({ARG_DECODE_BLOB_INDEX})),
-      decode_blob_index_(IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX)) {}
+                 BuildCmdLineOptions(
+                     {ARG_DECODE_BLOB_INDEX, ARG_DUMP_UNCOMPRESSED_BLOBS})),
+      decode_blob_index_(IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX)),
+      dump_uncompressed_blobs_(
+          IsFlagPresent(flags, ARG_DUMP_UNCOMPRESSED_BLOBS)) {}
 
 void DBFileDumperCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(DBFileDumperCommand::Name());
   ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "] ");
+  ret.append(" [--" + ARG_DUMP_UNCOMPRESSED_BLOBS + "] ");
   ret.append("\n");
 }
 
@@ -3591,6 +3595,8 @@ void DBFileDumperCommand::DoCommand() {
   }
   Status s;
 
+  // TODO: Use --hex, --key_hex, --value_hex flags consistently for
+  // dumping manifest file, sst files and blob files.
   std::cout << "Manifest File" << std::endl;
   std::cout << "==============================" << std::endl;
   std::string manifest_filename;
@@ -3613,20 +3619,42 @@ void DBFileDumperCommand::DoCommand() {
   DumpManifestFile(options_, manifest_filepath, false, false, false);
   std::cout << std::endl;
 
-  std::cout << "SST Files" << std::endl;
-  std::cout << "==============================" << std::endl;
-  std::vector<LiveFileMetaData> metadata;
-  db_->GetLiveFilesMetaData(&metadata);
-  for (auto& fileMetadata : metadata) {
-    std::string filename = fileMetadata.db_path + "/" + fileMetadata.name;
-    // Correct concatenation of filepath and filename:
-    // Check that there is no double slashes (or more!) when concatenation
-    // happens.
-    filename = NormalizePath(filename);
-    std::cout << filename << " level:" << fileMetadata.level << std::endl;
-    std::cout << "------------------------------" << std::endl;
-    DumpSstFile(options_, filename, false, true, decode_blob_index_);
+  std::vector<ColumnFamilyMetaData> column_families;
+  db_->GetAllColumnFamilyMetaData(&column_families);
+  for (const auto& column_family : column_families) {
+    std::cout << "Column family name: " << column_family.name << std::endl;
+    std::cout << "==============================" << std::endl;
     std::cout << std::endl;
+    std::cout << "SST Files" << std::endl;
+    std::cout << "==============================" << std::endl;
+    for (const LevelMetaData& level : column_family.levels) {
+      for (const SstFileMetaData& sst_file : level.files) {
+        std::string filename = sst_file.db_path + "/" + sst_file.name;
+        // Correct concatenation of filepath and filename:
+        // Check that there is no double slashes (or more!) when concatenation
+        // happens.
+        filename = NormalizePath(filename);
+        std::cout << filename << " level:" << level.level << std::endl;
+        std::cout << "------------------------------" << std::endl;
+        DumpSstFile(options_, filename, false, true, decode_blob_index_);
+        std::cout << std::endl;
+      }
+    }
+    std::cout << "Blob Files" << std::endl;
+    std::cout << "==============================" << std::endl;
+    for (const BlobMetaData& blob_file : column_family.blob_files) {
+      std::string filename =
+          blob_file.blob_file_path + "/" + blob_file.blob_file_name;
+      // Correct concatenation of filepath and filename:
+      // Check that there is no double slashes (or more!) when concatenation
+      // happens.
+      filename = NormalizePath(filename);
+      std::cout << filename << std::endl;
+      std::cout << "------------------------------" << std::endl;
+      DumpBlobFile(filename, /* is_key_hex */ false, /* is_value_hex */ false,
+                   dump_uncompressed_blobs_);
+      std::cout << std::endl;
+    }
   }
   std::cout << std::endl;
 
