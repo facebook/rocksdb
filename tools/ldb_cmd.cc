@@ -3595,6 +3595,8 @@ void DBFileDumperCommand::DoCommand() {
   }
   Status s;
 
+  // TODO: Use --hex, --key_hex, --value_hex flags consistently for
+  // dumping manifest file, sst files and blob files.
   std::cout << "Manifest File" << std::endl;
   std::cout << "==============================" << std::endl;
   std::string manifest_filename;
@@ -3621,6 +3623,7 @@ void DBFileDumperCommand::DoCommand() {
   db_->GetAllColumnFamilyMetaData(&column_families);
   for (const auto& column_family : column_families) {
     std::cout << "Column family name: " << column_family.name << std::endl;
+    std::cout << "==============================" << std::endl;
     std::cout << std::endl;
     std::cout << "SST Files" << std::endl;
     std::cout << "==============================" << std::endl;
