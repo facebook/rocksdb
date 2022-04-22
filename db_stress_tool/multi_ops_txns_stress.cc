@@ -541,6 +541,7 @@ void MultiOpsTxnsStressTest::RegisterAdditionalListeners() {
   options_.listeners.emplace_back(new MultiOpsTxnsStressListener(this));
 }
 
+#ifndef ROCKSDB_LITE
 void MultiOpsTxnsStressTest::PrepareTxnDbOptions(
     TransactionDBOptions& txn_db_opts) {
   // MultiOpsTxnStressTest uses SingleDelete to delete secondary keys, thus we
@@ -563,6 +564,7 @@ void MultiOpsTxnsStressTest::PrepareTxnDbOptions(
         return index_id == Record::kSecondaryIndexId;
       };
 }
+#endif  // !ROCKSDB_LITE
 
 Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
                                                    uint32_t old_a,

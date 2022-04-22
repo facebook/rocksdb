@@ -227,7 +227,9 @@ class StressTest {
 
   virtual void RegisterAdditionalListeners() {}
 
+#ifndef ROCKSDB_LITE
   virtual void PrepareTxnDbOptions(TransactionDBOptions& /*txn_db_opts*/) {}
+#endif
 
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
