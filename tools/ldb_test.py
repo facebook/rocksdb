@@ -716,6 +716,23 @@ class LDBTestCase(unittest.TestCase):
                              expected_pattern, unexpected=False,
                              isPattern=True)
 
+    def testBlobDump(self):
+        print("Running testBlobDump")
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("batchput x1 y1 --create_if_missing --enable_blob_files", "OK")
+        self.assertRunOK("batchput --enable_blob_files x2 y2 x3 y3 \"x4 abc\" \"y4 xyz\"", "OK")
+
+        # Pattern to expect from blob file dump.
+        regex = ".*Blob log header[\s\S]*Blob log footer[\s\S]*Read record[\s\S]*Summary"
+        expected_pattern = re.compile(regex)
+        blob_files = self.getBlobFiles(dbPath)
+        self.assertTrue(len(blob_files) >= 1)
+        cmd = "dump --path=%s --dump_uncompressed_blobs"
+        self.assertRunOKFull((cmd)
+                             % (blob_files[0]),
+                             expected_pattern, unexpected=False,
+                             isPattern=True)
+
     def testWALDump(self):
         print("Running testWALDump...")
 

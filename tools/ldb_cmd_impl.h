@@ -108,6 +108,7 @@ class DBDumperCommand : public LDBCommand {
   bool print_stats_;
   std::string path_;
   bool decode_blob_index_;
+  bool dump_uncompressed_blobs_;
 
   static const std::string ARG_COUNT_ONLY;
   static const std::string ARG_COUNT_DELIM;
