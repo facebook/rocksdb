@@ -108,8 +108,6 @@ const char* LDBCommand::DELIM = " ==> ";
 
 namespace {
 
-using ROCKSDB_NAMESPACE::blob_db::BlobDumpTool;
-
 void DumpWalFile(Options options, std::string wal_file, bool print_header,
                  bool print_values, bool is_write_committed,
                  LDBCommandExecuteResult* exec_state);
@@ -117,8 +115,8 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
 void DumpSstFile(Options options, std::string filename, bool output_hex,
                  bool show_properties, bool decode_blob_index);
 
-void DumpBlobFile(std::string filename, bool is_key_hex, bool is_value_hex,
-                  bool dump_uncompressed_blobs);
+void DumpBlobFile(const std::string& filename, bool is_key_hex,
+                  bool is_value_hex, bool dump_uncompressed_blobs);
 };
 
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
@@ -3548,8 +3546,9 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
   }
 }
 
-void DumpBlobFile(std::string filename, bool is_key_hex, bool is_value_hex,
-                  bool dump_uncompressed_blobs) {
+void DumpBlobFile(const std::string& filename, bool is_key_hex,
+                  bool is_value_hex, bool dump_uncompressed_blobs) {
+  using ROCKSDB_NAMESPACE::blob_db::BlobDumpTool;
   BlobDumpTool tool;
   BlobDumpTool::DisplayType blob_type = is_value_hex
                                             ? BlobDumpTool::DisplayType::kHex
