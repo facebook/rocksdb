@@ -19,6 +19,7 @@ class Cleanable {
   Cleanable(Cleanable&) = delete;
   Cleanable& operator=(Cleanable&) = delete;
 
+  // Executes all the registered cleanups
   ~Cleanable();
 
   // Move constructor and move assignment is allowed.
@@ -31,8 +32,14 @@ class Cleanable {
   // Note that unlike all of the preceding methods, this method is
   // not abstract and therefore clients should not override it.
   using CleanupFunction = void (*)(void* arg1, void* arg2);
+
+  // Add another Cleanup to the list
   void RegisterCleanup(CleanupFunction function, void* arg1, void* arg2);
+
+  // Move the cleanups owned by this Cleanable to another Cleanable, adding to
+  // any existing cleanups it has
   void DelegateCleanupsTo(Cleanable* other);
+
   // DoCleanup and also resets the pointers for reuse
   inline void Reset() {
     DoCleanup();
@@ -66,6 +73,49 @@ class Cleanable {
       }
     }
   }
+};
+
+// A copyable, reference-counted pointer to a simple Cleanable that only
+// performs registered cleanups after all copies are destroy. This is like
+// shared_ptr<Cleanable> but works more efficiently with wrapping the pointer
+// in an outer Cleanable (see RegisterCopyWith() and MoveAsCleanupTo()).
+class SharedCleanablePtr {
+ public:
+  // Empy/null pointer
+  SharedCleanablePtr(){};
+  // Copy and move constructors and assignment
+  SharedCleanablePtr(SharedCleanablePtr& from);
+  SharedCleanablePtr(SharedCleanablePtr&& from);
+  SharedCleanablePtr& operator=(SharedCleanablePtr& from);
+  SharedCleanablePtr& operator=(SharedCleanablePtr&& from);
+  // Destructor (decrement refcount if non-null)
+  ~SharedCleanablePtr();
+  // Create a new simple Cleanable and make this assign this pointer to it.
+  // (Reset()s first if necessary.)
+  void Allocate();
+  // Reset to empty/null (decrement refcount if previously non-null)
+  void Reset();
+  // Dereference to pointed-to Cleanable
+  Cleanable& operator*();
+  Cleanable* operator->();
+  // Get as raw pointer to Cleanable
+  Cleanable* get();
+
+  // Creates a (virtual) copy of this SharedCleanablePtr and registers its
+  // destruction with target, so that the cleanups registered with the
+  // Cleanable pointed to by this can only happen after the cleanups in the
+  // target Cleanable are run.
+  // No-op if this is empty (nullptr).
+  void RegisterCopyWith(Cleanable* target);
+
+  // Moves (virtually) this shared pointer to a new cleanup in the target.
+  // This is essentilly a move semantics version of RegisterCopyWith(), for
+  // performance optimization. No-op if this is empty (nullptr).
+  void MoveAsCleanupTo(Cleanable* target);
+
+ private:
+  struct Impl;
+  Impl* ptr_ = nullptr;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
