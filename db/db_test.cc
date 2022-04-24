@@ -7060,7 +7060,7 @@ TEST_F(DBTest, ManualFlushWithStoppedWritesTest) {
     done.store(true);
   });
 
-  env_->SleepForMicroseconds(1000000 * 0.5);
+  env_->SleepForMicroseconds(1000000 / 2);
   // make sure thread is stuck waiting for flush.
   ASSERT_FALSE(done.load());
 
