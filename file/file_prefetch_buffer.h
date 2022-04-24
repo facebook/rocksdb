@@ -92,7 +92,7 @@ class FilePrefetchBuffer {
     if (async_read_in_progress_ && fs_ != nullptr) {
       std::vector<void*> handles;
       handles.emplace_back(io_handle_);
-      fs_->Poll(handles, 1).PermitUncheckedError();
+      fs_->AbortIO(handles).PermitUncheckedError();
     }
     // Release io_handle_.
     if (io_handle_ != nullptr && del_fn_ != nullptr) {
