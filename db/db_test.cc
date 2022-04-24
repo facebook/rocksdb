@@ -7053,10 +7053,10 @@ TEST_F(DBTest, ManualFlushWithStoppedWritesTest) {
   port::Thread backgroundWriter([&]() {
     Random rnd(301);
     // These writes won't finish.
-    ASSERT_OK(Put("k1", rnd.RandomString(memtableSize/2)));
-    ASSERT_OK(Put("k2", rnd.RandomString(memtableSize/2)));
-    ASSERT_OK(Put("k3", rnd.RandomString(memtableSize/2)));
-    ASSERT_OK(Put("k4", rnd.RandomString(memtableSize/2)));
+    ASSERT_OK(Put("k1", rnd.RandomString(memtableSize / 2)));
+    ASSERT_OK(Put("k2", rnd.RandomString(memtableSize / 2)));
+    ASSERT_OK(Put("k3", rnd.RandomString(memtableSize / 2)));
+    ASSERT_OK(Put("k4", rnd.RandomString(memtableSize / 2)));
     done.store(true);
   });
 
@@ -7066,13 +7066,13 @@ TEST_F(DBTest, ManualFlushWithStoppedWritesTest) {
 
   FlushOptions flushOptions;
   flushOptions.wait = false;
-  flushOptions.allow_write_stall=true;
+  flushOptions.allow_write_stall = true;
 
   // This is the main goal of the test. This manual flush should not deadlock
   // as we use wait=false, and even allow_write_stall=true for extra safety.
   ASSERT_OK(dbfull()->Flush(flushOptions));
 
-  //This will re-allow background flushes.
+  // This will re-allow background flushes.
   ASSERT_OK(dbfull()->ContinueBackgroundWork());
 
   backgroundWriter.join();

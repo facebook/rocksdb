@@ -1707,9 +1707,7 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
                              FlushReason::kManualFlush,
                              write_controller().IsStopped());
   } else {
-    s = FlushMemTable(cfh->cfd(),
-                      flush_options,
-                      FlushReason::kManualFlush,
+    s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush,
                       write_controller().IsStopped());
   }
 
