@@ -245,8 +245,8 @@ struct FileMetaData {
 
   // REQUIRED: Keys must be given to the function in sorted order (it expects
   // the last key to be the largest).
-  void UpdateBoundaries(const Slice& key, const Slice& value,
-                        SequenceNumber seqno, ValueType value_type);
+  Status UpdateBoundaries(const Slice& key, const Slice& value,
+                          SequenceNumber seqno, ValueType value_type);
 
   // Unlike UpdateBoundaries, ranges do not need to be presented in any
   // particular order.

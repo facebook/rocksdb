@@ -17,11 +17,11 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/experimental.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/trace_record.h"
 #include "rocksdb/trace_record_result.h"
-#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/replayer.h"
 #include "rocksdb/wal_filter.h"
 #include "test_util/testutil.h"
@@ -410,6 +410,9 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[2]));
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[3]));
+    // Ensure background work is fully finished including listener callbacks
+    // before accessing listener state.
+    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   };
 
   // Create some data and flush "default" and "nikitich" so that they
@@ -588,6 +591,11 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[2]));
     ASSERT_OK(static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable());
+    // Ensure background work is fully finished including listener callbacks
+    // before accessing listener state.
+    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+    ASSERT_OK(
+        static_cast_with_check<DBImpl>(db2)->TEST_WaitForBackgroundWork());
   };
 
   // Trigger a flush on cf2
@@ -6901,122 +6909,18 @@ TEST_F(DBTest2, LastLevelStatistics) {
             options.statistics->getTickerCount(WARM_FILE_READ_COUNT));
 }
 
-class FileTemperatureTestFS : public FileSystemWrapper {
- public:
-  explicit FileTemperatureTestFS(SpecialEnv* env)
-      : FileSystemWrapper(env->GetFileSystem()) {}
+TEST_F(DBTest2, CheckpointFileTemperature) {
+  class NoLinkTestFS : public FileTemperatureTestFS {
+    using FileTemperatureTestFS::FileTemperatureTestFS;
 
-  static const char* kClassName() { return "TestFileSystem"; }
-  const char* Name() const override { return kClassName(); }
-
-  IOStatus NewSequentialFile(const std::string& fname, const FileOptions& opts,
-                             std::unique_ptr<FSSequentialFile>* result,
-                             IODebugContext* dbg) override {
-    auto filename = GetFileName(fname);
-    uint64_t number;
-    FileType type;
-    auto r = ParseFileName(filename, &number, &type);
-    assert(r);
-    if (type == kTableFile) {
-      auto emplaced =
-          requested_sst_file_temperatures_.emplace(number, opts.temperature);
-      assert(emplaced.second);  // assume no duplication
-    }
-    return target()->NewSequentialFile(fname, opts, result, dbg);
-  }
-
-  IOStatus LinkFile(const std::string& s, const std::string& t,
-                    const IOOptions& options, IODebugContext* dbg) override {
-    auto filename = GetFileName(s);
-    uint64_t number;
-    FileType type;
-    auto r = ParseFileName(filename, &number, &type);
-    assert(r);
-    // return not supported to force checkpoint copy the file instead of just
-    // link
-    if (type == kTableFile) {
+    IOStatus LinkFile(const std::string&, const std::string&, const IOOptions&,
+                      IODebugContext*) override {
+      // return not supported to force checkpoint copy the file instead of just
+      // link
       return IOStatus::NotSupported();
     }
-    return target()->LinkFile(s, t, options, dbg);
-  }
-
-  const std::map<uint64_t, Temperature>& RequestedSstFileTemperatures() {
-    return requested_sst_file_temperatures_;
-  }
-
-  void ClearRequestedFileTemperatures() {
-    requested_sst_file_temperatures_.clear();
-  }
-
- private:
-  std::map<uint64_t, Temperature> requested_sst_file_temperatures_;
-
-  std::string GetFileName(const std::string& fname) {
-    auto filename = fname.substr(fname.find_last_of(kFilePathSeparator) + 1);
-    // workaround only for Windows that the file path could contain both Windows
-    // FilePathSeparator and '/'
-    filename = filename.substr(filename.find_last_of('/') + 1);
-    return filename;
-  }
-};
-
-TEST_F(DBTest2, BackupFileTemperature) {
-  std::shared_ptr<FileTemperatureTestFS> test_fs =
-      std::make_shared<FileTemperatureTestFS>(env_);
-  std::unique_ptr<Env> backup_env(new CompositeEnvWrapper(env_, test_fs));
-  Options options = CurrentOptions();
-  options.bottommost_temperature = Temperature::kWarm;
-  options.level0_file_num_compaction_trigger = 2;
-  Reopen(options);
-
-  // generate a bottommost file and a non-bottommost file
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(Put("bar", "bar"));
-  ASSERT_OK(Flush());
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(Put("bar", "bar"));
-  ASSERT_OK(Flush());
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(Put("bar", "bar"));
-  ASSERT_OK(Flush());
-  auto size = GetSstSizeHelper(Temperature::kWarm);
-  ASSERT_GT(size, 0);
-
-  std::map<uint64_t, Temperature> temperatures;
-  std::vector<LiveFileStorageInfo> infos;
-  ASSERT_OK(
-      dbfull()->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(), &infos));
-  for (auto info : infos) {
-    temperatures.emplace(info.file_number, info.temperature);
-  }
-  BackupEngine* backup_engine;
-  auto backup_options = BackupEngineOptions(
-      dbname_ + kFilePathSeparator + "tempbk", backup_env.get());
-  auto s = BackupEngine::Open(backup_env.get(), backup_options, &backup_engine);
-  ASSERT_OK(s);
-  s = backup_engine->CreateNewBackup(db_);
-  ASSERT_OK(s);
-
-  // checking src file src_temperature hints: 2 sst files: 1 sst is kWarm,
-  // another is kUnknown
-  auto file_temperatures = test_fs->RequestedSstFileTemperatures();
-  ASSERT_EQ(file_temperatures.size(), 2);
-  bool has_only_one_warm_sst = false;
-  for (const auto& file_temperature : file_temperatures) {
-    ASSERT_EQ(temperatures.at(file_temperature.first), file_temperature.second);
-    if (file_temperature.second == Temperature::kWarm) {
-      ASSERT_FALSE(has_only_one_warm_sst);
-      has_only_one_warm_sst = true;
-    }
-  }
-  ASSERT_TRUE(has_only_one_warm_sst);
-  Close();
-}
-
-TEST_F(DBTest2, CheckpointFileTemperature) {
-  std::shared_ptr<FileTemperatureTestFS> test_fs =
-      std::make_shared<FileTemperatureTestFS>(env_);
+  };
+  auto test_fs = std::make_shared<NoLinkTestFS>(env_->GetFileSystem());
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, test_fs));
   Options options = CurrentOptions();
   options.bottommost_temperature = Temperature::kWarm;
@@ -7046,7 +6950,7 @@ TEST_F(DBTest2, CheckpointFileTemperature) {
     temperatures.emplace(info.file_number, info.temperature);
   }
 
-  test_fs->ClearRequestedFileTemperatures();
+  test_fs->PopRequestedSstFileTemperatures();
   Checkpoint* checkpoint;
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
   ASSERT_OK(
@@ -7054,18 +6958,119 @@ TEST_F(DBTest2, CheckpointFileTemperature) {
 
   // checking src file src_temperature hints: 2 sst files: 1 sst is kWarm,
   // another is kUnknown
-  auto file_temperatures = test_fs->RequestedSstFileTemperatures();
-  ASSERT_EQ(file_temperatures.size(), 2);
-  bool has_only_one_warm_sst = false;
-  for (const auto& file_temperature : file_temperatures) {
-    ASSERT_EQ(temperatures.at(file_temperature.first), file_temperature.second);
-    if (file_temperature.second == Temperature::kWarm) {
-      ASSERT_FALSE(has_only_one_warm_sst);
-      has_only_one_warm_sst = true;
+  std::vector<std::pair<uint64_t, Temperature>> requested_temps;
+  test_fs->PopRequestedSstFileTemperatures(&requested_temps);
+  // Two requests
+  ASSERT_EQ(requested_temps.size(), 2);
+  std::set<uint64_t> distinct_requests;
+  for (const auto& requested_temp : requested_temps) {
+    // Matching manifest temperatures
+    ASSERT_EQ(temperatures.at(requested_temp.first), requested_temp.second);
+    distinct_requests.insert(requested_temp.first);
+  }
+  // Each request to distinct file
+  ASSERT_EQ(distinct_requests.size(), requested_temps.size());
+
+  delete checkpoint;
+  Close();
+}
+
+TEST_F(DBTest2, FileTemperatureManifestFixup) {
+  auto test_fs = std::make_shared<FileTemperatureTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, test_fs));
+  Options options = CurrentOptions();
+  options.bottommost_temperature = Temperature::kWarm;
+  options.level0_file_num_compaction_trigger = 2;
+  options.env = env.get();
+  std::vector<std::string> cfs = {/*"default",*/ "test1", "test2"};
+  CreateAndReopenWithCF(cfs, options);
+  // Needed for later re-opens (weird)
+  cfs.insert(cfs.begin(), kDefaultColumnFamilyName);
+
+  // Generate a bottommost file in all CFs
+  for (int cf = 0; cf < 3; ++cf) {
+    ASSERT_OK(Put(cf, "a", "val"));
+    ASSERT_OK(Put(cf, "c", "val"));
+    ASSERT_OK(Flush(cf));
+    ASSERT_OK(Put(cf, "b", "val"));
+    ASSERT_OK(Put(cf, "d", "val"));
+    ASSERT_OK(Flush(cf));
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // verify
+  ASSERT_GT(GetSstSizeHelper(Temperature::kWarm), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kHot), 0);
+
+  // Generate a non-bottommost file in all CFs
+  for (int cf = 0; cf < 3; ++cf) {
+    ASSERT_OK(Put(cf, "e", "val"));
+    ASSERT_OK(Flush(cf));
+  }
+
+  // re-verify
+  ASSERT_GT(GetSstSizeHelper(Temperature::kWarm), 0);
+  // Not supported: ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kHot), 0);
+
+  // Now change FS temperature on bottommost file(s) to kCold
+  std::map<uint64_t, Temperature> current_temps;
+  test_fs->CopyCurrentSstFileTemperatures(&current_temps);
+  for (auto e : current_temps) {
+    if (e.second == Temperature::kWarm) {
+      test_fs->OverrideSstFileTemperature(e.first, Temperature::kCold);
     }
   }
-  ASSERT_TRUE(has_only_one_warm_sst);
-  delete checkpoint;
+  // Metadata not yet updated
+  ASSERT_EQ(Get("a"), "val");
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+
+  // Update with Close and UpdateManifestForFilesState, but first save cf
+  // descriptors
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (size_t i = 0; i < handles_.size(); ++i) {
+    ColumnFamilyDescriptor cfdescriptor;
+    // GetDescriptor is not implemented for ROCKSDB_LITE
+    handles_[i]->GetDescriptor(&cfdescriptor).PermitUncheckedError();
+    column_families.push_back(cfdescriptor);
+  }
+  Close();
+  experimental::UpdateManifestForFilesStateOptions update_opts;
+  update_opts.update_temperatures = true;
+
+  ASSERT_OK(experimental::UpdateManifestForFilesState(
+      options, dbname_, column_families, update_opts));
+
+  // Re-open and re-verify after update
+  ReopenWithColumnFamilies(cfs, options);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  // Not supported: ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kWarm), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kHot), 0);
+
+  // Change kUnknown to kHot
+  test_fs->CopyCurrentSstFileTemperatures(&current_temps);
+  for (auto e : current_temps) {
+    if (e.second == Temperature::kUnknown) {
+      test_fs->OverrideSstFileTemperature(e.first, Temperature::kHot);
+    }
+  }
+
+  // Update with Close and UpdateManifestForFilesState
+  Close();
+  ASSERT_OK(experimental::UpdateManifestForFilesState(
+      options, dbname_, column_families, update_opts));
+
+  // Re-open and re-verify after update
+  ReopenWithColumnFamilies(cfs, options);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kWarm), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kHot), 0);
+
   Close();
 }
 #endif  // ROCKSDB_LITE

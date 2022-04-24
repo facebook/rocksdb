@@ -281,7 +281,6 @@ const std::string options_file_content = R"OPTIONS_FILE(
   skip_table_builder_flush=false
   cache_index_and_filter_blocks=false
   flush_block_policy_factory=FlushBlockBySizePolicyFactory
-  hash_index_allow_collision=true
   index_type=kBinarySearch
   whole_key_filtering=true
   checksum=kCRC32c

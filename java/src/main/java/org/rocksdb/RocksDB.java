@@ -2296,6 +2296,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException if error happens in underlying native library.
    * @throws IllegalArgumentException thrown if the number of passed keys and passed values
    * do not match.
+   * @return the list of values for the given list of keys
    */
   public List<ByteBufferGetStatus> multiGetByteBuffers(final ReadOptions readOptions,
       final List<ByteBuffer> keys, final List<ByteBuffer> values) throws RocksDBException {
@@ -2318,6 +2319,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException if error happens in underlying native library.
    * @throws IllegalArgumentException thrown if the number of passed keys, passed values and
    * passed column family handles do not match.
+   * @return the list of values for the given list of keys
    */
   public List<ByteBufferGetStatus> multiGetByteBuffers(
       final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
@@ -2341,6 +2343,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException if error happens in underlying native library.
    * @throws IllegalArgumentException thrown if the number of passed keys, passed values and
    * passed column family handles do not match.
+   * @return the list of values for the given list of keys
    */
   public List<ByteBufferGetStatus> multiGetByteBuffers(final ReadOptions readOptions,
       final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,

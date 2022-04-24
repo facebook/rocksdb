@@ -231,7 +231,6 @@ BlockBasedTableOptions RandomBlockBasedTableOptions(Random* rnd) {
        IndexType::kTwoLevelIndexSearch, IndexType::kBinarySearchWithFirstKey}};
   opt.index_type =
       index_types[rnd->Uniform(static_cast<int>(index_types.size()))];
-  opt.hash_index_allow_collision = rnd->Uniform(2);
   opt.checksum = static_cast<ChecksumType>(rnd->Uniform(3));
   opt.block_size = rnd->Uniform(10000000);
   opt.block_size_deviation = rnd->Uniform(100);

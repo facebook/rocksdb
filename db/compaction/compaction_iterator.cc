@@ -24,40 +24,37 @@ CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    const SnapshotChecker* snapshot_checker, Env* env,
-    bool report_detailed_time, bool expect_valid_internal_key,
+    SequenceNumber job_snapshot, const SnapshotChecker* snapshot_checker,
+    Env* env, bool report_detailed_time, bool expect_valid_internal_key,
     CompactionRangeDelAggregator* range_del_agg,
     BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
     const Compaction* compaction, const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
-    const SequenceNumber preserve_deletes_seqnum,
     const std::atomic<int>* manual_compaction_paused,
     const std::atomic<bool>* manual_compaction_canceled,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
-          earliest_write_conflict_snapshot, snapshot_checker, env,
+          earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
           report_detailed_time, expect_valid_internal_key, range_del_agg,
           blob_file_builder, allow_data_in_errors,
           std::unique_ptr<CompactionProxy>(
               compaction ? new RealCompaction(compaction) : nullptr),
-          compaction_filter, shutting_down, preserve_deletes_seqnum,
-          manual_compaction_paused, manual_compaction_canceled, info_log,
-          full_history_ts_low) {}
+          compaction_filter, shutting_down, manual_compaction_paused,
+          manual_compaction_canceled, info_log, full_history_ts_low) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber /*last_sequence*/, std::vector<SequenceNumber>* snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    const SnapshotChecker* snapshot_checker, Env* env,
-    bool report_detailed_time, bool expect_valid_internal_key,
+    SequenceNumber job_snapshot, const SnapshotChecker* snapshot_checker,
+    Env* env, bool report_detailed_time, bool expect_valid_internal_key,
     CompactionRangeDelAggregator* range_del_agg,
     BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
     std::unique_ptr<CompactionProxy> compaction,
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
-    const SequenceNumber preserve_deletes_seqnum,
     const std::atomic<int>* manual_compaction_paused,
     const std::atomic<bool>* manual_compaction_canceled,
     const std::shared_ptr<Logger> info_log,
@@ -68,6 +65,7 @@ CompactionIterator::CompactionIterator(
       merge_helper_(merge_helper),
       snapshots_(snapshots),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
+      job_snapshot_(job_snapshot),
       snapshot_checker_(snapshot_checker),
       env_(env),
       clock_(env_->GetSystemClock().get()),
@@ -80,7 +78,6 @@ CompactionIterator::CompactionIterator(
       shutting_down_(shutting_down),
       manual_compaction_paused_(manual_compaction_paused),
       manual_compaction_canceled_(manual_compaction_canceled),
-      preserve_deletes_seqnum_(preserve_deletes_seqnum),
       info_log_(info_log),
       allow_data_in_errors_(allow_data_in_errors),
       timestamp_size_(cmp_ ? cmp_->timestamp_size() : 0),
@@ -236,6 +233,10 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           valid_ = false;
           return false;
         }
+
+        TEST_SYNC_POINT_CALLBACK(
+            "CompactionIterator::InvokeFilterIfNeeded::TamperWithBlobIndex",
+            &value_);
 
         // For integrated BlobDB impl, CompactionIterator reads blob value.
         // For Stacked BlobDB impl, the corresponding CompactionFilter's
@@ -758,7 +759,6 @@ void CompactionIterator::NextFromInput() {
                 (ikey_.type == kTypeDeletionWithTimestamp &&
                  cmp_with_history_ts_low_ < 0)) &&
                DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
-               ikeyNotNeededForIncrementalSnapshot() &&
                compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
                                                           &level_ptrs_)) {
       // TODO(noetzli): This is the only place where we use compaction_
@@ -792,7 +792,7 @@ void CompactionIterator::NextFromInput() {
     } else if ((ikey_.type == kTypeDeletion ||
                 (ikey_.type == kTypeDeletionWithTimestamp &&
                  cmp_with_history_ts_low_ < 0)) &&
-               bottommost_level_ && ikeyNotNeededForIncrementalSnapshot()) {
+               bottommost_level_) {
       // Handle the case where we have a delete key at the bottom most level
       // We can skip outputting the key iff there are no subsequent puts for this
       // key
@@ -954,6 +954,10 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
 
   // GC for integrated BlobDB
   if (compaction_->enable_blob_garbage_collection()) {
+    TEST_SYNC_POINT_CALLBACK(
+        "CompactionIterator::GarbageCollectBlobIfNeeded::TamperWithBlobIndex",
+        &value_);
+
     BlobIndex blob_index;
 
     {
@@ -1060,10 +1064,9 @@ void CompactionIterator::PrepareOutput() {
     // Can we do the same for levels above bottom level as long as
     // KeyNotExistsBeyondOutputLevel() return true?
     if (valid_ && compaction_ != nullptr &&
-        !compaction_->allow_ingest_behind() &&
-        ikeyNotNeededForIncrementalSnapshot() && bottommost_level_ &&
+        !compaction_->allow_ingest_behind() && bottommost_level_ &&
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
-        ikey_.type != kTypeMerge) {
+        ikey_.type != kTypeMerge && current_key_committed_) {
       assert(ikey_.type != kTypeDeletion);
       assert(ikey_.type != kTypeSingleDeletion ||
              (timestamp_size_ || full_history_ts_low_));
@@ -1137,13 +1140,6 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
     *prev_snapshot = cur;
   }
   return kMaxSequenceNumber;
-}
-
-// used in 2 places - prevents deletion markers to be dropped if they may be
-// needed and disables seqnum zero-out in PrepareOutput for recent keys.
-inline bool CompactionIterator::ikeyNotNeededForIncrementalSnapshot() {
-  return (!compaction_->preserve_deletes()) ||
-         (ikey_.sequence < preserve_deletes_seqnum_);
 }
 
 uint64_t CompactionIterator::ComputeBlobGarbageCollectionCutoffFileNumber(

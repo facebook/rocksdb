@@ -136,7 +136,6 @@ FlushJob::FlushJob(
 }
 
 FlushJob::~FlushJob() {
-  io_status_.PermitUncheckedError();
   ThreadStatusUtil::ResetThreadStatus();
 }
 
@@ -170,8 +169,20 @@ void FlushJob::PickMemTable() {
   db_mutex_->AssertHeld();
   assert(!pick_memtable_called);
   pick_memtable_called = true;
+
+  // Maximum "NextLogNumber" of the memtables to flush.
+  // When mempurge feature is turned off, this variable is useless
+  // because the memtables are implicitly sorted by increasing order of creation
+  // time. Therefore mems_->back()->GetNextLogNumber() is already equal to
+  // max_next_log_number. However when Mempurge is on, the memtables are no
+  // longer sorted by increasing order of creation time. Therefore this variable
+  // becomes necessary because mems_->back()->GetNextLogNumber() is no longer
+  // necessarily equal to max_next_log_number.
+  uint64_t max_next_log_number = 0;
+
   // Save the contents of the earliest memtable as a new Table
-  cfd_->imm()->PickMemtablesToFlush(max_memtable_id_, &mems_);
+  cfd_->imm()->PickMemtablesToFlush(max_memtable_id_, &mems_,
+                                    &max_next_log_number);
   if (mems_.empty()) {
     return;
   }
@@ -186,7 +197,7 @@ void FlushJob::PickMemTable() {
   edit_->SetPrevLogNumber(0);
   // SetLogNumber(log_num) indicates logs with number smaller than log_num
   // will no longer be picked up for recovery.
-  edit_->SetLogNumber(mems_.back()->GetNextLogNumber());
+  edit_->SetLogNumber(max_next_log_number);
   edit_->SetColumnFamily(cfd_->GetID());
 
   // path 0 for level 0 file.
@@ -278,17 +289,13 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   } else if (write_manifest_) {
     TEST_SYNC_POINT("FlushJob::InstallResults");
     // Replace immutable memtable with the generated Table
-    IOStatus tmp_io_s;
     s = cfd_->imm()->TryInstallMemtableFlushResults(
         cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
         meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
-        log_buffer_, &committed_flush_jobs_info_, &tmp_io_s,
+        log_buffer_, &committed_flush_jobs_info_,
         !(mempurge_s.ok()) /* write_edit : true if no mempurge happened (or if aborted),
                               but 'false' if mempurge successful: no new min log number
                               or new level 0 file path to write to manifest. */);
-    if (!tmp_io_s.ok()) {
-      io_status_ = tmp_io_s;
-    }
   }
 
   if (s.ok() && file_meta != nullptr) {
@@ -354,7 +361,7 @@ Status FlushJob::MemPurge() {
 
   // Measure purging time.
   const uint64_t start_micros = clock_->NowMicros();
-  const uint64_t start_cpu_micros = clock_->CPUNanos() / 1000;
+  const uint64_t start_cpu_micros = clock_->CPUMicros();
 
   MemTable* new_mem = nullptr;
   // For performance/log investigation purposes:
@@ -448,16 +455,18 @@ Status FlushJob::MemPurge() {
         ioptions->logger, true /* internal key corruption is not ok */,
         existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
         snapshot_checker_);
+    assert(job_context_);
+    SequenceNumber job_snapshot_seq = job_context_->GetJobSnapshotSequence();
     CompactionIterator c_iter(
         iter.get(), (cfd_->internal_comparator()).user_comparator(), &merge,
         kMaxSequenceNumber, &existing_snapshots_,
-        earliest_write_conflict_snapshot_, snapshot_checker_, env,
-        ShouldReportDetailedTime(env, ioptions->stats),
+        earliest_write_conflict_snapshot_, job_snapshot_seq, snapshot_checker_,
+        env, ShouldReportDetailedTime(env, ioptions->stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         nullptr, ioptions->allow_data_in_errors,
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr,
-        /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
+        /*manual_compaction_paused=*/nullptr,
         /*manual_compaction_canceled=*/nullptr, ioptions->info_log,
         &(cfd_->GetFullHistoryTsLow()));
 
@@ -569,6 +578,7 @@ Status FlushJob::MemPurge() {
         uint64_t new_mem_id = mems_[0]->GetID();
 
         new_mem->SetID(new_mem_id);
+        new_mem->SetNextLogNumber(mems_[0]->GetNextLogNumber());
 
         // This addition will not trigger another flush, because
         // we do not call SchedulePendingFlush().
@@ -606,7 +616,7 @@ Status FlushJob::MemPurge() {
     TEST_SYNC_POINT("DBImpl::FlushJob:MemPurgeUnsuccessful");
   }
   const uint64_t micros = clock_->NowMicros() - start_micros;
-  const uint64_t cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
+  const uint64_t cpu_micros = clock_->CPUMicros() - start_cpu_micros;
   ROCKS_LOG_INFO(db_options_.info_log,
                  "[%s] [JOB %d] Mempurge lasted %" PRIu64
                  " microseconds, and %" PRIu64
@@ -792,7 +802,7 @@ Status FlushJob::WriteLevel0Table() {
       ThreadStatus::STAGE_FLUSH_WRITE_L0);
   db_mutex_->AssertHeld();
   const uint64_t start_micros = clock_->NowMicros();
-  const uint64_t start_cpu_micros = clock_->CPUNanos() / 1000;
+  const uint64_t start_cpu_micros = clock_->CPUMicros();
   Status s;
 
   std::vector<BlobFileAddition> blob_file_additions;
@@ -815,6 +825,13 @@ Status FlushJob::WriteLevel0Table() {
     uint64_t total_num_entries = 0, total_num_deletes = 0;
     uint64_t total_data_size = 0;
     size_t total_memory_usage = 0;
+    // Used for testing:
+    uint64_t mems_size = mems_.size();
+    (void)mems_size;  // avoids unused variable error when
+                      // TEST_SYNC_POINT_CALLBACK not used.
+    TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:num_memtables",
+                             &mems_size);
+    assert(job_context_);
     for (MemTable* m : mems_) {
       ROCKS_LOG_INFO(
           db_options_.info_log,
@@ -897,19 +914,22 @@ Status FlushJob::WriteLevel0Table() {
           TableFileCreationReason::kFlush, creation_time, oldest_key_time,
           current_time, db_id_, db_session_id_, 0 /* target_file_size */,
           meta_.fd.GetNumber());
+      const SequenceNumber job_snapshot_seq =
+          job_context_->GetJobSnapshotSequence();
       s = BuildTable(
           dbname_, versions_, db_options_, tboptions, file_options_,
           cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
           &blob_file_additions, existing_snapshots_,
-          earliest_write_conflict_snapshot_, snapshot_checker_,
-          mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
-          &io_s, io_tracer_, BlobFileCreationReason::kFlush, event_logger_,
-          job_context_->job_id, Env::IO_HIGH, &table_properties_, write_hint,
-          full_history_ts_low, blob_callback_, &num_input_entries,
-          &memtable_payload_bytes, &memtable_garbage_bytes);
-      if (!io_s.ok()) {
-        io_status_ = io_s;
-      }
+          earliest_write_conflict_snapshot_, job_snapshot_seq,
+          snapshot_checker_, mutable_cf_options_.paranoid_file_checks,
+          cfd_->internal_stats(), &io_s, io_tracer_,
+          BlobFileCreationReason::kFlush, event_logger_, job_context_->job_id,
+          Env::IO_HIGH, &table_properties_, write_hint, full_history_ts_low,
+          blob_callback_, &num_input_entries, &memtable_payload_bytes,
+          &memtable_garbage_bytes);
+      // TODO: Cleanup io_status in BuildTable and table builders
+      assert(!s.ok() || io_s.ok());
+      io_s.PermitUncheckedError();
       if (num_input_entries != total_num_entries && s.ok()) {
         std::string msg = "Expected " + ToString(total_num_entries) +
                           " entries in memtables, but read " +
@@ -979,7 +999,7 @@ Status FlushJob::WriteLevel0Table() {
   // Note that here we treat flush as level 0 compaction in internal stats
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
   const uint64_t micros = clock_->NowMicros() - start_micros;
-  const uint64_t cpu_micros = clock_->CPUNanos() / 1000 - start_cpu_micros;
+  const uint64_t cpu_micros = clock_->CPUMicros() - start_cpu_micros;
   stats.micros = micros;
   stats.cpu_micros = cpu_micros;
 

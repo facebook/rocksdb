@@ -15,6 +15,10 @@
 #endif
 #endif
 
+#define DECLARE_DEFAULT_MOVES(Name) \
+  Name(Name&&) noexcept = default;  \
+  Name& operator=(Name&&) = default
+
 // ASAN (Address sanitizer)
 
 #if defined(__clang__)

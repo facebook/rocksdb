@@ -86,8 +86,10 @@ Status PessimisticTransactionDB::VerifyCFOptions(
         << " timestamp size is " << ts_sz << " bytes";
     return Status::InvalidArgument(oss.str());
   }
-  // TODO: Update this check once timestamp is supported.
-  return Status::NotSupported("Transaction DB does not support timestamp");
+  if (txn_db_options_.write_policy != WRITE_COMMITTED) {
+    return Status::NotSupported("Only WriteCommittedTxn supports timestamp");
+  }
+  return Status::OK();
 }
 
 Status PessimisticTransactionDB::Initialize(
@@ -442,7 +444,10 @@ Transaction* PessimisticTransactionDB::BeginInternalTransaction(
 Status PessimisticTransactionDB::Put(const WriteOptions& options,
                                      ColumnFamilyHandle* column_family,
                                      const Slice& key, const Slice& val) {
-  Status s;
+  Status s = FailIfCfEnablesTs(this, column_family);
+  if (!s.ok()) {
+    return s;
+  }
 
   Transaction* txn = BeginInternalTransaction(options);
   txn->DisableIndexing();
@@ -463,7 +468,10 @@ Status PessimisticTransactionDB::Put(const WriteOptions& options,
 Status PessimisticTransactionDB::Delete(const WriteOptions& wopts,
                                         ColumnFamilyHandle* column_family,
                                         const Slice& key) {
-  Status s;
+  Status s = FailIfCfEnablesTs(this, column_family);
+  if (!s.ok()) {
+    return s;
+  }
 
   Transaction* txn = BeginInternalTransaction(wopts);
   txn->DisableIndexing();
@@ -485,7 +493,10 @@ Status PessimisticTransactionDB::Delete(const WriteOptions& wopts,
 Status PessimisticTransactionDB::SingleDelete(const WriteOptions& wopts,
                                               ColumnFamilyHandle* column_family,
                                               const Slice& key) {
-  Status s;
+  Status s = FailIfCfEnablesTs(this, column_family);
+  if (!s.ok()) {
+    return s;
+  }
 
   Transaction* txn = BeginInternalTransaction(wopts);
   txn->DisableIndexing();
@@ -507,7 +518,10 @@ Status PessimisticTransactionDB::SingleDelete(const WriteOptions& wopts,
 Status PessimisticTransactionDB::Merge(const WriteOptions& options,
                                        ColumnFamilyHandle* column_family,
                                        const Slice& key, const Slice& value) {
-  Status s;
+  Status s = FailIfCfEnablesTs(this, column_family);
+  if (!s.ok()) {
+    return s;
+  }
 
   Transaction* txn = BeginInternalTransaction(options);
   txn->DisableIndexing();
@@ -533,6 +547,10 @@ Status PessimisticTransactionDB::Write(const WriteOptions& opts,
 
 Status WriteCommittedTxnDB::Write(const WriteOptions& opts,
                                   WriteBatch* updates) {
+  Status s = FailIfBatchHasTs(updates);
+  if (!s.ok()) {
+    return s;
+  }
   if (txn_db_options_.skip_concurrency_control) {
     return db_impl_->Write(opts, updates);
   } else {
@@ -543,6 +561,10 @@ Status WriteCommittedTxnDB::Write(const WriteOptions& opts,
 Status WriteCommittedTxnDB::Write(
     const WriteOptions& opts,
     const TransactionDBWriteOptimizations& optimizations, WriteBatch* updates) {
+  Status s = FailIfBatchHasTs(updates);
+  if (!s.ok()) {
+    return s;
+  }
   if (optimizations.skip_concurrency_control) {
     return db_impl_->Write(opts, updates);
   } else {
