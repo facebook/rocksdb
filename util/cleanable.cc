@@ -119,15 +119,16 @@ void SharedCleanablePtr::Allocate() {
   ptr_ = new Impl();
 }
 
-SharedCleanablePtr::SharedCleanablePtr(SharedCleanablePtr& from) {
+SharedCleanablePtr::SharedCleanablePtr(const SharedCleanablePtr& from) {
   *this = from;
 }
 
-SharedCleanablePtr::SharedCleanablePtr(SharedCleanablePtr&& from) {
+SharedCleanablePtr::SharedCleanablePtr(SharedCleanablePtr&& from) noexcept {
   *this = std::move(from);
 }
 
-SharedCleanablePtr& SharedCleanablePtr::operator=(SharedCleanablePtr& from) {
+SharedCleanablePtr& SharedCleanablePtr::operator=(
+    const SharedCleanablePtr& from) {
   ptr_ = from.ptr_;
   if (ptr_) {
     ptr_->Ref();

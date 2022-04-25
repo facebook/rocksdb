@@ -84,11 +84,11 @@ class Cleanable {
 class SharedCleanablePtr {
  public:
   // Empy/null pointer
-  SharedCleanablePtr(){};
+  SharedCleanablePtr() {}
   // Copy and move constructors and assignment
-  SharedCleanablePtr(SharedCleanablePtr& from);
-  SharedCleanablePtr(SharedCleanablePtr&& from);
-  SharedCleanablePtr& operator=(SharedCleanablePtr& from);
+  SharedCleanablePtr(const SharedCleanablePtr& from);
+  SharedCleanablePtr(SharedCleanablePtr&& from) noexcept;
+  SharedCleanablePtr& operator=(const SharedCleanablePtr& from);
   SharedCleanablePtr& operator=(SharedCleanablePtr&& from);
   // Destructor (decrement refcount if non-null)
   ~SharedCleanablePtr();
