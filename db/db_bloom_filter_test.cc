@@ -111,6 +111,7 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
     options_override.filter_policy = Create(20, bfp_impl_);
     options_override.partition_filters = partition_filters_;
     options_override.metadata_block_size = 32;
+    options_override.full_block_cache = true;
     Options options = CurrentOptions(options_override);
     if (partition_filters_) {
       auto* table_options =
