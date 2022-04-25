@@ -2829,27 +2829,40 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         // entry referenced by biter can only be released once all returned
         // pinned values are released. This code previously did an extra
         // block_cache Ref for each reuse, but that unnecessarily increases
-        // block cache contention. Instead we can use shared_ptr to release
-        // in block cache only once.
+        // block cache contention. Instead we can use a variant of shared_ptr
+        // to release in block cache only once.
         //
         // Although the biter loop below might SaveValue multiple times for
         // merges, just one value_pinner suffices, as MultiGet will merge
         // the operands before returning to the API user.
-        Cleanable* const value_pinner = biter;
+        Cleanable* value_pinner;
         if (biter->IsValuePinned()) {
           if (reusing_prev_block) {
-            assert(shared_cleanable.get());
-            if (later_reused) {
-              shared_cleanable.RegisterCopyWith(value_pinner);
-            } else {
-              shared_cleanable.MoveAsCleanupTo(value_pinner);
+            // Note that we don't yet know if the MultiGet results will need
+            // to pin this block, so we might wrap a block for sharing and
+            // still end up with 1 (or 0) pinning ref. Not ideal but OK.
+            //
+            // Here we avoid adding redundant cleanups if we didn't end up
+            // delegating the cleanup from last time around.
+            if (!biter->HasCleanups()) {
+              assert(shared_cleanable.get());
+              if (later_reused) {
+                shared_cleanable.RegisterCopyWith(biter);
+              } else {
+                shared_cleanable.MoveAsCleanupTo(biter);
+              }
             }
           } else if (later_reused) {
+            assert(biter->HasCleanups());
             assert(!shared_cleanable.get());
             shared_cleanable.Allocate();
             biter->DelegateCleanupsTo(&*shared_cleanable);
-            shared_cleanable.RegisterCopyWith(value_pinner);
+            shared_cleanable.RegisterCopyWith(biter);
           }
+          assert(biter->HasCleanups());
+          value_pinner = biter;
+        } else {
+          value_pinner = nullptr;
         }
 
         // Call the *saver function on each entry/block until it returns false
@@ -2873,7 +2886,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           s = biter->status();
         }
         // Write the block cache access.
-        if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
+        // XXX: There appear to be 'break' statements above that bypass this
+        // writing of the block cache trace record
+        if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
+            !reusing_prev_block) {
           // Avoid making copy of block_key, cf_name, and referenced_key when
           // constructing the access record.
           Slice referenced_key;
