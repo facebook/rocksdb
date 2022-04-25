@@ -41,6 +41,12 @@ DEFINE_int32(clear_wp_commit_cache_one_in, 0,
              "probability of 1/N. This options applies to write-prepared and "
              "write-unprepared transactions.");
 
+extern "C" bool rocksdb_write_prepared_TEST_ShouldClearCommitCache(void) {
+  static Random rand(static_cast<uint32_t>(db_stress_env->NowMicros()));
+  return FLAGS_clear_wp_commit_cache_one_in > 0 &&
+         rand.OneIn(FLAGS_clear_wp_commit_cache_one_in);
+}
+
 // MultiOpsTxnsStressTest can either operate on a database with pre-populated
 // data (possibly from previous ones), or create a new db and preload it with
 // data specified via `-lb_a`, `-ub_a`, `-lb_c`, `-ub_c`, etc. Among these, we
@@ -531,8 +537,6 @@ Status MultiOpsTxnsStressTest::TestCustomOperations(
     // Should never reach here.
     assert(false);
   }
-
-  MaybeAdvanceMaxEvictedSeq(thread);
 
   return s;
 }
@@ -1689,45 +1693,6 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
           std::move(non_existing_c_uniqs[i]));
     }
   }
-}
-
-void MultiOpsTxnsStressTest::MaybeAdvanceMaxEvictedSeq(ThreadState* thread) {
-#ifndef ROCKSDB_LITE
-  assert(thread);
-  if (FLAGS_txn_write_policy == TxnDBWritePolicy::WRITE_COMMITTED ||
-      thread->tid != 0) {
-    return;
-  }
-
-  if (FLAGS_clear_wp_commit_cache_one_in == 0 ||
-      !thread->rand.OneIn(FLAGS_clear_wp_commit_cache_one_in)) {
-    return;
-  }
-
-  if (FLAGS_txn_write_policy == TxnDBWritePolicy::WRITE_PREPARED) {
-    auto* wp_tdb = static_cast_with_check<WritePreparedTxnDB>(txn_db_);
-    assert(wp_tdb);
-    SequenceNumber max_evicted_seq = wp_tdb->max_evicted_seq_.load();
-    auto* dbimpl = static_cast_with_check<DBImpl>(db_->GetRootDB());
-    assert(dbimpl);
-    SequenceNumber seq = dbimpl->GetLastPublishedSequence();
-    if (seq > max_evicted_seq) {
-      wp_tdb->AdvanceMaxEvictedSeq(max_evicted_seq, seq);
-    }
-  } else if (FLAGS_txn_write_policy == TxnDBWritePolicy::WRITE_UNPREPARED) {
-    // TODO support write-unprepared txns.
-    fprintf(stderr, "Write-unprepared txn not supported in stress test yet\n");
-    fflush(stderr);
-    assert(false);
-  } else {
-    fprintf(stderr, "Unrecognized write policy %d\n",
-            static_cast<int>(FLAGS_txn_write_policy));
-    fflush(stderr);
-    assert(false);
-  }
-#else
-  (void)thread;
-#endif  // ROCKSDB_LITE
 }
 
 StressTest* CreateMultiOpsTxnsStressTest() {

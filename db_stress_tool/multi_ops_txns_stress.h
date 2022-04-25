@@ -381,9 +381,6 @@ class MultiOpsTxnsStressTest : public StressTest {
                  uint32_t lb_c, uint32_t ub_c);
 
   void ScanExistingDb(SharedState* shared, int threads);
-
-  // This function applies to write-prepared and write-unprepared transactions.
-  void MaybeAdvanceMaxEvictedSeq(ThreadState* thread);
 };
 
 class InvariantChecker {
