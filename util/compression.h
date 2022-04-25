@@ -1484,30 +1484,30 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
 
 inline std::string ZSTD_FinalizeDictionary(
     const std::string& samples, const std::vector<size_t>& sample_lens,
-    size_t max_dict_bytes) {
+    std::string& dict_content, size_t max_dict_bytes) {
   // ZDICT_finalizeDictionary is only stable since version 1.4.5
 #if ZSTD_VERSION_NUMBER >= 10405  // v1.4.5+
   assert(samples.empty() == sample_lens.empty());
   if (samples.empty()) {
-    return "";
+    return std::move(dict_content);
   }
   std::string dict_data(max_dict_bytes, '\0');
   size_t dict_len = ZDICT_finalizeDictionary(
-      dict_data.data(), max_dict_bytes, samples.data(),
-      static_cast<size_t>(samples.size()), samples.data(), sample_lens.data(),
-      static_cast<unsigned>(sample_lens.size()), {});
+      dict_data.data(), max_dict_bytes, dict_content.data(),
+      static_cast<size_t>(dict_content.size()), samples.data(),
+      sample_lens.data(), static_cast<unsigned>(sample_lens.size()), {});
   if (ZDICT_isError(dict_len)) {
-    // fall back to use concatenated samples as raw content dictionary
-    return samples;
+    return std::move(dict_content);
   } else {
     assert(dict_len <= max_dict_bytes);
     dict_data.resize(dict_len);
     return dict_data;
   }
 #else   // up to v1.4.4
+  (void)samples;
   (void)sample_lens;
   (void)max_dict_bytes;
-  return std::move(samples);
+  return std::move(dict_content);
 #endif  // ZSTD_VERSION_NUMBER >= 10405
 }
 

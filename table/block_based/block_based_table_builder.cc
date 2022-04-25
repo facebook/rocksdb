@@ -1899,10 +1899,20 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
     dict = ZSTD_TrainDictionary(compression_dict_samples,
                                 compression_dict_sample_lens,
                                 r->compression_opts.max_dict_bytes);
-  } else if (rep_->compression_type == kZSTD) {
-    dict = ZSTD_FinalizeDictionary(compression_dict_samples,
-                                   compression_dict_sample_lens,
-                                   r->compression_opts.max_dict_bytes);
+  } else if (rep_->compression_type == kZSTD &&
+             r->compression_opts.max_dict_buffer_bytes > 0) {
+    // max_dict_buffer_bytes limits the amount of data used in
+    // finalizeDictionary
+    std::string samples;
+    std::vector<size_t> sample_lens;
+    for (size_t i = 0; i < r->data_block_buffers.size(); ++i) {
+      samples.append(r->data_block_buffers[i]);
+      sample_lens.emplace_back(r->data_block_buffers[i].size());
+    }
+    // compression_dict_samples is the starting and fallback dicitonary content
+    dict =
+        ZSTD_FinalizeDictionary(samples, sample_lens, compression_dict_samples,
+                                r->compression_opts.max_dict_bytes);
   } else {
     dict = std::move(compression_dict_samples);
   }
