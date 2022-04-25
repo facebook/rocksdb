@@ -2854,7 +2854,6 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
             }
           } else if (later_reused) {
             assert(biter->HasCleanups());
-            assert(!shared_cleanable.get());
             shared_cleanable.Allocate();
             biter->DelegateCleanupsTo(&*shared_cleanable);
             shared_cleanable.RegisterCopyWith(biter);
