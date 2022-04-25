@@ -668,6 +668,17 @@ class FileSystem : public Customizable {
     return IOStatus::OK();
   }
 
+  // EXPERIMENTAL
+  // Abort the read IO requests submitted asynchronously. Underlying FS is
+  // required to support AbortIO API. AbortIO implementation should ensure that
+  // the all the read requests related to io_handles should be aborted and
+  // it shouldn't call the callback for these io_handles.
+  //
+  // Default implementation is to return IOStatus::OK.
+  virtual IOStatus AbortIO(std::vector<void*>& /*io_handles*/) {
+    return IOStatus::OK();
+  }
+
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
  private:
@@ -1498,6 +1509,10 @@ class FileSystemWrapper : public FileSystem {
   virtual IOStatus Poll(std::vector<void*>& io_handles,
                         size_t min_completions) override {
     return target_->Poll(io_handles, min_completions);
+  }
+
+  virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
+    return target_->AbortIO(io_handles);
   }
 
  protected:
