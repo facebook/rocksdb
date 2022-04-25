@@ -21,9 +21,7 @@ Cleanable::Cleanable() {
 
 Cleanable::~Cleanable() { DoCleanup(); }
 
-Cleanable::Cleanable(Cleanable&& other) {
-  *this = std::move(other);
-}
+Cleanable::Cleanable(Cleanable&& other) { *this = std::move(other); }
 
 Cleanable& Cleanable::operator=(Cleanable&& other) {
   if (this != &other) {
@@ -97,9 +95,7 @@ void Cleanable::RegisterCleanup(CleanupFunction func, void* arg1, void* arg2) {
 
 struct SharedCleanablePtr::Impl : public Cleanable {
   std::atomic<unsigned> ref_count{1};  // Start with 1 ref
-  void Ref() {
-    ref_count.fetch_add(1, std::memory_order_relaxed);
-  }
+  void Ref() { ref_count.fetch_add(1, std::memory_order_relaxed); }
   void Unref() {
     if (ref_count.fetch_sub(1, std::memory_order_relaxed) == 1) {
       // Last ref
@@ -146,9 +142,7 @@ SharedCleanablePtr& SharedCleanablePtr::operator=(SharedCleanablePtr&& from) {
   return *this;
 }
 
-SharedCleanablePtr::~SharedCleanablePtr() {
-  Reset();
-}
+SharedCleanablePtr::~SharedCleanablePtr() { Reset(); }
 
 Cleanable& SharedCleanablePtr::operator*() {
   return *ptr_;  // implicit upcast
@@ -162,7 +156,7 @@ Cleanable* SharedCleanablePtr::get() {
   return ptr_;  // implicit upcast
 }
 
-void SharedCleanablePtr::RegisterCopyWith(Cleanable *target) {
+void SharedCleanablePtr::RegisterCopyWith(Cleanable* target) {
   if (ptr_) {
     // "Virtual" copy of the pointer
     ptr_->Ref();
@@ -170,7 +164,7 @@ void SharedCleanablePtr::RegisterCopyWith(Cleanable *target) {
   }
 }
 
-void SharedCleanablePtr::MoveAsCleanupTo(Cleanable *target) {
+void SharedCleanablePtr::MoveAsCleanupTo(Cleanable* target) {
   if (ptr_) {
     // "Virtual" move of the pointer
     target->RegisterCleanup(&Impl::UnrefWrapper, ptr_, nullptr);
