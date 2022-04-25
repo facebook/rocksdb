@@ -674,9 +674,9 @@ class FileSystem : public Customizable {
   // the all the read requests related to io_handles should be aborted and
   // it shouldn't call the callback for these io_handles.
   //
-  // Default implementation is to return IOStatus::NotSupported.
+  // Default implementation is to return IOStatus::OK.
   virtual IOStatus AbortIO(std::vector<void*>& /*io_handles*/) {
-    return IOStatus::NotSupported("AbortIO");
+    return IOStatus::OK();
   }
 
   // If you're adding methods here, remember to add them to EnvWrapper too.
