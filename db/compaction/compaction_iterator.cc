@@ -638,19 +638,21 @@ void CompactionIterator::NextFromInput() {
             ++iter_stats_.num_record_drop_obsolete;
             ++iter_stats_.num_single_del_mismatch;
           } else if (next_ikey.type == kTypeDeletion) {
-            ROCKS_LOG_FATAL(
-                info_log_,
-                "Found SD and type:%d on the same key, violating the contract "
-                "of SingleDelete. Check your application to make sure the "
-                "application does not mix SingleDelete and Delete for "
-                "the same key. If you are using "
-                "write-prepared/write-unprepared transactions, and use "
-                "SingleDelete to delete certain keys, then make sure "
-                "TransactionDBOptions::rollback_deletion_type_callback is "
-                "configured properly. Mixing SD and DEL can lead to undefined "
-                "behaviors",
-                static_cast<int>(next_ikey.type));
-            assert(false);
+            std::ostringstream oss;
+            oss << "Found SD and type: " << static_cast<int>(next_ikey.type)
+                << " on the same key, violating the contract "
+                   "of SingleDelete. Check your application to make sure the "
+                   "application does not mix SingleDelete and Delete for "
+                   "the same key. If you are using "
+                   "write-prepared/write-unprepared transactions, and use "
+                   "SingleDelete to delete certain keys, then make sure "
+                   "TransactionDBOptions::rollback_deletion_type_callback is "
+                   "configured properly. Mixing SD and DEL can lead to "
+                   "undefined behaviors";
+            ROCKS_LOG_FATAL(info_log_, "%s", oss.str().c_str());
+            valid_ = false;
+            status_ = Status::Corruption(oss.str());
+            return;
           } else if (!is_timestamp_eligible_for_gc) {
             // We cannot drop the SingleDelete as timestamp is enabled, and
             // timestamp of this key is greater than or equal to
