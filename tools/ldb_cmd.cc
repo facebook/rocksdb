@@ -45,6 +45,7 @@
 #include "util/file_checksum_helper.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
+#include "utilities/blob_db/blob_dump_tool.h"
 #include "utilities/merge_operators.h"
 #include "utilities/ttl/db_ttl_impl.h"
 
@@ -100,6 +101,8 @@ const std::string LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD =
 const std::string LDBCommand::ARG_BLOB_COMPACTION_READAHEAD_SIZE =
     "blob_compaction_readahead_size";
 const std::string LDBCommand::ARG_DECODE_BLOB_INDEX = "decode_blob_index";
+const std::string LDBCommand::ARG_DUMP_UNCOMPRESSED_BLOBS =
+    "dump_uncompressed_blobs";
 
 const char* LDBCommand::DELIM = " ==> ";
 
@@ -111,6 +114,9 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
 
 void DumpSstFile(Options options, std::string filename, bool output_hex,
                  bool show_properties, bool decode_blob_index);
+
+void DumpBlobFile(const std::string& filename, bool is_key_hex,
+                  bool is_value_hex, bool dump_uncompressed_blobs);
 };
 
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
@@ -1853,12 +1859,13 @@ DBDumperCommand::DBDumperCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true,
-                 BuildCmdLineOptions(
-                     {ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM,
-                      ARG_TO, ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM,
-                      ARG_STATS, ARG_TTL_START, ARG_TTL_END, ARG_TTL_BUCKET,
-                      ARG_TIMESTAMP, ARG_PATH, ARG_DECODE_BLOB_INDEX})),
+    : LDBCommand(
+          options, flags, true,
+          BuildCmdLineOptions(
+              {ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM, ARG_TO,
+               ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM, ARG_STATS,
+               ARG_TTL_START, ARG_TTL_END, ARG_TTL_BUCKET, ARG_TIMESTAMP,
+               ARG_PATH, ARG_DECODE_BLOB_INDEX, ARG_DUMP_UNCOMPRESSED_BLOBS})),
       null_from_(true),
       null_to_(true),
       max_keys_(-1),
@@ -1906,6 +1913,7 @@ DBDumperCommand::DBDumperCommand(
   print_stats_ = IsFlagPresent(flags, ARG_STATS);
   count_only_ = IsFlagPresent(flags, ARG_COUNT_ONLY);
   decode_blob_index_ = IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX);
+  dump_uncompressed_blobs_ = IsFlagPresent(flags, ARG_DUMP_UNCOMPRESSED_BLOBS);
 
   if (is_key_hex_) {
     if (!null_from_) {
@@ -1940,6 +1948,7 @@ void DBDumperCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_TTL_END + "=<N>:- is exclusive]");
   ret.append(" [--" + ARG_PATH + "=<path_to_a_file>]");
   ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "]");
+  ret.append(" [--" + ARG_DUMP_UNCOMPRESSED_BLOBS + "]");
   ret.append("\n");
 }
 
@@ -1983,6 +1992,10 @@ void DBDumperCommand::DoCommand() {
       case kDescriptorFile:
         DumpManifestFile(options_, path_, /* verbose_ */ false, is_key_hex_,
                          /*  json_ */ false);
+        break;
+      case kBlobFile:
+        DumpBlobFile(path_, is_key_hex_, is_value_hex_,
+                     dump_uncompressed_blobs_);
         break;
       default:
         exec_state_ = LDBCommandExecuteResult::Failed(
@@ -3533,6 +3546,27 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
   }
 }
 
+void DumpBlobFile(const std::string& filename, bool is_key_hex,
+                  bool is_value_hex, bool dump_uncompressed_blobs) {
+  using ROCKSDB_NAMESPACE::blob_db::BlobDumpTool;
+  BlobDumpTool tool;
+  BlobDumpTool::DisplayType blob_type = is_value_hex
+                                            ? BlobDumpTool::DisplayType::kHex
+                                            : BlobDumpTool::DisplayType::kRaw;
+  BlobDumpTool::DisplayType show_uncompressed_blob =
+      dump_uncompressed_blobs ? blob_type : BlobDumpTool::DisplayType::kNone;
+  BlobDumpTool::DisplayType show_blob =
+      dump_uncompressed_blobs ? BlobDumpTool::DisplayType::kNone : blob_type;
+
+  BlobDumpTool::DisplayType show_key = is_key_hex
+                                           ? BlobDumpTool::DisplayType::kHex
+                                           : BlobDumpTool::DisplayType::kRaw;
+  Status s = tool.Run(filename, show_key, show_blob, show_uncompressed_blob,
+                      /* show_summary */ true);
+  if (!s.ok()) {
+    fprintf(stderr, "Failed: %s\n", s.ToString().c_str());
+  }
+}
 }  // namespace
 
 DBFileDumperCommand::DBFileDumperCommand(
@@ -3540,13 +3574,17 @@ DBFileDumperCommand::DBFileDumperCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, true,
-                 BuildCmdLineOptions({ARG_DECODE_BLOB_INDEX})),
-      decode_blob_index_(IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX)) {}
+                 BuildCmdLineOptions(
+                     {ARG_DECODE_BLOB_INDEX, ARG_DUMP_UNCOMPRESSED_BLOBS})),
+      decode_blob_index_(IsFlagPresent(flags, ARG_DECODE_BLOB_INDEX)),
+      dump_uncompressed_blobs_(
+          IsFlagPresent(flags, ARG_DUMP_UNCOMPRESSED_BLOBS)) {}
 
 void DBFileDumperCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(DBFileDumperCommand::Name());
   ret.append(" [--" + ARG_DECODE_BLOB_INDEX + "] ");
+  ret.append(" [--" + ARG_DUMP_UNCOMPRESSED_BLOBS + "] ");
   ret.append("\n");
 }
 
@@ -3557,6 +3595,8 @@ void DBFileDumperCommand::DoCommand() {
   }
   Status s;
 
+  // TODO: Use --hex, --key_hex, --value_hex flags consistently for
+  // dumping manifest file, sst files and blob files.
   std::cout << "Manifest File" << std::endl;
   std::cout << "==============================" << std::endl;
   std::string manifest_filename;
@@ -3579,20 +3619,42 @@ void DBFileDumperCommand::DoCommand() {
   DumpManifestFile(options_, manifest_filepath, false, false, false);
   std::cout << std::endl;
 
-  std::cout << "SST Files" << std::endl;
-  std::cout << "==============================" << std::endl;
-  std::vector<LiveFileMetaData> metadata;
-  db_->GetLiveFilesMetaData(&metadata);
-  for (auto& fileMetadata : metadata) {
-    std::string filename = fileMetadata.db_path + "/" + fileMetadata.name;
-    // Correct concatenation of filepath and filename:
-    // Check that there is no double slashes (or more!) when concatenation
-    // happens.
-    filename = NormalizePath(filename);
-    std::cout << filename << " level:" << fileMetadata.level << std::endl;
-    std::cout << "------------------------------" << std::endl;
-    DumpSstFile(options_, filename, false, true, decode_blob_index_);
+  std::vector<ColumnFamilyMetaData> column_families;
+  db_->GetAllColumnFamilyMetaData(&column_families);
+  for (const auto& column_family : column_families) {
+    std::cout << "Column family name: " << column_family.name << std::endl;
+    std::cout << "==============================" << std::endl;
     std::cout << std::endl;
+    std::cout << "SST Files" << std::endl;
+    std::cout << "==============================" << std::endl;
+    for (const LevelMetaData& level : column_family.levels) {
+      for (const SstFileMetaData& sst_file : level.files) {
+        std::string filename = sst_file.db_path + "/" + sst_file.name;
+        // Correct concatenation of filepath and filename:
+        // Check that there is no double slashes (or more!) when concatenation
+        // happens.
+        filename = NormalizePath(filename);
+        std::cout << filename << " level:" << level.level << std::endl;
+        std::cout << "------------------------------" << std::endl;
+        DumpSstFile(options_, filename, false, true, decode_blob_index_);
+        std::cout << std::endl;
+      }
+    }
+    std::cout << "Blob Files" << std::endl;
+    std::cout << "==============================" << std::endl;
+    for (const BlobMetaData& blob_file : column_family.blob_files) {
+      std::string filename =
+          blob_file.blob_file_path + "/" + blob_file.blob_file_name;
+      // Correct concatenation of filepath and filename:
+      // Check that there is no double slashes (or more!) when concatenation
+      // happens.
+      filename = NormalizePath(filename);
+      std::cout << filename << std::endl;
+      std::cout << "------------------------------" << std::endl;
+      DumpBlobFile(filename, /* is_key_hex */ false, /* is_value_hex */ false,
+                   dump_uncompressed_blobs_);
+      std::cout << std::endl;
+    }
   }
   std::cout << std::endl;
 

@@ -536,7 +536,12 @@ enum Histograms : uint32_t {
   // Error handler statistics
   ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
 
+  // Stats related to asynchronous read requests.
   ASYNC_READ_BYTES,
+  POLL_WAIT_MICROS,
+
+  // Number of prefetched bytes discarded by RocksDB.
+  PREFETCHED_BYTES_DISCARDED,
 
   HISTOGRAM_ENUM_MAX,
 };

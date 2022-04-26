@@ -863,7 +863,7 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
   return min_log_number_to_keep;
 }
 
-Status DBImpl::SetDBId(bool read_only, RecoveryContext* recovery_ctx) {
+Status DBImpl::SetDBId(bool read_only) {
   Status s;
   // Happens when immutable_db_options_.write_dbid_to_manifest is set to true
   // the very first time.
@@ -890,14 +890,14 @@ Status DBImpl::SetDBId(bool read_only, RecoveryContext* recovery_ctx) {
     }
     s = GetDbIdentityFromIdentityFile(&db_id_);
     if (immutable_db_options_.write_dbid_to_manifest && s.ok()) {
-      assert(!read_only);
-      assert(recovery_ctx != nullptr);
-      assert(versions_->GetColumnFamilySet() != nullptr);
       VersionEdit edit;
       edit.SetDBId(db_id_);
+      Options options;
+      MutableCFOptions mutable_cf_options(options);
       versions_->db_id_ = db_id_;
-      recovery_ctx->UpdateVersionEdits(
-          versions_->GetColumnFamilySet()->GetDefault(), edit);
+      s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                                 mutable_cf_options, &edit, &mutex_, nullptr,
+                                 /* new_descriptor_log */ false);
     }
   } else if (!read_only) {
     s = SetIdentityFile(env_, dbname_, db_id_);
@@ -905,7 +905,7 @@ Status DBImpl::SetDBId(bool read_only, RecoveryContext* recovery_ctx) {
   return s;
 }
 
-Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
+Status DBImpl::DeleteUnreferencedSstFiles() {
   mutex_.AssertHeld();
   std::vector<std::string> paths;
   paths.push_back(NormalizePath(dbname_ + std::string(1, kFilePathSeparator)));
@@ -925,6 +925,7 @@ Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
 
   uint64_t next_file_number = versions_->current_next_file_number();
   uint64_t largest_file_number = next_file_number;
+  std::set<std::string> files_to_delete;
   Status s;
   for (const auto& path : paths) {
     std::vector<std::string> files;
@@ -942,9 +943,8 @@ Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
       const std::string normalized_fpath = path + fname;
       largest_file_number = std::max(largest_file_number, number);
       if (type == kTableFile && number >= next_file_number &&
-          recovery_ctx->files_to_delete_.find(normalized_fpath) ==
-              recovery_ctx->files_to_delete_.end()) {
-        recovery_ctx->files_to_delete_.insert(normalized_fpath);
+          files_to_delete.find(normalized_fpath) == files_to_delete.end()) {
+        files_to_delete.insert(normalized_fpath);
       }
     }
   }
@@ -961,7 +961,21 @@ Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
   assert(versions_->GetColumnFamilySet());
   ColumnFamilyData* default_cfd = versions_->GetColumnFamilySet()->GetDefault();
   assert(default_cfd);
-  recovery_ctx->UpdateVersionEdits(default_cfd, edit);
+  s = versions_->LogAndApply(
+      default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
+      directories_.GetDbDir(), /*new_descriptor_log*/ false);
+  if (!s.ok()) {
+    return s;
+  }
+
+  mutex_.Unlock();
+  for (const auto& fname : files_to_delete) {
+    s = env_->DeleteFile(fname);
+    if (!s.ok()) {
+      break;
+    }
+  }
+  mutex_.Lock();
   return s;
 }
 
