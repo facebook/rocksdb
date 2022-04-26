@@ -546,6 +546,7 @@ static void DBGet(benchmark::State& state) {
   }
   if (mmap) {
     table_options.no_block_cache = true;
+    table_options.block_restart_interval = 1;
   }
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -641,7 +642,7 @@ static void DBGetArguments(benchmark::internal::Benchmark* b) {
                "negative_query", "enable_filter", "mmap"});
 }
 
-static constexpr uint64_t kDBGetNum = 10l << 10;
+static constexpr uint64_t kDBGetNum = 256l << 10;
 BENCHMARK(DBGet)->Threads(1)->Iterations(kDBGetNum)->Apply(DBGetArguments);
 BENCHMARK(DBGet)->Threads(8)->Iterations(kDBGetNum / 8)->Apply(DBGetArguments);
 
