@@ -337,6 +337,68 @@ TEST_F(CorruptionTest, Recovery) {
   Check(36, 36);
 }
 
+TEST_F(CorruptionTest, PostPITRCorruptionWALsRetained) {
+  // Repro for bug where WALs following the point-in-time recovery were not
+  // retained leading to the next recovery failing.
+  CloseDb();
+
+  options_.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+
+  const std::string test_cf_name = "test_cf";
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
+  cf_descs.emplace_back(test_cf_name, ColumnFamilyOptions());
+
+  uint64_t log_num;
+  {
+    options_.create_missing_column_families = true;
+    std::vector<ColumnFamilyHandle*> cfhs;
+    ASSERT_OK(DB::Open(options_, dbname_, cf_descs, &cfhs, &db_));
+
+    ASSERT_OK(db_->Put(WriteOptions(), cfhs[0], "k", "v"));
+    ASSERT_OK(db_->Put(WriteOptions(), cfhs[1], "k", "v"));
+    ASSERT_OK(db_->Put(WriteOptions(), cfhs[0], "k2", "v2"));
+    std::vector<uint64_t> file_nums;
+    GetSortedWalFiles(file_nums);
+    log_num = file_nums.back();
+    for (auto* cfh : cfhs) {
+      delete cfh;
+    }
+    CloseDb();
+  }
+
+  CorruptFileWithTruncation(FileType::kWalFile, log_num,
+                            /*bytes_to_truncate=*/1);
+
+  {
+    // Recover "k" -> "v" for both CFs. "k2" -> "v2" is lost due to truncation.
+    options_.avoid_flush_during_recovery = true;
+    std::vector<ColumnFamilyHandle*> cfhs;
+    ASSERT_OK(DB::Open(options_, dbname_, cf_descs, &cfhs, &db_));
+    // Flush one but not both CFs and write some data so there's a seqno gap
+    // between the PITR corruption and the next DB session's first WAL.
+    ASSERT_OK(db_->Put(WriteOptions(), cfhs[1], "k2", "v2"));
+    ASSERT_OK(db_->Flush(FlushOptions(), cfhs[1]));
+
+    for (auto* cfh : cfhs) {
+      delete cfh;
+    }
+    CloseDb();
+  }
+
+  // With the bug, this DB open would remove the WALs following the PITR
+  // corruption. Then, the next recovery would fail.
+  for (int i = 0; i < 2; ++i) {
+    std::vector<ColumnFamilyHandle*> cfhs;
+    ASSERT_OK(DB::Open(options_, dbname_, cf_descs, &cfhs, &db_));
+
+    for (auto* cfh : cfhs) {
+      delete cfh;
+    }
+    CloseDb();
+  }
+}
+
 TEST_F(CorruptionTest, RecoverWriteError) {
   env_->writable_file_error_ = true;
   Status s = TryReopen();
