@@ -85,7 +85,7 @@ Status WideColumnSerialization::DeserializeIndex(
   }
 
   if (version > kCurrentVersion) {
-    return Status::Corruption("Unsupported wide column version");
+    return Status::NotSupported("Unsupported wide column version");
   }
 
   uint32_t num_columns = 0;

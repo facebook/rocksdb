@@ -40,10 +40,10 @@ class WideColumnSerialization {
                                WideColumnDesc* column_desc);
   static Status DeserializeAll(Slice* input, WideColumnDescs* column_descs);
 
+  static constexpr uint32_t kCurrentVersion = 1;
+
  private:
   static Status DeserializeIndex(Slice* input, WideColumnDescs* column_descs);
-
-  static constexpr uint32_t kCurrentVersion = 1;
 };
 
 inline bool operator==(const WideColumnDesc& lhs, const WideColumnDesc& rhs) {
