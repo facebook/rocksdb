@@ -14,11 +14,12 @@ namespace ROCKSDB_NAMESPACE {
 
 Status WideColumnSerialization::Serialize(const WideColumnDescs& column_descs,
                                           std::string* output) {
-  assert(
-      std::is_sorted(column_descs.cbegin(), column_descs.cend(),
-                     [](const WideColumnDesc& lhs, const WideColumnDesc& rhs) {
-                       return lhs.name.compare(rhs.name) < 0;
-                     }));
+  // Column names should be strictly ascending
+  assert(std::adjacent_find(
+             column_descs.cbegin(), column_descs.cend(),
+             [](const WideColumnDesc& lhs, const WideColumnDesc& rhs) {
+               return lhs.name.compare(rhs.name) > 0;
+             }) == column_descs.cend());
   assert(output);
 
   PutVarint32(output, kCurrentVersion);
