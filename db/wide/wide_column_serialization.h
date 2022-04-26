@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include "rocksdb/rocksdb_namespace.h"
@@ -25,6 +26,8 @@ class WideColumnSerialization {
 
  private:
   static Status DeserializeIndex(Slice* input, WideColumnDescs* column_descs);
+
+  static constexpr uint32_t kCurrentVersion = 1;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

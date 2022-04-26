@@ -21,6 +21,8 @@ Status WideColumnSerialization::Serialize(const WideColumnDescs& column_descs,
                      }));
   assert(output);
 
+  PutVarint32(output, kCurrentVersion);
+
   PutVarint32(output, static_cast<uint32_t>(column_descs.size()));
 
   size_t total_column_size = 0;
@@ -58,7 +60,7 @@ Status WideColumnSerialization::DeserializeOne(Slice* input,
                                return lhs.first.compare(rhs) < 0;
                              });
   if (it == all_column_descs.end() || it->first != column_name) {
-    return Status::NotFound("Column not found");
+    return Status::NotFound("Wide column not found");
   }
 
   *column_desc = *it;
@@ -76,9 +78,18 @@ Status WideColumnSerialization::DeserializeIndex(
   assert(input);
   assert(column_descs);
 
+  uint32_t version = 0;
+  if (!GetVarint32(input, &version)) {
+    return Status::Corruption("Error decoding wide column version");
+  }
+
+  if (version > kCurrentVersion) {
+    return Status::Corruption("Unsupported wide column version");
+  }
+
   uint32_t num_columns = 0;
   if (!GetVarint32(input, &num_columns)) {
-    return Status::Corruption("Error decoding number of columns");
+    return Status::Corruption("Error decoding number of wide columns");
   }
 
   if (!num_columns) {
@@ -91,12 +102,12 @@ Status WideColumnSerialization::DeserializeIndex(
   for (uint32_t i = 0; i < num_columns; ++i) {
     uint32_t name_size = 0;
     if (!GetVarint32(input, &name_size)) {
-      return Status::Corruption("Error decoding column name size");
+      return Status::Corruption("Error decoding wide column name size");
     }
 
     uint32_t value_size = 0;
     if (!GetVarint32(input, &value_size)) {
-      return Status::Corruption("Error decoding column value size");
+      return Status::Corruption("Error decoding wide column value size");
     }
 
     column_sizes.emplace_back(name_size, value_size);
@@ -107,14 +118,14 @@ Status WideColumnSerialization::DeserializeIndex(
 
   for (const auto& [name_size, value_size] : column_sizes) {
     if (pos + name_size + value_size > data.size()) {
-      return Status::Corruption("Error decoding column payload");
+      return Status::Corruption("Error decoding wide column payload");
     }
 
     Slice column_name(data.data() + pos, name_size);
 
     if (!column_descs->empty() &&
         column_descs->back().first.compare(column_name) >= 0) {
-      return Status::Corruption("Columns out of order");
+      return Status::Corruption("Wide columns out of order");
     }
 
     Slice column_value(data.data() + pos + name_size, value_size);
