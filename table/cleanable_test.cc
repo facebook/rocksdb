@@ -274,6 +274,14 @@ TEST_F(CleanableTest, PinnableSlice) {
 
 static void Decrement(void* intptr, void*) { --*static_cast<int*>(intptr); }
 
+// Allow unit testing moved-from data
+template <class T>
+void MarkInitializedForClangAnalyze(T& t) {
+  // No net effect, but confuse analyzer. (Published advice doesn't work.)
+  char* p = reinterpret_cast<char*>(&t);
+  std::swap(*p, *p);
+}
+
 TEST_F(CleanableTest, SharedWrapCleanables) {
   int val = 5;
   Cleanable c1, c2;
@@ -321,11 +329,13 @@ TEST_F(CleanableTest, SharedWrapCleanables) {
   // Move operator, invoke old c2 cleanups
   scp2 = std::move(scp1);
   ASSERT_EQ(val, 2);
+  MarkInitializedForClangAnalyze(scp1);
   ASSERT_EQ(scp1.get(), nullptr);
 
   // Move ctor
   {
     SharedCleanablePtr scp4{std::move(scp3)};
+    MarkInitializedForClangAnalyze(scp3);
     ASSERT_EQ(scp3.get(), nullptr);
     ASSERT_EQ(scp4.get(), scp2.get());
 
