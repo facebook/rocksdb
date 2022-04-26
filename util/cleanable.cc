@@ -21,14 +21,13 @@ Cleanable::Cleanable() {
 
 Cleanable::~Cleanable() { DoCleanup(); }
 
-Cleanable::Cleanable(Cleanable&& other) { *this = std::move(other); }
+Cleanable::Cleanable(Cleanable&& other) noexcept { *this = std::move(other); }
 
-Cleanable& Cleanable::operator=(Cleanable&& other) {
-  if (this != &other) {
-    cleanup_ = other.cleanup_;
-    other.cleanup_.function = nullptr;
-    other.cleanup_.next = nullptr;
-  }
+Cleanable& Cleanable::operator=(Cleanable&& other) noexcept {
+  assert(this != &other);  // https://stackoverflow.com/a/9322542/454544
+  cleanup_ = other.cleanup_;
+  other.cleanup_.function = nullptr;
+  other.cleanup_.next = nullptr;
   return *this;
 }
 
@@ -129,14 +128,19 @@ SharedCleanablePtr::SharedCleanablePtr(SharedCleanablePtr&& from) noexcept {
 
 SharedCleanablePtr& SharedCleanablePtr::operator=(
     const SharedCleanablePtr& from) {
-  ptr_ = from.ptr_;
-  if (ptr_) {
-    ptr_->Ref();
+  if (this != &from) {
+    Reset();
+    ptr_ = from.ptr_;
+    if (ptr_) {
+      ptr_->Ref();
+    }
   }
   return *this;
 }
 
-SharedCleanablePtr& SharedCleanablePtr::operator=(SharedCleanablePtr&& from) {
+SharedCleanablePtr& SharedCleanablePtr::operator=(
+    SharedCleanablePtr&& from) noexcept {
+  assert(this != &from);  // https://stackoverflow.com/a/9322542/454544
   Reset();
   ptr_ = from.ptr_;
   from.ptr_ = nullptr;

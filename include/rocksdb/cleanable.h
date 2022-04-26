@@ -23,8 +23,8 @@ class Cleanable {
   ~Cleanable();
 
   // Move constructor and move assignment is allowed.
-  Cleanable(Cleanable&&);
-  Cleanable& operator=(Cleanable&&);
+  Cleanable(Cleanable&&) noexcept;
+  Cleanable& operator=(Cleanable&&) noexcept;
 
   // Clients are allowed to register function/arg1/arg2 triples that
   // will be invoked when this iterator is destroyed.
@@ -81,6 +81,11 @@ class Cleanable {
 // performs registered cleanups after all copies are destroy. This is like
 // shared_ptr<Cleanable> but works more efficiently with wrapping the pointer
 // in an outer Cleanable (see RegisterCopyWith() and MoveAsCleanupTo()).
+// WARNING: if you create a reference cycle, for example:
+//   SharedCleanablePtr scp;
+//   scp.Allocate();
+//   scp.RegisterCopyWith(&*scp);
+// It will prevent cleanups from ever happening!
 class SharedCleanablePtr {
  public:
   // Empy/null pointer
@@ -89,7 +94,7 @@ class SharedCleanablePtr {
   SharedCleanablePtr(const SharedCleanablePtr& from);
   SharedCleanablePtr(SharedCleanablePtr&& from) noexcept;
   SharedCleanablePtr& operator=(const SharedCleanablePtr& from);
-  SharedCleanablePtr& operator=(SharedCleanablePtr&& from);
+  SharedCleanablePtr& operator=(SharedCleanablePtr&& from) noexcept;
   // Destructor (decrement refcount if non-null)
   ~SharedCleanablePtr();
   // Create a new simple Cleanable and make this assign this pointer to it.
