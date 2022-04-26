@@ -1,5 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Fixed a bug where manual flush would block forever even though flush options had wait=false.
+
 ### New Features
 * DB::GetLiveFilesStorageInfo is ready for production use.
 
