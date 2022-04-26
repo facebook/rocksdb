@@ -2,6 +2,7 @@
 ## Unreleased
 ### Bug Fixes
 * Fixed a bug where manual flush would block forever even though flush options had wait=false.
+* Fixed a bug where RocksDB could corrupt DBs with `avoid_flush_during_recovery == true` by removing valid WALs, leading to `Status::Corruption` with message like "SST file is ahead of WALs" when attempting to reopen.
 
 ### New Features
 * DB::GetLiveFilesStorageInfo is ready for production use.
