@@ -16,12 +16,18 @@ Status WideColumnSerialization::Serialize(const WideColumnDescs& column_descs,
                                           std::string* output) {
   assert(output);
 
-  PutFixed16(output, column_descs.size());
+  PutVarint32(output, static_cast<uint32_t>(column_descs.size()));
+
+  size_t total_column_size = 0;
 
   for (const auto& [column_name, column_value] : column_descs) {
-    PutFixed32(output, column_name.size());
-    PutFixed32(output, column_value.size());
+    PutVarint32(output, static_cast<uint32_t>(column_name.size()));
+    PutVarint32(output, static_cast<uint32_t>(column_value.size()));
+
+    total_column_size += column_name.size() + column_value.size();
   }
+
+  output->reserve(output->size() + total_column_size);
 
   for (const auto& [column_name, column_value] : column_descs) {
     output->append(column_name.data(), column_name.size());
@@ -65,8 +71,8 @@ Status WideColumnSerialization::DeserializeIndex(
   assert(input);
   assert(column_descs);
 
-  uint16_t num_columns = 0;
-  if (!GetFixed16(input, &num_columns)) {
+  uint32_t num_columns = 0;
+  if (!GetVarint32(input, &num_columns)) {
     return Status::Corruption("Error decoding number of columns");
   }
 
@@ -77,14 +83,14 @@ Status WideColumnSerialization::DeserializeIndex(
   std::vector<std::pair<uint32_t, uint32_t>> column_sizes;
   column_sizes.reserve(num_columns);
 
-  for (uint16_t i = 0; i < num_columns; ++i) {
+  for (uint32_t i = 0; i < num_columns; ++i) {
     uint32_t name_size = 0;
-    if (!GetFixed32(input, &name_size)) {
+    if (!GetVarint32(input, &name_size)) {
       return Status::Corruption("Error decoding column name size");
     }
 
     uint32_t value_size = 0;
-    if (!GetFixed32(input, &value_size)) {
+    if (!GetVarint32(input, &value_size)) {
       return Status::Corruption("Error decoding column value size");
     }
 
