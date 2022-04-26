@@ -106,7 +106,17 @@ Status WideColumnSerialization::DeserializeIndex(
   size_t pos = 0;
 
   for (const auto& [name_size, value_size] : column_sizes) {
+    if (pos + name_size + value_size > data.size()) {
+      return Status::Corruption("Error decoding column payload");
+    }
+
     Slice column_name(data.data() + pos, name_size);
+
+    if (!column_descs->empty() &&
+        column_descs->back().first.compare(column_name) >= 0) {
+      return Status::Corruption("Columns out of order");
+    }
+
     Slice column_value(data.data() + pos + name_size, value_size);
 
     column_descs->emplace_back(column_name, column_value);
