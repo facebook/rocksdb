@@ -5,11 +5,8 @@
 
 #include "db/wide/wide_column_serialization.h"
 
-#include <bits/stdint-uintn.h>
-
 #include <algorithm>
 #include <cassert>
-#include <string>
 
 #include "util/coding.h"
 
