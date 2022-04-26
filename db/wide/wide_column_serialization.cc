@@ -18,7 +18,7 @@ Status WideColumnSerialization::Serialize(const WideColumnDescs& column_descs,
   assert(std::adjacent_find(
              column_descs.cbegin(), column_descs.cend(),
              [](const WideColumnDesc& lhs, const WideColumnDesc& rhs) {
-               return lhs.name.compare(rhs.name) > 0;
+               return lhs.name().compare(rhs.name()) > 0;
              }) == column_descs.cend());
   assert(output);
 
@@ -28,18 +28,24 @@ Status WideColumnSerialization::Serialize(const WideColumnDescs& column_descs,
 
   size_t total_column_size = 0;
 
-  for (const auto& [column_name, column_value] : column_descs) {
-    PutVarint32(output, static_cast<uint32_t>(column_name.size()));
-    PutVarint32(output, static_cast<uint32_t>(column_value.size()));
+  for (const auto& desc : column_descs) {
+    const Slice& name = desc.name();
+    const Slice& value = desc.value();
 
-    total_column_size += column_name.size() + column_value.size();
+    PutVarint32(output, static_cast<uint32_t>(name.size()));
+    PutVarint32(output, static_cast<uint32_t>(value.size()));
+
+    total_column_size += name.size() + value.size();
   }
 
   output->reserve(output->size() + total_column_size);
 
-  for (const auto& [column_name, column_value] : column_descs) {
-    output->append(column_name.data(), column_name.size());
-    output->append(column_value.data(), column_value.size());
+  for (const auto& desc : column_descs) {
+    const Slice& name = desc.name();
+    const Slice& value = desc.value();
+
+    output->append(name.data(), name.size());
+    output->append(value.data(), value.size());
   }
 
   return Status::OK();
@@ -58,9 +64,9 @@ Status WideColumnSerialization::DeserializeOne(Slice* input,
   auto it = std::lower_bound(all_column_descs.cbegin(), all_column_descs.cend(),
                              column_name,
                              [](const WideColumnDesc& lhs, const Slice& rhs) {
-                               return lhs.name.compare(rhs) < 0;
+                               return lhs.name().compare(rhs) < 0;
                              });
-  if (it == all_column_descs.end() || it->name != column_name) {
+  if (it == all_column_descs.end() || it->name() != column_name) {
     return Status::NotFound("Wide column not found");
   }
 
@@ -125,7 +131,7 @@ Status WideColumnSerialization::DeserializeIndex(
     Slice column_name(data.data() + pos, name_size);
 
     if (!column_descs->empty() &&
-        column_descs->back().name.compare(column_name) >= 0) {
+        column_descs->back().name().compare(column_name) >= 0) {
       return Status::Corruption("Wide columns out of order");
     }
 

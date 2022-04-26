@@ -16,15 +16,20 @@ namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 
-struct WideColumnDesc {
+class WideColumnDesc {
+ public:
   WideColumnDesc() = default;
 
   template <typename N, typename V>
-  WideColumnDesc(N&& n, V&& v)
-      : name(std::forward<N>(n)), value(std::forward<V>(v)) {}
+  WideColumnDesc(N&& name, V&& value)
+      : name_(std::forward<N>(name)), value_(std::forward<V>(value)) {}
 
-  Slice name;
-  Slice value;
+  const Slice& name() const { return name_; }
+  const Slice& value() const { return value_; }
+
+ private:
+  Slice name_;
+  Slice value_;
 };
 
 bool operator==(const WideColumnDesc& lhs, const WideColumnDesc& rhs);
@@ -47,7 +52,7 @@ class WideColumnSerialization {
 };
 
 inline bool operator==(const WideColumnDesc& lhs, const WideColumnDesc& rhs) {
-  return lhs.name == rhs.name && lhs.value == rhs.value;
+  return lhs.name() == rhs.name() && lhs.value() == rhs.value();
 }
 
 inline bool operator!=(const WideColumnDesc& lhs, const WideColumnDesc& rhs) {
