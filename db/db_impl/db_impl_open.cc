@@ -968,9 +968,6 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
     // Read all the records and add to a memtable
     std::string scratch;
     Slice record;
-    // We create a new batch and make sure it has a valid prot_info_ to store
-    // the data checksums
-    WriteBatch batch(0, 0, 8, 0);
 
     TEST_SYNC_POINT_CALLBACK("DBImpl::RecoverLogFiles:BeforeReadWal",
                              /*arg=*/nullptr);
@@ -983,6 +980,10 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
                             Status::Corruption("log record too small"));
         continue;
       }
+
+      // We create a new batch and make sure it has a valid prot_info_ to store
+      // the data checksums
+      WriteBatch batch(0, 0, 8, 0);
 
       status = WriteBatchInternal::SetContents(&batch, record);
       if (!status.ok()) {
