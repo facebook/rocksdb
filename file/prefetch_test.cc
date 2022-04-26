@@ -1288,6 +1288,10 @@ TEST_P(PrefetchTestWithPosix, ReadAsyncWithPosixFS) {
     {
       HistogramData async_read_bytes;
       options.statistics->histogramData(ASYNC_READ_BYTES, &async_read_bytes);
+      HistogramData prefetched_bytes_discarded;
+      options.statistics->histogramData(PREFETCHED_BYTES_DISCARDED,
+                                        &prefetched_bytes_discarded);
+
       // Not all platforms support iouring. In that case, ReadAsync in posix
       // won't submit async requests.
       if (read_async_called) {
@@ -1295,6 +1299,7 @@ TEST_P(PrefetchTestWithPosix, ReadAsyncWithPosixFS) {
       } else {
         ASSERT_EQ(async_read_bytes.count, 0);
       }
+      ASSERT_GT(prefetched_bytes_discarded.count, 0);
     }
   }
 

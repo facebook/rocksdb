@@ -229,6 +229,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     // second buffer.
     std::vector<void*> handles;
     handles.emplace_back(io_handle_);
+    StopWatch sw(clock_, stats_, POLL_WAIT_MICROS);
     fs_->Poll(handles, 1).PermitUncheckedError();
   }
 
