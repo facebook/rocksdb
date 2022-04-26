@@ -1704,9 +1704,11 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   Status s;
   if (immutable_db_options_.atomic_flush) {
     s = AtomicFlushMemTables({cfh->cfd()}, flush_options,
-                             FlushReason::kManualFlush);
+                             FlushReason::kManualFlush,
+                             write_controller().IsStopped());
   } else {
-    s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
+    s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush,
+                      write_controller().IsStopped());
   }
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
