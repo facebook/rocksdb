@@ -642,7 +642,7 @@ static void DBGetArguments(benchmark::internal::Benchmark* b) {
                "negative_query", "enable_filter", "mmap"});
 }
 
-static constexpr uint64_t kDBGetNum = 256l << 10;
+static constexpr uint64_t kDBGetNum = 1l << 20;
 BENCHMARK(DBGet)->Threads(1)->Iterations(kDBGetNum)->Apply(DBGetArguments);
 BENCHMARK(DBGet)->Threads(8)->Iterations(kDBGetNum / 8)->Apply(DBGetArguments);
 
