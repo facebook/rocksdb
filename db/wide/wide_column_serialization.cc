@@ -17,7 +17,7 @@ Status WideColumnSerialization::Serialize(const WideColumnDescs& column_descs,
   assert(
       std::is_sorted(column_descs.cbegin(), column_descs.cend(),
                      [](const WideColumnDesc& lhs, const WideColumnDesc& rhs) {
-                       return lhs.first.compare(rhs.first) < 0;
+                       return lhs.name.compare(rhs.name) < 0;
                      }));
   assert(output);
 
@@ -57,9 +57,9 @@ Status WideColumnSerialization::DeserializeOne(Slice* input,
   auto it = std::lower_bound(all_column_descs.cbegin(), all_column_descs.cend(),
                              column_name,
                              [](const WideColumnDesc& lhs, const Slice& rhs) {
-                               return lhs.first.compare(rhs) < 0;
+                               return lhs.name.compare(rhs) < 0;
                              });
-  if (it == all_column_descs.end() || it->first != column_name) {
+  if (it == all_column_descs.end() || it->name != column_name) {
     return Status::NotFound("Wide column not found");
   }
 
@@ -124,7 +124,7 @@ Status WideColumnSerialization::DeserializeIndex(
     Slice column_name(data.data() + pos, name_size);
 
     if (!column_descs->empty() &&
-        column_descs->back().first.compare(column_name) >= 0) {
+        column_descs->back().name.compare(column_name) >= 0) {
       return Status::Corruption("Wide columns out of order");
     }
 

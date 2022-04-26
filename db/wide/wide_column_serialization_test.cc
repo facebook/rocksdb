@@ -30,7 +30,9 @@ TEST(WideColumnSerializationTest, Serialize) {
 
     ASSERT_OK(WideColumnSerialization::DeserializeOne(&input, "foo",
                                                       &deserialized_desc));
-    ASSERT_EQ(deserialized_desc, WideColumnDesc("foo", "bar"));
+
+    WideColumnDesc expected_desc{"foo", "bar"};
+    ASSERT_EQ(deserialized_desc, expected_desc);
   }
 
   {
@@ -39,7 +41,9 @@ TEST(WideColumnSerializationTest, Serialize) {
 
     ASSERT_OK(WideColumnSerialization::DeserializeOne(&input, "hello",
                                                       &deserialized_desc));
-    ASSERT_EQ(deserialized_desc, WideColumnDesc("hello", "world"));
+
+    WideColumnDesc expected_desc{"hello", "world"};
+    ASSERT_EQ(deserialized_desc, expected_desc);
   }
 
   {

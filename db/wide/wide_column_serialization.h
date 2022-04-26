@@ -7,14 +7,30 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
-#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class Slice;
+
+struct WideColumnDesc {
+  WideColumnDesc() = default;
+
+  template <typename N, typename V>
+  WideColumnDesc(N&& n, V&& v)
+      : name(std::forward<N>(n)), value(std::forward<V>(v)) {}
+
+  Slice name;
+  Slice value;
+};
+
+bool operator==(const WideColumnDesc& lhs, const WideColumnDesc& rhs);
+bool operator!=(const WideColumnDesc& lhs, const WideColumnDesc& rhs);
+
+using WideColumnDescs = std::vector<WideColumnDesc>;
 
 class WideColumnSerialization {
  public:
@@ -29,5 +45,13 @@ class WideColumnSerialization {
 
   static constexpr uint32_t kCurrentVersion = 1;
 };
+
+inline bool operator==(const WideColumnDesc& lhs, const WideColumnDesc& rhs) {
+  return lhs.name == rhs.name && lhs.value == rhs.value;
+}
+
+inline bool operator!=(const WideColumnDesc& lhs, const WideColumnDesc& rhs) {
+  return !(lhs == rhs);
+}
 
 }  // namespace ROCKSDB_NAMESPACE
