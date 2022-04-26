@@ -981,11 +981,13 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
         continue;
       }
 
-      // We create a new batch and make sure it has a valid prot_info_ to store
-      // the data checksums
+      // We create a new batch and initialize with a valid prot_info_ to store
+      // the data checksums; prot_info_ might be reset below
       WriteBatch batch(0, 0, 8, 0);
-
       status = WriteBatchInternal::SetContents(&batch, record);
+      // If no prot_info_ entries end up being created for `record`, reset
+      // prot_info_
+      batch.ClearProtectionInfoIfEmpty();
       if (!status.ok()) {
         return status;
       }

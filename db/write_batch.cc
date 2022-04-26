@@ -303,6 +303,12 @@ bool WriteBatch::HasMerge() const {
   return (ComputeContentFlags() & ContentFlags::HAS_MERGE) != 0;
 }
 
+void WriteBatch::ClearProtectionInfoIfEmpty() {
+  if (prot_info_->entries_.empty()) {
+    prot_info_.reset(nullptr);
+  }
+}
+
 bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key, bool cf_record) {
   assert(input != nullptr && key != nullptr);
   // Skip tag byte

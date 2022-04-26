@@ -404,6 +404,9 @@ class WriteBatch : public WriteBatchBase {
   struct ProtectionInfo;
   size_t GetProtectionBytesPerKey() const;
 
+  // Clears prot_info_ if there are no entries.
+  void ClearProtectionInfoIfEmpty();
+
  private:
   friend class WriteBatchInternal;
   friend class LocalSavePoint;
