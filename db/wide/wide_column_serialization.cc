@@ -18,14 +18,9 @@ Status WideColumnSerialization::Serialize(const WideColumnDescs& column_descs,
 
   PutFixed16(output, column_descs.size());
 
-  uint32_t pos = sizeof(uint16_t) + column_descs.size() * 3 * sizeof(uint32_t);
-
   for (const auto& [column_name, column_value] : column_descs) {
-    PutFixed32(output, pos);
     PutFixed32(output, column_name.size());
     PutFixed32(output, column_value.size());
-
-    pos += column_name.size() + column_value.size();
   }
 
   for (const auto& [column_name, column_value] : column_descs) {
@@ -70,8 +65,6 @@ Status WideColumnSerialization::DeserializeIndex(
   assert(input);
   assert(column_descs);
 
-  const Slice orig_input(*input);
-
   uint16_t num_columns = 0;
   if (!GetFixed16(input, &num_columns)) {
     return Status::Corruption("Error decoding number of columns");
@@ -81,12 +74,10 @@ Status WideColumnSerialization::DeserializeIndex(
     return Status::OK();
   }
 
-  for (uint16_t i = 0; i < num_columns; ++i) {
-    uint32_t pos = 0;
-    if (!GetFixed32(input, &pos)) {
-      return Status::Corruption("Error decoding column position");
-    }
+  std::vector<std::pair<uint32_t, uint32_t>> column_sizes;
+  column_sizes.reserve(num_columns);
 
+  for (uint16_t i = 0; i < num_columns; ++i) {
     uint32_t name_size = 0;
     if (!GetFixed32(input, &name_size)) {
       return Status::Corruption("Error decoding column name size");
@@ -97,14 +88,19 @@ Status WideColumnSerialization::DeserializeIndex(
       return Status::Corruption("Error decoding column value size");
     }
 
-    if (pos + name_size + value_size > orig_input.size()) {
-      return Status::Corruption("Invalid column name/value size");
-    }
+    column_sizes.emplace_back(name_size, value_size);
+  }
 
-    Slice column_name(orig_input.data() + pos, name_size);
-    Slice column_value(orig_input.data() + pos + name_size, value_size);
+  const Slice data(*input);
+  size_t pos = 0;
+
+  for (const auto& [name_size, value_size] : column_sizes) {
+    Slice column_name(data.data() + pos, name_size);
+    Slice column_value(data.data() + pos + name_size, value_size);
 
     column_descs->emplace_back(column_name, column_value);
+
+    pos += name_size + value_size;
   }
 
   return Status::OK();
