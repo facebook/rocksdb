@@ -354,6 +354,7 @@ TEST_F(CorruptionTest, PostPITRCorruptionWALsRetained) {
     options_.create_missing_column_families = true;
     std::vector<ColumnFamilyHandle*> cfhs;
     ASSERT_OK(DB::Open(options_, dbname_, cf_descs, &cfhs, &db_));
+    assert(db_ != nullptr);  // suppress false clang-analyze report
 
     ASSERT_OK(db_->Put(WriteOptions(), cfhs[0], "k", "v"));
     ASSERT_OK(db_->Put(WriteOptions(), cfhs[1], "k", "v"));
@@ -375,6 +376,8 @@ TEST_F(CorruptionTest, PostPITRCorruptionWALsRetained) {
     options_.avoid_flush_during_recovery = true;
     std::vector<ColumnFamilyHandle*> cfhs;
     ASSERT_OK(DB::Open(options_, dbname_, cf_descs, &cfhs, &db_));
+    assert(db_ != nullptr);  // suppress false clang-analyze report
+
     // Flush one but not both CFs and write some data so there's a seqno gap
     // between the PITR corruption and the next DB session's first WAL.
     ASSERT_OK(db_->Put(WriteOptions(), cfhs[1], "k2", "v2"));
@@ -391,6 +394,7 @@ TEST_F(CorruptionTest, PostPITRCorruptionWALsRetained) {
   for (int i = 0; i < 2; ++i) {
     std::vector<ColumnFamilyHandle*> cfhs;
     ASSERT_OK(DB::Open(options_, dbname_, cf_descs, &cfhs, &db_));
+    assert(db_ != nullptr);  // suppress false clang-analyze report
 
     for (auto* cfh : cfhs) {
       delete cfh;
