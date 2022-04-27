@@ -10,11 +10,10 @@
 #include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-class Slice;
 
 class WideColumnDesc {
  public:
