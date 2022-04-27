@@ -61,7 +61,14 @@ PessimisticTransaction::PessimisticTransaction(
 }
 
 void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
-  txn_id_ = GenTxnID();
+  // Range lock manager uses address of transaction object as TXNID
+  const TransactionDBOptions& db_options = txn_db_impl_->GetTxnDBOptions();
+  if (db_options.lock_mgr_handle &&
+      db_options.lock_mgr_handle->getLockManager()->IsRangeLockSupported()) {
+    txn_id_ = reinterpret_cast<TransactionID>(this);
+  } else {
+    txn_id_ = GenTxnID();
+  }
 
   txn_state_ = STARTED;
 
