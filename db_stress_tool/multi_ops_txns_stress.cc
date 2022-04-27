@@ -148,33 +148,43 @@ void MultiOpsTxnsStressTest::KeyGenerator::UndoAllocation(uint32_t new_val) {
 }
 
 std::string MultiOpsTxnsStressTest::Record::EncodePrimaryKey(uint32_t a) {
-  char buf[8];
-  EncodeFixed32(buf, kPrimaryIndexId);
-  std::reverse(buf, buf + 4);
-  EncodeFixed32(buf + 4, a);
-  std::reverse(buf + 4, buf + 8);
-  return std::string(buf, sizeof(buf));
+  std::string ret;
+  PutFixed32(&ret, kPrimaryIndexId);
+  PutFixed32(&ret, a);
+
+  char* const buf = &ret[0];
+  std::reverse(buf, buf + sizeof(kPrimaryIndexId));
+  std::reverse(buf + sizeof(kPrimaryIndexId),
+               buf + sizeof(kPrimaryIndexId) + sizeof(a));
+  return ret;
 }
 
 std::string MultiOpsTxnsStressTest::Record::EncodeSecondaryKey(uint32_t c) {
-  char buf[8];
-  EncodeFixed32(buf, kSecondaryIndexId);
-  std::reverse(buf, buf + 4);
-  EncodeFixed32(buf + 4, c);
-  std::reverse(buf + 4, buf + 8);
-  return std::string(buf, sizeof(buf));
+  std::string ret;
+  PutFixed32(&ret, kSecondaryIndexId);
+  PutFixed32(&ret, c);
+
+  char* const buf = &ret[0];
+  std::reverse(buf, buf + sizeof(kSecondaryIndexId));
+  std::reverse(buf + sizeof(kSecondaryIndexId),
+               buf + sizeof(kSecondaryIndexId) + sizeof(c));
+  return ret;
 }
 
 std::string MultiOpsTxnsStressTest::Record::EncodeSecondaryKey(uint32_t c,
                                                                uint32_t a) {
-  char buf[12];
-  EncodeFixed32(buf, kSecondaryIndexId);
-  std::reverse(buf, buf + 4);
-  EncodeFixed32(buf + 4, c);
-  EncodeFixed32(buf + 8, a);
-  std::reverse(buf + 4, buf + 8);
-  std::reverse(buf + 8, buf + 12);
-  return std::string(buf, sizeof(buf));
+  std::string ret;
+  PutFixed32(&ret, kSecondaryIndexId);
+  PutFixed32(&ret, c);
+  PutFixed32(&ret, a);
+
+  char* const buf = &ret[0];
+  std::reverse(buf, buf + sizeof(kSecondaryIndexId));
+  std::reverse(buf + sizeof(kSecondaryIndexId),
+               buf + sizeof(kSecondaryIndexId) + sizeof(c));
+  std::reverse(buf + sizeof(kSecondaryIndexId) + sizeof(c),
+               buf + sizeof(kSecondaryIndexId) + sizeof(c) + sizeof(a));
+  return ret;
 }
 
 std::tuple<Status, uint32_t, uint32_t>
@@ -218,40 +228,26 @@ std::string MultiOpsTxnsStressTest::Record::EncodePrimaryKey() const {
 }
 
 std::string MultiOpsTxnsStressTest::Record::EncodePrimaryIndexValue() const {
-  char buf[8];
-  EncodeFixed32(buf, b_);
-  EncodeFixed32(buf + 4, c_);
-  return std::string(buf, sizeof(buf));
+  std::string ret;
+  PutFixed32(&ret, b_);
+  PutFixed32(&ret, c_);
+  return ret;
 }
 
 std::pair<std::string, std::string>
 MultiOpsTxnsStressTest::Record::EncodeSecondaryIndexEntry() const {
-  std::string secondary_index_key;
-  char buf[12];
-  EncodeFixed32(buf, kSecondaryIndexId);
-  std::reverse(buf, buf + 4);
-  EncodeFixed32(buf + 4, c_);
-  EncodeFixed32(buf + 8, a_);
-  std::reverse(buf + 4, buf + 8);
-  std::reverse(buf + 8, buf + 12);
-  secondary_index_key.assign(buf, sizeof(buf));
+  std::string secondary_index_key = EncodeSecondaryKey(c_, a_);
 
   // Secondary index value is always 4-byte crc32 of the secondary key
   std::string secondary_index_value;
-  uint32_t crc = crc32c::Value(buf, sizeof(buf));
+  uint32_t crc =
+      crc32c::Value(secondary_index_key.data(), secondary_index_key.size());
   PutFixed32(&secondary_index_value, crc);
-  return std::make_pair(secondary_index_key, secondary_index_value);
+  return std::make_pair(std::move(secondary_index_key), secondary_index_value);
 }
 
 std::string MultiOpsTxnsStressTest::Record::EncodeSecondaryKey() const {
-  char buf[12];
-  EncodeFixed32(buf, kSecondaryIndexId);
-  std::reverse(buf, buf + 4);
-  EncodeFixed32(buf + 4, c_);
-  EncodeFixed32(buf + 8, a_);
-  std::reverse(buf + 4, buf + 8);
-  std::reverse(buf + 8, buf + 12);
-  return std::string(buf, sizeof(buf));
+  return EncodeSecondaryKey(c_, a_);
 }
 
 Status MultiOpsTxnsStressTest::Record::DecodePrimaryIndexEntry(
@@ -1132,15 +1128,14 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
   // First, iterate primary index.
   size_t primary_index_entries_count = 0;
   {
-    char buf[4];
-    EncodeFixed32(buf, Record::kPrimaryIndexId + 1);
-    std::reverse(buf, buf + sizeof(buf));
-    std::string iter_ub_str(buf, sizeof(buf));
+    std::string iter_ub_str;
+    PutFixed32(&iter_ub_str, Record::kPrimaryIndexId + 1);
+    std::reverse(iter_ub_str.begin(), iter_ub_str.end());
     Slice iter_ub = iter_ub_str;
 
-    EncodeFixed32(buf, Record::kPrimaryIndexId);
-    std::reverse(buf, buf + sizeof(buf));
-    std::string start_key(buf, sizeof(buf));
+    std::string start_key;
+    PutFixed32(&start_key, Record::kPrimaryIndexId);
+    std::reverse(start_key.begin(), start_key.end());
 
     // This `ReadOptions` is for validation purposes. Ignore
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
@@ -1187,10 +1182,9 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
   // Second, iterate secondary index.
   size_t secondary_index_entries_count = 0;
   {
-    char buf[4];
-    EncodeFixed32(buf, Record::kSecondaryIndexId);
-    std::reverse(buf, buf + sizeof(buf));
-    const std::string start_key(buf, sizeof(buf));
+    std::string start_key;
+    PutFixed32(&start_key, Record::kSecondaryIndexId);
+    std::reverse(start_key.begin(), start_key.end());
 
     // This `ReadOptions` is for validation purposes. Ignore
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
@@ -1268,10 +1262,9 @@ void MultiOpsTxnsStressTest::VerifyPkSkFast(int job_id) {
   oss << "Job " << job_id << ": [" << snapshot->GetSequenceNumber() << ","
       << dbimpl->GetLastPublishedSequence() << "] ";
 
-  char buf[4];
-  EncodeFixed32(buf, Record::kSecondaryIndexId);
-  std::reverse(buf, buf + sizeof(buf));
-  const std::string start_key(buf, sizeof(buf));
+  std::string start_key;
+  PutFixed32(&start_key, Record::kSecondaryIndexId);
+  std::reverse(start_key.begin(), start_key.end());
 
   // This `ReadOptions` is for validation purposes. Ignore
   // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
