@@ -12,9 +12,7 @@
 
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/defer.h"
-#ifndef NDEBUG
 #include "utilities/fault_injection_fs.h"
-#endif  // NDEBUG
 #include "utilities/transactions/write_prepared_txn_db.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -33,8 +31,8 @@ DEFINE_int32(delay_snapshot_read_one_in, 0,
              "snapshot and read.");
 
 DEFINE_int32(rollback_one_in, 0,
-             "If non-zero, rollback each one out of this number of "
-             "non-read-only transactions.");
+             "If non-zero, rollback non-read-only transactions with a "
+             "probability of 1/N.");
 
 DEFINE_int32(clear_wp_commit_cache_one_in, 0,
              "If non-zero, evict all commit entries from commit cache with a "
