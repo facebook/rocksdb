@@ -2101,8 +2101,6 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     ReturnAndCleanupSuperVersion(cfd, sv);
 
     RecordInHistogram(stats_, BYTES_PER_READ, size);
-
-    ReturnAndCleanupSuperVersion(cfd, sv);
   }
   return s;
 }
