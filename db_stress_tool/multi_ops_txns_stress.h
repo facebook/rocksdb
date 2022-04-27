@@ -405,12 +405,18 @@ class MultiOpsTxnsStressListener : public EventListener {
 
   void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
     assert(db);
+#ifdef NDEBUG
+    (void)db;
+#endif
     assert(info.cf_id == 0);
     stress_test_->VerifyPkSkFast(info.job_id);
   }
 
   void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) override {
     assert(db);
+#ifdef NDEBUG
+    (void)db;
+#endif
     assert(info.cf_id == 0);
     stress_test_->VerifyPkSkFast(info.job_id);
   }
