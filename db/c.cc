@@ -139,11 +139,14 @@ struct rocksdb_readoptions_t {
    // stack variables to set pointers to in ReadOptions
    Slice upper_bound;
    Slice lower_bound;
+   Slice timestamp;
+   Slice iter_start_ts;
 };
 struct rocksdb_writeoptions_t    { WriteOptions      rep; };
 struct rocksdb_options_t         { Options           rep; };
 struct rocksdb_compactoptions_t {
   CompactRangeOptions rep;
+  Slice full_history_ts_low;
 };
 struct rocksdb_block_based_table_options_t  { BlockBasedTableOptions rep; };
 struct rocksdb_cuckoo_table_options_t  { CuckooTableOptions rep; };
@@ -272,11 +275,37 @@ struct rocksdb_comparator_t : public Comparator {
       const char* a, size_t alen,
       const char* b, size_t blen);
   const char* (*name_)(void*);
+  int (*compare_ts_)(
+    void*,
+    const char* a_ts, size_t a_tslen,
+    const char* b_ts, size_t b_tslen);
+  int (*compare_without_ts_)(
+    void*,
+    const char* a, size_t alen, unsigned char a_has_ts,
+    const char* b, size_t blen, unsigned char b_has_ts);
+
+  rocksdb_comparator_t() : Comparator() {}
+
+  rocksdb_comparator_t(size_t ts_size) : Comparator(ts_size) {}
 
   ~rocksdb_comparator_t() override { (*destructor_)(state_); }
 
   int Compare(const Slice& a, const Slice& b) const override {
     return (*compare_)(state_, a.data(), a.size(), b.data(), b.size());
+  }
+
+  int CompareTimestamp(const Slice& a_ts, const Slice& b_ts) const override {
+    if (compare_ts_ == nullptr) {
+      return 0;
+    }
+    return (*compare_ts_)(state_, a_ts.data(), a_ts.size(), b_ts.data(), b_ts.size());
+  }
+
+  int CompareWithoutTimestamp(const Slice& a, bool a_has_ts, const Slice& b, bool b_has_ts) const override {
+    if (compare_without_ts_ == nullptr) {
+      return Compare(a, b);
+    }
+    return (*compare_without_ts_)(state_, a.data(), a.size(), a_has_ts, b.data(), b.size(), b_has_ts);
   }
 
   const char* Name() const override { return (*name_)(state_); }
@@ -997,6 +1026,30 @@ void rocksdb_put_cf(
               Slice(key, keylen), Slice(val, vallen)));
 }
 
+void rocksdb_put_with_ts(
+  rocksdb_t* db,
+  const rocksdb_writeoptions_t* options,
+  const char* key, size_t keylen,
+  const char* ts, size_t tslen,
+  const char* val, size_t vallen,
+  char** errptr) {
+  SaveError(errptr,
+    db->rep->Put(options->rep, Slice(key, keylen), Slice(ts, tslen), Slice(val, vallen)));
+}
+
+void rocksdb_put_cf_with_ts(
+  rocksdb_t* db,
+  const rocksdb_writeoptions_t* options,
+  rocksdb_column_family_handle_t* column_family,
+  const char* key, size_t keylen,
+  const char* ts, size_t tslen,
+  const char* val, size_t vallen,
+  char** errptr) {
+  SaveError(errptr,
+    db->rep->Put(options->rep, column_family->rep,
+      Slice(key, keylen), Slice(ts, tslen), Slice(val, vallen)));
+}
+
 void rocksdb_delete(
     rocksdb_t* db,
     const rocksdb_writeoptions_t* options,
@@ -1013,6 +1066,54 @@ void rocksdb_delete_cf(
     char** errptr) {
   SaveError(errptr, db->rep->Delete(options->rep, column_family->rep,
         Slice(key, keylen)));
+}
+
+void rocksdb_delete_with_ts(
+  rocksdb_t* db,
+  const rocksdb_writeoptions_t* options,
+  const char* key, size_t keylen,
+  const char* ts, size_t tslen,
+  char** errptr) {
+  SaveError(errptr, db->rep->Delete(options->rep, Slice(key, keylen), Slice(ts, tslen)));
+}
+
+void rocksdb_delete_cf_with_ts(
+  rocksdb_t* db,
+  const rocksdb_writeoptions_t* options,
+  rocksdb_column_family_handle_t* column_family,
+  const char* key, size_t keylen,
+  const char* ts, size_t tslen,
+  char** errptr) {
+  SaveError(errptr, db->rep->Delete(options->rep, column_family->rep,
+    Slice(key, keylen), Slice(ts, tslen)));
+}
+
+void rocksdb_increase_full_history_ts_low(
+  rocksdb_t* db,
+  rocksdb_column_family_handle_t* column_family,
+  const char* ts_low, size_t ts_lowlen,
+  char** errptr) {
+  std::string ts;
+  ts.assign(ts_low, ts_lowlen);
+  SaveError(errptr, db->rep->IncreaseFullHistoryTsLow(column_family->rep, ts));
+}
+
+char* rocksdb_get_full_history_ts_low(
+  rocksdb_t* db, 
+  rocksdb_column_family_handle_t* column_family,
+  size_t* ts_len,
+  char** errptr) {
+  char* result = nullptr;
+  std::string tmp;
+  Status s = db->rep->GetFullHistoryTsLow(column_family->rep, &tmp);
+  if (s.ok()) {
+    *ts_len = tmp.size();
+    result = CopyString(tmp);
+  } else {
+    *ts_len = 0;
+    SaveError(errptr, s);
+  }
+  return result;
 }
 
 void rocksdb_delete_range_cf(rocksdb_t* db,
@@ -1633,6 +1734,15 @@ void rocksdb_writebatch_put_cf(
   b->rep.Put(column_family->rep, Slice(key, klen), Slice(val, vlen));
 }
 
+void rocksdb_writebatch_put_cf_with_ts(
+  rocksdb_writebatch_t* b,
+    rocksdb_column_family_handle_t* column_family,
+  const char* key, size_t klen,
+  const char* ts, size_t tslen,
+  const char* val, size_t vlen) {
+  b->rep.Put(column_family->rep, Slice(key, klen), Slice(ts, tslen), Slice(val, vlen));
+}
+
 void rocksdb_writebatch_putv(
     rocksdb_writebatch_t* b,
     int num_keys, const char* const* keys_list,
@@ -1740,10 +1850,26 @@ void rocksdb_writebatch_delete_cf(
   b->rep.Delete(column_family->rep, Slice(key, klen));
 }
 
+void rocksdb_writebatch_delete_cf_with_ts(
+  rocksdb_writebatch_t* b,
+  rocksdb_column_family_handle_t* column_family,
+  const char* key, size_t klen,
+  const char* ts, size_t tslen) {
+  b->rep.Delete(column_family->rep, Slice(key, klen), Slice(ts, tslen));
+}
+
 void rocksdb_writebatch_singledelete_cf(
     rocksdb_writebatch_t* b, rocksdb_column_family_handle_t* column_family,
     const char* key, size_t klen) {
   b->rep.SingleDelete(column_family->rep, Slice(key, klen));
+}
+
+void rocksdb_writebatch_singledelete_cf_with_ts(
+  rocksdb_writebatch_t* b,
+  rocksdb_column_family_handle_t* column_family,
+  const char* key, size_t klen,
+  const char* ts, size_t tslen) {
+  b->rep.SingleDelete(column_family->rep, Slice(key, klen), Slice(ts, tslen));
 }
 
 void rocksdb_writebatch_deletev(
@@ -3802,6 +3928,33 @@ void rocksdb_comparator_destroy(rocksdb_comparator_t* cmp) {
   delete cmp;
 }
 
+rocksdb_comparator_t* rocksdb_comparator_with_ts_create(
+  void* state,
+  void (*destructor)(void*),
+  int (*compare)(
+    void*,
+    const char* a, size_t alen,
+    const char* b, size_t blen),
+  int (*compare_ts)(
+    void*,
+    const char* a_ts, size_t a_tslen,
+    const char* b_ts, size_t b_tslen),
+  int (*compare_without_ts)(
+    void*,
+    const char* a, size_t alen, unsigned char a_has_ts,
+    const char* b, size_t blen, unsigned char b_has_ts),
+  const char* (*name)(void*),
+  size_t timestamp_size) {
+  rocksdb_comparator_t* result = new rocksdb_comparator_t(timestamp_size);
+  result->state_ = state;
+  result->destructor_ = destructor;
+  result->compare_ = compare;
+  result->compare_ts_ = compare_ts;
+  result->compare_without_ts_ = compare_without_ts;
+  result->name_ = name;
+  return result;
+}
+
 void rocksdb_filterpolicy_destroy(rocksdb_filterpolicy_t* filter) {
   delete filter;
 }
@@ -4087,6 +4240,30 @@ rocksdb_readoptions_get_io_timeout(rocksdb_readoptions_t* opt) {
   return opt->rep.io_timeout.count();
 }
 
+void rocksdb_readoptions_set_timestamp(
+  rocksdb_readoptions_t* opt,
+  const char* ts, size_t tslen) {
+  if (ts == nullptr) {
+    opt->timestamp = Slice();
+    opt->rep.timestamp = nullptr;
+  } else {
+    opt->timestamp = Slice(ts, tslen);
+    opt->rep.timestamp = &opt->timestamp;
+  }
+}
+
+void rocksdb_readoptions_set_iter_start_ts(
+  rocksdb_readoptions_t* opt,
+  const char* ts, size_t tslen) {
+  if (ts == nullptr) {
+    opt->iter_start_ts = Slice();
+    opt->rep.iter_start_ts = nullptr;
+  } else {
+    opt->iter_start_ts = Slice(ts, tslen);
+    opt->rep.iter_start_ts = &opt->iter_start_ts;
+  }
+}
+
 rocksdb_writeoptions_t* rocksdb_writeoptions_create() {
   return new rocksdb_writeoptions_t;
 }
@@ -4200,6 +4377,17 @@ void rocksdb_compactoptions_set_target_level(rocksdb_compactoptions_t* opt,
 
 int rocksdb_compactoptions_get_target_level(rocksdb_compactoptions_t* opt) {
   return opt->rep.target_level;
+}
+
+void rocksdb_compactoptions_set_full_history_ts_low(
+  rocksdb_compactoptions_t* opt, char* ts, size_t tslen) {
+  if (ts == nullptr) {
+    opt->full_history_ts_low = Slice();
+    opt->rep.full_history_ts_low = nullptr;
+  } else {
+    opt->full_history_ts_low = Slice(ts, tslen);
+    opt->rep.full_history_ts_low = &opt->full_history_ts_low;
+  }
 }
 
 rocksdb_flushoptions_t* rocksdb_flushoptions_create() {
@@ -4423,6 +4611,15 @@ void rocksdb_sstfilewriter_put(rocksdb_sstfilewriter_t* writer, const char* key,
   SaveError(errptr, writer->rep->Put(Slice(key, keylen), Slice(val, vallen)));
 }
 
+void rocksdb_sstfilewriter_put_with_ts(
+  rocksdb_sstfilewriter_t* writer, 
+  const char* key,size_t keylen, 
+  const char* ts, size_t tslen,
+  const char* val, size_t vallen,
+  char** errptr) {
+  SaveError(errptr, writer->rep->Put(Slice(key, keylen), Slice(ts, tslen), Slice(val, vallen)));
+}
+
 void rocksdb_sstfilewriter_merge(rocksdb_sstfilewriter_t* writer,
                                  const char* key, size_t keylen,
                                  const char* val, size_t vallen,
@@ -4434,6 +4631,14 @@ void rocksdb_sstfilewriter_delete(rocksdb_sstfilewriter_t* writer,
                                   const char* key, size_t keylen,
                                   char** errptr) {
   SaveError(errptr, writer->rep->Delete(Slice(key, keylen)));
+}
+
+void rocksdb_sstfilewriter_delete_with_ts(
+  rocksdb_sstfilewriter_t* writer,
+  const char* key, size_t keylen,
+  const char* ts, size_t tslen,
+  char** errptr) {
+  SaveError(errptr, writer->rep->Delete(Slice(key, keylen), Slice(ts, tslen)));
 }
 
 void rocksdb_sstfilewriter_finish(rocksdb_sstfilewriter_t* writer,
@@ -5442,6 +5647,16 @@ void rocksdb_transaction_put_cf(rocksdb_transaction_t* txn,
                                 size_t vlen, char** errptr) {
   SaveError(errptr, txn->rep->Put(column_family->rep, Slice(key, klen),
                                   Slice(val, vlen)));
+}
+
+void rocksdb_transaction_set_commit_timestamp(
+  rocksdb_transaction_t* txn, uint64_t commit_timestamp) {
+  txn->rep->SetCommitTimestamp(commit_timestamp);
+}
+
+void rocksdb_transaction_set_read_timestamp_for_validation(
+  rocksdb_transaction_t* txn, uint64_t read_timestamp) {
+  txn->rep->SetReadTimestampForValidation(read_timestamp);
 }
 
 // Put a key outside a transaction
