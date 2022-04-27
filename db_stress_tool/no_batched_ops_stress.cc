@@ -84,8 +84,8 @@ class NonBatchedOpsStressTest : public StressTest {
             // move to the next item in the iterator
             s = Status::NotFound();
           }
-          VerifyValue(static_cast<int>(cf), i, options, shared, from_db, s,
-                      true);
+          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
+                            s, true);
           if (from_db.length()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
                           from_db.data(), from_db.length());
@@ -101,8 +101,8 @@ class NonBatchedOpsStressTest : public StressTest {
           std::string keystr = Key(i);
           Slice k = keystr;
           Status s = db_->Get(options, column_families_[cf], k, &from_db);
-          VerifyValue(static_cast<int>(cf), i, options, shared, from_db, s,
-                      true);
+          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
+                            s, true);
           if (from_db.length()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
                           from_db.data(), from_db.length());
@@ -130,8 +130,8 @@ class NonBatchedOpsStressTest : public StressTest {
           for (size_t j = 0; j < batch_size; ++j) {
             Status s = statuses[j];
             std::string from_db = values[j].ToString();
-            VerifyValue(static_cast<int>(cf), i + j, options, shared, from_db,
-                        s, true);
+            VerifyOrSyncValue(static_cast<int>(cf), i + j, options, shared,
+                              from_db, s, true);
             if (from_db.length()) {
               PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i + j),
                             from_db.data(), from_db.length());
@@ -174,8 +174,8 @@ class NonBatchedOpsStressTest : public StressTest {
           if (number_of_operands) {
             from_db = values[number_of_operands - 1].ToString();
           }
-          VerifyValue(static_cast<int>(cf), i, options, shared, from_db, s,
-                      true);
+          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
+                            s, true);
           if (from_db.length()) {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
                           from_db.data(), from_db.length());
@@ -562,8 +562,8 @@ class NonBatchedOpsStressTest : public StressTest {
       Slice k = key_str2;
       std::string from_db;
       Status s = db_->Get(read_opts, cfh, k, &from_db);
-      if (!VerifyValue(rand_column_family, rand_key, read_opts, shared, from_db,
-                       s, true)) {
+      if (!VerifyOrSyncValue(rand_column_family, rand_key, read_opts, shared,
+                             from_db, s, true)) {
         return s;
       }
     }
@@ -882,16 +882,24 @@ class NonBatchedOpsStressTest : public StressTest {
   }
 #endif  // ROCKSDB_LITE
 
-  bool VerifyValue(int cf, int64_t key, const ReadOptions& /*opts*/,
-                   SharedState* shared, const std::string& value_from_db,
-                   const Status& s, bool strict = false) const {
+  bool VerifyOrSyncValue(int cf, int64_t key, const ReadOptions& /*opts*/,
+                         SharedState* shared, const std::string& value_from_db,
+                         const Status& s, bool strict = false) const {
     if (shared->HasVerificationFailedYet()) {
       return false;
     }
     // compare value_from_db with the value in the shared state
-    char value[kValueMaxLen];
     uint32_t value_base = shared->Get(cf, key);
     if (value_base == SharedState::UNKNOWN_SENTINEL) {
+      if (s.ok()) {
+        // Value exists in db, update state to reflect that
+        Slice slice(value_from_db);
+        value_base = GetValueBase(slice);
+        shared->Put(cf, key, value_base, false);
+      } else if (s.IsNotFound()) {
+        // Value doesn't exist in db, update state to reflect that
+        shared->SingleDelete(cf, key, false);
+      }
       return true;
     }
     if (value_base == SharedState::DELETION_SENTINEL && !strict) {
@@ -899,6 +907,7 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     if (s.ok()) {
+      char value[kValueMaxLen];
       if (value_base == SharedState::DELETION_SENTINEL) {
         VerificationAbort(shared, "Unexpected value found", cf, key);
         return false;
