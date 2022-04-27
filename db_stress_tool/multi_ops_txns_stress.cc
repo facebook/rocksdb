@@ -259,7 +259,7 @@ Status MultiOpsTxnsStressTest::Record::DecodePrimaryIndexEntry(
 
   uint32_t index_id = 0;
 
-  bool res = GetFixed32(&primary_index_key, &index_id);
+  [[maybe_unused]] bool res = GetFixed32(&primary_index_key, &index_id);
   assert(res);
   index_id = EndianSwapValue(index_id);
 
@@ -292,7 +292,7 @@ Status MultiOpsTxnsStressTest::Record::DecodeSecondaryIndexEntry(
 
   uint32_t index_id = 0;
 
-  bool res = GetFixed32(&secondary_index_key, &index_id);
+  [[maybe_unused]] bool res = GetFixed32(&secondary_index_key, &index_id);
   assert(res);
   index_id = EndianSwapValue(index_id);
 
@@ -543,7 +543,7 @@ void MultiOpsTxnsStressTest::PrepareTxnDbOptions(
          const Slice& key) {
         Slice ks = key;
         uint32_t index_id = 0;
-        bool res = GetFixed32(&ks, &index_id);
+        [[maybe_unused]] bool res = GetFixed32(&ks, &index_id);
         assert(res);
         index_id = EndianSwapValue(index_id);
         assert(index_id <= Record::kSecondaryIndexId);
