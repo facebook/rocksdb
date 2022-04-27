@@ -117,14 +117,6 @@ Status ReadBlockFromFile(
   return s;
 }
 
-// Release the cached entry and decrement its ref count.
-// Do not force erase
-void ReleaseCachedEntry(void* arg, void* h) {
-  Cache* cache = reinterpret_cast<Cache*>(arg);
-  Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
-  cache->Release(handle, false /* erase_if_last_ref */);
-}
-
 // For hash based index, return false if table_properties->prefix_extractor_name
 // and prefix_extractor both exist and match, otherwise true.
 inline bool PrefixExtractorChangedHelper(
@@ -2570,10 +2562,11 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       iiter_unique_ptr.reset(iiter);
     }
 
-    uint64_t offset = std::numeric_limits<uint64_t>::max();
+    uint64_t prev_offset = std::numeric_limits<uint64_t>::max();
     autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE> block_handles;
     autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE> results;
     autovector<Status, MultiGetContext::MAX_BATCH_SIZE> statuses;
+    MultiGetContext::Mask reused_mask = 0;
     char stack_buf[kMultiGetReadStackBufSize];
     std::unique_ptr<char[]> block_buf;
     {
@@ -2635,16 +2628,19 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
 
         statuses.emplace_back();
         results.emplace_back();
-        if (v.handle.offset() == offset) {
-          // We're going to reuse the block for this key later on. No need to
-          // look it up now. Place a null handle
+        if (v.handle.offset() == prev_offset) {
+          // This key can reuse the previous block (later on).
+          // Mark previous as "reused"
+          reused_mask |= MultiGetContext::Mask{1} << (block_handles.size() - 1);
+          // Use null handle to indicate this one reuses same block as
+          // previous.
           block_handles.emplace_back(BlockHandle::NullBlockHandle());
           continue;
         }
         // Lookup the cache for the given data block referenced by an index
         // iterator value (i.e BlockHandle). If it exists in the cache,
         // initialize block to the contents of the data block.
-        offset = v.handle.offset();
+        prev_offset = v.handle.offset();
         BlockHandle handle = v.handle;
         BlockCacheLookupContext lookup_data_block_context(
             TableReaderCaller::kUserMultiGet);
@@ -2748,6 +2744,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
     DataBlockIter first_biter;
     DataBlockIter next_biter;
     size_t idx_in_batch = 0;
+    SharedCleanablePtr shared_cleanable;
     for (auto miter = sst_file_range.begin(); miter != sst_file_range.end();
          ++miter) {
       Status s;
@@ -2758,7 +2755,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       bool first_block = true;
       do {
         DataBlockIter* biter = nullptr;
-        bool reusing_block = true;
+        bool reusing_prev_block;
+        bool later_reused;
         uint64_t referenced_data_size = 0;
         bool does_referenced_key_exist = false;
         BlockCacheLookupContext lookup_data_block_context(
@@ -2772,13 +2770,16 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
             NewDataBlockIterator<DataBlockIter>(
                 read_options, results[idx_in_batch], &first_biter,
                 statuses[idx_in_batch]);
-            reusing_block = false;
+            reusing_prev_block = false;
           } else {
             // If handler is null and result is empty, then the status is never
             // set, which should be the initial value: ok().
             assert(statuses[idx_in_batch].ok());
+            reusing_prev_block = true;
           }
           biter = &first_biter;
+          later_reused =
+              (reused_mask & (MultiGetContext::Mask{1} << idx_in_batch)) != 0;
           idx_in_batch++;
         } else {
           IndexValue v = iiter->value();
@@ -2798,7 +2799,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
               BlockType::kData, get_context, &lookup_data_block_context,
               Status(), nullptr);
           biter = &next_biter;
-          reusing_block = false;
+          reusing_prev_block = false;
+          later_reused = false;
         }
 
         if (read_options.read_tier == kBlockCacheTier &&
@@ -2823,27 +2825,55 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           break;
         }
 
+        // Reusing blocks complicates pinning/Cleanable, because the cache
+        // entry referenced by biter can only be released once all returned
+        // pinned values are released. This code previously did an extra
+        // block_cache Ref for each reuse, but that unnecessarily increases
+        // block cache contention. Instead we can use a variant of shared_ptr
+        // to release in block cache only once.
+        //
+        // Although the biter loop below might SaveValue multiple times for
+        // merges, just one value_pinner suffices, as MultiGet will merge
+        // the operands before returning to the API user.
+        Cleanable* value_pinner;
+        if (biter->IsValuePinned()) {
+          if (reusing_prev_block) {
+            // Note that we don't yet know if the MultiGet results will need
+            // to pin this block, so we might wrap a block for sharing and
+            // still end up with 1 (or 0) pinning ref. Not ideal but OK.
+            //
+            // Here we avoid adding redundant cleanups if we didn't end up
+            // delegating the cleanup from last time around.
+            if (!biter->HasCleanups()) {
+              assert(shared_cleanable.get());
+              if (later_reused) {
+                shared_cleanable.RegisterCopyWith(biter);
+              } else {
+                shared_cleanable.MoveAsCleanupTo(biter);
+              }
+            }
+          } else if (later_reused) {
+            assert(biter->HasCleanups());
+            // Make the existing cleanups on `biter` sharable:
+            shared_cleanable.Allocate();
+            // Move existing `biter` cleanup(s) to `shared_cleanable`
+            biter->DelegateCleanupsTo(&*shared_cleanable);
+            // Reference `shared_cleanable` as new cleanup for `biter`
+            shared_cleanable.RegisterCopyWith(biter);
+          }
+          assert(biter->HasCleanups());
+          value_pinner = biter;
+        } else {
+          value_pinner = nullptr;
+        }
+
         // Call the *saver function on each entry/block until it returns false
         for (; biter->Valid(); biter->Next()) {
           ParsedInternalKey parsed_key;
-          Cleanable dummy;
-          Cleanable* value_pinner = nullptr;
           Status pik_status = ParseInternalKey(
               biter->key(), &parsed_key, false /* log_err_key */);  // TODO
           if (!pik_status.ok()) {
             s = pik_status;
-          }
-          if (biter->IsValuePinned()) {
-            if (reusing_block) {
-              Cache* block_cache = rep_->table_options.block_cache.get();
-              assert(biter->cache_handle() != nullptr);
-              block_cache->Ref(biter->cache_handle());
-              dummy.RegisterCleanup(&ReleaseCachedEntry, block_cache,
-                                    biter->cache_handle());
-              value_pinner = &dummy;
-            } else {
-              value_pinner = biter;
-            }
           }
           if (!get_context->SaveValue(parsed_key, biter->value(), &matched,
                                       value_pinner)) {
@@ -2858,7 +2888,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           s = biter->status();
         }
         // Write the block cache access.
-        if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
+        // XXX: There appear to be 'break' statements above that bypass this
+        // writing of the block cache trace record
+        if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled() &&
+            !reusing_prev_block) {
           // Avoid making copy of block_key, cf_name, and referenced_key when
           // constructing the access record.
           Slice referenced_key;

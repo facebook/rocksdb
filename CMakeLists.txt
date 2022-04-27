@@ -796,6 +796,7 @@ set(SOURCES
         trace_replay/trace_record_result.cc
         trace_replay/trace_record.cc
         trace_replay/trace_replay.cc
+        util/cleanable.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
