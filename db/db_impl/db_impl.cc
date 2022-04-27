@@ -2001,6 +2001,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       return s;
     }
   }
+  TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:0");
+  TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:1");
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(
