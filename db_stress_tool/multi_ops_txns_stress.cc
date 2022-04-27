@@ -261,27 +261,22 @@ Status MultiOpsTxnsStressTest::Record::DecodePrimaryIndexEntry(
     return Status::Corruption("Primary index key length is not 8");
   }
 
-  const char* const index_id_buf = primary_index_key.data();
-  uint32_t index_id =
-      static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[0])) << 24;
-  index_id += static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[1]))
-              << 16;
-  index_id += static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[2]))
-              << 8;
-  index_id +=
-      static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[3]));
-  primary_index_key.remove_prefix(sizeof(uint32_t));
+  uint32_t index_id = 0;
+
+  bool res = GetFixed32(&primary_index_key, &index_id);
+  assert(res);
+  index_id = EndianSwapValue(index_id);
+
   if (index_id != kPrimaryIndexId) {
     std::ostringstream oss;
     oss << "Unexpected primary index id: " << index_id;
     return Status::Corruption(oss.str());
   }
 
-  const char* const buf = primary_index_key.data();
-  a_ = static_cast<uint32_t>(static_cast<unsigned char>(buf[0])) << 24;
-  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[1])) << 16;
-  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[2])) << 8;
-  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[3]));
+  res = GetFixed32(&primary_index_key, &a_);
+  assert(res);
+  a_ = EndianSwapValue(a_);
+  assert(primary_index_key.empty());
 
   if (primary_index_value.size() != 8) {
     return Status::Corruption("Primary index value length is not 8");
@@ -299,33 +294,28 @@ Status MultiOpsTxnsStressTest::Record::DecodeSecondaryIndexEntry(
   uint32_t crc =
       crc32c::Value(secondary_index_key.data(), secondary_index_key.size());
 
-  const char* const index_id_buf = secondary_index_key.data();
-  uint32_t index_id =
-      static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[0])) << 24;
-  index_id += static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[1]))
-              << 16;
-  index_id += static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[2]))
-              << 8;
-  index_id +=
-      static_cast<uint32_t>(static_cast<unsigned char>(index_id_buf[3]));
-  secondary_index_key.remove_prefix(sizeof(uint32_t));
+  uint32_t index_id = 0;
+
+  bool res = GetFixed32(&secondary_index_key, &index_id);
+  assert(res);
+  index_id = EndianSwapValue(index_id);
+
   if (index_id != kSecondaryIndexId) {
     std::ostringstream oss;
     oss << "Unexpected secondary index id: " << index_id;
     return Status::Corruption(oss.str());
   }
 
-  const char* const buf = secondary_index_key.data();
   assert(secondary_index_key.size() == 8);
-  c_ = static_cast<uint32_t>(static_cast<unsigned char>(buf[0])) << 24;
-  c_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[1])) << 16;
-  c_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[2])) << 8;
-  c_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[3]));
+  res = GetFixed32(&secondary_index_key, &c_);
+  assert(res);
+  c_ = EndianSwapValue(c_);
 
-  a_ = static_cast<uint32_t>(static_cast<unsigned char>(buf[4])) << 24;
-  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[5])) << 16;
-  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[6])) << 8;
-  a_ += static_cast<uint32_t>(static_cast<unsigned char>(buf[7]));
+  assert(secondary_index_key.size() == 4);
+  res = GetFixed32(&secondary_index_key, &a_);
+  assert(res);
+  a_ = EndianSwapValue(a_);
+  assert(secondary_index_key.empty());
 
   if (secondary_index_value.size() != 4) {
     return Status::Corruption("Secondary index value length is not 4");
@@ -555,16 +545,12 @@ void MultiOpsTxnsStressTest::PrepareTxnDbOptions(
   txn_db_opts.rollback_deletion_type_callback =
       [](TransactionDB* /*db*/, ColumnFamilyHandle* /*column_family*/,
          const Slice& key) {
-        const char* buf = key.data();
-        assert(buf);
-        uint32_t index_id =
-            static_cast<uint32_t>(static_cast<unsigned char>(buf[0])) << 24;
-        index_id += static_cast<uint32_t>(static_cast<unsigned char>(buf[1]))
-                    << 16;
-        index_id += static_cast<uint32_t>(static_cast<unsigned char>(buf[2]))
-                    << 8;
-        index_id += static_cast<uint32_t>(static_cast<unsigned char>(buf[3]));
-        assert(index_id < 3);
+        Slice ks = key;
+        uint32_t index_id = 0;
+        bool res = GetFixed32(&ks, &index_id);
+        assert(res);
+        index_id = EndianSwapValue(index_id);
+        assert(index_id <= Record::kSecondaryIndexId);
         return index_id == Record::kSecondaryIndexId;
       };
 }
