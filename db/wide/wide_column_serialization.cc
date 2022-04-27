@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cassert>
 
+#include "util/autovector.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -103,7 +104,8 @@ Status WideColumnSerialization::DeserializeIndex(
     return Status::OK();
   }
 
-  std::vector<std::pair<uint32_t, uint32_t>> column_sizes;
+  constexpr size_t preallocated_columns = 64;
+  autovector<std::pair<uint32_t, uint32_t>, preallocated_columns> column_sizes;
   column_sizes.reserve(num_columns);
 
   for (uint32_t i = 0; i < num_columns; ++i) {

@@ -26,6 +26,9 @@ class WideColumnDesc {
   const Slice& name() const { return name_; }
   const Slice& value() const { return value_; }
 
+  Slice& name() { return name_; }
+  Slice& value() { return value_; }
+
  private:
   Slice name_;
   Slice value_;

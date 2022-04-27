@@ -223,6 +223,16 @@ class autovector {
 
   bool empty() const { return size() == 0; }
 
+  size_type capacity() const { return kSize + vect_.capacity(); }
+
+  void reserve(size_t cap) {
+    if (cap > kSize) {
+      vect_.reserve(cap - kSize);
+    }
+
+    assert(cap <= capacity());
+  }
+
   const_reference operator[](size_type n) const {
     assert(n < size());
     if (n < kSize) {
