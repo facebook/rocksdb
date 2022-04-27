@@ -1370,6 +1370,7 @@ uint32_t MultiOpsTxnsStressTest::GenerateNextC(ThreadState* thread) {
 Status MultiOpsTxnsStressTest::WriteToCommitTimeWriteBatch(Transaction& txn) {
   WriteBatch* ctwb = txn.GetCommitTimeWriteBatch();
   assert(ctwb);
+  // Do not change the content in key_buf.
   static constexpr char key_buf[sizeof(Record::kMetadataPrefix) + 4] = {
       '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\xff'};
 

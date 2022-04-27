@@ -348,6 +348,12 @@ class MultiOpsTxnsStressTest : public StressTest {
   uint32_t GenerateNextC(ThreadState* thread);
 
 #ifndef ROCKSDB_LITE
+  // Some applications, e.g. MyRocks writes a KV pair to the database via
+  // commit-time-write-batch (ctwb) in additional to the transaction's regular
+  // write batch. The key is usually constant representing some system
+  // metadata, while the value is monoticailly increasing which represents the
+  // actual value of the metadata. Method WriteToCommitTimeWriteBatch()
+  // emulates this scenario.
   Status WriteToCommitTimeWriteBatch(Transaction& txn);
 #endif  //! ROCKSDB_LITE
 
