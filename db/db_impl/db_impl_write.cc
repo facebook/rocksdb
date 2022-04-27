@@ -37,6 +37,17 @@ Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
   return DB::Put(o, column_family, key, ts, val);
 }
 
+Status DBImpl::PutEntity(const WriteOptions& options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         const WideColumnDescs& column_descs) {
+  const Status s = FailIfCfHasTs(column_family);
+  if (!s.ok()) {
+    return s;
+  }
+
+  return DB::PutEntity(options, column_family, key, column_descs);
+}
+
 Status DBImpl::Merge(const WriteOptions& o, ColumnFamilyHandle* column_family,
                      const Slice& key, const Slice& val) {
   const Status s = FailIfCfHasTs(column_family);
@@ -2234,6 +2245,13 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
     return s;
   }
   return Write(opt, &batch);
+}
+
+Status DB::PutEntity(const WriteOptions& /* options */,
+                     ColumnFamilyHandle* /* column_family */,
+                     const Slice& /* key */,
+                     const WideColumnDescs& /* column_descs */) {
+  return Status::OK();
 }
 
 Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
