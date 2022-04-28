@@ -2088,6 +2088,24 @@ class MemTableInserter : public WriteBatch::Handler {
     return ret_status;
   }
 
+  Status PutEntityCF(uint32_t column_family_id, const Slice& key,
+                     const Slice& value) override {
+    // TODO: look into PutCFImpl, especially the stuff around txns and in-place
+    // update
+    const auto* kv_prot_info = NextProtectionInfo();
+
+    if (kv_prot_info) {
+      // Memtable needs seqno, doesn't need CF ID
+      auto mem_kv_prot_info =
+          kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
+      return PutCFImpl(column_family_id, key, value, kTypeWideColumnEntity,
+                       &mem_kv_prot_info);
+    }
+
+    return PutCFImpl(column_family_id, key, value, kTypeWideColumnEntity,
+                     /* kv_prot_info */ nullptr);
+  }
+
   Status DeleteImpl(uint32_t /*column_family_id*/, const Slice& key,
                     const Slice& value, ValueType delete_type,
                     const ProtectionInfoKVOS64* kv_prot_info) {
