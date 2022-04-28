@@ -85,6 +85,7 @@ Status WideColumnSerialization::DeserializeIndex(
     Slice* input, WideColumnDescs* column_descs) {
   assert(input);
   assert(column_descs);
+  assert(column_descs->empty());
 
   uint32_t version = 0;
   if (!GetVarint32(input, &version)) {
@@ -121,6 +122,8 @@ Status WideColumnSerialization::DeserializeIndex(
 
     column_sizes.emplace_back(name_size, value_size);
   }
+
+  column_descs->reserve(num_columns);
 
   const Slice data(*input);
   size_t pos = 0;
