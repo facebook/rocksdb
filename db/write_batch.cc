@@ -578,14 +578,16 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         s = handler->MarkBeginPrepare();
         assert(s.ok());
         empty_batch = false;
-        if (!handler->WriteAfterCommit()) {
+        if (handler->WriteAfterCommit() ==
+            WriteBatch::Handler::OptionState::kDisabled) {
           s = Status::NotSupported(
               "WriteCommitted txn tag when write_after_commit_ is disabled (in "
               "WritePrepared/WriteUnprepared mode). If it is not due to "
               "corruption, the WAL must be emptied before changing the "
               "WritePolicy.");
         }
-        if (handler->WriteBeforePrepare()) {
+        if (handler->WriteBeforePrepare() ==
+            WriteBatch::Handler::OptionState::kEnabled) {
           s = Status::NotSupported(
               "WriteCommitted txn tag when write_before_prepare_ is enabled "
               "(in WriteUnprepared mode). If it is not due to corruption, the "
@@ -598,7 +600,8 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         s = handler->MarkBeginPrepare();
         assert(s.ok());
         empty_batch = false;
-        if (handler->WriteAfterCommit()) {
+        if (handler->WriteAfterCommit() ==
+            WriteBatch::Handler::OptionState::kEnabled) {
           s = Status::NotSupported(
               "WritePrepared/WriteUnprepared txn tag when write_after_commit_ "
               "is enabled (in default WriteCommitted mode). If it is not due "
@@ -612,13 +615,15 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         s = handler->MarkBeginPrepare(true /* unprepared */);
         assert(s.ok());
         empty_batch = false;
-        if (handler->WriteAfterCommit()) {
+        if (handler->WriteAfterCommit() ==
+            WriteBatch::Handler::OptionState::kEnabled) {
           s = Status::NotSupported(
               "WriteUnprepared txn tag when write_after_commit_ is enabled (in "
               "default WriteCommitted mode). If it is not due to corruption, "
               "the WAL must be emptied before changing the WritePolicy.");
         }
-        if (!handler->WriteBeforePrepare()) {
+        if (handler->WriteBeforePrepare() ==
+            WriteBatch::Handler::OptionState::kDisabled) {
           s = Status::NotSupported(
               "WriteUnprepared txn tag when write_before_prepare_ is disabled "
               "(in WriteCommitted/WritePrepared mode). If it is not due to "
@@ -1588,8 +1593,14 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
  protected:
-  bool WriteBeforePrepare() const override { return write_before_prepare_; }
-  bool WriteAfterCommit() const override { return write_after_commit_; }
+  Handler::OptionState WriteBeforePrepare() const override {
+    return write_before_prepare_ ? Handler::OptionState::kEnabled
+                                 : Handler::OptionState::kDisabled;
+  }
+  Handler::OptionState WriteAfterCommit() const override {
+    return write_after_commit_ ? Handler::OptionState::kEnabled
+                               : Handler::OptionState::kDisabled;
+  }
 
  public:
   // cf_mems should not be shared with concurrent inserters

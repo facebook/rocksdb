@@ -320,8 +320,17 @@ class WriteBatch : public WriteBatchBase {
 
    protected:
     friend class WriteBatchInternal;
-    virtual bool WriteAfterCommit() const { return true; }
-    virtual bool WriteBeforePrepare() const { return false; }
+    enum class OptionState {
+      kUnknown,
+      kDisabled,
+      kEnabled,
+    };
+    virtual OptionState WriteAfterCommit() const {
+      return OptionState::kUnknown;
+    }
+    virtual OptionState WriteBeforePrepare() const {
+      return OptionState::kUnknown;
+    }
   };
   Status Iterate(Handler* handler) const;
 

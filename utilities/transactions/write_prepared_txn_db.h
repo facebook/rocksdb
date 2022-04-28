@@ -1071,7 +1071,9 @@ struct SubBatchCounter : public WriteBatch::Handler {
   }
   Status MarkBeginPrepare(bool) override { return Status::OK(); }
   Status MarkRollback(const Slice&) override { return Status::OK(); }
-  bool WriteAfterCommit() const override { return false; }
+  Handler::OptionState WriteAfterCommit() const override {
+    return Handler::OptionState::kDisabled;
+  }
 };
 
 SnapshotBackup WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
