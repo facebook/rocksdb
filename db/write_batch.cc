@@ -1588,8 +1588,9 @@ class MemTableInserter : public WriteBatch::Handler {
     if (prot_info_ != nullptr) --prot_info_idx_;
   }
 
-  void ResetProtectionInfoIdx() {
+  void ResetProtectionInfo() {
     prot_info_idx_ = 0;
+    prot_info_ = nullptr;
   }
 
  protected:
@@ -2457,7 +2458,7 @@ class MemTableInserter : public WriteBatch::Handler {
           const auto& batch_info = trx->batches_.begin()->second;
           // all inserts must reference this trx log number
           log_number_ref_ = batch_info.log_number_;
-          ResetProtectionInfoIdx();
+          ResetProtectionInfo();
           s = batch_info.batch_->Iterate(this);
           log_number_ref_ = 0;
         }
@@ -2527,7 +2528,7 @@ class MemTableInserter : public WriteBatch::Handler {
                 return ucmp->timestamp_size();
               });
           if (s.ok()) {
-            ResetProtectionInfoIdx();
+            ResetProtectionInfo();
             s = batch_info.batch_->Iterate(this);
             log_number_ref_ = 0;
           }
