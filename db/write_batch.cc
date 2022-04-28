@@ -2729,7 +2729,7 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
 
  private:
   Status UpdateProtInfo(uint32_t cf, const Slice& key, const Slice& val,
-                          const ValueType op_type) {
+                        const ValueType op_type) {
     if (prot_info_) {
       prot_info_->entries_.emplace_back(
           ProtectionInfo64().ProtectKVO(key, val, op_type).ProtectC(cf));
