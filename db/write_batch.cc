@@ -1895,10 +1895,10 @@ class MemTableInserter : public WriteBatch::Handler {
       auto mem_kv_prot_info =
           kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
       ret_status = PutCFImpl(column_family_id, key, value, kTypeValue,
-                       &mem_kv_prot_info);
+                             &mem_kv_prot_info);
     } else {
       ret_status = PutCFImpl(column_family_id, key, value, kTypeValue,
-                     nullptr /* kv_prot_info */);
+                             nullptr /* kv_prot_info */);
     }
     // TODO: this assumes that if TryAgain status is returned to the caller,
     // the operation is actually tried again. The proper way to do this is to
@@ -2307,10 +2307,10 @@ class MemTableInserter : public WriteBatch::Handler {
           kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
       // Same as PutCF except for value type.
       ret_status = PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
-          &mem_kv_prot_info);
+                             &mem_kv_prot_info);
     } else {
       ret_status = PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
-          nullptr /* kv_prot_info */);
+                             nullptr /* kv_prot_info */);
     }
     if (UNLIKELY(ret_status.IsTryAgain())) {
       DecrementProtectionInfoIdxForTryAgain();
@@ -2735,7 +2735,7 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
 
  private:
   Status update_prot_info(uint32_t cf, const Slice& key, const Slice& val,
-                      const ValueType op_type) {
+                          const ValueType op_type) {
     if (prot_info_) {
       prot_info_->entries_.emplace_back(
           ProtectionInfo64().ProtectKVO(key, val, op_type).ProtectC(cf));
