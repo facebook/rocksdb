@@ -393,6 +393,20 @@ class LDBTestCase(unittest.TestCase):
                                                              hex(ord('b'))),
                 "'a' seq:1, type:1 => val\nInternal keys in range: 1")
 
+    def testIDumpDecodeBlobIndex(self):
+        print("Running testIDumpDecodeBlobIndex...")
+        self.assertRunOK("put a val --create_if_missing", "OK")
+        self.assertRunOK("put b val --enable_blob_files", "OK")
+
+        # Pattern to expect from dump with decode_blob_index flag enabled.
+        regex = ".*\[blob ref\].*"
+        expected_pattern = re.compile(regex)
+        cmd = "idump %s --decode_blob_index"
+        self.assertRunOKFull((cmd)
+                             % (self.dbParam(self.DB_NAME)),
+                             expected_pattern, unexpected=False,
+                             isPattern=True)
+
     def testMiscAdminTask(self):
         print("Running testMiscAdminTask...")
         # These tests need to be improved; for example with asserts about
@@ -474,7 +488,7 @@ class LDBTestCase(unittest.TestCase):
             dbPath += "/"
 
         # Call the dump_live_files function with the edited dbPath name.
-        self.assertTrue(self.dumpLiveFiles("--db=%s --decode_blob_index" % dbPath, dumpFilePath))
+        self.assertTrue(self.dumpLiveFiles("--db=%s --decode_blob_index --dump_uncompressed_blobs" % dbPath, dumpFilePath))
 
         # Investigate the output
         with open(dumpFilePath, "r") as tmp:
@@ -482,13 +496,22 @@ class LDBTestCase(unittest.TestCase):
 
         # Check that all the SST filenames have a correct full path (no multiple '/').
         sstFileList = re.findall(r"%s.*\d+.sst" % dbPath, data)
+        self.assertTrue(len(sstFileList) >= 1)
         for sstFilename in sstFileList:
             filenumber = re.findall(r"\d+.sst", sstFilename)[0]
             self.assertEqual(sstFilename, dbPath+filenumber)
 
+        # Check that all the Blob filenames have a correct full path (no multiple '/').
+        blobFileList = re.findall(r"%s.*\d+.blob" % dbPath, data)
+        self.assertTrue(len(blobFileList) >= 1)
+        for blobFilename in blobFileList:
+            filenumber = re.findall(r"\d+.blob", blobFilename)[0]
+            self.assertEqual(blobFilename, dbPath+filenumber)
+
         # Check that all the manifest filenames
         # have a correct full path (no multiple '/').
         manifestFileList = re.findall(r"%s.*MANIFEST-\d+" % dbPath, data)
+        self.assertTrue(len(manifestFileList) >= 1)
         for manifestFilename in manifestFileList:
             filenumber = re.findall(r"(?<=MANIFEST-)\d+", manifestFilename)[0]
             self.assertEqual(manifestFilename, dbPath+"MANIFEST-"+filenumber)
@@ -687,18 +710,35 @@ class LDBTestCase(unittest.TestCase):
 
         dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
         self.assertRunOK("put sst1 sst1_val --create_if_missing", "OK")
-        self.assertRunOK("put sst2 sst2_val", "OK")
+        self.assertRunOK("put sst2 sst2_val --enable_blob_files", "OK")
         self.assertRunOK("get sst1", "sst1_val")
 
         # Pattern to expect from SST dump.
-        regex = ".*Sst file format:.*"
+        regex = ".*Sst file format:.*\n.*\[blob ref\].*"
         expected_pattern = re.compile(regex)
 
         sst_files = self.getSSTFiles(dbPath)
         self.assertTrue(len(sst_files) >= 1)
-        cmd = "dump --path=%s"
+        cmd = "dump --path=%s --decode_blob_index"
         self.assertRunOKFull((cmd)
                              % (sst_files[0]),
+                             expected_pattern, unexpected=False,
+                             isPattern=True)
+
+    def testBlobDump(self):
+        print("Running testBlobDump")
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("batchput x1 y1 --create_if_missing --enable_blob_files", "OK")
+        self.assertRunOK("batchput --enable_blob_files x2 y2 x3 y3 \"x4 abc\" \"y4 xyz\"", "OK")
+
+        # Pattern to expect from blob file dump.
+        regex = ".*Blob log header[\s\S]*Blob log footer[\s\S]*Read record[\s\S]*Summary"
+        expected_pattern = re.compile(regex)
+        blob_files = self.getBlobFiles(dbPath)
+        self.assertTrue(len(blob_files) >= 1)
+        cmd = "dump --path=%s --dump_uncompressed_blobs"
+        self.assertRunOKFull((cmd)
+                             % (blob_files[0]),
                              expected_pattern, unexpected=False,
                              isPattern=True)
 

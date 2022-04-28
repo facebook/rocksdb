@@ -229,6 +229,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     // second buffer.
     std::vector<void*> handles;
     handles.emplace_back(io_handle_);
+    StopWatch sw(clock_, stats_, POLL_WAIT_MICROS);
     fs_->Poll(handles, 1).PermitUncheckedError();
   }
 
@@ -281,7 +282,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
           bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) {
     offset += length;
     length = 0;
-    prefetch_size -= length;
+    prefetch_size = readahead_size;
   }
   // Data is overlapping i.e. some of the data is in curr_ buffer and remaining
   // in second buffer.
@@ -310,7 +311,8 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     // sync prefetching and copy the remaining data to third buffer in the end.
     // swap the buffers.
     curr_ = curr_ ^ 1;
-    prefetch_size -= length;
+    // Update prefetch_size as length has been updated in CopyDataToBuffer.
+    prefetch_size = length + readahead_size;
   }
 
   // Update second again if swap happened.

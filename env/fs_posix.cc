@@ -1118,6 +1118,19 @@ class PosixFileSystem : public FileSystem {
 #endif
   }
 
+  // TODO akanksha: Look into flags and see how to provide support for AbortIO
+  // in posix for IOUring requests. Currently it calls Poll to wait for requests
+  // to complete the request.
+  virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
+    IOStatus s = Poll(io_handles, io_handles.size());
+    // If Poll is not supported then it didn't submit any request and it should
+    // return OK.
+    if (s.IsNotSupported()) {
+      return IOStatus::OK();
+    }
+    return s;
+  }
+
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance
   std::unique_ptr<ThreadLocalPtr> thread_local_io_urings_;

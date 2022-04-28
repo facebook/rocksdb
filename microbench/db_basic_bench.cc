@@ -525,6 +525,7 @@ static void DBGet(benchmark::State& state) {
   bool enable_statistics = state.range(3);
   bool negative_query = state.range(4);
   bool enable_filter = state.range(5);
+  bool mmap = state.range(6);
   uint64_t key_num = max_data / per_key_size;
 
   // setup DB
@@ -533,13 +534,21 @@ static void DBGet(benchmark::State& state) {
   if (enable_statistics) {
     options.statistics = CreateDBStatistics();
   }
+  if (mmap) {
+    options.allow_mmap_reads = true;
+    options.compression = kNoCompression;
+  }
   options.compaction_style = compaction_style;
 
+  BlockBasedTableOptions table_options;
   if (enable_filter) {
-    BlockBasedTableOptions table_options;
     table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
-    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
+  if (mmap) {
+    table_options.no_block_cache = true;
+    table_options.block_restart_interval = 1;
+  }
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   auto rnd = Random(301 + state.thread_index());
   KeyGenerator kg(&rnd, key_num);
@@ -573,6 +582,9 @@ static void DBGet(benchmark::State& state) {
   }
 
   auto ro = ReadOptions();
+  if (mmap) {
+    ro.verify_checksums = false;
+  }
   size_t not_found = 0;
   if (negative_query) {
     for (auto _ : state) {
@@ -616,8 +628,10 @@ static void DBGetArguments(benchmark::internal::Benchmark* b) {
         for (bool enable_statistics : {false, true}) {
           for (bool negative_query : {false, true}) {
             for (bool enable_filter : {false, true}) {
-              b->Args({comp_style, max_data, per_key_size, enable_statistics,
-                       negative_query, enable_filter});
+              for (bool mmap : {false, true}) {
+                b->Args({comp_style, max_data, per_key_size, enable_statistics,
+                         negative_query, enable_filter, mmap});
+              }
             }
           }
         }
@@ -625,10 +639,10 @@ static void DBGetArguments(benchmark::internal::Benchmark* b) {
     }
   }
   b->ArgNames({"comp_style", "max_data", "per_key_size", "enable_statistics",
-               "negative_query", "enable_filter"});
+               "negative_query", "enable_filter", "mmap"});
 }
 
-static constexpr uint64_t kDBGetNum = 10l << 10;
+static constexpr uint64_t kDBGetNum = 1l << 20;
 BENCHMARK(DBGet)->Threads(1)->Iterations(kDBGetNum)->Apply(DBGetArguments);
 BENCHMARK(DBGet)->Threads(8)->Iterations(kDBGetNum / 8)->Apply(DBGetArguments);
 

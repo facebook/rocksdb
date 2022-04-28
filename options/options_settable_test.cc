@@ -34,6 +34,7 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 #if defined OS_LINUX || defined OS_WIN
 #ifndef __clang__
+#ifndef ROCKSDB_UBSAN_RUN
 
 class OptionsSettableTest : public testing::Test {
  public:
@@ -581,6 +582,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   delete[] mcfo2_ptr;
   delete[] cfo_clean_ptr;
 }
+#endif  // !ROCKSDB_UBSAN_RUN
 #endif  // !__clang__
 #endif  // OS_LINUX || OS_WIN
 #endif  // !ROCKSDB_LITE
