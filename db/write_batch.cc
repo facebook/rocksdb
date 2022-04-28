@@ -2680,38 +2680,38 @@ Status WriteBatchInternal::InsertInto(
   return s;
 }
 
-// This class adds checksums for a WriteBatch.
-class ChecksumAdder : public WriteBatch::Handler {
+// This class updates protection info for a WriteBatch.
+class ProtectionInfoUpdater : public WriteBatch::Handler {
  public:
-  explicit ChecksumAdder(WriteBatch::ProtectionInfo* prot_info)
+  explicit ProtectionInfoUpdater(WriteBatch::ProtectionInfo* prot_info)
       : prot_info_(prot_info) {}
 
-  ~ChecksumAdder() override {}
+  ~ProtectionInfoUpdater() override {}
 
   Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
-    return add_checksum(cf, key, val, kTypeValue);
+    return update_prot_info(cf, key, val, kTypeValue);
   }
 
   Status DeleteCF(uint32_t cf, const Slice& key) override {
-    return add_checksum(cf, key, "", kTypeDeletion);
+    return update_prot_info(cf, key, "", kTypeDeletion);
   }
 
   Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
-    return add_checksum(cf, key, "", kTypeSingleDeletion);
+    return update_prot_info(cf, key, "", kTypeSingleDeletion);
   }
 
   Status DeleteRangeCF(uint32_t cf, const Slice& begin_key,
                        const Slice& end_key) override {
-    return add_checksum(cf, begin_key, end_key, kTypeRangeDeletion);
+    return update_prot_info(cf, begin_key, end_key, kTypeRangeDeletion);
   }
 
   Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
-    return add_checksum(cf, key, val, kTypeMerge);
+    return update_prot_info(cf, key, val, kTypeMerge);
   }
 
   Status PutBlobIndexCF(uint32_t cf, const Slice& key,
                         const Slice& val) override {
-    return add_checksum(cf, key, val, kTypeBlobIndex);
+    return update_prot_info(cf, key, val, kTypeBlobIndex);
   }
 
   Status MarkBeginPrepare(bool /* unprepare */) override {
@@ -2734,7 +2734,7 @@ class ChecksumAdder : public WriteBatch::Handler {
   Status MarkNoop(bool /* empty_batch */) override { return Status::OK(); }
 
  private:
-  Status add_checksum(uint32_t cf, const Slice& key, const Slice& val,
+  Status update_prot_info(uint32_t cf, const Slice& key, const Slice& val,
                       const ValueType op_type) {
     if (prot_info_) {
       prot_info_->entries_.emplace_back(
@@ -2744,10 +2744,10 @@ class ChecksumAdder : public WriteBatch::Handler {
   }
 
   // No copy or move.
-  ChecksumAdder(const ChecksumAdder&) = delete;
-  ChecksumAdder(ChecksumAdder&&) = delete;
-  ChecksumAdder& operator=(const ChecksumAdder&) = delete;
-  ChecksumAdder& operator=(ChecksumAdder&&) = delete;
+  ProtectionInfoUpdater(const ProtectionInfoUpdater&) = delete;
+  ProtectionInfoUpdater(ProtectionInfoUpdater&&) = delete;
+  ProtectionInfoUpdater& operator=(const ProtectionInfoUpdater&) = delete;
+  ProtectionInfoUpdater& operator=(ProtectionInfoUpdater&&) = delete;
 
   WriteBatch::ProtectionInfo* const prot_info_ = nullptr;
 };
@@ -2758,10 +2758,10 @@ Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
   b->rep_.assign(contents.data(), contents.size());
   b->content_flags_.store(ContentFlags::DEFERRED, std::memory_order_relaxed);
 
-  // If we have a prot_info_, compute checksums for the batch.
+  // If we have a prot_info_, update protection info entries for the batch.
   if (b->prot_info_) {
-    ChecksumAdder cs_adder(b->prot_info_.get());
-    return b->Iterate(&cs_adder);
+    ProtectionInfoUpdater prot_info_updater(b->prot_info_.get());
+    return b->Iterate(&prot_info_updater);
   }
 
   return Status::OK();
