@@ -2711,7 +2711,7 @@ class ChecksumAdder : public WriteBatch::Handler {
 
   Status PutBlobIndexCF(uint32_t cf, const Slice& key,
                         const Slice& val) override {
-    return add_checksum(cf, key, val, kTypeValue);
+    return add_checksum(cf, key, val, kTypeBlobIndex);
   }
 
   Status MarkBeginPrepare(bool /* unprepare */) override {
