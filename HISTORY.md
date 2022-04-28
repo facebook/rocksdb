@@ -3,6 +3,7 @@
 ### Bug Fixes
 * Fixed a bug where manual flush would block forever even though flush options had wait=false.
 * Fixed a bug where RocksDB could corrupt DBs with `avoid_flush_during_recovery == true` by removing valid WALs, leading to `Status::Corruption` with message like "SST file is ahead of WALs" when attempting to reopen.
+* Fixed a bug in async_io path where incorrect length of data is read by FilePrefetchBuffer if data is consumed from two populated buffers and request for more data is sent.
 
 ### New Features
 * DB::GetLiveFilesStorageInfo is ready for production use.
