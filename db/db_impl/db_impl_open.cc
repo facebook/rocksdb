@@ -961,15 +961,14 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       }
 
       // We create a new batch and initialize with a valid prot_info_ to store
-      // the data checksums; prot_info_ might be reset below
+      // the data checksums
       WriteBatch batch(0, 0, 8, 0);
+
       status = WriteBatchInternal::SetContents(&batch, record);
-      // If no prot_info_ entries end up being created for `record`, reset
-      // prot_info_
-      batch.ClearProtectionInfoIfEmpty();
       if (!status.ok()) {
         return status;
       }
+
       SequenceNumber sequence = WriteBatchInternal::Sequence(&batch);
 
       if (immutable_db_options_.wal_recovery_mode ==
