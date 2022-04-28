@@ -2689,29 +2689,29 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
   ~ProtectionInfoUpdater() override {}
 
   Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
-    return update_prot_info(cf, key, val, kTypeValue);
+    return UpdateProtInfo(cf, key, val, kTypeValue);
   }
 
   Status DeleteCF(uint32_t cf, const Slice& key) override {
-    return update_prot_info(cf, key, "", kTypeDeletion);
+    return UpdateProtInfo(cf, key, "", kTypeDeletion);
   }
 
   Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
-    return update_prot_info(cf, key, "", kTypeSingleDeletion);
+    return UpdateProtInfo(cf, key, "", kTypeSingleDeletion);
   }
 
   Status DeleteRangeCF(uint32_t cf, const Slice& begin_key,
                        const Slice& end_key) override {
-    return update_prot_info(cf, begin_key, end_key, kTypeRangeDeletion);
+    return UpdateProtInfo(cf, begin_key, end_key, kTypeRangeDeletion);
   }
 
   Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
-    return update_prot_info(cf, key, val, kTypeMerge);
+    return UpdateProtInfo(cf, key, val, kTypeMerge);
   }
 
   Status PutBlobIndexCF(uint32_t cf, const Slice& key,
                         const Slice& val) override {
-    return update_prot_info(cf, key, val, kTypeBlobIndex);
+    return UpdateProtInfo(cf, key, val, kTypeBlobIndex);
   }
 
   Status MarkBeginPrepare(bool /* unprepare */) override {
@@ -2734,7 +2734,7 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
   Status MarkNoop(bool /* empty_batch */) override { return Status::OK(); }
 
  private:
-  Status update_prot_info(uint32_t cf, const Slice& key, const Slice& val,
+  Status UpdateProtInfo(uint32_t cf, const Slice& key, const Slice& val,
                           const ValueType op_type) {
     if (prot_info_) {
       prot_info_->entries_.emplace_back(
