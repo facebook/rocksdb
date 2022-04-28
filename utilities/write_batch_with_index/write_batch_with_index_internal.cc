@@ -473,8 +473,9 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
   Slice input = Slice(rep_.data() + data_offset, rep_.size() - data_offset);
   char tag;
   uint32_t column_family;
-  Status s = ReadRecordFromWriteBatch(&input, &tag, &column_family, Key, value,
-                                      blob, xid);
+  Status s =
+      ReadRecordFromWriteBatch(&input, &tag, &column_family, Key, value, blob,
+                               xid, /* FIXME column_descs */ nullptr);
   if (!s.ok()) {
     return s;
   }

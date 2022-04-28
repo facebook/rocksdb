@@ -52,6 +52,7 @@
 #include "db/merge_context.h"
 #include "db/snapshot_impl.h"
 #include "db/trim_history_scheduler.h"
+#include "db/wide/wide_column_serialization.h"
 #include "db/write_batch_internal.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
@@ -82,6 +83,7 @@ enum ContentFlags : uint32_t {
   HAS_DELETE_RANGE = 1 << 9,
   HAS_BLOB_INDEX = 1 << 10,
   HAS_BEGIN_UNPREPARE = 1 << 11,
+  HAS_PUT_ENTITY = 1 << 12,
 };
 
 struct BatchContentClassifier : public WriteBatch::Handler {
@@ -89,6 +91,12 @@ struct BatchContentClassifier : public WriteBatch::Handler {
 
   Status PutCF(uint32_t, const Slice&, const Slice&) override {
     content_flags |= ContentFlags::HAS_PUT;
+    return Status::OK();
+  }
+
+  Status PutEntityCF(uint32_t /* column_family_id */, const Slice& /* key */,
+                     const WideColumnDescs& /* column_descs */) override {
+    content_flags |= ContentFlags::HAS_PUT_ENTITY;
     return Status::OK();
   }
 
@@ -287,6 +295,10 @@ bool WriteBatch::HasPut() const {
   return (ComputeContentFlags() & ContentFlags::HAS_PUT) != 0;
 }
 
+bool WriteBatch::HasPutEntity() const {
+  return (ComputeContentFlags() & ContentFlags::HAS_PUT_ENTITY) != 0;
+}
+
 bool WriteBatch::HasDelete() const {
   return (ComputeContentFlags() & ContentFlags::HAS_DELETE) != 0;
 }
@@ -338,7 +350,8 @@ bool WriteBatch::HasRollback() const {
 
 Status ReadRecordFromWriteBatch(Slice* input, char* tag,
                                 uint32_t* column_family, Slice* key,
-                                Slice* value, Slice* blob, Slice* xid) {
+                                Slice* value, Slice* blob, Slice* xid,
+                                WideColumnDescs* column_descs) {
   assert(key != nullptr && value != nullptr);
   *tag = (*input)[0];
   input->remove_prefix(1);
@@ -435,6 +448,13 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
         return Status::Corruption("bad Rollback XID");
       }
       break;
+    case kTypeWideColumnEntity:
+      if (!GetVarint32(input, column_family) ||
+          !GetLengthPrefixedSlice(input, key) ||
+          !WideColumnSerialization::DeserializeAll(input, column_descs).ok()) {
+        return Status::Corruption("bad WriteBatch PutEntity");
+      }
+      break;
     default:
       return Status::Corruption("unknown WriteBatch tag");
   }
@@ -462,6 +482,8 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
       (begin == WriteBatchInternal::kHeader) && (end == wb->rep_.size());
 
   Slice key, value, blob, xid;
+  WideColumnDescs column_descs;
+
   // Sometimes a sub-batch starts with a Noop. We want to exclude such Noops as
   // the batch boundary symbols otherwise we would mis-count the number of
   // batches. We do that by checking whether the accumulated batch is empty
@@ -485,7 +507,7 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
       column_family = 0;  // default
 
       s = ReadRecordFromWriteBatch(&input, &tag, &column_family, &key, &value,
-                                   &blob, &xid);
+                                   &blob, &xid, &column_descs);
       if (!s.ok()) {
         return s;
       }
@@ -660,6 +682,15 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         s = handler->MarkNoop(empty_batch);
         assert(s.ok());
         empty_batch = true;
+        break;
+      case kTypeWideColumnEntity:
+        assert(wb->content_flags_.load(std::memory_order_relaxed) &
+               (ContentFlags::DEFERRED | ContentFlags::HAS_PUT_ENTITY));
+        s = handler->PutEntityCF(column_family, key, column_descs);
+        if (LIKELY(s.ok())) {
+          empty_batch = false;
+          ++found;
+        }
         break;
       default:
         return Status::Corruption("unknown WriteBatch tag");
@@ -889,6 +920,65 @@ Status WriteBatch::Put(ColumnFamilyHandle* column_family, const SliceParts& key,
 
   return Status::InvalidArgument(
       "Cannot call this method on column family enabling timestamp");
+}
+
+Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
+                                     const Slice& key,
+                                     const WideColumnDescs& column_descs) {
+  if (key.size() > size_t{port::kMaxUint32}) {
+    return Status::InvalidArgument("key is too large");
+  }
+
+  // TODO: estimate index overhead
+  size_t total_column_size = 0;
+
+  for (const auto& desc : column_descs) {
+    total_column_size += desc.name().size() + desc.value().size();
+  }
+
+  if (total_column_size > size_t{port::kMaxUint32}) {
+    return Status::InvalidArgument("wide column entity is too large");
+  }
+
+  LocalSavePoint save(b);
+
+  WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
+
+  b->rep_.push_back(static_cast<char>(kTypeWideColumnEntity));
+  PutVarint32(&b->rep_, column_family_id);
+  PutLengthPrefixedSlice(&b->rep_, key);
+  WideColumnSerialization::Serialize(column_descs, &b->rep_);
+
+  b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
+                              ContentFlags::HAS_PUT_ENTITY,
+                          std::memory_order_relaxed);
+
+  // TODO: ProtectionInfo
+
+  return save.commit();
+}
+
+Status WriteBatch::PutEntity(ColumnFamilyHandle* column_family,
+                             const Slice& key,
+                             const WideColumnDescs& column_descs) {
+  Status s;
+  uint32_t cf_id = 0;
+  size_t ts_sz = 0;
+
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(this,
+                                                            column_family);
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (ts_sz) {
+    return Status::InvalidArgument(
+        "Cannot call this method on column family enabling timestamp");
+  }
+
+  return WriteBatchInternal::PutEntity(this, cf_id, key, column_descs);
 }
 
 Status WriteBatchInternal::InsertNoop(WriteBatch* b) {

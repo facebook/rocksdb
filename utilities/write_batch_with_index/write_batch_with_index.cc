@@ -200,8 +200,8 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
     // set offset of current entry for call to AddNewEntry()
     last_entry_offset = input.data() - write_batch.Data().data();
 
-    s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key,
-                                  &value, &blob, &xid);
+    s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key, &value,
+                                 &blob, &xid, /* FIXME column_descs */ nullptr);
     if (!s.ok()) {
       break;
     }

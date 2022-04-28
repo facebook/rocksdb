@@ -100,6 +100,10 @@ class WriteBatch : public WriteBatchBase {
     return Put(nullptr, key, value);
   }
 
+  using WriteBatchBase::PutEntity;
+  Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
+                   const WideColumnDescs& column_descs) override;
+
   using WriteBatchBase::Delete;
   // If the database contains a mapping for "key", erase it.  Else do nothing.
   // The following Delete(..., const Slice& key) can be used when user-defined
@@ -240,6 +244,12 @@ class WriteBatch : public WriteBatchBase {
     }
     virtual void Put(const Slice& /*key*/, const Slice& /*value*/) {}
 
+    virtual Status PutEntityCF(uint32_t /* column_family_id */,
+                               const Slice& /* key */,
+                               const WideColumnDescs& /* column_descs */) {
+      return Status::InvalidArgument("PutEntityCF not implemented");
+    }
+
     virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
       if (column_family_id == 0) {
         Delete(key);
@@ -345,6 +355,9 @@ class WriteBatch : public WriteBatchBase {
 
   // Returns true if PutCF will be called during Iterate
   bool HasPut() const;
+
+  // Returns true if PutEntityCF will be called during Iterate
+  bool HasPutEntity() const;
 
   // Returns true if DeleteCF will be called during Iterate
   bool HasDelete() const;
