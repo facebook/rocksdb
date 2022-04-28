@@ -1491,6 +1491,8 @@ Status WriteBatch::UpdateTimestamps(
   return s;
 }
 
+namespace {
+
 class MemTableInserter : public WriteBatch::Handler {
 
   SequenceNumber sequence_;
@@ -2584,6 +2586,8 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 };
 
+}  // namespace
+
 // This function can only be called in these conditions:
 // 1) During Recovery()
 // 2) During Write(), in a single-threaded write thread
@@ -2674,6 +2678,8 @@ Status WriteBatchInternal::InsertInto(
   return s;
 }
 
+namespace {
+
 // This class updates protection info for a WriteBatch.
 class ProtectionInfoUpdater : public WriteBatch::Handler {
  public:
@@ -2745,6 +2751,8 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
 
   WriteBatch::ProtectionInfo* const prot_info_ = nullptr;
 };
+
+}  // namespace
 
 Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
   assert(contents.size() >= WriteBatchInternal::kHeader);
