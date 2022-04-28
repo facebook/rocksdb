@@ -1306,12 +1306,6 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
       // VersionSet::next_file_number_ always to be strictly greater than any
       // log number
       versions_->MarkFileNumberUsed(max_wal_number + 1);
-
-      if (corrupted_wal_found != nullptr && *corrupted_wal_found == true &&
-          immutable_db_options_.wal_recovery_mode ==
-              WALRecoveryMode::kPointInTimeRecovery) {
-        MoveCorruptedWalFiles(wal_numbers, corrupted_wal_number);
-      }
       assert(recovery_ctx != nullptr);
 
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
@@ -1354,48 +1348,6 @@ Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
                       << "recovery_finished";
 
   return status;
-}
-
-void DBImpl::MoveCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
-                                   uint64_t corrupted_wal_number) {
-  size_t num_wals = wal_numbers.size();
-  // Find the first corrupted wal.
-  auto iter = std::lower_bound(wal_numbers.begin(), wal_numbers.end(),
-                               corrupted_wal_number);
-  auto corrupt_start_iter = iter;
-
-  // Increment iter to move WAL files from first corrupted_wal_number + 1.
-  iter++;
-
-  std::string archival_path =
-      ArchivalDirectory(immutable_db_options_.GetWalDir());
-  Status create_status = env_->CreateDirIfMissing(archival_path);
-
-  // create_status is only checked when it needs to move the corrupted WAL files
-  // to archive folder.
-  create_status.PermitUncheckedError();
-
-  // Truncate the last WAL to reclaim the pre allocated space before
-  // moving it.
-  GetLogSizeAndMaybeTruncate(wal_numbers.back(), /*truncate=*/true, nullptr)
-      .PermitUncheckedError();
-
-  // Move all the WAL files from corrupted_wal_number + 1 to last WAL
-  // (max_wal_number) to avoid column family inconsistency error to archival
-  // directory. If its unable to create archive dir, it will delete the
-  // corrupted WAL files.
-  // We are moving all but first corrupted WAL file to a different folder.
-  while (iter != wal_numbers.end()) {
-    LogFileNumberSize log(*iter);
-    std::string fname = LogFileName(immutable_db_options_.GetWalDir(), *iter);
-#ifndef ROCKSDB_LITE
-    if (create_status.ok()) {
-      wal_manager_.ArchiveWALFile(fname, *iter);
-    }
-#endif
-    iter++;
-  }
-  wal_numbers.erase(corrupt_start_iter + 1, wal_numbers.begin() + num_wals);
 }
 
 Status DBImpl::GetLogSizeAndMaybeTruncate(uint64_t wal_number, bool truncate,

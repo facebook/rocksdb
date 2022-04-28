@@ -1702,12 +1702,6 @@ class DBImpl : public DB {
   Status WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                                      MemTable* mem, VersionEdit* edit);
 
-  // Move all the WAL files starting from corrupted WAL found to
-  // max_wal_number to avoid column family inconsistency error on recovery. It
-  // also removes the deleted file from the vector wal_numbers.
-  void MoveCorruptedWalFiles(std::vector<uint64_t>& wal_numbers,
-                             uint64_t corrupted_wal_number);
-
   // Get the size of a log file and, if truncate is true, truncate the
   // log file to its actual size, thereby freeing preallocated space.
   // Return success even if truncate fails
