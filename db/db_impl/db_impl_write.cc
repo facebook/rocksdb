@@ -2247,11 +2247,25 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   return Write(opt, &batch);
 }
 
-Status DB::PutEntity(const WriteOptions& /* options */,
-                     ColumnFamilyHandle* /* column_family */,
-                     const Slice& /* key */,
-                     const WideColumnDescs& /* column_descs */) {
-  return Status::OK();
+Status DB::PutEntity(const WriteOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     const WideColumnDescs& column_descs) {
+  const ColumnFamilyHandle* const default_cf = DefaultColumnFamily();
+  assert(default_cf);
+
+  const Comparator* const default_cf_ucmp = default_cf->GetComparator();
+  assert(default_cf_ucmp);
+
+  WriteBatch batch(/* reserved_bytes */ 0, /* max_bytes */ 0,
+                   /* protection_bytes_per_key */ 0,
+                   default_cf_ucmp->timestamp_size());
+
+  const Status s = batch.PutEntity(column_family, key, column_descs);
+  if (!s.ok()) {
+    return s;
+  }
+
+  return Write(options, &batch);
 }
 
 Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
