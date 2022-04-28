@@ -1404,21 +1404,11 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       ASSERT_TRUE(
           db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats, &values));
 
-      EXPECT_EQ(
-          ToString(expected[static_cast<size_t>(CacheEntryRole::kIndexBlock)]),
-          values["count.index-block"]);
-      EXPECT_EQ(
-          ToString(expected[static_cast<size_t>(CacheEntryRole::kDataBlock)]),
-          values["count.data-block"]);
-      EXPECT_EQ(
-          ToString(expected[static_cast<size_t>(CacheEntryRole::kFilterBlock)]),
-          values["count.filter-block"]);
-      EXPECT_EQ(
-          ToString(
-              prev_expected[static_cast<size_t>(CacheEntryRole::kWriteBuffer)]),
-          values["count.write-buffer"]);
-      EXPECT_EQ(ToString(expected[static_cast<size_t>(CacheEntryRole::kMisc)]),
-                values["count.misc"]);
+      for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
+        auto role = static_cast<CacheEntryRole>(i);
+        EXPECT_EQ(ToString(expected[i]),
+                  values[BlockCacheEntryStatsMapKeys::EntryCount(role)]);
+      }
 
       // Add one for kWriteBuffer
       {
@@ -1431,7 +1421,8 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
         env_->MockSleepForSeconds(1);
         EXPECT_EQ(ToString(prev_expected[static_cast<size_t>(
                       CacheEntryRole::kWriteBuffer)]),
-                  values["count.write-buffer"]);
+                  values[BlockCacheEntryStatsMapKeys::EntryCount(
+                      CacheEntryRole::kWriteBuffer)]);
         // Not enough for a "background" miss but enough for a "foreground" miss
         env_->MockSleepForSeconds(45);
 
@@ -1440,7 +1431,8 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
         EXPECT_EQ(
             ToString(
                 expected[static_cast<size_t>(CacheEntryRole::kWriteBuffer)]),
-            values["count.write-buffer"]);
+            values[BlockCacheEntryStatsMapKeys::EntryCount(
+                CacheEntryRole::kWriteBuffer)]);
       }
       prev_expected = expected;
 

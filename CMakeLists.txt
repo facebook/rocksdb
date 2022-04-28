@@ -78,19 +78,6 @@ if ($ENV{CIRCLECI})
   add_definitions(-DCIRCLECI)
 endif()
 
-# third-party/folly is only validated to work on Linux and Windows for now.
-# So only turn it on there by default.
-if(CMAKE_SYSTEM_NAME MATCHES "Linux|Windows")
-  if(MSVC AND MSVC_VERSION LESS 1910)
-    # Folly does not compile with MSVC older than VS2017
-    option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
-  else()
-    option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" ON)
-  endif()
-else()
-  option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
-endif()
-
 if( NOT DEFINED CMAKE_CXX_STANDARD )
   set(CMAKE_CXX_STANDARD 17)
 endif()
@@ -433,28 +420,30 @@ if (ASSERT_STATUS_CHECKED)
   add_definitions(-DROCKSDB_ASSERT_STATUS_CHECKED)
 endif()
 
-if(DEFINED USE_RTTI)
-  if(USE_RTTI)
-    message(STATUS "Enabling RTTI")
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DROCKSDB_USE_RTTI")
-  else()
-    if(MSVC)
-      message(STATUS "Disabling RTTI in Release builds. Always on in Debug.")
-      set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
-      set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /GR-")
-    else()
-      message(STATUS "Disabling RTTI in Release builds")
-      set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fno-rtti")
-      set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-rtti")
-    endif()
-  endif()
-else()
+
+# RTTI is by default AUTO which enables it in debug and disables it in release.
+set(USE_RTTI AUTO CACHE STRING "Enable RTTI in builds")
+set_property(CACHE USE_RTTI PROPERTY STRINGS AUTO ON OFF)
+if(USE_RTTI STREQUAL "AUTO")
   message(STATUS "Enabling RTTI in Debug builds only (default)")
   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
   if(MSVC)
-     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /GR-")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /GR-")
   else()
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-rtti")
+  endif()
+elseif(USE_RTTI)
+  message(STATUS "Enabling RTTI in all builds")
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
+  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DROCKSDB_USE_RTTI")
+else()
+  if(MSVC)
+    message(STATUS "Disabling RTTI in Release builds. Always on in Debug.")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /GR-")
+  else()
+    message(STATUS "Disabling RTTI in all builds")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fno-rtti")
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-rtti")
   endif()
 endif()
@@ -592,8 +581,9 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
-if(WITH_FOLLY_DISTRIBUTED_MUTEX)
+if(USE_FOLLY)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
+  add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
 endif()
 find_package(Threads REQUIRED)
 
@@ -806,6 +796,7 @@ set(SOURCES
         trace_replay/trace_record_result.cc
         trace_replay/trace_record.cc
         trace_replay/trace_replay.cc
+        util/cleanable.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
@@ -826,6 +817,7 @@ set(SOURCES
         util/thread_local.cc
         util/threadpool_imp.cc
         util/xxhash.cc
+        utilities/agg_merge/agg_merge.cc
         utilities/backup/backup_engine.cc
         utilities/blob_db/blob_compaction_filter.cc
         utilities/blob_db/blob_db.cc
@@ -975,13 +967,12 @@ else()
     env/io_posix.cc)
 endif()
 
-if(WITH_FOLLY_DISTRIBUTED_MUTEX)
+if(USE_FOLLY)
   list(APPEND SOURCES
-    third-party/folly/folly/detail/Futex.cpp
-    third-party/folly/folly/synchronization/AtomicNotification.cpp
-    third-party/folly/folly/synchronization/DistributedMutex.cpp
-    third-party/folly/folly/synchronization/ParkingLot.cpp
-    third-party/folly/folly/synchronization/WaitOptions.cpp)
+    third-party/folly/folly/container/detail/F14Table.cpp
+    third-party/folly/folly/lang/SafeAssert.cpp
+    third-party/folly/folly/lang/ToAscii.cpp
+    third-party/folly/folly/ScopeGuard.cpp)
 endif()
 
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
@@ -1346,6 +1337,7 @@ if(WITH_TESTS)
         util/thread_list_test.cc
         util/thread_local_test.cc
         util/work_queue_test.cc
+        utilities/agg_merge/agg_merge_test.cc
         utilities/backup/backup_engine_test.cc
         utilities/blob_db/blob_db_test.cc
         utilities/cassandra/cassandra_functional_test.cc
@@ -1377,14 +1369,11 @@ if(WITH_TESTS)
     )
   endif()
 
-  if(WITH_FOLLY_DISTRIBUTED_MUTEX)
-    list(APPEND TESTS third-party/folly/folly/synchronization/test/DistributedMutexTest.cpp)
-  endif()
-
   set(TESTUTIL_SOURCE
       db/db_test_util.cc
       monitoring/thread_status_updater_debug.cc
       table/mock_table.cc
+      utilities/agg_merge/test_agg_merge.cc
       utilities/cassandra/test_utils.cc
   )
   enable_testing()

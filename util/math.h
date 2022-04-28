@@ -57,6 +57,17 @@ inline int FloorLog2(T v) {
 #endif
 }
 
+// Constexpr version of FloorLog2
+template <typename T>
+constexpr int ConstexprFloorLog2(T v) {
+  int rv = 0;
+  while (v > T{1}) {
+    ++rv;
+    v >>= 1;
+  }
+  return rv;
+}
+
 // Number of low-order zero bits before the first 1 bit. Undefined for 0.
 template <typename T>
 inline int CountTrailingZeroBits(T v) {

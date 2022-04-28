@@ -28,10 +28,10 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
-#include "third-party/folly/folly/ConstexprMath.h"
 #include "util/bloom_impl.h"
 #include "util/coding.h"
 #include "util/hash.h"
+#include "util/math.h"
 #include "util/ribbon_config.h"
 #include "util/ribbon_impl.h"
 #include "util/string_util.h"
@@ -1203,7 +1203,7 @@ inline void LegacyBloomBitsBuilder::AddHash(uint32_t h, char* data,
   assert(num_lines > 0 && total_bits > 0);
 
   LegacyBloomImpl::AddHash(h, num_lines, num_probes_, data,
-                           folly::constexpr_log2(CACHE_LINE_SIZE));
+                           ConstexprFloorLog2(CACHE_LINE_SIZE));
 }
 
 class LegacyBloomBitsReader : public BuiltinFilterBitsReader {
@@ -1671,7 +1671,7 @@ BuiltinFilterBitsReader* BuiltinFilterPolicy::GetBuiltinFilterBitsReader(
 
   if (num_lines * CACHE_LINE_SIZE == len) {
     // Common case
-    log2_cache_line_size = folly::constexpr_log2(CACHE_LINE_SIZE);
+    log2_cache_line_size = ConstexprFloorLog2(CACHE_LINE_SIZE);
   } else if (num_lines == 0 || len % num_lines != 0) {
     // Invalid (no solution to num_lines * x == len)
     // Treat as zero probes (always FP) for now.

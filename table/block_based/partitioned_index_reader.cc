@@ -170,7 +170,7 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
   }
 
   // For saving "all or nothing" to partition_map_
-  std::unordered_map<uint64_t, CachableEntry<Block>> map_in_progress;
+  UnorderedMap<uint64_t, CachableEntry<Block>> map_in_progress;
 
   // After prefetch, read the partitions one by one
   biter.SeekToFirst();

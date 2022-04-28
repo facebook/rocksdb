@@ -288,7 +288,7 @@ missing_make_config_paths := $(shell				\
 	grep "\./\S*\|/\S*" -o $(CURDIR)/make_config.mk | 	\
 	while read path;					\
 		do [ -e $$path ] || echo $$path; 		\
-	done | sort | uniq)
+	done | sort | uniq | grep -v "/DOES/NOT/EXIST")
 
 $(foreach path, $(missing_make_config_paths), \
 	$(warning Warning: $(path) does not exist))
@@ -340,6 +340,8 @@ endif
 # ASAN doesn't work well with jemalloc. If we're compiling with ASAN, we should use regular malloc.
 ifdef COMPILE_WITH_ASAN
 	DISABLE_JEMALLOC=1
+	ASAN_OPTIONS?=detect_stack_use_after_return=1
+	export ASAN_OPTIONS
 	EXEC_LDFLAGS += -fsanitize=address
 	PLATFORM_CCFLAGS += -fsanitize=address
 	PLATFORM_CXXFLAGS += -fsanitize=address
@@ -400,6 +402,10 @@ ifndef DISABLE_JEMALLOC
 	ifdef JEMALLOC
 		PLATFORM_CXXFLAGS += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
 		PLATFORM_CCFLAGS  += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
+		ifeq ($(USE_FOLLY),1)
+			PLATFORM_CXXFLAGS += -DUSE_JEMALLOC
+			PLATFORM_CCFLAGS  += -DUSE_JEMALLOC
+		endif
 	endif
 	ifdef WITH_JEMALLOC_FLAG
 		PLATFORM_LDFLAGS += -ljemalloc
@@ -410,8 +416,8 @@ ifndef DISABLE_JEMALLOC
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE)
 endif
 
-ifndef USE_FOLLY_DISTRIBUTED_MUTEX
-	USE_FOLLY_DISTRIBUTED_MUTEX=0
+ifndef USE_FOLLY
+	USE_FOLLY=0
 endif
 
 ifndef GTEST_THROW_ON_FAILURE
@@ -431,8 +437,12 @@ else
 	PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
 endif
 
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-	FOLLY_DIR = ./third-party/folly
+# This provides a Makefile simulation of a Meta-internal folly integration.
+# It is not validated for general use.
+ifeq ($(USE_FOLLY),1)
+	ifeq (,$(FOLLY_DIR))
+		FOLLY_DIR = ./third-party/folly
+	endif
 	# AIX: pre-defined system headers are surrounded by an extern "C" block
 	ifeq ($(PLATFORM), OS_AIX)
 		PLATFORM_CCFLAGS += -I$(FOLLY_DIR)
@@ -441,6 +451,8 @@ ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 		PLATFORM_CCFLAGS += -isystem $(FOLLY_DIR)
 		PLATFORM_CXXFLAGS += -isystem $(FOLLY_DIR)
 	endif
+	PLATFORM_CCFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
+	PLATFORM_CXXFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
 endif
 
 ifdef TEST_CACHE_LINE_SIZE
@@ -527,7 +539,7 @@ LIB_OBJECTS += $(patsubst %.c, $(OBJ_DIR)/%.o, $(LIB_SOURCES_C))
 LIB_OBJECTS += $(patsubst %.S, $(OBJ_DIR)/%.o, $(LIB_SOURCES_ASM))
 endif
 
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+ifeq ($(USE_FOLLY),1)
   LIB_OBJECTS += $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(FOLLY_SOURCES))
 endif
 
@@ -562,11 +574,6 @@ ALL_SOURCES += $(ROCKSDB_PLUGIN_SOURCES)
 TESTS = $(patsubst %.cc, %, $(notdir $(TEST_MAIN_SOURCES)))
 TESTS += $(patsubst %.c, %, $(notdir $(TEST_MAIN_SOURCES_C)))
 
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-	TESTS += folly_synchronization_distributed_mutex_test
-	ALL_SOURCES += third-party/folly/folly/synchronization/test/DistributedMutexTest.cc
-endif
-
 # `make check-headers` to very that each header file includes its own
 # dependencies
 ifneq ($(filter check-headers, $(MAKECMDGOALS)),)
@@ -591,9 +598,6 @@ am__v_CCH_1 =
 check-headers: $(HEADER_OK_FILES)
 
 # options_settable_test doesn't pass with UBSAN as we use hack in the test
-ifdef COMPILE_WITH_UBSAN
-TESTS := $(shell echo $(TESTS) | sed 's/\boptions_settable_test\b//g')
-endif
 ifdef ASSERT_STATUS_CHECKED
 # TODO: finish fixing all tests to pass this check
 TESTS_FAILING_ASC = \
@@ -613,10 +617,13 @@ ROCKSDBTESTS_SUBSET ?= $(TESTS)
 # env_test - suspicious use of test::TmpDir
 # deletefile_test - serial because it generates giant temporary files in
 #   its various tests. Parallel can fill up your /dev/shm
+# db_bloom_filter_test - serial because excessive space usage by instances
+#   of DBFilterConstructionReserveMemoryTestWithParam can fill up /dev/shm
 NON_PARALLEL_TEST = \
 	c_test \
 	env_test \
 	deletefile_test \
+	db_bloom_filter_test \
 
 PARALLEL_TEST = $(filter-out $(NON_PARALLEL_TEST), $(TESTS))
 
@@ -791,7 +798,7 @@ endif  # PLATFORM_SHARED_EXT
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
 	release tags tags0 valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava gen-pc install install-static install-shared uninstall \
-	analyze tools tools_lib check-headers \
+	analyze tools tools_lib check-headers checkout_folly \
 	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
 	blackbox_crash_test_with_txn whitebox_crash_test_with_txn \
 	blackbox_crash_test_with_best_efforts_recovery \
@@ -1038,31 +1045,31 @@ ldb_tests: ldb
 include crash_test.mk
 
 asan_check: clean
-	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) check -j32
+	COMPILE_WITH_ASAN=1 $(MAKE) check -j32
 	$(MAKE) clean
 
 asan_crash_test: clean
-	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test
+	COMPILE_WITH_ASAN=1 $(MAKE) crash_test
 	$(MAKE) clean
 
 whitebox_asan_crash_test: clean
-	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) whitebox_crash_test
+	COMPILE_WITH_ASAN=1 $(MAKE) whitebox_crash_test
 	$(MAKE) clean
 
 blackbox_asan_crash_test: clean
-	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) blackbox_crash_test
+	COMPILE_WITH_ASAN=1 $(MAKE) blackbox_crash_test
 	$(MAKE) clean
 
 asan_crash_test_with_atomic_flush: clean
-	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_atomic_flush
+	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_atomic_flush
 	$(MAKE) clean
 
 asan_crash_test_with_txn: clean
-	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_txn
+	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_txn
 	$(MAKE) clean
 
 asan_crash_test_with_best_efforts_recovery: clean
-	ASAN_OPTIONS=detect_stack_use_after_return=1 COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_best_efforts_recovery
+	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_best_efforts_recovery
 	$(MAKE) clean
 
 ubsan_check: clean
@@ -1306,11 +1313,6 @@ trace_analyzer: $(OBJ_DIR)/tools/trace_analyzer.o $(ANALYZE_OBJECTS) $(TOOLS_LIB
 block_cache_trace_analyzer: $(OBJ_DIR)/tools/block_cache_analyzer/block_cache_trace_analyzer_tool.o $(ANALYZE_OBJECTS) $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-folly_synchronization_distributed_mutex_test: $(OBJ_DIR)/third-party/folly/folly/synchronization/test/DistributedMutexTest.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
-endif
-
 cache_bench: $(OBJ_DIR)/cache/cache_bench.o $(CACHE_BENCH_OBJECTS) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1375,6 +1377,9 @@ ribbon_test: $(OBJ_DIR)/util/ribbon_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 option_change_migration_test: $(OBJ_DIR)/utilities/option_change_migration/option_change_migration_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+agg_merge_test: $(OBJ_DIR)/utilities/agg_merge/agg_merge_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 stringappend_test: $(OBJ_DIR)/utilities/merge_operators/string_append/stringappend_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2383,6 +2388,22 @@ commit_prereq:
 	false # J=$(J) build_tools/precommit_checker.py unit clang_unit release clang_release tsan asan ubsan lite unit_non_shm
 	# $(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
 
+# For public CI runs, checkout folly in a way that can build with RocksDB.
+# This is mostly intended as a test-only simulation of Meta-internal folly
+# integration.
+checkout_folly:
+	if [ -e third-party/folly ]; then \
+		cd third-party/folly && git fetch origin; \
+	else \
+		cd third-party && git clone https://github.com/facebook/folly.git; \
+	fi
+	@# Pin to a particular version for public CI, so that PR authors don't
+	@# need to worry about folly breaking our integration. Update periodically
+	cd third-party/folly && git reset --hard 98b9b2c1124e99f50f9085ddee74ce32afffc665
+	@# A hack to remove boost dependency.
+	@# NOTE: this hack is not needed if using FBCODE compiler config
+	perl -pi -e 's/^(#include <boost)/\/\/$$1/' third-party/folly/folly/functional/Invoke.h
+
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation
 # ---------------------------------------------------------------------------
@@ -2435,7 +2456,7 @@ endif
 ifneq ($(SKIP_DEPENDS), 1)
 DEPFILES = $(patsubst %.cc, $(OBJ_DIR)/%.cc.d, $(ALL_SOURCES))
 DEPFILES+ = $(patsubst %.c, $(OBJ_DIR)/%.c.d, $(LIB_SOURCES_C) $(TEST_MAIN_SOURCES_C))
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+ifeq ($(USE_FOLLY),1)
   DEPFILES +=$(patsubst %.cpp, $(OBJ_DIR)/%.cpp.d, $(FOLLY_SOURCES))
 endif
 endif
@@ -2483,7 +2504,7 @@ list_all_tests:
 
 # Remove the rules for which dependencies should not be generated and see if any are left.
 #If so, include the dependencies; if not, do not include the dependency files
-ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets check-headers check-sources jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test, $(MAKECMDGOALS))
+ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets check-headers check-sources jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test checkout_folly, $(MAKECMDGOALS))
 ifneq ("$(ROCKS_DEP_RULES)", "")
 -include $(DEPFILES)
 endif

@@ -287,7 +287,6 @@ TEST_F(DBWALTest, Recover) {
 
     ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("v1", Get(1, "foo"));
-
     ASSERT_EQ("v1", Get(1, "foo"));
     ASSERT_EQ("v5", Get(1, "baz"));
     ASSERT_OK(Put(1, "bar", "v2"));

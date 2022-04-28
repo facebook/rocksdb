@@ -263,6 +263,10 @@ Status WritePreparedTxn::CommitInternal() {
 Status WritePreparedTxn::RollbackInternal() {
   ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
                  "RollbackInternal prepare_seq: %" PRIu64, GetId());
+
+  assert(db_impl_);
+  assert(wpt_db_);
+
   WriteBatch rollback_batch;
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
@@ -273,8 +277,9 @@ Status WritePreparedTxn::RollbackInternal() {
   // to prevent callback's seq to be overrriden inside DBImpk::Get
   roptions.snapshot = wpt_db_->GetMaxSnapshot();
   struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
-    DBImpl* db_;
-    WritePreparedTxnReadCallback callback;
+    DBImpl* const db_;
+    WritePreparedTxnDB* const wpt_db_;
+    WritePreparedTxnReadCallback callback_;
     WriteBatch* rollback_batch_;
     std::map<uint32_t, const Comparator*>& comparators_;
     std::map<uint32_t, ColumnFamilyHandle*>& handles_;
@@ -282,14 +287,16 @@ Status WritePreparedTxn::RollbackInternal() {
     std::map<uint32_t, CFKeys> keys_;
     bool rollback_merge_operands_;
     ReadOptions roptions_;
+
     RollbackWriteBatchBuilder(
         DBImpl* db, WritePreparedTxnDB* wpt_db, SequenceNumber snap_seq,
         WriteBatch* dst_batch,
         std::map<uint32_t, const Comparator*>& comparators,
         std::map<uint32_t, ColumnFamilyHandle*>& handles,
-        bool rollback_merge_operands, ReadOptions _roptions)
+        bool rollback_merge_operands, const ReadOptions& _roptions)
         : db_(db),
-          callback(wpt_db, snap_seq),  // disable min_uncommitted optimization
+          wpt_db_(wpt_db),
+          callback_(wpt_db, snap_seq),  // disable min_uncommitted optimization
           rollback_batch_(dst_batch),
           comparators_(comparators),
           handles_(handles),
@@ -304,8 +311,8 @@ Status WritePreparedTxn::RollbackInternal() {
         keys_[cf] = CFKeys(SetComparator(cmp));
       }
       auto it = cf_keys.insert(key);
-      if (it.second ==
-          false) {  // second is false if a element already existed.
+      // second is false if a element already existed.
+      if (it.second == false) {
         return s;
       }
 
@@ -316,7 +323,7 @@ Status WritePreparedTxn::RollbackInternal() {
       get_impl_options.column_family = cf_handle;
       get_impl_options.value = &pinnable_val;
       get_impl_options.value_found = &not_used;
-      get_impl_options.callback = &callback;
+      get_impl_options.callback = &callback_;
       s = db_->GetImpl(roptions_, key, get_impl_options);
       assert(s.ok() || s.IsNotFound());
       if (s.ok()) {
@@ -325,7 +332,11 @@ Status WritePreparedTxn::RollbackInternal() {
       } else if (s.IsNotFound()) {
         // There has been no readable value before txn. By adding a delete we
         // make sure that there will be none afterwards either.
-        s = rollback_batch_->Delete(cf_handle, key);
+        if (wpt_db_->ShouldRollbackWithSingleDelete(cf_handle, key)) {
+          s = rollback_batch_->SingleDelete(cf_handle, key);
+        } else {
+          s = rollback_batch_->Delete(cf_handle, key);
+        }
         assert(s.ok());
       } else {
         // Unexpected status. Return it to the user.

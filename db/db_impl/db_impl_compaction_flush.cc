@@ -1367,7 +1367,7 @@ Status DBImpl::CompactFilesImpl(
       GetDataDir(c->column_family_data(), c->output_path_id()),
       GetDataDir(c->column_family_data(), 0), stats_, &mutex_, &error_handler_,
       snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
-      table_cache_, &event_logger_,
+      job_context, table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       &compaction_job_stats, Env::Priority::USER, io_tracer_,
@@ -1704,9 +1704,11 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   Status s;
   if (immutable_db_options_.atomic_flush) {
     s = AtomicFlushMemTables({cfh->cfd()}, flush_options,
-                             FlushReason::kManualFlush);
+                             FlushReason::kManualFlush,
+                             write_controller().IsStopped());
   } else {
-    s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
+    s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush,
+                      write_controller().IsStopped());
   }
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -3361,7 +3363,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         GetDataDir(c->column_family_data(), c->output_path_id()),
         GetDataDir(c->column_family_data(), 0), stats_, &mutex_,
         &error_handler_, snapshot_seqs, earliest_write_conflict_snapshot,
-        snapshot_checker, table_cache_, &event_logger_,
+        snapshot_checker, job_context, table_cache_, &event_logger_,
         c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
         &compaction_job_stats, thread_pri, io_tracer_,

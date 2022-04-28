@@ -49,8 +49,10 @@
 #include <zstd.h>
 #if ZSTD_VERSION_NUMBER >= 10103  // v1.1.3+
 #include <zdict.h>
-#define ZSTD_STREAMING
 #endif  // ZSTD_VERSION_NUMBER >= 10103
+#if ZSTD_VERSION_NUMBER >= 10400  // v1.4.0+
+#define ZSTD_STREAMING
+#endif  // ZSTD_VERSION_NUMBER >= 10400
 namespace ROCKSDB_NAMESPACE {
 // Need this for the context allocation override
 // On windows we need to do this explicitly
@@ -516,8 +518,8 @@ inline bool ZSTDNotFinal_Supported() {
 }
 
 inline bool ZSTD_Streaming_Supported() {
-#ifdef ZSTD
-  return ZSTD_versionNumber() >= 10300;
+#if defined(ZSTD) && defined(ZSTD_STREAMING)
+  return true;
 #else
   return false;
 #endif

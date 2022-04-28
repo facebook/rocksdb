@@ -10,7 +10,9 @@
 #include <cinttypes>
 #include <iostream>
 
+#include "options/options_helper.h"
 #include "port/port.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/utilities/ldb_cmd.h"
 #include "table/sst_file_dumper.h"
 
@@ -30,6 +32,16 @@ static const std::vector<std::pair<CompressionType, const char*>>
 namespace {
 
 void print_help(bool to_stderr) {
+  std::string supported_compressions;
+  for (CompressionType ct : GetSupportedCompressions()) {
+    if (!supported_compressions.empty()) {
+      supported_compressions += ", ";
+    }
+    std::string str;
+    Status s = GetStringFromCompressionType(&str, ct);
+    assert(s.ok());
+    supported_compressions += str;
+  }
   fprintf(
       to_stderr ? stderr : stdout,
       R"(sst_dump --file=<data_dir_OR_sst_file> [--command=check|scan|raw|recompress|identify]
@@ -88,6 +100,7 @@ void print_help(bool to_stderr) {
       kSnappyCompression>
       Can be combined with --command=recompress to run recompression for this
       list of compression types
+      Supported compression types: %s
 
     --parse_internal_key=<0xKEY>
       Convenience option to parse an internal key on the command line. Dumps the
@@ -109,7 +122,8 @@ void print_help(bool to_stderr) {
 
     --compression_max_dict_buffer_bytes=<int64_t>
       Limit on buffer size from which we collect samples for dictionary generation.
-)");
+)",
+      supported_compressions.c_str());
 }
 
 // arg_name would include all prefix, e.g. "--my_arg="

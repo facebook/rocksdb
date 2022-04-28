@@ -175,7 +175,10 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
 }
 
-TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
+// TODO akanksha: Update the test to check that combination
+// does not actually write to FS (use open read-only with
+// CompositeEnvWrapper+ReadOnlyFileSystem).
+TEST_F(DBBasicTest, DISABLED_ReadOnlyDBWithWriteDBIdToManifestSet) {
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_OK(Put("bar", "v2"));
   ASSERT_OK(Put("foo", "v3"));

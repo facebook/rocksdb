@@ -73,7 +73,7 @@ class CompactionJob {
       InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
       std::vector<SequenceNumber> existing_snapshots,
       SequenceNumber earliest_write_conflict_snapshot,
-      const SnapshotChecker* snapshot_checker,
+      const SnapshotChecker* snapshot_checker, JobContext* job_context,
       std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
       bool paranoid_file_checks, bool measure_io_stats,
       const std::string& dbname, CompactionJobStats* compaction_job_stats,
@@ -212,6 +212,8 @@ class CompactionJob {
 
   const SnapshotChecker* const snapshot_checker_;
 
+  JobContext* job_context_;
+
   std::shared_ptr<Cache> table_cache_;
 
   EventLogger* event_logger_;
@@ -343,6 +345,7 @@ class CompactionServiceCompactionJob : private CompactionJob {
       std::vector<SequenceNumber> existing_snapshots,
       std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
       const std::string& dbname, const std::shared_ptr<IOTracer>& io_tracer,
+      const std::atomic<bool>* manual_compaction_canceled,
       const std::string& db_id, const std::string& db_session_id,
       const std::string& output_path,
       const CompactionServiceInput& compaction_service_input,
