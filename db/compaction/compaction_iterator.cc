@@ -649,7 +649,7 @@ void CompactionIterator::NextFromInput() {
                    "TransactionDBOptions::rollback_deletion_type_callback is "
                    "configured properly. Mixing SD and DEL can lead to "
                    "undefined behaviors";
-            ROCKS_LOG_FATAL(info_log_, "%s", oss.str().c_str());
+            ROCKS_LOG_ERROR(info_log_, "%s", oss.str().c_str());
             valid_ = false;
             status_ = Status::Corruption(oss.str());
             return;
