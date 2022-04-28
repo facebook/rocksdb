@@ -1579,6 +1579,14 @@ class MemTableInserter : public WriteBatch::Handler {
     return res;
   }
 
+  void DecrementProtectionInfoIdxForTryAgain() {
+    if (prot_info_ != nullptr) --prot_info_idx_;
+  }
+
+  void ResetProtectionInfoIdx() {
+    prot_info_idx_ = 0;
+  }
+
  protected:
   bool WriteBeforePrepare() const override { return write_before_prepare_; }
   bool WriteAfterCommit() const override { return write_after_commit_; }
@@ -1869,15 +1877,25 @@ class MemTableInserter : public WriteBatch::Handler {
   Status PutCF(uint32_t column_family_id, const Slice& key,
                const Slice& value) override {
     const auto* kv_prot_info = NextProtectionInfo();
+    Status ret_status;
     if (kv_prot_info != nullptr) {
       // Memtable needs seqno, doesn't need CF ID
       auto mem_kv_prot_info =
           kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
-      return PutCFImpl(column_family_id, key, value, kTypeValue,
+      ret_status = PutCFImpl(column_family_id, key, value, kTypeValue,
                        &mem_kv_prot_info);
-    }
-    return PutCFImpl(column_family_id, key, value, kTypeValue,
+    } else {
+      ret_status = PutCFImpl(column_family_id, key, value, kTypeValue,
                      nullptr /* kv_prot_info */);
+    }
+    // TODO: this assumes that if TryAgain status is returned to the caller,
+    // the operation is actually tried again. The proper way to do this is to
+    // pass a `try_again` parameter to the operation itself and decrement
+    // prot_info_idx_ based on that
+    if (UNLIKELY(ret_status.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
+    return ret_status;
   }
 
   Status DeleteImpl(uint32_t /*column_family_id*/, const Slice& key,
@@ -1924,6 +1942,9 @@ class MemTableInserter : public WriteBatch::Handler {
       } else if (ret_status.ok()) {
         MaybeAdvanceSeq(false /* batch_boundary */);
       }
+      if (UNLIKELY(ret_status.IsTryAgain())) {
+        DecrementProtectionInfoIdxForTryAgain();
+      }
       return ret_status;
     }
 
@@ -1955,6 +1976,9 @@ class MemTableInserter : public WriteBatch::Handler {
       ret_status =
           WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
     }
+    if (UNLIKELY(ret_status.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
     return ret_status;
   }
 
@@ -1983,6 +2007,9 @@ class MemTableInserter : public WriteBatch::Handler {
       } else if (ret_status.ok()) {
         MaybeAdvanceSeq(false /* batch_boundary */);
       }
+      if (UNLIKELY(ret_status.IsTryAgain())) {
+        DecrementProtectionInfoIdxForTryAgain();
+      }
       return ret_status;
     }
     assert(ret_status.ok());
@@ -2006,6 +2033,9 @@ class MemTableInserter : public WriteBatch::Handler {
       // TODO(ajkr): propagate `ProtectionInfoKVOS64`.
       ret_status = WriteBatchInternal::SingleDelete(rebuilding_trx_,
                                                     column_family_id, key);
+    }
+    if (UNLIKELY(ret_status.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
     }
     return ret_status;
   }
@@ -2035,6 +2065,9 @@ class MemTableInserter : public WriteBatch::Handler {
         }
       } else if (ret_status.ok()) {
         MaybeAdvanceSeq(false /* batch_boundary */);
+      }
+      if (UNLIKELY(ret_status.IsTryAgain())) {
+        DecrementProtectionInfoIdxForTryAgain();
       }
       return ret_status;
     }
@@ -2090,6 +2123,9 @@ class MemTableInserter : public WriteBatch::Handler {
       ret_status = WriteBatchInternal::DeleteRange(
           rebuilding_trx_, column_family_id, begin_key, end_key);
     }
+    if (UNLIKELY(ret_status.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
     return ret_status;
   }
 
@@ -2118,6 +2154,9 @@ class MemTableInserter : public WriteBatch::Handler {
         }
       } else if (ret_status.ok()) {
         MaybeAdvanceSeq(false /* batch_boundary */);
+      }
+      if (UNLIKELY(ret_status.IsTryAgain())) {
+        DecrementProtectionInfoIdxForTryAgain();
       }
       return ret_status;
     }
@@ -2240,23 +2279,31 @@ class MemTableInserter : public WriteBatch::Handler {
       ret_status = WriteBatchInternal::Merge(rebuilding_trx_, column_family_id,
                                              key, value);
     }
+    if (UNLIKELY(ret_status.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
     return ret_status;
   }
 
   Status PutBlobIndexCF(uint32_t column_family_id, const Slice& key,
                         const Slice& value) override {
     const auto* kv_prot_info = NextProtectionInfo();
+    Status ret_status;
     if (kv_prot_info != nullptr) {
       // Memtable needs seqno, doesn't need CF ID
       auto mem_kv_prot_info =
           kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
       // Same as PutCF except for value type.
-      return PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
-                       &mem_kv_prot_info);
+      ret_status = PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
+          &mem_kv_prot_info);
     } else {
-      return PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
-                       nullptr /* kv_prot_info */);
+      ret_status = PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
+          nullptr /* kv_prot_info */);
     }
+    if (UNLIKELY(ret_status.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
+    return ret_status;
   }
 
   void CheckMemtableFull() {
@@ -2399,6 +2446,7 @@ class MemTableInserter : public WriteBatch::Handler {
           const auto& batch_info = trx->batches_.begin()->second;
           // all inserts must reference this trx log number
           log_number_ref_ = batch_info.log_number_;
+          ResetProtectionInfoIdx();
           s = batch_info.batch_->Iterate(this);
           log_number_ref_ = 0;
         }
@@ -2419,6 +2467,10 @@ class MemTableInserter : public WriteBatch::Handler {
     }
     const bool batch_boundry = true;
     MaybeAdvanceSeq(batch_boundry);
+
+    if (UNLIKELY(s.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
 
     return s;
   }
@@ -2464,6 +2516,7 @@ class MemTableInserter : public WriteBatch::Handler {
                 return ucmp->timestamp_size();
               });
           if (s.ok()) {
+            ResetProtectionInfoIdx();
             s = batch_info.batch_->Iterate(this);
             log_number_ref_ = 0;
           }
@@ -2485,6 +2538,10 @@ class MemTableInserter : public WriteBatch::Handler {
     }
     constexpr bool batch_boundary = true;
     MaybeAdvanceSeq(batch_boundary);
+
+    if (UNLIKELY(s.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
 
     return s;
   }
