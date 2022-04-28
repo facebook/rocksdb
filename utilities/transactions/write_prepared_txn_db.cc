@@ -26,6 +26,18 @@
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
 
+// This function is for testing only. If it returns true, then all entries in
+// the commit cache will be evicted. Unit and/or stress tests (db_stress)
+// can implement this function and customize how frequently commit cache
+// eviction occurs.
+// TODO: remove this function once we can configure commit cache to be very
+// small so that eviction occurs very frequently. This requires the commit
+// cache entry to be able to encode prepare and commit sequence numbers so that
+// the commit sequence number does not have to be within a certain range of
+// prepare sequence number.
+extern "C" bool rocksdb_write_prepared_TEST_ShouldClearCommitCache(void)
+    __attribute__((__weak__));
+
 namespace ROCKSDB_NAMESPACE {
 
 Status WritePreparedTxnDB::Initialize(
@@ -505,6 +517,12 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
         // legit when a commit entry in a write batch overwrite the previous one
         max_evicted_seq = evicted.commit_seq;
       }
+#ifdef OS_LINUX
+      if (rocksdb_write_prepared_TEST_ShouldClearCommitCache &&
+          rocksdb_write_prepared_TEST_ShouldClearCommitCache()) {
+        max_evicted_seq = last;
+      }
+#endif  // OS_LINUX
       ROCKS_LOG_DETAILS(info_log_,
                         "%lu Evicting %" PRIu64 ",%" PRIu64 " with max %" PRIu64
                         " => %lu",
