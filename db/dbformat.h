@@ -67,7 +67,8 @@ enum ValueType : unsigned char {
   kTypeDeletionWithTimestamp = 0x14,
   kTypeCommitXIDAndTimestamp = 0x15,  // WAL only
   kTypeWideColumnEntity = 0x16,
-  kMaxValue = 0x7F  // Not used for storing records.
+  kTypeColumnFamilyWideColumnEntity = 0x17,  // WAL only
+  kMaxValue = 0x7F                           // Not used for storing records.
 };
 
 // Defined in dbformat.cc
