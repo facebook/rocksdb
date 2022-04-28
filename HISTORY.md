@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 7.2.2 (04/28/2022)
 ### Bug Fixes
 * Fixed a bug in async_io path where incorrect length of data is read by FilePrefetchBuffer if data is consumed from two populated buffers and request for more data is sent.
 
