@@ -29,6 +29,8 @@
 //    kTypeRollbackXID varstring
 //    kTypeBeginPersistedPrepareXID
 //    kTypeBeginUnprepareXID
+//    kTypeWideColumnEntity varstring varstring
+//    kTypeColumnFamilyWideColumnEntity varint32 varstring varstring
 //    kTypeNoop
 // varstring :=
 //    len: varint32
@@ -447,9 +449,13 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
         return Status::Corruption("bad Rollback XID");
       }
       break;
+    case kTypeColumnFamilyWideColumnEntity:
+      if (!GetVarint32(input, column_family)) {
+        return Status::Corruption("bad WriteBatch PutEntity");
+      }
+      FALLTHROUGH_INTENDED;
     case kTypeWideColumnEntity:
-      if (!GetVarint32(input, column_family) ||
-          !GetLengthPrefixedSlice(input, key) ||
+      if (!GetLengthPrefixedSlice(input, key) ||
           !GetLengthPrefixedSlice(input, value)) {
         return Status::Corruption("bad WriteBatch PutEntity");
       }
@@ -682,6 +688,7 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         empty_batch = true;
         break;
       case kTypeWideColumnEntity:
+      case kTypeColumnFamilyWideColumnEntity:
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_PUT_ENTITY));
         s = handler->PutEntityCF(column_family, key, value);
@@ -943,8 +950,13 @@ Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
 
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
 
-  b->rep_.push_back(static_cast<char>(kTypeWideColumnEntity));
-  PutVarint32(&b->rep_, column_family_id);
+  if (column_family_id == 0) {
+    b->rep_.push_back(static_cast<char>(kTypeWideColumnEntity));
+  } else {
+    b->rep_.push_back(static_cast<char>(kTypeColumnFamilyWideColumnEntity));
+    PutVarint32(&b->rep_, column_family_id);
+  }
+
   PutLengthPrefixedSlice(&b->rep_, key);
   PutLengthPrefixedSlice(&b->rep_, entity);
 
