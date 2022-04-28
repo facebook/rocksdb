@@ -201,7 +201,7 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
     last_entry_offset = input.data() - write_batch.Data().data();
 
     s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key, &value,
-                                 &blob, &xid, /* FIXME column_descs */ nullptr);
+                                 &blob, &xid);
     if (!s.ok()) {
       break;
     }

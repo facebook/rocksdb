@@ -18,7 +18,6 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/types.h"
-#include "rocksdb/wide_columns.h"
 #include "util/coding.h"
 #include "util/user_comparator_wrapper.h"
 
@@ -672,8 +671,7 @@ extern bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key,
 // input will be advanced to after the record.
 extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,
                                        uint32_t* column_family, Slice* key,
-                                       Slice* value, Slice* blob, Slice* xid,
-                                       WideColumnDescs* column_descs);
+                                       Slice* value, Slice* blob, Slice* xid);
 
 // When user call DeleteRange() to delete a range of keys,
 // we will store a serialized RangeTombstone in MemTable and SST.

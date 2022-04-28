@@ -95,7 +95,7 @@ struct BatchContentClassifier : public WriteBatch::Handler {
   }
 
   Status PutEntityCF(uint32_t /* column_family_id */, const Slice& /* key */,
-                     const WideColumnDescs& /* column_descs */) override {
+                     const Slice& /* entity */) override {
     content_flags |= ContentFlags::HAS_PUT_ENTITY;
     return Status::OK();
   }
@@ -350,8 +350,7 @@ bool WriteBatch::HasRollback() const {
 
 Status ReadRecordFromWriteBatch(Slice* input, char* tag,
                                 uint32_t* column_family, Slice* key,
-                                Slice* value, Slice* blob, Slice* xid,
-                                WideColumnDescs* column_descs) {
+                                Slice* value, Slice* blob, Slice* xid) {
   assert(key != nullptr && value != nullptr);
   *tag = (*input)[0];
   input->remove_prefix(1);
@@ -451,7 +450,7 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
     case kTypeWideColumnEntity:
       if (!GetVarint32(input, column_family) ||
           !GetLengthPrefixedSlice(input, key) ||
-          !WideColumnSerialization::DeserializeAll(input, column_descs).ok()) {
+          !GetLengthPrefixedSlice(input, value)) {
         return Status::Corruption("bad WriteBatch PutEntity");
       }
       break;
@@ -482,7 +481,6 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
       (begin == WriteBatchInternal::kHeader) && (end == wb->rep_.size());
 
   Slice key, value, blob, xid;
-  WideColumnDescs column_descs;
 
   // Sometimes a sub-batch starts with a Noop. We want to exclude such Noops as
   // the batch boundary symbols otherwise we would mis-count the number of
@@ -507,7 +505,7 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
       column_family = 0;  // default
 
       s = ReadRecordFromWriteBatch(&input, &tag, &column_family, &key, &value,
-                                   &blob, &xid, &column_descs);
+                                   &blob, &xid);
       if (!s.ok()) {
         return s;
       }
@@ -686,7 +684,7 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
       case kTypeWideColumnEntity:
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_PUT_ENTITY));
-        s = handler->PutEntityCF(column_family, key, column_descs);
+        s = handler->PutEntityCF(column_family, key, value);
         if (LIKELY(s.ok())) {
           empty_batch = false;
           ++found;
@@ -925,18 +923,19 @@ Status WriteBatch::Put(ColumnFamilyHandle* column_family, const SliceParts& key,
 Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
                                      const Slice& key,
                                      const WideColumnDescs& column_descs) {
+  assert(b);
+
   if (key.size() > size_t{port::kMaxUint32}) {
     return Status::InvalidArgument("key is too large");
   }
 
-  // TODO: estimate index overhead
-  size_t total_column_size = 0;
-
-  for (const auto& desc : column_descs) {
-    total_column_size += desc.name().size() + desc.value().size();
+  std::string entity;
+  const Status s = WideColumnSerialization::Serialize(column_descs, &entity);
+  if (!s.ok()) {
+    return s;
   }
 
-  if (total_column_size > size_t{port::kMaxUint32}) {
+  if (entity.size() > size_t{port::kMaxUint32}) {
     return Status::InvalidArgument("wide column entity is too large");
   }
 
@@ -947,13 +946,18 @@ Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
   b->rep_.push_back(static_cast<char>(kTypeWideColumnEntity));
   PutVarint32(&b->rep_, column_family_id);
   PutLengthPrefixedSlice(&b->rep_, key);
-  WideColumnSerialization::Serialize(column_descs, &b->rep_);
+  PutLengthPrefixedSlice(&b->rep_, entity);
 
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
                               ContentFlags::HAS_PUT_ENTITY,
                           std::memory_order_relaxed);
 
-  // TODO: ProtectionInfo
+  if (b->prot_info_ != nullptr) {
+    b->prot_info_->entries_.emplace_back(
+        ProtectionInfo64()
+            .ProtectKVO(key, entity, kTypeWideColumnEntity)
+            .ProtectC(column_family_id));
+  }
 
   return save.commit();
 }
