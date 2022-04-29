@@ -90,18 +90,6 @@ class DeleteFilter : public CompactionFilter {
   const char* Name() const override { return "DeleteFilter"; }
 };
 
-class DeleteFilterV2 : public CompactionFilter {
- public:
-  Decision FilterV2(int /*level*/, const Slice& /*key*/,
-                    ValueType /*value_type*/, const Slice& /*existing_value*/,
-                    std::string* /*new_value*/,
-                    std::string* /*skip_until*/) const override {
-    return Decision::kRemove;
-  }
-
-  const char* Name() const override { return "DeleteFilterV2"; }
-};
-
 class DeleteISFilter : public CompactionFilter {
  public:
   bool Filter(int /*level*/, const Slice& key, const Slice& /*value*/,
@@ -1003,7 +991,21 @@ TEST_F(DBTestCompactionFilter, DropKeyWithSingleDelete) {
   db_->ReleaseSnapshot(snapshot);
   Close();
 
-  DeleteFilterV2 delete_filter_v2;
+  class DeleteFilterV2 : public CompactionFilter {
+   public:
+    Decision FilterV2(int /*level*/, const Slice& key, ValueType /*value_type*/,
+                      const Slice& /*existing_value*/,
+                      std::string* /*new_value*/,
+                      std::string* /*skip_until*/) const override {
+      if (key.starts_with("b")) {
+        return Decision::kRemoveWithSingleDelete;
+      }
+      return Decision::kRemove;
+    }
+
+    const char* Name() const override { return "DeleteFilterV2"; }
+  } delete_filter_v2;
+
   options.compaction_filter = &delete_filter_v2;
   options.level0_file_num_compaction_trigger = 2;
   Reopen(options);
