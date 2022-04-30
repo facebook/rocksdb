@@ -1844,6 +1844,7 @@ TEST_F(DBTest, Snapshot) {
     uint64_t time_snap1 = GetTimeOldestSnapshots();
     ASSERT_GT(time_snap1, 0U);
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
+    ASSERT_EQ(GetTimeOldestSnapshots(), s1->GetSnapshotTime());
     ASSERT_OK(Put(0, "foo", "0v2"));
     ASSERT_OK(Put(1, "foo", "1v2"));
 
@@ -1853,6 +1854,7 @@ TEST_F(DBTest, Snapshot) {
     ASSERT_EQ(2U, GetNumSnapshots());
     ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
+    ASSERT_EQ(GetTimeOldestSnapshots(), s1->GetSnapshotTime());
     ASSERT_OK(Put(0, "foo", "0v3"));
     ASSERT_OK(Put(1, "foo", "1v3"));
 
@@ -1861,6 +1863,7 @@ TEST_F(DBTest, Snapshot) {
       ASSERT_EQ(3U, GetNumSnapshots());
       ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
       ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
+      ASSERT_EQ(GetTimeOldestSnapshots(), s1->GetSnapshotTime());
 
       ASSERT_OK(Put(0, "foo", "0v4"));
       ASSERT_OK(Put(1, "foo", "1v4"));
@@ -1877,6 +1880,7 @@ TEST_F(DBTest, Snapshot) {
     ASSERT_EQ(2U, GetNumSnapshots());
     ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
+    ASSERT_EQ(GetTimeOldestSnapshots(), s1->GetSnapshotTime());
     ASSERT_EQ("0v1", Get(0, "foo", s1));
     ASSERT_EQ("1v1", Get(1, "foo", s1));
     ASSERT_EQ("0v2", Get(0, "foo", s2));
@@ -1892,6 +1896,7 @@ TEST_F(DBTest, Snapshot) {
     ASSERT_EQ(1U, GetNumSnapshots());
     ASSERT_LT(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s2->GetSequenceNumber());
+    ASSERT_EQ(GetTimeOldestSnapshots(), s2->GetSnapshotTime());
 
     db_->ReleaseSnapshot(s2);
     ASSERT_EQ(0U, GetNumSnapshots());
@@ -2855,6 +2860,12 @@ class ModelDB : public DB {
     KVMap map_;
 
     SequenceNumber GetSequenceNumber() const override {
+      // no need to call this
+      assert(false);
+      return 0;
+    }
+
+    int64_t GetSnapshotTime() const override {
       // no need to call this
       assert(false);
       return 0;

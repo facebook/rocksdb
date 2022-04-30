@@ -29,6 +29,8 @@ class SnapshotImpl : public Snapshot {
 
   virtual SequenceNumber GetSequenceNumber() const override { return number_; }
 
+  virtual int64_t GetSnapshotTime() const override { return unix_time_; }
+
  private:
   friend class SnapshotList;
 
