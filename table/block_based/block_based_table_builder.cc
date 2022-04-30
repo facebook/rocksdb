@@ -1899,10 +1899,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
     dict = ZSTD_TrainDictionary(compression_dict_samples,
                                 compression_dict_sample_lens,
                                 r->compression_opts.max_dict_bytes);
-  } else if (rep_->compression_type == kZSTD &&
-             r->compression_opts.max_dict_buffer_bytes > 0) {
-    // max_dict_buffer_bytes limits the amount of data used in
-    // finalizeDictionary
+  } else if (rep_->compression_type == kZSTD) {
+    // use ZSRD_finalizeDictionary API instead of raw content dictionary
     std::string samples;
     std::vector<size_t> sample_lens;
     for (size_t i = 0; i < r->data_block_buffers.size(); ++i) {
