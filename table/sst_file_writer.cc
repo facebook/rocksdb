@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <vector>
+#include <iostream>
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
@@ -35,10 +36,10 @@ struct SstFileWriter::Rep {
       Env::IOPriority _io_priority, const Comparator* _user_comparator,
       ColumnFamilyHandle* _cfh, bool _invalidate_page_cache, bool _skip_filters,
       std::string _db_session_id)
-      : env_options(_env_options),
+      : options(options),
+        env_options(_env_options),
         ioptions(options),
         mutable_cf_options(options),
-        options(options),
         io_priority(_io_priority),
         internal_comparator(_user_comparator),
         cfh(_cfh),
@@ -46,12 +47,12 @@ struct SstFileWriter::Rep {
         skip_filters(_skip_filters),
         db_session_id(_db_session_id) {}
 
+  Options options;
   std::unique_ptr<WritableFileWriter> file_writer;
   std::unique_ptr<TableBuilder> builder;
   EnvOptions env_options;
   ImmutableOptions ioptions;
   MutableCFOptions mutable_cf_options;
-  Options options;
   Env::IOPriority io_priority;
   InternalKeyComparator internal_comparator;
   ExternalSstFileInfo file_info;
@@ -86,13 +87,12 @@ struct SstFileWriter::Rep {
 
     ikey.Set(user_key, sequence_number, value_type);
 
-    builder->Add(ikey.Encode(), value);
-
     Status s = kv_validator->Add(ikey.Encode(), value);
     if(!s.ok()){
       return s;
     }
 
+    builder->Add(ikey.Encode(), value);
     // update file info
     file_info.num_entries++;
     file_info.largest_key.assign(user_key.data(), user_key.size());
@@ -372,6 +372,33 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
     r->file_info.file_checksum_func_name =
         r->file_writer->GetFileChecksumFuncName();
   }
+
+  if(s.ok() && r->options.paranoid_checks) {
+    SstFileReader sst_file_reader(r->options);
+    ReadOptions ropts;
+    s = sst_file_reader.Open(r->file_info.file_path);
+    if(!s.ok()){
+      return s;
+    }
+    std::unique_ptr<Iterator> itr(sst_file_reader.NewIterator(ropts));
+
+    s = itr->status();
+    if(!s.ok()){
+      return s;
+    }
+
+    OutputValidator file_validator(r->internal_comparator, true, true);
+
+    for(itr->SeekToFirst(); itr->Valid(); itr->Next()){
+      file_validator.Add(itr->key(), itr->value());
+    }
+
+    s = itr->status();
+    if (s.ok() && !r->kv_validator->CompareValidator(file_validator)) {
+      s = Status::Corruption("Paranoid checksums do not match");
+    }
+  }
+
   if (!s.ok()) {
     r->ioptions.env->DeleteFile(r->file_info.file_path);
   }
