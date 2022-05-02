@@ -191,6 +191,31 @@ TEST(WideColumnSerializationTest, DeserializeColumnsError) {
   }
 }
 
+TEST(WideColumnSerializationTest, DeserializeColumnsOutOfOrder) {
+  std::string buf;
+
+  PutVarint32(&buf, WideColumnSerialization::kCurrentVersion);
+
+  constexpr uint32_t num_columns = 2;
+  PutVarint32(&buf, num_columns);
+
+  constexpr char first_column_name[] = "b";
+  PutLengthPrefixedSlice(&buf, first_column_name);
+
+  constexpr uint32_t first_value_size = 16;
+  PutVarint32(&buf, first_value_size);
+
+  constexpr char second_column_name[] = "a";
+  PutLengthPrefixedSlice(&buf, second_column_name);
+
+  Slice input(buf);
+  WideColumnDescs descs;
+
+  const Status s = WideColumnSerialization::DeserializeAll(&input, &descs);
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(std::strstr(s.getState(), "order"));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
