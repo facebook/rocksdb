@@ -281,12 +281,12 @@ bool StressTest::BuildOptionsTable() {
   return true;
 }
 
-void StressTest::InitDb() {
+void StressTest::InitDb(SharedState* shared) {
   uint64_t now = clock_->NowMicros();
   fprintf(stdout, "%s Initializing db_stress\n",
           clock_->TimeToString(now / 1000000).c_str());
   PrintEnv();
-  Open();
+  Open(shared);
   BuildOptionsTable();
 }
 
@@ -568,7 +568,7 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
     fprintf(stdout, "%s Reopening database in read-only\n",
             clock_->TimeToString(now / 1000000).c_str());
     // Reopen as read-only, can ignore all options related to updates
-    Open();
+    Open(shared);
   } else {
     fprintf(stderr, "Failed to preload db");
     exit(1);
@@ -2302,10 +2302,12 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "------------------------------------------------\n");
 }
 
-void StressTest::Open() {
+void StressTest::Open(SharedState* shared) {
   assert(db_ == nullptr);
 #ifndef ROCKSDB_LITE
   assert(txn_db_ == nullptr);
+#else
+  (void)shared;
 #endif
   if (FLAGS_options_file.empty()) {
     BlockBasedTableOptions block_based_options;
@@ -2752,7 +2754,7 @@ void StressTest::Open() {
           static_cast<size_t>(FLAGS_wp_snapshot_cache_bits);
       txn_db_options.wp_commit_cache_bits =
           static_cast<size_t>(FLAGS_wp_commit_cache_bits);
-      PrepareTxnDbOptions(txn_db_options);
+      PrepareTxnDbOptions(shared, txn_db_options);
       s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
                               cf_descriptors, &column_families_, &txn_db_);
       if (!s.ok()) {
@@ -2912,7 +2914,7 @@ void StressTest::Reopen(ThreadState* thread) {
   auto now = clock_->NowMicros();
   fprintf(stdout, "%s Reopening database for the %dth time\n",
           clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
-  Open();
+  Open(thread->shared);
 
   if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
     Status s = thread->shared->SaveAtAndAfter(db_);

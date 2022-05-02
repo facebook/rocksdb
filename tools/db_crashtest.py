@@ -384,6 +384,8 @@ multiops_txn_default_params = {
     "flush_one_in": 1000,
     "key_spaces_path": setup_multiops_txn_key_spaces_file(),
     "rollback_one_in":  4,
+    # Re-enable once we have a compaction for MultiOpsTxnStressTest
+    "enable_compaction_filter": 0,
 }
 
 multiops_wc_txn_params = {
