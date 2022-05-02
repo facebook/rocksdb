@@ -27,9 +27,9 @@ class SnapshotImpl : public Snapshot {
   // scope of queries to IsInSnapshot.
   SequenceNumber min_uncommitted_ = kMinUnCommittedSeq;
 
-  virtual SequenceNumber GetSequenceNumber() const override { return number_; }
+  SequenceNumber GetSequenceNumber() const override { return number_; }
 
-  virtual int64_t GetSnapshotTime() const override { return unix_time_; }
+  int64_t GetUnixTime() const override { return unix_time_; }
 
  private:
   friend class SnapshotList;

@@ -1845,7 +1845,7 @@ TEST_F(DBTest, Snapshot) {
     ASSERT_GT(time_snap1, 0U);
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
     ASSERT_EQ(GetTimeOldestSnapshots(),
-              static_cast<uint64_t>(s1->GetSnapshotTime()));
+              static_cast<uint64_t>(s1->GetUnixTime()));
     ASSERT_OK(Put(0, "foo", "0v2"));
     ASSERT_OK(Put(1, "foo", "1v2"));
 
@@ -1856,7 +1856,7 @@ TEST_F(DBTest, Snapshot) {
     ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
     ASSERT_EQ(GetTimeOldestSnapshots(),
-              static_cast<uint64_t>(s1->GetSnapshotTime()));
+              static_cast<uint64_t>(s1->GetUnixTime()));
     ASSERT_OK(Put(0, "foo", "0v3"));
     ASSERT_OK(Put(1, "foo", "1v3"));
 
@@ -1866,7 +1866,7 @@ TEST_F(DBTest, Snapshot) {
       ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
       ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
       ASSERT_EQ(GetTimeOldestSnapshots(),
-                static_cast<uint64_t>(s1->GetSnapshotTime()));
+                static_cast<uint64_t>(s1->GetUnixTime()));
 
       ASSERT_OK(Put(0, "foo", "0v4"));
       ASSERT_OK(Put(1, "foo", "1v4"));
@@ -1884,7 +1884,7 @@ TEST_F(DBTest, Snapshot) {
     ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
     ASSERT_EQ(GetTimeOldestSnapshots(),
-              static_cast<uint64_t>(s1->GetSnapshotTime()));
+              static_cast<uint64_t>(s1->GetUnixTime()));
     ASSERT_EQ("0v1", Get(0, "foo", s1));
     ASSERT_EQ("1v1", Get(1, "foo", s1));
     ASSERT_EQ("0v2", Get(0, "foo", s2));
@@ -1901,7 +1901,7 @@ TEST_F(DBTest, Snapshot) {
     ASSERT_LT(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s2->GetSequenceNumber());
     ASSERT_EQ(GetTimeOldestSnapshots(),
-              static_cast<uint64_t>(s2->GetSnapshotTime()));
+              static_cast<uint64_t>(s2->GetUnixTime()));
 
     db_->ReleaseSnapshot(s2);
     ASSERT_EQ(0U, GetNumSnapshots());
@@ -2870,7 +2870,7 @@ class ModelDB : public DB {
       return 0;
     }
 
-    int64_t GetSnapshotTime() const override {
+    int64_t GetUnixTime() const override {
       // no need to call this
       assert(false);
       return 0;

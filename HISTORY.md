@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API changes
+* Add new API GetUnixTime in Snapshot class which returns the unix time at which Snapshot is taken.
 
 ## 7.3.0 (05/20/2022)
 ### Bug Fixes
