@@ -325,6 +325,7 @@ class SharedState {
     ret.reserve(num_no_overwrite_keys);
     Random64 rnd(seed_);
     for (int64_t i = 0; i < num_no_overwrite_keys; i++) {
+      assert(i < max_key_);
       int64_t rand_index = i + rnd.Next() % (max_key_ - i);
       // Swap i and rand_index;
       int64_t temp = permutation[i];
