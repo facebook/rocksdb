@@ -632,11 +632,10 @@ class NonBatchedOpsStressTest : public StressTest {
   Status TestDelete(ThreadState* thread, WriteOptions& write_opts,
                     const std::vector<int>& rand_column_families,
                     const std::vector<int64_t>& rand_keys,
-                    std::unique_ptr<MutexLock>& lock) override {
+                    std::unique_ptr<MutexLock>& /* lock */) override {
     int64_t rand_key = rand_keys[0];
     int rand_column_family = rand_column_families[0];
     auto shared = thread->shared;
-    int64_t max_key = shared->GetMaxKey();
 
     // OPERATION delete
     std::string write_ts_str = NowNanosStr();
