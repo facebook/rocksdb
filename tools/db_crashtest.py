@@ -383,6 +383,7 @@ multiops_txn_default_params = {
     # compactions.
     "flush_one_in": 1000,
     "key_spaces_path": setup_multiops_txn_key_spaces_file(),
+    "rollback_one_in":  4,
 }
 
 multiops_wc_txn_params = {
@@ -401,6 +402,10 @@ multiops_wp_txn_params = {
     "enable_pipelined_write": 0,
     # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
     "checkpoint_one_in": 0,
+    # Required to be 1 in order to use commit-time-batch
+    "use_only_the_last_commit_time_batch_for_recovery": 1,
+    "recycle_log_file_num": 0,
+    "clear_wp_commit_cache_one_in": 10,
 }
 
 def finalize_and_sanitize(src_params):

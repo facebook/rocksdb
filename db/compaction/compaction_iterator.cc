@@ -625,24 +625,34 @@ void CompactionIterator::NextFromInput() {
 
           TEST_SYNC_POINT_CALLBACK(
               "CompactionIterator::NextFromInput:SingleDelete:2", nullptr);
-          if (next_ikey.type == kTypeSingleDeletion ||
-              next_ikey.type == kTypeDeletion) {
+          if (next_ikey.type == kTypeSingleDeletion) {
             // We encountered two SingleDeletes for same key in a row. This
             // could be due to unexpected user input. If write-(un)prepared
             // transaction is used, this could also be due to releasing an old
             // snapshot between a Put and its matching SingleDelete.
-            // Furthermore, if write-(un)prepared transaction is rolled back
-            // after prepare, we will write a Delete to cancel a prior Put. If
-            // old snapshot is released between a later Put and its matching
-            // SingleDelete, we will end up with a Delete followed by
-            // SingleDelete.
             // Skip the first SingleDelete and let the next iteration decide
-            // how to handle the second SingleDelete or Delete.
+            // how to handle the second SingleDelete.
 
             // First SingleDelete has been skipped since we already called
             // input_.Next().
             ++iter_stats_.num_record_drop_obsolete;
             ++iter_stats_.num_single_del_mismatch;
+          } else if (next_ikey.type == kTypeDeletion) {
+            std::ostringstream oss;
+            oss << "Found SD and type: " << static_cast<int>(next_ikey.type)
+                << " on the same key, violating the contract "
+                   "of SingleDelete. Check your application to make sure the "
+                   "application does not mix SingleDelete and Delete for "
+                   "the same key. If you are using "
+                   "write-prepared/write-unprepared transactions, and use "
+                   "SingleDelete to delete certain keys, then make sure "
+                   "TransactionDBOptions::rollback_deletion_type_callback is "
+                   "configured properly. Mixing SD and DEL can lead to "
+                   "undefined behaviors";
+            ROCKS_LOG_ERROR(info_log_, "%s", oss.str().c_str());
+            valid_ = false;
+            status_ = Status::Corruption(oss.str());
+            return;
           } else if (!is_timestamp_eligible_for_gc) {
             // We cannot drop the SingleDelete as timestamp is enabled, and
             // timestamp of this key is greater than or equal to

@@ -3202,6 +3202,8 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotAfterSeqZeroing2) {
 TEST_P(WritePreparedTransactionTest, SingleDeleteAfterRollback) {
   constexpr size_t kSnapshotCacheBits = 7;  // same as default
   constexpr size_t kCommitCacheBits = 0;    // minimum commit cache
+  txn_db_options.rollback_deletion_type_callback =
+      [](TransactionDB*, ColumnFamilyHandle*, const Slice&) { return true; };
   UpdateTransactionDBOptions(kSnapshotCacheBits, kCommitCacheBits);
   options.disable_auto_compactions = true;
   ASSERT_OK(ReOpen());

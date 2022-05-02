@@ -16,6 +16,7 @@ namespace ROCKSDB_NAMESPACE {
 class SystemClock;
 class Transaction;
 class TransactionDB;
+struct TransactionDBOptions;
 
 class StressTest {
  public:
@@ -223,6 +224,12 @@ class StressTest {
   void Reopen(ThreadState* thread);
 
   void CheckAndSetOptionsForUserTimestamp();
+
+  virtual void RegisterAdditionalListeners() {}
+
+#ifndef ROCKSDB_LITE
+  virtual void PrepareTxnDbOptions(TransactionDBOptions& /*txn_db_opts*/) {}
+#endif
 
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;

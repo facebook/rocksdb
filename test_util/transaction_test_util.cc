@@ -91,7 +91,7 @@ Status RandomTransactionInserter::DBGet(
   Status s;
   // Five digits (since the largest uint16_t is 65535) plus the NUL
   // end char.
-  char prefix_buf[6];
+  char prefix_buf[6] = {0};
   // Pad prefix appropriately so we can iterate over each set
   assert(set_i + 1 <= 9999);
   snprintf(prefix_buf, sizeof(prefix_buf), "%.4u", set_i + 1);
@@ -165,7 +165,11 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
       // Increment key
       std::string sum = ToString(int_value + incr);
       if (txn != nullptr) {
-        s = txn->SingleDelete(key);
+        if ((set_i % 4) != 0) {
+          s = txn->SingleDelete(key);
+        } else {
+          s = txn->Delete(key);
+        }
         if (!get_for_update && (s.IsBusy() || s.IsTimedOut())) {
           // If the initial get was not for update, then the key is not locked
           // before put and put could fail due to concurrent writes.
