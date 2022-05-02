@@ -141,7 +141,7 @@ Status WideColumnSerialization::DeserializeIndex(
     const uint32_t value_size = column_value_sizes[i];
 
     if (pos + value_size > data.size()) {
-      return Status::Corruption("Error decoding wide column value");
+      return Status::Corruption("Error decoding wide column value payload");
     }
 
     (*column_descs)[i].value() = Slice(data.data() + pos, value_size);
