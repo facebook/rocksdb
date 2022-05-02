@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cassert>
 
+#include "port/port.h"
 #include "util/autovector.h"
 #include "util/coding.h"
 
@@ -22,6 +23,10 @@ Status WideColumnSerialization::Serialize(const WideColumnDescs& column_descs,
                return lhs.name().compare(rhs.name()) > 0;
              }) == column_descs.cend());
   assert(output);
+
+  if (column_descs.size() > static_cast<size_t>(port::kMaxUint32)) {
+    return Status::InvalidArgument("Too many wide columns");
+  }
 
   PutVarint32(output, kCurrentVersion);
 
