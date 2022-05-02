@@ -5123,8 +5123,8 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
                                      fmeta->file_checksum_func_name, fname,
                                      read_options);
         } else {
-          s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
-                                                       read_options, fname);
+          s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(
+              opts, file_options_, read_options, fname, fd.largest_seqno);
         }
         RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
                    IOSTATS(bytes_read) - prev_bytes_read);
