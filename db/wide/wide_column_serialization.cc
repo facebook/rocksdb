@@ -32,25 +32,23 @@ Status WideColumnSerialization::Serialize(const WideColumnDescs& column_descs,
 
   PutVarint32(output, static_cast<uint32_t>(column_descs.size()));
 
-  size_t total_column_size = 0;
+  size_t total_column_value_size = 0;
 
   for (const auto& desc : column_descs) {
     const Slice& name = desc.name();
     const Slice& value = desc.value();
 
-    PutVarint32(output, static_cast<uint32_t>(name.size()));
+    PutLengthPrefixedSlice(output, name);
     PutVarint32(output, static_cast<uint32_t>(value.size()));
 
-    total_column_size += name.size() + value.size();
+    total_column_value_size += value.size();
   }
 
-  output->reserve(output->size() + total_column_size);
+  output->reserve(output->size() + total_column_value_size);
 
   for (const auto& desc : column_descs) {
-    const Slice& name = desc.name();
     const Slice& value = desc.value();
 
-    output->append(name.data(), name.size());
     output->append(value.data(), value.size());
   }
 
@@ -110,46 +108,45 @@ Status WideColumnSerialization::DeserializeIndex(
     return Status::OK();
   }
 
-  constexpr size_t preallocated_columns = 64;
-  autovector<std::pair<uint32_t, uint32_t>, preallocated_columns> column_sizes;
-  column_sizes.reserve(num_columns);
+  column_descs->reserve(num_columns);
+
+  autovector<uint32_t, 64> column_value_sizes;
+  column_value_sizes.reserve(num_columns);
 
   for (uint32_t i = 0; i < num_columns; ++i) {
-    uint32_t name_size = 0;
-    if (!GetVarint32(input, &name_size)) {
-      return Status::Corruption("Error decoding wide column name size");
+    Slice name;
+    if (!GetLengthPrefixedSlice(input, &name)) {
+      return Status::Corruption("Error decoding wide column name");
     }
+
+    if (!column_descs->empty() &&
+        column_descs->back().name().compare(name) >= 0) {
+      return Status::Corruption("Wide columns out of order");
+    }
+
+    column_descs->emplace_back(name, Slice());
 
     uint32_t value_size = 0;
     if (!GetVarint32(input, &value_size)) {
       return Status::Corruption("Error decoding wide column value size");
     }
 
-    column_sizes.emplace_back(name_size, value_size);
+    column_value_sizes.emplace_back(value_size);
   }
-
-  column_descs->reserve(num_columns);
 
   const Slice data(*input);
   size_t pos = 0;
 
-  for (const auto& [name_size, value_size] : column_sizes) {
-    if (pos + name_size + value_size > data.size()) {
-      return Status::Corruption("Error decoding wide column payload");
+  for (uint32_t i = 0; i < num_columns; ++i) {
+    const uint32_t value_size = column_value_sizes[i];
+
+    if (pos + value_size > data.size()) {
+      return Status::Corruption("Error decoding wide column value");
     }
 
-    Slice column_name(data.data() + pos, name_size);
+    (*column_descs)[i].value() = Slice(data.data() + pos, value_size);
 
-    if (!column_descs->empty() &&
-        column_descs->back().name().compare(column_name) >= 0) {
-      return Status::Corruption("Wide columns out of order");
-    }
-
-    Slice column_value(data.data() + pos + name_size, value_size);
-
-    column_descs->emplace_back(column_name, column_value);
-
-    pos += name_size + value_size;
+    pos += value_size;
   }
 
   return Status::OK();
