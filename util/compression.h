@@ -1484,18 +1484,23 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
 
 inline std::string ZSTD_FinalizeDictionary(
     const std::string& samples, const std::vector<size_t>& sample_lens,
-    const std::string& dict_content, size_t max_dict_bytes) {
+    std::string& dict_content, size_t max_dict_bytes, int level) {
   // ZDICT_finalizeDictionary is only stable since version 1.4.5
 #if ZSTD_VERSION_NUMBER >= 10405  // v1.4.5+
   assert(samples.empty() == sample_lens.empty());
   if (samples.empty()) {
     return std::move(dict_content);
   }
+  if (level == CompressionOptions::kDefaultCompressionLevel) {
+    // 3 is the value of ZSTD_CLEVEL_DEFAULT (not exposed publicly), see
+    // https://github.com/facebook/zstd/issues/1148
+    level = 3;
+  }
   std::string dict_data(max_dict_bytes, '\0');
   size_t dict_len = ZDICT_finalizeDictionary(
       dict_data.data(), max_dict_bytes, dict_content.data(),
       static_cast<size_t>(dict_content.size()), samples.data(),
-      sample_lens.data(), static_cast<unsigned>(sample_lens.size()), {});
+      sample_lens.data(), static_cast<unsigned>(sample_lens.size()), {level});
   if (ZDICT_isError(dict_len)) {
     return std::move(dict_content);
   } else {
@@ -1507,6 +1512,7 @@ inline std::string ZSTD_FinalizeDictionary(
   (void)samples;
   (void)sample_lens;
   (void)max_dict_bytes;
+  (void)level;
   return std::move(dict_content);
 #endif  // ZSTD_VERSION_NUMBER >= 10405
 }
