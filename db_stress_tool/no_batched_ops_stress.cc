@@ -12,6 +12,7 @@
 #ifndef NDEBUG
 #include "utilities/fault_injection_fs.h"
 #endif // NDEBUG
+#include "rocksdb/utilities/transaction_db.h"
 
 namespace ROCKSDB_NAMESPACE {
 class NonBatchedOpsStressTest : public StressTest {
@@ -930,6 +931,21 @@ class NonBatchedOpsStressTest : public StressTest {
     }
     return true;
   }
+
+#ifndef ROCKSDB_LITE
+  void PrepareTxnDbOptions(SharedState* shared,
+                           TransactionDBOptions& txn_db_opts) override {
+    txn_db_opts.rollback_deletion_type_callback =
+        [shared](TransactionDB*, ColumnFamilyHandle*, const Slice& key) {
+          assert(shared);
+          uint64_t key_num = 0;
+          bool ok = GetIntVal(key.ToString(), &key_num);
+          assert(ok);
+          (void)ok;
+          return !shared->AllowsOverwrite(key_num);
+        };
+  }
+#endif  // ROCKSDB_LITE
 };
 
 StressTest* CreateNonBatchedOpsStressTest() {

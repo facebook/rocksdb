@@ -58,8 +58,8 @@ void ThreadBody(void* v) {
 
 bool RunStressTest(StressTest* stress) {
   SystemClock* clock = db_stress_env->GetSystemClock().get();
-  stress->InitDb();
   SharedState shared(db_stress_env, stress);
+  stress->InitDb(&shared);
   stress->FinishInitDb(&shared);
 
 #ifndef NDEBUG
