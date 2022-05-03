@@ -639,6 +639,8 @@ void WriteThread::ExitAsBatchGroupFollower(Writer* w) {
 static WriteThread::AdaptationContext eabgl_ctx("ExitAsBatchGroupLeader");
 void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
                                          Status& status) {
+  TEST_SYNC_POINT_CALLBACK("WriteThread::ExitAsBatchGroupLeader", &write_group);
+
   Writer* leader = write_group.leader;
   Writer* last_writer = write_group.last_writer;
   assert(leader->link_older == nullptr);
@@ -667,6 +669,10 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
     if (!leader->ShouldWriteToMemtable()) {
       CompleteLeader(write_group);
     }
+
+    TEST_SYNC_POINT_CALLBACK(
+        "WriteThread::ExitAsBatchGroupLeader:AfterCompleteWriters",
+        &write_group);
 
     Writer* next_leader = nullptr;
 
