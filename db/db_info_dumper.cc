@@ -75,7 +75,7 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
               .append(" ; ");
         } else {
           Error(options.info_log, "Error when reading LOG file: %s/%s %s\n",
-                dbname.c_str(), file.c_str(), s.ToString.c_str());
+                dbname.c_str(), file.c_str(), s.ToString().c_str());
         }
         break;
       case kTableFile:
