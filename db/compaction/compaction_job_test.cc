@@ -890,10 +890,10 @@ TEST_F(CompactionJobTest, MultiSingleDelete) {
   //      -> Snapshot Put
   // K: SDel SDel Put SDel Put Put Snapshot SDel Put SDel SDel Put SDel
   //      -> Snapshot Put Snapshot SDel
-  // L: SDel Put Del Put SDel Snapshot Del Put Del SDel Put SDel
-  //      -> Snapshot SDel
-  // M: (Put) SDel Put Del Put SDel Snapshot Put Del SDel Put SDel Del
-  //      -> SDel Snapshot Del
+  // L: SDel Put SDel Put SDel Snapshot SDel Put SDel SDel Put SDel
+  //      -> Snapshot SDel Put SDel
+  // M: (Put) SDel Put SDel Put SDel Snapshot Put SDel SDel Put SDel SDel
+  //      -> SDel Snapshot Put SDel
   NewDB();
 
   auto file1 = mock::MakeMockFile({
@@ -924,14 +924,14 @@ TEST_F(CompactionJobTest, MultiSingleDelete) {
       {KeyStr("L", 16U, kTypeSingleDeletion), ""},
       {KeyStr("L", 15U, kTypeValue), "val"},
       {KeyStr("L", 14U, kTypeSingleDeletion), ""},
-      {KeyStr("L", 13U, kTypeDeletion), ""},
+      {KeyStr("L", 13U, kTypeSingleDeletion), ""},
       {KeyStr("L", 12U, kTypeValue), "val"},
-      {KeyStr("L", 11U, kTypeDeletion), ""},
-      {KeyStr("M", 16U, kTypeDeletion), ""},
+      {KeyStr("L", 11U, kTypeSingleDeletion), ""},
+      {KeyStr("M", 16U, kTypeSingleDeletion), ""},
       {KeyStr("M", 15U, kTypeSingleDeletion), ""},
       {KeyStr("M", 14U, kTypeValue), "val"},
       {KeyStr("M", 13U, kTypeSingleDeletion), ""},
-      {KeyStr("M", 12U, kTypeDeletion), ""},
+      {KeyStr("M", 12U, kTypeSingleDeletion), ""},
       {KeyStr("M", 11U, kTypeValue), "val"},
   });
   AddMockFile(file1);
@@ -972,12 +972,12 @@ TEST_F(CompactionJobTest, MultiSingleDelete) {
       {KeyStr("K", 1U, kTypeSingleDeletion), ""},
       {KeyStr("L", 5U, kTypeSingleDeletion), ""},
       {KeyStr("L", 4U, kTypeValue), "val"},
-      {KeyStr("L", 3U, kTypeDeletion), ""},
+      {KeyStr("L", 3U, kTypeSingleDeletion), ""},
       {KeyStr("L", 2U, kTypeValue), "val"},
       {KeyStr("L", 1U, kTypeSingleDeletion), ""},
       {KeyStr("M", 10U, kTypeSingleDeletion), ""},
       {KeyStr("M", 7U, kTypeValue), "val"},
-      {KeyStr("M", 5U, kTypeDeletion), ""},
+      {KeyStr("M", 5U, kTypeSingleDeletion), ""},
       {KeyStr("M", 4U, kTypeValue), "val"},
       {KeyStr("M", 3U, kTypeSingleDeletion), ""},
   });
@@ -1019,7 +1019,9 @@ TEST_F(CompactionJobTest, MultiSingleDelete) {
                           {KeyStr("K", 8U, kTypeValue), "val3"},
                           {KeyStr("L", 16U, kTypeSingleDeletion), ""},
                           {KeyStr("L", 15U, kTypeValue), ""},
-                          {KeyStr("M", 16U, kTypeDeletion), ""},
+                          {KeyStr("L", 11U, kTypeSingleDeletion), ""},
+                          {KeyStr("M", 15U, kTypeSingleDeletion), ""},
+                          {KeyStr("M", 14U, kTypeValue), ""},
                           {KeyStr("M", 3U, kTypeSingleDeletion), ""}});
 
   SetLastSequence(22U);

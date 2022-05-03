@@ -12,6 +12,7 @@
 #ifndef NDEBUG
 #include "utilities/fault_injection_fs.h"
 #endif // NDEBUG
+#include "rocksdb/utilities/transaction_db.h"
 
 namespace ROCKSDB_NAMESPACE {
 class NonBatchedOpsStressTest : public StressTest {
@@ -631,33 +632,14 @@ class NonBatchedOpsStressTest : public StressTest {
   Status TestDelete(ThreadState* thread, WriteOptions& write_opts,
                     const std::vector<int>& rand_column_families,
                     const std::vector<int64_t>& rand_keys,
-                    std::unique_ptr<MutexLock>& lock) override {
+                    std::unique_ptr<MutexLock>& /* lock */) override {
     int64_t rand_key = rand_keys[0];
     int rand_column_family = rand_column_families[0];
     auto shared = thread->shared;
-    int64_t max_key = shared->GetMaxKey();
 
     // OPERATION delete
-    // If the chosen key does not allow overwrite and it does not exist,
-    // choose another key.
-    std::string write_ts_str;
-    Slice write_ts;
-    while (!shared->AllowsOverwrite(rand_key) &&
-           !shared->Exists(rand_column_family, rand_key)) {
-      lock.reset();
-      rand_key = thread->rand.Next() % max_key;
-      rand_column_family = thread->rand.Next() % FLAGS_column_families;
-      lock.reset(
-          new MutexLock(shared->GetMutexForKey(rand_column_family, rand_key)));
-      if (FLAGS_user_timestamp_size > 0) {
-        write_ts_str = NowNanosStr();
-        write_ts = write_ts_str;
-      }
-    }
-    if (write_ts.size() == 0 && FLAGS_user_timestamp_size) {
-      write_ts_str = NowNanosStr();
-      write_ts = write_ts_str;
-    }
+    std::string write_ts_str = NowNanosStr();
+    Slice write_ts = write_ts_str;
 
     std::string key_str = Key(rand_key);
     Slice key = key_str;
@@ -930,6 +912,21 @@ class NonBatchedOpsStressTest : public StressTest {
     }
     return true;
   }
+
+#ifndef ROCKSDB_LITE
+  void PrepareTxnDbOptions(SharedState* shared,
+                           TransactionDBOptions& txn_db_opts) override {
+    txn_db_opts.rollback_deletion_type_callback =
+        [shared](TransactionDB*, ColumnFamilyHandle*, const Slice& key) {
+          assert(shared);
+          uint64_t key_num = 0;
+          bool ok = GetIntVal(key.ToString(), &key_num);
+          assert(ok);
+          (void)ok;
+          return !shared->AllowsOverwrite(key_num);
+        };
+  }
+#endif  // ROCKSDB_LITE
 };
 
 StressTest* CreateNonBatchedOpsStressTest() {

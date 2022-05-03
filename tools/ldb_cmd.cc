@@ -2538,7 +2538,10 @@ class InMemoryHandler : public WriteBatch::Handler {
   ~InMemoryHandler() override {}
 
  protected:
-  bool WriteAfterCommit() const override { return write_after_commit_; }
+  Handler::OptionState WriteAfterCommit() const override {
+    return write_after_commit_ ? Handler::OptionState::kEnabled
+                               : Handler::OptionState::kDisabled;
+  }
 
  private:
   std::stringstream& row_;

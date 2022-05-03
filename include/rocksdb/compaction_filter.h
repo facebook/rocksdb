@@ -39,6 +39,7 @@ class CompactionFilter : public Customizable {
   enum class Decision {
     kKeep,
     kRemove,
+    kRemoveWithSingleDelete,
     kChangeValue,
     kRemoveAndSkipUntil,
     kChangeBlobIndex,  // used internally by BlobDB.

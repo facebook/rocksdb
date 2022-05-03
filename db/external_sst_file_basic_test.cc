@@ -1844,6 +1844,28 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevel) {
   }
 }
 
+TEST_F(ExternalSSTFileBasicTest, VerifyChecksum) {
+  const std::string kPutVal = "put_val";
+  const std::string kIngestedVal = "ingested_val";
+
+  ASSERT_OK(Put("k", kPutVal, WriteOptions()));
+  ASSERT_OK(Flush());
+
+  std::string external_file = sst_files_dir_ + "/file_to_ingest.sst";
+  {
+    SstFileWriter sst_file_writer{EnvOptions(), CurrentOptions()};
+
+    ASSERT_OK(sst_file_writer.Open(external_file));
+    ASSERT_OK(sst_file_writer.Put("k", kIngestedVal));
+    ASSERT_OK(sst_file_writer.Finish());
+  }
+
+  ASSERT_OK(db_->IngestExternalFile(db_->DefaultColumnFamily(), {external_file},
+                                    IngestExternalFileOptions()));
+
+  ASSERT_OK(db_->VerifyChecksum());
+}
+
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
                         testing::Values(std::make_tuple(true, true),
                                         std::make_tuple(true, false),

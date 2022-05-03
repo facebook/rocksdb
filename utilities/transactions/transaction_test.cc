@@ -5469,6 +5469,10 @@ Status TransactionStressTestInserter(
 TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
   // Small write buffer to trigger more compactions
   options.write_buffer_size = 1024;
+  txn_db_options.rollback_deletion_type_callback =
+      [](TransactionDB*, ColumnFamilyHandle*, const Slice& key) {
+        return RandomTransactionInserter::RollbackDeletionTypeCallback(key);
+      };
   ASSERT_OK(ReOpenNoDelete());
   constexpr size_t num_workers = 4;        // worker threads count
   constexpr size_t num_checkers = 2;       // checker threads count
