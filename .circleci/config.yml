@@ -831,6 +831,9 @@ workflows:
   build-linux:
     jobs:
       - build-linux
+      - build-linux-run-microbench
+      - build-linux-run-microbench
+      - build-linux-run-microbench
   build-linux-cmake:
     jobs:
       - build-linux-cmake-with-folly
