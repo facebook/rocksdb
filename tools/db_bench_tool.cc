@@ -8021,14 +8021,27 @@ class Benchmark {
     flush_opt.wait = true;
 
     if (db_.db != nullptr) {
-      Status s = db_.db->Flush(flush_opt, db_.cfh);
+      Status s;
+      if (FLAGS_num_column_families > 1) {
+        s = db_.db->Flush(flush_opt, db_.cfh);
+      } else {
+        s = db_.db->Flush(flush_opt, db_.db->DefaultColumnFamily());
+      }
+
       if (!s.ok()) {
         fprintf(stderr, "Flush failed: %s\n", s.ToString().c_str());
         exit(1);
       }
     } else {
       for (const auto& db_with_cfh : multi_dbs_) {
-        Status s = db_with_cfh.db->Flush(flush_opt, db_with_cfh.cfh);
+        Status s;
+        if (FLAGS_num_column_families > 1) {
+          s = db_with_cfh.db->Flush(flush_opt, db_with_cfh.cfh);
+        } else {
+          s = db_with_cfh.db->Flush(flush_opt,
+                                    db_with_cfh.db->DefaultColumnFamily());
+        }
+
         if (!s.ok()) {
           fprintf(stderr, "Flush failed: %s\n", s.ToString().c_str());
           exit(1);
