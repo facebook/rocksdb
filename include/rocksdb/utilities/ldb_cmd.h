@@ -288,6 +288,9 @@ class LDBCommand {
   bool IsValueHex(const std::map<std::string, std::string>& options,
                   const std::vector<std::string>& flags);
 
+  bool IsTryLoadOptions(const std::map<std::string, std::string>& options,
+                        const std::vector<std::string>& flags);
+
   /**
    * Converts val to a boolean.
    * val must be either true or false (case insensitive).
