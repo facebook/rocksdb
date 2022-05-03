@@ -155,15 +155,15 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                 CacheMetadataChargePolicy metadata_charge_policy,
                 int max_upper_hash_bits);
-  virtual ~LRUCacheShard() override = default;
+  ~LRUCacheShard() override = default;
 
   // Separate from constructor so caller can easily make an array of LRUCache
   // if current usage is more than new capacity, the function will attempt to
   // free the needed space.
-  virtual void SetCapacity(size_t capacity) override;
+  void SetCapacity(size_t capacity) override;
 
   // Set the flag to reject insertion if cache if full.
-  virtual void SetStrictCapacityLimit(bool strict_capacity_limit) override;
+  void SetStrictCapacityLimit(bool strict_capacity_limit) override;
 
   // Like Cache methods, but with an extra "hash" parameter.
   Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
@@ -185,8 +185,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   }
   Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
 
-  virtual bool Release(Cache::Handle* handle, bool /*useful*/,
-                       bool erase_if_last_ref) override {
+  bool Release(Cache::Handle* handle, bool /*useful*/,
+               bool erase_if_last_ref) override {
     return Release(handle, erase_if_last_ref);
   }
   bool IsReady(Cache::Handle* /*handle*/) override { return true; }
@@ -274,15 +274,15 @@ class LRUCache
   LRUCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
            CacheMetadataChargePolicy metadata_charge_policy =
                kDontChargeCacheMetadata);
-  virtual ~LRUCache();
-  virtual const char* Name() const override { return "LRUCache"; }
-  virtual CacheShard* GetShard(uint32_t shard) override;
-  virtual const CacheShard* GetShard(uint32_t shard) const override;
-  virtual void* Value(Handle* handle) override;
-  virtual size_t GetCharge(Handle* handle) const override;
-  virtual uint32_t GetHash(Handle* handle) const override;
-  virtual DeleterFn GetDeleter(Handle* handle) const override;
-  virtual void DisownData() override;
+  ~LRUCache() override;
+  const char* Name() const override { return "LRUCache"; }
+  CacheShard* GetShard(uint32_t shard) override;
+  const CacheShard* GetShard(uint32_t shard) const override;
+  void* Value(Handle* handle) override;
+  size_t GetCharge(Handle* handle) const override;
+  uint32_t GetHash(Handle* handle) const override;
+  DeleterFn GetDeleter(Handle* handle) const override;
+  void DisownData() override;
 
  private:
   LRUCacheShard* shards_ = nullptr;
