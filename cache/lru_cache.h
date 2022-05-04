@@ -19,6 +19,7 @@
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace lru_cache {
 
 // LRU cache implementation. This class is not thread-safe.
 
@@ -478,5 +479,11 @@ class LRUCache
   int num_shards_ = 0;
   std::shared_ptr<SecondaryCache> secondary_cache_;
 };
+
+}  // namespace lru_cache
+
+using LRUCache = lru_cache::LRUCache;
+using LRUHandle = lru_cache::LRUHandle;
+using LRUCacheShard = lru_cache::LRUCacheShard;
 
 }  // namespace ROCKSDB_NAMESPACE

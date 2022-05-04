@@ -14,7 +14,9 @@
 #include <iostream>
 #include <string>
 #include <vector>
+
 #include "cache/clock_cache.h"
+#include "cache/fast_lru_cache.h"
 #include "cache/lru_cache.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
@@ -39,6 +41,7 @@ static int DecodeValue(void* v) {
 
 const std::string kLRU = "lru";
 const std::string kClock = "clock";
+const std::string kFast = "fast";
 
 void dumbDeleter(const Slice& /*key*/, void* /*value*/) {}
 
@@ -83,6 +86,9 @@ class CacheTest : public testing::TestWithParam<std::string> {
     if (type == kClock) {
       return NewClockCache(capacity);
     }
+    if (type == kFast) {
+      return NewFastLRUCache(capacity);
+    }
     return nullptr;
   }
 
@@ -102,6 +108,10 @@ class CacheTest : public testing::TestWithParam<std::string> {
     if (type == kClock) {
       return NewClockCache(capacity, num_shard_bits, strict_capacity_limit,
                            charge_policy);
+    }
+    if (type == kFast) {
+      return NewFastLRUCache(capacity, num_shard_bits, strict_capacity_limit,
+                             charge_policy);
     }
     return nullptr;
   }
@@ -838,11 +848,13 @@ TEST_P(CacheTest, GetChargeAndDeleter) {
 std::shared_ptr<Cache> (*new_clock_cache_func)(
     size_t, int, bool, CacheMetadataChargePolicy) = NewClockCache;
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
-                        testing::Values(kLRU, kClock));
+                        testing::Values(kLRU, kClock, kFast));
 #else
-INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest, testing::Values(kLRU));
+INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
+                        testing::Values(kLRU, kFast));
 #endif  // SUPPORT_CLOCK_CACHE
-INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest, testing::Values(kLRU));
+INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest,
+                        testing::Values(kLRU, kFast));
 
 }  // namespace ROCKSDB_NAMESPACE
 

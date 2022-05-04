@@ -265,7 +265,8 @@ class MultiOpsTxnsStressTest : public StressTest {
   void RegisterAdditionalListeners() override;
 
 #ifndef ROCKSDB_LITE
-  void PrepareTxnDbOptions(TransactionDBOptions& txn_db_opts) override;
+  void PrepareTxnDbOptions(SharedState* /*shared*/,
+                           TransactionDBOptions& txn_db_opts) override;
 #endif  // !ROCKSDB_LITE
 
   Status PrimaryKeyUpdateTxn(ThreadState* thread, uint32_t old_a,

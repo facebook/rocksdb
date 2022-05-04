@@ -30,7 +30,7 @@ class StressTest {
 
   bool BuildOptionsTable();
 
-  void InitDb();
+  void InitDb(SharedState*);
   // The initialization work is split into two parts to avoid a circular
   // dependency with `SharedState`.
   virtual void FinishInitDb(SharedState*);
@@ -219,7 +219,7 @@ class StressTest {
 
   void PrintEnv() const;
 
-  void Open();
+  void Open(SharedState* shared);
 
   void Reopen(ThreadState* thread);
 
@@ -228,7 +228,8 @@ class StressTest {
   virtual void RegisterAdditionalListeners() {}
 
 #ifndef ROCKSDB_LITE
-  virtual void PrepareTxnDbOptions(TransactionDBOptions& /*txn_db_opts*/) {}
+  virtual void PrepareTxnDbOptions(SharedState* /*shared*/,
+                                   TransactionDBOptions& /*txn_db_opts*/) {}
 #endif
 
   std::shared_ptr<Cache> cache_;

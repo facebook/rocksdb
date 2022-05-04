@@ -518,7 +518,8 @@ Status VerifySstFileChecksum(const Options& options,
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
                              const ReadOptions& read_options,
-                             const std::string& file_path);
+                             const std::string& file_path,
+                             const SequenceNumber& largest_seqno = 0);
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

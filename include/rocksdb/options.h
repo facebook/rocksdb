@@ -767,6 +767,14 @@ struct DBOptions {
 
   // Allow the OS to mmap file for reading sst tables.
   // Not recommended for 32-bit OS.
+  // When the option is set to true and compression is disabled, the blocks
+  // will not be copied and will be read directly from the mmap-ed memory
+  // area, and the block will not be inserted into the block cache. However,
+  // checksums will still be checked if ReadOptions.verify_checksums is set
+  // to be true. It means a checksum check every time a block is read, more
+  // than the setup where the option is set to false and the block cache is
+  // used. The common use of the options is to run RocksDB on ramfs, where
+  // checksum verification is usually not needed.
   // Default: false
   bool allow_mmap_reads = false;
 

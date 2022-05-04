@@ -968,6 +968,71 @@ TEST_F(DBTestCompactionFilter, IgnoreSnapshotsFalseRecovery) {
   ASSERT_TRUE(TryReopen(options).IsNotSupported());
 }
 
+TEST_F(DBTestCompactionFilter, DropKeyWithSingleDelete) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "v0"));
+  ASSERT_OK(Put("b", "v0"));
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  ASSERT_OK(SingleDelete("b"));
+  ASSERT_OK(Flush());
+
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = options.num_levels - 1;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  }
+
+  db_->ReleaseSnapshot(snapshot);
+  Close();
+
+  class DeleteFilterV2 : public CompactionFilter {
+   public:
+    Decision FilterV2(int /*level*/, const Slice& key, ValueType /*value_type*/,
+                      const Slice& /*existing_value*/,
+                      std::string* /*new_value*/,
+                      std::string* /*skip_until*/) const override {
+      if (key.starts_with("b")) {
+        return Decision::kRemoveWithSingleDelete;
+      }
+      return Decision::kRemove;
+    }
+
+    const char* Name() const override { return "DeleteFilterV2"; }
+  } delete_filter_v2;
+
+  options.compaction_filter = &delete_filter_v2;
+  options.level0_file_num_compaction_trigger = 2;
+  Reopen(options);
+
+  ASSERT_OK(Put("b", "v1"));
+  ASSERT_OK(Put("x", "v1"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("r", "v1"));
+  ASSERT_OK(Put("z", "v1"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  Close();
+
+  options.compaction_filter = nullptr;
+  Reopen(options);
+  ASSERT_OK(SingleDelete("b"));
+  ASSERT_OK(Flush());
+  {
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
