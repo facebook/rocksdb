@@ -40,6 +40,8 @@ include(GoogleTest)
 get_rocksdb_version(rocksdb_VERSION)
 project(rocksdb
   VERSION ${rocksdb_VERSION}
+  HOMEPAGE_URL https://github.com/facebook/rocksdb/wiki/
+  DESCRIPTION "An embeddable persistent key-value store for fast storage"
   LANGUAGES CXX C ASM)
 
 if(POLICY CMP0042)
@@ -1125,6 +1127,11 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
 
   install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/modules" COMPONENT devel DESTINATION ${package_config_destination})
 
+  configure_package_config_file(
+    ${CMAKE_CURRENT_LIST_DIR}/rocksdb.pc.in rocksdb.pc
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+  )
+
   install(
     TARGETS ${ROCKSDB_STATIC_LIB}
     EXPORT RocksDBTargets
@@ -1158,6 +1165,13 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
     ${CMAKE_CURRENT_BINARY_DIR}/RocksDBConfigVersion.cmake
     COMPONENT devel
     DESTINATION ${package_config_destination}
+  )
+
+  install(
+    FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/rocksdb.pc
+    COMPONENT devel
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
   )
 endif()
 
