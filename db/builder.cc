@@ -374,8 +374,6 @@ Status BuildTable(
 
     constexpr IODebugContext* dbg = nullptr;
 
-    assert(table_file_created == fs->FileExists(fname, IOOptions(), dbg).ok());
-
     if (table_file_created) {
       Status ignored = fs->DeleteFile(fname, IOOptions(), dbg);
       ignored.PermitUncheckedError();
