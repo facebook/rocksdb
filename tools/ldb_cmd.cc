@@ -1070,9 +1070,15 @@ bool LDBCommand::IsTryLoadOptions(
   if (IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS)) {
     return true;
   }
-  // if DB is specified, default `try_load_options` to true. The user could
-  // still disable that by set `try_load_options=false`.
-  bool default_val = (options.find(ARG_DB) != options.end());
+  // if `DB` is specified and not explicitly to create a new db, default
+  // `try_load_options` to true. The user could still disable that by set
+  // `try_load_options=false`.
+  // Note: Opening as TTL DB doesn't support `try_load_options`, so it's default
+  // to false. TODO: TTL_DB may need to fix that, otherwise it's unable to open
+  // DB which has incompatible setting with default options.
+  bool default_val = (options.find(ARG_DB) != options.end()) &&
+                     !IsFlagPresent(flags, ARG_CREATE_IF_MISSING) &&
+                     !IsFlagPresent(flags, ARG_TTL);
   return ParseBooleanOption(options, ARG_TRY_LOAD_OPTIONS, default_val);
 }
 
