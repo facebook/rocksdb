@@ -408,7 +408,7 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   is_value_hex_ = IsValueHex(options, flags);
   is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
   timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
-  try_load_options_ = IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS);
+  try_load_options_ = IsTryLoadOptions(options, flags);
   force_consistency_checks_ =
       !IsFlagPresent(flags, ARG_DISABLE_CONSISTENCY_CHECKS);
   enable_blob_files_ = IsFlagPresent(flags, ARG_ENABLE_BLOB_FILES);
@@ -1062,6 +1062,24 @@ bool LDBCommand::IsValueHex(const std::map<std::string, std::string>& options,
           IsFlagPresent(flags, ARG_VALUE_HEX) ||
           ParseBooleanOption(options, ARG_HEX, false) ||
           ParseBooleanOption(options, ARG_VALUE_HEX, false));
+}
+
+bool LDBCommand::IsTryLoadOptions(
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags) {
+  if (IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS)) {
+    return true;
+  }
+  // if `DB` is specified and not explicitly to create a new db, default
+  // `try_load_options` to true. The user could still disable that by set
+  // `try_load_options=false`.
+  // Note: Opening as TTL DB doesn't support `try_load_options`, so it's default
+  // to false. TODO: TTL_DB may need to fix that, otherwise it's unable to open
+  // DB which has incompatible setting with default options.
+  bool default_val = (options.find(ARG_DB) != options.end()) &&
+                     !IsFlagPresent(flags, ARG_CREATE_IF_MISSING) &&
+                     !IsFlagPresent(flags, ARG_TTL);
+  return ParseBooleanOption(options, ARG_TRY_LOAD_OPTIONS, default_val);
 }
 
 bool LDBCommand::ParseBooleanOption(
